@@ -1,0 +1,12 @@
+{
+  "name": "@mtg-ecosystem/card-data",
+  "version": "0.1.0",
+  "main": "sets/",
+  "files": [
+    "sets/"
+  ],
+  "scripts": {
+    "build": "echo 'No build for card-data'",
+    "test": "echo 'No tests for card-data'"
+  }
+}

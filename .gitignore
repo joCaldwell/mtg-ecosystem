@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# ANTLR generated files
+packages/oracle-parser/generated/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Test coverage
+coverage/
+
+# Scryfall cache (downloaded bulk data)
+.scryfall-cache/
+
+# npm
+*.tgz
+npm-debug.log*
+
+# Optional: SQLite index (generated, not committed)
+ir/index.db
