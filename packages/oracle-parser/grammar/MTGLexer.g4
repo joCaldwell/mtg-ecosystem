@@ -27,7 +27,7 @@ PAY : 'Pay' | 'pay' ;
 LIFE : 'life' ;
 SACRIFICE : 'Sacrifice' | 'sacrifice' ;
 DISCARD : 'Discard' | 'discard' ;
-A : 'a' | 'A' ;
+A : 'a' | 'A' | 'an' | 'An' ;
 CARD : 'card' | 'cards' | 'Card' | 'Cards' ;
 TARGET : 'target' | 'Target' ;
 ANY : 'any' | 'Any' ;
@@ -81,17 +81,87 @@ THE : 'the' | 'The' ;
 DEALS : 'deals' | 'Deals' ;
 DAMAGE : 'damage' | 'Damage' ;
 TO : 'to' | 'To' ;
+FROM : 'from' | 'From' | 'FROM' ;
+IN : 'in' | 'In' | 'IN' ;
+ON : 'on' | 'On' | 'ON' ;
 DRAW : 'draw' | 'Draw' ;
 DESTROY : 'destroy' | 'Destroy' ;
 CREATE : 'create' | 'Create' ;
 TOKEN : 'token' | 'tokens' | 'Token' | 'Tokens' ;
 GETS : 'gets' | 'Gets' ;
 GET : 'get' | 'Get' ;
-HAVE : 'have' | 'Have' ;
+HAVE : 'have' | 'Have' | 'has' | 'Has' | 'HAVE' | 'HAS' ;
 COUNTER : 'counter' | 'Counter' ;
 RETURN : 'return' | 'Return' ;
 ITS : 'its' | 'Its' ;
 OWNERS : 'owner\'s' | 'Owner\'s' ;
+
+POWER : 'power' | 'Power' | 'POWER' ;
+TOUGHNESS : 'toughness' | 'Toughness' | 'TOUGHNESS' ;
+
+X_VAR : 'X' | 'x' ;
+TWICE : 'twice' | 'Twice' | 'TWICE' ;
+HALF : 'half' | 'Half' | 'HALF' ;
+ROUNDED : 'rounded' | 'Rounded' | 'ROUNDED' ;
+UP : 'up' | 'Up' | 'UP' ;
+DOWN : 'down' | 'Down' | 'DOWN' ;
+PLUS_WORD : 'plus' | 'Plus' | 'PLUS' ;
+EQUAL : 'equal' | 'Equal' | 'EQUAL' ;
+
+TAPPED : 'tapped' | 'Tapped' | 'TAPPED' ;
+UNTAPPED : 'untapped' | 'Untapped' | 'UNTAPPED' ;
+ATTACKING : 'attacking' | 'Attacking' | 'ATTACKING' ;
+BLOCKING : 'blocking' | 'Blocking' | 'BLOCKING' ;
+
+WHITE : 'white' | 'White' | 'WHITE' ;
+BLUE : 'blue' | 'Blue' | 'BLUE' ;
+BLACK : 'black' | 'Black' | 'BLACK' ;
+RED : 'red' | 'Red' | 'RED' ;
+GREEN : 'green' | 'Green' | 'GREEN' ;
+COLORLESS : 'colorless' | 'Colorless' | 'COLORLESS' ;
+MULTICOLORED : 'multicolored' | 'Multicolored' | 'MULTICOLORED' ;
+
+NON_COLOR
+    : ('nongreen' | 'Nongreen' | 'non-green' | 'Non-green'
+      |'nonblack' | 'Nonblack' | 'non-black' | 'Non-black'
+      |'nonred' | 'Nonred' | 'non-red' | 'Non-red'
+      |'nonwhite' | 'Nonwhite' | 'non-white' | 'Non-white'
+      |'nonblue' | 'Nonblue' | 'non-blue' | 'Non-blue'
+      |'noncolorless' | 'Noncolorless' | 'non-colorless' | 'Non-colorless')
+    ;
+
+LEGENDARY : 'legendary' | 'Legendary' | 'LEGENDARY' ;
+BASIC : 'basic' | 'Basic' | 'BASIC' ;
+SNOW : 'snow' | 'Snow' | 'SNOW' ;
+WORLD : 'world' | 'World' | 'WORLD' ;
+
+NONLAND : 'nonland' | 'Nonland' | 'non-land' | 'Non-land' ;
+NONCREATURE : 'noncreature' | 'Noncreature' | 'non-creature' | 'Non-creature' ;
+NONBASIC : 'nonbasic' | 'Nonbasic' | 'non-basic' | 'Non-basic' ;
+NONTOKEN : 'nontoken' | 'Nontoken' | 'non-token' | 'Non-token' ;
+NONARTIFACT : 'nonartifact' | 'Nonartifact' | 'non-artifact' | 'Non-artifact' ;
+NONENCHANTMENT : 'nonenchantment' | 'Nonenchantment' | 'non-enchantment' | 'Non-enchantment' ;
+
+NUMBER_WORD : 'number' | 'Number' | 'NUMBER' ;
+ANOTHER : 'another' | 'Another' | 'ANOTHER' ;
+OTHER : 'other' | 'Other' | 'OTHER' ;
+
+CHOOSE : 'choose' | 'Choose' | 'CHOOSE' ;
+ONE : 'one' | 'One' | 'ONE' ;
+TWO : 'two' | 'Two' | 'TWO' ;
+THREE : 'three' | 'Three' | 'THREE' ;
+BOTH : 'both' | 'Both' | 'BOTH' ;
+OR : 'or' | 'Or' | 'OR' ;
+MORE_WORD : 'more' | 'More' | 'MORE' ;
+EM_DASH : '—' | '--' ;
+BULLET : '•' | '*' ;
+DO : 'do' | 'Do' | 'DO' ;
+IT : 'it' | 'It' | 'IT' ;
+IS : 'is' | 'Is' | 'IS' ;
+DURING : 'during' | 'During' | 'DURING' ;
+REMAINS : 'remains' | 'Remains' | 'REMAINS' ;
+OTHERWISE : 'otherwise' | 'Otherwise' | 'OTHERWISE' ;
+
 
 // Keywords
 FLYING : 'Flying' | 'flying' ;

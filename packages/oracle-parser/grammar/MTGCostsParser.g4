@@ -30,7 +30,7 @@ untapCost
     ;
 
 lifeCost
-    : PAY NUMBER LIFE
+    : PAY valueExpression LIFE
     ;
 
 sacrificeCost

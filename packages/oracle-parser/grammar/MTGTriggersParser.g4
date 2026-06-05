@@ -13,6 +13,10 @@ trigger
 entersBattlefieldTrigger
     : WHEN selfQualifier ENTERS
     | WHEN selfQualifier ENTERS THE BATTLEFIELD
+    | WHENEVER cardFilter ENTERS THE BATTLEFIELD
+    | WHENEVER cardFilter ENTERS
+    | WHEN cardFilter ENTERS THE BATTLEFIELD
+    | WHEN cardFilter ENTERS
     ;
 
 upkeepTrigger
@@ -27,4 +31,5 @@ castingTrigger
 
 deathTrigger
     : WHENEVER targetSelector DIES
+    | WHEN targetSelector DIES
     ;

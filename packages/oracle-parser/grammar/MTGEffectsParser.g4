@@ -11,14 +11,15 @@ effect
     | modifyPT
     | counterSpell
     | returnToHand
+    | conditionalEffect
     ;
 
 dealDamage
-    : selfQualifier DEALS NUMBER DAMAGE TO targetSelector
+    : selfQualifier DEALS valueExpression DAMAGE TO targetSelector
     ;
 
 drawCards
-    : DRAW NUMBER CARD
+    : DRAW valueExpression CARD
     | DRAW A CARD
     ;
 
@@ -27,7 +28,7 @@ destroyPermanent
     ;
 
 createToken
-    : CREATE NUMBER IDENTIFIER* TOKEN
+    : CREATE valueExpression IDENTIFIER* TOKEN
     ;
 
 modifyPT
@@ -35,10 +36,10 @@ modifyPT
     ;
 
 ptModifier
-    : PLUS NUMBER SLASH PLUS NUMBER
-    | MINUS NUMBER SLASH MINUS NUMBER
-    | PLUS NUMBER SLASH MINUS NUMBER
-    | MINUS NUMBER SLASH PLUS NUMBER
+    : PLUS valueExpression SLASH PLUS valueExpression
+    | MINUS valueExpression SLASH MINUS valueExpression
+    | PLUS valueExpression SLASH MINUS valueExpression
+    | MINUS valueExpression SLASH PLUS valueExpression
     ;
 
 counterSpell
@@ -47,4 +48,8 @@ counterSpell
 
 returnToHand
     : RETURN targetSelector TO ITS OWNERS HAND
+    ;
+
+conditionalEffect
+    : IF condition COMMA? effectList (PERIOD OTHERWISE COMMA? effectList)?
     ;
