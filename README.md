@@ -57,6 +57,34 @@ mtg-ecosystem/
 
 For a detailed explanation of each directory and config file, see the [Project Structure Guide](docs/project-structure.md).
 
+## 🚀 Running the Pipeline
+
+To set up, ingest Scryfall data, compile the parser, and run validation:
+
+1. **Install Dependencies**:
+   ```bash
+   npm install
+   ```
+2. **Download Scryfall Bulk Data**:
+   ```bash
+   npm run ingest
+   ```
+   *(Downloads and caches the 165MB `oracle_cards` export locally under `.scryfall-cache/oracle-cards.json`)*
+3. **Compile the Parser**:
+   ```bash
+   npm run generate-parser
+   ```
+   *(Requires Java JDK. Compiles modular `.g4` rules under `packages/oracle-parser/grammar/` into TypeScript)*
+4. **Execute Parser Validation**:
+   ```bash
+   npm run validate
+   ```
+   *(Deduplicates, parses, and logs success rate and categorized syntax errors for all 33,000+ cards)*
+5. **Run Vitest Suite**:
+   ```bash
+   npm test
+   ```
+
 ## 📚 Documentation
 
 | Document | Description |
