@@ -8,8 +8,9 @@
     "build": "npm run build --workspaces",
     "test": "npm run test --workspaces",
     "generate-parser": "bash scripts/generate-parser.sh",
-    "ingest": "ts-node scripts/ingest-scryfall.ts",
-    "build-ir": "ts-node scripts/build-ir.ts"
+    "ingest": "node scripts/ingest-scryfall.ts",
+    "build-ir": "node scripts/build-ir.ts",
+    "validate": "node scripts/validate-parser.ts"
   },
   "devDependencies": {
     "typescript": "^5.4.5",
