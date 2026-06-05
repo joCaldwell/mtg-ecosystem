@@ -78,7 +78,7 @@ async function main() {
     const cardErrors: string[] = [];
 
     for (const face of facesText) {
-      const normalized = normalizeOracleText(face.text);
+      const normalized = normalizeOracleText(face.text, face.faceName);
       if (!normalized) continue; // Skip blank rules text
 
       const result = parseOracleTextDetails(normalized);

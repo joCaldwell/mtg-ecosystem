@@ -172,3 +172,58 @@ export type Duration =
   | { type: "for_as_long_as"; condition: Condition }
   | { type: "during_turn"; turnOwner: "you" | "your" | "player" };
 
+export interface ExileEffect {
+  type: "exile";
+  target: any;
+  location?: LocationSpec;
+}
+
+export interface GainLifeEffect {
+  type: "gain_life";
+  target: any;
+  life: ValueExpression;
+}
+
+export interface GainKeywordEffect {
+  type: "gain_keyword";
+  target: any;
+  keywords: string[];
+  duration?: Duration;
+}
+
+export interface BecomeEffect {
+  type: "become";
+  target: any;
+  isCopy: boolean;
+  copyTarget?: any;
+  becomeFilter?: CardFilter;
+  basePower?: number;
+  baseToughness?: number;
+  duration?: Duration;
+  inAddition?: {
+    types?: string[];
+    colors?: string[];
+  };
+}
+
+export interface ExileCost {
+  type: "exile";
+  target: any;
+  fromZone?: string;
+}
+
+export interface PropertyQualifier {
+  type: "property";
+  property: "power" | "toughness" | "mana_value";
+  value: ValueExpression;
+  comparison?: "greater" | "less" | "equal" | "greater_or_equal" | "less_or_equal";
+}
+
+export interface CDAEffect {
+  type: "cda";
+  target: any;
+  powerOnly: boolean;
+  value: ValueExpression;
+}
+
+

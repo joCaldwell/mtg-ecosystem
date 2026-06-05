@@ -56,9 +56,10 @@ staticEffect
     | (duration COMMA)? targetSelector HAVE keywordAbility duration?
     | cardFilter YOU CONTROL GET ptModifier duration?
     | cardFilter YOU CONTROL HAVE keywordAbility duration?
+    | targetSelector POWER (AND TOUGHNESS)? (IS | ARE EACH) EQUAL TO valueExpression
     ;
 
 effectList
-    : effect (COMMA effect)*
+    : effect ((COMMA (THEN)? | THEN)? effect)*
     | effect (COMMA? (IF | UNLESS) condition)?
     ;

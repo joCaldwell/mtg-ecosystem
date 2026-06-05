@@ -10,8 +10,32 @@ effect
     | createToken
     | modifyPT
     | counterSpell
-    | returnToHand
+    | returnEffect
     | conditionalEffect
+    | exileEffect
+    | gainLifeEffect
+    | gainKeywordEffect
+    | becomeEffect
+    ;
+
+exileEffect
+    : EXILE targetSelector (locationSpec)?
+    ;
+
+gainLifeEffect
+    : targetSelector GAINS valueExpression LIFE
+    ;
+
+gainKeywordEffect
+    : targetSelector GAINS keywordAbility ((AND | COMMA) keywordAbility)* duration?
+    ;
+
+becomeEffect
+    : targetSelector BECOMES (A)? (COPY OF targetSelector | cardFilter) (WITH (BASE)? POWER AND TOUGHNESS NUMBER SLASH NUMBER)? (duration)? (inAddition)?
+    ;
+
+inAddition
+    : IN ADDITION TO ITS OTHER? (IDENTIFIER | cardType | colorQualifier)*
     ;
 
 dealDamage
@@ -46,8 +70,9 @@ counterSpell
     : COUNTER targetSelector
     ;
 
-returnToHand
+returnEffect
     : RETURN targetSelector TO ITS OWNERS HAND
+    | RETURN targetSelector TO THE BATTLEFIELD (UNDER (controllerQualifier | ITS) OWNERS? CONTROL)?
     ;
 
 conditionalEffect

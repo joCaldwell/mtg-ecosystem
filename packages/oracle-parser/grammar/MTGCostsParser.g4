@@ -15,6 +15,11 @@ cost
     | lifeCost
     | sacrificeCost
     | discardCost
+    | exileCost
+    ;
+
+exileCost
+    : EXILE targetSelector (FROM zone)?
     ;
 
 manaCost

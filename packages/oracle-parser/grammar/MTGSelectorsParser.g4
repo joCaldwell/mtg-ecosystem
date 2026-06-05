@@ -4,35 +4,52 @@ options { tokenVocab=MTGLexer; }
 
 // Target and Selector rules
 targetSelector
-    : targetQualifier
+    : (targetQualifier
     | eachQualifier
     | allQualifier
     | selfQualifier
     | controllerQualifier
     | opponentQualifier
     | cardFilter
+    | THIS) (controlSpec)?
+    ;
+
+controlSpec
+    : YOU CONTROL
+    | A? OPPONENT CONTROLS
     ;
 
 targetQualifier : TARGET cardFilter | ANY TARGET ;
 eachQualifier   : EACH cardFilter | EACH opponentQualifier ;
 allQualifier    : ALL cardFilter ;
-selfQualifier   : TILDE ;
+selfQualifier   : TILDE | ITS ;
 controllerQualifier : YOU | YOUR ;
 opponentQualifier   : OPPONENT | TARGET OPPONENT ;
 
 // Composable filter loop
 cardFilter
-    : (A)? filterQualifier* cardType (CARD)? (locationSpec)?
-    | (A)? filterQualifier+ (CARD)? (locationSpec)?
+    : (A)? filterQualifier* cardType filterQualifier* (CARD)? filterQualifier* (locationSpec)? (controlSpec)?
+    | (A)? filterQualifier+ (CARD)? (locationSpec)? (controlSpec)?
     ;
 
 filterQualifier
+    : baseQualifier (OR baseQualifier)*
+    ;
+
+baseQualifier
     : statusQualifier
     | colorQualifier
     | supertypeQualifier
     | relationQualifier
     | negativeQualifier
+    | propertyQualifier
+    | TOKEN
+    | THIS
     | IDENTIFIER // Handles subtypes (Elf, Aura, etc.) dynamically
+    ;
+
+propertyQualifier
+    : (WITH)? (POWER | TOUGHNESS | MANA VALUE) valueExpression (OR (GREATER | LESS) (THAN)?)?
     ;
 
 statusQualifier    : TAPPED | UNTAPPED | ATTACKING | BLOCKING ;

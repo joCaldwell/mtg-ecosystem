@@ -162,6 +162,22 @@ DURING : 'during' | 'During' | 'DURING' ;
 REMAINS : 'remains' | 'Remains' | 'REMAINS' ;
 OTHERWISE : 'otherwise' | 'Otherwise' | 'OTHERWISE' ;
 
+THEN : 'then' | 'Then' | 'THEN' ;
+BECOMES : 'becomes' | 'Becomes' | 'become' | 'Become' | 'BECOMES' | 'BECOME' ;
+GAINS : 'gains' | 'Gains' | 'gain' | 'Gain' | 'GAINS' | 'GAIN' ;
+WITH : 'with' | 'With' | 'WITH' ;
+BASE : 'base' | 'Base' | 'BASE' ;
+ADDITION : 'addition' | 'Addition' | 'ADDITION' ;
+COPY : 'copy' | 'Copy' | 'copies' | 'Copies' | 'COPY' | 'COPIES' ;
+UNDER : 'under' | 'Under' | 'UNDER' ;
+CONTROLS : 'controls' | 'Controls' ;
+
+GREATER : 'greater' | 'Greater' | 'GREATER' ;
+LESS : 'less' | 'Less' | 'LESS' ;
+THAN : 'than' | 'Than' | 'THAN' ;
+MANA : 'mana' | 'Mana' | 'MANA' ;
+VALUE : 'value' | 'Value' | 'value\'s' | 'Value\'s' ;
+ARE : 'are' | 'Are' | 'ARE' ;
 
 // Keywords
 FLYING : 'Flying' | 'flying' ;

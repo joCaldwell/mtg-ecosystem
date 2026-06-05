@@ -25,8 +25,8 @@ upkeepTrigger
     ;
 
 castingTrigger
-    : WHENEVER targetSelector CASTS A SPELL
-    | WHENEVER YOU CAST A SPELL
+    : WHENEVER targetSelector CASTS cardFilter
+    | WHENEVER YOU CAST cardFilter
     ;
 
 deathTrigger
