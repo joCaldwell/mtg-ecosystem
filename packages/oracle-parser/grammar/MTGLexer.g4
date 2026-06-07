@@ -6,8 +6,10 @@ COMMA : ',' ;
 PERIOD : '.' ;
 TILDE : '~' ;
 PLUS : '+' ;
-MINUS : '-' ;
+MINUS : '-' | '−' ;
 SLASH : '/' ;
+AMPERSAND : '&' ;
+
 
 // Mana Symbols
 MANA_W : '{W}' ;
@@ -19,6 +21,7 @@ MANA_C : '{C}' ;
 MANA_X : '{X}' ;
 TAP_SYMBOL : '{T}' ;
 UNTAP_SYMBOL : '{Q}' ;
+MANA_E : '{E}' ;
 GENERIC_MANA : '{' [0-9]+ '}' ;
 
 // Verbs, Nouns and Keywords (Case-insensitive where needed)
@@ -35,7 +38,7 @@ EACH : 'each' | 'Each' ;
 ALL : 'all' | 'All' ;
 YOU : 'you' | 'You' ;
 YOUR : 'your' | 'Your' ;
-OPPONENT : 'opponent' | 'Opponent' | 'opponents' | 'Opponents' ;
+OPPONENT : 'opponent' | 'Opponent' | 'opponents' | 'Opponents' | 'opponent\'s' | 'Opponent\'s' ;
 CREATURE : 'creature' | 'creatures' | 'Creature' | 'Creatures' ;
 PLAYER : 'player' | 'Player' | 'players' | 'Players' | 'player\'s' | 'Player\'s' ;
 PLANESWALKER : 'planeswalker' | 'Planeswalker' | 'planeswalkers' | 'Planeswalkers' ;
@@ -48,7 +51,7 @@ ENCHANTMENT : 'enchantment' | 'Enchantment' | 'enchantments' | 'Enchantments' ;
 BATTLEFIELD : 'battlefield' | 'Battlefield' ;
 GRAVEYARD : 'graveyard' | 'Graveyard' ;
 LIBRARY : 'library' | 'Library' ;
-HAND : 'hand' | 'Hand' ;
+HAND : 'hand' | 'hands' | 'Hand' | 'Hands' ;
 EXILE : 'exile' | 'Exile' ;
 
 UNTIL : 'until' | 'Until' ;
@@ -84,6 +87,13 @@ TO : 'to' | 'To' ;
 FROM : 'from' | 'From' | 'FROM' ;
 IN : 'in' | 'In' | 'IN' ;
 ON : 'on' | 'On' | 'ON' ;
+ONTO : 'onto' | 'Onto' | 'ONTO' ;
+INTO : 'into' | 'Into' | 'INTO' ;
+TAP : 'tap' | 'Tap' | 'TAP' ;
+UNTAP : 'untap' | 'Untap' | 'UNTAP' ;
+SEARCH : 'search' | 'Search' | 'SEARCH' ;
+SHUFFLE : 'shuffle' | 'Shuffle' | 'SHUFFLE' ;
+PUT : 'put' | 'Put' | 'PUT' ;
 DRAW : 'draw' | 'Draw' ;
 DESTROY : 'destroy' | 'Destroy' ;
 CREATE : 'create' | 'Create' ;
@@ -94,7 +104,22 @@ HAVE : 'have' | 'Have' | 'has' | 'Has' | 'HAVE' | 'HAS' ;
 COUNTER : 'counter' | 'Counter' ;
 RETURN : 'return' | 'Return' ;
 ITS : 'its' | 'Its' ;
-OWNERS : 'owner\'s' | 'Owner\'s' ;
+OWNERS : 'owner\'s' | 'Owner\'s' | 'owners\'' | 'Owners\'' ;
+
+ADD : 'add' | 'Add' | 'ADD' ;
+COLOR : 'color' | 'Color' | 'colors' | 'Colors' ;
+TYPE : 'type' | 'Type' ;
+NAME : 'name' | 'Name' ;
+LEAVES : 'leaves' | 'Leaves' ;
+BY : 'by' | 'By' | 'BY' ;
+DOUBLE_QUOTE : '"' ;
+ADDITIONAL : 'additional' | 'Additional' ;
+COST : 'cost' | 'costs' | 'Cost' | 'Costs' ;
+REVEAL : 'reveal' | 'Reveal' | 'REVEAL' ;
+MAY : 'may' | 'May' | 'MAY' ;
+DONT : 'dont' | 'Dont' | 'DONT' ;
+ISNT : 'isnt' | 'Isnt' | 'ISNT' ;
+
 
 POWER : 'power' | 'Power' | 'POWER' ;
 TOUGHNESS : 'toughness' | 'Toughness' | 'TOUGHNESS' ;
@@ -112,6 +137,20 @@ TAPPED : 'tapped' | 'Tapped' | 'TAPPED' ;
 UNTAPPED : 'untapped' | 'Untapped' | 'UNTAPPED' ;
 ATTACKING : 'attacking' | 'Attacking' | 'ATTACKING' ;
 BLOCKING : 'blocking' | 'Blocking' | 'BLOCKING' ;
+ATTACKS : 'attacks' | 'Attacks' ;
+ATTACK : 'attack' | 'Attack' ;
+BLOCKS : 'blocks' | 'Blocks' ;
+BLOCKED : 'blocked' | 'Blocked' ;
+COMBAT : 'combat' | 'Combat' | 'COMBAT' ;
+STEP : 'step' | 'Step' | 'steps' | 'Steps' ;
+PHASE : 'phase' | 'Phase' | 'phases' | 'Phases' ;
+MAIN : 'main' | 'Main' | 'MAIN' ;
+CLEANUP : 'cleanup' | 'Cleanup' | 'CLEANUP' ;
+PRECOMBAT : 'precombat' | 'Precombat' | 'pre-combat' | 'Pre-combat' ;
+POSTCOMBAT : 'postcombat' | 'Postcombat' | 'post-combat' | 'Post-combat' ;
+DECLARE : 'declare' | 'Declare' ;
+ATTACKERS : 'attackers' | 'Attackers' ;
+BLOCKERS : 'blockers' | 'Blockers' ;
 
 WHITE : 'white' | 'White' | 'WHITE' ;
 BLUE : 'blue' | 'Blue' | 'BLUE' ;
@@ -157,6 +196,13 @@ EM_DASH : '—' | '--' ;
 BULLET : '•' | '*' ;
 DO : 'do' | 'Do' | 'DO' ;
 IT : 'it' | 'It' | 'IT' ;
+THEY : 'they' | 'They' | 'THEY' ;
+THEM : 'them' | 'Them' | 'THEM' ;
+THEIR : 'their' | 'Their' | 'THEIR' ;
+ITSELF : 'itself' | 'Itself' | 'ITSELF' ;
+THEMSELVES : 'themselves' | 'Themselves' | 'THEMSELVES' ;
+THAT : 'that' | 'That' | 'THAT' ;
+THOSE : 'those' | 'Those' | 'THOSE' ;
 IS : 'is' | 'Is' | 'IS' ;
 DURING : 'during' | 'During' | 'DURING' ;
 REMAINS : 'remains' | 'Remains' | 'REMAINS' ;
@@ -179,6 +225,15 @@ MANA : 'mana' | 'Mana' | 'MANA' ;
 VALUE : 'value' | 'Value' | 'value\'s' | 'Value\'s' ;
 ARE : 'are' | 'Are' | 'ARE' ;
 
+ONLY : 'only' | 'Only' ;
+SHARE : 'share' | 'Share' | 'shares' | 'Shares' ;
+ACTIVATE : 'activate' | 'Activate' | 'activates' | 'Activates' ;
+ABILITY : 'ability' | 'abilities' | 'Ability' | 'Abilities' | 'ability\'s' | 'Ability\'s' ;
+TARGETS : 'targets' | 'Targets' ;
+NEW : 'new' | 'New' ;
+
+
+
 // Keywords
 FLYING : 'Flying' | 'flying' ;
 VIGILANCE : 'Vigilance' | 'vigilance' ;
@@ -196,6 +251,15 @@ WARD : 'Ward' | 'ward' ;
 EQUIP : 'Equip' | 'equip' ;
 KICKER : 'Kicker' | 'kicker' ;
 EVOKE : 'Evoke' | 'evoke' ;
+
+HEXPROOF : 'Hexproof' | 'hexproof' ;
+PROTECTION : 'Protection' | 'protection' ;
+FLASH : 'Flash' | 'flash' ;
+SHROUD : 'Shroud' | 'shroud' ;
+INDESTRUCTIBLE : 'Indestructible' | 'indestructible' ;
+ENCHANT : 'Enchant' | 'enchant' ;
+EVERYTHING : 'everything' | 'Everything' ;
+
 
 // Basic values
 NUMBER : [0-9]+ ;

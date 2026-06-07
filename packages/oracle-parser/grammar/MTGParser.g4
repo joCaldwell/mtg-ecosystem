@@ -15,18 +15,28 @@ import MTGCostsParser,
 card : ability* EOF ;
 
 ability
-    : activatedAbility
+    : (abilityWord EM_DASH)? (activatedAbility
     | triggeredAbility
     | staticAbility
     | spellEffect
-    | keywordAbility
+    | keywordAbilityList
+    | asAbility
+    | quotedAbility)
+    ;
+
+abilityWord
+    : nameWord+
+    ;
+
+sentence
+    : (FOR targetSelector COMMA)? (THEN COMMA? | OTHERWISE COMMA?)? effectList (PERIOD)?
     | choiceAbility
     ;
 
-activatedAbility : costList COLON effectList PERIOD ;
-triggeredAbility : trigger COMMA effectList PERIOD ;
-staticAbility    : staticEffect PERIOD ;
-spellEffect      : effectList PERIOD ;
+activatedAbility : costList COLON sentence+ ;
+triggeredAbility : trigger COMMA sentence+ ;
+staticAbility    : staticEffect PERIOD? ;
+spellEffect      : sentence+ ;
 
 choiceAbility
     : chooseHeader choiceOptionList
@@ -46,20 +56,35 @@ choiceOptionList
     ;
 
 choiceOption
-    : BULLET ability
+    : BULLET (abilityWord EM_DASH)? ability
+    ;
+
+staticModifier
+    : (GETS | GET) ptModifier duration?
+    | (HAVE | GAINS) gainableAbilityList duration?
+    ;
+
+staticModifierList
+    : staticModifier (AND staticModifier)*
     ;
 
 staticEffect
-    : (AS LONG AS condition COMMA)? targetSelector GETS ptModifier duration?
-    | (AS LONG AS condition COMMA)? targetSelector HAVE keywordAbility duration?
-    | (duration COMMA)? targetSelector GETS ptModifier duration?
-    | (duration COMMA)? targetSelector HAVE keywordAbility duration?
-    | cardFilter YOU CONTROL GET ptModifier duration?
-    | cardFilter YOU CONTROL HAVE keywordAbility duration?
+    : (AS LONG AS condition COMMA)? targetSelector staticModifierList
+    | (duration COMMA)? targetSelector staticModifierList
+    | cardFilter YOU CONTROL staticModifierList
     | targetSelector POWER (AND TOUGHNESS)? (IS | ARE EACH) EQUAL TO valueExpression
     ;
 
 effectList
     : effect ((COMMA (THEN)? | THEN)? effect)*
     | effect (COMMA? (IF | UNLESS) condition)?
+    ;
+
+asHeader
+    : AS targetSelector ENTERS (THE? BATTLEFIELD)? (COMMA)?
+    | AS A? ADDITIONAL COST TO CAST THIS SPELL (COMMA)?
+    ;
+
+asAbility
+    : asHeader sentence+
     ;

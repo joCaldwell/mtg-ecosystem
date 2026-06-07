@@ -6,6 +6,13 @@ export function normalizeOracleText(text: string, cardName?: string): string {
   
   // 1. Strip reminder text (parentheses and contents)
   let normalized = text.replace(/\s*\(.*?\)/g, "");
+
+  // Normalize contractions
+  normalized = normalized.replace(/\bit's\b/gi, "it is");
+  normalized = normalized.replace(/\byou're\b/gi, "you are");
+  normalized = normalized.replace(/\bdon't\b/gi, "dont");
+  normalized = normalized.replace(/\bisn't\b/gi, "isnt");
+
   
   // 2. Replace self-reference (e.g. Card Name -> ~)
   if (cardName) {

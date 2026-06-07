@@ -29,3 +29,10 @@ mathExpression
     | TWICE simpleValue
     | HALF simpleValue (ROUNDED (UP | DOWN))?
     ;
+
+valueOrWord
+    : valueExpression
+    | ONE
+    | TWO
+    | THREE
+    ;

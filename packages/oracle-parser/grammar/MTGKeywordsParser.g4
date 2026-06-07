@@ -5,7 +5,12 @@ options { tokenVocab=MTGLexer; }
 // Keyword abilities rules
 keywordAbility
     : simpleKeyword
+    | compoundKeyword
     | parametricKeyword
+    ;
+
+keywordAbilityList
+    : keywordAbility ((COMMA (AND)? | AND)? keywordAbility)*
     ;
 
 simpleKeyword
@@ -15,10 +20,17 @@ simpleKeyword
     | TRAMPLE
     | DEATHTOUCH
     | LIFELINK
-    | FIRST STRIKE
-    | DOUBLE STRIKE
     | DEFENDER
     | REACH
+    | FLASH
+    | SHROUD
+    | HEXPROOF
+    | INDESTRUCTIBLE
+    ;
+
+compoundKeyword
+    : FIRST STRIKE
+    | DOUBLE STRIKE
     ;
 
 parametricKeyword
@@ -26,6 +38,9 @@ parametricKeyword
     | equip
     | kicker
     | evoke
+    | protection
+    | hexproofFrom
+    | enchant
     ;
 
 ward
@@ -42,4 +57,16 @@ kicker
 
 evoke
     : EVOKE cost
+    ;
+
+protection
+    : PROTECTION FROM (targetSelector | EACH? colorQualifier | EVERYTHING)
+    ;
+
+hexproofFrom
+    : HEXPROOF FROM targetSelector
+    ;
+
+enchant
+    : ENCHANT cardFilter
     ;

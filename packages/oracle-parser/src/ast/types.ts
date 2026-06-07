@@ -30,33 +30,40 @@ export type Ability =
   | ActivatedAbility
   | TriggeredAbility
   | StaticAbility
-  | SpellEffect;
+  | SpellEffect
+  | AsAbility
+  | QuotedAbility;
 
 export interface KeywordAbility {
+  abilityWord?: string;
   kind: "keyword";
   keyword: string;
   cost?: any; // e.g., Evoke cost
 }
 
 export interface ActivatedAbility {
+  abilityWord?: string;
   kind: "activated";
   cost: any;
   effects: any[];
 }
 
 export interface TriggeredAbility {
+  abilityWord?: string;
   kind: "triggered";
   trigger: any;
   effects: any[];
 }
 
 export interface StaticAbility {
+  abilityWord?: string;
   kind: "static";
   effects: any[];
   conditions?: any[];
 }
 
 export interface SpellEffect {
+  abilityWord?: string;
   kind: "spell_effect";
   effects: any[];
 }
@@ -104,6 +111,13 @@ export interface CardFilter {
   cardType: string; // e.g., "creature", "land", "artifact"
   isCard?: boolean; // true if followed by the word "card"
   location?: LocationSpec;
+  targeting?: TargetingClause;
+}
+
+export interface TargetingClause {
+  only?: boolean;
+  count?: string | number;
+  target?: any;
 }
 
 export interface LocationSpec {
@@ -225,5 +239,135 @@ export interface CDAEffect {
   powerOnly: boolean;
   value: ValueExpression;
 }
+
+export interface GainControlEffect {
+  type: "gain_control";
+  target: any;
+  duration?: Duration;
+}
+
+export interface PronounSelector {
+  type: "pronoun";
+  pronoun: "it" | "they" | "them" | "itself" | "themselves";
+}
+
+export interface RelativeSelector {
+  type: "relative";
+  determiner: "that" | "those";
+  filter: CardFilter;
+}
+
+export interface TapEffect {
+  type: "tap";
+  target: any;
+}
+
+export interface UntapEffect {
+  type: "untap";
+  target: any;
+}
+
+export interface PutZoneEffect {
+  type: "put_zone";
+  target: any;
+  location: LocationSpec;
+  tapped?: boolean;
+}
+
+export interface PutCounterEffect {
+  type: "put_counter";
+  target: any;
+  counterType: string;
+  count: ValueExpression | string;
+}
+
+export interface SearchEffect {
+  type: "search";
+  zone: string;
+  filter: CardFilter;
+  actions?: any[];
+  shuffle?: boolean;
+}
+
+export interface ShuffleEffect {
+  type: "shuffle";
+  zone?: string;
+}
+
+export interface ReturnCost {
+  type: "return";
+  target: any;
+}
+
+export interface AttackTrigger {
+  type: "attack";
+  actor: any;
+  target?: any;
+}
+
+export interface BlockTrigger {
+  type: "block";
+  actor: any;
+  becomesBlocked: boolean;
+}
+
+export interface PhaseTrigger {
+  type: "phase_beginning";
+  phase: string;
+  turnOwner: "you" | "each_player" | "each_opponent" | "each" | "current_player";
+  modifier?: string;
+}
+
+export interface AddManaEffect {
+  type: "add_mana";
+  mana: string[];
+  anyColor?: boolean;
+  amount?: ValueExpression;
+}
+
+export interface ChooseEffect {
+  type: "choose";
+  choice: string;
+  filter?: CardFilter;
+}
+
+export interface QuotedAbility {
+  kind: "quoted";
+  ability: Ability;
+}
+
+export interface AsAbility {
+  kind: "as";
+  header: any;
+  effects: any[];
+}
+
+export interface RevealEffect {
+  type: "reveal";
+  filter: CardFilter;
+  location?: LocationSpec;
+}
+
+export interface ProtectionKeyword {
+  type: "protection";
+  from: any;
+}
+
+export interface HexproofFromKeyword {
+  type: "hexproof_from";
+  from: any;
+}
+
+export interface EnchantKeyword {
+  type: "enchant";
+  filter: CardFilter;
+}
+
+export interface LoyaltyCost {
+  type: "loyalty";
+  amount: string | number;
+}
+
+
 
 

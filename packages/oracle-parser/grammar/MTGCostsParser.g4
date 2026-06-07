@@ -16,10 +16,12 @@ cost
     | sacrificeCost
     | discardCost
     | exileCost
+    | returnCost
+    | loyaltyCost
     ;
 
 exileCost
-    : EXILE targetSelector (FROM zone)?
+    : EXILE targetSelector (locationSpec)?
     ;
 
 manaCost
@@ -28,10 +30,12 @@ manaCost
 
 tapCost
     : TAP_SYMBOL
+    | TAP targetSelector
     ;
 
 untapCost
     : UNTAP_SYMBOL
+    | UNTAP targetSelector
     ;
 
 lifeCost
@@ -45,4 +49,13 @@ sacrificeCost
 discardCost
     : DISCARD cardFilter
     | DISCARD A CARD
+    ;
+
+returnCost
+    : RETURN targetSelector TO possessivePronoun OWNERS HAND
+    ;
+
+loyaltyCost
+    : (PLUS | MINUS) (NUMBER | X_VAR)
+    | NUMBER
     ;
