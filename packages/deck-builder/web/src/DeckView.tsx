@@ -10,6 +10,8 @@ import { ChatPanel } from "./ChatPanel.tsx";
 import { InteropPanel } from "./InteropPanel.tsx";
 import { SessionPanel } from "./SessionPanel.tsx";
 import { SidePanel } from "./SidePanel.tsx";
+import { ColorPips } from "./Mana.tsx";
+import { usePeekProps } from "./CardPeek.tsx";
 import { Modal } from "./Modal.tsx";
 
 type GroupStatus = "ok" | "under" | "over" | "untargeted";
@@ -81,6 +83,7 @@ export function DeckView({ deckId }: { deckId: number }) {
   const [groupBy, setGroupBy] = useState<GroupBy>(
     () => (localStorage.getItem("deck.groupBy") === "type" ? "type" : "slot"),
   );
+  const peekProps = usePeekProps();
 
   useEffect(() => {
     localStorage.setItem("deck.groupBy", groupBy);
@@ -208,13 +211,43 @@ export function DeckView({ deckId }: { deckId: number }) {
   return (
     <div className="deck-page">
       <header className="deck-header">
-        <a className="back" href="#/">
-          ← decks
+        <a className="back" href="#/" title="Back to decks" aria-label="Back to decks">
+          <svg viewBox="0 0 14 14" width="14" height="14" aria-hidden="true" focusable="false">
+            <path
+              d="M8.5 2.5 4 7l4.5 4.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
         </a>
         <h1 onClick={rename} title="Click to rename">
           {deck.name}
         </h1>
-        <span className="mono identity">{deck.color_identity || "no commander"}</span>
+        {/* The commander is what the deck is, and every number to its right is
+            downstream of it — the colour identity most of all. Peekable like
+            any other card name: it's the one card you re-read constantly. */}
+        {commanders.length > 0 && (
+          <span className="commander">
+            {commanders.map((c, i) => (
+              <span key={c.oracle_id}>
+                {i > 0 && <span className="muted"> + </span>}
+                <span className="peekable" {...peekProps(c.name)}>
+                  {c.name}
+                </span>
+              </span>
+            ))}
+          </span>
+        )}
+        {/* An empty identity means two different things — no commander yet, or
+            a colorless one — and the letters conflated them. */}
+        {commanders.length === 0 ? (
+          <span className="mono identity">no commander</span>
+        ) : (
+          <ColorPips colors={deck.color_identity || "C"} />
+        )}
         <span className={`chip ${countClass}`}>
           {computed.card_count}/100
           {computed.delta_to_100 !== 0 &&

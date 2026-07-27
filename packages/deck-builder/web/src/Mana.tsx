@@ -22,6 +22,34 @@ function faceOf(part: string) {
   return PIP[part] ?? GENERIC;
 }
 
+const NAMES: Record<string, string> = {
+  W: "White",
+  U: "Blue",
+  B: "Black",
+  R: "Red",
+  G: "Green",
+  C: "Colorless",
+};
+
+// A colour identity arrives as bare letters ("UR"), not as a cost string, so it
+// can't go through ManaCost. Same pips all the same: the deck header and the
+// card rows under it should describe colour in one visual language, and "UR"
+// only reads as blue-red if you already know the letters.
+export function ColorPips({ colors, className = "" }: { colors: string; className?: string }) {
+  // Already stored in WUBRG order by the identity computation (spec §3).
+  const letters = [...colors.toUpperCase()].filter((c) => c in PIP);
+  if (!letters.length) return null;
+  return (
+    <span className={`mana ${className}`} title={letters.map((c) => NAMES[c] ?? c).join(" · ")}>
+      {letters.map((c, i) => (
+        <i key={i} className="pip" style={{ background: PIP[c].bg, color: PIP[c].fg }}>
+          {c}
+        </i>
+      ))}
+    </span>
+  );
+}
+
 export function ManaCost({ cost, className = "" }: { cost?: string | null; className?: string }) {
   const symbols = cost?.match(/\{[^}]+\}/g);
   if (!symbols?.length) return null;

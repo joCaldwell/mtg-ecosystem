@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { api, type ChatMsg, type DeckState, type Slot } from "./api.ts";
 import { Markdown } from "./Markdown.tsx";
 import { ProposalCard } from "./ProposalCard.tsx";
@@ -72,6 +72,7 @@ export function ChatPanel({
   const [sent, setSent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const boxRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     api.getChat(deckId).then(setHistory).catch(() => {});
@@ -80,6 +81,31 @@ export function ChatPanel({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [history, busy, sent]);
+
+  // The composer is as tall as what's in it. Keyed on the draft rather than
+  // wired to onChange because the draft also changes from outside — the audit
+  // section drops references in, and sending clears it. Height has to go back
+  // to auto first: scrollHeight is measured against the current box, so a box
+  // that already grew would never shrink again. CSS keeps the floor (it opens
+  // several lines tall) and the ceiling (past it, the box scrolls instead of
+  // eating the transcript).
+  useLayoutEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [input]);
+
+  // A textarea takes Enter for itself, so the send key has to be put back by
+  // hand: Enter sends, shift-Enter breaks the line. `isComposing` guards IME
+  // input, where Enter is how you accept a candidate, not how you finish.
+  function onComposerKey(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+    e.preventDefault();
+    // Through the form rather than send() directly, so submitting by key and
+    // by button are the same path.
+    e.currentTarget.form?.requestSubmit();
+  }
 
   async function send(e: FormEvent) {
     e.preventDefault();
@@ -239,12 +265,14 @@ export function ChatPanel({
       </div>
       {error && <div className="error-banner">{error}</div>}
       {/* The composer is one field: the form draws the border and focus ring,
-          the input inside it is chromeless. */}
+          the textarea inside it is chromeless. */}
       <form onSubmit={send} className="chat-input">
-        <input
+        <textarea
+          ref={boxRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask the agent… it proposes, you rule"
+          onKeyDown={onComposerKey}
+          placeholder="Ask the agent… it proposes, you rule. ⏎ sends, ⇧⏎ for a new line"
           disabled={busy}
         />
         <button className="primary" type="submit" disabled={busy || !input.trim()}>

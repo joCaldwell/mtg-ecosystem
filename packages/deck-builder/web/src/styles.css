@@ -437,12 +437,23 @@ select.ghost:focus {
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
 }
+/* Icon only: there is exactly one place back goes from here, and the word
+   "decks" was the widest thing in the row that nobody reads twice. */
 .deck-header .back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-left: -4px;
+  border-radius: var(--r-sm);
   color: var(--fg-mute);
-  font-size: 13px;
 }
 .deck-header .back:hover {
+  background: var(--bg-row);
   color: var(--accent);
+  text-decoration: none;
 }
 .deck-header h1 {
   cursor: pointer;
@@ -450,6 +461,16 @@ select.ghost:focus {
 }
 .deck-header h1:hover {
   color: var(--accent);
+}
+/* The deck's name is the title; the commander is what it plays — quieter, but
+   sitting immediately before the identity pips it explains. */
+.commander {
+  font-size: 13px;
+  color: var(--fg-dim);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .identity {
   color: var(--accent);
@@ -1137,6 +1158,69 @@ details:not(.group) > summary {
   line-height: 1.5;
 }
 
+/* --- brief (spec §5) -----------------------------------------------------
+   The panel reads before it edits. Thesis and constraints render through the
+   same .md path as every other agent output — card refs peekable, lists and
+   emphasis intact — and only become textareas behind their own Edit button.
+   The rest state is a quiet well rather than a bordered box: a control border
+   promises an editor, and this one isn't editing yet. */
+
+.brief-field + .brief-field {
+  margin-top: var(--sp-4);
+}
+.field-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  /* The label's usual bottom margin belongs to the prose, not to this row. */
+  margin-bottom: var(--sp-1);
+  min-height: 21px;
+}
+.field-head h2 {
+  margin: 0;
+}
+.field-read {
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg-input);
+  border-left: 2px solid var(--border);
+  border-radius: var(--r-sm);
+}
+.field-empty {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  color: var(--fg-mute);
+  font-style: italic;
+}
+.field-hint {
+  margin-top: 4px;
+  font-size: 11.5px;
+}
+/* The editor auto-sizes to its text (see `fit` in BriefPanel); this is the
+   ceiling, past which it scrolls rather than pushing the modal past its own. */
+.brief-field textarea {
+  max-height: 46vh;
+  resize: none;
+}
+/* Engine pieces, under the row that names them. */
+.card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  padding: 2px 0 4px;
+}
+.engine-form {
+  margin-top: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+}
+/* The name is the key the server upserts on, so an edit can't change it. */
+.engine-form input[readonly] {
+  background: var(--bg-row);
+  color: var(--fg-dim);
+}
+
 /* --- card peek ----------------------------------------------------------
    Deliberately no backdrop: this is a reference you consult without leaving
    the sentence, so the page behind it stays lit and legible. It earns its
@@ -1580,9 +1664,13 @@ details:not(.group) > summary {
   min-height: 0;
   height: 100%;
 }
+/* The transcript yields to the composer as it grows — a low floor rather than
+   a comfortable one, because at the short end of the fixed-height breakpoints
+   the two of them together have to fit inside the panel, and the panel clips
+   what doesn't. */
 .chat-messages {
   flex: 1;
-  min-height: 220px;
+  min-height: 96px;
   overflow-y: auto;
   overscroll-behavior: contain;
   display: flex;
@@ -1666,19 +1754,22 @@ details:not(.group) > summary {
 .msg-proposal .rationale {
   padding-left: var(--sp-2);
 }
-/* One composed control rather than a bordered input sitting next to a button:
-   the form is the field, and it takes the focus ring on behalf of the input
-   inside it. */
+/* One composed control rather than a bordered box sitting next to a button:
+   the form is the field, and it takes the focus ring on behalf of the textarea
+   inside it. The prompts written here are paragraphs, not search queries, so
+   the field opens several lines tall and grows with what you type; Send stays
+   at the bottom edge, beside the line you're on. A pill only reads right at
+   one line high, hence the panel radius. */
 .chat-input {
   flex: none;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: var(--sp-2);
   margin-top: var(--sp-3);
-  padding: 4px 4px 4px 12px;
+  padding: 6px 6px 6px 12px;
   background: var(--bg-input);
   border: 1px solid var(--border);
-  border-radius: 21px;
+  border-radius: var(--r-lg);
   transition:
     border-color 0.12s,
     box-shadow 0.12s;
@@ -1690,18 +1781,29 @@ details:not(.group) > summary {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
 }
-.chat-input input {
+/* ChatPanel sets `height` from the content on every keystroke. `min-height` is
+   the empty state — four lines, enough to see a real prompt taking shape —
+   and both bounds beat that inline height, so the ceiling holds however much
+   is typed. Past the ceiling the box scrolls rather than pushing the
+   transcript out of the panel; the vh term keeps that true in a short window,
+   where a fixed 320px would be most of the column. */
+.chat-input textarea {
   flex: 1;
   min-width: 0;
-  height: 30px;
-  padding: 0;
+  min-height: 76px;
+  max-height: min(30vh, 320px);
+  padding: 3px 0;
   background: none;
   border: none;
   border-radius: 0;
+  resize: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  line-height: 1.5;
 }
-/* The ring belongs to the form, so the input must not draw its own. */
-.chat-input input:focus,
-.chat-input input:focus-visible {
+/* The ring belongs to the form, so the textarea must not draw its own. */
+.chat-input textarea:focus,
+.chat-input textarea:focus-visible {
   border: none;
   outline: none;
 }
