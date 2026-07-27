@@ -1,17 +1,6 @@
 import { useState } from "react";
-import {
-  api,
-  type DeckState,
-  type DraftItem,
-  type ProposalItem,
-} from "./api.ts";
-
-const REJECTION_TYPES = [
-  { value: "hard_filter", label: "Hard filter — never suggest again" },
-  { value: "thesis_change", label: "Thesis change — not what this deck is" },
-  { value: "playtest_finding", label: "Playtest finding — tried it, know better" },
-  { value: "soft", label: "Soft / not now" },
-];
+import { api, type DeckState, type DraftItem } from "./api.ts";
+import { ProposalCard } from "./ProposalCard.tsx";
 
 export function ProposalSection({
   state,
@@ -26,9 +15,6 @@ export function ProposalSection({
 }) {
   const { deck, slots, proposals, log, hard_filters, card_notes } = state;
   const [note, setNote] = useState("");
-  const [rejecting, setRejecting] = useState<number | null>(null);
-  const [rejectType, setRejectType] = useState("soft");
-  const [rejectReason, setRejectReason] = useState("");
 
   function updateDraft(idx: number, patch: Partial<DraftItem>) {
     setDraft(draft.map((d, i) => (i === idx ? { ...d, ...patch } : d)));
@@ -39,15 +25,6 @@ export function ProposalSection({
     setDraft([]);
     setNote("");
   }
-
-  async function confirmReject(item: ProposalItem) {
-    await mutate(() => api.rejectItem(deck.id, item.id, rejectType, rejectReason));
-    setRejecting(null);
-    setRejectReason("");
-  }
-
-  const slotName = (id: number | null) =>
-    id == null ? "unslotted" : (slots.find((s) => s.id === id)?.name ?? "?");
 
   return (
     <>
@@ -87,7 +64,11 @@ export function ProposalSection({
                   size={6}
                   title="Items sharing a group id are accepted/rejected as a unit"
                 />
-                <button className="small danger" onClick={() => setDraft(draft.filter((_, j) => j !== i))}>
+                <button
+                  className="icon danger"
+                  title="Drop from the draft"
+                  onClick={() => setDraft(draft.filter((_, j) => j !== i))}
+                >
                   ✕
                 </button>
               </div>
@@ -100,7 +81,11 @@ export function ProposalSection({
               onChange={(e) => setNote(e.target.value)}
               placeholder="Proposal note (optional)"
             />
-            <button onClick={submitDraft} disabled={draft.some((d) => !d.rationale.trim())}>
+            <button
+              className="primary"
+              onClick={submitDraft}
+              disabled={draft.some((d) => !d.rationale.trim())}
+            >
               Submit proposal
             </button>
           </div>
@@ -158,76 +143,7 @@ export function ProposalSection({
         <div className="group">
           <h2>Open proposals</h2>
           {proposals.map((p) => (
-            <div key={p.id} className="proposal">
-              <div className="muted">
-                #{p.id} · {p.source}
-                {p.note && ` · ${p.note}`}
-              </div>
-              {p.items.map((item) => (
-                <div className="card-row" key={item.id}>
-                  <div className="card-main">
-                    <span className={`chip ${item.action === "add" ? "ok" : "over"}`}>
-                      {item.action}
-                    </span>
-                    <span className="name">{item.card_name}</span>
-                    <span className="mono cost">{item.mana_cost ?? ""}</span>
-                    {item.action === "add" && (
-                      <span className="muted">→ {slotName(item.slot_id)}</span>
-                    )}
-                    {item.group_id && (
-                      <span className="chip" title="Atomic group — ruled on as a unit">
-                        ⛓ {item.group_id}
-                      </span>
-                    )}
-                    <span className="spacer" />
-                    {item.status === "pending" ? (
-                      <>
-                        <button className="small" onClick={() => mutate(() => api.acceptItem(deck.id, item.id))}>
-                          accept
-                        </button>
-                        <button
-                          className="small danger"
-                          onClick={() => {
-                            setRejecting(rejecting === item.id ? null : item.id);
-                            setRejectReason("");
-                          }}
-                        >
-                          reject
-                        </button>
-                      </>
-                    ) : (
-                      <span className="muted">{item.status}</span>
-                    )}
-                  </div>
-                  <div className="muted rationale">“{item.rationale}”</div>
-                  {rejecting === item.id && (
-                    <div className="row gap reject-form">
-                      <select value={rejectType} onChange={(e) => setRejectType(e.target.value)}>
-                        {REJECTION_TYPES.map((t) => (
-                          <option key={t.value} value={t.value}>
-                            {t.label}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        className="grow"
-                        value={rejectReason}
-                        onChange={(e) => setRejectReason(e.target.value)}
-                        placeholder="Why? (required — this is what the agent learns from)"
-                        autoFocus
-                      />
-                      <button
-                        className="small"
-                        disabled={!rejectReason.trim()}
-                        onClick={() => confirmReject(item)}
-                      >
-                        confirm
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+            <ProposalCard key={p.id} proposal={p} deckId={deck.id} slots={slots} rule={mutate} />
           ))}
         </div>
       )}
@@ -242,10 +158,9 @@ export function ProposalSection({
           <>
             <h2>Hard filters</h2>
             {hard_filters.map((f) => (
-              <div className="card-main log-row" key={f.oracle_id}>
+              <div className="log-row" key={f.oracle_id}>
                 <span className="name">{f.card_name}</span>
-                <span className="muted">“{f.reason}”</span>
-                <span className="spacer" />
+                <span className="reason">“{f.reason}”</span>
                 <button className="small danger" onClick={() => mutate(() => api.removeHardFilter(deck.id, f.oracle_id))}>
                   remove
                 </button>
@@ -258,9 +173,9 @@ export function ProposalSection({
           <>
             <h2>Playtest findings</h2>
             {card_notes.map((n) => (
-              <div className="card-main log-row" key={n.id}>
+              <div className="log-row" key={n.id}>
                 <span className="name">{n.card_name}</span>
-                <span className="muted">“{n.note}”</span>
+                <span className="reason">“{n.note}”</span>
               </div>
             ))}
           </>
@@ -268,7 +183,7 @@ export function ProposalSection({
 
         <h2>Log</h2>
         {log.map((e) => (
-          <div className="card-main log-row" key={e.id}>
+          <div className="log-row" key={e.id}>
             <span className="muted mono">r{e.revision}</span>
             <span className={`chip ${e.kind === "accept" ? "ok" : e.kind === "reject" ? "over" : ""}`}>
               {e.kind}
@@ -276,11 +191,10 @@ export function ProposalSection({
             </span>
             <span className="name">{e.card_name}</span>
             {e.rejection_type && <span className="chip">{e.rejection_type}</span>}
-            <span className="muted">
+            <span className="reason">
               {e.kind === "reject" ? `“${e.rejection_reason}”` : e.rationale && `“${e.rationale}”`}
             </span>
             {!!e.brief_flag && <span className="chip under" title="Flagged for brief review">brief?</span>}
-            <span className="spacer" />
             {e.kind === "accept" && e.undone_by == null && (
               <button className="small" onClick={() => mutate(() => api.undoDecision(deck.id, e.id))}>
                 undo

@@ -163,6 +163,161 @@ describe("agent loop", () => {
     assert.equal(getDeck(db, id).cards.length, 1); // still just the commander
   });
 
+  // The proposal has to be findable from the transcript, not just from the
+  // decision log: the owner reads the reply and rules on it in place.
+  test("the turn's proposal is linked to its chat message and hydrated on read", async () => {
+    const id = createDeck(db, "Inline proposal deck");
+    addCard(db, id, "id-teferi", { role: "commander" });
+    const { transport } = scripted([
+      {
+        message: toolCall("propose_changes", {
+          note: "protection",
+          items: [
+            { action: "add", oracle_id: "id-counterspell", rationale: "cheapest hard counter" },
+          ],
+        }),
+      },
+      { message: text("Proposed [[Counterspell]].") },
+    ]);
+    await runTurn(db, id, "add protection", transport, 30);
+
+    const history = getChatHistory(db, id);
+    const linked = history.filter((m: any) => m.proposal_id != null);
+    assert.equal(linked.length, 1);
+    assert.equal(linked[0].role, "tool");
+
+    // Hydrated from the proposal tables, so the card is renderable without a
+    // second fetch — and the tool_call_id ties it back to the assistant turn.
+    const p = (linked[0] as any).proposal;
+    assert.equal(p.source, "agent");
+    assert.equal(p.items.length, 1);
+    assert.equal(p.items[0].card_name, "Counterspell");
+    assert.equal(p.items[0].status, "pending");
+    const assistant = history.find((m) => m.role === "assistant" && m.tool_calls?.length)!;
+    assert.equal((linked[0] as any).tool_call_id, assistant.tool_calls![0].id);
+
+    // Status is read live, so a ruling shows in the transcript rather than
+    // freezing at whatever it was when the turn ran.
+    acceptItem(db, p.items[0].id);
+    const after = getChatHistory(db, id).find((m: any) => m.proposal_id != null) as any;
+    assert.equal(after.proposal.items[0].status, "accepted");
+    assert.equal(after.proposal.status, "resolved");
+  });
+
+  // The owner hands the agent a finding as a reference, not as pasted text —
+  // so the agent has to read the recorded run before it can answer.
+  test("get_audit resolves an audit#run/key reference to the recorded finding", async () => {
+    const { runAudit } = await import("../src/deck/audit.ts");
+    const id = createDeck(db, "Audit ref deck");
+    addCard(db, id, "id-teferi", { role: "commander" });
+    const run = runAudit(db, id, "why can't this win?", {
+      summary: "No closer.",
+      findings: [
+        {
+          key: "reasoning:no-win-path",
+          severity: "warn",
+          title: "No way to actually win",
+          detail: "Nothing in the list converts the mana into damage.",
+        },
+      ],
+      dismissed: [],
+      dropped: 0,
+    });
+
+    const { transport, requests } = scripted([
+      {
+        message: toolCall("get_audit", {
+          run_id: run.run_id,
+          finding_key: "reasoning:no-win-path",
+        }),
+      },
+      { message: text("Agreed — [[Teferi, Temporal Archmage]] stalls but never closes.") },
+    ]);
+    await runTurn(db, id, `what about audit#${run.run_id}/reasoning:no-win-path ?`, transport, 30);
+
+    const toolMsg = requests[1].messages.at(-1)!;
+    assert.equal(toolMsg.role, "tool");
+    assert.match(toolMsg.content!, /No way to actually win/);
+    assert.match(toolMsg.content!, /converts the mana into damage/);
+    assert.match(toolMsg.content!, /judgement/); // labelled as §8.2, not authoritative
+    assert.match(toolMsg.content!, /why can't this win\?/); // the run's own instructions
+  });
+
+  test("get_audit with no arguments returns the whole latest run", async () => {
+    const { runAudit } = await import("../src/deck/audit.ts");
+    const id = createDeck(db, "Audit whole-run deck");
+    runAudit(db, id, "", {
+      summary: "Two cards short and no interaction.",
+      findings: [
+        { key: "reasoning:no-interaction", severity: "error", title: "No interaction", detail: "None." },
+      ],
+      dismissed: [],
+      dropped: 0,
+    });
+    const { transport, requests } = scripted([
+      { message: toolCall("get_audit", {}) },
+      { message: text("The audit is right about interaction.") },
+    ]);
+    await runTurn(db, id, "what did the audit say?", transport, 30);
+
+    const toolMsg = requests[1].messages.at(-1)!.content!;
+    assert.match(toolMsg, /Two cards short and no interaction/); // the summary
+    assert.match(toolMsg, /\[card_count\]/); // the deterministic half too
+    assert.match(toolMsg, /\[reasoning:no-interaction\]/);
+  });
+
+  test("get_audit refuses to invent a finding it cannot find", async () => {
+    const id = createDeck(db, "Audit missing ref deck");
+    const { transport, requests } = scripted([
+      { message: toolCall("get_audit", { finding_key: "reasoning:made-up" }) },
+      { message: text("I can't find that finding — what did it say?") },
+    ]);
+    await runTurn(db, id, "explain audit/reasoning:made-up", transport, 30);
+    assert.match(requests[1].messages.at(-1)!.content!, /No audit finding with key/);
+  });
+
+  // Regression: a deck with no slots (the default) must still be proposable.
+  // An unmatched slot_name used to abort the whole proposal, which read to the
+  // agent as "proposals require a slot" and stalled it into asking for one.
+  test("an unknown slot name downgrades the item to unslotted, it does not fail", async () => {
+    const id = createDeck(db, "Slotless deck");
+    addCard(db, id, "id-teferi", { role: "commander" });
+    const { transport, requests } = scripted([
+      {
+        message: toolCall("propose_changes", {
+          note: "draw",
+          items: [
+            {
+              action: "add",
+              oracle_id: "id-counterspell",
+              slot_name: "Draw",
+              rationale: "cheapest hard counter",
+            },
+          ],
+        }),
+      },
+      { message: text("Proposed [[Counterspell]].") },
+    ]);
+    await runTurn(db, id, "add draw", transport, 30);
+
+    const toolMsg = requests[1].messages.at(-1)!;
+    assert.doesNotMatch(toolMsg.content!, /Error/);
+    assert.match(toolMsg.content!, /No slot named 'Draw'/);
+    assert.match(toolMsg.content!, /slots are optional/);
+
+    const [p] = listProposals(db, id, "open");
+    assert.equal(p.items.length, 1);
+    assert.equal(p.items[0].card_name, "Counterspell");
+    assert.equal(p.items[0].slot_id, null);
+
+    // ...and it accepts cleanly, landing unslotted.
+    acceptItem(db, (p.items[0] as any).id);
+    const { getDeck } = await import("../src/deck/service.ts");
+    const state = getDeck(db, id);
+    assert.equal(state.computed.unslotted_count, 2); // commander + the accepted add
+    assert.equal(state.cards.find((c) => c.oracle_id === "id-counterspell")!.slot_id, null);
+  });
+
   test("a fabricated oracle_id physically cannot enter the deck (spec §6.2)", async () => {
     const id = createDeck(db, "Fabricated deck");
     const { transport, requests } = scripted([

@@ -1,6 +1,23 @@
 import { useState, type FormEvent } from "react";
 import { api, type DeckState } from "./api.ts";
 
+const PIP_FACE: Record<string, string> = {
+  W: "#f4eeda",
+  U: "#3f92d2",
+  B: "#4c4653",
+  R: "#dc6a52",
+  G: "#46a06b",
+  C: "#b3b9c3",
+};
+const PIP_TEXT: Record<string, string> = {
+  W: "#2c2617",
+  U: "#04121e",
+  B: "#e0dae6",
+  R: "#2a0f09",
+  G: "#062011",
+  C: "#191c22",
+};
+
 export function SlotPanel({
   state,
   mutate,
@@ -51,41 +68,61 @@ export function SlotPanel({
 
   const statusSymbol = { ok: "✓", under: "▼", over: "▲", untargeted: "" };
 
+  const curve = Object.entries(computed.curve);
+  const curveMax = Math.max(...curve.map(([, n]) => n), 1);
+
   return (
     <aside className="slot-panel">
       <h2>Slots</h2>
       <ul className="slot-list">
-        {computed.slot_deltas.map((d) => (
-          <li key={d.slot_id} className={d.status}>
-            <span className="slot-name">{d.name}</span>
-            <button
-              className="link slot-target"
-              title="Click to edit target"
-              onClick={() => editTargets(d.slot_id, d.target_min, d.target_max)}
-            >
-              {d.count}
-              {(d.target_min != null || d.target_max != null) &&
-                ` / ${d.target_min ?? 0}–${d.target_max ?? "∞"}`}
-            </button>
-            <span className={`status ${d.status}`}>
-              {statusSymbol[d.status]}
-              {d.delta !== 0 && Math.abs(d.delta)}
-            </span>
-            <button
-              className="small danger"
-              title="Delete slot (cards become unslotted)"
-              onClick={() => mutate(() => api.deleteSlot(deck.id, d.slot_id))}
-            >
-              ✕
-            </button>
-          </li>
-        ))}
-        <li className="muted">
+        {computed.slot_deltas.map((d) => {
+          // Fill against the upper bound so "how close am I" reads at a glance;
+          // an untargeted slot gets no bar rather than a meaningless full one.
+          const ceiling = d.target_max ?? d.target_min;
+          const fill = ceiling ? Math.min(100, (d.count / ceiling) * 100) : null;
+          return (
+            <li key={d.slot_id} className={d.status}>
+              <span className="slot-name" title={d.name}>
+                {d.name}
+              </span>
+              <button
+                className="link slot-target"
+                title="Click to edit target"
+                onClick={() => editTargets(d.slot_id, d.target_min, d.target_max)}
+              >
+                {d.count}
+                {(d.target_min != null || d.target_max != null) &&
+                  ` / ${d.target_min ?? 0}–${d.target_max ?? "∞"}`}
+              </button>
+              <span className="row">
+                <span className={`status ${d.status}`}>
+                  {statusSymbol[d.status]}
+                  {d.delta !== 0 && Math.abs(d.delta)}
+                </span>
+                <button
+                  className="icon danger del"
+                  title="Delete slot (cards become unslotted)"
+                  onClick={() => mutate(() => api.deleteSlot(deck.id, d.slot_id))}
+                >
+                  ✕
+                </button>
+              </span>
+              {fill != null && (
+                <span className="slot-meter">
+                  <i style={{ width: `${fill}%` }} />
+                </span>
+              )}
+            </li>
+          );
+        })}
+        <li className="unslotted">
           <span className="slot-name">Unslotted</span>
-          <span>{computed.unslotted_count}</span>
+          <span className="slot-target">{computed.unslotted_count}</span>
+          <span />
         </li>
       </ul>
-      <form onSubmit={addSlot} className="stack gap">
+
+      <form onSubmit={addSlot} className="stack gap slot-form">
         <input
           value={slotName}
           onChange={(e) => setSlotName(e.target.value)}
@@ -93,19 +130,19 @@ export function SlotPanel({
         />
         <div className="row gap">
           <input
+            className="num grow"
             value={slotMin}
             onChange={(e) => setSlotMin(e.target.value)}
             placeholder="min"
-            size={4}
           />
           <input
+            className="num grow"
             value={slotMax}
             onChange={(e) => setSlotMax(e.target.value)}
             placeholder="max"
-            size={4}
           />
           <button type="submit" disabled={!slotName.trim()}>
-            Add slot
+            Add
           </button>
         </div>
       </form>
@@ -113,10 +150,10 @@ export function SlotPanel({
       <h2>Tags</h2>
       <div className="tag-cloud">
         {tags.map((t) => (
-          <span key={t.id} className="tag-chip">
+          <span key={t.id} className="tag-chip static">
             {t.name}
             <button
-              className="link danger"
+              className="link del"
               title="Delete tag"
               onClick={() => mutate(() => api.deleteTag(deck.id, t.id))}
             >
@@ -127,7 +164,12 @@ export function SlotPanel({
         {!tags.length && <span className="muted">none yet</span>}
       </div>
       <form onSubmit={addTag} className="row gap">
-        <input value={tagName} onChange={(e) => setTagName(e.target.value)} placeholder="New tag" />
+        <input
+          className="grow"
+          value={tagName}
+          onChange={(e) => setTagName(e.target.value)}
+          placeholder="New tag"
+        />
         <button type="submit" disabled={!tagName.trim()}>
           Add
         </button>
@@ -135,20 +177,34 @@ export function SlotPanel({
 
       <h2>Curve</h2>
       <div className="curve">
-        {Object.entries(computed.curve).map(([bucket, n]) => (
+        {curve.map(([bucket, n]) => (
           <div key={bucket} className="curve-col" title={`${n} card(s) at MV ${bucket}`}>
-            <div className="curve-bar" style={{ height: `${Math.min(n * 6, 90)}px` }} />
-            <span className="muted">{bucket}</span>
-            <span>{n}</span>
+            <span>{n || ""}</span>
+            <div className="curve-bar" style={{ height: `${(n / curveMax) * 100}%` }} />
           </div>
         ))}
       </div>
-      <div className="muted">
-        Pips:{" "}
+      <div className="curve-axis">
+        {curve.map(([bucket]) => (
+          <span key={bucket}>{bucket}</span>
+        ))}
+      </div>
+
+      <div className="pips-line">
         {Object.entries(computed.pips)
           .filter(([, n]) => n > 0)
-          .map(([c, n]) => `${c}${n}`)
-          .join(" ") || "—"}
+          .map(([c, n]) => (
+            <span key={c} className="pip-count" title={`${n} ${c} pip(s)`}>
+              <i
+                className="pip"
+                style={{ background: PIP_FACE[c] ?? "#b3b9c3", color: PIP_TEXT[c] ?? "#191c22" }}
+              >
+                {c}
+              </i>
+              {n}
+            </span>
+          ))}
+        {!Object.values(computed.pips).some((n) => n > 0) && <span className="muted">no pips</span>}
       </div>
     </aside>
   );

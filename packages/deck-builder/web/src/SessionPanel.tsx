@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from "react";
 import { api, type ContextMeter, type DeckState } from "./api.ts";
-import { CardText } from "./ChatPanel.tsx";
+import { Markdown } from "./Markdown.tsx";
 
 const BEHAVIOR_HINT: Record<string, string> = {
   static: "static across all decks",
@@ -38,9 +38,13 @@ export function SessionPanel({
     }
   }
 
+  // Measuring the context costs a request, so it used to wait for the panel to
+  // be expanded. Now that the panel only exists while its modal is open,
+  // mounting IS the "opened it" signal.
   useEffect(() => {
     setMeter(null);
     setRetention(null);
+    load();
   }, [deckId]);
 
   async function saveRetention(n: number) {
@@ -81,10 +85,9 @@ export function SessionPanel({
   const pending = state.consolidations ?? [];
   const max = meter ? Math.max(...meter.segments.map((s) => s.est_tokens), 1) : 1;
 
+  // Chrome (title bar, collapse) belongs to the modal that hosts this.
   return (
-    <details className="group" onToggle={(e) => e.currentTarget.open && !meter && load()}>
-      <summary>Context &amp; compaction</summary>
-
+    <>
       {error && <div className="error-banner">{error}</div>}
 
       <div className="row gap wrap">
@@ -174,7 +177,7 @@ export function SessionPanel({
             </button>
           </div>
           <div className="chat-msg assistant" style={{ maxWidth: "100%" }}>
-            <CardText text={c.summary} />
+            <Markdown text={c.summary} />
           </div>
           {c.discarded.length > 0 && (
             <details>
@@ -214,6 +217,6 @@ export function SessionPanel({
           </div>
         </div>
       ))}
-    </details>
+    </>
   );
 }

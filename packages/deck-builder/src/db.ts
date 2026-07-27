@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS proposals (
 CREATE TABLE IF NOT EXISTS proposal_items (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   proposal_id INTEGER NOT NULL REFERENCES proposals(id) ON DELETE CASCADE,
-  action      TEXT NOT NULL CHECK (action IN ('add', 'cut')),
+  action      TEXT NOT NULL CHECK (action IN ('add', 'cut', 'maybe')),
   oracle_id   TEXT NOT NULL REFERENCES cards(oracle_id),
   slot_id     INTEGER,
   rationale   TEXT NOT NULL,
@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS decision_log (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   deck_id         INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
   revision        INTEGER NOT NULL,
-  kind            TEXT NOT NULL CHECK (kind IN ('accept', 'reject', 'undo', 'filter_removed')),
+  kind            TEXT NOT NULL CHECK (kind IN ('accept', 'reject', 'undo', 'filter_removed', 'maybe_move')),
   action          TEXT,
   oracle_id       TEXT,
   card_name       TEXT,
@@ -212,6 +212,10 @@ CREATE TABLE IF NOT EXISTS playtest_notes (
 
 CREATE INDEX IF NOT EXISTS idx_playtest_deck ON playtest_notes(deck_id, id);
 
+-- Audit runs are the audit's memory (spec §8). A run is inserted as
+-- 'running' the moment it starts and finished asynchronously, so the reasoning
+-- pass survives the browser closing; only the newest AUDIT_RUN_RETENTION runs
+-- per deck are kept.
 CREATE TABLE IF NOT EXISTS audit_runs (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   deck_id      INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
@@ -219,8 +223,13 @@ CREATE TABLE IF NOT EXISTS audit_runs (
   instructions TEXT NOT NULL DEFAULT '',
   findings_json TEXT NOT NULL,
   reasoning_json TEXT,
+  status       TEXT NOT NULL DEFAULT 'done' CHECK (status IN ('running', 'done', 'error')),
+  error        TEXT,
+  finished_at  TEXT,
   created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE INDEX IF NOT EXISTS idx_audit_runs_deck ON audit_runs(deck_id, id);
 
 -- Dismissed audit findings, keyed by the finding's stable key so the audit
 -- doesn't report the same four things forever (spec §8.3).
@@ -266,6 +275,11 @@ CREATE TABLE IF NOT EXISTS deck_cards (
   oracle_id TEXT NOT NULL REFERENCES cards(oracle_id),
   slot_id   INTEGER REFERENCES slots(id) ON DELETE SET NULL,
   role      TEXT NOT NULL DEFAULT 'card' CHECK (role IN ('card', 'commander', 'companion')),
+  -- The maybe list (spec §4.1): considered for the deck but not in it. A flag
+  -- rather than a role or a slot, because it is orthogonal to both — a parked
+  -- card keeps the slot it would fill and the tags describing it, so moving it
+  -- back is a one-bit change and nothing has to be re-entered.
+  maybeboard INTEGER NOT NULL DEFAULT 0,
   owned     INTEGER NOT NULL DEFAULT 0,
   quantity  INTEGER NOT NULL DEFAULT 1 CHECK (quantity >= 1),
   added_at  TEXT NOT NULL DEFAULT (datetime('now')),
@@ -309,6 +323,14 @@ function migrate(db: DatabaseSync) {
   if (auditCols.size && !auditCols.has("reasoning_json")) {
     db.exec("ALTER TABLE audit_runs ADD COLUMN reasoning_json TEXT");
   }
+  // Backgrounded audit runs: rows that predate this are all finished runs, so
+  // the 'done' default is right for them.
+  if (auditCols.size && !auditCols.has("status")) {
+    db.exec("ALTER TABLE audit_runs ADD COLUMN status TEXT NOT NULL DEFAULT 'done'");
+    db.exec("ALTER TABLE audit_runs ADD COLUMN error TEXT");
+    db.exec("ALTER TABLE audit_runs ADD COLUMN finished_at TEXT");
+    db.exec("UPDATE audit_runs SET finished_at = created_at WHERE finished_at IS NULL");
+  }
   const chatCols = new Set(
     (db.prepare("PRAGMA table_info(chat_messages)").all() as unknown as Array<{ name: string }>).map(
       (c) => c.name,
@@ -316,6 +338,96 @@ function migrate(db: DatabaseSync) {
   );
   if (chatCols.size && !chatCols.has("compacted_at")) {
     db.exec("ALTER TABLE chat_messages ADD COLUMN compacted_at TEXT");
+  }
+  const cardCols = new Set(
+    (db.prepare("PRAGMA table_info(deck_cards)").all() as unknown as Array<{ name: string }>).map(
+      (c) => c.name,
+    ),
+  );
+  if (cardCols.size && !cardCols.has("maybeboard")) {
+    db.exec("ALTER TABLE deck_cards ADD COLUMN maybeboard INTEGER NOT NULL DEFAULT 0");
+  }
+
+  // The maybe list added one proposal action and one decision-log kind, both
+  // of which live in CHECK constraints.
+  widenCheck(
+    db,
+    "proposal_items",
+    "'maybe'",
+    `CREATE TABLE proposal_items__new (
+       id          INTEGER PRIMARY KEY AUTOINCREMENT,
+       proposal_id INTEGER NOT NULL REFERENCES proposals(id) ON DELETE CASCADE,
+       action      TEXT NOT NULL CHECK (action IN ('add', 'cut', 'maybe')),
+       oracle_id   TEXT NOT NULL REFERENCES cards(oracle_id),
+       slot_id     INTEGER,
+       rationale   TEXT NOT NULL,
+       group_id    TEXT,
+       status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected')),
+       resolved_at TEXT
+     );
+     INSERT INTO proposal_items__new
+       SELECT id, proposal_id, action, oracle_id, slot_id, rationale, group_id, status, resolved_at
+       FROM proposal_items;
+     DROP TABLE proposal_items;
+     ALTER TABLE proposal_items__new RENAME TO proposal_items;`,
+  );
+  widenCheck(
+    db,
+    "decision_log",
+    "'maybe_move'",
+    `CREATE TABLE decision_log__new (
+       id              INTEGER PRIMARY KEY AUTOINCREMENT,
+       deck_id         INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+       revision        INTEGER NOT NULL,
+       kind            TEXT NOT NULL CHECK (kind IN ('accept', 'reject', 'undo', 'filter_removed', 'maybe_move')),
+       action          TEXT,
+       oracle_id       TEXT,
+       card_name       TEXT,
+       rationale       TEXT,
+       rejection_type  TEXT CHECK (rejection_type IN ('hard_filter', 'thesis_change', 'playtest_finding', 'soft')),
+       rejection_reason TEXT,
+       proposal_id     INTEGER,
+       item_id         INTEGER,
+       undo_of         INTEGER REFERENCES decision_log(id),
+       undone_by       INTEGER REFERENCES decision_log(id),
+       snapshot_json   TEXT,
+       brief_flag      INTEGER NOT NULL DEFAULT 0,
+       ts              TEXT NOT NULL DEFAULT (datetime('now'))
+     );
+     INSERT INTO decision_log__new
+       SELECT id, deck_id, revision, kind, action, oracle_id, card_name, rationale, rejection_type,
+              rejection_reason, proposal_id, item_id, undo_of, undone_by, snapshot_json, brief_flag, ts
+       FROM decision_log;
+     DROP TABLE decision_log;
+     ALTER TABLE decision_log__new RENAME TO decision_log;
+     CREATE INDEX IF NOT EXISTS idx_log_deck ON decision_log(deck_id, id);
+     CREATE INDEX IF NOT EXISTS idx_log_card ON decision_log(deck_id, oracle_id);`,
+  );
+}
+
+// SQLite cannot ALTER a CHECK constraint, so widening one means rebuilding the
+// table: create, copy, drop, rename. Guarded on the stored schema text, so it
+// runs once and only on databases created before the constraint changed.
+function widenCheck(db: DatabaseSync, table: string, marker: string, rebuild: string) {
+  const row = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(table) as { sql: string } | undefined;
+  if (!row || row.sql.includes(marker)) return;
+  // Neither pragma may change inside a transaction. foreign_keys is off so the
+  // DROP is allowed; legacy_alter_table stops RENAME from trying to re-point
+  // decision_log's self-references at a table that no longer exists.
+  db.exec("PRAGMA foreign_keys = OFF");
+  db.exec("PRAGMA legacy_alter_table = ON");
+  db.exec("BEGIN");
+  try {
+    db.exec(rebuild);
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  } finally {
+    db.exec("PRAGMA legacy_alter_table = OFF");
+    db.exec("PRAGMA foreign_keys = ON");
   }
 }
 

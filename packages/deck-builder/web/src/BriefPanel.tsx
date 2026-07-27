@@ -53,12 +53,9 @@ export function BriefPanel({ deckId }: { deckId: number }) {
     }
   }
 
+  // Chrome (title bar, collapse) belongs to the modal that hosts this.
   return (
-    <details className="group">
-      <summary>
-        Brief{brief.thesis ? "" : " (empty — write the thesis)"}
-        {brief.engines.length > 0 && ` · ${brief.engines.length} engine(s)`}
-      </summary>
+    <>
       {error && <div className="error-banner">{error}</div>}
 
       <h2>Thesis</h2>
@@ -128,6 +125,6 @@ export function BriefPanel({ deckId }: { deckId: number }) {
           </button>
         </div>
       </form>
-    </details>
+    </>
   );
 }

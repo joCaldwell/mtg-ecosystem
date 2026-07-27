@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import { ServiceError, addCard, removeCard, updateCard } from "./service.ts";
+import { ServiceError, addCard, getDeck, removeCard, updateCard } from "./service.ts";
 
 export type ProposalSource = "manual" | "agent" | "audit" | "import";
 export type RejectionType = "hard_filter" | "thesis_change" | "playtest_finding" | "soft";
@@ -19,8 +19,10 @@ export interface ProposalItemInput {
   group_id?: string | null;
 }
 
-// The 3–5 cap forces the agent to rank (spec §7.1). Import diffs are exempt
-// (agreed deviation) — they're the user's own changes re-entering the gate.
+// The 3–5 cap forces the agent to rank (spec §7.1). Nothing is exempt any
+// more: imports used to be, but they apply directly now (§9) instead of
+// arriving here as a 99-item proposal. "import" stays in ProposalSource so
+// rows written before that change still read back.
 const MAX_ITEMS = 5;
 
 function currentRevision(db: DatabaseSync, deckId: number): number {
@@ -56,7 +58,7 @@ export function createProposal(
   currentRevision(db, deckId); // 404 if deck missing
   const source = opts.source ?? "manual";
   if (!items.length) throw new ServiceError("A proposal needs at least one item");
-  if (source !== "import" && items.length > MAX_ITEMS)
+  if (items.length > MAX_ITEMS)
     throw new ServiceError(`A proposal contains at most ${MAX_ITEMS} items (got ${items.length})`);
 
   const inDeck = new Set(
@@ -148,6 +150,28 @@ export function listProposals(db: DatabaseSync, deckId: number, status?: "open" 
   );
   for (const p of proposals) p.items = itemStmt.all(p.id) as unknown as ProposalItemView[];
   return proposals;
+}
+
+// One proposal by id, open or resolved. The chat transcript reads by id and
+// wants proposals it has already outlived — a turn's proposal stays in the
+// conversation after it is ruled on, showing what became of it.
+export function getProposal(db: DatabaseSync, proposalId: number) {
+  const p = db
+    .prepare("SELECT id, source, note, status, created_at FROM proposals WHERE id = ?")
+    .get(proposalId) as unknown as
+    | { id: number; source: ProposalSource; note: string; status: string; created_at: string }
+    | undefined;
+  if (!p) return null;
+  const items = db
+    .prepare(
+      `SELECT pi.id, pi.proposal_id, pi.action, pi.oracle_id, c.name AS card_name,
+              c.mana_cost, c.type_line, c.oracle_text,
+              pi.slot_id, pi.rationale, pi.group_id, pi.status
+       FROM proposal_items pi JOIN cards c ON c.oracle_id = pi.oracle_id
+       WHERE pi.proposal_id = ? ORDER BY pi.id`,
+    )
+    .all(proposalId) as unknown as ProposalItemView[];
+  return { ...p, items };
 }
 
 // Pending delta vs 100 and vs each slot target (spec §7.1).
@@ -415,6 +439,76 @@ export function rejectItem(
   }
 }
 
+// ---------- bulk import (spec §9) ----------
+
+export interface CardSnapshot {
+  oracle_id: string;
+  slot_id: number | null;
+  role: string;
+  owned: boolean | number;
+  quantity: number;
+  tag_ids: number[];
+}
+
+// One log row for a whole applied import, carrying the pre-import list so the
+// row's ordinary "undo" button reverts the entire import. Kind stays 'accept'
+// so it reads and undoes like any other applied change; action 'import' is
+// what tells undoDecision to restore wholesale rather than per card. Callers
+// run this inside their own transaction.
+export function logImport(
+  db: DatabaseSync,
+  deckId: number,
+  summary: string,
+  before: CardSnapshot[],
+): number {
+  return logEntry(
+    db,
+    deckId,
+    {
+      kind: "accept",
+      action: "import",
+      rationale: summary,
+      snapshot_json: JSON.stringify({ cards: before }),
+    },
+    currentRevision(db, deckId),
+  );
+}
+
+// Put the deck back exactly as the snapshot found it. Wiping first sidesteps
+// the command-zone capacity check, which would otherwise trip while a
+// commander from the snapshot and one from the import both exist.
+function restoreCards(db: DatabaseSync, deckId: number, snapshot: CardSnapshot[]): void {
+  for (const row of db
+    .prepare("SELECT oracle_id FROM deck_cards WHERE deck_id = ?")
+    .all(deckId) as unknown as { oracle_id: string }[])
+    removeCard(db, deckId, row.oracle_id);
+
+  const existingTags = new Set(
+    (db.prepare("SELECT id FROM tags WHERE deck_id = ?").all(deckId) as unknown as {
+      id: number;
+    }[]).map((t) => t.id),
+  );
+  const existingSlots = new Set(
+    (db.prepare("SELECT id FROM slots WHERE deck_id = ?").all(deckId) as unknown as {
+      id: number;
+    }[]).map((s) => s.id),
+  );
+
+  for (const c of snapshot) {
+    const slotId = c.slot_id != null && existingSlots.has(c.slot_id) ? c.slot_id : null;
+    addCard(db, deckId, c.oracle_id, {
+      slotId,
+      role: (c.role as "card" | "commander" | "companion") ?? "card",
+    });
+    const patch: Parameters<typeof updateCard>[3] = {
+      owned: !!c.owned,
+      tagIds: (c.tag_ids ?? []).filter((t) => existingTags.has(t)),
+    };
+    if (c.quantity > 1) patch.quantity = c.quantity;
+    updateCard(db, deckId, c.oracle_id, patch);
+  }
+}
+
 // ---------- undo (log reversal, spec §7.4) ----------
 
 export function undoDecision(db: DatabaseSync, deckId: number, logId: number): void {
@@ -440,6 +534,36 @@ export function undoDecision(db: DatabaseSync, deckId: number, logId: number): v
   db.exec("BEGIN");
   try {
     let snapshotJson: string | null = null;
+    if (entry.action === "import") {
+      // Bulk entry: the snapshot is the whole pre-import list, and undoing it
+      // means restoring that list rather than reversing one card.
+      const current = (getDeck(db, deckId).cards as unknown as CardSnapshot[]).map((c) => ({
+        oracle_id: c.oracle_id,
+        slot_id: c.slot_id,
+        role: c.role,
+        owned: c.owned,
+        quantity: c.quantity,
+        tag_ids: c.tag_ids,
+      }));
+      snapshotJson = JSON.stringify({ cards: current });
+      const before = (JSON.parse(entry.snapshot_json ?? "{}").cards ?? []) as CardSnapshot[];
+      restoreCards(db, deckId, before);
+      const undoId = logEntry(
+        db,
+        deckId,
+        {
+          kind: "undo",
+          action: "import",
+          rationale: `Undo of decision #${entry.id} — the deck is back to its pre-import list`,
+          undo_of: entry.id,
+          snapshot_json: snapshotJson,
+        },
+        currentRevision(db, deckId),
+      );
+      db.prepare("UPDATE decision_log SET undone_by = ? WHERE id = ?").run(undoId, entry.id);
+      db.exec("COMMIT");
+      return;
+    }
     if (entry.action === "add") {
       const snapshot = snapshotCard(db, deckId, entry.oracle_id!);
       if (!snapshot)

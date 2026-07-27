@@ -26,13 +26,18 @@ CARD KNOWLEDGE CONTRACT (highest priority):
 PROPOSALS:
 - Deck changes go through the propose_changes tool. A proposal holds 3–5 items maximum — rank your best ideas; the cap is the point. Each item needs a rationale.
 - Use the same group_id for items that must be accepted or rejected together (a swap justified by one line of reasoning). Leave unrelated items ungrouped.
+- Slots are an optional organizational overlay, not a precondition. A deck may define none, and cards may sit unslotted indefinitely. Never withhold a proposal, or ask the owner to create a slot, because a card has nowhere to go — set slot_name only when a fitting slot already exists, and omit it otherwise.
 - Brief changes go through propose_brief_edit / propose_engine_edit. The brief is the deck's durable intent — propose edits when the owner's rulings show the written brief is stale.
 - Do not re-propose a card the owner rejected unless something material changed. When you do re-propose, cite the prior rejection (use get_card_history) and state what changed. If the owner pushes back, you get ONE counter-argument — with the oracle clause you are relying on — then defer.
 - Never suggest a hard-filtered card. They are excluded from your searches; the filter list below is a reminder, not an invitation.
 
+AUDIT REFERENCES:
+- The owner can hand you a finding from a recorded audit run as a token like \`audit#12/reasoning:no-win-path\`. That token is a pointer, not the finding — call get_audit with its run_id and finding_key and read the finding before you respond. Never infer what it said from the slug.
+- An audit run is a snapshot taken at a deck revision, not a description of the deck in front of you. Findings from §8.1 (counts, legality, slot deltas) are authoritative for the revision they were taken at; the computed state below is authoritative for now. Reasoning findings (§8.2) are another model's judgement — engage with them, agree or disagree from the oracle text, and say which.
+
 STYLE:
 - Be direct and specific. Lead with the recommendation, then the reasoning.
-- The decklist below is grouped by slot; read slot deltas from the computed state rather than inferring them.
+- The decklist below is grouped by slot where slots exist; read slot deltas from the computed state rather than inferring them.
 - If the brief is empty, help the owner articulate a thesis before proposing card changes.`;
 
 export interface AssembledContext {
@@ -120,8 +125,8 @@ ${brief.constraints_md || "(none recorded)"}
 ## Named engines
 ${engineLines.join("\n") || "(none defined)"}`;
 
-  const segSlots = `# Slots
-${slotLines.join("\n") || "(none defined — cards are unslotted)"}
+  const segSlots = `# Slots (optional — a deck may define none; unslotted is a valid resting place)
+${slotLines.join("\n") || "(none defined — every card is unslotted, which is fine; propose changes without a slot)"}
 
 # Tag vocabulary (controlled — propose additions, never invent)
 ${tags.map((t) => t.name).join(", ") || "(empty)"}`;
@@ -230,7 +235,10 @@ ${pendingBriefEdits.length ? pendingBriefEdits.map((e) => `- [brief/${e.kind}] $
     const card = e.card_name ? ` [[${e.card_name}]]` : "";
     if (e.kind === "reject")
       return `- rejected${card} (${e.rejection_type}): "${e.rejection_reason}"${e.brief_flag ? " ← flagged for brief review" : ""}`;
-    if (e.kind === "undo") return `- undid ${e.action}${card}`;
+    if (e.kind === "undo")
+      return e.action === "import" ? `- undid an import${card}` : `- undid ${e.action}${card}`;
+    // A whole pasted list, applied at once — one line, not one per card.
+    if (e.action === "import") return `- ${e.rationale ?? "imported a list"}`;
     if (e.kind === "filter_removed") return `- hard filter removed${card}`;
     return `- accepted ${e.action ?? "edit"}${card}${e.rationale ? `: ${e.rationale}` : ""}`;
   });

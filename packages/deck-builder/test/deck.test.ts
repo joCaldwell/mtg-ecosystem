@@ -114,6 +114,26 @@ describe("slots", () => {
     assert.throws(() => createSlot(db, id, "interaction"), /already exists/);
     assert.throws(() => createSlot(db, id, "Wipes", 5, 2), /min cannot exceed max/);
   });
+  // Slots categorise by role, card type is the decklist's other grouping, and
+  // a slot named "lands" would make the deck's land count ambiguous.
+  test("card types are rejected in the plural too, and only as whole names", () => {
+    const id = freshDeck("Plural types");
+    for (const name of ["lands", "Creatures", "artifacts", "sorceries", "Planeswalkers"])
+      assert.throws(() => createSlot(db, id, name), /card type/, name);
+    // A type word inside a longer role name is still a role, not a type.
+    createSlot(db, id, "creature removal");
+    createSlot(db, id, "land destruction");
+    assert.deepEqual(
+      getDeck(db, id).slots.map((s) => s.name),
+      ["creature removal", "land destruction"],
+    );
+  });
+  test("renaming a slot to a card type is rejected", () => {
+    const id = freshDeck("Slot rename");
+    const s = createSlot(db, id, "mana base", 36, 38);
+    assert.throws(() => updateSlot(db, id, s, { name: "lands" }), /card type/);
+    assert.equal(getDeck(db, id).slots[0].name, "mana base");
+  });
   test("deleting a slot unslots its cards", () => {
     const id = freshDeck("Slot delete");
     const s = createSlot(db, id, "Removal");

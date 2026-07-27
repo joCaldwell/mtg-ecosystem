@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { api, type CardData, type DeckState, type DraftItem, type Slot } from "./api.ts";
+import { ManaCost } from "./Mana.tsx";
 
 export function SearchPanel({
   deckId,
@@ -39,16 +40,25 @@ export function SearchPanel({
   }
 
   return (
-    <div>
-      <h2>Search</h2>
+    <div className="search-panel">
       <form onSubmit={run} className="stack gap">
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder='t:creature o:"draw a card" mv<=3'
-        />
+        <div className="row gap">
+          <input
+            className="grow"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder='t:creature o:"draw a card" mv<=3'
+          />
+          <button className="primary" type="submit" disabled={!query.trim()}>
+            Search
+          </button>
+        </div>
         <div className="row gap wrap">
-          <label title="Exclude cards outside the deck's color identity">
+          <label
+            className="own-toggle"
+            title="Exclude cards outside the deck's color identity"
+            style={{ display: "inline-flex" }}
+          >
             <input
               type="checkbox"
               checked={filterIdentity}
@@ -56,7 +66,12 @@ export function SearchPanel({
             />
             deck colors only
           </label>
-          <select value={targetSlot} onChange={(e) => setTargetSlot(e.target.value)} title="Add into slot">
+          <span className="spacer" />
+          <select
+            value={targetSlot}
+            onChange={(e) => setTargetSlot(e.target.value)}
+            title="Adds and proposals land in this slot"
+          >
             <option value="">→ unslotted</option>
             {slots.map((s) => (
               <option key={s.id} value={s.id}>
@@ -64,56 +79,59 @@ export function SearchPanel({
               </option>
             ))}
           </select>
-          <button type="submit" disabled={!query.trim()}>
-            Search
-          </button>
         </div>
       </form>
+
       {error && <div className="error-banner">{error}</div>}
+
       {results && (
         <div className="results">
-          <div className="muted">{results.length} result(s)</div>
+          <div className="result-count">{results.length} result(s)</div>
           {results.map((c) => (
             <div className="result" key={c.oracle_id}>
               <div className="card-main">
-                <button
-                  className="link name"
-                  onClick={() => setExpanded(expanded === c.oracle_id ? null : c.oracle_id)}
-                >
-                  {c.name}
-                </button>
-                <span className="mono cost">{c.mana_cost ?? ""}</span>
-                <span className="spacer" />
-                <button className="small" onClick={() => add(c)}>
-                  + add
-                </button>
-                {draftAdd && (
+                <span className="card-id">
                   <button
-                    className="small"
-                    title="Add to draft proposal"
-                    onClick={() =>
-                      draftAdd({
-                        action: "add",
-                        oracle_id: c.oracle_id,
-                        card_name: c.name,
-                        slot_id: targetSlot === "" ? null : Number(targetSlot),
-                        rationale: "",
-                      })
-                    }
+                    className="link name"
+                    onClick={() => setExpanded(expanded === c.oracle_id ? null : c.oracle_id)}
                   >
-                    + propose
+                    {c.name}
                   </button>
-                )}
-                {!hasCommander && !!c.is_commander && (
-                  <button className="small" onClick={() => add(c, "commander")}>
-                    + cmdr
+                  <ManaCost cost={c.mana_cost} />
+                </span>
+                <span className="row-actions">
+                  {!hasCommander && !!c.is_commander && (
+                    <button className="small" title="Add as commander" onClick={() => add(c, "commander")}>
+                      cmdr
+                    </button>
+                  )}
+                  {draftAdd && (
+                    <button
+                      className="small"
+                      title="Add to draft proposal"
+                      onClick={() =>
+                        draftAdd({
+                          action: "add",
+                          oracle_id: c.oracle_id,
+                          card_name: c.name,
+                          slot_id: targetSlot === "" ? null : Number(targetSlot),
+                          rationale: "",
+                        })
+                      }
+                    >
+                      propose
+                    </button>
+                  )}
+                  <button className="small primary" title="Add to the deck now" onClick={() => add(c)}>
+                    + add
                   </button>
-                )}
+                </span>
               </div>
-              <div className="muted type">{c.type_line}</div>
+              <div className="type">{c.type_line}</div>
               {expanded === c.oracle_id && <pre className="oracle-text">{c.oracle_text}</pre>}
             </div>
           ))}
+          {!results.length && <div className="muted rationale">Nothing matched that query.</div>}
         </div>
       )}
     </div>

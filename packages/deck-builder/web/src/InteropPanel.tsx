@@ -1,6 +1,7 @@
 // Archidekt interop and playtest notes (spec §9). Deck construction happens
-// here, playtesting happens in Archidekt — one-way out, one-way back, and the
-// way back goes through the approval gate like everything else.
+// here, playtesting happens in Archidekt — one-way out, one-way back. The way
+// back applies in one shot: the preview diff below IS the approval step, and
+// the import lands as a single undoable entry in the log.
 
 import { useState } from "react";
 import { api, type DeckState, type ImportDiff } from "./api.ts";
@@ -23,6 +24,7 @@ export function InteropPanel({
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [applied, setApplied] = useState<string | null>(null);
 
   const [playtest, setPlaytest] = useState("");
 
@@ -65,14 +67,30 @@ export function InteropPanel({
     }
   }
 
+  // The import lands in full and at once. The only thing worth stopping for is
+  // the destructive half — cards in the deck that the pasted list drops.
   async function commit() {
+    if (!diff) return;
+    if (
+      diff.cuts.length > 0 &&
+      !window.confirm(
+        `This import removes ${diff.cuts.length} card(s) from the deck:\n\n` +
+          diff.cuts.map((c) => `· ${c.name}${c.role !== "card" ? ` (${c.role})` : ""}`).join("\n") +
+          `\n\nIt lands as one entry in the log, so you can undo the whole import. Apply it?`,
+      )
+    )
+      return;
     setError(null);
+    setApplied(null);
     setBusy(true);
     try {
       const r = await api.importList(deckId, paste, note || undefined);
-      if (r.proposal_id == null) {
-        setError("No differences — nothing to propose.");
+      if (r.log_id == null) {
+        setApplied("No differences — the deck already matches that list.");
       } else {
+        const bits = [`${r.applied.added} added`, `${r.applied.cut} cut`];
+        if (r.applied.quantity_changed) bits.push(`${r.applied.quantity_changed} quantity changed`);
+        setApplied(`Imported: ${bits.join(" · ")}. Undo it from the log if that was wrong.`);
         setPaste("");
         setNote("");
         setDiff(null);
@@ -86,17 +104,18 @@ export function InteropPanel({
     }
   }
 
-  const changeCount = diff ? diff.adds.length + diff.cuts.length : 0;
+  const changeCount = diff
+    ? diff.adds.length + diff.cuts.length + diff.quantity_changes.length
+    : 0;
 
+  // Chrome (title bar, collapse) belongs to the modal that hosts this.
   return (
-    <details className="group">
-      <summary>Archidekt &amp; playtesting</summary>
-
+    <>
       {error && <div className="error-banner">{error}</div>}
 
       <h3 className="interop-head">Export</h3>
       <div className="row gap wrap">
-        <label className="owned">
+        <label className="own-toggle">
           <input
             type="checkbox"
             checked={withCategories}
@@ -104,7 +123,7 @@ export function InteropPanel({
           />
           [Category] tags from slots
         </label>
-        <label className="owned">
+        <label className="own-toggle">
           <input type="checkbox" checked={buyList} onChange={(e) => setBuyList(e.target.checked)} />
           buy list (unowned only)
         </label>
@@ -134,6 +153,7 @@ export function InteropPanel({
         onChange={(e) => {
           setPaste(e.target.value);
           setDiff(null);
+          setApplied(null);
         }}
         placeholder={"Paste an Archidekt list here…\n1x Sol Ring [Ramp]\n1 Counterspell"}
       />
@@ -147,14 +167,15 @@ export function InteropPanel({
               className="grow"
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="Note for the proposal (optional)"
+              placeholder="Note for the log entry (optional)"
             />
-            <button onClick={commit} disabled={busy}>
-              Propose {changeCount} change(s)
+            <button className={diff.cuts.length ? "danger" : ""} onClick={commit} disabled={busy}>
+              Apply {changeCount} change(s)
             </button>
           </>
         )}
       </div>
+      {applied && <div className="muted rationale">{applied}</div>}
 
       {diff && (
         <div className="import-diff">
@@ -162,9 +183,17 @@ export function InteropPanel({
             {diff.adds.length} to add · {diff.cuts.length} to cut · {diff.unchanged} unchanged
             {diff.quantity_changes.length > 0 && ` · ${diff.quantity_changes.length} quantity`}
           </div>
+          {diff.cuts.length > 0 && (
+            <div className="error-banner">
+              Destructive: applying this removes {diff.cuts.length} card(s) that are in the deck but
+              not in the pasted list. Everything else here is additive. The whole import is one log
+              entry, so undoing it puts the deck back exactly as it is now.
+            </div>
+          )}
           {diff.adds.map((a) => (
             <div key={a.oracle_id} className="log-row">
               <span className="chip ok">add</span> {a.name}
+              {a.role !== "card" && <span className="chip"> {a.role}</span>}
               {a.slot_name ? (
                 <span className="muted"> → {a.slot_name}</span>
               ) : a.category ? (
@@ -180,8 +209,7 @@ export function InteropPanel({
           ))}
           {diff.quantity_changes.length > 0 && (
             <div className="muted rationale">
-              Quantity changes are reported but not proposed — proposals add and cut whole cards.
-              Adjust these by hand:{" "}
+              Quantity changes applied with the rest:{" "}
               {diff.quantity_changes.map((q) => `${q.name} ${q.from}→${q.to}`).join(", ")}
             </div>
           )}
@@ -242,21 +270,24 @@ export function InteropPanel({
         </button>
       </div>
       {state.playtest_notes.map((n) => (
-        <div key={n.id} className="log-row">
-          <span className="mono muted">rev {n.revision}</span> {n.note}
-          <button
-            className="small danger"
-            style={{ float: "right" }}
-            onClick={() => mutate(() => api.deletePlaytestNote(deckId, n.id))}
-          >
-            ×
-          </button>
+        <div key={n.id} className="playtest-note">
+          <div className="log-row">
+            <span className="mono muted">rev {n.revision}</span>
+            <span className="reason">{n.note}</span>
+            <button
+              className="icon danger"
+              title="Delete note"
+              onClick={() => mutate(() => api.deletePlaytestNote(deckId, n.id))}
+            >
+              ✕
+            </button>
+          </div>
           <div className="muted rationale">
             {n.cards.length} card(s) in the list this note describes · {n.created_at}
           </div>
         </div>
       ))}
       {!state.playtest_notes.length && <div className="muted rationale">No notes yet.</div>}
-    </details>
+    </>
   );
 }

@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { assembleContext } from "./context.ts";
 import { TOOL_DEFS, executeTool } from "./tools.ts";
 import { lintOutput, lintCorrectionMessage } from "./lint.ts";
+import { getProposal } from "../deck/proposals.ts";
 import { LlmError, type ChatMessage, type ChatTransport } from "./llm.ts";
 
 const MAX_MODEL_CALLS = 12;
@@ -27,11 +28,14 @@ export async function runTurn(
 ): Promise<TurnResult> {
   const { system, transcript, tailRestate } = assembleContext(db, deckId, retentionN);
 
-  const persist = (msg: ChatMessage) => {
+  // `extra` is stored alongside the message but deliberately not pushed into
+  // `messages` — the provider gets exactly the fields it knows about, while the
+  // row on disk keeps the link the UI needs.
+  const persist = (msg: ChatMessage, extra?: Record<string, unknown>) => {
     db.prepare("INSERT INTO chat_messages (deck_id, role, content_json) VALUES (?, ?, ?)").run(
       deckId,
       msg.role,
-      JSON.stringify(msg),
+      JSON.stringify(extra ? { ...msg, ...extra } : msg),
     );
   };
 
@@ -86,7 +90,7 @@ export async function runTurn(
           tool_call_id: call.id,
           content: outcome.result,
         };
-        persist(toolMsg);
+        persist(toolMsg, outcome.proposalId != null ? { proposal_id: outcome.proposalId } : undefined);
         messages.push(toolMsg);
       }
       continue;
@@ -122,12 +126,22 @@ export function getChatHistory(db: DatabaseSync, deckId: number) {
   }>;
   // Compacted messages are still returned — they stay on disk and the UI
   // shows them collapsed, so compaction is visibly non-destructive (§11).
-  return rows.map((r) => ({
+  const messages = rows.map((r) => ({
     id: r.id,
     created_at: r.created_at,
     compacted_at: r.compacted_at,
-    ...(JSON.parse(r.content_json) as ChatMessage),
+    ...(JSON.parse(r.content_json) as ChatMessage & { proposal_id?: number }),
   }));
+  // Hydrate the proposals a turn produced, read live rather than frozen at
+  // send time: the transcript then shows each item's current ruling, and the
+  // owner can rule from the chat without going to the decision log to find out
+  // whether anything was proposed at all.
+  const cache = new Map<number, ReturnType<typeof getProposal>>();
+  return messages.map((m) => {
+    if (m.proposal_id == null) return m;
+    if (!cache.has(m.proposal_id)) cache.set(m.proposal_id, getProposal(db, m.proposal_id));
+    return { ...m, proposal: cache.get(m.proposal_id) ?? null };
+  });
 }
 
 export { LlmError };

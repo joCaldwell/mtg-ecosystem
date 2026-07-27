@@ -43,7 +43,7 @@ export function DeckList() {
           onChange={(e) => setName(e.target.value)}
           placeholder="New deck name"
         />
-        <button type="submit" disabled={!name.trim()}>
+        <button className="primary" type="submit" disabled={!name.trim()}>
           Create
         </button>
       </form>

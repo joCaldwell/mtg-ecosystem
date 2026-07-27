@@ -8,12 +8,19 @@ export class ServiceError extends Error {
   }
 }
 
-// Slot and tag names may not collide with card types or search prefixes
-// (spec §4) — they're queryable via slot:/tag:.
-const RESERVED_NAMES = new Set([
-  // card types and supertypes
+// Card types and supertypes. Slots and tags say what a card *does* — "ramp",
+// "interaction" — and card type says what it *is*; the decklist groups by
+// either one, so they have to stay separate axes. A slot named "lands" makes
+// "34 lands" ambiguous about which of the two it counts, so both numbers are
+// rejected: "land" and "lands", "sorcery" and "sorceries".
+const CARD_TYPE_NAMES = new Set([
   "land", "creature", "artifact", "enchantment", "instant", "sorcery",
   "planeswalker", "battle", "kindred", "tribal", "legendary", "basic", "snow", "token",
+]);
+
+// Reserved for a different reason: slot:/tag: queries would stop parsing
+// (spec §4). Only the exact word collides, so these aren't pluralised.
+const RESERVED_NAMES = new Set([
   // search prefixes
   "t", "type", "o", "oracle", "fo", "fulloracle", "cmc", "mv", "manavalue",
   "c", "color", "id", "identity", "pow", "power", "tou", "toughness",
@@ -22,12 +29,26 @@ const RESERVED_NAMES = new Set([
   "or", "and", "not", "none",
 ]);
 
+// Enough to fold the plural of every word in CARD_TYPE_NAMES onto its singular
+// ("sorceries" is the only irregular one); not a general-purpose stemmer.
+function singular(word: string): string {
+  if (word.endsWith("ies")) return `${word.slice(0, -3)}y`;
+  if (word.endsWith("s") && !word.endsWith("ss")) return word.slice(0, -1);
+  return word;
+}
+
 export function validateVocabName(name: string): string {
   const trimmed = name.trim();
   if (!trimmed) throw new ServiceError("Name cannot be empty");
-  if (RESERVED_NAMES.has(trimmed.toLowerCase()))
+  const lower = trimmed.toLowerCase();
+  if (CARD_TYPE_NAMES.has(singular(lower)))
     throw new ServiceError(
-      `'${trimmed}' is reserved (card types and search prefixes cannot be slot or tag names)`,
+      `'${trimmed}' is a card type, and card types are reserved: slots and tags describe ` +
+        `what a card does, and the decklist already groups by card type on its own.`,
+    );
+  if (RESERVED_NAMES.has(lower))
+    throw new ServiceError(
+      `'${trimmed}' is reserved (search prefixes cannot be slot or tag names)`,
     );
   return trimmed;
 }
@@ -79,7 +100,7 @@ export function listDecks(db: DatabaseSync) {
   return db
     .prepare(
       `SELECT d.id, d.name, d.color_identity, d.created_at,
-              COALESCE((SELECT SUM(quantity) FROM deck_cards dc WHERE dc.deck_id = d.id AND dc.role != 'companion'), 0) AS card_count
+              COALESCE((SELECT SUM(quantity) FROM deck_cards dc WHERE dc.deck_id = d.id AND dc.role != 'companion' AND dc.maybeboard = 0), 0) AS card_count
        FROM decks d ORDER BY d.name`,
     )
     .all() as unknown as Array<{
@@ -380,6 +401,8 @@ export interface DeckCardView {
   is_commander: number;
   slot_id: number | null;
   role: "card" | "commander" | "companion";
+  /** 1 = on the maybe list: considered for the deck, not part of the 100. */
+  maybeboard: number;
   owned: number;
   quantity: number;
   tag_ids: number[];
@@ -405,7 +428,7 @@ export function getDeck(db: DatabaseSync, deckId: number) {
       `SELECT c.oracle_id, c.name, c.mana_cost, c.cmc, c.type_line, c.oracle_text,
               c.power, c.toughness, c.loyalty, c.color_identity, c.ci_mask,
               c.commander_legality, c.is_commander,
-              dc.slot_id, dc.role, dc.owned, dc.quantity
+              dc.slot_id, dc.role, dc.maybeboard, dc.owned, dc.quantity
        FROM deck_cards dc JOIN cards c ON c.oracle_id = dc.oracle_id
        WHERE dc.deck_id = ? ORDER BY c.name`,
     )
@@ -464,7 +487,14 @@ function computeState(
     current_slot_id: number | null;
   }> = [],
 ) {
-  const mainCards = cards.filter((c) => c.role !== "companion");
+  // Everything below counts the deck. The maybe list (spec §4.1) is explicitly
+  // not part of it: parked cards contribute to no count, curve, pip spread,
+  // slot delta or violation, which is the whole point of parking them.
+  const maybeCards = cards.filter((c) => c.maybeboard);
+  // Every role that is actually in the deck — used for the legality checks,
+  // which apply to the companion too but must not fire on a parked card.
+  const deckCards = cards.filter((c) => !c.maybeboard);
+  const mainCards = cards.filter((c) => c.role !== "companion" && !c.maybeboard);
   const cardCount = mainCards.reduce((n, c) => n + c.quantity, 0);
 
   const slotDeltas = slots.map((s) => {
@@ -557,6 +587,7 @@ function computeState(
       by_slot: pendingBySlot,
     },
     unslotted_count: unslotted,
+    maybe_count: maybeCards.reduce((n, c) => n + c.quantity, 0),
     slot_deltas: slotDeltas,
     identity_violations: identityViolations,
     singleton_violations: singletonViolations,

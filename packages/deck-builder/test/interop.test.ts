@@ -3,11 +3,17 @@ import assert from "node:assert/strict";
 import { openDb } from "../src/db.ts";
 import { ingestCards } from "../src/ingest.ts";
 import { FIXTURES } from "./fixtures.ts";
-import { addCard, createDeck, createSlot, updateCard } from "../src/deck/service.ts";
-import { createProposal, rejectItem, listProposals } from "../src/deck/proposals.ts";
+import { addCard, createDeck, createSlot, getDeck, updateCard } from "../src/deck/service.ts";
+import {
+  createProposal,
+  rejectItem,
+  listProposals,
+  getLog,
+  undoDecision,
+} from "../src/deck/proposals.ts";
 import {
   addPlaytestNote,
-  createImportProposal,
+  applyImport,
   deletePlaytestNote,
   diffImport,
   exportDeck,
@@ -186,6 +192,15 @@ describe("import diff (spec §9)", () => {
     assert.ok(diff.unresolved[0].suggestions.includes("Sol Ring"));
   });
 
+  test("a name shared with another card's face resolves to the card actually named that", () => {
+    // "Witch Enchanter // Witch-Blessed Meadow" has a face named
+    // "Witch Enchanter"; a hypothetical standalone card of that name must win.
+    const id = seed("Import face collision");
+    const diff = diffImport(db, id, "1 Witch Enchanter // Witch-Blessed Meadow");
+    assert.equal(diff.ambiguous.length, 0);
+    assert.deepEqual(diff.adds.map((a) => a.name), ["Witch Enchanter // Witch-Blessed Meadow"]);
+  });
+
   test("hard-filtered cards are reported as blocked, not proposed", () => {
     const id = seed("Import blocked");
     const pid = createProposal(db, id, [
@@ -200,33 +215,31 @@ describe("import diff (spec §9)", () => {
       diff.blocked.map((b) => b.name),
       ["Ball Lightning"],
     );
-    // …and the proposal still builds, rather than throwing on the filter.
-    const r = createImportProposal(db, id, "1 Ball Lightning\n1 Sol Ring\n1 Counterspell\n1 Teferi, Temporal Archmage");
-    assert.equal(r.proposal_id, null); // nothing left to change
+    // …and the import still applies, rather than throwing on the filter.
+    const r = applyImport(db, id, "1 Ball Lightning\n1 Sol Ring\n1 Counterspell\n1 Teferi, Temporal Archmage");
+    assert.equal(r.log_id, null); // nothing left to change
   });
 });
 
-describe("import proposal (approval gate, spec §9)", () => {
-  test("every difference comes back as an import-source item with a reason", () => {
-    const id = createDeck(db, "Import proposal");
-    addCard(db, id, "id-solring");
-    const { proposal_id } = createImportProposal(db, id, "1 Counterspell\n1 Tarmogoyf");
-    const p = listProposals(db, id, "open").find((x) => x.id === proposal_id)!;
-    assert.equal(p.source, "import");
-    assert.match(p.note, /Archidekt import diff/);
-    assert.deepEqual(
-      p.items.map((i) => [i.action, i.card_name]).sort(),
-      [
-        ["add", "Counterspell"],
-        ["add", "Tarmogoyf"],
-        ["cut", "Sol Ring"],
-      ].sort(),
-    );
-    for (const i of p.items) assert.match(i.rationale, /Import:/);
+describe("import applies in full and at once (spec §9)", () => {
+  test("adds, cuts and quantity changes all land in one call — no per-card gate", () => {
+    const id = createDeck(db, "Import applies");
+    addCard(db, id, "id-solring"); // absent from the list below → cut
+    addCard(db, id, "id-rats");
+    updateCard(db, id, "id-rats", { quantity: 1 });
+
+    const r = applyImport(db, id, "1 Counterspell\n1 Tarmogoyf\n4 Typhoid Rats");
+    assert.deepEqual(r.applied, { added: 2, cut: 1, quantity_changed: 1 });
+
+    const names = getDeck(db, id).cards.map((c) => c.name).sort();
+    assert.deepEqual(names, ["Counterspell", "Tarmogoyf", "Typhoid Rats"]);
+    assert.equal(getDeck(db, id).cards.find((c) => c.name === "Typhoid Rats")!.quantity, 4);
+    // Nothing waiting on the owner: the paste was the ruling.
+    assert.equal(listProposals(db, id, "open").length, 0);
   });
 
-  test("import diffs are exempt from the 3–5 item cap", () => {
-    const id = createDeck(db, "Import cap");
+  test("a 100-card list is one log entry, not one per card (§12 retention)", () => {
+    const id = createDeck(db, "Import log volume");
     const list = [
       "Llanowar Elves",
       "Seedborn Muse",
@@ -238,15 +251,53 @@ describe("import proposal (approval gate, spec §9)", () => {
     ]
       .map((n) => `1 ${n}`)
       .join("\n");
-    const { proposal_id } = createImportProposal(db, id, list);
-    const p = listProposals(db, id, "open").find((x) => x.id === proposal_id)!;
-    assert.equal(p.items.length, 7);
+    applyImport(db, id, list);
+    const log = getLog(db, id) as any[];
+    assert.equal(log.length, 1);
+    assert.equal(log[0].kind, "accept");
+    assert.equal(log[0].action, "import");
+    assert.match(log[0].rationale, /\+7\/−0/);
   });
 
-  test("an identical list proposes nothing", () => {
+  test("undoing the single log entry restores the entire pre-import list", () => {
+    const id = createDeck(db, "Import undo");
+    const ramp = createSlot(db, id, "ramp", 8, 12);
+    addCard(db, id, "id-teferi", { role: "commander" });
+    addCard(db, id, "id-solring", { slotId: ramp });
+    updateCard(db, id, "id-solring", { owned: true });
+
+    applyImport(db, id, "1 Counterspell\n1 Tarmogoyf");
+    assert.deepEqual(getDeck(db, id).cards.map((c) => c.name).sort(), ["Counterspell", "Tarmogoyf"]);
+
+    const entry = (getLog(db, id) as any[])[0];
+    undoDecision(db, id, entry.id);
+
+    const after = getDeck(db, id);
+    assert.deepEqual(after.cards.map((c) => c.name).sort(), ["Sol Ring", "Teferi, Temporal Archmage"]);
+    const solring = after.cards.find((c) => c.name === "Sol Ring")!;
+    assert.equal(solring.slot_id, ramp); // slot survives the round trip
+    assert.ok(solring.owned); //             …and so does owned
+    assert.equal(after.cards.find((c) => c.name === "Teferi, Temporal Archmage")!.role, "commander");
+    // The undo is itself logged, and the import row is marked as undone.
+    assert.equal((getLog(db, id) as any[])[0].kind, "undo");
+    assert.ok((getLog(db, id) as any[]).find((e) => e.id === entry.id)!.undone_by);
+  });
+
+  test("a [Commander] category puts the card in the command zone", () => {
+    const id = createDeck(db, "Import commander");
+    applyImport(db, id, "1 Teferi, Temporal Archmage [Commander]\n1 Counterspell");
+    const state = getDeck(db, id);
+    assert.equal(state.cards.find((c) => c.name === "Teferi, Temporal Archmage")!.role, "commander");
+    assert.equal(state.deck.color_identity, "U"); // identity recomputed from it
+  });
+
+  test("an identical list changes nothing and writes no log entry", () => {
     const id = createDeck(db, "Import noop");
     addCard(db, id, "id-solring");
-    assert.equal(createImportProposal(db, id, "1 Sol Ring").proposal_id, null);
+    const r = applyImport(db, id, "1 Sol Ring");
+    assert.equal(r.log_id, null);
+    assert.deepEqual(r.applied, { added: 0, cut: 0, quantity_changed: 0 });
+    assert.equal((getLog(db, id) as any[]).length, 0);
   });
 });
 

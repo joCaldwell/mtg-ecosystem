@@ -36,10 +36,14 @@ import {
 } from "./deck/proposals.ts";
 import {
   activeDismissals,
-  auditView,
+  auditState,
   dismissFinding,
+  finishAuditRun,
+  getAuditRun,
   promoteFinding,
-  runAudit,
+  reclaimStaleRuns,
+  runningAuditRun,
+  startAuditRun,
   undismissFinding,
 } from "./deck/audit.ts";
 import { runReasoningPass } from "./agent/reasoning.ts";
@@ -54,7 +58,7 @@ import {
 } from "./deck/brief.ts";
 import {
   addPlaytestNote,
-  createImportProposal,
+  applyImport,
   deletePlaytestNote,
   diffImport,
   exportDeck,
@@ -202,44 +206,72 @@ route("POST", /^\/api\/decks\/(\d+)\/notes$/, ([id], body) => {
   return deckState(Number(id));
 });
 
-route("POST", /^\/api\/decks\/(\d+)\/audit$/, async ([id], body) => {
+// The reasoning pass is an LLM round-trip, so a run is a background job: the
+// POST opens the run and returns, the client polls GET. Closing the tab, or
+// the whole browser, no longer cancels an audit — the result lands in
+// audit_runs either way and the section picks it back up.
+async function executeAuditRun(deckId: number, runId: number, instructions: string) {
+  try {
+    const cfg = getAgentConfig();
+    const reasoning = await runReasoningPass(
+      db,
+      deckId,
+      instructions,
+      openRouterTransport(cfg),
+      getRetentionN(db),
+      activeDismissals(db, deckId),
+    );
+    finishAuditRun(db, runId, reasoning);
+  } catch (e: any) {
+    // A missing key or a provider failure is not a failed run — the
+    // deterministic half stands on its own and the run records why §8.2 is
+    // missing from it.
+    if (e instanceof ConfigError || e instanceof LlmError) {
+      finishAuditRun(db, runId, {
+        summary: "",
+        findings: [],
+        dismissed: [],
+        dropped: 0,
+        error: e.message,
+      });
+    } else {
+      console.error(e);
+      finishAuditRun(db, runId, null, e?.message ?? "Internal error");
+    }
+  }
+}
+
+route("GET", /^\/api\/decks\/(\d+)\/audit$/, ([id]) => auditState(db, Number(id)));
+route("GET", /^\/api\/decks\/(\d+)\/audit\/runs\/(\d+)$/, ([id, runId]) => {
+  const run = getAuditRun(db, Number(id), Number(runId));
+  if (!run) throw new ServiceError(`No audit run #${runId} for this deck`, 404);
+  return run;
+});
+route("POST", /^\/api\/decks\/(\d+)\/audit$/, ([id], body) => {
   const deckId = Number(id);
   const instructions = String(body.instructions ?? "");
 
-  // Reasoning pass (§8.2) — graceful when no API key is configured.
-  let reasoning: object | null = null;
-  if (body.skip_reasoning !== true) {
-    try {
-      const cfg = getAgentConfig();
-      reasoning = await runReasoningPass(
-        db,
-        deckId,
-        instructions,
-        openRouterTransport(cfg),
-        getRetentionN(db),
-        activeDismissals(db, deckId),
-      );
-    } catch (e: any) {
-      if (e instanceof ConfigError || e instanceof LlmError) {
-        reasoning = { summary: "", findings: [], dismissed: [], dropped: 0, error: e.message };
-      } else {
-        throw e;
-      }
-    }
-  }
-  return { ...runAudit(db, deckId, instructions, reasoning), reasoning };
+  // One run at a time per deck: a second click while one is in flight joins
+  // the run already going rather than paying for a duplicate reasoning pass.
+  const inFlight = runningAuditRun(db, deckId);
+  if (inFlight) return { run_id: inFlight.id, already_running: true, ...auditState(db, deckId) };
+
+  const runId = startAuditRun(db, deckId, instructions);
+  if (body.skip_reasoning === true) finishAuditRun(db, runId, null);
+  else void executeAuditRun(deckId, runId, instructions);
+  return { run_id: runId, already_running: false, ...auditState(db, deckId) };
 });
 route("POST", /^\/api\/decks\/(\d+)\/audit\/dismiss$/, ([id], body) => {
   dismissFinding(db, Number(id), String(body.key), body.type, String(body.reason ?? ""));
-  return { state: deckState(Number(id)), audit: auditView(db, Number(id)) };
+  return { state: deckState(Number(id)), audit: auditState(db, Number(id)) };
 });
 route("POST", /^\/api\/decks\/(\d+)\/audit\/undismiss$/, ([id], body) => {
   undismissFinding(db, Number(id), String(body.key));
-  return { state: deckState(Number(id)), audit: auditView(db, Number(id)) };
+  return { state: deckState(Number(id)), audit: auditState(db, Number(id)) };
 });
 route("POST", /^\/api\/decks\/(\d+)\/audit\/promote$/, ([id], body) => {
   promoteFinding(db, Number(id), String(body.key));
-  return { state: deckState(Number(id)), audit: auditView(db, Number(id)) };
+  return { state: deckState(Number(id)), audit: auditState(db, Number(id)) };
 });
 
 route("GET", /^\/api\/decks\/(\d+)\/brief$/, ([id]) => getBrief(db, Number(id)));
@@ -325,8 +357,10 @@ route("GET", /^\/api\/decks\/(\d+)\/export$/, ([id], _b, url) =>
 route("POST", /^\/api\/decks\/(\d+)\/import\/preview$/, ([id], body) =>
   diffImport(db, Number(id), String(body.text ?? "")),
 );
+// Applies in full and immediately (spec §9) — the preview diff is the
+// confirmation, and the single log row it writes undoes the whole thing.
 route("POST", /^\/api\/decks\/(\d+)\/import$/, ([id], body) => {
-  const r = createImportProposal(db, Number(id), String(body.text ?? ""), body.note);
+  const r = applyImport(db, Number(id), String(body.text ?? ""), body.note);
   return { ...r, state: deckState(Number(id)) };
 });
 
@@ -419,6 +453,8 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
+  const stale = reclaimStaleRuns(db);
+  if (stale) console.log(`Marked ${stale} audit run(s) failed — they were in flight at shutdown.`);
   console.log(`Deck builder running at http://localhost:${PORT}`);
   if (!existsSync(WEB_DIST))
     console.log("(web/dist not found — run 'npm run app' to build the UI, or 'npm run dev:web' for the dev server)");

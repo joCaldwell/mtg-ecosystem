@@ -1,38 +1,139 @@
+/* ---------------------------------------------------------------------------
+   Deck builder UI.
+
+   Desktop-only, but it has to survive being a split-screen half of a monitor,
+   so the three-column layout degrades in two steps rather than scrolling
+   sideways:
+
+     >= 1400px   slots | decklist | search-or-chat
+     860-1400px  [slots + search-or-chat] | decklist      (tools share a rail)
+     <  860px    everything stacked, one page scroll
+
+   At the top two breakpoints the deck page is an app frame: it is exactly one
+   viewport tall, the document never scrolls, and each column scrolls itself.
+   That puts the decklist's scrollbar on the decklist — between the deck and
+   the search/chat panel — instead of parking one document scrollbar at the far
+   right of the window, past a panel it doesn't drive. Wheeling over a column
+   then moves that column and nothing else. Stacked, the page scrolls normally
+   again: a lone column has no neighbour to be confused with.
+
+   The search/chat column is drag-resizable through --side-w (SidePanel.tsx
+   writes it on :root) and can be maximized over the page entirely.
+
+   The decklist is a container-query container, so card rows shed their less
+   important columns based on how wide the *column* is, not the window.
+--------------------------------------------------------------------------- */
+
 :root {
   color-scheme: dark;
-  --bg: #16181d;
-  --bg-panel: #1e2128;
-  --bg-row: #22262e;
-  --border: #33383f;
-  --fg: #d6d9de;
-  --muted: #8b919a;
-  --accent: #6ea8fe;
-  --ok: #4caf7d;
-  --under: #e0b64c;
-  --over: #e06c5c;
+
+  --bg: #0e1014;
+  --bg-panel: #15181f;
+  --bg-row: #1a1e26;
+  --bg-hover: #222733;
+  --bg-input: #0f1218;
+
+  --border: #262b36;
+  --border-hi: #39414f;
+
+  --fg: #dfe4ec;
+  --fg-dim: #98a1b2;
+  --fg-mute: #6a7280;
+
+  --accent: #7aa2f7;
+  --accent-bg: #1b2540;
+  --ok: #5cc98d;
+  --ok-bg: #10261c;
+  --under: #e3b341;
+  --under-bg: #2a2210;
+  --over: #f0736a;
+  --over-bg: #321816;
+
+  --r-sm: 4px;
+  --r-md: 7px;
+  --r-lg: 11px;
+
+  --sp-1: 4px;
+  --sp-2: 6px;
+  --sp-3: 10px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+
+  --ctl-h: 27px;
+  --page-pad: 20px;
+  --rail: 250px;
+  /* Overwritten on :root by SidePanel while dragging. */
+  --side-w: 372px;
+
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px -12px rgb(0 0 0 / 0.6);
 }
 
 * {
   box-sizing: border-box;
 }
 
+html {
+  scrollbar-color: var(--border-hi) transparent;
+}
+
 body {
   margin: 0;
   background: var(--bg);
   color: var(--fg);
-  font: 14px/1.45 system-ui, sans-serif;
+  font:
+    14px/1.5 system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--accent-bg);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-hi);
+  background-clip: content-box;
 }
 
 h1 {
-  font-size: 20px;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
   margin: 0;
 }
+
 h2 {
-  font-size: 14px;
+  font-size: 11px;
+  font-weight: 650;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
-  margin: 18px 0 6px;
+  letter-spacing: 0.08em;
+  color: var(--fg-mute);
+  margin: var(--sp-4) 0 var(--sp-2);
+}
+
+h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: var(--sp-3) 0 var(--sp-1);
+}
+
+p {
+  margin: var(--sp-2) 0;
 }
 
 a {
@@ -43,178 +144,629 @@ a:hover {
   text-decoration: underline;
 }
 
+/* --- controls ----------------------------------------------------------- */
+
 button {
+  height: var(--ctl-h);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-1);
   background: var(--bg-row);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 10px;
+  border-radius: var(--r-sm);
+  padding: 0 10px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
+  transition:
+    background 0.12s,
+    border-color 0.12s,
+    color 0.12s;
 }
-button:hover {
-  border-color: var(--accent);
+button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-hi);
 }
 button:disabled {
-  opacity: 0.4;
+  opacity: 0.38;
   cursor: default;
 }
+button.primary {
+  background: var(--accent-bg);
+  border-color: #2f4573;
+  color: #cfdcfb;
+}
+button.primary:hover:not(:disabled) {
+  background: #24325a;
+  border-color: var(--accent);
+}
 button.small {
-  padding: 1px 6px;
+  height: 21px;
+  padding: 0 7px;
   font-size: 12px;
 }
-button.danger:hover {
+button.icon {
+  height: 21px;
+  width: 21px;
+  padding: 0;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+button.danger:hover:not(:disabled) {
   border-color: var(--over);
   color: var(--over);
+  background: var(--over-bg);
 }
 button.link {
+  height: auto;
+  display: inline;
   background: none;
   border: none;
   padding: 0;
   color: inherit;
-  cursor: pointer;
   font: inherit;
+  text-align: left;
+  white-space: normal;
+  cursor: pointer;
 }
 button.link:hover {
+  background: none;
   color: var(--accent);
 }
 
 input,
-select {
-  background: var(--bg-row);
+select,
+textarea {
+  background: var(--bg-input);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 8px;
+  border-radius: var(--r-sm);
   font: inherit;
+  font-size: 13px;
+}
+input,
+select {
+  height: var(--ctl-h);
+  padding: 0 8px;
+  min-width: 0;
+}
+select {
+  padding-right: 4px;
+  cursor: pointer;
+}
+textarea {
+  width: 100%;
+  padding: 6px 8px;
+  resize: vertical;
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--fg-mute);
+}
+input[type="checkbox"] {
+  height: 13px;
+  width: 13px;
+  accent-color: var(--accent);
+  margin: 0;
+  cursor: pointer;
 }
 
+:where(button, input, select, textarea, summary, a):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: var(--r-sm);
+}
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--border-hi);
+  outline-offset: -1px;
+}
+
+/* A select that reads as text until you reach for it — used once per card row,
+   where a hundred bordered dropdowns is what made the list unreadable. */
+select.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--fg-mute);
+  font-size: 12px;
+  height: 21px;
+}
+.card-row:hover select.ghost,
+select.ghost:hover,
+select.ghost:focus {
+  background: var(--bg-input);
+  border-color: var(--border);
+  color: var(--fg-dim);
+}
+
+/* --- utilities ---------------------------------------------------------- */
+
 .mono {
-  font-family: ui-monospace, monospace;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 12px;
 }
 .muted {
-  color: var(--muted);
+  color: var(--fg-dim);
 }
 .spacer {
   flex: 1;
+  min-width: 0;
+}
+.grow {
+  flex: 1;
+  min-width: 0;
 }
 .row {
   display: flex;
   align-items: center;
+  min-width: 0;
 }
 .stack {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 .gap {
-  gap: 6px;
+  gap: var(--sp-2);
 }
 .wrap {
   flex-wrap: wrap;
 }
 
 .error-banner {
-  background: #4a2320;
-  border: 1px solid var(--over);
-  border-radius: 4px;
-  padding: 6px 12px;
-  margin: 8px 0;
+  background: var(--over-bg);
+  border: 1px solid #5e2a26;
+  border-left: 3px solid var(--over);
+  border-radius: var(--r-sm);
+  padding: var(--sp-2) var(--sp-3);
+  margin: var(--sp-2) 0;
+  font-size: 13px;
 }
 
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-row);
+  border-radius: 999px;
+  padding: 1px 9px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: nowrap;
+  color: var(--fg-dim);
+}
+.chip.ok {
+  border-color: #27543c;
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+.chip.under {
+  border-color: #55461a;
+  background: var(--under-bg);
+  color: var(--under);
+}
+.chip.over {
+  border-color: #5e2a26;
+  background: var(--over-bg);
+  color: var(--over);
+}
+
+/* --- mana pips ---------------------------------------------------------- */
+
+.mana {
+  display: inline-flex;
+  gap: 2px;
+  flex: none;
+}
+.pip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  font-size: 9.5px;
+  font-style: normal;
+  font-weight: 700;
+  font-family: ui-monospace, monospace;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.25);
+}
+.pip-split {
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.35);
+}
+
+/* --- deck list page ----------------------------------------------------- */
+
 .deck-list-page {
-  max-width: 700px;
-  margin: 40px auto;
-  padding: 0 20px;
+  max-width: 720px;
+  margin: 48px auto;
+  padding: 0 var(--page-pad);
 }
 .deck-table {
   width: 100%;
-  margin-top: 16px;
+  margin-top: var(--sp-4);
   border-collapse: collapse;
+}
+.deck-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--fg-mute);
+  font-weight: 600;
 }
 .deck-table th,
 .deck-table td {
   text-align: left;
-  padding: 6px 10px;
+  padding: 7px 10px;
   border-bottom: 1px solid var(--border);
 }
-
-.deck-page {
-  padding: 12px 18px;
+.deck-table tbody tr:hover td {
+  background: var(--bg-panel);
 }
+
+/* --- deck page shell ---------------------------------------------------- */
+
+/* The frame. Header and banners are fixed furniture; .columns takes the rest of
+   the viewport and hands it to the columns, which scroll on their own. */
+.deck-page {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0 var(--page-pad) var(--sp-3);
+}
+
 .deck-header {
+  flex: none;
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding: var(--sp-3) 0;
+  margin-bottom: var(--sp-1);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+.deck-header .back {
+  color: var(--fg-mute);
+  font-size: 13px;
+}
+.deck-header .back:hover {
+  color: var(--accent);
 }
 .deck-header h1 {
   cursor: pointer;
+  margin-right: var(--sp-1);
+}
+.deck-header h1:hover {
+  color: var(--accent);
 }
 .identity {
   color: var(--accent);
+  letter-spacing: 0.12em;
+  font-weight: 600;
 }
 
-.chip {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 1px 10px;
-  font-size: 12px;
-}
-.chip.ok {
-  border-color: var(--ok);
-  color: var(--ok);
-}
-.chip.under {
-  border-color: var(--under);
-  color: var(--under);
-}
-.chip.over {
-  border-color: var(--over);
-  color: var(--over);
-}
-
+/* Part of the frame, so a deck with a long list of violations must not eat the
+   viewport the columns are supposed to get. */
 .violations {
+  flex: none;
+  max-height: 22vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--bg-panel);
-  border: 1px solid var(--over);
-  border-radius: 4px;
-  margin: 8px 0;
-  padding: 6px 12px;
+  border: 1px solid #5e2a26;
+  border-left: 3px solid var(--over);
+  border-radius: var(--r-md);
+  margin: var(--sp-3) 0;
+  padding: var(--sp-2) var(--sp-3);
   font-size: 13px;
+}
+.violations > div + div {
+  margin-top: 2px;
 }
 
 .columns {
   display: grid;
-  grid-template-columns: 250px 1fr 340px;
-  gap: 18px;
-  margin-top: 12px;
-  align-items: start;
+  grid-template-columns: var(--rail) minmax(0, 1fr) var(--side-w);
+  grid-template-areas: "slots deck side";
+  gap: var(--sp-4);
+  margin-top: var(--sp-3);
+  /* Fill the frame and stretch the columns to it: each one is a scrollport of
+     its own, so they must all be exactly as tall as the space available. */
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+
+/* Dissolved at full width: slots and search/chat are their own columns. */
+.rail {
+  display: contents;
+}
+.slot-panel {
+  grid-area: slots;
+}
+/* The deck is the page's main scroller: its scrollbar rides its own right edge,
+   just left of the search/chat panel. `overscroll-behavior` keeps a wheel that
+   runs off the end of one column from moving the one next to it. */
+.decklist {
+  grid-area: deck;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-right: var(--sp-2);
+  padding-bottom: var(--sp-5);
+  container-type: inline-size;
+  container-name: deck;
+}
+.side-panel {
+  grid-area: side;
 }
 
 .slot-panel,
-.search-panel {
+.side-panel {
   background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 4px 14px 14px;
-  position: sticky;
-  top: 12px;
-  max-height: calc(100vh - 24px);
-  overflow-y: auto;
+  border-radius: var(--r-lg);
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
+.slot-panel {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: block;
+}
+
+/* --- resizing the side panel -------------------------------------------- */
+
+/* A grab strip on the panel's left edge, sitting in its padding so it costs no
+   content width. Wider than it looks: the visible line is 2px, the target 11. */
+.side-resize {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 11px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 2;
+}
+.side-resize::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background 90ms ease;
+}
+.side-resize:hover::after,
+.side-resize:focus-visible::after,
+body.col-resizing .side-resize::after {
+  background: var(--accent);
+}
+.side-resize:focus-visible {
+  outline: none;
+}
+
+/* The cursor has to survive crossing every element under the pointer, and
+   nothing should select while a drag is in flight. */
+body.col-resizing,
+body.col-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+/* Maximized: the panel leaves the grid and covers everything below the sticky
+   deck header. Fixed rather than a grid span so it behaves the same at all
+   three breakpoints, including inside the narrow rail. */
+.side-panel.is-max {
+  position: fixed;
+  inset: 56px var(--page-pad) var(--sp-3);
+  width: auto;
+  height: auto;
+  max-height: none;
+  z-index: 30;
+  box-shadow: var(--shadow);
+}
+.side-panel.is-max .side-resize {
+  display: none;
+}
+/* Full-bleed prose is unreadable and a search grid this wide is mostly gutter,
+   so the contents stay in a column and centre themselves. */
+.side-panel.is-max .chat,
+.side-panel.is-max .search-panel,
+.side-panel.is-max .tab-bar {
+  width: 100%;
+  max-width: 1180px;
+  margin-inline: auto;
+}
+
+/* Search results reflow into columns once the panel is wide enough to hold
+   them — this is what the extra width is for. Keyed to the panel, not the
+   window, so it fires at any breakpoint. */
+.side-body {
+  container-type: inline-size;
+  container-name: side;
+}
+@container side (min-width: 660px) {
+  .results {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: var(--sp-2);
+    align-items: start;
+  }
+  .results .result {
+    margin: 0;
+  }
+  .results .result-count,
+  .results > .muted {
+    grid-column: 1 / -1;
+  }
+}
+.slot-panel > h2:first-child,
+.side-panel > h2:first-child {
+  margin-top: var(--sp-1);
+}
+
+/* The side panel owns its scrolling so the tab bar stays put. */
+.side-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.side-body.is-search {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Split-screen territory. The two tool panels merge into one independently
+   scrolling rail — the decklist scrolls, the tools stay put — and search/chat
+   is ordered above slots because it's the panel you act in. */
+@media (max-width: 1400px) {
+  .columns {
+    /* One column feeds both panels here, so the drag still sizes the rail —
+       but the slot panel underneath needs a floor of its own. */
+    grid-template-columns: max(306px, var(--side-w)) minmax(0, 1fr);
+    grid-template-areas: "rail deck";
+  }
+  .rail {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+    grid-area: rail;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    min-width: 0;
+  }
+  /* The rail scrolls, so its panels take the height they ask for. */
+  .slot-panel,
+  .side-panel {
+    height: auto;
+    flex: none;
+  }
+  .side-panel:not(.is-max) {
+    order: -1;
+    height: min(560px, 62vh);
+  }
+}
+
+@media (max-width: 860px) {
+  :root {
+    --page-pad: 12px;
+  }
+  /* Stacked, the frame comes apart: one column of content, one document scroll,
+     and the header goes back to sticking to the top of it. */
+  .deck-page {
+    height: auto;
+    display: block;
+    overflow: visible;
+    padding-bottom: var(--sp-5);
+  }
+  .violations {
+    max-height: none;
+    overflow: visible;
+  }
+  .columns {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "rail"
+      "deck";
+  }
+  .decklist {
+    overflow: visible;
+    scrollbar-gutter: auto;
+    padding-right: 0;
+    padding-bottom: 0;
+  }
+  .rail {
+    max-height: none;
+    overflow: visible;
+  }
+  /* Stacked, the tools sit directly on top of the decklist, so an empty search
+     panel must not reserve height it isn't using. The chat still needs a fixed
+     box — its message list scrolls inside it. Neither cap applies once the
+     panel is maximized: there it owns the page and takes all of it. */
+  .side-panel:not(.is-max) {
+    height: auto;
+    max-height: 70vh;
+  }
+  .side-panel:not(.is-max):has(.side-body.is-chat) {
+    height: min(480px, 60vh);
+  }
+  /* Stacked, the panel is already the full page width — nothing to drag. */
+  .side-resize {
+    display: none;
+  }
+  .deck-header {
+    gap: var(--sp-2);
+  }
+}
+
+/* --- slot panel --------------------------------------------------------- */
 
 .slot-list {
   list-style: none;
-  margin: 0;
+  margin: 0 0 var(--sp-3);
   padding: 0;
 }
 .slot-list li {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 8px;
-  padding: 3px 0;
-  border-bottom: 1px solid var(--border);
+  gap: var(--sp-2);
+  padding: 3px 0 4px;
+}
+.slot-list li + li {
+  border-top: 1px solid var(--border);
 }
 .slot-name {
-  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.slot-target {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
+.slot-target:hover {
+  color: var(--accent);
+}
+li.under .slot-target {
+  color: var(--under);
+}
+li.over .slot-target {
+  color: var(--over);
+}
+.slot-list .status {
+  font-size: 11px;
+  width: 2.4em;
+  text-align: right;
+  font-family: ui-monospace, monospace;
 }
 .status.ok {
   color: var(--ok);
@@ -225,189 +777,833 @@ select {
 .status.over {
   color: var(--over);
 }
-li.under .slot-target {
-  color: var(--under);
+.slot-list li .del {
+  opacity: 0;
+  transition: opacity 0.12s;
 }
-li.over .slot-target {
-  color: var(--over);
+.slot-list li:hover .del,
+.slot-list li:focus-within .del {
+  opacity: 1;
+}
+.slot-list li.unslotted {
+  color: var(--fg-mute);
+}
+
+/* A one-pixel read on how far each slot is from its target. */
+.slot-meter {
+  grid-column: 1 / -1;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--border);
+  overflow: hidden;
+}
+.slot-meter > i {
+  display: block;
+  height: 100%;
+  background: var(--fg-mute);
+}
+li.ok .slot-meter > i {
+  background: var(--ok);
+}
+li.under .slot-meter > i {
+  background: var(--under);
+}
+li.over .slot-meter > i {
+  background: var(--over);
+}
+
+.slot-form .row {
+  gap: var(--sp-2);
+}
+.slot-form input.num {
+  width: 100%;
+  max-width: 110px;
+  text-align: center;
 }
 
 .tag-cloud {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-2);
 }
 .tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 19px;
   background: var(--bg-row);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 999px;
   padding: 0 8px;
-  font-size: 12px;
-  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1;
+  color: var(--fg-dim);
   cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.12s,
+    border-color 0.12s,
+    color 0.12s;
+}
+.tag-chip:hover {
+  border-color: var(--border-hi);
+  color: var(--fg);
+  background: var(--bg-hover);
 }
 .tag-chip.active {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: #2f4573;
+  background: var(--accent-bg);
+  color: #b9cbf5;
+}
+.tag-chip.static {
+  cursor: default;
+}
+.tag-chip .del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 17px;
+  margin-right: -3px;
+  color: var(--fg-mute);
+  font-size: 10px;
+}
+.tag-chip .del:hover {
+  color: var(--over);
 }
 
 .curve {
   display: flex;
-  gap: 8px;
+  gap: 4px;
   align-items: flex-end;
+  height: 84px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--border);
 }
 .curve-col {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  font-size: 11px;
+  justify-content: flex-end;
+  height: 100%;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--fg-dim);
 }
 .curve-bar {
-  width: 14px;
-  background: var(--accent);
+  width: 100%;
+  background: linear-gradient(180deg, var(--accent) 0%, #4c6dad 100%);
   border-radius: 2px 2px 0 0;
-  min-height: 1px;
+  min-height: 2px;
+}
+.curve-axis {
+  display: flex;
+  gap: 4px;
+  margin-top: 3px;
+}
+.curve-axis span {
+  flex: 1;
+  text-align: center;
+  font-size: 10px;
+  color: var(--fg-mute);
+}
+.pips-line {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin-top: var(--sp-3);
+  font-size: 12px;
+}
+.pip-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--fg-dim);
+}
+
+/* --- collapsible tool panels ------------------------------------------- */
+
+details.group {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  margin-bottom: var(--sp-2);
+  padding: 0 var(--sp-3);
+}
+details.group[open] {
+  padding-bottom: var(--sp-3);
+}
+details.group > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  list-style: none;
+  cursor: pointer;
+  padding: 7px 0;
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--fg-dim);
+}
+details.group > summary::-webkit-details-marker {
+  display: none;
+}
+details.group > summary::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border: 4px solid transparent;
+  border-left-color: var(--fg-mute);
+  transition: transform 0.15s;
+  transform-origin: 2px 50%;
+  flex: none;
+}
+details.group[open] > summary::before {
+  transform: rotate(90deg);
+}
+details.group > summary:hover {
+  color: var(--fg);
+}
+details.group[open] > summary {
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--sp-2);
+}
+/* Nested disclosures (dismissed findings, discards) stay lightweight. */
+details.group details > summary,
+details:not(.group) > summary {
+  cursor: pointer;
+  font-size: 12px;
+  padding: 3px 0;
+}
+
+/* --- tool bar + modals --------------------------------------------------- */
+
+/* The four reference panels used to stack above the decklist as collapsed
+   disclosures — five bars of chrome before the first card, and expanding one
+   shoved the deck an arbitrary distance down. They open over the page now,
+   launched from here. */
+.tool-bar {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-2);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  /* Above the sticky deck header (z-index 20). */
+  z-index: 50;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 6vh var(--sp-4) var(--sp-4);
+  background: rgb(0 0 0 / 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.modal {
+  width: min(92vw, 620px);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-hi);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+}
+/* Audit findings, the export box and the segment meter all want room. */
+.modal.wide {
+  width: min(94vw, 940px);
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border);
+}
+.modal-head h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--fg-dim);
+  border: 0;
+  padding: 0;
+}
+.modal-body {
+  overflow-y: auto;
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+}
+.modal-body:focus-visible {
+  outline: none;
+}
+/* These panels were written as the innards of a details.group, so their first
+   heading carried the spacing of a section already underway. */
+.modal-body > :first-child {
+  margin-top: 0;
+}
+
+/* --- rendered markdown --------------------------------------------------
+   Everything is scoped under .md and inherits the host's font size, because
+   the same agent prose renders in three places at three sizes: a chat bubble,
+   an audit finding's detail line, and the reasoning summary. Vertical rhythm
+   is collapsed hard — these are short messages in a column, not a document. */
+
+.md > :first-child {
+  margin-top: 0;
+}
+.md > :last-child {
+  margin-bottom: 0;
+}
+.md-p {
+  margin: 0 0 0.6em;
+}
+.md-h {
+  margin: 1em 0 0.35em;
+  font-weight: 650;
+  color: var(--fg);
+}
+.md-h1 {
+  font-size: 1.12em;
+}
+.md-h2 {
+  font-size: 1.06em;
+}
+.md-h3 {
+  font-size: 1em;
+}
+.md-list {
+  margin: 0 0 0.6em;
+  /* Tight enough that the markers sit under the paragraph text rather than
+     indenting each level a full tab into the middle of a narrow column. */
+  padding-left: 1.35em;
+}
+.md-list li {
+  margin: 0.15em 0;
+}
+.md-list ol,
+.md-list ul {
+  margin-bottom: 0.15em;
+}
+.md-list li::marker {
+  color: var(--fg-mute);
+}
+.md-quote {
+  margin: 0 0 0.6em;
+  padding-left: var(--sp-3);
+  border-left: 2px solid var(--border-hi);
+  color: var(--fg-dim);
+}
+.md-hr {
+  margin: 0.9em 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+.md strong {
+  font-weight: 650;
+  color: var(--fg);
+}
+.md a {
+  color: var(--accent);
+}
+.md-code-span {
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+  font-size: 0.92em;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 0 4px;
+}
+.md-code {
+  margin: 0 0 0.6em;
+  padding: var(--sp-2) var(--sp-3);
+  overflow-x: auto;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+  font-size: 0.92em;
+  line-height: 1.5;
+}
+
+/* --- card peek ----------------------------------------------------------
+   Deliberately no backdrop: this is a reference you consult without leaving
+   the sentence, so the page behind it stays lit and legible. It earns its
+   separation from the border and the shadow instead. Width is mirrored as `W`
+   in CardPeek.tsx, which clamps the popover inside the viewport. */
+
+.card-peek {
+  position: fixed;
+  z-index: 60;
+  width: 340px;
+  max-height: 70vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-hi);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+}
+.card-peek-face {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+/* Two printings under one name — separate them rather than running together. */
+.card-peek-face + .card-peek-face {
+  border-top: 1px solid var(--border);
+  padding-top: var(--sp-3);
+}
+.card-peek-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.card-peek-head .name {
+  flex: 1;
+  font-weight: 600;
+}
+.card-peek-type {
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+.card-peek-type .pt {
+  color: var(--fg-mute);
+}
+.card-peek .oracle-text {
+  color: var(--fg);
+}
+.card-peek .chip {
+  align-self: flex-start;
+}
+
+/* --- decklist groups ---------------------------------------------------- */
+
+.group-by {
+  margin-top: var(--sp-3);
+  font-size: 11.5px;
+}
+/* Compact segmented control — the same idea as .tab-bar, but sized to its
+   labels instead of filling the panel. */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 2px;
+}
+.seg button {
+  height: 21px;
+  background: none;
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--fg-mute);
+}
+.seg button:hover:not(.active) {
+  background: var(--bg-row);
+  border: none;
+  color: var(--fg-dim);
+}
+.seg button.active {
+  background: var(--bg-hover);
+  color: var(--fg);
 }
 
 .group {
-  margin-bottom: 10px;
+  margin-bottom: var(--sp-3);
 }
+.group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: var(--sp-4) 0 var(--sp-2);
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-dim);
+}
+.group-head .rule {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.group-head .count {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0;
+  color: var(--fg-mute);
+  text-transform: none;
+}
+.group-head .count.under {
+  color: var(--under);
+}
+.group-head .count.over {
+  color: var(--over);
+}
+.group-head .count.ok {
+  color: var(--ok);
+}
+
+/* --- card rows ---------------------------------------------------------- */
+
 .card-row {
   background: var(--bg-row);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 10px;
-  margin: 3px 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  padding: 2px 8px;
+  margin: 2px 0;
+  transition:
+    background 0.1s,
+    border-color 0.1s;
+}
+.card-row:hover {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+.card-row.is-open {
+  background: var(--bg-hover);
+  border-color: var(--border-hi);
 }
 .card-main {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
+  min-height: 28px;
+  min-width: 0;
 }
-.card-main .name {
-  font-weight: 600;
-}
-.card-main .type {
-  font-size: 12px;
-}
-.qty {
-  min-width: 1.4em;
-  color: var(--muted);
-}
-.owned {
-  font-size: 12px;
-  color: var(--muted);
+.card-id {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: var(--sp-2);
+  flex: 1 1 auto;
+  min-width: 0;
 }
-.qty-controls {
+.card-main .name {
+  font-weight: 550;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 0 1 auto;
+}
+/* Rendered only when quantity > 1, so it takes no space on a singleton row. */
+.card-main .qty {
+  flex: none;
+  margin-left: -2px;
+  font-family: ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--fg-dim);
+}
+.card-main .type {
+  flex: none;
+  width: 172px;
+  font-size: 12px;
+  color: var(--fg-mute);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+.card-main .type .pt {
+  font-family: ui-monospace, monospace;
+}
+.row-tags {
+  display: flex;
+  gap: var(--sp-1);
+  flex: none;
+  overflow: hidden;
+}
+.own-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  font-size: 11.5px;
+  color: var(--fg-mute);
+  cursor: pointer;
+  user-select: none;
+}
+.own-toggle:hover,
+.own-toggle:has(:checked) {
+  color: var(--fg-dim);
+}
+.card-main select.ghost {
+  flex: none;
+  max-width: 116px;
+}
+
+/* Destructive/rare actions stay out of the way but never move the layout. */
+.row-actions {
   display: flex;
   gap: 3px;
+  flex: none;
+  opacity: 0;
+  transition: opacity 0.12s;
 }
-.card-tags {
-  margin-top: 3px;
+.card-row:hover .row-actions,
+.card-row:focus-within .row-actions,
+.card-row.is-open .row-actions {
+  opacity: 1;
+}
+
+.card-detail {
+  border-top: 1px solid var(--border);
+  margin-top: var(--sp-1);
+  padding: var(--sp-2) 0 var(--sp-1);
   display: flex;
-  gap: 5px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: var(--sp-2);
 }
 .oracle-text {
   white-space: pre-wrap;
-  font-family: inherit;
-  font-size: 13px;
-  color: var(--muted);
-  border-top: 1px solid var(--border);
-  margin: 6px 0 2px;
-  padding-top: 6px;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--fg-dim);
+  margin: 0;
+}
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 11.5px;
+  color: var(--fg-mute);
 }
 
-.grow {
-  flex: 1;
+/* Shed the row's least load-bearing columns as the decklist column narrows —
+   keyed to the column, not the window, since the column width depends on
+   which of the three layouts is active. */
+@container deck (max-width: 560px) {
+  .card-main .type {
+    display: none;
+  }
 }
+@container deck (max-width: 430px) {
+  .row-tags,
+  .own-toggle {
+    display: none;
+  }
+}
+
+/* --- proposals, drafts, log -------------------------------------------- */
+
 .draft {
-  border: 1px dashed var(--accent);
-  border-radius: 6px;
-  padding: 4px 10px 10px;
+  border: 1px dashed #2f4573;
+  background: color-mix(in srgb, var(--accent-bg) 35%, transparent);
+  border-radius: var(--r-md);
+  padding: 2px var(--sp-3) var(--sp-3);
 }
 .proposal {
-  border-left: 2px solid var(--accent);
-  padding-left: 10px;
-  margin-bottom: 10px;
+  border-left: 2px solid var(--border-hi);
+  padding-left: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+.proposal-head {
+  font-size: 12px;
+  color: var(--fg-mute);
+  padding: 2px 0 var(--sp-1);
+}
+/* Actions are hover-revealed on a decklist row, where a hundred rows would
+   otherwise be a wall of buttons. A proposal row exists to be ruled on, so its
+   verdict buttons are always there. */
+.proposal .row-actions {
+  opacity: 1;
+}
+/* A group is one decision with one verdict, so its cards are indented under
+   the row's single accept/reject rather than each carrying their own — which
+   is what made a swap look like two proposals you could rule on separately. */
+.card-row.is-group {
+  padding-bottom: var(--sp-1);
+}
+.group-item {
+  padding-left: var(--sp-3);
+  border-left: 1px solid var(--border-hi);
+  margin: 2px 0 2px 3px;
+}
+.group-item .card-main {
+  min-height: 24px;
 }
 .rationale {
   font-size: 12px;
-  margin-top: 2px;
+  line-height: 1.5;
+  margin-top: 1px;
+  padding-left: 2px;
 }
 .reject-form {
-  margin-top: 5px;
+  margin: var(--sp-2) 0 var(--sp-1);
+  padding-left: 2px;
 }
 .log-row {
-  padding: 3px 0;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 4px 2px;
   border-bottom: 1px solid var(--border);
-  font-size: 13px;
+  font-size: 12.5px;
+  min-width: 0;
 }
-details.group summary {
-  cursor: pointer;
-  color: var(--muted);
-  text-transform: uppercase;
-  font-size: 13px;
-  letter-spacing: 0.05em;
-  margin: 14px 0 6px;
+.log-row:last-child {
+  border-bottom: none;
+}
+.log-row .name {
+  font-weight: 550;
+  white-space: nowrap;
+}
+.log-row .reason {
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+.finding.error {
+  border-left: 2px solid var(--over);
+}
+.finding.warn {
+  border-left: 2px solid var(--under);
 }
 
-textarea {
-  width: 100%;
-  background: var(--bg-row);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 6px 8px;
-  font: inherit;
-  resize: vertical;
-}
+/* --- tabs --------------------------------------------------------------- */
 
 .tab-bar {
-  margin: 8px 0 4px;
+  display: flex;
+  /* Explicit rather than the default stretch: an item with a height of its own
+     isn't stretched, and would sit at the top of the row instead of centred. */
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 2px;
+  margin-bottom: var(--sp-3);
 }
 .tab {
   flex: 1;
+  height: 25px;
   background: none;
   border: none;
-  border-bottom: 2px solid var(--border);
-  border-radius: 0;
-  padding: 6px 0;
-  color: var(--muted);
+  border-radius: var(--r-sm);
+  padding: 0;
+  font-size: 12.5px;
+  color: var(--fg-mute);
+}
+.tab:hover:not(.active) {
+  background: var(--bg-row);
+  border: none;
+  color: var(--fg-dim);
 }
 .tab.active {
+  background: var(--bg-hover);
   color: var(--fg);
-  border-bottom-color: var(--accent);
 }
+/* The maximize toggle rides in the tab bar but isn't a tab — it keeps its own
+   width and never takes the .active treatment. Its own class rather than the
+   shared `.icon` one: `button.icon` is a 21px control, and being 21px in a
+   25px row left it sitting 2px above the tab labels. */
+.tab.tab-max {
+  flex: none;
+  width: 28px;
+}
+.tab.tab-max[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+/* --- search ------------------------------------------------------------- */
+
+.results {
+  margin-top: var(--sp-3);
+}
+.results .result {
+  background: var(--bg-row);
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  padding: var(--sp-1) var(--sp-2);
+  margin: 3px 0;
+}
+.results .result:hover {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+.result .card-main {
+  min-height: 24px;
+}
+.result .name {
+  font-weight: 550;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.result .type {
+  font-size: 11.5px;
+  color: var(--fg-mute);
+  padding-left: 2px;
+}
+.result .row-actions {
+  opacity: 0;
+}
+.result:hover .row-actions,
+.result:focus-within .row-actions {
+  opacity: 1;
+}
+.result-count {
+  font-size: 11.5px;
+  color: var(--fg-mute);
+  padding-bottom: 2px;
+}
+
+/* --- chat --------------------------------------------------------------- */
 
 .chat {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 110px);
+  flex: 1;
+  min-height: 0;
+  height: 100%;
 }
 .chat-messages {
   flex: 1;
+  min-height: 220px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 8px 0;
+  gap: var(--sp-2);
+  padding-right: 2px;
 }
 .chat-msg {
-  border-radius: 8px;
-  padding: 8px 12px;
-  white-space: pre-wrap;
-  max-width: 95%;
+  border-radius: var(--r-md);
+  padding: 7px 11px;
+  max-width: 92%;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.55;
 }
+/* Only the user side keeps pre-wrap — what you typed is literal text, whereas
+   the assistant side is markdown whose blocks carry their own spacing. */
 .chat-msg.user {
-  background: #24344d;
+  background: var(--accent-bg);
+  border: 1px solid #263558;
   align-self: flex-end;
+  white-space: pre-wrap;
 }
 .chat-msg.assistant {
   background: var(--bg-row);
@@ -415,75 +1611,195 @@ textarea {
   align-self: flex-start;
 }
 .chat-tool {
-  font-size: 12px;
-  padding-left: 4px;
-}
-.chat-input {
-  padding-top: 8px;
-}
-.cardref {
-  color: var(--accent);
-  font-weight: 600;
+  font-size: 11.5px;
+  color: var(--fg-mute);
+  padding-left: 2px;
 }
 
-.results .result {
-  background: var(--bg-row);
+/* The proposal sits at the foot of the reply that argues for it, inside the
+   same bubble and bounded by it — reply and ruling are one unit of work, and a
+   panel at the full width of the column read as a separate surface. */
+.msg-proposal {
+  /* The bubble is pre-wrap for the model's own line breaks; the markup below
+     must not inherit that. */
+  white-space: normal;
+  margin-top: var(--sp-2);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--border-hi);
+}
+.msg-proposal-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 11.5px;
+  color: var(--fg-dim);
+  padding-bottom: 2px;
+}
+.msg-proposal-head .chip {
+  margin-left: auto;
+}
+/* The shared card draws a rule down its left edge to separate it from the
+   decklist around it; the bubble already does that job here. */
+.msg-proposal .proposal {
+  border-left: none;
+  padding-left: 0;
+  margin-bottom: 0;
+}
+/* A row's own background matches the bubble, so it needs to sit a shade back
+   to read as a row at all. */
+.msg-proposal .card-row {
+  background: var(--bg-panel);
+  padding: 3px var(--sp-2);
+}
+/* At the width of a message in the narrow column there is no room for name,
+   cost and both verdict buttons on one line — let them fall to a second. */
+.msg-proposal .card-main {
+  flex-wrap: wrap;
+  min-height: 24px;
+  row-gap: 2px;
+}
+/* Wrapped rows put the actions on their own line; keep them on the right edge
+   there rather than hanging under the card name. */
+.msg-proposal .row-actions {
+  margin-left: auto;
+}
+.msg-proposal .rationale {
+  padding-left: var(--sp-2);
+}
+/* One composed control rather than a bordered input sitting next to a button:
+   the form is the field, and it takes the focus ring on behalf of the input
+   inside it. */
+.chat-input {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+  padding: 4px 4px 4px 12px;
+  background: var(--bg-input);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 10px;
-  margin: 4px 0;
+  border-radius: 21px;
+  transition:
+    border-color 0.12s,
+    box-shadow 0.12s;
+}
+.chat-input:hover {
+  border-color: var(--border-hi);
+}
+.chat-input:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+.chat-input input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+}
+/* The ring belongs to the form, so the input must not draw its own. */
+.chat-input input:focus,
+.chat-input input:focus-visible {
+  border: none;
+  outline: none;
+}
+.chat-input button {
+  flex: none;
+  height: 28px;
+  padding: 0 15px;
+  border-radius: 15px;
+}
+.cardref {
+  color: #b9cbf5;
+  background: var(--accent-bg);
+  border-radius: 3px;
+  padding: 0 3px;
+  font-weight: 550;
+  cursor: pointer;
+}
+.cardref:hover,
+.cardref:focus-visible {
+  background: #24325a;
+  color: #d5e0fa;
+  outline: none;
+}
+/* Card names outside prose (proposal rows) get the affordance on hover only —
+   underlining them permanently would compete with the chip row beside them. */
+.peekable {
+  cursor: pointer;
+}
+.peekable:hover,
+.peekable:focus-visible {
+  color: var(--accent);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  outline: none;
 }
 .reasoning-summary {
   background: var(--bg-row);
   border-left: 2px solid var(--accent);
-  border-radius: 4px;
-  padding: 8px 12px;
-  font-size: 13px;
+  border-radius: var(--r-sm);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: 12.5px;
+  line-height: 1.55;
 }
 
-/* Archidekt interop (spec §9) */
+/* --- interop ------------------------------------------------------------ */
+
 .interop-head {
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 650;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-  margin: 14px 0 4px;
+  letter-spacing: 0.07em;
+  color: var(--fg-mute);
+  margin: var(--sp-4) 0 var(--sp-2);
 }
 .export-box {
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.55;
 }
 .import-diff {
-  margin-top: 8px;
+  margin-top: var(--sp-3);
 }
 .import-diff ul {
-  margin: 4px 0 0;
+  margin: var(--sp-1) 0 0;
   padding-left: 18px;
 }
+.playtest-note {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: var(--sp-1);
+}
+.playtest-note .log-row {
+  border-bottom: none;
+  padding-bottom: 0;
+}
 
-/* Segmented context meter (spec §11) */
+/* --- context meter ------------------------------------------------------ */
+
 .meter {
   width: 100%;
   border-collapse: collapse;
-  margin: 8px 0;
+  margin: var(--sp-3) 0;
   font-size: 12px;
 }
 .meter td {
-  padding: 2px 6px 2px 0;
+  padding: 3px 8px 3px 0;
   vertical-align: middle;
 }
 .meter-label {
   white-space: nowrap;
-  color: var(--muted);
+  color: var(--fg-dim);
 }
 .meter-bar-cell {
   width: 45%;
 }
 .meter-bar {
-  height: 9px;
+  height: 8px;
   background: var(--accent);
-  border-radius: 2px;
-  min-width: 1px;
+  border-radius: 999px;
+  min-width: 2px;
 }
 /* Segments that grow without bound are the ones compaction/retention act on */
 .meter-bar.grows {
@@ -492,26 +1808,99 @@ textarea {
 .meter-num {
   text-align: right;
   white-space: nowrap;
+  color: var(--fg-dim);
 }
 .meter-hint {
   white-space: nowrap;
   font-size: 11px;
+  color: var(--fg-mute);
 }
 .retention-row {
-  margin-top: 8px;
+  margin-top: var(--sp-3);
   align-items: center;
 }
 .rescued {
   border-left: 2px solid #d08a3a;
-  padding-left: 10px;
-  margin-top: 8px;
+  padding-left: var(--sp-3);
+  margin-top: var(--sp-3);
 }
 .compacted-block {
   border: 1px dashed var(--border);
-  border-radius: 6px;
-  padding: 4px 10px;
+  border-radius: var(--r-md);
+  padding: 2px var(--sp-3);
 }
-.compacted-block summary {
-  cursor: pointer;
+.compacted-block > summary {
   font-size: 12px;
+  color: var(--fg-mute);
+}
+
+/* --- audit (spec §8) ----------------------------------------------------- */
+
+/* The audit lives below the decklist rather than in a modal: a run is a
+   server-side job now, findings persist across sessions, and closing a dialog
+   should never be the thing that throws them away. The rule above it separates
+   it from the last card group without making it a second page. */
+.audit-section {
+  margin-top: var(--sp-5);
+  border-top: 1px solid var(--border);
+  padding-top: var(--sp-2);
+}
+.audit-head {
+  flex-wrap: wrap;
+}
+.audit-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  height: auto;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: var(--fg);
+  cursor: pointer;
+}
+.audit-toggle:hover {
+  color: var(--accent);
+}
+.audit-when {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+.audit-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.audit-sub {
+  margin: var(--sp-3) 0 0;
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-dim);
+}
+.audit-sub .muted {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+.audit-running {
+  border-left: 2px solid var(--accent);
+  padding-left: var(--sp-3);
+  font-size: 12px;
+}
+.audit-stale {
+  color: var(--under);
+  font-size: 12px;
+}
+/* An audit#<run>/<key> reference in the transcript — the token the agent
+   resolved, kept verbatim so the message replays identically. */
+.auditref {
+  font-family: ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--under);
+  background: var(--under-bg);
+  border-radius: 3px;
+  padding: 0 3px;
 }

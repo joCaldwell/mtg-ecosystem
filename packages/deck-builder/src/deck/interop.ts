@@ -32,8 +32,8 @@
 // ---------------------------------------------------------------------------
 
 import type { DatabaseSync } from "node:sqlite";
-import { ServiceError, getDeck } from "./service.ts";
-import { createProposal, isHardFiltered } from "./proposals.ts";
+import { ServiceError, addCard, getDeck, removeCard, updateCard } from "./service.ts";
+import { isHardFiltered, logImport } from "./proposals.ts";
 import { resolveExactName, suggestNames } from "../search/index.ts";
 
 // Categories we emit for cards that aren't in a user slot. "Commander" is
@@ -113,6 +113,24 @@ export function exportDeck(
 }
 
 // ---------- parsing (permissive — accepts the whole Archidekt superset) ----------
+
+// Resolve one line of a plain-text deck list to a card.
+//
+// `resolveExactName` matches full names AND face names, so a staple can come
+// back "ambiguous" purely because some double-faced card has a back face with
+// the same name — "Swords to Plowshares" and "Rampant Growth" both do. On a
+// deck-list line, "1 Swords to Plowshares" unambiguously means the card
+// actually called that, so a unique full-name match wins. 25 of the 47
+// colliding names in the current snapshot resolve this way; the rest (un-set
+// variants, split-card halves) stay genuinely ambiguous and are reported.
+export function resolveListName(db: DatabaseSync, name: string) {
+  const matches = resolveExactName(db, name);
+  if (matches.length <= 1) return matches;
+  const exact = matches.filter(
+    (m) => m.name.trim().toLowerCase() === name.trim().toLowerCase(),
+  );
+  return exact.length === 1 ? exact : matches;
+}
 
 export interface ParsedLine {
   line_no: number;
@@ -215,6 +233,7 @@ export interface ImportDiff {
     slot_id: number | null;
     slot_name: string | null;
     category: string | null;
+    role: "card" | "commander" | "companion";
   }>;
   cuts: Array<{ oracle_id: string; name: string; quantity: number; role: string }>;
   quantity_changes: Array<{ oracle_id: string; name: string; from: number; to: number }>;
@@ -250,7 +269,7 @@ export function diffImport(db: DatabaseSync, deckId: number, text: string): Impo
   >();
 
   for (const entry of entries) {
-    const matches = resolveExactName(db, entry.name);
+    const matches = resolveListName(db, entry.name);
     if (matches.length === 0) {
       unresolved.push({
         line_no: entry.line_no,
@@ -285,6 +304,15 @@ export function diffImport(db: DatabaseSync, deckId: number, text: string): Impo
   const quantityChanges: ImportDiff["quantity_changes"] = [];
   let unchanged = 0;
 
+  // Command-zone capacity left over once the cards absent from the pasted list
+  // are gone. A list carrying its own [Commander] category should land its
+  // commander in the command zone — that's what sets the deck's color
+  // identity — but never past the 2/1 caps, which would throw mid-import.
+  let commanderRoom =
+    2 - cards.filter((c) => c.role === "commander" && pasted.has(c.oracle_id)).length;
+  let companionRoom =
+    1 - cards.filter((c) => c.role === "companion" && pasted.has(c.oracle_id)).length;
+
   for (const [oracleId, p] of pasted) {
     const existing = inDeck.get(oracleId);
     if (existing) {
@@ -308,6 +336,15 @@ export function diffImport(db: DatabaseSync, deckId: number, text: string): Impo
     // First category that names an existing slot wins; Commander/Companion/
     // Unslotted are our own export categories and map to no slot.
     const slot = p.categories.map((c) => slotByName.get(c.toLowerCase())).find(Boolean) ?? null;
+    const lowered = p.categories.map((c) => c.toLowerCase());
+    let role: "card" | "commander" | "companion" = "card";
+    if (lowered.some((c) => c === "commander" || c === "commanders") && commanderRoom > 0) {
+      role = "commander";
+      commanderRoom--;
+    } else if (lowered.includes("companion") && companionRoom > 0) {
+      role = "companion";
+      companionRoom--;
+    }
     adds.push({
       oracle_id: oracleId,
       name: p.name,
@@ -315,6 +352,7 @@ export function diffImport(db: DatabaseSync, deckId: number, text: string): Impo
       slot_id: slot?.id ?? null,
       slot_name: slot?.name ?? null,
       category: p.categories[0] ?? null,
+      role,
     });
   }
 
@@ -340,44 +378,74 @@ export function diffImport(db: DatabaseSync, deckId: number, text: string): Impo
   };
 }
 
-// The diff becomes a proposal — every change comes back through the same
-// approval gate with a reason attached (spec §9). Import proposals are exempt
-// from the 3–5 item cap (settled deviation from §7.1): these are the owner's
-// own changes re-entering, not the agent ranking ideas.
-export function createImportProposal(
+// An import applies in full, immediately (settled deviation from the original
+// §9 wording). The approval gate exists so the AGENT cannot change the deck
+// without a ruling; a pasted list is the owner's own list, already ruled on by
+// the act of pasting it, and routing 99 cards through per-card accept clicks
+// was pure friction. The preview diff is the confirmation step, the whole
+// import lands atomically, and it is recorded as ONE decision-log entry that
+// carries a full snapshot — so "undo" on that row restores the prior list
+// exactly. One log line also keeps a 99-card import from flushing every real
+// ruling out of the agent's retention window (§12).
+export interface ImportResult {
+  applied: { added: number; cut: number; quantity_changed: number };
+  // Null when the list matched the deck exactly — nothing was written.
+  log_id: number | null;
+  diff: ImportDiff;
+}
+
+export function applyImport(
   db: DatabaseSync,
   deckId: number,
   text: string,
   note?: string,
-): { proposal_id: number | null; diff: ImportDiff } {
+): ImportResult {
   const diff = diffImport(db, deckId, text);
-  const items = [
-    ...diff.adds.map((a) => ({
-      action: "add" as const,
-      oracle_id: a.oracle_id,
-      slot_id: a.slot_id,
-      rationale: `Import: in the pasted Archidekt list, not in the deck${
-        a.category ? ` (category “${a.category}”)` : ""
-      }.`,
-    })),
-    ...diff.cuts.map((c) => ({
-      action: "cut" as const,
-      oracle_id: c.oracle_id,
-      rationale: `Import: in the deck${
-        c.role !== "card" ? ` as ${c.role}` : ""
-      }, absent from the pasted Archidekt list.`,
-    })),
-  ];
+  const applied = {
+    added: diff.adds.length,
+    cut: diff.cuts.length,
+    quantity_changed: diff.quantity_changes.length,
+  };
+  if (!applied.added && !applied.cut && !applied.quantity_changed)
+    return { applied, log_id: null, diff };
 
-  if (!items.length) return { proposal_id: null, diff };
+  // Snapshot every card BEFORE touching anything — this is the undo payload.
+  const before = getDeck(db, deckId).cards.map((c) => ({
+    oracle_id: c.oracle_id,
+    slot_id: c.slot_id,
+    role: c.role,
+    owned: c.owned,
+    quantity: c.quantity,
+    tag_ids: c.tag_ids,
+  }));
 
-  const proposalId = createProposal(db, deckId, items, {
-    source: "import",
-    note:
+  db.exec("BEGIN");
+  try {
+    for (const c of diff.cuts) removeCard(db, deckId, c.oracle_id);
+    for (const a of diff.adds) {
+      // Slots deleted between preview and apply must not fail the import.
+      const slotId =
+        a.slot_id != null &&
+        db.prepare("SELECT 1 FROM slots WHERE id = ? AND deck_id = ?").get(a.slot_id, deckId)
+          ? a.slot_id
+          : null;
+      addCard(db, deckId, a.oracle_id, { slotId, role: a.role });
+      if (a.quantity > 1) updateCard(db, deckId, a.oracle_id, { quantity: a.quantity });
+    }
+    for (const q of diff.quantity_changes)
+      updateCard(db, deckId, q.oracle_id, { quantity: q.to });
+
+    const summary =
       note?.trim() ||
-      `Archidekt import diff at revision ${diff.revision}: +${diff.adds.length}/−${diff.cuts.length}`,
-  });
-  return { proposal_id: proposalId, diff };
+      `Imported an Archidekt list at revision ${diff.revision}: +${applied.added}/−${applied.cut}` +
+        (applied.quantity_changed ? `, ${applied.quantity_changed} quantity change(s)` : "");
+    const logId = logImport(db, deckId, summary, before);
+    db.exec("COMMIT");
+    return { applied, log_id: logId, diff };
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
 }
 
 // ---------- playtest notes (spec §9) ----------

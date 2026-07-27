@@ -52,21 +52,15 @@ describe("proposal creation", () => {
       /Unknown oracle_id/,
     );
   });
-  test("cap of 5 items, import exempt", () => {
+  // Nothing is exempt from the cap now that imports apply directly (§9)
+  // rather than arriving here as a 99-item proposal.
+  test("cap of 5 items, no exemptions", () => {
     const id = deckWith("Cap");
     const many = ["id-llanowar", "id-seedborn", "id-counterspell", "id-solring", "id-goyf", "id-ball"];
-    assert.throws(
-      () =>
-        createProposal(db, id, many.map((o) => ({ action: "add" as const, oracle_id: o, rationale: "r" }))),
-      /at most 5/,
-    );
-    const pid = createProposal(
-      db,
-      id,
-      many.map((o) => ({ action: "add" as const, oracle_id: o, rationale: "r" })),
-      { source: "import" },
-    );
-    assert.ok(pid > 0);
+    const items = many.map((o) => ({ action: "add" as const, oracle_id: o, rationale: "r" }));
+    assert.throws(() => createProposal(db, id, items), /at most 5/);
+    assert.throws(() => createProposal(db, id, items, { source: "import" }), /at most 5/);
+    assert.ok(createProposal(db, id, items.slice(0, 5)) > 0);
   });
 });
 

@@ -1,44 +1,115 @@
-# 🤖 AI Agent Onboarding Manual (AGENTS.md)
+# 🤖 AI Agent Onboarding Manual
 
-Welcome! This document provides context, execution commands, and guidelines for AI coding assistants working in this repository.
-
----
-
-## 🏗️ Project Context & Architecture
-This is a **TypeScript monorepo** using npm workspaces. The current focus is **Layer 0 (Oracle Text Parser)**.
-*   **Core Parser**: [packages/oracle-parser](file:///home/josh/Code/mtg-ecosystem/packages/oracle-parser) (defines ANTLR grammar, TypeScript AST types, and visitor walking logic).
-*   **Shared Config**: [package.json](file:///home/josh/Code/mtg-ecosystem/package.json) (root), [tsconfig.base.json](file:///home/josh/Code/mtg-ecosystem/tsconfig.base.json).
-*   **Bulk Dataset**: [.scryfall-cache/oracle-cards.json](file:///home/josh/Code/mtg-ecosystem/.scryfall-cache/oracle-cards.json) (created by ingest script).
+This is the **root** manual: what the whole project is, and how to find the
+sub-project you've been asked to work on. Each package carries its own
+`AGENTS.md` with the commands, development loop, and constraints that apply
+inside it. Those are authoritative for their package; this file is not.
 
 ---
 
-## 🚀 Key Commands
-*   `npm install` — Installs workspace dependencies and links packages.
-*   `npm run ingest` — Downloads and caches Scryfall's unique cards JSON export.
-*   `npm run generate-parser` — Compiles `.g4` grammars to TS under `generated/` (requires Java).
-*   `npm run validate` — Runs the parser against all 33,000+ cards and reports statistics and error groupings.
-*   `npm test` — Runs the Vitest test suite.
-*   `npm run build` — Compiles TS workspaces to JS under their respective `dist/` folders.
+## ⛳ First: establish which project this session is about
+
+The packages here are independent, at different stages, with **different test
+runners, different dependency rules, and different constraints**. Applying one
+package's conventions inside another produces confidently wrong work.
+
+**If the request does not make the target obvious, ask before doing anything.**
+A file path, a package name, or an unambiguous subject ("the deck's brief",
+"the ANTLR grammar") all count as obvious — this is not a reason to interrogate
+someone who has already told you where they are. It's a reason not to guess
+when they haven't.
+
+Once identified, **read that package's `AGENTS.md` before touching its code**,
+and follow it over anything general you might assume.
+
+Josh may also open a package directory directly in the editor, in which case
+that package's `AGENTS.md` is the one in scope and no routing question is
+needed.
+
+| Package | Layer | Status | Manual |
+| --- | --- | --- | --- |
+| **[deck-builder](packages/deck-builder/AGENTS.md)** | 3 (built early) | ⭐ **Active** | [AGENTS.md](packages/deck-builder/AGENTS.md) |
+| [oracle-parser](packages/oracle-parser/AGENTS.md) | 0 | ⏸️ Paused | [AGENTS.md](packages/oracle-parser/AGENTS.md) |
+| [card-data](packages/card-data) | 0 | Output artifact — compiled Card IR, not hand-edited | — |
+| [game-engine](packages/game-engine) | 1 | 🕳️ Not started (README only) | — |
+| [game-server](packages/game-server) | 2 | 🕳️ Not started (README only) | — |
 
 ---
 
-## 🔄 Development Loop: Adding Grammar Support
-When adding support for a new keyword, action, or trigger rule:
-1.  **Analyze**: Run `npm run validate` to identify failing card examples and error patterns.
-2.  **Rules Reference**: Consult the official Magic: The Gathering Comprehensive Rules (CR) or reliable wiki resources to understand the exact game mechanics, layers, and syntax requirements for the rule or action you are implementing. This ensures that the grammar structure is built with MTG's core rules engine logic in mind.
-3.  **Lexer**: Add any new literal words as UPPERCASE tokens in [MTGLexer.g4](file:///home/josh/Code/mtg-ecosystem/packages/oracle-parser/grammar/MTGLexer.g4).
-4.  **Parser**: Add syntactic rules to the appropriate sub-parser file (e.g., [MTGEffectsParser.g4](file:///home/josh/Code/mtg-ecosystem/packages/oracle-parser/grammar/MTGEffectsParser.g4)).
-5.  **Compile**: Run `npm run generate-parser` to rebuild the parser runtime.
-6.  **AST Types**: Define corresponding types in [src/ast/types.ts](file:///home/josh/Code/mtg-ecosystem/packages/oracle-parser/src/ast/types.ts).
-7.  **Visitor**: Extend visitor methods in [src/visitor/ASTBuilder.ts](file:///home/josh/Code/mtg-ecosystem/packages/oracle-parser/src/visitor/ASTBuilder.ts) to construct your new AST nodes.
-8.  **Test**: Add unit tests in [tests/parser.test.ts](file:///home/josh/Code/mtg-ecosystem/packages/oracle-parser/tests/parser.test.ts) and verify them using `npm test`.
-9.  **Re-validate**: Run `npm run validate` to verify the baseline success rate goes up!
+## 🌌 The project: Project Multiverse
+
+An initiative to digitize Magic: The Gathering into a modular, layered,
+**agent-first** system, built bottom-up. Three principles drive it:
+
+1.  **The game is the API** — every layer exposes clean, documented interfaces.
+2.  **AI is a first-class citizen** — agents consume card data, query rules,
+    and play games natively, rather than through a UI meant for humans.
+3.  **Bottom-up construction** — each layer is tested and documented before the
+    next begins.
+
+```
+Layer 3  📱 Clients & agent apps      ← deck-builder lives here
+Layer 2  🌐 Game server & API
+Layer 1  ⚙️  Game state & rules engine
+Layer 0  🔮 Oracle text parser & Card IR
+```
+
+See [docs/architecture.md](docs/architecture.md) for the full layer breakdown
+and [README.md](README.md) for the project overview.
+
+### Why the active project is at the top of the stack
+
+The build order above is the plan, and Layer 0 is genuinely the foundation —
+but the parser's remaining work is its hard tail (the rules layer system,
+replacement effects, complex targeting), where a wrong AST is worse than no
+AST. That work is **paused pending a stronger model**.
+
+The deck-builder was pulled forward instead, and it is deliberately
+**standalone**: it ingests Scryfall bulk data into its own SQLite database and
+does not consume the Card IR or the rules engine. That's what makes it
+buildable now. Two consequences worth knowing:
+
+*   It cannot answer questions that need real rules evaluation. Where the spec
+    wants that — companion deck-building conditions, for instance — it says so
+    and asks the user to verify by hand, rather than guessing.
+*   When Layers 0–1 are finished, the deck-builder is the natural first
+    consumer. Nothing in it should make that harder, but nothing in it should
+    wait for it either.
 
 ---
 
-## ⚠️ Coding Constraints & Rules
-*   **Do NOT Commit Generated Parser Files**: All files in `packages/oracle-parser/generated/` are gitignored. Never add them to Git.
-*   **No String Literals in Parser Grammars**: Because we use a split Lexer/Parser, you cannot use literal strings like `'exile'` or `'+'` inside any parser file. Declare them in [MTGLexer.g4](file:///home/josh/Code/mtg-ecosystem/packages/oracle-parser/grammar/MTGLexer.g4) and use the token name.
-*   **No Reminder Text Parsing**: Stripping parentheticals must happen in [normalize.ts](file:///home/josh/Code/mtg-ecosystem/packages/oracle-parser/src/ingest/normalize.ts). The parser must only process rules text.
-*   **TypeScript Resolution**: Do not use suffix extensions (`.ts` or `.js`) on imports inside package source code, unless required. In scripts, use `.ts` for native ES Modules compatibility.
-*   **Prioritize Clean Design over Backward Compatibility**: The parser is in early-stage development. Always prefer refactoring, rewriting, or replacing old grammar rules with cleaner, more efficient designs over maintaining backward compatibility or adding compatibility shims for sub-optimal rules.
+## 📚 Shared documentation
+
+Project-wide docs in [docs/](docs/), relevant regardless of package:
+
+| Doc | Contents |
+| --- | --- |
+| [architecture.md](docs/architecture.md) | Layer breakdown and build order |
+| [decisions.md](docs/decisions.md) | Architectural decision log, with rationale |
+| [glossary.md](docs/glossary.md) | MTG and system terminology |
+| [project-structure.md](docs/project-structure.md) | Directories and workspaces |
+| [scryfall-integration.md](docs/scryfall-integration.md) | Bulk data ingestion |
+| [agent_design.md](docs/agent_design.md) | Agent-first integration philosophy |
+| [deck-builder-spec.md](docs/deck-builder-spec.md) | Full spec for the active project |
+| [oracle_parser.md](docs/oracle_parser.md) | Parser design, AST, IR format |
+| [data_schemas.md](docs/data_schemas.md) | Input and output JSON schemas |
+
+---
+
+## 🧭 Conventions that hold everywhere
+
+*   **TypeScript monorepo, npm workspaces.** `npm install` at the root links
+    packages. Root scripts drive the parser pipeline; the deck-builder has its
+    own scripts in its own package.json.
+*   **Card facts come from card data, never from model memory.** Card names,
+    oracle text, and legality are all checkable — check them. This is the
+    project's founding premise, not a per-package preference.
+*   **Verify external formats against their own documentation.** Scryfall
+    syntax, Archidekt's import format, the Comprehensive Rules: read the
+    source and cite it in a comment. These are exactly the details that get
+    confabulated.
+*   **Prefer clean design over backward compatibility.** Everything here is
+    early-stage and single-user. Rewrite rather than shim.
+*   **Don't commit generated or downloaded artifacts.** `generated/`,
+    `.scryfall-cache/`, `dist/`, and the deck-builder's `data/` and `.dev/`
+    are all ignored.

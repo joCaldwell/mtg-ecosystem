@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api, type DeckCard, type DeckState, type DraftItem, type Slot, type Tag } from "./api.ts";
+import { ManaCost } from "./Mana.tsx";
 
 export function CardRow({
   card,
@@ -33,24 +34,44 @@ export function CardRow({
     mutate(() => api.updateCard(deckId, card.oracle_id, { tag_ids: next }));
   }
 
+  // Only the tags actually on this card ride along in the row; the full cloud
+  // of toggles lives in the expanded panel, where it isn't repeated 100 times.
+  const activeTags = tags.filter((t) => card.tag_ids.includes(t.id));
+
   return (
-    <div className="card-row">
+    <div className={`card-row ${expanded ? "is-open" : ""}`}>
       <div className="card-main">
-        <span className="qty">
-          {card.quantity > 1 && `${card.quantity}× `}
+        {/* Name and cost share one growing box so the name keeps its natural
+            width — a bare flex spacer would shrink it into an ellipsis first.
+            The count follows the name rather than leading it: singletons are
+            the overwhelming majority, and a reserved gutter left every one of
+            them indented behind an empty column. */}
+        <span className="card-id">
+          <button className="link name" onClick={() => setExpanded(!expanded)}>
+            {card.name}
+          </button>
+          {card.quantity > 1 && <span className="qty">×{card.quantity}</span>}
+          <ManaCost cost={card.mana_cost} />
         </span>
-        <button className="link name" onClick={() => setExpanded(!expanded)}>
-          {card.name}
-        </button>
-        <span className="mono cost">{card.mana_cost ?? ""}</span>
-        <span className="muted type">
+
+        {/* Type sits on the right so it forms a straight column; names vary in
+            length and would otherwise scatter it across the row. */}
+        <span className="type">
           {shortType}
-          {pt && ` ${pt}`}
+          {pt && <span className="pt"> {pt}</span>}
         </span>
 
-        <span className="spacer" />
+        {activeTags.length > 0 && (
+          <span className="row-tags">
+            {activeTags.map((t) => (
+              <span key={t.id} className="tag-chip active static">
+                {t.name}
+              </span>
+            ))}
+          </span>
+        )}
 
-        <label className="owned" title="Owned (never shown to the agent)">
+        <label className="own-toggle" title="Owned (never shown to the agent)">
           <input
             type="checkbox"
             checked={!!card.owned}
@@ -62,6 +83,7 @@ export function CardRow({
         </label>
 
         <select
+          className="ghost"
           value={card.slot_id ?? ""}
           onChange={(e) =>
             mutate(() =>
@@ -80,30 +102,25 @@ export function CardRow({
           ))}
         </select>
 
-        <select
-          value={card.role}
-          onChange={(e) => mutate(() => api.updateCard(deckId, card.oracle_id, { role: e.target.value }))}
-          title="Role"
-        >
-          <option value="card">card</option>
-          <option value="commander">commander</option>
-          <option value="companion">companion</option>
-        </select>
-
-        <span className="qty-controls">
+        <span className="row-actions">
           {draftAdd && (
             <button
-              className="small"
+              className="icon"
               title="Propose cutting this card"
               onClick={() =>
-                draftAdd({ action: "cut", oracle_id: card.oracle_id, card_name: card.name, rationale: "" })
+                draftAdd({
+                  action: "cut",
+                  oracle_id: card.oracle_id,
+                  card_name: card.name,
+                  rationale: "",
+                })
               }
             >
               ✂
             </button>
           )}
           <button
-            className="small"
+            className="icon"
             title="Remove one / remove card"
             onClick={() =>
               card.quantity > 1
@@ -116,7 +133,7 @@ export function CardRow({
             −
           </button>
           <button
-            className="small"
+            className="icon"
             title="Add a copy"
             onClick={() =>
               mutate(() => api.updateCard(deckId, card.oracle_id, { quantity: card.quantity + 1 }))
@@ -125,7 +142,7 @@ export function CardRow({
             +
           </button>
           <button
-            className="small danger"
+            className="icon danger"
             title="Remove card entirely"
             onClick={() => mutate(() => api.removeCard(deckId, card.oracle_id))}
           >
@@ -134,21 +151,39 @@ export function CardRow({
         </span>
       </div>
 
-      {tags.length > 0 && (
-        <div className="card-tags">
-          {tags.map((t) => (
-            <button
-              key={t.id}
-              className={`tag-chip ${card.tag_ids.includes(t.id) ? "active" : ""}`}
-              onClick={() => toggleTag(t.id)}
-            >
-              {t.name}
-            </button>
-          ))}
+      {expanded && (
+        <div className="card-detail">
+          {card.oracle_text && <pre className="oracle-text">{card.oracle_text}</pre>}
+          <div className="row gap wrap">
+            <label className="field">
+              Role
+              <select
+                value={card.role}
+                onChange={(e) =>
+                  mutate(() => api.updateCard(deckId, card.oracle_id, { role: e.target.value }))
+                }
+              >
+                <option value="card">card</option>
+                <option value="commander">commander</option>
+                <option value="companion">companion</option>
+              </select>
+            </label>
+            {tags.length > 0 && (
+              <div className="tag-cloud" style={{ marginBottom: 0 }}>
+                {tags.map((t) => (
+                  <button
+                    key={t.id}
+                    className={`tag-chip ${card.tag_ids.includes(t.id) ? "active" : ""}`}
+                    onClick={() => toggleTag(t.id)}
+                  >
+                    {t.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
-
-      {expanded && <pre className="oracle-text">{card.oracle_text}</pre>}
     </div>
   );
 }

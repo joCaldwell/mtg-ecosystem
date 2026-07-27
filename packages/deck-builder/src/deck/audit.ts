@@ -194,49 +194,220 @@ export function auditView(db: DatabaseSync, deckId: number) {
       pips: computed.pips,
       slot_deltas: computed.slot_deltas,
     },
-    reasoning: null, // populated by the Phase 4 agent pass
+    // The reasoning half (§8.2) is not here: it belongs to a recorded run, not
+    // to the live view. auditState() attaches the newest run that has one.
   };
 }
 
+// ---------- recorded runs (spec §8) ----------
+
+// How many runs per deck stay on disk. Deep history has no readers: the
+// deterministic half of an old run is stale the moment the deck changes, and
+// what the reasoning pass said five runs ago is superseded advice.
+export const AUDIT_RUN_RETENTION = 5;
+
+export interface AuditRun {
+  id: number;
+  deck_id: number;
+  revision: number;
+  instructions: string;
+  status: "running" | "done" | "error";
+  error: string | null;
+  /** Deterministic findings as they stood when the run started. */
+  findings: Finding[];
+  reasoning: ReasoningSnapshot | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+// Structurally the ReasoningResult from agent/reasoning.ts, redeclared here so
+// the deck layer doesn't depend on the agent layer (the dependency runs the
+// other way — reasoning.ts imports Finding from this file).
+export interface ReasoningSnapshot {
+  summary: string;
+  findings: Finding[];
+  dismissed: Array<Finding & { dismissal: { type: string; reason: string } }>;
+  dropped: number;
+  error?: string;
+}
+
+interface AuditRunRow {
+  id: number;
+  deck_id: number;
+  revision: number;
+  instructions: string;
+  status: "running" | "done" | "error";
+  error: string | null;
+  findings_json: string;
+  reasoning_json: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+function parseRun(row: AuditRunRow): AuditRun {
+  return {
+    id: row.id,
+    deck_id: row.deck_id,
+    revision: row.revision,
+    instructions: row.instructions,
+    status: row.status,
+    error: row.error,
+    findings: JSON.parse(row.findings_json) as Finding[],
+    reasoning: row.reasoning_json ? (JSON.parse(row.reasoning_json) as ReasoningSnapshot) : null,
+    created_at: row.created_at,
+    finished_at: row.finished_at,
+  };
+}
+
+// Opens a run and hands back its id. The deterministic half is complete at
+// this point; the reasoning pass fills in later via finishAuditRun.
+export function startAuditRun(db: DatabaseSync, deckId: number, instructions = ""): number {
+  const view = auditView(db, deckId);
+  const r = db
+    .prepare(
+      `INSERT INTO audit_runs (deck_id, revision, instructions, findings_json, status)
+       VALUES (?, ?, ?, ?, 'running')`,
+    )
+    .run(deckId, view.revision, instructions, JSON.stringify(view.findings));
+  const runId = Number(r.lastInsertRowid);
+  db.prepare(
+    `DELETE FROM audit_runs WHERE deck_id = ? AND id NOT IN
+       (SELECT id FROM audit_runs WHERE deck_id = ? ORDER BY id DESC LIMIT ?)`,
+  ).run(deckId, deckId, AUDIT_RUN_RETENTION);
+  return runId;
+}
+
+export function finishAuditRun(
+  db: DatabaseSync,
+  runId: number,
+  reasoning: object | null,
+  error: string | null = null,
+): void {
+  db.prepare(
+    `UPDATE audit_runs SET reasoning_json = ?, status = ?, error = ?, finished_at = datetime('now')
+     WHERE id = ?`,
+  ).run(reasoning ? JSON.stringify(reasoning) : null, error ? "error" : "done", error, runId);
+}
+
+// A run in flight dies with the process — nothing resumes it, so on boot the
+// rows are marked failed rather than left claiming to be running forever.
+export function reclaimStaleRuns(db: DatabaseSync): number {
+  const r = db
+    .prepare(
+      `UPDATE audit_runs SET status = 'error', error = 'The server restarted while this run was in progress.',
+         finished_at = datetime('now')
+       WHERE status = 'running'`,
+    )
+    .run();
+  return Number(r.changes);
+}
+
+export function listAuditRuns(db: DatabaseSync, deckId: number): AuditRun[] {
+  return (
+    db
+      .prepare("SELECT * FROM audit_runs WHERE deck_id = ? ORDER BY id DESC LIMIT ?")
+      .all(deckId, AUDIT_RUN_RETENTION) as unknown as AuditRunRow[]
+  ).map(parseRun);
+}
+
+export function getAuditRun(db: DatabaseSync, deckId: number, runId: number): AuditRun | null {
+  const row = db
+    .prepare("SELECT * FROM audit_runs WHERE deck_id = ? AND id = ?")
+    .get(deckId, runId) as AuditRunRow | undefined;
+  return row ? parseRun(row) : null;
+}
+
+export function runningAuditRun(db: DatabaseSync, deckId: number): AuditRun | null {
+  const row = db
+    .prepare("SELECT * FROM audit_runs WHERE deck_id = ? AND status = 'running' ORDER BY id DESC LIMIT 1")
+    .get(deckId) as AuditRunRow | undefined;
+  return row ? parseRun(row) : null;
+}
+
+// What the audit section renders: deterministic findings recomputed live —
+// they are SQL and are never allowed to go stale on screen — plus the recorded
+// runs, of which the newest one carrying reasoning supplies the §8.2 half.
+export function auditState(db: DatabaseSync, deckId: number) {
+  const view = auditView(db, deckId);
+  const runs = listAuditRuns(db, deckId);
+  return {
+    ...view,
+    runs,
+    reasoning_run: runs.find((r) => r.reasoning) ?? null,
+  };
+}
+
+// Synchronous run — one call, recorded start to finish. The server backgrounds
+// the reasoning pass instead (see startAuditRun/finishAuditRun); this stays for
+// the CLI and for tests, where there is nothing to background onto.
 export function runAudit(
   db: DatabaseSync,
   deckId: number,
   instructions = "",
   reasoning: object | null = null,
 ) {
-  const view = auditView(db, deckId);
-  const r = db
-    .prepare(
-      "INSERT INTO audit_runs (deck_id, revision, instructions, findings_json, reasoning_json) VALUES (?, ?, ?, ?, ?)",
-    )
-    .run(
-      deckId,
-      view.revision,
-      instructions,
-      JSON.stringify(view.findings),
-      reasoning ? JSON.stringify(reasoning) : null,
-    );
-  return { run_id: Number(r.lastInsertRowid), instructions, ...view };
+  const runId = startAuditRun(db, deckId, instructions);
+  finishAuditRun(db, runId, reasoning);
+  return { run_id: runId, instructions, ...auditView(db, deckId) };
 }
 
-// Look up a finding by key across deterministic findings AND the latest
-// run's reasoning findings — so reasoning findings can be dismissed and
-// promoted through the same gate.
+// Look up a finding by key across deterministic findings AND the reasoning
+// findings of every retained run — so reasoning findings can be dismissed and
+// promoted through the same gate, and a finding the owner is still looking at
+// in the history stays actionable after a newer run lands.
 function findFindingByKey(db: DatabaseSync, deckId: number, key: string): Finding | undefined {
   const deterministic = computeFindings(db, deckId).find((f) => f.key === key);
   if (deterministic) return deterministic;
   if (!key.startsWith("reasoning:")) return undefined;
-  const run = db
-    .prepare(
-      "SELECT reasoning_json FROM audit_runs WHERE deck_id = ? AND reasoning_json IS NOT NULL ORDER BY id DESC LIMIT 1",
-    )
-    .get(deckId) as { reasoning_json: string } | undefined;
-  if (!run) return undefined;
-  const reasoning = JSON.parse(run.reasoning_json) as {
-    findings?: Array<Finding & { oracle_id?: string }>;
-    dismissed?: Array<Finding & { oracle_id?: string }>;
+  for (const run of listAuditRuns(db, deckId)) {
+    const found = [...(run.reasoning?.findings ?? []), ...(run.reasoning?.dismissed ?? [])].find(
+      (f) => f.key === key,
+    );
+    if (found) return found;
+  }
+  return undefined;
+}
+
+export interface FoundFinding {
+  finding: Finding;
+  source: "deterministic" | "reasoning";
+  /** The run the finding was read out of; null when it is a live check. */
+  run: AuditRun | null;
+  dismissal?: { type: string; reason: string };
+}
+
+// Resolve an `audit#<run>/<key>` reference: the run named by the owner first,
+// then the live deterministic checks, then any retained run. Used by the chat
+// agent's get_audit tool, which must never guess at what a finding said.
+export function lookupFinding(
+  db: DatabaseSync,
+  deckId: number,
+  key: string,
+  runId?: number | null,
+): FoundFinding | null {
+  const dismissals = activeDismissals(db, deckId);
+  const dismissal = dismissals.get(key);
+  const fromRun = (run: AuditRun): FoundFinding | null => {
+    const deterministic = run.findings.find((f) => f.key === key);
+    if (deterministic) return { finding: deterministic, source: "deterministic", run, dismissal };
+    const reasoning = [...(run.reasoning?.findings ?? []), ...(run.reasoning?.dismissed ?? [])].find(
+      (f) => f.key === key,
+    );
+    return reasoning ? { finding: reasoning, source: "reasoning", run, dismissal } : null;
   };
-  return [...(reasoning.findings ?? []), ...(reasoning.dismissed ?? [])].find((f) => f.key === key);
+
+  if (runId != null) {
+    const run = getAuditRun(db, deckId, runId);
+    const hit = run && fromRun(run);
+    if (hit) return hit;
+  }
+  const live = computeFindings(db, deckId).find((f) => f.key === key);
+  if (live) return { finding: live, source: "deterministic", run: null, dismissal };
+  for (const run of listAuditRuns(db, deckId)) {
+    const hit = fromRun(run);
+    if (hit) return hit;
+  }
+  return null;
 }
 
 // Dismissing a finding requires a typed reason and is logged exactly like a

@@ -6,10 +6,18 @@ import { FIXTURES } from "./fixtures.ts";
 import { addCard, createDeck, createSlot, updateCard } from "../src/deck/service.ts";
 import { listCardNotes, listProposals, getLog } from "../src/deck/proposals.ts";
 import {
+  AUDIT_RUN_RETENTION,
+  auditState,
   computeFindings,
   dismissFinding,
+  finishAuditRun,
+  listAuditRuns,
+  lookupFinding,
   promoteFinding,
+  reclaimStaleRuns,
   runAudit,
+  runningAuditRun,
+  startAuditRun,
   undismissFinding,
 } from "../src/deck/audit.ts";
 
@@ -110,6 +118,109 @@ describe("audit runs and dismissals (spec §8.3)", () => {
     const row = db.prepare("SELECT * FROM audit_runs WHERE id = ?").get(run.run_id) as any;
     assert.equal(row.instructions, "focus on the mana base");
     assert.equal(row.deck_id, id);
+  });
+});
+
+describe("recorded runs (spec §8)", () => {
+  const reasoning = (slug: string, title: string) => ({
+    summary: `Summary for ${slug}`,
+    findings: [{ key: `reasoning:${slug}`, severity: "warn", title, detail: "Because of X." }],
+    dismissed: [],
+    dropped: 0,
+  });
+
+  test("a run is open while it runs and finishes asynchronously", () => {
+    const id = createDeck(db, "Async run");
+    const runId = startAuditRun(db, id, "focus on lands");
+    assert.equal(runningAuditRun(db, id)?.id, runId);
+
+    const [pending] = listAuditRuns(db, id);
+    assert.equal(pending.status, "running");
+    assert.equal(pending.instructions, "focus on lands");
+    // The deterministic half is complete the moment the run opens.
+    assert.ok(pending.findings.some((f) => f.key === "card_count"));
+    assert.equal(pending.reasoning, null);
+
+    finishAuditRun(db, runId, reasoning("no-win-path", "No route to winning"));
+    const [done] = listAuditRuns(db, id);
+    assert.equal(done.status, "done");
+    assert.ok(done.finished_at);
+    assert.equal(done.reasoning?.findings[0].title, "No route to winning");
+    assert.equal(runningAuditRun(db, id), null);
+  });
+
+  test("a failed reasoning pass records the failure, not a lost run", () => {
+    const id = createDeck(db, "Failed run");
+    const runId = startAuditRun(db, id);
+    finishAuditRun(db, runId, null, "provider returned 500");
+    const [run] = listAuditRuns(db, id);
+    assert.equal(run.status, "error");
+    assert.equal(run.error, "provider returned 500");
+    // The deterministic findings still stand.
+    assert.ok(run.findings.length > 0);
+  });
+
+  test("runs in flight at shutdown are reclaimed, never left claiming to run", () => {
+    const id = createDeck(db, "Reclaim");
+    startAuditRun(db, id);
+    assert.ok(reclaimStaleRuns(db) >= 1);
+    assert.equal(runningAuditRun(db, id), null);
+    assert.equal(listAuditRuns(db, id)[0].status, "error");
+  });
+
+  test(`only the newest ${AUDIT_RUN_RETENTION} runs per deck are kept, and per deck`, () => {
+    const id = createDeck(db, "Retention");
+    const other = createDeck(db, "Retention other");
+    const otherRun = runAudit(db, other).run_id;
+    const ids: number[] = [];
+    for (let i = 0; i < AUDIT_RUN_RETENTION + 3; i++) ids.push(runAudit(db, id, `run ${i}`).run_id);
+
+    const kept = listAuditRuns(db, id);
+    assert.equal(kept.length, AUDIT_RUN_RETENTION);
+    assert.deepEqual(
+      kept.map((r) => r.id),
+      ids.slice(-AUDIT_RUN_RETENTION).reverse(),
+    );
+    assert.equal(listAuditRuns(db, other)[0].id, otherRun);
+  });
+
+  test("the section reads live checks plus the newest stored reasoning", () => {
+    const id = createDeck(db, "Section state");
+    runAudit(db, id, "", reasoning("slow-start", "Slow start"));
+    // A run with no reasoning must not hide the last one that had it.
+    runAudit(db, id);
+
+    const state = auditState(db, id);
+    assert.ok(state.findings.some((f) => f.key === "card_count")); // live, recomputed
+    assert.equal(state.runs.length, 2);
+    assert.equal(state.reasoning_run?.reasoning?.findings[0].title, "Slow start");
+    assert.ok(state.reasoning_run!.id < state.runs[0].id);
+  });
+
+  test("reasoning findings stay dismissable after newer runs land", () => {
+    const id = createDeck(db, "Old finding");
+    const first = runAudit(db, id, "", reasoning("fragile-engine", "Engine has one copy"));
+    for (let i = 0; i < 3; i++) runAudit(db, id);
+
+    // Still reachable by key alone, and by its own run id.
+    const hit = lookupFinding(db, id, "reasoning:fragile-engine", first.run_id);
+    assert.equal(hit?.source, "reasoning");
+    assert.equal(hit?.run?.id, first.run_id);
+    assert.equal(lookupFinding(db, id, "reasoning:fragile-engine")?.finding.title, "Engine has one copy");
+
+    dismissFinding(db, id, "reasoning:fragile-engine", "thesis_change", "one copy is the plan");
+    assert.equal(
+      lookupFinding(db, id, "reasoning:fragile-engine")?.dismissal?.reason,
+      "one copy is the plan",
+    );
+  });
+
+  test("a live deterministic finding resolves with no run at all", () => {
+    const id = createDeck(db, "Live lookup");
+    const hit = lookupFinding(db, id, "card_count");
+    assert.equal(hit?.source, "deterministic");
+    assert.equal(hit?.run, null);
+    assert.equal(lookupFinding(db, id, "reasoning:never-happened"), null);
   });
 });
 

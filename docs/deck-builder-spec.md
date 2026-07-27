@@ -6,9 +6,10 @@
 > - Slot targets: min–max ranges (a single number is shorthand for min = max).
 > - Brief: hybrid — engines as structured records (required pieces keyed by `oracle_id`), thesis and constraints as freeform markdown.
 > - Audit findings queue for manual promotion into proposals; never auto-generate.
+> - Audit runs are backgrounded and recorded; the newest 5 per deck are kept (§8).
 > - Default slot set for a new deck: **empty** — every deck defines its own slots.
 > - Decision-log retention `N` = 30 (config value).
-> - Agreed deviation: import-diff proposals (§9) are exempt from the 3–5 item cap in §7.1; the cap applies to agent-initiated proposals.
+> - Agreed deviation: an Archidekt import (§9) applies in full and immediately rather than becoming a proposal — the gate is aimed at the agent, and the preview diff is the owner's approval. The 3–5 item cap in §7.1 therefore has no exemptions.
 
 ---
 
@@ -73,13 +74,17 @@ Set manually by me when a card physically arrives. Used only to filter the expor
 
 ## 4. Slots and tags
 
-**Slots:** a card belongs to exactly one slot. Slots have **target counts** — a number or a range. Targets are soft; a deck can deliberately violate one, but the violation should be visible.
+**Slots:** a card belongs to at most one slot. Slots are optional — a deck may define none, and a card may sit unslotted indefinitely; nothing (proposals included) requires one. Slots have **target counts** — a number or a range. Targets are soft; a deck can deliberately violate one, but the violation should be visible.
 
 Slot targets are what turn "you're 2 cards short" into "you're 2 short and interaction is 3 under target while ramp is 2 over." They also supply half the audit rubric for free.
 
 **Tags:** a card can have many. Tags are a **controlled vocabulary** — the agent picks from existing tags; creating a new tag is itself a proposal I approve. Without this you get `ramp`, `mana-ramp`, and `acceleration` as three tags in a month and the filters quietly stop working.
 
-**Naming rule:** slot and tag names may not collide with card types (`land`, `artifact`, `creature`, `instant`, etc.) **or with any supported search prefix**. This exists to protect the search grammar, since slots and tags are queryable via `slot:` and `tag:`.
+**Naming rule:** slot and tag names may not collide with card types (`land`, `artifact`, `creature`, `instant`, etc.), **in either singular or plural**, nor with any supported search prefix.
+
+Two different reasons sit behind that one rule. Prefixes are reserved to protect the search grammar, since slots and tags are queryable via `slot:` and `tag:`. Card types are reserved because **slot and card type are meant to be independent axes**: a slot says what a card *does* (`ramp`, `interaction`), the type says what it *is*, and the decklist groups by either one on demand. A slot named `lands` collapses the two, and makes "34 lands" ambiguous about which of them it counts.
+
+The rule matches whole names only — `creature removal` and `land destruction` are roles that happen to mention a type, and are allowed.
 
 ---
 
@@ -174,7 +179,14 @@ Every mutation is an approved proposal item with a timestamp and a reason. **Tha
 
 ## 8. Audit
 
-A separate section of the UI. On-demand only — a button, plus an optional free-text field for instructions ("focus on the mana base," "I keep losing to graveyard decks").
+**A permanent section below the decklist**, not a dialog. On-demand only — a button, plus an optional free-text field for instructions ("focus on the mana base," "I keep losing to graveyard decks") — but the results are part of the deck's record, and I should be able to scroll to them the same way I scroll to the mana base.
+
+Two rules follow from that, and they are the whole reason this section is not a modal:
+
+- **A run is a server-side job.** Starting one returns immediately; the reasoning pass finishes on the server and writes its result whether or not anything is watching. Closing the panel, navigating away, or closing the browser cannot cancel an audit — it costs a model call, and losing it to a stray Escape key taught me not to run one.
+- **Runs persist.** The newest **5** runs per deck are kept, with their instructions, the revision they were taken at, and both halves of their findings. Deeper history has no reader: an old deterministic finding is stale the moment the deck changes, and old reasoning is superseded advice.
+
+What the section shows between runs is deliberately mixed: **the deterministic checks are recomputed live** on every deck change, because they are SQL and a wrong count on screen poisons trust in everything near it; **the reasoning pass is the stored one**, labelled with its run and flagged when the deck has moved past the revision it was taken at.
 
 ### 8.1 Deterministic checks — SQL only, never the model
 
@@ -204,6 +216,14 @@ An audit finding becomes a proposal. Dismissing a finding requires a typed reaso
 
 *(Settled: findings queue for manual promotion; they do not auto-generate proposals.)*
 
+### 8.4 Findings route into the chat
+
+The other thing I want to do with a finding is argue with it. When the reasoning pass says the deck has no way to win, the next move is to ask the agent about *that*, in the chat, without retyping it.
+
+So every finding has an **"ask agent"** button, and it appends a reference — `audit#12/reasoning:no-win-path` — to the chat draft. The reference is a **pointer, not a paste**: the agent resolves it with a `get_audit` tool that reads the recorded run. Pasting the finding's text instead would freeze a copy of it into the transcript forever, and the run is already on disk.
+
+The agent is told what a run is when it reads one: a snapshot at a revision, whose deterministic half is authoritative for *that* revision, and whose reasoning half is another model's judgement — to be engaged with from the oracle text, agreed with or not.
+
 ---
 
 ## 9. Archidekt interop
@@ -211,7 +231,7 @@ An audit finding becomes a proposal. Dismissing a finding requires a typed reaso
 Deck construction happens here. Playtesting and goldfishing happen in Archidekt.
 
 - **Export:** produce an Archidekt-importable list. Optionally filter to `owned = false` to produce a buy list for card seller sites.
-- **Import (paste-back):** I paste a list back in; the app **diffs it against the current deck and presents the differences as a proposal.** Every change comes back through the same approval gate with a reason attached.
+- **Import (paste-back):** I paste a list back in; the app **diffs it against the current deck, shows me the diff, and on my say-so applies the whole thing at once.** The approval gate exists to stop the *agent* from changing the deck unilaterally — a pasted list is my own list, and clicking through 99 per-card accepts was friction with no information in it. The preview diff is the approval step. Destructive cuts (cards in the deck but absent from the paste) are called out before applying. The import lands as **one** decision-log entry carrying a snapshot of the prior list, so undoing that row reverts the entire import — and one line rather than 99 keeps a big import from flushing real rulings out of the agent's retention window (§12).
 - **Do not build a sync layer.** One-way export, one-way import, both through the same door. Archidekt never silently becomes the source of truth.
 
 > ⚠️ **Verify Archidekt's actual text import/export format and its tag/category syntax against their current documentation before implementing.** Do not rely on model memory for this — it's exactly the kind of detail that gets confabulated.

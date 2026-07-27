@@ -146,10 +146,24 @@ export interface ReasoningResult {
   error?: string;
 }
 
-export interface AuditResult {
-  run_id?: number;
+/** One recorded run (spec §8) — the newest few are kept per deck. */
+export interface AuditRun {
+  id: number;
+  deck_id: number;
   revision: number;
-  instructions?: string;
+  instructions: string;
+  status: "running" | "done" | "error";
+  error: string | null;
+  findings: AuditFinding[];
+  reasoning: ReasoningResult | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+// Deterministic findings are live (recomputed per request, never stale on
+// screen); the reasoning half comes from the newest run that has one.
+export interface AuditState {
+  revision: number;
   findings: AuditFinding[];
   dismissed: Array<
     AuditFinding & {
@@ -164,7 +178,8 @@ export interface AuditResult {
     pips: Record<string, number>;
     slot_deltas: SlotDelta[];
   };
-  reasoning: ReasoningResult | null;
+  runs: AuditRun[];
+  reasoning_run: AuditRun | null;
 }
 
 export interface BriefEdit {
@@ -203,6 +218,12 @@ export interface ChatMsg {
   role: "user" | "assistant" | "tool" | "system";
   content: string | null;
   tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }>;
+  tool_call_id?: string;
+  // Set on the tool message a propose_changes call produced. `proposal` is
+  // hydrated server-side on every read, so its item statuses are current
+  // rather than whatever they were when the turn ran.
+  proposal_id?: number;
+  proposal?: Proposal | null;
 }
 
 export interface PlaytestNote {
@@ -263,6 +284,7 @@ export interface ImportDiff {
     slot_id: number | null;
     slot_name: string | null;
     category: string | null;
+    role: "card" | "commander" | "companion";
   }>;
   cuts: Array<{ oracle_id: string; name: string; quantity: number; role: string }>;
   quantity_changes: Array<{ oracle_id: string; name: string; from: number; to: number }>;
@@ -378,18 +400,25 @@ export const api = {
   addCardNote: (deckId: number, oracleId: string, note: string) =>
     request<DeckState>("POST", `/api/decks/${deckId}/notes`, { oracle_id: oracleId, note }),
 
-  runAudit: (deckId: number, instructions: string) =>
-    request<AuditResult>("POST", `/api/decks/${deckId}/audit`, { instructions }),
+  getAudit: (deckId: number) => request<AuditState>("GET", `/api/decks/${deckId}/audit`),
+  // Returns as soon as the run is open — the reasoning pass finishes on the
+  // server, so this resolving is not the run being done. Poll getAudit.
+  startAudit: (deckId: number, instructions: string) =>
+    request<AuditState & { run_id: number; already_running: boolean }>(
+      "POST",
+      `/api/decks/${deckId}/audit`,
+      { instructions },
+    ),
   dismissAuditFinding: (deckId: number, key: string, type: string, reason: string) =>
-    request<{ state: DeckState; audit: AuditResult }>("POST", `/api/decks/${deckId}/audit/dismiss`, {
+    request<{ state: DeckState; audit: AuditState }>("POST", `/api/decks/${deckId}/audit/dismiss`, {
       key,
       type,
       reason,
     }),
   undismissAuditFinding: (deckId: number, key: string) =>
-    request<{ state: DeckState; audit: AuditResult }>("POST", `/api/decks/${deckId}/audit/undismiss`, { key }),
+    request<{ state: DeckState; audit: AuditState }>("POST", `/api/decks/${deckId}/audit/undismiss`, { key }),
   promoteAuditFinding: (deckId: number, key: string) =>
-    request<{ state: DeckState; audit: AuditResult }>("POST", `/api/decks/${deckId}/audit/promote`, { key }),
+    request<{ state: DeckState; audit: AuditState }>("POST", `/api/decks/${deckId}/audit/promote`, { key }),
 
   getBrief: (deckId: number) => request<Brief>("GET", `/api/decks/${deckId}/brief`),
   updateBrief: (deckId: number, patch: Partial<{ thesis: string; constraints_md: string }>) =>
@@ -425,7 +454,12 @@ export const api = {
   previewImport: (deckId: number, text: string) =>
     request<ImportDiff>("POST", `/api/decks/${deckId}/import/preview`, { text }),
   importList: (deckId: number, text: string, note?: string) =>
-    request<{ proposal_id: number | null; diff: ImportDiff; state: DeckState }>(
+    request<{
+      applied: { added: number; cut: number; quantity_changed: number };
+      log_id: number | null;
+      diff: ImportDiff;
+      state: DeckState;
+    }>(
       "POST",
       `/api/decks/${deckId}/import`,
       { text, note },

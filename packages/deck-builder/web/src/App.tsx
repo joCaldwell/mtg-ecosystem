@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { CardPeekProvider } from "./CardPeek.tsx";
 import { DeckList } from "./DeckList.tsx";
 import { DeckView } from "./DeckView.tsx";
 
@@ -16,5 +17,11 @@ export function App() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
-  return deckId == null ? <DeckList /> : <DeckView deckId={deckId} key={deckId} />;
+  // Above the router: the popover is anchored to the viewport and outlives
+  // nothing, but every surface that names a card sits underneath here.
+  return (
+    <CardPeekProvider>
+      {deckId == null ? <DeckList /> : <DeckView deckId={deckId} key={deckId} />}
+    </CardPeekProvider>
+  );
 }
