@@ -39,6 +39,16 @@ export interface AssembledContext {
   system: string;
   transcript: ChatMessage[];
   tailRestate: string;
+  segments: ContextSegment[];
+}
+
+// One row of the segmented context meter (spec §11). Kept alongside the
+// assembled text rather than recomputed elsewhere, so the meter always
+// measures exactly what was sent.
+export interface ContextSegment {
+  key: string;
+  label: string;
+  text: string;
 }
 
 export interface DeckSections {
@@ -46,6 +56,7 @@ export interface DeckSections {
   // chat agent's rules. Reused by the audit reasoning pass.
   sections: string;
   tailRestate: string;
+  segments: ContextSegment[];
 }
 
 function fmtCardLine(c: {
@@ -83,7 +94,7 @@ export function assembleDeckSections(
   const brief = getBrief(db, deckId);
   const { deck, slots, tags, cards, computed } = state;
 
-  // ---- Segment 2: brief + slots + tag vocabulary (seldom changes) ----
+  // ---- Segments 2–3: brief, then slots + tag vocabulary (seldom change) ----
   const engineLines = brief.engines.map((e) => {
     const pieces = e.pieces
       .map((p) => `[[${p.name}]]${p.in_deck ? "" : " (NOT in deck)"}`)
@@ -98,7 +109,7 @@ export function assembleDeckSections(
     return `- ${s.name}${target}`;
   });
 
-  const seg2 = `# Deck brief — ${deck.name}
+  const segBrief = `# Deck brief — ${deck.name}
 
 ## Thesis
 ${brief.thesis || "(not written yet)"}
@@ -107,15 +118,15 @@ ${brief.thesis || "(not written yet)"}
 ${brief.constraints_md || "(none recorded)"}
 
 ## Named engines
-${engineLines.join("\n") || "(none defined)"}
+${engineLines.join("\n") || "(none defined)"}`;
 
-## Slots
+  const segSlots = `# Slots
 ${slotLines.join("\n") || "(none defined — cards are unslotted)"}
 
-## Tag vocabulary (controlled — propose additions, never invent)
+# Tag vocabulary (controlled — propose additions, never invent)
 ${tags.map((t) => t.name).join(", ") || "(empty)"}`;
 
-  // ---- Segment 3: decklist grouped by slot (changes per accepted proposal) ----
+  // ---- Segment 4: decklist grouped by slot (changes per accepted proposal) ----
   const tagName = new Map(tags.map((t) => [t.id, t.name]));
   const withTags = (c: (typeof cards)[0]) => ({
     ...c,
@@ -146,9 +157,9 @@ ${tags.map((t) => t.name).join(", ") || "(empty)"}`;
   if (companion.length)
     groups.push(`## Companion (outside the 100)\n${companion.map(fmtCardLine).join("\n")}`);
 
-  const seg3 = `# Decklist — ${computed.card_count}/100 cards, identity ${deck.color_identity || "(none)"}\n\n${groups.join("\n\n")}`;
+  const segDecklist = `# Decklist — ${computed.card_count}/100 cards, identity ${deck.color_identity || "(none)"}\n\n${groups.join("\n\n")}`;
 
-  // ---- Segment 4: computed state (given, never derived) ----
+  // ---- Segment 5: computed state (given, never derived) ----
   const slotDeltaLines = computed.slot_deltas.map((d) => {
     const target = d.target_min != null || d.target_max != null
       ? `${d.target_min ?? 0}–${d.target_max ?? "∞"}`
@@ -163,7 +174,7 @@ ${tags.map((t) => t.name).join(", ") || "(empty)"}`;
   const curveLine = Object.entries(computed.curve).map(([b, n]) => `${b}:${n}`).join(" ");
   const pipLine = Object.entries(computed.pips).filter(([, n]) => n > 0).map(([c, n]) => `${c}${n}`).join(" ");
 
-  const seg4 = `# Computed state (authoritative — never recount)
+  const segComputed = `# Computed state (authoritative — never recount)
 - Cards: ${computed.card_count}/100 (${computed.delta_to_100 === 0 ? "exact" : computed.delta_to_100 > 0 ? `${computed.delta_to_100} over` : `${-computed.delta_to_100} short`})
 - Pending proposals: +${computed.pending.adds}/−${computed.pending.cuts} → would be ${computed.pending.projected_count}
 - Lands: ${computed.land_count} | Curve (MV:count): ${curveLine} | Pips: ${pipLine || "—"}
@@ -171,7 +182,7 @@ ${tags.map((t) => t.name).join(", ") || "(empty)"}`;
 ${slotDeltaLines.length ? `- Slot deltas:\n${slotDeltaLines.map((l) => `  ${l}`).join("\n")}` : ""}
 ${violations.length ? `- Violations:\n${violations.map((l) => `  ${l}`).join("\n")}` : "- Violations: none"}`;
 
-  // ---- Segment 5: pending proposals ----
+  // ---- Segment 6: pending proposals ----
   const open = listProposals(db, deckId, "open");
   const pendingLines = open.flatMap((p) =>
     p.items
@@ -184,17 +195,22 @@ ${violations.length ? `- Violations:\n${violations.map((l) => `  ${l}`).join("\n
   const pendingBriefEdits = db
     .prepare("SELECT kind, rationale FROM brief_edits WHERE deck_id = ? AND status = 'pending'")
     .all(deckId) as unknown as Array<{ kind: string; rationale: string }>;
-  const seg5 = `# Awaiting the owner's ruling
+  const segPending = `# Awaiting the owner's ruling
 ${pendingLines.join("\n") || "(no pending proposal items)"}
 ${pendingBriefEdits.length ? pendingBriefEdits.map((e) => `- [brief/${e.kind}] ${e.rationale}`).join("\n") : ""}`;
 
-  // ---- Segment 6: decision log resident portion (spec §12) ----
+  // ---- Segment 7: decision log resident portion (spec §12) ----
   const hardFilters = db
     .prepare("SELECT card_name, reason FROM hard_filters WHERE deck_id = ? ORDER BY card_name")
     .all(deckId) as unknown as Array<{ card_name: string; reason: string }>;
   const playtestNotes = db
     .prepare("SELECT card_name, note FROM card_notes WHERE deck_id = ? ORDER BY id DESC")
     .all(deckId) as unknown as Array<{ card_name: string; note: string }>;
+  // Deck-level playtest notes from goldfishing in Archidekt (spec §9). Kept
+  // forever alongside the card-specific ones (spec §12).
+  const deckNotes = db
+    .prepare("SELECT revision, note FROM playtest_notes WHERE deck_id = ? ORDER BY id DESC")
+    .all(deckId) as unknown as Array<{ revision: number; note: string }>;
   const recent = db
     .prepare(
       `SELECT kind, action, card_name, rationale, rejection_type, rejection_reason, brief_flag
@@ -219,13 +235,16 @@ ${pendingBriefEdits.length ? pendingBriefEdits.map((e) => `- [brief/${e.kind}] $
     return `- accepted ${e.action ?? "edit"}${card}${e.rationale ? `: ${e.rationale}` : ""}`;
   });
 
-  const seg6 = `# Decision log (owner rulings — this is what you learn from)
+  const segLog = `# Decision log (owner rulings — this is what you learn from)
 
 ## Hard filters (never suggest; excluded from your searches)
 ${hardFilters.map((f) => `- [[${f.card_name}]]: "${f.reason}"`).join("\n") || "(none)"}
 
 ## Playtest findings (strongest evidence — from real games)
 ${playtestNotes.map((n) => `- [[${n.card_name}]]: "${n.note}"`).join("\n") || "(none)"}
+
+## Playtest notes from goldfishing (whole-deck, tagged with the deck revision)
+${deckNotes.map((n) => `- (rev ${n.revision}) "${n.note}"`).join("\n") || "(none)"}
 
 ## Recent decisions (newest first, last ${retentionN})
 ${recentLines.join("\n") || "(none yet)"}`;
@@ -242,10 +261,40 @@ ${recentLines.join("\n") || "(none yet)"}`;
     .filter(Boolean)
     .join(" | ");
 
+  const segments: ContextSegment[] = [
+    { key: "brief", label: "Deck brief", text: segBrief },
+    { key: "slots", label: "Slots & tag vocabulary", text: segSlots },
+    { key: "decklist", label: "Decklist with oracle text", text: segDecklist },
+    { key: "computed", label: "Computed state", text: segComputed },
+    { key: "pending", label: "Pending proposals", text: segPending },
+    { key: "log", label: "Decision log (resident portion)", text: segLog },
+  ];
+
   return {
-    sections: [seg2, seg3, seg4, seg5, seg6].join("\n\n---\n\n"),
+    sections: segments.map((s) => s.text).join("\n\n---\n\n"),
     tailRestate,
+    segments,
   };
+}
+
+// The active compaction summary, if the owner has accepted one. It stands in
+// for the chat messages it replaced and rides ahead of the resident
+// transcript (spec §11).
+export function activeSummary(
+  db: DatabaseSync,
+  deckId: number,
+): { id: number; summary: string; through_message_id: number; message_count: number } | null {
+  return (
+    (db
+      .prepare(
+        `SELECT id, summary, through_message_id, message_count FROM consolidations
+         WHERE deck_id = ? AND status = 'accepted' AND superseded_by IS NULL
+         ORDER BY id DESC LIMIT 1`,
+      )
+      .get(deckId) as
+      | { id: number; summary: string; through_message_id: number; message_count: number }
+      | undefined) ?? null
+  );
 }
 
 export function assembleContext(
@@ -253,16 +302,40 @@ export function assembleContext(
   deckId: number,
   retentionN: number,
 ): AssembledContext {
-  const { sections, tailRestate } = assembleDeckSections(db, deckId, retentionN);
+  const { sections, tailRestate, segments } = assembleDeckSections(db, deckId, retentionN);
 
+  // Compacted messages stay on disk but leave context (spec §11).
   const rows = db
-    .prepare("SELECT role, content_json FROM chat_messages WHERE deck_id = ? ORDER BY id")
+    .prepare(
+      "SELECT role, content_json FROM chat_messages WHERE deck_id = ? AND compacted_at IS NULL ORDER BY id",
+    )
     .all(deckId) as unknown as Array<{ role: string; content_json: string }>;
-  const transcript = rows.map((r) => JSON.parse(r.content_json) as ChatMessage);
+  const resident = rows.map((r) => JSON.parse(r.content_json) as ChatMessage);
+
+  const summary = activeSummary(db, deckId);
+  const transcript: ChatMessage[] = summary
+    ? [
+        {
+          role: "system",
+          content: `<compacted_history messages="${summary.message_count}">\nEarlier in this chat, condensed and approved by the owner. Conversational texture only — the deck, brief, and decision log above are the source of truth.\n\n${summary.summary}\n</compacted_history>`,
+        },
+        ...resident,
+      ]
+    : resident;
 
   return {
     system: [AGENT_RULES, sections].join("\n\n---\n\n"),
     transcript,
     tailRestate,
+    segments: [
+      { key: "rules", label: "Agent rules & output contract", text: AGENT_RULES },
+      ...segments,
+      {
+        key: "transcript",
+        label: "Session transcript",
+        text: transcript.map((m) => JSON.stringify(m)).join("\n"),
+      },
+      { key: "tail_restate", label: "Tail restate block", text: tailRestate },
+    ],
   };
 }

@@ -440,3 +440,78 @@ textarea {
   padding: 8px 12px;
   font-size: 13px;
 }
+
+/* Archidekt interop (spec §9) */
+.interop-head {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin: 14px 0 4px;
+}
+.export-box {
+  font-size: 12px;
+  line-height: 1.5;
+}
+.import-diff {
+  margin-top: 8px;
+}
+.import-diff ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+/* Segmented context meter (spec §11) */
+.meter {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 12px;
+}
+.meter td {
+  padding: 2px 6px 2px 0;
+  vertical-align: middle;
+}
+.meter-label {
+  white-space: nowrap;
+  color: var(--muted);
+}
+.meter-bar-cell {
+  width: 45%;
+}
+.meter-bar {
+  height: 9px;
+  background: var(--accent);
+  border-radius: 2px;
+  min-width: 1px;
+}
+/* Segments that grow without bound are the ones compaction/retention act on */
+.meter-bar.grows {
+  background: #d08a3a;
+}
+.meter-num {
+  text-align: right;
+  white-space: nowrap;
+}
+.meter-hint {
+  white-space: nowrap;
+  font-size: 11px;
+}
+.retention-row {
+  margin-top: 8px;
+  align-items: center;
+}
+.rescued {
+  border-left: 2px solid #d08a3a;
+  padding-left: 10px;
+  margin-top: 8px;
+}
+.compacted-block {
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+}
+.compacted-block summary {
+  cursor: pointer;
+  font-size: 12px;
+}

@@ -199,13 +199,89 @@ export interface Brief {
 export interface ChatMsg {
   id: number;
   created_at: string;
+  compacted_at: string | null;
   role: "user" | "assistant" | "tool" | "system";
   content: string | null;
   tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }>;
 }
 
+export interface PlaytestNote {
+  id: number;
+  revision: number;
+  note: string;
+  cards: string[];
+  created_at: string;
+}
+
+export interface Consolidation {
+  id: number;
+  status: "pending" | "accepted" | "rejected";
+  summary: string;
+  discarded: string[];
+  rescued: Array<{ fact: string; should_have_been: string; why: string }>;
+  through_message_id: number;
+  message_count: number;
+  brief_edit_ids: number[];
+  created_at: string;
+  resolved_at: string | null;
+}
+
+export interface MeterSegment {
+  key: string;
+  label: string;
+  chars: number;
+  est_tokens: number;
+  share: number;
+  behavior: "static" | "seldom" | "per-change" | "grows";
+}
+
+export interface ContextMeter {
+  revision: number;
+  retention_n: number;
+  est_tokens: number;
+  chars: number;
+  segments: MeterSegment[];
+  transcript_messages: number;
+  compacted_messages: number;
+  has_active_summary: boolean;
+  advice: Array<{ segment: string; severity: "info" | "warn"; message: string }>;
+}
+
+export interface ExportResult {
+  text: string;
+  card_count: number;
+  line_count: number;
+  omitted_owned: number;
+  revision: number;
+}
+
+export interface ImportDiff {
+  adds: Array<{
+    oracle_id: string;
+    name: string;
+    quantity: number;
+    slot_id: number | null;
+    slot_name: string | null;
+    category: string | null;
+  }>;
+  cuts: Array<{ oracle_id: string; name: string; quantity: number; role: string }>;
+  quantity_changes: Array<{ oracle_id: string; name: string; from: number; to: number }>;
+  unchanged: number;
+  unresolved: Array<{ line_no: number; name: string; suggestions: string[] }>;
+  ambiguous: Array<{ line_no: number; name: string; oracle_ids: string[] }>;
+  blocked: Array<{ oracle_id: string; name: string; reason: string }>;
+  unparsed: Array<{ line_no: number; raw: string }>;
+  revision: number;
+}
+
 export interface DeckState {
-  deck: { id: number; name: string; ci_mask: number | null; color_identity: string };
+  deck: {
+    id: number;
+    name: string;
+    ci_mask: number | null;
+    color_identity: string;
+    revision: number;
+  };
   slots: Slot[];
   tags: Tag[];
   cards: DeckCard[];
@@ -215,6 +291,8 @@ export interface DeckState {
   log: LogEntry[];
   hard_filters: HardFilter[];
   card_notes: CardNote[];
+  playtest_notes: PlaytestNote[];
+  consolidations: Consolidation[];
 }
 
 export interface DeckSummary {
@@ -336,6 +414,43 @@ export const api = {
       `/api/decks/${deckId}/chat`,
       { message },
     ),
+
+  // Archidekt interop (spec §9)
+  exportDeck: (deckId: number, opts: { categories?: boolean; onlyUnowned?: boolean } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.categories === false) params.set("categories", "off");
+    if (opts.onlyUnowned) params.set("unowned", "1");
+    return request<ExportResult>("GET", `/api/decks/${deckId}/export?${params}`);
+  },
+  previewImport: (deckId: number, text: string) =>
+    request<ImportDiff>("POST", `/api/decks/${deckId}/import/preview`, { text }),
+  importList: (deckId: number, text: string, note?: string) =>
+    request<{ proposal_id: number | null; diff: ImportDiff; state: DeckState }>(
+      "POST",
+      `/api/decks/${deckId}/import`,
+      { text, note },
+    ),
+  addPlaytestNote: (deckId: number, note: string) =>
+    request<DeckState>("POST", `/api/decks/${deckId}/playtest-notes`, { note }),
+  deletePlaytestNote: (deckId: number, noteId: number) =>
+    request<DeckState>("DELETE", `/api/decks/${deckId}/playtest-notes/${noteId}`),
+
+  // Compaction (spec §11) and retention (spec §12)
+  getContextMeter: (deckId: number) =>
+    request<ContextMeter>("GET", `/api/decks/${deckId}/context-meter`),
+  consolidate: (deckId: number) =>
+    request<{ consolidation: Consolidation; state: DeckState }>(
+      "POST",
+      `/api/decks/${deckId}/consolidate`,
+    ),
+  ruleConsolidation: (deckId: number, id: number, verdict: "accept" | "reject") =>
+    request<{ consolidation: Consolidation; state: DeckState; meter: ContextMeter }>(
+      "POST",
+      `/api/decks/${deckId}/consolidations/${id}/${verdict}`,
+    ),
+  getSettings: () => request<{ retention_n: number }>("GET", "/api/settings"),
+  updateSettings: (patch: { retention_n?: number }) =>
+    request<{ retention_n: number }>("PUT", "/api/settings", patch),
 
   search: (q: string, deckId?: number, filterIdentity = true) => {
     const params = new URLSearchParams({ q });

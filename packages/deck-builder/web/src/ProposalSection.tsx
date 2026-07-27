@@ -114,6 +114,7 @@ export function ProposalSection({
             <div className="card-row" key={e.id}>
               <div className="card-main">
                 <span className="chip under">{e.kind}</span>
+                <span className="muted mono">{e.source}</span>
                 <span className="name">
                   {e.kind === "thesis" || e.kind === "constraints"
                     ? (e.payload.content ?? "").slice(0, 80)

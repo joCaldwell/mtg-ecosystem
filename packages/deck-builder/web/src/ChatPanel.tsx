@@ -82,6 +82,26 @@ export function ChatPanel({
   const visible = history.filter(
     (m) => m.role === "user" || (m.role === "assistant" && (m.content || m.tool_calls?.length)),
   );
+  // Compacted messages left the model's context but never left the disk
+  // (spec §11) — show them collapsed so that's visible, not implied.
+  const compacted = visible.filter((m) => m.compacted_at);
+  const resident = visible.filter((m) => !m.compacted_at);
+
+  function Message({ m }: { m: ChatMsg }) {
+    if (m.role === "user") {
+      const text = (m.content ?? "").replace(/^<state_summary>.*?<\/state_summary>\n\n/s, "");
+      return <div className="chat-msg user">{text}</div>;
+    }
+    const tools = toolSummary(m);
+    if (tools) return <div className="chat-tool muted">⚙ {tools}</div>;
+    if (m.content)
+      return (
+        <div className="chat-msg assistant">
+          <CardText text={m.content} />
+        </div>
+      );
+    return null;
+  }
 
   return (
     <div className="chat">
@@ -92,32 +112,19 @@ export function ChatPanel({
             decision history — and can only reference cards it has actually looked up.
           </p>
         )}
-        {visible.map((m) => {
-          if (m.role === "user") {
-            const text = (m.content ?? "").replace(/^<state_summary>.*?<\/state_summary>\n\n/s, "");
-            return (
-              <div key={m.id} className="chat-msg user">
-                {text}
-              </div>
-            );
-          }
-          const tools = toolSummary(m);
-          if (tools) {
-            return (
-              <div key={m.id} className="chat-tool muted">
-                ⚙ {tools}
-              </div>
-            );
-          }
-          if (m.role === "assistant" && m.content) {
-            return (
-              <div key={m.id} className="chat-msg assistant">
-                <CardText text={m.content} />
-              </div>
-            );
-          }
-          return null;
-        })}
+        {compacted.length > 0 && (
+          <details className="compacted-block">
+            <summary className="muted">
+              {compacted.length} message(s) compacted out of context — still on disk
+            </summary>
+            {compacted.map((m) => (
+              <Message key={m.id} m={m} />
+            ))}
+          </details>
+        )}
+        {resident.map((m) => (
+          <Message key={m.id} m={m} />
+        ))}
         {busy && <div className="chat-tool muted">thinking…</div>}
         <div ref={bottomRef} />
       </div>

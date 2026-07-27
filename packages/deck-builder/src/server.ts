@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { readFileSync, existsSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import { openDb } from "./db.ts";
+import { openDb, getRetentionN, setRetentionN } from "./db.ts";
 import { search, SearchError } from "./search/index.ts";
 import {
   ServiceError,
@@ -52,8 +52,23 @@ import {
   setEngine,
   updateBrief,
 } from "./deck/brief.ts";
+import {
+  addPlaytestNote,
+  createImportProposal,
+  deletePlaytestNote,
+  diffImport,
+  exportDeck,
+  listPlaytestNotes,
+} from "./deck/interop.ts";
 import { AgentError, getChatHistory, runTurn } from "./agent/agent.ts";
 import { assembleContext } from "./agent/context.ts";
+import { contextMeter } from "./agent/meter.ts";
+import {
+  acceptConsolidation,
+  listConsolidations,
+  rejectConsolidation,
+  runConsolidation,
+} from "./agent/consolidate.ts";
 import { LlmError, openRouterTransport } from "./agent/llm.ts";
 import { ConfigError, getAgentConfig } from "./config.ts";
 import { resolveExactName } from "./search/index.ts";
@@ -81,6 +96,8 @@ const deckState = (id: number) => ({
   log: getLog(db, id, 30),
   hard_filters: listHardFilters(db, id),
   card_notes: listCardNotes(db, id),
+  playtest_notes: listPlaytestNotes(db, id),
+  consolidations: listConsolidations(db, id, "pending"),
 });
 
 route("GET", /^\/api\/decks$/, () => listDecks(db));
@@ -199,7 +216,7 @@ route("POST", /^\/api\/decks\/(\d+)\/audit$/, async ([id], body) => {
         deckId,
         instructions,
         openRouterTransport(cfg),
-        cfg.retentionN,
+        getRetentionN(db),
         activeDismissals(db, deckId),
       );
     } catch (e: any) {
@@ -251,18 +268,75 @@ route("GET", /^\/api\/decks\/(\d+)\/chat$/, ([id]) => getChatHistory(db, Number(
 route("POST", /^\/api\/decks\/(\d+)\/chat$/, async ([id], body) => {
   const cfg = getAgentConfig();
   const transport = openRouterTransport(cfg);
-  const result = await runTurn(db, Number(id), String(body.message ?? ""), transport, cfg.retentionN);
+  const result = await runTurn(db, Number(id), String(body.message ?? ""), transport, getRetentionN(db));
   return { reply: result.reply, mutated: result.mutatedState, state: deckState(Number(id)) };
 });
 // Debug/verification: exactly what the agent sees (spec §10)
 route("GET", /^\/api\/decks\/(\d+)\/context-preview$/, ([id]) => {
-  const retentionN = Number(process.env.DECKBUILDER_RETENTION_N ?? 30);
-  const ctx = assembleContext(db, Number(id), retentionN);
+  const ctx = assembleContext(db, Number(id), getRetentionN(db));
   return {
     system: ctx.system,
     tail_restate: ctx.tailRestate,
     transcript_messages: ctx.transcript.length,
   };
+});
+
+// ---------- compaction (spec §11) ----------
+
+route("GET", /^\/api\/decks\/(\d+)\/context-meter$/, ([id]) =>
+  contextMeter(db, Number(id), getRetentionN(db)),
+);
+route("POST", /^\/api\/decks\/(\d+)\/consolidate$/, async ([id]) => {
+  const cfg = getAgentConfig();
+  const consolidation = await runConsolidation(db, Number(id), openRouterTransport(cfg));
+  return { consolidation, state: deckState(Number(id)) };
+});
+route("POST", /^\/api\/decks\/(\d+)\/consolidations\/(\d+)\/accept$/, ([id, cid]) => {
+  const consolidation = acceptConsolidation(db, Number(id), Number(cid));
+  return { consolidation, state: deckState(Number(id)), meter: contextMeter(db, Number(id), getRetentionN(db)) };
+});
+route("POST", /^\/api\/decks\/(\d+)\/consolidations\/(\d+)\/reject$/, ([id, cid]) => {
+  const consolidation = rejectConsolidation(db, Number(id), Number(cid));
+  return { consolidation, state: deckState(Number(id)), meter: contextMeter(db, Number(id), getRetentionN(db)) };
+});
+
+// ---------- settings (spec §12: retention N is tunable, not a constant) ----------
+
+route("GET", /^\/api\/settings$/, () => ({ retention_n: getRetentionN(db) }));
+route("PUT", /^\/api\/settings$/, (_p, body) => {
+  if (body.retention_n !== undefined) {
+    try {
+      setRetentionN(db, Number(body.retention_n));
+    } catch (e: any) {
+      throw new ServiceError(e.message);
+    }
+  }
+  return { retention_n: getRetentionN(db) };
+});
+
+// ---------- Archidekt interop (spec §9) ----------
+
+route("GET", /^\/api\/decks\/(\d+)\/export$/, ([id], _b, url) =>
+  exportDeck(db, Number(id), {
+    categories: url.searchParams.get("categories") !== "off",
+    onlyUnowned: url.searchParams.get("unowned") === "1",
+  }),
+);
+route("POST", /^\/api\/decks\/(\d+)\/import\/preview$/, ([id], body) =>
+  diffImport(db, Number(id), String(body.text ?? "")),
+);
+route("POST", /^\/api\/decks\/(\d+)\/import$/, ([id], body) => {
+  const r = createImportProposal(db, Number(id), String(body.text ?? ""), body.note);
+  return { ...r, state: deckState(Number(id)) };
+});
+
+route("POST", /^\/api\/decks\/(\d+)\/playtest-notes$/, ([id], body) => {
+  addPlaytestNote(db, Number(id), String(body.note ?? ""));
+  return deckState(Number(id));
+});
+route("DELETE", /^\/api\/decks\/(\d+)\/playtest-notes\/(\d+)$/, ([id, noteId]) => {
+  deletePlaytestNote(db, Number(id), Number(noteId));
+  return deckState(Number(id));
 });
 route("GET", /^\/api\/resolve$/, (_p, _b, url) =>
   resolveExactName(db, url.searchParams.get("name") ?? ""),

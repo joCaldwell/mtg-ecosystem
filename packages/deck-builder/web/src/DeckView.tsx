@@ -7,6 +7,8 @@ import { ProposalSection } from "./ProposalSection.tsx";
 import { AuditPanel } from "./AuditPanel.tsx";
 import { BriefPanel } from "./BriefPanel.tsx";
 import { ChatPanel } from "./ChatPanel.tsx";
+import { InteropPanel } from "./InteropPanel.tsx";
+import { SessionPanel } from "./SessionPanel.tsx";
 
 export function DeckView({ deckId }: { deckId: number }) {
   const [state, setState] = useState<DeckState | null>(null);
@@ -135,6 +137,8 @@ export function DeckView({ deckId }: { deckId: number }) {
         <section className="decklist">
           <BriefPanel deckId={deck.id} />
           <AuditPanel deckId={deck.id} setState={setState} />
+          <InteropPanel state={state} mutate={mutate} />
+          <SessionPanel state={state} setState={setState} />
           <ProposalSection state={state} draft={draft} setDraft={setDraft} mutate={mutate} />
 
           <div className="group">

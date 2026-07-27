@@ -110,9 +110,24 @@ export async function runTurn(
 
 export function getChatHistory(db: DatabaseSync, deckId: number) {
   const rows = db
-    .prepare("SELECT id, role, content_json, created_at FROM chat_messages WHERE deck_id = ? ORDER BY id")
-    .all(deckId) as unknown as Array<{ id: number; role: string; content_json: string; created_at: string }>;
-  return rows.map((r) => ({ id: r.id, created_at: r.created_at, ...(JSON.parse(r.content_json) as ChatMessage) }));
+    .prepare(
+      "SELECT id, role, content_json, compacted_at, created_at FROM chat_messages WHERE deck_id = ? ORDER BY id",
+    )
+    .all(deckId) as unknown as Array<{
+    id: number;
+    role: string;
+    content_json: string;
+    compacted_at: string | null;
+    created_at: string;
+  }>;
+  // Compacted messages are still returned — they stay on disk and the UI
+  // shows them collapsed, so compaction is visibly non-destructive (§11).
+  return rows.map((r) => ({
+    id: r.id,
+    created_at: r.created_at,
+    compacted_at: r.compacted_at,
+    ...(JSON.parse(r.content_json) as ChatMessage),
+  }));
 }
 
 export { LlmError };

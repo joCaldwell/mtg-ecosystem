@@ -301,4 +301,4 @@ Build and verify each phase before starting the next. Each layer should be testa
 
 **Phase 5 — Audit.** Deterministic checks first, then the reasoning pass, then routing findings into proposals.
 
-**Phase 6 — Interop and compaction.** Archidekt export/import-as-proposal (verify the format first), playtest notes, context meter, consolidate command.
+**Phase 6 — Interop and compaction.** Archidekt export/import-as-proposal (verify the format first), playtest notes, context meter, consolidate command. ✅ *Completed 2026-07-26. Archidekt's format was verified against their own FAQ and forum before implementing — the sources are cited in `src/deck/interop.ts`.*

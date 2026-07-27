@@ -15,9 +15,9 @@ export interface AgentConfig {
   apiKey: string;
   model: string;
   baseUrl: string;
-  // Resident portion of the decision log: "last N decisions" (spec §12).
-  retentionN: number;
 }
+// Decision-log retention N (spec §12) is a per-install setting, not agent
+// config — see getRetentionN/setRetentionN in db.ts.
 
 export function getAgentConfig(): AgentConfig {
   const apiKey = process.env.OPENROUTER_API_KEY ?? "";
@@ -34,7 +34,6 @@ export function getAgentConfig(): AgentConfig {
     apiKey,
     model,
     baseUrl: process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1",
-    retentionN: Number(process.env.DECKBUILDER_RETENTION_N ?? 30),
   };
 }
 

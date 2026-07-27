@@ -170,10 +170,47 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   deck_id      INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
   role         TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'tool', 'system')),
   content_json TEXT NOT NULL,
+  -- Set when an accepted consolidation moved this message out of context
+  -- (spec §11). The row is NEVER deleted — "keep the raw transcript on disk".
+  compacted_at TEXT,
   created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_chat_deck ON chat_messages(deck_id, id);
+
+-- Compaction runs (spec §11). A run is a PROPOSAL until the owner accepts:
+-- it holds the replacement summary, what it says it discarded, and what it
+-- rescued (the diagnostic). Accepting one supersedes the previous one, so at
+-- most one summary is ever resident in context.
+CREATE TABLE IF NOT EXISTS consolidations (
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  deck_id            INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+  status             TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected')),
+  summary            TEXT NOT NULL,
+  discarded_json     TEXT NOT NULL DEFAULT '[]',
+  rescued_json       TEXT NOT NULL DEFAULT '[]',
+  -- Compaction zone: chat_messages with id <= this, for this deck.
+  through_message_id INTEGER NOT NULL,
+  message_count      INTEGER NOT NULL,
+  brief_edit_ids     TEXT NOT NULL DEFAULT '[]',
+  superseded_by      INTEGER REFERENCES consolidations(id),
+  created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+  resolved_at        TEXT
+);
+
+-- Playtest notes (spec §9): freeform, stamped to the deck version that was
+-- exported. cards_json pins the exact list the note is about, so the note
+-- stays attached to that 100 even after the deck moves on.
+CREATE TABLE IF NOT EXISTS playtest_notes (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  deck_id    INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+  revision   INTEGER NOT NULL,
+  note       TEXT NOT NULL,
+  cards_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_playtest_deck ON playtest_notes(deck_id, id);
 
 CREATE TABLE IF NOT EXISTS audit_runs (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -272,6 +309,48 @@ function migrate(db: DatabaseSync) {
   if (auditCols.size && !auditCols.has("reasoning_json")) {
     db.exec("ALTER TABLE audit_runs ADD COLUMN reasoning_json TEXT");
   }
+  const chatCols = new Set(
+    (db.prepare("PRAGMA table_info(chat_messages)").all() as unknown as Array<{ name: string }>).map(
+      (c) => c.name,
+    ),
+  );
+  if (chatCols.size && !chatCols.has("compacted_at")) {
+    db.exec("ALTER TABLE chat_messages ADD COLUMN compacted_at TEXT");
+  }
+}
+
+// ---------- settings (meta key/value) ----------
+
+export const DEFAULT_RETENTION_N = 30;
+
+// Decision-log retention N (spec §12) is explicitly "a config value I can
+// edit, not a constant baked into the assembly function". Stored in the DB so
+// it survives restarts and is tunable from the UI; env var seeds the default.
+export function getSetting(db: DatabaseSync, key: string): string | null {
+  const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(`setting:${key}`) as
+    | { value: string }
+    | undefined;
+  return row?.value ?? null;
+}
+
+export function setSetting(db: DatabaseSync, key: string, value: string): void {
+  db.prepare(
+    "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  ).run(`setting:${key}`, value);
+}
+
+export function getRetentionN(db: DatabaseSync): number {
+  const stored = Number(getSetting(db, "retention_n"));
+  if (Number.isFinite(stored) && stored > 0) return stored;
+  const fromEnv = Number(process.env.DECKBUILDER_RETENTION_N);
+  return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : DEFAULT_RETENTION_N;
+}
+
+export function setRetentionN(db: DatabaseSync, n: number): number {
+  if (!Number.isFinite(n) || n < 1 || n > 500)
+    throw new Error("Decision-log retention N must be between 1 and 500");
+  setSetting(db, "retention_n", String(Math.floor(n)));
+  return getRetentionN(db);
 }
 
 export function normalizeName(name: string): string {
