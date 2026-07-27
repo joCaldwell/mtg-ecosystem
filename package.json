@@ -18,5 +18,9 @@
     "ts-node": "^10.9.2",
     "@types/node": "^20.12.12",
     "antlr4ts-cli": "^0.5.0-alpha.4"
+  },
+  "allowScripts": {
+    "esbuild@0.21.5": true,
+    "esbuild@0.28.1": true
   }
 }

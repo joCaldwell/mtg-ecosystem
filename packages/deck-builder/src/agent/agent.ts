@@ -1,0 +1,118 @@
+import type { DatabaseSync } from "node:sqlite";
+import { assembleContext } from "./context.ts";
+import { TOOL_DEFS, executeTool } from "./tools.ts";
+import { lintOutput, lintCorrectionMessage } from "./lint.ts";
+import { LlmError, type ChatMessage, type ChatTransport } from "./llm.ts";
+
+const MAX_MODEL_CALLS = 12;
+const MAX_LINT_BOUNCES = 2;
+
+export class AgentError extends Error {}
+
+export interface TurnResult {
+  reply: string;
+  mutatedState: boolean;
+  modelCalls: number;
+}
+
+// One agent turn: assemble context, loop tool calls, lint the final text.
+// Unresolved [[Card Name]]s are bounced back to the model and NEVER reach
+// the caller (spec §6.4).
+export async function runTurn(
+  db: DatabaseSync,
+  deckId: number,
+  userText: string,
+  transport: ChatTransport,
+  retentionN: number,
+): Promise<TurnResult> {
+  const { system, transcript, tailRestate } = assembleContext(db, deckId, retentionN);
+
+  const persist = (msg: ChatMessage) => {
+    db.prepare("INSERT INTO chat_messages (deck_id, role, content_json) VALUES (?, ?, ?)").run(
+      deckId,
+      msg.role,
+      JSON.stringify(msg),
+    );
+  };
+
+  // Tail restate rides immediately before the owner's message (spec §10).
+  const userMessage: ChatMessage = {
+    role: "user",
+    content: `<state_summary>${tailRestate}</state_summary>\n\n${userText}`,
+  };
+  persist(userMessage);
+
+  const messages: ChatMessage[] = [
+    { role: "system", content: system },
+    ...transcript,
+    userMessage,
+  ];
+
+  let mutatedState = false;
+  let modelCalls = 0;
+  let lintBounces = 0;
+
+  while (true) {
+    if (modelCalls >= MAX_MODEL_CALLS)
+      throw new AgentError(
+        `Turn exceeded ${MAX_MODEL_CALLS} model calls without completing — aborted to bound cost.`,
+      );
+    modelCalls++;
+
+    const response = await transport({ messages, tools: TOOL_DEFS });
+    const assistant = response.message;
+
+    if (response.finish_reason === "length")
+      throw new AgentError("The model ran out of output tokens mid-reply. Try again.");
+    if (response.finish_reason === "content_filter")
+      throw new AgentError("The model's reply was blocked by the provider's content filter.");
+
+    persist(assistant);
+    messages.push(assistant);
+
+    if (assistant.tool_calls?.length) {
+      for (const call of assistant.tool_calls) {
+        let args: any = {};
+        let outcome;
+        try {
+          args = JSON.parse(call.function.arguments || "{}");
+        } catch {
+          outcome = { result: "Error: tool arguments were not valid JSON.", isError: true, mutatedState: false };
+        }
+        outcome ??= executeTool(db, deckId, call.function.name, args);
+        if (outcome.mutatedState) mutatedState = true;
+        const toolMsg: ChatMessage = {
+          role: "tool",
+          tool_call_id: call.id,
+          content: outcome.result,
+        };
+        persist(toolMsg);
+        messages.push(toolMsg);
+      }
+      continue;
+    }
+
+    // Final text — lint before it can reach a screen.
+    const text = assistant.content ?? "";
+    const lint = lintOutput(db, text);
+    if (lint.ok) return { reply: text, mutatedState, modelCalls };
+
+    if (lintBounces >= MAX_LINT_BOUNCES)
+      throw new AgentError(
+        `The agent repeatedly referenced nonexistent cards (${lint.failures.map((f) => f.name).join(", ")}). Nothing was shown; try rephrasing your request.`,
+      );
+    lintBounces++;
+    const correction: ChatMessage = { role: "system", content: lintCorrectionMessage(lint.failures) };
+    persist(correction);
+    messages.push(correction);
+  }
+}
+
+export function getChatHistory(db: DatabaseSync, deckId: number) {
+  const rows = db
+    .prepare("SELECT id, role, content_json, created_at FROM chat_messages WHERE deck_id = ? ORDER BY id")
+    .all(deckId) as unknown as Array<{ id: number; role: string; content_json: string; created_at: string }>;
+  return rows.map((r) => ({ id: r.id, created_at: r.created_at, ...(JSON.parse(r.content_json) as ChatMessage) }));
+}
+
+export { LlmError };

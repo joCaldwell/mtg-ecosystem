@@ -1,0 +1,26 @@
+{
+  "name": "@mtg-ecosystem/deck-builder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && tsc -p web --noEmit",
+    "test": "node --test 'test/**/*.test.ts'",
+    "refresh": "node src/cli.ts refresh",
+    "search": "node src/cli.ts search",
+    "app": "vite build && node src/server.ts",
+    "dev:server": "node --watch src/server.ts",
+    "dev:web": "vite"
+  },
+  "dependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.5.0",
+    "vite": "^7.0.0"
+  }
+}
