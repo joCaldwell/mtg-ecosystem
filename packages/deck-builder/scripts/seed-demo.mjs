@@ -22,7 +22,8 @@ import {
   deleteDeck,
   updateCard,
 } from "../src/deck/service.ts";
-import { createProposal, acceptItem, rejectItem, listProposals, addCardNote } from "../src/deck/proposals.ts";
+import { createProposal, acceptItem, rejectItem, listProposals } from "../src/deck/proposals.ts";
+import { addCardNote } from "../src/deck/log.ts";
 import { updateBrief, setEngine, proposeBriefEdit } from "../src/deck/brief.ts";
 import { addPlaytestNote, resolveListName } from "../src/deck/interop.ts";
 

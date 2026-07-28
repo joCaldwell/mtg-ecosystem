@@ -9,12 +9,16 @@
 
 import type { DatabaseSync } from "node:sqlite";
 import { getDeck } from "../deck/service.ts";
-import { getBrief } from "../deck/brief.ts";
-import { listProposals } from "../deck/proposals.ts";
+import { getBrief, listBriefEdits } from "../deck/brief.ts";
+import { listProposals, MAX_ITEMS } from "../deck/proposals.ts";
+import { getLog, listCardNotes, listHardFilters } from "../deck/log.ts";
+import { listPlaytestNotes } from "../deck/interop.ts";
+import { residentMessages } from "./chatStore.ts";
+import { activeSummary } from "./consolidate.ts";
 import type { ChatMessage } from "./llm.ts";
 
 // Segment 1 — agent rules and output contract (~600 tokens, static).
-export const AGENT_RULES = `You are the resident deck-building agent for a Magic: The Gathering Commander deck. You collaborate with the deck's owner through proposals — you never edit the deck directly.
+export const AGENT_RULES = `You are the resident deck-building agent for a Magic: The Gathering Commander deck. You collaborate with the deck's owner through proposals — you never change which cards are in the deck directly. How the deck is ORGANIZED is yours to manage; see that section below.
 
 CARD KNOWLEDGE CONTRACT (highest priority):
 - You may reference a card ONLY if it appears in the current decklist below or in a search_cards result from this conversation. Your memory of Magic cards is a query generator, not a fact source: if you have a hunch a card exists, search for it before saying anything about it.
@@ -24,12 +28,19 @@ CARD KNOWLEDGE CONTRACT (highest priority):
 - Never count cards or compute totals yourself — the computed state below is authoritative; read it.
 
 PROPOSALS:
-- Deck changes go through the propose_changes tool. A proposal holds 3–5 items maximum — rank your best ideas; the cap is the point. Each item needs a rationale.
+- Deck changes go through the propose_changes tool. A proposal holds 3–${MAX_ITEMS} items maximum — rank your best ideas; the cap is the point. Each item needs a rationale.
 - Use the same group_id for items that must be accepted or rejected together (a swap justified by one line of reasoning). Leave unrelated items ungrouped.
-- Slots are an optional organizational overlay, not a precondition. A deck may define none, and cards may sit unslotted indefinitely. Never withhold a proposal, or ask the owner to create a slot, because a card has nowhere to go — set slot_name only when a fitting slot already exists, and omit it otherwise.
+- Slots are an optional organizational overlay, not a precondition. A deck may define none, and cards may sit unslotted indefinitely. Never withhold a proposal, or ask the owner to create a slot, because a card has nowhere to go — set slot_name when a fitting slot exists, create the slot yourself when one plainly should, and otherwise omit it and let the card be added unslotted.
 - Brief changes go through propose_brief_edit / propose_engine_edit. The brief is the deck's durable intent — propose edits when the owner's rulings show the written brief is stale.
 - Do not re-propose a card the owner rejected unless something material changed. When you do re-propose, cite the prior rejection (use get_card_history) and state what changed. If the owner pushes back, you get ONE counter-argument — with the oracle clause you are relying on — then defer.
 - Never suggest a hard-filtered card. They are excluded from your searches; the filter list below is a reminder, not an invitation.
+
+ORGANIZATION (slots — these apply immediately, with no ruling):
+- create_slot, update_slot, delete_slot and move_cards take effect the moment you call them. They are not proposals because they are not deck content: nothing they do changes which cards are in the 100, and the owner reverses any of it from a dropdown. Membership — adds, cuts — stays behind propose_changes without exception.
+- move_cards refiles cards ALREADY IN THE DECK. It is bulk and transactional: put every card bound for a slot in one call, use several entries to refile the whole deck at once, and expect the entire call to be rejected if any one card or slot name is wrong. Name cards exactly as the decklist below spells them.
+- Slot names say what a card DOES — 'ramp', 'interaction', 'card advantage'. Card types are reserved in singular and plural, as are search prefixes, so 'lands' and 'creatures' are not available and are not what a slot is for.
+- A slot target is a claim about how this deck should be built, not bookkeeping. State the reasoning when you set one, and remember targets are soft — a deck may sit outside one deliberately.
+- Reorganize when asked, when a proposal needs a slot that does not exist yet, or when you can say plainly why the current filing is wrong. Not as unrequested housekeeping. Whatever you change, say so in your reply — the owner does not read your tool calls.
 
 AUDIT REFERENCES:
 - The owner can hand you a finding from a recorded audit run as a token like \`audit#12/reasoning:no-win-path\`. That token is a pointer, not the finding — call get_audit with its run_id and finding_key and read the finding before you respond. Never infer what it said from the slug.
@@ -49,11 +60,16 @@ export interface AssembledContext {
 
 // One row of the segmented context meter (spec §11). Kept alongside the
 // assembled text rather than recomputed elsewhere, so the meter always
-// measures exactly what was sent.
+// measures exactly what was sent. `behavior` is what the segment is expected
+// to do over time (spec §10's stability ordering) — declared here, at the
+// segment's definition, so a new segment cannot forget to say.
+export type SegmentBehavior = "static" | "seldom" | "per-change" | "grows";
+
 export interface ContextSegment {
   key: string;
   label: string;
   text: string;
+  behavior: SegmentBehavior;
 }
 
 export interface DeckSections {
@@ -62,6 +78,20 @@ export interface DeckSections {
   sections: string;
   tailRestate: string;
   segments: ContextSegment[];
+}
+
+// The corner stat as the card prints it — power/toughness, or loyalty in
+// brackets — with a leading space so it drops into a line unconditionally.
+export function statline(c: {
+  power: string | null;
+  toughness: string | null;
+  loyalty: string | null;
+}): string {
+  return c.power != null && c.toughness != null
+    ? ` ${c.power}/${c.toughness}`
+    : c.loyalty != null
+      ? ` [${c.loyalty}]`
+      : "";
 }
 
 function fmtCardLine(c: {
@@ -77,12 +107,7 @@ function fmtCardLine(c: {
 }): string {
   const qty = c.quantity > 1 ? `${c.quantity}x ` : "";
   const cost = c.mana_cost ? ` ${c.mana_cost}` : "";
-  const pt =
-    c.power != null && c.toughness != null
-      ? ` ${c.power}/${c.toughness}`
-      : c.loyalty != null
-        ? ` [${c.loyalty}]`
-        : "";
+  const pt = statline(c);
   const tags = c.tagNames.length ? ` (tags: ${c.tagNames.join(", ")})` : "";
   const text = c.oracle_text
     ? "\n" + c.oracle_text.split("\n").map((l) => `    ${l}`).join("\n")
@@ -125,8 +150,8 @@ ${brief.constraints_md || "(none recorded)"}
 ## Named engines
 ${engineLines.join("\n") || "(none defined)"}`;
 
-  const segSlots = `# Slots (optional — a deck may define none; unslotted is a valid resting place)
-${slotLines.join("\n") || "(none defined — every card is unslotted, which is fine; propose changes without a slot)"}
+  const segSlots = `# Slots (optional — a deck may define none; unslotted is a valid resting place; yours to manage with create_slot/update_slot/delete_slot/move_cards)
+${slotLines.join("\n") || "(none defined — every card is unslotted, which is fine; propose changes without a slot, or create slots if the deck would read better filed)"}
 
 # Tag vocabulary (controlled — propose additions, never invent)
 ${tags.map((t) => t.name).join(", ") || "(empty)"}`;
@@ -197,31 +222,18 @@ ${violations.length ? `- Violations:\n${violations.map((l) => `  ${l}`).join("\n
           `- [#${p.id}/${i.id}] ${i.action} [[${i.card_name}]]${i.group_id ? ` (group ${i.group_id})` : ""}: ${i.rationale}`,
       ),
   );
-  const pendingBriefEdits = db
-    .prepare("SELECT kind, rationale FROM brief_edits WHERE deck_id = ? AND status = 'pending'")
-    .all(deckId) as unknown as Array<{ kind: string; rationale: string }>;
+  const pendingBriefEdits = listBriefEdits(db, deckId, "pending");
   const segPending = `# Awaiting the owner's ruling
 ${pendingLines.join("\n") || "(no pending proposal items)"}
 ${pendingBriefEdits.length ? pendingBriefEdits.map((e) => `- [brief/${e.kind}] ${e.rationale}`).join("\n") : ""}`;
 
   // ---- Segment 7: decision log resident portion (spec §12) ----
-  const hardFilters = db
-    .prepare("SELECT card_name, reason FROM hard_filters WHERE deck_id = ? ORDER BY card_name")
-    .all(deckId) as unknown as Array<{ card_name: string; reason: string }>;
-  const playtestNotes = db
-    .prepare("SELECT card_name, note FROM card_notes WHERE deck_id = ? ORDER BY id DESC")
-    .all(deckId) as unknown as Array<{ card_name: string; note: string }>;
+  const hardFilters = listHardFilters(db, deckId) as Array<{ card_name: string; reason: string }>;
+  const playtestNotes = listCardNotes(db, deckId) as Array<{ card_name: string; note: string }>;
   // Deck-level playtest notes from goldfishing in Archidekt (spec §9). Kept
   // forever alongside the card-specific ones (spec §12).
-  const deckNotes = db
-    .prepare("SELECT revision, note FROM playtest_notes WHERE deck_id = ? ORDER BY id DESC")
-    .all(deckId) as unknown as Array<{ revision: number; note: string }>;
-  const recent = db
-    .prepare(
-      `SELECT kind, action, card_name, rationale, rejection_type, rejection_reason, brief_flag
-       FROM decision_log WHERE deck_id = ? ORDER BY id DESC LIMIT ?`,
-    )
-    .all(deckId, retentionN) as unknown as Array<{
+  const deckNotes = listPlaytestNotes(db, deckId);
+  const recent = getLog(db, deckId, retentionN) as Array<{
     kind: string;
     action: string | null;
     card_name: string | null;
@@ -270,12 +282,12 @@ ${recentLines.join("\n") || "(none yet)"}`;
     .join(" | ");
 
   const segments: ContextSegment[] = [
-    { key: "brief", label: "Deck brief", text: segBrief },
-    { key: "slots", label: "Slots & tag vocabulary", text: segSlots },
-    { key: "decklist", label: "Decklist with oracle text", text: segDecklist },
-    { key: "computed", label: "Computed state", text: segComputed },
-    { key: "pending", label: "Pending proposals", text: segPending },
-    { key: "log", label: "Decision log (resident portion)", text: segLog },
+    { key: "brief", label: "Deck brief", text: segBrief, behavior: "seldom" },
+    { key: "slots", label: "Slots & tag vocabulary", text: segSlots, behavior: "seldom" },
+    { key: "decklist", label: "Decklist with oracle text", text: segDecklist, behavior: "per-change" },
+    { key: "computed", label: "Computed state", text: segComputed, behavior: "per-change" },
+    { key: "pending", label: "Pending proposals", text: segPending, behavior: "per-change" },
+    { key: "log", label: "Decision log (resident portion)", text: segLog, behavior: "grows" },
   ];
 
   return {
@@ -283,26 +295,6 @@ ${recentLines.join("\n") || "(none yet)"}`;
     tailRestate,
     segments,
   };
-}
-
-// The active compaction summary, if the owner has accepted one. It stands in
-// for the chat messages it replaced and rides ahead of the resident
-// transcript (spec §11).
-export function activeSummary(
-  db: DatabaseSync,
-  deckId: number,
-): { id: number; summary: string; through_message_id: number; message_count: number } | null {
-  return (
-    (db
-      .prepare(
-        `SELECT id, summary, through_message_id, message_count FROM consolidations
-         WHERE deck_id = ? AND status = 'accepted' AND superseded_by IS NULL
-         ORDER BY id DESC LIMIT 1`,
-      )
-      .get(deckId) as
-      | { id: number; summary: string; through_message_id: number; message_count: number }
-      | undefined) ?? null
-  );
 }
 
 export function assembleContext(
@@ -313,12 +305,7 @@ export function assembleContext(
   const { sections, tailRestate, segments } = assembleDeckSections(db, deckId, retentionN);
 
   // Compacted messages stay on disk but leave context (spec §11).
-  const rows = db
-    .prepare(
-      "SELECT role, content_json FROM chat_messages WHERE deck_id = ? AND compacted_at IS NULL ORDER BY id",
-    )
-    .all(deckId) as unknown as Array<{ role: string; content_json: string }>;
-  const resident = rows.map((r) => JSON.parse(r.content_json) as ChatMessage);
+  const resident: ChatMessage[] = residentMessages(db, deckId).map((r) => r.message);
 
   const summary = activeSummary(db, deckId);
   const transcript: ChatMessage[] = summary
@@ -336,14 +323,15 @@ export function assembleContext(
     transcript,
     tailRestate,
     segments: [
-      { key: "rules", label: "Agent rules & output contract", text: AGENT_RULES },
+      { key: "rules", label: "Agent rules & output contract", text: AGENT_RULES, behavior: "static" },
       ...segments,
       {
         key: "transcript",
         label: "Session transcript",
         text: transcript.map((m) => JSON.stringify(m)).join("\n"),
+        behavior: "grows",
       },
-      { key: "tail_restate", label: "Tail restate block", text: tailRestate },
+      { key: "tail_restate", label: "Tail restate block", text: tailRestate, behavior: "static" },
     ],
   };
 }

@@ -24,6 +24,12 @@ export function extractCardRefs(text: string): string[] {
   return [...new Set(refs)];
 }
 
+// The [[refs]] in a text that resolve to no card — the lint check reduced to
+// a list, for callers that bounce or drop rather than suggest.
+export function unresolvedRefs(db: DatabaseSync, text: string): string[] {
+  return extractCardRefs(text).filter((name) => resolveExactName(db, name).length === 0);
+}
+
 export function lintOutput(db: DatabaseSync, text: string): LintResult {
   const failures: LintFailure[] = [];
   for (const name of extractCardRefs(text)) {

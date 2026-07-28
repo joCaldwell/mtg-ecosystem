@@ -27,11 +27,14 @@ list against that. Two rules follow from it and explain most of the design:
     database before display; unresolvable names are bounced back to the model
     and never reach the screen.
 2.  **The agent proposes; the owner rules.** Nothing the agent wants changes
-    the deck except an accepted proposal. Rejections are typed, and the type
-    routes them — a `hard_filter` rejection removes the card from future
-    searches forever, a `playtest_finding` becomes a durable note. The reasons
-    are the product. (The owner's own edits — manual card changes, a pasted
-    Archidekt import — apply directly; the gate is aimed at the agent.)
+    *what is in the deck* except an accepted proposal. Rejections are typed,
+    and the type routes them — a `hard_filter` rejection removes the card from
+    future searches forever, a `playtest_finding` becomes a durable note. The
+    reasons are the product. (The owner's own edits — manual card changes, a
+    pasted Archidekt import — apply directly; the gate is aimed at the agent.)
+    The gate is on **membership**, not organization: the agent creates and
+    retargets slots and files cards into them directly, since none of that
+    changes the 100 (§4).
 
 ---
 
@@ -43,21 +46,29 @@ Runtime dependencies are React and Vite only; keep it that way.
 
 ```
 src/
-  db.ts            schema, migrations, settings (retention N)
-  server.ts        node:http routes; every mutation returns one composite deckState
+  errors.ts        AppError base — every user-facing failure carries its HTTP status
+  db.ts            schema, migrations, withTransaction (savepoints — they nest), settings
+  server.ts        node:http routes; envelope rule: composites ride under named keys
+  state.ts         deckState() — the composite payload every mutation returns
   ingest.ts        Scryfall bulk → SQLite            search/  Scryfall-syntax subset
   deck/
-    service.ts     deck CRUD, slots, tags, computed state
-    proposals.ts   the approval gate, typed rejections, decision log, undo
+    service.ts     deck CRUD, slots, tags, moveCards, requireDeck/requireCard, computed state
+    proposals.ts   the approval gate: create, read, rule on items
+    log.ts         decision log owner — logEntry, recordRejection (typed routing), undo,
+                   hard filters, card notes
     brief.ts       thesis/constraints/engines + gated agent edits
     audit.ts       deterministic checks (§8.1), recorded runs, dismissals
     interop.ts     Archidekt export/import, playtest notes (§9)
   agent/
     context.ts     ⭐ context assembly (§10) — the most important function here
-    agent.ts       turn loop      tools.ts   agent tool defs      lint.ts  [[ref]] linting
+    agent.ts       turn loop      tools.ts  tool registry (schema + handler per entry)
+    chatStore.ts   chat_messages owner       lint.ts   [[ref]] linting
     reasoning.ts   audit reasoning pass (§8.2)
     consolidate.ts manual compaction (§11)      meter.ts  segmented context meter
-web/src/          React UI, one component per panel
+    llm.ts         OpenRouter transport + callJson (shared JSON-mode retry)
+web/src/          React UI: api.ts (typed client — wire types imported from src/, erased
+                  at build), store.tsx (deck store; run()/apply() route every mutation
+                  response), lib.ts + RejectionForm.tsx (shared bits), one component per panel
 ```
 
 ---

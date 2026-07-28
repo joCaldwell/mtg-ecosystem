@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type DeckState, type DraftItem } from "./api.ts";
+import { api, type DraftItem } from "./api.ts";
+import { DeckProvider, useDeck } from "./store.tsx";
+import { useLocalStorage } from "./lib.ts";
 import { SlotPanel } from "./SlotPanel.tsx";
 import { SearchPanel } from "./SearchPanel.tsx";
 import { CardRow } from "./CardRow.tsx";
@@ -71,39 +73,33 @@ function GroupHead({
 }
 
 export function DeckView({ deckId }: { deckId: number }) {
-  const [state, setState] = useState<DeckState | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  return (
+    <DeckProvider deckId={deckId}>
+      <DeckPage />
+    </DeckProvider>
+  );
+}
+
+function DeckPage() {
+  const { deckId, state, error, apply, run, setSideTab } = useDeck();
   const [notFound, setNotFound] = useState(false);
   const [draft, setDraft] = useState<DraftItem[]>([]);
   const [tool, setTool] = useState<Tool | null>(null);
-  // The chat draft outlives the chat panel, which unmounts on every tab flip.
-  const [chatDraft, setChatDraft] = useState("");
-  const showSideTab = useRef<((tab: "search" | "chat") => void) | null>(null);
+  const insertChat = useRef<((token: string) => void) | null>(null);
   const openAudit = useRef<(() => void) | null>(null);
-  const [groupBy, setGroupBy] = useState<GroupBy>(
-    () => (localStorage.getItem("deck.groupBy") === "type" ? "type" : "slot"),
+  const [groupBy, setGroupBy] = useLocalStorage<GroupBy>(
+    "deck.groupBy",
+    (raw) => (raw === "type" ? "type" : "slot"),
+    (v) => v,
   );
   const peekProps = usePeekProps();
 
   useEffect(() => {
-    localStorage.setItem("deck.groupBy", groupBy);
-  }, [groupBy]);
-
-  useEffect(() => {
     api
       .getDeck(deckId)
-      .then(setState)
+      .then(apply)
       .catch(() => setNotFound(true));
-  }, [deckId]);
-
-  async function mutate(fn: () => Promise<DeckState>) {
-    setError(null);
-    try {
-      setState(await fn());
-    } catch (e: any) {
-      setError(e.message);
-    }
-  }
+  }, [deckId, apply]);
 
   if (notFound)
     return (
@@ -127,7 +123,7 @@ export function DeckView({ deckId }: { deckId: number }) {
 
   async function rename() {
     const name = window.prompt("Deck name", deck.name);
-    if (name && name !== deck.name) await mutate(() => api.renameDeck(deck.id, name));
+    if (name && name !== deck.name) await run(() => api.renameDeck(deck.id, name));
   }
 
   // "ask agent" on a finding: the token goes into the chat draft and the chat
@@ -135,16 +131,14 @@ export function DeckView({ deckId }: { deckId: number }) {
   // pasting the finding's text instead would put a stale copy in the
   // transcript forever, and the run is already on disk.
   function askAgent(token: string) {
-    setChatDraft((d) => (d.trim() ? `${d.trimEnd()} ${token} ` : `${token} `));
-    showSideTab.current?.("chat");
+    insertChat.current?.(token);
+    setSideTab("chat");
   }
 
   function draftAdd(item: DraftItem) {
     if (draft.some((d) => d.oracle_id === item.oracle_id && d.action === item.action)) return;
     setDraft([...draft, item]);
   }
-
-  const rowProps = { deckId: deck.id, slots, tags, mutate, draftAdd };
 
   type Group = {
     key: string;
@@ -289,29 +283,11 @@ export function DeckView({ deckId }: { deckId: number }) {
             search/chat panel are independent columns there. Below 1400px it
             becomes a real element and the two share one sticky column. */}
         <div className="rail">
-          <SlotPanel state={state} mutate={mutate} />
+          <SlotPanel />
 
           <SidePanel
-            search={
-              <SearchPanel
-                deckId={deck.id}
-                slots={slots}
-                hasCommander={commanders.length > 0}
-                mutate={mutate}
-                draftAdd={draftAdd}
-              />
-            }
-            chat={
-              <ChatPanel
-                deckId={deck.id}
-                setState={setState}
-                input={chatDraft}
-                setInput={setChatDraft}
-                slots={slots}
-                mutate={mutate}
-              />
-            }
-            showRef={showSideTab}
+            search={<SearchPanel draftAdd={draftAdd} />}
+            chat={<ChatPanel insertRef={insertChat} />}
           />
         </div>
 
@@ -323,7 +299,7 @@ export function DeckView({ deckId }: { deckId: number }) {
             <button onClick={() => setTool("session")}>Context</button>
           </div>
 
-          <ProposalSection state={state} draft={draft} setDraft={setDraft} mutate={mutate} />
+          <ProposalSection draft={draft} setDraft={setDraft} />
 
           <div className="row gap group-by">
             <span className="muted">Group by</span>
@@ -348,7 +324,7 @@ export function DeckView({ deckId }: { deckId: number }) {
           <div className="group">
             <GroupHead title="Command zone" count={commanders.length} target="2" />
             {commanders.map((c) => (
-              <CardRow key={c.oracle_id} card={c} {...rowProps} />
+              <CardRow key={c.oracle_id} card={c} draftAdd={draftAdd} />
             ))}
             {!commanders.length && (
               <p className="muted rationale">
@@ -369,7 +345,7 @@ export function DeckView({ deckId }: { deckId: number }) {
                     delta={g.delta}
                   />
                   {g.cards.map((c) => (
-                    <CardRow key={c.oracle_id} card={c} {...rowProps} />
+                    <CardRow key={c.oracle_id} card={c} draftAdd={draftAdd} />
                   ))}
                 </div>
               ),
@@ -379,34 +355,28 @@ export function DeckView({ deckId }: { deckId: number }) {
             <div className="group">
               <GroupHead title="Companion" count={companion.length} />
               {companion.map((c) => (
-                <CardRow key={c.oracle_id} card={c} {...rowProps} />
+                <CardRow key={c.oracle_id} card={c} draftAdd={draftAdd} />
               ))}
             </div>
           )}
 
-          <AuditSection
-            deckId={deck.id}
-            revision={deck.revision}
-            setState={setState}
-            askAgent={askAgent}
-            openRef={openAudit}
-          />
+          <AuditSection askAgent={askAgent} openRef={openAudit} />
         </section>
       </div>
 
       {tool === "brief" && (
         <Modal title="Brief" onClose={() => setTool(null)}>
-          <BriefPanel deckId={deck.id} />
+          <BriefPanel />
         </Modal>
       )}
       {tool === "interop" && (
         <Modal title="Archidekt & playtesting" onClose={() => setTool(null)} wide>
-          <InteropPanel state={state} mutate={mutate} />
+          <InteropPanel />
         </Modal>
       )}
       {tool === "session" && (
         <Modal title="Context & compaction" onClose={() => setTool(null)} wide>
-          <SessionPanel state={state} setState={setState} />
+          <SessionPanel />
         </Modal>
       )}
     </div>

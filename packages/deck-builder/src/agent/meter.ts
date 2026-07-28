@@ -5,7 +5,10 @@
 // which lever to pull.
 
 import type { DatabaseSync } from "node:sqlite";
-import { assembleContext } from "./context.ts";
+import { requireDeck } from "../deck/service.ts";
+import { assembleContext, type SegmentBehavior } from "./context.ts";
+import { countCompacted } from "./chatStore.ts";
+import { activeSummary } from "./consolidate.ts";
 
 // No tokenizer dependency: ~4 characters per token is close enough for a
 // gauge whose job is "which segment is the problem", and it never disagrees
@@ -24,7 +27,8 @@ export interface MeterSegment {
   share: number; // 0–1 of the assembled total
   // What this segment is expected to do over time (spec §10's stability
   // ordering) — this is why a big number here is or isn't a problem.
-  behavior: "static" | "seldom" | "per-change" | "grows";
+  // Declared on the segment itself in context.ts.
+  behavior: SegmentBehavior;
 }
 
 export interface MeterResult {
@@ -40,18 +44,6 @@ export interface MeterResult {
   advice: Array<{ segment: string; severity: "info" | "warn"; message: string }>;
 }
 
-const BEHAVIOR: Record<string, MeterSegment["behavior"]> = {
-  rules: "static",
-  brief: "seldom",
-  slots: "seldom",
-  decklist: "per-change",
-  computed: "per-change",
-  pending: "per-change",
-  log: "grows",
-  transcript: "grows",
-  tail_restate: "static",
-};
-
 // Thresholds are about which fix applies, not about a hard budget.
 const TRANSCRIPT_WARN_TOKENS = 25_000;
 const LOG_WARN_TOKENS = 12_000;
@@ -65,7 +57,7 @@ export function contextMeter(db: DatabaseSync, deckId: number, retentionN: numbe
     label: s.label,
     chars: s.text.length,
     est_tokens: estimateTokens(s.text),
-    behavior: BEHAVIOR[s.key] ?? "seldom",
+    behavior: s.behavior,
   }));
   const totalTokens = raw.reduce((n, s) => n + s.est_tokens, 0);
   const segments: MeterSegment[] = raw.map((s) => ({
@@ -73,19 +65,9 @@ export function contextMeter(db: DatabaseSync, deckId: number, retentionN: numbe
     share: totalTokens ? s.est_tokens / totalTokens : 0,
   }));
 
-  const { revision } = db.prepare("SELECT revision FROM decks WHERE id = ?").get(deckId) as {
-    revision: number;
-  };
-  const { compacted } = db
-    .prepare(
-      "SELECT COUNT(*) compacted FROM chat_messages WHERE deck_id = ? AND compacted_at IS NOT NULL",
-    )
-    .get(deckId) as { compacted: number };
-  const summary = db
-    .prepare(
-      "SELECT 1 FROM consolidations WHERE deck_id = ? AND status = 'accepted' AND superseded_by IS NULL",
-    )
-    .get(deckId);
+  const { revision } = requireDeck(db, deckId);
+  const compacted = countCompacted(db, deckId);
+  const summary = activeSummary(db, deckId);
 
   const by = (key: string) => segments.find((s) => s.key === key)?.est_tokens ?? 0;
   const advice: MeterResult["advice"] = [];

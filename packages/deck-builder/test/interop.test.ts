@@ -4,13 +4,8 @@ import { openDb } from "../src/db.ts";
 import { ingestCards } from "../src/ingest.ts";
 import { FIXTURES } from "./fixtures.ts";
 import { addCard, createDeck, createSlot, getDeck, updateCard } from "../src/deck/service.ts";
-import {
-  createProposal,
-  rejectItem,
-  listProposals,
-  getLog,
-  undoDecision,
-} from "../src/deck/proposals.ts";
+import { createProposal, rejectItem, listProposals } from "../src/deck/proposals.ts";
+import { getLog, undoDecision } from "../src/deck/log.ts";
 import {
   addPlaytestNote,
   applyImport,

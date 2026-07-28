@@ -3,9 +3,9 @@ import { readFileSync, existsSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { openDb, getRetentionN, setRetentionN } from "./db.ts";
-import { search, SearchError } from "./search/index.ts";
+import { AppError, ServiceError } from "./errors.ts";
+import { search } from "./search/index.ts";
 import {
-  ServiceError,
   addCard,
   createDeck,
   createSlot,
@@ -13,7 +13,6 @@ import {
   deleteDeck,
   deleteSlot,
   deleteTag,
-  getDeck,
   listDecks,
   removeCard,
   renameDeck,
@@ -21,19 +20,9 @@ import {
   updateCard,
   updateSlot,
 } from "./deck/service.ts";
-import {
-  acceptItem,
-  addCardNote,
-  createProposal,
-  getCardHistory,
-  getLog,
-  listCardNotes,
-  listHardFilters,
-  listProposals,
-  rejectItem,
-  removeHardFilter,
-  undoDecision,
-} from "./deck/proposals.ts";
+import { acceptItem, createProposal, listProposals, rejectItem } from "./deck/proposals.ts";
+import { addCardNote, getCardHistory, getLog, removeHardFilter, undoDecision } from "./deck/log.ts";
+import { deckState } from "./state.ts";
 import {
   activeDismissals,
   auditState,
@@ -50,7 +39,6 @@ import { runReasoningPass } from "./agent/reasoning.ts";
 import {
   acceptBriefEdit,
   getBrief,
-  listBriefEdits,
   rejectBriefEdit,
   removeEngine,
   setEngine,
@@ -62,17 +50,11 @@ import {
   deletePlaytestNote,
   diffImport,
   exportDeck,
-  listPlaytestNotes,
 } from "./deck/interop.ts";
-import { AgentError, getChatHistory, runTurn } from "./agent/agent.ts";
+import { getChatHistory, runTurn } from "./agent/agent.ts";
 import { assembleContext } from "./agent/context.ts";
 import { contextMeter } from "./agent/meter.ts";
-import {
-  acceptConsolidation,
-  listConsolidations,
-  rejectConsolidation,
-  runConsolidation,
-} from "./agent/consolidate.ts";
+import { acceptConsolidation, rejectConsolidation, runConsolidation } from "./agent/consolidate.ts";
 import { LlmError, openRouterTransport } from "./agent/llm.ts";
 import { ConfigError, getAgentConfig } from "./config.ts";
 import { resolveExactName } from "./search/index.ts";
@@ -89,30 +71,20 @@ function route(method: string, pattern: RegExp, handler: Handler) {
   routes.push({ method, pattern, handler });
 }
 
-// One payload with everything the deck view needs; every mutation returns it.
-const deckState = (id: number) => ({
-  ...getDeck(db, id),
-  proposals: listProposals(db, id, "open"),
-  brief_edits: listBriefEdits(db, id, "pending").map((e) => ({
-    ...e,
-    payload: JSON.parse(e.payload_json),
-  })),
-  log: getLog(db, id, 30),
-  hard_filters: listHardFilters(db, id),
-  card_notes: listCardNotes(db, id),
-  playtest_notes: listPlaytestNotes(db, id),
-  consolidations: listConsolidations(db, id, "pending"),
-});
+// Envelope rule: any response carrying a domain composite names it — `state`,
+// `audit`, `brief`, `meter`, `consolidation`, `import` — and never spreads it
+// at top level. One client-side applier can then route every response.
+const state = (id: number) => deckState(db, id);
 
 route("GET", /^\/api\/decks$/, () => listDecks(db));
 route("POST", /^\/api\/decks$/, (_p, body) => {
   const id = createDeck(db, String(body.name ?? ""));
-  return deckState(id);
+  return { state: state(id) };
 });
-route("GET", /^\/api\/decks\/(\d+)$/, ([id]) => deckState(Number(id)));
+route("GET", /^\/api\/decks\/(\d+)$/, ([id]) => ({ state: state(Number(id)) }));
 route("PATCH", /^\/api\/decks\/(\d+)$/, ([id], body) => {
   renameDeck(db, Number(id), String(body.name ?? ""));
-  return deckState(Number(id));
+  return { state: state(Number(id)) };
 });
 route("DELETE", /^\/api\/decks\/(\d+)$/, ([id]) => {
   deleteDeck(db, Number(id));
@@ -124,7 +96,7 @@ route("POST", /^\/api\/decks\/(\d+)\/cards$/, ([id], body) => {
     slotId: body.slot_id ?? null,
     role: body.role,
   });
-  return deckState(Number(id));
+  return { state: state(Number(id)) };
 });
 route("PATCH", /^\/api\/decks\/(\d+)\/cards\/([0-9a-f-]+)$/, ([id, oid], body) => {
   updateCard(db, Number(id), oid, {
@@ -134,16 +106,16 @@ route("PATCH", /^\/api\/decks\/(\d+)\/cards\/([0-9a-f-]+)$/, ([id, oid], body) =
     quantity: body.quantity,
     tagIds: body.tag_ids,
   });
-  return deckState(Number(id));
+  return { state: state(Number(id)) };
 });
 route("DELETE", /^\/api\/decks\/(\d+)\/cards\/([0-9a-f-]+)$/, ([id, oid]) => {
   removeCard(db, Number(id), oid);
-  return deckState(Number(id));
+  return { state: state(Number(id)) };
 });
 
 route("POST", /^\/api\/decks\/(\d+)\/slots$/, ([id], body) => {
   createSlot(db, Number(id), String(body.name ?? ""), body.target_min ?? null, body.target_max ?? null);
-  return deckState(Number(id));
+  return { state: state(Number(id)) };
 });
 route("PATCH", /^\/api\/decks\/(\d+)\/slots\/(\d+)$/, ([id, sid], body) => {
   updateSlot(db, Number(id), Number(sid), {
@@ -151,29 +123,29 @@ route("PATCH", /^\/api\/decks\/(\d+)\/slots\/(\d+)$/, ([id, sid], body) => {
     targetMin: body.target_min,
     targetMax: body.target_max,
   });
-  return deckState(Number(id));
+  return { state: state(Number(id)) };
 });
 route("DELETE", /^\/api\/decks\/(\d+)\/slots\/(\d+)$/, ([id, sid]) => {
   deleteSlot(db, Number(id), Number(sid));
-  return deckState(Number(id));
+  return { state: state(Number(id)) };
 });
 
 route("POST", /^\/api\/decks\/(\d+)\/tags$/, ([id], body) => {
   createTag(db, Number(id), String(body.name ?? ""));
-  return deckState(Number(id));
+  return { state: state(Number(id)) };
 });
 route("PATCH", /^\/api\/decks\/(\d+)\/tags\/(\d+)$/, ([id, tid], body) => {
   renameTag(db, Number(id), Number(tid), String(body.name ?? ""));
-  return deckState(Number(id));
+  return { state: state(Number(id)) };
 });
 route("DELETE", /^\/api\/decks\/(\d+)\/tags\/(\d+)$/, ([id, tid]) => {
   deleteTag(db, Number(id), Number(tid));
-  return deckState(Number(id));
+  return { state: state(Number(id)) };
 });
 
 route("POST", /^\/api\/decks\/(\d+)\/proposals$/, ([id], body) => {
   createProposal(db, Number(id), body.items ?? [], { source: body.source, note: body.note });
-  return deckState(Number(id));
+  return { state: state(Number(id)) };
 });
 route("GET", /^\/api\/decks\/(\d+)\/proposals$/, ([id], _b, url) => {
   const status = url.searchParams.get("status") as "open" | "resolved" | null;
@@ -181,15 +153,15 @@ route("GET", /^\/api\/decks\/(\d+)\/proposals$/, ([id], _b, url) => {
 });
 route("POST", /^\/api\/decks\/(\d+)\/items\/(\d+)\/accept$/, ([id, itemId]) => {
   acceptItem(db, Number(itemId));
-  return deckState(Number(id));
+  return { state: state(Number(id)) };
 });
 route("POST", /^\/api\/decks\/(\d+)\/items\/(\d+)\/reject$/, ([id, itemId], body) => {
   rejectItem(db, Number(itemId), body.type, String(body.reason ?? ""));
-  return deckState(Number(id));
+  return { state: state(Number(id)) };
 });
 route("POST", /^\/api\/decks\/(\d+)\/log\/(\d+)\/undo$/, ([id, logId]) => {
   undoDecision(db, Number(id), Number(logId));
-  return deckState(Number(id));
+  return { state: state(Number(id)) };
 });
 route("GET", /^\/api\/decks\/(\d+)\/log$/, ([id], _b, url) =>
   getLog(db, Number(id), Math.min(Number(url.searchParams.get("limit") ?? 100), 500)),
@@ -199,11 +171,11 @@ route("GET", /^\/api\/decks\/(\d+)\/cards\/([0-9a-f-]+)\/history$/, ([id, oid]) 
 );
 route("DELETE", /^\/api\/decks\/(\d+)\/filters\/([0-9a-f-]+)$/, ([id, oid]) => {
   removeHardFilter(db, Number(id), oid);
-  return deckState(Number(id));
+  return { state: state(Number(id)) };
 });
 route("POST", /^\/api\/decks\/(\d+)\/notes$/, ([id], body) => {
   addCardNote(db, Number(id), String(body.oracle_id), String(body.note ?? ""));
-  return deckState(Number(id));
+  return { state: state(Number(id)) };
 });
 
 // The reasoning pass is an LLM round-trip, so a run is a background job: the
@@ -241,7 +213,7 @@ async function executeAuditRun(deckId: number, runId: number, instructions: stri
   }
 }
 
-route("GET", /^\/api\/decks\/(\d+)\/audit$/, ([id]) => auditState(db, Number(id)));
+route("GET", /^\/api\/decks\/(\d+)\/audit$/, ([id]) => ({ audit: auditState(db, Number(id)) }));
 route("GET", /^\/api\/decks\/(\d+)\/audit\/runs\/(\d+)$/, ([id, runId]) => {
   const run = getAuditRun(db, Number(id), Number(runId));
   if (!run) throw new ServiceError(`No audit run #${runId} for this deck`, 404);
@@ -254,46 +226,46 @@ route("POST", /^\/api\/decks\/(\d+)\/audit$/, ([id], body) => {
   // One run at a time per deck: a second click while one is in flight joins
   // the run already going rather than paying for a duplicate reasoning pass.
   const inFlight = runningAuditRun(db, deckId);
-  if (inFlight) return { run_id: inFlight.id, already_running: true, ...auditState(db, deckId) };
+  if (inFlight) return { run_id: inFlight.id, already_running: true, audit: auditState(db, deckId) };
 
   const runId = startAuditRun(db, deckId, instructions);
   if (body.skip_reasoning === true) finishAuditRun(db, runId, null);
   else void executeAuditRun(deckId, runId, instructions);
-  return { run_id: runId, already_running: false, ...auditState(db, deckId) };
+  return { run_id: runId, already_running: false, audit: auditState(db, deckId) };
 });
 route("POST", /^\/api\/decks\/(\d+)\/audit\/dismiss$/, ([id], body) => {
   dismissFinding(db, Number(id), String(body.key), body.type, String(body.reason ?? ""));
-  return { state: deckState(Number(id)), audit: auditState(db, Number(id)) };
+  return { state: state(Number(id)), audit: auditState(db, Number(id)) };
 });
 route("POST", /^\/api\/decks\/(\d+)\/audit\/undismiss$/, ([id], body) => {
   undismissFinding(db, Number(id), String(body.key));
-  return { state: deckState(Number(id)), audit: auditState(db, Number(id)) };
+  return { state: state(Number(id)), audit: auditState(db, Number(id)) };
 });
 route("POST", /^\/api\/decks\/(\d+)\/audit\/promote$/, ([id], body) => {
   promoteFinding(db, Number(id), String(body.key));
-  return { state: deckState(Number(id)), audit: auditState(db, Number(id)) };
+  return { state: state(Number(id)), audit: auditState(db, Number(id)) };
 });
 
-route("GET", /^\/api\/decks\/(\d+)\/brief$/, ([id]) => getBrief(db, Number(id)));
+route("GET", /^\/api\/decks\/(\d+)\/brief$/, ([id]) => ({ brief: getBrief(db, Number(id)) }));
 route("PUT", /^\/api\/decks\/(\d+)\/brief$/, ([id], body) => {
   updateBrief(db, Number(id), { thesis: body.thesis, constraints_md: body.constraints_md });
-  return getBrief(db, Number(id));
+  return { brief: getBrief(db, Number(id)) };
 });
 route("POST", /^\/api\/decks\/(\d+)\/engines$/, ([id], body) => {
   setEngine(db, Number(id), String(body.name ?? ""), String(body.description ?? ""), body.pieces ?? []);
-  return getBrief(db, Number(id));
+  return { brief: getBrief(db, Number(id)) };
 });
 route("DELETE", /^\/api\/decks\/(\d+)\/engines\/(\d+)$/, ([id, engineId]) => {
   removeEngine(db, Number(id), Number(engineId));
-  return getBrief(db, Number(id));
+  return { brief: getBrief(db, Number(id)) };
 });
 route("POST", /^\/api\/decks\/(\d+)\/brief-edits\/(\d+)\/accept$/, ([id, editId]) => {
   acceptBriefEdit(db, Number(id), Number(editId));
-  return { state: deckState(Number(id)), brief: getBrief(db, Number(id)) };
+  return { state: state(Number(id)), brief: getBrief(db, Number(id)) };
 });
 route("POST", /^\/api\/decks\/(\d+)\/brief-edits\/(\d+)\/reject$/, ([id, editId], body) => {
   rejectBriefEdit(db, Number(id), Number(editId), String(body.type ?? "soft"), String(body.reason ?? ""));
-  return { state: deckState(Number(id)), brief: getBrief(db, Number(id)) };
+  return { state: state(Number(id)), brief: getBrief(db, Number(id)) };
 });
 
 route("GET", /^\/api\/decks\/(\d+)\/chat$/, ([id]) => getChatHistory(db, Number(id)));
@@ -301,7 +273,7 @@ route("POST", /^\/api\/decks\/(\d+)\/chat$/, async ([id], body) => {
   const cfg = getAgentConfig();
   const transport = openRouterTransport(cfg);
   const result = await runTurn(db, Number(id), String(body.message ?? ""), transport, getRetentionN(db));
-  return { reply: result.reply, mutated: result.mutatedState, state: deckState(Number(id)) };
+  return { reply: result.reply, mutated: result.mutatedState, state: state(Number(id)) };
 });
 // Debug/verification: exactly what the agent sees (spec §10)
 route("GET", /^\/api\/decks\/(\d+)\/context-preview$/, ([id]) => {
@@ -315,34 +287,28 @@ route("GET", /^\/api\/decks\/(\d+)\/context-preview$/, ([id]) => {
 
 // ---------- compaction (spec §11) ----------
 
-route("GET", /^\/api\/decks\/(\d+)\/context-meter$/, ([id]) =>
-  contextMeter(db, Number(id), getRetentionN(db)),
-);
+route("GET", /^\/api\/decks\/(\d+)\/context-meter$/, ([id]) => ({
+  meter: contextMeter(db, Number(id), getRetentionN(db)),
+}));
 route("POST", /^\/api\/decks\/(\d+)\/consolidate$/, async ([id]) => {
   const cfg = getAgentConfig();
   const consolidation = await runConsolidation(db, Number(id), openRouterTransport(cfg));
-  return { consolidation, state: deckState(Number(id)) };
+  return { consolidation, state: state(Number(id)) };
 });
 route("POST", /^\/api\/decks\/(\d+)\/consolidations\/(\d+)\/accept$/, ([id, cid]) => {
   const consolidation = acceptConsolidation(db, Number(id), Number(cid));
-  return { consolidation, state: deckState(Number(id)), meter: contextMeter(db, Number(id), getRetentionN(db)) };
+  return { consolidation, state: state(Number(id)), meter: contextMeter(db, Number(id), getRetentionN(db)) };
 });
 route("POST", /^\/api\/decks\/(\d+)\/consolidations\/(\d+)\/reject$/, ([id, cid]) => {
   const consolidation = rejectConsolidation(db, Number(id), Number(cid));
-  return { consolidation, state: deckState(Number(id)), meter: contextMeter(db, Number(id), getRetentionN(db)) };
+  return { consolidation, state: state(Number(id)), meter: contextMeter(db, Number(id), getRetentionN(db)) };
 });
 
 // ---------- settings (spec §12: retention N is tunable, not a constant) ----------
 
 route("GET", /^\/api\/settings$/, () => ({ retention_n: getRetentionN(db) }));
 route("PUT", /^\/api\/settings$/, (_p, body) => {
-  if (body.retention_n !== undefined) {
-    try {
-      setRetentionN(db, Number(body.retention_n));
-    } catch (e: any) {
-      throw new ServiceError(e.message);
-    }
-  }
+  if (body.retention_n !== undefined) setRetentionN(db, Number(body.retention_n));
   return { retention_n: getRetentionN(db) };
 });
 
@@ -361,16 +327,16 @@ route("POST", /^\/api\/decks\/(\d+)\/import\/preview$/, ([id], body) =>
 // confirmation, and the single log row it writes undoes the whole thing.
 route("POST", /^\/api\/decks\/(\d+)\/import$/, ([id], body) => {
   const r = applyImport(db, Number(id), String(body.text ?? ""), body.note);
-  return { ...r, state: deckState(Number(id)) };
+  return { import: r, state: state(Number(id)) };
 });
 
 route("POST", /^\/api\/decks\/(\d+)\/playtest-notes$/, ([id], body) => {
   addPlaytestNote(db, Number(id), String(body.note ?? ""));
-  return deckState(Number(id));
+  return { state: state(Number(id)) };
 });
 route("DELETE", /^\/api\/decks\/(\d+)\/playtest-notes\/(\d+)$/, ([id, noteId]) => {
   deletePlaytestNote(db, Number(id), Number(noteId));
-  return deckState(Number(id));
+  return { state: state(Number(id)) };
 });
 route("GET", /^\/api\/resolve$/, (_p, _b, url) =>
   resolveExactName(db, url.searchParams.get("name") ?? ""),
@@ -442,11 +408,7 @@ const server = createServer(async (req, res) => {
       return;
     json(404, { error: `Not found: ${req.method} ${url.pathname}` });
   } catch (e: any) {
-    if (e instanceof ServiceError) return json(e.status, { error: e.message });
-    if (e instanceof SearchError) return json(400, { error: e.message });
-    if (e instanceof ConfigError) return json(400, { error: e.message });
-    if (e instanceof AgentError) return json(502, { error: e.message });
-    if (e instanceof LlmError) return json(502, { error: e.message });
+    if (e instanceof AppError) return json(e.status, { error: e.message });
     console.error(e);
     json(500, { error: "Internal error" });
   }

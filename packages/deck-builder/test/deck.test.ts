@@ -4,8 +4,8 @@ import { openDb } from "../src/db.ts";
 import { ingestCards } from "../src/ingest.ts";
 import { FIXTURES } from "./fixtures.ts";
 import { search } from "../src/search/index.ts";
+import { ServiceError } from "../src/errors.ts";
 import {
-  ServiceError,
   addCard,
   copyLimit,
   createDeck,

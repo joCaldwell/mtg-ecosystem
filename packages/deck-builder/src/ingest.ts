@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
-import { normalizeName } from "./db.ts";
+import { normalizeName, withTransaction } from "./db.ts";
 
 // Non-cards that pollute search results. Everything else stays; illegal
 // cards are the audit's job, not the ingest filter's.
@@ -205,8 +205,7 @@ export function ingestCards(db: DatabaseSync, cards: ScryfallCard[]): { inserted
   let inserted = 0;
   let skipped = 0;
 
-  db.exec("BEGIN");
-  try {
+  withTransaction(db, () => {
     const seen: string[] = [];
     for (const card of cards) {
       const row = toRow(card);
@@ -245,11 +244,7 @@ export function ingestCards(db: DatabaseSync, cards: ScryfallCard[]): { inserted
     db.prepare(
       "INSERT INTO meta (key, value) VALUES ('last_ingest', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
     ).run(new Date().toISOString());
-    db.exec("COMMIT");
-  } catch (e) {
-    db.exec("ROLLBACK");
-    throw e;
-  }
+  });
 
   return { inserted, skipped };
 }

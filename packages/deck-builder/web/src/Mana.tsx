@@ -18,7 +18,8 @@ const PIP: Record<string, { bg: string; fg: string }> = {
 // the same light grey as colorless.
 const GENERIC = { bg: "#b3b9c3", fg: "#191c22" };
 
-function faceOf(part: string) {
+/** The palette for one symbol letter — every pip in the UI draws from here. */
+export function faceOf(part: string) {
   return PIP[part] ?? GENERIC;
 }
 

@@ -223,7 +223,7 @@ describe("consolidation hard boundary (spec §11 — enforced in code)", () => {
     await runConsolidation(db, id, transport);
     const edits = listBriefEdits(db, id, "pending");
     assert.equal(edits.length, 1);
-    assert.match(JSON.parse(edits[0].payload_json).content, /Sol Ring/);
+    assert.match(edits[0].payload.content ?? "", /Sol Ring/);
   });
 });
 

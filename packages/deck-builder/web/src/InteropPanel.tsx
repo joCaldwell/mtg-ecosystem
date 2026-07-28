@@ -4,16 +4,13 @@
 // the import lands as a single undoable entry in the log.
 
 import { useState } from "react";
-import { api, type DeckState, type ImportDiff } from "./api.ts";
+import { api, type ImportDiff } from "./api.ts";
+import { useDeck } from "./store.tsx";
+import { ago } from "./lib.ts";
 
-export function InteropPanel({
-  state,
-  mutate,
-}: {
-  state: DeckState;
-  mutate: (fn: () => Promise<DeckState>) => Promise<void>;
-}) {
-  const deckId = state.deck.id;
+export function InteropPanel() {
+  const { deckId, state: deckState, apply, run } = useDeck();
+  const state = deckState!;
   const [exported, setExported] = useState<string | null>(null);
   const [withCategories, setWithCategories] = useState(true);
   const [buyList, setBuyList] = useState(false);
@@ -85,18 +82,18 @@ export function InteropPanel({
     setBusy(true);
     try {
       const r = await api.importList(deckId, paste, note || undefined);
-      if (r.log_id == null) {
+      if (r.import.log_id == null) {
         setApplied("No differences — the deck already matches that list.");
       } else {
-        const bits = [`${r.applied.added} added`, `${r.applied.cut} cut`];
-        if (r.applied.quantity_changed) bits.push(`${r.applied.quantity_changed} quantity changed`);
+        const { added, cut, quantity_changed } = r.import.applied;
+        const bits = [`${added} added`, `${cut} cut`];
+        if (quantity_changed) bits.push(`${quantity_changed} quantity changed`);
         setApplied(`Imported: ${bits.join(" · ")}. Undo it from the log if that was wrong.`);
         setPaste("");
         setNote("");
         setDiff(null);
       }
-      // The composite payload is what every other mutation returns.
-      await mutate(async () => r.state);
+      apply(r);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -263,7 +260,7 @@ export function InteropPanel({
         <button
           disabled={!playtest.trim()}
           onClick={() =>
-            mutate(() => api.addPlaytestNote(deckId, playtest)).then(() => setPlaytest(""))
+            run(() => api.addPlaytestNote(deckId, playtest)).then(() => setPlaytest(""))
           }
         >
           Add at rev {state.deck.revision}
@@ -277,13 +274,13 @@ export function InteropPanel({
             <button
               className="icon danger"
               title="Delete note"
-              onClick={() => mutate(() => api.deletePlaytestNote(deckId, n.id))}
+              onClick={() => run(() => api.deletePlaytestNote(deckId, n.id))}
             >
               ✕
             </button>
           </div>
           <div className="muted rationale">
-            {n.cards.length} card(s) in the list this note describes · {n.created_at}
+            {n.cards.length} card(s) in the list this note describes · {ago(n.created_at)}
           </div>
         </div>
       ))}

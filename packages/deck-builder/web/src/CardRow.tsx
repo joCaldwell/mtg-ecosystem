@@ -1,46 +1,46 @@
-import { useState } from "react";
-import { api, type DeckCard, type DeckState, type DraftItem, type Slot, type Tag } from "./api.ts";
+import { useState, type MouseEvent } from "react";
+import { api, type DeckCard, type DraftItem } from "./api.ts";
+import { useDeck } from "./store.tsx";
+import { ptString } from "./lib.ts";
 import { ManaCost } from "./Mana.tsx";
 
 export function CardRow({
   card,
-  deckId,
-  slots,
-  tags,
-  mutate,
   draftAdd,
 }: {
   card: DeckCard;
-  deckId: number;
-  slots: Slot[];
-  tags: Tag[];
-  mutate: (fn: () => Promise<DeckState>) => Promise<void>;
   draftAdd?: (item: DraftItem) => void;
 }) {
+  const { deckId, state, run } = useDeck();
+  const { slots, tags } = state!;
   const [expanded, setExpanded] = useState(false);
 
   const shortType = card.type_line.split("—")[0].trim();
-  const pt =
-    card.power != null && card.toughness != null
-      ? `${card.power}/${card.toughness}`
-      : card.loyalty != null
-        ? `[${card.loyalty}]`
-        : "";
+  const pt = ptString(card);
 
   function toggleTag(tagId: number) {
     const next = card.tag_ids.includes(tagId)
       ? card.tag_ids.filter((t) => t !== tagId)
       : [...card.tag_ids, tagId];
-    mutate(() => api.updateCard(deckId, card.oracle_id, { tag_ids: next }));
+    run(() => api.updateCard(deckId, card.oracle_id, { tag_ids: next }));
   }
 
   // Only the tags actually on this card ride along in the row; the full cloud
   // of toggles lives in the expanded panel, where it isn't repeated 100 times.
   const activeTags = tags.filter((t) => card.tag_ids.includes(t.id));
 
+  // The whole row toggles the detail panel, but the row also carries its own
+  // controls — the own checkbox, the slot select, the action buttons, and the
+  // name button that keeps this reachable from the keyboard. Anything
+  // interactive handles its own click, so the row bows out.
+  function toggleFromRow(e: MouseEvent<HTMLDivElement>) {
+    if ((e.target as HTMLElement).closest("button, select, input, label, a")) return;
+    setExpanded(!expanded);
+  }
+
   return (
     <div className={`card-row ${expanded ? "is-open" : ""}`}>
-      <div className="card-main">
+      <div className="card-main is-clickable" onClick={toggleFromRow}>
         {/* Name and cost share one growing box so the name keeps its natural
             width — a bare flex spacer would shrink it into an ellipsis first.
             The count follows the name rather than leading it: singletons are
@@ -76,7 +76,7 @@ export function CardRow({
             type="checkbox"
             checked={!!card.owned}
             onChange={(e) =>
-              mutate(() => api.updateCard(deckId, card.oracle_id, { owned: e.target.checked }))
+              run(() => api.updateCard(deckId, card.oracle_id, { owned: e.target.checked }))
             }
           />
           own
@@ -86,7 +86,7 @@ export function CardRow({
           className="ghost"
           value={card.slot_id ?? ""}
           onChange={(e) =>
-            mutate(() =>
+            run(() =>
               api.updateCard(deckId, card.oracle_id, {
                 slot_id: e.target.value === "" ? null : Number(e.target.value),
               }),
@@ -124,10 +124,10 @@ export function CardRow({
             title="Remove one / remove card"
             onClick={() =>
               card.quantity > 1
-                ? mutate(() =>
+                ? run(() =>
                     api.updateCard(deckId, card.oracle_id, { quantity: card.quantity - 1 }),
                   )
-                : mutate(() => api.removeCard(deckId, card.oracle_id))
+                : run(() => api.removeCard(deckId, card.oracle_id))
             }
           >
             −
@@ -136,7 +136,7 @@ export function CardRow({
             className="icon"
             title="Add a copy"
             onClick={() =>
-              mutate(() => api.updateCard(deckId, card.oracle_id, { quantity: card.quantity + 1 }))
+              run(() => api.updateCard(deckId, card.oracle_id, { quantity: card.quantity + 1 }))
             }
           >
             +
@@ -144,7 +144,7 @@ export function CardRow({
           <button
             className="icon danger"
             title="Remove card entirely"
-            onClick={() => mutate(() => api.removeCard(deckId, card.oracle_id))}
+            onClick={() => run(() => api.removeCard(deckId, card.oracle_id))}
           >
             ✕
           </button>
@@ -160,7 +160,7 @@ export function CardRow({
               <select
                 value={card.role}
                 onChange={(e) =>
-                  mutate(() => api.updateCard(deckId, card.oracle_id, { role: e.target.value }))
+                  run(() => api.updateCard(deckId, card.oracle_id, { role: e.target.value }))
                 }
               >
                 <option value="card">card</option>

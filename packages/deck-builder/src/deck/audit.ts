@@ -1,6 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
-import { ServiceError, getDeck } from "./service.ts";
-import { createProposal, type RejectionType, REJECTION_TYPES } from "./proposals.ts";
+import { ServiceError } from "../errors.ts";
+import { withTransaction } from "../db.ts";
+import { getDeck, requireDeck } from "./service.ts";
+import { createProposal } from "./proposals.ts";
+import { type RejectionType, REJECTION_TYPES, recordRejection } from "./log.ts";
 
 // Deterministic checks only (spec §8.1) — SQL and code, never the model.
 // The reasoning pass (§8.2) plugs in at Phase 4 and receives these results
@@ -152,9 +155,7 @@ interface DismissalRow {
 // Active (non-decayed) dismissals; prunes decayed soft dismissals as a side
 // effect so they resurface (spec §7.2).
 export function activeDismissals(db: DatabaseSync, deckId: number): Map<string, DismissalRow> {
-  const { revision } = db.prepare("SELECT revision FROM decks WHERE id = ?").get(deckId) as {
-    revision: number;
-  };
+  const { revision } = requireDeck(db, deckId);
   const dismissals = db
     .prepare("SELECT finding_key, type, reason, revision, created_at FROM audit_dismissals WHERE deck_id = ?")
     .all(deckId) as unknown as DismissalRow[];
@@ -426,12 +427,9 @@ export function dismissFinding(
   const finding = findFindingByKey(db, deckId, findingKey);
   if (!finding) throw new ServiceError(`No current finding with key '${findingKey}'`, 404);
 
-  const { revision } = db.prepare("SELECT revision FROM decks WHERE id = ?").get(deckId) as {
-    revision: number;
-  };
+  const { revision } = requireDeck(db, deckId);
 
-  db.exec("BEGIN");
-  try {
+  withTransaction(db, () => {
     db.prepare(
       `INSERT INTO audit_dismissals (deck_id, finding_key, type, reason, revision)
        VALUES (?, ?, ?, ?, ?)
@@ -439,31 +437,19 @@ export function dismissFinding(
          reason = excluded.reason, revision = excluded.revision`,
     ).run(deckId, findingKey, type, reason.trim(), revision);
 
-    db.prepare(
-      `INSERT INTO decision_log
-       (deck_id, revision, kind, action, oracle_id, card_name, rationale, rejection_type, rejection_reason, brief_flag)
-       VALUES (?, ?, 'reject', NULL, ?, ?, ?, ?, ?, ?)`,
-    ).run(
+    recordRejection(
+      db,
       deckId,
+      {
+        type,
+        reason: reason.trim(),
+        rationale: `Audit finding dismissed: ${finding.title}`,
+        oracle_id: finding.oracle_id ?? null,
+        card_name: finding.card_name ?? null,
+      },
       revision,
-      finding.oracle_id ?? null,
-      finding.card_name ?? null,
-      `Audit finding dismissed: ${finding.title}`,
-      type,
-      reason.trim(),
-      type === "thesis_change" ? 1 : 0,
     );
-
-    if (type === "playtest_finding" && finding.oracle_id) {
-      db.prepare(
-        "INSERT INTO card_notes (deck_id, oracle_id, card_name, note) VALUES (?, ?, ?, ?)",
-      ).run(deckId, finding.oracle_id, finding.card_name ?? "", reason.trim());
-    }
-    db.exec("COMMIT");
-  } catch (e) {
-    db.exec("ROLLBACK");
-    throw e;
-  }
+  });
 }
 
 export function undismissFinding(db: DatabaseSync, deckId: number, findingKey: string): void {

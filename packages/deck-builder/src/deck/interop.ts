@@ -32,8 +32,10 @@
 // ---------------------------------------------------------------------------
 
 import type { DatabaseSync } from "node:sqlite";
-import { ServiceError, addCard, getDeck, removeCard, updateCard } from "./service.ts";
-import { isHardFiltered, logImport } from "./proposals.ts";
+import { ServiceError } from "../errors.ts";
+import { withTransaction } from "../db.ts";
+import { addCard, getDeck, removeCard, updateCard } from "./service.ts";
+import { isHardFiltered, logImport } from "./log.ts";
 import { resolveExactName, suggestNames } from "../search/index.ts";
 
 // Categories we emit for cards that aren't in a user slot. "Commander" is
@@ -419,8 +421,7 @@ export function applyImport(
     tag_ids: c.tag_ids,
   }));
 
-  db.exec("BEGIN");
-  try {
+  return withTransaction(db, () => {
     for (const c of diff.cuts) removeCard(db, deckId, c.oracle_id);
     for (const a of diff.adds) {
       // Slots deleted between preview and apply must not fail the import.
@@ -440,12 +441,8 @@ export function applyImport(
       `Imported an Archidekt list at revision ${diff.revision}: +${applied.added}/−${applied.cut}` +
         (applied.quantity_changed ? `, ${applied.quantity_changed} quantity change(s)` : "");
     const logId = logImport(db, deckId, summary, before);
-    db.exec("COMMIT");
     return { applied, log_id: logId, diff };
-  } catch (e) {
-    db.exec("ROLLBACK");
-    throw e;
-  }
+  });
 }
 
 // ---------- playtest notes (spec §9) ----------

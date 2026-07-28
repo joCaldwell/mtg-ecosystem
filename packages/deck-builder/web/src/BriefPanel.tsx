@@ -1,14 +1,8 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type FormEvent,
-  type KeyboardEvent,
-} from "react";
-import { api, type Brief, type Engine } from "./api.ts";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { api, type Engine } from "./api.ts";
+import { useDeck } from "./store.tsx";
 import { usePeekProps } from "./CardPeek.tsx";
+import { useAutosize } from "./lib.ts";
 import { CardText, Markdown } from "./Markdown.tsx";
 
 type EngineForm = { name: string; description: string; pieces: string; existing: boolean };
@@ -42,21 +36,11 @@ function Field({
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
 
-  /**
-   * Height follows the wrapped text, not the line count — a thesis is one long
-   * paragraph with no newlines in it, and counting them would open a four-row
-   * scroller over an eight-row field. Capped by max-height in the stylesheet.
-   */
-  const fit = useCallback(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight + 2}px`;
-  }, []);
-
-  useLayoutEffect(() => {
-    if (draft !== null) fit();
-  }, [draft, fit]);
+  // Height follows the wrapped text, not the line count — a thesis is one long
+  // paragraph with no newlines in it, and counting them would open a four-row
+  // scroller over an eight-row field. Capped by max-height in the stylesheet;
+  // the +2 puts the textarea's borders back.
+  useAutosize(ref, draft, 2);
 
   useEffect(() => {
     if (draft === null) return;
@@ -181,8 +165,8 @@ function EngineRow({
   );
 }
 
-export function BriefPanel({ deckId }: { deckId: number }) {
-  const [brief, setBrief] = useState<Brief | null>(null);
+export function BriefPanel() {
+  const { deckId, brief, apply } = useDeck();
   const [error, setError] = useState<string | null>(null);
   // null is the resting state here too: the engine form is a thing you open,
   // not three empty inputs sitting under the list you came to read.
@@ -190,15 +174,15 @@ export function BriefPanel({ deckId }: { deckId: number }) {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api.getBrief(deckId).then(setBrief);
-  }, [deckId]);
+    api.getBrief(deckId).then(apply);
+  }, [deckId, apply]);
 
   if (!brief) return null;
 
   async function saveField(patch: { thesis?: string; constraints_md?: string }) {
     setError(null);
     try {
-      setBrief(await api.updateBrief(deckId, patch));
+      apply(await api.updateBrief(deckId, patch));
     } catch (e: any) {
       setError(e.message);
       // Rethrown so the field keeps the draft it failed to save.
@@ -219,7 +203,7 @@ export function BriefPanel({ deckId }: { deckId: number }) {
         if (!matches.length) throw new Error(`'${name}' is not an exact card name`);
         pieces.push({ oracle_id: matches[0].oracle_id });
       }
-      setBrief(await api.setEngine(deckId, form.name, form.description, pieces));
+      apply(await api.setEngine(deckId, form.name, form.description, pieces));
       setForm(null);
     } catch (e: any) {
       setError(e.message);
@@ -274,7 +258,7 @@ export function BriefPanel({ deckId }: { deckId: number }) {
                 existing: true,
               })
             }
-            onRemove={() => api.removeEngine(deckId, e.id).then(setBrief).catch((err) => setError(err.message))}
+            onRemove={() => api.removeEngine(deckId, e.id).then(apply).catch((err) => setError(err.message))}
           />
         ))}
         {form && (

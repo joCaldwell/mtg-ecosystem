@@ -5,10 +5,11 @@
 // findings that name nonexistent or out-of-deck cards are dropped.
 
 import type { DatabaseSync } from "node:sqlite";
+import { deckCardIndex } from "../deck/service.ts";
+import { normalizeName } from "../db.ts";
 import { assembleDeckSections } from "./context.ts";
-import { extractCardRefs } from "./lint.ts";
-import { resolveExactName } from "../search/index.ts";
-import type { ChatMessage, ChatTransport } from "./llm.ts";
+import { unresolvedRefs } from "./lint.ts";
+import { callJson, type ChatMessage, type ChatTransport } from "./llm.ts";
 import type { Finding } from "../deck/audit.ts";
 
 export interface ReasoningFinding extends Finding {
@@ -64,14 +65,6 @@ function slugify(s: string): string {
   );
 }
 
-function parseModelJson(text: string): any {
-  const cleaned = text
-    .trim()
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/```\s*$/, "");
-  return JSON.parse(cleaned);
-}
-
 export async function runReasoningPass(
   db: DatabaseSync,
   deckId: number,
@@ -101,44 +94,16 @@ export async function runReasoningPass(
     { role: "user", content: userPrompt },
   ];
 
-  // One retry on unparseable output.
-  let parsed: any = null;
-  for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
-    const response = await transport({ messages, tools: [], json: true });
-    const text = response.message.content ?? "";
-    try {
-      parsed = parseModelJson(text);
-    } catch {
-      if (attempt === 0) {
-        messages.push(response.message);
-        messages.push({
-          role: "system" as const,
-          content: "That was not valid JSON. Respond again with ONLY the JSON object.",
-        });
-      } else {
-        return {
-          summary: "",
-          findings: [],
-          dismissed: [],
-          dropped: 0,
-          error: "The model did not return valid JSON after a retry.",
-        };
-      }
-    }
-  }
+  // One retry on unparseable output; a second failure degrades to an errored
+  // run rather than throwing — the deterministic half stands on its own.
+  const result = await callJson(transport, messages);
+  if (result.error)
+    return { summary: "", findings: [], dismissed: [], dropped: 0, error: result.error };
+  const parsed: any = result.parsed;
 
   // Validate every finding: all [[refs]] and card_name must resolve to real
   // cards; action:"cut" targets must actually be in the deck.
-  const inDeck = new Map(
-    (
-      db
-        .prepare(
-          `SELECT dc.oracle_id, c.name FROM deck_cards dc JOIN cards c ON c.oracle_id = dc.oracle_id
-           WHERE dc.deck_id = ?`,
-        )
-        .all(deckId) as unknown as Array<{ oracle_id: string; name: string }>
-    ).map((r) => [r.name.toLowerCase(), r.oracle_id]),
-  );
+  const { byName: inDeck } = deckCardIndex(db, deckId);
 
   let dropped = 0;
   const seen = new Set<string>();
@@ -155,8 +120,7 @@ export async function runReasoningPass(
       dropped++;
       continue;
     }
-    const refs = extractCardRefs(`${title} ${detail}`);
-    if (refs.some((name) => resolveExactName(db, name).length === 0)) {
+    if (unresolvedRefs(db, `${title} ${detail}`).length) {
       dropped++;
       continue;
     }
@@ -167,10 +131,10 @@ export async function runReasoningPass(
       detail,
     };
     if (raw.action === "cut" && raw.card_name) {
-      const oracleId = inDeck.get(String(raw.card_name).toLowerCase());
-      if (oracleId) {
+      const card = inDeck.get(normalizeName(String(raw.card_name)));
+      if (card) {
         finding.action = "cut";
-        finding.oracle_id = oracleId;
+        finding.oracle_id = card.oracle_id;
         finding.card_name = String(raw.card_name);
       }
       // cut target not in deck → keep as informational finding

@@ -1,14 +1,20 @@
 import type { DatabaseSync } from "node:sqlite";
+import { AppError } from "../errors.ts";
 import { assembleContext } from "./context.ts";
 import { TOOL_DEFS, executeTool } from "./tools.ts";
 import { lintOutput, lintCorrectionMessage } from "./lint.ts";
 import { getProposal } from "../deck/proposals.ts";
+import { allMessages, appendMessage, type StoredChatMessage } from "./chatStore.ts";
 import { LlmError, type ChatMessage, type ChatTransport } from "./llm.ts";
 
 const MAX_MODEL_CALLS = 12;
 const MAX_LINT_BOUNCES = 2;
 
-export class AgentError extends Error {}
+export class AgentError extends AppError {
+  constructor(message: string) {
+    super(message, 502);
+  }
+}
 
 export interface TurnResult {
   reply: string;
@@ -28,16 +34,8 @@ export async function runTurn(
 ): Promise<TurnResult> {
   const { system, transcript, tailRestate } = assembleContext(db, deckId, retentionN);
 
-  // `extra` is stored alongside the message but deliberately not pushed into
-  // `messages` — the provider gets exactly the fields it knows about, while the
-  // row on disk keeps the link the UI needs.
-  const persist = (msg: ChatMessage, extra?: Record<string, unknown>) => {
-    db.prepare("INSERT INTO chat_messages (deck_id, role, content_json) VALUES (?, ?, ?)").run(
-      deckId,
-      msg.role,
-      JSON.stringify(extra ? { ...msg, ...extra } : msg),
-    );
-  };
+  const persist = (msg: ChatMessage, extra?: Record<string, unknown>) =>
+    appendMessage(db, deckId, msg, extra);
 
   // Tail restate rides immediately before the owner's message (spec §10).
   const userMessage: ChatMessage = {
@@ -112,25 +110,22 @@ export async function runTurn(
   }
 }
 
-export function getChatHistory(db: DatabaseSync, deckId: number) {
-  const rows = db
-    .prepare(
-      "SELECT id, role, content_json, compacted_at, created_at FROM chat_messages WHERE deck_id = ? ORDER BY id",
-    )
-    .all(deckId) as unknown as Array<{
-    id: number;
-    role: string;
-    content_json: string;
-    compacted_at: string | null;
-    created_at: string;
-  }>;
-  // Compacted messages are still returned — they stay on disk and the UI
-  // shows them collapsed, so compaction is visibly non-destructive (§11).
-  const messages = rows.map((r) => ({
+// The wire shape of one transcript row: the stored message plus row
+// metadata, and — for a tool message that created a proposal — the proposal
+// hydrated live so its item statuses are current.
+export interface ChatHistoryMessage extends StoredChatMessage {
+  id: number;
+  created_at: string;
+  compacted_at: string | null;
+  proposal?: ReturnType<typeof getProposal>;
+}
+
+export function getChatHistory(db: DatabaseSync, deckId: number): ChatHistoryMessage[] {
+  const messages: ChatHistoryMessage[] = allMessages(db, deckId).map((r) => ({
     id: r.id,
     created_at: r.created_at,
     compacted_at: r.compacted_at,
-    ...(JSON.parse(r.content_json) as ChatMessage & { proposal_id?: number }),
+    ...r.message,
   }));
   // Hydrate the proposals a turn produced, read live rather than frozen at
   // send time: the transcript then shows each item's current ruling, and the

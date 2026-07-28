@@ -2,6 +2,8 @@
 // fetch, no SDK — the transport is injectable so agent tests never touch
 // the network.
 
+import { AppError } from "../errors.ts";
+
 export interface ToolCall {
   id: string;
   type: "function";
@@ -37,7 +39,11 @@ export type ChatTransport = (req: {
   json?: boolean;
 }) => Promise<ChatResponse>;
 
-export class LlmError extends Error {}
+export class LlmError extends AppError {
+  constructor(message: string) {
+    super(message, 502);
+  }
+}
 
 export function openRouterTransport(cfg: {
   apiKey: string;
@@ -76,4 +82,51 @@ export function openRouterTransport(cfg: {
       model: body.model,
     };
   };
+}
+
+// ---------- structured (JSON-mode) calls ----------
+
+// Strip the markdown fences models sometimes add despite instructions.
+export function parseModelJson(text: string): any {
+  const cleaned = text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/```\s*$/, "");
+  return JSON.parse(cleaned);
+}
+
+// One JSON-mode round-trip with a single correction retry, shared by every
+// pass that wants a structured reply (consolidation, audit reasoning). An
+// unparseable response — or a validate() complaint — is bounced back to the
+// model once with `correction`; a second failure comes back as `error` and
+// the caller decides whether that throws or degrades.
+export async function callJson<T = any>(
+  transport: ChatTransport,
+  messages: ChatMessage[],
+  validate?: (parsed: any) => { correction: string; failure: string } | null,
+): Promise<{ parsed: T; error?: never } | { parsed?: never; error: string }> {
+  const msgs = [...messages];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await transport({ messages: msgs, tools: [], json: true });
+    const text = response.message.content ?? "";
+    let candidate: any;
+    try {
+      candidate = parseModelJson(text);
+    } catch {
+      if (attempt === 1) break;
+      msgs.push(response.message, {
+        role: "system",
+        content: "That was not valid JSON. Respond again with ONLY the JSON object.",
+      });
+      continue;
+    }
+    const complaint = validate?.(candidate) ?? null;
+    if (complaint) {
+      if (attempt === 1) return { error: complaint.failure };
+      msgs.push(response.message, { role: "system", content: complaint.correction });
+      continue;
+    }
+    return { parsed: candidate as T };
+  }
+  return { error: "The model did not return valid JSON after a retry." };
 }

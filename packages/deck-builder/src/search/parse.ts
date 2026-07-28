@@ -6,6 +6,8 @@
 //   unary   := '-' unary | primary
 //   primary := '(' orExpr ')' | term
 //   term    := '!' name | key op value | name
+import { AppError } from "../errors.ts";
+
 export type Op = ":" | "=" | "<" | ">" | "<=" | ">=" | "!=";
 
 export type Node =
@@ -16,7 +18,7 @@ export type Node =
   | { kind: "exact"; value: string }
   | { kind: "filter"; key: string; op: Op; value: string };
 
-export class SearchError extends Error {}
+export class SearchError extends AppError {}
 
 type Token =
   | { t: "(" }

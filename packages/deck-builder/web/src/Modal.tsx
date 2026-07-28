@@ -5,6 +5,7 @@
 // stay inline — ruling on them is the main loop and wants the list in view.
 
 import { useEffect, useRef, type ReactNode } from "react";
+import { useDismissable } from "./lib.ts";
 
 export function Modal({
   title,
@@ -20,35 +21,29 @@ export function Modal({
 }) {
   const bodyRef = useRef<HTMLDivElement>(null);
 
+  useDismissable(onClose);
+
+  // Focus the panel so Escape and the scroll wheel land here, not on the
+  // decklist underneath.
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    // The page behind must not scroll under the overlay.
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    // Focus the panel so Escape and the scroll wheel land here, not on the
-    // decklist underneath.
     bodyRef.current?.focus();
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [onClose]);
+  }, []);
 
   return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
-      <div
-        className={`modal ${wide ? "wide" : ""}`}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        // Clicks inside must not reach the backdrop's close handler. mousedown
-        // rather than click so a text selection that ends outside the panel
-        // does not dismiss it.
-        onMouseDown={(e) => e.stopPropagation()}
-      >
+    <div
+      className="modal-backdrop"
+      // Only a press that lands on the backdrop itself dismisses. Tested by
+      // target rather than by stopping propagation inside the panel: that
+      // stopped the press at React's root and never let it reach the
+      // document, where the card peek listens for the click that dismisses
+      // it — so a card opened from inside a modal could not be closed.
+      // mousedown rather than click, so a text selection that ends outside
+      // the panel does not dismiss it either.
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className={`modal ${wide ? "wide" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
         <header className="modal-head">
           <h2>{title}</h2>
           <button className="small" onClick={onClose} aria-label="Close">

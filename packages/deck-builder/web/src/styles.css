@@ -42,12 +42,17 @@
 
   --accent: #7aa2f7;
   --accent-bg: #1b2540;
+  --accent-bg-hi: #24325a;
+  --accent-border: #2f4573;
+  --accent-fg: #b9cbf5;
   --ok: #5cc98d;
   --ok-bg: #10261c;
   --under: #e3b341;
   --under-bg: #2a2210;
   --over: #f0736a;
   --over-bg: #321816;
+  --over-border: #5e2a26;
+  --warn: #d08a3a;
 
   --r-sm: 4px;
   --r-md: 7px;
@@ -177,11 +182,11 @@ button:disabled {
 }
 button.primary {
   background: var(--accent-bg);
-  border-color: #2f4573;
+  border-color: var(--accent-border);
   color: #cfdcfb;
 }
 button.primary:hover:not(:disabled) {
-  background: #24325a;
+  background: var(--accent-bg-hi);
   border-color: var(--accent);
 }
 button.small {
@@ -320,7 +325,7 @@ select.ghost:focus {
 
 .error-banner {
   background: var(--over-bg);
-  border: 1px solid #5e2a26;
+  border: 1px solid var(--over-border);
   border-left: 3px solid var(--over);
   border-radius: var(--r-sm);
   padding: var(--sp-2) var(--sp-3);
@@ -352,7 +357,7 @@ select.ghost:focus {
   color: var(--under);
 }
 .chip.over {
-  border-color: #5e2a26;
+  border-color: var(--over-border);
   background: var(--over-bg);
   color: var(--over);
 }
@@ -486,7 +491,7 @@ select.ghost:focus {
   overflow-y: auto;
   overscroll-behavior: contain;
   background: var(--bg-panel);
-  border: 1px solid #5e2a26;
+  border: 1px solid var(--over-border);
   border-left: 3px solid var(--over);
   border-radius: var(--r-md);
   margin: var(--sp-3) 0;
@@ -660,6 +665,15 @@ body.col-resizing * {
 .side-body.is-search {
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+/* Both tabs stay mounted (SidePanel.tsx); the inactive one hides. The visible
+   wrapper is `contents`, so .search-panel and .chat remain the body's direct
+   flex children for sizing — exactly as when only one was rendered. */
+.side-tab {
+  display: contents;
+}
+.side-tab.is-hidden {
+  display: none;
 }
 
 /* Split-screen territory. The two tool panels merge into one independently
@@ -873,9 +887,9 @@ li.over .slot-meter > i {
   background: var(--bg-hover);
 }
 .tag-chip.active {
-  border-color: #2f4573;
+  border-color: var(--accent-border);
   background: var(--accent-bg);
-  color: #b9cbf5;
+  color: var(--accent-fg);
 }
 .tag-chip.static {
   cursor: default;
@@ -1374,6 +1388,10 @@ details:not(.group) > summary {
   min-height: 28px;
   min-width: 0;
 }
+/* The whole row opens the detail panel; only rows that do get the cue. */
+.card-main.is-clickable {
+  cursor: pointer;
+}
 .card-id {
   display: flex;
   align-items: center;
@@ -1490,7 +1508,7 @@ details:not(.group) > summary {
 /* --- proposals, drafts, log -------------------------------------------- */
 
 .draft {
-  border: 1px dashed #2f4573;
+  border: 1px dashed var(--accent-border);
   background: color-mix(in srgb, var(--accent-bg) 35%, transparent);
   border-radius: var(--r-md);
   padding: 2px var(--sp-3) var(--sp-3);
@@ -1814,7 +1832,7 @@ details:not(.group) > summary {
   border-radius: 15px;
 }
 .cardref {
-  color: #b9cbf5;
+  color: var(--accent-fg);
   background: var(--accent-bg);
   border-radius: 3px;
   padding: 0 3px;
@@ -1823,7 +1841,7 @@ details:not(.group) > summary {
 }
 .cardref:hover,
 .cardref:focus-visible {
-  background: #24325a;
+  background: var(--accent-bg-hi);
   color: #d5e0fa;
   outline: none;
 }
@@ -1905,7 +1923,7 @@ details:not(.group) > summary {
 }
 /* Segments that grow without bound are the ones compaction/retention act on */
 .meter-bar.grows {
-  background: #d08a3a;
+  background: var(--warn);
 }
 .meter-num {
   text-align: right;
@@ -1922,7 +1940,7 @@ details:not(.group) > summary {
   align-items: center;
 }
 .rescued {
-  border-left: 2px solid #d08a3a;
+  border-left: 2px solid var(--warn);
   padding-left: var(--sp-3);
   margin-top: var(--sp-3);
 }

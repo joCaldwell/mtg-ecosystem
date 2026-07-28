@@ -1,5 +1,14 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { api, type ChatMsg, type DeckState, type Slot } from "./api.ts";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
+import { api, type ChatMsg, type Envelope } from "./api.ts";
+import { useDeck } from "./store.tsx";
+import { useAutosize } from "./lib.ts";
 import { Markdown } from "./Markdown.tsx";
 import { ProposalCard } from "./ProposalCard.tsx";
 
@@ -47,54 +56,156 @@ function toolSummary(m: ChatMsg, carded: Set<string>): string | null {
   return parts.length ? parts.join(" · ") : null;
 }
 
-export function ChatPanel({
-  deckId,
-  setState,
-  input,
-  setInput,
-  slots,
-  mutate,
+// Message and ProposalBlock live at module scope, not as closures inside
+// ChatPanel: an inline component gets a new identity every render, and React
+// would remount the whole subtree — resetting an open reject form on a
+// proposal every time a keystroke landed in the composer.
+
+function ProposalBlock({
+  proposal,
+  rule,
 }: {
-  deckId: number;
-  setState: (s: DeckState) => void;
-  // The draft lives on the page, not here: the audit section writes audit#…
-  // references into it, and the panel unmounts every time you flip to Search.
-  input: string;
-  setInput: (v: string) => void;
-  // Both only for the proposals rendered inline: slot names, and ruling on an
-  // item without leaving the conversation it came from.
-  slots: Slot[];
-  mutate: (fn: () => Promise<DeckState>) => Promise<void>;
+  proposal: NonNullable<ChatMsg["proposal"]>;
+  rule: (fn: () => Promise<Envelope>) => Promise<unknown>;
 }) {
+  const open = proposal.items.filter((i) => i.status === "pending").length;
+  return (
+    <div className="msg-proposal">
+      <div className="msg-proposal-head">
+        <span>
+          Proposal #{proposal.id} · {proposal.items.length} item(s)
+        </span>
+        <span className={`chip ${open ? "under" : "ok"}`}>
+          {open ? `${open} awaiting you` : "ruled"}
+        </span>
+      </div>
+      {proposal.note && <div className="muted rationale">{proposal.note}</div>}
+      <ProposalCard proposal={proposal} rule={rule} head={false} />
+    </div>
+  );
+}
+
+function Message({
+  m,
+  carded,
+  attached,
+  rule,
+}: {
+  m: ChatMsg;
+  /** tool_call_ids whose proposal renders in full further down (see toolSummary). */
+  carded: Set<string>;
+  /** Proposals carried to the foot of their final reply, keyed by its message id. */
+  attached: Map<number, NonNullable<ChatMsg["proposal"]>[]>;
+  rule: (fn: () => Promise<Envelope>) => Promise<unknown>;
+}) {
+  if (m.role === "user") {
+    const text = (m.content ?? "").replace(/^<state_summary>.*?<\/state_summary>\n\n/s, "");
+    return (
+      <div className="chat-msg user">
+        <AuditRefText text={text} />
+      </div>
+    );
+  }
+  // An orphan still gets a bubble of its own — a proposal is never a loose
+  // panel floating at the width of the column.
+  if (m.role === "tool")
+    return m.proposal ? (
+      <div className="chat-msg assistant">
+        <ProposalBlock proposal={m.proposal} rule={rule} />
+      </div>
+    ) : null;
+
+  const tools = toolSummary(m, carded);
+  if (tools) return <div className="chat-tool muted">⚙ {tools}</div>;
+  const proposals = attached.get(m.id);
+  if (m.content || proposals?.length)
+    return (
+      <div className="chat-msg assistant">
+        {m.content && <Markdown text={m.content} />}
+        {proposals?.map((p) => (
+          <ProposalBlock key={p.id} proposal={p} rule={rule} />
+        ))}
+      </div>
+    );
+  return null;
+}
+
+export function ChatPanel({
+  insertRef,
+}: {
+  /** Set by the page so the audit section can drop an audit#… reference into
+   *  the composer draft without owning it. A handle rather than a lifted
+   *  value: the draft is this panel's business. */
+  insertRef?: { current: ((token: string) => void) | null };
+}) {
+  const { deckId, apply, run } = useDeck();
   const [history, setHistory] = useState<ChatMsg[]>([]);
+  const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   /** The message just sent, shown until the reloaded transcript carries it. */
   const [sent, setSent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLTextAreaElement>(null);
+  /** Was the transcript parked at its foot when it was last scrolled? */
+  const pinned = useRef(true);
 
   useEffect(() => {
     api.getChat(deckId).then(setHistory).catch(() => {});
   }, [deckId]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!insertRef) return;
+    insertRef.current = (token) =>
+      setInput((d) => (d.trim() ? `${d.trimEnd()} ${token} ` : `${token} `));
+    return () => {
+      insertRef.current = null;
+    };
+  }, [insertRef]);
+
+  // Following the transcript down is only ever wanted when you are already
+  // reading its foot: `history` is replaced on every ruling too, and accepting
+  // a proposal partway up the conversation must leave you next to the thing
+  // you just ruled on rather than throwing you to the bottom.
+  //
+  // Written straight onto the container before paint, rather than animated
+  // into place by scrollIntoView on a trailing anchor. The animation was the
+  // jarring part; it also raced the panel's own layout on mount — losing, and
+  // leaving the transcript sitting at the very top — and scrollIntoView walks
+  // every scrollable ancestor, so it could move the page as well as the pane
+  // it was aimed at.
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!el || !pinned.current) return;
+    el.scrollTop = el.scrollHeight;
   }, [history, busy, sent]);
 
-  // The composer is as tall as what's in it. Keyed on the draft rather than
-  // wired to onChange because the draft also changes from outside — the audit
-  // section drops references in, and sending clears it. Height has to go back
-  // to auto first: scrollHeight is measured against the current box, so a box
-  // that already grew would never shrink again. CSS keeps the floor (it opens
+  // Scrolling is the only thing that changes the answer. The pin above fires
+  // this too, landing at the bottom — which is the value it should hold.
+  function onTranscriptScroll() {
+    const el = listRef.current;
+    if (el) pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
+  }
+
+  // The panel stays mounted behind the Search tab (`display: none`), so the
+  // transcript usually loads while it has no layout at all — and a scroll
+  // position cannot be written to a box with no height, which left the chat
+  // opening at its oldest message. So pin again whenever the box gets a size:
+  // raising the tab, dragging the panel wider, maximizing it over the page.
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      if (pinned.current) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // The composer is as tall as what's in it. CSS keeps the floor (it opens
   // several lines tall) and the ceiling (past it, the box scrolls instead of
   // eating the transcript).
-  useLayoutEffect(() => {
-    const el = boxRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  }, [input]);
+  useAutosize(boxRef, input);
 
   // A textarea takes Enter for itself, so the send key has to be put back by
   // hand: Enter sends, shift-Enter breaks the line. `isComposing` guards IME
@@ -121,7 +232,7 @@ export function ChatPanel({
     setError(null);
     try {
       const r = await api.sendChat(deckId, message);
-      setState(r.state);
+      apply(r);
       setHistory(await api.getChat(deckId));
     } catch (e: any) {
       setError(e.message);
@@ -177,83 +288,30 @@ export function ChatPanel({
     history.filter((m) => m.proposal && m.tool_call_id).map((m) => m.tool_call_id!),
   );
 
-  // A ruling made here has to move both surfaces: the deck (via mutate) and
-  // this transcript, whose cards show each item's status.
-  async function ruleFromChat(fn: () => Promise<DeckState>) {
-    await mutate(fn);
+  // A ruling made here has to move both surfaces: the deck (via the store)
+  // and this transcript, whose cards show each item's status.
+  async function ruleFromChat(fn: () => Promise<Envelope>) {
+    await run(fn);
     setHistory(await api.getChat(deckId).catch(() => history));
   }
 
-  function Message({ m }: { m: ChatMsg }) {
-    if (m.role === "user") {
-      const text = (m.content ?? "").replace(/^<state_summary>.*?<\/state_summary>\n\n/s, "");
-      return (
-        <div className="chat-msg user">
-          <AuditRefText text={text} />
-        </div>
-      );
-    }
-    // An orphan still gets a bubble of its own — a proposal is never a loose
-    // panel floating at the width of the column.
-    if (m.role === "tool")
-      return m.proposal ? (
-        <div className="chat-msg assistant">
-          <ProposalBlock proposal={m.proposal} />
-        </div>
-      ) : null;
-
-    const tools = toolSummary(m, carded);
-    if (tools) return <div className="chat-tool muted">⚙ {tools}</div>;
-    const proposals = attached.get(m.id);
-    if (m.content || proposals?.length)
-      return (
-        <div className="chat-msg assistant">
-          {m.content && <Markdown text={m.content} />}
-          {proposals?.map((p) => <ProposalBlock key={p.id} proposal={p} />)}
-        </div>
-      );
-    return null;
-  }
-
-  function ProposalBlock({ proposal }: { proposal: NonNullable<ChatMsg["proposal"]> }) {
-    const open = proposal.items.filter((i) => i.status === "pending").length;
-    return (
-      <div className="msg-proposal">
-        <div className="msg-proposal-head">
-          <span>
-            Proposal #{proposal.id} · {proposal.items.length} item(s)
-          </span>
-          <span className={`chip ${open ? "under" : "ok"}`}>
-            {open ? `${open} awaiting you` : "ruled"}
-          </span>
-        </div>
-        {proposal.note && <div className="muted rationale">{proposal.note}</div>}
-        <ProposalCard
-          proposal={proposal}
-          deckId={deckId}
-          slots={slots}
-          rule={ruleFromChat}
-          head={false}
-        />
-      </div>
-    );
-  }
+  const msgProps = { carded, attached, rule: ruleFromChat };
 
   return (
     <div className="chat">
-      <div className="chat-messages">
+      <div className="chat-messages" ref={listRef} onScroll={onTranscriptScroll}>
         {compacted.length > 0 && (
           <details className="compacted-block">
             <summary className="muted">
               {compacted.length} message(s) compacted out of context — still on disk
             </summary>
             {compacted.map((m) => (
-              <Message key={m.id} m={m} />
+              <Message key={m.id} m={m} {...msgProps} />
             ))}
           </details>
         )}
         {resident.map((m) => (
-          <Message key={m.id} m={m} />
+          <Message key={m.id} m={m} {...msgProps} />
         ))}
         {sent !== null && (
           <div className="chat-msg user">
@@ -261,7 +319,6 @@ export function ChatPanel({
           </div>
         )}
         {busy && <div className="chat-tool muted">thinking…</div>}
-        <div ref={bottomRef} />
       </div>
       {error && <div className="error-banner">{error}</div>}
       {/* The composer is one field: the form draws the border and focus ring,

@@ -5,19 +5,16 @@ import { ingestCards } from "../src/ingest.ts";
 import { FIXTURES } from "./fixtures.ts";
 import { search } from "../src/search/index.ts";
 import { addCard, createDeck, createSlot, createTag, getDeck, updateCard } from "../src/deck/service.ts";
+import { acceptItem, createProposal, listProposals, rejectItem } from "../src/deck/proposals.ts";
 import {
-  acceptItem,
   addCardNote,
-  createProposal,
   getCardHistory,
   getLog,
   listCardNotes,
   listHardFilters,
-  listProposals,
-  rejectItem,
   removeHardFilter,
   undoDecision,
-} from "../src/deck/proposals.ts";
+} from "../src/deck/log.ts";
 
 const db = openDb(":memory:");
 ingestCards(db, FIXTURES);

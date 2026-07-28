@@ -1,12 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
-
-export class ServiceError extends Error {
-  status: number;
-  constructor(message: string, status = 400) {
-    super(message);
-    this.status = status;
-  }
-}
+import { ServiceError } from "../errors.ts";
+import { withTransaction } from "../db.ts";
 
 // Card types and supertypes. Slots and tags say what a card *does* — "ramp",
 // "interaction" — and card type says what it *is*; the decklist groups by
@@ -112,7 +106,7 @@ export function listDecks(db: DatabaseSync) {
   }>;
 }
 
-function requireDeck(db: DatabaseSync, deckId: number) {
+export function requireDeck(db: DatabaseSync, deckId: number) {
   const deck = db.prepare("SELECT * FROM decks WHERE id = ?").get(deckId);
   if (!deck) throw new ServiceError(`Deck ${deckId} not found`, 404);
   return deck as {
@@ -122,6 +116,14 @@ function requireDeck(db: DatabaseSync, deckId: number) {
     color_identity: string;
     revision: number;
   };
+}
+
+export function requireCard(db: DatabaseSync, oracleId: string): string {
+  const row = db.prepare("SELECT name FROM cards WHERE oracle_id = ?").get(oracleId) as
+    | { name: string }
+    | undefined;
+  if (!row) throw new ServiceError(`Unknown oracle_id ${oracleId}`, 404);
+  return row.name;
 }
 
 // Card-list changes (add/remove/quantity/role) bump the deck revision;
@@ -147,8 +149,7 @@ export function addCard(
   opts: { slotId?: number | null; role?: "card" | "commander" | "companion" } = {},
 ): void {
   requireDeck(db, deckId);
-  const card = db.prepare("SELECT oracle_id FROM cards WHERE oracle_id = ?").get(oracleId);
-  if (!card) throw new ServiceError(`Unknown oracle_id ${oracleId}`, 404);
+  requireCard(db, oracleId);
 
   const existing = db
     .prepare("SELECT quantity FROM deck_cards WHERE deck_id = ? AND oracle_id = ?")
@@ -350,6 +351,74 @@ export function updateSlot(
 export function deleteSlot(db: DatabaseSync, deckId: number, slotId: number): void {
   requireSlot(db, deckId, slotId);
   db.prepare("DELETE FROM slots WHERE id = ?").run(slotId);
+}
+
+export interface SlotRow {
+  id: number;
+  name: string;
+  target_min: number | null;
+  target_max: number | null;
+}
+
+export function findSlotByName(db: DatabaseSync, deckId: number, name: string): SlotRow | null {
+  return (
+    (db
+      .prepare(
+        "SELECT id, name, target_min, target_max FROM slots WHERE deck_id = ? AND name = ? COLLATE NOCASE",
+      )
+      .get(deckId, name) as SlotRow | undefined) ?? null
+  );
+}
+
+// Bulk refile: every move lands or none does. Filing changes no membership,
+// so no revision bump and no decision-log row (spec §4) — but the command
+// zone is not part of any slot, and that rule is enforced here rather than in
+// whoever calls this.
+export function moveCards(
+  db: DatabaseSync,
+  deckId: number,
+  moves: Array<{ oracle_id: string; slot_id: number | null }>,
+): void {
+  requireDeck(db, deckId);
+  withTransaction(db, () => {
+    for (const m of moves) {
+      const row = requireDeckCard(db, deckId, m.oracle_id);
+      if (row.role !== "card")
+        throw new ServiceError(`A ${row.role} is in the command zone, which is not part of any slot`);
+      updateCard(db, deckId, m.oracle_id, { slotId: m.slot_id });
+    }
+  });
+}
+
+// Every card in the deck by oracle_id and by every printed name of every
+// face, so a reference to one half of a modal card resolves like the whole
+// card. This is how cards get addressed without ids: the resolution set is
+// the deck itself, so an invented name resolves to nothing.
+export interface DeckCardRef {
+  oracle_id: string;
+  name: string;
+  role: string;
+}
+
+export function deckCardIndex(db: DatabaseSync, deckId: number) {
+  const rows = db
+    .prepare(
+      `SELECT dc.oracle_id, dc.role, c.name FROM deck_cards dc JOIN cards c ON c.oracle_id = dc.oracle_id
+       WHERE dc.deck_id = ?`,
+    )
+    .all(deckId) as unknown as DeckCardRef[];
+  const byId = new Map(rows.map((r) => [r.oracle_id, r]));
+  const byName = new Map<string, DeckCardRef>();
+  for (const r of db
+    .prepare(
+      `SELECT cn.name_norm, cn.oracle_id FROM deck_cards dc JOIN card_names cn ON cn.oracle_id = dc.oracle_id
+       WHERE dc.deck_id = ?`,
+    )
+    .all(deckId) as unknown as Array<{ name_norm: string; oracle_id: string }>) {
+    const card = byId.get(r.oracle_id);
+    if (card) byName.set(r.name_norm, card);
+  }
+  return { byId, byName };
 }
 
 // ---------- tags ----------

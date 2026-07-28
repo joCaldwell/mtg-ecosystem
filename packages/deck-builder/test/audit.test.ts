@@ -4,7 +4,8 @@ import { openDb } from "../src/db.ts";
 import { ingestCards } from "../src/ingest.ts";
 import { FIXTURES } from "./fixtures.ts";
 import { addCard, createDeck, createSlot, updateCard } from "../src/deck/service.ts";
-import { listCardNotes, listProposals, getLog } from "../src/deck/proposals.ts";
+import { listProposals } from "../src/deck/proposals.ts";
+import { getLog, listCardNotes } from "../src/deck/log.ts";
 import {
   AUDIT_RUN_RETENTION,
   auditState,

@@ -1,20 +1,12 @@
 import { useState, type FormEvent } from "react";
-import { api, type CardData, type DeckState, type DraftItem, type Slot } from "./api.ts";
+import { api, type CardData, type DraftItem } from "./api.ts";
+import { useDeck } from "./store.tsx";
 import { ManaCost } from "./Mana.tsx";
 
-export function SearchPanel({
-  deckId,
-  slots,
-  hasCommander,
-  mutate,
-  draftAdd,
-}: {
-  deckId: number;
-  slots: Slot[];
-  hasCommander: boolean;
-  mutate: (fn: () => Promise<DeckState>) => Promise<void>;
-  draftAdd?: (item: DraftItem) => void;
-}) {
+export function SearchPanel({ draftAdd }: { draftAdd?: (item: DraftItem) => void }) {
+  const { deckId, state, run } = useDeck();
+  const slots = state!.slots;
+  const hasCommander = state!.cards.some((c) => c.role === "commander");
   const [query, setQuery] = useState("");
   const [filterIdentity, setFilterIdentity] = useState(true);
   const [results, setResults] = useState<CardData[] | null>(null);
@@ -22,7 +14,7 @@ export function SearchPanel({
   const [targetSlot, setTargetSlot] = useState<string>("");
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  async function run(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     try {
@@ -34,14 +26,14 @@ export function SearchPanel({
   }
 
   function add(card: CardData, role?: string) {
-    mutate(() =>
+    run(() =>
       api.addCard(deckId, card.oracle_id, targetSlot === "" ? null : Number(targetSlot), role),
     );
   }
 
   return (
     <div className="search-panel">
-      <form onSubmit={run} className="stack gap">
+      <form onSubmit={submit} className="stack gap">
         <div className="row gap">
           <input
             className="grow"

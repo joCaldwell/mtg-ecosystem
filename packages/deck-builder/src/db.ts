@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ServiceError } from "./errors.ts";
 
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const DEFAULT_DB_PATH =
@@ -405,6 +406,32 @@ function migrate(db: DatabaseSync) {
   );
 }
 
+// Savepoints, not BEGIN, so domain operations compose: a withTransaction
+// function may freely call another one (BEGIN cannot nest and throws). An
+// inner failure rolls back only the inner writes; whether the outer work
+// survives is decided by whoever catches the error.
+const txDepth = new WeakMap<DatabaseSync, number>();
+
+export function withTransaction<T>(db: DatabaseSync, fn: () => T): T {
+  const depth = txDepth.get(db) ?? 0;
+  const name = `tx_${depth}`;
+  db.exec(`SAVEPOINT ${name}`);
+  txDepth.set(db, depth + 1);
+  try {
+    const result = fn();
+    db.exec(`RELEASE ${name}`);
+    return result;
+  } catch (e) {
+    // ROLLBACK TO undoes the writes but keeps the savepoint on the stack;
+    // RELEASE pops it so the connection is clean for the next caller.
+    db.exec(`ROLLBACK TO ${name}`);
+    db.exec(`RELEASE ${name}`);
+    throw e;
+  } finally {
+    txDepth.set(db, depth);
+  }
+}
+
 // SQLite cannot ALTER a CHECK constraint, so widening one means rebuilding the
 // table: create, copy, drop, rename. Guarded on the stored schema text, so it
 // runs once and only on databases created before the constraint changed.
@@ -418,13 +445,8 @@ function widenCheck(db: DatabaseSync, table: string, marker: string, rebuild: st
   // decision_log's self-references at a table that no longer exists.
   db.exec("PRAGMA foreign_keys = OFF");
   db.exec("PRAGMA legacy_alter_table = ON");
-  db.exec("BEGIN");
   try {
-    db.exec(rebuild);
-    db.exec("COMMIT");
-  } catch (e) {
-    db.exec("ROLLBACK");
-    throw e;
+    withTransaction(db, () => db.exec(rebuild));
   } finally {
     db.exec("PRAGMA legacy_alter_table = OFF");
     db.exec("PRAGMA foreign_keys = ON");
@@ -460,7 +482,7 @@ export function getRetentionN(db: DatabaseSync): number {
 
 export function setRetentionN(db: DatabaseSync, n: number): number {
   if (!Number.isFinite(n) || n < 1 || n > 500)
-    throw new Error("Decision-log retention N must be between 1 and 500");
+    throw new ServiceError("Decision-log retention N must be between 1 and 500");
   setSetting(db, "retention_n", String(Math.floor(n)));
   return getRetentionN(db);
 }

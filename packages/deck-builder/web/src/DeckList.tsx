@@ -15,7 +15,7 @@ export function DeckList() {
     e.preventDefault();
     setError(null);
     try {
-      const state = await api.createDeck(name);
+      const { state } = await api.createDeck(name);
       window.location.hash = `#/deck/${state.deck.id}`;
     } catch (e: any) {
       setError(e.message);

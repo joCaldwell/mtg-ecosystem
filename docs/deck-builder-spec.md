@@ -78,6 +78,10 @@ Set manually by me when a card physically arrives. Used only to filter the expor
 
 Slot targets are what turn "you're 2 cards short" into "you're 2 short and interaction is 3 under target while ramp is 2 over." They also supply half the audit rubric for free.
 
+**Slots are the agent's to manage, directly.** It creates, renames, retargets and deletes slots, and files cards into them in bulk, with no approval gate — `create_slot`, `update_slot`, `delete_slot`, `move_cards`. This is a deliberate exception to §7, and the line it draws is *membership vs. organization*: none of these change which cards are in the 100, none bump the deck revision, and any of them is reversed with a dropdown. Gating filing behind the same ceremony as a cut would dilute the ceremony rather than protect anything. Filing a card is addressed by **name**, resolved exactly against the deck's own contents — the anti-hallucination guarantee (§6) is intact because a name that isn't already in the deck resolves to nothing and fails the whole call.
+
+Tags are the counter-example and stay gated: a new tag is a permanent addition to a controlled vocabulary that the search grammar and every future filter depend on, which is a different kind of act from filing a card.
+
 **Tags:** a card can have many. Tags are a **controlled vocabulary** — the agent picks from existing tags; creating a new tag is itself a proposal I approve. Without this you get `ramp`, `mana-ramp`, and `acceleration` as three tags in a month and the filters quietly stop working.
 
 **Naming rule:** slot and tag names may not collide with card types (`land`, `artifact`, `creature`, `instant`, etc.), **in either singular or plural**, nor with any supported search prefix.
@@ -136,7 +140,7 @@ The agent will sometimes have correct oracle text and still reason wrongly about
 
 ## 7. Proposal and approval system
 
-**The agent never edits the deck directly.** It proposes a changeset; I rule on it item by item.
+**The agent never edits the deck's contents directly.** It proposes a changeset; I rule on it item by item. The gate is on membership — what is in the 100. **Organization is not membership**: the agent manages slots and how cards are filed into them directly, without a ruling (see §4).
 
 The reasons are the point. In a direct-edit model my objection is said once and evaporates. Here the objection is the durable output — the changes are almost incidental, but the reasons are what the agent can't reconstruct and what makes each session smarter than the last.
 

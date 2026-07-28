@@ -1,20 +1,14 @@
 // One proposal, rendered wherever it needs to be ruled on: inline above the
 // decklist, and inside the agent chat where it was produced. Shared rather
-// than duplicated — the rejection form is the agent's only learning signal
-// (spec §7.3), so the two surfaces must not drift into asking different
-// questions.
+// than duplicated so the two surfaces cannot drift; the rejection questions
+// themselves live in RejectionForm.tsx, shared wider still.
 
 import { useState } from "react";
-import { api, type DeckState, type Proposal, type ProposalItem, type Slot } from "./api.ts";
+import { api, type Envelope, type Proposal, type ProposalItem } from "./api.ts";
+import { useDeck } from "./store.tsx";
 import { usePeekProps } from "./CardPeek.tsx";
 import { ManaCost } from "./Mana.tsx";
-
-const REJECTION_TYPES = [
-  { value: "hard_filter", label: "Hard filter — never suggest again" },
-  { value: "thesis_change", label: "Thesis change — not what this deck is" },
-  { value: "playtest_finding", label: "Playtest finding — tried it, know better" },
-  { value: "soft", label: "Soft / not now" },
-];
+import { RejectionForm } from "./RejectionForm.tsx";
 
 // acceptItem/rejectItem rule on a whole group_id at once — a swap is one
 // decision, not two. So the items are folded into units first and each unit
@@ -49,23 +43,19 @@ function unitLabel(unit: ProposalItem[]): string {
 
 export function ProposalCard({
   proposal,
-  deckId,
-  slots,
   rule,
   head = true,
 }: {
   proposal: Proposal;
-  deckId: number;
-  slots: Slot[];
-  // Same shape as DeckView's mutate. The chat wraps it to also refresh the
+  // Usually the store's run(). The chat wraps it to also refresh the
   // transcript, so a ruling made in one surface shows in both.
-  rule: (fn: () => Promise<DeckState>) => Promise<void>;
+  rule: (fn: () => Promise<Envelope>) => Promise<unknown>;
   /** The chat labels the card itself, so it suppresses the "#12 · agent" line. */
   head?: boolean;
 }) {
+  const { deckId, state } = useDeck();
+  const slots = state!.slots;
   const [rejecting, setRejecting] = useState<number | null>(null);
-  const [rejectType, setRejectType] = useState("soft");
-  const [rejectReason, setRejectReason] = useState("");
   // The name is the one thing you have to rule on and the one thing the row
   // doesn't explain; the rationale argues for the card without printing it.
   const peekProps = usePeekProps();
@@ -73,10 +63,9 @@ export function ProposalCard({
   const slotName = (id: number | null) =>
     id == null ? "unslotted" : (slots.find((s) => s.id === id)?.name ?? "?");
 
-  async function confirmReject(itemId: number) {
-    await rule(() => api.rejectItem(deckId, itemId, rejectType, rejectReason));
+  async function confirmReject(itemId: number, type: string, reason: string) {
+    await rule(() => api.rejectItem(deckId, itemId, type, reason));
     setRejecting(null);
-    setRejectReason("");
   }
 
   // Every item in a unit carries the same status — the server refuses to rule
@@ -92,10 +81,7 @@ export function ProposalCard({
         </button>
         <button
           className="small danger"
-          onClick={() => {
-            setRejecting(rejecting === id ? null : id);
-            setRejectReason("");
-          }}
+          onClick={() => setRejecting(rejecting === id ? null : id)}
         >
           reject
         </button>
@@ -159,29 +145,10 @@ export function ProposalCard({
             )}
 
             {rejecting === first.id && (
-              <div className="row gap wrap reject-form">
-                <select value={rejectType} onChange={(e) => setRejectType(e.target.value)}>
-                  {REJECTION_TYPES.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  className="grow"
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
-                  placeholder="Why? (required — this is what the agent learns from)"
-                  autoFocus
-                />
-                <button
-                  className="small"
-                  disabled={!rejectReason.trim()}
-                  onClick={() => confirmReject(first.id)}
-                >
-                  confirm
-                </button>
-              </div>
+              <RejectionForm
+                placeholder="Why? (required — this is what the agent learns from)"
+                onConfirm={(type, reason) => confirmReject(first.id, type, reason)}
+              />
             )}
           </div>
         );

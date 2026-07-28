@@ -1,27 +1,28 @@
 import { useState } from "react";
-import { api, type DeckState, type DraftItem } from "./api.ts";
+import { api, type DraftItem } from "./api.ts";
+import { useDeck } from "./store.tsx";
 import { ProposalCard } from "./ProposalCard.tsx";
+import { RejectionForm } from "./RejectionForm.tsx";
 
 export function ProposalSection({
-  state,
   draft,
   setDraft,
-  mutate,
 }: {
-  state: DeckState;
   draft: DraftItem[];
   setDraft: (items: DraftItem[]) => void;
-  mutate: (fn: () => Promise<DeckState>) => Promise<void>;
 }) {
-  const { deck, slots, proposals, log, hard_filters, card_notes } = state;
+  const { state, run } = useDeck();
+  const { deck, slots, proposals, brief_edits, log, hard_filters, card_notes } = state!;
   const [note, setNote] = useState("");
+  /** Id of the brief edit whose rejection form is open. */
+  const [rejecting, setRejecting] = useState<number | null>(null);
 
   function updateDraft(idx: number, patch: Partial<DraftItem>) {
     setDraft(draft.map((d, i) => (i === idx ? { ...d, ...patch } : d)));
   }
 
   async function submitDraft() {
-    await mutate(() => api.createProposal(deck.id, draft, note));
+    await run(() => api.createProposal(deck.id, draft, note));
     setDraft([]);
     setNote("");
   }
@@ -92,10 +93,10 @@ export function ProposalSection({
         </div>
       )}
 
-      {state.brief_edits.length > 0 && (
+      {brief_edits.length > 0 && (
         <div className="group">
           <h2>Brief edits awaiting ruling</h2>
-          {state.brief_edits.map((e) => (
+          {brief_edits.map((e) => (
             <div className="card-row" key={e.id}>
               <div className="card-main">
                 <span className="chip under">{e.kind}</span>
@@ -108,23 +109,27 @@ export function ProposalSection({
                 <span className="spacer" />
                 <button
                   className="small"
-                  onClick={() => mutate(() => api.ruleBriefEdit(deck.id, e.id, "accept").then((r) => r.state))}
+                  onClick={() => run(() => api.ruleBriefEdit(deck.id, e.id, "accept"))}
                 >
                   accept
                 </button>
                 <button
                   className="small danger"
-                  onClick={() => {
-                    const reason = window.prompt("Why reject? (required — logged like a rejection)");
-                    if (reason?.trim())
-                      mutate(() =>
-                        api.ruleBriefEdit(deck.id, e.id, "reject", "soft", reason).then((r) => r.state),
-                      );
-                  }}
+                  onClick={() => setRejecting(rejecting === e.id ? null : e.id)}
                 >
                   reject
                 </button>
               </div>
+              {rejecting === e.id && (
+                <RejectionForm
+                  placeholder="Why reject? (required — logged like a rejection)"
+                  onConfirm={(type, reason) =>
+                    run(() => api.ruleBriefEdit(deck.id, e.id, "reject", type, reason)).then(() =>
+                      setRejecting(null),
+                    )
+                  }
+                />
+              )}
               {(e.kind === "thesis" || e.kind === "constraints") && (
                 <pre className="oracle-text">{e.payload.content}</pre>
               )}
@@ -143,7 +148,7 @@ export function ProposalSection({
         <div className="group">
           <h2>Open proposals</h2>
           {proposals.map((p) => (
-            <ProposalCard key={p.id} proposal={p} deckId={deck.id} slots={slots} rule={mutate} />
+            <ProposalCard key={p.id} proposal={p} rule={run} />
           ))}
         </div>
       )}
@@ -161,7 +166,7 @@ export function ProposalSection({
               <div className="log-row" key={f.oracle_id}>
                 <span className="name">{f.card_name}</span>
                 <span className="reason">“{f.reason}”</span>
-                <button className="small danger" onClick={() => mutate(() => api.removeHardFilter(deck.id, f.oracle_id))}>
+                <button className="small danger" onClick={() => run(() => api.removeHardFilter(deck.id, f.oracle_id))}>
                   remove
                 </button>
               </div>
@@ -196,7 +201,7 @@ export function ProposalSection({
             </span>
             {!!e.brief_flag && <span className="chip under" title="Flagged for brief review">brief?</span>}
             {e.kind === "accept" && e.undone_by == null && (
-              <button className="small" onClick={() => mutate(() => api.undoDecision(deck.id, e.id))}>
+              <button className="small" onClick={() => run(() => api.undoDecision(deck.id, e.id))}>
                 undo
               </button>
             )}

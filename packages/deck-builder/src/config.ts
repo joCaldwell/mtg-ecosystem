@@ -1,5 +1,6 @@
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { AppError } from "./errors.ts";
 
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -37,4 +38,4 @@ export function getAgentConfig(): AgentConfig {
   };
 }
 
-export class ConfigError extends Error {}
+export class ConfigError extends AppError {}

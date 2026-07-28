@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { openDb } from "../src/db.ts";
 import { ingestCards } from "../src/ingest.ts";
 import { FIXTURES } from "./fixtures.ts";
-import { addCard, createDeck, createSlot, createTag, updateCard } from "../src/deck/service.ts";
+import { addCard, createDeck, createSlot, createTag, getDeck, updateCard } from "../src/deck/service.ts";
+import { executeTool } from "../src/agent/tools.ts";
 import { listProposals, rejectItem, createProposal, acceptItem } from "../src/deck/proposals.ts";
 import { updateBrief, setEngine, listBriefEdits, acceptBriefEdit, rejectBriefEdit, getBrief, proposeBriefEdit } from "../src/deck/brief.ts";
 import { assembleContext } from "../src/agent/context.ts";
@@ -368,6 +369,180 @@ describe("agent loop", () => {
   });
 });
 
+describe("slot tools (spec §4 — organization applies directly)", () => {
+  /** A deck with a commander and five slottable cards, nothing filed yet. */
+  function organizedDeck(name: string) {
+    const id = createDeck(db, name);
+    addCard(db, id, "id-atraxa", { role: "commander" });
+    for (const oid of ["id-llanowar", "id-solring", "id-counterspell", "id-seedborn", "id-witch"])
+      addCard(db, id, oid);
+    return id;
+  }
+  const slotOf = (id: number, oracleId: string) =>
+    getDeck(db, id).cards.find((c) => c.oracle_id === oracleId)!.slot_id;
+
+  test("create_slot then a bulk move files many cards in one call", async () => {
+    const id = organizedDeck("Filing deck");
+    const before = getDeck(db, id);
+
+    const { transport, requests } = scripted([
+      {
+        message: toolCall("create_slot", { name: "Ramp", target_min: 8, target_max: 12 }),
+      },
+      {
+        message: toolCall(
+          "move_cards",
+          { moves: [{ slot_name: "ramp", cards: ["Llanowar Elves", "Sol Ring", "id-seedborn"] }] },
+          "call_2",
+        ),
+      },
+      { message: text("Filed [[Llanowar Elves]], [[Sol Ring]] and [[Seedborn Muse]] under ramp.") },
+    ]);
+    const turn = await runTurn(db, id, "organize the ramp", transport, 30);
+
+    assert.match(requests[1].messages.at(-1)!.content!, /Slot 'Ramp' created/);
+    const moveResult = requests[2].messages.at(-1)!.content!;
+    assert.match(moveResult, /Moved 3 card\(s\)/);
+    assert.match(moveResult, /Ramp: 3 \(target 8–12, under by 5\)/);
+    assert.equal(turn.mutatedState, true);
+
+    const after = getDeck(db, id);
+    // Organization only: same cards, same count, same revision.
+    assert.equal(after.cards.length, before.cards.length);
+    assert.equal(after.deck.revision, before.deck.revision);
+    assert.equal(after.computed.card_count, before.computed.card_count);
+    const ramp = after.slots.find((s) => s.name === "Ramp")!;
+    assert.deepEqual(
+      after.cards.filter((c) => c.slot_id === ramp.id).map((c) => c.oracle_id).sort(),
+      ["id-llanowar", "id-seedborn", "id-solring"],
+    );
+    assert.equal(after.computed.slot_deltas[0].delta, -5);
+  });
+
+  test("names resolve against the deck, face names included; oracle_ids also work", () => {
+    const id = organizedDeck("Face name deck");
+    createSlot(db, id, "Utility");
+    const out = executeTool(db, id, "move_cards", {
+      // The back face of a modal card, and a name the decklist prints in a
+      // different case, both name the same deck card.
+      moves: [{ slot_name: "utility", cards: ["witch-blessed meadow", "COUNTERSPELL"] }],
+    });
+    assert.equal(out.isError, false);
+    const utility = getDeck(db, id).slots[0].id;
+    assert.equal(slotOf(id, "id-witch"), utility);
+    assert.equal(slotOf(id, "id-counterspell"), utility);
+  });
+
+  test("one bad reference rejects the whole call — no half-refiled deck", () => {
+    const id = organizedDeck("Atomic deck");
+    createSlot(db, id, "Interaction");
+    const out = executeTool(db, id, "move_cards", {
+      moves: [{ slot_name: "Interaction", cards: ["Counterspell", "Swords to Plowshares"] }],
+    });
+    assert.equal(out.isError, true);
+    assert.equal(out.mutatedState, false);
+    assert.match(out.result, /'Swords to Plowshares' is not a card in this deck/);
+    assert.equal(slotOf(id, "id-counterspell"), null);
+  });
+
+  test("an unknown slot fails loudly here and names the slots that exist", () => {
+    const id = organizedDeck("Unknown slot deck");
+    createSlot(db, id, "Ramp");
+    const out = executeTool(db, id, "move_cards", {
+      moves: [{ slot_name: "Draw", cards: ["Sol Ring"] }],
+    });
+    assert.equal(out.isError, true);
+    assert.match(out.result, /No slot named 'Draw'/);
+    assert.match(out.result, /Existing slots: Ramp/);
+    assert.equal(slotOf(id, "id-solring"), null);
+  });
+
+  test("command-zone cards cannot be filed into a slot", () => {
+    const id = organizedDeck("Commander slot deck");
+    createSlot(db, id, "Ramp");
+    const out = executeTool(db, id, "move_cards", {
+      moves: [{ slot_name: "Ramp", cards: ["Atraxa, Praetors' Voice"] }],
+    });
+    assert.equal(out.isError, true);
+    assert.match(out.result, /command zone/);
+    assert.equal(slotOf(id, "id-atraxa"), null);
+  });
+
+  test("omitting slot_name unslots; a card cannot be sent to two slots at once", () => {
+    const id = organizedDeck("Unslot deck");
+    const ramp = createSlot(db, id, "Ramp");
+    createSlot(db, id, "Interaction");
+    executeTool(db, id, "move_cards", { moves: [{ slot_name: "Ramp", cards: ["Sol Ring"] }] });
+    assert.equal(slotOf(id, "id-solring"), ramp);
+
+    const conflict = executeTool(db, id, "move_cards", {
+      moves: [
+        { slot_name: "Ramp", cards: ["Counterspell"] },
+        { slot_name: "Interaction", cards: ["Counterspell"] },
+      ],
+    });
+    assert.equal(conflict.isError, true);
+    assert.match(conflict.result, /sent to both/);
+
+    const out = executeTool(db, id, "move_cards", { moves: [{ cards: ["Sol Ring"] }] });
+    assert.equal(out.isError, false);
+    assert.equal(slotOf(id, "id-solring"), null);
+  });
+
+  test("update_slot renames and retargets; an explicit null clears a target", () => {
+    const id = organizedDeck("Retarget deck");
+    createSlot(db, id, "Ramp", 8, 12);
+
+    assert.equal(executeTool(db, id, "update_slot", { slot_name: "Ramp", new_name: "Acceleration", target_min: 10 }).isError, false);
+    let slot = getDeck(db, id).slots[0];
+    assert.equal(slot.name, "Acceleration");
+    assert.equal(slot.target_min, 10);
+    assert.equal(slot.target_max, 12);
+
+    executeTool(db, id, "update_slot", { slot_name: "acceleration", target_max: null });
+    slot = getDeck(db, id).slots[0];
+    assert.equal(slot.target_min, 10);
+    assert.equal(slot.target_max, null);
+
+    // Absent is not null: leaving both out changes nothing and says so.
+    const noop = executeTool(db, id, "update_slot", { slot_name: "Acceleration" });
+    assert.equal(noop.isError, true);
+    assert.match(noop.result, /Nothing to change/);
+  });
+
+  test("deleting a slot unslots its cards without cutting them, and lists them", () => {
+    const id = organizedDeck("Delete slot deck");
+    createSlot(db, id, "Ramp");
+    executeTool(db, id, "move_cards", {
+      moves: [{ slot_name: "Ramp", cards: ["Sol Ring", "Llanowar Elves"] }],
+    });
+    const before = getDeck(db, id).computed.card_count;
+
+    const out = executeTool(db, id, "delete_slot", { slot_name: "Ramp" });
+    assert.equal(out.isError, false);
+    assert.match(out.result, /\[\[Sol Ring\]\]/);
+    assert.match(out.result, /\[\[Llanowar Elves\]\]/);
+
+    const after = getDeck(db, id);
+    assert.equal(after.slots.length, 0);
+    assert.equal(after.computed.card_count, before);
+    assert.equal(slotOf(id, "id-solring"), null);
+  });
+
+  test("slot names may not be card types, and duplicates are refused", () => {
+    const id = organizedDeck("Naming deck");
+    const typed = executeTool(db, id, "create_slot", { name: "Lands" });
+    assert.equal(typed.isError, true);
+    assert.match(typed.result, /card type/);
+
+    assert.equal(executeTool(db, id, "create_slot", { name: "Ramp" }).isError, false);
+    const dupe = executeTool(db, id, "create_slot", { name: "ramp" });
+    assert.equal(dupe.isError, true);
+    assert.match(dupe.result, /already exists/);
+    assert.equal(getDeck(db, id).slots.length, 1);
+  });
+});
+
 describe("brief service", () => {
   test("engine edit proposals apply through the gate", () => {
     const id = createDeck(db, "Brief deck");
@@ -386,6 +561,24 @@ describe("brief service", () => {
     const brief = getBrief(db, id);
     assert.equal(brief.thesis, "Untap everything, win with mana");
     assert.equal(brief.engines.length, 0);
+    assert.equal(listBriefEdits(db, id, "pending").length, 0);
+  });
+  test("accepting an engine_set edit creates the engine", () => {
+    // Regression: acceptBriefEdit wraps the apply in a transaction and
+    // setEngine opens its own — this only works because withTransaction
+    // nests (plain BEGIN would throw here).
+    const id = createDeck(db, "Engine accept deck");
+    proposeBriefEdit(db, id, "engine_set", {
+      engine_name: "Untap loop",
+      description: "untap + payoff",
+      pieces: [{ oracle_id: "id-seedborn" }],
+    }, "recurring theme");
+    const [edit] = listBriefEdits(db, id, "pending");
+    acceptBriefEdit(db, id, edit.id);
+
+    const brief = getBrief(db, id);
+    assert.equal(brief.engines.length, 1);
+    assert.equal(brief.engines[0].name, "Untap loop");
     assert.equal(listBriefEdits(db, id, "pending").length, 0);
   });
   test("engine pieces track deck membership", () => {

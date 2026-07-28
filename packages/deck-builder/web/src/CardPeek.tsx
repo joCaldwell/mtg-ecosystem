@@ -18,6 +18,7 @@ import {
   type ReactNode,
 } from "react";
 import { api, type CardData } from "./api.ts";
+import { ptString } from "./lib.ts";
 import { ManaCost } from "./Mana.tsx";
 
 const W = 340;
@@ -130,8 +131,14 @@ function Popover({ peek, close }: { peek: Peek; close: () => void }) {
     function onDown(e: MouseEvent) {
       if (!ref.current?.contains(e.target as Node)) close();
     }
+    // Escape dismisses the popover and stops there. A modal underneath closes
+    // on Escape too, and putting a card away should not also put away the
+    // brief you were reading it against — so this runs in the capture phase,
+    // ahead of every other Escape handler, and only the top layer goes.
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") close();
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      close();
     }
     // Any scroll moves the anchor out from under us; there is nothing sensible
     // to reposition against, so it dismisses. Capture, since the scroll is on
@@ -145,12 +152,12 @@ function Popover({ peek, close }: { peek: Peek; close: () => void }) {
       if (!(t instanceof Node) || !ref.current?.contains(t)) close();
     }
     document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
     window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", close);
     return () => {
       document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, true);
       window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", close);
     };
@@ -180,12 +187,7 @@ function Popover({ peek, close }: { peek: Peek; close: () => void }) {
 }
 
 function Face({ card }: { card: CardData }) {
-  const pt =
-    card.power != null && card.toughness != null
-      ? `${card.power}/${card.toughness}`
-      : card.loyalty != null
-        ? `[${card.loyalty}]`
-        : "";
+  const pt = ptString(card);
   return (
     <div className="card-peek-face">
       <div className="card-peek-head">

@@ -14,12 +14,12 @@
 // losing some conversational context and re-explaining something once.
 
 import type { DatabaseSync } from "node:sqlite";
-import { ServiceError } from "../deck/service.ts";
+import { ServiceError } from "../errors.ts";
+import { withTransaction } from "../db.ts";
 import { getBrief, proposeBriefEdit } from "../deck/brief.ts";
-import { activeSummary } from "./context.ts";
-import { extractCardRefs } from "./lint.ts";
-import { resolveExactName } from "../search/index.ts";
-import type { ChatMessage, ChatTransport } from "./llm.ts";
+import { unresolvedRefs } from "./lint.ts";
+import { markCompacted, residentMessages } from "./chatStore.ts";
+import { callJson, type ChatMessage, type ChatTransport } from "./llm.ts";
 
 // Never compact the most recent exchanges — the chat has to keep reading as a
 // conversation, and the tail is where the live thread of work is.
@@ -69,16 +69,24 @@ STRICT RULES:
   ]
 }`;
 
-function parseModelJson(text: string): any {
-  const cleaned = text
-    .trim()
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/```\s*$/, "");
-  return JSON.parse(cleaned);
-}
-
-function unresolvedRefs(db: DatabaseSync, text: string): string[] {
-  return extractCardRefs(text).filter((name) => resolveExactName(db, name).length === 0);
+// The active compaction summary, if the owner has accepted one. It stands in
+// for the chat messages it replaced and rides ahead of the resident
+// transcript (spec §11).
+export function activeSummary(
+  db: DatabaseSync,
+  deckId: number,
+): { id: number; summary: string; through_message_id: number; message_count: number } | null {
+  return (
+    (db
+      .prepare(
+        `SELECT id, summary, through_message_id, message_count FROM consolidations
+         WHERE deck_id = ? AND status = 'accepted' AND superseded_by IS NULL
+         ORDER BY id DESC LIMIT 1`,
+      )
+      .get(deckId) as
+      | { id: number; summary: string; through_message_id: number; message_count: number }
+      | undefined) ?? null
+  );
 }
 
 function renderMessage(m: ChatMessage & { id: number }): string | null {
@@ -116,11 +124,7 @@ export async function runConsolidation(
       `Consolidation #${existing.id} is already awaiting your ruling — accept or reject it first.`,
     );
 
-  const resident = db
-    .prepare(
-      "SELECT id, role, content_json FROM chat_messages WHERE deck_id = ? AND compacted_at IS NULL ORDER BY id",
-    )
-    .all(deckId) as unknown as Array<{ id: number; role: string; content_json: string }>;
+  const resident = residentMessages(db, deckId);
 
   const zone = resident.slice(0, Math.max(0, resident.length - KEEP_RECENT_MESSAGES));
   if (!zone.length)
@@ -129,7 +133,7 @@ export async function runConsolidation(
     );
 
   const rendered = zone
-    .map((r) => renderMessage({ id: r.id, ...(JSON.parse(r.content_json) as ChatMessage) }))
+    .map((r) => renderMessage({ id: r.id, ...r.message }))
     .filter((l): l is string => !!l);
   if (!rendered.length)
     throw new ServiceError("Nothing to consolidate — the compaction zone holds no prose messages.");
@@ -184,38 +188,16 @@ Hard filters, playtest notes and the full decision log are also stored and are n
   // and a summary naming cards that do not exist. A summary with a
   // hallucinated card in it would poison every later turn, so it is never
   // stored uncorrected.
-  let parsed: any = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const response = await transport({ messages, tools: [], json: true });
-    const text = response.message.content ?? "";
-    let candidate: any;
-    try {
-      candidate = parseModelJson(text);
-    } catch {
-      if (attempt === 1)
-        throw new ServiceError("The model did not return valid JSON after a retry.", 502);
-      messages.push(response.message, {
-        role: "system",
-        content: "That was not valid JSON. Respond again with ONLY the JSON object.",
-      });
-      continue;
-    }
+  const result = await callJson(transport, messages, (candidate) => {
     const bad = unresolvedRefs(db, String(candidate.summary ?? ""));
-    if (bad.length) {
-      if (attempt === 1)
-        throw new ServiceError(
-          `The summary referenced cards that do not exist (${bad.join(", ")}) and was discarded rather than stored.`,
-          502,
-        );
-      messages.push(response.message, {
-        role: "system",
-        content: `These card names do not resolve: ${bad.join(", ")}. Rewrite the summary using only names that appear verbatim in the transcript, and respond with ONLY the JSON object.`,
-      });
-      continue;
-    }
-    parsed = candidate;
-    break;
-  }
+    if (!bad.length) return null;
+    return {
+      correction: `These card names do not resolve: ${bad.join(", ")}. Rewrite the summary using only names that appear verbatim in the transcript, and respond with ONLY the JSON object.`,
+      failure: `The summary referenced cards that do not exist (${bad.join(", ")}) and was discarded rather than stored.`,
+    };
+  });
+  if (result.error) throw new ServiceError(result.error, 502);
+  const parsed: any = result.parsed;
 
   const summary = String(parsed.summary ?? "").trim();
   if (!summary) throw new ServiceError("The model returned an empty summary; nothing was changed.", 502);
@@ -303,7 +285,8 @@ export function listConsolidations(db: DatabaseSync, deckId: number, status?: st
  *
  * These are the ONLY writes performed, and the only ones this module is
  * capable of performing (spec §11's hard boundary):
- *   1. UPDATE chat_messages SET compacted_at — this deck, id <= through_message_id
+ *   1. chatStore.markCompacted — UPDATE chat_messages SET compacted_at,
+ *      this deck, id <= through_message_id
  *   2. UPDATE consolidations SET status/superseded_by
  * No DELETEs: the raw transcript stays on disk, so compaction is
  * non-destructive and a bad run costs at most some conversational context.
@@ -312,11 +295,8 @@ export function acceptConsolidation(db: DatabaseSync, deckId: number, id: number
   const c = getConsolidation(db, deckId, id);
   if (c.status !== "pending") throw new ServiceError(`Consolidation ${id} is already ${c.status}`);
 
-  db.exec("BEGIN");
-  try {
-    db.prepare(
-      "UPDATE chat_messages SET compacted_at = datetime('now') WHERE deck_id = ? AND id <= ? AND compacted_at IS NULL",
-    ).run(deckId, c.through_message_id);
+  withTransaction(db, () => {
+    markCompacted(db, deckId, c.through_message_id);
     // At most one summary is ever resident; this one folds in its predecessor.
     db.prepare(
       "UPDATE consolidations SET superseded_by = ? WHERE deck_id = ? AND status = 'accepted' AND superseded_by IS NULL",
@@ -324,11 +304,7 @@ export function acceptConsolidation(db: DatabaseSync, deckId: number, id: number
     db.prepare(
       "UPDATE consolidations SET status = 'accepted', resolved_at = datetime('now') WHERE id = ?",
     ).run(id);
-    db.exec("COMMIT");
-  } catch (e) {
-    db.exec("ROLLBACK");
-    throw e;
-  }
+  });
   return getConsolidation(db, deckId, id);
 }
 

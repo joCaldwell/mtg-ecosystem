@@ -4,7 +4,8 @@
 // transcript, or retune retention.
 
 import { useEffect, useState } from "react";
-import { api, type ContextMeter, type DeckState } from "./api.ts";
+import { api } from "./api.ts";
+import { useDeck } from "./store.tsx";
 import { Markdown } from "./Markdown.tsx";
 
 const BEHAVIOR_HINT: Record<string, string> = {
@@ -14,15 +15,8 @@ const BEHAVIOR_HINT: Record<string, string> = {
   grows: "grows over time",
 };
 
-export function SessionPanel({
-  state,
-  setState,
-}: {
-  state: DeckState;
-  setState: (s: DeckState) => void;
-}) {
-  const deckId = state.deck.id;
-  const [meter, setMeter] = useState<ContextMeter | null>(null);
+export function SessionPanel() {
+  const { deckId, state, meter, apply } = useDeck();
   const [retention, setRetention] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +25,7 @@ export function SessionPanel({
     setError(null);
     try {
       const [m, s] = await Promise.all([api.getContextMeter(deckId), api.getSettings()]);
-      setMeter(m);
+      apply(m);
       setRetention(s.retention_n);
     } catch (e: any) {
       setError(e.message);
@@ -42,9 +36,9 @@ export function SessionPanel({
   // be expanded. Now that the panel only exists while its modal is open,
   // mounting IS the "opened it" signal.
   useEffect(() => {
-    setMeter(null);
     setRetention(null);
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deckId]);
 
   async function saveRetention(n: number) {
@@ -52,7 +46,7 @@ export function SessionPanel({
     try {
       const s = await api.updateSettings({ retention_n: n });
       setRetention(s.retention_n);
-      setMeter(await api.getContextMeter(deckId));
+      apply(await api.getContextMeter(deckId));
     } catch (e: any) {
       setError(e.message);
     }
@@ -62,8 +56,7 @@ export function SessionPanel({
     setBusy(true);
     setError(null);
     try {
-      const r = await api.consolidate(deckId);
-      setState(r.state);
+      apply(await api.consolidate(deckId));
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -74,15 +67,13 @@ export function SessionPanel({
   async function rule(id: number, verdict: "accept" | "reject") {
     setError(null);
     try {
-      const r = await api.ruleConsolidation(deckId, id, verdict);
-      setState(r.state);
-      setMeter(r.meter);
+      apply(await api.ruleConsolidation(deckId, id, verdict));
     } catch (e: any) {
       setError(e.message);
     }
   }
 
-  const pending = state.consolidations ?? [];
+  const pending = state?.consolidations ?? [];
   const max = meter ? Math.max(...meter.segments.map((s) => s.est_tokens), 1) : 1;
 
   // Chrome (title bar, collapse) belongs to the modal that hosts this.

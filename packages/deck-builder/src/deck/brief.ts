@@ -1,5 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
-import { ServiceError } from "./service.ts";
+import { ServiceError } from "../errors.ts";
+import { withTransaction } from "../db.ts";
+import { requireCard, requireDeck } from "./service.ts";
+import { logEntry } from "./log.ts";
 
 export interface EngineView {
   id: number;
@@ -13,11 +16,6 @@ export interface BriefView {
   constraints_md: string;
   engines: EngineView[];
   updated_at: string | null;
-}
-
-function requireDeck(db: DatabaseSync, deckId: number) {
-  if (!db.prepare("SELECT 1 FROM decks WHERE id = ?").get(deckId))
-    throw new ServiceError(`Deck ${deckId} not found`, 404);
 }
 
 export function getBrief(db: DatabaseSync, deckId: number): BriefView {
@@ -70,10 +68,7 @@ export function updateBrief(
 }
 
 function validatePieces(db: DatabaseSync, oracleIds: string[]) {
-  const stmt = db.prepare("SELECT name FROM cards WHERE oracle_id = ?");
-  for (const oid of oracleIds) {
-    if (!stmt.get(oid)) throw new ServiceError(`Unknown oracle_id ${oid} in engine pieces`, 404);
-  }
+  for (const oid of oracleIds) requireCard(db, oid);
 }
 
 export function setEngine(
@@ -87,8 +82,7 @@ export function setEngine(
   if (!name.trim()) throw new ServiceError("Engine name cannot be empty");
   validatePieces(db, pieces.map((p) => p.oracle_id));
 
-  db.exec("BEGIN");
-  try {
+  return withTransaction(db, () => {
     const existing = db
       .prepare("SELECT id FROM engines WHERE deck_id = ? AND name = ? COLLATE NOCASE")
       .get(deckId, name.trim()) as { id: number } | undefined;
@@ -111,12 +105,8 @@ export function setEngine(
       "INSERT OR IGNORE INTO engine_pieces (engine_id, oracle_id, note) VALUES (?, ?, ?)",
     );
     for (const p of pieces) ins.run(engineId, p.oracle_id, p.note ?? "");
-    db.exec("COMMIT");
     return engineId;
-  } catch (e) {
-    db.exec("ROLLBACK");
-    throw e;
-  }
+  });
 }
 
 export function removeEngine(db: DatabaseSync, deckId: number, engineId: number): void {
@@ -162,21 +152,27 @@ export function proposeBriefEdit(
   return Number(r.lastInsertRowid);
 }
 
+// Rows leave this module parsed — no _json column crosses the boundary.
 export function listBriefEdits(db: DatabaseSync, deckId: number, status?: string) {
-  return db
-    .prepare(
-      `SELECT id, kind, payload_json, rationale, source, status, created_at FROM brief_edits
-       WHERE deck_id = ? ${status ? "AND status = ?" : ""} ORDER BY id DESC`,
-    )
-    .all(...(status ? [deckId, status] : [deckId])) as unknown as Array<{
-    id: number;
-    kind: BriefEditKind;
-    payload_json: string;
-    rationale: string;
-    source: string;
-    status: string;
-    created_at: string;
-  }>;
+  return (
+    db
+      .prepare(
+        `SELECT id, kind, payload_json, rationale, source, status, created_at FROM brief_edits
+         WHERE deck_id = ? ${status ? "AND status = ?" : ""} ORDER BY id DESC`,
+      )
+      .all(...(status ? [deckId, status] : [deckId])) as unknown as Array<{
+      id: number;
+      kind: BriefEditKind;
+      payload_json: string;
+      rationale: string;
+      source: string;
+      status: string;
+      created_at: string;
+    }>
+  ).map(({ payload_json, ...e }) => ({
+    ...e,
+    payload: JSON.parse(payload_json) as BriefEditPayload,
+  }));
 }
 
 function getPendingEdit(db: DatabaseSync, deckId: number, editId: number) {
@@ -197,21 +193,24 @@ function logBriefDecision(
   summary: string,
   rejection?: { type: string; reason: string },
 ) {
-  const { revision } = db.prepare("SELECT revision FROM decks WHERE id = ?").get(deckId) as {
-    revision: number;
-  };
-  db.prepare(
-    `INSERT INTO decision_log (deck_id, revision, kind, rationale, rejection_type, rejection_reason, brief_flag)
-     VALUES (?, ?, ?, ?, ?, ?, 0)`,
-  ).run(deckId, revision, kind, summary, rejection?.type ?? null, rejection?.reason ?? null);
+  logEntry(
+    db,
+    deckId,
+    {
+      kind,
+      rationale: summary,
+      rejection_type: rejection?.type ?? null,
+      rejection_reason: rejection?.reason ?? null,
+    },
+    requireDeck(db, deckId).revision,
+  );
 }
 
 export function acceptBriefEdit(db: DatabaseSync, deckId: number, editId: number): void {
   const edit = getPendingEdit(db, deckId, editId);
   const payload = JSON.parse(edit.payload_json) as BriefEditPayload;
 
-  db.exec("BEGIN");
-  try {
+  withTransaction(db, () => {
     switch (edit.kind) {
       case "thesis":
         updateBrief(db, deckId, { thesis: payload.content ?? "" });
@@ -234,11 +233,7 @@ export function acceptBriefEdit(db: DatabaseSync, deckId: number, editId: number
       "UPDATE brief_edits SET status = 'accepted', resolved_at = datetime('now') WHERE id = ?",
     ).run(editId);
     logBriefDecision(db, deckId, "accept", `Brief edit accepted (${edit.kind}): ${edit.rationale}`);
-    db.exec("COMMIT");
-  } catch (e) {
-    db.exec("ROLLBACK");
-    throw e;
-  }
+  });
 }
 
 export function rejectBriefEdit(
@@ -250,8 +245,7 @@ export function rejectBriefEdit(
 ): void {
   if (!reason?.trim()) throw new ServiceError("Rejecting a brief edit requires a reason");
   const edit = getPendingEdit(db, deckId, editId);
-  db.exec("BEGIN");
-  try {
+  withTransaction(db, () => {
     db.prepare(
       "UPDATE brief_edits SET status = 'rejected', resolved_at = datetime('now') WHERE id = ?",
     ).run(editId);
@@ -262,9 +256,5 @@ export function rejectBriefEdit(
       `Brief edit rejected (${edit.kind}): ${edit.rationale}`,
       { type, reason: reason.trim() },
     );
-    db.exec("COMMIT");
-  } catch (e) {
-    db.exec("ROLLBACK");
-    throw e;
-  }
+  });
 }

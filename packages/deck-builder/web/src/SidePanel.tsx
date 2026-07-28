@@ -5,7 +5,9 @@
 // part of this page. The committed value is persisted; maximize is not, since
 // landing on a deck page with the deck itself hidden reads as a broken app.
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useDeck } from "./store.tsx";
+import { useDismissable } from "./lib.ts";
 
 // Corner brackets rather than glyphs: the arrow characters render at whatever
 // weight and baseline the system font feels like, which never matched the
@@ -52,18 +54,15 @@ function apply(w: number) {
 export function SidePanel({
   search,
   chat,
-  showRef,
 }: {
   // Both tabs are rendered by the caller so this component stays about the
   // container — its size, not its contents.
   search: ReactNode;
   chat: ReactNode;
-  /** Lets the page raise a tab (the audit's "ask agent" opens the chat).
-   *  A handle rather than a controlled prop: the tab is this component's
-   *  business, and lifting it would re-render the decklist on every switch. */
-  showRef?: { current: ((tab: "search" | "chat") => void) | null };
 }) {
-  const [tab, setTab] = useState<"search" | "chat">("search");
+  // The active tab lives in the store so any surface can raise one — the
+  // audit's "ask agent" brings up the chat without a hand-rolled ref channel.
+  const { sideTab: tab, setSideTab: setTab } = useDeck();
   const [maxed, setMaxed] = useState(false);
   const panelRef = useRef<HTMLElement>(null);
   const width = useRef(DEFAULT_W);
@@ -85,28 +84,10 @@ export function SidePanel({
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  useEffect(() => {
-    if (!showRef) return;
-    showRef.current = setTab;
-    return () => {
-      showRef.current = null;
-    };
-  }, [showRef]);
-
-  useEffect(() => {
-    if (!maxed) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMaxed(false);
-    };
-    document.addEventListener("keydown", onKey);
-    // The page behind must not scroll under a panel that covers it.
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [maxed]);
+  useDismissable(
+    useCallback(() => setMaxed(false), []),
+    maxed,
+  );
 
   function onHandleDown(e: React.PointerEvent<HTMLDivElement>) {
     if (e.button !== 0) return;
@@ -164,8 +145,12 @@ export function SidePanel({
           <ExpandIcon collapse={maxed} />
         </button>
       </div>
+      {/* Both tabs stay mounted — a flip must not cost the search results or
+          the chat transcript's scroll position — so the inactive one hides
+          with CSS rather than unmounting. */}
       <div className={`side-body ${tab === "search" ? "is-search" : "is-chat"}`}>
-        {tab === "search" ? search : chat}
+        <div className={`side-tab ${tab === "search" ? "" : "is-hidden"}`}>{search}</div>
+        <div className={`side-tab ${tab === "chat" ? "" : "is-hidden"}`}>{chat}</div>
       </div>
     </aside>
   );

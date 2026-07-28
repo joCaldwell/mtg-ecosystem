@@ -1,31 +1,11 @@
 import { useState, type FormEvent } from "react";
-import { api, type DeckState } from "./api.ts";
+import { api } from "./api.ts";
+import { useDeck } from "./store.tsx";
+import { faceOf } from "./Mana.tsx";
 
-const PIP_FACE: Record<string, string> = {
-  W: "#f4eeda",
-  U: "#3f92d2",
-  B: "#4c4653",
-  R: "#dc6a52",
-  G: "#46a06b",
-  C: "#b3b9c3",
-};
-const PIP_TEXT: Record<string, string> = {
-  W: "#2c2617",
-  U: "#04121e",
-  B: "#e0dae6",
-  R: "#2a0f09",
-  G: "#062011",
-  C: "#191c22",
-};
-
-export function SlotPanel({
-  state,
-  mutate,
-}: {
-  state: DeckState;
-  mutate: (fn: () => Promise<DeckState>) => Promise<void>;
-}) {
-  const { deck, slots, tags, computed } = state;
+export function SlotPanel() {
+  const { state, run } = useDeck();
+  const { deck, tags, computed } = state!;
   const [slotName, setSlotName] = useState("");
   const [slotMin, setSlotMin] = useState("");
   const [slotMax, setSlotMax] = useState("");
@@ -36,7 +16,7 @@ export function SlotPanel({
     const min = slotMin === "" ? null : Number(slotMin);
     // A single number is shorthand for min = max
     const max = slotMax === "" ? (slotMin === "" ? null : Number(slotMin)) : Number(slotMax);
-    mutate(() => api.createSlot(deck.id, slotName, min, max)).then(() => {
+    run(() => api.createSlot(deck.id, slotName, min, max)).then(() => {
       setSlotName("");
       setSlotMin("");
       setSlotMax("");
@@ -51,19 +31,19 @@ export function SlotPanel({
     if (raw == null) return;
     const trimmed = raw.trim();
     if (!trimmed) {
-      mutate(() => api.updateSlot(deck.id, slotId, { target_min: null, target_max: null }));
+      run(() => api.updateSlot(deck.id, slotId, { target_min: null, target_max: null }));
       return;
     }
     const m = trimmed.match(/^(\d+)?\s*-\s*(\d+)?$/) ?? trimmed.match(/^(\d+)$/);
     if (!m) return;
     const min = m[1] != null ? Number(m[1]) : null;
     const max = m.length > 2 && m[2] != null ? Number(m[2]) : m.length > 2 ? null : min;
-    mutate(() => api.updateSlot(deck.id, slotId, { target_min: min, target_max: max }));
+    run(() => api.updateSlot(deck.id, slotId, { target_min: min, target_max: max }));
   }
 
   function addTag(e: FormEvent) {
     e.preventDefault();
-    mutate(() => api.createTag(deck.id, tagName)).then(() => setTagName(""));
+    run(() => api.createTag(deck.id, tagName)).then(() => setTagName(""));
   }
 
   const statusSymbol = { ok: "✓", under: "▼", over: "▲", untargeted: "" };
@@ -102,7 +82,7 @@ export function SlotPanel({
                 <button
                   className="icon danger del"
                   title="Delete slot (cards become unslotted)"
-                  onClick={() => mutate(() => api.deleteSlot(deck.id, d.slot_id))}
+                  onClick={() => run(() => api.deleteSlot(deck.id, d.slot_id))}
                 >
                   ✕
                 </button>
@@ -155,7 +135,7 @@ export function SlotPanel({
             <button
               className="link del"
               title="Delete tag"
-              onClick={() => mutate(() => api.deleteTag(deck.id, t.id))}
+              onClick={() => run(() => api.deleteTag(deck.id, t.id))}
             >
               ✕
             </button>
@@ -197,7 +177,7 @@ export function SlotPanel({
             <span key={c} className="pip-count" title={`${n} ${c} pip(s)`}>
               <i
                 className="pip"
-                style={{ background: PIP_FACE[c] ?? "#b3b9c3", color: PIP_TEXT[c] ?? "#191c22" }}
+                style={{ background: faceOf(c).bg, color: faceOf(c).fg }}
               >
                 {c}
               </i>
