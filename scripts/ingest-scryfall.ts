@@ -1,9 +1,11 @@
 // scripts/ingest-scryfall.ts
-const fs = require("fs");
-const path = require("path");
-const { Readable } = require("stream");
-const { finished } = require("stream/promises");
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { Readable } from "node:stream";
+import { finished } from "node:stream/promises";
+import { fileURLToPath } from "node:url";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CACHE_DIR = path.join(__dirname, "../.scryfall-cache");
 const CACHE_FILE = path.join(CACHE_DIR, "oracle-cards.json");
 const MANIFEST_URL = "https://api.scryfall.com/bulk-data";

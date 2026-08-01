@@ -6,7 +6,8 @@ import { FIXTURES } from "./fixtures.ts";
 import { addCard, createDeck } from "../src/deck/service.ts";
 import { createProposal, listProposals } from "../src/deck/proposals.ts";
 import { getBrief, listBriefEdits, updateBrief } from "../src/deck/brief.ts";
-import { assembleContext } from "../src/agent/context.ts";
+import { assembleContext, pairToolCalls } from "../src/agent/context.ts";
+import { markCompacted, residentMessages } from "../src/agent/chatStore.ts";
 import { contextMeter } from "../src/agent/meter.ts";
 import {
   KEEP_RECENT_MESSAGES,
@@ -271,6 +272,109 @@ describe("compacted context assembly (spec §11)", () => {
     const summaries = ctx.transcript.filter((m) => m.content?.includes("<compacted_history"));
     assert.equal(summaries.length, 1);
     assert.match(summaries[0].content!, /Second pass/);
+  });
+});
+
+// A transcript whose compaction boundary falls exactly between an assistant's
+// tool_calls and the tool message answering it — the split that leaves an
+// orphaned `tool` row at the head of resident context.
+function seedChatSplitByToolCall(name: string): number {
+  const id = createDeck(db, name);
+  addCard(db, id, "id-teferi", { role: "commander" });
+  const stmt = db.prepare(
+    "INSERT INTO chat_messages (deck_id, role, content_json) VALUES (?, ?, ?)",
+  );
+  const push = (m: ChatMessage) => stmt.run(id, m.role, JSON.stringify(m));
+
+  push({ role: "user", content: "opening question" });
+  push({ role: "assistant", content: "opening answer about [[Sol Ring]]" });
+  push({ role: "user", content: "follow-up" });
+  // Index 3 — the last message of the zone.
+  push({
+    role: "assistant",
+    content: null,
+    tool_calls: [{ id: "call_split", type: "function", function: { name: "search_cards", arguments: "{}" } }],
+  });
+  // Index 4 — first message left resident, and an orphan if the cut stands.
+  push({ role: "tool", tool_call_id: "call_split", content: "1 result(s)" });
+  for (let i = 0; i < KEEP_RECENT_MESSAGES - 1; i++)
+    push({ role: i % 2 === 0 ? "assistant" : "user", content: `later message ${i}` });
+  return id;
+}
+
+describe("tool-call pairing across the compaction boundary", () => {
+  test("the boundary never splits an assistant's tool_calls from its results", async () => {
+    const id = seedChatSplitByToolCall("Consolidate tool split");
+    const { transport } = jsonTransport([
+      JSON.stringify({ summary: "The owner asked about [[Sol Ring]].", rescued: [] }),
+    ]);
+    const c = await runConsolidation(db, id, transport);
+    acceptConsolidation(db, id, c.id);
+
+    // The zone swallowed the tool result rather than stopping in front of it.
+    assert.equal(c.message_count, 5);
+    const ctx = assembleContext(db, id, 30);
+    const afterSummary = ctx.transcript.slice(1);
+    assert.notEqual(afterSummary[0].role, "tool");
+    assert.equal(afterSummary.filter((m) => m.role === "tool").length, 0);
+  });
+
+  test("a window already split by an older compaction is repaired on read", () => {
+    const id = seedChatSplitByToolCall("Consolidate tool split legacy");
+    // Reproduce the pre-fix cut directly: compact through the assistant only.
+    const rows = db
+      .prepare("SELECT id FROM chat_messages WHERE deck_id = ? ORDER BY id")
+      .all(id) as unknown as Array<{ id: number }>;
+    markCompacted(db, id, rows[3].id);
+
+    const resident = residentMessages(db, id).map((r) => r.message);
+    assert.equal(resident[0].role, "tool", "precondition: the stored window is split");
+
+    const ctx = assembleContext(db, id, 30);
+    assert.equal(
+      ctx.transcript.filter((m) => m.role === "tool" && m.tool_call_id === "call_split").length,
+      0,
+      "the orphaned tool result never reaches the provider",
+    );
+    // Repaired on read only — the transcript on disk is untouched (spec §11).
+    assert.equal(residentMessages(db, id)[0].message.role, "tool");
+  });
+
+  test("an assistant tool_call whose results never landed is dropped, keeping its prose", () => {
+    const paired = pairToolCalls([
+      { role: "user", content: "go" },
+      {
+        role: "assistant",
+        content: "Looking that up.",
+        tool_calls: [
+          { id: "call_ok", type: "function", function: { name: "search_cards", arguments: "{}" } },
+          { id: "call_dead", type: "function", function: { name: "search_cards", arguments: "{}" } },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_ok", content: "1 result(s)" },
+    ]);
+    const assistant = paired.find((m) => m.role === "assistant")!;
+    assert.deepEqual(assistant.tool_calls?.map((c) => c.id), ["call_ok"]);
+    assert.equal(assistant.content, "Looking that up.");
+    assert.equal(paired.filter((m) => m.role === "tool").length, 1);
+  });
+
+  test("a turn that died before any result landed leaves no dangling call", () => {
+    const paired = pairToolCalls([
+      { role: "user", content: "go" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          { id: "call_dead", type: "function", function: { name: "search_cards", arguments: "{}" } },
+        ],
+      },
+      { role: "user", content: "still there?" },
+    ]);
+    assert.deepEqual(
+      paired.map((m) => m.role),
+      ["user", "user"],
+    );
   });
 });
 

@@ -1,77 +1,86 @@
 # 🔮 oracle-parser — Layer 0: Oracle Text Parser & Card IR
 
-> **Status: PAUSED.** Work here is on hold pending a stronger model — the
-> remaining grammar surface is the hard tail (layers, replacement effects,
-> complex targeting) where a wrong AST is worse than no AST. Do not resume
-> work in this package unless Josh asks for it by name. The active project is
-> [deck-builder](../deck-builder/AGENTS.md).
-
-Parse every Magic card's oracle text into a typed AST, then compile it to
-per-set JSON IR that Layer 1 (the rules engine) will consume. See
-[docs/oracle_parser.md](../../docs/oracle_parser.md) for the design and
+Parse every Magic card's oracle text into a typed AST, then (next milestone)
+compile it to per-set JSON IR that Layer 1 (the rules engine) will consume.
+See [docs/oracle_parser.md](../../docs/oracle_parser.md) for the design and
 [docs/architecture.md](../../docs/architecture.md) for where it sits.
 
-**Stack**: ANTLR4 grammar (`.g4`) → generated TypeScript lexer/parser → AST
-visitor → IR emitter. Tests run under **Vitest** (note: the deck-builder uses
-`node --test` instead — do not mix them up).
+**Stack**: hand-written, zero-dependency TypeScript. No ANTLR, no Java, no
+build step — Node ≥ 23 runs the `.ts` sources directly (imports use explicit
+`.ts` extensions; no TS constructor parameter properties — Node strip-only
+mode rejects them). The previous ANTLR/antlr4ts pipeline was audited and
+replaced on 2026-08-01; see the git history if you need the archaeology.
 
----
+## 🧠 Architecture
+
+```
+oracle text ──normalize──▶ lines ──lex──▶ tokens ──parse──▶ typed AST
+```
+
+| Module | Job |
+|---|---|
+| `src/normalize.ts` | Strip reminder text, `~`-ify self-references (exact-case, word-bounded), canonicalize unicode, **preserve line boundaries** (one line = one ability). |
+| `src/lexer.ts` | Tokens: words (possessive-flagged, contractions kept whole), numbers, `{…}` symbols, punctuation. Unknown characters throw — never silently dropped. |
+| `src/vocab.ts` | Closed word classes (card types, zones, colors…) + singularization. |
+| `src/ast.ts` | The typed AST. Discriminated unions, no `any`. This is the contract Layer 1 consumes — treat changes as API changes. |
+| `src/parser/cursor.ts` | Backtracking token cursor; tracks farthest failure for diagnostics. |
+| `src/parser/refs.ts` | Shared grammar: filters, object/player refs, amounts, zones, durations, conditions, counters. |
+| `src/parser/keywords.ts` | Table-driven keyword abilities. The `KEYWORDS` table is the single source of truth; unknown keywords fail the line. |
+| `src/parser/costs.ts` | Activation and keyword-parameter costs. |
+| `src/parser/triggers.ts` | "When/Whenever/At …" clauses. |
+| `src/parser/effects.ts` | Imperative resolution text (the largest surface). |
+| `src/parser/statics.ts` | Continuous effects: anthems, CDAs, enters-tapped, can't. |
+| `src/parser/index.ts` | Line classification, modal bullet grouping, card-level API. |
+
+Parse results are per-line: `parseOracleText(text, name)` returns `ok` plus a
+`lines[]` array where each failed line carries a diagnostic pointing at the
+farthest token any parse path reached.
 
 ## 🚀 Commands
 
-These live on the **root** package.json, so run them from the repo root:
+From this directory:
 
-*   `npm install` — install workspace dependencies and link packages.
-*   `npm run ingest` — download and cache Scryfall's bulk card export to
-    `.scryfall-cache/oracle-cards.json`.
-*   `npm run generate-parser` — compile `.g4` grammars to TypeScript under
-    `generated/`. **Requires Java.**
-*   `npm run build-ir` — emit compiled Card IR into `packages/card-data/sets/`.
-*   `npm run validate` — run the parser across all 33,000+ cards and report
-    the success rate plus grouped error patterns. This is the scoreboard.
+*   `npm test` — `node --test`, structural AST assertions.
+*   `npm run build` — `tsc --noEmit` typecheck (nothing is emitted; consumers
+    import the TS sources directly).
+*   `npm run check` — both.
 
-For this package's tests, run `npm test` **from this directory** (`vitest run`).
-The root `npm test` fans out to every workspace, so it also runs the
-deck-builder's `node --test` suite — fine, but slower and noisier than you
-probably want while working on grammar.
+From the repo root:
 
----
+*   `npm run ingest` — cache Scryfall bulk data to `.scryfall-cache/`.
+*   `npm run validate` — **the scoreboard**: run the parser over all ~34k
+    unique cards; reports card-level and line-level coverage plus the largest
+    unparsed template groups. Baseline at rewrite time: **33% cards / 53%
+    lines** (the old ANTLR recognizer claimed 16% but produced no AST and
+    silently dropped unlexable characters).
+*   `npm run build-ir` — per-set IR emission. Intentionally unimplemented
+    until coverage justifies it; fails loudly.
 
-## 🔄 Development loop: adding grammar support
+## 🔄 Development loop: raising coverage
 
-1.  **Analyze** — `npm run validate` to find failing cards and error patterns.
-    Work the largest error group, not the most interesting one.
-2.  **Consult the rules** — read the Comprehensive Rules (or a reliable wiki)
-    for the mechanic before writing grammar. The AST shape should reflect how
-    the rule actually works, because Layer 1 has to execute it. Guessing here
-    produces a parse that succeeds and a rules engine that can't use it.
-3.  **Lexer** — add new literal words as UPPERCASE tokens in
-    [grammar/MTGLexer.g4](grammar/MTGLexer.g4).
-4.  **Parser** — add syntactic rules to the right sub-parser file, e.g.
-    [grammar/MTGEffectsParser.g4](grammar/MTGEffectsParser.g4).
-5.  **Compile** — `npm run generate-parser`.
-6.  **AST types** — define nodes in [src/ast/types.ts](src/ast/types.ts).
-7.  **Visitor** — extend [src/visitor/ASTBuilder.ts](src/visitor/ASTBuilder.ts)
-    to build them.
-8.  **Test** — add cases to [tests/parser.test.ts](tests/parser.test.ts).
-9.  **Re-validate** — `npm run validate` and confirm the baseline went up.
-
----
+1.  `npm run validate` — work the **largest** unparsed-template group, not
+    the most interesting one.
+2.  Read the Comprehensive Rules for the mechanic first. The AST shape must
+    reflect how the rule actually works, because Layer 1 has to execute it.
+3.  Extend the right module (usually one new `StepParser` in `effects.ts`, a
+    keyword-table row, or a trigger branch) and, if needed, the AST in
+    `ast.ts`.
+4.  Add a **structural** test asserting the AST content — a test that only
+    checks "it parsed" is worthless (that mistake is why the old suite passed
+    while the parser produced nothing).
+5.  `npm run check`, then `npm run validate` — confirm the number went up and
+    the tests still pass.
 
 ## ⚠️ Constraints
 
-*   **Never commit generated parser files.** Everything in `generated/` is
-    gitignored output of `npm run generate-parser`.
-*   **No string literals in parser grammars.** The lexer and parser are split,
-    so literals like `'exile'` or `'+'` cannot appear in a parser file.
-    Declare the token in `MTGLexer.g4` and reference it by name.
-*   **No reminder-text parsing.** Parentheticals are stripped in
-    [src/ingest/normalize.ts](src/ingest/normalize.ts). The grammar only ever
-    sees real rules text.
-*   **Import extensions**: no `.ts`/`.js` suffix on imports inside package
-    source, unless required. Scripts use `.ts` for native ESM.
-*   **Clean design beats backward compatibility.** This grammar is early.
-    Prefer rewriting a bad rule over layering a shim on top of it.
-*   **A wrong parse is worse than a failed parse.** If the grammar cannot
-    represent a mechanic honestly, leave it failing and record why — the
-    validate report is meant to show real coverage, not a flattering number.
+*   **A wrong parse is worse than a failed parse.** Parsers return complete
+    typed nodes or `null` — never a lossy approximation. Unknown keywords,
+    unrepresentable clauses, and unlexable characters all fail loudly.
+*   **No `any` in the AST.** If you can't type it, you don't understand the
+    mechanic yet — go back to the rules.
+*   **Every parse function backtracks cleanly.** Return `null` ⇒ cursor
+    position restored (use `Cursor.attempt`).
+*   **Line = ability.** Never flatten newlines out of oracle text; modal
+    bullets are grouped with their header by `parser/index.ts`.
+*   **Clean design beats backward compatibility.** This AST is early; prefer
+    reshaping a bad node over layering variants on top of it.

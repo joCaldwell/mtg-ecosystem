@@ -1,9 +1,11 @@
 // scripts/build-ir.ts
-// Script to run full pipeline: ingest -> parse -> emit Card IR
+// Full pipeline: ingest → parse → emit per-set Card IR.
+//
+// NOT YET IMPLEMENTED. The IR emitter is the next milestone once parser
+// coverage is high enough to be worth snapshotting (see AGENTS.md in
+// packages/oracle-parser). Until then this stub exists so `npm run build-ir`
+// fails honestly instead of silently doing nothing.
 
-async function main() {
-  console.log("Card IR building pipeline stub.");
-  console.log("To be implemented: Normalize Scryfall data -> Run parser -> Write JSON IR per set to packages/card-data/sets/");
-}
-
-main().catch(console.error);
+console.error("build-ir is not implemented yet.");
+console.error("The parser must reach useful corpus coverage first — run `npm run validate` for the current baseline.");
+process.exit(1);

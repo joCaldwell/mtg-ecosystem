@@ -1,149 +1,100 @@
-// scripts/validate-parser.ts
-const fs = require("fs");
-const path = require("path");
-const { normalizeOracleText } = require("../packages/oracle-parser/src/ingest/normalize.ts");
-const { parseOracleTextDetails } = require("../packages/oracle-parser/src/index.ts");
+// scripts/validate-parser.ts — the oracle-parser scoreboard.
+//
+// Runs the parser across the full Scryfall oracle-card corpus and reports
+// coverage at card AND line granularity, plus the largest failure groups.
+// Run from the repo root: npm run validate
 
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+import { parseOracleText } from "../packages/oracle-parser/src/index.ts";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CACHE_FILE = path.join(__dirname, "../.scryfall-cache/oracle-cards.json");
 
-interface ErrorRecord {
-  cardName: string;
-  oracleText: string;
-  errorMsg: string;
+const SKIP_LAYOUTS = new Set([
+  "token", "double_faced_token", "emblem", "art_series", "planar", "vanguard", "scheme",
+]);
+
+interface ScryfallCard {
+  name: string;
+  layout: string;
+  oracle_text?: string;
+  card_faces?: { name: string; oracle_text?: string }[];
 }
 
-async function main() {
+function main() {
   if (!fs.existsSync(CACHE_FILE)) {
-    console.error(`Error: Cached Scryfall data not found at ${CACHE_FILE}`);
-    console.error("Please run: npm run ingest");
+    console.error(`Cached Scryfall data not found at ${CACHE_FILE}`);
+    console.error("Run: npm run ingest");
     process.exit(1);
   }
 
-  console.log("Loading cached Scryfall bulk data...");
-  const rawData = fs.readFileSync(CACHE_FILE, "utf-8");
-  const allCards = JSON.parse(rawData) as any[];
-  console.log(`Loaded ${allCards.length} total card printings.`);
-
-  // 1. Deduplicate cards by name to validate unique oracle text only
-  console.log("Deduplicating cards by name...");
-  const uniqueCardsMap = new Map<string, any>();
+  const allCards = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8")) as ScryfallCard[];
+  const unique = new Map<string, ScryfallCard>();
   for (const card of allCards) {
-    if (!card.name) continue;
-
-    // Filter out non-playable elements
-    const skipLayouts = ["token", "double_faced_token", "emblem", "art_series", "planar", "vanguard", "scheme"];
-    if (skipLayouts.includes(card.layout)) continue;
-
-    // Skip if it doesn't have rules text or faces
+    if (!card.name || SKIP_LAYOUTS.has(card.layout)) continue;
     if (!card.oracle_text && !card.card_faces) continue;
-
-    if (!uniqueCardsMap.has(card.name)) {
-      uniqueCardsMap.set(card.name, card);
-    }
+    if (!unique.has(card.name)) unique.set(card.name, card);
   }
 
-  const cards = Array.from(uniqueCardsMap.values());
-  const totalCards = cards.length;
-  console.log(`Found ${totalCards} unique playable cards.`);
+  let cardsChecked = 0;
+  let cardsOk = 0;
+  let linesChecked = 0;
+  let linesOk = 0;
+  const failGroups = new Map<string, { count: number; examples: string[] }>();
+  const started = Date.now();
 
-  console.log("Starting parser validation...");
-  let successCount = 0;
-  let failCount = 0;
-  const errors: ErrorRecord[] = [];
-  const startTime = Date.now();
+  for (const card of unique.values()) {
+    const faces = card.card_faces
+      ? card.card_faces.filter((f) => f.oracle_text).map((f) => ({ name: f.name, text: f.oracle_text! }))
+      : card.oracle_text
+        ? [{ name: card.name, text: card.oracle_text }]
+        : [];
+    if (faces.length === 0) continue;
 
-  for (let i = 0; i < totalCards; i++) {
-    const card = cards[i];
-
-    // Log progress every 5000 cards
-    if (i > 0 && i % 5000 === 0) {
-      console.log(`Processed ${i}/${totalCards} cards...`);
-    }
-
-    // Extract text from faces or top-level card
-    const facesText: { faceName: string; text: string }[] = [];
-    if (card.card_faces) {
-      for (const face of card.card_faces) {
-        if (face.oracle_text) {
-          facesText.push({ faceName: face.name, text: face.oracle_text });
+    cardsChecked++;
+    let cardOk = true;
+    for (const face of faces) {
+      const result = parseOracleText(face.text, face.name);
+      for (const line of result.lines) {
+        linesChecked++;
+        if (line.ok) {
+          linesOk++;
+        } else {
+          cardOk = false;
+          // Group by the first few words of the failing line — that's the
+          // template we haven't implemented yet.
+          const key = line.text.split(" ").slice(0, 4).join(" ").toLowerCase();
+          const group = failGroups.get(key) ?? { count: 0, examples: [] };
+          group.count++;
+          if (group.examples.length < 2) {
+            group.examples.push(`${card.name}: ${line.error ?? "?"}`);
+          }
+          failGroups.set(key, group);
         }
       }
-    } else if (card.oracle_text) {
-      facesText.push({ faceName: card.name, text: card.oracle_text });
     }
-
-    if (facesText.length === 0) continue;
-
-    let cardAllFacesParsed = true;
-    const cardErrors: string[] = [];
-
-    for (const face of facesText) {
-      const normalized = normalizeOracleText(face.text, face.faceName);
-      if (!normalized) continue; // Skip blank rules text
-
-      const result = parseOracleTextDetails(normalized);
-      if (!result.success) {
-        cardAllFacesParsed = false;
-        cardErrors.push(...result.errors);
-      }
-    }
-
-    if (cardAllFacesParsed) {
-      successCount++;
-    } else {
-      failCount++;
-      errors.push({
-        cardName: card.name,
-        oracleText: card.oracle_text || card.card_faces.map((f: any) => f.oracle_text).join(" // "),
-        errorMsg: cardErrors[0], // record the first error encountered
-      });
-    }
+    if (cardOk) cardsOk++;
   }
 
-  const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
-  const successRate = ((successCount / (successCount + failCount)) * 100).toFixed(2);
+  const secs = ((Date.now() - started) / 1000).toFixed(1);
+  const pct = (n: number, d: number) => ((n / d) * 100).toFixed(2);
 
-  console.log("\n=================================");
-  console.log("    PARSER VALIDATION REPORT     ");
-  console.log("=================================");
-  console.log(`Validation Duration : ${durationSec}s`);
-  console.log(`Total Cards Checked : ${successCount + failCount}`);
-  console.log(`Successful Parses   : ${successCount}`);
-  console.log(`Failed Parses       : ${failCount}`);
-  console.log(`Parser Success Rate : ${successRate}%`);
-  console.log("=================================\n");
+  console.log("==================================");
+  console.log("     PARSER VALIDATION REPORT     ");
+  console.log("==================================");
+  console.log(`Duration            : ${secs}s`);
+  console.log(`Cards fully parsed  : ${cardsOk}/${cardsChecked} (${pct(cardsOk, cardsChecked)}%)`);
+  console.log(`Lines parsed        : ${linesOk}/${linesChecked} (${pct(linesOk, linesChecked)}%)`);
+  console.log("==================================\n");
 
-  // 2. Failure Analysis: Group by error types
-  console.log("Top Parsing Failures (Failure Analysis):");
-  const errorGroups = new Map<string, { count: number; examples: string[] }>();
-
-  for (const err of errors) {
-    // Clean/generalize error messages to group them
-    // E.g., "line 1:15 - mismatched input 'foo' expecting BAR" -> "mismatched input expecting BAR"
-    let cleanMsg = err.errorMsg
-      .replace(/^line \d+:\d+ - /, "")
-      .replace(/'[^']+'/, "'<token>'");
-
-    const group = errorGroups.get(cleanMsg) || { count: 0, examples: [] };
-    group.count++;
-    if (group.examples.length < 3) {
-      group.examples.push(`"${err.cardName}" -> Oracle: "${err.oracleText.substring(0, 80)}${err.oracleText.length > 80 ? "..." : ""}"`);
-    }
-    errorGroups.set(cleanMsg, group);
-  }
-
-  // Sort and print the top 10 errors
-  const sortedErrors = Array.from(errorGroups.entries())
-    .sort((a, b) => b[1].count - a[1].count)
-    .slice(0, 10);
-
-  for (const [msg, data] of sortedErrors) {
-    console.log(`\n🔴 Error: "${msg}" (Failed on ${data.count} cards)`);
-    console.log("   Examples:");
-    for (const ex of data.examples) {
-      console.log(`     - ${ex}`);
-    }
+  console.log("Largest unparsed templates (by leading words):");
+  const top = [...failGroups.entries()].sort((a, b) => b[1].count - a[1].count).slice(0, 20);
+  for (const [key, group] of top) {
+    console.log(`\n🔴 ${group.count}× "${key} …"`);
+    for (const ex of group.examples) console.log(`     - ${ex}`);
   }
 }
 
-main().catch(console.error);
+main();

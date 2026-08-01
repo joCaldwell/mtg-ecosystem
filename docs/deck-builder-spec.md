@@ -285,6 +285,7 @@ The chat is **not the source of truth** — the deck, brief, and decision log ar
 - A manual **consolidate** command. On invoke it: proposes brief updates for high-impact new information, discards what's outdated, and summarizes the remainder as the starting context for the continued chat.
 - **Consolidation runs through the approval gate.** Show me proposed brief edits and proposed discards; I rule on them.
 - **Keep the raw transcript on disk** after it leaves context. Disk is free; this makes compaction non-destructive.
+- **The compaction boundary is not a free choice of index.** An assistant's `tool_calls` and the `tool` messages answering them are one unit: cut between them and what stays resident begins with an orphaned tool result, which providers reject as a malformed request — permanently, since the same window is rebuilt every turn. The boundary snaps forward past trailing tool results, and context assembly drops either half of a call that lost its partner (a turn can also die between issuing a call and running it). Repair happens on read; the rows on disk stay as they were.
 - **Report what it rescued.** If consolidation regularly pulls important facts out of the transcript into the brief, that's a signal a tool is missing — those facts should have been written to a structured record when they happened. The report is the diagnostic.
 
 ### Hard boundary — enforce in code, not in the prompt

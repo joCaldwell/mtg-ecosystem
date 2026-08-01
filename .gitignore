@@ -6,9 +6,6 @@ dist/
 build/
 *.tsbuildinfo
 
-# ANTLR generated files
-packages/oracle-parser/generated/
-
 # IDE
 .vscode/
 .idea/

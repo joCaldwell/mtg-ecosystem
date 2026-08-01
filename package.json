@@ -1,23 +1,20 @@
 {
   "name": "mtg-ecosystem",
   "private": true,
+  "type": "module",
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
     "build": "npm run build --workspaces",
     "test": "npm run test --workspaces",
-    "generate-parser": "bash scripts/generate-parser.sh",
     "ingest": "node scripts/ingest-scryfall.ts",
     "build-ir": "node scripts/build-ir.ts",
     "validate": "node scripts/validate-parser.ts"
   },
   "devDependencies": {
     "typescript": "^5.4.5",
-    "vitest": "^1.6.0",
-    "ts-node": "^10.9.2",
-    "@types/node": "^20.12.12",
-    "antlr4ts-cli": "^0.5.0-alpha.4"
+    "@types/node": "^26.0.0"
   },
   "allowScripts": {
     "esbuild@0.21.5": true,

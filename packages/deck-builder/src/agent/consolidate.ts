@@ -126,7 +126,15 @@ export async function runConsolidation(
 
   const resident = residentMessages(db, deckId);
 
-  const zone = resident.slice(0, Math.max(0, resident.length - KEEP_RECENT_MESSAGES));
+  // Never cut between an assistant's tool_calls and the tool messages
+  // answering them: what stays resident would begin with an orphaned `tool`
+  // row, and every OpenAI-shaped provider rejects the whole request for that.
+  // Swallow the trailing results into the zone instead — tool output is the
+  // cheapest thing in the transcript and renderMessage already discards it.
+  let end = Math.max(0, resident.length - KEEP_RECENT_MESSAGES);
+  while (end < resident.length && resident[end].message.role === "tool") end++;
+
+  const zone = resident.slice(0, end);
   if (!zone.length)
     throw new ServiceError(
       `Nothing to consolidate — the last ${KEEP_RECENT_MESSAGES} messages are always kept resident.`,

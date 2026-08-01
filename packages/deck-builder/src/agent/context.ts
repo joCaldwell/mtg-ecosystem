@@ -297,6 +297,46 @@ ${recentLines.join("\n") || "(none yet)"}`;
   };
 }
 
+/**
+ * Drop the half of any tool call that lost its partner.
+ *
+ * A resident window can hold a `tool` message whose assistant call is gone
+ * (compaction cut between them — see consolidate.ts, which no longer makes
+ * that cut but older transcripts still carry one) or an assistant `tool_calls`
+ * whose results never landed (a turn that died between persisting the call and
+ * running it). Providers reject either as a malformed request, and since the
+ * window is rebuilt from the same rows every turn, the deck's chat stays broken
+ * until the pairing is fixed. Repairing on read rather than on disk keeps the
+ * transcript append-only (spec §11).
+ */
+export function pairToolCalls(messages: ChatMessage[]): ChatMessage[] {
+  const answered = new Set<string>();
+  for (const m of messages) if (m.role === "tool" && m.tool_call_id) answered.add(m.tool_call_id);
+
+  const called = new Set<string>();
+  const kept: ChatMessage[] = [];
+  for (const m of messages) {
+    if (m.role === "tool") {
+      if (m.tool_call_id && called.has(m.tool_call_id)) kept.push(m);
+      continue;
+    }
+    if (m.role === "assistant" && m.tool_calls?.length) {
+      const live = m.tool_calls.filter((c) => answered.has(c.id));
+      for (const c of live) called.add(c.id);
+      // An assistant turn that is nothing but a dangling call has no content
+      // worth keeping; one that also spoke keeps its prose.
+      if (!live.length) {
+        if (m.content) kept.push({ ...m, tool_calls: undefined });
+        continue;
+      }
+      kept.push(live.length === m.tool_calls.length ? m : { ...m, tool_calls: live });
+      continue;
+    }
+    kept.push(m);
+  }
+  return kept;
+}
+
 export function assembleContext(
   db: DatabaseSync,
   deckId: number,
@@ -305,7 +345,9 @@ export function assembleContext(
   const { sections, tailRestate, segments } = assembleDeckSections(db, deckId, retentionN);
 
   // Compacted messages stay on disk but leave context (spec §11).
-  const resident: ChatMessage[] = residentMessages(db, deckId).map((r) => r.message);
+  const resident: ChatMessage[] = pairToolCalls(
+    residentMessages(db, deckId).map((r) => r.message),
+  );
 
   const summary = activeSummary(db, deckId);
   const transcript: ChatMessage[] = summary
