@@ -1613,12 +1613,6 @@ details:not(.group) > summary {
   min-width: 0;
   flex: 1;
 }
-.finding.error {
-  border-left: 2px solid var(--over);
-}
-.finding.warn {
-  border-left: 2px solid var(--under);
-}
 
 /* --- tabs --------------------------------------------------------------- */
 
@@ -1899,12 +1893,29 @@ details:not(.group) > summary {
   outline: none;
 }
 .reasoning-summary {
-  background: var(--bg-row);
-  border-left: 2px solid var(--accent);
-  border-radius: var(--r-sm);
-  padding: var(--sp-2) var(--sp-3);
-  font-size: 12.5px;
-  line-height: 1.55;
+  padding: var(--sp-4) 0 var(--sp-5);
+  font-size: 16px;
+  line-height: 1.75;
+  color: var(--fg);
+}
+.audit-body .finding {
+  padding: var(--sp-4) 0;
+  border-inline: 0;
+  border-radius: 0;
+}
+.audit-body .finding .card-main {
+  flex-wrap: wrap;
+}
+.audit-body .finding .name {
+  white-space: normal;
+  font-size: 14px;
+  font-weight: 600;
+}
+.audit-body .finding .rationale {
+  padding-left: 0;
+  margin-top: var(--sp-2);
+  font-size: 13px;
+  line-height: 1.65;
 }
 
 /* --- interop ------------------------------------------------------------ */
@@ -1999,15 +2010,23 @@ details:not(.group) > summary {
 
 /* The audit lives below the decklist rather than in a modal: a run is a
    server-side job now, findings persist across sessions, and closing a dialog
-   should never be the thing that throws them away. The rule above it separates
-   it from the last card group without making it a second page. */
+   should never be the thing that throws them away. A separate surface and a
+   generous gap mark the transition from deck contents to evaluation. */
 .audit-section {
-  margin-top: var(--sp-5);
-  border-top: 1px solid var(--border);
-  padding-top: var(--sp-2);
+  margin-top: 40px;
+  padding: var(--sp-4);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  scroll-margin-top: var(--sp-4);
 }
 .audit-head {
   flex-wrap: wrap;
+  margin: 0;
+  gap: var(--sp-3);
+}
+.audit-head .rule {
+  background: none;
 }
 .audit-toggle {
   background: none;
@@ -2015,8 +2034,9 @@ details:not(.group) > summary {
   padding: 0;
   height: auto;
   font: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  text-transform: none;
   color: var(--fg);
   cursor: pointer;
 }
@@ -2032,20 +2052,24 @@ details:not(.group) > summary {
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--border);
 }
-.audit-sub {
-  margin: var(--sp-3) 0 0;
-  font-size: 11px;
-  font-weight: 650;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--fg-dim);
+.deck-problems-button {
+  color: var(--under);
+  border-color: var(--under);
 }
-.audit-sub .muted {
-  text-transform: none;
-  letter-spacing: 0;
-  font-weight: 400;
+.deck-checks .finding {
+  padding-block: var(--sp-3);
 }
+.deck-checks .card-main {
+  flex-wrap: wrap;
+}
+.deck-checks .name {
+  white-space: normal;
+}
+
 .audit-running {
   border-left: 2px solid var(--accent);
   padding-left: var(--sp-3);
@@ -2116,12 +2140,6 @@ details:not(.group) > summary {
 }
 .chat-input {
   padding: 10px;
-}
-.chat-composer-hint {
-  margin: 7px 2px 0;
-  color: var(--fg-mute);
-  font-size: 11px;
-  flex: none;
 }
 .chat-empty {
   margin-block: auto;

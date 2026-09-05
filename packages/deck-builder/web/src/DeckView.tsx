@@ -6,7 +6,8 @@ import { SlotPanel } from "./SlotPanel.tsx";
 import { SearchPanel } from "./SearchPanel.tsx";
 import { CardRow, type OwnershipMode } from "./CardRow.tsx";
 import { ProposalSection } from "./ProposalSection.tsx";
-import { AuditSection } from "./AuditSection.tsx";
+import { DecisionLog } from "./DecisionLog.tsx";
+import { AuditSection, DeckChecks } from "./AuditSection.tsx";
 import { BriefPanel } from "./BriefPanel.tsx";
 import { ChatPanel } from "./ChatPanel.tsx";
 import { InteropPanel } from "./InteropPanel.tsx";
@@ -22,7 +23,7 @@ type GroupBy = "slot" | "type";
 // they are visit-and-leave surfaces, and inline they pushed the deck itself
 // off the screen. Two exceptions stay inline, both because they are things you
 // rule on rather than visit: proposals above the list, and the audit below it.
-type Tool = "brief" | "interop" | "session";
+type Tool = "brief" | "interop" | "session" | "checks";
 
 // Display order for card-type grouping. `primaryType` walks this list, so a
 // card with several types files under the first one that matches — an Artifact
@@ -81,7 +82,7 @@ export function DeckView({ deckId }: { deckId: number }) {
 }
 
 function DeckPage() {
-  const { deckId, state, error, apply, run, setSideTab } = useDeck();
+  const { deckId, state, audit, error, apply, run, setSideTab } = useDeck();
   const [notFound, setNotFound] = useState(false);
   const [draft, setDraft] = useState<DraftItem[]>([]);
   const [tool, setTool] = useState<Tool | null>(null);
@@ -123,10 +124,7 @@ function DeckPage() {
   const missingCount = cards.reduce((n, c) => n + (c.owned ? 0 : c.quantity), 0);
 
   const countClass = computed.delta_to_100 === 0 ? "ok" : computed.delta_to_100 < 0 ? "under" : "over";
-  const violationCount =
-    computed.identity_violations.length +
-    computed.singleton_violations.length +
-    computed.legality_violations.length;
+  const problemCount = audit ? audit.findings.length + audit.dismissed.length : null;
 
   async function rename() {
     const name = window.prompt("Deck name", deck.name);
@@ -260,30 +258,16 @@ function DeckPage() {
             pending +{computed.pending.adds}/−{computed.pending.cuts} → {computed.pending.projected_count}
           </span>
         )}
-        {violationCount > 0 && <span className="chip over">{violationCount} violation(s)</span>}
+        <button
+          className={`small ${problemCount ? "deck-problems-button" : ""}`}
+          onClick={() => setTool("checks")}
+          aria-haspopup="dialog"
+        >
+          {problemCount == null ? "Deck checks" : problemCount ? `${problemCount} deck problem${problemCount === 1 ? "" : "s"}` : "Deck checks clear"}
+        </button>
       </header>
 
       {error && <div className="error-banner">{error}</div>}
-
-      {violationCount > 0 && (
-        <div className="violations">
-          {computed.identity_violations.map((v) => (
-            <div key={v.oracle_id}>
-              ⚠ <b>{v.name}</b> ({v.color_identity}) is outside the deck's color identity
-            </div>
-          ))}
-          {computed.singleton_violations.map((v) => (
-            <div key={v.oracle_id}>
-              ⚠ <b>{v.name}</b> ×{v.quantity} exceeds its copy limit ({v.limit ?? "∞"})
-            </div>
-          ))}
-          {computed.legality_violations.map((v) => (
-            <div key={v.oracle_id}>
-              ⚠ <b>{v.name}</b> is {v.legality.replace("_", " ")} in Commander
-            </div>
-          ))}
-        </div>
-      )}
 
       <div className="columns">
         {/* The rail is `display: contents` on wide screens, so slots and the
@@ -420,9 +404,15 @@ function DeckPage() {
           )}
 
           <AuditSection askAgent={askAgent} openRef={openAudit} />
+          <DecisionLog />
         </section>
       </div>
 
+      {tool === "checks" && (
+        <Modal title="Deck problems" onClose={() => setTool(null)} wide>
+          <DeckChecks askAgent={(token) => { askAgent(token); setTool(null); }} />
+        </Modal>
+      )}
       {tool === "brief" && (
         <Modal title="Brief" onClose={() => setTool(null)}>
           <BriefPanel />

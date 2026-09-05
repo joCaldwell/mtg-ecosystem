@@ -1,4 +1,36 @@
-# Decision Log: Parser Tool / Language & IR Storage
+# Architecture decisions
+
+## Current decisions
+
+| Decision | Status | Rationale |
+| --- | --- | --- |
+| Hand-written TypeScript tokenizer and recursive-descent parser | Accepted; supersedes ANTLR on 2026-08-01 | Build typed nodes directly, keep context-sensitive grammar explicit, reject unsupported text |
+| Structural correctness before coverage | Accepted; reinforced 2026-09-05 | Acceptance alone cannot detect lost logic, event grouping, ownership, or scope |
+| Typed supported AST, future semantic validation/lowering | Accepted direction | Parsing success is distinct from resolving references and proving engine capability |
+| Per-set JSON IR | Proposed storage direction; emitter unimplemented | Decide printing membership, versioning, reference binding, and update policy before emission |
+
+The current implementation and invariants are documented in
+[oracle_parser.md](oracle_parser.md). The source of truth for the experimental
+AST is `packages/oracle-parser/src/ast.ts`. Generated IR is not committed.
+
+The 2026-09-05 foundations pass preserves filter conjunction/disjunction,
+trigger event grouping and zone endpoints, effect destinations and controllers,
+and shared modifier durations. It replaces raw activation restrictions with
+typed supported forms, rejects unconsumed modal options, enforces cursor
+rollback, retains original parse diagnostics, and adds reproducible acceptance
+reporting and atomic cache replacement. Reduced acceptance from rejecting
+unsupported constructs is an intentional correctness improvement.
+
+## Historical proposal — superseded
+
+The discussion below records the original alternatives and their original
+conclusions. Its ANTLR selection, grammar/visitor setup, generated-file guidance,
+and claims about append-only or Git-tracked IR do **not** describe the current
+implementation. Retained for rationale and archaeology.
+
+---
+
+### Original decision log
 
 This document records the options considered and final decisions for two key architectural choices:
 1. **What tool/language should we use to build the Oracle Text Parser?** → ✅ **ANTLR → TypeScript**

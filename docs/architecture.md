@@ -1,6 +1,6 @@
 # System Architecture
 
-This document describes the full layered architecture of the MTG Ecosystem. Layers are built **bottom-up** — each layer is fully tested and documented before work begins on the next.
+This document describes the full layered architecture of the MTG Ecosystem. The intended dependency order is **bottom-up**. The standalone deck-builder was pulled forward and is the active package; it does not depend on the parser or rules engine. The parser remains a limited supported subset, with broader work paused.
 
 ---
 
@@ -12,29 +12,30 @@ graph LR
     classDef active fill:#1e3a5f,stroke:#3b82f6,stroke-width:3px,color:#fff;
     classDef future fill:#1f2937,stroke:#475569,color:#6b7280;
 
-    M1["Milestone 1<br/>Oracle Parser<br/>& Card IR"]:::active
+    M1["Milestone 1<br/>Oracle Parser<br/>& Card IR (limited subset)"]:::future
     M2["Milestone 2<br/>Game State<br/>& Rules Engine"]:::future
     M3["Milestone 3<br/>Game Server<br/>& API"]:::future
-    M4["Milestone 4<br/>Clients &<br/>Agent Apps"]:::future
+    M4["Milestone 4<br/>Clients &<br/>Agent Apps (deck-builder active)"]:::active
 
     M1 --> M2 --> M3 --> M4
 ```
 
 ---
 
-## 💾 Layer 0: Oracle Text Parser & Card IR ← **Current Focus**
+## 💾 Layer 0: Oracle Text Parser & Card IR
 
 **Goal**: Parse every MTG card's oracle text into a typed AST, then compile it into per-set JSON IR files that downstream layers consume.
 
 **Key components**:
 - **Ingestion**: Pull raw card data from Scryfall bulk data.
-- **ANTLR Grammar** (`.g4`): Formal specification of MTG's card language — lexer and parser rules.
-- **Generated Parser** (TypeScript): ANTLR generates a TypeScript lexer + parser from the grammar.
-- **AST Visitor** (TypeScript): Walks the ANTLR parse tree and produces strongly-typed AST nodes.
-- **IR Emitter**: Serializes the AST into versioned, per-set JSON files (`ir/sets/<SET_CODE>.json`).
-- **Test Suite**: Snapshot tests, mechanic coverage tracking, and bulk validation against Scryfall.
+- **Normalizer and lexer**: Preserve ability boundaries and tokenize text without dropping unknown characters.
+- **Hand-written parser**: Builds typed AST nodes directly from supported productions.
+- **AST contract**: `packages/oracle-parser/src/ast.ts`; explicit logic, event grouping, zones, restrictions, and scope.
+- **Verification**: Structural and negative tests, cursor invariants, and reproducible corpus acceptance reports.
+- **Semantic validation and IR emitter** (future): Resolve references, check consumer capabilities, and emit versioned per-set artifacts under `packages/card-data/sets/`.
 
-**Stack**: ANTLR4 (grammar) → TypeScript (runtime, AST, IR output).
+**Stack**: Zero-runtime-dependency TypeScript, executed directly by Node ≥ 23.
+`npm run build-ir` fails explicitly; parsed ASTs are not yet executable Card IR.
 
 See **[Oracle Parser Design](oracle_parser.md)** for full details.
 
@@ -70,8 +71,8 @@ See **[Oracle Parser Design](oracle_parser.md)** for full details.
 
 **Goal**: Client-side software built on top of the API layer.
 
-**Applications** (future):
+**Applications**:
 - **Game Client**: Board visualization, player input, animations.
-- **Deck Builder**: Format legality, curve analysis, AI synergy suggestions.
+- **Deck Builder** (active, standalone): Uses its own Scryfall SQLite database. Future integration must not delay its current development.
 - **Draft Simulator**: Booster drafting against AI or humans.
 - **AI Agents**: Play assistants, rules advisors, and playtesting bots.

@@ -10,7 +10,7 @@ function parseOne(text: string, name?: string): Ability {
   const result = parseOracleText(text, name);
   assert.equal(result.ok, true, `parse failed: ${result.lines.find((l) => !l.ok)?.error}`);
   assert.equal(result.lines.length, 1);
-  return result.lines[0].ability!;
+  return result.abilities[0];
 }
 
 describe("keyword lines", () => {
@@ -94,7 +94,7 @@ describe("activated abilities", () => {
   it("captures activation restrictions", () => {
     const a = parseOne("{T}: Draw a card. Activate only as a sorcery.");
     assert.equal(a.kind, "activated");
-    assert.equal(a.restriction, "Activate only as a sorcery");
+    assert.deepEqual(a.restriction, { restriction: "sorcery" });
   });
 });
 
@@ -244,7 +244,13 @@ describe("spell effects", () => {
     assert.equal(a.kind, "spell");
     const steps = a.effects[0].steps;
     assert.equal(steps.length, 2);
-    assert.equal(steps[0].effect, "pump");
+    assert.deepEqual(steps[0], {
+      effect: "pump",
+      what: { ref: "target", filter: { types: ["creature"] }, count: { amount: "fixed", value: 1 } },
+      power: { sign: 1, amount: { amount: "fixed", value: 2 } },
+      toughness: { sign: 1, amount: { amount: "fixed", value: 2 } },
+      duration: { duration: "end-of-turn" },
+    });
     assert.deepEqual(steps[1], {
       effect: "gain-abilities",
       what: { ref: "target", filter: { types: ["creature"] }, count: { amount: "fixed", value: 1 } },
@@ -301,7 +307,7 @@ describe("modal abilities", () => {
     const result = parseOracleText(text);
     assert.equal(result.ok, true, result.lines.find((l) => !l.ok)?.error ?? "parse failed");
     assert.equal(result.lines.length, 1);
-    const a = result.lines[0].ability!;
+    const a = result.abilities[0];
     assert.equal(a.kind, "spell");
     const modal = a.effects[0].steps[0];
     assert.equal(modal.effect, "modal");
@@ -316,7 +322,7 @@ describe("modal abilities", () => {
     const text = "Choose one or both —\n• Draw a card.\n• You gain 2 life.";
     const result = parseOracleText(text);
     assert.equal(result.ok, true, result.lines.find((l) => !l.ok)?.error ?? "parse failed");
-    const modal = result.lines[0].ability!;
+    const modal = result.abilities[0];
     assert.equal(modal.kind, "spell");
     const step = modal.effects[0].steps[0];
     if (step.effect === "modal") assert.deepEqual(step.count, { min: 1, max: 2 });

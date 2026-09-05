@@ -28,6 +28,7 @@ export class Cursor {
   }
 
   next(): Token | undefined {
+    if (this.done()) return undefined;
     return this.tokens[this.pos++];
   }
 
@@ -55,15 +56,16 @@ export class Cursor {
     return this.farthestPos;
   }
 
-  errorMessage(): string {
+  errorMessage(offset = 0): string {
     const tok = this.tokens[this.farthestPos];
     const at = tok
       ? `"${tok.kind === "word" ? tok.raw : tok.kind === "number" ? tok.raw : tok.kind === "symbol" ? `{${tok.value}}` : tok.kind === "selfref" ? "~" : tok.value}"`
       : "end of line";
     const expected = this.farthestExpected.length
-      ? this.farthestExpected.join(" | ")
+      ? this.farthestExpected.slice(0, 8).join(" | ") +
+        (this.farthestExpected.length > 8 ? ` | … (${this.farthestExpected.length - 8} more alternatives)` : "")
       : "?";
-    return `expected ${expected} at ${at} (token ${this.farthestPos})`;
+    return `expected ${expected} at ${at} (token ${offset + this.farthestPos})`;
   }
 
   // -- token-level matchers -------------------------------------------------

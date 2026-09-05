@@ -1,156 +1,159 @@
-# Oracle Text Parser — Layer 0 Design
+# Oracle text parser
 
-This document covers the design of the Oracle Text Parser: the system that reads raw MTG card data (primarily oracle text) and compiles it into a structured, machine-readable intermediate representation (IR).
+The parser is a hand-written, zero-runtime-dependency TypeScript package at
+`packages/oracle-parser`. It normalizes Oracle text, tokenizes it, and builds a
+structured AST. The ANTLR implementation was retired on 2026-08-01.
 
-> **2026-08-01 — Rewritten from scratch.** The original ANTLR/antlr4ts
-> implementation was audited and replaced with a hand-written TypeScript
-> parser. The audit findings and rationale are recorded in
-> [decisions.md](decisions.md) and summarized in
-> [Why hand-written, not ANTLR](#-why-hand-written-not-antlr) below.
+The parser remains a limited supported subset. The deck-builder is active and
+standalone; it does not consume this AST. A rules engine and IR emitter are not
+implemented. See [architecture.md](architecture.md) and the package
+[AGENTS.md](../packages/oracle-parser/AGENTS.md).
 
----
+## Pipeline and public API
 
-## 🎯 Goal
-
-Take any MTG card's oracle text — e.g.:
-
-> *"When Mulldrifter enters, draw two cards. Evoke {2}{U}"*
-
-...and produce a typed AST that a rules engine (or an AI agent) can consume programmatically:
+```text
+Oracle text → normalize → ability blocks → lex → parse → typed AST
+                                                       ↓ future
+                                              validate/lower → Card IR
+```
 
 ```typescript
-const result = parseOracleText("When ~ enters, draw two cards.\nEvoke {2}{U}", "Mulldrifter");
-// result.abilities =
-[
-  {
-    kind: "triggered",
-    trigger: { trigger: "enters", what: { ref: "self" } },
-    effects: [{ steps: [{ effect: "draw", who: { player: "you" }, amount: { amount: "fixed", value: 2 } }] }]
-  },
-  {
-    kind: "keywords",
-    keywords: [{ keyword: "evoke", cost: [{ cost: "mana", symbols: ["2", "U"] }] }]
+import { parseOracleText } from "@mtg-ecosystem/oracle-parser";
+
+const result = parseOracleText("Flying\n{T}: Add {G}.");
+if (result.ok) {
+  // result.abilities is required here: KeywordLine, ActivatedAbility.
+  console.log(result.abilities);
+} else {
+  for (const line of result.lines) {
+    if (!line.ok) console.error(line.text, line.error);
   }
-]
+}
 ```
 
----
+`src/ast.ts` is the authoritative current contract. `ParsedLine` and
+`ParseCardResult` are discriminated success/failure unions. A failed card has
+no aggregate `abilities`; successfully parsed individual blocks remain
+available in `lines` for diagnostics and coverage work.
 
-## 🏗️ Pipeline
+`ok: true` means every normalized ability block was consumed by supported
+productions and represented in the AST. It is not proof of semantic correctness
+or a promise that a downstream engine implements the represented mechanics.
+Unknown syntax must fail rather than be preserved as raw executable text.
+Acceptance statistics cannot detect an incorrect AST; structural tests and
+rules review are the correctness gate.
 
+## Responsibilities and invariants
+
+- **Normalization** canonicalizes punctuation, removes parenthetical reminder
+  text, replaces exact-case full/short self-references, and preserves newlines.
+  Input is assumed to be Oracle text. `lines[].text` is normalized text, not an
+  original-source span. Nested parentheticals and unusual name references
+  remain limitations; unsupported remaining text fails lexing/parsing.
+- **Ability blocks** ordinarily follow lines. Modal headers own all immediately
+  following bullet lines. A successful header must actually consume those
+  options. One failed option fails the entire block; orphaned bullets fail.
+- **Lexing** never drops unknown characters. Brace tokens remain generic game
+  symbols; costs, mana production, and payment conditions validate their own
+  supported symbols.
+- **Parsing** constructs nodes directly. No generated grammar or visitor exists.
+  A cursor parser returning `null` restores its starting position. Effect
+  parsers also restore elided-subject context when an attempt fails.
+- **Diagnostics** come from the original classifier attempts. Sliced cost,
+  loyalty, and ability-word cursors report offsets in the complete header;
+  failed modal options report their option number and local token position.
+  Backtracking expectations can still be noisy; token positions are not
+  original-text character offsets.
+
+## Semantic conventions
+
+The foundational distinctions below are represented explicitly and covered by
+regression tests. These are intentional breaking changes to the experimental
+AST; no compatibility adapters are provided.
+
+| Construct | Representation |
+| --- | --- |
+| `artifact creature` | `types: ["artifact", "creature"]`: both required |
+| `artifact or creature` | `allOf: [{ anyOf: [{ types: ["artifact"] }, { types: ["creature"] }] }]` |
+| `red and green` / `red or green` | Conjunctive color array / explicit alternatives |
+| Single-occurrence / grouped trigger | Default per occurrence / `grouping: "one-or-more"` |
+| Graveyard event | `from` zone or `"anywhere"`, plus destination `ZoneRef` |
+| Search | Acting player and complete searched `ZoneRef`, including owner |
+| Return to battlefield | Optional explicit `controller: "you" | "owner"` |
+| Return to hand | Explicit `to: "your" | "owner"` |
+| Activation restriction | Typed `sorcery` or `once-each-turn`, including loyalty abilities |
+| Coordinated pump and ability gain | Shared trailing duration on both effects |
+
+Filter fields and ordinary array entries are conjunctive; only `anyOf` is
+disjunctive. `allOf` combines nested clauses. The existing `orPlayer` field
+represents a simple object-or-player union. Mixed color conjunctions without
+an implemented unambiguous grouping are rejected.
+
+Duration sharing is limited to supported coordinated modifiers with an elided
+subject. It does not cross a `then` or sentence boundary. Other unsupported
+wording must fail rather than invent scope.
+
+The AST retains symbolic references such as `it`, `that-player`, `x`, and
+keyword names. Binding those references, expanding predefined game concepts,
+and deciding execution support belong to a future semantic validation/lowering
+stage. That stage must reject unresolved or unsupported nodes before producing
+executable Card IR. This package does not yet provide it.
+
+Rules references: [Comprehensive Rules](https://magic.wizards.com/en/rules),
+especially 107.4 (symbols), 602.5 (restrictions), 603.2c and 700.1 (events),
+and 611.2a (durations). Parser comments cite the rules edition used for the
+foundational fixes.
+
+## Development and verification
+
+Use Node ≥ 23 and run `npm install` at the repository root. There is no Java
+requirement or emitted build. From `packages/oracle-parser`:
+
+```sh
+npm run check
 ```
-┌──────────────────┐    ┌───────────┐    ┌────────┐    ┌───────────┐    ┌──────────────────┐
-│  Raw Card Data   │──▶ │ normalize │──▶ │  lex   │──▶ │   parse   │──▶ │  Card IR (JSON)  │
-│  (Scryfall JSON) │    │  (lines)  │    │(tokens)│    │(typed AST)│    │  per-set files   │
-└──────────────────┘    └───────────┘    └────────┘    └───────────┘    └──────────────────┘
+
+This runs TypeScript checking and Node's structural test suite, including
+parser rollback, meaning-distinction tests, complete-block failures, corpus
+reporting, and simulated interrupted downloads. Pipeline modules imported by
+tests are typechecked too. Tests do not require networking or the bulk cache.
+
+From the root:
+
+```sh
+npm run ingest
+npm run validate
+npm run validate -- --json > .scryfall-cache/validation.json
 ```
 
-All stages live in `packages/oracle-parser/src/` — see that package's
-`AGENTS.md` for the module map and development loop.
+Validation uses the existing cache without refreshing it. Reports identify the
+exact corpus by SHA-256, the Git revision, and a hash of parser and reporting
+sources including working changes. Per-card outcomes include successful AST
+hashes for comparing runs. Use the same corpus hash and scope when comparing;
+changed AST hashes need review and are not automatically regressions.
 
-1. **Normalize** — strip reminder text, replace self-references with `~`
-   (exact-case, word-bounded), canonicalize typographic unicode, and split
-   into lines. **Line boundaries are ability boundaries** and are preserved;
-   the original pipeline flattened them, which forced the grammar to guess
-   where abilities split.
-2. **Lex** — hand-written tokenizer producing words (possessive-flagged,
-   contractions kept whole), numbers, `{…}` symbol tokens, and punctuation.
-   Unknown characters are a loud error, never dropped.
-3. **Parse** — recursive-descent with backtracking, one line at a time:
-   loyalty → ability-word → triggered → activated → keyword line → static →
-   spell text. Modal bullet lines are folded into their header's `modal`
-   effect. Failures carry a farthest-token diagnostic.
-4. **Emit IR** — per-set JSON under `packages/card-data/sets/` (next
-   milestone; `npm run build-ir` fails loudly until then).
+The versioned scope excludes digital-only, silver-border, acorn, and explicitly
+listed non-card layouts. Other unsupported cards remain failures. Exclusions
+are counted separately. Identity uses `oracle_id` (face IDs for reversible
+cards), not names or printing IDs. Empty rules text is valid; missing or null face text
+is reported as a failure. “Lines” count ability blocks, including grouped modes.
 
-### The scoreboard
+The old rewrite baseline was 33% of cards / 53% of lines under a different
+population definition. It is historical, not a minimum acceptance target.
+Correcting false successes can lower coverage. Failure groups use the token at
+the failure location and retain complete example text; they are investigation
+hints, not proof that every example needs the same grammar extension.
 
-`npm run validate` (repo root) runs the parser across the full Scryfall
-oracle-card corpus and reports:
+## Next milestones
 
-- **card-level coverage** — every line of every face parsed,
-- **line-level coverage** — the finer-grained progress metric,
-- the **largest unparsed template groups**, which is the work queue.
+1. Keep all known meaning-loss regressions fixed or explicitly rejected. Review
+   newly accepted ASTs against card data and the rules.
+2. Expand supported constructs with full structural assertions and negative
+   tests; pair near-identical inputs when a word changes the meaning.
+3. Design reference binding, semantic validation, predefined token handling,
+   and the capability boundary with a first engine consumer.
+4. Implement an emitter only after a small, audited subset can pass that
+   validation end to end. Corpus coverage alone is not an emission gate.
 
-The number must be honest: a wrong parse is worse than a failed parse, so
-nothing in the pipeline is allowed to approximate (unknown keywords fail,
-unlexable characters fail, unrepresentable clauses fail).
-
----
-
-## 🛠️ Why hand-written, not ANTLR?
-
-The first implementation used ANTLR (`antlr4ts`) with the lexer/parser split
-across nine `.g4` files. The 2026-08-01 audit found the approach was failing
-structurally, not just in degree:
-
-1. **Oracle text is not context-free-friendly.** Nearly every English word is
-   simultaneously a keyword, a creature subtype, and part of an ability word.
-   The grammar coped via a `nameWord` catch-all that matched `AND`, `OF`,
-   `THE`, `WITH`, … inside filters — guaranteeing ambiguous, silently-wrong
-   parses. A hand-written parser makes tokenization and disambiguation
-   context-sensitive where the language actually is.
-2. **The safety property was inverted.** The ANTLR lexer's error listeners
-   were removed, so unlexable characters were dropped and the parse counted
-   as a *success* (`"Flying ; % ##"` parsed cleanly). The project's core rule
-   is that a wrong parse is worse than a failed parse.
-3. **It only ever recognized.** The visitor that was supposed to build the
-   AST was a 12-line stub returning `{}`; 373 lines of AST types were dead
-   code. Recognition-only coverage (16% of cards) measured nothing Layer 1
-   could use.
-4. **Dead tooling.** `antlr4ts` 0.5.0-alpha has been unmaintained for years,
-   required Java to regenerate, and used deprecated APIs.
-
-The replacement is zero-dependency TypeScript: tokenizer + backtracking
-recursive descent, building the typed AST directly during parsing (no
-separate visitor layer to drift out of sync). At the rewrite baseline it
-already parses **33% of cards / 53% of lines** into full typed ASTs — versus
-16% recognition-only — with strict full-consumption semantics.
-
-What carried over unchanged: the pipeline concept, Scryfall as the data
-source, reminder-text stripping, per-set IR output design, and the
-validate-scoreboard development loop.
-
----
-
-## 📦 Output: Per-Set JSON IR
-
-The compiled card IR is stored as **one JSON file per set** in `packages/card-data/sets/`.
-
-Design principles:
-- **Self-describing**: Each IR file includes its schema version and set metadata.
-- **Deterministic**: The same oracle text always produces the same IR.
-- **Diffable**: Git diffs show exactly which cards in which sets changed.
-- **Additive**: New sets are added by dropping a new file — no existing files are modified.
-
-The IR card shape is the `Ability[]` AST from `src/ast.ts` plus card
-metadata (name, mana cost, types, P/T). A SQLite index can be added later
-for fast cross-set queries.
-
----
-
-## 🧪 Testing Strategy
-
-- **Structural unit tests** (`node --test`): every test asserts the parsed
-  AST's *content* with deep equality — never merely that parsing succeeded.
-  (The original suite asserted only `tree.text === input`, which passed while
-  the parser produced no AST at all. Do not regress to that.)
-- **Scryfall bulk validation**: `npm run validate` is the coverage
-  scoreboard; it must go up, honestly, with each grammar extension.
-- **Round-trip tests** (future): `AST → reconstructed text` semantic
-  equivalence once the AST stabilizes.
-
----
-
-## ✅ Resolved Decisions
-
-| Question | Decision |
-|----------|----------|
-| **Parser Tool** | **Hand-written TypeScript** (tokenizer + backtracking recursive descent). ANTLR approach retired 2026-08-01 — see above. |
-| **AST construction** | Built directly during parsing; the AST in `src/ast.ts` is the Layer-1 contract. Discriminated unions, no `any`. |
-| **IR Storage** | **Per-set JSON files** in `packages/card-data/sets/`. SQLite index left as a future option. |
-| **Data Source** | **Scryfall** bulk data is the source of truth for all card data. |
-| **Reminder Text** | **Strip before parsing.** The system has its own understanding of keywords. |
-| **Keyword Representation** | **Atomic + table-driven.** `KeywordInstance` records the name and parameters; the rules engine knows semantics. Unknown keywords fail the line. |
-| **Edge-Case Cards** | **Out of scope for now.** Un-sets, Arena-only mechanics (e.g. *conjure*), and truly unique cards stay unparsed rather than misparsed. |
-| **Python Bindings** | **Future addition.** Not needed for Milestone 1. |
+`npm run build-ir` deliberately fails. The proposed envelope and remaining
+storage decisions are described in [data_schemas.md](data_schemas.md).

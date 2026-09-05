@@ -10,6 +10,7 @@ import {
   CARD_TYPES, COLORS, OBJECT_CLASSES, STATUS_WORDS, SUPERTYPES, ZONES,
   singularize, wordNumber,
 } from "../vocab.ts";
+import { isManaSymbol } from "../symbols.ts";
 import type { Cursor } from "./cursor.ts";
 
 // ---------------------------------------------------------------------------
@@ -18,81 +19,89 @@ import type { Cursor } from "./cursor.ts";
 
 /** "a"/"an"/"three"/"3"/"X" — counting words used before nouns. */
 export function parseCount(c: Cursor): Amount | null {
-  const n = c.number();
-  if (n !== null) return { amount: "fixed", value: n };
-  if (c.word("a", "an") !== null) return { amount: "fixed", value: 1 };
-  if (c.word("x") !== null) return { amount: "x" };
-  const t = c.peek();
-  if (t?.kind === "word" && !t.possessive) {
-    const wn = wordNumber(t.value);
-    if (wn !== undefined) {
-      c.pos++;
-      return { amount: "fixed", value: wn };
+  return c.attempt((c): Amount | null => {
+    const n = c.number();
+    if (n !== null) return { amount: "fixed", value: n };
+    if (c.word("a", "an") !== null) return { amount: "fixed", value: 1 };
+    if (c.word("x") !== null) return { amount: "x" };
+    const t = c.peek();
+    if (t?.kind === "word" && !t.possessive) {
+      const wn = wordNumber(t.value);
+      if (wn !== undefined) {
+        c.pos++;
+        return { amount: "fixed", value: wn };
+      }
     }
-  }
-  return c.fail("count");
+    return c.fail("count");
+  });
 }
 
 /** Amount in effect position: "3", "X", "twice X", "half your life total, rounded up" … */
 export function parseAmount(c: Cursor): Amount | null {
-  if (c.words("twice")) {
-    const of = parseAmount(c);
-    if (!of) return null;
-    return { amount: "twice", of };
-  }
-  if (c.words("half")) {
-    const of = parseAmount(c);
-    if (!of) return null;
-    let round: "up" | "down" = "down";
-    c.attempt((c) => {
-      c.punct(",");
-      if (!c.words("rounded")) return null;
-      const dir = c.word("up", "down");
-      if (!dir) return null;
-      round = dir as "up" | "down";
-      return true;
-    });
-    return { amount: "half", of, round };
-  }
-  if (c.words("that", "much") || c.words("that", "many")) return { amount: "that-much" };
-  const attr = c.attempt(parseAttributeAmount);
-  if (attr) return attr;
-  if (c.attempt((c) => (c.words("the", "number", "of") ? true : null))) {
-    const of = parseFilter(c);
-    if (!of) return null;
-    return { amount: "count", of };
-  }
-  const base = c.attempt(parseCount);
-  if (base) {
-    // "X plus 1" and friends
-    if (c.attempt((c) => (c.words("plus") ? true : null))) {
-      const b = parseAmount(c);
-      if (!b) return null;
-      return { amount: "plus", a: base, b };
+  return c.attempt((c): Amount | null => {
+    if (c.words("twice")) {
+      const of = parseAmount(c);
+      if (!of) return null;
+      return { amount: "twice", of };
     }
-    return base;
-  }
-  return c.fail("amount");
+    if (c.words("half")) {
+      const of = parseAmount(c);
+      if (!of) return null;
+      let round: "up" | "down" = "down";
+      c.attempt((c) => {
+        c.punct(",");
+        if (!c.words("rounded")) return null;
+        const dir = c.word("up", "down");
+        if (!dir) return null;
+        round = dir as "up" | "down";
+        return true;
+      });
+      return { amount: "half", of, round };
+    }
+    if (c.words("that", "much") || c.words("that", "many")) return { amount: "that-much" };
+    const attr = c.attempt(parseAttributeAmount);
+    if (attr) return attr;
+    if (c.attempt((c) => (c.words("the", "number", "of") ? true : null))) {
+      const of = parseFilter(c);
+      if (!of) return null;
+      return { amount: "count", of };
+    }
+    const base = c.attempt(parseCount);
+    if (base) {
+      // "X plus 1" and friends
+      if (c.attempt((c) => (c.words("plus") ? true : null))) {
+        const b = parseAmount(c);
+        if (!b) return null;
+        return { amount: "plus", a: base, b };
+      }
+      return base;
+    }
+    return c.fail("amount");
+  });
 }
 
 /** "its power", "~'s power", "your life total" */
 function parseAttributeAmount(c: Cursor): Amount | null {
-  if (c.words("your", "life", "total")) return { amount: "life-total", of: { player: "you" } };
-  let of: ObjectRef | null = null;
-  if (c.selfrefPossessive()) of = { ref: "self" };
-  else if (c.word("its") !== null) of = { ref: "it" };
-  if (!of) return null;
-  const attr = c.words("mana", "value")
-    ? "mana-value"
-    : (c.word("power", "toughness") as "power" | "toughness" | null);
-  if (!attr) return null;
-  return { amount: "attribute", of, attribute: attr };
+  return c.attempt((c): Amount | null => {
+    if (c.words("your", "life", "total")) return { amount: "life-total", of: { player: "you" } };
+    let of: ObjectRef | null = null;
+    if (c.selfrefPossessive()) of = { ref: "self" };
+    else if (c.word("its") !== null) of = { ref: "it" };
+    if (!of) return null;
+    const attr = c.words("mana", "value")
+      ? "mana-value"
+      : (c.word("power", "toughness") as "power" | "toughness" | null);
+    if (!attr) return null;
+    return { amount: "attribute", of, attribute: attr };
+  });
 }
 
 /** "equal to <amount>" tail used by damage/life effects. */
 export function parseEqualTo(c: Cursor): Amount | null {
-  if (!c.words("equal", "to")) return null;
-  return parseAmount(c);
+  return c.attempt((c): Amount | null => {
+    if (!c.words("equal", "to")) return null;
+    return parseAmount(c);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -101,25 +110,27 @@ export function parseEqualTo(c: Cursor): Amount | null {
 
 /** "3 or greater", "2 or less", "X", "less than 4", "exactly 2" */
 export function parseComparison(c: Cursor): Comparison | null {
-  if (c.words("less", "than")) {
-    const v = parseAmount(c);
-    return v && { op: "lt", value: v };
-  }
-  if (c.words("greater", "than")) {
-    const v = parseAmount(c);
-    return v && { op: "gt", value: v };
-  }
-  if (c.words("exactly")) {
-    const v = parseAmount(c);
-    return v && { op: "eq", value: v };
-  }
-  const v = c.attempt(parseAmount);
-  if (!v) return c.fail("comparison");
-  if (c.attempt((c) => (c.word("or") !== null && c.word("greater", "more") !== null ? true : null)))
-    return { op: "ge", value: v };
-  if (c.attempt((c) => (c.word("or") !== null && c.word("less", "fewer") !== null ? true : null)))
-    return { op: "le", value: v };
-  return { op: "eq", value: v };
+  return c.attempt((c): Comparison | null => {
+    if (c.words("less", "than")) {
+      const v = parseAmount(c);
+      return v && { op: "lt", value: v };
+    }
+    if (c.words("greater", "than")) {
+      const v = parseAmount(c);
+      return v && { op: "gt", value: v };
+    }
+    if (c.words("exactly")) {
+      const v = parseAmount(c);
+      return v && { op: "eq", value: v };
+    }
+    const v = c.attempt(parseAmount);
+    if (!v) return c.fail("comparison");
+    if (c.attempt((c) => (c.word("or") !== null && c.word("greater", "more") !== null ? true : null)))
+      return { op: "ge", value: v };
+    if (c.attempt((c) => (c.word("or") !== null && c.word("less", "fewer") !== null ? true : null)))
+      return { op: "le", value: v };
+    return { op: "eq", value: v };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -136,8 +147,10 @@ export function parseZoneRef(c: Cursor): ZoneRef | null {
       // "their owner's hand" / "its owner's graveyard"
       if (c.possessive("owner", "owners") !== null) owner = "its-owner";
       else owner = "their";
-    } else if (c.attempt((c) => (c.word("an", "each") !== null && c.possessive("opponent") !== null ? true : null)))
+    } else if (c.attempt((c) => (c.word("an") !== null && c.possessive("opponent") !== null ? true : null)))
       owner = "an-opponent";
+    else if (c.attempt((c) => (c.word("each") !== null && c.possessive("opponent") !== null ? true : null)))
+      owner = "each-opponent";
     else if (c.attempt((c) => (c.word("each") !== null && c.possessive("player") !== null ? true : null)))
       owner = "each-player";
     else if (c.attempt((c) => (c.word("that") !== null && c.possessive("player") !== null ? true : null)))
@@ -235,22 +248,27 @@ export function parseFilter(c: Cursor): ObjectFilter | null {
       }
       if (COLORS.has(v)) {
         c.pos++;
-        addColor(v as Color);
-        // "white or blue" / "red and green"
-        while (c.attempt((c) => {
-          if (c.word("or", "and") === null && !c.isPunct(",")) return null;
-          if (c.isPunct(",")) {
-            c.punct(",");
-            c.word("or", "and");
+        const colors: Color[] = [v as Color];
+        let join: string | undefined;
+        for (;;) {
+          const next = c.attempt((c) => {
+            const comma = c.punct(",");
+            const connector = c.word("or", "and");
+            if (!comma && connector === null) return null;
+            const color = c.anyWord();
+            if (!color || !COLORS.has(color.value)) return null;
+            return { connector, color: color.value as Color };
+          });
+          if (!next) break;
+          if (next.connector) {
+            if (join && join !== next.connector) return c.fail("unambiguous color conjunction");
+            join = next.connector;
           }
-          const nxt = c.peek();
-          if (nxt?.kind === "word" && COLORS.has(nxt.value)) {
-            c.pos++;
-            addColor(nxt.value as Color);
-            return true;
-          }
-          return null;
-        })) { /* keep consuming color list */ }
+          colors.push(next.color);
+        }
+        if (colors.length > 1 && !join) return c.fail("explicit color conjunction");
+        if (join === "or") (f.allOf ??= []).push({ anyOf: colors.map(color => ({ colors: [color] })) });
+        else colors.forEach(addColor);
         continue;
       }
       if (v === "colorless") { c.pos++; f.colorless = true; continue; }
@@ -298,10 +316,7 @@ export function parseFilter(c: Cursor): ObjectFilter | null {
           else if (n.cls === "player") f.orPlayer = true;
           else f.cls = n.word as ObjectFilter["cls"];
         };
-        record(nominal);
-
-        // Or-joined nominals: "artifact or enchantment",
-        // "instant, sorcery, or creature card", "creature or player".
+        const alternatives = [nominal];
         while (c.attempt((c) => {
           const comma = c.isPunct(",");
           if (comma) c.punct(",");
@@ -311,9 +326,19 @@ export function parseFilter(c: Cursor): ObjectFilter | null {
           const n2 = classifyNominal(nt.value, nt.raw);
           if (!n2 || !orCompatible(nominal.cls, n2.cls)) return null;
           c.pos++;
-          record(n2);
+          alternatives.push(n2);
           return true;
-        })) { /* keep consuming or-list */ }
+        })) { /* collect alternatives before assigning their logical scope */ }
+        if (alternatives.length === 1) record(nominal);
+        else if (alternatives.some(n => n.cls === "player")) {
+          // Preserve the existing simple object-or-player union. More complex
+          // player unions need their own reference grammar.
+          if (alternatives.length !== 2) return c.fail("simple object-or-player union");
+          alternatives.forEach(record);
+        } else {
+          (f.allOf ??= []).push({ anyOf: alternatives.map(n =>
+            n.cls === "type" ? { types: [n.word] } : { subtypes: [n.word] }) });
+        }
         continue outer;
       }
 
@@ -386,17 +411,19 @@ export function parseFilter(c: Cursor): ObjectFilter | null {
 
 /** "with power 2 or less", "with mana value 3 or greater" */
 function parsePropertyConstraint(c: Cursor): PropertyConstraint | null {
-  if (!c.words("with") && !c.words("of")) return null;
-  let property: PropertyConstraint["property"];
-  if (c.words("mana", "value")) property = "mana-value";
-  else {
-    const w = c.word("power", "toughness");
-    if (!w) return null;
-    property = w as "power" | "toughness";
-  }
-  const comparison = parseComparison(c);
-  if (!comparison) return null;
-  return { property, comparison };
+  return c.attempt((c): PropertyConstraint | null => {
+    if (!c.words("with") && !c.words("of")) return null;
+    let property: PropertyConstraint["property"];
+    if (c.words("mana", "value")) property = "mana-value";
+    else {
+      const w = c.word("power", "toughness");
+      if (!w) return null;
+      property = w as "power" | "toughness";
+    }
+    const comparison = parseComparison(c);
+    if (!comparison) return null;
+    return { property, comparison };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -575,7 +602,10 @@ export function parseCondition(c: Cursor): Condition | null {
       // Mana symbols or "N life".
       const symbols: string[] = [];
       let s;
-      while ((s = c.attempt((c) => c.symbol())) !== null) symbols.push(s);
+      while ((s = c.attempt((c) => {
+        const token = c.peek();
+        return token?.kind === "symbol" && isManaSymbol(token.value) ? c.symbol() : c.fail("mana symbol");
+      })) !== null) symbols.push(s);
       if (symbols.length > 0) return { condition: "pays", who, cost: [{ cost: "mana", symbols }] };
       const amount = parseAmount(c);
       if (amount && c.word("life") !== null)

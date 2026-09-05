@@ -13,22 +13,15 @@
 // Card / line results
 // ---------------------------------------------------------------------------
 
-export interface ParsedLine {
-  text: string;
-  ok: boolean;
-  ability?: Ability;
-  /** Human-readable failure with token position, e.g. `expected effect at "embalm"` */
-  error?: string;
-}
+/** Success means the whole normalized ability block is represented; it is not
+ * a certificate that a future rules engine implements every represented node. */
+export type ParsedLine =
+  | { text: string; ok: true; ability: Ability }
+  | { text: string; ok: false; error: string };
 
-export interface ParseCardResult {
-  name: string;
-  /** True only if every line parsed. */
-  ok: boolean;
-  lines: ParsedLine[];
-  /** Present when ok — the abilities of every line, in order. */
-  abilities?: Ability[];
-}
+export type ParseCardResult =
+  | { name: string; ok: true; lines: ParsedLine[]; abilities: Ability[] }
+  | { name: string; ok: false; lines: ParsedLine[] };
 
 // ---------------------------------------------------------------------------
 // Abilities (one per line)
@@ -55,15 +48,21 @@ export interface ActivatedAbility {
   abilityWord?: string;
   costs: Cost[];
   effects: Sentence[];
-  /** "Activate only as a sorcery." etc. — raw restriction text, parsed later. */
-  restriction?: string;
+  restriction?: ActivationRestriction;
 }
+
+/** CR 602.5: restrictions are semantic instructions, never raw accepted text.
+ * https://media.wizards.com/2026/downloads/MagicCompRules%2020260819.txt */
+export type ActivationRestriction =
+  | { restriction: "sorcery" }
+  | { restriction: "once-each-turn" };
 
 /** "+1: …", "−X: …", "0: …" */
 export interface LoyaltyAbility {
   kind: "loyalty";
   cost: { sign: 1 | -1 | 0; amount: number | "x" };
   effects: Sentence[];
+  restriction?: ActivationRestriction;
 }
 
 /** "Whenever ~ attacks, draw a card." */
@@ -146,18 +145,20 @@ export type Cost =
 // Triggers
 // ---------------------------------------------------------------------------
 
-export type Trigger =
+/** Omitted grouping means each matching occurrence; one-or-more means once
+ * for the matching group in an event (CR 603.2c, 700.1). */
+export type Trigger = { grouping?: "one-or-more" } & (
   | { trigger: "enters"; what: ObjectRef }
   | { trigger: "leaves"; what: ObjectRef }
   | { trigger: "dies"; what: ObjectRef }
   | { trigger: "enters-or-leaves"; what: ObjectRef }
   | { trigger: "enters-or-attacks"; what: ObjectRef }
   | { trigger: "enters-or-dies"; what: ObjectRef }
-  | { trigger: "put-into-graveyard"; what: ObjectRef; from?: Zone }
+  | { trigger: "put-into-graveyard"; what: ObjectRef; from: Zone | "anywhere"; to: ZoneRef }
   | { trigger: "cast"; who: PlayerRef; what: ObjectFilter }
   | { trigger: "attacks"; what: ObjectRef; alone?: boolean; whom?: (PlayerRef | ObjectRef)[] }
   | { trigger: "you-attack" }
-  | { trigger: "blocks"; what: ObjectRef; orBecomesBlocked?: boolean }
+  | { trigger: "blocks"; what: ObjectRef; orBecomesBlocked?: boolean; blocking?: ObjectRef }
   | { trigger: "becomes-blocked"; what: ObjectRef; by?: ObjectRef }
   | { trigger: "becomes-target"; what: ObjectRef; of: ObjectFilter }
   | { trigger: "becomes-tapped" | "becomes-untapped"; what: ObjectRef }
@@ -171,7 +172,7 @@ export type Trigger =
   | { trigger: "discards"; who: PlayerRef }
   | { trigger: "sacrifices"; who: PlayerRef; what: ObjectFilter }
   | { trigger: "scries" | "surveils"; who: PlayerRef }
-  | { trigger: "taps-for-mana"; what: ObjectRef };
+  | { trigger: "taps-for-mana"; what: ObjectRef });
 
 export type PhaseName =
   | "upkeep" | "draw-step" | "untap-step" | "combat" | "declare-attackers"
@@ -211,8 +212,8 @@ export type Effect = EffectBase &
     | { effect: "destroy"; what: ObjectRef }
     | { effect: "exile"; what: ObjectRef; from?: ZoneRef }
     | { effect: "counter"; what: ObjectRef }
-    | { effect: "move-zone"; what: ObjectRef; to: ZoneRef; tapped?: boolean }
-    | { effect: "return-to-hand"; what: ObjectRef }
+    | { effect: "move-zone"; what: ObjectRef; to: ZoneRef; tapped?: boolean; controller?: "you" | "owner" }
+    | { effect: "return-to-hand"; what: ObjectRef; to: "your" | "owner" }
     | { effect: "create-token"; count: Amount; token: TokenSpec }
     | { effect: "pump"; what: ObjectRef; power: SignedAmount; toughness: SignedAmount }
     | { effect: "set-pt"; what: ObjectRef; power: Amount; toughness: Amount }
@@ -226,7 +227,7 @@ export type Effect = EffectBase &
     | { effect: "put-counters"; counter: CounterSpec; count: Amount; on: ObjectRef }
     | { effect: "remove-counters"; counter: CounterSpec; count: Amount | "all"; from: ObjectRef }
     | { effect: "add-mana"; mana: ManaProduction }
-    | { effect: "search"; who: PlayerRef; zone: Zone; for: ObjectRef }
+    | { effect: "search"; who: PlayerRef; zone: ZoneRef; for: ObjectRef }
     | { effect: "shuffle"; who: PlayerRef }
     | { effect: "gain-control"; who: PlayerRef; what: ObjectRef }
     | { effect: "reveal"; who: PlayerRef; what: ObjectRef | "hand" }
@@ -333,8 +334,7 @@ export type Condition =
   | { condition: "your-turn" }
   | { condition: "not-your-turn" }
   | { condition: "remains"; what: ObjectRef; zone: ZoneRef }
-  | { condition: "cards-in-hand"; who: PlayerRef; comparison: Comparison }
-  | { condition: "raw"; text: string };
+  | { condition: "cards-in-hand"; who: PlayerRef; comparison: Comparison };
 
 export type Duration =
   | { duration: "end-of-turn" }
@@ -372,11 +372,13 @@ export type ObjectRef =
   | { ref: "equipped" | "enchanted"; noun: string };         // "equipped creature"
 
 /**
- * Structured card/object filter. Fields are conjunctive; arrays within a
- * field are disjunctive where noted.
+ * Structured card/object filter. All fields and ordinary array entries are
+ * conjunctive. Explicit anyOf branches represent alternatives.
  */
 export interface ObjectFilter {
-  /** Card types, or-joined: "artifact or enchantment". */
+  allOf?: ObjectFilter[];
+  anyOf?: ObjectFilter[];
+  /** All listed card types: "artifact creature". */
   types?: string[];
   /** "noncreature", "nonland" … */
   nonTypes?: string[];
@@ -419,7 +421,7 @@ export interface Comparison {
 
 export type ZoneRef = {
   zone: Zone;
-  owner?: "your" | "their" | "its-owner" | "each-player" | "any" | "an-opponent" | "that-player";
+  owner?: "your" | "their" | "its-owner" | "each-player" | "any" | "an-opponent" | "each-opponent" | "that-player";
 };
 
 export type Zone = "battlefield" | "graveyard" | "library" | "hand" | "exile" | "stack" | "command";

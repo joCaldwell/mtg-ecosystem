@@ -5,35 +5,37 @@ import type { Cost } from "../ast.ts";
 import type { Cursor } from "./cursor.ts";
 import { parseAmount, parseCounterSpec, parseObjectRef } from "./refs.ts";
 
-const MANA_SYMBOL = /^([WUBRGCSXYZ]|[0-9]+|[WUBRG2C]\/[WUBRGP]|[WUBRG]\/[WUBRG]\/P)$/;
+import { isManaSymbol } from "../symbols.ts";
 
 /** A run of `{…}` symbols → mana / tap / untap / energy cost items. */
 export function parseSymbolCosts(c: Cursor): Cost[] | null {
-  const costs: Cost[] = [];
-  let mana: string[] = [];
-  let energy = 0;
-  for (;;) {
-    const t = c.peek();
-    if (t?.kind !== "symbol") break;
-    if (t.value === "T") {
-      c.pos++;
-      costs.push({ cost: "tap-self" });
-    } else if (t.value === "Q") {
-      c.pos++;
-      costs.push({ cost: "untap-self" });
-    } else if (t.value === "E") {
-      c.pos++;
-      energy++;
-    } else if (MANA_SYMBOL.test(t.value)) {
-      c.pos++;
-      mana.push(t.value);
-    } else {
-      break;
+  return c.attempt((c): Cost[] | null => {
+    const costs: Cost[] = [];
+    let mana: string[] = [];
+    let energy = 0;
+    for (;;) {
+      const t = c.peek();
+      if (t?.kind !== "symbol") break;
+      if (t.value === "T") {
+        c.pos++;
+        costs.push({ cost: "tap-self" });
+      } else if (t.value === "Q") {
+        c.pos++;
+        costs.push({ cost: "untap-self" });
+      } else if (t.value === "E") {
+        c.pos++;
+        energy++;
+      } else if (isManaSymbol(t.value)) {
+        c.pos++;
+        mana.push(t.value);
+      } else {
+        break;
+      }
     }
-  }
-  if (mana.length) costs.unshift({ cost: "mana", symbols: mana });
-  if (energy) costs.push({ cost: "energy", amount: energy });
-  return costs.length ? costs : null;
+    if (mana.length) costs.unshift({ cost: "mana", symbols: mana });
+    if (energy) costs.push({ cost: "energy", amount: energy });
+    return costs.length ? costs : null;
+  });
 }
 
 /** One non-symbol cost item: "Pay 2 life", "Sacrifice a creature", … */
@@ -41,7 +43,7 @@ function parseActionCost(c: Cursor): Cost | null {
   return c.attempt((c): Cost | null => {
     if (c.word("pay") !== null) {
       const symbols = c.attempt(parseSymbolCosts);
-      if (symbols) return symbols[0] ?? null;
+      if (symbols) return symbols.length === 1 ? symbols[0] : c.fail("single payment cost");
       const amount = parseAmount(c);
       if (!amount || c.word("life") === null) return null;
       return { cost: "pay-life", amount };
@@ -90,25 +92,27 @@ function parseActionCost(c: Cursor): Cost | null {
 
 /** Full comma-separated cost list before the colon of an activated ability. */
 export function parseCostList(c: Cursor): Cost[] | null {
-  const costs: Cost[] = [];
-  for (;;) {
-    const symbols = c.attempt(parseSymbolCosts);
-    if (symbols) costs.push(...symbols);
-    else {
-      const action = parseActionCost(c);
-      if (!action) break;
-      costs.push(action);
+  return c.attempt((c): Cost[] | null => {
+    const costs: Cost[] = [];
+    for (;;) {
+      const symbols = c.attempt(parseSymbolCosts);
+      if (symbols) costs.push(...symbols);
+      else {
+        const action = parseActionCost(c);
+        if (!action) return costs.length ? c.fail("cost after separator") : null;
+        costs.push(action);
+      }
+      if (c.isPunct(",")) {
+        c.punct(",");
+        c.word("and");
+        continue;
+      }
+      if (c.isWord("and")) {
+        c.word("and");
+        continue;
+      }
+      break;
     }
-    if (c.isPunct(",")) {
-      c.punct(",");
-      c.word("and");
-      continue;
-    }
-    if (c.isWord("and")) {
-      c.word("and");
-      continue;
-    }
-    break;
-  }
-  return costs.length ? costs : null;
+    return costs.length ? costs : null;
+  });
 }

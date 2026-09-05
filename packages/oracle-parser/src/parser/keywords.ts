@@ -101,37 +101,39 @@ function matchKeywordName(c: Cursor): string | null {
 }
 
 function parseProtectionScopes(c: Cursor): ProtectionScope[] | null {
-  const scopes: ProtectionScope[] = [];
-  for (;;) {
-    if (c.word("from") === null && scopes.length === 0) return null;
-    const scope = c.attempt((c): ProtectionScope | null => {
-      if (c.words("everything")) return { scope: "everything" };
-      if (c.words("all", "colors")) return { scope: "all-colors" };
-      if (c.words("colorless")) return { scope: "colorless" };
-      if (c.words("multicolored")) return { scope: "multicolored" };
-      if (c.words("monocolored")) return { scope: "monocolored" };
-      const color = c.attempt((c) => {
-        c.word("each"); // "protection from each color"? rare; tolerate
-        const w = c.anyWord();
-        return w && COLORS.has(w.value) ? w.value : null;
+  return c.attempt((c): ProtectionScope[] | null => {
+    const scopes: ProtectionScope[] = [];
+    for (;;) {
+      if (c.word("from") === null && scopes.length === 0) return null;
+      const scope = c.attempt((c): ProtectionScope | null => {
+        if (c.words("everything")) return { scope: "everything" };
+        if (c.words("all", "colors")) return { scope: "all-colors" };
+        if (c.words("colorless")) return { scope: "colorless" };
+        if (c.words("multicolored")) return { scope: "multicolored" };
+        if (c.words("monocolored")) return { scope: "monocolored" };
+        const color = c.attempt((c) => {
+          c.word("each"); // "protection from each color"? rare; tolerate
+          const w = c.anyWord();
+          return w && COLORS.has(w.value) ? w.value : null;
+        });
+        if (color) return { scope: "color", color: color as Color };
+        const player = parsePlayerRef(c);
+        if (player) return { scope: "player", player };
+        const filter = parseFilter(c);
+        if (filter) return { scope: "filter", filter };
+        return null;
       });
-      if (color) return { scope: "color", color: color as Color };
-      const player = parsePlayerRef(c);
-      if (player) return { scope: "player", player };
-      const filter = parseFilter(c);
-      if (filter) return { scope: "filter", filter };
-      return null;
-    });
-    if (!scope) return scopes.length ? scopes : null;
-    scopes.push(scope);
-    // "protection from red and from blue"
-    if (c.attempt((c) => (c.word("and") !== null && c.isWord("from") ? true : null))) {
-      c.word("from");
-      continue;
+      if (!scope) return scopes.length ? scopes : null;
+      scopes.push(scope);
+      // "protection from red and from blue"
+      if (c.attempt((c) => (c.word("and") !== null && c.isWord("from") ? true : null))) {
+        c.word("from");
+        continue;
+      }
+      break;
     }
-    break;
-  }
-  return scopes;
+    return scopes;
+  });
 }
 
 /** Parse one keyword instance (with parameters). */

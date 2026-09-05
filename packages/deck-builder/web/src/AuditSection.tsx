@@ -60,7 +60,7 @@ function FindingRow({
         >
           ask agent
         </button>
-        {!dismissed && f.action && f.oracle_id && (
+        {dismissed === undefined && f.action && f.oracle_id && (
           <button
             className="small"
             title="Create a proposal from this finding"
@@ -69,7 +69,7 @@ function FindingRow({
             promote
           </button>
         )}
-        {!dismissed ? (
+        {dismissed === undefined ? (
           <button
             className="small danger"
             onClick={() => setDismissing(dismissing === f.key ? null : f.key)}
@@ -88,10 +88,15 @@ function FindingRow({
       <div className="muted rationale">
         <Markdown text={f.detail} />
       </div>
-      {dismissed && <div className="muted rationale">Dismissed: “{dismissed}”</div>}
+      {dismissed !== undefined && (
+        <div className="muted rationale">
+          {dismissed ? `Dismissed: “${dismissed}”` : "Dismissed without a reason."}
+        </div>
+      )}
       {dismissing === f.key && (
         <RejectionForm
-          placeholder="Why is this fine? (required)"
+          placeholder="Why is this fine? (optional)"
+          reasonRequired={false}
           onConfirm={(type, reason) =>
             run(() => api.dismissAuditFinding(deckId, f.key, type, reason)).then(() =>
               setDismissing(null),
@@ -99,6 +104,30 @@ function FindingRow({
           }
         />
       )}
+    </div>
+  );
+}
+
+/** Live checks report the current list, including any legacy dismissed checks.
+ * They resolve when the deck changes; dismissal is reserved for agent advice. */
+export function DeckChecks({ askAgent }: { askAgent: (token: string) => void }) {
+  const { audit } = useDeck();
+  if (!audit) return <p className="muted">Loading deck checks…</p>;
+  const findings = [...audit.findings, ...audit.dismissed];
+  return (
+    <div className="deck-checks">
+      {!findings.length && <p className="muted">No deck problems found.</p>}
+      {findings.map((f) => (
+        <div className={`card-row finding ${f.severity}`} key={f.key}>
+          <div className="card-main">
+            <span className={`chip ${f.severity === "error" ? "over" : "under"}`}>{f.severity}</span>
+            <span className="name"><CardText text={f.title} /></span>
+            <span className="spacer" />
+            <button className="small" onClick={() => askAgent(`audit/${f.key}`)}>ask agent</button>
+          </div>
+          <div className="muted rationale"><Markdown text={f.detail} /></div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -112,7 +141,7 @@ export function AuditSection({
   /** Set by the parent so the toolbar's Audit button can open and scroll here. */
   openRef?: { current: (() => void) | null };
 }) {
-  const { deckId, state, audit, apply, run } = useDeck();
+  const { deckId, state, audit, apply } = useDeck();
   // Deterministic findings are recomputed whenever the revision moves.
   const revision = state!.deck.revision;
   const [instructions, setInstructions] = useState("");
@@ -181,8 +210,6 @@ export function AuditSection({
     runs[0] ??
     null;
   const latest = runs[0] ?? null;
-  const errors = audit?.findings.filter((f) => f.severity === "error").length ?? 0;
-  const warns = (audit?.findings.length ?? 0) - errors;
   const reasoningCount = viewRun?.reasoning?.findings.length ?? 0;
 
   const rowProps = { askAgent, dismissing, setDismissing };
@@ -193,9 +220,6 @@ export function AuditSection({
         <button className="audit-toggle" onClick={() => setOpen(!open)} title="Collapse / expand">
           {open ? "▾" : "▸"} Audit
         </button>
-        {errors > 0 && <span className="chip over">{errors} error(s)</span>}
-        {warns > 0 && <span className="chip under">{warns} warning(s)</span>}
-        {audit && !errors && !warns && <span className="chip ok">checks clean</span>}
         {reasoningCount > 0 && (
           <span className="chip" title="Findings from the reasoning pass">
             {reasoningCount} reasoning
@@ -208,10 +232,6 @@ export function AuditSection({
               ? `last run #${latest.number} · ${ago(latest.created_at)}`
               : "never run"}
         </span>
-        <span className="rule" />
-        <button className="small" onClick={start} disabled={starting || running}>
-          {running ? "running…" : latest ? "Re-run" : "Run audit"}
-        </button>
       </h2>
 
       {open && (
@@ -219,6 +239,7 @@ export function AuditSection({
           <div className="row gap">
             <input
               className="grow"
+              aria-label="Audit focus"
               value={instructions}
               onChange={(e) => setInstructions(e.target.value)}
               placeholder="Optional focus for the reasoning pass (“focus on the mana base”)"
@@ -226,8 +247,15 @@ export function AuditSection({
                 if (e.key === "Enter" && !running && !starting) void start();
               }}
             />
-            {runs.length > 1 && (
+            <button onClick={start} disabled={starting || running}>
+              {running ? "running…" : latest ? "Re-run" : "Run audit"}
+            </button>
+          </div>
+          {runs.length > 0 && (
+            <label className="row gap muted">
+              Viewing run
               <select
+                className="grow"
                 value={viewRun?.id ?? ""}
                 onChange={(e) => setViewRunId(Number(e.target.value))}
                 title="Recorded runs — the newest few are kept"
@@ -238,8 +266,8 @@ export function AuditSection({
                   </option>
                 ))}
               </select>
-            )}
-          </div>
+            </label>
+          )}
 
           {error && <div className="error-banner">{error}</div>}
           {running && (
@@ -249,45 +277,11 @@ export function AuditSection({
             </div>
           )}
 
-          <h3 className="audit-sub">
-            Checks <span className="muted">— live, recomputed at revision {audit?.revision}</span>
-          </h3>
-          {audit?.findings.map((f) => (
-            <FindingRow key={f.key} f={f} runId={null} {...rowProps} />
-          ))}
-          {audit && !audit.findings.length && (
-            <div className="muted">✓ No deterministic findings.</div>
-          )}
-          {!!audit?.dismissed.length && (
-            <details>
-              <summary className="muted">{audit.dismissed.length} dismissed</summary>
-              {audit.dismissed.map((f) => (
-                <FindingRow
-                  key={f.key}
-                  f={f}
-                  dismissed={f.dismissal.reason}
-                  runId={null}
-                  {...rowProps}
-                />
-              ))}
-            </details>
-          )}
-
-          <h3 className="audit-sub">
-            Reasoning pass
-            {viewRun && (
-              <span className="muted">
-                {" "}
-                — run #{viewRun.number}, {ago(viewRun.created_at)}
-                {viewRun.instructions && ` · “${viewRun.instructions}”`}
-              </span>
-            )}
-          </h3>
           {!viewRun && <div className="muted">No audit recorded yet — run one.</div>}
           {viewRun && viewRun.revision !== audit?.revision && (
             <div className="muted audit-stale">
-              ⚠ Snapshot from revision {viewRun.revision}; the deck is at {audit?.revision}. The
-              checks above are current, these findings may not be.
+              ⚠ Snapshot from revision {viewRun.revision}; the deck is at {audit?.revision}. These
+              findings may no longer reflect the current deck.
             </div>
           )}
           {viewRun?.status === "running" && <div className="muted">Waiting on the model…</div>}

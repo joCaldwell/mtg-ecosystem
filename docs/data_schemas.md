@@ -1,186 +1,93 @@
-# Data Schemas & Layouts
+# Parser data contracts and proposed Card IR
 
-This document describes the data formats used by the MTG Ecosystem. It covers the **input** data consumed from Scryfall, the **output** Card IR produced by the Oracle Text Parser (Layer 0), and draft schemas for future layers.
+## Implemented input
 
----
+The parser entry point accepts Oracle text and an optional card name:
+`parseOracleText(text, cardName?)`. Bulk ingestion uses Scryfall's `oracle_cards`
+export. The reporting adapter validates the fields it consumes before use:
+`id`, `oracle_id`, `name`, `layout`, `oracle_text`, `card_faces`, `digital`,
+`border_color`, and optional `security_stamp`.
 
-## 1. Scryfall Input Format
+`id` identifies a printing; `oracle_id` identifies Oracle identity across
+reprints. Reversible cards carry Oracle IDs on their faces. Card and face text
+may be absent or null, which is distinct from a present empty string.
 
-The Oracle Text Parser ingests raw card data from [Scryfall's bulk data exports](https://scryfall.com/docs/api/bulk-data). Scryfall is the community-standard source of truth for MTG card data.
+These field meanings were checked against the official
+[Card Object documentation](https://scryfall.com/docs/api/cards) and
+[Bulk Data documentation](https://scryfall.com/docs/api/bulk-data).
+See [scryfall-integration.md](scryfall-integration.md) for cache handling.
 
-### Key Fields Used
+## Implemented output: TypeScript AST
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | `string` | Scryfall's unique UUID for this printing |
-| `name` | `string` | Card name (both faces joined by `//` for DFCs) |
-| `oracle_text` | `string` | Rules text (the primary input to the parser) |
-| `mana_cost` | `string` | Mana cost in brace notation, e.g. `{2}{W}{U}` |
-| `cmc` | `number` | Converted mana cost / mana value |
-| `type_line` | `string` | Full type line, e.g. `Creature — Elemental` |
-| `colors` | `array` of `string` | Colors of the card (`W`, `U`, `B`, `R`, `G`) |
-| `color_identity` | `array` of `string` | Color identity for Commander legality |
-| `power` | `string` | Power (may be `*` or similar) |
-| `toughness` | `string` | Toughness (may be `*` or similar) |
-| `loyalty` | `string` | Starting loyalty for planeswalkers |
-| `layout` | `string` | Card layout (`normal`, `split`, `transform`, `adventure`, etc.) |
-| `card_faces` | `array` of `object` | Face data for multi-face cards |
-| `set` | `string` | Set code (e.g., `lea`, `mh3`) |
-| `set_name` | `string` | Full set name |
-| `released_at` | `string` | Release date (ISO 8601) |
-| `keywords` | `array` of `string` | Scryfall's extracted keyword list |
+The authoritative types are in
+[ast.ts](../packages/oracle-parser/src/ast.ts). There is no separate implemented
+JSON Schema, and no generated per-set Card IR currently exists.
 
-### Example: Raw Scryfall Card Object (Abridged)
+`ParseCardResult` is a discriminated union:
 
-```json
-{
-  "id": "e3285e6b-3e79-4d7c-bf96-d920f973b122",
-  "name": "Lightning Bolt",
-  "mana_cost": "{R}",
-  "cmc": 1.0,
-  "type_line": "Instant",
-  "oracle_text": "Lightning Bolt deals 3 damage to any target.",
-  "colors": ["R"],
-  "color_identity": ["R"],
-  "keywords": [],
-  "layout": "normal",
-  "set": "lea",
-  "set_name": "Limited Edition Alpha",
-  "released_at": "1993-08-05"
-}
-```
+- Success: `{ name, ok: true, lines, abilities }`.
+- Failure: `{ name, ok: false, lines }`, with no aggregate abilities.
 
-> [!NOTE]
-> Reminder text (parenthetical explanations) is **stripped before parsing**. The parser should understand mechanics from its grammar, not from reminder text meant for human players.
+Each line is either `{ text, ok: true, ability }` or
+`{ text, ok: false, error }`. Text is normalized; modal blocks retain newlines.
 
----
+| Ability `kind` | Required payload |
+| --- | --- |
+| `keywords` | `keywords: KeywordInstance[]` |
+| `activated` | `costs: Cost[]`, `effects: Sentence[]` |
+| `loyalty` | `cost: { sign, amount }`, `effects: Sentence[]` |
+| `triggered` | `trigger: Trigger`, `effects: Sentence[]` |
+| `static` | `effect: StaticEffect` |
+| `spell` | `effects: Sentence[]` |
+| `additional-cost` | `costs: Cost[]` |
 
-## 2. Card IR Output Format
+Activated and loyalty abilities can carry typed activation restrictions.
+Sentences contain ordered effects, with optional conditions and otherwise
+branches. Filter logic, event grouping, zone ownership, and duration scope are
+specified in [oracle_parser.md](oracle_parser.md#semantic-conventions).
 
-The Oracle Text Parser produces a **Card IR** (Intermediate Representation) — one JSON file per set, stored in `ir/sets/<SET_CODE>.json`. This is the primary output of Layer 0 and the input for the Rules Engine (Layer 1).
-
-### IR File Schema
+For example, parsing `Flying` produces:
 
 ```json
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "SetIR",
-  "type": "object",
-  "properties": {
-    "schema_version": { "type": "string", "description": "Semantic version of the IR schema" },
-    "set_code": { "type": "string", "description": "Uppercase set code, e.g. LEA" },
-    "set_name": { "type": "string", "description": "Full set name" },
-    "released_at": { "type": "string", "description": "Release date (ISO 8601)" },
-    "cards": {
-      "type": "array",
-      "items": { "$ref": "#/definitions/CardIR" }
-    }
-  },
-  "required": ["schema_version", "set_code", "set_name", "cards"]
+  "name": "",
+  "ok": true,
+  "lines": [{
+    "text": "Flying",
+    "ok": true,
+    "ability": { "kind": "keywords", "keywords": [{ "keyword": "flying" }] }
+  }],
+  "abilities": [{ "kind": "keywords", "keywords": [{ "keyword": "flying" }] }]
 }
 ```
 
-### CardIR Object Schema
+The AST is experimental and intentionally permits breaking changes. Success is
+supported parsing, not engine capability certification. Symbolic references and
+atomic keywords still require semantic interpretation by future consumers.
 
-```json
-{
-  "title": "CardIR",
-  "type": "object",
-  "properties": {
-    "card_id": { "type": "string", "description": "Prefixed Scryfall ID, e.g. scryfall:<uuid>" },
-    "name": { "type": "string" },
-    "mana_cost": {
-      "type": "object",
-      "description": "Structured mana cost",
-      "properties": {
-        "generic": { "type": "integer" },
-        "white": { "type": "integer" },
-        "blue": { "type": "integer" },
-        "black": { "type": "integer" },
-        "red": { "type": "integer" },
-        "green": { "type": "integer" },
-        "colorless": { "type": "integer" }
-      }
-    },
-    "cmc": { "type": "number" },
-    "types": { "type": "array", "items": { "type": "string" } },
-    "subtypes": { "type": "array", "items": { "type": "string" } },
-    "supertypes": { "type": "array", "items": { "type": "string" } },
-    "power": { "type": "string" },
-    "toughness": { "type": "string" },
-    "loyalty": { "type": "string" },
-    "abilities": {
-      "type": "array",
-      "items": { "$ref": "#/definitions/Ability" },
-      "description": "Parsed abilities — the core parser output"
-    }
-  },
-  "required": ["card_id", "name", "types", "abilities"]
-}
-```
+## Proposed output: versioned Card IR
 
-### Ability Object Schema
+**Proposal only.** `scripts/build-ir.ts` fails explicitly. The previous schema
+examples used retired discriminator names and unresolved JSON Schema references;
+they were not an implemented contract and have been removed.
 
-Each ability has a `kind` discriminator:
+The proposed location is `packages/card-data/sets/<set-code>.json`, containing
+versioned set metadata and cards. Before implementing it, decide and test:
 
-| `kind` | Description | Key Fields |
-|--------|-------------|------------|
-| `keyword` | Atomic keyword ability | `keyword`, `cost` (optional) |
-| `activated` | Activated ability (`cost: effect`) | `cost`, `effects` |
-| `triggered` | Triggered ability (`when/whenever/at`) | `trigger`, `effects` |
-| `static` | Static/continuous ability | `effects`, `conditions` |
-| `spell_effect` | One-shot effect on instants/sorceries | `effects` |
+1. Separate Oracle identity from printing identity and per-set membership.
+   `oracle_cards` contains representative printings, not a complete set index;
+   per-set emission requires an additional printing/membership source.
+2. Preserve faces, layouts, variable and hybrid mana, defense, and other card
+   characteristics without lossy numeric shortcuts.
+3. Define binding and semantic validation. Unresolved references and unsupported
+   constructs must prevent an executable card from being emitted.
+4. Specify schema version, parser source identity, rules version, and corpus
+   identity so an artifact can be reproduced.
+5. Define stable ordering, validation, update policy, and cross-set reprints.
+   Oracle corrections may require rebuilding existing sets; output is not
+   inherently append-only.
 
-### Example: `ir/sets/LEA.json` (Excerpt)
-
-```json
-{
-  "schema_version": "0.1.0",
-  "set_code": "LEA",
-  "set_name": "Limited Edition Alpha",
-  "released_at": "1993-08-05",
-  "cards": [
-    {
-      "card_id": "scryfall:e3285e6b-3e79-4d7c-bf96-d920f973b122",
-      "name": "Lightning Bolt",
-      "mana_cost": { "generic": 0, "red": 1 },
-      "cmc": 1,
-      "types": ["Instant"],
-      "abilities": [
-        {
-          "kind": "spell_effect",
-          "effects": [
-            {
-              "effect_type": "deal_damage",
-              "amount": 3,
-              "target": {
-                "selector": "target",
-                "filter": { "any_of": ["creature", "player", "planeswalker"] }
-              }
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "card_id": "scryfall:fb4b6cdb-9020-4a7d-a583-8819e8d1d0e8",
-      "name": "Serra Angel",
-      "mana_cost": { "generic": 3, "white": 2 },
-      "cmc": 5,
-      "types": ["Creature"],
-      "subtypes": ["Angel"],
-      "power": "4",
-      "toughness": "4",
-      "abilities": [
-        { "kind": "keyword", "keyword": "Flying" },
-        { "kind": "keyword", "keyword": "Vigilance" }
-      ]
-    }
-  ]
-}
-```
-
-> [!IMPORTANT]
-> The Card IR is the **contract between Layer 0 and Layer 1**. All downstream consumers (rules engine, agents, clients) read this format. Changes to the IR schema must be versioned via `schema_version`.
-
-
+When implemented, derive or validate the machine-readable schema against the
+actual types and test serialization. Generated files stay ignored; small,
+curated structural fixtures belong in tests. No downstream layer should build
+against the retired example schema.

@@ -10,6 +10,7 @@ import {
   AUDIT_RUN_RETENTION,
   auditState,
   computeFindings,
+  isDoctorPair,
   dismissFinding,
   finishAuditRun,
   listAuditRuns,
@@ -28,6 +29,25 @@ ingestCards(db, FIXTURES);
 function keys(deckId: number): string[] {
   return computeFindings(db, deckId).map((f) => f.key);
 }
+
+describe("Doctor's companion pairing", () => {
+  // Card types and keyword verified against the local Scryfall snapshot.
+  const adric = {
+    type_line: "Legendary Creature — Human Artificer",
+    oracle_text: "Doctor's companion (You can have two commanders if the other is the Doctor.)",
+  };
+  const doctor = { type_line: "Legendary Creature — Time Lord Doctor", oracle_text: "" };
+  test("recognizes Adric and the Twelfth Doctor in either order", () => {
+    assert.ok(isDoctorPair([adric, doctor]));
+    assert.ok(isDoctorPair([doctor, adric]));
+  });
+  test("requires exactly the Doctor subtypes and a legendary creature", () => {
+    assert.equal(isDoctorPair([adric, { ...doctor, type_line: "Legendary Creature — Human Time Lord Doctor" }]), false);
+    assert.equal(isDoctorPair([adric, { ...doctor, type_line: "Creature — Time Lord Doctor" }]), false);
+    assert.equal(isDoctorPair([adric, adric]), false);
+    assert.equal(isDoctorPair([doctor, doctor]), false);
+  });
+});
 
 describe("deterministic findings (spec §8.1)", () => {
   test("card count, no commander", () => {
@@ -73,9 +93,8 @@ describe("deterministic findings (spec §8.1)", () => {
 });
 
 describe("audit runs and dismissals (spec §8.3)", () => {
-  test("dismissed findings are suppressed and listed separately; typed reason required", () => {
+  test("dismissed findings are suppressed and listed separately with the supplied reason", () => {
     const id = createDeck(db, "Dismiss");
-    assert.throws(() => dismissFinding(db, id, "card_count", "soft", " "), /requires a reason/);
     assert.throws(() => dismissFinding(db, id, "nope", "soft", "r"), /No current finding/);
 
     dismissFinding(db, id, "no_commander", "soft", "still brewing, commander undecided");
@@ -91,6 +110,26 @@ describe("audit runs and dismissals (spec §8.3)", () => {
 
     undismissFinding(db, id, "no_commander");
     assert.ok(runAudit(db, id).findings.some((f) => f.key === "no_commander"));
+  });
+  test("dismissals accept blank or omitted reasons, log honestly, and can be restored", () => {
+    const id = createDeck(db, "Optional dismissal reason");
+    for (const reason of [undefined, "", "   "]) {
+      dismissFinding(db, id, "card_count", "soft", reason);
+      const audit = runAudit(db, id);
+      assert.ok(!audit.findings.some((f) => f.key === "card_count"));
+      assert.equal(audit.dismissed.find((f) => f.key === "card_count")?.dismissal.reason, "");
+      assert.equal((getLog(db, id) as any[])[0].rejection_reason, "");
+      undismissFinding(db, id, "card_count");
+      assert.ok(runAudit(db, id).findings.some((f) => f.key === "card_count"));
+    }
+  });
+  test("a playtest dismissal without a reason does not create an empty card note", () => {
+    const id = createDeck(db, "No empty notes");
+    addCard(db, id, "id-teferi", { role: "commander" });
+    addCard(db, id, "id-llanowar");
+    dismissFinding(db, id, "identity:id-llanowar", "playtest_finding", "");
+    assert.equal(listCardNotes(db, id).length, 0);
+    assert.ok(runAudit(db, id).dismissed.some((f) => f.key === "identity:id-llanowar"));
   });
   test("playtest dismissal of a card finding writes a card note; thesis flags brief", () => {
     const id = createDeck(db, "Dismiss routing");

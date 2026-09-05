@@ -158,7 +158,7 @@ is injectable, so agent tests never touch the network.
     the bug the section replaced. Runs in flight at shutdown are reclaimed at
     boot (`reclaimStaleRuns`), and only the newest `AUDIT_RUN_RETENTION` per
     deck are kept.
-*   **The audit section shows live checks and stored reasoning.** §8.1
+*   **Live checks open from the deck header in a modal; stored reasoning appears in Audit below the list.** §8.1
     findings are recomputed per request so a wrong count never sits on screen;
     §8.2 findings come from the recorded run and carry its revision. Do not
     "simplify" this by rendering the whole stored snapshot.

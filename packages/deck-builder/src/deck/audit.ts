@@ -28,8 +28,20 @@ const PARTNER_MARKERS = [
   "partner", // Partner, Partner with X, partner keyword text
   "friends forever",
   "choose a background",
-  "doctor's companion",
 ];
+
+// Doctor's companion needs the ability on only one commander. The other must
+// be a legendary creature with exactly the Time Lord and Doctor subtypes.
+// https://magic.wizards.com/en/news/feature/magic-the-gathering-doctor-who-release-notes
+export function isDoctorPair(cards: { type_line: string; oracle_text: string }[]): boolean {
+  const legendaryCreature = (c: (typeof cards)[0]) =>
+    /\bLegendary\b/.test(c.type_line.split(" — ")[0]) &&
+    /\bCreature\b/.test(c.type_line.split(" — ")[0]);
+  return cards.length === 2 && cards.every(legendaryCreature) && cards.some((c, i) =>
+    /^Doctor['’]s companion(?: \(|$)/mi.test(c.oracle_text) &&
+    cards[1 - i].type_line.split(" — ")[1]?.trim() === "Time Lord Doctor"
+  );
+}
 
 export function computeFindings(db: DatabaseSync, deckId: number): Finding[] {
   const { deck, cards, computed } = getDeck(db, deckId);
@@ -70,12 +82,12 @@ export function computeFindings(db: DatabaseSync, deckId: number): Finding[] {
   }
   if (commanders.length === 2) {
     const text = (c: (typeof commanders)[0]) => c.oracle_text.toLowerCase();
-    if (!commanders.every((c) => PARTNER_MARKERS.some((m) => text(c).includes(m)))) {
+    if (!isDoctorPair(commanders) && !commanders.every((c) => PARTNER_MARKERS.some((m) => text(c).includes(m)))) {
       findings.push({
         key: "commander_pair",
         severity: "warn",
         title: "Commander pair may be illegal",
-        detail: `${commanders[0].name} + ${commanders[1].name}: both need a pairing ability (Partner, Friends forever, Choose a Background, …). Heuristic check — verify the exact pairing rule yourself.`,
+        detail: `${commanders[0].name} + ${commanders[1].name}: this pairing was not recognized. Verify the exact pairing rule; this check does not cover every pairing ability.`,
       });
     }
   }
@@ -124,7 +136,7 @@ export function computeFindings(db: DatabaseSync, deckId: number): Finding[] {
         key: `slot_${s.status}:${s.slot_id}`,
         severity: "warn",
         title: `${s.name} is ${s.status} target (${s.count}/${s.target_min ?? 0}–${s.target_max ?? "∞"})`,
-        detail: `${Math.abs(s.delta)} card(s) ${s.status === "under" ? "below the minimum" : "above the maximum"}. Targets are soft — dismiss if deliberate.`,
+        detail: `${Math.abs(s.delta)} card(s) ${s.status === "under" ? "below the minimum" : "above the maximum"}. Targets are soft — adjust the slot target if this count is deliberate.`,
       });
     }
   }
@@ -438,18 +450,17 @@ export function lookupFinding(
   return null;
 }
 
-// Dismissing a finding requires a typed reason and is logged exactly like a
-// rejection (spec §8.3), with the same routing side effects.
+// Dismissals keep their type and are logged like rejections (spec §8.3),
+// but the owner may omit the reason. Never invent one for the agent.
 export function dismissFinding(
   db: DatabaseSync,
   deckId: number,
   findingKey: string,
   type: RejectionType,
-  reason: string,
+  reason: string = "",
 ): void {
   if (!REJECTION_TYPES.includes(type))
     throw new ServiceError(`Dismissal type must be one of: ${REJECTION_TYPES.join(", ")}`);
-  if (!reason?.trim()) throw new ServiceError("Dismissing a finding requires a reason");
 
   const finding = findFindingByKey(db, deckId, findingKey);
   if (!finding) throw new ServiceError(`No current finding with key '${findingKey}'`, 404);

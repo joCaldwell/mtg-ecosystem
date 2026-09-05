@@ -1,115 +1,57 @@
-# Scryfall Integration
+# Scryfall integration for oracle-parser
 
-This document describes how the MTG Ecosystem ingests card data from [Scryfall](https://scryfall.com/), the community-standard MTG card database.
+The parser uses Scryfall's `oracle_cards` bulk export. The deck-builder has its
+own ingestion pipeline and database; this document describes the root parser
+scripts only.
 
----
+## Input and identity
 
-## 📡 Data Source
+[Scryfall's bulk documentation](https://scryfall.com/docs/api/bulk-data) defines
+Oracle Cards as one object for each Oracle ID. The selected object is a
+representative printing; it is not a complete map of all printings to sets.
+A future per-set emitter needs printing membership data, such as Default Cards,
+in addition to Oracle definitions.
 
-Scryfall provides free [Bulk Data](https://scryfall.com/docs/api/bulk-data) exports that contain every card ever printed. We use these bulk exports rather than per-card API calls to avoid rate limiting and ensure we have a complete dataset.
+[Card Object fields](https://scryfall.com/docs/api/cards) distinguish `id`
+(printing) from `oracle_id` (Oracle identity). Reversible cards carry Oracle IDs
+on their faces. The shared adapter in `scripts/lib/scryfall.ts` validates the
+fields used by ingestion and reporting while allowing unrelated fields.
 
-### Bulk Data Endpoints
+## Download and cache
 
-| Endpoint | Description | Use Case |
-|----------|-------------|----------|
-| **Oracle Cards** | One entry per unique card name (preferred oracle text) | ✅ Primary source — one canonical entry per card |
-| **Unique Artwork** | One entry per unique artwork | Not needed for parsing |
-| **Default Cards** | One entry per printing (includes reprints) | Useful for set-level IR output (maps cards to sets) |
-| **All Cards** | Every card object including game variants | Too much noise for our needs |
+Run `npm run ingest` at the root. It requests the bulk manifest, selects
+`oracle_cards`, and caches `.scryfall-cache/oracle-cards.json`.
 
-**Primary workflow**: Download the **Default Cards** bulk export to get per-printing data, which lets us group cards by set for our per-set JSON IR output.
+- A cache younger than 24 hours is reused only after parsing and validating it.
+- A replacement streams into a unique temporary file beside the cache.
+- Stream/HTTP failures and invalid JSON or card records abort the replacement.
+- A complete validated download replaces the cache with a same-directory rename.
+- Temporary files are removed after success or failure; the previous corpus
+  remains available if a replacement fails.
 
----
+Requests include descriptive User-Agent and Accept headers. External formats
+were checked against the linked Scryfall documentation on 2026-09-05.
+Downloaded bulk files, temporary files, and generated reports are ignored.
 
-## 📥 Ingestion Pipeline
+## Evaluation
 
-```
-┌──────────────────────┐     ┌────────────────────┐     ┌──────────────────────┐
-│  Scryfall Bulk API   │────▶│  Download & Cache   │────▶│  Normalize & Filter  │
-│  (Default Cards)     │     │  (.scryfall-cache/) │     │  (Strip, Clean, Map) │
-└──────────────────────┘     └────────────────────┘     └──────────┬───────────┘
-                                                                   │
-                                                                   ▼
-                                                        ┌──────────────────────┐
-                                                        │  Per-Card Objects    │
-                                                        │  Ready for Parsing   │
-                                                        └──────────────────────┘
-```
+`npm run validate` reads the existing cache; it does not fetch newer data.
+`npm run validate -- --json` emits a reproducible machine-readable report with
+corpus hash, parser revision/source hash, exclusions, full failure examples,
+and per-card acceptance/AST hashes.
 
-### Step 1: Download Bulk Data
-- Fetch the bulk data manifest from `https://api.scryfall.com/bulk-data`
-- Download the `default_cards` JSON file (typically ~200MB)
-- Cache locally in `.scryfall-cache/` (gitignored) to avoid re-downloading
+The scope excludes digital-only cards, silver borders, acorn stamps, and token,
+double-faced token, emblem, art-series, planar, vanguard, and scheme layouts.
+Other unsupported mechanics count as failures. This scope intentionally does
+not equate an entire Un-set with silver/acorn status. The scope identifier is
+versioned so denominator changes are visible.
 
-### Step 2: Filter & Normalize
-For each card object in the bulk data:
+Faces are evaluated separately. Empty text is valid; missing or null face text is a
+reported failure. Modal headers and bullets count as one ability block. Text
+normalization preserves boundaries and introduces `~` for self-references;
+Scryfall does not supply that placeholder.
 
-1. **Filter out irrelevant cards**:
-   - Skip tokens, emblems, and art cards (no oracle text to parse)
-   - Skip un-set cards and edge cases (out of scope for now)
-   - Skip digital-only cards from Alchemy/Arena formats (optional, can be configurable)
-
-2. **Normalize oracle text**:
-   - **Strip reminder text**: Remove all parenthetical text — e.g., `"Flying (This creature can't be blocked...)"` → `"Flying"`
-   - **Replace self-references**: The `~` character in Scryfall data represents the card's own name
-   - **Normalize whitespace**: Collapse multiple spaces, trim line breaks
-
-3. **Extract structured fields**:
-   - `name`, `mana_cost`, `cmc`, `type_line`, `oracle_text`
-   - `power`, `toughness`, `loyalty`, `defense`
-   - `layout` (normal, transform, split, adventure, etc.)
-   - `set`, `set_name`, `released_at`
-   - For multi-face cards: extract each face's data separately
-
-### Step 3: Group by Set
-- Group normalized card objects by their `set` code
-- Each group becomes one per-set JSON IR file after parsing
-
----
-
-## 🗂️ Key Scryfall Fields
-
-These are the Scryfall JSON fields we consume. See the [Scryfall Card Object docs](https://scryfall.com/docs/api/cards) for the full specification.
-
-| Field | Type | Description | Used By |
-|-------|------|-------------|---------|
-| `id` | string | Scryfall UUID | Card IR identifier |
-| `name` | string | Card name | Card IR, display |
-| `oracle_text` | string | Rules text | **Parser input** |
-| `mana_cost` | string | Cost string, e.g., `{2}{W}{U}` | Parsed into structured cost |
-| `cmc` | number | Mana value | Card IR metadata |
-| `type_line` | string | Full type line, e.g., `Legendary Creature — Elf Warrior` | Parsed into types/subtypes |
-| `colors` | string[] | Card colors | Card IR metadata |
-| `color_identity` | string[] | Color identity (for Commander) | Card IR metadata |
-| `power` | string | Power (can be `*`) | Card IR metadata |
-| `toughness` | string | Toughness (can be `*`) | Card IR metadata |
-| `loyalty` | string | Planeswalker loyalty | Card IR metadata |
-| `layout` | string | Card layout type | Multi-face handling |
-| `card_faces` | object[] | Face data for multi-face cards | Multi-face parsing |
-| `set` | string | Set code (e.g., `MH3`) | IR file grouping |
-| `set_name` | string | Full set name | IR file metadata |
-| `released_at` | string | Release date | IR file metadata |
-| `keywords` | string[] | Keywords on the card | Cross-reference for parser validation |
-
----
-
-## 🔄 Update Strategy
-
-When a new MTG set is released:
-
-1. **Re-download** the Scryfall bulk data (or just the new set's cards)
-2. **Run the ingestion pipeline** to produce normalized card objects
-3. **Run the parser** on the new cards — the existing ANTLR grammar should handle most new cards
-4. **If new mechanics appear**: Update the `.g4` grammar, add visitor logic, add tests
-5. **Emit a new per-set JSON file** (e.g., `ir/sets/NEW_SET.json`)
-6. Existing set files are unchanged unless Scryfall issues errata
-
----
-
-## ⚠️ Scryfall API Guidelines
-
-Scryfall is a free service. Please follow their [API Guidelines](https://scryfall.com/docs/api):
-- **Rate limit**: Maximum 10 requests per second for the REST API
-- **Bulk data**: No rate limit on bulk downloads, but cache locally
-- **Attribution**: Scryfall data is provided under their own terms — card images are © Wizards of the Coast
-- **User-Agent**: Include a descriptive `User-Agent` header when making API requests
+A report measures acceptance, not correctness. Run the parser's `npm run check`
+for structural and negative regression tests. Compare corpus hashes and scopes
+before interpreting changes in percentages. For the AST/IR boundary, see
+[oracle_parser.md](oracle_parser.md) and [data_schemas.md](data_schemas.md).

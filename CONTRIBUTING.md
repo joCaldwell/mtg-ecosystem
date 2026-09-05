@@ -1,143 +1,51 @@
-# Contributing to the MTG Ecosystem
+# Contributing to Project Multiverse
 
-Thank you for your interest in contributing to the MTG Ecosystem (Project Multiverse)! We are building a layered, agent-first digitalization of Magic: The Gathering from the ground up, starting with **Layer 0: Oracle Text Parser**.
+Start with the root [AGENTS.md](AGENTS.md), identify the package, and read its
+manual. The deck-builder is active and standalone. The oracle-parser is a
+limited supported subset; the rules engine and game server are future work.
 
-Because the rules of MTG are incredibly complex and precise, we enforce high standards for code quality, documentation, and test coverage.
+## Oracle parser setup
 
----
+Use Node ≥ 23, npm, and Git. Install workspace dependencies at the root:
 
-## 🛠️ Prerequisites
-
-To set up and run the project, you need the following installed:
-
-1. **Node.js** (v20.x or higher recommended) & **npm** (v10.x or higher)
-2. **Java JDK** (v11 or higher) — Required by the ANTLR4 compiler tool to generate the parser code.
-3. **Git**
-
----
-
-## 🚀 Getting Started
-
-Follow these steps to set up your local development environment:
-
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/josh/mtg-ecosystem.git
-   cd mtg-ecosystem
-   ```
-
-2. **Install dependencies**:
-   Installs root development tools and links packages using npm workspaces:
-   ```bash
-   npm install
-   ```
-
-3. **Generate the parser**:
-   Compile the `.g4` grammar files into TypeScript:
-   ```bash
-   npm run generate-parser
-   ```
-
-4. **Run the test suite**:
-   Ensure everything is compiled and working:
-   ```bash
-   npm test
-   ```
-
----
-
-## 🔮 Parser Development Workflow
-
-When contributing changes to the Layer 0 parser (adding support for new keyword abilities, new effects, or spelling variations), follow this flow:
-
-### 1. Update the ANTLR Grammar
-The ANTLR grammar defines the MTG card language. It is split into two files under `packages/oracle-parser/grammar/`:
-- `MTGLexer.g4`: Defines tokens (e.g., numbers, symbols like `{T}`, names like `destroy`, `target`).
-- `MTGParser.g4`: Defines rules and structures (e.g., `activatedAbility`, `triggeredAbility`, `durationModifier`).
-
-If you're adding support for a new mechanic, first define its syntactic pattern in `MTGParser.g4`.
-
-### 2. Regenerate the Parser Runtimes
-Once grammar files are modified, generate the TypeScript parser:
-```bash
-npm run generate-parser
+```sh
+npm install
+npm run check --workspace=@mtg-ecosystem/oracle-parser
 ```
-This updates the files in `packages/oracle-parser/generated/`. **Do not edit these files directly**, as they are auto-generated and gitignored.
 
-### 3. Update the TypeScript AST Types
-Define your new AST node representation in `packages/oracle-parser/src/ast/types.ts`.
-- Ensure nodes use discriminated union types (e.g., `kind: "keyword"` or `effect_type: "gain_life"`) for type safety.
+The parser runs TypeScript directly. `build` means `tsc --noEmit`; tests use
+`node --test`. No Java, generated grammar, or visitor is required. Package
+commands and constraints are in
+[packages/oracle-parser/AGENTS.md](packages/oracle-parser/AGENTS.md).
 
-### 4. Implement Visitor Logic
-Modify `packages/oracle-parser/src/visitor/ASTBuilder.ts` to map the new ANTLR parse tree nodes to your typed TypeScript AST nodes.
-- Extend the visitor class by overriding the generated `visit[RuleName]` methods.
+## Changing the parser
 
-### 5. Write Tests & Validate
-Add test cases in `packages/oracle-parser/tests/parser.test.ts` with cards containing the new mechanic.
-- Run tests: `npm test`
-- If you're adding or changing AST formats, verify snapshot tests, and run:
-  ```bash
-  npm run test -- -u
-  ```
-  to update snapshots if the changes are intentional.
+1. Check actual card text in card data and consult the relevant Comprehensive
+   Rules. Cite the rule/source for externally defined behavior in code.
+2. Decide the complete AST shape in `src/ast.ts`. Preserve distinctions in
+   logic, event grouping, ownership, targets, costs, restrictions, and scope.
+   Reject unsupported constructs rather than accepting an approximation.
+3. Extend the relevant parser module. Returning `null` must restore the cursor;
+   effect parsing must also restore contextual state after failed attempts.
+4. Add complete structural assertions and negative cases. Pair similar inputs
+   when a small wording change affects meaning. Avoid success-only tests and
+   unchecked snapshot updates.
+5. Run the package check. With a local corpus, run `npm run validate` at the
+   root and inspect accepted/rejected examples and changed ASTs. A correctness
+   fix may lower acceptance. Compare reports only under the same corpus and
+   scope; `--json` includes the identities needed for that comparison.
+6. Update the current contract documentation. `src/ast.ts` is authoritative;
+   future IR design must be labeled as a proposal.
 
----
+Pipeline tests use temporary directories and simulated HTTP responses. They
+must not need a bulk download or mutate the working cache.
 
-## 📡 Ingestion and Set Compilations
+Do not commit downloaded/generated artifacts or modify another package's
+ongoing work. Do not assume root test, build, or dependency conventions match
+another package's commands. No repository-wide formatter or linter command is
+currently prescribed; follow the local TypeScript style and use `git diff
+--check` for whitespace errors.
 
-To run the full pipeline and test the parser against Scryfall card data:
-
-1. **Ingest Scryfall bulk data**:
-   Fetches the latest card definitions and saves them to a local cache folder (`.scryfall-cache/`):
-   ```bash
-   npm run ingest
-   ```
-
-2. **Compile Card IR**:
-   Runs the normalization, parses all cards, and outputs per-set JSON files in `packages/card-data/sets/`:
-   ```bash
-   npm run build-ir
-   ```
-
-3. **Check Coverage**:
-   Run the mechanic coverage script to see how many of the 27,000+ MTG cards are parsing without errors:
-   ```bash
-   npm run test packages/oracle-parser/tests/coverage.test.ts
-   ```
-
----
-
-## 🎨 Code Style and Naming Conventions
-
-We rely on strict linting and formatting rules to keep the monorepo clean.
-
-- **Coding Standard**: Strict TypeScript. Avoid using `any` or disabling type checks.
-- **Naming Conventions**:
-  - **Directories**: `kebab-case` (e.g., `oracle-parser`, `card-data`).
-  - **TypeScript Files**: `camelCase` or `kebab-case` (e.g., `ASTBuilder.ts`, `ir-emitter.ts`).
-  - **AST Nodes**: `PascalCase` (e.g., `TriggeredAbility`, `ModifyPT`).
-  - **Grammar Files**: `PascalCase` starting with `MTG` (e.g., `MTGLexer.g4`, `MTGParser.g4`).
-  - **JSON Set files**: `UPPERCASE` set code (e.g., `LEA.json`, `MH3.json`).
-- **Formatting**: Run `npm run format` (Prettier) before committing.
-
----
-
-## 📝 Pull Request Checklist
-
-Before submitting a PR, make sure you do the following:
-
-1. **Tests pass**: Run `npm test` and ensure all tests are green.
-2. **Grammar is clean**: Ensure your ANTLR changes don't introduce grammar ambiguities or infinite recursions.
-3. **No generated code committed**: Ensure files in `packages/oracle-parser/generated/` are not tracked by Git.
-4. **Documentation updated**: If you added an architectural pattern, update [docs/architecture.md](docs/architecture.md) or [docs/oracle_parser.md](docs/oracle_parser.md) as necessary.
-5. **No reminder text parsing**: Ensure reminder text is stripped in the normalizer before parsing — the parser must understand the keyword, not parse the parenthetical helper text.
-
----
-
-## 📚 Documentation Reference
-
-Ensure you familiarize yourself with the design documents in `docs/`:
-- [Architecture Plan](docs/architecture.md)
-- [Oracle Parser Design](docs/oracle_parser.md)
-- [Project Structure Layout](docs/project-structure.md)
-- [Glossary](docs/glossary.md)
+See [parser design](docs/oracle_parser.md), [data contracts](docs/data_schemas.md),
+and [Scryfall ingestion](docs/scryfall-integration.md). `npm run build-ir` fails
+intentionally until semantic validation and the emitter are implemented.

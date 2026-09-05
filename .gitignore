@@ -34,3 +34,7 @@ npm-debug.log*
 
 # Optional: SQLite index (generated, not committed)
 ir/index.db
+
+# Generated parser/card artifacts (source fixtures stay tracked)
+generated/
+/packages/card-data/sets/*.json

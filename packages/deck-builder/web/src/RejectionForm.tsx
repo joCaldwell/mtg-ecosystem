@@ -16,9 +16,11 @@ export const REJECTION_TYPES = [
 export function RejectionForm({
   placeholder,
   onConfirm,
+  reasonRequired = true,
 }: {
   /** Each surface asks its own question; the type vocabulary stays shared. */
   placeholder: string;
+  reasonRequired?: boolean;
   onConfirm: (type: string, reason: string) => void;
 }) {
   const [type, setType] = useState("soft");
@@ -39,7 +41,7 @@ export function RejectionForm({
         placeholder={placeholder}
         autoFocus
       />
-      <button className="small" disabled={!reason.trim()} onClick={() => onConfirm(type, reason)}>
+      <button className="small" disabled={reasonRequired && !reason.trim()} onClick={() => onConfirm(type, reason)}>
         confirm
       </button>
     </div>

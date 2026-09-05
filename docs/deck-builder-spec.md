@@ -195,7 +195,7 @@ Two rules follow from that, and they are the whole reason this section is not a 
 - **A run is a server-side job.** Starting one returns immediately; the reasoning pass finishes on the server and writes its result whether or not anything is watching. Closing the panel, navigating away, or closing the browser cannot cancel an audit — it costs a model call, and losing it to a stray Escape key taught me not to run one.
 - **Runs persist.** The newest **5** runs per deck are kept, with their instructions, the revision they were taken at, and both halves of their findings. Deeper history has no reader: an old deterministic finding is stale the moment the deck changes, and old reasoning is superseded advice.
 
-What the section shows between runs is deliberately mixed: **the deterministic checks are recomputed live** on every deck change, because they are SQL and a wrong count on screen poisons trust in everything near it; **the reasoning pass is the stored one**, labelled with its run and flagged when the deck has moved past the revision it was taken at.
+**Deterministic problems appear in a modal opened from the deck header**, with a live problem count on the button. They report the current list and resolve when the list or targets change; the modal offers ask-agent but no dismiss/restore workflow or dismissed-history section. Doctor’s companion pairs are recognized from card types and oracle text. **The audit section below the decklist contains only recorded agent reasoning**, labelled with its run and flagged when the deck has moved past the revision it was taken at. Its focus field and run button share a row, followed by the viewing-run selector, snapshot warning, and agent findings without intervening subheadings.
 
 ### 8.1 Deterministic checks — SQL only, never the model
 
@@ -221,7 +221,7 @@ The model reasons much better about these when it already knows the deck is two 
 
 ### 8.3 Findings route into the proposal system
 
-An audit finding becomes a proposal. Dismissing a finding requires a typed reason and gets logged exactly like a rejection. Otherwise the audit reports the same four things forever and I learn to ignore it.
+An audit finding becomes a proposal. Dismissing a finding keeps a dismissal type but the reason is optional, and gets logged exactly like a rejection. An omitted reason stays empty; it must not invent an explanation or create an empty playtest note. Proposal rejections still require reasons. Otherwise the audit reports the same four things forever and I learn to ignore it.
 
 *(Settled: findings queue for manual promotion; they do not auto-generate proposals.)*
 

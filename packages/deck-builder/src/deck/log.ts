@@ -115,7 +115,7 @@ export function recordRejection(
       "INSERT OR IGNORE INTO hard_filters (deck_id, oracle_id, card_name, reason) VALUES (?, ?, ?, ?)",
     ).run(deckId, fields.oracle_id, fields.card_name ?? "", fields.reason);
   }
-  if (fields.type === "playtest_finding" && fields.oracle_id) {
+  if (fields.type === "playtest_finding" && fields.oracle_id && fields.reason.trim()) {
     db.prepare(
       "INSERT INTO card_notes (deck_id, oracle_id, card_name, note) VALUES (?, ?, ?, ?)",
     ).run(deckId, fields.oracle_id, fields.card_name ?? "", fields.reason);

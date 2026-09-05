@@ -4,12 +4,12 @@
 import type {
   Ability, Amount, CantAction, DamageTarget, Effect, GainedAbility,
   KeywordInstance, ModalCount, ObjectRef, PlayerRef, Sentence, SignedAmount,
-  StaticModifier, TokenSpec, ZoneRef,
+  TokenSpec,
 } from "../ast.ts";
 import type { Token } from "../lexer.ts";
 import { CARD_TYPES, COLORS, SUPERTYPES, singularize, wordNumber } from "../vocab.ts";
 import { Cursor } from "./cursor.ts";
-import { parseSymbolCosts } from "./costs.ts";
+import { isManaSymbol } from "../symbols.ts";
 import { parseKeyword } from "./keywords.ts";
 import {
   canonicalSubtype, parseAmount, parseCondition, parseCount, parseCounterSpec,
@@ -36,26 +36,32 @@ export interface EffectContext {
 // ---------------------------------------------------------------------------
 
 export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null {
-  const sentences: Sentence[] = [];
-  while (!c.done()) {
-    // "Otherwise, …" attaches to the previous sentence.
-    if (sentences.length > 0 && c.attempt((c) => (c.word("otherwise") !== null ? true : null))) {
-      c.punct(",");
-      const steps = parseSteps(c, ctx);
-      if (!steps) return null;
-      if (!c.punct(".") && !c.done()) return null;
-      sentences[sentences.length - 1].otherwise = steps;
-      continue;
+  const previousSubject = ctx.lastSubject;
+  const result = c.attempt((c): Sentence[] | null => {
+    const sentences: Sentence[] = [];
+    while (!c.done()) {
+      // "Otherwise, …" attaches to the previous sentence.
+      if (sentences.length > 0 && c.attempt((c) => (c.word("otherwise") !== null ? true : null))) {
+        c.punct(",");
+        const steps = parseSteps(c, ctx);
+        if (!steps) return null;
+        if (!c.punct(".") && !c.done()) return null;
+        sentences[sentences.length - 1].otherwise = steps;
+        continue;
+      }
+      const s = parseSentence(c, ctx);
+      if (!s) break; // leave the cursor at the failed sentence; caller decides
+      sentences.push(s);
     }
-    const s = parseSentence(c, ctx);
-    if (!s) break; // leave the cursor at the failed sentence; caller decides
-    sentences.push(s);
-  }
-  return sentences.length ? sentences : null;
+    return sentences.length ? sentences : null;
+  });
+  if (result === null) ctx.lastSubject = previousSubject;
+  return result;
 }
 
 function parseSentence(c: Cursor, ctx: EffectContext): Sentence | null {
-  return c.attempt((c): Sentence | null => {
+  const previousSubject = ctx.lastSubject;
+  const result = c.attempt((c): Sentence | null => {
     c.word("then");
     const sentence: Sentence = { steps: [] };
 
@@ -91,6 +97,8 @@ function parseSentence(c: Cursor, ctx: EffectContext): Sentence | null {
     if (!c.punct(".") && !c.done()) return null;
     return sentence;
   });
+  if (result === null) ctx.lastSubject = previousSubject;
+  return result;
 }
 
 function parseConditionClause(c: Cursor) {
@@ -98,39 +106,62 @@ function parseConditionClause(c: Cursor) {
 }
 
 function parseSteps(c: Cursor, ctx: EffectContext): Effect[] | null {
-  const steps: Effect[] = [];
-  for (;;) {
-    let parsed: Effect[] | null;
-    let optional: boolean;
-    if (steps.length === 0) {
-      optional = c.attempt((c) => (c.words("you", "may") ? true : null)) === true;
-      parsed = parseStep(c, ctx);
-      if (!parsed) return null;
-    } else {
-      // Continuation requires a connector: ", (then|and)" / "then" / "and".
-      const cont = c.attempt((c): { parsed: Effect[]; optional: boolean } | null => {
-        if (c.isPunct(",")) {
-          c.punct(",");
-          if (c.word("then") === null) c.word("and");
-        } else if (c.word("then") === null && c.word("and") === null) {
-          return null;
+  const previousSubject = ctx.lastSubject;
+  const result = c.attempt((c): Effect[] | null => {
+    const steps: Effect[] = [];
+    let modifierGroupStart = 0;
+    for (;;) {
+      let sharedModifiers = false;
+      let parsed: Effect[] | null;
+      let optional: boolean;
+      if (steps.length === 0) {
+        optional = c.attempt((c) => (c.words("you", "may") ? true : null)) === true;
+        parsed = parseStep(c, ctx);
+        if (!parsed) return null;
+      } else {
+        // Continuation requires a connector: ", (then|and)" / "then" / "and".
+        const cont = c.attempt((c): { parsed: Effect[]; optional: boolean } | null => {
+          if (c.isPunct(",")) {
+            c.punct(",");
+            if (c.word("then") === null) c.word("and");
+          } else if (c.word("then") === null) {
+            if (c.word("and") === null) return null;
+            sharedModifiers = c.isWord("gain", "gains", "get", "gets");
+          }
+          const opt = c.attempt((c) => (c.words("you", "may") ? true : null)) === true;
+          const p = parseStep(c, ctx);
+          if (!p) return null;
+          return { parsed: p, optional: opt };
+        });
+        if (!cont) break;
+        parsed = cont.parsed;
+        optional = cont.optional;
+      }
+      if (!sharedModifiers) modifierGroupStart = steps.length;
+      // A rider on a multi-object instruction applies to every emitted effect.
+      // Elided coordinated modifiers share their trailing duration (CR 611.2a).
+      // https://media.wizards.com/2026/downloads/MagicCompRules%2020260819.txt
+      const last = parsed[parsed.length - 1];
+      attachRiders(c, last);
+      for (const e of parsed) {
+        if (optional) e.optional = true;
+        if (last.duration) e.duration = last.duration;
+        if (last.forEach) e.forEach = last.forEach;
+        if (sharedModifiers && last.duration) {
+          for (let i = steps.length - 1; i >= modifierGroupStart; i--) {
+            const previous = steps[i];
+            if (previous.effect !== "pump" && previous.effect !== "gain-abilities") break;
+            if (previous.duration) break;
+            previous.duration = last.duration;
+          }
         }
-        const opt = c.attempt((c) => (c.words("you", "may") ? true : null)) === true;
-        const p = parseStep(c, ctx);
-        if (!p) return null;
-        return { parsed: p, optional: opt };
-      });
-      if (!cont) break;
-      parsed = cont.parsed;
-      optional = cont.optional;
+        steps.push(e);
+      }
     }
-    for (const e of parsed) {
-      if (optional) e.optional = true;
-      attachRiders(c, e);
-      steps.push(e);
-    }
-  }
-  return steps.length ? steps : null;
+    return steps.length ? steps : null;
+  });
+  if (result === null) ctx.lastSubject = previousSubject;
+  return result;
 }
 
 function attachRiders(c: Cursor, e: Effect): void {
@@ -162,32 +193,49 @@ function attachRiders(c: Cursor, e: Effect): void {
 
 type StepParser = (c: Cursor, ctx: EffectContext) => Effect[] | null;
 
+/** Every step production has the same rollback contract, including context. */
+function transactionalStep(parser: StepParser): StepParser {
+  return (c, ctx) => {
+    const previousSubject = ctx.lastSubject;
+    const result = c.attempt(() => parser(c, ctx));
+    if (result === null) ctx.lastSubject = previousSubject;
+    return result;
+  };
+}
+
 function parseStep(c: Cursor, ctx: EffectContext): Effect[] | null {
-  for (const p of STEP_PARSERS) {
-    const r = c.attempt((c) => p(c, ctx));
-    if (r) return r;
-  }
-  return c.fail("effect");
+  const previousSubject = ctx.lastSubject;
+  const result = c.attempt((c): Effect[] | null => {
+    for (const p of STEP_PARSERS) {
+      const r = p(c, ctx);
+      if (r) return r;
+    }
+    return c.fail("effect");
+  });
+  if (result === null) ctx.lastSubject = previousSubject;
+  return result;
 }
 
 /** "target creature and target land" → list; single ref → [ref]. */
 function parseObjectRefList(c: Cursor): ObjectRef[] | null {
-  const first = parseObjectRef(c);
-  if (!first) return null;
-  const refs = [first];
-  while (
-    c.attempt((c) => {
-      if (c.word("and") === null) return null;
-      const nxt = parseObjectRef(c);
-      if (!nxt) return null;
-      refs.push(nxt);
-      return true;
-    })
-  ) { /* keep going */ }
-  return refs;
+  return c.attempt((c): ObjectRef[] | null => {
+    const first = parseObjectRef(c);
+    if (!first) return null;
+    const refs = [first];
+    while (
+      c.attempt((c) => {
+        if (c.word("and") === null) return null;
+        const nxt = parseObjectRef(c);
+        if (!nxt) return null;
+        refs.push(nxt);
+        return true;
+      })
+    ) { /* keep going */ }
+    return refs;
+  });
 }
 
-const parseDraw: StepParser = (c) => {
+const parseDraw: StepParser = transactionalStep((c) => {
   let who: PlayerRef = { player: "you" };
   const subject = c.attempt(parsePlayerRef);
   if (subject) who = subject;
@@ -196,9 +244,9 @@ const parseDraw: StepParser = (c) => {
   if (!amount) return null;
   if (c.word("card", "cards") === null) return null;
   return [{ effect: "draw", who, amount }];
-};
+});
 
-const parseDamage: StepParser = (c) => {
+const parseDamage: StepParser = transactionalStep((c) => {
   const source = parseObjectRef(c);
   if (!source) return null;
   if (c.word("deal", "deals") === null) return null;
@@ -212,110 +260,110 @@ const parseDamage: StepParser = (c) => {
   const to = parseDamageTarget(c);
   if (!to) return null;
   return [{ effect: "damage", source, amount, to }];
-};
+});
 
 function parseDamageTarget(c: Cursor): DamageTarget | null {
-  if (c.attempt((c) => (c.words("any", "target") ? true : null))) return { to: "any-target" };
-  const each = c.attempt((c): DamageTarget | null => {
-    if (c.word("each") === null) return null;
-    if (c.word("opponent") !== null) return { to: "player", ref: { player: "each-opponent" } };
-    if (c.word("player") !== null) return { to: "player", ref: { player: "each-player" } };
-    const filter = parseFilter(c);
-    if (!filter) return null;
-    return { to: "object", ref: { ref: "each", filter } };
-  });
-  if (each) return each;
-  // "target creature or player" / "target player or planeswalker" — try the
-  // object path first when an "or" union is present.
-  const player = c.attempt((c) => {
-    const p = parsePlayerRef(c);
-    if (!p || c.isWord("or")) return null;
-    return p;
-  });
-  if (player) {
-    const both = c.attempt((c): DamageTarget | null => {
-      if (c.word("and") === null) return null;
-      const second = c.attempt(parsePlayerRef) ?? parseObjectRef(c);
-      if (!second) return null;
-      return { to: "each", refs: [player, second] };
+  return c.attempt((c): DamageTarget | null => {
+    if (c.attempt((c) => (c.words("any", "target") ? true : null))) return { to: "any-target" };
+    const each = c.attempt((c): DamageTarget | null => {
+      if (c.word("each") === null) return null;
+      if (c.word("opponent") !== null) return { to: "player", ref: { player: "each-opponent" } };
+      if (c.word("player") !== null) return { to: "player", ref: { player: "each-player" } };
+      const filter = parseFilter(c);
+      if (!filter) return null;
+      return { to: "object", ref: { ref: "each", filter } };
     });
-    if (both) return both;
-    return { to: "player", ref: player };
-  }
-  const obj = parseObjectRef(c);
-  if (obj) {
-    const both = c.attempt((c): DamageTarget | null => {
-      if (c.word("and") === null) return null;
-      const second = c.attempt(parsePlayerRef) ?? parseObjectRef(c);
-      if (!second) return null;
-      return { to: "each", refs: [obj, second] };
+    if (each) return each;
+    // "target creature or player" / "target player or planeswalker" — try the
+    // object path first when an "or" union is present.
+    const player = c.attempt((c) => {
+      const p = parsePlayerRef(c);
+      if (!p || c.isWord("or")) return null;
+      return p;
     });
-    if (both) return both;
-    return { to: "object", ref: obj };
-  }
-  return null;
+    if (player) {
+      const both = c.attempt((c): DamageTarget | null => {
+        if (c.word("and") === null) return null;
+        const second = c.attempt(parsePlayerRef) ?? parseObjectRef(c);
+        if (!second) return null;
+        return { to: "each", refs: [player, second] };
+      });
+      if (both) return both;
+      return { to: "player", ref: player };
+    }
+    const obj = parseObjectRef(c);
+    if (obj) {
+      const both = c.attempt((c): DamageTarget | null => {
+        if (c.word("and") === null) return null;
+        const second = c.attempt(parsePlayerRef) ?? parseObjectRef(c);
+        if (!second) return null;
+        return { to: "each", refs: [obj, second] };
+      });
+      if (both) return both;
+      return { to: "object", ref: obj };
+    }
+    return null;
+  });
 }
 
-const parseDestroy: StepParser = (c) => {
+const parseDestroy: StepParser = transactionalStep((c) => {
   if (c.word("destroy") === null) return null;
   const refs = parseObjectRefList(c);
   if (!refs) return null;
   return refs.map((what): Effect => ({ effect: "destroy", what }));
-};
+});
 
-const parseExile: StepParser = (c) => {
+const parseExile: StepParser = transactionalStep((c) => {
   if (c.word("exile") === null) return null;
   const refs = parseObjectRefList(c);
   if (!refs) return null;
   return refs.map((what): Effect => ({ effect: "exile", what }));
-};
+});
 
-const parseCounterSpell: StepParser = (c) => {
+const parseCounterSpell: StepParser = transactionalStep((c) => {
   if (c.word("counter") === null) return null;
   const what = parseObjectRef(c);
   if (!what) return null;
   return [{ effect: "counter", what }];
-};
+});
 
-const parseReturn: StepParser = (c) => {
+const parseReturn: StepParser = transactionalStep((c) => {
   if (c.word("return") === null) return null;
   const refs = parseObjectRefList(c);
   if (!refs) return null;
   if (c.word("to") === null) return null;
-  const toHand = c.attempt((c): boolean | null => {
-    if (c.words("its", "owner's")) { /* fallthrough */ }
-    else if (c.word("their", "its") !== null) {
-      if (c.possessive("owner", "owners") === null) return null;
-    } else if (c.word("your") !== null) {
-      // "return … to your hand"
-    } else return null;
-    if (c.word("hand", "hands") === null) return null;
-    return true;
+  const toHand = c.attempt((c): "your" | "owner" | null => {
+    let to: "your" | "owner";
+    if (c.word("your") !== null) to = "your";
+    else {
+      if (c.word("their", "its") === null || c.possessive("owner", "owners") === null) return null;
+      to = "owner";
+    }
+    return c.word("hand", "hands") !== null ? to : null;
   });
-  if (toHand) return refs.map((what): Effect => ({ effect: "return-to-hand", what }));
-  if (c.attempt((c) => (c.words("the", "battlefield") ? true : null))) {
+  if (toHand) return refs.map((what): Effect => ({ effect: "return-to-hand", what, to: toHand }));
+  if (c.words("the", "battlefield")) {
     const tapped = c.word("tapped") !== null;
-    c.attempt((c) => {
-      if (!c.words("under")) return null;
-      c.word("your", "its", "their");
-      c.possessive("owner", "owners");
-      c.word("control");
-      return true;
-    });
-    return refs.map(
-      (what): Effect => ({ effect: "move-zone", what, to: { zone: "battlefield" }, tapped: tapped || undefined }),
-    );
+    let controller: "you" | "owner" | undefined;
+    if (c.word("under") !== null) {
+      if (c.word("your") !== null) controller = "you";
+      else if (c.word("its", "their") !== null && c.possessive("owner", "owners") !== null) controller = "owner";
+      else return c.fail("battlefield controller");
+      if (c.word("control") === null) return null;
+    }
+    return refs.map((what): Effect => ({ effect: "move-zone", what, to: { zone: "battlefield" },
+      ...(tapped ? { tapped: true } : {}), ...(controller ? { controller } : {}) }));
   }
   return null;
-};
+});
 
-const parseCreateToken: StepParser = (c) => {
+const parseCreateToken: StepParser = transactionalStep((c) => {
   if (c.word("create", "creates") === null) return null;
   const count = parseCount(c) ?? { amount: "fixed" as const, value: 1 };
   const token = parseTokenSpec(c);
   if (!token) return null;
   return [{ effect: "create-token", count, token }];
-};
+});
 
 function parseTokenSpec(c: Cursor): TokenSpec | null {
   return c.attempt((c): TokenSpec | null => {
@@ -383,31 +431,33 @@ function parseTokenSpec(c: Cursor): TokenSpec | null {
 }
 
 function parseKeywordList(c: Cursor): KeywordInstance[] | null {
-  const kws: KeywordInstance[] = [];
-  for (;;) {
-    const kw = parseKeyword(c);
-    if (!kw) return kws.length ? kws : null;
-    kws.push(kw);
-    if (c.isPunct(",")) {
-      c.punct(",");
-      c.word("and");
-      continue;
+  return c.attempt((c): KeywordInstance[] | null => {
+    const kws: KeywordInstance[] = [];
+    for (;;) {
+      const kw = parseKeyword(c);
+      if (!kw) return kws.length ? kws : null;
+      kws.push(kw);
+      if (c.isPunct(",")) {
+        c.punct(",");
+        c.word("and");
+        continue;
+      }
+      if (c.attempt((c) => (c.word("and") !== null && !c.isPunct('"') ? true : null))) continue;
+      break;
     }
-    if (c.attempt((c) => (c.word("and") !== null && !c.isPunct('"') ? true : null))) continue;
-    break;
-  }
-  return kws;
+    return kws;
+  });
 }
 
-const parseTapUntap: StepParser = (c) => {
+const parseTapUntap: StepParser = transactionalStep((c) => {
   const verb = c.word("tap", "untap");
   if (!verb) return null;
   const refs = parseObjectRefList(c);
   if (!refs) return null;
   return refs.map((what): Effect => ({ effect: verb as "tap" | "untap", what }));
-};
+});
 
-const parseSacrifice: StepParser = (c) => {
+const parseSacrifice: StepParser = transactionalStep((c) => {
   let who: PlayerRef = { player: "you" };
   const subject = c.attempt(parsePlayerRef);
   if (subject) who = subject;
@@ -415,9 +465,9 @@ const parseSacrifice: StepParser = (c) => {
   const what = parseObjectRef(c);
   if (!what) return null;
   return [{ effect: "sacrifice", who, what }];
-};
+});
 
-const parseDiscard: StepParser = (c) => {
+const parseDiscard: StepParser = transactionalStep((c) => {
   let who: PlayerRef = { player: "you" };
   const subject = c.attempt(parsePlayerRef);
   if (subject) who = subject;
@@ -428,9 +478,9 @@ const parseDiscard: StepParser = (c) => {
   if (!what) return null;
   const random = c.attempt((c) => (c.words("at", "random") ? true : null)) === true;
   return [{ effect: "discard", who, what, random: random || undefined }];
-};
+});
 
-const parseMill: StepParser = (c) => {
+const parseMill: StepParser = transactionalStep((c) => {
   let who: PlayerRef = { player: "you" };
   const subject = c.attempt(parsePlayerRef);
   if (subject) who = subject;
@@ -439,17 +489,17 @@ const parseMill: StepParser = (c) => {
   if (!amount) return null;
   if (c.word("card", "cards") === null) return null;
   return [{ effect: "mill", who, amount }];
-};
+});
 
-const parseScrySurveil: StepParser = (c) => {
+const parseScrySurveil: StepParser = transactionalStep((c) => {
   const verb = c.word("scry", "surveil");
   if (!verb) return null;
   const amount = parseCount(c);
   if (!amount) return null;
   return [{ effect: verb as "scry" | "surveil", amount }];
-};
+});
 
-const parsePut: StepParser = (c) => {
+const parsePut: StepParser = transactionalStep((c) => {
   if (c.word("put", "puts") === null) return null;
 
   // counters: "put a +1/+1 counter on target creature"
@@ -474,18 +524,22 @@ const parsePut: StepParser = (c) => {
   if (!to) return null;
   const tapped = c.word("tapped") !== null;
   return refs.map((what): Effect => ({ effect: "move-zone", what, to, tapped: tapped || undefined }));
-};
+});
 
-const parseAddMana: StepParser = (c) => {
+const parseAddMana: StepParser = transactionalStep((c) => {
   if (c.word("add", "adds") === null) return null;
   const readSymbols = (c: Cursor): string[] => {
     const out: string[] = [];
     let s: string | null;
-    while ((s = c.attempt((c) => c.symbol())) !== null) out.push(s);
+    while ((s = c.attempt((c) => {
+      const token = c.peek();
+      return token?.kind === "symbol" && isManaSymbol(token.value) ? c.symbol() : c.fail("mana symbol");
+    })) !== null) out.push(s);
     return out;
   };
   if (c.peek()?.kind === "symbol") {
     const first = readSymbols(c);
+    if (!first.length) return null;
     // "or" alternatives: "Add {R} or {G}."
     const options: string[][] = [first];
     while (c.attempt((c) => {
@@ -493,7 +547,9 @@ const parseAddMana: StepParser = (c) => {
       if (comma) c.punct(",");
       if (c.word("or") === null && !comma) return null;
       if (c.peek()?.kind !== "symbol") return null;
-      options.push(readSymbols(c));
+      const symbols = readSymbols(c);
+      if (!symbols.length) return null;
+      options.push(symbols);
       return true;
     })) { /* keep going */ }
     if (options.length === 1) return [{ effect: "add-mana", mana: { mana: "fixed", symbols: first } }];
@@ -507,9 +563,9 @@ const parseAddMana: StepParser = (c) => {
   if (c.words("of", "any", "color"))
     return [{ effect: "add-mana", mana: { mana: "any-color", amount } }];
   return null;
-};
+});
 
-const parseSearch: StepParser = (c) => {
+const parseSearch: StepParser = transactionalStep((c) => {
   let who: PlayerRef = { player: "you" };
   const subject = c.attempt(parsePlayerRef);
   if (subject) who = subject;
@@ -519,19 +575,19 @@ const parseSearch: StepParser = (c) => {
   if (c.word("for") === null) return null;
   const what = parseObjectRef(c);
   if (!what) return null;
-  return [{ effect: "search", who, zone: zoneRef.zone, for: what }];
-};
+  return [{ effect: "search", who, zone: zoneRef, for: what }];
+});
 
-const parseShuffle: StepParser = (c) => {
+const parseShuffle: StepParser = transactionalStep((c) => {
   let who: PlayerRef = { player: "you" };
   const subject = c.attempt(parsePlayerRef);
   if (subject) who = subject;
   if (c.word("shuffle", "shuffles") === null) return null;
   c.attempt((c) => (c.words("your", "library") || c.words("their", "library") ? true : null));
   return [{ effect: "shuffle", who }];
-};
+});
 
-const parseLifeGainLoss: StepParser = (c) => {
+const parseLifeGainLoss: StepParser = transactionalStep((c) => {
   let who: PlayerRef = { player: "you" };
   const subject = c.attempt(parsePlayerRef);
   if (subject) who = subject;
@@ -545,9 +601,9 @@ const parseLifeGainLoss: StepParser = (c) => {
   }
   const effect = verb.startsWith("gain") ? "gain-life" : "lose-life";
   return [{ effect, who, amount }];
-};
+});
 
-const parseGainControl: StepParser = (c) => {
+const parseGainControl: StepParser = transactionalStep((c) => {
   let who: PlayerRef = { player: "you" };
   const subject = c.attempt(parsePlayerRef);
   if (subject) who = subject;
@@ -556,14 +612,16 @@ const parseGainControl: StepParser = (c) => {
   const what = parseObjectRef(c);
   if (!what) return null;
   return [{ effect: "gain-control", who, what }];
-};
+});
 
 function parseSignedAmount(c: Cursor): SignedAmount | null {
-  const sign = c.punct("+") ? 1 : c.punct("-") ? -1 : null;
-  if (sign === null) return null;
-  const amount = parseAmount(c);
-  if (!amount) return null;
-  return { sign: sign as 1 | -1, amount };
+  return c.attempt((c): SignedAmount | null => {
+    const sign = c.punct("+") ? 1 : c.punct("-") ? -1 : null;
+    if (sign === null) return null;
+    const amount = parseAmount(c);
+    if (!amount) return null;
+    return { sign: sign as 1 | -1, amount };
+  });
 }
 
 /** "+1/+1", "-2/-0", "+X/+X" */
@@ -579,54 +637,56 @@ export function parsePtModifier(c: Cursor): { power: SignedAmount; toughness: Si
 
 /** keyword-or-quoted ability list after gains/has. */
 export function parseGainedAbilities(c: Cursor): GainedAbility[] | null {
-  const list: GainedAbility[] = [];
-  for (;;) {
-    const quoted = c.attempt((c): GainedAbility | null => {
-      if (!c.punct('"')) return null;
-      const inner: Token[] = [];
-      for (;;) {
-        const t = c.peek();
-        if (!t) return null;
-        if (t.kind === "punct" && t.value === '"') {
+  return c.attempt((c): GainedAbility[] | null => {
+    const list: GainedAbility[] = [];
+    for (;;) {
+      const quoted = c.attempt((c): GainedAbility | null => {
+        if (!c.punct('"')) return null;
+        const inner: Token[] = [];
+        for (;;) {
+          const t = c.peek();
+          if (!t) return null;
+          if (t.kind === "punct" && t.value === '"') {
+            c.pos++;
+            break;
+          }
+          inner.push(t);
           c.pos++;
-          break;
         }
-        inner.push(t);
-        c.pos++;
-      }
-      if (!lineParser) return null;
-      const ability = lineParser(inner, []);
-      if (!ability) return null;
-      return { gained: "quoted", ability };
-    });
-    if (quoted) list.push(quoted);
-    else {
-      const kw = parseKeyword(c);
-      if (!kw) return list.length ? list : null;
-      list.push({ gained: "keyword", keyword: kw });
-    }
-    if (c.isPunct(",")) {
-      c.punct(",");
-      c.word("and");
-      continue;
-    }
-    if (c.isWord("and")) {
-      const cont = c.attempt((c) => {
-        c.word("and");
-        const t = c.peek();
-        if (t?.kind === "punct" && t.value === '"') return true;
-        if (t?.kind === "word") return true;
-        return null;
+        if (!lineParser) return null;
+        const ability = lineParser(inner, []);
+        if (!ability) return null;
+        return { gained: "quoted", ability };
       });
-      if (cont) continue;
+      if (quoted) list.push(quoted);
+      else {
+        const kw = parseKeyword(c);
+        if (!kw) return list.length ? list : null;
+        list.push({ gained: "keyword", keyword: kw });
+      }
+      if (c.isPunct(",")) {
+        c.punct(",");
+        c.word("and");
+        continue;
+      }
+      if (c.isWord("and")) {
+        const cont = c.attempt((c) => {
+          c.word("and");
+          const t = c.peek();
+          if (t?.kind === "punct" && t.value === '"') return true;
+          if (t?.kind === "word") return true;
+          return null;
+        });
+        if (cont) continue;
+      }
+      break;
     }
-    break;
-  }
-  return list;
+    return list;
+  });
 }
 
 /** Subject-first: "<obj> gets +1/+1" / "<obj> gains flying" / "<obj> has flying". */
-const parsePumpOrGain: StepParser = (c, ctx) => {
+const parsePumpOrGain: StepParser = transactionalStep((c, ctx) => {
   let what = c.attempt(parseObjectRef);
   if (!what) {
     // elided subject: "…and gains flying until end of turn"
@@ -645,9 +705,9 @@ const parsePumpOrGain: StepParser = (c, ctx) => {
   if (!abilities) return null;
   ctx.lastSubject = what;
   return [{ effect: "gain-abilities", what, abilities }];
-};
+});
 
-const parseBecome: StepParser = (c) => {
+const parseBecome: StepParser = transactionalStep((c) => {
   const what = parseObjectRef(c);
   if (!what) return null;
   if (c.word("becomes", "become") === null) return null;
@@ -663,7 +723,7 @@ const parseBecome: StepParser = (c) => {
   const inAddition =
     c.attempt((c) => (c.words("in", "addition", "to", "its", "other") && c.anyWord() ? true : null)) === true;
   return [{ effect: "become", what, spec: { ...spec, inAddition: inAddition || undefined } }];
-};
+});
 
 function parseTokenSpecLike(c: Cursor): { types?: string[]; subtypes?: string[]; colors?: TokenSpec["colors"]; power?: Amount; toughness?: Amount } | null {
   return c.attempt((c) => {
@@ -705,7 +765,7 @@ function parseTokenSpecLike(c: Cursor): { types?: string[]; subtypes?: string[];
   });
 }
 
-const parseReveal: StepParser = (c) => {
+const parseReveal: StepParser = transactionalStep((c) => {
   let who: PlayerRef = { player: "you" };
   const subject = c.attempt(parsePlayerRef);
   if (subject) who = subject;
@@ -715,9 +775,9 @@ const parseReveal: StepParser = (c) => {
   const what = parseObjectRef(c);
   if (!what) return null;
   return [{ effect: "reveal", who, what }];
-};
+});
 
-const parseLook: StepParser = (c) => {
+const parseLook: StepParser = transactionalStep((c) => {
   let who: PlayerRef = { player: "you" };
   const subject = c.attempt(parsePlayerRef);
   if (subject) who = subject;
@@ -736,24 +796,24 @@ const parseLook: StepParser = (c) => {
   const what = parseObjectRef(c);
   if (!what) return null;
   return [{ effect: "look-at", who, what }];
-};
+});
 
-const parseCopySpell: StepParser = (c) => {
+const parseCopySpell: StepParser = transactionalStep((c) => {
   if (c.word("copy", "copies") === null) return null;
   const what = parseObjectRef(c);
   if (!what) return null;
   return [{ effect: "copy-spell", what }];
-};
+});
 
 /** "(You may) choose new targets for the copy/it." — its own sentence in oracle text. */
-const parseChooseNewTargets: StepParser = (c) => {
+const parseChooseNewTargets: StepParser = transactionalStep((c) => {
   if (!c.words("choose", "new", "targets", "for")) return null;
   if (c.words("the", "copy") || c.words("the", "copies") || c.word("it", "them") !== null)
     return [{ effect: "choose-new-targets" }];
   return null;
-};
+});
 
-const parseRemoveCounters: StepParser = (c) => {
+const parseRemoveCounters: StepParser = transactionalStep((c) => {
   if (c.word("remove", "removes") === null) return null;
   const count: Amount | "all" | null = c.word("all") !== null ? "all" : parseCount(c);
   if (!count) return null;
@@ -764,50 +824,52 @@ const parseRemoveCounters: StepParser = (c) => {
   const from = parseObjectRef(c);
   if (!from) return null;
   return [{ effect: "remove-counters", counter, count, from }];
-};
+});
 
-const parseRegenerate: StepParser = (c) => {
+const parseRegenerate: StepParser = transactionalStep((c) => {
   if (c.word("regenerate", "regenerates") === null) return null;
   const what = parseObjectRef(c);
   if (!what) return null;
   return [{ effect: "regenerate", what }];
-};
+});
 
-const parseFight: StepParser = (c) => {
+const parseFight: StepParser = transactionalStep((c) => {
   const a = parseObjectRef(c);
   if (!a) return null;
   if (c.word("fight", "fights") === null) return null;
   const b = parseObjectRef(c);
   if (!b) return null;
   return [{ effect: "fight", a, b }];
-};
+});
 
-const parseCant: StepParser = (c) => {
+const parseCant: StepParser = transactionalStep((c) => {
   const what = parseObjectRef(c);
   if (!what) return null;
   if (c.word("can't") === null) return null;
   const action = parseCantAction(c);
   if (!action) return null;
   return [{ effect: "cant", what, action }];
-};
+});
 
 export function parseCantAction(c: Cursor): CantAction | null {
-  if (c.attempt((c) => (c.words("attack", "or", "block") ? true : null))) return "attack-or-block";
-  if (c.word("attack") !== null) return "attack";
-  if (c.word("block") !== null) return "block";
-  if (c.attempt((c) => (c.words("be", "blocked") ? true : null))) return "be-blocked";
-  if (c.attempt((c) => (c.words("be", "countered") ? true : null))) return "be-countered";
-  if (c.attempt((c) => (c.words("untap", "during", "your", "untap", "step") ? true : null))) return "untap";
-  if (c.attempt((c) => {
-    if (!c.words("untap", "during")) return null;
-    if (c.word("its", "their") === null) return null;
-    if (c.possessive("controller", "controllers") === null && c.word("controller's", "controllers'") === null) return null;
-    return c.words("untap", "step") || c.words("untap", "steps") ? true : null;
-  })) return "untap";
-  return c.fail("can't-action");
+  return c.attempt((c): CantAction | null => {
+    if (c.attempt((c) => (c.words("attack", "or", "block") ? true : null))) return "attack-or-block";
+    if (c.word("attack") !== null) return "attack";
+    if (c.word("block") !== null) return "block";
+    if (c.attempt((c) => (c.words("be", "blocked") ? true : null))) return "be-blocked";
+    if (c.attempt((c) => (c.words("be", "countered") ? true : null))) return "be-countered";
+    if (c.attempt((c) => (c.words("untap", "during", "your", "untap", "step") ? true : null))) return "untap";
+    if (c.attempt((c) => {
+      if (!c.words("untap", "during")) return null;
+      if (c.word("its", "their") === null) return null;
+      if (c.possessive("controller", "controllers") === null && c.word("controller's", "controllers'") === null) return null;
+      return c.words("untap", "step") || c.words("untap", "steps") ? true : null;
+    })) return "untap";
+    return c.fail("can't-action");
+  });
 }
 
-const parseModal: StepParser = (c, ctx) => {
+const parseModal: StepParser = transactionalStep((c, ctx) => {
   if (c.word("choose") === null) return null;
   const count = parseModalCount(c);
   if (!count) return null;
@@ -819,28 +881,32 @@ const parseModal: StepParser = (c, ctx) => {
     const oc = new Cursor(optTokens);
     const optCtx: EffectContext = { modalOptions: [] };
     const sentences = parseSentences(oc, optCtx);
-    if (!sentences || !oc.done()) return null;
+    if (!sentences || !oc.done()) return c.fail(`modal option ${options.length + 1}: ${oc.errorMessage()}`);
     options.push(sentences);
   }
+  const minimum = "exactly" in count ? count.exactly : "min" in count ? count.min : count.atLeast;
+  if (minimum > options.length) return c.fail("enough modal options");
   return [{ effect: "modal", count, options }];
-};
+});
 
 function parseModalCount(c: Cursor): ModalCount | null {
-  const upTo = c.attempt((c) => (c.words("up", "to") ? true : null)) === true;
-  const t = c.peek();
-  let n: number | null = null;
-  if (t?.kind === "word" && wordNumber(t.value) !== undefined) {
-    n = wordNumber(t.value)!;
-    c.pos++;
-  }
-  if (n === null) return c.fail("modal count");
-  if (upTo) return { min: 0, max: n };
-  if (c.attempt((c) => (c.words("or", "more") ? true : null))) return { atLeast: n };
-  if (c.attempt((c) => (c.words("or", "both") ? true : null))) return { min: n, max: 2 };
-  return { exactly: n };
+  return c.attempt((c): ModalCount | null => {
+    const upTo = c.attempt((c) => (c.words("up", "to") ? true : null)) === true;
+    const t = c.peek();
+    let n: number | null = null;
+    if (t?.kind === "word" && wordNumber(t.value) !== undefined) {
+      n = wordNumber(t.value)!;
+      c.pos++;
+    }
+    if (n === null) return c.fail("modal count");
+    if (upTo) return { min: 0, max: n };
+    if (c.attempt((c) => (c.words("or", "more") ? true : null))) return { atLeast: n };
+    if (c.attempt((c) => (c.words("or", "both") ? true : null))) return { min: n, max: 2 };
+    return { exactly: n };
+  });
 }
 
-const parsePreventCombatDamage: StepParser = (c) => {
+const parsePreventCombatDamage: StepParser = transactionalStep((c) => {
   if (!c.words("prevent", "all", "combat", "damage")) return null;
   if (!c.words("that", "would", "be", "dealt")) return null;
   const by = c.attempt((c): ObjectRef | null => {
@@ -853,7 +919,7 @@ const parsePreventCombatDamage: StepParser = (c) => {
   }
   c.words("this", "turn");
   return [{ effect: "prevent-combat-damage", by, duration: { duration: "this-turn" } }];
-};
+});
 
 // Order matters: subject-first parsers that begin with parseObjectRef go
 // after verb-first parsers that could be mistaken for filters.

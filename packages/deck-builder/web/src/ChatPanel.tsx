@@ -336,7 +336,6 @@ export function ChatPanel({
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={onComposerKey}
           aria-label="Message the deck agent"
-          aria-describedby="chat-composer-hint"
           placeholder="Ask about your deck…"
           disabled={busy}
         />
@@ -344,9 +343,6 @@ export function ChatPanel({
           Send
         </button>
       </form>
-      <p className="chat-composer-hint" id="chat-composer-hint">
-        Enter to send · Shift + Enter for a new line
-      </p>
     </div>
   );
 }

@@ -4,7 +4,15 @@
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "declaration": false,
-    "sourceMap": false
+    "sourceMap": false,
+    "lib": [
+      "ES2022"
+    ],
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
   },
-  "include": ["src/**/*", "test/**/*"]
+  "include": [
+    "src/**/*",
+    "test/**/*"
+  ]
 }
