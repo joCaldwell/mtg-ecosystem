@@ -208,7 +208,10 @@ export function auditView(db: DatabaseSync, deckId: number) {
 export const AUDIT_RUN_RETENTION = 5;
 
 export interface AuditRun {
+  /** Internal global row key. Never shown as the deck's audit number. */
   id: number;
+  /** User-facing sequence, starting at 1 independently for each deck. */
+  number: number;
   deck_id: number;
   revision: number;
   instructions: string;
@@ -234,6 +237,7 @@ export interface ReasoningSnapshot {
 
 interface AuditRunRow {
   id: number;
+  run_number: number;
   deck_id: number;
   revision: number;
   instructions: string;
@@ -248,6 +252,7 @@ interface AuditRunRow {
 function parseRun(row: AuditRunRow): AuditRun {
   return {
     id: row.id,
+    number: row.run_number,
     deck_id: row.deck_id,
     revision: row.revision,
     instructions: row.instructions,
@@ -260,22 +265,38 @@ function parseRun(row: AuditRunRow): AuditRun {
   };
 }
 
-// Opens a run and hands back its id. The deterministic half is complete at
-// this point; the reasoning pass fills in later via finishAuditRun.
-export function startAuditRun(db: DatabaseSync, deckId: number, instructions = ""): number {
+export interface AuditRunHandle {
+  /** Internal global row key used to finish the background job. */
+  id: number;
+  /** User-facing deck-local audit number. */
+  number: number;
+}
+
+// Opens a run and hands back both identities. The deterministic half is
+// complete at this point; the reasoning pass fills in later via the internal
+// id while every owner-facing surface uses the deck-local number.
+export function startAuditRun(
+  db: DatabaseSync,
+  deckId: number,
+  instructions = "",
+): AuditRunHandle {
   const view = auditView(db, deckId);
+  const { next } = db
+    .prepare("SELECT COALESCE(MAX(run_number), 0) + 1 next FROM audit_runs WHERE deck_id = ?")
+    .get(deckId) as { next: number };
   const r = db
     .prepare(
-      `INSERT INTO audit_runs (deck_id, revision, instructions, findings_json, status)
-       VALUES (?, ?, ?, ?, 'running')`,
+      `INSERT INTO audit_runs
+         (deck_id, run_number, revision, instructions, findings_json, status)
+       VALUES (?, ?, ?, ?, ?, 'running')`,
     )
-    .run(deckId, view.revision, instructions, JSON.stringify(view.findings));
+    .run(deckId, next, view.revision, instructions, JSON.stringify(view.findings));
   const runId = Number(r.lastInsertRowid);
   db.prepare(
     `DELETE FROM audit_runs WHERE deck_id = ? AND id NOT IN
        (SELECT id FROM audit_runs WHERE deck_id = ? ORDER BY id DESC LIMIT ?)`,
   ).run(deckId, deckId, AUDIT_RUN_RETENTION);
-  return runId;
+  return { id: runId, number: next };
 }
 
 export function finishAuditRun(
@@ -311,10 +332,16 @@ export function listAuditRuns(db: DatabaseSync, deckId: number): AuditRun[] {
   ).map(parseRun);
 }
 
-export function getAuditRun(db: DatabaseSync, deckId: number, runId: number): AuditRun | null {
-  const row = db
-    .prepare("SELECT * FROM audit_runs WHERE deck_id = ? AND id = ?")
-    .get(deckId, runId) as AuditRunRow | undefined;
+export function getAuditRun(db: DatabaseSync, deckId: number, runNumber: number): AuditRun | null {
+  // Prefer the deck-local number. Falling back to the internal id keeps old
+  // audit#<id>/... tokens in persisted chat transcripts resolvable after the
+  // migration.
+  const row = (db
+    .prepare("SELECT * FROM audit_runs WHERE deck_id = ? AND run_number = ?")
+    .get(deckId, runNumber) ??
+    db.prepare("SELECT * FROM audit_runs WHERE deck_id = ? AND id = ?").get(deckId, runNumber)) as
+    | AuditRunRow
+    | undefined;
   return row ? parseRun(row) : null;
 }
 
@@ -347,9 +374,9 @@ export function runAudit(
   instructions = "",
   reasoning: object | null = null,
 ) {
-  const runId = startAuditRun(db, deckId, instructions);
-  finishAuditRun(db, runId, reasoning);
-  return { run_id: runId, instructions, ...auditView(db, deckId) };
+  const run = startAuditRun(db, deckId, instructions);
+  finishAuditRun(db, run.id, reasoning);
+  return { run_id: run.number, instructions, ...auditView(db, deckId) };
 }
 
 // Look up a finding by key across deterministic findings AND the reasoning

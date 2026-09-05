@@ -300,6 +300,12 @@ export function ChatPanel({
   return (
     <div className="chat">
       <div className="chat-messages" ref={listRef} onScroll={onTranscriptScroll}>
+        {!visible.length && sent === null && (
+          <div className="chat-empty">
+            <h3>Your deck conversation</h3>
+            <p>Ask about your deck, explore a card, or work through a change. The agent proposes; you decide.</p>
+          </div>
+        )}
         {compacted.length > 0 && (
           <details className="compacted-block">
             <summary className="muted">
@@ -329,13 +335,18 @@ export function ChatPanel({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={onComposerKey}
-          placeholder="Ask the agent… it proposes, you rule. ⏎ sends, ⇧⏎ for a new line"
+          aria-label="Message the deck agent"
+          aria-describedby="chat-composer-hint"
+          placeholder="Ask about your deck…"
           disabled={busy}
         />
         <button className="primary" type="submit" disabled={busy || !input.trim()}>
           Send
         </button>
       </form>
+      <p className="chat-composer-hint" id="chat-composer-hint">
+        Enter to send · Shift + Enter for a new line
+      </p>
     </div>
   );
 }

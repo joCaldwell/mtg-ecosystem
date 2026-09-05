@@ -18,7 +18,7 @@ function runLabel(run: AuditRun): string {
         : run.reasoning?.error
           ? "no reasoning"
           : `${n} finding${n === 1 ? "" : "s"}`;
-  return `#${run.id} · ${ago(run.created_at)} · rev ${run.revision} · ${state}`;
+  return `#${run.number} · ${ago(run.created_at)} · rev ${run.revision} · ${state}`;
 }
 
 // Module scope, not a closure inside AuditSection: an inline component gets a
@@ -205,7 +205,7 @@ export function AuditSection({
           {running
             ? "reasoning pass running…"
             : latest
-              ? `last run #${latest.id} · ${ago(latest.created_at)}`
+              ? `last run #${latest.number} · ${ago(latest.created_at)}`
               : "never run"}
         </span>
         <span className="rule" />
@@ -244,7 +244,7 @@ export function AuditSection({
           {error && <div className="error-banner">{error}</div>}
           {running && (
             <div className="muted audit-running">
-              Run #{latest?.id} is running on the server — leaving this page, or closing the
+              Run #{latest?.number} is running on the server — leaving this page, or closing the
               browser, will not cancel it.
             </div>
           )}
@@ -278,7 +278,7 @@ export function AuditSection({
             {viewRun && (
               <span className="muted">
                 {" "}
-                — run #{viewRun.id}, {ago(viewRun.created_at)}
+                — run #{viewRun.number}, {ago(viewRun.created_at)}
                 {viewRun.instructions && ` · “${viewRun.instructions}”`}
               </span>
             )}
@@ -307,7 +307,7 @@ export function AuditSection({
             </div>
           )}
           {viewRun?.reasoning?.findings.map((f) => (
-            <FindingRow key={f.key} f={f} runId={viewRun.id} {...rowProps} />
+            <FindingRow key={f.key} f={f} runId={viewRun.number} {...rowProps} />
           ))}
           {viewRun?.status === "done" &&
             !viewRun.reasoning?.error &&
@@ -324,7 +324,7 @@ export function AuditSection({
                   key={f.key}
                   f={f}
                   dismissed={f.dismissal.reason}
-                  runId={viewRun.id}
+                  runId={viewRun.number}
                   {...rowProps}
                 />
               ))}

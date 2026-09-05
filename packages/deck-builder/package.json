@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "launch": "node scripts/serve.mjs launch",
+    "install:launcher": "node scripts/install-launcher.mjs",
+    "uninstall:launcher": "node scripts/install-launcher.mjs --uninstall",
     "start": "node scripts/serve.mjs start",
     "stop": "node scripts/serve.mjs stop",
     "restart": "node scripts/serve.mjs restart",

@@ -95,6 +95,8 @@ export const api = {
   ) => request<{ state: DeckState }>("PATCH", `/api/decks/${deckId}/cards/${oracleId}`, patch),
   removeCard: (deckId: number, oracleId: string) =>
     request<{ state: DeckState }>("DELETE", `/api/decks/${deckId}/cards/${oracleId}`),
+  setAllCardsOwned: (deckId: number, owned: boolean) =>
+    request<{ state: DeckState }>("PATCH", `/api/decks/${deckId}/cards`, { owned }),
 
   createSlot: (deckId: number, name: string, min: number | null, max: number | null) =>
     request<{ state: DeckState }>("POST", `/api/decks/${deckId}/slots`, {

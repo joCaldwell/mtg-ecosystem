@@ -220,6 +220,7 @@ CREATE INDEX IF NOT EXISTS idx_playtest_deck ON playtest_notes(deck_id, id);
 CREATE TABLE IF NOT EXISTS audit_runs (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   deck_id      INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+  run_number   INTEGER NOT NULL,
   revision     INTEGER NOT NULL,
   instructions TEXT NOT NULL DEFAULT '',
   findings_json TEXT NOT NULL,
@@ -332,6 +333,20 @@ function migrate(db: DatabaseSync) {
     db.exec("ALTER TABLE audit_runs ADD COLUMN finished_at TEXT");
     db.exec("UPDATE audit_runs SET finished_at = created_at WHERE finished_at IS NULL");
   }
+  // Audit numbers are user-facing history within one deck. The row id remains
+  // a global implementation key for finishing background jobs, but must never
+  // be presented as the deck's run number.
+  if (auditCols.size && !auditCols.has("run_number")) {
+    db.exec("ALTER TABLE audit_runs ADD COLUMN run_number INTEGER NOT NULL DEFAULT 0");
+    db.exec(`UPDATE audit_runs AS run
+             SET run_number = (
+               SELECT COUNT(*) FROM audit_runs AS prior
+               WHERE prior.deck_id = run.deck_id AND prior.id <= run.id
+             )`);
+  }
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_runs_number ON audit_runs(deck_id, run_number)",
+  );
   const chatCols = new Set(
     (db.prepare("PRAGMA table_info(chat_messages)").all() as unknown as Array<{ name: string }>).map(
       (c) => c.name,

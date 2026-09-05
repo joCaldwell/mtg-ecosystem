@@ -4,7 +4,7 @@ import { DeckProvider, useDeck } from "./store.tsx";
 import { useLocalStorage } from "./lib.ts";
 import { SlotPanel } from "./SlotPanel.tsx";
 import { SearchPanel } from "./SearchPanel.tsx";
-import { CardRow } from "./CardRow.tsx";
+import { CardRow, type OwnershipMode } from "./CardRow.tsx";
 import { ProposalSection } from "./ProposalSection.tsx";
 import { AuditSection } from "./AuditSection.tsx";
 import { BriefPanel } from "./BriefPanel.tsx";
@@ -92,6 +92,11 @@ function DeckPage() {
     (raw) => (raw === "type" ? "type" : "slot"),
     (v) => v,
   );
+  const [ownershipMode, setOwnershipMode] = useLocalStorage<OwnershipMode>(
+    "deck.ownershipMode",
+    (raw) => (raw === "missing" ? "missing" : "owned"),
+    (v) => v,
+  );
   const peekProps = usePeekProps();
 
   useEffect(() => {
@@ -114,6 +119,8 @@ function DeckPage() {
   const commanders = cards.filter((c) => c.role === "commander");
   const companion = cards.filter((c) => c.role === "companion");
   const mainCards = cards.filter((c) => c.role === "card");
+  const ownedCount = cards.reduce((n, c) => n + (c.owned ? c.quantity : 0), 0);
+  const missingCount = cards.reduce((n, c) => n + (c.owned ? 0 : c.quantity), 0);
 
   const countClass = computed.delta_to_100 === 0 ? "ok" : computed.delta_to_100 < 0 ? "under" : "over";
   const violationCount =
@@ -301,30 +308,74 @@ function DeckPage() {
 
           <ProposalSection draft={draft} setDraft={setDraft} />
 
-          <div className="row gap group-by">
-            <span className="muted">Group by</span>
-            <div className="seg">
-              <button
-                className={groupBy === "slot" ? "active" : ""}
-                onClick={() => setGroupBy("slot")}
-                title="The deck's own roles, with their targets"
-              >
-                Slot
-              </button>
-              <button
-                className={groupBy === "type" ? "active" : ""}
-                onClick={() => setGroupBy("type")}
-                title="Creature, instant, land… — counts what the cards are"
-              >
-                Card type
-              </button>
+          <div className="group-by">
+            <div className="control-set">
+              <span className="muted">Group by</span>
+              <div className="seg">
+                <button
+                  className={groupBy === "slot" ? "active" : ""}
+                  onClick={() => setGroupBy("slot")}
+                  title="The deck's own roles, with their targets"
+                >
+                  Slot
+                </button>
+                <button
+                  className={groupBy === "type" ? "active" : ""}
+                  onClick={() => setGroupBy("type")}
+                  title="Creature, instant, land… — counts what the cards are"
+                >
+                  Card type
+                </button>
+              </div>
+            </div>
+            <div className="control-set ownership-controls">
+              <span className="muted">Mark</span>
+              <div className="seg ownership-mode">
+                <button
+                  className={ownershipMode === "owned" ? "active" : ""}
+                  aria-pressed={ownershipMode === "owned"}
+                  onClick={() => setOwnershipMode("owned")}
+                  title="Checked cards are cards you own"
+                >
+                  Owned <span className="seg-count">{ownedCount}</span>
+                </button>
+                <button
+                  className={ownershipMode === "missing" ? "active" : ""}
+                  aria-pressed={ownershipMode === "missing"}
+                  onClick={() => setOwnershipMode("missing")}
+                  title="Checked cards are cards you still need"
+                >
+                  Missing <span className="seg-count">{missingCount}</span>
+                </button>
+              </div>
+              {ownedCount < ownedCount + missingCount && (
+                <button
+                  className="baseline-action"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        "Mark every card in this deck as owned? You can then mark the exceptions as missing.",
+                      )
+                    ) {
+                      run(() => api.setAllCardsOwned(deckId, true));
+                    }
+                  }}
+                  title="Start with the whole deck owned, then mark missing exceptions"
+                >
+                  Mark all owned
+                </button>
+              )}
             </div>
           </div>
 
           <div className="group">
             <GroupHead title="Command zone" count={commanders.length} target="2" />
             {commanders.map((c) => (
-              <CardRow key={c.oracle_id} card={c} draftAdd={draftAdd} />
+              <CardRow
+                key={c.oracle_id}
+                card={c}
+                ownershipMode={ownershipMode}
+              />
             ))}
             {!commanders.length && (
               <p className="muted rationale">
@@ -345,7 +396,11 @@ function DeckPage() {
                     delta={g.delta}
                   />
                   {g.cards.map((c) => (
-                    <CardRow key={c.oracle_id} card={c} draftAdd={draftAdd} />
+                    <CardRow
+                      key={c.oracle_id}
+                      card={c}
+                      ownershipMode={ownershipMode}
+                    />
                   ))}
                 </div>
               ),
@@ -355,7 +410,11 @@ function DeckPage() {
             <div className="group">
               <GroupHead title="Companion" count={companion.length} />
               {companion.map((c) => (
-                <CardRow key={c.oracle_id} card={c} draftAdd={draftAdd} />
+                <CardRow
+                  key={c.oracle_id}
+                  card={c}
+                  ownershipMode={ownershipMode}
+                />
               ))}
             </div>
           )}

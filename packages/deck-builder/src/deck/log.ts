@@ -7,7 +7,15 @@
 import type { DatabaseSync } from "node:sqlite";
 import { ServiceError } from "../errors.ts";
 import { withTransaction } from "../db.ts";
-import { addCard, getDeck, removeCard, requireCard, requireDeck, updateCard } from "./service.ts";
+import {
+  addCard,
+  getDeck,
+  removeCard,
+  requireCard,
+  requireDeck,
+  updateCard,
+  withSingleDeckRevision,
+} from "./service.ts";
 
 export type RejectionType = "hard_filter" | "thesis_change" | "playtest_finding" | "soft";
 
@@ -281,7 +289,7 @@ function undoImport(db: DatabaseSync, deckId: number, entry: LogRow): number {
     tag_ids: c.tag_ids,
   }));
   const before = (JSON.parse(entry.snapshot_json ?? "{}").cards ?? []) as CardSnapshot[];
-  restoreCards(db, deckId, before);
+  withSingleDeckRevision(db, deckId, () => restoreCards(db, deckId, before));
   return logEntry(
     db,
     deckId,

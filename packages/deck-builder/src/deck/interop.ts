@@ -34,7 +34,13 @@
 import type { DatabaseSync } from "node:sqlite";
 import { ServiceError } from "../errors.ts";
 import { withTransaction } from "../db.ts";
-import { addCard, getDeck, removeCard, updateCard } from "./service.ts";
+import {
+  addCard,
+  getDeck,
+  removeCard,
+  updateCard,
+  withSingleDeckRevision,
+} from "./service.ts";
 import { isHardFiltered, logImport } from "./log.ts";
 import { resolveExactName, suggestNames } from "../search/index.ts";
 
@@ -239,6 +245,11 @@ export interface ImportDiff {
   }>;
   cuts: Array<{ oracle_id: string; name: string; quantity: number; role: string }>;
   quantity_changes: Array<{ oracle_id: string; name: string; from: number; to: number }>;
+  // Physical card counts, not distinct database rows. Quantity increases and
+  // decreases contribute to these totals, so 30 Forests really reads as 30
+  // cards to add in the preview.
+  add_count: number;
+  cut_count: number;
   unchanged: number;
   // Names the exact resolver could not match. Never guessed — suggestions are
   // shown for the owner to fix by hand (spec §6.4's rule applies to pasted
@@ -318,6 +329,7 @@ export function diffImport(db: DatabaseSync, deckId: number, text: string): Impo
   for (const [oracleId, p] of pasted) {
     const existing = inDeck.get(oracleId);
     if (existing) {
+      unchanged += Math.min(existing.quantity, p.quantity);
       if (existing.quantity !== p.quantity)
         quantityChanges.push({
           oracle_id: oracleId,
@@ -325,7 +337,6 @@ export function diffImport(db: DatabaseSync, deckId: number, text: string): Impo
           from: existing.quantity,
           to: p.quantity,
         });
-      else unchanged++;
       continue;
     }
     if (isHardFiltered(db, deckId, oracleId)) {
@@ -367,10 +378,19 @@ export function diffImport(db: DatabaseSync, deckId: number, text: string): Impo
       role: c.role,
     }));
 
+  const addCount =
+    adds.reduce((total, card) => total + card.quantity, 0) +
+    quantityChanges.reduce((total, change) => total + Math.max(0, change.to - change.from), 0);
+  const cutCount =
+    cuts.reduce((total, card) => total + card.quantity, 0) +
+    quantityChanges.reduce((total, change) => total + Math.max(0, change.from - change.to), 0);
+
   return {
     adds: adds.sort((a, b) => a.name.localeCompare(b.name)),
     cuts: cuts.sort((a, b) => a.name.localeCompare(b.name)),
     quantity_changes: quantityChanges.sort((a, b) => a.name.localeCompare(b.name)),
+    add_count: addCount,
+    cut_count: cutCount,
     unchanged,
     unresolved,
     ambiguous,
@@ -404,8 +424,8 @@ export function applyImport(
 ): ImportResult {
   const diff = diffImport(db, deckId, text);
   const applied = {
-    added: diff.adds.length,
-    cut: diff.cuts.length,
+    added: diff.add_count,
+    cut: diff.cut_count,
     quantity_changed: diff.quantity_changes.length,
   };
   if (!applied.added && !applied.cut && !applied.quantity_changed)
@@ -422,19 +442,21 @@ export function applyImport(
   }));
 
   return withTransaction(db, () => {
-    for (const c of diff.cuts) removeCard(db, deckId, c.oracle_id);
-    for (const a of diff.adds) {
-      // Slots deleted between preview and apply must not fail the import.
-      const slotId =
-        a.slot_id != null &&
-        db.prepare("SELECT 1 FROM slots WHERE id = ? AND deck_id = ?").get(a.slot_id, deckId)
-          ? a.slot_id
-          : null;
-      addCard(db, deckId, a.oracle_id, { slotId, role: a.role });
-      if (a.quantity > 1) updateCard(db, deckId, a.oracle_id, { quantity: a.quantity });
-    }
-    for (const q of diff.quantity_changes)
-      updateCard(db, deckId, q.oracle_id, { quantity: q.to });
+    withSingleDeckRevision(db, deckId, () => {
+      for (const c of diff.cuts) removeCard(db, deckId, c.oracle_id);
+      for (const a of diff.adds) {
+        // Slots deleted between preview and apply must not fail the import.
+        const slotId =
+          a.slot_id != null &&
+          db.prepare("SELECT 1 FROM slots WHERE id = ? AND deck_id = ?").get(a.slot_id, deckId)
+            ? a.slot_id
+            : null;
+        addCard(db, deckId, a.oracle_id, { slotId, role: a.role });
+        if (a.quantity > 1) updateCard(db, deckId, a.oracle_id, { quantity: a.quantity });
+      }
+      for (const q of diff.quantity_changes)
+        updateCard(db, deckId, q.oracle_id, { quantity: q.to });
+    });
 
     const summary =
       note?.trim() ||

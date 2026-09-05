@@ -132,6 +132,27 @@ function bumpDeckRevision(db: DatabaseSync, deckId: number) {
   db.prepare("UPDATE decks SET revision = revision + 1 WHERE id = ?").run(deckId);
 }
 
+// Collapse a batch of card-list mutations into one externally visible deck
+// revision. The ordinary helpers still do all of their validation and mark
+// membership changes by bumping the revision; because this runs in a
+// transaction, those intermediate values cannot escape. Imports and import
+// undos use this because a pasted/restored list is one unordered action, not
+// a sequence whose per-card order belongs in version history.
+export function withSingleDeckRevision<T>(
+  db: DatabaseSync,
+  deckId: number,
+  fn: () => T,
+): T {
+  const startingRevision = requireDeck(db, deckId).revision;
+  return withTransaction(db, () => {
+    const result = fn();
+    if (requireDeck(db, deckId).revision !== startingRevision) {
+      db.prepare("UPDATE decks SET revision = ? WHERE id = ?").run(startingRevision + 1, deckId);
+    }
+    return result;
+  });
+}
+
 function requireDeckCard(db: DatabaseSync, deckId: number, oracleId: string) {
   const row = db
     .prepare("SELECT * FROM deck_cards WHERE deck_id = ? AND oracle_id = ?")
@@ -242,6 +263,15 @@ export function updateCard(
     );
     for (const tagId of new Set(patch.tagIds)) ins.run(deckId, oracleId, tagId);
   }
+}
+
+/** Set the ownership baseline for the whole deck. Ownership is shopping
+ * metadata, so—like a single-card ownership edit—this does not change the
+ * deck revision. The UI uses this to start from "all owned" before marking a
+ * small number of missing exceptions. */
+export function setAllCardsOwned(db: DatabaseSync, deckId: number, owned: boolean): void {
+  requireDeck(db, deckId);
+  db.prepare("UPDATE deck_cards SET owned = ? WHERE deck_id = ?").run(owned ? 1 : 0, deckId);
 }
 
 function assertRoleCapacity(db: DatabaseSync, deckId: number, role: "commander" | "companion") {

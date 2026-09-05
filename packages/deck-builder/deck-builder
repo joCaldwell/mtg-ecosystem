@@ -1,0 +1,6 @@
+#!/usr/bin/env node
+
+// A double-clickable/launcher-friendly entry point. Keep the server lifecycle
+// in serve.mjs so this executable and the npm commands behave identically.
+process.argv.splice(2, 0, "launch");
+await import("./scripts/serve.mjs");

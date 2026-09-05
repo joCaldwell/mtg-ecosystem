@@ -115,8 +115,10 @@ describe("audit runs and dismissals (spec §8.3)", () => {
   test("runs are recorded with revision and instructions", () => {
     const id = createDeck(db, "History run");
     const run = runAudit(db, id, "focus on the mana base");
-    assert.ok(run.run_id > 0);
-    const row = db.prepare("SELECT * FROM audit_runs WHERE id = ?").get(run.run_id) as any;
+    assert.equal(run.run_id, 1);
+    const row = db
+      .prepare("SELECT * FROM audit_runs WHERE deck_id = ? AND run_number = ?")
+      .get(id, run.run_id) as any;
     assert.equal(row.instructions, "focus on the mana base");
     assert.equal(row.deck_id, id);
   });
@@ -132,8 +134,9 @@ describe("recorded runs (spec §8)", () => {
 
   test("a run is open while it runs and finishes asynchronously", () => {
     const id = createDeck(db, "Async run");
-    const runId = startAuditRun(db, id, "focus on lands");
-    assert.equal(runningAuditRun(db, id)?.id, runId);
+    const run = startAuditRun(db, id, "focus on lands");
+    assert.equal(runningAuditRun(db, id)?.id, run.id);
+    assert.equal(runningAuditRun(db, id)?.number, 1);
 
     const [pending] = listAuditRuns(db, id);
     assert.equal(pending.status, "running");
@@ -142,7 +145,7 @@ describe("recorded runs (spec §8)", () => {
     assert.ok(pending.findings.some((f) => f.key === "card_count"));
     assert.equal(pending.reasoning, null);
 
-    finishAuditRun(db, runId, reasoning("no-win-path", "No route to winning"));
+    finishAuditRun(db, run.id, reasoning("no-win-path", "No route to winning"));
     const [done] = listAuditRuns(db, id);
     assert.equal(done.status, "done");
     assert.ok(done.finished_at);
@@ -152,13 +155,13 @@ describe("recorded runs (spec §8)", () => {
 
   test("a failed reasoning pass records the failure, not a lost run", () => {
     const id = createDeck(db, "Failed run");
-    const runId = startAuditRun(db, id);
-    finishAuditRun(db, runId, null, "provider returned 500");
-    const [run] = listAuditRuns(db, id);
-    assert.equal(run.status, "error");
-    assert.equal(run.error, "provider returned 500");
+    const handle = startAuditRun(db, id);
+    finishAuditRun(db, handle.id, null, "provider returned 500");
+    const [recorded] = listAuditRuns(db, id);
+    assert.equal(recorded.status, "error");
+    assert.equal(recorded.error, "provider returned 500");
     // The deterministic findings still stand.
-    assert.ok(run.findings.length > 0);
+    assert.ok(recorded.findings.length > 0);
   });
 
   test("runs in flight at shutdown are reclaimed, never left claiming to run", () => {
@@ -179,10 +182,21 @@ describe("recorded runs (spec §8)", () => {
     const kept = listAuditRuns(db, id);
     assert.equal(kept.length, AUDIT_RUN_RETENTION);
     assert.deepEqual(
-      kept.map((r) => r.id),
+      kept.map((r) => r.number),
       ids.slice(-AUDIT_RUN_RETENTION).reverse(),
     );
-    assert.equal(listAuditRuns(db, other)[0].id, otherRun);
+    assert.equal(listAuditRuns(db, other)[0].number, otherRun);
+  });
+
+  test("run numbers start at one independently for each deck", () => {
+    const first = createDeck(db, "Local audit numbers A");
+    const second = createDeck(db, "Local audit numbers B");
+
+    assert.equal(runAudit(db, first).run_id, 1);
+    assert.equal(runAudit(db, first).run_id, 2);
+    assert.equal(runAudit(db, second).run_id, 1);
+    assert.deepEqual(listAuditRuns(db, first).map((r) => r.number), [2, 1]);
+    assert.deepEqual(listAuditRuns(db, second).map((r) => r.number), [1]);
   });
 
   test("the section reads live checks plus the newest stored reasoning", () => {
@@ -206,7 +220,7 @@ describe("recorded runs (spec §8)", () => {
     // Still reachable by key alone, and by its own run id.
     const hit = lookupFinding(db, id, "reasoning:fragile-engine", first.run_id);
     assert.equal(hit?.source, "reasoning");
-    assert.equal(hit?.run?.id, first.run_id);
+    assert.equal(hit?.run?.number, first.run_id);
     assert.equal(lookupFinding(db, id, "reasoning:fragile-engine")?.finding.title, "Engine has one copy");
 
     dismissFinding(db, id, "reasoning:fragile-engine", "thesis_change", "one copy is the plan");

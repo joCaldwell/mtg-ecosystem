@@ -79,6 +79,9 @@ Run from this directory (`packages/deck-builder/`):
 
 | Command | What it does |
 | --- | --- |
+| `npm run launch` | Start the app if needed and open it in the default browser |
+| `npm run install:launcher` | Add “MTG Deck Builder” to the desktop app launcher |
+| `npm run uninstall:launcher` | Remove the desktop app-launcher entry |
 | `npm start` | Build the UI and start the server in the background at :8787 |
 | `npm stop` / `npm run restart` | Stop it / rebuild and restart it |
 | `npm run status` | Is it up, on what port, and which decks exist |
@@ -92,6 +95,10 @@ Run from this directory (`packages/deck-builder/`):
 
 `npm start` uses a pidfile in `.dev/`, so stopping never means `pkill -f node`
 and taking something unrelated down with it.
+
+The executable `./deck-builder` does the same thing as `npm run launch`. It is
+also what the installed desktop entry runs, so moving the repository requires
+rerunning `npm run install:launcher` from its new location.
 
 ### Doing frontend work
 

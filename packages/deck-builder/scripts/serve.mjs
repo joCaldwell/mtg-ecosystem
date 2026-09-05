@@ -3,6 +3,7 @@
 // stopping never means guessing at `pkill -f node` and taking something else
 // down with it.
 //
+//   node scripts/serve.mjs launch [--no-build] [--notify]
 //   node scripts/serve.mjs start [--no-build]
 //   node scripts/serve.mjs stop | restart | status | logs [-n N] [-f]
 
@@ -65,11 +66,39 @@ function run(cmd, args, opts = {}) {
   });
 }
 
+function notify(title, message) {
+  if (process.platform !== "linux") return;
+  const child = spawn("notify-send", [title, message], {
+    detached: true,
+    stdio: "ignore",
+  });
+  child.on("error", () => {});
+  child.unref();
+}
+
+function openBrowser() {
+  const [cmd, args] =
+    process.platform === "darwin"
+      ? ["open", [URL]]
+      : process.platform === "win32"
+        ? ["cmd.exe", ["/d", "/s", "/c", "start", "", URL]]
+        : ["xdg-open", [URL]];
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
+    child.once("error", reject);
+    child.once("spawn", () => {
+      child.unref();
+      resolve();
+    });
+  });
+}
+
 async function start({ build = true } = {}) {
   const pid = running();
   if (pid) {
     console.log(`Already running (pid ${pid}) at ${URL}`);
-    return;
+    return true;
   }
   // Someone started it by hand, or another process owns the port. Say so
   // rather than starting a second copy that will fail to bind.
@@ -79,7 +108,7 @@ async function start({ build = true } = {}) {
         `It was probably started by hand. Stop it yourself, or set DECKBUILDER_PORT to use another port.`,
     );
     process.exitCode = 1;
-    return;
+    return false;
   }
 
   if (build) {
@@ -102,7 +131,7 @@ async function start({ build = true } = {}) {
     if (await portResponds()) {
       console.log(`Deck builder running at ${URL} (pid ${child.pid})`);
       console.log(`Logs: npm run logs   ·   Stop: npm run stop`);
-      return;
+      return true;
     }
     if (!alive(child.pid)) break;
     await sleep(150);
@@ -112,6 +141,24 @@ async function start({ build = true } = {}) {
   console.error(`Server failed to come up. Last log lines:\n`);
   console.error(tail(30));
   process.exitCode = 1;
+  return false;
+}
+
+async function launch({ build = true, desktopNotification = false } = {}) {
+  // Opening an instance started outside this manager is safe: portResponds
+  // verifies the deck-builder API rather than merely checking an open port.
+  if (!(await portResponds(1500))) {
+    const started = await start({ build });
+    if (!started) {
+      if (desktopNotification) {
+        notify("MTG Deck Builder", `Could not start. See ${LOG_FILE}`);
+      }
+      return;
+    }
+  }
+
+  await openBrowser();
+  console.log(`Opened ${URL}`);
 }
 
 async function stop() {
@@ -176,24 +223,39 @@ async function logs(args) {
 }
 
 const [cmd, ...rest] = process.argv.slice(2);
-switch (cmd) {
-  case "start":
-    await start({ build: !rest.includes("--no-build") });
-    break;
-  case "stop":
-    await stop();
-    break;
-  case "restart":
-    await stop();
-    await start({ build: !rest.includes("--no-build") });
-    break;
-  case "status":
-    await status();
-    break;
-  case "logs":
-    await logs(rest);
-    break;
-  default:
-    console.error("Usage: serve.mjs start [--no-build] | stop | restart | status | logs [-n N] [-f]");
-    process.exitCode = 1;
+try {
+  switch (cmd) {
+    case "launch":
+      await launch({
+        build: !rest.includes("--no-build"),
+        desktopNotification: rest.includes("--notify"),
+      });
+      break;
+    case "start":
+      await start({ build: !rest.includes("--no-build") });
+      break;
+    case "stop":
+      await stop();
+      break;
+    case "restart":
+      await stop();
+      await start({ build: !rest.includes("--no-build") });
+      break;
+    case "status":
+      await status();
+      break;
+    case "logs":
+      await logs(rest);
+      break;
+    default:
+      console.error(
+        "Usage: serve.mjs launch [--no-build] [--notify] | start [--no-build] | stop | restart | status | logs [-n N] [-f]",
+      );
+      process.exitCode = 1;
+  }
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`Deck builder launcher failed: ${message}`);
+  if (rest.includes("--notify")) notify("MTG Deck Builder", `Could not start: ${message}`);
+  process.exitCode = 1;
 }

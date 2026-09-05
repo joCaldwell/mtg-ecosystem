@@ -68,7 +68,7 @@ function runHeader(run: AuditRun, revision: number): string {
       : run.status === "error"
         ? ` (failed: ${run.error})`
         : "";
-  return `Audit run #${run.id}${status}, ${run.created_at}, taken at ${age}.${
+  return `Audit run #${run.number}${status}, ${run.created_at}, taken at ${age}.${
     run.instructions ? `\nThe owner's focus for this run: "${run.instructions}"` : ""
   }`;
 }
@@ -400,7 +400,10 @@ const TOOLS: Record<string, AgentTool> = {
     parameters: {
       type: "object",
       properties: {
-        run_id: { type: "integer", description: "Audit run id; omit for the most recent run" },
+        run_id: {
+          type: "integer",
+          description: "Deck-local audit run number; omit for the most recent run",
+        },
         finding_key: {
           type: "string",
           description:

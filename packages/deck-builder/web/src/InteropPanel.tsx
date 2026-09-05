@@ -65,15 +65,22 @@ export function InteropPanel() {
   }
 
   // The import lands in full and at once. The only thing worth stopping for is
-  // the destructive half — cards in the deck that the pasted list drops.
+  // the destructive half — cards or copies that the pasted list drops.
   async function commit() {
     if (!diff) return;
     if (
-      diff.cuts.length > 0 &&
+      diff.cut_count > 0 &&
       !window.confirm(
-        `This import removes ${diff.cuts.length} card(s) from the deck:\n\n` +
-          diff.cuts.map((c) => `· ${c.name}${c.role !== "card" ? ` (${c.role})` : ""}`).join("\n") +
-          `\n\nIt lands as one entry in the log, so you can undo the whole import. Apply it?`,
+        `This import removes ${diff.cut_count} card(s) from the deck:\n\n` +
+          [
+            ...diff.cuts.map(
+              (c) => `· ${c.quantity > 1 ? `${c.quantity}× ` : ""}${c.name}${c.role !== "card" ? ` (${c.role})` : ""}`,
+            ),
+            ...diff.quantity_changes
+              .filter((q) => q.to < q.from)
+              .map((q) => `· ${q.name} (${q.from}→${q.to})`),
+          ].join("\n") +
+          `\n\nIt lands as one revision and one log entry, so you can undo the whole import. Apply it?`,
       )
     )
       return;
@@ -102,7 +109,7 @@ export function InteropPanel() {
   }
 
   const changeCount = diff
-    ? diff.adds.length + diff.cuts.length + diff.quantity_changes.length
+    ? diff.add_count + diff.cut_count
     : 0;
 
   // Chrome (title bar, collapse) belongs to the modal that hosts this.
@@ -166,8 +173,8 @@ export function InteropPanel() {
               onChange={(e) => setNote(e.target.value)}
               placeholder="Note for the log entry (optional)"
             />
-            <button className={diff.cuts.length ? "danger" : ""} onClick={commit} disabled={busy}>
-              Apply {changeCount} change(s)
+            <button className={diff.cut_count ? "danger" : ""} onClick={commit} disabled={busy}>
+              Apply {changeCount} card change(s)
             </button>
           </>
         )}
@@ -177,19 +184,19 @@ export function InteropPanel() {
       {diff && (
         <div className="import-diff">
           <div className="muted">
-            {diff.adds.length} to add · {diff.cuts.length} to cut · {diff.unchanged} unchanged
+            {diff.add_count} to add · {diff.cut_count} to cut · {diff.unchanged} unchanged
             {diff.quantity_changes.length > 0 && ` · ${diff.quantity_changes.length} quantity`}
           </div>
-          {diff.cuts.length > 0 && (
+          {diff.cut_count > 0 && (
             <div className="error-banner">
-              Destructive: applying this removes {diff.cuts.length} card(s) that are in the deck but
-              not in the pasted list. Everything else here is additive. The whole import is one log
-              entry, so undoing it puts the deck back exactly as it is now.
+              Destructive: applying this removes {diff.cut_count} card(s), including quantity
+              decreases. The whole import is one revision and one log entry, so undoing it puts the
+              deck back exactly as it is now.
             </div>
           )}
           {diff.adds.map((a) => (
             <div key={a.oracle_id} className="log-row">
-              <span className="chip ok">add</span> {a.name}
+              <span className="chip ok">add</span> {a.quantity > 1 && `${a.quantity}× `}{a.name}
               {a.role !== "card" && <span className="chip"> {a.role}</span>}
               {a.slot_name ? (
                 <span className="muted"> → {a.slot_name}</span>
@@ -200,7 +207,7 @@ export function InteropPanel() {
           ))}
           {diff.cuts.map((c) => (
             <div key={c.oracle_id} className="log-row">
-              <span className="chip over">cut</span> {c.name}
+              <span className="chip over">cut</span> {c.quantity > 1 && `${c.quantity}× `}{c.name}
               {c.role !== "card" && <span className="muted"> ({c.role})</span>}
             </div>
           ))}

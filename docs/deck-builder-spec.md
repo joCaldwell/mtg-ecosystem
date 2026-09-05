@@ -70,6 +70,11 @@ Set manually by me when a card physically arrives. Used only to filter the expor
 
 **This field must never appear in the agent's context.** If the agent can see what I own, it will quietly bias its suggestions toward my binder. Budget-awareness is a mode I turn on deliberately, not an ambient bias.
 
+The decklist may expose either polarity of the same flag: mark cards as owned,
+or mark the smaller set that is missing. An explicit all-owned baseline is
+allowed so exception-first tracking does not require checking ninety-five
+cards before identifying the five that belong on the buy list.
+
 ---
 
 ## 4. Slots and tags

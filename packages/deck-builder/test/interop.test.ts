@@ -165,6 +165,17 @@ describe("import diff (spec §9)", () => {
     assert.deepEqual(diff.quantity_changes, [
       { oracle_id: "id-solring", name: "Sol Ring", from: 1, to: 3 },
     ]);
+    assert.equal(diff.add_count, 3); // Tarmogoyf + two additional Sol Rings
+    assert.equal(diff.cut_count, 1);
+    assert.equal(diff.unchanged, 2); // Teferi + the original Sol Ring
+  });
+
+  test("counts every copy of a newly imported basic land", () => {
+    const id = createDeck(db, "Import copy count");
+    const diff = diffImport(db, id, "30 Forest\n1 Sol Ring");
+    assert.equal(diff.adds.length, 2); // two distinct card rows
+    assert.equal(diff.add_count, 31); // but 31 physical cards
+    assert.equal(diff.cut_count, 0);
   });
 
   test("a category matching a slot name assigns the slot", () => {
@@ -223,12 +234,15 @@ describe("import applies in full and at once (spec §9)", () => {
     addCard(db, id, "id-rats");
     updateCard(db, id, "id-rats", { quantity: 1 });
 
+    const beforeRevision = getDeck(db, id).deck.revision;
     const r = applyImport(db, id, "1 Counterspell\n1 Tarmogoyf\n4 Typhoid Rats");
-    assert.deepEqual(r.applied, { added: 2, cut: 1, quantity_changed: 1 });
+    assert.deepEqual(r.applied, { added: 5, cut: 1, quantity_changed: 1 });
 
     const names = getDeck(db, id).cards.map((c) => c.name).sort();
     assert.deepEqual(names, ["Counterspell", "Tarmogoyf", "Typhoid Rats"]);
     assert.equal(getDeck(db, id).cards.find((c) => c.name === "Typhoid Rats")!.quantity, 4);
+    assert.equal(getDeck(db, id).deck.revision, beforeRevision + 1);
+    assert.equal((getLog(db, id) as any[])[0].revision, beforeRevision + 1);
     // Nothing waiting on the owner: the paste was the ruling.
     assert.equal(listProposals(db, id, "open").length, 0);
   });
@@ -236,22 +250,22 @@ describe("import applies in full and at once (spec §9)", () => {
   test("a 100-card list is one log entry, not one per card (§12 retention)", () => {
     const id = createDeck(db, "Import log volume");
     const list = [
-      "Llanowar Elves",
-      "Seedborn Muse",
-      "Counterspell",
-      "Sol Ring",
-      "Tarmogoyf",
-      "Typhoid Rats",
-      "Bojuka Bog",
-    ]
-      .map((n) => `1 ${n}`)
-      .join("\n");
+      "94 Forest",
+      "1 Llanowar Elves",
+      "1 Seedborn Muse",
+      "1 Counterspell",
+      "1 Sol Ring",
+      "1 Tarmogoyf",
+      "1 Typhoid Rats",
+    ].join("\n");
     applyImport(db, id, list);
     const log = getLog(db, id) as any[];
     assert.equal(log.length, 1);
     assert.equal(log[0].kind, "accept");
     assert.equal(log[0].action, "import");
-    assert.match(log[0].rationale, /\+7\/−0/);
+    assert.match(log[0].rationale, /\+100\/−0/);
+    assert.equal(getDeck(db, id).deck.revision, 1);
+    assert.equal(log[0].revision, 1);
   });
 
   test("undoing the single log entry restores the entire pre-import list", () => {
@@ -265,6 +279,7 @@ describe("import applies in full and at once (spec §9)", () => {
     assert.deepEqual(getDeck(db, id).cards.map((c) => c.name).sort(), ["Counterspell", "Tarmogoyf"]);
 
     const entry = (getLog(db, id) as any[])[0];
+    const importedRevision = getDeck(db, id).deck.revision;
     undoDecision(db, id, entry.id);
 
     const after = getDeck(db, id);
@@ -273,6 +288,7 @@ describe("import applies in full and at once (spec §9)", () => {
     assert.equal(solring.slot_id, ramp); // slot survives the round trip
     assert.ok(solring.owned); //             …and so does owned
     assert.equal(after.cards.find((c) => c.name === "Teferi, Temporal Archmage")!.role, "commander");
+    assert.equal(after.deck.revision, importedRevision + 1);
     // The undo is itself logged, and the import row is marked as undone.
     assert.equal((getLog(db, id) as any[])[0].kind, "undo");
     assert.ok((getLog(db, id) as any[]).find((e) => e.id === entry.id)!.undone_by);

@@ -35,13 +35,17 @@ export function DeckList() {
 
   return (
     <div className="deck-list-page">
-      <h1>Decks</h1>
+      <header className="deck-list-heading">
+        <h1>Your decks</h1>
+        <span className="muted">Commander workspace</span>
+      </header>
       {error && <div className="error-banner">{error}</div>}
-      <form onSubmit={create} className="row gap">
+      <form onSubmit={create} className="row gap deck-create">
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="New deck name"
+          aria-label="New deck name"
         />
         <button className="primary" type="submit" disabled={!name.trim()}>
           Create

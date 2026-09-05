@@ -18,6 +18,7 @@ import {
   listDecks,
   removeCard,
   renameDeck,
+  setAllCardsOwned,
   updateCard,
   updateSlot,
   validateVocabName,
@@ -211,6 +212,20 @@ describe("computed state", () => {
     addCard(db, id, "id-solring");
     updateCard(db, id, "id-solring", { owned: true });
     assert.equal(getDeck(db, id).cards[0].owned, 1);
+  });
+  test("ownership baseline updates the whole deck without changing its revision", () => {
+    const id = freshDeck("Ownership baseline");
+    addCard(db, id, "id-solring");
+    addCard(db, id, "id-forest");
+    const revision = getDeck(db, id).deck.revision;
+
+    setAllCardsOwned(db, id, true);
+    assert.ok(getDeck(db, id).cards.every((c) => c.owned === 1));
+    assert.equal(getDeck(db, id).deck.revision, revision);
+
+    setAllCardsOwned(db, id, false);
+    assert.ok(getDeck(db, id).cards.every((c) => c.owned === 0));
+    assert.equal(getDeck(db, id).deck.revision, revision);
   });
 });
 

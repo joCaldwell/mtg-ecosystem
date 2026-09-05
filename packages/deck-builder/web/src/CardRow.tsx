@@ -1,15 +1,17 @@
 import { useState, type MouseEvent } from "react";
-import { api, type DeckCard, type DraftItem } from "./api.ts";
+import { api, type DeckCard } from "./api.ts";
 import { useDeck } from "./store.tsx";
 import { ptString } from "./lib.ts";
 import { ManaCost } from "./Mana.tsx";
 
+export type OwnershipMode = "owned" | "missing";
+
 export function CardRow({
   card,
-  draftAdd,
+  ownershipMode,
 }: {
   card: DeckCard;
-  draftAdd?: (item: DraftItem) => void;
+  ownershipMode: OwnershipMode;
 }) {
   const { deckId, state, run } = useDeck();
   const { slots, tags } = state!;
@@ -30,7 +32,7 @@ export function CardRow({
   const activeTags = tags.filter((t) => card.tag_ids.includes(t.id));
 
   // The whole row toggles the detail panel, but the row also carries its own
-  // controls — the own checkbox, the slot select, the action buttons, and the
+  // controls — the ownership checkbox, slot select, action buttons, and the
   // name button that keeps this reachable from the keyboard. Anything
   // interactive handles its own click, so the row bows out.
   function toggleFromRow(e: MouseEvent<HTMLDivElement>) {
@@ -38,8 +40,13 @@ export function CardRow({
     setExpanded(!expanded);
   }
 
+  const markingMissing = ownershipMode === "missing";
+  const ownershipMarked = markingMissing ? !card.owned : !!card.owned;
+
   return (
-    <div className={`card-row ${expanded ? "is-open" : ""}`}>
+    <div
+      className={`card-row ${expanded ? "is-open" : ""} ${markingMissing && !card.owned ? "is-missing" : ""}`}
+    >
       <div className="card-main is-clickable" onClick={toggleFromRow}>
         {/* Name and cost share one growing box so the name keeps its natural
             width — a bare flex spacer would shrink it into an ellipsis first.
@@ -71,15 +78,22 @@ export function CardRow({
           </span>
         )}
 
-        <label className="own-toggle" title="Owned (never shown to the agent)">
+        <label
+          className={`own-toggle ${markingMissing ? "is-missing" : ""}`}
+          title={`${markingMissing ? "Missing" : "Owned"} (never shown to the agent)`}
+        >
           <input
             type="checkbox"
-            checked={!!card.owned}
+            checked={ownershipMarked}
             onChange={(e) =>
-              run(() => api.updateCard(deckId, card.oracle_id, { owned: e.target.checked }))
+              run(() =>
+                api.updateCard(deckId, card.oracle_id, {
+                  owned: markingMissing ? !e.target.checked : e.target.checked,
+                }),
+              )
             }
           />
-          own
+          {markingMissing ? "missing" : "own"}
         </label>
 
         <select
@@ -103,35 +117,17 @@ export function CardRow({
         </select>
 
         <span className="row-actions">
-          {draftAdd && (
+          {card.quantity > 1 && (
             <button
               className="icon"
-              title="Propose cutting this card"
+              title="Remove one copy"
               onClick={() =>
-                draftAdd({
-                  action: "cut",
-                  oracle_id: card.oracle_id,
-                  card_name: card.name,
-                  rationale: "",
-                })
+                run(() => api.updateCard(deckId, card.oracle_id, { quantity: card.quantity - 1 }))
               }
             >
-              ✂
+              −
             </button>
           )}
-          <button
-            className="icon"
-            title="Remove one / remove card"
-            onClick={() =>
-              card.quantity > 1
-                ? run(() =>
-                    api.updateCard(deckId, card.oracle_id, { quantity: card.quantity - 1 }),
-                  )
-                : run(() => api.removeCard(deckId, card.oracle_id))
-            }
-          >
-            −
-          </button>
           <button
             className="icon"
             title="Add a copy"
@@ -143,7 +139,7 @@ export function CardRow({
           </button>
           <button
             className="icon danger"
-            title="Remove card entirely"
+            title={card.quantity > 1 ? "Remove all copies" : "Remove card"}
             onClick={() => run(() => api.removeCard(deckId, card.oracle_id))}
           >
             ✕

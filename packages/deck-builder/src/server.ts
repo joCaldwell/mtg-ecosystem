@@ -17,6 +17,7 @@ import {
   removeCard,
   renameDeck,
   renameTag,
+  setAllCardsOwned,
   updateCard,
   updateSlot,
 } from "./deck/service.ts";
@@ -96,6 +97,10 @@ route("POST", /^\/api\/decks\/(\d+)\/cards$/, ([id], body) => {
     slotId: body.slot_id ?? null,
     role: body.role,
   });
+  return { state: state(Number(id)) };
+});
+route("PATCH", /^\/api\/decks\/(\d+)\/cards$/, ([id], body) => {
+  setAllCardsOwned(db, Number(id), !!body.owned);
   return { state: state(Number(id)) };
 });
 route("PATCH", /^\/api\/decks\/(\d+)\/cards\/([0-9a-f-]+)$/, ([id, oid], body) => {
@@ -226,12 +231,13 @@ route("POST", /^\/api\/decks\/(\d+)\/audit$/, ([id], body) => {
   // One run at a time per deck: a second click while one is in flight joins
   // the run already going rather than paying for a duplicate reasoning pass.
   const inFlight = runningAuditRun(db, deckId);
-  if (inFlight) return { run_id: inFlight.id, already_running: true, audit: auditState(db, deckId) };
+  if (inFlight)
+    return { run_id: inFlight.number, already_running: true, audit: auditState(db, deckId) };
 
-  const runId = startAuditRun(db, deckId, instructions);
-  if (body.skip_reasoning === true) finishAuditRun(db, runId, null);
-  else void executeAuditRun(deckId, runId, instructions);
-  return { run_id: runId, already_running: false, audit: auditState(db, deckId) };
+  const auditRun = startAuditRun(db, deckId, instructions);
+  if (body.skip_reasoning === true) finishAuditRun(db, auditRun.id, null);
+  else void executeAuditRun(deckId, auditRun.id, instructions);
+  return { run_id: auditRun.number, already_running: false, audit: auditState(db, deckId) };
 });
 route("POST", /^\/api\/decks\/(\d+)\/audit\/dismiss$/, ([id], body) => {
   dismissFinding(db, Number(id), String(body.key), body.type, String(body.reason ?? ""));
