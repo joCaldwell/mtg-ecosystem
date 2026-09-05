@@ -5,6 +5,7 @@ import {
   useState,
   type FormEvent,
   type KeyboardEvent,
+  type ReactNode,
 } from "react";
 import { api, type ChatMsg, type Envelope } from "./api.ts";
 import { useDeck } from "./store.tsx";
@@ -79,7 +80,7 @@ function ProposalBlock({
           {open ? `${open} awaiting you` : "ruled"}
         </span>
       </div>
-      {proposal.note && <div className="muted rationale">{proposal.note}</div>}
+      {proposal.note && <div className="muted rationale"><Markdown text={proposal.note} /></div>}
       <ProposalCard proposal={proposal} rule={rule} head={false} />
     </div>
   );
@@ -87,13 +88,10 @@ function ProposalBlock({
 
 function Message({
   m,
-  carded,
   attached,
   rule,
 }: {
   m: ChatMsg;
-  /** tool_call_ids whose proposal renders in full further down (see toolSummary). */
-  carded: Set<string>;
   /** Proposals carried to the foot of their final reply, keyed by its message id. */
   attached: Map<number, NonNullable<ChatMsg["proposal"]>[]>;
   rule: (fn: () => Promise<Envelope>) => Promise<unknown>;
@@ -115,8 +113,6 @@ function Message({
       </div>
     ) : null;
 
-  const tools = toolSummary(m, carded);
-  if (tools) return <div className="chat-tool muted">⚙ {tools}</div>;
   const proposals = attached.get(m.id);
   if (m.content || proposals?.length)
     return (
@@ -295,7 +291,45 @@ export function ChatPanel({
     setHistory(await api.getChat(deckId).catch(() => history));
   }
 
-  const msgProps = { carded, attached, rule: ruleFromChat };
+  const msgProps = { attached, rule: ruleFromChat };
+
+  // Keep consecutive tool activity behind one native disclosure. Stable keys
+  // preserve its open state while typing or ruling on a proposal.
+  function transcript(messages: ChatMsg[]): ReactNode[] {
+    const nodes: ReactNode[] = [];
+    let pending: { id: number; text: string; count: number }[] = [];
+    function flush() {
+      if (!pending.length) return;
+      const count = pending.reduce((n, entry) => n + entry.count, 0);
+      nodes.push(
+        <details className="chat-tools" key={`tools-${pending[0].id}`}>
+          <summary>{count} tool call{count === 1 ? "" : "s"}</summary>
+          <div className="chat-tools-list">
+            {pending.map((entry) => (
+              <div className="chat-tool muted" key={entry.id}>{entry.text}</div>
+            ))}
+          </div>
+        </details>,
+      );
+      pending = [];
+    }
+    for (const m of messages) {
+      const summary = toolSummary(m, carded);
+      if (summary) {
+        pending.push({
+          id: m.id,
+          text: summary,
+          count: m.tool_calls!.filter((c) => !carded.has(c.id)).length,
+        });
+      }
+      // Calls whose proposal is already shown need no duplicate activity row.
+      if (m.role === "assistant" && !m.content && !attached.has(m.id)) continue;
+      flush();
+      nodes.push(<Message key={m.id} m={m} {...msgProps} />);
+    }
+    flush();
+    return nodes;
+  }
 
   return (
     <div className="chat">
@@ -311,14 +345,10 @@ export function ChatPanel({
             <summary className="muted">
               {compacted.length} message(s) compacted out of context — still on disk
             </summary>
-            {compacted.map((m) => (
-              <Message key={m.id} m={m} {...msgProps} />
-            ))}
+            {transcript(compacted)}
           </details>
         )}
-        {resident.map((m) => (
-          <Message key={m.id} m={m} {...msgProps} />
-        ))}
+        {transcript(resident)}
         {sent !== null && (
           <div className="chat-msg user">
             <AuditRefText text={sent} />

@@ -5,7 +5,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { ServiceError } from "../errors.ts";
 import { withTransaction } from "../db.ts";
-import { addCard, removeCard, requireCard, requireDeck } from "./service.ts";
+import { addCard, removeCard, requireCard, requireDeck, updateCard } from "./service.ts";
 import {
   REJECTION_TYPES,
   type RejectionType,
@@ -219,7 +219,12 @@ function applyAccept(db: DatabaseSync, item: ItemRow): void {
   } else {
     const snapshot = snapshotCard(db, item.deck_id, item.oracle_id);
     if (!snapshot) throw new ServiceError(`${name} is no longer in the deck; cannot accept the cut`);
-    removeCard(db, item.deck_id, item.oracle_id);
+    // Each proposal item changes one copy, matching the pending delta (§7.1).
+    const partialCut = snapshot.quantity > 1;
+    if (partialCut)
+      updateCard(db, item.deck_id, item.oracle_id, { quantity: snapshot.quantity - 1 });
+    else
+      removeCard(db, item.deck_id, item.oracle_id);
     logEntry(
       db,
       item.deck_id,
@@ -231,7 +236,7 @@ function applyAccept(db: DatabaseSync, item: ItemRow): void {
         rationale: item.rationale,
         proposal_id: item.proposal_id,
         item_id: item.id,
-        snapshot_json: JSON.stringify(snapshot),
+        snapshot_json: JSON.stringify({ ...snapshot, quantity: 1, partial_cut: partialCut }),
       },
       requireDeck(db, item.deck_id).revision,
     );

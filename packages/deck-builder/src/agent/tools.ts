@@ -267,7 +267,7 @@ const TOOLS: Record<string, AgentTool> = {
 
   propose_changes: {
     description:
-      `Propose deck changes for the owner to rule on. 3–${MAX_ITEMS} items maximum — rank your best ideas. oracle_id values MUST come from this conversation's search results or the decklist. Items sharing a group_id are accepted/rejected as a unit (use for swaps). Slots are optional — never withhold a proposal for want of one.`,
+      `Propose deck changes for the owner to rule on. Each item adds or cuts exactly one copy; a cut never removes all copies. 3–${MAX_ITEMS} items maximum — rank your best ideas. oracle_id values MUST come from this conversation's search results or the decklist. Items sharing a group_id are accepted/rejected as a unit (use for swaps). Slots are optional — never withhold a proposal for want of one.`,
     parameters: {
       type: "object",
       properties: {

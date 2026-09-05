@@ -2176,3 +2176,24 @@ details:not(.group) > summary {
     transition: none !important;
   }
 }
+
+/* Tool activity is secondary to the conversation and proposals. */
+.chat-tools {
+  flex: none;
+  color: var(--fg-mute);
+  font-size: 12px;
+}
+.chat-tools > summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.chat-tools > summary:hover {
+  color: var(--fg);
+}
+.chat-tools-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-3) 0 var(--sp-1) var(--sp-3);
+  overflow-wrap: anywhere;
+}

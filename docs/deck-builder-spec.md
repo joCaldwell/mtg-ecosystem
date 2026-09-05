@@ -152,7 +152,7 @@ The reasons are the point. In a direct-edit model my objection is said once and 
 ### 7.1 Changeset structure
 
 - A proposal contains **3–5 items maximum.** Hand me fifteen changes and I rubber-stamp them. The cap forces the agent to rank, and its ranking is itself informative.
-- Item: `action` (add/cut), `oracle_id`, `rationale`, `group_id`, `status`.
+- Item: `action` (add/cut), `oracle_id`, `rationale`, `group_id`, `status`. Each item adds or cuts exactly one copy; cutting a card with multiple copies decrements its quantity, removing the row only when the last copy is cut.
 - **`group_id` marks atomic bundles.** A swap justified by one line of reasoning must be accepted or rejected as a unit — otherwise I take the cut, reject the add, and sit at 99 cards holding half an argument. Everything else is independent.
 - Track **pending delta** against 100 and against each slot target, so the app always knows I'm two cards short and the agent can be told to fill exactly that.
 

@@ -9,6 +9,7 @@ import { useDeck } from "./store.tsx";
 import { usePeekProps } from "./CardPeek.tsx";
 import { ManaCost } from "./Mana.tsx";
 import { RejectionForm } from "./RejectionForm.tsx";
+import { CardText, Markdown } from "./Markdown.tsx";
 
 // acceptItem/rejectItem rule on a whole group_id at once — a swap is one
 // decision, not two. So the items are folded into units first and each unit
@@ -107,7 +108,7 @@ export function ProposalCard({
       {head && (
         <div className="proposal-head">
           #{proposal.id} · {proposal.source}
-          {proposal.note && ` · ${proposal.note}`}
+          {proposal.note && <> · <CardText text={proposal.note} /></>}
         </div>
       )}
       {units(proposal.items).map((unit) => {
@@ -137,11 +138,11 @@ export function ProposalCard({
                   <div className="card-main">
                     <ItemLine item={item} />
                   </div>
-                  <div className="muted rationale">“{item.rationale}”</div>
+                  <div className="muted rationale"><Markdown text={item.rationale} /></div>
                 </div>
               ))
             ) : (
-              <div className="muted rationale">“{first.rationale}”</div>
+              <div className="muted rationale"><Markdown text={first.rationale} /></div>
             )}
 
             {rejecting === first.id && (

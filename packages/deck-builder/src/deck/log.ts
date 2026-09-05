@@ -326,29 +326,35 @@ function undoAdd(db: DatabaseSync, deckId: number, entry: LogRow): number {
 }
 
 function undoCut(db: DatabaseSync, deckId: number, entry: LogRow): number {
-  if (snapshotCard(db, deckId, entry.oracle_id!))
-    throw new ServiceError(`${entry.card_name} is already back in the deck`);
   const snapshot = entry.snapshot_json ? JSON.parse(entry.snapshot_json) : {};
-  let slotId: number | null = snapshot.slot_id ?? null;
-  if (
-    slotId != null &&
-    !db.prepare("SELECT 1 FROM slots WHERE id = ? AND deck_id = ?").get(slotId, deckId)
-  )
-    slotId = null;
-  addCard(db, deckId, entry.oracle_id!, { slotId, role: snapshot.role ?? "card" });
-  const existingTags = new Set(
-    (
-      db.prepare("SELECT id FROM tags WHERE deck_id = ?").all(deckId) as unknown as {
-        id: number;
-      }[]
-    ).map((t) => t.id),
-  );
-  const patch: Parameters<typeof updateCard>[3] = {
-    owned: !!snapshot.owned,
-    tagIds: (snapshot.tag_ids ?? []).filter((t: number) => existingTags.has(t)),
-  };
-  if (snapshot.quantity > 1) patch.quantity = snapshot.quantity;
-  updateCard(db, deckId, entry.oracle_id!, patch);
+  const current = snapshotCard(db, deckId, entry.oracle_id!);
+  if (current && !snapshot.partial_cut)
+    throw new ServiceError(`${entry.card_name} is already back in the deck`);
+  if (current) {
+    // Restore only the removed copy; keep subsequent organization/quantity edits.
+    updateCard(db, deckId, entry.oracle_id!, { quantity: current.quantity + 1 });
+  } else {
+    let slotId: number | null = snapshot.slot_id ?? null;
+    if (
+      slotId != null &&
+      !db.prepare("SELECT 1 FROM slots WHERE id = ? AND deck_id = ?").get(slotId, deckId)
+    )
+      slotId = null;
+    addCard(db, deckId, entry.oracle_id!, { slotId, role: snapshot.role ?? "card" });
+    const existingTags = new Set(
+      (
+        db.prepare("SELECT id FROM tags WHERE deck_id = ?").all(deckId) as unknown as {
+          id: number;
+        }[]
+      ).map((t) => t.id),
+    );
+    const patch: Parameters<typeof updateCard>[3] = {
+      owned: !!snapshot.owned,
+      tagIds: (snapshot.tag_ids ?? []).filter((t: number) => existingTags.has(t)),
+    };
+    if (snapshot.quantity > 1) patch.quantity = snapshot.quantity;
+    updateCard(db, deckId, entry.oracle_id!, patch);
+  }
   return logEntry(
     db,
     deckId,

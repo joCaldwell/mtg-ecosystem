@@ -7,7 +7,7 @@ import { getProposal } from "../deck/proposals.ts";
 import { allMessages, appendMessage, type StoredChatMessage } from "./chatStore.ts";
 import { LlmError, type ChatMessage, type ChatTransport } from "./llm.ts";
 
-const MAX_MODEL_CALLS = 12;
+const MAX_MODEL_CALLS = 60;
 const MAX_LINT_BOUNCES = 2;
 
 export class AgentError extends AppError {

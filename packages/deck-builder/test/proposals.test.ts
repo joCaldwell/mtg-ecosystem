@@ -82,6 +82,51 @@ describe("accept", () => {
     assert.equal(log[0].rationale, "best ramp in the format");
     assert.equal(log[0].revision, 1);
   });
+  test("a grouped swap cuts one basic copy, matches the preview, and can be undone", () => {
+    const id = deckWith("Basic swap", ["id-forest"]);
+    const slot = createSlot(db, id, "Mana");
+    const tag = createTag(db, id, "keep");
+    updateCard(db, id, "id-forest", { quantity: 99, slotId: slot, owned: true, tagIds: [tag] });
+    addCard(db, id, "id-atraxa", { role: "commander" });
+    const before = getDeck(db, id);
+    createProposal(db, id, [
+      { action: "cut", oracle_id: "id-forest", rationale: "Trim one basic", group_id: "swap" },
+      { action: "add", oracle_id: "id-solring", slot_id: slot, rationale: "Ramp", group_id: "swap" },
+    ]);
+    const projected = getDeck(db, id).computed.pending.projected_count;
+    assert.equal(projected, 100);
+    acceptItem(db, openItems(id)[0].id);
+    const after = getDeck(db, id);
+    const basic = after.cards.find((c) => c.oracle_id === "id-forest")!;
+    assert.equal(basic.quantity, 98);
+    assert.equal(basic.slot_id, slot);
+    assert.equal(basic.owned, 1);
+    assert.deepEqual(basic.tag_ids, [tag]);
+    assert.equal(after.computed.card_count, projected);
+    assert.equal(after.deck.revision, before.deck.revision + 2);
+    assert.equal(openItems(id).length, 0);
+
+    const cut = getLog(db, id).find((e) => e.action === "cut")!;
+    undoDecision(db, id, cut.id);
+    assert.equal(getDeck(db, id).cards.find((c) => c.oracle_id === "id-forest")!.quantity, 99);
+    assert.throws(() => undoDecision(db, id, cut.id), /already been undone/);
+  });
+
+  test("a failed grouped swap rolls back a partial cut and its log", () => {
+    const id = deckWith("Basic rollback", ["id-forest"]);
+    updateCard(db, id, "id-forest", { quantity: 12 });
+    createProposal(db, id, [
+      { action: "cut", oracle_id: "id-forest", rationale: "Trim one", group_id: "swap" },
+      { action: "add", oracle_id: "id-solring", rationale: "Ramp", group_id: "swap" },
+    ]);
+    addCard(db, id, "id-solring");
+    const before = getDeck(db, id);
+    assert.throws(() => acceptItem(db, openItems(id)[0].id), /already in the deck/);
+    assert.deepEqual(getDeck(db, id), before);
+    assert.equal(getLog(db, id).length, 0);
+    assert.equal(openItems(id).length, 2);
+  });
+
   test("atomic groups apply together or not at all", () => {
     const id = deckWith("Groups", ["id-counterspell"]);
     createProposal(db, id, [
