@@ -205,6 +205,66 @@ describe("agent loop", () => {
     assert.equal(after.proposal.status, "resolved");
   });
 
+  test("the turn's brief edits are linked to chat and hydrated with live rulings", async () => {
+    const id = createDeck(db, "Inline brief-edit deck");
+    const { transport } = scripted([
+      {
+        message: toolCall(
+          "propose_brief_edit",
+          {
+            section: "thesis",
+            content: "Build pressure, then turn combat into cards.",
+            rationale: "The plan is now explicit.",
+          },
+          "call_thesis",
+        ),
+      },
+      {
+        message: toolCall(
+          "propose_brief_edit",
+          {
+            section: "constraints",
+            content: "No tutors.",
+            rationale: "Keep games varied.",
+          },
+          "call_constraints",
+        ),
+      },
+      { message: text("I submitted two brief updates for your ruling.") },
+    ]);
+    await runTurn(db, id, "formalize that plan", transport, 30);
+
+    const history = getChatHistory(db, id);
+    const linked = history.filter((m: any) => m.brief_edit_id != null) as any[];
+    assert.equal(linked.length, 2);
+    assert.ok(linked.every((m) => m.role === "tool"));
+    assert.deepEqual(linked.map((m) => m.tool_call_id), ["call_thesis", "call_constraints"]);
+    assert.deepEqual(linked.map((m) => m.brief_edit.kind), ["thesis", "constraints"]);
+    assert.ok(linked.every((m) => m.brief_edit.status === "pending"));
+
+    // Turns recorded before brief-edit links existed can recover the durable
+    // id from the server-authored tool result, so an already-visible proposal
+    // becomes actionable after upgrading too.
+    const stored = db.prepare("SELECT content_json FROM chat_messages WHERE id = ?").get(linked[0].id) as {
+      content_json: string;
+    };
+    const legacyMessage = JSON.parse(stored.content_json);
+    delete legacyMessage.brief_edit_id;
+    db.prepare("UPDATE chat_messages SET content_json = ? WHERE id = ?").run(
+      JSON.stringify(legacyMessage),
+      linked[0].id,
+    );
+    const recovered = getChatHistory(db, id).find((m) => m.id === linked[0].id) as any;
+    assert.equal(recovered.brief_edit_id, linked[0].brief_edit.id);
+    assert.equal(recovered.brief_edit.kind, "thesis");
+
+    // Hydration is live, so the chat card becomes accepted after a ruling
+    // instead of preserving the state from when the tool call was stored.
+    acceptBriefEdit(db, id, linked[0].brief_edit.id);
+    const after = getChatHistory(db, id).find((m: any) => m.brief_edit_id === linked[0].brief_edit.id) as any;
+    assert.equal(after.brief_edit.status, "accepted");
+  });
+
   // The owner hands the agent a finding as a reference, not as pasted text —
   // so the agent has to read the recorded run before it can answer.
   test("get_audit resolves an audit#run/key reference to the recorded finding", async () => {

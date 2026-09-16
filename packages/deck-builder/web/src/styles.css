@@ -17,8 +17,8 @@
    then moves that column and nothing else. Stacked, the page scrolls normally
    again: a lone column has no neighbour to be confused with.
 
-   The search/chat column is drag-resizable through --side-w (SidePanel.tsx
-   writes it on :root) and can be maximized over the page entirely.
+   Both sidebars are drag-resizable through --rail and --side-w; SidebarResize
+   saves their widths. Search/chat can also be maximized over the page.
 
    The decklist is a container-query container, so card rows shed their less
    important columns based on how wide the *column* is, not the window.
@@ -27,26 +27,27 @@
 :root {
   color-scheme: dark;
 
-  --bg: #101318;
-  --bg-panel: #181d25;
-  --bg-row: #1e2530;
-  --bg-hover: #283343;
-  --bg-input: #0f1218;
+  --bg: #111213;
+  --bg-sidebar: #090a0b;
+  --bg-panel: #151718;
+  --bg-row: #1a1c1d;
+  --bg-hover: #252829;
+  --bg-input: #0d0f10;
 
-  --border: #303946;
-  --border-hi: #4c5b70;
+  --border: #292d2e;
+  --border-hi: #484f50;
 
-  --fg: #e6ebf2;
-  --fg-dim: #adb8c8;
-  --fg-mute: #8e9bae;
+  --fg: #e4e5e2;
+  --fg-dim: #aeb3b0;
+  --fg-mute: #8b9390;
 
-  --accent: #9bbcff;
-  --selection-bg: #b7d2ff;
-  --selection-fg: #101b30;
-  --accent-bg: #1b2540;
-  --accent-bg-hi: #24325a;
-  --accent-border: #2f4573;
-  --accent-fg: #b9cbf5;
+  --accent: #a6c2b5;
+  --selection-bg: #b8cec3;
+  --selection-fg: #111b16;
+  --accent-bg: #18241f;
+  --accent-bg-hi: #24362d;
+  --accent-border: #3b5548;
+  --accent-fg: #bdd2c7;
   --ok: #5cc98d;
   --ok-bg: #10261c;
   --under: #e3b341;
@@ -68,8 +69,8 @@
 
   --ctl-h: 31px;
   --page-pad: 20px;
-  --rail: 250px;
-  /* Overwritten on :root by SidePanel while dragging. */
+  /* Overwritten on :root by SidebarResize while dragging. */
+  --rail: 280px;
   --side-w: 372px;
 
   --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px -12px rgb(0 0 0 / 0.6);
@@ -212,6 +213,16 @@ button.danger:hover:not(:disabled) {
   border-color: var(--over);
   color: var(--over);
   background: var(--over-bg);
+}
+button.destructive {
+  border-color: var(--over-border);
+  background: var(--over-bg);
+  color: var(--over);
+}
+button.destructive:hover:not(:disabled) {
+  border-color: var(--over);
+  background: color-mix(in srgb, var(--over-bg) 72%, var(--over) 28%);
+  color: var(--fg);
 }
 button.link {
   height: auto;
@@ -424,17 +435,29 @@ select.ghost:focus {
 
 /* --- deck page shell ---------------------------------------------------- */
 
-/* The frame. Header and banners are fixed furniture; .columns takes the rest of
-   the viewport and hands it to the columns, which scroll on their own. */
+/* The header belongs to the workspace. Both sidebars span the entire frame,
+   while the center's final row gives the deck its own scrollport. */
 .deck-page {
   height: 100dvh;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: var(--rail) minmax(0, 1fr) var(--side-w);
+  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-areas:
+    "slots header side"
+    "slots notice side"
+    "slots deck side";
   overflow: hidden;
-  padding: 0 var(--page-pad) var(--sp-3);
+}
+.deck-page > .error-banner {
+  grid-area: notice;
+  margin: var(--sp-3) var(--page-pad) 0;
+  max-height: 22vh;
+  overflow-y: auto;
 }
 
 .deck-header {
+  grid-area: header;
+  min-width: 0;
   flex: none;
   position: sticky;
   top: 0;
@@ -443,8 +466,7 @@ select.ghost:focus {
   align-items: center;
   gap: var(--sp-3);
   flex-wrap: wrap;
-  padding: var(--sp-3) 0;
-  margin-bottom: var(--sp-1);
+  padding: var(--sp-4) var(--page-pad);
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
@@ -473,6 +495,24 @@ select.ghost:focus {
 }
 .deck-header h1:hover {
   color: var(--accent);
+}
+.deck-name-trigger {
+  max-width: min(36vw, 520px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.deck-name-edit {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-width: min(36vw, 260px);
+}
+.deck-name-edit input {
+  width: clamp(180px, 30vw, 480px);
+  height: 33px;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
 /* The deck's name is the title; the commander is what it plays — quieter, but
    sitting immediately before the identity pips it explains. */
@@ -510,16 +550,7 @@ select.ghost:focus {
 }
 
 .columns {
-  display: grid;
-  grid-template-columns: var(--rail) minmax(0, 1fr) var(--side-w);
-  grid-template-areas: "slots deck side";
-  gap: var(--sp-4);
-  margin-top: var(--sp-3);
-  /* Fill the frame and stretch the columns to it: each one is a scrollport of
-     its own, so they must all be exactly as tall as the space available. */
-  flex: 1;
-  min-height: 0;
-  align-items: stretch;
+  display: contents;
 }
 
 /* Dissolved at full width: slots and search/chat are their own columns. */
@@ -538,9 +569,18 @@ select.ghost:focus {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-  padding-right: var(--sp-2);
-  padding-bottom: var(--sp-5);
+  scrollbar-gutter: stable both-edges;
+  padding-block: 28px 64px;
+  container-type: inline-size;
+  container-name: workspace;
+}
+/* Measure gutters against the remaining workspace, including live sidebar
+   resizing. The inner container makes row breakpoints follow the actual list
+   width, even when the monitor is much wider than the reading column. */
+.deck-content {
+  width: calc(100% - clamp(32px, 8cqw, 112px));
+  max-width: 1000px;
+  margin-inline: auto;
   container-type: inline-size;
   container-name: deck;
 }
@@ -550,10 +590,10 @@ select.ghost:focus {
 
 .slot-panel,
 .side-panel {
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+  background: var(--bg-sidebar);
+  border: 0;
+  border-radius: 0;
+  padding: var(--sp-4);
   position: relative;
   min-width: 0;
   min-height: 0;
@@ -563,18 +603,26 @@ select.ghost:focus {
   overflow: hidden;
 }
 .slot-panel {
+  border-right: 1px solid var(--border);
+  padding: 0;
+}
+.slot-body {
+  min-height: 0;
+  flex: 1;
+  padding: var(--sp-4);
   overflow-y: auto;
   overscroll-behavior: contain;
-  display: block;
+}
+.side-panel {
+  border-left: 1px solid var(--border);
 }
 
 /* --- resizing the side panel -------------------------------------------- */
 
 /* A grab strip on the panel's left edge, sitting in its padding so it costs no
    content width. Wider than it looks: the visible line is 2px, the target 11. */
-.side-resize {
+.sidebar-resize {
   position: absolute;
-  left: 0;
   top: 0;
   bottom: 0;
   width: 11px;
@@ -582,7 +630,13 @@ select.ghost:focus {
   touch-action: none;
   z-index: 2;
 }
-.side-resize::after {
+.sidebar-resize-left {
+  right: 0;
+}
+.sidebar-resize-right {
+  left: 0;
+}
+.sidebar-resize::after {
   content: "";
   position: absolute;
   left: 4px;
@@ -593,12 +647,12 @@ select.ghost:focus {
   background: transparent;
   transition: background 90ms ease;
 }
-.side-resize:hover::after,
-.side-resize:focus-visible::after,
-body.col-resizing .side-resize::after {
+.sidebar-resize:hover::after,
+.sidebar-resize:focus-visible::after,
+body.col-resizing .sidebar-resize::after {
   background: var(--accent);
 }
-.side-resize:focus-visible {
+.sidebar-resize:focus-visible {
   outline: none;
 }
 
@@ -610,19 +664,18 @@ body.col-resizing * {
   user-select: none !important;
 }
 
-/* Maximized: the panel leaves the grid and covers everything below the sticky
-   deck header. Fixed rather than a grid span so it behaves the same at all
-   three breakpoints, including inside the narrow rail. */
+/* Maximized: a full-height workspace at every breakpoint. The tab bar keeps
+   the restore control available; Escape restores the column layout too. */
 .side-panel.is-max {
   position: fixed;
-  inset: 56px var(--page-pad) var(--sp-3);
+  inset: 0;
   width: auto;
   height: auto;
   max-height: none;
   z-index: 30;
   box-shadow: var(--shadow);
 }
-.side-panel.is-max .side-resize {
+.side-panel.is-max .sidebar-resize {
   display: none;
 }
 /* Full-bleed prose is unreadable and a search grid this wide is mostly gutter,
@@ -657,7 +710,7 @@ body.col-resizing * {
     grid-column: 1 / -1;
   }
 }
-.slot-panel > h2:first-child,
+.slot-body > h2:first-child,
 .side-panel > h2:first-child {
   margin-top: var(--sp-1);
 }
@@ -687,16 +740,20 @@ body.col-resizing * {
    scrolling rail — the decklist scrolls, the tools stay put — and search/chat
    is ordered above slots because it's the panel you act in. */
 @media (max-width: 1400px) {
-  .columns {
+  .deck-page {
     /* One column feeds both panels here, so the drag still sizes the rail —
        but the slot panel underneath needs a floor of its own. */
     grid-template-columns: max(306px, var(--side-w)) minmax(0, 1fr);
-    grid-template-areas: "rail deck";
+    grid-template-areas:
+      "rail header"
+      "rail notice"
+      "rail deck";
   }
   .rail {
     display: flex;
     flex-direction: column;
-    gap: var(--sp-3);
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border);
     grid-area: rail;
     min-height: 0;
     overflow-y: auto;
@@ -708,6 +765,17 @@ body.col-resizing * {
   .side-panel {
     height: auto;
     flex: none;
+    border: 0;
+  }
+  .slot-panel {
+    border-top: 1px solid var(--border);
+  }
+  .slot-body {
+    overflow: visible;
+  }
+  .sidebar-resize-right {
+    left: auto;
+    right: 0;
   }
   .side-panel:not(.is-max) {
     order: -1;
@@ -725,27 +793,24 @@ body.col-resizing * {
     height: auto;
     display: block;
     overflow: visible;
-    padding-bottom: var(--sp-5);
+    min-height: 100dvh;
   }
   .violations {
     max-height: none;
     overflow: visible;
   }
   .columns {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas:
-      "rail"
-      "deck";
+    display: block;
   }
   .decklist {
     overflow: visible;
     scrollbar-gutter: auto;
-    padding-right: 0;
-    padding-bottom: 0;
   }
   .rail {
     max-height: none;
     overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
   }
   /* Stacked, the tools sit directly on top of the decklist, so an empty search
      panel must not reserve height it isn't using. The chat still needs a fixed
@@ -759,7 +824,7 @@ body.col-resizing * {
     height: min(480px, 60vh);
   }
   /* Stacked, the panel is already the full page width — nothing to drag. */
-  .side-resize {
+  .sidebar-resize {
     display: none;
   }
   .deck-header {
@@ -768,6 +833,77 @@ body.col-resizing * {
 }
 
 /* --- slot panel --------------------------------------------------------- */
+
+.deck-overview {
+  padding-bottom: var(--sp-4);
+  margin-bottom: var(--sp-5);
+  border-bottom: 1px solid var(--border);
+}
+.deck-overview h2 {
+  margin-top: var(--sp-1);
+}
+.overview-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin: var(--sp-3) 0;
+}
+.overview-total strong {
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1.2;
+}
+.overview-total strong span {
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--fg-mute);
+}
+.overview-progress {
+  height: 3px;
+  background: var(--border);
+  margin-bottom: var(--sp-4);
+}
+.overview-progress i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 160ms ease;
+}
+.overview-stats {
+  margin: 0;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.overview-stats > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 3px 0;
+}
+.overview-stats dt {
+  color: var(--fg-dim);
+}
+.overview-stats dt span {
+  color: var(--fg-mute);
+  font-size: 11px;
+}
+.overview-stats dd {
+  margin: 0;
+}
+.overview-pending {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: var(--sp-3) 0 0;
+  color: var(--fg-mute);
+  font-size: 11.5px;
+}
+.overview-pending > span:first-child {
+  color: var(--under);
+}
 
 .slot-list {
   list-style: none;
@@ -1026,15 +1162,34 @@ details:not(.group) > summary {
 
 /* --- tool bar + modals --------------------------------------------------- */
 
-/* The four reference panels used to stack above the decklist as collapsed
-   disclosures — five bars of chrome before the first card, and expanding one
-   shoved the deck an arbitrary distance down. They open over the page now,
-   launched from here. */
+/* Workspace panels open over the deck rather than changing where its first
+   row begins. The proposal count makes waiting decisions visible without
+   turning their full contents into permanent page chrome. */
 .tool-bar {
   display: flex;
   gap: var(--sp-2);
   flex-wrap: wrap;
   margin-bottom: var(--sp-2);
+}
+.tool-bar button.has-pending {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--accent-fg);
+}
+.tool-count {
+  min-width: 17px;
+  height: 17px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 2px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--bg);
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
 }
 
 .modal-backdrop {
@@ -1094,6 +1249,47 @@ details:not(.group) > summary {
    heading carried the spacing of a section already underway. */
 .modal-body > :first-child {
   margin-top: 0;
+}
+.confirm-copy {
+  font-size: 14px;
+}
+.confirm-copy > :first-child {
+  margin-top: 0;
+}
+.confirm-copy > :last-child {
+  margin-bottom: 0;
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-4);
+}
+.field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-dim);
+}
+.field-error {
+  color: var(--over);
+  font-size: 12px;
+}
+.action-confirm {
+  margin-top: var(--sp-3);
+  padding: var(--sp-4);
+  border: 1px solid var(--over-border);
+  border-left: 3px solid var(--over);
+  border-radius: var(--r-md);
+  background: var(--over-bg);
+}
+.confirm-list {
+  max-height: 180px;
+  overflow-y: auto;
+  margin: var(--sp-3) 0 0;
+  padding-left: 20px;
+  font-size: 12px;
+  color: var(--fg-dim);
 }
 
 /* --- rendered markdown --------------------------------------------------
@@ -1304,8 +1500,8 @@ details:not(.group) > summary {
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: var(--sp-2) var(--sp-4);
-  margin-top: var(--sp-3);
+  gap: var(--sp-3) var(--sp-4);
+  margin-top: var(--sp-4);
   font-size: 11.5px;
 }
 .control-set {
@@ -1356,25 +1552,33 @@ details:not(.group) > summary {
 .group {
   margin-bottom: var(--sp-3);
 }
+.card-group {
+  margin-block: clamp(36px, 5cqw, 52px);
+}
 .group-head {
   display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  margin: var(--sp-4) 0 var(--sp-2);
-  font-size: 11px;
-  font-weight: 650;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--fg-dim);
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  margin: 0 0 var(--sp-2);
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-hi);
+  font-size: clamp(21px, 2.8cqw, 26px);
+  line-height: 1.25;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: -0.025em;
+  color: var(--fg);
 }
-.group-head .rule {
-  flex: 1;
-  height: 1px;
-  background: var(--border);
+.group-head > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .group-head .count {
   font-family: ui-monospace, monospace;
-  font-size: 11px;
+  font-size: 13px;
+  font-weight: 400;
+  flex: none;
   letter-spacing: 0;
   color: var(--fg-mute);
   text-transform: none;
@@ -1390,6 +1594,16 @@ details:not(.group) > summary {
 }
 
 /* --- card rows ---------------------------------------------------------- */
+
+.card-group > .card-row > .card-main {
+  min-height: 32px;
+}
+.card-group > .card-row:not(:hover):not(.is-open) {
+  border-bottom-color: color-mix(in srgb, var(--border) 65%, transparent);
+}
+.card-group > .card-row:last-child:not(:hover):not(.is-open) {
+  border-bottom-color: transparent;
+}
 
 .card-row {
   background: transparent;
@@ -1439,14 +1653,6 @@ details:not(.group) > summary {
   text-overflow: ellipsis;
   flex: 0 1 auto;
 }
-/* Rendered only when quantity > 1, so it takes no space on a singleton row. */
-.card-main .qty {
-  flex: none;
-  margin-left: -2px;
-  font-family: ui-monospace, monospace;
-  font-size: 11.5px;
-  color: var(--fg-dim);
-}
 .card-main .type {
   flex: none;
   width: 172px;
@@ -1486,6 +1692,46 @@ details:not(.group) > summary {
 .card-main select.ghost {
   flex: none;
   max-width: 116px;
+}
+
+/* Quantity owns a fixed-width column, so a second copy never pushes the type,
+   ownership, slot, or delete controls out of alignment. Singleton values stay
+   quiet until the row is active; multiples remain visible at a glance. */
+.quantity-control {
+  width: 38px;
+  height: 21px;
+  flex: 0 0 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  color: var(--fg-mute);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  opacity: 0.28;
+  transition:
+    color 0.12s,
+    opacity 0.12s;
+}
+.quantity-control.has-multiple,
+.card-row:hover .quantity-control,
+.quantity-control:focus-within {
+  color: var(--fg-dim);
+  opacity: 1;
+}
+.quantity-control input {
+  width: 25px;
+  height: 21px;
+  padding: 0 2px;
+  border-color: transparent;
+  background: transparent;
+  font-family: inherit;
+  font-size: 11.5px;
+  text-align: center;
+}
+.quantity-control input:hover,
+.quantity-control input:focus {
+  background: var(--bg-input);
+  border-color: var(--border);
 }
 
 /* Destructive/rare actions stay out of the way but never move the layout. */
@@ -1558,6 +1804,71 @@ details:not(.group) > summary {
   font-size: 12px;
   color: var(--fg-mute);
   padding: 2px 0 var(--sp-1);
+}
+.proposals-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.proposals-panel > .proposal {
+  margin: 0;
+  padding: var(--sp-4);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-border);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--bg-row) 45%, transparent);
+}
+.proposals-panel > .proposal-draft {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--accent-bg) 28%, transparent);
+}
+.proposals-panel .proposal-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  padding: 0 0 var(--sp-2);
+  border-bottom: 1px solid var(--border);
+}
+.proposal-kind {
+  color: var(--accent-fg);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.proposals-panel .card-row {
+  padding: var(--sp-2) 0 0;
+  border: 0;
+  background: transparent;
+}
+.proposals-panel .card-row:hover {
+  border-color: transparent;
+  background: transparent;
+}
+.proposal-brief .proposal-content {
+  margin-top: var(--sp-2);
+  padding: var(--sp-3);
+  border-radius: var(--r-sm);
+  background: var(--bg-input);
+}
+.proposal-brief .proposal-reason {
+  margin-top: var(--sp-2);
+  color: var(--fg-mute);
+}
+.proposal-empty {
+  padding: 48px var(--sp-5);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-md);
+  color: var(--fg-dim);
+  text-align: center;
+}
+.proposal-empty h3 {
+  margin: 0 0 var(--sp-1);
+  color: var(--fg);
+}
+.proposal-empty p {
+  margin: 0;
 }
 /* Actions are hover-revealed on a decklist row, where a hundred rows would
    otherwise be a wall of buttons. A proposal row exists to be ruled on, so its
@@ -2136,7 +2447,6 @@ details:not(.group) > summary {
 .tab.active {
   background: var(--accent-bg);
   color: var(--accent-fg);
-  box-shadow: inset 0 -2px var(--accent);
 }
 .chat-input {
   padding: 10px;

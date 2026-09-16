@@ -11,6 +11,7 @@ import { api, type ChatMsg, type Envelope } from "./api.ts";
 import { useDeck } from "./store.tsx";
 import { useAutosize } from "./lib.ts";
 import { Markdown } from "./Markdown.tsx";
+import { BriefEditCard } from "./BriefEditCard.tsx";
 import { ProposalCard } from "./ProposalCard.tsx";
 
 // Audit references the owner dropped in from the audit section. They stay in
@@ -35,14 +36,13 @@ function AuditRefText({ text }: { text: string }) {
   );
 }
 
-// `carded` holds the tool_call_ids whose proposal is rendered in full further
-// down the transcript. Summarising those as "proposed 3 change(s)" directly
-// above the proposal itself is noise — but turns from before proposals were
-// linked to their message have no card, so they keep the line.
-function toolSummary(m: ChatMsg, carded: Set<string>): string | null {
+// `actionable` holds tool_call_ids whose proposal/edit is rendered in full
+// further down the transcript. A summary directly above its ruling card is
+// noise, while older turns from before links existed still keep their line.
+function toolSummary(m: ChatMsg, actionable: Set<string>): string | null {
   if (m.role !== "assistant" || !m.tool_calls?.length) return null;
   const parts = m.tool_calls
-    .filter((c) => !carded.has(c.id))
+    .filter((c) => !actionable.has(c.id))
     .map((c) => {
       try {
         const args = JSON.parse(c.function.arguments || "{}");
@@ -57,10 +57,10 @@ function toolSummary(m: ChatMsg, carded: Set<string>): string | null {
   return parts.length ? parts.join(" · ") : null;
 }
 
-// Message and ProposalBlock live at module scope, not as closures inside
+// Message and the ruling blocks live at module scope, not as closures inside
 // ChatPanel: an inline component gets a new identity every render, and React
-// would remount the whole subtree — resetting an open reject form on a
-// proposal every time a keystroke landed in the composer.
+// would remount the subtree — resetting an open reject form whenever a
+// keystroke landed in the composer.
 
 function ProposalBlock({
   proposal,
@@ -86,14 +86,47 @@ function ProposalBlock({
   );
 }
 
+function BriefEditBlock({
+  edit,
+  rule,
+}: {
+  edit: NonNullable<ChatMsg["brief_edit"]>;
+  rule: (fn: () => Promise<Envelope>) => Promise<unknown>;
+}) {
+  const open = edit.status === "pending";
+  return (
+    <div className="msg-proposal">
+      <div className="msg-proposal-head">
+        <span>Brief edit #{edit.id}</span>
+        <span className={`chip ${open ? "under" : edit.status === "accepted" ? "ok" : "over"}`}>
+          {open ? "awaiting you" : edit.status}
+        </span>
+      </div>
+      <BriefEditCard edit={edit} rule={rule} head={false} />
+    </div>
+  );
+}
+
+function ActionBlock({
+  message,
+  rule,
+}: {
+  message: ChatMsg;
+  rule: (fn: () => Promise<Envelope>) => Promise<unknown>;
+}) {
+  if (message.proposal) return <ProposalBlock proposal={message.proposal} rule={rule} />;
+  if (message.brief_edit) return <BriefEditBlock edit={message.brief_edit} rule={rule} />;
+  return null;
+}
+
 function Message({
   m,
   attached,
   rule,
 }: {
   m: ChatMsg;
-  /** Proposals carried to the foot of their final reply, keyed by its message id. */
-  attached: Map<number, NonNullable<ChatMsg["proposal"]>[]>;
+  /** Ruling cards carried to the foot of their final reply, keyed by message id. */
+  attached: Map<number, ChatMsg[]>;
   rule: (fn: () => Promise<Envelope>) => Promise<unknown>;
 }) {
   if (m.role === "user") {
@@ -104,22 +137,22 @@ function Message({
       </div>
     );
   }
-  // An orphan still gets a bubble of its own — a proposal is never a loose
+  // An orphan still gets a bubble of its own — a ruling card is never a loose
   // panel floating at the width of the column.
   if (m.role === "tool")
-    return m.proposal ? (
+    return m.proposal || m.brief_edit ? (
       <div className="chat-msg assistant">
-        <ProposalBlock proposal={m.proposal} rule={rule} />
+        <ActionBlock message={m} rule={rule} />
       </div>
     ) : null;
 
-  const proposals = attached.get(m.id);
-  if (m.content || proposals?.length)
+  const actions = attached.get(m.id);
+  if (m.content || actions?.length)
     return (
       <div className="chat-msg assistant">
         {m.content && <Markdown text={m.content} />}
-        {proposals?.map((p) => (
-          <ProposalBlock key={p.id} proposal={p} rule={rule} />
+        {actions?.map((action) => (
+          <ActionBlock key={action.id} message={action} rule={rule} />
         ))}
       </div>
     );
@@ -241,12 +274,11 @@ export function ChatPanel({
     }
   }
 
-  // A proposal is made mid-turn (a tool message) but reads as the conclusion of
-  // the reply that argues for it, so it is carried forward to the foot of that
-  // reply rather than rendered where it falls. A turn that produced a proposal
-  // but never reached a final reply — an error, a lint bounce that gave up —
-  // leaves it orphaned, and those render on their own so nothing is lost.
-  const attached = new Map<number, NonNullable<ChatMsg["proposal"]>[]>();
+  // Approval-gated artifacts are made mid-turn (in tool messages) but read as
+  // the conclusion of the reply that argues for them, so carry them to that
+  // reply's foot. If the turn never reaches a final reply, render the orphan on
+  // its own so the owner can still rule on it.
+  const attached = new Map<number, ChatMsg[]>();
   const orphans = new Set<number>();
   {
     let carrying: ChatMsg[] = [];
@@ -256,32 +288,34 @@ export function ChatPanel({
     };
     for (const m of history) {
       if (m.role === "user") strand();
-      else if (m.role === "tool" && m.proposal) carrying.push(m);
+      else if (m.role === "tool" && (m.proposal || m.brief_edit)) carrying.push(m);
       // The turn's final reply is the assistant message with prose and no
       // further tool calls.
       else if (m.role === "assistant" && m.content && !m.tool_calls?.length && carrying.length) {
-        attached.set(m.id, carrying.map((t) => t.proposal!));
+        attached.set(m.id, carrying);
         carrying = [];
       }
     }
     strand();
   }
 
-  // Tool messages are otherwise plumbing and stay hidden; an orphaned proposal
-  // is the exception, because the proposal is the point of the turn.
+  // Tool messages are otherwise plumbing and stay hidden; an orphaned ruling
+  // card is the exception, because the proposed change is the point of the turn.
   const visible = history.filter(
     (m) =>
       m.role === "user" ||
       (m.role === "assistant" && (m.content || m.tool_calls?.length)) ||
-      (m.role === "tool" && m.proposal && orphans.has(m.id)),
+      (m.role === "tool" && (m.proposal || m.brief_edit) && orphans.has(m.id)),
   );
   // Compacted messages left the model's context but never left the disk
   // (spec §11) — show them collapsed so that's visible, not implied.
   const compacted = visible.filter((m) => m.compacted_at);
   const resident = visible.filter((m) => !m.compacted_at);
 
-  const carded = new Set(
-    history.filter((m) => m.proposal && m.tool_call_id).map((m) => m.tool_call_id!),
+  const actionable = new Set(
+    history
+      .filter((m) => (m.proposal || m.brief_edit) && m.tool_call_id)
+      .map((m) => m.tool_call_id!),
   );
 
   // A ruling made here has to move both surfaces: the deck (via the store)
@@ -314,12 +348,12 @@ export function ChatPanel({
       pending = [];
     }
     for (const m of messages) {
-      const summary = toolSummary(m, carded);
+      const summary = toolSummary(m, actionable);
       if (summary) {
         pending.push({
           id: m.id,
           text: summary,
-          count: m.tool_calls!.filter((c) => !carded.has(c.id)).length,
+          count: m.tool_calls!.filter((c) => !actionable.has(c.id)).length,
         });
       }
       // Calls whose proposal is already shown need no duplicate activity row.

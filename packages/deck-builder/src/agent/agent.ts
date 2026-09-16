@@ -4,6 +4,7 @@ import { assembleContext } from "./context.ts";
 import { TOOL_DEFS, executeTool } from "./tools.ts";
 import { lintOutput, lintCorrectionMessage } from "./lint.ts";
 import { getProposal } from "../deck/proposals.ts";
+import { listBriefEdits } from "../deck/brief.ts";
 import { allMessages, appendMessage, type StoredChatMessage } from "./chatStore.ts";
 import { LlmError, type ChatMessage, type ChatTransport } from "./llm.ts";
 
@@ -88,7 +89,10 @@ export async function runTurn(
           tool_call_id: call.id,
           content: outcome.result,
         };
-        persist(toolMsg, outcome.proposalId != null ? { proposal_id: outcome.proposalId } : undefined);
+        const links: Record<string, number> = {};
+        if (outcome.proposalId != null) links.proposal_id = outcome.proposalId;
+        if (outcome.briefEditId != null) links.brief_edit_id = outcome.briefEditId;
+        persist(toolMsg, Object.keys(links).length ? links : undefined);
         messages.push(toolMsg);
       }
       continue;
@@ -110,14 +114,15 @@ export async function runTurn(
   }
 }
 
-// The wire shape of one transcript row: the stored message plus row
-// metadata, and — for a tool message that created a proposal — the proposal
-// hydrated live so its item statuses are current.
+// The wire shape of one transcript row: the stored message plus row metadata,
+// and any approval-gated artifact created by a tool message, hydrated live so
+// its ruling status is current.
 export interface ChatHistoryMessage extends StoredChatMessage {
   id: number;
   created_at: string;
   compacted_at: string | null;
   proposal?: ReturnType<typeof getProposal>;
+  brief_edit?: ReturnType<typeof listBriefEdits>[number] | null;
 }
 
 export function getChatHistory(db: DatabaseSync, deckId: number): ChatHistoryMessage[] {
@@ -127,15 +132,32 @@ export function getChatHistory(db: DatabaseSync, deckId: number): ChatHistoryMes
     compacted_at: r.compacted_at,
     ...r.message,
   }));
-  // Hydrate the proposals a turn produced, read live rather than frozen at
-  // send time: the transcript then shows each item's current ruling, and the
-  // owner can rule from the chat without going to the decision log to find out
-  // whether anything was proposed at all.
+  // Hydrate the proposals and brief edits a turn produced, read live rather
+  // than frozen at send time: chat shows current rulings and the owner can act
+  // without leaving the transcript.
   const cache = new Map<number, ReturnType<typeof getProposal>>();
+  const briefEdits = new Map(listBriefEdits(db, deckId).map((edit) => [edit.id, edit]));
   return messages.map((m) => {
-    if (m.proposal_id == null) return m;
-    if (!cache.has(m.proposal_id)) cache.set(m.proposal_id, getProposal(db, m.proposal_id));
-    return { ...m, proposal: cache.get(m.proposal_id) ?? null };
+    let proposal: ReturnType<typeof getProposal> | undefined;
+    if (m.proposal_id != null) {
+      if (!cache.has(m.proposal_id)) cache.set(m.proposal_id, getProposal(db, m.proposal_id));
+      proposal = cache.get(m.proposal_id) ?? null;
+    }
+    // Brief edits created before the chat link existed still contain the
+    // server-authored tool result with the durable id. Recover that exact
+    // format on read, then verify the id belongs to this deck before exposing
+    // it. New messages always take the explicit link above.
+    const legacyBriefEditId =
+      m.brief_edit_id == null && m.role === "tool"
+        ? Number(m.content?.match(/^(?:Brief|Engine) edit #(\d+) proposed(?:[ .(]|$)/)?.[1]) || undefined
+        : undefined;
+    const briefEditId = m.brief_edit_id ?? legacyBriefEditId;
+    const briefEdit = briefEditId == null ? undefined : (briefEdits.get(briefEditId) ?? null);
+    return {
+      ...m,
+      ...(proposal !== undefined ? { proposal } : {}),
+      ...(briefEdit !== undefined ? { brief_edit_id: briefEditId, brief_edit: briefEdit } : {}),
+    };
   });
 }
 

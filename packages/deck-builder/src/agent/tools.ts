@@ -51,6 +51,8 @@ export interface ToolOutcome {
    *  so the chat can render the proposal itself, not just a line saying one
    *  happened — the owner rules from the transcript without leaving it. */
   proposalId?: number;
+  /** The equivalent link for propose_brief_edit/propose_engine_edit. */
+  briefEditId?: number;
 }
 
 // ---------- audit formatting ----------
@@ -355,6 +357,7 @@ const TOOLS: Record<string, AgentTool> = {
         result: `Brief edit #${id} proposed (${args.section}). Awaiting the owner's ruling.`,
         isError: false,
         mutatedState: true,
+        briefEditId: id,
       };
     },
   },
@@ -390,6 +393,7 @@ const TOOLS: Record<string, AgentTool> = {
         result: `Engine edit #${id} proposed (${kind}). Awaiting the owner's ruling.`,
         isError: false,
         mutatedState: true,
+        briefEditId: id,
       };
     },
   },

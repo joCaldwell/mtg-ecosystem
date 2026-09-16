@@ -1,8 +1,7 @@
-// The tool panels (brief, audit, interop, session) open here rather than
+// The tool panels (proposals, brief, audit, interop, session) open here rather than
 // stacking above the decklist. They are reference-and-act surfaces you visit
 // and leave; as inline disclosures they pushed the actual deck an arbitrary
-// distance down the page every time one was expanded. Proposals deliberately
-// stay inline — ruling on them is the main loop and wants the list in view.
+// distance down the page every time one was expanded.
 
 import { useEffect, useRef, type ReactNode } from "react";
 import { useDismissable } from "./lib.ts";
@@ -24,9 +23,11 @@ export function Modal({
   useDismissable(onClose);
 
   // Focus the panel so Escape and the scroll wheel land here, not on the
-  // decklist underneath.
+  // decklist underneath. Small action dialogs can nominate a more useful
+  // first control without every caller needing its own focus effect.
   useEffect(() => {
-    bodyRef.current?.focus();
+    const initial = bodyRef.current?.querySelector<HTMLElement>("[data-modal-autofocus]");
+    (initial ?? bodyRef.current)?.focus();
   }, []);
 
   return (

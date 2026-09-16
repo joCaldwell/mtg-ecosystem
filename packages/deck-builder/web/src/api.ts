@@ -57,11 +57,12 @@ export interface Envelope {
 
 export class ApiError extends Error {}
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(path, {
     method,
     headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal,
   });
   const data = await res.json();
   if (!res.ok) throw new ApiError(data.error ?? `HTTP ${res.status}`);
@@ -217,10 +218,10 @@ export const api = {
   updateSettings: (patch: { retention_n?: number }) =>
     request<{ retention_n: number }>("PUT", "/api/settings", patch),
 
-  search: (q: string, deckId?: number, filterIdentity = true) => {
+  search: (q: string, deckId?: number, filterIdentity = true, signal?: AbortSignal) => {
     const params = new URLSearchParams({ q });
     if (deckId !== undefined) params.set("deck", String(deckId));
     if (!filterIdentity) params.set("filter", "off");
-    return request<CardData[]>("GET", `/api/search?${params}`);
+    return request<CardData[]>("GET", `/api/search?${params}`, undefined, signal);
   },
 };

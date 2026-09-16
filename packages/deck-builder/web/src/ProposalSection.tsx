@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { api, type DraftItem } from "./api.ts";
 import { useDeck } from "./store.tsx";
+import { BriefEditCard } from "./BriefEditCard.tsx";
 import { ProposalCard } from "./ProposalCard.tsx";
-import { RejectionForm } from "./RejectionForm.tsx";
 
 export function ProposalSection({
   draft,
@@ -14,8 +14,6 @@ export function ProposalSection({
   const { state, run } = useDeck();
   const { deck, slots, proposals, brief_edits } = state!;
   const [note, setNote] = useState("");
-  /** Id of the brief edit whose rejection form is open. */
-  const [rejecting, setRejecting] = useState<number | null>(null);
 
   function updateDraft(idx: number, patch: Partial<DraftItem>) {
     setDraft(draft.map((d, i) => (i === idx ? { ...d, ...patch } : d)));
@@ -27,11 +25,18 @@ export function ProposalSection({
     setNote("");
   }
 
+  const empty = draft.length === 0 && brief_edits.length === 0 && proposals.length === 0;
+
   return (
-    <>
+    <div className="proposals-panel">
       {draft.length > 0 && (
-        <div className="group draft">
-          <h2>Draft proposal</h2>
+        <div className="proposal proposal-draft">
+          <div className="proposal-head">
+            <span className="proposal-kind">Draft</span>
+            <span>
+              {draft.length} card {draft.length === 1 ? "change" : "changes"} · not submitted
+            </span>
+          </div>
           {draft.map((d, i) => (
             <div className="card-row" key={`${d.action}-${d.oracle_id}`}>
               <div className="card-main">
@@ -93,67 +98,18 @@ export function ProposalSection({
         </div>
       )}
 
-      {brief_edits.length > 0 && (
-        <div className="group">
-          <h2>Brief edits awaiting ruling</h2>
-          {brief_edits.map((e) => (
-            <div className="card-row" key={e.id}>
-              <div className="card-main">
-                <span className="chip under">{e.kind}</span>
-                <span className="muted mono">{e.source}</span>
-                <span className="name">
-                  {e.kind === "thesis" || e.kind === "constraints"
-                    ? (e.payload.content ?? "").slice(0, 80)
-                    : e.payload.engine_name}
-                </span>
-                <span className="spacer" />
-                <button
-                  className="small"
-                  onClick={() => run(() => api.ruleBriefEdit(deck.id, e.id, "accept"))}
-                >
-                  accept
-                </button>
-                <button
-                  className="small danger"
-                  onClick={() => setRejecting(rejecting === e.id ? null : e.id)}
-                >
-                  reject
-                </button>
-              </div>
-              {rejecting === e.id && (
-                <RejectionForm
-                  placeholder="Why reject? (required — logged like a rejection)"
-                  onConfirm={(type, reason) =>
-                    run(() => api.ruleBriefEdit(deck.id, e.id, "reject", type, reason)).then(() =>
-                      setRejecting(null),
-                    )
-                  }
-                />
-              )}
-              {(e.kind === "thesis" || e.kind === "constraints") && (
-                <pre className="oracle-text">{e.payload.content}</pre>
-              )}
-              {e.kind === "engine_set" && (
-                <div className="muted rationale">
-                  {e.payload.description} — pieces: {(e.payload.pieces ?? []).length}
-                </div>
-              )}
-              <div className="muted rationale">“{e.rationale}”</div>
-            </div>
-          ))}
+      {brief_edits.map((e) => <BriefEditCard key={e.id} edit={e} rule={run} />)}
+
+      {proposals.map((p) => (
+        <ProposalCard key={p.id} proposal={p} rule={run} />
+      ))}
+
+      {empty && (
+        <div className="proposal-empty">
+          <h3>No proposals waiting</h3>
+          <p>Agent changes, brief updates, and drafts from search will appear here.</p>
         </div>
       )}
-
-      {proposals.length > 0 && (
-        <div className="group">
-          <h2>Open proposals</h2>
-          {proposals.map((p) => (
-            <ProposalCard key={p.id} proposal={p} rule={run} />
-          ))}
-        </div>
-      )}
-
-
-    </>
+    </div>
   );
 }

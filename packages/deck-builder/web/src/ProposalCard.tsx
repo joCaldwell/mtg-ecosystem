@@ -1,5 +1,5 @@
-// One proposal, rendered wherever it needs to be ruled on: inline above the
-// decklist, and inside the agent chat where it was produced. Shared rather
+// One proposal, rendered wherever it needs to be ruled on: inside the proposal
+// modal and inside the agent chat where it was produced. Shared rather
 // than duplicated so the two surfaces cannot drift; the rejection questions
 // themselves live in RejectionForm.tsx, shared wider still.
 
@@ -107,7 +107,8 @@ export function ProposalCard({
     <div className="proposal">
       {head && (
         <div className="proposal-head">
-          #{proposal.id} · {proposal.source}
+          <span className="proposal-kind">Deck change</span>
+          <span>#{proposal.id} · {proposal.source}</span>
           {proposal.note && <> · <CardText text={proposal.note} /></>}
         </div>
       )}

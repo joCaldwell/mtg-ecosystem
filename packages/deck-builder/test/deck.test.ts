@@ -202,10 +202,24 @@ describe("computed state", () => {
     assert.equal(computed.card_count, 3);
     assert.equal(computed.delta_to_100, -97);
     assert.equal(computed.land_count, 1);
+    assert.equal(computed.average_mana_value, 3);
     assert.equal(computed.curve["2"], 1);
     assert.equal(computed.curve["4"], 1);
     assert.equal(computed.pips.U, 3);
     assert.equal(computed.pips.G, 1);
+  });
+  test("average mana value weights copies and excludes lands and the maybe list", () => {
+    const id = freshDeck("Average mana value");
+    assert.equal(getDeck(db, id).computed.average_mana_value, null);
+    addCard(db, id, "id-forest");
+    assert.equal(getDeck(db, id).computed.average_mana_value, null);
+    addCard(db, id, "id-llanowar");
+    updateCard(db, id, "id-llanowar", { quantity: 3 });
+    addCard(db, id, "id-seedborn");
+    addCard(db, id, "id-teferi");
+    db.prepare("UPDATE deck_cards SET maybeboard = 1 WHERE deck_id = ? AND oracle_id = ?")
+      .run(id, "id-teferi");
+    assert.equal(getDeck(db, id).computed.average_mana_value, 2);
   });
   test("owned flag stored and returned", () => {
     const id = freshDeck("Owned");

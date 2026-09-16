@@ -653,6 +653,13 @@ function computeState(
 
   const lands = mainCards.filter((c) => /\bLand\b/.test(c.type_line));
   const landCount = lands.reduce((n, c) => n + c.quantity, 0);
+  // Same land classification as land_count; include commanders, but exclude
+  // companions and parked cards. Weight copies, not distinct database rows.
+  const nonlandCount = cardCount - landCount;
+  const averageManaValue = nonlandCount
+    ? mainCards.filter((c) => !/\bLand\b/.test(c.type_line))
+        .reduce((n, c) => n + c.cmc * c.quantity, 0) / nonlandCount
+    : null;
 
   const curve: Record<string, number> = { "0": 0, "1": 0, "2": 0, "3": 0, "4": 0, "5": 0, "6": 0, "7+": 0 };
   for (const c of mainCards) {
@@ -692,6 +699,7 @@ function computeState(
     singleton_violations: singletonViolations,
     legality_violations: notLegal,
     land_count: landCount,
+    average_mana_value: averageManaValue,
     curve,
     pips,
   };

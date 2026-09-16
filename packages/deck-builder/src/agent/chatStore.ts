@@ -6,10 +6,13 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { ChatMessage } from "./llm.ts";
 
-// What a persisted row holds beyond the provider shape: proposal_id links a
-// tool message to the proposal it created, so the chat can render the
-// proposal itself rather than a line saying one happened.
-export type StoredChatMessage = ChatMessage & { proposal_id?: number };
+// What a persisted row holds beyond the provider shape: these ids link a tool
+// message to the approval-gated artifact it created, so chat can render the
+// ruling controls rather than only a line saying something happened.
+export type StoredChatMessage = ChatMessage & {
+  proposal_id?: number;
+  brief_edit_id?: number;
+};
 
 // `extra` is stored alongside the message but deliberately not part of the
 // ChatMessage the provider later sees — the row on disk keeps the link the

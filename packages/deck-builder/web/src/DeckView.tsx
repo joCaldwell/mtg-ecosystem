@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, type DraftItem } from "./api.ts";
 import { DeckProvider, useDeck } from "./store.tsx";
 import { useLocalStorage } from "./lib.ts";
@@ -16,14 +16,14 @@ import { SidePanel } from "./SidePanel.tsx";
 import { ColorPips } from "./Mana.tsx";
 import { usePeekProps } from "./CardPeek.tsx";
 import { Modal } from "./Modal.tsx";
+import { ConfirmDialog } from "./ConfirmDialog.tsx";
 
 type GroupStatus = "ok" | "under" | "over" | "untargeted";
 type GroupBy = "slot" | "type";
 // Tool panels open over the page instead of stacking above the decklist —
-// they are visit-and-leave surfaces, and inline they pushed the deck itself
-// off the screen. Two exceptions stay inline, both because they are things you
-// rule on rather than visit: proposals above the list, and the audit below it.
-type Tool = "brief" | "interop" | "session" | "checks";
+// their variable-height contents otherwise move the start of the deck. Audit
+// stays below the list because its recorded output is part of the deck record.
+type Tool = "proposals" | "brief" | "interop" | "session" | "checks";
 
 // Display order for card-type grouping. `primaryType` walks this list, so a
 // card with several types files under the first one that matches — an Artifact
@@ -68,7 +68,6 @@ function GroupHead({
         {target && `/${target}`}
         {off && ` ${status === "under" ? "▼" : "▲"}${Math.abs(delta ?? 0)}`}
       </span>
-      <span className="rule" />
     </h2>
   );
 }
@@ -86,6 +85,9 @@ function DeckPage() {
   const [notFound, setNotFound] = useState(false);
   const [draft, setDraft] = useState<DraftItem[]>([]);
   const [tool, setTool] = useState<Tool | null>(null);
+  const [renameDraft, setRenameDraft] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState(false);
+  const [confirmAllOwned, setConfirmAllOwned] = useState(false);
   const insertChat = useRef<((token: string) => void) | null>(null);
   const openAudit = useRef<(() => void) | null>(null);
   const [groupBy, setGroupBy] = useLocalStorage<GroupBy>(
@@ -116,19 +118,29 @@ function DeckPage() {
     );
   if (!state) return <div className="deck-list-page muted">Loading…</div>;
 
-  const { deck, slots, tags, cards, computed } = state;
+  const { deck, slots, tags, cards, computed, proposals, brief_edits } = state;
   const commanders = cards.filter((c) => c.role === "commander");
   const companion = cards.filter((c) => c.role === "companion");
   const mainCards = cards.filter((c) => c.role === "card");
   const ownedCount = cards.reduce((n, c) => n + (c.owned ? c.quantity : 0), 0);
   const missingCount = cards.reduce((n, c) => n + (c.owned ? 0 : c.quantity), 0);
 
-  const countClass = computed.delta_to_100 === 0 ? "ok" : computed.delta_to_100 < 0 ? "under" : "over";
   const problemCount = audit ? audit.findings.length + audit.dismissed.length : null;
+  // A draft is one proposal-in-progress even when it contains several cards.
+  const proposalCount = proposals.length + brief_edits.length + (draft.length ? 1 : 0);
 
-  async function rename() {
-    const name = window.prompt("Deck name", deck.name);
-    if (name && name !== deck.name) await run(() => api.renameDeck(deck.id, name));
+  async function rename(e: FormEvent) {
+    e.preventDefault();
+    const name = renameDraft?.trim();
+    if (!name) return;
+    if (name === deck.name) {
+      setRenameDraft(null);
+      return;
+    }
+    setRenaming(true);
+    const result = await run(() => api.renameDeck(deck.id, name));
+    setRenaming(false);
+    if (result) setRenameDraft(null);
   }
 
   // "ask agent" on a finding: the token goes into the chat draft and the chat
@@ -143,6 +155,7 @@ function DeckPage() {
   function draftAdd(item: DraftItem) {
     if (draft.some((d) => d.oracle_id === item.oracle_id && d.action === item.action)) return;
     setDraft([...draft, item]);
+    setTool("proposals");
   }
 
   type Group = {
@@ -222,12 +235,56 @@ function DeckPage() {
             />
           </svg>
         </a>
-        <h1 onClick={rename} title="Click to rename">
-          {deck.name}
-        </h1>
-        {/* The commander is what the deck is, and every number to its right is
-            downstream of it — the colour identity most of all. Peekable like
-            any other card name: it's the one card you re-read constantly. */}
+        {renameDraft == null ? (
+          <h1>
+            <button
+              className="link deck-name-trigger"
+              onClick={() => setRenameDraft(deck.name)}
+              title="Click to rename"
+              aria-label={`Rename ${deck.name}`}
+            >
+              {deck.name}
+            </button>
+          </h1>
+        ) : (
+          <form className="deck-name-edit" onSubmit={rename}>
+            <input
+              value={renameDraft}
+              onChange={(e) => setRenameDraft(e.target.value)}
+              onFocus={(e) => e.currentTarget.select()}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setRenameDraft(null);
+                }
+              }}
+              aria-label="Deck name"
+              autoFocus
+              disabled={renaming}
+            />
+            <button
+              className="icon primary"
+              type="submit"
+              title="Save name"
+              aria-label="Save name"
+              disabled={renaming || !renameDraft.trim()}
+            >
+              ✓
+            </button>
+            <button
+              className="icon"
+              type="button"
+              title="Cancel rename"
+              aria-label="Cancel rename"
+              onClick={() => setRenameDraft(null)}
+              disabled={renaming}
+            >
+              ✕
+            </button>
+          </form>
+        )}
+        {/* Keep commander and colour identity beside the deck name. Counts
+            and pending changes live in the sidebar overview. */}
         {commanders.length > 0 && (
           <span className="commander">
             {commanders.map((c, i) => (
@@ -247,23 +304,12 @@ function DeckPage() {
         ) : (
           <ColorPips colors={deck.color_identity || "C"} />
         )}
-        <span className={`chip ${countClass}`}>
-          {computed.card_count}/100
-          {computed.delta_to_100 !== 0 &&
-            ` (${computed.delta_to_100 > 0 ? "+" : ""}${computed.delta_to_100})`}
-        </span>
-        <span className="chip">{computed.land_count} lands</span>
-        {(computed.pending.adds > 0 || computed.pending.cuts > 0) && (
-          <span className="chip under" title="Open proposal items">
-            pending +{computed.pending.adds}/−{computed.pending.cuts} → {computed.pending.projected_count}
-          </span>
-        )}
         <button
           className={`small ${problemCount ? "deck-problems-button" : ""}`}
           onClick={() => setTool("checks")}
           aria-haspopup="dialog"
         >
-          {problemCount == null ? "Deck checks" : problemCount ? `${problemCount} deck problem${problemCount === 1 ? "" : "s"}` : "Deck checks clear"}
+          {problemCount == null ? "Deck checks" : problemCount ? `${problemCount} issue${problemCount === 1 ? "" : "s"}` : "Deck checks clear"}
         </button>
       </header>
 
@@ -283,131 +329,137 @@ function DeckPage() {
         </div>
 
         <section className="decklist">
-          <div className="tool-bar">
-            <button onClick={() => setTool("brief")}>Brief</button>
-            <button onClick={() => openAudit.current?.()}>Audit</button>
-            <button onClick={() => setTool("interop")}>Import / export</button>
-            <button onClick={() => setTool("session")}>Context</button>
-          </div>
-
-          <ProposalSection draft={draft} setDraft={setDraft} />
-
-          <div className="group-by">
-            <div className="control-set">
-              <span className="muted">Group by</span>
-              <div className="seg">
-                <button
-                  className={groupBy === "slot" ? "active" : ""}
-                  onClick={() => setGroupBy("slot")}
-                  title="The deck's own roles, with their targets"
-                >
-                  Slot
-                </button>
-                <button
-                  className={groupBy === "type" ? "active" : ""}
-                  onClick={() => setGroupBy("type")}
-                  title="Creature, instant, land… — counts what the cards are"
-                >
-                  Card type
-                </button>
-              </div>
+          <div className="deck-content">
+            <div className="tool-bar">
+              <button
+                className={proposalCount ? "has-pending" : ""}
+                onClick={() => setTool("proposals")}
+                aria-haspopup="dialog"
+              >
+                Proposals
+                {proposalCount > 0 && <span className="tool-count">{proposalCount}</span>}
+              </button>
+              <button onClick={() => setTool("brief")}>Brief</button>
+              <button onClick={() => openAudit.current?.()}>Audit</button>
+              <button onClick={() => setTool("interop")}>Import / export</button>
+              <button onClick={() => setTool("session")}>Context</button>
             </div>
-            <div className="control-set ownership-controls">
-              <span className="muted">Mark</span>
-              <div className="seg ownership-mode">
-                <button
-                  className={ownershipMode === "owned" ? "active" : ""}
-                  aria-pressed={ownershipMode === "owned"}
-                  onClick={() => setOwnershipMode("owned")}
-                  title="Checked cards are cards you own"
-                >
-                  Owned <span className="seg-count">{ownedCount}</span>
-                </button>
-                <button
-                  className={ownershipMode === "missing" ? "active" : ""}
-                  aria-pressed={ownershipMode === "missing"}
-                  onClick={() => setOwnershipMode("missing")}
-                  title="Checked cards are cards you still need"
-                >
-                  Missing <span className="seg-count">{missingCount}</span>
-                </button>
-              </div>
-              {ownedCount < ownedCount + missingCount && (
-                <button
-                  className="baseline-action"
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        "Mark every card in this deck as owned? You can then mark the exceptions as missing.",
-                      )
-                    ) {
-                      run(() => api.setAllCardsOwned(deckId, true));
-                    }
-                  }}
-                  title="Start with the whole deck owned, then mark missing exceptions"
-                >
-                  Mark all owned
-                </button>
-              )}
-            </div>
-          </div>
 
-          <div className="group">
-            <GroupHead title="Command zone" count={commanders.length} target="2" />
-            {commanders.map((c) => (
-              <CardRow
-                key={c.oracle_id}
-                card={c}
-                ownershipMode={ownershipMode}
-              />
-            ))}
-            {!commanders.length && (
-              <p className="muted rationale">
-                No commander — search for a legendary creature and add it with role “Commander”.
-              </p>
-            )}
-          </div>
-
-          {groups.map(
-            (g) =>
-              (g.cards.length > 0 || g.keepEmpty) && (
-                <div className="group" key={g.key}>
-                  <GroupHead
-                    title={g.title}
-                    count={g.count}
-                    target={g.target}
-                    status={g.status}
-                    delta={g.delta}
-                  />
-                  {g.cards.map((c) => (
-                    <CardRow
-                      key={c.oracle_id}
-                      card={c}
-                      ownershipMode={ownershipMode}
-                    />
-                  ))}
+            <div className="group-by">
+              <div className="control-set">
+                <span className="muted">Group by</span>
+                <div className="seg">
+                  <button
+                    className={groupBy === "slot" ? "active" : ""}
+                    onClick={() => setGroupBy("slot")}
+                    title="The deck's own roles, with their targets"
+                  >
+                    Slot
+                  </button>
+                  <button
+                    className={groupBy === "type" ? "active" : ""}
+                    onClick={() => setGroupBy("type")}
+                    title="Creature, instant, land… — counts what the cards are"
+                  >
+                    Card type
+                  </button>
                 </div>
-              ),
-          )}
+              </div>
+              <div className="control-set ownership-controls">
+                <span className="muted">Mark</span>
+                <div className="seg ownership-mode">
+                  <button
+                    className={ownershipMode === "owned" ? "active" : ""}
+                    aria-pressed={ownershipMode === "owned"}
+                    onClick={() => setOwnershipMode("owned")}
+                    title="Checked cards are cards you own"
+                  >
+                    Owned <span className="seg-count">{ownedCount}</span>
+                  </button>
+                  <button
+                    className={ownershipMode === "missing" ? "active" : ""}
+                    aria-pressed={ownershipMode === "missing"}
+                    onClick={() => setOwnershipMode("missing")}
+                    title="Checked cards are cards you still need"
+                  >
+                    Missing <span className="seg-count">{missingCount}</span>
+                  </button>
+                </div>
+                {ownedCount < ownedCount + missingCount && (
+                  <button
+                    className="baseline-action"
+                    onClick={() => setConfirmAllOwned(true)}
+                    title="Start with the whole deck owned, then mark missing exceptions"
+                    aria-haspopup="dialog"
+                  >
+                    Mark all owned
+                  </button>
+                )}
+              </div>
+            </div>
 
-          {companion.length > 0 && (
-            <div className="group">
-              <GroupHead title="Companion" count={companion.length} />
-              {companion.map((c) => (
+            <div className="card-group">
+              <GroupHead title="Command zone" count={commanders.length} target="2" />
+              {commanders.map((c) => (
                 <CardRow
                   key={c.oracle_id}
                   card={c}
                   ownershipMode={ownershipMode}
                 />
               ))}
+              {!commanders.length && (
+                <p className="muted rationale">
+                  No commander — search for a legendary creature and add it with role “Commander”.
+                </p>
+              )}
             </div>
-          )}
 
-          <AuditSection askAgent={askAgent} openRef={openAudit} />
-          <DecisionLog />
+            {groups.map(
+              (g) =>
+                (g.cards.length > 0 || g.keepEmpty) && (
+                  <div className="card-group" key={g.key}>
+                    <GroupHead
+                      title={g.title}
+                      count={g.count}
+                      target={g.target}
+                      status={g.status}
+                      delta={g.delta}
+                    />
+                    {g.cards.map((c) => (
+                      <CardRow
+                        key={c.oracle_id}
+                        card={c}
+                        ownershipMode={ownershipMode}
+                      />
+                    ))}
+                  </div>
+                ),
+            )}
+
+            {companion.length > 0 && (
+              <div className="card-group">
+                <GroupHead title="Companion" count={companion.length} />
+                {companion.map((c) => (
+                  <CardRow
+                    key={c.oracle_id}
+                    card={c}
+                    ownershipMode={ownershipMode}
+                  />
+                ))}
+              </div>
+            )}
+
+            <AuditSection askAgent={askAgent} openRef={openAudit} />
+            <DecisionLog />
+          </div>
         </section>
       </div>
 
+      {tool === "proposals" && (
+        <Modal title={`Proposals${proposalCount ? ` · ${proposalCount}` : ""}`} onClose={() => setTool(null)} wide>
+          <ProposalSection draft={draft} setDraft={setDraft} />
+        </Modal>
+      )}
       {tool === "checks" && (
         <Modal title="Deck problems" onClose={() => setTool(null)} wide>
           <DeckChecks askAgent={(token) => { askAgent(token); setTool(null); }} />
@@ -427,6 +479,20 @@ function DeckPage() {
         <Modal title="Context & compaction" onClose={() => setTool(null)} wide>
           <SessionPanel />
         </Modal>
+      )}
+      {confirmAllOwned && (
+        <ConfirmDialog
+          title="Mark all cards owned"
+          confirmLabel="Mark all owned"
+          onClose={() => setConfirmAllOwned(false)}
+          onConfirm={() => {
+            setConfirmAllOwned(false);
+            void run(() => api.setAllCardsOwned(deckId, true));
+          }}
+        >
+          <p>Mark every card in this deck as owned?</p>
+          <p className="muted">You can then mark only the exceptions as missing.</p>
+        </ConfirmDialog>
       )}
     </div>
   );

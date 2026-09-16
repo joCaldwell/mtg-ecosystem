@@ -22,6 +22,7 @@ export function InteropPanel() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [applied, setApplied] = useState<string | null>(null);
+  const [confirmingImport, setConfirmingImport] = useState(false);
 
   const [playtest, setPlaytest] = useState("");
 
@@ -54,6 +55,7 @@ export function InteropPanel() {
 
   async function preview() {
     setError(null);
+    setConfirmingImport(false);
     setBusy(true);
     try {
       setDiff(await api.previewImport(deckId, paste));
@@ -64,26 +66,11 @@ export function InteropPanel() {
     }
   }
 
-  // The import lands in full and at once. The only thing worth stopping for is
-  // the destructive half — cards or copies that the pasted list drops.
+  // The import lands in full and at once. Destructive imports take a second,
+  // in-app confirmation step beside the diff instead of leaving the app for a
+  // native browser dialog.
   async function commit() {
     if (!diff) return;
-    if (
-      diff.cut_count > 0 &&
-      !window.confirm(
-        `This import removes ${diff.cut_count} card(s) from the deck:\n\n` +
-          [
-            ...diff.cuts.map(
-              (c) => `· ${c.quantity > 1 ? `${c.quantity}× ` : ""}${c.name}${c.role !== "card" ? ` (${c.role})` : ""}`,
-            ),
-            ...diff.quantity_changes
-              .filter((q) => q.to < q.from)
-              .map((q) => `· ${q.name} (${q.from}→${q.to})`),
-          ].join("\n") +
-          `\n\nIt lands as one revision and one log entry, so you can undo the whole import. Apply it?`,
-      )
-    )
-      return;
     setError(null);
     setApplied(null);
     setBusy(true);
@@ -99,6 +86,7 @@ export function InteropPanel() {
         setPaste("");
         setNote("");
         setDiff(null);
+        setConfirmingImport(false);
       }
       apply(r);
     } catch (e: any) {
@@ -158,6 +146,7 @@ export function InteropPanel() {
           setPaste(e.target.value);
           setDiff(null);
           setApplied(null);
+          setConfirmingImport(false);
         }}
         placeholder={"Paste an Archidekt list here…\n1x Sol Ring [Ramp]\n1 Counterspell"}
       />
@@ -173,12 +162,45 @@ export function InteropPanel() {
               onChange={(e) => setNote(e.target.value)}
               placeholder="Note for the log entry (optional)"
             />
-            <button className={diff.cut_count ? "danger" : ""} onClick={commit} disabled={busy}>
-              Apply {changeCount} card change(s)
+            <button
+              className={diff.cut_count ? "danger" : ""}
+              onClick={() => (diff.cut_count > 0 ? setConfirmingImport(true) : void commit())}
+              disabled={busy || confirmingImport}
+            >
+              {diff.cut_count ? "Review & apply" : "Apply"} {changeCount} card change(s)
             </button>
           </>
         )}
       </div>
+      {confirmingImport && diff && (
+        <div className="action-confirm" role="alert" aria-label="Confirm destructive import">
+          <strong>Remove {diff.cut_count} card(s) from this deck?</strong>
+          <div className="muted rationale">
+            This lands as one revision and one log entry, so the whole import can be undone.
+          </div>
+          <ul className="confirm-list">
+            {diff.cuts.map((c) => (
+              <li key={c.oracle_id}>
+                {c.quantity > 1 && `${c.quantity}× `}{c.name}
+                {c.role !== "card" && ` (${c.role})`}
+              </li>
+            ))}
+            {diff.quantity_changes
+              .filter((q) => q.to < q.from)
+              .map((q) => (
+                <li key={q.oracle_id}>{q.name} ({q.from}→{q.to})</li>
+              ))}
+          </ul>
+          <div className="dialog-actions">
+            <button autoFocus onClick={() => setConfirmingImport(false)} disabled={busy}>
+              Cancel
+            </button>
+            <button className="destructive" onClick={() => void commit()} disabled={busy}>
+              {busy ? "Applying…" : "Apply import"}
+            </button>
+          </div>
+        </div>
+      )}
       {applied && <div className="muted rationale">{applied}</div>}
 
       {diff && (

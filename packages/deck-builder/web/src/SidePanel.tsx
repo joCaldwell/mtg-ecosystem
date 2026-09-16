@@ -5,9 +5,10 @@
 // part of this page. The committed value is persisted; maximize is not, since
 // landing on a deck page with the deck itself hidden reads as a broken app.
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import { useDeck } from "./store.tsx";
 import { useDismissable } from "./lib.ts";
+import { SidebarResize } from "./SidebarResize.tsx";
 
 // Corner brackets rather than glyphs: the arrow characters render at whatever
 // weight and baseline the system font feels like, which never matched the
@@ -31,26 +32,6 @@ function ExpandIcon({ collapse }: { collapse?: boolean }) {
   );
 }
 
-const KEY = "deck.sideWidth";
-const DEFAULT_W = 372;
-const MIN_W = 300;
-
-/** Widest the panel may get by dragging, leaving the decklist a usable column.
- *  Above 1400px the slot rail is a third column and costs its width too; below
- *  it, the panel and the slots share one rail. Past this you want maximize. */
-function maxWidth(): number {
-  const wide = window.matchMedia("(min-width: 1401px)").matches;
-  return Math.max(MIN_W, window.innerWidth - (wide ? 620 : 360));
-}
-
-function clamp(w: number): number {
-  return Math.min(Math.max(Math.round(w), MIN_W), maxWidth());
-}
-
-function apply(w: number) {
-  document.documentElement.style.setProperty("--side-w", `${w}px`);
-}
-
 export function SidePanel({
   search,
   chat,
@@ -64,70 +45,14 @@ export function SidePanel({
   // audit's "ask agent" brings up the chat without a hand-rolled ref channel.
   const { sideTab: tab, setSideTab: setTab } = useDeck();
   const [maxed, setMaxed] = useState(false);
-  const panelRef = useRef<HTMLElement>(null);
-  const width = useRef(DEFAULT_W);
-
-  function setWidth(w: number, commit = false) {
-    width.current = clamp(w);
-    apply(width.current);
-    if (commit) localStorage.setItem(KEY, String(width.current));
-  }
-
-  useEffect(() => {
-    const stored = Number(localStorage.getItem(KEY));
-    setWidth(Number.isFinite(stored) && stored > 0 ? stored : DEFAULT_W);
-    // A stored width that fit the last window may swallow the decklist in this
-    // one, so re-clamp as the window changes. Not committed: shrinking the
-    // window shouldn't overwrite the width the user chose on a big one.
-    const onResize = () => setWidth(width.current);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
   useDismissable(
     useCallback(() => setMaxed(false), []),
     maxed,
   );
 
-  function onHandleDown(e: React.PointerEvent<HTMLDivElement>) {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    // Measure once: the panel's right edge is fixed while the left edge moves.
-    const right = panelRef.current!.getBoundingClientRect().right;
-    // Class rather than state — the cursor has to win over every element the
-    // pointer crosses, and re-rendering the page mid-drag would be wasteful.
-    document.body.classList.add("col-resizing");
-    const move = (ev: PointerEvent) => setWidth(right - ev.clientX);
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      document.body.classList.remove("col-resizing");
-      setWidth(width.current, true);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  }
-
-  function onHandleKey(e: React.KeyboardEvent) {
-    const step = e.shiftKey ? 64 : 16;
-    if (e.key === "ArrowLeft") setWidth(width.current + step, true);
-    else if (e.key === "ArrowRight") setWidth(width.current - step, true);
-    else return;
-    e.preventDefault();
-  }
-
   return (
-    <aside className={`side-panel ${maxed ? "is-max" : ""}`} ref={panelRef}>
-      <div
-        className="side-resize"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize panel — double-click to reset"
-        tabIndex={0}
-        onPointerDown={onHandleDown}
-        onDoubleClick={() => setWidth(DEFAULT_W, true)}
-        onKeyDown={onHandleKey}
-      />
+    <aside className={`side-panel ${maxed ? "is-max" : ""}`}>
+      <SidebarResize side="right" />
       <div className="tab-bar">
         <button className={`tab ${tab === "search" ? "active" : ""}`} onClick={() => setTab("search")}>
           Search

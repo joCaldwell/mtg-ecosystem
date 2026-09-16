@@ -211,6 +211,11 @@ export function AuditSection({
     null;
   const latest = runs[0] ?? null;
   const reasoningCount = viewRun?.reasoning?.findings.length ?? 0;
+  const auditWhen = running
+    ? "reasoning pass running…"
+    : latest
+      ? `last run #${latest.number} · ${ago(latest.created_at)}`
+      : null;
 
   const rowProps = { askAgent, dismissing, setDismissing };
 
@@ -225,13 +230,7 @@ export function AuditSection({
             {reasoningCount} reasoning
           </span>
         )}
-        <span className="muted audit-when">
-          {running
-            ? "reasoning pass running…"
-            : latest
-              ? `last run #${latest.number} · ${ago(latest.created_at)}`
-              : "never run"}
-        </span>
+        {auditWhen && <span className="muted audit-when">{auditWhen}</span>}
       </h2>
 
       {open && (

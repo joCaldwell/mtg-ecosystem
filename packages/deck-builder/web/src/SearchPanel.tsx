@@ -1,7 +1,9 @@
-import { useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { api, type CardData, type DraftItem } from "./api.ts";
 import { useDeck } from "./store.tsx";
 import { ManaCost } from "./Mana.tsx";
+
+const LIVE_SEARCH_DELAY_MS = 250;
 
 export function SearchPanel({ draftAdd }: { draftAdd?: (item: DraftItem) => void }) {
   const { deckId, state, run } = useDeck();
@@ -11,18 +13,83 @@ export function SearchPanel({ draftAdd }: { draftAdd?: (item: DraftItem) => void
   const [filterIdentity, setFilterIdentity] = useState(true);
   const [results, setResults] = useState<CardData[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
   const [targetSlot, setTargetSlot] = useState<string>("");
   const [expanded, setExpanded] = useState<string | null>(null);
+  const debounceRef = useRef<number | null>(null);
+  const requestRef = useRef<AbortController | null>(null);
+  const requestGeneration = useRef(0);
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    setError(null);
-    try {
-      setResults(await api.search(query, deckId, filterIdentity));
-    } catch (e: any) {
-      setError(e.message);
-      setResults(null);
+  const search = useCallback(async () => {
+    const normalizedQuery = query.trim();
+    const generation = ++requestGeneration.current;
+
+    if (debounceRef.current !== null) {
+      window.clearTimeout(debounceRef.current);
+      debounceRef.current = null;
     }
+    requestRef.current?.abort();
+
+    if (!normalizedQuery) {
+      requestRef.current = null;
+      setResults(null);
+      setError(null);
+      setSearching(false);
+      return;
+    }
+
+    const request = new AbortController();
+    requestRef.current = request;
+    setSearching(true);
+    setError(null);
+
+    try {
+      const nextResults = await api.search(normalizedQuery, deckId, filterIdentity, request.signal);
+      if (generation === requestGeneration.current) setResults(nextResults);
+    } catch (error: unknown) {
+      if (generation !== requestGeneration.current || (error as { name?: string }).name === "AbortError") {
+        return;
+      }
+      setError(error instanceof Error ? error.message : "Search failed");
+      setResults(null);
+    } finally {
+      if (generation === requestGeneration.current) {
+        requestRef.current = null;
+        setSearching(false);
+      }
+    }
+  }, [deckId, filterIdentity, query]);
+
+  useEffect(() => {
+    requestRef.current?.abort();
+    requestRef.current = null;
+    requestGeneration.current++;
+
+    if (!query.trim()) {
+      setResults(null);
+      setError(null);
+      setSearching(false);
+      return;
+    }
+
+    setError(null);
+    setSearching(true);
+    debounceRef.current = window.setTimeout(() => void search(), LIVE_SEARCH_DELAY_MS);
+
+    return () => {
+      if (debounceRef.current !== null) {
+        window.clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+      requestRef.current?.abort();
+      requestRef.current = null;
+      requestGeneration.current++;
+    };
+  }, [query, filterIdentity, deckId, search]);
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    void search();
   }
 
   function add(card: CardData, role?: string) {
@@ -37,9 +104,11 @@ export function SearchPanel({ draftAdd }: { draftAdd?: (item: DraftItem) => void
         <div className="row gap">
           <input
             className="grow"
+            type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder='t:creature o:"draw a card" mv<=3'
+            aria-label="Search cards"
           />
           <button className="primary" type="submit" disabled={!query.trim()}>
             Search
@@ -76,10 +145,16 @@ export function SearchPanel({ draftAdd }: { draftAdd?: (item: DraftItem) => void
 
       {error && <div className="error-banner">{error}</div>}
 
-      {results && (
-        <div className="results">
-          <div className="result-count">{results.length} result(s)</div>
-          {results.map((c) => (
+      {(results || searching) && (
+        <div className="results" aria-busy={searching}>
+          <div id="search-status" className="result-count" role="status" aria-live="polite">
+            {searching
+              ? results
+                ? `Updating ${results.length} result(s)…`
+                : "Searching…"
+              : `${results?.length ?? 0} result(s)`}
+          </div>
+          {results?.map((c) => (
             <div className="result" key={c.oracle_id}>
               <div className="card-main">
                 <span className="card-id">
@@ -123,7 +198,9 @@ export function SearchPanel({ draftAdd }: { draftAdd?: (item: DraftItem) => void
               {expanded === c.oracle_id && <pre className="oracle-text">{c.oracle_text}</pre>}
             </div>
           ))}
-          {!results.length && <div className="muted rationale">Nothing matched that query.</div>}
+          {!searching && results?.length === 0 && (
+            <div className="muted rationale">Nothing matched that query.</div>
+          )}
         </div>
       )}
     </div>
