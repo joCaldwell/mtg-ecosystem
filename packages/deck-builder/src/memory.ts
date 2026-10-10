@@ -473,29 +473,3 @@ export function copyDeckMemories(db: DatabaseSync, fromDeckId: number, toDeckId:
   }
   return source.length;
 }
-
-// For src/migrate-v1.ts only: carry a note across from the v1 database exactly
-// as it was written. The checks remember() applies to new writes (length,
-// [[Card Name]] linting, duplicate detection) do not apply to text the owner
-// typed into an earlier version, which must not be lost or altered.
-export function importMemory(
-  db: DatabaseSync,
-  row: {
-    text: string;
-    deck_id: number;
-    deck_revision: number | null;
-    cards: string[];
-    created_at: string;
-  },
-): number {
-  const r = db
-    .prepare(
-      `INSERT INTO memories (text, scope, deck_id, basis, author, owner_touched, deck_revision, created_at, revised_at)
-       VALUES (?, 'deck', ?, 'stated', 'owner (from v1)', 0, ?, ?, ?)`,
-    )
-    .run(row.text, row.deck_id, row.deck_revision, row.created_at, row.created_at);
-  const id = Number(r.lastInsertRowid);
-  setCards(db, id, row.cards);
-  indexText(db, id, row.text);
-  return id;
-}

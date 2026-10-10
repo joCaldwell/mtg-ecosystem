@@ -22,8 +22,7 @@
     "app": "vite build && node src/server.ts",
     "dev:server": "node --watch src/server.ts",
     "dev:web": "vite",
-    "mcp": "node src/mcp/stdio.ts",
-    "migrate:v1": "node src/migrate-v1.ts"
+    "mcp": "node src/mcp/stdio.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.3.1",

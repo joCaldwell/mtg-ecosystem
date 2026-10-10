@@ -6,10 +6,7 @@ import { AppError } from "./errors.ts";
 
 export const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const DATA_DIR = process.env.DECKBUILDER_DATA ?? join(PKG_ROOT, "data");
-// A new file name, not a new version of the old one: the v1 database
-// (deck-builder.db) is never opened for writing by this code. See
-// src/migrate-v1.ts for the one-way copy.
-export const DEFAULT_DB_PATH = process.env.DECKBUILDER_DB ?? join(DATA_DIR, "deck-builder-v2.db");
+export const DEFAULT_DB_PATH = process.env.DECKBUILDER_DB ?? join(DATA_DIR, "deck-builder.db");
 
 export const SCHEMA_VERSION = 2;
 
@@ -290,13 +287,13 @@ CREATE TABLE IF NOT EXISTS activity (
 CREATE INDEX IF NOT EXISTS idx_activity_ts ON activity(id);
 `;
 
-/** Thrown when the file on disk is not a v2 database. */
+/** Thrown when the file on disk was not made by this schema version. */
 export class SchemaError extends AppError {}
 
 export function openDb(path: string = DEFAULT_DB_PATH): DatabaseSync {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
-  assertNotV1(db, path);
+  assertOurs(db, path);
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA foreign_keys = ON");
   db.exec(SCHEMA);
@@ -307,25 +304,31 @@ export function openDb(path: string = DEFAULT_DB_PATH): DatabaseSync {
   return db;
 }
 
-// A v1 file has a decision_log table and no schema_version. Creating v2
-// tables beside v1's would leave a database neither version can read, so this
-// refuses before writing anything.
-function assertNotV1(db: DatabaseSync, path: string) {
-  const v1 = db
-    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'decision_log'")
-    .get();
-  if (v1) {
-    db.close();
-    throw new SchemaError(
-      `${path} is a v1 deck-builder database. This version does not open it. ` +
-        `Copy its decks into a v2 database with: node src/migrate-v1.ts --from ${path}`,
-    );
+// The schema is created with IF NOT EXISTS, so pointed at a database with a
+// different shape it would add its tables beside the others and leave a file
+// nothing can read. A file that already holds tables must say it is this
+// version; otherwise this refuses before writing anything.
+function assertOurs(db: DatabaseSync, path: string) {
+  const tables = db.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE type = 'table'").get() as {
+    n: number;
+  };
+  if (!tables.n) return; // a new file
+  let found: string | null = null;
+  try {
+    found =
+      (db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as
+        | { value: string }
+        | undefined)?.value ?? null;
+  } catch {
+    /* no meta table at all */
   }
-}
-
-/** Open a database strictly for reading, e.g. a v1 file being migrated. */
-export function openReadOnly(path: string): DatabaseSync {
-  return new DatabaseSync(path, { readOnly: true });
+  if (found === String(SCHEMA_VERSION)) return;
+  db.close();
+  throw new SchemaError(
+    `${path} is not a database this version of the deck builder can open ` +
+      `(it reports schema ${found ?? "unknown"}; this version uses ${SCHEMA_VERSION}). ` +
+      `It was left untouched. Set DECKBUILDER_DB to another file to start fresh.`,
+  );
 }
 
 // Savepoints, not BEGIN, so domain operations compose: a withTransaction

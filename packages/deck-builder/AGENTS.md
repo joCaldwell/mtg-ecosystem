@@ -1,6 +1,6 @@
 # 🃏 deck-builder — a Commander deck builder that agents drive from outside
 
-> **Status: ACTIVE.** Built against the v2 spec,
+> **Status: ACTIVE.** Built against
 > [docs/deck-builder-spec.md](../../docs/deck-builder-spec.md) (2026-10-10).
 > Section numbers in code comments (§5.2 draft/active, §7 memories, §8
 > rulings, §10 agent interface) refer to that document.
@@ -48,7 +48,7 @@ TypeScript SDK, v2 line) and `zod`. Keep it to those.
 src/
   errors.ts          AppError base — every user-facing failure carries its HTTP status
   actor.ts           Actor (owner | agent), requireOwner, PermissionError
-  db.ts              v2 schema, withTransaction (savepoints — they nest), settings
+  db.ts              schema, withTransaction (savepoints — they nest), settings
   cards.ts           ⭐ exact card resolution, suggestions, prose linting
   ingest.ts          Scryfall bulk → SQLite            search/  Scryfall-syntax subset
   deck/
@@ -69,7 +69,6 @@ src/
   state.ts           deckState() — the composite the UI gets from every mutation
   app.ts             createApp(): UI API (as owner), event stream, static files, /mcp
   server.ts          entry point: binds 127.0.0.1
-  migrate-v1.ts      one-way copy from a v1 database
   mcp/
     playbook.ts      INSTRUCTIONS (short) and PLAYBOOK (returned by start_session)
     render.ts        text for agents — compact, grouped, counts stated
@@ -101,7 +100,6 @@ Run from this directory (`packages/deck-builder/`):
 | `npm run refresh` | Re-download the Scryfall oracle-cards bulk file into SQLite |
 | `npm run search '<query>'` | Scryfall-syntax search from the CLI |
 | `npm run mcp` | The stdio shim, for clients that only launch a command |
-| `npm run migrate:v1 -- --dry-run` | Preview copying a v1 database into v2 (see below) |
 
 `DECKBUILDER_PORT`, `DECKBUILDER_DB`, `DECKBUILDER_DATA` and `DECKBUILDER_TOKEN`
 override the port, database file, data folder and agent token.
@@ -117,15 +115,6 @@ claude mcp add --transport http deck-builder http://127.0.0.1:8787/mcp/claude-co
 ```
 
 The name after `/mcp/` is a label for attribution in the activity feed.
-
-### Migrating from v1
-
-The v2 database is a **new file**, `data/deck-builder-v2.db`. v2 never opens
-the v1 file (`data/deck-builder.db`) for writing and refuses to treat it as its
-own. `npm run migrate:v1` opens v1 read-only and copies decks, lists,
-organization, briefs, the decision log and open proposals; hard filters, card
-notes and playtest notes become deck memories. Chat transcripts, compaction
-summaries and audit runs have no place in v2 and stay in the v1 file.
 
 ### Doing frontend work
 
