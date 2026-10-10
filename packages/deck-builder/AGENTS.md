@@ -5,6 +5,14 @@
 > [docs/deck-builder-spec.md](../../docs/deck-builder-spec.md) for the phase
 > list and what each one delivered.
 
+> ⚠️ **The spec was rewritten on 2026-10-10 and this code has not caught up.**
+> [docs/deck-builder-spec.md](../../docs/deck-builder-spec.md) is now v2: no
+> model calls inside the app, external agents over MCP, memories in place of
+> typed rejections and hard filters. Everything below describes the code as
+> built against the v1 spec (in git history), including the `§` numbers in
+> code comments. For new work the v2 spec wins; update this manual as each
+> phase of its build order lands.
+
 A localhost web app for building **one Commander deck well**, with an agent
 that participates in the deck's history instead of answering cold questions.
 

@@ -1,334 +1,504 @@
-# MTG Commander Deck Builder — Build Spec
+# MTG Commander Deck Builder — Build Spec (v2)
 
-> Copied verbatim from the authoring session on 2026-07-26 so it survives outside chat.
-> **Settled decisions (from the "Open knobs" section, chosen 2026-07-26):**
-> - Tech stack: localhost web app; TypeScript; `node:sqlite` (built-in FTS5, zero native deps); lives in `packages/deck-builder`.
-> - Slot targets: min–max ranges (a single number is shorthand for min = max).
-> - Brief: hybrid — engines as structured records (required pieces keyed by `oracle_id`), thesis and constraints as freeform markdown.
-> - Audit findings queue for manual promotion into proposals; never auto-generate.
-> - Audit runs are backgrounded and recorded; the newest 5 per deck are kept (§8).
-> - Default slot set for a new deck: **empty** — every deck defines its own slots.
-> - Decision-log retention `N` = 30 (config value).
-> - Agreed deviation: an Archidekt import (§9) applies in full and immediately rather than becoming a proposal — the gate is aimed at the agent, and the preview diff is the owner's approval. The 3–5 item cap in §7.1 therefore has no exemptions.
+> Rewritten 2026-10-10. This replaces the 2026-07-26 spec, which is in git
+> history. It was designed as if no code existed: the code in
+> `packages/deck-builder` predates it, and whether any of that code is reused
+> is an implementation decision, not a constraint on this document.
+>
+> **Decisions settled with Josh on 2026-10-10:**
+> - The app makes no AI model calls. Agents are external and reach it through a documented interface (§10).
+> - Local only. No hosting, no remote access.
+> - Typed rejections, hard filters and the 3–5 item proposal cap are gone. A rejection carries an optional free-text reason (§8).
+> - Memories replace card notes, hard filters and playtest notes. They are written by agents without approval and are always visible to the owner (§7).
+> - The player profile and deck briefs are the owner's documents; agent edits to them are proposed (§6).
+> - Agents edit draft decks freely; the approval gate applies to active decks (§5.2).
+> - The `owned` flag becomes a per-deck "in paper" flag (§5.5).
+> - Cross-deck membership is off by default in card search and is turned on per call (§4.2).
 
 ---
 
 ## 1. What this is
 
-A local, single-user, desktop-only Magic: The Gathering Commander deck builder with a deeply integrated AI agent. The agent knows what each deck is trying to do, proposes changes with reasoning, remembers why I rejected things, and can never invent a card.
+A local, single-user application for building Magic: The Gathering Commander
+decks, designed to be driven by a person and by external AI agents through the
+same capabilities.
 
-This is not a Moxfield or Archidekt replacement. Those tools treat a deck as a list with tags. This one models *what the deck is trying to do* — its thesis, its named engines, its win path — and evaluates the list against that.
+The app is the source of truth. It stores structured data, enforces
+validation and permissions, does every calculation, and keeps an auditable
+record of every change. People use it directly through its UI. Agents use it
+through an MCP interface. Interpretation, planning and conversation happen in
+whatever agent the owner points at it (Claude Code, a desktop assistant,
+anything that speaks MCP), never inside the app. The app is fully usable with
+no agent attached.
 
-### Non-goals
+What it models that a list-with-tags tool does not: **what each deck is trying
+to do** (its brief), **what the owner has decided and why** (rulings), and
+**what agents have learned about the owner** (memories and the profile).
 
-- No card images. Text only.
-- No hosting, no deployment, no auth, no multi-user. Runs locally, always.
-- No mobile or responsive layout. Desktop only.
-- No collection or inventory management.
-- No price tracking.
+### Design rules
+
+1. **Card facts come from the database, never from model memory.** Names, oracle text and legality are looked up, on every path.
+2. **If the app can compute it or look it up, nobody else derives it.** Counts, deltas, legality and cross-deck statistics are computed by the app and handed over. This applies to agents and to memories alike (§3).
+3. **One capability layer, two front doors.** The UI and the agent interface call the same service functions. Validation lives below both.
+4. **The owner rules on membership of active decks.** An agent changes which cards are in an active deck only through an accepted proposal.
+5. **Everything an agent writes is attributed and visible.** No write is hidden, whether or not it needed approval.
+
+---
+
+## 2. Non-goals
+
+- No model calls inside the app. This includes embeddings and any "smart" ranking that needs a model.
+- No chat UI, no transcript storage, no context management. Those belong to the agent's own harness.
+- No hosting, deployment, accounts or multi-user support.
+- No external knowledge sources (EDHREC, Commander Spellbook, price sites). An agent may consult them itself; whatever it finds must resolve through the app's card search before it can be proposed.
+- No collection or inventory management beyond the per-deck paper flag (§5.5).
 - No live sync with any external service.
 - No formats other than Commander.
 
----
-
-## 2. Card data
-
-**Source:** Scryfall bulk data, the **`oracle-cards`** file specifically — one entry per unique card rather than per printing (~35k rows instead of ~500k). Not `default-cards`.
-
-- Store in SQLite. Provide a refresh command that re-pulls the bulk file and upserts.
-- **Key everything on `oracle_id`.** Never on printing ID, never on name.
-- FTS5 index over card name and oracle text.
-- Fields to retain: `oracle_id`, `name`, `mana_cost`, `cmc`, `type_line`, `oracle_text`, `power`, `toughness`, `loyalty`, `color_identity`, `legalities.commander`, `layout`, `card_faces` (for MDFCs/split cards).
-- Discard everything else — no prices, set codes, rulings, art, artist, flavor text.
-
-**Color identity:** use Scryfall's `color_identity` field directly. Do not compute it. It already handles mana symbols in rules text, hybrid, reminder text, and the weird cases.
-
-**Legality:** `legalities.commander` gives the banned list for free. Commander *eligibility* (legendary creature, or oracle text containing "can be your commander") is a separate check.
-
-**Search syntax:** support a subset of Scryfall query syntax — `t:`, `o:`, `cmc`/`mv` with comparators, `id:`/`id<=`, `c:`, `pow`/`tou`, `is:`. It's the format's lingua franca and I already know it. Extend it with `slot:` and `tag:` (see §4).
+Carried over from the previous spec without being re-examined; say so if any
+should be reopened: no card images, no price tracking, no mobile layout.
 
 ---
 
-## 3. Deck model
+## 3. The knowledge model
+
+Three kinds of knowledge, separated by who is authoritative for them.
+
+| Kind | Contents | Written by | Reaches an agent |
+| --- | --- | --- | --- |
+| **Records** | Cards, decks, proposals, rulings, computed state, activity log | The app, from actions | Through tools, on demand |
+| **Documents** | Player profile (global), deck brief (per deck) | The owner; agents propose edits | Always loaded at their scope |
+| **Memories** | Short notes about preferences, reasons and outcomes | Agents, without approval; the owner too | Loaded by scope; the rest searched |
+
+**A record is never copied into a memory.** "The owner has three Golgari
+decks" is a query. Memory that duplicates the source of truth is the main way
+memory goes stale, so the app offers computed answers (§10.3, `player_stats`)
+and the playbook forbids storing them.
+
+---
+
+## 4. Card data and search
+
+### 4.1 Card data
+
+**Source:** Scryfall bulk data, the `oracle-cards` file: one entry per unique
+card, not per printing.
+
+- SQLite, with an FTS5 index over name and oracle text. A refresh command re-pulls the bulk file and upserts.
+- Keyed on `oracle_id` internally.
+- Retain: `oracle_id`, `name`, `mana_cost`, `cmc`, `type_line`, `oracle_text`, `power`, `toughness`, `loyalty`, `color_identity`, `legalities.commander`, `layout`, `card_faces`. Discard everything else.
+- Use Scryfall's `color_identity` directly. Do not compute it.
+- `legalities.commander` supplies the banned list. Commander eligibility is a separate check.
+
+### 4.2 Search
+
+A subset of Scryfall query syntax: `t:`, `o:`, `cmc`/`mv` with comparators,
+`id:`/`id<=`, `c:`, `pow`/`tou`, `is:`, extended with `slot:` and `tag:`.
+Verify each operator's semantics against Scryfall's syntax documentation and
+cite it in a comment.
+
+When a search names a deck:
+
+- Results are pre-filtered to the deck's colour identity, so illegal cards never come back.
+- Each result is marked if it is already in that deck or on its maybe list.
+- Each result carries any memories linked to that card (§7.2) and any prior rulings on it in that deck (§8.3).
+
+**Cross-deck membership is off by default.** A result does not say which of
+the owner's other decks contain the card unless the call sets
+`include_my_decks: true`. Left on permanently, that information biases
+recommendations toward cards the owner already has; it is a mode, turned on
+deliberately.
+
+### 4.3 Referring to cards
+
+Agents refer to cards by **exact name**. Names cost a fraction of the tokens
+of a UUID and are far less likely to be mis-transcribed.
+
+- Resolution is exact, never fuzzy. A fuzzy match turns a visible mistake into a silent wrong answer.
+- A full-name match wins over a face-name match.
+- A name that resolves to nothing fails the **whole call**, with "did you mean" suggestions. No partial application.
+- A name that is genuinely ambiguous fails with the candidates and their `oracle_id`s. Every card argument also accepts an `oracle_id` for that case.
+
+Things the app mints (decks, proposals, memories, rulings) are referred to by
+short integer ids, always shown beside their names.
+
+---
+
+## 5. Decks
+
+### 5.1 Model
 
 - A deck targets exactly **100 cards** including commanders.
-- **Commanders are a list, not a single field.** Support zero to two, plus Background, plus Companion. Do not model this as a single foreign key — retrofitting partners later is painful.
-- Deck rows store denormalized `color_identity` for fast legality checks.
-- Changing a deck's commander may invalidate cards by color identity. This must surface as an audit finding, not silently corrupt the deck.
+- **Commanders are a list.** Zero to two, plus Background, plus Companion (outside the 100).
+- Each deck row stores its denormalized colour identity. Changing the commander may invalidate cards; that surfaces as a check finding (§9), never as silent corruption.
+- Each deck-card row: card, quantity, role (`card` / `commander` / `companion`), slot (at most one, may be null), tags (zero or more), `maybe` (on the maybe list, outside the 100), `in_paper` (§5.5).
+- Every change to membership bumps the deck's **revision** number.
 
-### Deck-card rows
+### 5.2 Draft and active
 
-Each card in a deck has:
-- `oracle_id`
-- `slot_id` — exactly one, may be null
-- tags — zero or more, from a controlled vocabulary
-- `owned` — boolean
+A deck is either **draft** or **active**. Only the owner changes this.
 
-### The `owned` flag
+| | Draft | Active |
+| --- | --- | --- |
+| Agent changes membership | Directly (`edit_draft`) | Only by proposal (§8) |
+| Agent edits the brief | Directly | Only by proposed edit (§6) |
+| Owner changes anything | Directly | Directly |
+| Changes are logged with author and revision | Yes | Yes |
 
-Set manually by me when a card physically arrives. Used only to filter the export into a buy list (`where owned = false`).
+Decks an agent creates start as drafts. A fork starts as a draft. The owner
+may return an active deck to draft for a rebuild. This is what makes
+"build me a first 100" workable: a hundred cards do not go through a
+per-item gate.
 
-**This field must never appear in the agent's context.** If the agent can see what I own, it will quietly bias its suggestions toward my binder. Budget-awareness is a mode I turn on deliberately, not an ambient bias.
+### 5.3 Forks
 
-The decklist may expose either polarity of the same flag: mark cards as owned,
-or mark the smaller set that is missing. An explicit all-owned baseline is
-allowed so exception-first tracking does not require checking ninety-five
-cards before identifying the five that belong on the buy list.
+`fork_deck` copies the card list, organization, brief and deck memories into a
+new draft, and records the parent. The copies then diverge independently; the
+parent link exists so the two can be compared (`compare_decks` defaults to
+the parent) and so an agent working on the fork can read where it came from.
 
----
+Forks replace named checkpoints. There is no snapshot system and no DAG.
 
-## 4. Slots and tags
+### 5.4 Slots, tags and the maybe list
 
-**Slots:** a card belongs to at most one slot. Slots are optional — a deck may define none, and a card may sit unslotted indefinitely; nothing (proposals included) requires one. Slots have **target counts** — a number or a range. Targets are soft; a deck can deliberately violate one, but the violation should be visible.
+- **Slots:** optional; a card belongs to at most one. Slots have target counts (a number or a min–max range). Targets are soft, and violations are visible. New decks define no slots.
+- **Tags:** many per card, from a per-deck vocabulary.
+- **Maybe list:** cards under consideration, outside the 100. A parked card keeps its slot and tags.
+- **Naming rule:** slot and tag names may not equal a card type in singular or plural (`land`, `lands`), nor any search prefix. Slot and card type are independent axes; whole-name matches only, so `land destruction` is allowed.
 
-Slot targets are what turn "you're 2 cards short" into "you're 2 short and interaction is 3 under target while ramp is 2 over." They also supply half the audit rubric for free.
+**All of this is organization, not membership, and agents do it directly** on
+any deck: define and retarget slots, file cards, tag, shortlist candidates
+onto the maybe list. None of it changes the 100 or bumps the revision. To keep
+the tag vocabulary from drifting, creating a tag that closely matches an
+existing one fails and names the existing tag.
 
-**Slots are the agent's to manage, directly.** It creates, renames, retargets and deletes slots, and files cards into them in bulk, with no approval gate — `create_slot`, `update_slot`, `delete_slot`, `move_cards`. This is a deliberate exception to §7, and the line it draws is *membership vs. organization*: none of these change which cards are in the 100, none bump the deck revision, and any of them is reversed with a dropdown. Gating filing behind the same ceremony as a cut would dilute the ceremony rather than protect anything. Filing a card is addressed by **name**, resolved exactly against the deck's own contents — the anti-hallucination guarantee (§6) is intact because a name that isn't already in the deck resolves to nothing and fails the whole call.
+### 5.5 The paper flag
 
-Tags are the counter-example and stay gated: a new tag is a permanent addition to a controlled vocabulary that the search grammar and every future filter depend on, which is a different kind of act from filing a card.
+`in_paper` on a deck-card row means the physical card is in the physical deck.
+It does not mean "owned": a card can be owned and still missing from this
+deck. The UI works exception-first: mark a deck "fully assembled", then mark
+the few cards that are missing.
 
-**Tags:** a card can have many. Tags are a **controlled vocabulary** — the agent picks from existing tags; creating a new tag is itself a proposal I approve. Without this you get `ramp`, `mana-ramp`, and `acceleration` as three tags in a month and the filters quietly stop working.
-
-**Naming rule:** slot and tag names may not collide with card types (`land`, `artifact`, `creature`, `instant`, etc.), **in either singular or plural**, nor with any supported search prefix.
-
-Two different reasons sit behind that one rule. Prefixes are reserved to protect the search grammar, since slots and tags are queryable via `slot:` and `tag:`. Card types are reserved because **slot and card type are meant to be independent axes**: a slot says what a card *does* (`ramp`, `interaction`), the type says what it *is*, and the decklist groups by either one on demand. A slot named `lands` collapses the two, and makes "34 lands" ambiguous about which of them it counts.
-
-The rule matches whole names only — `creature removal` and `land destruction` are roles that happen to mention a type, and are allowed.
-
----
-
-## 5. The brief
-
-A per-deck document holding:
-- The thesis — what this deck is trying to do
-- Named engines, each with its required pieces
-- Constraints (budget, no infinite combos, pod meta, whatever)
-- Anything else durably true about the deck's intent
-
-The brief is **seldom changed**. It is editable by me directly, and by the agent via tools — but agent edits go through the approval gate like everything else.
-
----
-
-## 6. Anti-hallucination architecture (highest priority)
-
-This is the core of the project. Chat-based deckbuilding fails because nothing in the loop distinguishes "I read this card" from "I'm confident about this card." The fix is to make recall structurally unable to reach the output. Four layers:
-
-### 6.1 The full decklist is permanently resident in context
-
-100 cards with full oracle text is roughly 8–9k tokens. Cheap. If the whole list is in every request, the agent never *recalls* what's in the deck or what those cards do — it reads them. This alone kills most errors.
-
-### 6.2 Mutations take `oracle_id`, never names
-
-`add_card(oracle_id, reason)`, `remove_card(oracle_id, reason)`, `swap(...)`. The agent cannot produce a valid `oracle_id` from memory, so the only way to add a card is to have found it in a search result first. **A hallucinated card physically cannot enter the deck.**
-
-### 6.3 Candidates come only from search results
-
-The search tool returns name, mana cost, type line, color identity, and full oracle text. System prompt rule, stated explicitly: *you may reference a card only if it is in the current deck or was returned by a search this turn; if you have a hunch a card exists, search for it before saying anything about it.*
-
-This inverts the model's role — its training becomes a **query generator** ("there's probably a green card that untaps permanents during each opponent's untap step") rather than a fact source. The hunch is usually right about the shape of the thing; the specifics are what rot.
-
-**All searches are pre-filtered by the commander's color identity**, so illegal cards never come back at all.
-
-### 6.4 Output linting
-
-- Every card mention in agent output must use `[[Card Name]]` syntax.
-- Before anything renders, resolve all `[[...]]` against the database.
-- **Exact match only. Never fuzzy-match.** Fuzzy matching turns a visible hallucination into a silent wrong answer — the model invents "Seedborn Sage," you resolve it to Seedborn Muse, and a fabrication now looks like a citation.
-- Near-miss → bounce back to the agent as a "did you mean" it must explicitly re-resolve.
-- No match → hard error, hand back to the agent, retry. Unresolved names never reach my screen.
-
-### 6.5 Residual risk
-
-The agent will sometimes have correct oracle text and still reason wrongly about interactions — layers, timing, replacement effects, "can't" vs "doesn't." Mitigation: **require it to quote the specific oracle clause it's relying on.** A wrong inference usually can't produce a supporting quote. This does not go to zero and shouldn't be expected to.
+- It is written only by the owner.
+- It appears in no default tool output.
+- `paper_status(deck)` returns the deck's missing cards and, for each, any other deck where that card is marked in paper. That separates a **pull list** from a **buy list**. Each pull-list line states that moving the copy leaves the other deck missing it.
+- There are no inventory counts. One flag per deck-card is the whole feature.
 
 ---
 
-## 7. Proposal and approval system
+## 6. Documents
 
-**The agent never edits the deck's contents directly.** It proposes a changeset; I rule on it item by item. The gate is on membership — what is in the 100. **Organization is not membership**: the agent manages slots and how cards are filed into them directly, without a ruling (see §4).
+Two documents, both short, both the owner's voice, both always in context at
+their scope.
 
-The reasons are the point. In a direct-edit model my objection is said once and evaporates. Here the objection is the durable output — the changes are almost incidental, but the reasons are what the agent can't reconstruct and what makes each session smarter than the last.
+**Player profile** (one, global): tastes, playgroup and power level, budget
+stance, standing dislikes, anything durably true about the owner as a
+builder. Freeform markdown with a soft cap of about 600 words; over the cap,
+the app flags it.
 
-### 7.1 Changeset structure
+**Deck brief** (one per deck): the thesis, constraints, and **engines**.
+Thesis and constraints are freeform markdown. An engine is a structured
+record: a name, a description, and its required pieces as card references, so
+that "is every piece of this engine in the deck" is a check (§9), not a
+judgement.
 
-- A proposal contains **3–5 items maximum.** Hand me fifteen changes and I rubber-stamp them. The cap forces the agent to rank, and its ranking is itself informative.
-- Item: `action` (add/cut), `oracle_id`, `rationale`, `group_id`, `status`. Each item adds or cuts exactly one copy; cutting a card with multiple copies decrements its quantity, removing the row only when the last copy is cut.
-- **`group_id` marks atomic bundles.** A swap justified by one line of reasoning must be accepted or rejected as a unit — otherwise I take the cut, reject the add, and sit at 99 cards holding half an argument. Everything else is independent.
-- Track **pending delta** against 100 and against each slot target, so the app always knows I'm two cards short and the agent can be told to fill exactly that.
+**Editing:** the owner edits either directly. An agent calls
+`propose_profile_edit` or `propose_brief_edit` with the replacement text and a
+reason that cites what prompted it (rulings, memories). The owner sees a diff
+and accepts or rejects it. On a draft deck, brief edits apply directly.
 
-### 7.2 Typed rejections
-
-Rejecting an item **requires a reason**, and the reason is **typed**. Four types, routing differently:
-
-| Type | Meaning | Destination |
-|---|---|---|
-| Hard filter | Don't own it, out of budget, hard no | Never suggest again; also filters at search level |
-| Thesis change | "That's not what this deck is" | Triggers a proposed edit to the brief |
-| Playtest finding | "I tried it, it underperformed" | Durable card-specific note. Strongest reason type. |
-| Soft / not now | Deck isn't ready, want the mana base settled first | Decays or resurfaces; does not become permanent |
-
-If these all land in one undifferentiated "rejected" bucket, the agent over-applies them — it treats "not yet" as "never," quietly stops exploring a line, and I never notice because an absent suggestion is invisible.
-
-### 7.3 Re-proposal rules
-
-- The agent **may** re-propose a previously rejected card — decks change and yesterday's bad fit is today's answer.
-- But a re-proposal **must cite the prior rejection and state what changed.**
-- The agent gets **one push-back**, with the specific oracle clause it's relying on, then defers. This is the line between a collaborator and a nag.
-- This is a system prompt rule plus injecting the rejection log. No code required.
-
-### 7.4 Versioning comes free
-
-Every mutation is an approved proposal item with a timestamp and a reason. **That log is the version history.** Undo is reversing one item.
-
-- Do **not** build a separate undo stack or snapshot system.
-- Do **not** build event sourcing. Materialize the deck table, append to the log, accept that they could theoretically drift.
-- Named checkpoints ("pre-Omen-Machine rebuild") are just a copy of the card list. Not a git-like DAG.
+Memories are where an agent learns; documents are what the owner has
+confirmed. When a group of memories has settled into something durable, the
+playbook tells the agent to propose folding it into the relevant document and
+to retire the memories once accepted.
 
 ---
 
-## 8. Audit
+## 7. Memories
 
-**A permanent section below the decklist**, not a dialog. On-demand only — a button, plus an optional free-text field for instructions ("focus on the mana base," "I keep losing to graveyard decks") — but the results are part of the deck's record, and I should be able to scroll to them the same way I scroll to the mana base.
+### 7.1 Shape
 
-Two rules follow from that, and they are the whole reason this section is not a modal:
+One memory is one statement with its reason, a few sentences at most, stored
+as a row:
 
-- **A run is a server-side job.** Starting one returns immediately; the reasoning pass finishes on the server and writes its result whether or not anything is watching. Closing the panel, navigating away, or closing the browser cannot cancel an audit — it costs a model call, and losing it to a stray Escape key taught me not to run one.
-- **Runs persist.** The newest **5** runs per deck are kept, with their instructions, the revision they were taken at, and both halves of their findings. Deeper history has no reader: an old deterministic finding is stale the moment the deck changes, and old reasoning is superseded advice.
+| Field | Meaning |
+| --- | --- |
+| `text` | The statement, with `[[Card Name]]` for any card mentioned (§10.5) |
+| `scope` | `global` or `deck` (with the deck) |
+| `cards` | Optional links to cards |
+| `basis` | `stated` (the owner said it, including in a ruling reason) or `inferred` (the agent concluded it) |
+| `author` | The owner, or the agent's self-reported client name |
+| `source` | Optional: the ruling that prompted it, and the deck revision if deck-scoped |
+| `status` | `active`, `superseded` (with a link to the replacement), or `retired` |
+| timestamps | Created, last revised |
 
-**Deterministic problems appear in a modal opened from the deck header**, with a live problem count on the button. They report the current list and resolve when the list or targets change; the modal offers ask-agent but no dismiss/restore workflow or dismissed-history section. Doctor’s companion pairs are recognized from card types and oracle text. **The audit section below the decklist contains only recorded agent reasoning**, labelled with its run and flagged when the deck has moved past the revision it was taken at. Its focus field and run button share a row, followed by the viewing-run selector, snapshot warning, and agent findings without intervening subheadings.
+Rows, not files, so that the app can attach a memory to a card or deck and
+surface it without relying on the agent to go looking.
 
-### 8.1 Deterministic checks — SQL only, never the model
+### 7.2 Scope and surfacing
+
+- **Global** memories load at session start.
+- **Deck** memories load with the deck.
+- **Card-linked** memories, of either scope, are attached to that card wherever it appears: search results, card lookups, and the response to a proposal that includes it. A global memory linked to a card follows the card into every deck.
+- Everything else is reached with `search_memories` (full-text, filterable by scope, deck and card).
+
+### 7.3 Writing
+
+- **No approval.** `remember` writes immediately.
+- **Revise before adding.** `remember` returns existing memories that resemble the new one, so the agent can update or supersede instead of duplicating.
+- **Nothing is deleted by an agent.** Superseding keeps the old row, marked and linked. Retiring hides a memory from loading and search but keeps it on disk.
+- **The owner outranks the agent.** An agent cannot edit, supersede or retire a memory the owner wrote or edited. It may write a new memory that disagrees and say so.
+- **Inferred memories are hypotheses.** They load marked as inferred. When the owner confirms one, it becomes stated.
+- Deck-scoped memories written after a playtest carry the deck revision, so a note about how the deck played attaches to the list that was played.
+
+What belongs in a memory is set by the playbook (§10.4): preferences,
+corrections, reasons, playgroup facts and outcomes. Never anything a tool can
+answer, never card text, never something read from a web page presented as
+the owner's preference.
+
+### 7.4 Budgets and upkeep
+
+Loaded memory has a budget: about 1,500 estimated tokens of global memories
+and about 1,000 per deck. Both are settings. When a scope is over budget, the
+app loads the most recently revised memories that fit, reports how many were
+left out, and says the scope needs consolidating.
+
+Consolidation is the agent's work, prompted by the app's signals: merge
+duplicates, supersede what has changed, promote a deck memory to global when
+the same thing has shown up in several decks, and propose a document edit when
+a cluster has settled (§6). The app never consolidates by itself; that would
+need a model.
+
+### 7.5 Visibility
+
+A Memories page in the app: browse by scope, deck and card; see basis, author
+and source; edit, retire or restore. The activity feed (§11) shows what each
+agent session wrote. Memories are written without asking; they are never
+hidden.
+
+---
+
+## 8. Proposals and rulings
+
+### 8.1 Proposals
+
+On an active deck, an agent changes membership by calling `propose_changes`.
+
+- A proposal has a one-line summary and **any number of items**. The agent sizes it to what was asked for.
+- An item is an add or a cut of one copy of one card, with a reason.
+- Items may be **grouped**. A group is ruled on as a unit, so a swap justified by one argument cannot be half-accepted.
+- The app tracks the pending delta against 100 and against each slot target, and returns it with the proposal.
+- The response also returns, for each card, its linked memories and prior rulings in this deck (§8.3), so the agent sees what it should have considered.
+
+### 8.2 Rulings
+
+The owner rules in the app: per item, per group, or the whole proposal at
+once. A ruling is accept or reject with an **optional free-text reason**.
+There are no reason types.
+
+Every ruling is a row in the **rulings log**: deck, card, action, outcome,
+reason, proposal, author, timestamp, and the deck revision it produced. The
+owner's direct edits and imports are logged in the same place. This log is the
+version history, and **undo is the reversal of a log entry**. An import is one
+entry carrying a snapshot of the prior list.
+
+### 8.3 Prior rulings follow the card
+
+When a card is proposed, searched with a deck named, or looked up, the app
+attaches earlier rulings on that card in that deck: "rejected at revision 14:
+too slow for this list". This is a lookup the app does every time. It replaces
+the old hard filter without asking the owner to classify anything and without
+depending on an agent remembering to check.
+
+An agent may re-propose a rejected card. The playbook requires it to cite the
+prior ruling and say what changed.
+
+### 8.4 The review queue
+
+The owner often rules while no agent is running. Each ruling therefore has a
+`reviewed` mark, unset until an agent has read it. `start_session` reports how
+many rulings are unreviewed, `list_rulings` returns them, and
+`mark_rulings_reviewed` clears them once the agent has decided what, if
+anything, is worth a memory. A reason given in the app is never lost for lack
+of a listener.
+
+---
+
+## 9. Checks
+
+Deterministic, computed in SQL on request, never stored as a snapshot:
 
 - Card count against 100
-- Singleton violations (accounting for basic lands and cards that say otherwise)
-- Color identity legality of every card
-- Banned list (`legalities.commander`)
-- Commander eligibility
+- Singleton violations, accounting for basic lands and cards that say otherwise
+- Colour identity of every card
+- Banned and not-legal cards
+- Commander eligibility and partner pairing
 - Slot counts against targets
-- Mana curve distribution, land count, mana symbol distribution
+- Engine pieces present or missing (§6)
+- Mana curve, land count and mana symbol distribution
+- Companion present: flagged as **unverified**, since the condition needs rules evaluation the app does not have
 
-**Never ask the model whether the deck is 100 cards.** It's a `count(*)`, the model will get it wrong often enough to poison trust in every other finding, and it will then reason confidently from the wrong number.
+The UI shows a live problem count on the deck. Agents receive check results
+as a section of `get_deck` and in the response to every write that could
+change them.
 
-### 8.2 Reasoning checks — the model, with deterministic results supplied as context
-
-- Does the deck have a path to its stated win condition?
-- Which cards break symmetry, and which quietly hand parity back?
-- Anti-synergies — cards that undo a named engine
-- Are all pieces of each named engine present, and is there redundancy?
-- Can the deck survive long enough to assemble its engine?
-
-The model reasons much better about these when it already knows the deck is two cards over and light on interaction.
-
-### 8.3 Findings route into the proposal system
-
-An audit finding becomes a proposal. Dismissing a finding keeps a dismissal type but the reason is optional, and gets logged exactly like a rejection. An omitted reason stays empty; it must not invent an explanation or create an empty playtest note. Proposal rejections still require reasons. Otherwise the audit reports the same four things forever and I learn to ignore it.
-
-*(Settled: findings queue for manual promotion; they do not auto-generate proposals.)*
-
-### 8.4 Findings route into the chat
-
-The other thing I want to do with a finding is argue with it. When the reasoning pass says the deck has no way to win, the next move is to ask the agent about *that*, in the chat, without retyping it.
-
-So every finding has an **"ask agent"** button, and it appends a reference — `audit#12/reasoning:no-win-path` — to the chat draft. The reference is a **pointer, not a paste**: the agent resolves it with a `get_audit` tool that reads the recorded run. Pasting the finding's text instead would freeze a copy of it into the transcript forever, and the run is already on disk.
-
-The agent is told what a run is when it reads one: a snapshot at a revision, whose deterministic half is authoritative for *that* revision, and whose reasoning half is another model's judgement — to be engaged with from the oracle text, agreed with or not.
+Judgement about a deck (does it have a path to its win condition, what are
+its anti-synergies) is an agent's work. It reaches the app as proposals,
+memories and proposed brief edits, not as a stored report.
 
 ---
 
-## 9. Archidekt interop
+## 10. The agent interface
 
-Deck construction happens here. Playtesting and goldfishing happen in Archidekt.
+### 10.1 Transport and security
 
-- **Export:** produce an Archidekt-importable list. Optionally filter to `owned = false` to produce a buy list for card seller sites.
-- **Import (paste-back):** I paste a list back in; the app **diffs it against the current deck, shows me the diff, and on my say-so applies the whole thing at once.** The approval gate exists to stop the *agent* from changing the deck unilaterally — a pasted list is my own list, and clicking through 99 per-card accepts was friction with no information in it. The preview diff is the approval step. Destructive cuts (cards in the deck but absent from the paste) are called out before applying. The import lands as **one** decision-log entry carrying a snapshot of the prior list, so undoing that row reverts the entire import — and one line rather than 99 keeps a big import from flushing real rulings out of the agent's retention window (§12).
-- **Do not build a sync layer.** One-way export, one-way import, both through the same door. Archidekt never silently becomes the source of truth.
+- One process owns the database and serves the UI, its HTTP API, and an **MCP endpoint over Streamable HTTP** on the same local port.
+- Bound to `127.0.0.1`. That is not an authentication boundary: the endpoint also requires a bearer token (generated on first run) and validates the `Origin` header, so a web page in the owner's browser cannot call it.
+- A small **stdio shim** proxies to the endpoint for clients that only launch stdio servers.
+- The settings page shows the token and ready-to-paste configuration for common clients.
+- Use the official MCP TypeScript SDK. The protocol had a breaking revision in July 2026 (stateless requests, no `initialize` handshake) and clients will speak a mix of revisions for some time; that is not worth hand-rolling.
 
-> ⚠️ **Verify Archidekt's actual text import/export format and its tag/category syntax against their current documentation before implementing.** Do not rely on model memory for this — it's exactly the kind of detail that gets confabulated.
+### 10.2 Design principles
 
-### Playtest notes
+- **Stateless.** Every call names its deck. There is no "current deck" on the server.
+- **Few tools, shaped around tasks,** not one per database operation.
+- **Results are compact text meant to be read,** grouped the way the deck is organized. No JSON blobs, no ids the agent will not need. `get_deck` takes a `sections` argument so re-reads are cheap, and the full view must stay well under a typical client's tool-result cap.
+- **Writes return the new state:** card count, slot deltas and check results come back with the write, so the agent never re-fetches or counts.
+- **Errors say how to fix the call.** A failed name resolution lists suggestions; an `edit_draft` on an active deck says to use `propose_changes`.
+- **Annotations are honest:** read-only tools are marked read-only; nothing an agent can call is destructive.
+- **Tool order is deterministic,** for client-side prompt caching.
 
-A freeform note field, **stamped to the deck version that was exported.** Goldfishing generates the best data in the whole system ("never found Omen Machine before turn 9," "Static Orb was dead in three of five opens," "had the lock and no way to close"). If it lives in my head, the agent never sees it and I re-explain it every session. Since the approval log already gives version history for free, a note attaches to a specific 100-card list rather than floating.
+### 10.3 Tools
+
+| Group | Tool | Purpose |
+| --- | --- | --- |
+| Orient | `start_session` | Playbook, profile, global memories, deck roster (one line each), the owner's focus, unreviewed-ruling count, memory budget state |
+| | `player_stats` | Computed across decks: colours, commander types, curves, slot habits, most-reused cards |
+| Read | `get_deck` | Brief, list grouped by slot with oracle text, computed state, checks, deck memories, pending proposals, recent rulings; `sections` selects parts |
+| | `compare_decks` | Cards only in one, only in the other, and shared; defaults to a fork's parent |
+| | `search_cards` | §4.2 |
+| | `get_cards` | Exact-name lookup of several cards: full text, linked memories, and rulings if a deck is named. Also the way to check that names are real |
+| | `list_rulings` | By deck, by date, or unreviewed only |
+| | `search_memories` | Full-text, filtered by scope, deck or card |
+| | `paper_status` | §5.5 |
+| | `export_deck` | Archidekt-importable text (§12) |
+| Write freely | `create_deck` | New draft from a name, commanders, and optionally a pasted list |
+| | `fork_deck` | §5.3 |
+| | `edit_draft` | Add and remove cards, set commanders, write the brief; drafts only |
+| | `define_slots` | Create, rename, retarget and remove slots |
+| | `file_cards` | Assign slot and tags to cards already in the deck |
+| | `shortlist_cards` | Add to or remove from the maybe list, with a note |
+| | `remember` | §7.3 |
+| | `revise_memory` | Update, supersede, retire or confirm |
+| | `mark_rulings_reviewed` | §8.4 |
+| Propose | `propose_changes` | §8.1 |
+| | `propose_brief_edit` | §6 |
+| | `propose_profile_edit` | §6 |
+
+**Focus.** The app records what the owner has open in the UI (which deck,
+which cards are selected). `start_session` returns it and `get_deck` accepts
+`"focus"` as the deck, so "this deck" in conversation means the one on
+screen.
+
+**Owner-only actions** have no tool: ruling on proposals and document edits,
+switching a deck between draft and active, deleting a deck, writing the paper
+flag, importing over an existing deck, undo.
+
+### 10.4 The playbook
+
+The rules an agent needs to work well with this app. It is delivered three
+ways because clients differ in what they read:
+
+1. The MCP server `instructions`: a few hundred characters, front-loaded, covering only cross-tool rules.
+2. The `start_session` result, which carries the full playbook. The instructions tell the agent to call it first.
+3. An optional **Agent Skill** in the repository, holding method rather than rules: how to evaluate a deck against its brief, how to build from a commander, how to run a memory tidy-up.
+
+The playbook's rules:
+
+- Call `start_session` first. Review unreviewed rulings before proposing anything.
+- Mention a card only if it is in a deck you have read or came back from a search or lookup in this conversation. A hunch is a search query, not a fact.
+- When an argument depends on what a card does, quote the oracle clause.
+- Never count or compute what the app reports.
+- Re-proposing a rejected card requires citing the ruling and what changed. One push-back, then defer.
+- What to remember and what not to (§7.3). Revise before adding.
+- When a memory scope is over budget, consolidate it.
+
+Rules live in the app's playbook; validation lives in the app's code. Nothing
+that matters is enforced only by a sentence in a prompt.
+
+### 10.5 Linting what agents write
+
+Every piece of prose an agent stores (proposal reasons, memory text, brief and
+profile edits, shortlist notes) writes cards as `[[Card Name]]`. On write, the
+app resolves every reference exactly; one unresolvable name fails the call
+with suggestions. Whatever the app displays therefore contains no invented
+card.
 
 ---
 
-## 10. Context assembly
+## 11. The app for people
 
-The single most important function in the codebase. Everything above converges here. Assembled in this order:
+- **Decks:** list, create, fork, delete; draft or active state.
+- **Deck view:** the list grouped by slot or by card type, slot targets and deltas, the maybe list, the brief, a live checks count, the paper flag, direct editing, card search.
+- **Proposals inbox:** pending proposals across decks; rule per item, per group or all at once, with an optional reason; diffs for proposed brief and profile edits.
+- **Rulings log:** per deck, with undo.
+- **Memories:** §7.5.
+- **Profile:** edit directly.
+- **Activity feed:** every agent write, with the agent's name, time and target. The audit trail for unapproved writes.
+- **Settings:** connection details for agents, memory budgets, card data refresh.
 
-| # | Segment | Approx. tokens | Notes |
-|---|---|---|---|
-| 1 | Agent rules and output contract | ~600 | Static across all decks |
-| 2 | Deck brief | ~500 | Seldom changes |
-| 3 | Slots, targets, tag vocabulary | ~300 | Seldom changes |
-| 4 | Decklist — 100 cards with oracle text | ~9k | Changes per accepted proposal |
-| 5 | Computed state — counts and deltas | ~150 | From SQL |
-| 6 | Pending proposals | ~200 | Un-ruled items |
-| 7 | Decision log — resident portion | ~2k | Compaction zone |
-| 8 | Session transcript | grows | Compaction zone |
-| 9 | Search results — this turn | ~1k | Ephemeral |
-| — | Tail restate block | ~75 | See below |
-
-**Order is driven by stability, for prompt caching.** Segments 1–3 form a stable cached prefix. Segment 4 breaks cache on accepted proposals but sits above the transcript, which changes every turn. On a local app hitting the API this is real money and real latency.
-
-**Decklist format:** grouped by slot (not alphabetically), tags inline on the card line. Send only name, mana cost, type line, oracle text, P/T. No JSON blobs, no set codes, no prices, no rulings, no legality objects. Grouping by slot means the model reads the deck the way the deck is organized and can *see* that interaction is thin rather than inferring it.
-
-**Computed state is given, never derived.** The model must never be in a position where it needs to count something.
-
-**Tail restate block** — 50–100 tokens after the transcript, immediately before my message: cards to 100, which slots are under/over, and hard-filter card names (names only; the reasons live up in the log). This is deliberately redundant with material already in the payload. The constraints that get violated are the ones buried in the middle, and a compact restatement at the boundary is the cheapest fix for that.
+The UI updates live when an agent writes (server-sent events from the app to
+the browser). A proposal made in a terminal appears in the inbox without a
+reload.
 
 ---
 
-## 11. Compaction
+## 12. Archidekt interop
 
-**One chat per deck, forever.** The chat is an append-only session log with periodic manual compaction.
+Construction happens here. Playtesting and goldfishing happen in Archidekt.
 
-The chat is **not the source of truth** — the deck, brief, and decision log are all in the database. Compaction discards conversational texture, not data. That's what makes it safe to do aggressively.
+- **Export:** an Archidekt-importable list, optionally filtered to cards missing in paper.
+- **Import:** the owner pastes a list; the app diffs it against the deck, shows the diff with destructive cuts called out first, and applies it in full on confirmation. It is one rulings-log entry with a snapshot, so one undo reverts it.
+- One-way out, one-way in. No sync layer.
 
-### Behavior
-
-- A **segmented context meter**, not a single number. "Transcript is 40k" means compact. "Decision log is 30k" means the retention policy is wrong and compacting won't help.
-- A manual **consolidate** command. On invoke it: proposes brief updates for high-impact new information, discards what's outdated, and summarizes the remainder as the starting context for the continued chat.
-- **Consolidation runs through the approval gate.** Show me proposed brief edits and proposed discards; I rule on them.
-- **Keep the raw transcript on disk** after it leaves context. Disk is free; this makes compaction non-destructive.
-- **The compaction boundary is not a free choice of index.** An assistant's `tool_calls` and the `tool` messages answering them are one unit: cut between them and what stays resident begins with an orphaned tool result, which providers reject as a malformed request — permanently, since the same window is rebuilt every turn. The boundary snaps forward past trailing tool results, and context assembly drops either half of a call that lost its partner (a turn can also die between issuing a call and running it). Repair happens on read; the rows on disk stay as they were.
-- **Report what it rescued.** If consolidation regularly pulls important facts out of the transcript into the brief, that's a signal a tool is missing — those facts should have been written to a structured record when they happened. The report is the diagnostic.
-
-### Hard boundary — enforce in code, not in the prompt
-
-Compaction may touch **only** the session transcript and the aged, soft portion of the decision log.
-
-It may never touch: the decklist, computed state, pending proposals, hard filters, playtest findings, or the brief (except via approved proposals).
-
-With that enforced in code, a bad consolidation run can't do lasting damage — worst case I lose some conversational context and re-explain something once.
+Verify Archidekt's text format against its own documentation and cite the
+sources in the code. Do not rely on model memory for it.
 
 ---
 
-## 12. Decision log retention
+## 13. What is guaranteed about card facts
 
-Which portion of the log is resident in context. Make this a **config value I can edit**, not a constant baked into the assembly function — it needs tuning against real logs.
+| Guarantee | How |
+| --- | --- |
+| No invented card can enter a deck | Every card argument resolves exactly or the call fails (§4.3) |
+| No invented card appears anywhere in the app | Agent prose is linted on write (§10.5) |
+| An agent reads card text; it does not recall it | Deck views, searches and lookups all return oracle text |
+| Counts and legality are never an agent's arithmetic | Computed by the app and returned with every read and write (§9) |
 
-Starting default:
-- All hard filters, forever (they're short — a card name and a type)
-- All playtest findings, forever
-- The last N decisions regardless of type *(settled: N = 30)*
-- Soft notes until superseded or a few deck revisions old
-
-**Log consolidation:** periodically, the agent should notice when several rejections say the same thing and propose a brief edit — "you've cut every counterspell I've suggested; should the brief say this deck doesn't run counterspells?" This is what keeps the brief seldom-changed but not stale, and it's the mechanism that makes the memory feel like it's consolidating rather than just accumulating.
+**Not guaranteed:** what an agent says in its own chat window. The app cannot
+lint text it never sees. The playbook's citation rule and the `get_cards`
+lookup reduce this; they do not remove it. The same goes for an agent
+reasoning wrongly from correct card text about timing, layers or replacement
+effects.
 
 ---
 
-## 13. Phased build order
+## 14. Build order
 
-Build and verify each phase before starting the next. Each layer should be testable without the one above it.
+Each phase is verified before the next begins, and each is testable without
+the one above it.
 
-**Phase 1 — Card database.** Ingest the Scryfall `oracle-cards` bulk file into SQLite. FTS5 index. Search implementation with the Scryfall syntax subset. Refresh command. Verify: I can search and get correct results, keyed on `oracle_id`. ✅ *Completed 2026-07-26.*
+1. **Capability core.** Card database and search; decks with draft and active states, forks, slots, tags, maybe list; checks; the rulings log with undo. Tested with no UI and no agent.
+2. **Agent interface, read side.** MCP endpoint with token and Origin check, stdio shim, `start_session`, the read tools, the playbook. Verify by connecting a real agent and reading decks.
+3. **The gate.** `edit_draft`, organization tools, `propose_changes`, prior rulings following the card, linting on write; the proposals inbox and live UI updates.
+4. **Memories and documents.** The memory store, budgets, the review queue, the profile, proposed document edits, the Memories page and activity feed.
+5. **Cross-deck.** `player_stats`, `compare_decks`, `paper_status`, focus.
+6. **Method and evaluation.** The Agent Skill, and a set of realistic multi-step tasks ("rework this fork toward a new thesis", "what should I build next") run against a real agent, with transcripts read and the tools revised from what they show.
+7. **Interop.** Archidekt export and import.
 
-**Phase 2 — Deck model, no agent.** Deck CRUD, commander list, slots with targets, tag vocabulary, `owned` flag, computed state. Manual card add/remove through the UI. Verify: I can build a 100-card deck by hand and see accurate slot deltas.
+## 15. To verify at build time
 
-**Phase 3 — Proposal system, still no agent.** Proposals, items, atomic groups, per-item accept/reject, typed rejections and their routing, the decision log, undo via log reversal. Test by creating proposals manually. Verify: the approval gate and the log work end to end.
-
-**Phase 4 — The agent.** Context assembly per §10, tool definitions (search, propose, brief edit), `[[Card Name]]` linting with exact-match resolution and retry. Verify: the agent cannot get a hallucinated card into the deck or onto my screen.
-
-**Phase 5 — Audit.** Deterministic checks first, then the reasoning pass, then routing findings into proposals.
-
-**Phase 6 — Interop and compaction.** Archidekt export/import-as-proposal (verify the format first), playtest notes, context meter, consolidate command. ✅ *Completed 2026-07-26. Archidekt's format was verified against their own FAQ and forum before implementing — the sources are cited in `src/deck/interop.ts`.*
+- Which MCP protocol revisions the SDK and the owner's clients speak, and whether those clients read server `instructions`.
+- Whether those clients prompt for permission on every tool call. If so, the memory and organization tools need allowlisting in the client for unapproved writes to be quiet in practice.
+- Whether full-text search stays adequate for memories as they accumulate. Embeddings are excluded by §2; the fallback is better linking and consolidation.
+- The memory budgets in §7.4, against real use.
