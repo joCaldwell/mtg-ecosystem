@@ -1,279 +1,218 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { openDb } from "../src/db.ts";
-import { ingestCards } from "../src/ingest.ts";
-import { FIXTURES } from "./fixtures.ts";
-import { search } from "../src/search/index.ts";
-import { addCard, createDeck, createSlot, createTag, getDeck, updateCard } from "../src/deck/service.ts";
-import { acceptItem, createProposal, listProposals, rejectItem } from "../src/deck/proposals.ts";
+import { OWNER, PermissionError } from "../src/actor.ts";
+import { cardHistory, getLogEntry, listLog, unreviewedCount } from "../src/deck/log.ts";
+import { undo } from "../src/deck/membership.ts";
 import {
-  addCardNote,
-  getCardHistory,
-  getLog,
-  listCardNotes,
-  listHardFilters,
-  removeHardFilter,
-  undoDecision,
-} from "../src/deck/log.ts";
+  acceptItems,
+  createProposal,
+  getProposal,
+  listProposals,
+  pendingItemIds,
+  rejectItems,
+} from "../src/deck/proposals.ts";
+import { createSlot, deleteSlot, getDeck } from "../src/deck/service.ts";
+import { AGENT, add, newDeck, testDb } from "./helpers.ts";
 
-const db = openDb(":memory:");
-ingestCards(db, FIXTURES);
+const db = testDb();
+const names = (id: number) => getDeck(db, id).cards.filter((c) => !c.maybe).map((c) => c.name);
 
-function deckWith(name: string, oracleIds: string[] = []): number {
-  const id = createDeck(db, name);
-  for (const oid of oracleIds) addCard(db, id, oid);
+function seeded() {
+  const id = newDeck(db);
+  add(db, id, "id-teferi", { role: "commander" });
+  add(db, id, "id-counterspell");
   return id;
 }
 
-function openItems(deckId: number) {
-  return listProposals(db, deckId, "open").flatMap((p) => p.items);
-}
-
-describe("proposal creation", () => {
-  test("validates items: rationale required, cut must be in deck, add must not be", () => {
-    const id = deckWith("Create", ["id-solring"]);
-    assert.throws(
-      () => createProposal(db, id, [{ action: "add", oracle_id: "id-seedborn", rationale: " " }]),
-      /rationale/,
+describe("creating a proposal (spec §8.1)", () => {
+  test("any number of items; each needs a reason; the author is recorded", () => {
+    const id = seeded();
+    const items = ["id-solring", "id-forest", "id-llanowar", "id-seedborn", "id-goyf", "id-rats", "id-bog"].map(
+      (oracle_id) => ({ action: "add" as const, oracle_id, reason: "Fills the curve." }),
     );
+    const pid = createProposal(db, AGENT, id, { summary: "Seven adds", items });
+    const proposal = getProposal(db, pid)!;
+    assert.equal(proposal.items.length, 7);
+    assert.equal(proposal.author, "test-agent");
+    assert.equal(getDeck(db, id).computed.pending.projected_count, 9);
     assert.throws(
-      () => createProposal(db, id, [{ action: "cut", oracle_id: "id-seedborn", rationale: "x" }]),
+      () => createProposal(db, AGENT, id, { items: [{ action: "add", oracle_id: "id-ball", reason: " " }] }),
+      /needs a reason/,
+    );
+    assert.throws(() => createProposal(db, AGENT, id, { items: [] }), /at least one item/);
+  });
+  test("items must make sense against the deck", () => {
+    const id = seeded();
+    assert.throws(
+      () => createProposal(db, AGENT, id, { items: [{ action: "cut", oracle_id: "id-solring", reason: "x" }] }),
       /not in the deck/,
     );
     assert.throws(
-      () => createProposal(db, id, [{ action: "add", oracle_id: "id-solring", rationale: "x" }]),
+      () => createProposal(db, AGENT, id, { items: [{ action: "add", oracle_id: "id-counterspell", reason: "x" }] }),
       /already in the deck/,
     );
+    // A card that allows more copies can be proposed again.
+    add(db, id, "id-forest");
+    createProposal(db, AGENT, id, { items: [{ action: "add", oracle_id: "id-forest", reason: "One more land." }] });
+  });
+  test("a second pending proposal for the same change is refused", () => {
+    const id = seeded();
+    const first = createProposal(db, AGENT, id, {
+      items: [{ action: "add", oracle_id: "id-solring", reason: "Ramp." }],
+    });
     assert.throws(
-      () => createProposal(db, id, [{ action: "add", oracle_id: "nope", rationale: "x" }]),
-      /Unknown oracle_id/,
+      () => createProposal(db, AGENT, id, { items: [{ action: "add", oracle_id: "id-solring", reason: "Ramp again." }] }),
+      new RegExp(`Proposal #${first} already has a pending add of Sol Ring`),
     );
   });
-  // Nothing is exempt from the cap now that imports apply directly (§9)
-  // rather than arriving here as a 99-item proposal.
-  test("cap of 5 items, no exemptions", () => {
-    const id = deckWith("Cap");
-    const many = ["id-llanowar", "id-seedborn", "id-counterspell", "id-solring", "id-goyf", "id-ball"];
-    const items = many.map((o) => ({ action: "add" as const, oracle_id: o, rationale: "r" }));
-    assert.throws(() => createProposal(db, id, items), /at most 5/);
-    assert.throws(() => createProposal(db, id, items, { source: "import" }), /at most 5/);
-    assert.ok(createProposal(db, id, items.slice(0, 5)) > 0);
-  });
-});
-
-describe("accept", () => {
-  test("applies the mutation, logs it, bumps revision, resolves the proposal", () => {
-    const id = deckWith("Accept");
-    const slot = createSlot(db, id, "Ramp");
-    createProposal(db, id, [
-      { action: "add", oracle_id: "id-solring", slot_id: slot, rationale: "best ramp in the format" },
-    ]);
-    const [item] = openItems(id);
-    acceptItem(db, item.id);
-
-    const state = getDeck(db, id);
-    assert.equal(state.cards[0].name, "Sol Ring");
-    assert.equal(state.cards[0].slot_id, slot);
-    assert.equal(listProposals(db, id, "open").length, 0);
-
-    const log = getLog(db, id) as any[];
-    assert.equal(log[0].kind, "accept");
-    assert.equal(log[0].card_name, "Sol Ring");
-    assert.equal(log[0].rationale, "best ramp in the format");
-    assert.equal(log[0].revision, 1);
-  });
-  test("a grouped swap cuts one basic copy, matches the preview, and can be undone", () => {
-    const id = deckWith("Basic swap", ["id-forest"]);
-    const slot = createSlot(db, id, "Mana");
-    const tag = createTag(db, id, "keep");
-    updateCard(db, id, "id-forest", { quantity: 99, slotId: slot, owned: true, tagIds: [tag] });
-    addCard(db, id, "id-atraxa", { role: "commander" });
-    const before = getDeck(db, id);
-    createProposal(db, id, [
-      { action: "cut", oracle_id: "id-forest", rationale: "Trim one basic", group_id: "swap" },
-      { action: "add", oracle_id: "id-solring", slot_id: slot, rationale: "Ramp", group_id: "swap" },
-    ]);
-    const projected = getDeck(db, id).computed.pending.projected_count;
-    assert.equal(projected, 100);
-    acceptItem(db, openItems(id)[0].id);
-    const after = getDeck(db, id);
-    const basic = after.cards.find((c) => c.oracle_id === "id-forest")!;
-    assert.equal(basic.quantity, 98);
-    assert.equal(basic.slot_id, slot);
-    assert.equal(basic.owned, 1);
-    assert.deepEqual(basic.tag_ids, [tag]);
-    assert.equal(after.computed.card_count, projected);
-    assert.equal(after.deck.revision, before.deck.revision + 2);
-    assert.equal(openItems(id).length, 0);
-
-    const cut = getLog(db, id).find((e) => e.action === "cut")!;
-    undoDecision(db, id, cut.id);
-    assert.equal(getDeck(db, id).cards.find((c) => c.oracle_id === "id-forest")!.quantity, 99);
-    assert.throws(() => undoDecision(db, id, cut.id), /already been undone/);
-  });
-
-  test("a failed grouped swap rolls back a partial cut and its log", () => {
-    const id = deckWith("Basic rollback", ["id-forest"]);
-    updateCard(db, id, "id-forest", { quantity: 12 });
-    createProposal(db, id, [
-      { action: "cut", oracle_id: "id-forest", rationale: "Trim one", group_id: "swap" },
-      { action: "add", oracle_id: "id-solring", rationale: "Ramp", group_id: "swap" },
-    ]);
-    addCard(db, id, "id-solring");
-    const before = getDeck(db, id);
-    assert.throws(() => acceptItem(db, openItems(id)[0].id), /already in the deck/);
-    assert.deepEqual(getDeck(db, id), before);
-    assert.equal(getLog(db, id).length, 0);
-    assert.equal(openItems(id).length, 2);
-  });
-
-  test("atomic groups apply together or not at all", () => {
-    const id = deckWith("Groups", ["id-counterspell"]);
-    createProposal(db, id, [
-      { action: "cut", oracle_id: "id-counterspell", rationale: "swap", group_id: "swap1" },
-      { action: "add", oracle_id: "id-seedborn", rationale: "swap", group_id: "swap1" },
-    ]);
-    const items = openItems(id);
-    acceptItem(db, items[0].id); // ruling on one item rules the group
-    const cards = getDeck(db, id).cards.map((c) => c.name);
-    assert.deepEqual(cards, ["Seedborn Muse"]);
-    assert.equal(listProposals(db, id, "open").length, 0);
-  });
-  test("group acceptance rolls back wholly on failure", () => {
-    const id = deckWith("Group rollback", ["id-counterspell"]);
-    createProposal(db, id, [
-      { action: "cut", oracle_id: "id-counterspell", rationale: "swap", group_id: "g" },
-      { action: "add", oracle_id: "id-seedborn", rationale: "swap", group_id: "g" },
-    ]);
-    // Make the add fail by sneaking the card in before ruling
-    addCard(db, id, "id-seedborn");
-    const items = openItems(id);
-    assert.throws(() => acceptItem(db, items[0].id), /already in the deck/);
-    // The cut must NOT have been applied
-    assert.ok(getDeck(db, id).cards.some((c) => c.name === "Counterspell"));
-  });
-});
-
-describe("typed rejections route (spec §7.2)", () => {
-  test("rejection requires a typed reason", () => {
-    const id = deckWith("Reject");
-    createProposal(db, id, [{ action: "add", oracle_id: "id-solring", rationale: "r" }]);
-    const [item] = openItems(id);
-    assert.throws(() => rejectItem(db, item.id, "soft", ""), /requires a reason/);
-    assert.throws(() => rejectItem(db, item.id, "nope" as any, "reason"), /must be one of/);
-  });
-  test("hard_filter blacklists the card: search-level and re-propose blocked", () => {
-    const id = deckWith("Hard filter");
-    createProposal(db, id, [{ action: "add", oracle_id: "id-solring", rationale: "r" }]);
-    rejectItem(db, openItems(id)[0].id, "hard_filter", "budget: already in three decks");
-
-    assert.equal((listHardFilters(db, id) as any[])[0].card_name, "Sol Ring");
+  // Spec §10.5: nothing the app displays names a card that does not exist.
+  test("a reason naming an invented card fails the whole proposal", () => {
+    const id = seeded();
     assert.throws(
-      () => createProposal(db, id, [{ action: "add", oracle_id: "id-solring", rationale: "again" }]),
-      /hard-filtered/,
+      () =>
+        createProposal(db, AGENT, id, {
+          items: [
+            { action: "add", oracle_id: "id-solring", reason: "Better than [[Signet of the Adeptus]]." },
+          ],
+        }),
+      /is not a card name/,
     );
-    const visible = search(db, '!"sol ring"', { deckId: id, excludeHardFilters: true });
-    assert.equal(visible.length, 0);
-    // UI search without the flag still sees it
-    assert.equal(search(db, '!"sol ring"', { deckId: id }).length, 1);
-
-    removeHardFilter(db, id, "id-solring");
-    assert.equal(
-      createProposal(db, id, [{ action: "add", oracle_id: "id-solring", rationale: "ok now" }]) > 0,
-      true,
-    );
-  });
-  test("playtest_finding creates a durable card note", () => {
-    const id = deckWith("Playtest", ["id-seedborn"]);
-    createProposal(db, id, [{ action: "cut", oracle_id: "id-seedborn", rationale: "underperforms?" }]);
-    rejectItem(db, openItems(id)[0].id, "playtest_finding", "won two games on untap value; stays");
-    const notes = listCardNotes(db, id) as any[];
-    assert.equal(notes[0].card_name, "Seedborn Muse");
-    assert.match(notes[0].note, /won two games/);
-  });
-  test("thesis_change flags the log entry for brief review", () => {
-    const id = deckWith("Thesis");
-    createProposal(db, id, [{ action: "add", oracle_id: "id-counterspell", rationale: "protection" }]);
-    rejectItem(db, openItems(id)[0].id, "thesis_change", "this deck doesn't run counterspells");
-    const log = getLog(db, id) as any[];
-    assert.equal(log[0].rejection_type, "thesis_change");
-    assert.equal(log[0].brief_flag, 1);
+    assert.equal(listProposals(db, { deckId: id }).length, 0);
   });
 });
 
-describe("pending delta", () => {
-  test("computed state projects open proposals against 100 and slots", () => {
-    const id = deckWith("Pending", ["id-counterspell"]);
-    const slot = createSlot(db, id, "Ramp", 2, 4);
-    updateCard(db, id, "id-counterspell", { slotId: null });
-    createProposal(db, id, [
-      { action: "add", oracle_id: "id-solring", slot_id: slot, rationale: "r" },
-      { action: "add", oracle_id: "id-llanowar", slot_id: slot, rationale: "r" },
-      { action: "cut", oracle_id: "id-counterspell", rationale: "r" },
-    ]);
-    const { computed } = getDeck(db, id);
-    assert.equal(computed.pending.adds, 2);
-    assert.equal(computed.pending.cuts, 1);
-    assert.equal(computed.pending.projected_count, 2);
-    assert.deepEqual(computed.pending.by_slot, { [slot]: 2 });
+describe("ruling (spec §8.2)", () => {
+  test("only the owner rules", () => {
+    const id = seeded();
+    const pid = createProposal(db, AGENT, id, {
+      items: [{ action: "add", oracle_id: "id-solring", reason: "Ramp." }],
+    });
+    const ids = pendingItemIds(db, pid);
+    assert.throws(() => acceptItems(db, AGENT, ids), PermissionError);
+    assert.throws(() => rejectItems(db, AGENT, ids), PermissionError);
   });
-});
-
-describe("undo via log reversal (spec §7.4)", () => {
-  test("undoing a cut restores slot, tags, owned, and quantity", () => {
-    const id = deckWith("Undo cut");
+  test("accepting applies the change as one logged act that carries both reasons", () => {
+    const id = seeded();
     const slot = createSlot(db, id, "Ramp");
-    const tag = createTag(db, id, "fast-mana");
-    addCard(db, id, "id-solring", { slotId: slot });
-    updateCard(db, id, "id-solring", { owned: true, tagIds: [tag] });
-
-    createProposal(db, id, [{ action: "cut", oracle_id: "id-solring", rationale: "test cut" }]);
-    acceptItem(db, openItems(id)[0].id);
-    assert.equal(getDeck(db, id).cards.length, 0);
-
-    const cutEntry = (getLog(db, id) as any[]).find((e) => e.kind === "accept");
-    undoDecision(db, id, cutEntry.id);
-
-    const card = getDeck(db, id).cards[0];
-    assert.equal(card.name, "Sol Ring");
-    assert.equal(card.slot_id, slot);
-    assert.equal(card.owned, 1);
-    assert.deepEqual(card.tag_ids, [tag]);
-    // Original entry marked; double-undo refused
-    assert.throws(() => undoDecision(db, id, cutEntry.id), /already been undone/);
-  });
-  test("undoing an add removes the card; only applied decisions can be undone", () => {
-    const id = deckWith("Undo add");
-    createProposal(db, id, [{ action: "add", oracle_id: "id-seedborn", rationale: "r" }]);
-    acceptItem(db, openItems(id)[0].id);
-    const entry = (getLog(db, id) as any[])[0];
-    undoDecision(db, id, entry.id);
-    assert.equal(getDeck(db, id).cards.length, 0);
-
-    const rejectId = deckWith("Undo reject");
-    createProposal(db, rejectId, [{ action: "add", oracle_id: "id-solring", rationale: "r" }]);
-    rejectItem(db, openItems(rejectId)[0].id, "soft", "not yet");
-    const rejectEntry = (getLog(db, rejectId) as any[])[0];
-    assert.throws(() => undoDecision(db, rejectId, rejectEntry.id), /Only accepted/);
-  });
-});
-
-describe("history and notes", () => {
-  test("per-card history supports re-proposal citations (spec §7.3)", () => {
-    const id = deckWith("History");
-    createProposal(db, id, [{ action: "add", oracle_id: "id-seedborn", rationale: "v1" }]);
-    rejectItem(db, openItems(id)[0].id, "soft", "mana base first");
-    createProposal(db, id, [{ action: "add", oracle_id: "id-seedborn", rationale: "v2: mana settled" }]);
-    acceptItem(db, openItems(id)[0].id);
-    const history = getCardHistory(db, id, "id-seedborn") as any[];
+    const pid = createProposal(db, AGENT, id, {
+      items: [{ action: "add", oracle_id: "id-solring", slot_id: slot, reason: "Cheap ramp." }],
+    });
+    const logId = acceptItems(db, OWNER, pendingItemIds(db, pid), "Yes, obviously.");
+    assert.ok(names(id).includes("Sol Ring"));
+    assert.equal(getDeck(db, id).cards.find((c) => c.oracle_id === "id-solring")!.slot_id, slot);
+    const entry = getLogEntry(db, logId)!;
     assert.deepEqual(
-      history.map((h) => h.kind),
-      ["accept", "reject"],
+      [entry.kind, entry.ruling_reason, entry.proposal_id, entry.cards[0].reason],
+      ["accept", "Yes, obviously.", pid, "Cheap ramp."],
     );
+    assert.equal(getProposal(db, pid)!.status, "resolved");
   });
-  test("manual card notes", () => {
-    const id = deckWith("Notes", ["id-seedborn"]);
-    addCardNote(db, id, "id-seedborn", "never cast before turn 6 across five games");
-    assert.equal((listCardNotes(db, id) as any[]).length, 1);
+  test("a rejection changes nothing, needs no reason, and is logged against the card", () => {
+    const id = seeded();
+    const before = getDeck(db, id).deck.revision;
+    const pid = createProposal(db, AGENT, id, {
+      items: [
+        { action: "add", oracle_id: "id-solring", reason: "Ramp." },
+        { action: "cut", oracle_id: "id-counterspell", reason: "Too reactive." },
+      ],
+    });
+    const [addItem, cutItem] = pendingItemIds(db, pid);
+    rejectItems(db, OWNER, [cutItem]);
+    rejectItems(db, OWNER, [addItem], "Too slow for this list.");
+    assert.equal(getDeck(db, id).deck.revision, before);
+    assert.deepEqual(names(id), ["Counterspell", "Teferi, Temporal Archmage"]);
+
+    const history = cardHistory(db, id, "id-solring");
+    assert.deepEqual(
+      [history[0].kind, history[0].action, history[0].ruling_reason, history[0].reason],
+      ["reject", "add", "Too slow for this list.", "Ramp."],
+    );
+    assert.equal(cardHistory(db, id, "id-counterspell")[0].ruling_reason, "");
+    assert.equal(getProposal(db, pid)!.status, "resolved");
+  });
+  test("a group is ruled on as a unit", () => {
+    const id = seeded();
+    const pid = createProposal(db, AGENT, id, {
+      items: [
+        { action: "cut", oracle_id: "id-counterspell", reason: "Swap.", group: "swap" },
+        { action: "add", oracle_id: "id-solring", reason: "Swap.", group: "swap" },
+        { action: "add", oracle_id: "id-forest", reason: "A land." },
+      ],
+    });
+    const [cutItem, addItem, lone] = pendingItemIds(db, pid);
+    const logId = acceptItems(db, OWNER, [addItem]);
+    assert.deepEqual(names(id), ["Sol Ring", "Teferi, Temporal Archmage"]);
+    assert.equal(getDeck(db, id).deck.revision, 3);
+    assert.equal(getLogEntry(db, logId)!.cards.length, 2);
+    assert.throws(() => rejectItems(db, OWNER, [cutItem]), /already accepted/);
+    assert.deepEqual(pendingItemIds(db, pid), [lone]);
+    assert.equal(getProposal(db, pid)!.status, "open");
+  });
+  test("accepting the whole proposal at once is one act and one revision", () => {
+    const id = seeded();
+    const before = getDeck(db, id).deck.revision;
+    const pid = createProposal(db, AGENT, id, {
+      items: ["id-solring", "id-forest", "id-bog"].map((oracle_id) => ({
+        action: "add" as const,
+        oracle_id,
+        reason: "Needed.",
+      })),
+    });
+    const logId = acceptItems(db, OWNER, pendingItemIds(db, pid));
+    assert.equal(getDeck(db, id).deck.revision, before + 1);
+    assert.equal(getLogEntry(db, logId)!.summary, "+3 cards");
+    // The log entry is undone like any other.
+    undo(db, OWNER, logId);
+    assert.deepEqual(names(id), ["Counterspell", "Teferi, Temporal Archmage"]);
+  });
+  test("a stale item fails the accept without half-applying it", () => {
+    const id = seeded();
+    const pid = createProposal(db, AGENT, id, {
+      items: [
+        { action: "add", oracle_id: "id-solring", reason: "Ramp." },
+        { action: "cut", oracle_id: "id-counterspell", reason: "Cut." },
+      ],
+    });
+    // The owner cuts the card by hand before ruling.
+    add(db, id, "id-forest");
+    db.prepare("DELETE FROM deck_cards WHERE deck_id = ? AND oracle_id = 'id-counterspell'").run(id);
+    assert.throws(() => acceptItems(db, OWNER, pendingItemIds(db, pid)), /not in the deck/);
+    assert.ok(!names(id).includes("Sol Ring"));
+    assert.equal(pendingItemIds(db, pid).length, 2);
+  });
+  test("a slot deleted after proposing does not fail the accept", () => {
+    const id = seeded();
+    const slot = createSlot(db, id, "Ramp");
+    const pid = createProposal(db, AGENT, id, {
+      items: [{ action: "add", oracle_id: "id-solring", slot_id: slot, reason: "Ramp." }],
+    });
+    deleteSlot(db, id, slot);
+    acceptItems(db, OWNER, pendingItemIds(db, pid));
+    assert.equal(getDeck(db, id).cards.find((c) => c.oracle_id === "id-solring")!.slot_id, null);
+  });
+});
+
+describe("rulings and the review queue (spec §8.4)", () => {
+  test("every ruling waits for an agent to read it, with its reason", () => {
+    const fresh = testDb();
+    const id = newDeck(fresh, "draft");
+    const pid = createProposal(fresh, AGENT, id, {
+      items: [{ action: "add", oracle_id: "id-solring", reason: "Ramp." }],
+    });
+    assert.equal(unreviewedCount(fresh), 0);
+    rejectItems(fresh, OWNER, pendingItemIds(fresh, pid), "I never play fast mana.");
+    const queue = listLog(fresh, { unreviewedOnly: true });
+    assert.equal(queue.length, 1);
+    assert.equal(queue[0].ruling_reason, "I never play fast mana.");
+    assert.equal(queue[0].deck_name, getDeck(fresh, id).deck.name);
+  });
+  test("the inbox lists open proposals across decks", () => {
+    const fresh = testDb();
+    const a = newDeck(fresh);
+    const b = newDeck(fresh);
+    createProposal(fresh, AGENT, a, { items: [{ action: "add", oracle_id: "id-solring", reason: "x" }] });
+    createProposal(fresh, AGENT, b, { items: [{ action: "add", oracle_id: "id-forest", reason: "y" }] });
+    assert.equal(listProposals(fresh, { status: "open" }).length, 2);
+    assert.equal(listProposals(fresh, { deckId: a }).length, 1);
   });
 });

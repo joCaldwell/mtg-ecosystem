@@ -1,12 +1,11 @@
-// Search and agent chat share one column, and that column is the one you work
-// in — so it can be dragged wider and, at the limit, maximized over the whole
-// page. Width lives in a CSS custom property on :root rather than React state:
+// Search and this deck's memories share one column, and that column is the one
+// you work in — so it can be dragged wider and, at the limit, maximized over
+// the whole page. Width lives in a CSS custom property on :root rather than React state:
 // dragging then costs no re-render of the decklist, which is the expensive
 // part of this page. The committed value is persisted; maximize is not, since
 // landing on a deck page with the deck itself hidden reads as a broken app.
 
 import { useCallback, useState, type ReactNode } from "react";
-import { useDeck } from "./store.tsx";
 import { useDismissable } from "./lib.ts";
 import { SidebarResize } from "./SidebarResize.tsx";
 
@@ -34,16 +33,14 @@ function ExpandIcon({ collapse }: { collapse?: boolean }) {
 
 export function SidePanel({
   search,
-  chat,
+  memories,
 }: {
   // Both tabs are rendered by the caller so this component stays about the
   // container — its size, not its contents.
   search: ReactNode;
-  chat: ReactNode;
+  memories: ReactNode;
 }) {
-  // The active tab lives in the store so any surface can raise one — the
-  // audit's "ask agent" brings up the chat without a hand-rolled ref channel.
-  const { sideTab: tab, setSideTab: setTab } = useDeck();
+  const [tab, setTab] = useState<"search" | "memories">("search");
   const [maxed, setMaxed] = useState(false);
   useDismissable(
     useCallback(() => setMaxed(false), []),
@@ -57,8 +54,8 @@ export function SidePanel({
         <button className={`tab ${tab === "search" ? "active" : ""}`} onClick={() => setTab("search")}>
           Search
         </button>
-        <button className={`tab ${tab === "chat" ? "active" : ""}`} onClick={() => setTab("chat")}>
-          Agent chat
+        <button className={`tab ${tab === "memories" ? "active" : ""}`} onClick={() => setTab("memories")}>
+          Memories
         </button>
         <button
           className="tab tab-max"
@@ -70,12 +67,11 @@ export function SidePanel({
           <ExpandIcon collapse={maxed} />
         </button>
       </div>
-      {/* Both tabs stay mounted — a flip must not cost the search results or
-          the chat transcript's scroll position — so the inactive one hides
-          with CSS rather than unmounting. */}
-      <div className={`side-body ${tab === "search" ? "is-search" : "is-chat"}`}>
+      {/* Both tabs stay mounted — a flip must not cost the search results —
+          so the inactive one hides with CSS rather than unmounting. */}
+      <div className="side-body is-search">
         <div className={`side-tab ${tab === "search" ? "" : "is-hidden"}`}>{search}</div>
-        <div className={`side-tab ${tab === "chat" ? "" : "is-hidden"}`}>{chat}</div>
+        <div className={`side-tab ${tab === "memories" ? "" : "is-hidden"}`}>{memories}</div>
       </div>
     </aside>
   );

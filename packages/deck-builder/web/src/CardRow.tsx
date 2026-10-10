@@ -1,22 +1,43 @@
 import { useEffect, useState, type MouseEvent } from "react";
-import { api, type DeckCard } from "./api.ts";
+import { api, type CardRuling, type DeckCard, type Memory } from "./api.ts";
 import { useDeck } from "./store.tsx";
 import { ptString } from "./lib.ts";
 import { ManaCost } from "./Mana.tsx";
 
-export type OwnershipMode = "owned" | "missing";
+export type PaperMode = "in_paper" | "missing";
+
+const RULING_VERB: Record<string, string> = {
+  accept: "accepted",
+  reject: "rejected",
+  edit: "edited",
+  import: "imported",
+  undo: "undone",
+};
 
 export function CardRow({
   card,
-  ownershipMode,
+  paperMode,
 }: {
   card: DeckCard;
-  ownershipMode: OwnershipMode;
+  paperMode: PaperMode;
 }) {
-  const { deckId, state, run } = useDeck();
+  const { deckId, state, run, setSelected } = useDeck();
   const { slots, tags } = state!;
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpandedState] = useState(false);
   const [quantityDraft, setQuantityDraft] = useState(String(card.quantity));
+  // What has been decided about this card here, and what is remembered about
+  // it — the same context an agent is shown beside the card (spec §7.2, §8.3).
+  const [history, setHistory] = useState<{ rulings: CardRuling[]; memories: Memory[] } | null>(null);
+
+  // An open row is what "selected" means for focus (spec §10.3).
+  function setExpanded(open: boolean) {
+    setExpandedState(open);
+    setSelected(card.oracle_id, open);
+  }
+  useEffect(() => {
+    if (!expanded) return;
+    void api.cardHistory(deckId, card.oracle_id).then(setHistory).catch(() => {});
+  }, [expanded, deckId, card.oracle_id, state!.deck.revision]);
 
   useEffect(() => setQuantityDraft(String(card.quantity)), [card.quantity]);
 
@@ -43,8 +64,9 @@ export function CardRow({
     setExpanded(!expanded);
   }
 
-  const markingMissing = ownershipMode === "missing";
-  const ownershipMarked = markingMissing ? !card.owned : !!card.owned;
+  const isMaybe = !!card.maybe;
+  const markingMissing = paperMode === "missing";
+  const paperMarked = markingMissing ? !card.in_paper : !!card.in_paper;
 
   async function commitQuantity() {
     const value = quantityDraft.trim();
@@ -61,7 +83,7 @@ export function CardRow({
 
   return (
     <div
-      className={`card-row ${expanded ? "is-open" : ""} ${markingMissing && !card.owned ? "is-missing" : ""}`}
+      className={`card-row ${expanded ? "is-open" : ""} ${!isMaybe && markingMissing && !card.in_paper ? "is-missing" : ""}`}
     >
       <div className="card-main is-clickable" onClick={toggleFromRow}>
         {/* Name and cost share one growing box so the name keeps its natural
@@ -90,23 +112,25 @@ export function CardRow({
           </span>
         )}
 
-        <label
-          className={`own-toggle ${markingMissing ? "is-missing" : ""}`}
-          title={`${markingMissing ? "Missing" : "Owned"} (never shown to the agent)`}
-        >
-          <input
-            type="checkbox"
-            checked={ownershipMarked}
-            onChange={(e) =>
-              run(() =>
-                api.updateCard(deckId, card.oracle_id, {
-                  owned: markingMissing ? !e.target.checked : e.target.checked,
-                }),
-              )
-            }
-          />
-          {markingMissing ? "missing" : "own"}
-        </label>
+        {!isMaybe && (
+          <label
+            className={`own-toggle ${markingMissing ? "is-missing" : ""}`}
+            title={`${markingMissing ? "Missing from" : "In"} the physical deck (agents see this only if they ask for the paper list)`}
+          >
+            <input
+              type="checkbox"
+              checked={paperMarked}
+              onChange={(e) =>
+                run(() =>
+                  api.updateCard(deckId, card.oracle_id, {
+                    in_paper: markingMissing ? !e.target.checked : e.target.checked,
+                  }),
+                )
+              }
+            />
+            {markingMissing ? "missing" : "paper"}
+          </label>
+        )}
 
         <select
           className="ghost"
@@ -128,31 +152,50 @@ export function CardRow({
           ))}
         </select>
 
-        <label
-          className={`quantity-control ${card.quantity > 1 ? "has-multiple" : ""}`}
-          title="Copies — type a quantity"
-        >
-          <span aria-hidden="true">×</span>
-          <input
-            type="text"
-            inputMode="numeric"
-            value={quantityDraft}
-            onChange={(e) => setQuantityDraft(e.target.value)}
-            onFocus={(e) => e.currentTarget.select()}
-            onBlur={() => void commitQuantity()}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") e.currentTarget.blur();
-              if (e.key === "Escape") setQuantityDraft(String(card.quantity));
-            }}
-            aria-label={`Quantity for ${card.name}`}
-            spellCheck={false}
-          />
-        </label>
+        {!isMaybe && (
+          <label
+            className={`quantity-control ${card.quantity > 1 ? "has-multiple" : ""}`}
+            title="Copies — type a quantity"
+          >
+            <span aria-hidden="true">×</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={quantityDraft}
+              onChange={(e) => setQuantityDraft(e.target.value)}
+              onFocus={(e) => e.currentTarget.select()}
+              onBlur={() => void commitQuantity()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+                if (e.key === "Escape") setQuantityDraft(String(card.quantity));
+              }}
+              aria-label={`Quantity for ${card.name}`}
+              spellCheck={false}
+            />
+          </label>
+        )}
 
         <span className="row-actions">
+          {isMaybe ? (
+            <button
+              className="small primary"
+              title="Move into the deck"
+              onClick={() => run(() => api.updateCard(deckId, card.oracle_id, { maybe: false }))}
+            >
+              + add
+            </button>
+          ) : (
+            <button
+              className="small"
+              title="Move to the maybe list, outside the 100"
+              onClick={() => run(() => api.updateCard(deckId, card.oracle_id, { maybe: true }))}
+            >
+              maybe
+            </button>
+          )}
           <button
             className="icon danger"
-            title={card.quantity > 1 ? "Remove all copies" : "Remove card"}
+            title={isMaybe ? "Drop from the maybe list" : card.quantity > 1 ? "Remove all copies" : "Remove card"}
             onClick={() => run(() => api.removeCard(deckId, card.oracle_id))}
           >
             ✕
@@ -163,8 +206,31 @@ export function CardRow({
       {expanded && (
         <div className="card-detail">
           {card.oracle_text && <pre className="oracle-text">{card.oracle_text}</pre>}
+          {card.maybe_note && <div className="muted rationale">Shortlisted because: {card.maybe_note}</div>}
+          {history?.memories.map((m) => (
+            <div className="log-row" key={`m${m.id}`}>
+              <span className={`chip ${m.basis === "inferred" ? "under" : "ok"}`}>
+                memory{m.basis === "inferred" ? " (inferred)" : ""}
+              </span>
+              <span className="reason">{m.text}</span>
+            </div>
+          ))}
+          {history?.rulings.map((r) => (
+            <div className="log-row" key={`r${r.log_id}`}>
+              <span className="muted mono" title={r.from_deck ? "Decided in the deck this one was forked from" : undefined}>
+                {r.from_deck ? `in ${r.from_deck}` : `r${r.revision}`}
+              </span>
+              <span className={`chip ${r.kind === "accept" ? "ok" : r.kind === "reject" ? "over" : ""}`}>
+                {RULING_VERB[r.kind]} {r.action}
+              </span>
+              <span className="reason">
+                {r.ruling_reason ? `“${r.ruling_reason}”` : r.reason}
+                {r.undone && " (later undone)"}
+              </span>
+            </div>
+          ))}
           <div className="row gap wrap">
-            <label className="field">
+            {!isMaybe && <label className="field">
               Role
               <select
                 value={card.role}
@@ -176,7 +242,7 @@ export function CardRow({
                 <option value="commander">commander</option>
                 <option value="companion">companion</option>
               </select>
-            </label>
+            </label>}
             {tags.length > 0 && (
               <div className="tag-cloud" style={{ marginBottom: 0 }}>
                 {tags.map((t) => (

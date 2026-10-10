@@ -37,7 +37,7 @@ const NAMES: Record<string, string> = {
 // card rows under it should describe colour in one visual language, and "UR"
 // only reads as blue-red if you already know the letters.
 export function ColorPips({ colors, className = "" }: { colors: string; className?: string }) {
-  // Already stored in WUBRG order by the identity computation (spec §3).
+  // Already stored in WUBRG order by the identity computation (spec §5.1).
   const letters = [...colors.toUpperCase()].filter((c) => c in PIP);
   if (!letters.length) return null;
   return (

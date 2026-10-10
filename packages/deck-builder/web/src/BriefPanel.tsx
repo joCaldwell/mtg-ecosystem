@@ -166,16 +166,13 @@ function EngineRow({
 }
 
 export function BriefPanel() {
-  const { deckId, brief, apply } = useDeck();
+  const { deckId, state, apply } = useDeck();
+  const brief = state?.brief;
   const [error, setError] = useState<string | null>(null);
   // null is the resting state here too: the engine form is a thing you open,
   // not three empty inputs sitting under the list you came to read.
   const [form, setForm] = useState<EngineForm | null>(null);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    api.getBrief(deckId).then(apply);
-  }, [deckId, apply]);
 
   if (!brief) return null;
 
@@ -199,8 +196,12 @@ export function BriefPanel() {
       const names = form.pieces.split(",").map((n) => n.trim()).filter(Boolean);
       const pieces: Array<{ oracle_id: string }> = [];
       for (const name of names) {
-        const matches = await api.resolveCard(name);
-        if (!matches.length) throw new Error(`'${name}' is not an exact card name`);
+        const { matches, suggestions } = await api.resolveCard(name);
+        if (!matches.length)
+          throw new Error(
+            `'${name}' is not an exact card name` +
+              (suggestions.length ? ` — did you mean ${suggestions.join(", ")}?` : ""),
+          );
         pieces.push({ oracle_id: matches[0].oracle_id });
       }
       apply(await api.setEngine(deckId, form.name, form.description, pieces));

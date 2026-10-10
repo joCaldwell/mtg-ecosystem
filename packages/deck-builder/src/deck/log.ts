@@ -1,437 +1,287 @@
-// The decision log is the deck's version history (spec §7.4): every ruling —
-// proposal item, audit dismissal, brief edit — lands here through logEntry,
-// and typed rejections route their side effects (§7.2) through
-// recordRejection so no surface can drift from the others. Undo reads the
-// log back; it lives here with the writers.
+// The rulings log (spec §8.2): the deck's version history and the record of
+// what the owner decided and why. Every act lands here through writeLog —
+// rulings on proposals and document edits, direct edits, imports, undos — and
+// the cards an act touched are queryable per card (§8.3).
 
 import type { DatabaseSync } from "node:sqlite";
 import { ServiceError } from "../errors.ts";
-import { withTransaction } from "../db.ts";
-import {
-  addCard,
-  getDeck,
-  removeCard,
-  requireCard,
-  requireDeck,
-  updateCard,
-  withSingleDeckRevision,
-} from "./service.ts";
+import { type Actor, authorOf } from "../actor.ts";
 
-export type RejectionType = "hard_filter" | "thesis_change" | "playtest_finding" | "soft";
+export type LogKind = "accept" | "reject" | "edit" | "import" | "undo";
 
-export const REJECTION_TYPES: RejectionType[] = [
-  "hard_filter",
-  "thesis_change",
-  "playtest_finding",
-  "soft",
-];
-
-export function logEntry(
-  db: DatabaseSync,
-  deckId: number,
-  fields: Partial<{
-    kind: string;
-    action: string | null;
-    oracle_id: string | null;
-    card_name: string | null;
-    rationale: string | null;
-    rejection_type: string | null;
-    rejection_reason: string | null;
-    proposal_id: number | null;
-    item_id: number | null;
-    undo_of: number | null;
-    snapshot_json: string | null;
-    brief_flag: number;
-  }>,
-  revision: number,
-): number {
-  const r = db
-    .prepare(
-      `INSERT INTO decision_log
-       (deck_id, revision, kind, action, oracle_id, card_name, rationale, rejection_type,
-        rejection_reason, proposal_id, item_id, undo_of, snapshot_json, brief_flag)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      deckId,
-      revision,
-      fields.kind ?? "accept",
-      fields.action ?? null,
-      fields.oracle_id ?? null,
-      fields.card_name ?? null,
-      fields.rationale ?? null,
-      fields.rejection_type ?? null,
-      fields.rejection_reason ?? null,
-      fields.proposal_id ?? null,
-      fields.item_id ?? null,
-      fields.undo_of ?? null,
-      fields.snapshot_json ?? null,
-      fields.brief_flag ?? 0,
-    );
-  return Number(r.lastInsertRowid);
+export interface LogCardInput {
+  oracle_id: string;
+  card_name: string;
+  action: "add" | "cut" | "role";
+  quantity?: number;
+  item_id?: number | null;
+  reason?: string;
+  /** Undo payload; see deck/membership.ts. */
+  before?: unknown;
 }
 
-// One writer for every typed rejection (spec §7.2): logs it and routes the
-// side effects — hard_filter on a rejected *add* removes the card from future
-// searches, playtest_finding becomes a durable card note, thesis_change flags
-// the brief. Proposal rejections and audit dismissals both come through here.
-export function recordRejection(
+export interface LogInput {
+  /** NULL only for a ruling on a profile edit. */
+  deck_id: number | null;
+  kind: LogKind;
+  summary?: string;
+  ruling_reason?: string;
+  proposal_id?: number | null;
+  document_edit_id?: number | null;
+  undo_of?: number | null;
+}
+
+// Spec §8.4. An entry waits for an agent to read it when it is something the
+// owner did that an agent could learn from: every ruling, and every direct
+// change to an active deck. What an agent did itself needs no review, and
+// neither does the owner assembling a draft card by card.
+function awaitsReview(actor: Actor, kind: LogKind, deckStatus: string | null): boolean {
+  if (actor.kind !== "owner") return false;
+  if (kind === "accept" || kind === "reject") return true;
+  return deckStatus === "active";
+}
+
+export function writeLog(
   db: DatabaseSync,
-  deckId: number,
-  fields: {
-    type: RejectionType;
-    reason: string;
-    rationale: string;
-    action?: "add" | "cut" | null;
-    oracle_id?: string | null;
-    card_name?: string | null;
-    proposal_id?: number | null;
-    item_id?: number | null;
-  },
-  revision: number,
+  actor: Actor,
+  entry: LogInput,
+  cards: LogCardInput[] = [],
 ): number {
-  const id = logEntry(
-    db,
-    deckId,
-    {
-      kind: "reject",
-      action: fields.action ?? null,
-      oracle_id: fields.oracle_id ?? null,
-      card_name: fields.card_name ?? null,
-      rationale: fields.rationale,
-      rejection_type: fields.type,
-      rejection_reason: fields.reason,
-      proposal_id: fields.proposal_id ?? null,
-      item_id: fields.item_id ?? null,
-      brief_flag: fields.type === "thesis_change" ? 1 : 0,
-    },
-    revision,
-  );
-  // Only a rejected add hard-filters: the card is not in the deck and should
-  // never be searched up again. A cut rejection means "keep it", which is not
-  // a filter.
-  if (fields.type === "hard_filter" && fields.action === "add" && fields.oracle_id) {
-    db.prepare(
-      "INSERT OR IGNORE INTO hard_filters (deck_id, oracle_id, card_name, reason) VALUES (?, ?, ?, ?)",
-    ).run(deckId, fields.oracle_id, fields.card_name ?? "", fields.reason);
+  const deck =
+    entry.deck_id == null
+      ? null
+      : (db.prepare("SELECT revision, status FROM decks WHERE id = ?").get(entry.deck_id) as
+          | { revision: number; status: string }
+          | undefined);
+  if (entry.deck_id != null && !deck) throw new ServiceError(`Deck ${entry.deck_id} not found`, 404);
+
+  const r = db
+    .prepare(
+      `INSERT INTO log (deck_id, revision, kind, summary, ruling_reason, proposal_id,
+                        document_edit_id, author, undo_of, reviewed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${
+         awaitsReview(actor, entry.kind, deck?.status ?? null) ? "NULL" : "datetime('now')"
+       })`,
+    )
+    .run(
+      entry.deck_id,
+      deck?.revision ?? 0,
+      entry.kind,
+      entry.summary ?? "",
+      (entry.ruling_reason ?? "").trim(),
+      entry.proposal_id ?? null,
+      entry.document_edit_id ?? null,
+      authorOf(actor),
+      entry.undo_of ?? null,
+    );
+  const logId = Number(r.lastInsertRowid);
+
+  if (cards.length) {
+    const ins = db.prepare(
+      `INSERT INTO log_cards (log_id, deck_id, oracle_id, card_name, action, quantity, item_id, reason, before_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    for (const c of cards)
+      ins.run(
+        logId,
+        entry.deck_id,
+        c.oracle_id,
+        c.card_name,
+        c.action,
+        c.quantity ?? 1,
+        c.item_id ?? null,
+        c.reason ?? "",
+        c.before === undefined ? null : JSON.stringify(c.before),
+      );
   }
-  if (fields.type === "playtest_finding" && fields.oracle_id && fields.reason.trim()) {
-    db.prepare(
-      "INSERT INTO card_notes (deck_id, oracle_id, card_name, note) VALUES (?, ?, ?, ?)",
-    ).run(deckId, fields.oracle_id, fields.card_name ?? "", fields.reason);
-  }
-  return id;
+  return logId;
 }
 
 // ---------- reading ----------
 
+export interface LogCard {
+  oracle_id: string;
+  card_name: string;
+  action: "add" | "cut" | "role";
+  quantity: number;
+  item_id: number | null;
+  reason: string;
+}
+
 export interface LogEntry {
   id: number;
-  deck_id: number;
+  deck_id: number | null;
+  deck_name: string | null;
   revision: number;
-  kind: "accept" | "reject" | "undo" | "filter_removed";
-  action: "add" | "cut" | "import" | null;
-  oracle_id: string | null;
-  card_name: string | null;
-  rationale: string | null;
-  rejection_type: RejectionType | null;
-  rejection_reason: string | null;
+  kind: LogKind;
+  summary: string;
+  ruling_reason: string;
   proposal_id: number | null;
-  item_id: number | null;
+  document_edit_id: number | null;
+  author: string;
   undo_of: number | null;
   undone_by: number | null;
-  snapshot_json: string | null;
-  brief_flag: number;
+  reviewed_at: string | null;
   ts: string;
+  cards: LogCard[];
 }
 
-export function getLog(db: DatabaseSync, deckId: number, limit = 50): LogEntry[] {
-  return db
-    .prepare("SELECT * FROM decision_log WHERE deck_id = ? ORDER BY id DESC LIMIT ?")
-    .all(deckId, limit) as unknown as LogEntry[];
+const ENTRY_SELECT = `SELECT l.id, l.deck_id, d.name AS deck_name, l.revision, l.kind, l.summary,
+       l.ruling_reason, l.proposal_id, l.document_edit_id, l.author, l.undo_of, l.undone_by,
+       l.reviewed_at, l.ts
+  FROM log l LEFT JOIN decks d ON d.id = l.deck_id`;
+
+function withCards(db: DatabaseSync, rows: Array<Omit<LogEntry, "cards">>): LogEntry[] {
+  const stmt = db.prepare(
+    "SELECT oracle_id, card_name, action, quantity, item_id, reason FROM log_cards WHERE log_id = ? ORDER BY id",
+  );
+  return rows.map((r) => ({ ...r, cards: stmt.all(r.id) as unknown as LogCard[] }));
 }
 
-export function getCardHistory(db: DatabaseSync, deckId: number, oracleId: string): LogEntry[] {
-  return db
-    .prepare("SELECT * FROM decision_log WHERE deck_id = ? AND oracle_id = ? ORDER BY id DESC")
-    .all(deckId, oracleId) as unknown as LogEntry[];
+export interface LogQuery {
+  deckId?: number;
+  unreviewedOnly?: boolean;
+  /** ISO date or datetime; entries at or after it. */
+  since?: string;
+  limit?: number;
 }
 
-// ---------- snapshots (undo payloads) ----------
-
-export interface CardSnapshot {
-  oracle_id: string;
-  slot_id: number | null;
-  role: string;
-  owned: boolean | number;
-  quantity: number;
-  tag_ids: number[];
+/** Newest first. */
+export function listLog(db: DatabaseSync, query: LogQuery = {}): LogEntry[] {
+  const where: string[] = [];
+  const params: Array<string | number> = [];
+  if (query.deckId !== undefined) {
+    where.push("l.deck_id = ?");
+    params.push(query.deckId);
+  }
+  if (query.unreviewedOnly) where.push("l.reviewed_at IS NULL");
+  if (query.since) {
+    where.push("l.ts >= ?");
+    params.push(query.since);
+  }
+  const rows = db
+    .prepare(
+      `${ENTRY_SELECT} ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY l.id DESC LIMIT ?`,
+    )
+    .all(...params, Math.min(Math.max(query.limit ?? 50, 1), 500)) as unknown as Array<
+    Omit<LogEntry, "cards">
+  >;
+  return withCards(db, rows);
 }
 
-export function snapshotCard(db: DatabaseSync, deckId: number, oracleId: string) {
-  const row = db
-    .prepare("SELECT slot_id, role, owned, quantity FROM deck_cards WHERE deck_id = ? AND oracle_id = ?")
-    .get(deckId, oracleId) as
-    | { slot_id: number | null; role: string; owned: number; quantity: number }
+export function getLogEntry(db: DatabaseSync, logId: number): LogEntry | null {
+  const row = db.prepare(`${ENTRY_SELECT} WHERE l.id = ?`).get(logId) as
+    | Omit<LogEntry, "cards">
     | undefined;
-  if (!row) return null;
-  const tagIds = (
-    db
-      .prepare("SELECT tag_id FROM deck_card_tags WHERE deck_id = ? AND oracle_id = ?")
-      .all(deckId, oracleId) as unknown as { tag_id: number }[]
-  ).map((t) => t.tag_id);
-  return { ...row, tag_ids: tagIds };
+  return row ? withCards(db, [row])[0] : null;
 }
 
-// One log row for a whole applied import, carrying the pre-import list so the
-// row's ordinary "undo" button reverts the entire import. Kind stays 'accept'
-// so it reads and undoes like any other applied change; action 'import' is
-// what tells undoDecision to restore wholesale rather than per card. Callers
-// run this inside their own transaction.
-export function logImport(
+export interface CardRuling {
+  log_id: number;
+  kind: LogKind;
+  action: "add" | "cut" | "role";
+  revision: number;
+  /** The proposer's reason for the item, if it came from a proposal. */
+  reason: string;
+  /** The owner's reason for the ruling, if they gave one. */
+  ruling_reason: string;
+  author: string;
+  undone: boolean;
+  ts: string;
+  /** Set when the ruling was made in a deck this one was forked from. */
+  from_deck: string | null;
+}
+
+// A deck and the decks it was forked from, nearest first.
+function lineage(db: DatabaseSync, deckId: number): number[] {
+  const chain: number[] = [];
+  const parentOf = db.prepare("SELECT parent_id FROM decks WHERE id = ?");
+  for (let cur: number | null = deckId; cur != null && !chain.includes(cur); ) {
+    chain.push(cur);
+    cur = (parentOf.get(cur) as { parent_id: number | null } | undefined)?.parent_id ?? null;
+  }
+  return chain;
+}
+
+// Spec §8.3: what has been decided about this card in this deck, newest
+// first. Attached by the app wherever the card appears, so nobody has to
+// remember to ask.
+//
+// A fork inherits its parents' history: "rejected from the original as too
+// slow" is exactly what someone reworking the fork needs to see, and a fork
+// starts with no rulings of its own. Those entries are labelled with the deck
+// they were made in. (As built: the first real-agent run on a fork had no
+// rulings to read, and said so.)
+export function cardHistory(
   db: DatabaseSync,
   deckId: number,
-  summary: string,
-  before: CardSnapshot[],
-): number {
-  return logEntry(
-    db,
-    deckId,
-    {
-      kind: "accept",
-      action: "import",
-      rationale: summary,
-      snapshot_json: JSON.stringify({ cards: before }),
-    },
-    requireDeck(db, deckId).revision,
-  );
-}
-
-// Put the deck back exactly as the snapshot found it. Wiping first sidesteps
-// the command-zone capacity check, which would otherwise trip while a
-// commander from the snapshot and one from the import both exist.
-function restoreCards(db: DatabaseSync, deckId: number, snapshot: CardSnapshot[]): void {
-  for (const row of db
-    .prepare("SELECT oracle_id FROM deck_cards WHERE deck_id = ?")
-    .all(deckId) as unknown as { oracle_id: string }[])
-    removeCard(db, deckId, row.oracle_id);
-
-  const existingTags = new Set(
-    (db.prepare("SELECT id FROM tags WHERE deck_id = ?").all(deckId) as unknown as {
-      id: number;
-    }[]).map((t) => t.id),
-  );
-  const existingSlots = new Set(
-    (db.prepare("SELECT id FROM slots WHERE deck_id = ?").all(deckId) as unknown as {
-      id: number;
-    }[]).map((s) => s.id),
-  );
-
-  for (const c of snapshot) {
-    const slotId = c.slot_id != null && existingSlots.has(c.slot_id) ? c.slot_id : null;
-    addCard(db, deckId, c.oracle_id, {
-      slotId,
-      role: (c.role as "card" | "commander" | "companion") ?? "card",
-    });
-    const patch: Parameters<typeof updateCard>[3] = {
-      owned: !!c.owned,
-      tagIds: (c.tag_ids ?? []).filter((t) => existingTags.has(t)),
-    };
-    if (c.quantity > 1) patch.quantity = c.quantity;
-    updateCard(db, deckId, c.oracle_id, patch);
-  }
-}
-
-// ---------- undo (log reversal, spec §7.4) ----------
-
-export function undoDecision(db: DatabaseSync, deckId: number, logId: number): void {
-  const entry = db
-    .prepare("SELECT * FROM decision_log WHERE id = ? AND deck_id = ?")
-    .get(logId, deckId) as
-    | {
-        id: number;
-        kind: string;
-        action: string | null;
-        oracle_id: string | null;
-        card_name: string | null;
-        snapshot_json: string | null;
+  oracleId: string,
+  limit = 5,
+): CardRuling[] {
+  const decks = lineage(db, deckId);
+  return (
+    db
+      .prepare(
+        `SELECT l.id AS log_id, l.kind, lc.action, l.revision, lc.reason, l.ruling_reason,
+                l.author, l.undone_by, l.ts, lc.deck_id, d.name AS deck_name
+         FROM log_cards lc JOIN log l ON l.id = lc.log_id JOIN decks d ON d.id = lc.deck_id
+         WHERE lc.deck_id IN (${decks.map(() => "?").join(", ")}) AND lc.oracle_id = ?
+         ORDER BY l.id DESC LIMIT ?`,
+      )
+      .all(...decks, oracleId, limit) as unknown as Array<
+      Omit<CardRuling, "undone" | "from_deck"> & {
         undone_by: number | null;
+        deck_id: number;
+        deck_name: string;
       }
-    | undefined;
-  if (!entry) throw new ServiceError(`Log entry ${logId} not found`, 404);
-  if (entry.kind !== "accept")
-    throw new ServiceError("Only accepted (applied) decisions can be undone");
-  if (entry.undone_by != null)
-    throw new ServiceError("This decision has already been undone");
-
-  withTransaction(db, () => {
-    const undoId =
-      entry.action === "import"
-        ? undoImport(db, deckId, entry)
-        : entry.action === "add"
-          ? undoAdd(db, deckId, entry)
-          : undoCut(db, deckId, entry);
-    db.prepare("UPDATE decision_log SET undone_by = ? WHERE id = ?").run(undoId, entry.id);
-  });
-}
-
-type LogRow = { id: number; oracle_id: string | null; card_name: string | null; snapshot_json: string | null };
-
-// Bulk entry: the snapshot is the whole pre-import list, and undoing it
-// means restoring that list rather than reversing one card.
-function undoImport(db: DatabaseSync, deckId: number, entry: LogRow): number {
-  const current = (getDeck(db, deckId).cards as unknown as CardSnapshot[]).map((c) => ({
-    oracle_id: c.oracle_id,
-    slot_id: c.slot_id,
-    role: c.role,
-    owned: c.owned,
-    quantity: c.quantity,
-    tag_ids: c.tag_ids,
+    >
+  ).map(({ undone_by, deck_id, deck_name, ...r }) => ({
+    ...r,
+    undone: undone_by != null,
+    from_deck: deck_id === deckId ? null : deck_name,
   }));
-  const before = (JSON.parse(entry.snapshot_json ?? "{}").cards ?? []) as CardSnapshot[];
-  withSingleDeckRevision(db, deckId, () => restoreCards(db, deckId, before));
-  return logEntry(
-    db,
-    deckId,
-    {
-      kind: "undo",
-      action: "import",
-      rationale: `Undo of decision #${entry.id} — the deck is back to its pre-import list`,
-      undo_of: entry.id,
-      snapshot_json: JSON.stringify({ cards: current }),
-    },
-    requireDeck(db, deckId).revision,
-  );
 }
 
-function undoAdd(db: DatabaseSync, deckId: number, entry: LogRow): number {
-  const snapshot = snapshotCard(db, deckId, entry.oracle_id!);
-  if (!snapshot)
-    throw new ServiceError(`${entry.card_name} is no longer in the deck; nothing to undo`);
-  removeCard(db, deckId, entry.oracle_id!);
-  return logEntry(
-    db,
-    deckId,
-    {
-      kind: "undo",
-      action: "cut",
-      oracle_id: entry.oracle_id,
-      card_name: entry.card_name,
-      rationale: `Undo of decision #${entry.id}`,
-      undo_of: entry.id,
-      snapshot_json: JSON.stringify(snapshot),
-    },
-    requireDeck(db, deckId).revision,
-  );
-}
-
-function undoCut(db: DatabaseSync, deckId: number, entry: LogRow): number {
-  const snapshot = entry.snapshot_json ? JSON.parse(entry.snapshot_json) : {};
-  const current = snapshotCard(db, deckId, entry.oracle_id!);
-  if (current && !snapshot.partial_cut)
-    throw new ServiceError(`${entry.card_name} is already back in the deck`);
-  if (current) {
-    // Restore only the removed copy; keep subsequent organization/quantity edits.
-    updateCard(db, deckId, entry.oracle_id!, { quantity: current.quantity + 1 });
-  } else {
-    let slotId: number | null = snapshot.slot_id ?? null;
-    if (
-      slotId != null &&
-      !db.prepare("SELECT 1 FROM slots WHERE id = ? AND deck_id = ?").get(slotId, deckId)
-    )
-      slotId = null;
-    addCard(db, deckId, entry.oracle_id!, { slotId, role: snapshot.role ?? "card" });
-    const existingTags = new Set(
-      (
-        db.prepare("SELECT id FROM tags WHERE deck_id = ?").all(deckId) as unknown as {
-          id: number;
-        }[]
-      ).map((t) => t.id),
-    );
-    const patch: Parameters<typeof updateCard>[3] = {
-      owned: !!snapshot.owned,
-      tagIds: (snapshot.tag_ids ?? []).filter((t: number) => existingTags.has(t)),
-    };
-    if (snapshot.quantity > 1) patch.quantity = snapshot.quantity;
-    updateCard(db, deckId, entry.oracle_id!, patch);
+/** The same lookup for many cards at once, keyed by oracle_id; cards with no history are absent. */
+export function cardHistories(
+  db: DatabaseSync,
+  deckId: number,
+  oracleIds: string[],
+  limit = 3,
+): Map<string, CardRuling[]> {
+  const out = new Map<string, CardRuling[]>();
+  for (const id of new Set(oracleIds)) {
+    const history = cardHistory(db, deckId, id, limit);
+    if (history.length) out.set(id, history);
   }
-  return logEntry(
-    db,
-    deckId,
-    {
-      kind: "undo",
-      action: "add",
-      oracle_id: entry.oracle_id,
-      card_name: entry.card_name,
-      rationale: `Undo of decision #${entry.id}`,
-      undo_of: entry.id,
-      snapshot_json: null,
-    },
-    requireDeck(db, deckId).revision,
+  return out;
+}
+
+// ---------- the review queue (spec §8.4) ----------
+
+export function unreviewedCount(db: DatabaseSync): number {
+  return (db.prepare("SELECT COUNT(*) n FROM log WHERE reviewed_at IS NULL").get() as { n: number })
+    .n;
+}
+
+// Mark entries read. `through` clears everything up to and including an id,
+// which is what an agent that has just read the whole queue wants.
+export function markReviewed(
+  db: DatabaseSync,
+  which: { ids?: number[]; through?: number },
+): number {
+  if (which.through != null) {
+    const r = db
+      .prepare("UPDATE log SET reviewed_at = datetime('now') WHERE reviewed_at IS NULL AND id <= ?")
+      .run(which.through);
+    return Number(r.changes);
+  }
+  const ids = which.ids ?? [];
+  if (!ids.length) throw new ServiceError("Give the ids of the rulings you have read, or 'through'");
+  const stmt = db.prepare(
+    "UPDATE log SET reviewed_at = datetime('now') WHERE reviewed_at IS NULL AND id = ?",
   );
-}
-
-// ---------- hard filters and card notes (rejection routing targets) ----------
-
-export function isHardFiltered(db: DatabaseSync, deckId: number, oracleId: string): boolean {
-  return !!db
-    .prepare("SELECT 1 FROM hard_filters WHERE deck_id = ? AND oracle_id = ?")
-    .get(deckId, oracleId);
-}
-
-export interface HardFilter {
-  oracle_id: string;
-  card_name: string;
-  reason: string;
-  created_at: string;
-}
-
-export function listHardFilters(db: DatabaseSync, deckId: number): HardFilter[] {
-  return db
-    .prepare("SELECT oracle_id, card_name, reason, created_at FROM hard_filters WHERE deck_id = ? ORDER BY card_name")
-    .all(deckId) as unknown as HardFilter[];
-}
-
-export function removeHardFilter(db: DatabaseSync, deckId: number, oracleId: string): void {
-  const row = db
-    .prepare("SELECT card_name FROM hard_filters WHERE deck_id = ? AND oracle_id = ?")
-    .get(deckId, oracleId) as { card_name: string } | undefined;
-  if (!row) throw new ServiceError("No such hard filter", 404);
-  withTransaction(db, () => {
-    db.prepare("DELETE FROM hard_filters WHERE deck_id = ? AND oracle_id = ?").run(deckId, oracleId);
-    logEntry(
-      db,
-      deckId,
-      {
-        kind: "filter_removed",
-        oracle_id: oracleId,
-        card_name: row.card_name,
-        rationale: "Hard filter removed",
-      },
-      requireDeck(db, deckId).revision,
-    );
-  });
-}
-
-export interface CardNote {
-  id: number;
-  oracle_id: string;
-  card_name: string;
-  note: string;
-  created_at: string;
-}
-
-export function listCardNotes(db: DatabaseSync, deckId: number): CardNote[] {
-  return db
-    .prepare("SELECT id, oracle_id, card_name, note, created_at FROM card_notes WHERE deck_id = ? ORDER BY id DESC")
-    .all(deckId) as unknown as CardNote[];
-}
-
-export function addCardNote(db: DatabaseSync, deckId: number, oracleId: string, note: string): number {
-  if (!note?.trim()) throw new ServiceError("Note cannot be empty");
-  const name = requireCard(db, oracleId);
-  const r = db
-    .prepare("INSERT INTO card_notes (deck_id, oracle_id, card_name, note) VALUES (?, ?, ?, ?)")
-    .run(deckId, oracleId, name, note.trim());
-  return Number(r.lastInsertRowid);
+  let n = 0;
+  for (const id of ids) n += Number(stmt.run(id).changes);
+  return n;
 }

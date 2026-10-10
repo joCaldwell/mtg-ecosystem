@@ -1,6 +1,6 @@
 {
   "name": "@mtg-ecosystem/deck-builder",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -21,13 +21,18 @@
     "seed:demo": "node scripts/seed-demo.mjs",
     "app": "vite build && node src/server.ts",
     "dev:server": "node --watch src/server.ts",
-    "dev:web": "vite"
+    "dev:web": "vite",
+    "mcp": "node src/mcp/stdio.ts",
+    "migrate:v1": "node src/migrate-v1.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/server": "^2.3.1",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "^2.3.1",
     "@types/node": "^26.0.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",

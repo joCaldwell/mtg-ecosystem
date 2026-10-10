@@ -1,6 +1,16 @@
+// Decks, their organization, and the composite deck view. What is *in* a deck
+// changes only through deck/membership.ts; everything here is either deck
+// lifecycle, organization (spec §5.4 — slots, tags, the maybe list, none of
+// which touches the 100), or reading.
+
 import type { DatabaseSync } from "node:sqlite";
 import { ServiceError } from "../errors.ts";
 import { withTransaction } from "../db.ts";
+import { type Actor, requireOwner } from "../actor.ts";
+import { requireCardById } from "../cards.ts";
+
+export type Role = "card" | "commander" | "companion";
+export type DeckStatus = "draft" | "active";
 
 // Card types and supertypes. Slots and tags say what a card *does* — "ramp",
 // "interaction" — and card type says what it *is*; the decklist groups by
@@ -12,8 +22,8 @@ const CARD_TYPE_NAMES = new Set([
   "planeswalker", "battle", "kindred", "tribal", "legendary", "basic", "snow", "token",
 ]);
 
-// Reserved for a different reason: slot:/tag: queries would stop parsing
-// (spec §4). Only the exact word collides, so these aren't pluralised.
+// Reserved for a different reason: slot:/tag: queries would stop parsing.
+// Only the exact word collides, so these aren't pluralised.
 const RESERVED_NAMES = new Set([
   // search prefixes
   "t", "type", "o", "oracle", "fo", "fulloracle", "cmc", "mv", "manavalue",
@@ -54,26 +64,43 @@ const WORD_NUMBERS: Record<string, number> = {
 
 // How many copies a card allows: 1 (singleton), a printed cap ("up to seven
 // cards named..."), or Infinity (basics, "any number of cards named...").
-export function copyLimit(card: { type_line: string; search_text?: string; oracle_text?: string }): number {
+export function copyLimit(card: { type_line: string; oracle_text?: string }): number {
   if (/\bBasic\b/.test(card.type_line)) return Infinity;
-  const text = (card.search_text ?? card.oracle_text ?? "").toLowerCase();
+  const text = (card.oracle_text ?? "").toLowerCase();
   if (text.includes("any number of cards named")) return Infinity;
   const m = text.match(/up to (\w+) cards named/);
   if (m) return WORD_NUMBERS[m[1]] ?? 1;
   return 1;
 }
 
-// ---------- deck CRUD ----------
+// ---------- deck lifecycle ----------
 
-export function createDeck(db: DatabaseSync, name: string): number {
+export interface DeckRow {
+  id: number;
+  name: string;
+  status: DeckStatus;
+  parent_id: number | null;
+  ci_mask: number | null;
+  color_identity: string;
+  revision: number;
+  created_at: string;
+}
+
+export function createDeck(
+  db: DatabaseSync,
+  name: string,
+  opts: { status?: DeckStatus; parentId?: number | null } = {},
+): number {
   const trimmed = name.trim();
   if (!trimmed) throw new ServiceError("Deck name cannot be empty");
   try {
-    const r = db.prepare("INSERT INTO decks (name) VALUES (?)").run(trimmed);
+    const r = db
+      .prepare("INSERT INTO decks (name, status, parent_id) VALUES (?, ?, ?)")
+      .run(trimmed, opts.status ?? "draft", opts.parentId ?? null);
     return Number(r.lastInsertRowid);
   } catch (e: any) {
     if (String(e.message).includes("UNIQUE"))
-      throw new ServiceError(`A deck named '${trimmed}' already exists`, 409);
+      throw new ServiceError(`A deck named '${trimmed}' already exists. Choose another name.`, 409);
     throw e;
   }
 }
@@ -82,217 +109,117 @@ export function renameDeck(db: DatabaseSync, deckId: number, name: string): void
   requireDeck(db, deckId);
   const trimmed = name.trim();
   if (!trimmed) throw new ServiceError("Deck name cannot be empty");
-  db.prepare("UPDATE decks SET name = ? WHERE id = ?").run(trimmed, deckId);
+  try {
+    db.prepare("UPDATE decks SET name = ? WHERE id = ?").run(trimmed, deckId);
+  } catch (e: any) {
+    if (String(e.message).includes("UNIQUE"))
+      throw new ServiceError(`A deck named '${trimmed}' already exists`, 409);
+    throw e;
+  }
 }
 
-export function deleteDeck(db: DatabaseSync, deckId: number): void {
+export function deleteDeck(db: DatabaseSync, actor: Actor, deckId: number): void {
+  requireOwner(actor, "delete a deck");
   requireDeck(db, deckId);
   db.prepare("DELETE FROM decks WHERE id = ?").run(deckId);
 }
 
-export function listDecks(db: DatabaseSync) {
-  return db
+/** Spec §5.2: only the owner moves a deck between draft and active. */
+export function setDeckStatus(
+  db: DatabaseSync,
+  actor: Actor,
+  deckId: number,
+  status: DeckStatus,
+): void {
+  requireOwner(actor, "switch a deck between draft and active");
+  requireDeck(db, deckId);
+  if (status !== "draft" && status !== "active")
+    throw new ServiceError("Deck status must be 'draft' or 'active'");
+  db.prepare("UPDATE decks SET status = ? WHERE id = ?").run(status, deckId);
+}
+
+// Record, or clear, which deck this one was forked from (spec §5.3). For a
+// deck that was copied by hand before forks existed, this is how it gets the
+// link that lets the two be compared and read as one family.
+export function setDeckParent(
+  db: DatabaseSync,
+  actor: Actor,
+  deckId: number,
+  parentId: number | null,
+): void {
+  requireOwner(actor, "change which deck a deck was forked from");
+  const deck = requireDeck(db, deckId);
+  if (parentId != null) {
+    // Walking up from the proposed parent must not arrive back here.
+    const seen = new Set<number>();
+    for (let cur: number | null = parentId; cur != null; cur = requireDeck(db, cur).parent_id) {
+      if (cur === deckId)
+        throw new ServiceError(
+          `"${requireDeck(db, parentId).name}" is itself descended from "${deck.name}", so it cannot be its parent`,
+        );
+      if (seen.has(cur)) break;
+      seen.add(cur);
+    }
+  }
+  db.prepare("UPDATE decks SET parent_id = ? WHERE id = ?").run(parentId, deckId);
+}
+
+export interface DeckSummary {
+  id: number;
+  name: string;
+  status: DeckStatus;
+  parent_id: number | null;
+  parent_name: string | null;
+  color_identity: string;
+  revision: number;
+  created_at: string;
+  card_count: number;
+  commanders: string[];
+  pending_items: number;
+  pending_document_edits: number;
+}
+
+/** The roster: one line per deck, enough to choose which one to open. */
+export function listDecks(db: DatabaseSync): DeckSummary[] {
+  const rows = db
     .prepare(
-      `SELECT d.id, d.name, d.color_identity, d.created_at,
-              COALESCE((SELECT SUM(quantity) FROM deck_cards dc WHERE dc.deck_id = d.id AND dc.role != 'companion' AND dc.maybeboard = 0), 0) AS card_count
-       FROM decks d ORDER BY d.name`,
+      `SELECT d.id, d.name, d.status, d.parent_id, p.name AS parent_name, d.color_identity,
+              d.revision, d.created_at,
+              COALESCE((SELECT SUM(quantity) FROM deck_cards dc
+                        WHERE dc.deck_id = d.id AND dc.role != 'companion' AND dc.maybe = 0), 0) AS card_count,
+              (SELECT COUNT(*) FROM proposal_items pi JOIN proposals pr ON pr.id = pi.proposal_id
+               WHERE pr.deck_id = d.id AND pi.status = 'pending') AS pending_items,
+              (SELECT COUNT(*) FROM document_edits de
+               WHERE de.deck_id = d.id AND de.status = 'pending') AS pending_document_edits
+       FROM decks d LEFT JOIN decks p ON p.id = d.parent_id ORDER BY d.name`,
     )
-    .all() as unknown as Array<{
-    id: number;
-    name: string;
-    color_identity: string;
-    created_at: string;
-    card_count: number;
-  }>;
+    .all() as unknown as Array<Omit<DeckSummary, "commanders">>;
+  const commanders = db.prepare(
+    `SELECT c.name FROM deck_cards dc JOIN cards c ON c.oracle_id = dc.oracle_id
+     WHERE dc.deck_id = ? AND dc.role = 'commander' ORDER BY c.name`,
+  );
+  return rows.map((r) => ({
+    ...r,
+    commanders: (commanders.all(r.id) as unknown as { name: string }[]).map((c) => c.name),
+  }));
 }
 
-export function requireDeck(db: DatabaseSync, deckId: number) {
-  const deck = db.prepare("SELECT * FROM decks WHERE id = ?").get(deckId);
-  if (!deck) throw new ServiceError(`Deck ${deckId} not found`, 404);
-  return deck as {
-    id: number;
-    name: string;
-    ci_mask: number | null;
-    color_identity: string;
-    revision: number;
-  };
-}
-
-export function requireCard(db: DatabaseSync, oracleId: string): string {
-  const row = db.prepare("SELECT name FROM cards WHERE oracle_id = ?").get(oracleId) as
-    | { name: string }
-    | undefined;
-  if (!row) throw new ServiceError(`Unknown oracle_id ${oracleId}`, 404);
-  return row.name;
-}
-
-// Card-list changes (add/remove/quantity/role) bump the deck revision;
-// organizational edits (slot, tags, owned) do not.
-function bumpDeckRevision(db: DatabaseSync, deckId: number) {
-  db.prepare("UPDATE decks SET revision = revision + 1 WHERE id = ?").run(deckId);
-}
-
-// Collapse a batch of card-list mutations into one externally visible deck
-// revision. The ordinary helpers still do all of their validation and mark
-// membership changes by bumping the revision; because this runs in a
-// transaction, those intermediate values cannot escape. Imports and import
-// undos use this because a pasted/restored list is one unordered action, not
-// a sequence whose per-card order belongs in version history.
-export function withSingleDeckRevision<T>(
-  db: DatabaseSync,
-  deckId: number,
-  fn: () => T,
-): T {
-  const startingRevision = requireDeck(db, deckId).revision;
-  return withTransaction(db, () => {
-    const result = fn();
-    if (requireDeck(db, deckId).revision !== startingRevision) {
-      db.prepare("UPDATE decks SET revision = ? WHERE id = ?").run(startingRevision + 1, deckId);
-    }
-    return result;
-  });
-}
-
-function requireDeckCard(db: DatabaseSync, deckId: number, oracleId: string) {
-  const row = db
-    .prepare("SELECT * FROM deck_cards WHERE deck_id = ? AND oracle_id = ?")
-    .get(deckId, oracleId);
-  if (!row) throw new ServiceError(`Card ${oracleId} is not in deck ${deckId}`, 404);
-  return row as { role: string; quantity: number };
-}
-
-// ---------- cards ----------
-
-export function addCard(
-  db: DatabaseSync,
-  deckId: number,
-  oracleId: string,
-  opts: { slotId?: number | null; role?: "card" | "commander" | "companion" } = {},
-): void {
-  requireDeck(db, deckId);
-  requireCard(db, oracleId);
-
-  const existing = db
-    .prepare("SELECT quantity FROM deck_cards WHERE deck_id = ? AND oracle_id = ?")
-    .get(deckId, oracleId) as { quantity: number } | undefined;
-  if (existing) {
-    // Duplicate add bumps quantity (needed for basics); legality of the
-    // count is the computed state's job, not a gate here.
-    db.prepare(
-      "UPDATE deck_cards SET quantity = quantity + 1 WHERE deck_id = ? AND oracle_id = ?",
-    ).run(deckId, oracleId);
-    bumpDeckRevision(db, deckId);
-    return;
-  }
-
-  if (opts.slotId != null) requireSlot(db, deckId, opts.slotId);
-  const role = opts.role ?? "card";
-  if (role !== "card") assertRoleCapacity(db, deckId, role);
-  db.prepare(
-    "INSERT INTO deck_cards (deck_id, oracle_id, slot_id, role) VALUES (?, ?, ?, ?)",
-  ).run(deckId, oracleId, opts.slotId ?? null, role);
-  if (role === "commander") recomputeIdentity(db, deckId);
-  bumpDeckRevision(db, deckId);
-}
-
-export function removeCard(db: DatabaseSync, deckId: number, oracleId: string): void {
-  const row = requireDeckCard(db, deckId, oracleId);
-  db.prepare("DELETE FROM deck_cards WHERE deck_id = ? AND oracle_id = ?").run(deckId, oracleId);
-  if (row.role === "commander") recomputeIdentity(db, deckId);
-  bumpDeckRevision(db, deckId);
-}
-
-export function updateCard(
-  db: DatabaseSync,
-  deckId: number,
-  oracleId: string,
-  patch: {
-    slotId?: number | null;
-    role?: "card" | "commander" | "companion";
-    owned?: boolean;
-    quantity?: number;
-    tagIds?: number[];
-  },
-): void {
-  const row = requireDeckCard(db, deckId, oracleId);
-
-  if (patch.slotId !== undefined) {
-    if (patch.slotId != null) requireSlot(db, deckId, patch.slotId);
-    db.prepare("UPDATE deck_cards SET slot_id = ? WHERE deck_id = ? AND oracle_id = ?").run(
-      patch.slotId,
-      deckId,
-      oracleId,
-    );
-  }
-  if (patch.role !== undefined && patch.role !== row.role) {
-    if (patch.role !== "card") assertRoleCapacity(db, deckId, patch.role);
-    db.prepare("UPDATE deck_cards SET role = ? WHERE deck_id = ? AND oracle_id = ?").run(
-      patch.role,
-      deckId,
-      oracleId,
-    );
-    recomputeIdentity(db, deckId);
-    bumpDeckRevision(db, deckId);
-  }
-  if (patch.owned !== undefined) {
-    db.prepare("UPDATE deck_cards SET owned = ? WHERE deck_id = ? AND oracle_id = ?").run(
-      patch.owned ? 1 : 0,
-      deckId,
-      oracleId,
-    );
-  }
-  if (patch.quantity !== undefined) {
-    if (patch.quantity < 1) throw new ServiceError("Quantity must be at least 1");
-    if (patch.quantity !== row.quantity) {
-      db.prepare("UPDATE deck_cards SET quantity = ? WHERE deck_id = ? AND oracle_id = ?").run(
-        patch.quantity,
-        deckId,
-        oracleId,
-      );
-      bumpDeckRevision(db, deckId);
-    }
-  }
-  if (patch.tagIds !== undefined) {
-    for (const tagId of patch.tagIds) requireTag(db, deckId, tagId);
-    db.prepare("DELETE FROM deck_card_tags WHERE deck_id = ? AND oracle_id = ?").run(
-      deckId,
-      oracleId,
-    );
-    const ins = db.prepare(
-      "INSERT INTO deck_card_tags (deck_id, oracle_id, tag_id) VALUES (?, ?, ?)",
-    );
-    for (const tagId of new Set(patch.tagIds)) ins.run(deckId, oracleId, tagId);
-  }
-}
-
-/** Set the ownership baseline for the whole deck. Ownership is shopping
- * metadata, so—like a single-card ownership edit—this does not change the
- * deck revision. The UI uses this to start from "all owned" before marking a
- * small number of missing exceptions. */
-export function setAllCardsOwned(db: DatabaseSync, deckId: number, owned: boolean): void {
-  requireDeck(db, deckId);
-  db.prepare("UPDATE deck_cards SET owned = ? WHERE deck_id = ?").run(owned ? 1 : 0, deckId);
-}
-
-function assertRoleCapacity(db: DatabaseSync, deckId: number, role: "commander" | "companion") {
-  const { n } = db
-    .prepare("SELECT COUNT(*) n FROM deck_cards WHERE deck_id = ? AND role = ?")
-    .get(deckId, role) as { n: number };
-  const cap = role === "commander" ? 2 : 1;
-  if (n >= cap)
+export function requireDeck(db: DatabaseSync, deckId: number): DeckRow {
+  const deck = db.prepare("SELECT * FROM decks WHERE id = ?").get(deckId) as DeckRow | undefined;
+  if (!deck)
     throw new ServiceError(
-      role === "commander"
-        ? "A deck supports at most two command-zone cards (commander + partner or background)"
-        : "A deck supports at most one companion",
+      `There is no deck ${deckId}. List the decks to see which ids exist.`,
+      404,
     );
+  return deck;
 }
 
-// Deck identity = union of commander identities (spec §3, denormalized).
-function recomputeIdentity(db: DatabaseSync, deckId: number): void {
+// Deck identity = union of commander identities (spec §5.1, denormalized).
+export function recomputeIdentity(db: DatabaseSync, deckId: number): void {
   const commanders = db
     .prepare(
       `SELECT c.ci_mask, c.color_identity FROM deck_cards dc JOIN cards c ON c.oracle_id = dc.oracle_id
-       WHERE dc.deck_id = ? AND dc.role = 'commander'`,
+       WHERE dc.deck_id = ? AND dc.role = 'commander' AND dc.maybe = 0`,
     )
     .all(deckId) as unknown as Array<{ ci_mask: number; color_identity: string }>;
   if (!commanders.length) {
@@ -313,17 +240,93 @@ function recomputeIdentity(db: DatabaseSync, deckId: number): void {
   );
 }
 
+export interface DeckCardRow {
+  oracle_id: string;
+  slot_id: number | null;
+  role: Role;
+  maybe: number;
+  maybe_note: string;
+  in_paper: number;
+  quantity: number;
+}
+
+export function findDeckCard(
+  db: DatabaseSync,
+  deckId: number,
+  oracleId: string,
+): DeckCardRow | undefined {
+  return db
+    .prepare(
+      `SELECT oracle_id, slot_id, role, maybe, maybe_note, in_paper, quantity
+       FROM deck_cards WHERE deck_id = ? AND oracle_id = ?`,
+    )
+    .get(deckId, oracleId) as DeckCardRow | undefined;
+}
+
+function requireDeckCard(db: DatabaseSync, deckId: number, oracleId: string): DeckCardRow {
+  const row = findDeckCard(db, deckId, oracleId);
+  if (!row) {
+    const name = requireCardById(db, oracleId).name;
+    throw new ServiceError(`${name} is not in this deck or on its maybe list`, 404);
+  }
+  return row;
+}
+
 // ---------- slots ----------
 
-function requireSlot(db: DatabaseSync, deckId: number, slotId: number) {
-  const slot = db.prepare("SELECT * FROM slots WHERE id = ? AND deck_id = ?").get(slotId, deckId);
+export interface SlotRow {
+  id: number;
+  name: string;
+  target_min: number | null;
+  target_max: number | null;
+  position: number;
+}
+
+export function listSlots(db: DatabaseSync, deckId: number): SlotRow[] {
+  return db
+    .prepare(
+      "SELECT id, name, target_min, target_max, position FROM slots WHERE deck_id = ? ORDER BY position, id",
+    )
+    .all(deckId) as unknown as SlotRow[];
+}
+
+function requireSlot(db: DatabaseSync, deckId: number, slotId: number): SlotRow {
+  const slot = db
+    .prepare("SELECT id, name, target_min, target_max, position FROM slots WHERE id = ? AND deck_id = ?")
+    .get(slotId, deckId) as SlotRow | undefined;
   if (!slot) throw new ServiceError(`Slot ${slotId} not found in deck ${deckId}`, 404);
   return slot;
 }
 
+export function findSlotByName(db: DatabaseSync, deckId: number, name: string): SlotRow | null {
+  return (
+    (db
+      .prepare(
+        `SELECT id, name, target_min, target_max, position FROM slots
+         WHERE deck_id = ? AND name = ? COLLATE NOCASE`,
+      )
+      .get(deckId, name.trim()) as SlotRow | undefined) ?? null
+  );
+}
+
+/** A slot by name, or an error that lists the slots that do exist. */
+export function requireSlotByName(db: DatabaseSync, deckId: number, name: string): SlotRow {
+  const slot = findSlotByName(db, deckId, name);
+  if (slot) return slot;
+  const existing = listSlots(db, deckId).map((s) => s.name);
+  throw new ServiceError(
+    `This deck has no slot named '${name}'. ` +
+      (existing.length
+        ? `Its slots are: ${existing.join(", ")}.`
+        : `It defines no slots; create one first, or leave the card unslotted.`),
+    404,
+  );
+}
+
 function validateTargets(min: number | null, max: number | null) {
-  if (min != null && min < 0) throw new ServiceError("Slot target cannot be negative");
-  if (max != null && max < 0) throw new ServiceError("Slot target cannot be negative");
+  for (const n of [min, max])
+    if (n != null && (!Number.isInteger(n) || n < 0))
+      throw new ServiceError("A slot target must be a whole number, zero or more");
   if (min != null && max != null && min > max)
     throw new ServiceError("Slot target min cannot exceed max");
 }
@@ -361,21 +364,23 @@ export function updateSlot(
   slotId: number,
   patch: { name?: string; targetMin?: number | null; targetMax?: number | null },
 ): void {
-  const slot = requireSlot(db, deckId, slotId) as {
-    name: string;
-    target_min: number | null;
-    target_max: number | null;
-  };
+  const slot = requireSlot(db, deckId, slotId);
   const name = patch.name !== undefined ? validateVocabName(patch.name) : slot.name;
   const min = patch.targetMin !== undefined ? patch.targetMin : slot.target_min;
   const max = patch.targetMax !== undefined ? patch.targetMax : slot.target_max;
   validateTargets(min, max);
-  db.prepare("UPDATE slots SET name = ?, target_min = ?, target_max = ? WHERE id = ?").run(
-    name,
-    min,
-    max,
-    slotId,
-  );
+  try {
+    db.prepare("UPDATE slots SET name = ?, target_min = ?, target_max = ? WHERE id = ?").run(
+      name,
+      min,
+      max,
+      slotId,
+    );
+  } catch (e: any) {
+    if (String(e.message).includes("UNIQUE"))
+      throw new ServiceError(`Slot '${name}' already exists in this deck`, 409);
+    throw e;
+  }
 }
 
 export function deleteSlot(db: DatabaseSync, deckId: number, slotId: number): void {
@@ -383,75 +388,18 @@ export function deleteSlot(db: DatabaseSync, deckId: number, slotId: number): vo
   db.prepare("DELETE FROM slots WHERE id = ?").run(slotId);
 }
 
-export interface SlotRow {
+// ---------- tags ----------
+
+export interface TagRow {
   id: number;
   name: string;
-  target_min: number | null;
-  target_max: number | null;
 }
 
-export function findSlotByName(db: DatabaseSync, deckId: number, name: string): SlotRow | null {
-  return (
-    (db
-      .prepare(
-        "SELECT id, name, target_min, target_max FROM slots WHERE deck_id = ? AND name = ? COLLATE NOCASE",
-      )
-      .get(deckId, name) as SlotRow | undefined) ?? null
-  );
+export function listTags(db: DatabaseSync, deckId: number): TagRow[] {
+  return db
+    .prepare("SELECT id, name FROM tags WHERE deck_id = ? ORDER BY name")
+    .all(deckId) as unknown as TagRow[];
 }
-
-// Bulk refile: every move lands or none does. Filing changes no membership,
-// so no revision bump and no decision-log row (spec §4) — but the command
-// zone is not part of any slot, and that rule is enforced here rather than in
-// whoever calls this.
-export function moveCards(
-  db: DatabaseSync,
-  deckId: number,
-  moves: Array<{ oracle_id: string; slot_id: number | null }>,
-): void {
-  requireDeck(db, deckId);
-  withTransaction(db, () => {
-    for (const m of moves) {
-      const row = requireDeckCard(db, deckId, m.oracle_id);
-      if (row.role !== "card")
-        throw new ServiceError(`A ${row.role} is in the command zone, which is not part of any slot`);
-      updateCard(db, deckId, m.oracle_id, { slotId: m.slot_id });
-    }
-  });
-}
-
-// Every card in the deck by oracle_id and by every printed name of every
-// face, so a reference to one half of a modal card resolves like the whole
-// card. This is how cards get addressed without ids: the resolution set is
-// the deck itself, so an invented name resolves to nothing.
-export interface DeckCardRef {
-  oracle_id: string;
-  name: string;
-  role: string;
-}
-
-export function deckCardIndex(db: DatabaseSync, deckId: number) {
-  const rows = db
-    .prepare(
-      `SELECT dc.oracle_id, dc.role, c.name FROM deck_cards dc JOIN cards c ON c.oracle_id = dc.oracle_id
-       WHERE dc.deck_id = ?`,
-    )
-    .all(deckId) as unknown as DeckCardRef[];
-  const byId = new Map(rows.map((r) => [r.oracle_id, r]));
-  const byName = new Map<string, DeckCardRef>();
-  for (const r of db
-    .prepare(
-      `SELECT cn.name_norm, cn.oracle_id FROM deck_cards dc JOIN card_names cn ON cn.oracle_id = dc.oracle_id
-       WHERE dc.deck_id = ?`,
-    )
-    .all(deckId) as unknown as Array<{ name_norm: string; oracle_id: string }>) {
-    const card = byId.get(r.oracle_id);
-    if (card) byName.set(r.name_norm, card);
-  }
-  return { byId, byName };
-}
-
-// ---------- tags ----------
 
 function requireTag(db: DatabaseSync, deckId: number, tagId: number) {
   const tag = db.prepare("SELECT * FROM tags WHERE id = ? AND deck_id = ?").get(tagId, deckId);
@@ -459,12 +407,48 @@ function requireTag(db: DatabaseSync, deckId: number, tagId: number) {
   return tag;
 }
 
+// Folds a tag name down to what makes two tags "the same idea spelled
+// differently": case, punctuation, word order and plurals.
+function tagKey(name: string): string {
+  return name
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .map(singular)
+    .sort()
+    .join(" ");
+}
+
+// An existing tag the candidate would shadow, if any. Without this the
+// vocabulary grows `ramp`, `Ramp` and `ramps` in a month and tag: filters
+// quietly stop finding things (spec §5.4). Deliberately narrow: `mana ramp`
+// beside `ramp` is a judgement call and is allowed.
+export function similarTag(existing: string[], candidate: string): string | null {
+  const key = tagKey(candidate);
+  return existing.find((e) => tagKey(e) === key) ?? null;
+}
+
 export function createTag(db: DatabaseSync, deckId: number, name: string): number {
   requireDeck(db, deckId);
   const valid = validateVocabName(name);
+  const clash = similarTag(
+    listTags(db, deckId).map((t) => t.name),
+    valid,
+  );
+  if (clash)
+    throw new ServiceError(
+      `This deck already has the tag '${clash}', which '${valid}' would duplicate. Use '${clash}'.`,
+      409,
+    );
+  const r = db.prepare("INSERT INTO tags (deck_id, name) VALUES (?, ?)").run(deckId, valid);
+  return Number(r.lastInsertRowid);
+}
+
+export function renameTag(db: DatabaseSync, deckId: number, tagId: number, name: string): void {
+  requireTag(db, deckId, tagId);
+  const valid = validateVocabName(name);
   try {
-    const r = db.prepare("INSERT INTO tags (deck_id, name) VALUES (?, ?)").run(deckId, valid);
-    return Number(r.lastInsertRowid);
+    db.prepare("UPDATE tags SET name = ? WHERE id = ?").run(valid, tagId);
   } catch (e: any) {
     if (String(e.message).includes("UNIQUE"))
       throw new ServiceError(`Tag '${valid}' already exists in this deck`, 409);
@@ -472,17 +456,210 @@ export function createTag(db: DatabaseSync, deckId: number, name: string): numbe
   }
 }
 
-export function renameTag(db: DatabaseSync, deckId: number, tagId: number, name: string): void {
-  requireTag(db, deckId, tagId);
-  db.prepare("UPDATE tags SET name = ? WHERE id = ?").run(validateVocabName(name), tagId);
-}
-
 export function deleteTag(db: DatabaseSync, deckId: number, tagId: number): void {
   requireTag(db, deckId, tagId);
   db.prepare("DELETE FROM tags WHERE id = ?").run(tagId);
 }
 
-// ---------- full deck state ----------
+function findOrCreateTag(db: DatabaseSync, deckId: number, name: string): number {
+  const existing = listTags(db, deckId);
+  const exact = existing.find((t) => t.name.toLowerCase() === name.trim().toLowerCase());
+  return exact ? exact.id : createTag(db, deckId, name);
+}
+
+// ---------- organization of cards (spec §5.4) ----------
+
+export interface OrganizePatch {
+  /** Slot id, or null to unslot. Omit to leave the slot alone. */
+  slotId?: number | null;
+  /** Replace the card's tags with exactly these tag ids. */
+  tagIds?: number[];
+}
+
+/** File one card: its slot and its tags. Changes no membership. */
+export function organizeCard(
+  db: DatabaseSync,
+  deckId: number,
+  oracleId: string,
+  patch: OrganizePatch,
+): void {
+  const row = requireDeckCard(db, deckId, oracleId);
+  if (patch.slotId !== undefined) {
+    if (patch.slotId != null) {
+      requireSlot(db, deckId, patch.slotId);
+      if (row.role !== "card")
+        throw new ServiceError(
+          `A ${row.role} is in the command zone, which is not part of any slot`,
+        );
+    }
+    db.prepare("UPDATE deck_cards SET slot_id = ? WHERE deck_id = ? AND oracle_id = ?").run(
+      patch.slotId,
+      deckId,
+      oracleId,
+    );
+  }
+  if (patch.tagIds !== undefined) {
+    for (const tagId of patch.tagIds) requireTag(db, deckId, tagId);
+    db.prepare("DELETE FROM deck_card_tags WHERE deck_id = ? AND oracle_id = ?").run(
+      deckId,
+      oracleId,
+    );
+    const ins = db.prepare(
+      "INSERT INTO deck_card_tags (deck_id, oracle_id, tag_id) VALUES (?, ?, ?)",
+    );
+    for (const tagId of new Set(patch.tagIds)) ins.run(deckId, oracleId, tagId);
+  }
+}
+
+export interface FilingInput {
+  oracle_id: string;
+  /** Slot name; null unslots; undefined leaves the slot alone. */
+  slot?: string | null;
+  add_tags?: string[];
+  remove_tags?: string[];
+}
+
+// Bulk filing by name, for agents: every entry lands or none does. Tags named
+// here are created if the deck lacks them, subject to the near-duplicate rule.
+export function fileCards(db: DatabaseSync, deckId: number, filings: FilingInput[]): void {
+  requireDeck(db, deckId);
+  withTransaction(db, () => {
+    for (const f of filings) {
+      requireDeckCard(db, deckId, f.oracle_id);
+      const patch: OrganizePatch = {};
+      if (f.slot !== undefined)
+        patch.slotId = f.slot === null ? null : requireSlotByName(db, deckId, f.slot).id;
+      if (f.add_tags?.length || f.remove_tags?.length) {
+        const current = new Set(
+          (
+            db
+              .prepare("SELECT tag_id FROM deck_card_tags WHERE deck_id = ? AND oracle_id = ?")
+              .all(deckId, f.oracle_id) as unknown as { tag_id: number }[]
+          ).map((t) => t.tag_id),
+        );
+        for (const name of f.add_tags ?? []) current.add(findOrCreateTag(db, deckId, name));
+        for (const name of f.remove_tags ?? []) {
+          const tag = listTags(db, deckId).find(
+            (t) => t.name.toLowerCase() === name.trim().toLowerCase(),
+          );
+          if (tag) current.delete(tag.id);
+        }
+        patch.tagIds = [...current];
+      }
+      organizeCard(db, deckId, f.oracle_id, patch);
+    }
+  });
+}
+
+export interface SlotSpec {
+  name: string;
+  /** Rename the slot to this. */
+  rename_to?: string;
+  target_min?: number | null;
+  target_max?: number | null;
+  /** Remove the slot; its cards become unslotted. */
+  remove?: boolean;
+}
+
+// Create, rename, retarget and remove slots in one transactional call. A slot
+// named here that does not exist is created; one that exists is updated.
+export function defineSlots(db: DatabaseSync, deckId: number, specs: SlotSpec[]): void {
+  requireDeck(db, deckId);
+  withTransaction(db, () => {
+    for (const s of specs) {
+      const existing = findSlotByName(db, deckId, s.name);
+      if (s.remove) {
+        if (!existing) requireSlotByName(db, deckId, s.name);
+        deleteSlot(db, deckId, existing!.id);
+        continue;
+      }
+      if (!existing) {
+        if (s.rename_to !== undefined) requireSlotByName(db, deckId, s.name);
+        createSlot(db, deckId, s.name, s.target_min ?? null, s.target_max ?? null);
+        continue;
+      }
+      updateSlot(db, deckId, existing.id, {
+        name: s.rename_to,
+        targetMin: s.target_min,
+        targetMax: s.target_max,
+      });
+    }
+  });
+}
+
+// ---------- the maybe list (spec §5.4) ----------
+
+// Shortlisting a card that is not in the deck is organization: it sits
+// outside the 100 and bumps no revision. Moving a card between the 100 and
+// the maybe list is membership and goes through deck/membership.ts.
+export function shortlistCard(
+  db: DatabaseSync,
+  deckId: number,
+  oracleId: string,
+  note = "",
+): void {
+  requireDeck(db, deckId);
+  const card = requireCardById(db, oracleId);
+  const existing = findDeckCard(db, deckId, oracleId);
+  if (existing && !existing.maybe)
+    throw new ServiceError(`${card.name} is already in the deck, so it cannot be shortlisted`);
+  if (existing) {
+    db.prepare("UPDATE deck_cards SET maybe_note = ? WHERE deck_id = ? AND oracle_id = ?").run(
+      note.trim() || existing.maybe_note,
+      deckId,
+      oracleId,
+    );
+    return;
+  }
+  db.prepare(
+    "INSERT INTO deck_cards (deck_id, oracle_id, maybe, maybe_note) VALUES (?, ?, 1, ?)",
+  ).run(deckId, oracleId, note.trim());
+}
+
+export function unshortlistCard(db: DatabaseSync, deckId: number, oracleId: string): void {
+  const row = requireDeckCard(db, deckId, oracleId);
+  if (!row.maybe)
+    throw new ServiceError(
+      `${requireCardById(db, oracleId).name} is in the deck, not on the maybe list. ` +
+        `Removing it from the deck is a membership change.`,
+    );
+  db.prepare("DELETE FROM deck_cards WHERE deck_id = ? AND oracle_id = ?").run(deckId, oracleId);
+}
+
+// ---------- the paper flag (spec §5.5) ----------
+
+export function setInPaper(
+  db: DatabaseSync,
+  actor: Actor,
+  deckId: number,
+  oracleId: string,
+  inPaper: boolean,
+): void {
+  requireOwner(actor, "mark which cards are in the physical deck");
+  requireDeckCard(db, deckId, oracleId);
+  db.prepare("UPDATE deck_cards SET in_paper = ? WHERE deck_id = ? AND oracle_id = ?").run(
+    inPaper ? 1 : 0,
+    deckId,
+    oracleId,
+  );
+}
+
+/** The exception-first baseline: mark the whole deck assembled, then the few that are not. */
+export function setAllInPaper(
+  db: DatabaseSync,
+  actor: Actor,
+  deckId: number,
+  inPaper: boolean,
+): void {
+  requireOwner(actor, "mark which cards are in the physical deck");
+  requireDeck(db, deckId);
+  db.prepare("UPDATE deck_cards SET in_paper = ? WHERE deck_id = ? AND maybe = 0").run(
+    inPaper ? 1 : 0,
+    deckId,
+  );
+}
+
+// ---------- the deck view ----------
 
 export interface DeckCardView {
   oracle_id: string;
@@ -499,35 +676,26 @@ export interface DeckCardView {
   commander_legality: string;
   is_commander: number;
   slot_id: number | null;
-  role: "card" | "commander" | "companion";
+  role: Role;
   /** 1 = on the maybe list: considered for the deck, not part of the 100. */
-  maybeboard: number;
-  owned: number;
+  maybe: number;
+  maybe_note: string;
+  in_paper: number;
   quantity: number;
   tag_ids: number[];
 }
 
 export function getDeck(db: DatabaseSync, deckId: number) {
   const deck = requireDeck(db, deckId);
-  const slots = db
-    .prepare("SELECT id, name, target_min, target_max, position FROM slots WHERE deck_id = ? ORDER BY position")
-    .all(deckId) as unknown as Array<{
-    id: number;
-    name: string;
-    target_min: number | null;
-    target_max: number | null;
-    position: number;
-  }>;
-  const tags = db
-    .prepare("SELECT id, name FROM tags WHERE deck_id = ? ORDER BY name")
-    .all(deckId) as unknown as Array<{ id: number; name: string }>;
+  const slots = listSlots(db, deckId);
+  const tags = listTags(db, deckId);
 
   const cards = db
     .prepare(
       `SELECT c.oracle_id, c.name, c.mana_cost, c.cmc, c.type_line, c.oracle_text,
               c.power, c.toughness, c.loyalty, c.color_identity, c.ci_mask,
               c.commander_legality, c.is_commander,
-              dc.slot_id, dc.role, dc.maybeboard, dc.owned, dc.quantity
+              dc.slot_id, dc.role, dc.maybe, dc.maybe_note, dc.in_paper, dc.quantity
        FROM deck_cards dc JOIN cards c ON c.oracle_id = dc.oracle_id
        WHERE dc.deck_id = ? ORDER BY c.name`,
     )
@@ -552,16 +720,21 @@ export function getDeck(db: DatabaseSync, deckId: number) {
        LEFT JOIN deck_cards dc ON dc.deck_id = p.deck_id AND dc.oracle_id = pi.oracle_id
        WHERE p.deck_id = ? AND pi.status = 'pending'`,
     )
-    .all(deckId) as unknown as Array<{
-    action: "add" | "cut";
-    slot_id: number | null;
-    current_slot_id: number | null;
-  }>;
+    .all(deckId) as unknown as PendingItem[];
+
+  const parentRow = deck.parent_id
+    ? (db.prepare("SELECT id, name FROM decks WHERE id = ?").get(deck.parent_id) as
+        | { id: number; name: string }
+        | undefined)
+    : undefined;
+  const parent = parentRow ? { id: parentRow.id, name: parentRow.name } : null;
 
   return {
     deck: {
       id: deck.id,
       name: deck.name,
+      status: deck.status,
+      parent,
       ci_mask: deck.ci_mask,
       color_identity: deck.color_identity,
       revision: deck.revision,
@@ -573,27 +746,34 @@ export function getDeck(db: DatabaseSync, deckId: number) {
   };
 }
 
+export type DeckView = ReturnType<typeof getDeck>;
+
+interface PendingItem {
+  action: "add" | "cut";
+  slot_id: number | null;
+  current_slot_id: number | null;
+}
+
 export type SlotStatus = "ok" | "under" | "over" | "untargeted";
 
-// Computed state is given, never derived by the model (spec §10).
+const isLand = (c: { type_line: string }) => /\bLand\b/.test(c.type_line);
+
+// Computed state is handed over, never derived by whoever reads it (spec §1,
+// rule 2). If a reader would need to count something, the count belongs here.
 function computeState(
   deck: { ci_mask: number | null },
-  slots: Array<{ id: number; name: string; target_min: number | null; target_max: number | null }>,
+  slots: SlotRow[],
   cards: DeckCardView[],
-  pendingItems: Array<{
-    action: "add" | "cut";
-    slot_id: number | null;
-    current_slot_id: number | null;
-  }> = [],
+  pendingItems: PendingItem[],
 ) {
-  // Everything below counts the deck. The maybe list (spec §4.1) is explicitly
-  // not part of it: parked cards contribute to no count, curve, pip spread,
-  // slot delta or violation, which is the whole point of parking them.
-  const maybeCards = cards.filter((c) => c.maybeboard);
+  // Everything below counts the deck. The maybe list is explicitly not part
+  // of it: parked cards contribute to no count, curve, pip spread, slot delta
+  // or violation, which is the whole point of parking them.
+  const maybeCards = cards.filter((c) => c.maybe);
   // Every role that is actually in the deck — used for the legality checks,
   // which apply to the companion too but must not fire on a parked card.
-  const deckCards = cards.filter((c) => !c.maybeboard);
-  const mainCards = cards.filter((c) => c.role !== "companion" && !c.maybeboard);
+  const deckCards = cards.filter((c) => !c.maybe);
+  const mainCards = deckCards.filter((c) => c.role !== "companion");
   const cardCount = mainCards.reduce((n, c) => n + c.quantity, 0);
 
   const slotDeltas = slots.map((s) => {
@@ -625,14 +805,14 @@ function computeState(
   });
 
   const unslotted = mainCards
-    .filter((c) => c.slot_id == null)
+    .filter((c) => c.slot_id == null && c.role === "card")
     .reduce((n, c) => n + c.quantity, 0);
 
   // Identity violations only exist relative to a chosen commander.
   const identityViolations =
     deck.ci_mask == null
       ? []
-      : cards
+      : deckCards
           .filter((c) => (c.ci_mask & ~deck.ci_mask!) !== 0)
           .map((c) => ({ oracle_id: c.oracle_id, name: c.name, color_identity: c.color_identity }));
 
@@ -647,33 +827,29 @@ function computeState(
       limit: Number.isFinite(limit) ? limit : null,
     }));
 
-  const notLegal = cards
+  const notLegal = deckCards
     .filter((c) => c.commander_legality !== "legal")
     .map((c) => ({ oracle_id: c.oracle_id, name: c.name, legality: c.commander_legality }));
 
-  const lands = mainCards.filter((c) => /\bLand\b/.test(c.type_line));
-  const landCount = lands.reduce((n, c) => n + c.quantity, 0);
-  // Same land classification as land_count; include commanders, but exclude
-  // companions and parked cards. Weight copies, not distinct database rows.
+  const landCount = mainCards.filter(isLand).reduce((n, c) => n + c.quantity, 0);
+  // Same land classification as land_count; commanders count, the companion
+  // and parked cards do not. Copies are weighted, not distinct rows.
   const nonlandCount = cardCount - landCount;
   const averageManaValue = nonlandCount
-    ? mainCards.filter((c) => !/\bLand\b/.test(c.type_line))
-        .reduce((n, c) => n + c.cmc * c.quantity, 0) / nonlandCount
+    ? mainCards.filter((c) => !isLand(c)).reduce((n, c) => n + c.cmc * c.quantity, 0) /
+      nonlandCount
     : null;
 
   const curve: Record<string, number> = { "0": 0, "1": 0, "2": 0, "3": 0, "4": 0, "5": 0, "6": 0, "7+": 0 };
   for (const c of mainCards) {
-    if (/\bLand\b/.test(c.type_line) && !c.mana_cost) continue;
+    if (isLand(c) && !c.mana_cost) continue;
     const bucket = c.cmc >= 7 ? "7+" : String(Math.floor(c.cmc));
     curve[bucket] += c.quantity;
   }
 
   const pips: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0 };
-  for (const c of mainCards) {
-    for (const letter of (c.mana_cost ?? "").matchAll(/[WUBRG]/g)) {
-      pips[letter[0]] += c.quantity;
-    }
-  }
+  for (const c of mainCards)
+    for (const letter of (c.mana_cost ?? "").matchAll(/[WUBRG]/g)) pips[letter[0]] += c.quantity;
 
   const pendingAdds = pendingItems.filter((i) => i.action === "add").length;
   const pendingCuts = pendingItems.filter((i) => i.action === "cut").length;
@@ -693,7 +869,7 @@ function computeState(
       by_slot: pendingBySlot,
     },
     unslotted_count: unslotted,
-    maybe_count: maybeCards.reduce((n, c) => n + c.quantity, 0),
+    maybe_count: maybeCards.length,
     slot_deltas: slotDeltas,
     identity_violations: identityViolations,
     singleton_violations: singletonViolations,
@@ -704,3 +880,5 @@ function computeState(
     pips,
   };
 }
+
+export type ComputedState = ReturnType<typeof computeState>;

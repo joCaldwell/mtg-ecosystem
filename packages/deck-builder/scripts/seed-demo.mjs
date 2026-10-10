@@ -1,57 +1,68 @@
 #!/usr/bin/env node
 // Seed a realistic demo deck so the UI has something to render.
 //
-// Every panel — slot deltas, audit findings, proposals, the decision log,
-// hard filters, playtest notes, the context meter — is empty or degenerate
-// against a one-card deck, which makes frontend work guesswork. This builds a
-// deck that exercises all of them, including the states you only hit by
-// accident: a slot under target and another over it, a rejected card that
-// became a hard filter, an atomic swap awaiting a ruling.
+// Every panel — slot deltas, checks, proposals, the rulings log, memories,
+// the maybe list — is empty or degenerate against a one-card deck, which
+// makes frontend work guesswork. This builds a deck that exercises all of
+// them, including the states you only hit by accident: a slot under target
+// and another over it, a rejected card whose ruling follows it, an atomic
+// swap awaiting a ruling, a proposed edit to the brief, an inferred memory.
 //
-// Scope: it only ever creates or replaces the single deck named below. It
-// never touches your real decks, and it never writes to the cards table.
+// Scope: it only ever creates or replaces the decks named below. It never
+// touches your other decks, and it never writes to the cards table. Card
+// names are resolved against the installed card data at run time; a name that
+// does not resolve is skipped and reported, never guessed.
 //
 //   node scripts/seed-demo.mjs [--keep]     (--keep: fail instead of replacing)
 
 import { openDb } from "../src/db.ts";
+import { OWNER, agent } from "../src/actor.ts";
+import { tryResolveCard } from "../src/cards.ts";
+import { setEngine, updateBrief } from "../src/deck/brief.ts";
+import { forkDeck } from "../src/deck/fork.ts";
+import { applyChanges } from "../src/deck/membership.ts";
+import { acceptItems, createProposal, pendingItemIds, rejectItems } from "../src/deck/proposals.ts";
 import {
-  addCard,
   createDeck,
   createSlot,
   createTag,
   deleteDeck,
-  updateCard,
+  organizeCard,
+  setDeckStatus,
+  setInPaper,
+  shortlistCard,
 } from "../src/deck/service.ts";
-import { createProposal, acceptItem, rejectItem, listProposals } from "../src/deck/proposals.ts";
-import { addCardNote } from "../src/deck/log.ts";
-import { updateBrief, setEngine, proposeBriefEdit } from "../src/deck/brief.ts";
-import { addPlaytestNote, resolveListName } from "../src/deck/interop.ts";
+import { proposeDocumentEdit } from "../src/documents.ts";
+import { recordActivity } from "../src/activity.ts";
+import { remember } from "../src/memory.ts";
 
 const DECK_NAME = "Demo — Atraxa Superfriends";
+const FORK_NAME = "Demo — Atraxa, rebuilt (fork)";
+const AGENT = agent("demo-agent");
 const db = openDb();
 
-const existing = db.prepare("SELECT id FROM decks WHERE name = ?").get(DECK_NAME);
-if (existing) {
+for (const name of [FORK_NAME, DECK_NAME]) {
+  const existing = db.prepare("SELECT id FROM decks WHERE name = ?").get(name);
+  if (!existing) continue;
   if (process.argv.includes("--keep")) {
-    console.error(`"${DECK_NAME}" already exists (id ${existing.id}). Drop --keep to replace it.`);
+    console.error(`"${name}" already exists (id ${existing.id}). Drop --keep to replace it.`);
     process.exit(1);
   }
-  deleteDeck(db, existing.id);
-  console.log(`Replaced the previous "${DECK_NAME}".`);
+  deleteDeck(db, OWNER, existing.id);
+  console.log(`Replaced the previous "${name}".`);
 }
 
-const deckId = createDeck(db, DECK_NAME);
+// Built as a draft, made active at the end: that is the life of a real deck.
+const deckId = createDeck(db, DECK_NAME, { status: "draft" });
 
-// Resolve by exact name against whatever card snapshot is installed; anything
-// missing is skipped and reported rather than aborting the seed.
 const missing = new Set();
 function oracle(name) {
-  const hits = resolveListName(db, name);
-  if (hits.length !== 1) {
+  const hit = tryResolveCard(db, name);
+  if ("problem" in hit) {
     missing.add(name);
     return null;
   }
-  return hits[0].oracle_id;
+  return hit.oracle_id;
 }
 
 const slots = {
@@ -70,22 +81,22 @@ const tags = {
   wincon: createTag(db, deckId, "wincon"),
 };
 
+// One logged act for the whole first build, as an import or an agent's
+// edit_draft would be.
+const build = [];
+const paper = [];
 function add(name, slot, opts = {}) {
   const oid = oracle(name);
   if (!oid) return null;
-  addCard(db, deckId, oid, { slotId: slot ?? null, role: opts.role });
-  const patch = {};
-  if (opts.quantity) patch.quantity = opts.quantity;
-  if (opts.owned) patch.owned = true;
-  if (opts.tags) patch.tagIds = opts.tags;
-  if (Object.keys(patch).length) updateCard(db, deckId, oid, patch);
+  build.push({ action: "add", oracle_id: oid, slot_id: opts.role ? undefined : (slot ?? undefined), role: opts.role, quantity: opts.quantity });
+  if (opts.inPaper) paper.push(oid);
   return oid;
 }
 
-add("Atraxa, Praetors' Voice", null, { role: "commander", owned: true });
+add("Atraxa, Praetors' Voice", null, { role: "commander", inPaper: true });
 
 // Deliberately leaves `walkers` under target and `ramp` over it, so the slot
-// deltas and the audit have something real to report.
+// deltas and the checks have something real to report.
 const groups = [
   [slots.ramp, ["Sol Ring", "Arcane Signet", "Fellwar Stone", "Chromatic Lantern", "Cultivate",
     "Nature's Lore", "Rampant Growth", "Farseek", "Birds of Paradise", "Llanowar Elves",
@@ -106,10 +117,13 @@ const groups = [
 for (const [slot, names] of groups) for (const n of names) add(n, slot);
 
 // Basics fill the mana base slot toward its target and exercise the quantity path.
-add("Forest", slots.manaBase, { quantity: 6, owned: true });
-add("Plains", slots.manaBase, { quantity: 5, owned: true });
-add("Island", slots.manaBase, { quantity: 5, owned: true });
-add("Swamp", slots.manaBase, { quantity: 5, owned: true });
+add("Forest", slots.manaBase, { quantity: 6, inPaper: true });
+add("Plains", slots.manaBase, { quantity: 5, inPaper: true });
+add("Island", slots.manaBase, { quantity: 5, inPaper: true });
+add("Swamp", slots.manaBase, { quantity: 5, inPaper: true });
+
+applyChanges(db, OWNER, deckId, build, { kind: "edit", summary: "First build" });
+for (const oid of paper) setInPaper(db, OWNER, deckId, oid, true);
 
 for (const [name, tagIds] of [
   ["Flux Channeler", [tags.proliferate]],
@@ -120,7 +134,7 @@ for (const [name, tagIds] of [
   ["Assassin's Trophy", [tags.removal]],
 ]) {
   const oid = oracle(name);
-  if (oid) updateCard(db, deckId, oid, { tagIds });
+  if (oid) organizeCard(db, deckId, oid, { tagIds });
 }
 
 updateBrief(db, deckId, {
@@ -142,92 +156,115 @@ const enginePieces = ["Flux Channeler", "Evolution Sage", "Inexorable Tide", "Co
 if (enginePieces.length)
   setEngine(db, deckId, "proliferate loop", "Cheap proliferate triggers that stack with Atraxa's end step.", enginePieces);
 
-// --- history: the decision log is the version history, so give it one ---
 
-function propose(items, note, source = "agent") {
-  return createProposal(db, deckId, items, { source, note });
-}
-function itemsOf(proposalId) {
-  return listProposals(db, deckId, "open").find((p) => p.id === proposalId)?.items ?? [];
+setDeckStatus(db, OWNER, deckId, "active");
+
+// --- history: the rulings log is the version history, so give it one ---
+
+const itemFor = (name, action, reason, extra = {}) => {
+  const oid = oracle(name);
+  return oid ? { action, oracle_id: oid, reason, ...extra } : null;
+};
+function propose(summary, items) {
+  const real = items.filter(Boolean);
+  return real.length ? createProposal(db, AGENT, deckId, { summary, items: real }) : null;
 }
 
 // An accepted add, so the log has an accept in it.
-const oGoyf = oracle("Doubling Season");
-if (oGoyf) {
-  const pid = propose(
-    [{ action: "add", oracle_id: oGoyf, slot_id: slots.walkers, rationale: "Doubles loyalty counters — every walker arrives one activation from its ultimate." }],
-    "Loyalty doubling",
-  );
-  const item = itemsOf(pid)[0];
-  if (item) acceptItem(db, item.id);
+{
+  const pid = propose("Loyalty doubling", [
+    itemFor("Doubling Season", "add", "Doubles loyalty counters — every walker arrives one activation from its ultimate.", { slot_id: slots.walkers }),
+  ]);
+  if (pid) acceptItems(db, OWNER, pendingItemIds(db, pid), "Yes. This is the deck.");
 }
 
-// A rejection that routes to a hard filter, and one that routes to a card note.
-const oCounter = oracle("Counterspell");
-if (oCounter) {
-  const pid = propose(
-    [{ action: "add", oracle_id: oCounter, slot_id: slots.interaction, rationale: "Cheapest possible answer to a combo turn." }],
-    "Interaction top-up",
-  );
-  const item = itemsOf(pid)[0];
-  if (item) rejectItem(db, item.id, "hard_filter", "The playgroup hates counterspells. Never suggest one again.");
+// Two rejections with reasons. The ruling follows the card from now on, and
+// an agent turned each into a memory.
+{
+  const pid = propose("Interaction top-up", [
+    itemFor("Counterspell", "add", "Cheapest possible answer to a combo turn.", { slot_id: slots.interaction }),
+  ]);
+  if (pid) {
+    const log = rejectItems(db, OWNER, pendingItemIds(db, pid), "The playgroup hates counterspells. Never suggest one.");
+    remember(db, AGENT, {
+      text: "The owner's playgroup dislikes counterspells; they rejected [[Counterspell]] for that reason and do not want counterspells suggested.",
+      scope: "global",
+      basis: "stated",
+      source_log_id: log,
+    });
+    recordActivity(db, AGENT, "remember", null, "Memory: the playgroup dislikes counterspells");
+  }
 }
-const oOrb = oracle("Static Orb");
-if (oOrb) {
-  const pid = propose(
-    [{ action: "add", oracle_id: oOrb, slot_id: slots.defense, rationale: "Slows the table down while walkers tick up." }],
-    "Stax angle",
-  );
-  const item = itemsOf(pid)[0];
-  if (item) rejectItem(db, item.id, "playtest_finding", "Tried it — symmetrical enough that it cost me the games I was ahead in.");
+{
+  const pid = propose("Stax angle", [
+    itemFor("Static Orb", "add", "Slows the table down while walkers tick up.", { slot_id: slots.defense }),
+  ]);
+  if (pid) {
+    const log = rejectItems(db, OWNER, pendingItemIds(db, pid), "Tried it — symmetrical enough that it cost me the games I was ahead in.");
+    remember(db, AGENT, {
+      text: "[[Static Orb]] was tried here and cut: its symmetry cost games the deck was already winning.",
+      scope: "deck",
+      deck_id: deckId,
+      basis: "stated",
+      source_log_id: log,
+    });
+  }
 }
 
-// Left pending on purpose: an atomic swap, so the grouped-ruling UI has a
-// case to render.
-const oCut = oracle("Mind Stone") ?? oracle("Chromatic Lantern");
-const oAdd = oracle("Oath of Teferi");
-if (oCut && oAdd) {
-  propose(
-    [
-      { action: "cut", oracle_id: oCut, rationale: "Weakest rock in an already-over-target ramp slot.", group_id: "swap-1" },
-      { action: "add", oracle_id: oAdd, slot_id: slots.walkers, rationale: "Extra activation every turn is worth more here than the fourth mana rock.", group_id: "swap-1" },
-    ],
-    "Swap a rock for an extra walker activation",
-  );
+// What an agent concluded on its own: a hypothesis until the owner confirms it.
+remember(db, AGENT, {
+  text: "Seems to prefer cutting symmetrical effects generally, not only in this deck: every stax piece proposed so far has been rejected for symmetry.",
+  scope: "global",
+  basis: "inferred",
+});
+// The owner's own notes after goldfishing.
+remember(db, OWNER, {
+  text: "Goldfished ten games: engine online turn 6 on the play, turn 8 on the draw. Never lost to running out of gas — lost to not interacting.",
+  scope: "deck",
+  deck_id: deckId,
+});
+remember(db, OWNER, {
+  text: "Two games ended with a walker one activation short of an ultimate. More proliferate, not more walkers.",
+  scope: "deck",
+  deck_id: deckId,
+});
+
+// Left pending on purpose: an atomic swap, so the grouped ruling has a case.
+propose("Swap a rock for an extra walker activation", [
+  itemFor("Mind Stone", "cut", "Weakest rock in an already-over-target ramp slot.", { group: "swap-1" }),
+  itemFor("Oath of Teferi", "add", "An extra activation every turn is worth more here than the fourth mana rock.", { slot_id: slots.walkers, group: "swap-1" }),
+]);
+
+// A proposed edit to the brief, and one to the profile, for the diff view.
+proposeDocumentEdit(
+  db,
+  AGENT,
+  deckId,
+  "constraints",
+  { content: "- Casual power level; no infinite combos.\n- No counterspells.\n- Roughly $20 per card ceiling.\n- Keep the curve under 4 outside of the walkers.\n- Life total is a resource; symmetrical taxes are not." },
+  "Every stax piece suggested so far has been cut for symmetry. The constraint should say so.",
+);
+proposeDocumentEdit(
+  db,
+  AGENT,
+  null,
+  "profile",
+  { content: "Plays casual Commander with a regular group.\n\n- The group dislikes counterspells.\n- Avoids symmetrical stax effects.\n- Likes decks that win through one visible engine." },
+  "Three rulings across this deck point the same way; worth stating once where every session reads it.",
+);
+
+// A shortlisted candidate, and a fork an agent is free to rework.
+{
+  const oid = oracle("The Chain Veil");
+  if (oid) shortlistCard(db, deckId, oid, "Extra activations if the walker count goes up.");
 }
-
-const oArena = oracle("Phyrexian Arena");
-if (oArena)
-  proposeBriefEdit(
-    db,
-    deckId,
-    "constraints",
-    { content: "- Casual power level; no infinite combos.\n- No counterspells.\n- Roughly $20 per card ceiling.\n- Life total is a resource; symmetrical taxes are not." },
-    "Every stax piece suggested so far has been cut for symmetry. The constraint should say so.",
-  );
-
-if (oOrb) addCardNote(db, deckId, oOrb, "Dead in three of five opening hands.");
-addPlaytestNote(db, deckId, "Goldfished ten games: engine online turn 6 on the play, turn 8 on the draw. Never lost to running out of gas — lost to not interacting.");
-addPlaytestNote(db, deckId, "Two games ended with a walker one activation short of an ultimate. More proliferate, not more walkers.");
-
-// A short transcript, so the context meter and consolidate have input
-// without needing a live model call.
-const chat = db.prepare("INSERT INTO chat_messages (deck_id, role, content_json) VALUES (?, ?, ?)");
-for (const [role, content] of [
-  ["user", "I want this to be an Atraxa proliferate deck that wins with planeswalker ultimates. Casual, no infinite combos."],
-  ["assistant", "Understood. The shell is a control deck that happens to win with [[Atraxa, Praetors' Voice]] ultimates rather than a superfriends pile — that changes what goes in the interaction slot."],
-  ["user", "My playgroup hates counterspells, never suggest them."],
-  ["assistant", "Noted as a durable constraint. I'll lean on unconditional removal like [[Swords to Plowshares]] and [[Assassin's Trophy]] instead."],
-  ["user", "What's the ramp package look like?"],
-  ["assistant", "The ramp slot is currently over target. I'd cut the weakest rock before adding anything else to it."],
-]) {
-  chat.run(deckId, role, JSON.stringify({ role, content }));
-}
+const forkId = forkDeck(db, AGENT, deckId, FORK_NAME);
+recordActivity(db, AGENT, "fork_deck", forkId, `Forked "${DECK_NAME}"`);
 
 const state = db
-  .prepare("SELECT COALESCE(SUM(quantity), 0) n FROM deck_cards WHERE deck_id = ? AND role != 'companion'")
+  .prepare("SELECT COALESCE(SUM(quantity), 0) n FROM deck_cards WHERE deck_id = ? AND role != 'companion' AND maybe = 0")
   .get(deckId);
-console.log(`Seeded "${DECK_NAME}" (deck #${deckId}) — ${state.n}/100 cards.`);
+console.log(`Seeded "${DECK_NAME}" (deck #${deckId}) — ${state.n}/100 cards — and its draft fork (deck #${forkId}).`);
 if (missing.size) {
   console.log(`\n${missing.size} name(s) not in this card snapshot, skipped:`);
   console.log("  " + [...missing].join(", "));

@@ -1,16 +1,15 @@
-// Archidekt interop and playtest notes (spec §9). Deck construction happens
-// here, playtesting happens in Archidekt — one-way out, one-way back. The way
-// back applies in one shot: the preview diff below IS the approval step, and
-// the import lands as a single undoable entry in the log.
+// Archidekt interop (spec §12). Deck construction happens here, playtesting
+// happens in Archidekt — one-way out, one-way back. The way back applies in
+// one shot: the preview diff below IS the approval step, and the import lands
+// as a single undoable entry in the log. Notes from a playtest go in the
+// deck's memories, stamped with the revision that was played.
 
 import { useState } from "react";
 import { api, type ImportDiff } from "./api.ts";
 import { useDeck } from "./store.tsx";
-import { ago } from "./lib.ts";
 
 export function InteropPanel() {
-  const { deckId, state: deckState, apply, run } = useDeck();
-  const state = deckState!;
+  const { deckId, apply } = useDeck();
   const [exported, setExported] = useState<string | null>(null);
   const [withCategories, setWithCategories] = useState(true);
   const [buyList, setBuyList] = useState(false);
@@ -24,19 +23,17 @@ export function InteropPanel() {
   const [applied, setApplied] = useState<string | null>(null);
   const [confirmingImport, setConfirmingImport] = useState(false);
 
-  const [playtest, setPlaytest] = useState("");
-
   async function doExport() {
     setError(null);
     setCopied(false);
     try {
       const r = await api.exportDeck(deckId, {
         categories: withCategories,
-        onlyUnowned: buyList,
+        onlyMissing: buyList,
       });
       setExported(
         r.text ||
-          "(nothing to export — the deck is empty, or every card is marked owned and you asked for a buy list)",
+          "(nothing to export — the deck is empty, or every card is marked in paper and you asked for a buy list)",
       );
     } catch (e: any) {
       setError(e.message);
@@ -117,7 +114,7 @@ export function InteropPanel() {
         </label>
         <label className="own-toggle">
           <input type="checkbox" checked={buyList} onChange={(e) => setBuyList(e.target.checked)} />
-          buy list (unowned only)
+          buy list (cards missing from the paper deck)
         </label>
         <span className="spacer" />
         <button onClick={doExport}>Generate list</button>
@@ -259,10 +256,10 @@ export function InteropPanel() {
               through search instead.
             </div>
           )}
-          {diff.blocked.length > 0 && (
+          {diff.set_aside.length > 0 && (
             <div className="muted rationale">
-              Hard-filtered, not proposed:{" "}
-              {diff.blocked.map((b) => `${b.name} (“${b.reason}”)`).join(", ")}
+              Listed under Maybeboard or Sideboard, so shortlisted on the maybe list, not added:{" "}
+              {diff.set_aside.map((c) => c.name).join(", ")}
             </div>
           )}
           {diff.unparsed.length > 0 && (
@@ -274,46 +271,6 @@ export function InteropPanel() {
         </div>
       )}
 
-      <h3 className="interop-head">Playtest notes</h3>
-      <div className="muted rationale">
-        Goldfishing generates the best data in the system. A note is stamped with the deck revision
-        it describes, so it stays attached to that exact list.
-      </div>
-      <div className="row gap">
-        <input
-          className="grow"
-          value={playtest}
-          onChange={(e) => setPlaytest(e.target.value)}
-          placeholder="“Never found the engine before turn 9” — revision is stamped automatically"
-        />
-        <button
-          disabled={!playtest.trim()}
-          onClick={() =>
-            run(() => api.addPlaytestNote(deckId, playtest)).then(() => setPlaytest(""))
-          }
-        >
-          Add at rev {state.deck.revision}
-        </button>
-      </div>
-      {state.playtest_notes.map((n) => (
-        <div key={n.id} className="playtest-note">
-          <div className="log-row">
-            <span className="mono muted">rev {n.revision}</span>
-            <span className="reason">{n.note}</span>
-            <button
-              className="icon danger"
-              title="Delete note"
-              onClick={() => run(() => api.deletePlaytestNote(deckId, n.id))}
-            >
-              ✕
-            </button>
-          </div>
-          <div className="muted rationale">
-            {n.cards.length} card(s) in the list this note describes · {ago(n.created_at)}
-          </div>
-        </div>
-      ))}
-      {!state.playtest_notes.length && <div className="muted rationale">No notes yet.</div>}
     </>
   );
 }

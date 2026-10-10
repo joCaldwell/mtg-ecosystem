@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { api, type CardData, type DraftItem } from "./api.ts";
+import { api, type CardData } from "./api.ts";
 import { useDeck } from "./store.tsx";
 import { ManaCost } from "./Mana.tsx";
 
 const LIVE_SEARCH_DELAY_MS = 250;
 
-export function SearchPanel({ draftAdd }: { draftAdd?: (item: DraftItem) => void }) {
+export function SearchPanel() {
   const { deckId, state, run } = useDeck();
   const slots = state!.slots;
   const hasCommander = state!.cards.some((c) => c.role === "commander");
+  // Where each card already stands in this deck, so a result can say so.
+  const standing = new Map(state!.cards.map((c) => [c.oracle_id, c.maybe ? "maybe" : "in deck"]));
   const [query, setQuery] = useState("");
   const [filterIdentity, setFilterIdentity] = useState(true);
   const [results, setResults] = useState<CardData[] | null>(null);
@@ -94,7 +96,10 @@ export function SearchPanel({ draftAdd }: { draftAdd?: (item: DraftItem) => void
 
   function add(card: CardData, role?: string) {
     run(() =>
-      api.addCard(deckId, card.oracle_id, targetSlot === "" ? null : Number(targetSlot), role),
+      api.addCard(deckId, card.oracle_id, {
+        slotId: targetSlot === "" ? null : Number(targetSlot),
+        role,
+      }),
     );
   }
 
@@ -131,7 +136,7 @@ export function SearchPanel({ draftAdd }: { draftAdd?: (item: DraftItem) => void
           <select
             value={targetSlot}
             onChange={(e) => setTargetSlot(e.target.value)}
-            title="Adds and proposals land in this slot"
+            title="Adds land in this slot"
           >
             <option value="">→ unslotted</option>
             {slots.map((s) => (
@@ -172,21 +177,18 @@ export function SearchPanel({ draftAdd }: { draftAdd?: (item: DraftItem) => void
                       cmdr
                     </button>
                   )}
-                  {draftAdd && (
+                  {standing.has(c.oracle_id) && (
+                    <span className="chip" title="Already on this deck's list">
+                      {standing.get(c.oracle_id)}
+                    </span>
+                  )}
+                  {!standing.has(c.oracle_id) && (
                     <button
                       className="small"
-                      title="Add to draft proposal"
-                      onClick={() =>
-                        draftAdd({
-                          action: "add",
-                          oracle_id: c.oracle_id,
-                          card_name: c.name,
-                          slot_id: targetSlot === "" ? null : Number(targetSlot),
-                          rationale: "",
-                        })
-                      }
+                      title="Shortlist on the maybe list, outside the 100"
+                      onClick={() => run(() => api.addCard(deckId, c.oracle_id, { maybe: true }))}
                     >
-                      propose
+                      maybe
                     </button>
                   )}
                   <button className="small primary" title="Add to the deck now" onClick={() => add(c)}>

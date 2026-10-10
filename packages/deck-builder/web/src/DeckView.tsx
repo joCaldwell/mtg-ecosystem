@@ -1,17 +1,16 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
-import { api, type DraftItem } from "./api.ts";
+import { useEffect, useState, type FormEvent } from "react";
+import { api, type DeckComparison, type DeckSummary, type PaperStatus } from "./api.ts";
 import { DeckProvider, useDeck } from "./store.tsx";
+import { useLive } from "./live.tsx";
 import { useLocalStorage } from "./lib.ts";
 import { SlotPanel } from "./SlotPanel.tsx";
 import { SearchPanel } from "./SearchPanel.tsx";
-import { CardRow, type OwnershipMode } from "./CardRow.tsx";
+import { CardRow, type PaperMode } from "./CardRow.tsx";
 import { ProposalSection } from "./ProposalSection.tsx";
-import { DecisionLog } from "./DecisionLog.tsx";
-import { AuditSection, DeckChecks } from "./AuditSection.tsx";
+import { RulingsLog } from "./RulingsLog.tsx";
 import { BriefPanel } from "./BriefPanel.tsx";
-import { ChatPanel } from "./ChatPanel.tsx";
+import { DeckMemories } from "./DeckMemories.tsx";
 import { InteropPanel } from "./InteropPanel.tsx";
-import { SessionPanel } from "./SessionPanel.tsx";
 import { SidePanel } from "./SidePanel.tsx";
 import { ColorPips } from "./Mana.tsx";
 import { usePeekProps } from "./CardPeek.tsx";
@@ -21,9 +20,8 @@ import { ConfirmDialog } from "./ConfirmDialog.tsx";
 type GroupStatus = "ok" | "under" | "over" | "untargeted";
 type GroupBy = "slot" | "type";
 // Tool panels open over the page instead of stacking above the decklist —
-// their variable-height contents otherwise move the start of the deck. Audit
-// stays below the list because its recorded output is part of the deck record.
-type Tool = "proposals" | "brief" | "interop" | "session" | "checks";
+// their variable-height contents otherwise move the start of the deck.
+type Tool = "proposals" | "brief" | "interop" | "checks" | "paper" | "compare" | "fork";
 
 // Display order for card-type grouping. `primaryType` walks this list, so a
 // card with several types files under the first one that matches — an Artifact
@@ -81,33 +79,46 @@ export function DeckView({ deckId }: { deckId: number }) {
 }
 
 function DeckPage() {
-  const { deckId, state, audit, error, apply, run, setSideTab } = useDeck();
+  const { deckId, state, error, apply, run, selected } = useDeck();
+  const live = useLive();
   const [notFound, setNotFound] = useState(false);
-  const [draft, setDraft] = useState<DraftItem[]>([]);
   const [tool, setTool] = useState<Tool | null>(null);
   const [renameDraft, setRenameDraft] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
-  const [confirmAllOwned, setConfirmAllOwned] = useState(false);
-  const insertChat = useRef<((token: string) => void) | null>(null);
-  const openAudit = useRef<(() => void) | null>(null);
+  const [confirmAllPaper, setConfirmAllPaper] = useState(false);
   const [groupBy, setGroupBy] = useLocalStorage<GroupBy>(
     "deck.groupBy",
     (raw) => (raw === "type" ? "type" : "slot"),
     (v) => v,
   );
-  const [ownershipMode, setOwnershipMode] = useLocalStorage<OwnershipMode>(
-    "deck.ownershipMode",
-    (raw) => (raw === "missing" ? "missing" : "owned"),
+  const [paperMode, setPaperMode] = useLocalStorage<PaperMode>(
+    "deck.paperMode",
+    (raw) => (raw === "missing" ? "missing" : "in_paper"),
     (v) => v,
   );
   const peekProps = usePeekProps();
 
+  // Refetched whenever the server reports a change, so what an agent does in
+  // another window shows up here without a reload.
   useEffect(() => {
     api
       .getDeck(deckId)
       .then(apply)
       .catch(() => setNotFound(true));
-  }, [deckId, apply]);
+  }, [deckId, apply, live]);
+
+  // Focus (spec §10.3): tell the app which deck is open and which cards are
+  // expanded, so "this deck" in a conversation with an agent means this one.
+  const selectedKey = selected.join(",");
+  useEffect(() => {
+    void api.setFocus(deckId, selectedKey ? selectedKey.split(",") : []).catch(() => {});
+    const beat = window.setInterval(
+      () => void api.setFocus(deckId, selectedKey ? selectedKey.split(",") : []).catch(() => {}),
+      60_000,
+    );
+    return () => window.clearInterval(beat);
+  }, [deckId, selectedKey]);
+  useEffect(() => () => void api.setFocus(null).catch(() => {}), []);
 
   if (notFound)
     return (
@@ -118,16 +129,20 @@ function DeckPage() {
     );
   if (!state) return <div className="deck-list-page muted">Loading…</div>;
 
-  const { deck, slots, tags, cards, computed, proposals, brief_edits } = state;
-  const commanders = cards.filter((c) => c.role === "commander");
-  const companion = cards.filter((c) => c.role === "companion");
-  const mainCards = cards.filter((c) => c.role === "card");
-  const ownedCount = cards.reduce((n, c) => n + (c.owned ? c.quantity : 0), 0);
-  const missingCount = cards.reduce((n, c) => n + (c.owned ? 0 : c.quantity), 0);
+  const { deck, slots, cards, computed, proposals, document_edits, checks } = state;
+  const inDeck = cards.filter((c) => !c.maybe);
+  const maybe = cards.filter((c) => c.maybe);
+  const commanders = inDeck.filter((c) => c.role === "commander");
+  const companion = inDeck.filter((c) => c.role === "companion");
+  const mainCards = inDeck.filter((c) => c.role === "card");
+  const inPaperCount = inDeck.reduce((n, c) => n + (c.in_paper ? c.quantity : 0), 0);
+  const missingCount = inDeck.reduce((n, c) => n + (c.in_paper ? 0 : c.quantity), 0);
 
-  const problemCount = audit ? audit.findings.length + audit.dismissed.length : null;
-  // A draft is one proposal-in-progress even when it contains several cards.
-  const proposalCount = proposals.length + brief_edits.length + (draft.length ? 1 : 0);
+  const problemCount = checks.length;
+  const proposalCount =
+    proposals.reduce((n, p) => n + p.items.filter((i) => i.status === "pending").length, 0) +
+    document_edits.length;
+  const isDraft = deck.status === "draft";
 
   async function rename(e: FormEvent) {
     e.preventDefault();
@@ -141,21 +156,6 @@ function DeckPage() {
     const result = await run(() => api.renameDeck(deck.id, name));
     setRenaming(false);
     if (result) setRenameDraft(null);
-  }
-
-  // "ask agent" on a finding: the token goes into the chat draft and the chat
-  // comes up. The reference is a pointer the agent resolves with get_audit —
-  // pasting the finding's text instead would put a stale copy in the
-  // transcript forever, and the run is already on disk.
-  function askAgent(token: string) {
-    insertChat.current?.(token);
-    setSideTab("chat");
-  }
-
-  function draftAdd(item: DraftItem) {
-    if (draft.some((d) => d.oracle_id === item.oracle_id && d.action === item.action)) return;
-    setDraft([...draft, item]);
-    setTool("proposals");
   }
 
   type Group = {
@@ -304,12 +304,40 @@ function DeckPage() {
         ) : (
           <ColorPips colors={deck.color_identity || "C"} />
         )}
+        {/* Spec §5.2: an agent edits a draft directly and changes an active
+            deck only by proposal. Only the owner flips this. */}
+        <div className="seg deck-status" role="group" aria-label="Deck status">
+          <button
+            className={isDraft ? "active" : ""}
+            aria-pressed={isDraft}
+            onClick={() => !isDraft && run(() => api.setDeckStatus(deck.id, "draft"))}
+            title="Draft: an agent may add and remove cards directly"
+          >
+            Draft
+          </button>
+          <button
+            className={!isDraft ? "active" : ""}
+            aria-pressed={!isDraft}
+            onClick={() => isDraft && run(() => api.setDeckStatus(deck.id, "active"))}
+            title="Active: an agent's card changes come to you as proposals"
+          >
+            Active
+          </button>
+        </div>
+        {deck.parent && (
+          <span className="muted fork-of">
+            fork of <a href={`#/deck/${deck.parent.id}`}>{deck.parent.name}</a>
+          </span>
+        )}
+        <span className="mono muted" title="Bumped once per change to the list">
+          rev {deck.revision}
+        </span>
         <button
           className={`small ${problemCount ? "deck-problems-button" : ""}`}
           onClick={() => setTool("checks")}
           aria-haspopup="dialog"
         >
-          {problemCount == null ? "Deck checks" : problemCount ? `${problemCount} issue${problemCount === 1 ? "" : "s"}` : "Deck checks clear"}
+          {problemCount ? `${problemCount} issue${problemCount === 1 ? "" : "s"}` : "Deck checks clear"}
         </button>
       </header>
 
@@ -317,15 +345,12 @@ function DeckPage() {
 
       <div className="columns">
         {/* The rail is `display: contents` on wide screens, so slots and the
-            search/chat panel are independent columns there. Below 1400px it
+            search/memories panel are independent columns there. Below 1400px it
             becomes a real element and the two share one sticky column. */}
         <div className="rail">
           <SlotPanel />
 
-          <SidePanel
-            search={<SearchPanel draftAdd={draftAdd} />}
-            chat={<ChatPanel insertRef={insertChat} />}
-          />
+          <SidePanel search={<SearchPanel />} memories={<DeckMemories />} />
         </div>
 
         <section className="decklist">
@@ -340,9 +365,12 @@ function DeckPage() {
                 {proposalCount > 0 && <span className="tool-count">{proposalCount}</span>}
               </button>
               <button onClick={() => setTool("brief")}>Brief</button>
-              <button onClick={() => openAudit.current?.()}>Audit</button>
               <button onClick={() => setTool("interop")}>Import / export</button>
-              <button onClick={() => setTool("session")}>Context</button>
+              <button onClick={() => setTool("paper")}>Paper list</button>
+              <button onClick={() => setTool("compare")}>Compare</button>
+              <button onClick={() => setTool("fork")} title="Copy this deck into a new draft and keep this one">
+                Fork
+              </button>
             </div>
 
             <div className="group-by">
@@ -366,33 +394,35 @@ function DeckPage() {
                 </div>
               </div>
               <div className="control-set ownership-controls">
-                <span className="muted">Mark</span>
+                <span className="muted" title="Whether the physical card is in the physical deck. Not shown to agents unless they ask for the paper list.">
+                  Paper deck
+                </span>
                 <div className="seg ownership-mode">
                   <button
-                    className={ownershipMode === "owned" ? "active" : ""}
-                    aria-pressed={ownershipMode === "owned"}
-                    onClick={() => setOwnershipMode("owned")}
-                    title="Checked cards are cards you own"
+                    className={paperMode === "in_paper" ? "active" : ""}
+                    aria-pressed={paperMode === "in_paper"}
+                    onClick={() => setPaperMode("in_paper")}
+                    title="Checked cards are physically in the deck"
                   >
-                    Owned <span className="seg-count">{ownedCount}</span>
+                    In paper <span className="seg-count">{inPaperCount}</span>
                   </button>
                   <button
-                    className={ownershipMode === "missing" ? "active" : ""}
-                    aria-pressed={ownershipMode === "missing"}
-                    onClick={() => setOwnershipMode("missing")}
-                    title="Checked cards are cards you still need"
+                    className={paperMode === "missing" ? "active" : ""}
+                    aria-pressed={paperMode === "missing"}
+                    onClick={() => setPaperMode("missing")}
+                    title="Checked cards are still missing from the physical deck"
                   >
                     Missing <span className="seg-count">{missingCount}</span>
                   </button>
                 </div>
-                {ownedCount < ownedCount + missingCount && (
+                {missingCount > 0 && (
                   <button
                     className="baseline-action"
-                    onClick={() => setConfirmAllOwned(true)}
-                    title="Start with the whole deck owned, then mark missing exceptions"
+                    onClick={() => setConfirmAllPaper(true)}
+                    title="Start with the whole deck assembled, then mark the exceptions as missing"
                     aria-haspopup="dialog"
                   >
-                    Mark all owned
+                    Mark all in paper
                   </button>
                 )}
               </div>
@@ -404,7 +434,7 @@ function DeckPage() {
                 <CardRow
                   key={c.oracle_id}
                   card={c}
-                  ownershipMode={ownershipMode}
+                  paperMode={paperMode}
                 />
               ))}
               {!commanders.length && (
@@ -429,7 +459,7 @@ function DeckPage() {
                       <CardRow
                         key={c.oracle_id}
                         card={c}
-                        ownershipMode={ownershipMode}
+                        paperMode={paperMode}
                       />
                     ))}
                   </div>
@@ -443,26 +473,43 @@ function DeckPage() {
                   <CardRow
                     key={c.oracle_id}
                     card={c}
-                    ownershipMode={ownershipMode}
+                    paperMode={paperMode}
                   />
                 ))}
               </div>
             )}
 
-            <AuditSection askAgent={askAgent} openRef={openAudit} />
-            <DecisionLog />
+            {maybe.length > 0 && (
+              <div className="card-group maybe-group">
+                <GroupHead title="Maybe list — outside the 100" count={maybe.length} />
+                {maybe.map((c) => (
+                  <CardRow key={c.oracle_id} card={c} paperMode={paperMode} />
+                ))}
+              </div>
+            )}
+
+            <RulingsLog />
           </div>
         </section>
       </div>
 
       {tool === "proposals" && (
-        <Modal title={`Proposals${proposalCount ? ` · ${proposalCount}` : ""}`} onClose={() => setTool(null)} wide>
-          <ProposalSection draft={draft} setDraft={setDraft} />
+        <Modal title={`Awaiting your ruling${proposalCount ? ` · ${proposalCount}` : ""}`} onClose={() => setTool(null)} wide>
+          <ProposalSection />
         </Modal>
       )}
       {tool === "checks" && (
-        <Modal title="Deck problems" onClose={() => setTool(null)} wide>
-          <DeckChecks askAgent={(token) => { askAgent(token); setTool(null); }} />
+        <Modal title="Deck checks" onClose={() => setTool(null)} wide>
+          {checks.length === 0 && <p className="muted">No problems found. These checks are computed from the current list.</p>}
+          {checks.map((f) => (
+            <div className="log-row" key={f.key}>
+              <span className={`chip ${f.severity === "error" ? "over" : "under"}`}>
+                {f.severity === "error" ? "problem" : "note"}
+              </span>
+              <span className="name">{f.title}</span>
+              <span className="reason">{f.detail}</span>
+            </div>
+          ))}
         </Modal>
       )}
       {tool === "brief" && (
@@ -471,29 +518,195 @@ function DeckPage() {
         </Modal>
       )}
       {tool === "interop" && (
-        <Modal title="Archidekt & playtesting" onClose={() => setTool(null)} wide>
+        <Modal title="Import / export" onClose={() => setTool(null)} wide>
           <InteropPanel />
         </Modal>
       )}
-      {tool === "session" && (
-        <Modal title="Context & compaction" onClose={() => setTool(null)} wide>
-          <SessionPanel />
+      {tool === "paper" && (
+        <Modal title="Paper list" onClose={() => setTool(null)} wide>
+          <PaperList deckId={deck.id} />
         </Modal>
       )}
-      {confirmAllOwned && (
+      {tool === "compare" && (
+        <Modal title="Compare decks" onClose={() => setTool(null)} wide>
+          <Compare />
+        </Modal>
+      )}
+      {tool === "fork" && <ForkDialog deckId={deck.id} name={deck.name} onClose={() => setTool(null)} />}
+      {confirmAllPaper && (
         <ConfirmDialog
-          title="Mark all cards owned"
-          confirmLabel="Mark all owned"
-          onClose={() => setConfirmAllOwned(false)}
+          title="Mark all cards in paper"
+          confirmLabel="Mark all in paper"
+          onClose={() => setConfirmAllPaper(false)}
           onConfirm={() => {
-            setConfirmAllOwned(false);
-            void run(() => api.setAllCardsOwned(deckId, true));
+            setConfirmAllPaper(false);
+            void run(() => api.setAllInPaper(deckId, true));
           }}
         >
-          <p>Mark every card in this deck as owned?</p>
+          <p>Mark every card in this deck as physically in the deck?</p>
           <p className="muted">You can then mark only the exceptions as missing.</p>
         </ConfirmDialog>
       )}
     </div>
+  );
+}
+
+function ForkDialog({ deckId, name, onClose }: { deckId: number; name: string; onClose: () => void }) {
+  const [forkName, setForkName] = useState(`${name} (fork)`);
+  const [error, setError] = useState<string | null>(null);
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    try {
+      const { state } = await api.forkDeck(deckId, forkName);
+      onClose();
+      window.location.hash = `#/deck/${state.deck.id}`;
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }
+  return (
+    <Modal title="Fork this deck" onClose={onClose}>
+      <form onSubmit={submit} className="stack gap">
+        <p className="muted">
+          Copies the list, slots, tags, maybe list, brief and this deck's memories into a new draft, and
+          keeps this deck as it is. The two then change independently.
+        </p>
+        {error && <div className="error-banner">{error}</div>}
+        <input value={forkName} onChange={(e) => setForkName(e.target.value)} aria-label="Name for the fork" data-modal-autofocus />
+        <div className="dialog-actions">
+          <button type="button" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="primary" type="submit" disabled={!forkName.trim()}>
+            Fork
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function PaperList({ deckId }: { deckId: number }) {
+  const [status, setStatus] = useState<PaperStatus | null>(null);
+  useEffect(() => {
+    void api.paperStatus(deckId).then(setStatus);
+  }, [deckId]);
+  if (!status) return <p className="muted">Loading…</p>;
+  return (
+    <>
+      <p className="muted">
+        {status.in_paper_cards} of {status.total_cards} cards are marked as physically in this deck.
+      </p>
+      <h3 className="interop-head">Pull list · {status.pull.length}</h3>
+      <p className="muted rationale">Missing here, and physically in another of your decks.</p>
+      {status.pull.map((c) => (
+        <div className="log-row" key={c.name}>
+          <span className="name">
+            {c.quantity > 1 && `${c.quantity}× `}
+            {c.name}
+          </span>
+          <span className="reason">
+            in {c.held_by.map((h) => h.deck_name).join(", ")} — the deck you take it from will then be missing it
+          </span>
+        </div>
+      ))}
+      {!status.pull.length && <p className="muted rationale">Nothing to pull.</p>}
+      <h3 className="interop-head">Buy list · {status.buy.length}</h3>
+      <p className="muted rationale">Missing here and in no other deck's paper.</p>
+      {status.buy.map((c) => (
+        <div className="log-row" key={c.name}>
+          <span className="name">
+            {c.quantity > 1 && `${c.quantity}× `}
+            {c.name}
+          </span>
+        </div>
+      ))}
+      {!status.buy.length && <p className="muted rationale">Nothing to buy.</p>}
+    </>
+  );
+}
+
+// Compare this deck with any other, and record which deck it was forked
+// from — a deck copied by hand has no such link until it is set here.
+function Compare() {
+  const { deckId, state, run } = useDeck();
+  const parent = state!.deck.parent;
+  const [decks, setDecks] = useState<DeckSummary[]>([]);
+  const [other, setOther] = useState<number | null>(parent?.id ?? null);
+  const [diff, setDiff] = useState<DeckComparison | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const peekProps = usePeekProps();
+
+  useEffect(() => {
+    void api.listDecks().then((all) => setDecks(all.filter((d) => d.id !== deckId)));
+  }, [deckId]);
+  useEffect(() => {
+    setDiff(null);
+    setError(null);
+    if (other == null) return;
+    api.compareDecks(deckId, other).then(setDiff).catch((e) => setError(e.message));
+  }, [deckId, other, state!.deck.revision]);
+
+  const list = (cards: DeckComparison["only_in_a"]) =>
+    cards.length ? (
+      cards.map((c) => (
+        <div className="log-row" key={c.oracle_id}>
+          <span className="name peekable" {...peekProps(c.name)}>
+            {c.quantity > 1 && `${c.quantity}× `}
+            {c.name}
+          </span>
+          <span className="reason">{c.type_line}</span>
+        </div>
+      ))
+    ) : (
+      <p className="muted rationale">None.</p>
+    );
+
+  return (
+    <>
+      <div className="row gap wrap">
+        <label className="field">
+          Compare with
+          <select value={other ?? ""} onChange={(e) => setOther(e.target.value === "" ? null : Number(e.target.value))}>
+            <option value="">choose a deck…</option>
+            {decks.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+                {d.id === parent?.id ? " (parent)" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className="spacer" />
+        {other != null && other !== parent?.id && (
+          <button
+            className="small"
+            onClick={() => run(() => api.setDeckParent(deckId, other))}
+            title="Record that this deck was forked from the one selected"
+          >
+            Mark this deck as a fork of it
+          </button>
+        )}
+        {parent && (
+          <button className="small" onClick={() => run(() => api.setDeckParent(deckId, null))}>
+            Unlink from {parent.name}
+          </button>
+        )}
+      </div>
+      {error && <div className="error-banner">{error}</div>}
+      {diff && (
+        <>
+          <p className="muted">{diff.shared_count} cards are in both. Maybe lists are not compared.</p>
+          <h3 className="interop-head">
+            Only in {diff.a.name} · {diff.only_in_a.length}
+          </h3>
+          {list(diff.only_in_a)}
+          <h3 className="interop-head">
+            Only in {diff.b.name} · {diff.only_in_b.length}
+          </h3>
+          {list(diff.only_in_b)}
+        </>
+      )}
+    </>
   );
 }

@@ -1,5 +1,5 @@
-// Click any card the agent named ([[Card Name]] chips, proposal rows) to see
-// what it actually does without leaving the turn you're reading. Deliberately
+// Click any card an agent named ([[Card Name]] chips, proposal rows) to see
+// what it actually does without leaving what you're reading. Deliberately
 // not a `Modal`: that one dims and blurs the page, which is right for a surface
 // you visit and leave, and wrong for a reference you consult mid-sentence. This
 // one floats next to the word you clicked, leaves the interface untouched
@@ -47,7 +47,8 @@ export function CardPeekProvider({ children }: { children: ReactNode }) {
     if (hit) return;
     api
       .resolveCard(name)
-      .then((cards) => {
+      .then(({ matches }) => {
+        const cards = matches as CardData[];
         cache.set(k, cards);
         if (reqRef.current === req) setOpen((p) => (p ? { ...p, cards } : p));
       })
@@ -142,7 +143,7 @@ function Popover({ peek, close }: { peek: Peek; close: () => void }) {
     }
     // Any scroll moves the anchor out from under us; there is nothing sensible
     // to reposition against, so it dismisses. Capture, since the scroll is on
-    // an inner pane (chat transcript, decklist) and does not bubble — which
+    // an inner pane (the decklist, a memory list) and does not bubble — which
     // also means the popover's own overflow fires it, and that one must not
     // close the thing you are scrolling.
     function onScroll(e: Event) {

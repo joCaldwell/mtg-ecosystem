@@ -1,97 +1,124 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { openDb } from "../src/db.ts";
-import { ingestCards } from "../src/ingest.ts";
-import { FIXTURES } from "./fixtures.ts";
 import { search } from "../src/search/index.ts";
 import { ServiceError } from "../src/errors.ts";
+import { OWNER, PermissionError } from "../src/actor.ts";
+import { applyChanges, setQuantity } from "../src/deck/membership.ts";
 import {
-  addCard,
   copyLimit,
   createDeck,
   createSlot,
   createTag,
+  defineSlots,
   deleteDeck,
   deleteSlot,
   deleteTag,
+  fileCards,
   getDeck,
   listDecks,
-  removeCard,
+  organizeCard,
   renameDeck,
-  setAllCardsOwned,
-  updateCard,
+  setAllInPaper,
+  setDeckStatus,
+  setInPaper,
+  shortlistCard,
+  similarTag,
+  unshortlistCard,
   updateSlot,
   validateVocabName,
 } from "../src/deck/service.ts";
+import { AGENT, add, cut, newDeck, testDb } from "./helpers.ts";
 
-const db = openDb(":memory:");
-ingestCards(db, FIXTURES);
+const db = testDb();
 
-function freshDeck(name: string): number {
-  return createDeck(db, name);
-}
-
-describe("deck CRUD", () => {
+describe("deck lifecycle", () => {
   test("create, list, rename, delete", () => {
-    const id = freshDeck("Test CRUD");
+    const id = createDeck(db, "Test CRUD");
     assert.ok(listDecks(db).some((d) => d.id === id && d.name === "Test CRUD"));
     renameDeck(db, id, "Renamed");
     assert.equal(getDeck(db, id).deck.name, "Renamed");
-    deleteDeck(db, id);
+    deleteDeck(db, OWNER, id);
     assert.throws(() => getDeck(db, id), ServiceError);
   });
   test("duplicate names rejected", () => {
-    freshDeck("Dupe");
-    assert.throws(() => freshDeck("dupe"), /already exists/);
+    createDeck(db, "Dupe");
+    assert.throws(() => createDeck(db, "dupe"), /already exists/);
+  });
+  // Spec §5.2: a new deck is a draft; only the owner changes that.
+  test("new decks are drafts, and only the owner changes status or deletes", () => {
+    const id = createDeck(db, "Status");
+    assert.equal(getDeck(db, id).deck.status, "draft");
+    assert.throws(() => setDeckStatus(db, AGENT, id, "active"), PermissionError);
+    setDeckStatus(db, OWNER, id, "active");
+    assert.equal(getDeck(db, id).deck.status, "active");
+    assert.throws(() => deleteDeck(db, AGENT, id), PermissionError);
+  });
+  test("the roster carries commanders, counts and pending work", () => {
+    const id = newDeck(db, "active", "Roster");
+    add(db, id, "id-atraxa", { role: "commander" });
+    add(db, id, "id-solring");
+    const row = listDecks(db).find((d) => d.id === id)!;
+    assert.deepEqual(row.commanders, ["Atraxa, Praetors' Voice"]);
+    assert.equal(row.card_count, 2);
+    assert.equal(row.color_identity, "WUBG");
+    assert.equal(row.pending_items, 0);
   });
 });
 
 describe("commanders and color identity", () => {
   test("commander sets deck identity; violations surface, never block", () => {
-    const id = freshDeck("Atraxa");
-    addCard(db, id, "id-atraxa", { role: "commander" });
+    const id = newDeck(db);
+    add(db, id, "id-atraxa", { role: "commander" });
     assert.equal(getDeck(db, id).deck.color_identity, "WUBG");
 
-    addCard(db, id, "id-ball"); // red card in a WUBG deck
-    const { computed } = getDeck(db, id);
+    add(db, id, "id-ball"); // red card in a WUBG deck
     assert.deepEqual(
-      computed.identity_violations.map((v) => v.name),
+      getDeck(db, id).computed.identity_violations.map((v) => v.name),
       ["Ball Lightning"],
     );
 
     // removing the commander clears identity and therefore violations
-    removeCard(db, id, "id-atraxa");
+    cut(db, id, "id-atraxa");
     assert.equal(getDeck(db, id).computed.identity_violations.length, 0);
     assert.equal(getDeck(db, id).deck.ci_mask, null);
   });
   test("at most two command-zone cards, one companion", () => {
-    const id = freshDeck("Partners");
-    addCard(db, id, "id-atraxa", { role: "commander" });
-    addCard(db, id, "id-kenrith", { role: "commander" });
-    assert.throws(() => addCard(db, id, "id-teferi", { role: "commander" }), /at most two/);
-    addCard(db, id, "id-goyf", { role: "companion" });
-    addCard(db, id, "id-teferi");
+    const id = newDeck(db);
+    add(db, id, "id-atraxa", { role: "commander" });
+    add(db, id, "id-kenrith", { role: "commander" });
+    assert.throws(() => add(db, id, "id-teferi", { role: "commander" }), /at most two/);
+    add(db, id, "id-goyf", { role: "companion" });
+    add(db, id, "id-teferi");
     assert.throws(
-      () => updateCard(db, id, "id-teferi", { role: "companion" }),
+      () =>
+        applyChanges(db, OWNER, id, [{ action: "role", oracle_id: "id-teferi", role: "companion" }], {
+          kind: "edit",
+        }),
       /at most one companion/,
     );
   });
-  test("role change recomputes identity", () => {
-    const id = freshDeck("Role change");
-    addCard(db, id, "id-teferi");
-    updateCard(db, id, "id-teferi", { role: "commander" });
-    assert.equal(getDeck(db, id).deck.color_identity, "U");
+  test("a role change recomputes identity and leaves the slot behind", () => {
+    const id = newDeck(db);
+    const slot = createSlot(db, id, "Card Advantage");
+    add(db, id, "id-teferi", { slotId: slot });
+    applyChanges(db, OWNER, id, [{ action: "role", oracle_id: "id-teferi", role: "commander" }], {
+      kind: "edit",
+    });
+    const view = getDeck(db, id);
+    assert.equal(view.deck.color_identity, "U");
+    // The command zone is not part of any slot.
+    assert.equal(view.cards[0].slot_id, null);
   });
 });
 
 describe("slots", () => {
   test("targets, deltas, and statuses", () => {
-    const id = freshDeck("Slots");
+    const id = newDeck(db);
     const ramp = createSlot(db, id, "Ramp", 2, 3);
-    const draw = createSlot(db, id, "Card Advantage", 2, null);
-    addCard(db, id, "id-llanowar", { slotId: ramp });
-    addCard(db, id, "id-solring", { slotId: ramp });
-    addCard(db, id, "id-seedborn");
+    createSlot(db, id, "Card Advantage", 2, null);
+    add(db, id, "id-llanowar", { slotId: ramp });
+    add(db, id, "id-solring", { slotId: ramp });
+    add(db, id, "id-seedborn");
 
     const { computed } = getDeck(db, id);
     const byName = Object.fromEntries(computed.slot_deltas.map((s) => [s.name, s]));
@@ -107,7 +134,7 @@ describe("slots", () => {
     );
   });
   test("reserved and duplicate names rejected; min>max rejected", () => {
-    const id = freshDeck("Slot names");
+    const id = newDeck(db);
     assert.throws(() => createSlot(db, id, "land"), /reserved/);
     assert.throws(() => createSlot(db, id, "Or"), /reserved/);
     assert.throws(() => validateVocabName("tag"), /reserved/);
@@ -118,10 +145,9 @@ describe("slots", () => {
   // Slots categorise by role, card type is the decklist's other grouping, and
   // a slot named "lands" would make the deck's land count ambiguous.
   test("card types are rejected in the plural too, and only as whole names", () => {
-    const id = freshDeck("Plural types");
+    const id = newDeck(db);
     for (const name of ["lands", "Creatures", "artifacts", "sorceries", "Planeswalkers"])
       assert.throws(() => createSlot(db, id, name), /card type/, name);
-    // A type word inside a longer role name is still a role, not a type.
     createSlot(db, id, "creature removal");
     createSlot(db, id, "land destruction");
     assert.deepEqual(
@@ -130,32 +156,96 @@ describe("slots", () => {
     );
   });
   test("renaming a slot to a card type is rejected", () => {
-    const id = freshDeck("Slot rename");
+    const id = newDeck(db);
     const s = createSlot(db, id, "mana base", 36, 38);
     assert.throws(() => updateSlot(db, id, s, { name: "lands" }), /card type/);
     assert.equal(getDeck(db, id).slots[0].name, "mana base");
   });
   test("deleting a slot unslots its cards", () => {
-    const id = freshDeck("Slot delete");
+    const id = newDeck(db);
     const s = createSlot(db, id, "Removal");
-    addCard(db, id, "id-counterspell", { slotId: s });
+    add(db, id, "id-counterspell", { slotId: s });
     deleteSlot(db, id, s);
     const { cards, computed } = getDeck(db, id);
     assert.equal(cards[0].slot_id, null);
     assert.equal(computed.unslotted_count, 1);
   });
+  test("defineSlots creates, retargets, renames and removes in one call, or none of it", () => {
+    const id = newDeck(db);
+    defineSlots(db, id, [
+      { name: "Ramp", target_min: 8, target_max: 10 },
+      { name: "Interaction", target_min: 10 },
+    ]);
+    defineSlots(db, id, [
+      { name: "ramp", target_min: 9 },
+      { name: "Interaction", rename_to: "Answers" },
+    ]);
+    assert.deepEqual(
+      getDeck(db, id).slots.map((s) => [s.name, s.target_min, s.target_max]),
+      [["Ramp", 9, 10], ["Answers", 10, null]],
+    );
+    // One bad entry and the whole call is refused.
+    assert.throws(
+      () => defineSlots(db, id, [{ name: "Draw" }, { name: "lands" }]),
+      /card type/,
+    );
+    assert.equal(getDeck(db, id).slots.length, 2);
+    defineSlots(db, id, [{ name: "Answers", remove: true }]);
+    assert.deepEqual(getDeck(db, id).slots.map((s) => s.name), ["Ramp"]);
+    assert.throws(() => defineSlots(db, id, [{ name: "Nope", remove: true }]), /no slot named/);
+  });
 });
 
 describe("tags", () => {
-  test("controlled vocabulary with reserved names; cascade on delete", () => {
-    const id = freshDeck("Tags");
+  test("vocabulary with reserved names; cascade on delete", () => {
+    const id = newDeck(db);
     const t = createTag(db, id, "wincon");
     assert.throws(() => createTag(db, id, "creature"), /reserved/);
-    addCard(db, id, "id-atraxa");
-    updateCard(db, id, "id-atraxa", { tagIds: [t] });
+    add(db, id, "id-atraxa");
+    organizeCard(db, id, "id-atraxa", { tagIds: [t] });
     assert.deepEqual(getDeck(db, id).cards[0].tag_ids, [t]);
     deleteTag(db, id, t);
     assert.deepEqual(getDeck(db, id).cards[0].tag_ids, []);
+  });
+  // Spec §5.4: without this the vocabulary grows three spellings of one idea.
+  test("a tag that closely matches an existing one is refused, naming it", () => {
+    const id = newDeck(db);
+    createTag(db, id, "Card Draw");
+    for (const dupe of ["card draw", "card-draw", "Card Draws", "draw card"])
+      assert.throws(() => createTag(db, id, dupe), /already has the tag 'Card Draw'/, dupe);
+    // A different idea that merely shares a word is a judgement call, and allowed.
+    createTag(db, id, "draw");
+    assert.equal(similarTag(["ramp"], "mana ramp"), null);
+  });
+  test("fileCards files by name in bulk, creating tags, all or nothing", () => {
+    const id = newDeck(db);
+    createSlot(db, id, "Ramp");
+    add(db, id, "id-llanowar");
+    add(db, id, "id-solring");
+    fileCards(db, id, [
+      { oracle_id: "id-llanowar", slot: "ramp", add_tags: ["dork"] },
+      { oracle_id: "id-solring", slot: "Ramp", add_tags: ["rock", "dork"] },
+    ]);
+    const view = getDeck(db, id);
+    assert.ok(view.cards.every((c) => c.slot_id === view.slots[0].id));
+    assert.deepEqual(view.tags.map((t) => t.name), ["dork", "rock"]);
+
+    const revision = view.deck.revision;
+    assert.throws(
+      () =>
+        fileCards(db, id, [
+          { oracle_id: "id-llanowar", slot: null },
+          { oracle_id: "id-solring", slot: "Nowhere" },
+        ]),
+      /no slot named 'Nowhere'.*Its slots are: Ramp/,
+    );
+    // The first entry did not land either, and filing never bumps the revision.
+    assert.ok(getDeck(db, id).cards.every((c) => c.slot_id != null));
+    assert.equal(getDeck(db, id).deck.revision, revision);
+
+    fileCards(db, id, [{ oracle_id: "id-solring", remove_tags: ["dork"] }]);
+    const ring = getDeck(db, id).cards.find((c) => c.oracle_id === "id-solring")!;
+    assert.equal(ring.tag_ids.length, 1);
   });
 });
 
@@ -167,11 +257,11 @@ describe("quantities and singleton rules", () => {
     assert.equal(copyLimit({ type_line: "Artifact" }), 1);
   });
   test("re-adding bumps quantity; violations computed against the limit", () => {
-    const id = freshDeck("Quantities");
-    for (let i = 0; i < 5; i++) addCard(db, id, "id-forest");
-    addCard(db, id, "id-solring");
-    addCard(db, id, "id-solring");
-    for (let i = 0; i < 8; i++) addCard(db, id, "id-dwarves");
+    const id = newDeck(db);
+    add(db, id, "id-forest", { quantity: 5 });
+    add(db, id, "id-solring");
+    add(db, id, "id-solring");
+    add(db, id, "id-dwarves", { quantity: 8 });
 
     const { computed, cards } = getDeck(db, id);
     assert.equal(cards.find((c) => c.oracle_id === "id-forest")!.quantity, 5);
@@ -183,7 +273,7 @@ describe("quantities and singleton rules", () => {
     assert.equal(violations["Sol Ring"].limit, 1);
     assert.equal(violations["Seven Dwarves"].limit, 7);
 
-    updateCard(db, id, "id-dwarves", { quantity: 7 });
+    setQuantity(db, OWNER, id, "id-dwarves", 7);
     assert.ok(
       !getDeck(db, id).computed.singleton_violations.some((v) => v.name === "Seven Dwarves"),
     );
@@ -192,11 +282,11 @@ describe("quantities and singleton rules", () => {
 
 describe("computed state", () => {
   test("counts, curve, pips, lands; companion excluded from the 100", () => {
-    const id = freshDeck("Computed");
-    addCard(db, id, "id-atraxa", { role: "commander" }); // {G}{W}{U}{B} cmc 4
-    addCard(db, id, "id-counterspell"); // {U}{U} cmc 2
-    addCard(db, id, "id-forest");
-    addCard(db, id, "id-goyf", { role: "companion" });
+    const id = newDeck(db);
+    add(db, id, "id-atraxa", { role: "commander" }); // {G}{W}{U}{B} cmc 4
+    add(db, id, "id-counterspell"); // {U}{U} cmc 2
+    add(db, id, "id-forest");
+    add(db, id, "id-goyf", { role: "companion" });
 
     const { computed } = getDeck(db, id);
     assert.equal(computed.card_count, 3);
@@ -209,61 +299,94 @@ describe("computed state", () => {
     assert.equal(computed.pips.G, 1);
   });
   test("average mana value weights copies and excludes lands and the maybe list", () => {
-    const id = freshDeck("Average mana value");
+    const id = newDeck(db);
     assert.equal(getDeck(db, id).computed.average_mana_value, null);
-    addCard(db, id, "id-forest");
+    add(db, id, "id-forest");
     assert.equal(getDeck(db, id).computed.average_mana_value, null);
-    addCard(db, id, "id-llanowar");
-    updateCard(db, id, "id-llanowar", { quantity: 3 });
-    addCard(db, id, "id-seedborn");
-    addCard(db, id, "id-teferi");
-    db.prepare("UPDATE deck_cards SET maybeboard = 1 WHERE deck_id = ? AND oracle_id = ?")
-      .run(id, "id-teferi");
+    add(db, id, "id-llanowar", { quantity: 3 });
+    add(db, id, "id-seedborn");
+    shortlistCard(db, id, "id-teferi");
     assert.equal(getDeck(db, id).computed.average_mana_value, 2);
   });
-  test("owned flag stored and returned", () => {
-    const id = freshDeck("Owned");
-    addCard(db, id, "id-solring");
-    updateCard(db, id, "id-solring", { owned: true });
-    assert.equal(getDeck(db, id).cards[0].owned, 1);
+});
+
+describe("the maybe list", () => {
+  test("shortlisting is organization: no revision, outside every count", () => {
+    const id = newDeck(db);
+    add(db, id, "id-solring");
+    const revision = getDeck(db, id).deck.revision;
+    shortlistCard(db, id, "id-ball", "possible finisher");
+    const view = getDeck(db, id);
+    assert.equal(view.deck.revision, revision);
+    assert.equal(view.computed.card_count, 1);
+    assert.equal(view.computed.maybe_count, 1);
+    assert.equal(view.cards.find((c) => c.oracle_id === "id-ball")!.maybe_note, "possible finisher");
+    assert.throws(() => shortlistCard(db, id, "id-solring"), /already in the deck/);
+    unshortlistCard(db, id, "id-ball");
+    assert.equal(getDeck(db, id).computed.maybe_count, 0);
+    assert.throws(() => unshortlistCard(db, id, "id-solring"), /membership change/);
   });
-  test("ownership baseline updates the whole deck without changing its revision", () => {
-    const id = freshDeck("Ownership baseline");
-    addCard(db, id, "id-solring");
-    addCard(db, id, "id-forest");
+  test("promoting keeps the slot; parking is a cut that keeps the card around", () => {
+    const id = newDeck(db);
+    const slot = createSlot(db, id, "Ramp");
+    shortlistCard(db, id, "id-llanowar");
+    organizeCard(db, id, "id-llanowar", { slotId: slot });
+    add(db, id, "id-llanowar");
+    let card = getDeck(db, id).cards[0];
+    assert.equal(card.maybe, 0);
+    assert.equal(card.slot_id, slot);
+    assert.equal(getDeck(db, id).computed.card_count, 1);
+
+    cut(db, id, "id-llanowar", { park: true });
+    card = getDeck(db, id).cards[0];
+    assert.equal(card.maybe, 1);
+    assert.equal(card.slot_id, slot);
+    assert.equal(getDeck(db, id).computed.card_count, 0);
+  });
+});
+
+describe("the paper flag (spec §5.5)", () => {
+  test("only the owner writes it, and it never changes the revision", () => {
+    const id = newDeck(db);
+    add(db, id, "id-solring");
+    add(db, id, "id-forest");
     const revision = getDeck(db, id).deck.revision;
 
-    setAllCardsOwned(db, id, true);
-    assert.ok(getDeck(db, id).cards.every((c) => c.owned === 1));
-    assert.equal(getDeck(db, id).deck.revision, revision);
+    assert.throws(() => setInPaper(db, AGENT, id, "id-solring", true), PermissionError);
+    assert.throws(() => setAllInPaper(db, AGENT, id, true), PermissionError);
 
-    setAllCardsOwned(db, id, false);
-    assert.ok(getDeck(db, id).cards.every((c) => c.owned === 0));
+    setAllInPaper(db, OWNER, id, true);
+    assert.ok(getDeck(db, id).cards.every((c) => c.in_paper === 1));
+    setInPaper(db, OWNER, id, "id-forest", false);
+    assert.deepEqual(
+      getDeck(db, id).cards.map((c) => [c.name, c.in_paper]),
+      [["Forest", 0], ["Sol Ring", 1]],
+    );
     assert.equal(getDeck(db, id).deck.revision, revision);
   });
 });
 
 describe("deck-context search (slot:/tag:, identity pre-filter)", () => {
   test("slot:, slot:none, and tag: filters", () => {
-    const id = freshDeck("Search ctx");
+    const id = newDeck(db);
     const ramp = createSlot(db, id, "Ramp");
     const t = createTag(db, id, "combo");
-    addCard(db, id, "id-llanowar", { slotId: ramp });
-    addCard(db, id, "id-seedborn");
-    updateCard(db, id, "id-seedborn", { tagIds: [t] });
+    add(db, id, "id-llanowar", { slotId: ramp });
+    add(db, id, "id-seedborn");
+    organizeCard(db, id, "id-seedborn", { tagIds: [t] });
 
     assert.deepEqual(search(db, "slot:ramp", { deckId: id }).map((r) => r.name), ["Llanowar Elves"]);
     assert.deepEqual(search(db, "slot:none", { deckId: id }).map((r) => r.name), ["Seedborn Muse"]);
     assert.deepEqual(search(db, "tag:combo", { deckId: id }).map((r) => r.name), ["Seedborn Muse"]);
   });
-  test("deckId applies the deck's identity as pre-filter (spec §6.3)", () => {
-    const id = freshDeck("Identity filter");
-    addCard(db, id, "id-teferi", { role: "commander" }); // mono-U
+  test("deckId applies the deck's identity as pre-filter (spec §4.2)", () => {
+    const id = newDeck(db);
+    add(db, id, "id-teferi", { role: "commander" }); // mono-U
     const r = search(db, "t:creature or t:instant", { deckId: id }).map((x) => x.name);
     assert.ok(r.includes("Counterspell"));
     assert.ok(!r.includes("Llanowar Elves"));
     // no commanders -> unfiltered
-    const id2 = freshDeck("No commander");
+    const id2 = newDeck(db);
     const r2 = search(db, "t:creature", { deckId: id2 }).map((x) => x.name);
     assert.ok(r2.includes("Llanowar Elves"));
   });

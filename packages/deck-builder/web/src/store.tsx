@@ -1,44 +1,34 @@
 // One store per open deck. Server state is authoritative — every mutation
-// returns fresh composites under named keys (the server's envelope rule) —
-// so the client never merges: apply() overwrites whichever slices arrived.
-// Components call `run(() => api.x(...))` and the response lands here; no
-// setState or mutate callbacks are threaded through props.
+// returns the fresh composite under `state` (the server's envelope rule) —
+// so the client never merges: apply() overwrites. Components call
+// `run(() => api.x(...))` and the response lands here; no setState or mutate
+// callbacks are threaded through props.
 
 import { createContext, useCallback, useContext, useReducer, type ReactNode } from "react";
-import type { AuditState, Brief, ContextMeter, DeckState, Envelope } from "./api.ts";
+import type { DeckState, Envelope } from "./api.ts";
 
 export interface DeckData {
   state: DeckState | null;
-  audit: AuditState | null;
-  brief: Brief | null;
-  meter: ContextMeter | null;
   error: string | null;
-  /** Which side-panel tab is up — in the store so any surface (e.g. "ask
-   *  agent" on an audit finding) can bring up the chat. */
-  sideTab: "search" | "chat";
+  /** Cards whose rows are open — reported to the server as the owner's focus. */
+  selected: string[];
 }
 
 type Action =
   | { t: "apply"; payload: Envelope }
   | { t: "error"; message: string | null }
-  | { t: "sideTab"; tab: "search" | "chat" };
+  | { t: "select"; oracleId: string; on: boolean };
 
 function reducer(data: DeckData, action: Action): DeckData {
   switch (action.t) {
-    case "apply": {
-      const p = action.payload;
-      return {
-        ...data,
-        state: p.state ?? data.state,
-        audit: p.audit ?? data.audit,
-        brief: p.brief ?? data.brief,
-        meter: p.meter ?? data.meter,
-      };
-    }
+    case "apply":
+      return { ...data, state: action.payload.state ?? data.state };
     case "error":
       return { ...data, error: action.message };
-    case "sideTab":
-      return { ...data, sideTab: action.tab };
+    case "select": {
+      const rest = data.selected.filter((id) => id !== action.oracleId);
+      return { ...data, selected: action.on ? [...rest, action.oracleId] : rest };
+    }
   }
 }
 
@@ -48,20 +38,13 @@ export interface DeckStore extends DeckData {
   /** Run an API call: clears the error banner, applies the response, and on
    *  failure shows the error and resolves null instead of throwing. */
   run: <T extends Envelope>(fn: () => Promise<T>) => Promise<T | null>;
-  setSideTab: (tab: "search" | "chat") => void;
+  setSelected: (oracleId: string, on: boolean) => void;
 }
 
 const DeckContext = createContext<DeckStore | null>(null);
 
 export function DeckProvider({ deckId, children }: { deckId: number; children: ReactNode }) {
-  const [data, dispatch] = useReducer(reducer, {
-    state: null,
-    audit: null,
-    brief: null,
-    meter: null,
-    error: null,
-    sideTab: "search",
-  });
+  const [data, dispatch] = useReducer(reducer, { state: null, error: null, selected: [] });
 
   // Stable identities (dispatch is stable), so effects may depend on them.
   const apply = useCallback((payload: Envelope) => dispatch({ t: "apply", payload }), []);
@@ -76,10 +59,13 @@ export function DeckProvider({ deckId, children }: { deckId: number; children: R
       return null;
     }
   }, []);
-  const setSideTab = useCallback((tab: "search" | "chat") => dispatch({ t: "sideTab", tab }), []);
+  const setSelected = useCallback(
+    (oracleId: string, on: boolean) => dispatch({ t: "select", oracleId, on }),
+    [],
+  );
 
   return (
-    <DeckContext.Provider value={{ ...data, deckId, apply, run, setSideTab }}>
+    <DeckContext.Provider value={{ ...data, deckId, apply, run, setSelected }}>
       {children}
     </DeckContext.Provider>
   );

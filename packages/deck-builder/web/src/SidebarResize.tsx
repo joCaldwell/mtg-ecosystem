@@ -91,7 +91,7 @@ export function SidebarResize({ side }: { side: Side }) {
     <div
       className={`sidebar-resize sidebar-resize-${side}`}
       role="separator"
-      aria-label={side === "left" ? "Resize deck sidebar" : "Resize search and chat sidebar"}
+      aria-label={side === "left" ? "Resize deck sidebar" : "Resize search and memories sidebar"}
       aria-orientation="vertical"
       aria-valuemin={bounds.min}
       aria-valuemax={bounds.max}

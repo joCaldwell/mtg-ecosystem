@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, type DeckSummary } from "./api.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
+import { useLive } from "./live.tsx";
 
 export function DeckList() {
   const [decks, setDecks] = useState<DeckSummary[]>([]);
@@ -8,10 +9,11 @@ export function DeckList() {
   const [error, setError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeckSummary | null>(null);
 
+  const live = useLive();
   const reload = () => api.listDecks().then(setDecks).catch((e) => setError(e.message));
   useEffect(() => {
     reload();
-  }, []);
+  }, [live]);
 
   async function create(e: FormEvent) {
     e.preventDefault();
@@ -57,34 +59,54 @@ export function DeckList() {
         <thead>
           <tr>
             <th>Name</th>
+            <th>Commander</th>
             <th>Identity</th>
             <th>Cards</th>
+            <th>Status</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
-          {decks.map((d) => (
-            <tr key={d.id}>
-              <td>
-                <a href={`#/deck/${d.id}`}>{d.name}</a>
-              </td>
-              <td className="mono">{d.color_identity || "—"}</td>
-              <td>{d.card_count}/100</td>
-              <td>
-                <button
-                  className="danger small"
-                  onClick={() => setDeleteTarget(d)}
-                  aria-haspopup="dialog"
-                >
-                  delete
-                </button>
-              </td>
-            </tr>
-          ))}
+          {decks.map((d) => {
+            const waiting = d.pending_items + d.pending_document_edits;
+            return (
+              <tr key={d.id}>
+                <td>
+                  <a href={`#/deck/${d.id}`}>{d.name}</a>
+                  {d.parent_name && <span className="muted"> · fork of {d.parent_name}</span>}
+                  {waiting > 0 && (
+                    <span className="tool-count" title="Awaiting your ruling">
+                      {waiting}
+                    </span>
+                  )}
+                </td>
+                <td className="muted">{d.commanders.join(" + ") || "—"}</td>
+                <td className="mono">{d.color_identity || "—"}</td>
+                <td>{d.card_count}/100</td>
+                <td>
+                  <span
+                    className={`chip ${d.status === "draft" ? "under" : "ok"}`}
+                    title={
+                      d.status === "draft"
+                        ? "Draft: an agent may edit it directly"
+                        : "Active: an agent's changes come to you as proposals"
+                    }
+                  >
+                    {d.status}
+                  </span>
+                </td>
+                <td>
+                  <button className="danger small" onClick={() => setDeleteTarget(d)} aria-haspopup="dialog">
+                    delete
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
           {!decks.length && (
             <tr>
-              <td colSpan={4} className="muted">
-                No decks yet — create one above.
+              <td colSpan={6} className="muted">
+                No decks yet — create one above, or ask an agent to build one.
               </td>
             </tr>
           )}
@@ -99,7 +121,7 @@ export function DeckList() {
           onConfirm={() => void remove(deleteTarget)}
         >
           <p>
-            Delete <strong>{deleteTarget.name}</strong> and all of its deck history?
+            Delete <strong>{deleteTarget.name}</strong>, its history and its memories?
           </p>
           <p className="muted">This cannot be undone.</p>
         </ConfirmDialog>

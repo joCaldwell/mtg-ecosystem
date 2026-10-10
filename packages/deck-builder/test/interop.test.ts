@@ -1,34 +1,30 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { openDb } from "../src/db.ts";
-import { ingestCards } from "../src/ingest.ts";
-import { FIXTURES } from "./fixtures.ts";
-import { addCard, createDeck, createSlot, getDeck, updateCard } from "../src/deck/service.ts";
-import { createProposal, rejectItem, listProposals } from "../src/deck/proposals.ts";
-import { getLog, undoDecision } from "../src/deck/log.ts";
+import { OWNER, PermissionError } from "../src/actor.ts";
+import { CardResolutionError } from "../src/cards.ts";
+import { createDeck, createSlot, getDeck, setInPaper } from "../src/deck/service.ts";
+import { listLog } from "../src/deck/log.ts";
+import { setQuantity, undo } from "../src/deck/membership.ts";
 import {
-  addPlaytestNote,
   applyImport,
-  deletePlaytestNote,
   diffImport,
   exportDeck,
-  listPlaytestNotes,
+  fillFromList,
   parseArchidektList,
 } from "../src/deck/interop.ts";
-import { assembleDeckSections } from "../src/agent/context.ts";
+import { AGENT, add, newDeck, testDb } from "./helpers.ts";
 
-const db = openDb(":memory:");
-ingestCards(db, FIXTURES);
+const db = testDb();
 
-describe("Archidekt export (spec §9)", () => {
+describe("Archidekt export (spec §12)", () => {
   test("emits quantity + name + [Category], grouped command zone first then slot order", () => {
     const id = createDeck(db, "Export shape");
     const ramp = createSlot(db, id, "ramp", 8, 12);
     const interaction = createSlot(db, id, "interaction", 6, null);
-    addCard(db, id, "id-teferi", { role: "commander" });
-    addCard(db, id, "id-solring", { slotId: ramp });
-    addCard(db, id, "id-counterspell", { slotId: interaction });
-    addCard(db, id, "id-goyf"); // unslotted
+    add(db, id, "id-teferi", { role: "commander" });
+    add(db, id, "id-solring", { slotId: ramp });
+    add(db, id, "id-counterspell", { slotId: interaction });
+    add(db, id, "id-goyf"); // unslotted
 
     const r = exportDeck(db, id);
     assert.deepEqual(r.text.trimEnd().split("\n"), [
@@ -45,31 +41,31 @@ describe("Archidekt export (spec §9)", () => {
 
   test("quantities ride the line; categories can be turned off", () => {
     const id = createDeck(db, "Export qty");
-    addCard(db, id, "id-forest");
-    updateCard(db, id, "id-forest", { quantity: 12 });
+    add(db, id, "id-forest");
+    setQuantity(db, OWNER, id, "id-forest", 12);
     assert.match(exportDeck(db, id).text, /^12 Forest \[Unslotted\]$/m);
     assert.equal(exportDeck(db, id, { categories: false }).text.trim(), "12 Forest");
   });
 
   test("buy list filters to unowned cards only", () => {
     const id = createDeck(db, "Export buylist");
-    addCard(db, id, "id-solring");
-    addCard(db, id, "id-counterspell");
-    updateCard(db, id, "id-solring", { owned: true });
+    add(db, id, "id-solring");
+    add(db, id, "id-counterspell");
+    setInPaper(db, OWNER, id, "id-solring", true);
 
     const all = exportDeck(db, id);
     assert.equal(all.line_count, 2);
-    const buy = exportDeck(db, id, { onlyUnowned: true });
+    const buy = exportDeck(db, id, { onlyMissing: true });
     assert.equal(buy.line_count, 1);
-    assert.equal(buy.omitted_owned, 1);
+    assert.equal(buy.omitted_in_paper, 1);
     assert.match(buy.text, /Counterspell/);
     assert.doesNotMatch(buy.text, /Sol Ring/);
   });
 
   test("companion is exported but stays outside the 100", () => {
     const id = createDeck(db, "Export companion");
-    addCard(db, id, "id-atraxa", { role: "commander" });
-    addCard(db, id, "id-llanowar", { role: "companion" });
+    add(db, id, "id-atraxa", { role: "commander" });
+    add(db, id, "id-llanowar", { role: "companion" });
     assert.match(exportDeck(db, id).text, /Llanowar Elves \[Companion\]/);
   });
 });
@@ -129,12 +125,12 @@ describe("Archidekt list parsing (verified format superset)", () => {
   });
 });
 
-describe("import diff (spec §9)", () => {
+describe("import diff (spec §12)", () => {
   function seed(name: string) {
     const id = createDeck(db, name);
-    addCard(db, id, "id-teferi", { role: "commander" });
-    addCard(db, id, "id-solring");
-    addCard(db, id, "id-counterspell");
+    add(db, id, "id-teferi", { role: "commander" });
+    add(db, id, "id-solring");
+    add(db, id, "id-counterspell");
     return id;
   }
 
@@ -206,48 +202,29 @@ describe("import diff (spec §9)", () => {
     assert.equal(diff.ambiguous.length, 0);
     assert.deepEqual(diff.adds.map((a) => a.name), ["Witch Enchanter // Witch-Blessed Meadow"]);
   });
-
-  test("hard-filtered cards are reported as blocked, not proposed", () => {
-    const id = seed("Import blocked");
-    const pid = createProposal(db, id, [
-      { action: "add", oracle_id: "id-ball", rationale: "test" },
-    ]);
-    const item = listProposals(db, id, "open").find((p) => p.id === pid)!.items[0];
-    rejectItem(db, item.id, "hard_filter", "too fragile");
-
-    const diff = diffImport(db, id, "1 Ball Lightning");
-    assert.equal(diff.adds.length, 0);
-    assert.deepEqual(
-      diff.blocked.map((b) => b.name),
-      ["Ball Lightning"],
-    );
-    // …and the import still applies, rather than throwing on the filter.
-    const r = applyImport(db, id, "1 Ball Lightning\n1 Sol Ring\n1 Counterspell\n1 Teferi, Temporal Archmage");
-    assert.equal(r.log_id, null); // nothing left to change
-  });
 });
 
-describe("import applies in full and at once (spec §9)", () => {
+describe("import applies in full and at once (spec §12)", () => {
   test("adds, cuts and quantity changes all land in one call — no per-card gate", () => {
     const id = createDeck(db, "Import applies");
-    addCard(db, id, "id-solring"); // absent from the list below → cut
-    addCard(db, id, "id-rats");
-    updateCard(db, id, "id-rats", { quantity: 1 });
+    add(db, id, "id-solring"); // absent from the list below → cut
+    add(db, id, "id-rats");
+    setQuantity(db, OWNER, id, "id-rats", 1);
 
     const beforeRevision = getDeck(db, id).deck.revision;
-    const r = applyImport(db, id, "1 Counterspell\n1 Tarmogoyf\n4 Typhoid Rats");
+    const r = applyImport(db, OWNER, id, "1 Counterspell\n1 Tarmogoyf\n4 Typhoid Rats");
     assert.deepEqual(r.applied, { added: 5, cut: 1, quantity_changed: 1 });
 
     const names = getDeck(db, id).cards.map((c) => c.name).sort();
     assert.deepEqual(names, ["Counterspell", "Tarmogoyf", "Typhoid Rats"]);
     assert.equal(getDeck(db, id).cards.find((c) => c.name === "Typhoid Rats")!.quantity, 4);
     assert.equal(getDeck(db, id).deck.revision, beforeRevision + 1);
-    assert.equal((getLog(db, id) as any[])[0].revision, beforeRevision + 1);
+    assert.equal(listLog(db, { deckId: id })[0].revision, beforeRevision + 1);
     // Nothing waiting on the owner: the paste was the ruling.
-    assert.equal(listProposals(db, id, "open").length, 0);
+    assert.equal(getDeck(db, id).computed.pending.adds, 0);
   });
 
-  test("a 100-card list is one log entry, not one per card (§12 retention)", () => {
+  test("a 100-card list is one log entry, not one per card ", () => {
     const id = createDeck(db, "Import log volume");
     const list = [
       "94 Forest",
@@ -258,12 +235,12 @@ describe("import applies in full and at once (spec §9)", () => {
       "1 Tarmogoyf",
       "1 Typhoid Rats",
     ].join("\n");
-    applyImport(db, id, list);
-    const log = getLog(db, id) as any[];
+    applyImport(db, OWNER, id, list);
+    const log = listLog(db, { deckId: id });
     assert.equal(log.length, 1);
-    assert.equal(log[0].kind, "accept");
-    assert.equal(log[0].action, "import");
-    assert.match(log[0].rationale, /\+100\/−0/);
+    assert.equal(log[0].kind, "import");
+    assert.match(log[0].summary, /\+100\/−0/);
+    assert.equal(log[0].cards.length, 7);
     assert.equal(getDeck(db, id).deck.revision, 1);
     assert.equal(log[0].revision, 1);
   });
@@ -271,32 +248,32 @@ describe("import applies in full and at once (spec §9)", () => {
   test("undoing the single log entry restores the entire pre-import list", () => {
     const id = createDeck(db, "Import undo");
     const ramp = createSlot(db, id, "ramp", 8, 12);
-    addCard(db, id, "id-teferi", { role: "commander" });
-    addCard(db, id, "id-solring", { slotId: ramp });
-    updateCard(db, id, "id-solring", { owned: true });
+    add(db, id, "id-teferi", { role: "commander" });
+    add(db, id, "id-solring", { slotId: ramp });
+    setInPaper(db, OWNER, id, "id-solring", true);
 
-    applyImport(db, id, "1 Counterspell\n1 Tarmogoyf");
+    applyImport(db, OWNER, id, "1 Counterspell\n1 Tarmogoyf");
     assert.deepEqual(getDeck(db, id).cards.map((c) => c.name).sort(), ["Counterspell", "Tarmogoyf"]);
 
-    const entry = (getLog(db, id) as any[])[0];
+    const entry = listLog(db, { deckId: id })[0];
     const importedRevision = getDeck(db, id).deck.revision;
-    undoDecision(db, id, entry.id);
+    undo(db, OWNER, entry.id);
 
     const after = getDeck(db, id);
     assert.deepEqual(after.cards.map((c) => c.name).sort(), ["Sol Ring", "Teferi, Temporal Archmage"]);
     const solring = after.cards.find((c) => c.name === "Sol Ring")!;
     assert.equal(solring.slot_id, ramp); // slot survives the round trip
-    assert.ok(solring.owned); //             …and so does owned
+    assert.ok(solring.in_paper); //             …and so does the paper flag
     assert.equal(after.cards.find((c) => c.name === "Teferi, Temporal Archmage")!.role, "commander");
     assert.equal(after.deck.revision, importedRevision + 1);
     // The undo is itself logged, and the import row is marked as undone.
-    assert.equal((getLog(db, id) as any[])[0].kind, "undo");
-    assert.ok((getLog(db, id) as any[]).find((e) => e.id === entry.id)!.undone_by);
+    assert.equal(listLog(db, { deckId: id })[0].kind, "undo");
+    assert.ok(listLog(db, { deckId: id }).find((e) => e.id === entry.id)!.undone_by);
   });
 
   test("a [Commander] category puts the card in the command zone", () => {
     const id = createDeck(db, "Import commander");
-    applyImport(db, id, "1 Teferi, Temporal Archmage [Commander]\n1 Counterspell");
+    applyImport(db, OWNER, id, "1 Teferi, Temporal Archmage [Commander]\n1 Counterspell");
     const state = getDeck(db, id);
     assert.equal(state.cards.find((c) => c.name === "Teferi, Temporal Archmage")!.role, "commander");
     assert.equal(state.deck.color_identity, "U"); // identity recomputed from it
@@ -304,47 +281,50 @@ describe("import applies in full and at once (spec §9)", () => {
 
   test("an identical list changes nothing and writes no log entry", () => {
     const id = createDeck(db, "Import noop");
-    addCard(db, id, "id-solring");
-    const r = applyImport(db, id, "1 Sol Ring");
+    add(db, id, "id-solring");
+    const r = applyImport(db, OWNER, id, "1 Sol Ring");
     assert.equal(r.log_id, null);
     assert.deepEqual(r.applied, { added: 0, cut: 0, quantity_changed: 0 });
-    assert.equal((getLog(db, id) as any[]).length, 0);
+    // Only the owner's own add is in the log.
+    assert.equal(listLog(db, { deckId: id }).length, 1);
+  });
+
+  test("a Maybeboard category is shortlisted, not added, and the preview says so", () => {
+    const id = createDeck(db, "Import maybeboard");
+    const text = "1 Sol Ring\n1 Ball Lightning [Maybeboard]";
+    assert.deepEqual(diffImport(db, id, text).set_aside.map((c) => c.name), ["Ball Lightning"]);
+    applyImport(db, OWNER, id, text);
+    const view = getDeck(db, id);
+    assert.equal(view.computed.card_count, 1);
+    assert.equal(view.cards.find((c) => c.name === "Ball Lightning")!.maybe, 1);
+  });
+
+  test("the maybe list is not exported and a shortlisted card in the paste is an add", () => {
+    const id = createDeck(db, "Import promotes");
+    applyImport(db, OWNER, id, "1 Sol Ring\n1 Ball Lightning [Maybeboard]");
+    assert.equal(exportDeck(db, id).text, "1 Sol Ring [Unslotted]\n");
+    applyImport(db, OWNER, id, "1 Sol Ring\n1 Ball Lightning");
+    assert.equal(getDeck(db, id).computed.card_count, 2);
   });
 });
 
-describe("playtest notes (spec §9)", () => {
-  test("a note is stamped to the deck revision and pins the list it describes", () => {
-    const id = createDeck(db, "Playtest stamp");
-    addCard(db, id, "id-solring");
-    addCard(db, id, "id-counterspell");
-    addPlaytestNote(db, id, "Never found the engine before turn 9");
+describe("who may paste a list (spec §10.3)", () => {
+  test("importing over a deck is the owner's; an agent fills a draft, all or nothing", () => {
+    const active = newDeck(db, "active");
+    assert.throws(() => applyImport(db, AGENT, active, "1 Sol Ring"), PermissionError);
+    assert.throws(() => fillFromList(db, AGENT, active, "1 Sol Ring"), PermissionError);
 
-    const before = listPlaytestNotes(db, id)[0];
-    assert.equal(before.revision, 2);
-    assert.deepEqual(before.cards, ["Counterspell", "Sol Ring"]);
+    const draft = newDeck(db, "draft");
+    assert.throws(
+      () => fillFromList(db, AGENT, draft, "1 Sol Ring\n1 Sol Ringz"),
+      (e: Error) => e instanceof CardResolutionError && /nothing was changed/.test(e.message),
+    );
+    assert.equal(getDeck(db, draft).computed.card_count, 0);
 
-    // Deck moves on; the note still describes the old list.
-    addCard(db, id, "id-goyf");
-    const after = listPlaytestNotes(db, id)[0];
-    assert.deepEqual(after.cards, ["Counterspell", "Sol Ring"]);
-    assert.equal(after.revision, 2);
-  });
-
-  test("notes reach the agent's context (kept forever, spec §12)", () => {
-    const id = createDeck(db, "Playtest context");
-    addCard(db, id, "id-solring");
-    addPlaytestNote(db, id, "Static Orb was dead in three of five opens");
-    const { sections } = assembleDeckSections(db, id, 30);
-    assert.match(sections, /Static Orb was dead in three of five opens/);
-    assert.match(sections, /Playtest notes from goldfishing/);
-  });
-
-  test("empty notes are rejected; notes can be deleted", () => {
-    const id = createDeck(db, "Playtest delete");
-    assert.throws(() => addPlaytestNote(db, id, "  "), /cannot be empty/);
-    const noteId = addPlaytestNote(db, id, "real note");
-    deletePlaytestNote(db, id, noteId);
-    assert.equal(listPlaytestNotes(db, id).length, 0);
-    assert.throws(() => deletePlaytestNote(db, id, noteId), /not found/);
+    fillFromList(db, AGENT, draft, "1 Teferi, Temporal Archmage [Commander]\n1 Sol Ring\n5 Forest");
+    const view = getDeck(db, draft);
+    assert.equal(view.computed.card_count, 7);
+    assert.equal(view.deck.color_identity, "U");
+    assert.equal(listLog(db, { deckId: draft })[0].author, "test-agent");
   });
 });

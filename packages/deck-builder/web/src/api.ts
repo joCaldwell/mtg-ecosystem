@@ -3,56 +3,74 @@
 // change on the server fails this typecheck instead of failing at runtime.
 
 import type { DeckState } from "../../src/state.ts";
-import type { auditState, AuditRun, Finding, ReasoningSnapshot } from "../../src/deck/audit.ts";
-import type { BriefView, EngineView } from "../../src/deck/brief.ts";
-import type { LogEntry, HardFilter, CardNote } from "../../src/deck/log.ts";
-import type { ExportResult, ImportDiff, PlaytestNote } from "../../src/deck/interop.ts";
-import type { listDecks } from "../../src/deck/service.ts";
+import type { ActivityEntry } from "../../src/activity.ts";
+import type { CardRow } from "../../src/cards.ts";
+import type { EngineView } from "../../src/deck/brief.ts";
+import type { Finding } from "../../src/deck/checks.ts";
+import type { DeckComparison } from "../../src/deck/fork.ts";
+import type { ExportResult, ImportDiff } from "../../src/deck/interop.ts";
+import type { CardRuling, LogEntry } from "../../src/deck/log.ts";
+import type { PaperStatus } from "../../src/deck/paper.ts";
+import type { ProposalView } from "../../src/deck/proposals.ts";
+import type { DeckSummary } from "../../src/deck/service.ts";
+import type { DocumentEditView, ProfileView } from "../../src/documents.ts";
+import type { MemoryView, Revision } from "../../src/memory.ts";
 import type { SearchResult } from "../../src/search/index.ts";
-import type { ConsolidationView } from "../../src/agent/consolidate.ts";
-import type { MeterResult, MeterSegment } from "../../src/agent/meter.ts";
-import type { ChatHistoryMessage } from "../../src/agent/agent.ts";
+import type { PlayerStats } from "../../src/stats.ts";
 
-export type { DeckState, LogEntry, HardFilter, CardNote, ExportResult, ImportDiff, PlaytestNote, AuditRun, MeterSegment };
+export type {
+  ActivityEntry,
+  CardRuling,
+  DeckComparison,
+  DeckState,
+  DeckSummary,
+  ExportResult,
+  Finding,
+  ImportDiff,
+  LogEntry,
+  PaperStatus,
+  PlayerStats,
+};
 export type CardData = SearchResult;
 export type DeckCard = DeckState["cards"][number];
 export type Slot = DeckState["slots"][number];
 export type Tag = DeckState["tags"][number];
 export type Computed = DeckState["computed"];
 export type SlotDelta = Computed["slot_deltas"][number];
-export type Proposal = DeckState["proposals"][number];
+export type Proposal = ProposalView;
 export type ProposalItem = Proposal["items"][number];
-export type BriefEdit = DeckState["brief_edits"][number];
-export type Brief = BriefView;
+export type DocumentEdit = DocumentEditView;
+export type Brief = DeckState["brief"];
 export type Engine = EngineView;
-export type AuditFinding = Finding;
-export type ReasoningResult = ReasoningSnapshot;
-export type AuditState = ReturnType<typeof auditState>;
-export type ChatMsg = ChatHistoryMessage;
-export type Consolidation = ConsolidationView;
-export type ContextMeter = MeterResult;
-export type DeckSummary = ReturnType<typeof listDecks>[number];
+export type Memory = MemoryView;
+export type MemoryRevision = Revision;
+export type Profile = ProfileView;
 
-// Web-only: a draft proposal item being assembled in the UI. card_name is
-// display sugar and is stripped before the POST.
-export interface DraftItem {
-  action: "add" | "cut";
-  oracle_id: string;
-  card_name: string;
-  slot_id?: number | null;
-  rationale: string;
-  group_id?: string | null;
+export interface Inbox {
+  proposals: Proposal[];
+  document_edits: DocumentEdit[];
+  /** Rulings no agent has read yet. */
+  unreviewed: number;
+}
+
+export interface Settings {
+  budgets: { global: number; deck: number };
+  cards: { count: number; updated_at: string | null };
+  agent: { url: string; token: string };
+}
+
+export interface MemoryList {
+  memories: Memory[];
+  budgets: { global: number; deck: number };
+  global_budget: { budget: number; used: number; omitted: number };
 }
 
 // The server's envelope rule: a response carrying a domain composite names
-// it. The deck store's apply() dispatches whichever keys are present, so
-// every mutation call site is `apply(await api.x(...))`.
+// it. The deck store's apply() takes `state`; pages take the rest.
 export interface Envelope {
   state?: DeckState;
-  audit?: AuditState;
-  brief?: Brief;
-  meter?: ContextMeter;
-  consolidation?: Consolidation;
+  inbox?: Inbox;
+  profile?: Profile;
 }
 
 export class ApiError extends Error {}
@@ -69,19 +87,32 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
   return data as T;
 }
 
-export const api = {
-  listDecks: () => request<DeckSummary[]>("GET", "/api/decks"),
-  createDeck: (name: string) => request<{ state: DeckState }>("POST", "/api/decks", { name }),
-  getDeck: (id: number) => request<{ state: DeckState }>("GET", `/api/decks/${id}`),
-  renameDeck: (id: number, name: string) =>
-    request<{ state: DeckState }>("PATCH", `/api/decks/${id}`, { name }),
-  deleteDeck: (id: number) => request<{ ok: true }>("DELETE", `/api/decks/${id}`),
+type StateResponse = { state: DeckState };
+export type Outcome = "accept" | "reject";
 
-  addCard: (deckId: number, oracleId: string, slotId?: number | null, role?: string) =>
-    request<{ state: DeckState }>("POST", `/api/decks/${deckId}/cards`, {
+export const api = {
+  // ---------- decks ----------
+  listDecks: () => request<DeckSummary[]>("GET", "/api/decks"),
+  createDeck: (name: string) => request<StateResponse>("POST", "/api/decks", { name }),
+  getDeck: (id: number) => request<StateResponse>("GET", `/api/decks/${id}`),
+  renameDeck: (id: number, name: string) => request<StateResponse>("PATCH", `/api/decks/${id}`, { name }),
+  setDeckStatus: (id: number, status: "draft" | "active") =>
+    request<StateResponse>("PATCH", `/api/decks/${id}`, { status }),
+  setDeckParent: (id: number, parentId: number | null) =>
+    request<StateResponse>("PATCH", `/api/decks/${id}`, { parent_id: parentId }),
+  deleteDeck: (id: number) => request<{ ok: true }>("DELETE", `/api/decks/${id}`),
+  forkDeck: (id: number, name: string) => request<StateResponse>("POST", `/api/decks/${id}/fork`, { name }),
+  compareDecks: (id: number, other?: number) =>
+    request<DeckComparison>("GET", `/api/decks/${id}/compare${other ? `?other=${other}` : ""}`),
+  paperStatus: (id: number) => request<PaperStatus>("GET", `/api/decks/${id}/paper`),
+
+  // ---------- cards in a deck ----------
+  addCard: (deckId: number, oracleId: string, opts: { slotId?: number | null; role?: string; maybe?: boolean } = {}) =>
+    request<StateResponse>("POST", `/api/decks/${deckId}/cards`, {
       oracle_id: oracleId,
-      slot_id: slotId ?? null,
-      role,
+      slot_id: opts.slotId ?? null,
+      role: opts.role,
+      maybe: opts.maybe,
     }),
   updateCard: (
     deckId: number,
@@ -89,100 +120,93 @@ export const api = {
     patch: Partial<{
       slot_id: number | null;
       role: string;
-      owned: boolean;
+      in_paper: boolean;
       quantity: number;
       tag_ids: number[];
+      /** true parks the card on the maybe list; false promotes it into the deck. */
+      maybe: boolean;
     }>,
-  ) => request<{ state: DeckState }>("PATCH", `/api/decks/${deckId}/cards/${oracleId}`, patch),
+  ) => request<StateResponse>("PATCH", `/api/decks/${deckId}/cards/${oracleId}`, patch),
   removeCard: (deckId: number, oracleId: string) =>
-    request<{ state: DeckState }>("DELETE", `/api/decks/${deckId}/cards/${oracleId}`),
-  setAllCardsOwned: (deckId: number, owned: boolean) =>
-    request<{ state: DeckState }>("PATCH", `/api/decks/${deckId}/cards`, { owned }),
+    request<StateResponse>("DELETE", `/api/decks/${deckId}/cards/${oracleId}`),
+  setAllInPaper: (deckId: number, inPaper: boolean) =>
+    request<StateResponse>("PATCH", `/api/decks/${deckId}/cards`, { in_paper: inPaper }),
+  cardHistory: (deckId: number, oracleId: string) =>
+    request<{ rulings: CardRuling[]; memories: Memory[] }>(
+      "GET",
+      `/api/decks/${deckId}/cards/${oracleId}/history`,
+    ),
 
+  // ---------- slots and tags ----------
   createSlot: (deckId: number, name: string, min: number | null, max: number | null) =>
-    request<{ state: DeckState }>("POST", `/api/decks/${deckId}/slots`, {
-      name,
-      target_min: min,
-      target_max: max,
-    }),
+    request<StateResponse>("POST", `/api/decks/${deckId}/slots`, { name, target_min: min, target_max: max }),
   updateSlot: (
     deckId: number,
     slotId: number,
     patch: Partial<{ name: string; target_min: number | null; target_max: number | null }>,
-  ) => request<{ state: DeckState }>("PATCH", `/api/decks/${deckId}/slots/${slotId}`, patch),
+  ) => request<StateResponse>("PATCH", `/api/decks/${deckId}/slots/${slotId}`, patch),
   deleteSlot: (deckId: number, slotId: number) =>
-    request<{ state: DeckState }>("DELETE", `/api/decks/${deckId}/slots/${slotId}`),
-
+    request<StateResponse>("DELETE", `/api/decks/${deckId}/slots/${slotId}`),
   createTag: (deckId: number, name: string) =>
-    request<{ state: DeckState }>("POST", `/api/decks/${deckId}/tags`, { name }),
+    request<StateResponse>("POST", `/api/decks/${deckId}/tags`, { name }),
   deleteTag: (deckId: number, tagId: number) =>
-    request<{ state: DeckState }>("DELETE", `/api/decks/${deckId}/tags/${tagId}`),
+    request<StateResponse>("DELETE", `/api/decks/${deckId}/tags/${tagId}`),
 
-  createProposal: (deckId: number, items: DraftItem[], note?: string) =>
-    request<{ state: DeckState }>("POST", `/api/decks/${deckId}/proposals`, {
-      items: items.map(({ card_name, ...i }) => i),
-      note,
-    }),
-  acceptItem: (deckId: number, itemId: number) =>
-    request<{ state: DeckState }>("POST", `/api/decks/${deckId}/items/${itemId}/accept`),
-  rejectItem: (deckId: number, itemId: number, type: string, reason: string) =>
-    request<{ state: DeckState }>("POST", `/api/decks/${deckId}/items/${itemId}/reject`, { type, reason }),
-  undoDecision: (deckId: number, logId: number) =>
-    request<{ state: DeckState }>("POST", `/api/decks/${deckId}/log/${logId}/undo`),
-  removeHardFilter: (deckId: number, oracleId: string) =>
-    request<{ state: DeckState }>("DELETE", `/api/decks/${deckId}/filters/${oracleId}`),
-  addCardNote: (deckId: number, oracleId: string, note: string) =>
-    request<{ state: DeckState }>("POST", `/api/decks/${deckId}/notes`, { oracle_id: oracleId, note }),
-
-  getAudit: (deckId: number) => request<{ audit: AuditState }>("GET", `/api/decks/${deckId}/audit`),
-  // Returns as soon as the run is open — the reasoning pass finishes on the
-  // server, so this resolving is not the run being done. Poll getAudit.
-  startAudit: (deckId: number, instructions: string) =>
-    request<{ run_id: number; already_running: boolean; audit: AuditState }>(
-      "POST",
-      `/api/decks/${deckId}/audit`,
-      { instructions },
-    ),
-  dismissAuditFinding: (deckId: number, key: string, type: string, reason: string) =>
-    request<{ state: DeckState; audit: AuditState }>("POST", `/api/decks/${deckId}/audit/dismiss`, {
-      key,
-      type,
+  // ---------- rulings (spec §8) ----------
+  getInbox: () => request<Inbox>("GET", "/api/inbox"),
+  ruleItems: (deckId: number, itemIds: number[], outcome: Outcome, reason = "") =>
+    request<StateResponse & { inbox: Inbox }>("POST", `/api/decks/${deckId}/items/rule`, {
+      item_ids: itemIds,
+      outcome,
       reason,
     }),
-  undismissAuditFinding: (deckId: number, key: string) =>
-    request<{ state: DeckState; audit: AuditState }>("POST", `/api/decks/${deckId}/audit/undismiss`, { key }),
-  promoteAuditFinding: (deckId: number, key: string) =>
-    request<{ state: DeckState; audit: AuditState }>("POST", `/api/decks/${deckId}/audit/promote`, { key }),
+  ruleProposal: (deckId: number, proposalId: number, outcome: Outcome, reason = "") =>
+    request<StateResponse & { inbox: Inbox }>("POST", `/api/decks/${deckId}/proposals/${proposalId}/rule`, {
+      outcome,
+      reason,
+    }),
+  ruleDocumentEdit: (editId: number, outcome: Outcome, reason = "") =>
+    request<Envelope & { inbox: Inbox }>("POST", `/api/document-edits/${editId}/rule`, { outcome, reason }),
+  undo: (deckId: number, logId: number) =>
+    request<StateResponse & { skipped: string[] }>("POST", `/api/decks/${deckId}/log/${logId}/undo`),
 
-  getBrief: (deckId: number) => request<{ brief: Brief }>("GET", `/api/decks/${deckId}/brief`),
+  // ---------- documents (spec §6) ----------
   updateBrief: (deckId: number, patch: Partial<{ thesis: string; constraints_md: string }>) =>
-    request<{ brief: Brief }>("PUT", `/api/decks/${deckId}/brief`, patch),
+    request<StateResponse>("PUT", `/api/decks/${deckId}/brief`, patch),
   setEngine: (deckId: number, name: string, description: string, pieces: Array<{ oracle_id: string }>) =>
-    request<{ brief: Brief }>("POST", `/api/decks/${deckId}/engines`, { name, description, pieces }),
+    request<StateResponse>("POST", `/api/decks/${deckId}/engines`, { name, description, pieces }),
   removeEngine: (deckId: number, engineId: number) =>
-    request<{ brief: Brief }>("DELETE", `/api/decks/${deckId}/engines/${engineId}`),
-  ruleBriefEdit: (deckId: number, editId: number, verdict: "accept" | "reject", type?: string, reason?: string) =>
-    request<{ state: DeckState; brief: Brief }>(
-      "POST",
-      `/api/decks/${deckId}/brief-edits/${editId}/${verdict}`,
-      verdict === "reject" ? { type, reason } : undefined,
-    ),
-  resolveCard: (name: string) =>
-    request<CardData[]>("GET", `/api/resolve?${new URLSearchParams({ name })}`),
+    request<StateResponse>("DELETE", `/api/decks/${deckId}/engines/${engineId}`),
+  getProfile: () => request<{ profile: Profile }>("GET", "/api/profile"),
+  setProfile: (bodyMd: string) => request<{ profile: Profile }>("PUT", "/api/profile", { body_md: bodyMd }),
 
-  getChat: (deckId: number) => request<ChatMsg[]>("GET", `/api/decks/${deckId}/chat`),
-  sendChat: (deckId: number, message: string) =>
-    request<{ reply: string; mutated: boolean; state: DeckState }>(
-      "POST",
-      `/api/decks/${deckId}/chat`,
-      { message },
-    ),
+  // ---------- memories (spec §7.5) ----------
+  listMemories: (q: { scope?: string; deck?: number; card?: string; q?: string; status?: string } = {}) => {
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== "") params.set(k, String(v));
+    return request<MemoryList>("GET", `/api/memories?${params}`);
+  },
+  addMemory: (input: { text: string; scope: "global" | "deck"; deck_id?: number | null }) =>
+    request<{ memory: Memory }>("POST", "/api/memories", input),
+  reviseMemory: (id: number, revision: MemoryRevision) =>
+    request<{ memory: Memory }>("PATCH", `/api/memories/${id}`, revision),
 
-  // Archidekt interop (spec §9)
-  exportDeck: (deckId: number, opts: { categories?: boolean; onlyUnowned?: boolean } = {}) => {
+  // ---------- activity, stats, focus, settings ----------
+  listActivity: () => request<ActivityEntry[]>("GET", "/api/activity"),
+  getStats: () => request<PlayerStats>("GET", "/api/stats"),
+  setFocus: (deckId: number | null, selected: string[] = []) =>
+    request<{ ok: true }>("PUT", "/api/focus", { deck_id: deckId, selected }),
+  getSettings: () => request<Settings>("GET", "/api/settings"),
+  updateSettings: (patch: { budgets?: { global?: number; deck?: number } }) =>
+    request<Settings>("PUT", "/api/settings", patch),
+  rotateToken: () => request<Settings>("POST", "/api/settings/rotate-token"),
+  refreshCards: () => request<Settings>("POST", "/api/cards/refresh"),
+
+  // ---------- Archidekt interop (spec §12) ----------
+  exportDeck: (deckId: number, opts: { categories?: boolean; onlyMissing?: boolean } = {}) => {
     const params = new URLSearchParams();
     if (opts.categories === false) params.set("categories", "off");
-    if (opts.onlyUnowned) params.set("unowned", "1");
+    if (opts.onlyMissing) params.set("missing", "1");
     return request<ExportResult>("GET", `/api/decks/${deckId}/export?${params}`);
   },
   previewImport: (deckId: number, text: string) =>
@@ -196,28 +220,10 @@ export const api = {
       };
       state: DeckState;
     }>("POST", `/api/decks/${deckId}/import`, { text, note }),
-  addPlaytestNote: (deckId: number, note: string) =>
-    request<{ state: DeckState }>("POST", `/api/decks/${deckId}/playtest-notes`, { note }),
-  deletePlaytestNote: (deckId: number, noteId: number) =>
-    request<{ state: DeckState }>("DELETE", `/api/decks/${deckId}/playtest-notes/${noteId}`),
 
-  // Compaction (spec §11) and retention (spec §12)
-  getContextMeter: (deckId: number) =>
-    request<{ meter: ContextMeter }>("GET", `/api/decks/${deckId}/context-meter`),
-  consolidate: (deckId: number) =>
-    request<{ consolidation: Consolidation; state: DeckState }>(
-      "POST",
-      `/api/decks/${deckId}/consolidate`,
-    ),
-  ruleConsolidation: (deckId: number, id: number, verdict: "accept" | "reject") =>
-    request<{ consolidation: Consolidation; state: DeckState; meter: ContextMeter }>(
-      "POST",
-      `/api/decks/${deckId}/consolidations/${id}/${verdict}`,
-    ),
-  getSettings: () => request<{ retention_n: number }>("GET", "/api/settings"),
-  updateSettings: (patch: { retention_n?: number }) =>
-    request<{ retention_n: number }>("PUT", "/api/settings", patch),
-
+  // ---------- card search ----------
+  resolveCard: (name: string) =>
+    request<{ matches: CardRow[]; suggestions: string[] }>("GET", `/api/resolve?${new URLSearchParams({ name })}`),
   search: (q: string, deckId?: number, filterIdentity = true, signal?: AbortSignal) => {
     const params = new URLSearchParams({ q });
     if (deckId !== undefined) params.set("deck", String(deckId));

@@ -1,79 +1,89 @@
-// The approval gate (spec §7): the agent proposes, the owner rules. Creation
-// and ruling live here; the decision log itself — every ruling's paper trail,
-// rejection routing, and undo — is deck/log.ts.
+// Proposals and rulings (spec §8). On an active deck an agent changes
+// membership only by proposing; the owner rules per item, per group, or on
+// the whole proposal, with an optional free-text reason. There are no reason
+// types and no cap on items.
 
 import type { DatabaseSync } from "node:sqlite";
 import { ServiceError } from "../errors.ts";
 import { withTransaction } from "../db.ts";
-import { addCard, removeCard, requireCard, requireDeck, updateCard } from "./service.ts";
-import {
-  REJECTION_TYPES,
-  type RejectionType,
-  isHardFiltered,
-  logEntry,
-  recordRejection,
-  snapshotCard,
-} from "./log.ts";
-
-export type ProposalSource = "manual" | "agent" | "audit" | "import";
+import { type Actor, authorOf, requireOwner } from "../actor.ts";
+import { lintProse, requireCardById } from "../cards.ts";
+import { type LogCardInput, writeLog } from "./log.ts";
+import { type Change, applyChanges } from "./membership.ts";
+import { copyLimit, findDeckCard, requireDeck } from "./service.ts";
 
 export interface ProposalItemInput {
   action: "add" | "cut";
   oracle_id: string;
+  /** For an add: the slot to file the card in. Optional; slots never are required. */
   slot_id?: number | null;
-  rationale: string;
-  group_id?: string | null;
+  reason: string;
+  /** Items sharing a group are ruled on as a unit (a swap with one argument). */
+  group?: string | null;
 }
-
-// The 3–5 cap forces the agent to rank (spec §7.1). Nothing is exempt any
-// more: imports used to be, but they apply directly now (§9) instead of
-// arriving here as a 99-item proposal. "import" stays in ProposalSource so
-// rows written before that change still read back.
-export const MAX_ITEMS = 5;
 
 // ---------- creation ----------
 
 export function createProposal(
   db: DatabaseSync,
+  actor: Actor,
   deckId: number,
-  items: ProposalItemInput[],
-  opts: { source?: ProposalSource; note?: string } = {},
+  input: { summary?: string; items: ProposalItemInput[] },
 ): number {
   requireDeck(db, deckId);
-  const source = opts.source ?? "manual";
+  const items = input.items ?? [];
   if (!items.length) throw new ServiceError("A proposal needs at least one item");
-  if (items.length > MAX_ITEMS)
-    throw new ServiceError(`A proposal contains at most ${MAX_ITEMS} items (got ${items.length})`);
 
-  const inDeck = new Set(
-    (
-      db.prepare("SELECT oracle_id FROM deck_cards WHERE deck_id = ?").all(deckId) as unknown as {
-        oracle_id: string;
-      }[]
-    ).map((r) => r.oracle_id),
-  );
-
+  const seen = new Set<string>();
   for (const item of items) {
-    if (!item.rationale?.trim())
-      throw new ServiceError(`Item for ${item.oracle_id} needs a rationale — the reasons are the point`);
-    const name = requireCard(db, item.oracle_id);
-    if (item.action === "cut" && !inDeck.has(item.oracle_id))
-      throw new ServiceError(`Cannot propose cutting ${name} — it is not in the deck`);
-    if (item.action === "add" && inDeck.has(item.oracle_id))
-      throw new ServiceError(`Cannot propose adding ${name} — it is already in the deck`);
-    if (item.action === "add" && isHardFiltered(db, deckId, item.oracle_id))
+    const card = requireCardById(db, item.oracle_id);
+    if (item.action !== "add" && item.action !== "cut")
+      throw new ServiceError(`An item's action is 'add' or 'cut' (got '${item.action}')`);
+    if (!item.reason?.trim())
+      throw new ServiceError(`The ${item.action} of ${card.name} needs a reason`);
+    lintProse(db, item.reason);
+
+    const key = `${item.action}:${item.oracle_id}`;
+    if (seen.has(key))
+      throw new ServiceError(`${card.name} appears twice as '${item.action}' in this proposal`);
+    seen.add(key);
+
+    const row = findDeckCard(db, deckId, item.oracle_id);
+    const inDeck = !!row && !row.maybe;
+    if (item.action === "cut" && !inDeck)
+      throw new ServiceError(`${card.name} is not in the deck, so it cannot be proposed as a cut`);
+    if (item.action === "add" && inDeck && row!.quantity >= copyLimit(card))
       throw new ServiceError(
-        `${name} is hard-filtered for this deck (remove the filter first to re-propose it)`,
+        `${card.name} is already in the deck, and a Commander deck holds one copy of it`,
+      );
+    if (item.slot_id != null) {
+      if (item.action !== "add")
+        throw new ServiceError("Only an add can name a slot; a cut leaves the card's slot as it is");
+      if (!db.prepare("SELECT 1 FROM slots WHERE id = ? AND deck_id = ?").get(item.slot_id, deckId))
+        throw new ServiceError(`Slot ${item.slot_id} not found in deck ${deckId}`, 404);
+    }
+
+    const pending = db
+      .prepare(
+        `SELECT p.id FROM proposal_items pi JOIN proposals p ON p.id = pi.proposal_id
+         WHERE p.deck_id = ? AND pi.oracle_id = ? AND pi.action = ? AND pi.status = 'pending'`,
+      )
+      .get(deckId, item.oracle_id, item.action) as { id: number } | undefined;
+    if (pending)
+      throw new ServiceError(
+        `Proposal #${pending.id} already has a pending ${item.action} of ${card.name}. ` +
+          `Wait for the owner's ruling on it.`,
       );
   }
+  if (input.summary) lintProse(db, input.summary);
 
   return withTransaction(db, () => {
     const r = db
-      .prepare("INSERT INTO proposals (deck_id, source, note) VALUES (?, ?, ?)")
-      .run(deckId, source, opts.note ?? "");
+      .prepare("INSERT INTO proposals (deck_id, summary, author) VALUES (?, ?, ?)")
+      .run(deckId, (input.summary ?? "").trim(), authorOf(actor));
     const proposalId = Number(r.lastInsertRowid);
     const ins = db.prepare(
-      `INSERT INTO proposal_items (proposal_id, action, oracle_id, slot_id, rationale, group_id)
+      `INSERT INTO proposal_items (proposal_id, action, oracle_id, slot_id, reason, group_id)
        VALUES (?, ?, ?, ?, ?, ?)`,
     );
     for (const item of items)
@@ -82,8 +92,8 @@ export function createProposal(
         item.action,
         item.oracle_id,
         item.slot_id ?? null,
-        item.rationale.trim(),
-        item.group_id ?? null,
+        item.reason.trim(),
+        item.group?.trim() || null,
       );
     return proposalId;
   });
@@ -100,49 +110,70 @@ export interface ProposalItemView {
   mana_cost: string | null;
   type_line: string;
   oracle_text: string;
+  power: string | null;
+  toughness: string | null;
+  loyalty: string | null;
   slot_id: number | null;
-  rationale: string;
+  slot_name: string | null;
+  reason: string;
   group_id: string | null;
   status: "pending" | "accepted" | "rejected";
 }
 
-const ITEM_SELECT = `SELECT pi.id, pi.proposal_id, pi.action, pi.oracle_id, c.name AS card_name,
-       c.mana_cost, c.type_line, c.oracle_text,
-       pi.slot_id, pi.rationale, pi.group_id, pi.status
-  FROM proposal_items pi JOIN cards c ON c.oracle_id = pi.oracle_id
-  WHERE pi.proposal_id = ? ORDER BY pi.id`;
-
-export function listProposals(db: DatabaseSync, deckId: number, status?: "open" | "resolved") {
-  const proposals = db
-    .prepare(
-      `SELECT id, source, note, status, created_at FROM proposals
-       WHERE deck_id = ? ${status ? "AND status = ?" : ""} ORDER BY id DESC`,
-    )
-    .all(...(status ? [deckId, status] : [deckId])) as unknown as Array<{
-    id: number;
-    source: ProposalSource;
-    note: string;
-    status: string;
-    created_at: string;
-    items: ProposalItemView[];
-  }>;
-  const itemStmt = db.prepare(ITEM_SELECT);
-  for (const p of proposals) p.items = itemStmt.all(p.id) as unknown as ProposalItemView[];
-  return proposals;
+export interface ProposalView {
+  id: number;
+  deck_id: number;
+  deck_name: string;
+  summary: string;
+  author: string;
+  status: "open" | "resolved";
+  created_at: string;
+  items: ProposalItemView[];
 }
 
-// One proposal by id, open or resolved. The chat transcript reads by id and
-// wants proposals it has already outlived — a turn's proposal stays in the
-// conversation after it is ruled on, showing what became of it.
-export function getProposal(db: DatabaseSync, proposalId: number) {
-  const p = db
-    .prepare("SELECT id, source, note, status, created_at FROM proposals WHERE id = ?")
-    .get(proposalId) as unknown as
-    | { id: number; source: ProposalSource; note: string; status: string; created_at: string }
+const ITEM_SELECT = `SELECT pi.id, pi.proposal_id, pi.action, pi.oracle_id, c.name AS card_name,
+       c.mana_cost, c.type_line, c.oracle_text, c.power, c.toughness, c.loyalty,
+       pi.slot_id, s.name AS slot_name, pi.reason, pi.group_id, pi.status
+  FROM proposal_items pi JOIN cards c ON c.oracle_id = pi.oracle_id
+  LEFT JOIN slots s ON s.id = pi.slot_id
+  WHERE pi.proposal_id = ? ORDER BY pi.id`;
+
+const PROPOSAL_SELECT = `SELECT p.id, p.deck_id, d.name AS deck_name, p.summary, p.author, p.status, p.created_at
+  FROM proposals p JOIN decks d ON d.id = p.deck_id`;
+
+function withItems(db: DatabaseSync, rows: Array<Omit<ProposalView, "items">>): ProposalView[] {
+  const stmt = db.prepare(ITEM_SELECT);
+  return rows.map((p) => ({ ...p, items: stmt.all(p.id) as unknown as ProposalItemView[] }));
+}
+
+/** Proposals for one deck, or across every deck when deckId is omitted (the inbox). */
+export function listProposals(
+  db: DatabaseSync,
+  opts: { deckId?: number; status?: "open" | "resolved" } = {},
+): ProposalView[] {
+  const where: string[] = [];
+  const params: Array<string | number> = [];
+  if (opts.deckId !== undefined) {
+    where.push("p.deck_id = ?");
+    params.push(opts.deckId);
+  }
+  if (opts.status) {
+    where.push("p.status = ?");
+    params.push(opts.status);
+  }
+  const rows = db
+    .prepare(
+      `${PROPOSAL_SELECT} ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY p.id DESC LIMIT 200`,
+    )
+    .all(...params) as unknown as Array<Omit<ProposalView, "items">>;
+  return withItems(db, rows);
+}
+
+export function getProposal(db: DatabaseSync, proposalId: number): ProposalView | null {
+  const row = db.prepare(`${PROPOSAL_SELECT} WHERE p.id = ?`).get(proposalId) as
+    | Omit<ProposalView, "items">
     | undefined;
-  if (!p) return null;
-  const items = db.prepare(ITEM_SELECT).all(proposalId) as unknown as ProposalItemView[];
-  return { ...p, items };
+  return row ? withItems(db, [row])[0] : null;
 }
 
 // ---------- ruling ----------
@@ -154,31 +185,40 @@ interface ItemRow {
   action: "add" | "cut";
   oracle_id: string;
   slot_id: number | null;
-  rationale: string;
+  reason: string;
   group_id: string | null;
   status: string;
 }
 
-function getItem(db: DatabaseSync, itemId: number): ItemRow {
-  const row = db
-    .prepare(
-      `SELECT pi.*, p.deck_id FROM proposal_items pi JOIN proposals p ON p.id = pi.proposal_id
-       WHERE pi.id = ?`,
-    )
-    .get(itemId) as ItemRow | undefined;
-  if (!row) throw new ServiceError(`Proposal item ${itemId} not found`, 404);
-  return row;
-}
+const ITEM_ROW = `SELECT pi.id, pi.proposal_id, p.deck_id, pi.action, pi.oracle_id, pi.slot_id,
+       pi.reason, pi.group_id, pi.status
+  FROM proposal_items pi JOIN proposals p ON p.id = pi.proposal_id`;
 
-// group_id marks atomic bundles: ruling on one item rules the whole group.
-function groupOf(db: DatabaseSync, item: ItemRow): ItemRow[] {
-  if (!item.group_id) return [item];
-  return db
-    .prepare(
-      `SELECT pi.*, p.deck_id FROM proposal_items pi JOIN proposals p ON p.id = pi.proposal_id
-       WHERE pi.proposal_id = ? AND pi.group_id = ?`,
-    )
-    .all(item.proposal_id, item.group_id) as unknown as ItemRow[];
+// The items a ruling covers: the ones named, widened to whole groups — a
+// group is ruled on as a unit so a swap cannot be half-accepted (spec §8.1).
+function itemsToRule(db: DatabaseSync, itemIds: number[]): ItemRow[] {
+  if (!itemIds.length) throw new ServiceError("Name at least one item to rule on");
+  const byId = new Map<number, ItemRow>();
+  for (const id of itemIds) {
+    const item = db.prepare(`${ITEM_ROW} WHERE pi.id = ?`).get(id) as ItemRow | undefined;
+    if (!item) throw new ServiceError(`Proposal item ${id} not found`, 404);
+    const group = item.group_id
+      ? (db
+          .prepare(`${ITEM_ROW} WHERE pi.proposal_id = ? AND pi.group_id = ?`)
+          .all(item.proposal_id, item.group_id) as unknown as ItemRow[])
+      : [item];
+    for (const g of group) byId.set(g.id, g);
+  }
+  const items = [...byId.values()].sort((a, b) => a.id - b.id);
+  if (new Set(items.map((i) => i.proposal_id)).size > 1)
+    throw new ServiceError("Rule on one proposal at a time");
+  for (const i of items)
+    if (i.status !== "pending")
+      throw new ServiceError(
+        `Item ${i.id} is already ${i.status}` +
+          (i.group_id ? "; its group must be ruled on as a unit" : ""),
+      );
+  return items;
 }
 
 function resolveProposalIfDone(db: DatabaseSync, proposalId: number) {
@@ -189,119 +229,100 @@ function resolveProposalIfDone(db: DatabaseSync, proposalId: number) {
     db.prepare("UPDATE proposals SET status = 'resolved' WHERE id = ?").run(proposalId);
 }
 
-function applyAccept(db: DatabaseSync, item: ItemRow): void {
-  const name = requireCard(db, item.oracle_id);
-  if (item.action === "add") {
-    if (snapshotCard(db, item.deck_id, item.oracle_id))
-      throw new ServiceError(`${name} is already in the deck; cannot accept the add`);
-    // If the target slot was deleted since proposing, add unslotted.
-    let slotId = item.slot_id;
-    if (
-      slotId != null &&
-      !db.prepare("SELECT 1 FROM slots WHERE id = ? AND deck_id = ?").get(slotId, item.deck_id)
-    )
-      slotId = null;
-    addCard(db, item.deck_id, item.oracle_id, { slotId });
-    logEntry(
-      db,
-      item.deck_id,
-      {
-        kind: "accept",
-        action: "add",
-        oracle_id: item.oracle_id,
-        card_name: name,
-        rationale: item.rationale,
-        proposal_id: item.proposal_id,
-        item_id: item.id,
-      },
-      requireDeck(db, item.deck_id).revision,
-    );
-  } else {
-    const snapshot = snapshotCard(db, item.deck_id, item.oracle_id);
-    if (!snapshot) throw new ServiceError(`${name} is no longer in the deck; cannot accept the cut`);
-    // Each proposal item changes one copy, matching the pending delta (§7.1).
-    const partialCut = snapshot.quantity > 1;
-    if (partialCut)
-      updateCard(db, item.deck_id, item.oracle_id, { quantity: snapshot.quantity - 1 });
-    else
-      removeCard(db, item.deck_id, item.oracle_id);
-    logEntry(
-      db,
-      item.deck_id,
-      {
-        kind: "accept",
-        action: "cut",
-        oracle_id: item.oracle_id,
-        card_name: name,
-        rationale: item.rationale,
-        proposal_id: item.proposal_id,
-        item_id: item.id,
-        snapshot_json: JSON.stringify({ ...snapshot, quantity: 1, partial_cut: partialCut }),
-      },
-      requireDeck(db, item.deck_id).revision,
-    );
-  }
-  db.prepare(
-    "UPDATE proposal_items SET status = 'accepted', resolved_at = datetime('now') WHERE id = ?",
-  ).run(item.id);
+function markItems(db: DatabaseSync, items: ItemRow[], status: "accepted" | "rejected") {
+  const stmt = db.prepare(
+    "UPDATE proposal_items SET status = ?, resolved_at = datetime('now') WHERE id = ?",
+  );
+  for (const i of items) stmt.run(status, i.id);
 }
 
-export function acceptItem(db: DatabaseSync, itemId: number): void {
-  const item = getItem(db, itemId);
-  const group = groupOf(db, item);
-  for (const g of group)
-    if (g.status !== "pending")
-      throw new ServiceError(
-        `Item ${g.id} in this group is already ${g.status}; the group must be ruled on as a unit`,
-      );
-  withTransaction(db, () => {
-    for (const g of group) applyAccept(db, g);
-    resolveProposalIfDone(db, item.proposal_id);
-  });
-}
-
-// Rejecting requires a typed reason (spec §7.2); the type routes it.
-export function rejectItem(
+/** Accept items: the changes are applied and logged as one act. Returns the log id. */
+export function acceptItems(
   db: DatabaseSync,
-  itemId: number,
-  type: RejectionType,
-  reason: string,
-): void {
-  if (!REJECTION_TYPES.includes(type))
-    throw new ServiceError(`Rejection type must be one of: ${REJECTION_TYPES.join(", ")}`);
-  if (!reason?.trim()) throw new ServiceError("A rejection requires a reason — the reasons are the point");
+  actor: Actor,
+  itemIds: number[],
+  reason = "",
+): number {
+  requireOwner(actor, "rule on a proposal");
+  const items = itemsToRule(db, itemIds);
+  const deckId = items[0].deck_id;
 
-  const item = getItem(db, itemId);
-  const group = groupOf(db, item);
-  for (const g of group)
-    if (g.status !== "pending")
-      throw new ServiceError(
-        `Item ${g.id} in this group is already ${g.status}; the group must be ruled on as a unit`,
+  return withTransaction(db, () => {
+    // Cuts first: a swap that replaces a commander needs the seat free.
+    const changes: Change[] = [...items]
+      .sort((a, b) => Number(a.action === "add") - Number(b.action === "add"))
+      .map((i) =>
+        i.action === "add"
+          ? {
+              action: "add" as const,
+              oracle_id: i.oracle_id,
+              // A slot deleted since the proposal was made must not fail the accept.
+              slot_id:
+                i.slot_id != null &&
+                db.prepare("SELECT 1 FROM slots WHERE id = ? AND deck_id = ?").get(i.slot_id, deckId)
+                  ? i.slot_id
+                  : undefined,
+              item_id: i.id,
+              reason: i.reason,
+            }
+          : { action: "cut" as const, oracle_id: i.oracle_id, item_id: i.id, reason: i.reason },
       );
-
-  withTransaction(db, () => {
-    const revision = requireDeck(db, item.deck_id).revision; // rejections don't change the deck
-    for (const g of group) {
-      const name = requireCard(db, g.oracle_id);
-      db.prepare(
-        "UPDATE proposal_items SET status = 'rejected', resolved_at = datetime('now') WHERE id = ?",
-      ).run(g.id);
-      recordRejection(
-        db,
-        g.deck_id,
-        {
-          type,
-          reason: reason.trim(),
-          rationale: g.rationale,
-          action: g.action,
-          oracle_id: g.oracle_id,
-          card_name: name,
-          proposal_id: g.proposal_id,
-          item_id: g.id,
-        },
-        revision,
-      );
-    }
-    resolveProposalIfDone(db, item.proposal_id);
+    const logId = applyChanges(db, actor, deckId, changes, {
+      kind: "accept",
+      ruling_reason: reason,
+      proposal_id: items[0].proposal_id,
+    });
+    markItems(db, items, "accepted");
+    resolveProposalIfDone(db, items[0].proposal_id);
+    return logId!;
   });
+}
+
+/** Reject items. Nothing changes; the ruling and its optional reason are logged. */
+export function rejectItems(
+  db: DatabaseSync,
+  actor: Actor,
+  itemIds: number[],
+  reason = "",
+): number {
+  requireOwner(actor, "rule on a proposal");
+  const items = itemsToRule(db, itemIds);
+  const deckId = items[0].deck_id;
+
+  return withTransaction(db, () => {
+    const cards: LogCardInput[] = items.map((i) => ({
+      oracle_id: i.oracle_id,
+      card_name: requireCardById(db, i.oracle_id).name,
+      action: i.action,
+      item_id: i.id,
+      reason: i.reason,
+    }));
+    const logId = writeLog(
+      db,
+      actor,
+      {
+        deck_id: deckId,
+        kind: "reject",
+        summary:
+          cards.length === 1
+            ? `Rejected ${cards[0].action === "add" ? "adding" : "cutting"} ${cards[0].card_name}`
+            : `Rejected ${cards.length} proposed changes`,
+        ruling_reason: reason,
+        proposal_id: items[0].proposal_id,
+      },
+      cards,
+    );
+    markItems(db, items, "rejected");
+    resolveProposalIfDone(db, items[0].proposal_id);
+    return logId;
+  });
+}
+
+/** Every item of a proposal that is still pending. */
+export function pendingItemIds(db: DatabaseSync, proposalId: number): number[] {
+  return (
+    db
+      .prepare("SELECT id FROM proposal_items WHERE proposal_id = ? AND status = 'pending' ORDER BY id")
+      .all(proposalId) as unknown as { id: number }[]
+  ).map((r) => r.id);
 }

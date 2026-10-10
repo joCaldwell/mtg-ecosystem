@@ -118,7 +118,7 @@ export function inline(text: string): ReactNode {
   return out;
 }
 
-/** Inline markdown only — for one-line surfaces like an audit finding title. */
+/** Inline markdown only — for one-line surfaces like a proposal summary or a memory. */
 export function CardText({ text }: { text: string }) {
   return <>{inline(text)}</>;
 }
@@ -207,8 +207,8 @@ function parseBlocks(lines: string[]): ReactNode[] {
 
     const heading = HEADING.exec(line);
     if (heading) {
-      // Levels collapse at 3: these render inside a chat bubble or a finding
-      // row, where a six-step type scale has nothing to be relative to.
+      // Levels collapse at 3: these render inside a proposal row or a brief
+      // field, where a six-step type scale has nothing to be relative to.
       out.push(
         <div key={k++} className={`md-h md-h${Math.min(heading[1].length, 3)}`}>
           {inline(heading[2])}
@@ -303,7 +303,7 @@ function parseBlocks(lines: string[]): ReactNode[] {
   return out;
 }
 
-/** Block-level markdown: agent messages, audit details, reasoning summaries. */
+/** Block-level markdown: an agent's reasons, a brief's fields. */
 export function Markdown({ text, className = "" }: { text: string; className?: string }) {
   return <div className={`md ${className}`}>{parseBlocks(text.replace(/\r\n?/g, "\n").split("\n"))}</div>;
 }

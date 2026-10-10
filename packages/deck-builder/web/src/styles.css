@@ -5,20 +5,20 @@
    so the three-column layout degrades in two steps rather than scrolling
    sideways:
 
-     >= 1400px   slots | decklist | search-or-chat
-     860-1400px  [slots + search-or-chat] | decklist      (tools share a rail)
+     >= 1400px   slots | decklist | search-or-memories
+     860-1400px  [slots + search-or-memories] | decklist      (tools share a rail)
      <  860px    everything stacked, one page scroll
 
    At the top two breakpoints the deck page is an app frame: it is exactly one
    viewport tall, the document never scrolls, and each column scrolls itself.
    That puts the decklist's scrollbar on the decklist — between the deck and
-   the search/chat panel — instead of parking one document scrollbar at the far
+   the search/memories panel — instead of parking one document scrollbar at the far
    right of the window, past a panel it doesn't drive. Wheeling over a column
    then moves that column and nothing else. Stacked, the page scrolls normally
    again: a lone column has no neighbour to be confused with.
 
    Both sidebars are drag-resizable through --rail and --side-w; SidebarResize
-   saves their widths. Search/chat can also be maximized over the page.
+   saves their widths. Search/memories can also be maximized over the page.
 
    The decklist is a container-query container, so card rows shed their less
    important columns based on how wide the *column* is, not the window.
@@ -68,6 +68,8 @@
   --sp-5: 24px;
 
   --ctl-h: 31px;
+  /* The section bar above every page; the deck frame is one viewport minus it. */
+  --nav-h: 38px;
   --page-pad: 20px;
   /* Overwritten on :root by SidebarResize while dragging. */
   --rail: 280px;
@@ -438,7 +440,7 @@ select.ghost:focus {
 /* The header belongs to the workspace. Both sidebars span the entire frame,
    while the center's final row gives the deck its own scrollport. */
 .deck-page {
-  height: 100dvh;
+  height: calc(100dvh - var(--nav-h));
   display: grid;
   grid-template-columns: var(--rail) minmax(0, 1fr) var(--side-w);
   grid-template-rows: auto auto minmax(0, 1fr);
@@ -530,30 +532,11 @@ select.ghost:focus {
   font-weight: 600;
 }
 
-/* Part of the frame, so a deck with a long list of violations must not eat the
-   viewport the columns are supposed to get. */
-.violations {
-  flex: none;
-  max-height: 22vh;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  background: var(--bg-panel);
-  border: 1px solid var(--over-border);
-  border-left: 3px solid var(--over);
-  border-radius: var(--r-md);
-  margin: var(--sp-3) 0;
-  padding: var(--sp-2) var(--sp-3);
-  font-size: 13px;
-}
-.violations > div + div {
-  margin-top: 2px;
-}
-
 .columns {
   display: contents;
 }
 
-/* Dissolved at full width: slots and search/chat are their own columns. */
+/* Dissolved at full width: slots and search/memories are their own columns. */
 .rail {
   display: contents;
 }
@@ -561,7 +544,7 @@ select.ghost:focus {
   grid-area: slots;
 }
 /* The deck is the page's main scroller: its scrollbar rides its own right edge,
-   just left of the search/chat panel. `overscroll-behavior` keeps a wheel that
+   just left of the search/memories panel. `overscroll-behavior` keeps a wheel that
    runs off the end of one column from moving the one next to it. */
 .decklist {
   grid-area: deck;
@@ -680,7 +663,6 @@ body.col-resizing * {
 }
 /* Full-bleed prose is unreadable and a search grid this wide is mostly gutter,
    so the contents stay in a column and centre themselves. */
-.side-panel.is-max .chat,
 .side-panel.is-max .search-panel,
 .side-panel.is-max .tab-bar {
   width: 100%;
@@ -727,8 +709,8 @@ body.col-resizing * {
   overscroll-behavior: contain;
 }
 /* Both tabs stay mounted (SidePanel.tsx); the inactive one hides. The visible
-   wrapper is `contents`, so .search-panel and .chat remain the body's direct
-   flex children for sizing — exactly as when only one was rendered. */
+   wrapper is `contents`, so each tab's panel remains the body's direct flex
+   child for sizing — exactly as when only one was rendered. */
 .side-tab {
   display: contents;
 }
@@ -737,7 +719,7 @@ body.col-resizing * {
 }
 
 /* Split-screen territory. The two tool panels merge into one independently
-   scrolling rail — the decklist scrolls, the tools stay put — and search/chat
+   scrolling rail — the decklist scrolls, the tools stay put — and search/memories
    is ordered above slots because it's the panel you act in. */
 @media (max-width: 1400px) {
   .deck-page {
@@ -793,11 +775,7 @@ body.col-resizing * {
     height: auto;
     display: block;
     overflow: visible;
-    min-height: 100dvh;
-  }
-  .violations {
-    max-height: none;
-    overflow: visible;
+    min-height: calc(100dvh - var(--nav-h));
   }
   .columns {
     display: block;
@@ -813,15 +791,11 @@ body.col-resizing * {
     border-bottom: 1px solid var(--border);
   }
   /* Stacked, the tools sit directly on top of the decklist, so an empty search
-     panel must not reserve height it isn't using. The chat still needs a fixed
-     box — its message list scrolls inside it. Neither cap applies once the
-     panel is maximized: there it owns the page and takes all of it. */
+     panel must not reserve height it isn't using. The cap does not apply once
+     the panel is maximized: there it owns the page and takes all of it. */
   .side-panel:not(.is-max) {
     height: auto;
     max-height: 70vh;
-  }
-  .side-panel:not(.is-max):has(.side-body.is-chat) {
-    height: min(480px, 60vh);
   }
   /* Stacked, the panel is already the full page width — nothing to drag. */
   .sidebar-resize {
@@ -1215,7 +1189,7 @@ details:not(.group) > summary {
   border-radius: var(--r-lg);
   box-shadow: var(--shadow);
 }
-/* Audit findings, the export box and the segment meter all want room. */
+/* Proposals, the export box and a deck comparison all want room. */
 .modal.wide {
   width: min(94vw, 940px);
 }
@@ -1294,9 +1268,9 @@ details:not(.group) > summary {
 
 /* --- rendered markdown --------------------------------------------------
    Everything is scoped under .md and inherits the host's font size, because
-   the same agent prose renders in three places at three sizes: a chat bubble,
-   an audit finding's detail line, and the reasoning summary. Vertical rhythm
-   is collapsed hard — these are short messages in a column, not a document. */
+   the same prose renders at several sizes: a proposal's reason, a brief field,
+   a memory. Vertical rhythm is collapsed hard — these are short passages in a
+   column, not a document. */
 
 .md > :first-child {
   margin-top: 0;
@@ -1375,7 +1349,7 @@ details:not(.group) > summary {
   line-height: 1.5;
 }
 
-/* --- brief (spec §5) -----------------------------------------------------
+/* --- brief (spec §6) -----------------------------------------------------
    The panel reads before it edits. Thesis and constraints render through the
    same .md path as every other agent output — card refs peekable, lists and
    emphasis intact — and only become textareas behind their own Edit button.
@@ -1787,7 +1761,7 @@ details:not(.group) > summary {
   }
 }
 
-/* --- proposals, drafts, log -------------------------------------------- */
+/* --- proposals and the rulings log ------------------------------------- */
 
 .draft {
   border: 1px dashed var(--accent-border);
@@ -1817,10 +1791,6 @@ details:not(.group) > summary {
   border-left: 3px solid var(--accent-border);
   border-radius: var(--r-md);
   background: color-mix(in srgb, var(--bg-row) 45%, transparent);
-}
-.proposals-panel > .proposal-draft {
-  border-style: dashed;
-  background: color-mix(in srgb, var(--accent-bg) 28%, transparent);
 }
 .proposals-panel .proposal-head {
   display: flex;
@@ -2013,170 +1983,6 @@ details:not(.group) > summary {
   color: var(--fg-mute);
   padding-bottom: 2px;
 }
-
-/* --- chat --------------------------------------------------------------- */
-
-.chat {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  height: 100%;
-}
-/* The transcript yields to the composer as it grows — a low floor rather than
-   a comfortable one, because at the short end of the fixed-height breakpoints
-   the two of them together have to fit inside the panel, and the panel clips
-   what doesn't. */
-.chat-messages {
-  flex: 1;
-  min-height: 96px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-4);
-  padding: var(--sp-3) 4px var(--sp-3) 0;
-  scrollbar-gutter: stable;
-}
-.chat-msg {
-  border-radius: var(--r-md);
-  padding: 12px 14px;
-  max-width: 100%;
-  flex-shrink: 0;
-  overflow-wrap: anywhere;
-  font-size: 14px;
-  line-height: 1.7;
-}
-/* Only the user side keeps pre-wrap — what you typed is literal text, whereas
-   the assistant side is markdown whose blocks carry their own spacing. */
-.chat-msg.user {
-  background: var(--accent-bg);
-  border: 1px solid var(--accent-border);
-  max-width: 92%;
-  align-self: flex-end;
-  white-space: pre-wrap;
-}
-.chat-msg.assistant {
-  background: transparent;
-  padding-inline: 4px;
-  width: 100%;
-  align-self: flex-start;
-}
-.chat-tool {
-  font-size: 11.5px;
-  color: var(--fg-mute);
-  padding-left: 2px;
-}
-
-/* The proposal sits at the foot of the reply that argues for it, inside the
-   same bubble and bounded by it — reply and ruling are one unit of work, and a
-   panel at the full width of the column read as a separate surface. */
-.msg-proposal {
-  /* The bubble is pre-wrap for the model's own line breaks; the markup below
-     must not inherit that. */
-  white-space: normal;
-  margin-top: var(--sp-2);
-  padding-top: var(--sp-2);
-  border-top: 1px solid var(--border-hi);
-}
-.msg-proposal-head {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  font-size: 11.5px;
-  color: var(--fg-dim);
-  padding-bottom: 2px;
-}
-.msg-proposal-head .chip {
-  margin-left: auto;
-}
-/* The shared card draws a rule down its left edge to separate it from the
-   decklist around it; the bubble already does that job here. */
-.msg-proposal .proposal {
-  border-left: none;
-  padding-left: 0;
-  margin-bottom: 0;
-}
-/* A row's own background matches the bubble, so it needs to sit a shade back
-   to read as a row at all. */
-.msg-proposal .card-row {
-  background: var(--bg-panel);
-  padding: 3px var(--sp-2);
-}
-/* At the width of a message in the narrow column there is no room for name,
-   cost and both verdict buttons on one line — let them fall to a second. */
-.msg-proposal .card-main {
-  flex-wrap: wrap;
-  min-height: 24px;
-  row-gap: 2px;
-}
-/* Wrapped rows put the actions on their own line; keep them on the right edge
-   there rather than hanging under the card name. */
-.msg-proposal .row-actions {
-  margin-left: auto;
-}
-.msg-proposal .rationale {
-  padding-left: var(--sp-2);
-}
-/* One composed control rather than a bordered box sitting next to a button:
-   the form is the field, and it takes the focus ring on behalf of the textarea
-   inside it. The prompts written here are paragraphs, not search queries, so
-   the field opens several lines tall and grows with what you type; Send stays
-   at the bottom edge, beside the line you're on. A pill only reads right at
-   one line high, hence the panel radius. */
-.chat-input {
-  flex: none;
-  display: flex;
-  align-items: flex-end;
-  gap: var(--sp-2);
-  margin-top: var(--sp-3);
-  padding: 6px 6px 6px 12px;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  transition:
-    border-color 0.12s,
-    box-shadow 0.12s;
-}
-.chat-input:hover {
-  border-color: var(--border-hi);
-}
-.chat-input:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
-}
-/* ChatPanel sets `height` from the content on every keystroke. `min-height` is
-   the empty state — four lines, enough to see a real prompt taking shape —
-   and both bounds beat that inline height, so the ceiling holds however much
-   is typed. Past the ceiling the box scrolls rather than pushing the
-   transcript out of the panel; the vh term keeps that true in a short window,
-   where a fixed 320px would be most of the column. */
-.chat-input textarea {
-  flex: 1;
-  min-width: 0;
-  min-height: 76px;
-  max-height: min(30vh, 320px);
-  padding: 3px 0;
-  background: none;
-  border: none;
-  border-radius: 0;
-  resize: none;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  line-height: 1.5;
-}
-/* The ring belongs to the form, so the textarea must not draw its own. */
-.chat-input textarea:focus,
-.chat-input textarea:focus-visible {
-  border: none;
-  outline: none;
-}
-.chat-input button {
-  flex: none;
-  height: 31px;
-  padding: 0 15px;
-  border-radius: var(--r-md);
-}
 .cardref {
   color: var(--accent-fg);
   background: var(--accent-bg);
@@ -2203,31 +2009,6 @@ details:not(.group) > summary {
   text-underline-offset: 2px;
   outline: none;
 }
-.reasoning-summary {
-  padding: var(--sp-4) 0 var(--sp-5);
-  font-size: 16px;
-  line-height: 1.75;
-  color: var(--fg);
-}
-.audit-body .finding {
-  padding: var(--sp-4) 0;
-  border-inline: 0;
-  border-radius: 0;
-}
-.audit-body .finding .card-main {
-  flex-wrap: wrap;
-}
-.audit-body .finding .name {
-  white-space: normal;
-  font-size: 14px;
-  font-weight: 600;
-}
-.audit-body .finding .rationale {
-  padding-left: 0;
-  margin-top: var(--sp-2);
-  font-size: 13px;
-  line-height: 1.65;
-}
 
 /* --- interop ------------------------------------------------------------ */
 
@@ -2250,155 +2031,12 @@ details:not(.group) > summary {
   margin: var(--sp-1) 0 0;
   padding-left: 18px;
 }
-.playtest-note {
-  border-bottom: 1px solid var(--border);
-  padding-bottom: var(--sp-1);
-}
-.playtest-note .log-row {
-  border-bottom: none;
-  padding-bottom: 0;
-}
 
-/* --- context meter ------------------------------------------------------ */
+/* --- deck header ------------------------------------------------------ */
 
-.meter {
-  width: 100%;
-  border-collapse: collapse;
-  margin: var(--sp-3) 0;
-  font-size: 12px;
-}
-.meter td {
-  padding: 3px 8px 3px 0;
-  vertical-align: middle;
-}
-.meter-label {
-  white-space: nowrap;
-  color: var(--fg-dim);
-}
-.meter-bar-cell {
-  width: 45%;
-}
-.meter-bar {
-  height: 8px;
-  background: var(--accent);
-  border-radius: 999px;
-  min-width: 2px;
-}
-/* Segments that grow without bound are the ones compaction/retention act on */
-.meter-bar.grows {
-  background: var(--warn);
-}
-.meter-num {
-  text-align: right;
-  white-space: nowrap;
-  color: var(--fg-dim);
-}
-.meter-hint {
-  white-space: nowrap;
-  font-size: 11px;
-  color: var(--fg-mute);
-}
-.retention-row {
-  margin-top: var(--sp-3);
-  align-items: center;
-}
-.rescued {
-  border-left: 2px solid var(--warn);
-  padding-left: var(--sp-3);
-  margin-top: var(--sp-3);
-}
-.compacted-block {
-  border: 1px dashed var(--border);
-  border-radius: var(--r-md);
-  padding: 2px var(--sp-3);
-}
-.compacted-block > summary {
-  font-size: 12px;
-  color: var(--fg-mute);
-}
-
-/* --- audit (spec §8) ----------------------------------------------------- */
-
-/* The audit lives below the decklist rather than in a modal: a run is a
-   server-side job now, findings persist across sessions, and closing a dialog
-   should never be the thing that throws them away. A separate surface and a
-   generous gap mark the transition from deck contents to evaluation. */
-.audit-section {
-  margin-top: 40px;
-  padding: var(--sp-4);
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  scroll-margin-top: var(--sp-4);
-}
-.audit-head {
-  flex-wrap: wrap;
-  margin: 0;
-  gap: var(--sp-3);
-}
-.audit-head .rule {
-  background: none;
-}
-.audit-toggle {
-  background: none;
-  border: none;
-  padding: 0;
-  height: auto;
-  font: inherit;
-  font-size: 16px;
-  letter-spacing: -0.01em;
-  text-transform: none;
-  color: var(--fg);
-  cursor: pointer;
-}
-.audit-toggle:hover {
-  color: var(--accent);
-}
-.audit-when {
-  text-transform: none;
-  letter-spacing: 0;
-  font-weight: 400;
-}
-.audit-body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-  margin-top: var(--sp-4);
-  padding-top: var(--sp-4);
-  border-top: 1px solid var(--border);
-}
 .deck-problems-button {
   color: var(--under);
   border-color: var(--under);
-}
-.deck-checks .finding {
-  padding-block: var(--sp-3);
-}
-.deck-checks .card-main {
-  flex-wrap: wrap;
-}
-.deck-checks .name {
-  white-space: normal;
-}
-
-.audit-running {
-  border-left: 2px solid var(--accent);
-  padding-left: var(--sp-3);
-  font-size: 12px;
-}
-.audit-stale {
-  color: var(--under);
-  font-size: 12px;
-}
-/* An audit#<run>/<key> reference in the transcript — the token the agent
-   resolved, kept verbatim so the message replays identically. */
-.auditref {
-  font-family: ui-monospace, monospace;
-  font-size: 11.5px;
-  color: var(--under);
-  background: var(--under-bg);
-  border-radius: 3px;
-  padding: 0 3px;
 }
 
 /* --- workspace finish --------------------------------------------------- */
@@ -2448,27 +2086,6 @@ details:not(.group) > summary {
   background: var(--accent-bg);
   color: var(--accent-fg);
 }
-.chat-input {
-  padding: 10px;
-}
-.chat-empty {
-  margin-block: auto;
-  padding: var(--sp-5) var(--sp-3);
-  color: var(--fg-dim);
-  max-width: 34ch;
-  align-self: center;
-}
-.chat-empty h3 {
-  color: var(--fg);
-  font-size: 17px;
-  margin-bottom: var(--sp-3);
-}
-.side-panel.is-max .chat {
-  max-width: 820px;
-}
-.msg-proposal-head {
-  flex-wrap: wrap;
-}
 .md-h {
   text-transform: none;
   letter-spacing: normal;
@@ -2487,23 +2104,154 @@ details:not(.group) > summary {
   }
 }
 
-/* Tool activity is secondary to the conversation and proposals. */
-.chat-tools {
-  flex: none;
+/* --- section bar -------------------------------------------------------- */
+
+.app-nav {
+  height: var(--nav-h);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 0 var(--page-pad);
+  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border);
+}
+.app-nav .app-name {
+  margin-right: var(--sp-4);
+  font-weight: 600;
+  color: var(--fg-dim);
+  letter-spacing: 0.01em;
+}
+.app-nav a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 4px 10px;
+  border-radius: var(--r-sm);
   color: var(--fg-mute);
+  text-decoration: none;
+}
+.app-nav a:hover {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+.app-nav a.active {
+  color: var(--accent-fg);
+  background: var(--accent-bg);
+}
+
+/* --- plain pages: inbox, memories, profile, activity, settings ----------- */
+
+.page {
+  max-width: 960px;
+  margin: 40px auto 80px;
+  padding: 0 var(--page-pad);
+}
+.page .filters {
+  margin: var(--sp-4) 0;
+}
+.error-text {
+  color: var(--over);
+}
+
+/* --- deck header additions ---------------------------------------------- */
+
+.deck-status button {
+  padding: 2px 10px;
+}
+.fork-of a {
+  color: var(--fg-dim);
+}
+.proposal-all {
+  margin-left: auto;
+}
+.maybe-group {
+  opacity: 0.86;
+}
+
+/* --- memories ----------------------------------------------------------- */
+
+.memory {
+  padding: var(--sp-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+.memory.is-retired .memory-text {
+  color: var(--fg-mute);
+  text-decoration: line-through;
+}
+.memory-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
   font-size: 12px;
 }
-.chat-tools > summary {
-  width: fit-content;
-  cursor: pointer;
+.memory-text {
+  margin: var(--sp-2) 0;
+  white-space: pre-wrap;
 }
-.chat-tools > summary:hover {
-  color: var(--fg);
+.memory textarea,
+.add-memory textarea,
+.profile-body {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
 }
-.chat-tools-list {
+.memory-actions {
+  opacity: 0.75;
+}
+.memory:hover .memory-actions {
+  opacity: 1;
+}
+.add-memory {
+  margin: var(--sp-3) 0 var(--sp-4);
+}
+.memories-panel {
+  overflow-y: auto;
+}
+.profile-body {
+  margin: var(--sp-4) 0 var(--sp-3);
+  font: inherit;
+  line-height: 1.55;
+}
+
+/* --- proposed-edit diffs ------------------------------------------------- */
+
+.diff span {
+  display: block;
+}
+.diff .diff-add {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+.diff .diff-del {
+  background: var(--over-bg);
+  color: var(--over);
+}
+
+/* --- settings ----------------------------------------------------------- */
+
+.settings-section {
+  margin-top: var(--sp-5);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--border);
+}
+.settings-section h3 {
+  margin: var(--sp-4) 0 var(--sp-2);
+  font-size: 13px;
+  color: var(--fg-dim);
+}
+.copyable {
   display: flex;
-  flex-direction: column;
-  gap: var(--sp-3);
-  padding: var(--sp-3) 0 var(--sp-1) var(--sp-3);
-  overflow-wrap: anywhere;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+.copyable pre {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
 }

@@ -1,4 +1,4 @@
-// The tool panels (proposals, brief, audit, interop, session) open here rather than
+// The tool panels (proposals, brief, checks, import/export, compare) open here rather than
 // stacking above the decklist. They are reference-and-act surfaces you visit
 // and leave; as inline disclosures they pushed the actual deck an arbitrary
 // distance down the page every time one was expanded.

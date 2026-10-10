@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { openDb } from "../src/db.ts";
 import { ingestCards } from "../src/ingest.ts";
 import { FIXTURES } from "./fixtures.ts";
-import { search, resolveExactName, suggestNames, SearchError } from "../src/search/index.ts";
+import { search, SearchError } from "../src/search/index.ts";
+import { cardsNamed, suggestNames } from "../src/cards.ts";
 import { parse } from "../src/search/parse.ts";
 
 
@@ -126,7 +127,7 @@ describe("boolean logic", () => {
   });
 });
 
-describe("color identity pre-filter (spec §6.3)", () => {
+describe("color identity pre-filter (spec §4.2)", () => {
   test("out-of-identity cards never come back", () => {
     // Simulate a mono-green deck: G bit = 16
     const r = names("t:instant or t:creature", { colorIdentityMask: 16 });
@@ -135,10 +136,10 @@ describe("color identity pre-filter (spec §6.3)", () => {
   });
 });
 
-describe("exact resolution and suggestions (spec §6.4)", () => {
-  test("resolveExactName is exact only", () => {
-    assert.equal(resolveExactName(db, "Seedborn Muse").length, 1);
-    assert.equal(resolveExactName(db, "Seedborn Sage").length, 0);
+describe("exact resolution and suggestions (spec §4.3)", () => {
+  test("name lookup is exact only", () => {
+    assert.equal(cardsNamed(db, "Seedborn Muse").length, 1);
+    assert.equal(cardsNamed(db, "Seedborn Sage").length, 0);
   });
   test("suggestNames offers did-you-mean candidates", () => {
     assert.ok(suggestNames(db, "Seedborn Sage").includes("Seedborn Muse"));

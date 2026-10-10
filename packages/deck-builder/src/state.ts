@@ -1,26 +1,26 @@
 // The composite deck view: one payload with everything the deck page needs,
 // returned by every mutation so the client never reconciles partial updates.
-// Lives above deck/ and agent/ because it composes both (consolidations are
-// agent-side); deck/ itself never imports agent code.
 
 import type { DatabaseSync } from "node:sqlite";
-import { getDeck } from "./deck/service.ts";
+import { getBrief } from "./deck/brief.ts";
+import { checkDeck } from "./deck/checks.ts";
+import { listLog } from "./deck/log.ts";
 import { listProposals } from "./deck/proposals.ts";
-import { listBriefEdits } from "./deck/brief.ts";
-import { getLog, listCardNotes, listHardFilters } from "./deck/log.ts";
-import { listPlaytestNotes } from "./deck/interop.ts";
-import { listConsolidations } from "./agent/consolidate.ts";
+import { getDeck } from "./deck/service.ts";
+import { listDocumentEdits } from "./documents.ts";
+import { loadScope } from "./memory.ts";
 
 export function deckState(db: DatabaseSync, deckId: number) {
+  const memories = loadScope(db, "deck", deckId);
   return {
     ...getDeck(db, deckId),
-    proposals: listProposals(db, deckId, "open"),
-    brief_edits: listBriefEdits(db, deckId, "pending"),
-    log: getLog(db, deckId, 30),
-    hard_filters: listHardFilters(db, deckId),
-    card_notes: listCardNotes(db, deckId),
-    playtest_notes: listPlaytestNotes(db, deckId),
-    consolidations: listConsolidations(db, deckId, "pending"),
+    brief: getBrief(db, deckId),
+    checks: checkDeck(db, deckId),
+    proposals: listProposals(db, { deckId, status: "open" }),
+    document_edits: listDocumentEdits(db, { deckId, status: "pending" }),
+    log: listLog(db, { deckId, limit: 40 }),
+    // What an agent opening this deck is shown, and whether it all fit.
+    memory_budget: { budget: memories.budget, used: memories.used, omitted: memories.omitted },
   };
 }
 

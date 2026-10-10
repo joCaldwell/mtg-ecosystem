@@ -93,9 +93,9 @@ export function SlotPanel() {
 
   const curve = Object.entries(computed.curve);
   const curveMax = Math.max(...curve.map(([, n]) => n), 1);
-  // Ownership stays in the UI: it must never enter the agent's computed state.
-  const countedCards = cards.filter((c) => c.role !== "companion" && !c.maybeboard);
-  const owned = countedCards.reduce((n, c) => n + (c.owned ? c.quantity : 0), 0);
+  // Paper status stays in the UI: it is in no default view an agent gets (spec §5.5).
+  const countedCards = cards.filter((c) => c.role !== "companion" && !c.maybe);
+  const inPaper = countedCards.reduce((n, c) => n + (c.in_paper ? c.quantity : 0), 0);
   const remaining = 100 - computed.card_count;
 
   return (
@@ -118,8 +118,8 @@ export function SlotPanel() {
           <div title="Average mana value of nonland cards, including commanders; excludes companion and maybe list.">
             <dt>Avg. MV <span>(nonland)</span></dt><dd>{computed.average_mana_value?.toFixed(2) ?? "—"}</dd>
           </div>
-          <div><dt>Owned</dt><dd>{owned}</dd></div>
-          <div><dt>Missing</dt><dd>{computed.card_count - owned}</dd></div>
+          <div title="Cards physically in the paper deck"><dt>In paper</dt><dd>{inPaper}</dd></div>
+          <div title="Cards not yet in the paper deck"><dt>Missing</dt><dd>{computed.card_count - inPaper}</dd></div>
         </dl>
         {(computed.pending.adds > 0 || computed.pending.cuts > 0) && (
           <p className="overview-pending">

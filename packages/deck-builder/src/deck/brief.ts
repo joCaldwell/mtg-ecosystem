@@ -1,8 +1,15 @@
+// The deck brief (spec §6): thesis and constraints as freeform markdown,
+// engines as structured records whose pieces are card references — so "is
+// every piece of this engine in the deck" is a check, not a judgement.
+//
+// These are the direct writes. The owner always uses them; an agent uses
+// them only on a draft, and otherwise proposes through documents.ts.
+
 import type { DatabaseSync } from "node:sqlite";
 import { ServiceError } from "../errors.ts";
 import { withTransaction } from "../db.ts";
-import { requireCard, requireDeck } from "./service.ts";
-import { logEntry } from "./log.ts";
+import { requireCardById } from "../cards.ts";
+import { requireDeck } from "./service.ts";
 
 export interface EngineView {
   id: number;
@@ -28,9 +35,11 @@ export function getBrief(db: DatabaseSync, deckId: number): BriefView {
     .prepare("SELECT id, name, description FROM engines WHERE deck_id = ? ORDER BY name")
     .all(deckId) as unknown as Array<{ id: number; name: string; description: string }>;
 
+  // A piece parked on the maybe list is not in the deck.
   const pieceStmt = db.prepare(
     `SELECT ep.oracle_id, c.name, ep.note,
-            EXISTS(SELECT 1 FROM deck_cards dc WHERE dc.deck_id = ? AND dc.oracle_id = ep.oracle_id) AS in_deck
+            EXISTS(SELECT 1 FROM deck_cards dc
+                   WHERE dc.deck_id = ? AND dc.oracle_id = ep.oracle_id AND dc.maybe = 0) AS in_deck
      FROM engine_pieces ep JOIN cards c ON c.oracle_id = ep.oracle_id
      WHERE ep.engine_id = ? ORDER BY c.name`,
   );
@@ -51,13 +60,11 @@ export function getBrief(db: DatabaseSync, deckId: number): BriefView {
   };
 }
 
-// Direct edits by the user — no gate (spec §5: "editable by me directly").
 export function updateBrief(
   db: DatabaseSync,
   deckId: number,
   patch: { thesis?: string; constraints_md?: string },
 ): void {
-  requireDeck(db, deckId);
   const current = getBrief(db, deckId);
   db.prepare(
     `INSERT INTO briefs (deck_id, thesis, constraints_md, updated_at)
@@ -67,30 +74,33 @@ export function updateBrief(
   ).run(deckId, patch.thesis ?? current.thesis, patch.constraints_md ?? current.constraints_md);
 }
 
-function validatePieces(db: DatabaseSync, oracleIds: string[]) {
-  for (const oid of oracleIds) requireCard(db, oid);
+export interface EnginePieceInput {
+  oracle_id: string;
+  note?: string;
 }
 
+/** Create the engine, or replace the one of the same name. */
 export function setEngine(
   db: DatabaseSync,
   deckId: number,
   name: string,
   description: string,
-  pieces: Array<{ oracle_id: string; note?: string }>,
+  pieces: EnginePieceInput[],
 ): number {
   requireDeck(db, deckId);
-  if (!name.trim()) throw new ServiceError("Engine name cannot be empty");
-  validatePieces(db, pieces.map((p) => p.oracle_id));
+  const trimmed = name.trim();
+  if (!trimmed) throw new ServiceError("Engine name cannot be empty");
+  for (const p of pieces) requireCardById(db, p.oracle_id);
 
   return withTransaction(db, () => {
     const existing = db
       .prepare("SELECT id FROM engines WHERE deck_id = ? AND name = ? COLLATE NOCASE")
-      .get(deckId, name.trim()) as { id: number } | undefined;
+      .get(deckId, trimmed) as { id: number } | undefined;
     let engineId: number;
     if (existing) {
       engineId = existing.id;
       db.prepare("UPDATE engines SET name = ?, description = ? WHERE id = ?").run(
-        name.trim(),
+        trimmed,
         description,
         engineId,
       );
@@ -98,13 +108,17 @@ export function setEngine(
     } else {
       const r = db
         .prepare("INSERT INTO engines (deck_id, name, description) VALUES (?, ?, ?)")
-        .run(deckId, name.trim(), description);
+        .run(deckId, trimmed, description);
       engineId = Number(r.lastInsertRowid);
     }
     const ins = db.prepare(
       "INSERT OR IGNORE INTO engine_pieces (engine_id, oracle_id, note) VALUES (?, ?, ?)",
     );
     for (const p of pieces) ins.run(engineId, p.oracle_id, p.note ?? "");
+    db.prepare(
+      `INSERT INTO briefs (deck_id) VALUES (?)
+       ON CONFLICT(deck_id) DO UPDATE SET updated_at = datetime('now')`,
+    ).run(deckId);
     return engineId;
   });
 }
@@ -114,147 +128,17 @@ export function removeEngine(db: DatabaseSync, deckId: number, engineId: number)
   if (!r.changes) throw new ServiceError(`Engine ${engineId} not found in deck ${deckId}`, 404);
 }
 
-// ---------- agent-proposed edits (approval gate, spec §5) ----------
-
-export type BriefEditKind = "thesis" | "constraints" | "engine_set" | "engine_remove";
-
-export interface BriefEditPayload {
-  content?: string; // thesis / constraints
-  engine_name?: string;
-  description?: string;
-  pieces?: Array<{ oracle_id: string; note?: string }>;
-}
-
-export function proposeBriefEdit(
-  db: DatabaseSync,
-  deckId: number,
-  kind: BriefEditKind,
-  payload: BriefEditPayload,
-  rationale: string,
-  source: "agent" | "consolidation" = "agent",
-): number {
-  requireDeck(db, deckId);
-  if (!rationale?.trim()) throw new ServiceError("A brief edit needs a rationale");
-  if ((kind === "thesis" || kind === "constraints") && payload.content === undefined)
-    throw new ServiceError(`A ${kind} edit needs 'content'`);
-  if (kind === "engine_set") {
-    if (!payload.engine_name?.trim()) throw new ServiceError("engine_set needs 'engine_name'");
-    validatePieces(db, (payload.pieces ?? []).map((p) => p.oracle_id));
-  }
-  if (kind === "engine_remove" && !payload.engine_name?.trim())
-    throw new ServiceError("engine_remove needs 'engine_name'");
-
-  const r = db
-    .prepare(
-      "INSERT INTO brief_edits (deck_id, kind, payload_json, rationale, source) VALUES (?, ?, ?, ?, ?)",
-    )
-    .run(deckId, kind, JSON.stringify(payload), rationale.trim(), source);
-  return Number(r.lastInsertRowid);
-}
-
-// Rows leave this module parsed — no _json column crosses the boundary.
-export function listBriefEdits(db: DatabaseSync, deckId: number, status?: string) {
-  return (
-    db
-      .prepare(
-        `SELECT id, kind, payload_json, rationale, source, status, created_at FROM brief_edits
-         WHERE deck_id = ? ${status ? "AND status = ?" : ""} ORDER BY id DESC`,
-      )
-      .all(...(status ? [deckId, status] : [deckId])) as unknown as Array<{
-      id: number;
-      kind: BriefEditKind;
-      payload_json: string;
-      rationale: string;
-      source: string;
-      status: string;
-      created_at: string;
-    }>
-  ).map(({ payload_json, ...e }) => ({
-    ...e,
-    payload: JSON.parse(payload_json) as BriefEditPayload,
-  }));
-}
-
-function getPendingEdit(db: DatabaseSync, deckId: number, editId: number) {
-  const edit = db
-    .prepare("SELECT * FROM brief_edits WHERE id = ? AND deck_id = ?")
-    .get(editId, deckId) as
-    | { id: number; kind: BriefEditKind; payload_json: string; rationale: string; status: string }
-    | undefined;
-  if (!edit) throw new ServiceError(`Brief edit ${editId} not found`, 404);
-  if (edit.status !== "pending") throw new ServiceError(`Brief edit ${editId} is already ${edit.status}`);
-  return edit;
-}
-
-function logBriefDecision(
-  db: DatabaseSync,
-  deckId: number,
-  kind: "accept" | "reject",
-  summary: string,
-  rejection?: { type: string; reason: string },
-) {
-  logEntry(
-    db,
-    deckId,
-    {
-      kind,
-      rationale: summary,
-      rejection_type: rejection?.type ?? null,
-      rejection_reason: rejection?.reason ?? null,
-    },
-    requireDeck(db, deckId).revision,
-  );
-}
-
-export function acceptBriefEdit(db: DatabaseSync, deckId: number, editId: number): void {
-  const edit = getPendingEdit(db, deckId, editId);
-  const payload = JSON.parse(edit.payload_json) as BriefEditPayload;
-
-  withTransaction(db, () => {
-    switch (edit.kind) {
-      case "thesis":
-        updateBrief(db, deckId, { thesis: payload.content ?? "" });
-        break;
-      case "constraints":
-        updateBrief(db, deckId, { constraints_md: payload.content ?? "" });
-        break;
-      case "engine_set":
-        setEngine(db, deckId, payload.engine_name!, payload.description ?? "", payload.pieces ?? []);
-        break;
-      case "engine_remove": {
-        const engine = db
-          .prepare("SELECT id FROM engines WHERE deck_id = ? AND name = ? COLLATE NOCASE")
-          .get(deckId, payload.engine_name!) as { id: number } | undefined;
-        if (engine) removeEngine(db, deckId, engine.id);
-        break;
-      }
-    }
-    db.prepare(
-      "UPDATE brief_edits SET status = 'accepted', resolved_at = datetime('now') WHERE id = ?",
-    ).run(editId);
-    logBriefDecision(db, deckId, "accept", `Brief edit accepted (${edit.kind}): ${edit.rationale}`);
-  });
-}
-
-export function rejectBriefEdit(
-  db: DatabaseSync,
-  deckId: number,
-  editId: number,
-  type: string,
-  reason: string,
-): void {
-  if (!reason?.trim()) throw new ServiceError("Rejecting a brief edit requires a reason");
-  const edit = getPendingEdit(db, deckId, editId);
-  withTransaction(db, () => {
-    db.prepare(
-      "UPDATE brief_edits SET status = 'rejected', resolved_at = datetime('now') WHERE id = ?",
-    ).run(editId);
-    logBriefDecision(
-      db,
-      deckId,
-      "reject",
-      `Brief edit rejected (${edit.kind}): ${edit.rationale}`,
-      { type, reason: reason.trim() },
+export function removeEngineByName(db: DatabaseSync, deckId: number, name: string): void {
+  const engine = db
+    .prepare("SELECT id FROM engines WHERE deck_id = ? AND name = ? COLLATE NOCASE")
+    .get(deckId, name.trim()) as { id: number } | undefined;
+  if (!engine) {
+    const names = getBrief(db, deckId).engines.map((e) => e.name);
+    throw new ServiceError(
+      `This deck has no engine named '${name}'.` +
+        (names.length ? ` Its engines are: ${names.join(", ")}.` : " It defines none."),
+      404,
     );
-  });
+  }
+  removeEngine(db, deckId, engine.id);
 }

@@ -1,9 +1,9 @@
 # MTG Commander Deck Builder — Build Spec (v2)
 
 > Rewritten 2026-10-10. This replaces the 2026-07-26 spec, which is in git
-> history. It was designed as if no code existed: the code in
-> `packages/deck-builder` predates it, and whether any of that code is reused
-> is an implementation decision, not a constraint on this document.
+> history. It was designed as if no code existed. `packages/deck-builder` was
+> then rebuilt against it the same day; places where building it corrected or
+> sharpened this document are marked *(as built)*.
 >
 > **Decisions settled with Josh on 2026-10-10:**
 > - The app makes no AI model calls. Agents are external and reach it through a documented interface (§10).
@@ -145,8 +145,10 @@ A deck is either **draft** or **active**. Only the owner changes this.
 | Owner changes anything | Directly | Directly |
 | Changes are logged with author and revision | Yes | Yes |
 
-Decks an agent creates start as drafts. A fork starts as a draft. The owner
-may return an active deck to draft for a rebuild. This is what makes
+Every new deck starts as a draft, whoever creates it *(as built: the owner's
+new decks too, since an empty deck is a draft by any definition)*. A fork
+starts as a draft. The owner makes a deck active when it is ready, and may
+return an active deck to draft for a rebuild. This is what makes
 "build me a first 100" workable: a hundred cards do not go through a
 per-item gate.
 
@@ -156,6 +158,10 @@ per-item gate.
 new draft, and records the parent. The copies then diverge independently; the
 parent link exists so the two can be compared (`compare_decks` defaults to
 the parent) and so an agent working on the fork can read where it came from.
+
+The owner can also record a parent on an existing deck, or clear it: a deck
+copied by hand has no link until one is set, and with one it compares and
+inherits history like any fork.
 
 Forks replace named checkpoints. There is no snapshot system and no DAG.
 
@@ -310,13 +316,21 @@ too slow for this list". This is a lookup the app does every time. It replaces
 the old hard filter without asking the owner to classify anything and without
 depending on an agent remembering to check.
 
+A fork inherits this history from the decks it descends from, each entry
+labelled with the deck it was made in *(as built: a fork starts with no rulings
+of its own, and the first agent to rework one said it had nothing to read)*.
+History does not flow the other way.
+
 An agent may re-propose a rejected card. The playbook requires it to cite the
 prior ruling and say what changed.
 
 ### 8.4 The review queue
 
 The owner often rules while no agent is running. Each ruling therefore has a
-`reviewed` mark, unset until an agent has read it. `start_session` reports how
+`reviewed` mark, unset until an agent has read it. *(As built: the queue holds
+every ruling on a proposal or a proposed edit, and every direct change the
+owner makes to an active deck. What an agent did itself, and the owner
+assembling a draft card by card, are not queued.)* `start_session` reports how
 many rulings are unreviewed, `list_rulings` returns them, and
 `mark_rulings_reviewed` clears them once the agent has decided what, if
 anything, is worth a memory. A reason given in the app is never lost for lack
@@ -356,7 +370,9 @@ memories and proposed brief edits, not as a stored report.
 - Bound to `127.0.0.1`. That is not an authentication boundary: the endpoint also requires a bearer token (generated on first run) and validates the `Origin` header, so a web page in the owner's browser cannot call it.
 - A small **stdio shim** proxies to the endpoint for clients that only launch stdio servers.
 - The settings page shows the token and ready-to-paste configuration for common clients.
-- Use the official MCP TypeScript SDK. The protocol had a breaking revision in July 2026 (stateless requests, no `initialize` handshake) and clients will speak a mix of revisions for some time; that is not worth hand-rolling.
+- Use the official MCP TypeScript SDK. The protocol had a breaking revision in July 2026 (stateless requests, no `initialize` handshake) and clients will speak a mix of revisions for some time; that is not worth hand-rolling. *(As built: the SDK's v2 line, `@modelcontextprotocol/server`, which implements the 2026-07-28 revision and serves 2025-revision clients statelessly from the same handler. The older `@modelcontextprotocol/sdk` package stops at 2025-11-25.)*
+- The UI's own API has no token, so it is closed to other sites the same way: a request whose Host is not loopback, or whose Origin is present and not loopback, is refused.
+- **Attribution.** A 2026-07-28 client names itself on every request. A 2025-revision client named itself only in its handshake, which a stateless server does not keep, so the endpoint also accepts a label in the URL (`/mcp/claude-code`); the Settings page generates configuration with one.
 
 ### 10.2 Design principles
 
@@ -458,7 +474,7 @@ reload.
 Construction happens here. Playtesting and goldfishing happen in Archidekt.
 
 - **Export:** an Archidekt-importable list, optionally filtered to cards missing in paper.
-- **Import:** the owner pastes a list; the app diffs it against the deck, shows the diff with destructive cuts called out first, and applies it in full on confirmation. It is one rulings-log entry with a snapshot, so one undo reverts it.
+- **Import:** the owner pastes a list; the app diffs it against the deck, shows the diff with destructive cuts called out first, and applies it in full on confirmation. It is one rulings-log entry, so one undo reverts it. Lines in a `Maybeboard` or `Sideboard` category are shortlisted on the maybe list, not added, and the preview says so.
 - One-way out, one-way in. No sync layer.
 
 Verify Archidekt's text format against its own documentation and cite the
@@ -496,9 +512,24 @@ the one above it.
 6. **Method and evaluation.** The Agent Skill, and a set of realistic multi-step tasks ("rework this fork toward a new thesis", "what should I build next") run against a real agent, with transcripts read and the tools revised from what they show.
 7. **Interop.** Archidekt export and import.
 
-## 15. To verify at build time
+## 15. Verified at build time
 
-- Which MCP protocol revisions the SDK and the owner's clients speak, and whether those clients read server `instructions`.
-- Whether those clients prompt for permission on every tool call. If so, the memory and organization tools need allowlisting in the client for unapproved writes to be quiet in practice.
-- Whether full-text search stays adequate for memories as they accumulate. Embeddings are excluded by §2; the fallback is better linking and consolidation.
-- The memory budgets in §7.4, against real use.
+Checked on 2026-10-10 while building; recorded here so the next change starts
+from what is known.
+
+- **Protocol revisions.** The official SDK's v2 packages (2.3.1) implement 2026-07-28 and fall back statelessly for 2025-revision clients; both paths are covered by tests that use the official client. Claude Code 2.1.296 connected speaking 2026-07-28. The SDK's own client still defaults to the 2025 handshake, so other clients should be expected to speak either.
+- **Server `instructions`.** Delivered in both eras (asserted in tests). Claude Code called `start_session` first in every real run, unprompted. No other client was checked.
+- **Permission prompts.** Claude Code refuses each tool call until the server is allowed: a run without an allowlist was denied `start_session`. Allowing `mcp__deck-builder` (the `--allowedTools` flag, or `permissions.allow` in its settings) makes every tool, including the unapproved writes, run without asking. The Settings page shows the snippet.
+- **Real-agent evaluation.** Seven tasks against a copy of real decks, Claude Code with a Sonnet model, given nothing but the tools (one run also had the Agent Skill installed): find and fix what most needs fixing in a deck; say what the owner builds and draft the next deck; rework a deck as a fork; list what is missing in paper; evaluate a deck against its brief; catch up on rulings and suggest cards; tidy cluttered memories. All seven completed. Three tool calls failed across them, each recovered in one step: an unsupported search key, and the two below.
+- **What the transcripts changed.** (1) Forks now inherit their parents' rulings (§8.3). (2) `fork_deck` says to rewrite the thesis first; the agent that was not told left the parent's brief on a deck with a new aim. (3) The paper list carries type lines; an agent sorting bare names by kind got two wrong. (4) Every tool calls a body of prose `text`; an agent wrote `content` to `remember` after seeing it on another tool. (5) `list_rulings` ends with the exact `mark_rulings_reviewed` call; an agent first tried it with no arguments.
+- **Full-text search for memories.** Adequate at the two dozen that exist. Not tested at the hundreds §7.4 anticipates.
+- **Memory budgets.** The over-budget signal worked in a real run: a scope pushed past its budget was consolidated when the owner asked for a tidy-up. The default sizes themselves are untested against long use; they are settings.
+- **Output sizes.** A full 100-card deck reads at 4–7k estimated tokens; `start_session` at about 1.5k.
+
+## 16. Not verified
+
+Everything in §1–§14 is built. What has not been checked:
+
+- Any client other than Claude Code.
+- The "download the latest card data" button, which was not pressed: it rewrites the bulk file the oracle parser shares. The code under it is the same `refresh` command the CLI runs.
+- The evaluation was run once per task, on one model, with tasks written by the same hand as the tools. It shows the interface works; it does not measure how often.

@@ -118,4 +118,30 @@ export const FIXTURES: ScryfallCard[] = [
     power: "2", toughness: "2", colors: ["R"], color_identity: ["R"],
     layout: "normal", legalities: { commander: "legal" },
   },
+  // A real name collision (verified against the card data): the back face of
+  // one card is the full name of another. Exact resolution has to pick the
+  // card actually called "Rampant Growth".
+  {
+    oracle_id: "id-rampant", name: "Rampant Growth", mana_cost: "{1}{G}", cmc: 2,
+    type_line: "Sorcery",
+    oracle_text: "Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle.",
+    colors: ["G"], color_identity: ["G"], layout: "normal", legalities: { commander: "legal" },
+  },
+  {
+    oracle_id: "id-firstyear", name: "Studious First-Year // Rampant Growth", cmc: 1,
+    type_line: "Creature — Bear Wizard // Sorcery", color_identity: ["G"], layout: "prepare",
+    legalities: { commander: "legal" },
+    card_faces: [
+      {
+        name: "Studious First-Year", mana_cost: "{G}", type_line: "Creature — Bear Wizard",
+        oracle_text: "This creature enters prepared. (While it's prepared, you may cast a copy of its spell. Doing so unprepares it.)",
+        power: "1", toughness: "1", colors: ["G"],
+      },
+      {
+        name: "Rampant Growth", mana_cost: "{1}{G}", type_line: "Sorcery",
+        oracle_text: "Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle.",
+        colors: ["G"],
+      },
+    ],
+  },
 ];

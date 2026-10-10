@@ -180,7 +180,7 @@ function compileFilter(key: string, op: Op, value: string, ctx: CompileContext):
         throw new SearchError("'slot:' filters require a deck context");
       if (value.toLowerCase() === "none")
         return {
-          sql: "oracle_id IN (SELECT oracle_id FROM deck_cards WHERE deck_id = ? AND slot_id IS NULL AND role != 'companion')",
+          sql: "oracle_id IN (SELECT oracle_id FROM deck_cards WHERE deck_id = ? AND slot_id IS NULL AND role = 'card' AND maybe = 0)",
           params: [ctx.deckId],
         };
       return {
