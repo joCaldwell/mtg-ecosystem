@@ -1,0 +1,29 @@
+.value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.snippet {
+  position: relative;
+}
+
+.code {
+  margin: 0;
+  padding: var(--s-5) var(--s-6);
+  padding-right: calc(var(--s-8) * 2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.copy {
+  position: absolute;
+  top: var(--s-4);
+  right: var(--s-4);
+}

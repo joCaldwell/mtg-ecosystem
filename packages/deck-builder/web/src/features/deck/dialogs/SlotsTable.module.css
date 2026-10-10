@@ -1,0 +1,43 @@
+.table td {
+  padding-top: var(--s-2);
+  padding-bottom: var(--s-2);
+}
+
+.num {
+  width: 72px;
+  font-family: var(--font-mono);
+  text-align: right;
+}
+
+.numHead {
+  text-align: right;
+}
+
+.count {
+  width: 140px;
+}
+
+.status {
+  margin-left: var(--s-4);
+}
+
+.actions {
+  width: 1%;
+  text-align: right;
+}
+
+.confirm {
+  padding-top: 0;
+}
+
+.addRow td {
+  border-bottom: 0;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}

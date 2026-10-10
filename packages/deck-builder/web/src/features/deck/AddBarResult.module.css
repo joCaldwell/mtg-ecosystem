@@ -1,0 +1,60 @@
+.result {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--s-1) var(--s-5);
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-md);
+  cursor: pointer;
+}
+
+.result:hover {
+  background: var(--hover);
+}
+
+/* The keyboard's position in the list is the owner's focus, so it is blue. */
+.highlighted,
+.highlighted:hover {
+  background: var(--sel-bg);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  min-width: 0;
+}
+
+.name {
+  flex: none;
+  font-weight: 550;
+}
+
+.type {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--faint);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flags {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.text,
+.said {
+  --sym-size: calc(var(--text-sm) * 1.1);
+  grid-column: 1 / -1;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.said {
+  color: var(--cut);
+}

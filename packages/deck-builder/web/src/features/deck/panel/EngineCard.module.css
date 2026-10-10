@@ -1,0 +1,29 @@
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  min-width: 0;
+}
+
+.name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 650;
+}
+
+.actions {
+  display: flex;
+  margin-left: auto;
+  gap: var(--s-1);
+}
+
+.description {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.pieces {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}

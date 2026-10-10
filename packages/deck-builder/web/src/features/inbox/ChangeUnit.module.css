@@ -1,0 +1,41 @@
+.unit {
+  gap: var(--s-1);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  min-width: 0;
+}
+
+.add,
+.cut {
+  flex: none;
+  width: var(--s-6);
+  font-family: var(--font-mono);
+}
+
+.add {
+  color: var(--add);
+}
+
+.cut {
+  color: var(--cut);
+}
+
+.name {
+  /* Long names wrap here and push the cost and slot chip along, not out. */
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The chip and cost stay whole; the name gives way. */
+.item > :not(.name) {
+  flex: none;
+}
+
+.kind {
+  padding-left: var(--s-6);
+}

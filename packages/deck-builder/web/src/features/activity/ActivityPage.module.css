@@ -1,0 +1,98 @@
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-3);
+}
+
+.pill {
+  height: var(--h-sm);
+  padding: 0 var(--s-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background: none;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.pill:hover {
+  color: var(--text);
+}
+
+.pillOn {
+  background: var(--raised);
+  border-color: var(--faint);
+  color: var(--text);
+}
+
+.sessions {
+  display: grid;
+  gap: var(--s-5);
+}
+
+.session {
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-5);
+  padding: var(--s-4) var(--s-5);
+  border-bottom: 1px solid var(--line);
+}
+
+.decks {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.decks a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.when {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--faint);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.event {
+  display: grid;
+  grid-template-columns: 46px 112px minmax(0, 1fr) auto;
+  gap: var(--s-5);
+  align-items: baseline;
+  padding: var(--s-3) var(--s-5);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--text-sm);
+}
+
+.event:last-child {
+  border-bottom: 0;
+}
+
+.time {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--faint);
+}
+
+.verb {
+  color: var(--muted);
+}
+
+.summary {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

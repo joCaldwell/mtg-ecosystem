@@ -1,0 +1,17 @@
+.section {
+  display: grid;
+  gap: var(--s-3);
+  align-content: start;
+  min-width: 0;
+}
+
+.all {
+  justify-self: start;
+  color: var(--sel);
+  font-size: var(--text-sm);
+}
+
+.all:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

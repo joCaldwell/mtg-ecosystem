@@ -1,0 +1,32 @@
+/* Card proportions are 488 x 680 and the corners are a fixed fraction of
+   them, so the radius is in percentages and scales with the width. */
+.frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 488 / 680;
+  border-radius: 4.75% / 3.4%;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.image {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--s-6);
+  border: 1px dashed var(--line-strong);
+  border-radius: inherit;
+  color: var(--faint);
+  font-size: var(--text-sm);
+  text-align: center;
+}

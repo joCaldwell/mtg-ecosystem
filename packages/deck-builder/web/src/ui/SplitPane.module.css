@@ -1,0 +1,28 @@
+.split {
+  display: grid;
+  /* 360px: the side panel's width less one large step. */
+  grid-template-columns: calc(var(--panel-w) - var(--s-8)) minmax(0, 1fr);
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+}
+
+.list {
+  display: grid;
+  gap: var(--s-2);
+  align-content: start;
+  min-height: 0;
+  padding: var(--s-4);
+  border-right: 1px solid var(--line);
+  overflow: auto;
+}
+
+.detail {
+  display: grid;
+  gap: var(--s-6);
+  align-content: start;
+  min-height: 0;
+  max-width: calc(var(--measure) + var(--s-8));
+  padding: var(--s-6) var(--s-7) calc(var(--s-8) * 2);
+  overflow: auto;
+}

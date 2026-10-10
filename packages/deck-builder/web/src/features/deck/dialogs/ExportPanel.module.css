@@ -1,0 +1,13 @@
+.panel {
+  padding-top: var(--s-6);
+}
+
+.text {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: pre;
+}
+
+.empty {
+  padding: var(--s-6) 0;
+}

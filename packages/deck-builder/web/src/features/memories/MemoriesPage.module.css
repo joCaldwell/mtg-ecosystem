@@ -1,0 +1,106 @@
+.budgets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-5);
+}
+
+.budgetHead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-4);
+}
+
+.budgetTitle {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.grow {
+  flex: 1;
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.small {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-3) var(--s-6);
+}
+
+.group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-3);
+}
+
+/* Pill toggles: a Chip cannot show "selected", and these are state, not tags. */
+.pill {
+  height: var(--h-sm);
+  padding: 0 var(--s-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background: none;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.pill:hover {
+  color: var(--text);
+}
+
+.pillOn {
+  background: var(--raised);
+  border-color: var(--faint);
+  color: var(--text);
+}
+
+.search {
+  width: 240px;
+  margin-left: auto;
+}
+
+.listHead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-4);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.list {
+  display: grid;
+  gap: var(--s-4);
+}
+
+.note {
+  margin: 0;
+  padding-left: var(--s-5);
+  border-left: 2px solid var(--line-strong);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.note b {
+  color: var(--text-soft);
+  font-weight: 600;
+}
+
+.addTo {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}

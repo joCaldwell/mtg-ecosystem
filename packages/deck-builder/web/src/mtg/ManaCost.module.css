@@ -1,0 +1,17 @@
+.cost {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  vertical-align: middle;
+}
+
+.face {
+  display: inline-flex;
+  gap: var(--s-1);
+}
+
+.slash {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}

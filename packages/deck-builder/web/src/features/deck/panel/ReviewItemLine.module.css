@@ -1,0 +1,54 @@
+.item {
+  display: grid;
+  padding: var(--s-3) var(--s-5) var(--s-2);
+}
+
+.line {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  min-width: 0;
+}
+
+.sign {
+  width: var(--s-5);
+  flex: none;
+  font: 700 var(--text-md) var(--font-mono);
+}
+
+/* The card name button takes the add or cut colour from the line. */
+.add .sign,
+.add .name button {
+  color: var(--add);
+}
+
+.cut .sign,
+.cut .name button {
+  color: var(--cut);
+}
+
+.name {
+  min-width: 0;
+  font-weight: 600;
+}
+
+.slot {
+  margin-left: auto;
+  flex: none;
+}
+
+.why {
+  padding: var(--s-1) 0 var(--s-2) calc(var(--s-5) + var(--s-4));
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  line-height: var(--leading-prose);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

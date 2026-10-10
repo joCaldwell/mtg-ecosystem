@@ -1,0 +1,78 @@
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--s-5);
+  align-items: start;
+}
+
+.block {
+  display: grid;
+  gap: var(--s-4);
+  align-content: start;
+}
+
+.bars,
+.rows {
+  display: grid;
+  gap: var(--s-3);
+}
+
+.bar {
+  display: grid;
+  grid-template-columns: auto 1fr 3ch;
+  gap: var(--s-4);
+  align-items: center;
+}
+
+.bar > :last-child {
+  text-align: right;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+}
+
+.slot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-5);
+}
+
+.slotName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+}
+
+.reused {
+  margin: 0;
+  padding: 0;
+  columns: 4 200px;
+  column-gap: var(--s-7);
+  list-style: none;
+}
+
+.reused li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-4);
+  padding: var(--s-1) 0;
+  break-inside: avoid;
+}
+
+/* Room for five discs, so the counts line up down the column. */
+.pips {
+  display: inline-flex;
+  min-width: calc(var(--s-8) * 3);
+}

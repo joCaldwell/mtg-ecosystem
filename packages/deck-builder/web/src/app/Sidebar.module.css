@@ -1,0 +1,126 @@
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-6) var(--s-6) var(--s-5);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.mark {
+  width: var(--s-6);
+  height: var(--s-6);
+  border-radius: var(--r-sm);
+  background: linear-gradient(135deg, var(--mana-u) 0 33%, var(--mana-b-ring) 33% 66%, var(--mana-r) 66%);
+}
+
+.nav,
+.decks {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 var(--s-4);
+}
+
+.decks {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.nav a,
+.decks a {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-2) var(--s-4);
+  border-radius: var(--r-md);
+  color: var(--muted);
+}
+
+.nav a:hover,
+.decks a:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.nav a.current,
+.decks a.current {
+  background: var(--raised);
+  color: var(--text);
+}
+
+.end {
+  margin-left: auto;
+}
+
+.heading {
+  padding: var(--s-6) var(--s-6) var(--s-2);
+}
+
+.decks a.fork {
+  padding-left: var(--s-7);
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.draft {
+  color: var(--warn);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.presence {
+  display: grid;
+  gap: var(--s-3);
+  padding: var(--s-5) var(--s-6);
+  border-top: 1px solid var(--line);
+  font-size: var(--text-sm);
+}
+
+.who {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-width: 0;
+}
+
+.agent {
+  overflow: hidden;
+  color: var(--agent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.when {
+  flex: none;
+  color: var(--faint);
+}
+
+.focus {
+  padding: var(--s-3) var(--s-4);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.focus b {
+  color: var(--text);
+  font-weight: 550;
+}

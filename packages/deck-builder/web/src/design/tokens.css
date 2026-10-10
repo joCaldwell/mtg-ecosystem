@@ -1,0 +1,108 @@
+/* Design tokens. Every colour, size and radius in the UI comes from here;
+   component CSS never states a raw value. See web/DESIGN.md for the rules.
+
+   Colour carries meaning and nothing else:
+     agent  (violet) — an agent wrote or proposed this
+     add    (green)  — a card coming in; a rule that passes; an accept
+     cut    (red)    — a card going out; a rule that fails; a reject
+     warn   (amber)  — off target, missing, draft
+     sel    (blue)   — the owner's own selection and keyboard focus          */
+
+:root {
+  /* Surfaces, darkest to lightest */
+  --bg: #0d0e10;
+  --surface: #141619;
+  --raised: #1a1d21;
+  --hover: #1f2328;
+  --overlay: #1d2126;
+  --line: #24282e;
+  --line-strong: #323841;
+  /* Behind a dialog */
+  --scrim: rgba(13, 14, 16, 0.7);
+
+  /* Text */
+  --text: #e4e7eb;
+  --text-soft: #cfd3d9;
+  --muted: #8d949e;
+  --faint: #5c636d;
+
+  /* Meaning. Each has a foreground, a tinted background and a border. */
+  --agent: #a78bfa;
+  --agent-bg: rgba(167, 139, 250, 0.12);
+  --agent-line: rgba(167, 139, 250, 0.4);
+  --add: #57c785;
+  --add-bg: rgba(87, 199, 133, 0.1);
+  --add-line: rgba(87, 199, 133, 0.4);
+  --cut: #ef6f6a;
+  --cut-bg: rgba(239, 111, 106, 0.1);
+  --cut-line: rgba(239, 111, 106, 0.4);
+  --warn: #e2a84b;
+  --warn-bg: rgba(226, 168, 75, 0.12);
+  --warn-line: rgba(226, 168, 75, 0.4);
+  --sel: #6aa3ff;
+  --sel-bg: rgba(106, 163, 255, 0.14);
+  --sel-line: rgba(106, 163, 255, 0.45);
+
+  /* Mana. Black is a dark disc with a pale ring so it cannot be mistaken for
+     the grey generic pip. */
+  --mana-w: #efe6c2;
+  --mana-u: #74b0e8;
+  --mana-b: #17131c;
+  --mana-b-ring: #c9bcd6;
+  --mana-r: #e8806c;
+  --mana-g: #78bd86;
+  --mana-c: #b9bec6;
+  --mana-generic: #9aa1ab;
+  --mana-ink: #15171a;
+
+  /* Type */
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 15px;
+  --text-xl: 17px;
+  --leading: 1.45;
+  --leading-prose: 1.55;
+
+  /* Space */
+  --s-1: 2px;
+  --s-2: 4px;
+  --s-3: 6px;
+  --s-4: 8px;
+  --s-5: 12px;
+  --s-6: 16px;
+  --s-7: 24px;
+  --s-8: 32px;
+
+  /* Radius */
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 8px;
+  --r-xl: 10px;
+  --r-pill: 999px;
+
+  /* Control and row heights */
+  --h-sm: 22px;
+  --h-md: 26px;
+  --h-lg: 30px;
+  --row: 24px;
+
+  /* Layout */
+  --sidebar-w: 216px;
+  --panel-w: 392px;
+  --measure: 720px;
+
+  /* Elevation and stacking */
+  --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.55);
+  --z-sticky: 5;
+  --z-pop: 30;
+  --z-dialog: 50;
+  --z-hover: 60;
+  --z-toast: 80;
+
+  /* Motion */
+  --fast: 120ms;
+}

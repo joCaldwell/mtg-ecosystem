@@ -1,0 +1,11 @@
+.page {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.empty {
+  display: grid;
+  gap: var(--s-5);
+}

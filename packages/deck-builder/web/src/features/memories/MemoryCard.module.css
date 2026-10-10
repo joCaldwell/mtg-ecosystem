@@ -1,0 +1,58 @@
+.card {
+  min-width: 0;
+}
+
+/* A dashed border is the one thing that marks a hypothesis; a retired or
+   superseded memory is dimmed but stays readable (spec §7.5: never hidden). */
+.off {
+  opacity: 0.6;
+}
+
+.text {
+  font-size: var(--text-md);
+  line-height: var(--leading-prose);
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-4);
+  font-size: var(--text-xs);
+  color: var(--faint);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.acts {
+  display: flex;
+  gap: var(--s-1);
+  margin-left: auto;
+}
+
+.cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-4);
+  font-size: var(--text-sm);
+}
+
+.editor {
+  display: grid;
+  gap: var(--s-3);
+}
+
+.editRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-4);
+}
+
+.hint {
+  font-size: var(--text-xs);
+  color: var(--faint);
+}

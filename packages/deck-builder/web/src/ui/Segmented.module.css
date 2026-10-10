@@ -1,0 +1,28 @@
+.seg {
+  display: inline-flex;
+  height: var(--h-md);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.option {
+  padding: 0 var(--s-4);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.option:hover:not(.on) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.on {
+  background: var(--raised);
+  color: var(--text);
+}
+
+.option:focus-visible {
+  outline-offset: -2px;
+}

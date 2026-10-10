@@ -1,0 +1,50 @@
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+}
+
+.status {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--s-2);
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-5);
+}
+
+.titles {
+  display: grid;
+  flex: 1;
+  gap: var(--s-1);
+  min-width: 0;
+}
+
+.name {
+  font-size: var(--text-lg);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: var(--s-6);
+  align-items: start;
+}
+
+.side {
+  display: grid;
+  gap: var(--s-4);
+  min-width: 0;
+}
+
+.note {
+  display: grid;
+  gap: var(--s-2);
+}

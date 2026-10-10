@@ -1,0 +1,43 @@
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-4);
+  margin-bottom: var(--s-1);
+  padding: 0 var(--s-3) var(--s-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.count {
+  margin-left: auto;
+  color: var(--muted);
+  font: var(--text-xs) var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ok {
+  color: var(--add);
+}
+
+.under,
+.over {
+  color: var(--warn);
+}
+
+.untargeted {
+  color: var(--muted);
+}
+
+.projected {
+  color: var(--agent);
+}
+
+/* A heading is never stranded at the foot of a column. */
+.head {
+  break-after: avoid;
+}

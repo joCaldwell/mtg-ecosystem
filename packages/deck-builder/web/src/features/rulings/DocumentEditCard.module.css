@@ -1,0 +1,30 @@
+.card {
+  gap: var(--s-5);
+  min-width: 0;
+}
+
+/* Who, when and where in one quiet line; the title below it leads. */
+.eyebrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-5);
+  align-items: baseline;
+}
+
+.eyebrow > :not(:first-child)::before {
+  content: "·";
+  margin-right: var(--s-5);
+  color: var(--faint);
+}
+
+.kind,
+.author {
+  color: var(--agent);
+}
+
+.title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  line-height: var(--leading);
+  overflow-wrap: anywhere;
+}

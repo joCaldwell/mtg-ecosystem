@@ -1,0 +1,35 @@
+.banner {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  padding: var(--s-4) var(--s-6);
+  border-bottom: 1px solid var(--line);
+  background: var(--raised);
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+}
+
+.actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--s-3);
+}
+
+.agent {
+  border-bottom-color: var(--agent-line);
+  background: var(--agent-bg);
+}
+
+.warn {
+  border-bottom-color: var(--warn-line);
+  background: var(--warn-bg);
+}
+
+.error {
+  border-bottom-color: var(--cut-line);
+  background: var(--cut-bg);
+}

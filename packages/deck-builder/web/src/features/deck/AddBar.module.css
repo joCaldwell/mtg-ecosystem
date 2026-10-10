@@ -1,0 +1,88 @@
+.wrap {
+  position: relative;
+  flex: 100 1 280px;
+  max-width: 560px;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  height: var(--h-lg);
+  padding: 0 var(--s-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  cursor: text;
+}
+
+.bar:focus-within {
+  border-color: var(--sel);
+  box-shadow: 0 0 0 3px var(--sel-bg);
+}
+
+.icon {
+  flex: none;
+  color: var(--faint);
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+}
+
+.input:focus-visible {
+  outline: 0;
+}
+
+.input::placeholder {
+  color: var(--faint);
+}
+
+/* Over the list, anchored to the input. It is transient: Escape or a click
+   elsewhere puts the list back. */
+.drop {
+  position: absolute;
+  top: calc(100% + var(--s-2));
+  left: 0;
+  z-index: var(--z-pop);
+  width: 100%;
+  min-width: 420px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  background: var(--raised);
+  box-shadow: var(--shadow-pop);
+}
+
+.results {
+  max-height: 420px;
+  overflow: auto;
+  padding: var(--s-2);
+}
+
+.none {
+  padding: var(--s-4);
+}
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2) var(--s-5);
+  padding: var(--s-3) var(--s-4);
+  border-top: 1px solid var(--line);
+  color: var(--faint);
+  font-size: var(--text-xs);
+}
+
+.hints,
+.limit {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-5);
+}

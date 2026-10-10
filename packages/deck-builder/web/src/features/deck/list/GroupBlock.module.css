@@ -1,0 +1,10 @@
+/* A group never splits across columns... */
+.group {
+  margin-bottom: var(--s-6);
+  break-inside: avoid;
+}
+
+/* ...unless it is longer than a column should be. */
+.long {
+  break-inside: auto;
+}

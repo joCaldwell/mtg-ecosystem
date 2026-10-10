@@ -1,0 +1,37 @@
+.proposal {
+  display: grid;
+  gap: calc(var(--s-5) + var(--s-3));
+}
+
+.head {
+  display: grid;
+  gap: var(--s-3);
+}
+
+.eyebrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-1) var(--s-4);
+}
+
+.id {
+  color: var(--agent);
+}
+
+.summary {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  line-height: var(--leading);
+}
+
+.units {
+  display: grid;
+  gap: var(--s-4);
+}
+
+.start {
+  display: grid;
+  justify-items: start;
+  gap: var(--s-3);
+}

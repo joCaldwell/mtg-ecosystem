@@ -1,0 +1,42 @@
+.diff {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+  font-size: var(--text-md);
+  line-height: var(--leading-prose);
+  overflow: hidden;
+}
+
+.line {
+  position: relative;
+  padding: var(--s-2) var(--s-5) var(--s-2) var(--s-7);
+  /* A blank line in the document is still a line in the diff. */
+  min-height: calc(1em * var(--leading-prose) + var(--s-2) * 2);
+  white-space: pre-wrap;
+}
+
+.sign {
+  position: absolute;
+  left: var(--s-5);
+  font-family: var(--font-mono);
+  text-decoration: none;
+}
+
+.add {
+  background: var(--add-bg);
+}
+
+.add .sign {
+  color: var(--add);
+}
+
+.del {
+  background: var(--cut-bg);
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--cut-line);
+}
+
+.del .sign {
+  color: var(--cut);
+}

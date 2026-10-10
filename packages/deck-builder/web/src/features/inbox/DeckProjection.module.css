@@ -1,0 +1,23 @@
+.grid {
+  display: grid;
+  gap: var(--s-2);
+}
+
+/* Label, then the number now, then the number after: one column each so
+   the arrows line up down the box. */
+.line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--s-8) auto;
+  gap: var(--s-5);
+  align-items: baseline;
+  overflow-wrap: anywhere;
+}
+
+.from {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.target {
+  color: var(--faint);
+}

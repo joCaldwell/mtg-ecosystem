@@ -1,0 +1,37 @@
+.row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-4);
+  min-height: var(--row);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-sm);
+}
+
+.row:hover {
+  background: var(--hover);
+}
+
+.open {
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+.name {
+  flex: none;
+  width: 190px;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.row > :last-child {
+  align-self: center;
+}

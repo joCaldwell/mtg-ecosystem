@@ -1,0 +1,64 @@
+.soft {
+  color: var(--text-soft);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.faint {
+  color: var(--faint);
+}
+
+.agent {
+  color: var(--agent);
+}
+
+.add {
+  color: var(--add);
+}
+
+.cut {
+  color: var(--cut);
+}
+
+.warn {
+  color: var(--warn);
+}
+
+.size-xs {
+  font-size: var(--text-xs);
+}
+
+.size-sm {
+  font-size: var(--text-sm);
+}
+
+.size-md {
+  font-size: var(--text-md);
+}
+
+.size-lg {
+  font-size: var(--text-lg);
+}
+
+.size-xl {
+  font-size: var(--text-xl);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.normal {
+  font-weight: 400;
+}
+
+.medium {
+  font-weight: 550;
+}
+
+.bold {
+  font-weight: 650;
+}

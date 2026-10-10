@@ -1,0 +1,21 @@
+import { ManaSymbol } from "./ManaSymbol.tsx";
+import { COLOR_NAMES, WUBRG } from "./manaSymbols.ts";
+import styles from "./ColorIdentity.module.css";
+
+/**
+ * A colour identity as small discs in WUBRG order. `colors` is bare letters
+ * ("UBR") or "" for colourless, which shows as a single colourless disc.
+ */
+export function ColorIdentity({ colors }: { colors: string }) {
+  const upper = colors.toUpperCase();
+  const letters = [...WUBRG].filter((c) => upper.includes(c));
+  const shown = letters.length > 0 ? letters : ["C"];
+  const label = letters.length > 0 ? letters.map((c) => COLOR_NAMES[c]).join(", ") : "colourless";
+  return (
+    <span className={styles.identity} role="img" aria-label={`Colour identity: ${label}`} title={`Colour identity: ${label}`}>
+      {shown.map((c) => (
+        <ManaSymbol key={c} symbol={c} />
+      ))}
+    </span>
+  );
+}

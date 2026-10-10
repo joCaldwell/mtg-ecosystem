@@ -1,0 +1,21 @@
+.mark {
+  display: inline-block;
+  flex: none;
+  width: 6px;
+  height: 6px;
+}
+
+.memory {
+  border-radius: 50%;
+  background: var(--agent);
+}
+
+.ruling {
+  border: 1.5px solid var(--muted);
+  border-radius: 50%;
+}
+
+.paper {
+  border: 1.5px solid var(--warn);
+  border-radius: 1px;
+}

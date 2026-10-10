@@ -1,0 +1,15 @@
+.kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--s-2) var(--s-5);
+  font-size: var(--text-sm);
+}
+
+.key {
+  color: var(--muted);
+}
+
+.value {
+  margin: 0;
+  min-width: 0;
+}

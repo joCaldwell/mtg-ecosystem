@@ -1,0 +1,29 @@
+.list {
+  display: grid;
+  min-width: calc(var(--sidebar-w) - var(--s-8));
+  padding: var(--s-2);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-md);
+  color: var(--text);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.item:hover:not(:disabled),
+.item:focus-visible {
+  background: var(--hover);
+}
+
+.item:focus-visible {
+  outline-offset: -2px;
+}
+
+.cut {
+  color: var(--cut);
+}

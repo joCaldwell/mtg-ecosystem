@@ -1,0 +1,26 @@
+/* Three columns shared by every row, so the arrows and results line up. */
+.delta {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: var(--s-2) var(--s-5);
+  font-size: var(--text-sm);
+  align-items: baseline;
+}
+
+.row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: baseline;
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.to {
+  text-align: right;
+}

@@ -1,0 +1,78 @@
+.header {
+  padding: var(--s-5) var(--s-6);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-4) var(--s-5);
+}
+
+/* As tall as the rename field, so renaming does not move the header. */
+.title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: var(--h-lg);
+  font-size: var(--text-xl);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.name {
+  max-width: 100%;
+  border-radius: var(--r-sm);
+  text-align: left;
+}
+
+.name:hover {
+  color: var(--text-soft);
+  text-decoration: underline dotted var(--faint);
+  text-underline-offset: 4px;
+}
+
+.rename {
+  width: 340px;
+  max-width: 100%;
+}
+
+/* The segmented control is generic, so the deck's mode colours the pressed
+   option from here: amber for draft, green for active. */
+.status[data-tone="warn"] button[aria-pressed="true"] {
+  color: var(--warn);
+}
+
+.status[data-tone="add"] button[aria-pressed="true"] {
+  color: var(--add);
+}
+
+.stats {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin-left: auto;
+}
+
+.sub {
+  margin-top: var(--s-2);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.commander {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-4);
+}
+
+.link {
+  color: var(--text-soft);
+  border-bottom: 1px dotted var(--faint);
+}
+
+.link:hover {
+  border-bottom-color: var(--sel);
+}

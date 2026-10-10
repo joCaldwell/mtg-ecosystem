@@ -76,9 +76,16 @@ src/
     http.ts          Streamable HTTP endpoint: Host/Origin checks, token, attribution
     stdio.ts         stdio shim: a pipe to the running app
 skill/commander-deck-building/SKILL.md   method for agents (optional Agent Skill)
-web/src/             React UI: api.ts (typed client — wire types imported from src/, erased
-                     at build), store.tsx (deck store), live.tsx (event stream), one
-                     component per panel and one per page
+web/                 React UI. web/ARCHITECTURE.md is its manual; web/DESIGN.md the design system
+  src/design/        tokens.css, base.css — the only place raw colours and sizes exist
+  src/ui/            generic primitives (Button, Tabs, Dialog, Toast, useHotkeys…)
+  src/mtg/           how a card is shown (ManaCost, CardRef + hover card, RichText)
+  src/domain/        pure functions over wire types (grouping, review, marks) — tested in test/web/
+  src/api/           client.ts (typed client — wire types imported from src/, erased at build),
+                     live.tsx (event stream), useQuery.ts
+  src/app/           routes, sidebar shell, app-wide providers
+  src/features/      one folder per screen: deck/, inbox/, rulings/, memories/, activity/,
+                     decks/, profile/, settings/, styleguide/
 ```
 
 ---
@@ -132,6 +139,17 @@ the route through OpenAI's Secure MCP Tunnel and the stdio shim.
 Run `npm run dev`, then `npm run seed:demo` once, then open
 `http://localhost:5173/#/deck/<id>`. **Seed the demo before judging any
 layout** — against an empty deck most panels render nothing.
+
+**Read [web/ARCHITECTURE.md](web/ARCHITECTURE.md) first.** The UI is layered
+(`design` → `ui` → `mtg` → `domain` → `api` → `app` → `features`) with
+one-way imports, and `test/web-architecture.test.ts` fails the build on an
+import that goes the wrong way or a hex colour in a component's CSS. Every
+primitive is shown in every state at `#/design`; a new screen is assembled
+from those, so it matches without new CSS for the basics. The rules behind
+the look are in [web/DESIGN.md](web/DESIGN.md).
+
+`DECKBUILDER_PORT` and `DECKBUILDER_WEB_PORT` move the two dev servers; the
+Vite proxy follows the API port.
 
 ---
 

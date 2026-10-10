@@ -1,0 +1,15 @@
+.kv {
+  align-items: center;
+  gap: var(--s-4) var(--s-5);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+.quantity {
+  width: calc(var(--s-8) * 2);
+  font-family: var(--font-mono);
+}

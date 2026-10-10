@@ -1,0 +1,163 @@
+import type { ReactNode } from "react";
+import { api, type PlayerStats } from "../../api/client.ts";
+import { useQuery } from "../../api/useQuery.ts";
+import { CardRef, ColorIdentity, ManaSymbol } from "../../mtg/index.ts";
+import { Box, Chip, ErrorNote, KeyValue, Meter, Section, Text } from "../../ui/index.ts";
+import styles from "./PlayerStatsPanel.module.css";
+
+const WUBRG = ["W", "U", "B", "R", "G"] as const;
+
+function Block({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <Box>
+      <div className={styles.block}>
+        <Text tone="muted" size="xs" weight="medium">
+          {title}
+        </Text>
+        {children}
+      </div>
+    </Box>
+  );
+}
+
+const num = (n: number | null, digits = 1) => (n == null ? "–" : n.toFixed(digits).replace(/\.0+$/, ""));
+
+function Colors({ stats }: { stats: PlayerStats }) {
+  return (
+    <Block title="Colours">
+      <div className={styles.bars}>
+        {WUBRG.map((c) => (
+          <div key={c} className={styles.bar}>
+            <ManaSymbol symbol={c} />
+            <Meter value={stats.colors[c] ?? 0} max={stats.deck_count} aria-label={`Decks including ${c}`} />
+            <Text mono tone="muted" size="sm">
+              {stats.colors[c] ?? 0}
+            </Text>
+          </div>
+        ))}
+      </div>
+    </Block>
+  );
+}
+
+/**
+ * What the owner builds, across all their decks (spec §10.3). The numbers are
+ * computed on the server, the same ones an agent gets from `player_stats`;
+ * this only arranges them. Empty blocks are left out.
+ */
+export function PlayerStatsPanel() {
+  const query = useQuery(() => api.getStats(), []);
+  const stats = query.data;
+  if (query.error && !stats) return <ErrorNote>{query.error}</ErrorNote>;
+  if (!stats || stats.deck_count === 0) return null;
+
+  const byType: Array<[ReactNode, ReactNode]> = Object.entries(stats.averages.by_type).map(([type, n]) => [
+    type,
+    <Text mono key={type}>
+      {num(n)}
+    </Text>,
+  ]);
+  const averages: Array<[ReactNode, ReactNode]> = [];
+  if (stats.averages.mana_value != null) averages.push(["Mana value", <Text mono key="mv">{num(stats.averages.mana_value, 2)}</Text>]);
+  if (stats.averages.lands != null) averages.push(["Land count", <Text mono key="l">{num(stats.averages.lands)}</Text>]);
+
+  return (
+    <Section title="Across your decks">
+      <div className={styles.grid}>
+        <Block title="Decks">
+          <KeyValue
+            items={[
+              ["Decks", <Text mono key="d">{stats.deck_count}</Text>],
+              ["Families", <Text mono key="f">{stats.families}</Text>],
+            ]}
+          />
+          <Text tone="faint" size="xs">
+            A fork and its parent count as one family.
+          </Text>
+        </Block>
+
+        <Colors stats={stats} />
+
+        {stats.identities.length > 0 && (
+          <Block title="Most common identities">
+            <div className={styles.rows}>
+              {stats.identities.map((i) => (
+                <div key={i.identity} className={styles.row}>
+                  <span className={styles.pips}>
+                    <ColorIdentity colors={i.identity === "C" ? "" : i.identity} />
+                  </span>
+                  <Text mono tone="muted" size="sm">
+                    {i.decks} {i.decks === 1 ? "deck" : "decks"}
+                  </Text>
+                </div>
+              ))}
+            </div>
+          </Block>
+        )}
+
+        {stats.commander_types.length > 0 && (
+          <Block title="Commander types">
+            <div className={styles.chips}>
+              {stats.commander_types.map((t) => (
+                <Chip key={t.type}>
+                  {t.type}
+                  <Text mono tone="faint">
+                    {t.decks}
+                  </Text>
+                </Chip>
+              ))}
+            </div>
+          </Block>
+        )}
+
+        {averages.length + byType.length > 0 && (
+          <Block title="Averages per deck">
+            {averages.length > 0 && <KeyValue items={averages} />}
+            {byType.length > 0 && (
+              <>
+                <Text tone="faint" size="xs">
+                  Cards of each type
+                </Text>
+                <KeyValue items={byType} />
+              </>
+            )}
+          </Block>
+        )}
+
+        {stats.slots.length > 0 && (
+          <Block title="Slots you use">
+            <div className={styles.rows}>
+              {stats.slots.map((s) => (
+                <div key={s.name} className={styles.slot}>
+                  <Text className={styles.slotName}>{s.name}</Text>
+                  <Text mono tone="muted" size="sm" title="Average cards in this slot, and how many decks use it">
+                    avg {num(s.average_count)} · {s.decks} {s.decks === 1 ? "deck" : "decks"}
+                  </Text>
+                </div>
+              ))}
+            </div>
+          </Block>
+        )}
+      </div>
+
+      {stats.reused_cards.length > 0 && (
+        <Block title="Cards reused across deck families">
+          <ul className={styles.reused}>
+            {stats.reused_cards.map((c) => (
+              <li key={c.name}>
+                <CardRef name={c.name} />
+                <Text mono tone="faint" size="sm">
+                  {c.decks}
+                </Text>
+              </li>
+            ))}
+          </ul>
+        </Block>
+      )}
+
+      <Text tone="faint" size="xs">
+        These are the same computed numbers an agent gets from <Text mono>player_stats</Text>.
+      </Text>
+    </Section>
+  );
+}

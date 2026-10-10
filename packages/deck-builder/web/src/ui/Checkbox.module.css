@@ -1,0 +1,21 @@
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-4);
+  cursor: pointer;
+}
+
+.input {
+  flex: none;
+  width: var(--s-6);
+  height: var(--s-6);
+  margin: 0;
+  accent-color: var(--sel);
+  color-scheme: dark;
+  cursor: inherit;
+}
+
+.disabled {
+  opacity: 0.5;
+  cursor: default;
+}

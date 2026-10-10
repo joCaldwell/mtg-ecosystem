@@ -1,0 +1,87 @@
+.rich {
+  color: var(--text-soft);
+  font-size: var(--text-md);
+  line-height: var(--leading-prose);
+  overflow-wrap: anywhere;
+}
+
+/* Space goes between blocks, wherever they nest (top level, list item, quote). */
+.block + .block {
+  margin-top: var(--s-4);
+}
+
+.p {
+  margin: 0;
+}
+
+.strong {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.link {
+  color: var(--sel);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.codeSpan {
+  padding: 0 var(--s-2);
+  border-radius: var(--r-sm);
+  background: var(--raised);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+.code {
+  margin: 0;
+  padding: var(--s-4) var(--s-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading);
+  overflow-x: auto;
+}
+
+.hr {
+  height: 0;
+  margin-bottom: 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.heading {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.h1 { font-size: var(--text-lg); }
+.h2 { font-size: var(--text-md); }
+.h3 {
+  color: var(--muted);
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.quote {
+  margin: 0;
+  padding-left: var(--s-5);
+  border-left: 2px solid var(--line-strong);
+  color: var(--muted);
+}
+
+.list {
+  padding-left: var(--s-6);
+}
+
+.list > li + li {
+  margin-top: var(--s-2);
+}
+
+.list .list {
+  margin-top: var(--s-2);
+}

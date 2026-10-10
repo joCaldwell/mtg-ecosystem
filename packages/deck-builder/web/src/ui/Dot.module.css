@@ -1,0 +1,34 @@
+.dot {
+  --dot: var(--faint);
+  --halo: var(--line);
+  display: inline-block;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dot);
+}
+
+.agent {
+  --dot: var(--agent);
+  --halo: var(--agent-bg);
+}
+
+.warn {
+  --dot: var(--warn);
+  --halo: var(--warn-bg);
+}
+
+.add {
+  --dot: var(--add);
+  --halo: var(--add-bg);
+}
+
+.cut {
+  --dot: var(--cut);
+  --halo: var(--cut-bg);
+}
+
+.pulse {
+  box-shadow: 0 0 0 3px var(--halo);
+}

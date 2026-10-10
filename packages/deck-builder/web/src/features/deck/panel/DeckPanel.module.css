@@ -1,0 +1,41 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+}
+
+/* Six tabs and a badge are close to the panel's width; tighter padding keeps
+   them on one line, and scrolling is the fallback. */
+.tabs {
+  flex: none;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-inline: var(--s-4);
+}
+
+.tabs [role="tab"] {
+  padding-inline: var(--s-3);
+}
+
+.none [role="tab"][aria-selected="true"] {
+  border-bottom-color: transparent;
+  color: var(--muted);
+}
+
+.none [role="tab"][aria-selected="true"]:hover {
+  color: var(--text);
+}
+
+.body {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: calc(var(--s-5) + var(--s-3));
+  min-height: 0;
+  padding: var(--s-6) var(--s-6) var(--s-8);
+  overflow-y: auto;
+}

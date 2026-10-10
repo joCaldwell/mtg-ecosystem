@@ -1,0 +1,20 @@
+.section {
+  display: grid;
+  gap: var(--s-3);
+  align-content: start;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1) var(--s-4);
+}
+
+.aside {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}

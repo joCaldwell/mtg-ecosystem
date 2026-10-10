@@ -1,0 +1,49 @@
+.line {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  min-width: 0;
+  min-height: var(--row);
+  padding: 0 var(--s-4);
+  border-radius: var(--r-sm);
+  list-style: none;
+}
+
+.add {
+  background: var(--add-bg);
+}
+
+.cut {
+  background: var(--cut-bg);
+}
+
+.label {
+  flex: none;
+  min-width: 34px;
+  justify-content: center;
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qty {
+  margin-right: var(--s-3);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

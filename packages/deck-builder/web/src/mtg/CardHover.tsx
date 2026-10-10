@@ -1,0 +1,183 @@
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
+import { ptString } from "../domain/cards.ts";
+import { placeNear } from "../ui/floating.ts";
+import type { CardInfo } from "./CardInfo.ts";
+import { cardImageUrl } from "./cardImage.ts";
+import { useCardLookup } from "./CardLookup.tsx";
+import { ManaCost } from "./ManaCost.tsx";
+import { OracleText } from "./OracleText.tsx";
+import styles from "./CardHover.module.css";
+
+/** How long the pointer must rest on a card name before the hover card appears. */
+export const HOVER_DELAY_MS = 500;
+
+interface Shown {
+  card: CardInfo;
+  anchor: DOMRect;
+}
+
+interface HoverApi {
+  show: (card: string | CardInfo, el: HTMLElement) => void;
+  hide: () => void;
+}
+
+const Ctx = createContext<HoverApi | null>(null);
+
+type ImageStatus = "loading" | "loaded" | "failed";
+
+function HoverCard({ shown }: { shown: Shown }) {
+  const { card, anchor } = shown;
+  const box = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const [image, setImage] = useState<ImageStatus>("loading");
+
+  // Placed after render because the box's size is only known once the text is
+  // in, and it grows wider when the picture arrives, so that re-places it.
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    setPos(placeNear(anchor, { width: el.offsetWidth, height: el.offsetHeight }, { prefer: "right" }));
+  }, [anchor, image, card]);
+
+  const pt = ptString(card);
+  return (
+    <div
+      ref={box}
+      className={styles.card}
+      role="tooltip"
+      style={{ left: pos?.left ?? 0, top: pos?.top ?? 0, visibility: pos ? "visible" : "hidden" }}
+    >
+      {image !== "failed" && (
+        <img
+          className={image === "loaded" ? styles.image : styles.pending}
+          src={cardImageUrl(card.name)}
+          alt=""
+          onLoad={() => setImage("loaded")}
+          onError={() => setImage("failed")}
+        />
+      )}
+      <div className={styles.body}>
+        <div className={styles.head}>
+          <span className={styles.name}>{card.name}</span>
+          <ManaCost cost={card.mana_cost} />
+        </div>
+        <div className={styles.type}>
+          {card.type_line}
+          {pt && <span className={styles.pt}>{pt}</span>}
+        </div>
+        <div className={styles.oracle}>
+          <OracleText text={card.oracle_text} bare />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Renders the app's one floating hover card, and owns the timing for every trigger. */
+export function CardHoverProvider({ children }: { children: ReactNode }) {
+  const { lookup } = useCardLookup();
+  const [shown, setShown] = useState<Shown | null>(null);
+  const timer = useRef<number | undefined>(undefined);
+  // Bumped on every show and hide, so a lookup that finishes late can tell it is stale.
+  const epoch = useRef(0);
+  const anchorEl = useRef<HTMLElement | null>(null);
+
+  const hide = useCallback(() => {
+    window.clearTimeout(timer.current);
+    timer.current = undefined;
+    epoch.current++;
+    anchorEl.current = null;
+    setShown(null);
+  }, []);
+
+  const show = useCallback(
+    (card: string | CardInfo, el: HTMLElement) => {
+      hide();
+      anchorEl.current = el;
+      const mine = epoch.current;
+      timer.current = window.setTimeout(() => {
+        timer.current = undefined;
+        if (!el.isConnected) return;
+        const anchor = el.getBoundingClientRect();
+        if (typeof card !== "string") {
+          setShown({ card, anchor });
+          return;
+        }
+        lookup(card).then(
+          (info) => {
+            if (info && epoch.current === mine && el.isConnected) setShown({ card: info, anchor });
+          },
+          () => {},
+        );
+      }, HOVER_DELAY_MS);
+    },
+    [hide, lookup],
+  );
+
+  // Anything that could move the anchor or mean the reader has moved on closes it.
+  useEffect(() => {
+    const onOver = (e: MouseEvent) => {
+      const el = anchorEl.current;
+      // Also catches a trigger that unmounted under a resting pointer, which never fires mouseleave.
+      if (el && !(e.target instanceof Node && el.contains(e.target))) hide();
+    };
+    window.addEventListener("scroll", hide, true);
+    window.addEventListener("resize", hide);
+    document.addEventListener("mousedown", hide, true);
+    document.addEventListener("keydown", hide, true);
+    document.addEventListener("mouseover", onOver);
+    return () => {
+      window.removeEventListener("scroll", hide, true);
+      window.removeEventListener("resize", hide);
+      document.removeEventListener("mousedown", hide, true);
+      document.removeEventListener("keydown", hide, true);
+      document.removeEventListener("mouseover", onOver);
+      window.clearTimeout(timer.current);
+    };
+  }, [hide]);
+
+  const api = useMemo(() => ({ show, hide }), [show, hide]);
+  return (
+    <Ctx.Provider value={api}>
+      {children}
+      {shown && createPortal(<HoverCard key={shown.card.name} shown={shown} />, document.body)}
+    </Ctx.Provider>
+  );
+}
+
+const NO_HANDLERS = { onMouseEnter: () => {}, onMouseLeave: () => {} };
+
+/**
+ * Spread the result on any element that names a card. After the pointer rests
+ * for HOVER_DELAY_MS the hover card appears beside it; leaving hides it at
+ * once. Given a name it resolves the card through `useCardLookup`; given a
+ * CardInfo it shows that immediately.
+ */
+export function useCardHover(): (card: string | CardInfo) => {
+  onMouseEnter: (e: ReactMouseEvent<HTMLElement>) => void;
+  onMouseLeave: () => void;
+} {
+  const api = useContext(Ctx);
+  return useCallback(
+    (card) =>
+      api
+        ? {
+            onMouseEnter: (e) => api.show(card, e.currentTarget),
+            onMouseLeave: api.hide,
+          }
+        : NO_HANDLERS,
+    [api],
+  );
+}

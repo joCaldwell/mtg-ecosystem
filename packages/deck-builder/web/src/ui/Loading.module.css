@@ -1,0 +1,5 @@
+.loading {
+  padding: var(--s-5) 0;
+  color: var(--faint);
+  font-size: var(--text-sm);
+}

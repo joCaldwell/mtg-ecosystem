@@ -1,0 +1,49 @@
+.eyebrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-5);
+  align-items: baseline;
+}
+
+.eyebrow > :not(:first-child)::before {
+  content: "·";
+  margin-right: var(--s-5);
+  color: var(--faint);
+}
+
+.agent {
+  color: var(--agent);
+}
+
+.title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  line-height: var(--leading);
+  overflow-wrap: anywhere;
+}
+
+.action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-4) var(--s-5);
+}
+
+/* A link, not a button: it navigates. Looks like Button variant="agent". */
+.review {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+  height: var(--h-md);
+  padding: 0 var(--s-5);
+  border: 1px solid var(--agent-line);
+  border-radius: var(--r-md);
+  background: var(--agent-bg);
+  color: var(--agent);
+  white-space: nowrap;
+  transition: border-color var(--fast);
+}
+
+.review:hover {
+  border-color: var(--agent);
+}

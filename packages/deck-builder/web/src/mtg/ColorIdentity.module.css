@@ -1,0 +1,9 @@
+/* Smaller than a cost, and without letters: identity is read by colour alone. */
+.identity {
+  --sym-size: 11px;
+  --glyph-scale: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  vertical-align: middle;
+}

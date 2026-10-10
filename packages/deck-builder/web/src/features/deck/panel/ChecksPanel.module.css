@@ -1,0 +1,165 @@
+.section {
+  display: grid;
+  gap: var(--s-3);
+  align-content: start;
+  min-width: 0;
+}
+
+.finding {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-4);
+  font-size: var(--text-sm);
+  line-height: var(--leading);
+}
+
+.glyph {
+  width: var(--s-5);
+  flex: none;
+  font-family: var(--font-mono);
+  text-align: center;
+}
+
+.error .glyph {
+  color: var(--cut);
+}
+
+.warn .glyph {
+  color: var(--warn);
+}
+
+.title {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.detail {
+  color: var(--muted);
+}
+
+.warn > .detail {
+  color: var(--warn);
+}
+
+.warn > .detail b {
+  font-weight: 600;
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.none {
+  display: grid;
+  justify-items: start;
+  gap: var(--s-3);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.curve {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s-3);
+}
+
+.col {
+  display: grid;
+  flex: 1;
+  justify-items: center;
+  align-content: end;
+  gap: var(--s-2);
+}
+
+.bar {
+  display: block;
+  width: 100%;
+  min-height: 2px;
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  background: var(--line-strong);
+}
+
+.count,
+.bucket {
+  font: var(--text-2xs) var(--font-mono);
+}
+
+.count {
+  color: var(--muted);
+}
+
+.bucket {
+  color: var(--faint);
+}
+
+.pips {
+  display: grid;
+  gap: var(--s-3);
+}
+
+.pip {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 72px;
+  align-items: center;
+  gap: var(--s-4);
+}
+
+.track {
+  height: var(--s-3);
+  border-radius: var(--r-sm);
+  background: var(--line);
+  overflow: hidden;
+}
+
+.fill {
+  display: block;
+  height: 100%;
+}
+
+.W {
+  background: var(--mana-w);
+}
+
+.U {
+  background: var(--mana-u);
+}
+
+/* The black pip's own fill vanishes on the dark track; its ring colour does not. */
+.B {
+  background: var(--mana-b-ring);
+}
+
+.R {
+  background: var(--mana-r);
+}
+
+.G {
+  background: var(--mana-g);
+}
+
+.share {
+  color: var(--muted);
+  font: var(--text-xs) var(--font-mono);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+.typeCount {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-weight: 600;
+}

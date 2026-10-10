@@ -1,0 +1,39 @@
+.field {
+  width: 100%;
+  min-width: 0;
+  height: var(--h-md);
+  padding: 0 var(--s-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  outline: 0;
+  background: var(--bg);
+  transition: border-color var(--fast), box-shadow var(--fast);
+}
+
+.lg {
+  height: var(--h-lg);
+  padding: 0 var(--s-5);
+  border-radius: var(--r-md);
+}
+
+.field::placeholder {
+  color: var(--faint);
+}
+
+.field:focus {
+  border-color: var(--sel);
+  box-shadow: 0 0 0 3px var(--sel-bg);
+}
+
+.field:disabled {
+  opacity: 0.5;
+}
+
+.invalid,
+.invalid:focus {
+  border-color: var(--cut);
+}
+
+.invalid:focus {
+  box-shadow: 0 0 0 3px var(--cut-bg);
+}

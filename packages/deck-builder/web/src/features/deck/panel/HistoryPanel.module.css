@@ -1,0 +1,10 @@
+.section {
+  display: grid;
+  gap: var(--s-3);
+  align-content: start;
+  min-width: 0;
+}
+
+.list {
+  display: grid;
+}

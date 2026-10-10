@@ -1,0 +1,20 @@
+.empty {
+  display: grid;
+  gap: var(--s-2);
+  justify-items: center;
+  padding: var(--s-8) var(--s-6);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-lg);
+  text-align: center;
+}
+
+.title {
+  color: var(--text-soft);
+  font-weight: 600;
+}
+
+.body {
+  max-width: calc(var(--measure) / 2);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}

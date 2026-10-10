@@ -1,0 +1,24 @@
+/* The document reads as a page: bordered, with prose leading, at reading width (prototype .doc). */
+.doc {
+  max-width: var(--measure);
+  padding: var(--s-6) var(--s-7);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  background: var(--surface);
+  line-height: var(--leading-prose);
+}
+
+.editor {
+  max-width: var(--measure);
+  min-height: calc(var(--s-8) * 8);
+  font-size: var(--text-md);
+  line-height: var(--leading-prose);
+}
+
+.meter {
+  flex: 1;
+}
+
+.count {
+  flex: none;
+}

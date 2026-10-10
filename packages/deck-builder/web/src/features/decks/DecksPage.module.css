@@ -1,0 +1,17 @@
+/* The table keeps its columns on one line; a narrow window scrolls it sideways instead of squeezing them. */
+.tableWrap {
+  overflow-x: auto;
+}
+
+.commander {
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Wide enough for eight columns, not so wide the eye loses the row. */
+.body {
+  display: grid;
+  gap: var(--s-8);
+  max-width: 1360px;
+}

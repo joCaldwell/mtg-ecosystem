@@ -1,0 +1,11 @@
+.popover {
+  position: fixed;
+  z-index: var(--z-pop);
+  max-width: calc(100vw - var(--s-7));
+  max-height: calc(100vh - var(--s-7));
+  overflow: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  background: var(--raised);
+  box-shadow: var(--shadow-pop);
+}

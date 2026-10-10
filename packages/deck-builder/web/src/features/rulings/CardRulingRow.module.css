@@ -1,0 +1,35 @@
+.row {
+  display: grid;
+  gap: var(--s-1);
+  padding: var(--s-3) 0;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+
+.line {
+  color: var(--text-soft);
+}
+
+.add {
+  color: var(--add);
+}
+
+.cut {
+  color: var(--cut);
+}
+
+.quote {
+  quotes: "\201C" "\201D";
+  margin-left: var(--s-4);
+  color: var(--text);
+}
+
+.reason {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.meta {
+  color: var(--faint);
+  font-size: var(--text-xs);
+}

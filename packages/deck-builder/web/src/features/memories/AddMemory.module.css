@@ -1,0 +1,16 @@
+.form {
+  display: grid;
+  gap: var(--s-3);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+}
+
+.hint {
+  flex: 1;
+  font-size: var(--text-xs);
+  color: var(--faint);
+}

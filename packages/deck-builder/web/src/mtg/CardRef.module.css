@@ -1,0 +1,15 @@
+.ref {
+  display: inline;
+  border-bottom: 1px dotted var(--faint);
+  color: var(--text);
+  text-align: inherit;
+  cursor: default;
+}
+
+.openable {
+  cursor: pointer;
+}
+
+.ref:hover {
+  border-bottom-color: var(--sel);
+}

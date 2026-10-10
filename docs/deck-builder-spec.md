@@ -56,7 +56,12 @@ to do** (its brief), **what the owner has decided and why** (rulings), and
 - No formats other than Commander.
 
 Carried over from the previous spec without being re-examined; say so if any
-should be reopened: no card images, no price tracking, no mobile layout.
+should be reopened: no price tracking, no mobile layout.
+
+Reopened on 2026-10-10: **card images are shown on demand.** The deck stays a
+text list; a card's picture appears only in its hover card and its detail
+panel, loaded from Scryfall by exact name. Nothing about images is stored,
+and no agent-facing output mentions them.
 
 ---
 
@@ -456,7 +461,7 @@ card.
 
 - **Decks:** list, create, fork, delete; draft or active state.
 - **Deck view:** the list grouped by slot or by card type, slot targets and deltas, the maybe list, the brief, a live checks count, the paper flag, direct editing, card search.
-- **Proposals inbox:** pending proposals across decks; rule per item, per group or all at once, with an optional reason; diffs for proposed brief and profile edits.
+- **Proposals inbox:** everything waiting on the owner across decks. A proposal is ruled on in its deck's list, where each change is drawn in place among the cards around it — per item, per group or all at once, with an optional reason; the inbox links there. Proposed brief and profile edits are ruled in the inbox as diffs. (Settled 2026-10-10: the owner preferred reviewing in the list to ruling from the inbox.)
 - **Rulings log:** per deck, with undo.
 - **Memories:** §7.5.
 - **Profile:** edit directly.

@@ -1,0 +1,33 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.content {
+  display: grid;
+  gap: var(--s-6);
+  align-content: start;
+  padding: var(--s-6) var(--s-7) calc(var(--s-8) * 2);
+}
+
+.md {
+  max-width: var(--measure);
+}
+
+/* One and a half measures: wide enough for a table, narrow enough to read. */
+.lg {
+  max-width: calc(var(--measure) * 1.5);
+}
+
+.full {
+  max-width: none;
+}

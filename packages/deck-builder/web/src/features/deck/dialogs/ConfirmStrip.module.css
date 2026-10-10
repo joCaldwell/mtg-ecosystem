@@ -1,0 +1,16 @@
+.strip {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--cut-line);
+  border-radius: var(--r-md);
+  background: var(--cut-bg);
+  white-space: normal;
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+}

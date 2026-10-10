@@ -1,0 +1,67 @@
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  height: 18px;
+  padding: 0 var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  color: var(--muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.interactive:hover {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.agent,
+.warn,
+.add,
+.cut {
+  border-color: transparent;
+}
+
+.agent {
+  background: var(--agent-bg);
+  color: var(--agent);
+}
+
+.warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+.add {
+  background: var(--add-bg);
+  color: var(--add);
+}
+
+.cut {
+  background: var(--cut-bg);
+  color: var(--cut);
+}
+
+.dashed {
+  border-style: dashed;
+  border-color: var(--line-strong);
+  background: none;
+}
+
+.dashed.agent {
+  border-color: var(--agent-line);
+}
+
+.dashed.warn {
+  border-color: var(--warn-line);
+}
+
+.dashed.add {
+  border-color: var(--add-line);
+}
+
+.dashed.cut {
+  border-color: var(--cut-line);
+}

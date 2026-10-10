@@ -1,0 +1,32 @@
+.list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s-1);
+  margin: 0;
+  padding: 0;
+}
+
+.note {
+  padding: 0 var(--s-4);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  list-style: none;
+}
+
+.problems {
+  display: grid;
+  gap: var(--s-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.candidates {
+  margin: var(--s-2) 0 0;
+  padding: 0;
+}
+
+.suggestion {
+  border-bottom: 1px dotted var(--faint);
+  color: var(--text);
+}

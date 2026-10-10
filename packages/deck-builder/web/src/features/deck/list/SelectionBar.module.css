@@ -1,0 +1,18 @@
+/* Floats over the bottom of the list pane, which is positioned. */
+.bar {
+  position: absolute;
+  /* Clear of the toast, which sits at the bottom centre of the window. */
+  bottom: calc(var(--s-8) * 2 + var(--s-4));
+  left: 50%;
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-3) var(--s-4) var(--s-3) var(--s-5);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-xl);
+  background: var(--raised);
+  box-shadow: var(--shadow-pop);
+  transform: translateX(-50%);
+  white-space: nowrap;
+}

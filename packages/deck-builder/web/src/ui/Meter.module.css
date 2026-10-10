@@ -1,0 +1,28 @@
+.meter {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.fill {
+  display: block;
+  height: 100%;
+  transition: width var(--fast);
+}
+
+.neutral {
+  background: var(--muted);
+}
+
+.agent {
+  background: var(--agent);
+}
+
+.warn {
+  background: var(--warn);
+}
+
+.add {
+  background: var(--add);
+}

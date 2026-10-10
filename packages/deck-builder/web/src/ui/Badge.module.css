@@ -1,0 +1,19 @@
+.badge {
+  display: inline-block;
+  padding: 0 var(--s-3);
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  color: var(--muted);
+  font: var(--text-xs) / 17px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.agent {
+  background: var(--agent-bg);
+  color: var(--agent);
+}
+
+.warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+}

@@ -1,0 +1,44 @@
+// The History tab (spec §8.2): the rulings log is the deck's version history,
+// and any entry can be undone. Undo writes a new entry rather than erasing one.
+
+import { api, type LogEntry } from "../../../api/client.ts";
+import { Eyebrow, Text, useToast } from "../../../ui/index.ts";
+import { LogRow } from "../../rulings/index.ts";
+import { useDeck, useDeckState } from "../DeckStore.tsx";
+import styles from "./HistoryPanel.module.css";
+
+export function HistoryPanel() {
+  const { log } = useDeckState();
+  const { deckId, run } = useDeck();
+  const { toast } = useToast();
+
+  async function undo(entry: LogEntry) {
+    const result = await run(() => api.undo(deckId, entry.id));
+    if (!result) return;
+    if (result.skipped.length > 0)
+      toast(`Undone, except what the deck had already moved past: ${result.skipped.join("; ")}.`, { duration: 12000 });
+    else toast("Undone. The undo is in the log too.");
+  }
+
+  return (
+    <>
+      <section className={styles.section}>
+        <Eyebrow>Rulings log · this is the version history</Eyebrow>
+        {log.length === 0 ? (
+          <Text tone="muted" size="sm" as="p">
+            Nothing yet. Every accepted or rejected proposal, edit and import lands here, with who made it.
+          </Text>
+        ) : (
+          <div className={styles.list}>
+            {log.map((entry) => (
+              <LogRow key={entry.id} entry={entry} onUndo={(e) => void undo(e)} />
+            ))}
+          </div>
+        )}
+      </section>
+      <Text tone="faint" size="xs" as="p">
+        Shows the latest 40 entries.
+      </Text>
+    </>
+  );
+}

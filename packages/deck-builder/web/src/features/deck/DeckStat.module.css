@@ -1,0 +1,35 @@
+.stat {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+  height: var(--h-md);
+  padding: 0 var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.stat:hover {
+  border-color: var(--line-strong);
+}
+
+.figure {
+  color: var(--text);
+  font: 600 var(--text-sm) var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.add .figure {
+  color: var(--add);
+}
+
+.warn .figure {
+  color: var(--warn);
+}
+
+.cut .figure {
+  color: var(--cut);
+}
