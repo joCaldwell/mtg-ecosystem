@@ -114,7 +114,18 @@ claude mcp add --transport http deck-builder http://127.0.0.1:8787/mcp/claude-co
   --header "Authorization: Bearer <token from Settings>"
 ```
 
+For Codex (its CLI, desktop app and IDE extension share `~/.codex/config.toml`):
+
+```toml
+[mcp_servers.deck-builder]
+url = "http://127.0.0.1:8787/mcp/codex"
+http_headers = { Authorization = "Bearer <token from Settings>" }
+default_tools_approval_mode = "approve"
+```
+
 The name after `/mcp/` is a label for attribution in the activity feed.
+ChatGPT on the web cannot reach a loopback address; the Settings page describes
+the route through OpenAI's Secure MCP Tunnel and the stdio shim.
 
 ### Doing frontend work
 

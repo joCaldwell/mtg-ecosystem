@@ -190,6 +190,14 @@ describe("who may reach the agent endpoint", () => {
   });
 });
 
+describe("the server instructions", () => {
+  // Codex documents that the first 512 characters are what it can rely on.
+  test("fit in 512 characters and send the agent to start_session", () => {
+    assert.ok(INSTRUCTIONS.length <= 512, `${INSTRUCTIONS.length} characters`);
+    assert.match(INSTRUCTIONS, /Call start_session first/);
+  });
+});
+
 describe("naming the caller, for attribution only", () => {
   test("the owner's label in the URL wins, then the client's own name, then its User-Agent", () => {
     const meta = { params: { _meta: { "io.modelcontextprotocol/clientInfo": { name: "Claude Code" } } } };
@@ -198,6 +206,8 @@ describe("naming the caller, for attribution only", () => {
     assert.equal(agentName("/mcp", { params: { clientInfo: { name: "Cursor" } } }, undefined), "Cursor");
     assert.equal(agentName("/mcp", { params: {} }, "claude-code/2.1 (cli)"), "claude-code");
     assert.equal(agentName("/mcp", {}, "node"), "agent");
+    // What Codex 0.162 sends when its URL carries no label.
+    assert.equal(agentName("/mcp", { params: {} }, "codex-mcp-client/0.162.1"), "codex-mcp-client");
     assert.equal(agentName("/mcp/<script>", {}, undefined), "script");
   });
 });
@@ -259,6 +269,7 @@ describe("the UI's API", () => {
     const settings = await (await api("/api/settings")).json();
     assert.equal(settings.agent.token, TOKEN);
     assert.match(settings.agent.url, /^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
+    assert.match(settings.agent.stdio_command, /^node \/.*\/src\/mcp\/stdio\.ts$/);
     assert.deepEqual(settings.budgets, { global: 1500, deck: 1000 });
   });
 });

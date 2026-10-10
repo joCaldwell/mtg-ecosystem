@@ -42,7 +42,7 @@ export function SettingsPage() {
   }, [settings]);
 
   if (!settings || !budgets) return <div className="page muted">{error ?? "Loading…"}</div>;
-  const { url, token } = settings.agent;
+  const { url, token, stdio_command: stdio } = settings.agent;
 
   const act = async (fn: () => Promise<Settings>) => {
     setError(null);
@@ -80,7 +80,50 @@ export function SettingsPage() {
           label="Claude Code permission"
           text={JSON.stringify({ permissions: { allow: ["mcp__deck-builder"] } }, null, 2)}
         />
-        <h3>Any client that takes a URL and headers</h3>
+        <h3>Codex</h3>
+        <p className="muted">
+          The Codex CLI, desktop app and IDE extension share one file. Add this to{" "}
+          <code>~/.codex/config.toml</code> and restart Codex. <code>approve</code> lets it read and write
+          here without asking; use <code>writes</code> to be asked before anything that writes.
+        </p>
+        <Copyable
+          label="Codex configuration"
+          text={[
+            "[mcp_servers.deck-builder]",
+            `url = "${url}/codex"`,
+            `http_headers = { Authorization = "Bearer ${token}" }`,
+            'default_tools_approval_mode = "approve"',
+          ].join("\n")}
+        />
+        <h3>ChatGPT on the web or phone</h3>
+        <p className="muted">
+          ChatGPT's servers cannot reach an app that only listens on this machine. OpenAI's Secure MCP
+          Tunnel is the supported way through: a small program you run here that connects out to OpenAI,
+          so nothing is opened to the internet. It needs an OpenAI Platform organization with Tunnels
+          enabled, a tunnel id and a runtime API key from{" "}
+          <code>platform.openai.com/settings/organization/tunnels</code>, and the{" "}
+          <code>tunnel-client</code> program from there. These commands follow OpenAI's guide and have
+          not been run against this app; what you say to ChatGPT about your decks then passes through
+          OpenAI, as anything said to ChatGPT does.
+        </p>
+        <Copyable
+          label="tunnel-client commands"
+          text={[
+            'export CONTROL_PLANE_API_KEY="sk-..."',
+            "tunnel-client init \\",
+            "  --sample sample_mcp_stdio_local \\",
+            "  --profile deck-builder \\",
+            "  --tunnel-id <your tunnel id> \\",
+            `  --mcp-command "${stdio} --name chatgpt"`,
+            "tunnel-client doctor --profile deck-builder --explain",
+            "tunnel-client run --profile deck-builder",
+          ].join("\n")}
+        />
+        <p className="muted">
+          Then in ChatGPT, open Settings → Connectors, choose <strong>Connection: Tunnel</strong> and pick
+          the tunnel. Keep <code>tunnel-client run</code> and this app running while you use it.
+        </p>
+        <h3>Any other client that takes a URL and headers</h3>
         <Copyable
           label="HTTP configuration"
           text={JSON.stringify(
@@ -91,10 +134,10 @@ export function SettingsPage() {
         />
         <h3>A client that only launches a command (stdio)</h3>
         <p className="muted">
-          Run from <code>packages/deck-builder</code>. The command is a pipe to this running app, so the
-          app must be started first. It reads the token from the app's data folder.
+          The command is a pipe to this running app, so the app must be started first. It reads the token
+          from the app's data folder.
         </p>
-        <Copyable label="stdio command" text="node src/mcp/stdio.ts --name my-agent" />
+        <Copyable label="stdio command" text={`${stdio} --name my-agent`} />
         <h3>Token</h3>
         <Copyable label="token" text={token} />
         <button className="small danger" onClick={() => setConfirmRotate(true)} aria-haspopup="dialog">

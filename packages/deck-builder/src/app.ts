@@ -336,6 +336,8 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
       agent: {
         url: `http://127.0.0.1:${opts.port ?? 8787}${MCP_PATH}`,
         token,
+        // The stdio shim, by absolute path, so it runs from anywhere.
+        stdio_command: `node ${join(PKG_ROOT, "src", "mcp", "stdio.ts")}`,
       },
     };
   };

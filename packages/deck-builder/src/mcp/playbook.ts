@@ -4,15 +4,18 @@
 // checked is also checked in code, and says so.
 
 // MCP server `instructions`. Clients differ in whether they read these, so
-// it is short, front-loaded, and its first job is to send the agent to
-// start_session, which carries the full playbook.
+// its first job is to send the agent to start_session, which carries the full
+// playbook. It is kept within 512 characters and self-contained: Codex's
+// documentation says that much is what is reliably in view when it decides
+// how to use a server (https://learn.chatgpt.com/docs/extend/mcp.md). A test
+// holds it to that.
 export const INSTRUCTIONS =
-  "Commander deck builder: the owner's decks, briefs, rulings and your memories of them. " +
-  "Call start_session first — it returns the playbook, the owner's profile, your global memories " +
-  "and the deck roster. Refer to cards by exact name; a name that does not resolve fails the " +
-  "whole call. On an active deck you change cards only with propose_changes, which the owner " +
-  "rules on in the app; on a draft deck use edit_draft. Never count or compute what a tool " +
-  "reports. Mention a card only after reading it from a deck, a search or get_cards.";
+  "Commander deck builder: the owner's decks, briefs, rulings and your memories. " +
+  "Call start_session first: it returns the playbook, the owner's profile, your global memories " +
+  "and the deck roster. Refer to cards by exact name; one that does not resolve fails the " +
+  "whole call. On an active deck, change cards only with propose_changes, which the owner " +
+  "rules on in the app; on a draft, use edit_draft. Never count or compute what a tool " +
+  "reports. Mention a card only after reading it in a deck, a search or get_cards.";
 
 export const PLAYBOOK = `# Playbook
 

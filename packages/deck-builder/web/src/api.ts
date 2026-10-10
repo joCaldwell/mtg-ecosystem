@@ -56,7 +56,7 @@ export interface Inbox {
 export interface Settings {
   budgets: { global: number; deck: number };
   cards: { count: number; updated_at: string | null };
-  agent: { url: string; token: string };
+  agent: { url: string; token: string; stdio_command: string };
 }
 
 export interface MemoryList {

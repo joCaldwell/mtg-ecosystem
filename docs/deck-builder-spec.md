@@ -425,7 +425,7 @@ flag, importing over an existing deck, undo.
 The rules an agent needs to work well with this app. It is delivered three
 ways because clients differ in what they read:
 
-1. The MCP server `instructions`: a few hundred characters, front-loaded, covering only cross-tool rules.
+1. The MCP server `instructions`: within 512 characters and self-contained, covering only cross-tool rules. *(As built: 512 is the figure Codex's documentation gives for what it can rely on; a test holds the text to it.)*
 2. The `start_session` result, which carries the full playbook. The instructions tell the agent to call it first.
 3. An optional **Agent Skill** in the repository, holding method rather than rules: how to evaluate a deck against its brief, how to build from a commander, how to run a memory tidy-up.
 
@@ -517,7 +517,8 @@ the one above it.
 Checked on 2026-10-10 while building; recorded here so the next change starts
 from what is known.
 
-- **Protocol revisions.** The official SDK's v2 packages (2.3.1) implement 2026-07-28 and fall back statelessly for 2025-revision clients; both paths are covered by tests that use the official client. Claude Code 2.1.296 connected speaking 2026-07-28. The SDK's own client still defaults to the 2025 handshake, so other clients should be expected to speak either.
+- **Protocol revisions.** The official SDK's v2 packages (2.3.1) implement 2026-07-28 and fall back statelessly for 2025-revision clients; both paths are covered by tests that use the official client. Claude Code 2.1.296 connected speaking 2026-07-28; Codex CLI 0.162.1 connected speaking the 2025 revision. Both work.
+- **Codex.** A real Codex run completed "find what most needs fixing in this deck and act on it" with no failed tool call, following the same loop as Claude Code (session, deck, unread rulings, memory, proposal). It connects with a static `Authorization` header in `~/.codex/config.toml`, which its CLI, desktop app and IDE extension share. Its `default_tools_approval_mode` honours the tools' read-only annotations: under `writes` a read ran and `remember` was held for approval; under `approve` nothing is asked. Without a label in the URL its writes are attributed to `codex-mcp-client`.
 - **Server `instructions`.** Delivered in both eras (asserted in tests). Claude Code called `start_session` first in every real run, unprompted. No other client was checked.
 - **Permission prompts.** Claude Code refuses each tool call until the server is allowed: a run without an allowlist was denied `start_session`. Allowing `mcp__deck-builder` (the `--allowedTools` flag, or `permissions.allow` in its settings) makes every tool, including the unapproved writes, run without asking. The Settings page shows the snippet.
 - **Real-agent evaluation.** Seven tasks against a copy of real decks, Claude Code with a Sonnet model, given nothing but the tools (one run also had the Agent Skill installed): find and fix what most needs fixing in a deck; say what the owner builds and draft the next deck; rework a deck as a fork; list what is missing in paper; evaluate a deck against its brief; catch up on rulings and suggest cards; tidy cluttered memories. All seven completed. Three tool calls failed across them, each recovered in one step: an unsupported search key, and the two below.
@@ -530,6 +531,7 @@ from what is known.
 
 Everything in §1–§14 is built. What has not been checked:
 
-- Any client other than Claude Code.
+- Any client other than Claude Code and Codex.
+- ChatGPT on the web or phone. Its servers cannot reach a loopback address. The route is OpenAI's Secure MCP Tunnel running the stdio shim; the Settings page gives the commands from OpenAI's guide, but they have not been run, because they need a tunnel created in the owner's OpenAI Platform organization.
 - The "download the latest card data" button, which was not pressed: it rewrites the bulk file the oracle parser shares. The code under it is the same `refresh` command the CLI runs.
 - The evaluation was run once per task, on one model, with tasks written by the same hand as the tools. It shows the interface works; it does not measure how often.
