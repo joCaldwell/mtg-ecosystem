@@ -55,6 +55,17 @@ for (const name of [FORK_NAME, DECK_NAME]) {
 // Built as a draft, made active at the end: that is the life of a real deck.
 const deckId = createDeck(db, DECK_NAME, { status: "draft" });
 
+// Global memories outlive the demo decks, so a second run finds them already
+// written. The server refuses an exact duplicate; that refusal is the
+// idempotence, not a failure.
+function rememberGlobal(db, actor, input) {
+  try {
+    remember(db, actor, input);
+  } catch (e) {
+    if (!/already says exactly this/.test(String(e?.message))) throw e;
+  }
+}
+
 const missing = new Set();
 function oracle(name) {
   const hit = tryResolveCard(db, name);
@@ -186,7 +197,7 @@ function propose(summary, items) {
   ]);
   if (pid) {
     const log = rejectItems(db, OWNER, pendingItemIds(db, pid), "The playgroup hates counterspells. Never suggest one.");
-    remember(db, AGENT, {
+    rememberGlobal(db, AGENT, {
       text: "The owner's playgroup dislikes counterspells; they rejected [[Counterspell]] for that reason and do not want counterspells suggested.",
       scope: "global",
       basis: "stated",
@@ -212,7 +223,7 @@ function propose(summary, items) {
 }
 
 // What an agent concluded on its own: a hypothesis until the owner confirms it.
-remember(db, AGENT, {
+rememberGlobal(db, AGENT, {
   text: "Seems to prefer cutting symmetrical effects generally, not only in this deck: every stax piece proposed so far has been rejected for symmetry.",
   scope: "global",
   basis: "inferred",
