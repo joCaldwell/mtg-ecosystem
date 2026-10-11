@@ -51,19 +51,22 @@ src/
   db.ts              schema, withTransaction (savepoints — they nest), settings
   cards.ts           ⭐ exact card resolution, suggestions, prose linting
   ingest.ts          Scryfall bulk → SQLite            search/  Scryfall-syntax subset
+  prices.ts          the cheapest playable printing of each card (spec §4.4)
+  refresh.ts         refreshCardData(): cards, then prices — the CLI and Settings both call it
   deck/
     service.ts       decks (draft/active, parent), slots, tags, maybe list, paper flag, computed state
     membership.ts    ⭐ applyChanges — the one place a deck's contents change; undo
     log.ts           the rulings log, per-card history, the review queue
     proposals.ts     proposals; accept/reject per item, group or whole proposal
     brief.ts         thesis / constraints / engines (direct writes)
+    power.ts         target, revision-bound assessments, explained bracket suggestions
     checks.ts        deterministic checks
     fork.ts          forkDeck, compareDecks
     paper.ts         pull list / buy list (the only reader of in_paper for agents)
     interop.ts       Archidekt export/import
   documents.ts       profile + proposed edits to profile and brief, and their rulings
   memory.ts          ⭐ memories: scopes, card links, budgets, supersede/retire
-  stats.ts           player statistics across decks
+  stats.ts           player statistics across Paper decks only
   activity.ts        the activity feed          focus.ts   what the owner has open
   token.ts           the agent bearer token
   state.ts           deckState() — the composite the UI gets from every mutation
@@ -72,7 +75,7 @@ src/
   mcp/
     playbook.ts      INSTRUCTIONS (short) and PLAYBOOK (returned by start_session)
     render.ts        text for agents — compact, grouped, counts stated
-    tools.ts         the 22 tools: thin adapters over the capability layer
+    tools.ts         the 27 tools: thin adapters over the capability layer
     http.ts          Streamable HTTP endpoint: Host/Origin checks, token, attribution
     stdio.ts         stdio shim: a pipe to the running app
 skill/commander-deck-building/SKILL.md   method for agents (optional Agent Skill)
@@ -104,7 +107,7 @@ Run from this directory (`packages/deck-builder/`):
 | `npm run check` | Typecheck (src + web) then test — the gate before committing |
 | `npm test` | Tests only — `node --test`, **not** Vitest |
 | `npm run seed:demo` | Create/replace the demo deck and its fork, which exercise every panel |
-| `npm run refresh` | Re-download the Scryfall oracle-cards bulk file into SQLite |
+| `npm run refresh` | Bring card data up to date from Scryfall: every card, then every card's price. `--force` re-downloads even if nothing is newer |
 | `npm run search '<query>'` | Scryfall-syntax search from the CLI |
 | `npm run mcp` | The stdio shim, for clients that only launch a command |
 
@@ -157,8 +160,11 @@ Vite proxy follows the API port.
 
 *   **Permissions live in the capability layer.** If a new capability must be
     owner-only, call `requireOwner` inside it. Never guard it only in a tool
-    or a route. Owner-only today: ruling, undo, deleting a deck, draft/active,
+    or a route. Owner-only today: ruling, undo, draft/active,
     the paper flag, importing over a deck, editing the profile directly.
+    Owners and agents may rename, delete and classify decks (`paper` /
+    `theorycrafted` / `legacy`, spec §5.6). Agent actions are attributed in
+    Activity. Category is independent of draft/active and per-card `in_paper`.
 *   **A deck's contents change only through `applyChanges`.** It applies a
     batch atomically, bumps the revision once, and writes one log entry. Do
     not add a second write path to `deck_cards` for membership.
@@ -169,13 +175,18 @@ Vite proxy follows the API port.
 *   **Card facts come from the database, never from model memory.** This
     applies to you: do not type a card name into code, a fixture, or a seed
     without checking it resolves.
+*   **A price is the cheapest playable printing's, in whole cents, and is an
+    estimate.** Decks hold cards, not printings, so nothing may present a
+    price as what the owner's copy is worth. Totals come from `estimateCost`
+    and always report how many cards had no price.
 *   **Exact name resolution only — never fuzzy.** A full-name match wins over
     a face-name match; what is still ambiguous needs an `oracle_id`.
 *   **Agent prose is linted on write.** Reasons, memory text, brief and
     profile edits, shortlist notes: every `[[Card Name]]` must be a real card.
-*   **Agents never delete.** Memories are superseded or retired and stay on
-    disk. An agent cannot change a memory the owner wrote or edited
-    (`owner_touched`).
+*   **Agents never delete individual memories.** Memories are superseded or
+    retired and stay on disk. An agent cannot change a memory the owner wrote
+    or edited (`owner_touched`). Deleting a deck, when requested, also deletes
+    its deck-scoped memories. The `delete_deck` tool is marked destructive.
 *   **The endpoint is stateless.** Every tool names its deck; nothing is kept
     between requests. Do not add per-connection state — the stdio shim and the
     2025-protocol fallback both rely on its absence.

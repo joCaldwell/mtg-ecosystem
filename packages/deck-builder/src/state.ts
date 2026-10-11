@@ -2,6 +2,7 @@
 // returned by every mutation so the client never reconciles partial updates.
 
 import type { DatabaseSync } from "node:sqlite";
+import { getPower } from "./deck/power.ts";
 import { getBrief } from "./deck/brief.ts";
 import { checkDeck } from "./deck/checks.ts";
 import { listLog } from "./deck/log.ts";
@@ -15,6 +16,7 @@ export function deckState(db: DatabaseSync, deckId: number) {
   return {
     ...getDeck(db, deckId),
     brief: getBrief(db, deckId),
+    power: getPower(db, deckId),
     checks: checkDeck(db, deckId),
     proposals: listProposals(db, { deckId, status: "open" }),
     document_edits: listDocumentEdits(db, { deckId, status: "pending" }),

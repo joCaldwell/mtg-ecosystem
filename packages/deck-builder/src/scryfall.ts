@@ -1,9 +1,11 @@
 import { createWriteStream, existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { Readable, Transform } from "node:stream";
+import { Readable, Transform, pipeline as pipelineOf } from "node:stream";
+import { StringDecoder } from "node:string_decoder";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { createGunzip } from "node:zlib";
+import type { ScryfallPrinting } from "./prices.ts";
 
 // Shared with scripts/ingest-scryfall.ts at the repo root so the bulk file
 // is only ever downloaded once per day for the whole monorepo.
@@ -20,6 +22,9 @@ const MAX_AGE_HOURS = 24;
 // 2026-08-25). Keep the cache as a JSON array so the existing deck-builder
 // ingest and the parser-side consumers of this shared file remain compatible.
 export function jsonlToJsonArray(): Transform {
+  // A chunk can end partway through a character ("—" is three bytes), so the
+  // bytes are decoded as a stream rather than one chunk at a time.
+  const decoder = new StringDecoder("utf8");
   let remainder = "";
   let first = true;
   return new Transform({
@@ -28,7 +33,7 @@ export function jsonlToJsonArray(): Transform {
       callback();
     },
     transform(chunk, _encoding, callback) {
-      const lines = (remainder + chunk.toString("utf8")).split(/\r?\n/);
+      const lines = (remainder + decoder.write(chunk)).split(/\r?\n/);
       remainder = lines.pop() ?? "";
       for (const line of lines) {
         if (!line.trim()) continue;
@@ -38,11 +43,58 @@ export function jsonlToJsonArray(): Transform {
       callback();
     },
     flush(callback) {
+      remainder += decoder.end();
       if (remainder.trim()) this.push(first ? remainder : `,${remainder}`);
       this.push("]\n");
       callback();
     },
   });
+}
+
+export interface BulkEntry {
+  type: string;
+  /** When Scryfall generated this file. */
+  updated_at: string;
+  download_uri?: string;
+  size?: number;
+  jsonl_download_uri?: string;
+  compressed_size?: number;
+}
+
+export async function bulkEntry(type: string): Promise<BulkEntry> {
+  const res = await fetch(MANIFEST_URL, {
+    headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+  });
+  if (!res.ok) throw new Error(`Manifest fetch failed: HTTP ${res.status}`);
+  const manifest = (await res.json()) as { data: BulkEntry[] };
+  const entry = manifest.data.find((d) => d.type === type);
+  if (!entry) throw new Error(`${type} entry not found in bulk-data manifest`);
+  return entry;
+}
+
+// Every printing, for pricing (spec §4.4). The file is 79 MB compressed and
+// over 600 MB as text, and one number per card is kept from it, so it is read
+// as it arrives and never written to disk.
+export async function* streamPrintings(entry: BulkEntry): AsyncGenerator<ScryfallPrinting> {
+  if (!entry.jsonl_download_uri) throw new Error(`${entry.type} entry has no JSONL download URL`);
+  const res = await fetch(entry.jsonl_download_uri, { headers: { "User-Agent": USER_AGENT } });
+  if (!res.ok || !res.body) throw new Error(`Bulk download failed: HTTP ${res.status}`);
+  // The callback form returns the last stream and fails it if the download
+  // does, so a broken connection ends the loop below instead of stalling it.
+  const text = pipelineOf(
+    Readable.fromWeb(res.body as import("node:stream/web").ReadableStream),
+    createGunzip(),
+    () => {},
+  );
+  const decoder = new StringDecoder("utf8");
+  let remainder = "";
+  for await (const chunk of text) {
+    const lines = (remainder + decoder.write(chunk as Buffer)).split(/\r?\n/);
+    remainder = lines.pop() ?? "";
+    for (const line of lines) if (line.trim()) yield JSON.parse(line) as ScryfallPrinting;
+  }
+  remainder += decoder.end();
+  if (remainder.trim()) yield JSON.parse(remainder) as ScryfallPrinting;
 }
 
 export async function ensureBulkFile(force = false): Promise<string> {
@@ -55,21 +107,7 @@ export async function ensureBulkFile(force = false): Promise<string> {
   }
 
   console.log("Fetching Scryfall bulk-data manifest...");
-  const manifestRes = await fetch(MANIFEST_URL, {
-    headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
-  });
-  if (!manifestRes.ok) throw new Error(`Manifest fetch failed: HTTP ${manifestRes.status}`);
-  const manifest = (await manifestRes.json()) as {
-    data: Array<{
-      type: string;
-      download_uri?: string;
-      size?: number;
-      jsonl_download_uri?: string;
-      compressed_size?: number;
-    }>;
-  };
-  const entry = manifest.data.find((d) => d.type === "oracle_cards");
-  if (!entry) throw new Error("oracle_cards entry not found in bulk-data manifest");
+  const entry = await bulkEntry("oracle_cards");
   const downloadUrl = entry.jsonl_download_uri ?? entry.download_uri;
   if (!downloadUrl) throw new Error("oracle_cards entry has no supported download URL");
   const size = entry.compressed_size ?? entry.size;

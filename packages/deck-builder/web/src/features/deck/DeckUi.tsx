@@ -6,8 +6,9 @@
 
 import { createContext, useContext, useEffect, useMemo, useReducer, type ReactNode } from "react";
 import type { GroupBy } from "../../domain/grouping.ts";
+import type { TagMatch } from "../../domain/deckSearch.ts";
 
-export type PanelTab = "review" | "brief" | "checks" | "memories" | "history" | "paper";
+export type PanelTab = "review" | "brief" | "power" | "checks" | "memories" | "history" | "paper";
 export type DeckDialog = "fork" | "compare" | "interop" | "slots" | "delete";
 
 export interface OpenCard {
@@ -17,6 +18,9 @@ export interface OpenCard {
 
 export interface DeckUiState {
   groupBy: GroupBy;
+  searchTerm: string;
+  tagIds: number[];
+  tagMatch: TagMatch;
   tab: PanelTab;
   /** The card shown in the side panel, over whichever tab is open. It need
    *  not be in the deck: a proposed add or a card named in a memory opens too. */
@@ -34,6 +38,9 @@ export interface DeckUiState {
 
 type Action =
   | { t: "groupBy"; value: GroupBy }
+  | { t: "searchTerm"; value: string }
+  | { t: "tagIds"; value: number[] }
+  | { t: "tagMatch"; value: TagMatch }
   | { t: "tab"; value: PanelTab }
   | { t: "openCard"; card: OpenCard | null }
   | { t: "toggleSelected"; oracleId: string }
@@ -50,6 +57,12 @@ function reducer(ui: DeckUiState, action: Action): DeckUiState {
   switch (action.t) {
     case "groupBy":
       return { ...ui, groupBy: action.value };
+    case "searchTerm":
+      return { ...ui, searchTerm: action.value };
+    case "tagIds":
+      return { ...ui, tagIds: action.value };
+    case "tagMatch":
+      return { ...ui, tagMatch: action.value };
     case "tab":
       // Choosing a tab is asking to see it, so the card panel gets out of the way.
       return { ...ui, tab: action.value, openCard: null };
@@ -76,6 +89,9 @@ function reducer(ui: DeckUiState, action: Action): DeckUiState {
 
 export interface DeckUi extends DeckUiState {
   setGroupBy: (value: GroupBy) => void;
+  setSearchTerm: (value: string) => void;
+  setTagIds: (value: number[]) => void;
+  setTagMatch: (value: TagMatch) => void;
   setTab: (value: PanelTab) => void;
   openCardPanel: (card: OpenCard | null) => void;
   toggleSelected: (oracleId: string) => void;
@@ -93,6 +109,9 @@ const DeckUiContext = createContext<DeckUi | null>(null);
 export function DeckUiProvider({ children }: { children: ReactNode }) {
   const [ui, dispatch] = useReducer(reducer, null, (): DeckUiState => ({
     groupBy: localStorage.getItem(GROUP_BY_KEY) === "type" ? "type" : "slot",
+    searchTerm: "",
+    tagIds: [],
+    tagMatch: "any",
     tab: "brief",
     openCard: null,
     selected: [],
@@ -109,6 +128,9 @@ export function DeckUiProvider({ children }: { children: ReactNode }) {
   const actions = useMemo(
     () => ({
       setGroupBy: (value: GroupBy) => dispatch({ t: "groupBy", value }),
+      setSearchTerm: (value: string) => dispatch({ t: "searchTerm", value }),
+      setTagIds: (value: number[]) => dispatch({ t: "tagIds", value }),
+      setTagMatch: (value: TagMatch) => dispatch({ t: "tagMatch", value }),
       setTab: (value: PanelTab) => dispatch({ t: "tab", value }),
       openCardPanel: (card: OpenCard | null) => dispatch({ t: "openCard", card }),
       toggleSelected: (oracleId: string) => dispatch({ t: "toggleSelected", oracleId }),

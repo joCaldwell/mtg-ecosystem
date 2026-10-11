@@ -3,9 +3,12 @@
 // every pending item were accepted, drawn in place rather than in a side list,
 // so the owner judges a swap by what the list looks like after it.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import type { ProposalItem } from "../../../api/client.ts";
+import { filterDeckList } from "../../../domain/deckSearch.ts";
 import { paperMarksUseful } from "../../../domain/marks.ts";
-import { EmptyState, Text } from "../../../ui/index.ts";
+import { costOf } from "../../../domain/price.ts";
+import { Button, EmptyState, Text } from "../../../ui/index.ts";
 import { useDeckState } from "../DeckStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import type { DeckViewModel } from "../useDeckView.ts";
@@ -21,14 +24,25 @@ const LEGEND: Array<[MarkKind, string]> = [
 ];
 
 const NONE = new Set<string>();
+const NO_ADDS = new Map<string, ProposalItem[]>();
 
 export function DeckList({ view }: { view: DeckViewModel }) {
   const state = useDeckState();
   const paperMarks = paperMarksUseful(state);
   const ui = useDeckUi();
   const scroll = useRef<HTMLDivElement>(null);
-  const { layout, overlay, marks, units } = view;
+  const { overlay, marks, units } = view;
   const reviewing = ui.reviewing;
+  const tagIds = ui.tagIds.filter((id) => state.tags.some((tag) => tag.id === id));
+  const searching = ui.searchTerm.trim().length > 0 || tagIds.length > 0;
+  const { layout, addsByGroup } = useMemo(
+    () => filterDeckList(view.layout, reviewing ? overlay.addsByGroup : NO_ADDS, ui.searchTerm, { ids: tagIds, match: ui.tagMatch }, state.cards),
+    [view.layout, reviewing, overlay.addsByGroup, ui.searchTerm, ui.tagIds, ui.tagMatch, state.tags, state.cards],
+  );
+
+  // From the unfiltered layout, like the groups' own: a search hides rows, not totals.
+  const commanderCost = useMemo(() => costOf(view.layout.commanders), [view.layout.commanders]);
+  const companionCost = useMemo(() => costOf(view.layout.companions), [view.layout.companions]);
 
   // Same clamp as useReview, so the outline and the panel agree on the unit.
   const unit = reviewing && units.length ? units[Math.min(ui.cursor, units.length - 1)] : null;
@@ -43,30 +57,40 @@ export function DeckList({ view }: { view: DeckViewModel }) {
   }, [unitKey]);
 
   const nothingToShow = state.cards.length === 0 && !(reviewing && overlay.addsByGroup.size > 0);
+  const noMatches = searching && layout.commanders.length === 0 && layout.companions.length === 0
+    && layout.groups.length === 0 && layout.maybe.length === 0;
 
   return (
     <div ref={scroll} className={styles.scroll}>
-      {nothingToShow ? (
+      {noMatches ? (
+        <EmptyState title="No cards match your filters">
+          Try another card name or tag, or clear the filters to show the full list.
+          <Button onClick={() => { ui.setSearchTerm(""); ui.setTagIds([]); }}>Clear filters</Button>
+        </EmptyState>
+      ) : nothingToShow ? (
         <EmptyState title="No cards yet">
           Use the bar above to add the first one, or import a list from the More menu.
         </EmptyState>
       ) : (
         <>
           <div className={styles.cols}>
-            <GroupBlock
-              paperMarks={paperMarks}
-              title="Commander"
-              cards={layout.commanders}
-              cuts={cuts}
-              current={current}
-              marks={marks}
-              bold
-              empty={
-                <p className={styles.hint}>
-                  No commander yet. Search for a legendary creature above and add it as the commander.
-                </p>
-              }
-            />
+            {(!searching || layout.commanders.length > 0) && (
+              <GroupBlock
+                paperMarks={paperMarks}
+                title="Commander"
+                cost={commanderCost}
+                cards={layout.commanders}
+                cuts={cuts}
+                current={current}
+                marks={marks}
+                bold
+                empty={
+                  <p className={styles.hint}>
+                    No commander yet. Search for a legendary creature above and add it as the commander.
+                  </p>
+                }
+              />
+            )}
             {layout.groups.map((g) => (
               <GroupBlock
                 paperMarks={paperMarks}
@@ -77,8 +101,9 @@ export function DeckList({ view }: { view: DeckViewModel }) {
                 status={g.status}
                 delta={g.delta}
                 projected={reviewing ? overlay.projected.get(g.key) : undefined}
+                cost={g.cost}
                 cards={g.cards}
-                adds={reviewing ? overlay.addsByGroup.get(g.key) : undefined}
+                adds={addsByGroup.get(g.key)}
                 cuts={cuts}
                 current={current}
                 marks={marks}
@@ -89,6 +114,7 @@ export function DeckList({ view }: { view: DeckViewModel }) {
               <GroupBlock
                 paperMarks={paperMarks}
                 title="Companion"
+                cost={companionCost}
                 cards={layout.companions}
                 cuts={cuts}
                 current={current}

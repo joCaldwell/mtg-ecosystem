@@ -1,6 +1,6 @@
 // The strip under the toolbar that says whether anything is waiting on the
-// owner (spec §8.2): a draft's standing notice, an agent's proposal, or the
-// review in progress.
+// owner (spec §8.2): an agent's proposal, or the review in progress. A draft
+// gets no strip; the header's Draft / Active control is its mark.
 
 import { useEffect, useState } from "react";
 import { ago } from "../../domain/time.ts";
@@ -13,7 +13,7 @@ import type { Review } from "./useReview.ts";
 import styles from "./ProposalBanner.module.css";
 
 export function ProposalBanner({ units, review }: { units: ReviewUnit[]; review: Review }) {
-  const { deck, proposals } = useDeckState();
+  const { proposals } = useDeckState();
   const ui = useDeckUi();
 
   // How many decisions the review began with, so "X of Y left" has a Y that
@@ -23,13 +23,6 @@ export function ProposalBanner({ units, review }: { units: ReviewUnit[]; review:
     if (!ui.reviewing) setBegan(units.length);
   }, [ui.reviewing, units.length]);
 
-  if (deck.status === "draft")
-    return (
-      <Banner tone="warn">
-        <Text weight="medium" tone="warn">Draft.</Text> Agents change this list directly. Every edit lands in History
-        with its author, and you can undo any of them.
-      </Banner>
-    );
   if (units.length === 0) return null;
 
   if (ui.reviewing)

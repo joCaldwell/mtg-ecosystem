@@ -75,7 +75,7 @@ export function DocumentEditCard({
     <Box tone="agent" className={styles.card}>
       <Stack gap={2}>
         <Eyebrow className={styles.eyebrow}>
-          <span className={styles.kind}>{edit.kind === "profile" ? "Profile edit" : "Brief edit"}</span>
+          <span className={styles.kind}>{edit.kind === "profile" ? "Profile edit" : edit.kind === "power_target" ? "Power target edit" : "Brief edit"}</span>
           <span className={styles.author}>{edit.author}</span>
           <span>{ago(edit.created_at)}</span>
           {showDeck && <span>{edit.deck_name ?? "Your profile"}</span>}

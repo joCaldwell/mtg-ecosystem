@@ -33,6 +33,7 @@ export function ChangeUnit({ unit, state }: { unit: ReviewUnit; state: DeckState
               <CardRef name={item.card_name} card={{ ...item, name: item.card_name }} />
             </span>
             <ManaCost cost={item.mana_cost} />
+            {!!item.to_maybe && <Chip>to maybe list</Chip>}
             {slot && <Chip>{slot}</Chip>}
           </div>
         );

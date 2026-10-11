@@ -35,6 +35,7 @@ export function card(over: Partial<DeckCard> & { name?: string } = {}): DeckCard
     ci_mask: 0,
     commander_legality: "legal",
     is_commander: 0,
+    usd_cents: null,
     slot_id: null,
     role: "card",
     maybe: 0,
@@ -61,6 +62,7 @@ export function searchResult(over: Partial<CardData> & { name?: string } = {}): 
     color_identity: "",
     commander_legality: "legal",
     is_commander: 0,
+    usd_cents: null,
     ...over,
   };
 }
@@ -85,8 +87,10 @@ export function item(over: Partial<ProposalItem> & { name?: string } = {}): Prop
     power: null,
     toughness: null,
     loyalty: null,
+    usd_cents: null,
     slot_id: null,
     slot_name: null,
+    to_maybe: 0,
     reason: "Test reason",
     group_id: null,
     status: "pending",
@@ -232,6 +236,7 @@ function computedFor(
     average_mana_value: null,
     curve: { "0": 0, "1": 0, "2": 0, "3": 0, "4": 0, "5": 0, "6": 0, "7+": 0 },
     pips: { W: 0, U: 0, B: 0, R: 0, G: 0 },
+    cost: { usd_cents: 0, unpriced: 0, as_of: null },
   };
 }
 
@@ -248,6 +253,7 @@ export function deckState(
       id: 1,
       name: "Test Deck",
       status: "active",
+      category: "theorycrafted",
       parent: null,
       ci_mask: null,
       color_identity: "",
@@ -256,6 +262,7 @@ export function deckState(
     slots,
     tags: [],
     cards,
+    power: { target: null, assessment: null, history: [], game_changers: { count: 0, unknown_cards: 0, cards: [] }, differences: [], fields: [], guidance: { version: "2026-02-09", url: "", expectations_url: "" } },
     brief: { thesis: "", constraints_md: "", engines: [], updated_at: null },
     checks: [],
     proposals,

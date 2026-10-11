@@ -8,7 +8,7 @@ export const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const DATA_DIR = process.env.DECKBUILDER_DATA ?? join(PKG_ROOT, "data");
 export const DEFAULT_DB_PATH = process.env.DECKBUILDER_DB ?? join(DATA_DIR, "deck-builder.db");
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 5;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS cards (
@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS cards (
   ci_count         INTEGER NOT NULL,
   commander_legality TEXT NOT NULL,
   is_commander     INTEGER NOT NULL,
+  game_changer     INTEGER CHECK (game_changer IN (0, 1)),
   layout           TEXT NOT NULL,
   faces_json       TEXT,
   -- oracle text minus reminder text, faces joined; what o: searches
@@ -54,6 +55,19 @@ CREATE VIRTUAL TABLE IF NOT EXISTS cards_fts USING fts5(
   name, search_text, oracle_id UNINDEXED
 );
 
+-- Spec §4.4: the cheapest playable paper printing of each card, replaced
+-- wholesale by every refresh. No foreign key: see ingestPrices.
+CREATE TABLE IF NOT EXISTS card_prices (
+  oracle_id        TEXT PRIMARY KEY,
+  usd_cents        INTEGER NOT NULL,
+  -- Which printing the price is for.
+  set_code         TEXT NOT NULL,
+  collector_number TEXT NOT NULL,
+  finish           TEXT NOT NULL CHECK (finish IN ('nonfoil', 'foil', 'etched'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_card_prices_usd ON card_prices(usd_cents);
+
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -65,6 +79,9 @@ CREATE TABLE IF NOT EXISTS decks (
   -- Spec §5.2. Agents change membership of a draft directly and of an active
   -- deck only by proposal. Only the owner flips this.
   status     TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'active')),
+  -- Spec §5.6: classification, independent of editing permissions.
+  category   TEXT NOT NULL DEFAULT 'theorycrafted'
+             CHECK (category IN ('paper', 'theorycrafted', 'legacy')),
   -- Spec §5.3: the deck this one was forked from. Kept when the parent is
   -- deleted would dangle, so it is cleared instead.
   parent_id  INTEGER REFERENCES decks(id) ON DELETE SET NULL,
@@ -94,6 +111,9 @@ CREATE TABLE IF NOT EXISTS tags (
   UNIQUE (deck_id, name COLLATE NOCASE)
 );
 
+-- Composite parent key prevents a card from carrying another deck's tag.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_deck_id ON tags(deck_id, id);
+
 CREATE TABLE IF NOT EXISTS deck_cards (
   deck_id   INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
   oracle_id TEXT NOT NULL REFERENCES cards(oracle_id),
@@ -117,8 +137,9 @@ CREATE INDEX IF NOT EXISTS idx_deck_cards_card ON deck_cards(oracle_id);
 CREATE TABLE IF NOT EXISTS deck_card_tags (
   deck_id   INTEGER NOT NULL,
   oracle_id TEXT NOT NULL,
-  tag_id    INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+  tag_id    INTEGER NOT NULL,
   PRIMARY KEY (deck_id, oracle_id, tag_id),
+  FOREIGN KEY (deck_id, tag_id) REFERENCES tags(deck_id, id) ON DELETE CASCADE,
   FOREIGN KEY (deck_id, oracle_id) REFERENCES deck_cards(deck_id, oracle_id) ON DELETE CASCADE
 );
 
@@ -158,7 +179,7 @@ CREATE TABLE IF NOT EXISTS profile (
 CREATE TABLE IF NOT EXISTS document_edits (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   deck_id      INTEGER REFERENCES decks(id) ON DELETE CASCADE,
-  kind         TEXT NOT NULL CHECK (kind IN ('profile', 'thesis', 'constraints', 'engine_set', 'engine_remove')),
+  kind         TEXT NOT NULL CHECK (kind IN ('profile', 'thesis', 'constraints', 'engine_set', 'engine_remove', 'power_target')),
   payload_json TEXT NOT NULL,
   reason       TEXT NOT NULL,
   author       TEXT NOT NULL,
@@ -166,6 +187,29 @@ CREATE TABLE IF NOT EXISTS document_edits (
   created_at   TEXT NOT NULL DEFAULT (datetime('now')),
   resolved_at  TEXT
 );
+
+-- Spec §5.7: the target is an owner's document; assessments retain attribution
+-- and the exact deck revision. Neither changes deck membership or revision.
+CREATE TABLE IF NOT EXISTS power_targets (
+  deck_id INTEGER PRIMARY KEY REFERENCES decks(id) ON DELETE CASCADE,
+  target_json TEXT NOT NULL,
+  author TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS power_assessments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  deck_id INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+  profile_json TEXT NOT NULL,
+  game_changers_json TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  evidence TEXT NOT NULL CHECK (evidence IN ('list', 'goldfish', 'games')),
+  confidence TEXT NOT NULL CHECK (confidence IN ('tentative', 'supported')),
+  notes TEXT NOT NULL,
+  author TEXT NOT NULL,
+  owner_touched INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_power_assessments_deck ON power_assessments(deck_id, id);
 
 CREATE TABLE IF NOT EXISTS proposals (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -182,6 +226,9 @@ CREATE TABLE IF NOT EXISTS proposal_items (
   action      TEXT NOT NULL CHECK (action IN ('add', 'cut')),
   oracle_id   TEXT NOT NULL REFERENCES cards(oracle_id),
   slot_id     INTEGER,
+  -- Spec §8.1: an accepted cut moves the card to the maybe list instead of
+  -- out of the deck. Only ever set on a cut.
+  to_maybe    INTEGER NOT NULL DEFAULT 0 CHECK (to_maybe IN (0, 1)),
   reason      TEXT NOT NULL,
   group_id    TEXT,
   status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected')),
@@ -287,32 +334,90 @@ CREATE TABLE IF NOT EXISTS activity (
 CREATE INDEX IF NOT EXISTS idx_activity_ts ON activity(id);
 `;
 
-/** Thrown when the file on disk was not made by this schema version. */
+/** Thrown when the file on disk is not a supported schema version. */
 export class SchemaError extends AppError {}
 
 export function openDb(path: string = DEFAULT_DB_PATH): DatabaseSync {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
-  assertOurs(db, path);
+  const version = assertOurs(db, path);
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA foreign_keys = ON");
-  db.exec(SCHEMA);
-  db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)").run(
-    String(SCHEMA_VERSION),
-  );
-  db.prepare("INSERT OR IGNORE INTO profile (id) VALUES (1)").run();
+  try {
+    withTransaction(db, () => {
+      db.exec(SCHEMA);
+      if (version === "2") {
+        // Preserve existing decks and card-level paper flags; classification is
+        // an owner's decision, so do not infer it from assembly progress.
+        db.exec(`ALTER TABLE decks ADD COLUMN category TEXT NOT NULL DEFAULT 'theorycrafted'
+                 CHECK (category IN ('paper', 'theorycrafted', 'legacy'))`);
+      }
+      if (version === "2" || version === "3") {
+        // Rebuild only the join table; valid assignments retain their IDs. An
+        // invalid legacy link fails the transaction rather than silently losing data.
+        db.exec(`CREATE TABLE deck_card_tags_v4 (
+          deck_id INTEGER NOT NULL,
+          oracle_id TEXT NOT NULL,
+          tag_id INTEGER NOT NULL,
+          PRIMARY KEY (deck_id, oracle_id, tag_id),
+          FOREIGN KEY (deck_id, tag_id) REFERENCES tags(deck_id, id) ON DELETE CASCADE,
+          FOREIGN KEY (deck_id, oracle_id) REFERENCES deck_cards(deck_id, oracle_id) ON DELETE CASCADE
+        );
+        INSERT INTO deck_card_tags_v4 SELECT deck_id, oracle_id, tag_id FROM deck_card_tags;
+        DROP TABLE deck_card_tags;
+        ALTER TABLE deck_card_tags_v4 RENAME TO deck_card_tags;`);
+      }
+      if (version != null && version !== "5") {
+        // NULL until a card refresh supplies Scryfall's optional metadata.
+        const columns = db.prepare("PRAGMA table_info(cards)").all() as unknown as { name: string }[];
+        if (!columns.some(c => c.name === "game_changer"))
+          db.exec("ALTER TABLE cards ADD COLUMN game_changer INTEGER CHECK (game_changer IN (0, 1))");
+        const sequence = db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'document_edits'").get() as { seq: number } | undefined;
+        db.exec(`CREATE TABLE document_edits_v5 (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          deck_id INTEGER REFERENCES decks(id) ON DELETE CASCADE,
+          kind TEXT NOT NULL CHECK (kind IN ('profile', 'thesis', 'constraints', 'engine_set', 'engine_remove', 'power_target')),
+          payload_json TEXT NOT NULL, reason TEXT NOT NULL, author TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected')),
+          created_at TEXT NOT NULL DEFAULT (datetime('now')), resolved_at TEXT
+        );
+        INSERT INTO document_edits_v5 SELECT * FROM document_edits;
+        DROP TABLE document_edits;
+        ALTER TABLE document_edits_v5 RENAME TO document_edits;`);
+        // Deleted decks may have consumed higher IDs than the surviving rows.
+        // Keep AUTOINCREMENT monotonic so old references cannot name a new edit.
+        if (sequence) {
+          db.prepare("DELETE FROM sqlite_sequence WHERE name = 'document_edits'").run();
+          db.prepare("INSERT INTO sqlite_sequence (name, seq) VALUES ('document_edits', ?)").run(sequence.seq);
+        }
+      }
+      // Added by presence, not by version: an existing file gains the column
+      // the first time it is opened, whatever version it reports.
+      const itemColumns = db.prepare("PRAGMA table_info(proposal_items)").all() as unknown as { name: string }[];
+      if (!itemColumns.some((c) => c.name === "to_maybe"))
+        db.exec("ALTER TABLE proposal_items ADD COLUMN to_maybe INTEGER NOT NULL DEFAULT 0 CHECK (to_maybe IN (0, 1))");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_deck_card_tags_tag ON deck_card_tags(deck_id, tag_id, oracle_id)");
+      db.prepare("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(
+        String(SCHEMA_VERSION),
+      );
+      db.prepare("INSERT OR IGNORE INTO profile (id) VALUES (1)").run();
+    });
+  } catch (error) {
+    db.close();
+    throw error;
+  }
   return db;
 }
 
 // The schema is created with IF NOT EXISTS, so pointed at a database with a
 // different shape it would add its tables beside the others and leave a file
 // nothing can read. A file that already holds tables must say it is this
-// version; otherwise this refuses before writing anything.
+// version (or a version we can migrate); otherwise this refuses before writing anything.
 function assertOurs(db: DatabaseSync, path: string) {
   const tables = db.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE type = 'table'").get() as {
     n: number;
   };
-  if (!tables.n) return; // a new file
+  if (!tables.n) return null; // a new file
   let found: string | null = null;
   try {
     found =
@@ -322,7 +427,7 @@ function assertOurs(db: DatabaseSync, path: string) {
   } catch {
     /* no meta table at all */
   }
-  if (found === String(SCHEMA_VERSION)) return;
+  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4") return found;
   db.close();
   throw new SchemaError(
     `${path} is not a database this version of the deck builder can open ` +

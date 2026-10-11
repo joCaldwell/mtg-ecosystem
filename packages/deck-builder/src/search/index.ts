@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { parse, SearchError } from "./parse.ts";
 import { compile } from "./compile.ts";
+import { USD_CENTS_COLUMN } from "../prices.ts";
 
 export { SearchError };
 
@@ -17,10 +18,12 @@ export interface SearchResult {
   color_identity: string;
   commander_legality: string;
   is_commander: number;
+  usd_cents: number | null;
 }
 
 const RESULT_COLUMNS =
-  "oracle_id, name, mana_cost, cmc, type_line, oracle_text, power, toughness, loyalty, color_identity, commander_legality, is_commander";
+  "oracle_id, name, mana_cost, cmc, type_line, oracle_text, power, toughness, loyalty, color_identity, " +
+  `commander_legality, is_commander, ${USD_CENTS_COLUMN}`;
 
 export interface SearchOptions {
   limit?: number;

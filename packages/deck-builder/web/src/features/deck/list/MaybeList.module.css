@@ -3,6 +3,7 @@
   padding: var(--s-5) var(--s-5) var(--s-4);
   border: 1px dashed var(--line-strong);
   border-radius: var(--r-lg);
+  background: var(--maybe-pattern);
 }
 
 .head {

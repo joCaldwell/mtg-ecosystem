@@ -5,6 +5,9 @@
 import { useState, type FormEvent, type KeyboardEvent } from "react";
 import { api } from "../../api/client.ts";
 import { href } from "../../app/routes.ts";
+import { DECK_CATEGORY_OPTIONS } from "../../domain/deckCategory.ts";
+import { bracketLabel } from "../../domain/power.ts";
+import { costCaption, formatUsd } from "../../domain/price.ts";
 import { ColorIdentity, ManaCost, CardRef } from "../../mtg/index.ts";
 import { Icon, Menu, Row, Segmented, Text, TextField, type MenuItem } from "../../ui/index.ts";
 import { DeckStat } from "./DeckStat.tsx";
@@ -125,6 +128,17 @@ export function DeckHeader() {
       </div>
 
       <Row className={styles.sub} gap={5} wrap>
+        <Row gap={2}>
+          <Text size="xs" tone="faint">Category</Text>
+          <Segmented
+            label="Deck category"
+            options={DECK_CATEGORY_OPTIONS}
+            value={deck.category}
+            onChange={(category) => {
+              if (category !== deck.category) void run(() => api.setDeckCategory(deck.id, category));
+            }}
+          />
+        </Row>
         {commanders.length > 0 ? (
           <>
             {commanders.map((c) => (
@@ -143,6 +157,15 @@ export function DeckHeader() {
             fork of <a className={styles.link} href={href({ page: "deck", deckId: deck.parent.id })}>{deck.parent.name}</a>
           </span>
         )}
+        {computed.cost.as_of && (
+          <Text mono tone="muted" title={costCaption(computed.cost)}>
+            est. {formatUsd(computed.cost.usd_cents)}
+          </Text>
+        )}
+        <button type="button" className={styles.name} onClick={() => ui.setTab("power")} title="Set the power target or assess this deck">
+          Power: {state.power.assessment ? `${bracketLabel(state.power.assessment.mapping)}${state.power.assessment.stale ? " · needs review" : ""}` : "not assessed"}
+          {state.power.target ? ` · target ${bracketLabel(state.power.target.mapping)}` : ""}
+        </button>
         <Text mono tone="faint" title="The deck's revision">
           r{deck.revision}
         </Text>

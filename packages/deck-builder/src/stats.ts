@@ -1,5 +1,5 @@
 // Player statistics (spec §3, §10.3): what the owner builds, computed across
-// their decks. "The owner has three Golgari decks" is a query, never a
+// their Paper decks. "The owner has three Golgari decks" is a query, never a
 // memory — so the app answers it here, and the playbook forbids storing it.
 
 import type { DatabaseSync } from "node:sqlite";
@@ -17,6 +17,7 @@ function typeGroup(typeLine: string): string {
 }
 
 export interface PlayerStats {
+  /** Only decks categorized as Paper contribute to these statistics. */
   deck_count: number;
   decks: Array<{
     id: number;
@@ -51,13 +52,16 @@ export interface PlayerStats {
 }
 
 export function playerStats(db: DatabaseSync, opts: { reusedLimit?: number } = {}): PlayerStats {
-  const roster = listDecks(db);
+  const allDecks = listDecks(db);
+  const roster = allDecks.filter((d) => d.category === "paper");
   const views = roster.map((d) => getDeck(db, d.id));
   const filled = views.filter((v) => v.computed.card_count > 0);
 
   // A fork carries its parent's list, so counting both would report the same
   // taste twice. Reuse is counted per family: the root of each fork chain.
-  const parentOf = new Map(roster.map((d) => [d.id, d.parent_id]));
+  // Keep ancestry through excluded decks so Paper forks in the same family
+  // still count once. Only the filtered views contribute cards or totals.
+  const parentOf = new Map(allDecks.map((d) => [d.id, d.parent_id]));
   const rootOf = (id: number): number => {
     const seen = new Set<number>();
     let cur = id;

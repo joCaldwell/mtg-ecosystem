@@ -1,5 +1,5 @@
 import type { DeckCard } from "../../../api/client.ts";
-import { InlineText, ManaCost, useCardHover } from "../../../mtg/index.ts";
+import { InlineText, ManaCost, Price, useCardHover } from "../../../mtg/index.ts";
 import { Chip } from "../../../ui/index.ts";
 import { useDeckUi } from "../DeckUi.tsx";
 import styles from "./MaybeRow.module.css";
@@ -25,6 +25,7 @@ export function MaybeRow({ card, slotName }: { card: DeckCard; slotName: string 
       <span className={styles.note}>{card.maybe_note && <InlineText text={card.maybe_note} />}</span>
       {slotName && <Chip>{slotName}</Chip>}
       <ManaCost cost={card.mana_cost} />
+      <Price cents={card.usd_cents} column />
     </div>
   );
 }

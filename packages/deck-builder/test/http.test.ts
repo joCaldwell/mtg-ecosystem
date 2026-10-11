@@ -72,7 +72,8 @@ describe("the agent endpoint, through the official MCP client (spec §10.1)", ()
     const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
     assert.equal(byName.get_deck.annotations?.readOnlyHint, true);
     assert.equal(byName.remember.annotations?.readOnlyHint, false);
-    assert.ok(tools.every((t) => t.annotations?.destructiveHint === false));
+    assert.deepEqual(tools.filter((t) => t.annotations?.destructiveHint).map((t) => t.name), ["delete_deck"]);
+    assert.equal(byName.delete_deck.annotations?.readOnlyHint, false);
     assert.deepEqual((byName.get_deck.inputSchema as any).required, ["deck"]);
     assert.match((byName.search_cards.inputSchema as any).properties.include_my_decks.description, /Off by default/);
     assert.equal(client.getInstructions(), INSTRUCTIONS);
@@ -100,6 +101,22 @@ describe("the agent endpoint, through the official MCP client (spec §10.1)", ()
     });
     assert.equal(unknown.isError, true);
     assert.match(textOf(unknown), /Did you mean: Sol Ring/);
+    await client.close();
+  });
+  test("an agent can create, rename, classify and delete through the official client", async () => {
+    const client = await connect("/mcp/deck-manager", true);
+    const run = async (name: string, args: Record<string, unknown>) => {
+      const result = await client.callTool({ name, arguments: args });
+      assert.ok(!result.isError, textOf(result));
+      return textOf(result);
+    };
+    await run("create_deck", { name: "MCP managed deck", category: "paper" });
+    await run("rename_deck", { deck: "MCP managed deck", name: "MCP renamed deck" });
+    await run("set_deck_category", { deck: "MCP renamed deck", category: "legacy" });
+    assert.match(await run("get_deck", { deck: "MCP renamed deck", sections: ["state"] }), /category legacy/);
+    assert.match(await run("delete_deck", { deck: "MCP renamed deck" }), /This cannot be undone/);
+    assert.equal(listActivity(db)[0].actor, "deck-manager");
+    assert.equal(listActivity(db)[0].action, "delete_deck");
     await client.close();
   });
   test("a write is attributed to the client's label and reaches the open page", async () => {
@@ -216,6 +233,67 @@ describe("the UI's API", () => {
   const api = (path: string, init: RequestInit = {}) => fetch(`${base}${path}`, init);
   const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
     api(path, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) });
+
+  test("power target approval and assessments work across MCP and HTTP with revision checks", async () => {
+    const created = await (await post("/api/decks", { name: "Power endpoint deck" })).json();
+    const id = created.state.deck.id;
+    const patch = await api(`/api/decks/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "active" }) });
+    assert.equal(patch.status, 200);
+    const client = await connect("/mcp/power-test");
+    const proposed = await client.callTool({ name: "propose_power_target", arguments: { deck: id, target: { profile: { intent: "synergy" }, game_changers_max: 3 }, reason: "Owner requested powered-up casual play." } });
+    assert.ok(!proposed.isError, textOf(proposed));
+    assert.match(textOf(proposed), /awaiting the owner/);
+    const before = await (await api(`/api/decks/${id}`)).json();
+    assert.equal(before.state.power.target, null);
+    const edit = before.state.document_edits.find((e: any) => e.kind === "power_target");
+    const ruled = await (await post(`/api/document-edits/${edit.id}/rule`, { outcome: "accept" })).json();
+    assert.equal(ruled.state.power.target.mapping.bracket, 3);
+    const input = { profile: { intent: "social", win_turn: { min: 9, max: 11 } }, revision: 0, evidence: "list", confidence: "tentative", notes: "Untested list estimate." };
+    const assessed = await client.callTool({ name: "assess_deck_power", arguments: { deck: id, assessment: input } });
+    assert.ok(!assessed.isError, textOf(assessed));
+    assert.match(textOf(assessed), /tentative, evidence: list/);
+    const owner = await (await post(`/api/decks/${id}/power/assessments`, input)).json();
+    assert.equal(owner.state.power.assessment.owner_touched, true);
+    const blocked = await client.callTool({ name: "assess_deck_power", arguments: { deck: id, assessment: input } });
+    assert.equal(blocked.isError, true);
+    assert.match(textOf(blocked), /owner has assessed this revision/);
+    const put = (target: unknown) => api(`/api/decks/${id}/power/target`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ target }) });
+    const invalid = await put({ profile: { win_turn: { min: 9, max: 6 } } });
+    assert.equal(invalid.status, 422);
+    assert.equal((await (await put(null)).json()).state.power.target, null);
+    await post(`/api/decks/${id}/cards`, { oracle_id: "id-solring" });
+    const stale = await post(`/api/decks/${id}/power/assessments`, input);
+    assert.equal(stale.status, 409);
+    const read = await client.callTool({ name: "get_deck", arguments: { deck: id, sections: ["power"] } });
+    assert.match(textOf(read), /STALE: cards changed/);
+    await client.close();
+  });
+
+  test("creates, updates and lists deck categories; rejects invalid values atomically", async () => {
+    const created = await (await post("/api/decks", { name: "Paper deck", category: "paper" })).json();
+    const id = created.state.deck.id;
+    assert.equal(created.state.deck.category, "paper");
+    assert.equal(created.state.deck.status, "draft");
+    const patch = (body: unknown) => api(`/api/decks/${id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    const updated = await (await patch({ category: "legacy" })).json();
+    assert.equal(updated.state.deck.category, "legacy");
+    assert.equal((await (await api(`/api/decks/${id}`)).json()).state.deck.category, "legacy");
+    assert.equal((await (await api("/api/decks")).json()).find((d: any) => d.id === id).category, "legacy");
+    const invalid = await patch({ name: "Should roll back", category: "unknown" });
+    assert.equal(invalid.status, 400);
+    assert.match((await invalid.json()).error, /Deck category must be/);
+    const unchanged = await (await api(`/api/decks/${id}`)).json();
+    assert.equal(unchanged.state.deck.name, "Paper deck");
+    assert.equal(unchanged.state.deck.category, "legacy");
+    for (const category of [null, "unknown", 1]) {
+      assert.equal((await post("/api/decks", { name: "Invalid category", category })).status, 400);
+    }
+    assert.ok(!(await (await api("/api/decks")).json()).some((d: any) => d.name === "Invalid category"));
+    const defaulted = await (await post("/api/decks", { name: "Default category" })).json();
+    assert.equal(defaulted.state.deck.category, "theorycrafted");
+  });
 
   test("acts as the owner: adds a card, rules on a proposal, undoes it", async () => {
     const added = await (await post(`/api/decks/${deck}/cards`, { oracle_id: "id-counterspell" })).json();

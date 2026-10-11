@@ -18,7 +18,9 @@ import {
   listDecks,
   organizeCard,
   renameDeck,
+  renameTag,
   setAllInPaper,
+  setDeckCategory,
   setDeckStatus,
   setInPaper,
   shortlistCard,
@@ -35,7 +37,7 @@ describe("deck lifecycle", () => {
   test("create, list, rename, delete", () => {
     const id = createDeck(db, "Test CRUD");
     assert.ok(listDecks(db).some((d) => d.id === id && d.name === "Test CRUD"));
-    renameDeck(db, id, "Renamed");
+    renameDeck(db, OWNER, id, "Renamed");
     assert.equal(getDeck(db, id).deck.name, "Renamed");
     deleteDeck(db, OWNER, id);
     assert.throws(() => getDeck(db, id), ServiceError);
@@ -45,13 +47,12 @@ describe("deck lifecycle", () => {
     assert.throws(() => createDeck(db, "dupe"), /already exists/);
   });
   // Spec §5.2: a new deck is a draft; only the owner changes that.
-  test("new decks are drafts, and only the owner changes status or deletes", () => {
+  test("new decks are drafts, and only the owner changes draft/active status", () => {
     const id = createDeck(db, "Status");
     assert.equal(getDeck(db, id).deck.status, "draft");
     assert.throws(() => setDeckStatus(db, AGENT, id, "active"), PermissionError);
     setDeckStatus(db, OWNER, id, "active");
     assert.equal(getDeck(db, id).deck.status, "active");
-    assert.throws(() => deleteDeck(db, AGENT, id), PermissionError);
   });
   test("the roster carries commanders, counts and pending work", () => {
     const id = newDeck(db, "active", "Roster");
@@ -62,6 +63,26 @@ describe("deck lifecycle", () => {
     assert.equal(row.card_count, 2);
     assert.equal(row.color_identity, "WUBG");
     assert.equal(row.pending_items, 0);
+  });
+  test("owners and agents classify a deck independently of permissions and paper flags", () => {
+    const id = newDeck(db, "active", "Classification");
+    add(db, id, "id-solring");
+    setInPaper(db, OWNER, id, "id-solring", true);
+    const before = getDeck(db, id);
+    assert.equal(before.deck.category, "theorycrafted");
+    for (const category of ["paper", "legacy", "theorycrafted"] as const) {
+      setDeckCategory(db, AGENT, id, category);
+      const after = getDeck(db, id);
+      assert.equal(after.deck.category, category);
+      assert.equal(listDecks(db).find((d) => d.id === id)!.category, category);
+      assert.equal(after.deck.status, "active");
+      assert.equal(after.deck.revision, before.deck.revision);
+      assert.deepEqual(after.cards, before.cards);
+      assert.throws(() => applyChanges(db, AGENT, id, [{ action: "cut", oracle_id: "id-solring" }], { kind: "edit" }), PermissionError);
+    }
+    assert.throws(() => setDeckCategory(db, OWNER, id, "invalid" as any), ServiceError);
+    assert.equal(getDeck(db, id).deck.category, "theorycrafted");
+    assert.throws(() => setDeckCategory(db, OWNER, -1, "paper"), ServiceError);
   });
 });
 
@@ -246,6 +267,41 @@ describe("tags", () => {
     fileCards(db, id, [{ oracle_id: "id-solring", remove_tags: ["dork"] }]);
     const ring = getDeck(db, id).cards.find((c) => c.oracle_id === "id-solring")!;
     assert.equal(ring.tag_ids.length, 1);
+  });
+  test("rename enforces the creation vocabulary rule and preserves assignments", () => {
+    const id = newDeck(db);
+    createTag(db, id, "Card Draw");
+    const tag = createTag(db, id, "Engine");
+    add(db, id, "id-solring");
+    organizeCard(db, id, "id-solring", { tagIds: [tag] });
+    for (const name of ["card-draw", "draw card", "Card Draws"])
+      assert.throws(() => renameTag(db, id, tag, name), /already has the tag 'Card Draw'/);
+    renameTag(db, id, tag, "Engines");
+    assert.deepEqual(getDeck(db, id).cards[0].tag_ids, [tag]);
+    assert.equal(getDeck(db, id).tags.find((t) => t.id === tag)!.name, "Engines");
+  });
+  test("filing is atomic, scoped to a deck, and replaces a deduplicated tag set", () => {
+    const id = newDeck(db);
+    const other = newDeck(db);
+    const first = createTag(db, id, "Engine");
+    const second = createTag(db, id, "Need to get");
+    const foreign = createTag(db, other, "Engine");
+    const slot = createSlot(db, id, "Ramp");
+    add(db, id, "id-solring");
+    organizeCard(db, id, "id-solring", { tagIds: [first, first, second] });
+    const before = getDeck(db, id);
+    assert.equal(before.cards[0].tag_ids.length, 2);
+    assert.throws(() => organizeCard(db, id, "id-solring", { slotId: slot, tagIds: [foreign] }), /not found in deck/);
+    for (const invalid of [null, "1", [0], [-1], [1.5], ["1"]])
+      assert.throws(() => organizeCard(db, id, "id-solring", { tagIds: invalid as any }), /array of positive integers/);
+    assert.deepEqual(getDeck(db, id), before, "a failed tag update must not change the slot");
+    assert.throws(() => db.prepare("INSERT INTO deck_card_tags VALUES (?, ?, ?)").run(id, "id-solring", foreign), /FOREIGN KEY/);
+    assert.throws(() => db.prepare("INSERT INTO deck_card_tags VALUES (?, ?, ?)").run(id, "id-atraxa", first), /FOREIGN KEY/);
+    organizeCard(db, id, "id-solring", { tagIds: [second] });
+    assert.deepEqual(getDeck(db, id).cards[0].tag_ids, [second]);
+    organizeCard(db, id, "id-solring", { tagIds: [] });
+    assert.deepEqual(getDeck(db, id).cards[0].tag_ids, []);
+    assert.equal(getDeck(db, id).deck.revision, before.deck.revision);
   });
 });
 

@@ -2,6 +2,7 @@
 // so they are erased at build and Vite never bundles server code) — a field
 // change on the server fails this typecheck instead of failing at runtime.
 
+import type { PowerProfile, PowerTargetInput, PowerAssessmentInput, BracketMapping } from "../../../src/deck/power.ts";
 import type { DeckState } from "../../../src/state.ts";
 import type { ActivityEntry } from "../../../src/activity.ts";
 import type { CardRow } from "../../../src/cards.ts";
@@ -12,16 +13,22 @@ import type { ExportResult, ImportDiff } from "../../../src/deck/interop.ts";
 import type { CardRuling, LogEntry } from "../../../src/deck/log.ts";
 import type { PaperStatus } from "../../../src/deck/paper.ts";
 import type { ProposalView } from "../../../src/deck/proposals.ts";
-import type { DeckSummary } from "../../../src/deck/service.ts";
+import type { DeckCategory, DeckSummary } from "../../../src/deck/service.ts";
 import type { DocumentEditView, ProfileView } from "../../../src/documents.ts";
 import type { MemoryView, Revision } from "../../../src/memory.ts";
+import type { PriceStatus } from "../../../src/prices.ts";
 import type { SearchResult } from "../../../src/search/index.ts";
 import type { PlayerStats } from "../../../src/stats.ts";
 
 export type {
+  PowerProfile,
+  PowerTargetInput,
+  PowerAssessmentInput,
+  BracketMapping,
   ActivityEntry,
   CardRuling,
   DeckComparison,
+  DeckCategory,
   DeckState,
   DeckSummary,
   ExportResult,
@@ -31,6 +38,7 @@ export type {
   PaperStatus,
   PlayerStats,
 };
+export type Power = DeckState["power"];
 export type CardData = SearchResult;
 export type DeckCard = DeckState["cards"][number];
 export type Slot = DeckState["slots"][number];
@@ -55,7 +63,7 @@ export interface Inbox {
 
 export interface Settings {
   budgets: { global: number; deck: number };
-  cards: { count: number; updated_at: string | null };
+  cards: { count: number; updated_at: string | null; prices: PriceStatus };
   agent: { url: string; token: string; stdio_command: string };
 }
 
@@ -93,11 +101,14 @@ export type Outcome = "accept" | "reject";
 export const api = {
   // ---------- decks ----------
   listDecks: () => request<DeckSummary[]>("GET", "/api/decks"),
-  createDeck: (name: string) => request<StateResponse>("POST", "/api/decks", { name }),
+  createDeck: (name: string, category: DeckCategory = "theorycrafted") =>
+    request<StateResponse>("POST", "/api/decks", { name, category }),
   getDeck: (id: number) => request<StateResponse>("GET", `/api/decks/${id}`),
   renameDeck: (id: number, name: string) => request<StateResponse>("PATCH", `/api/decks/${id}`, { name }),
   setDeckStatus: (id: number, status: "draft" | "active") =>
     request<StateResponse>("PATCH", `/api/decks/${id}`, { status }),
+  setDeckCategory: (id: number, category: DeckCategory) =>
+    request<StateResponse>("PATCH", `/api/decks/${id}`, { category }),
   setDeckParent: (id: number, parentId: number | null) =>
     request<StateResponse>("PATCH", `/api/decks/${id}`, { parent_id: parentId }),
   deleteDeck: (id: number) => request<{ ok: true }>("DELETE", `/api/decks/${id}`),
@@ -182,6 +193,12 @@ export const api = {
   getProfile: () => request<{ profile: Profile }>("GET", "/api/profile"),
   setProfile: (bodyMd: string) => request<{ profile: Profile }>("PUT", "/api/profile", { body_md: bodyMd }),
 
+  // ---------- deck power (spec §5.7) ----------
+  setPowerTarget: (deckId: number, target: PowerTargetInput | null) =>
+    request<{ state: DeckState }>("PUT", `/api/decks/${deckId}/power/target`, { target }),
+  assessPower: (deckId: number, assessment: PowerAssessmentInput) =>
+    request<{ state: DeckState; assessment_id: number }>("POST", `/api/decks/${deckId}/power/assessments`, assessment),
+
   // ---------- memories (spec §7.5) ----------
   listMemories: (q: { scope?: string; deck?: number; card?: string; q?: string; status?: string } = {}) => {
     const params = new URLSearchParams();
@@ -216,7 +233,7 @@ export const api = {
   importList: (deckId: number, text: string, note?: string) =>
     request<{
       import: {
-        applied: { added: number; cut: number; quantity_changed: number };
+        applied: { added: number; cut: number; quantity_changed: number; role_changed: number };
         log_id: number | null;
         diff: ImportDiff;
       };

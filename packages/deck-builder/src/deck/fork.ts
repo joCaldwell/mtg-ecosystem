@@ -7,6 +7,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { ServiceError } from "../errors.ts";
 import { withTransaction } from "../db.ts";
 import type { Actor } from "../actor.ts";
+import { copyPowerTarget } from "./power.ts";
 import { copyDeckMemories } from "../memory.ts";
 import { writeLog } from "./log.ts";
 import { createDeck, getDeck, recomputeIdentity, requireDeck } from "./service.ts";
@@ -92,6 +93,7 @@ export function forkDeck(db: DatabaseSync, actor: Actor, deckId: number, name: s
       .all(deckId) as unknown as Array<{ id: number; name: string; description: string }>)
       insPiece.run(Number(insEngine.run(forkId, e.name, e.description).lastInsertRowid), e.id);
 
+    copyPowerTarget(db, deckId, forkId);
     recomputeIdentity(db, forkId);
     const memories = copyDeckMemories(db, deckId, forkId);
     writeLog(db, actor, {

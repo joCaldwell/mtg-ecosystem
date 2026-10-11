@@ -49,13 +49,16 @@ export function SelectionBar() {
     if (n != null) toast(summary(n));
   }
 
-  async function tagAll(tagId: number, tagName: string) {
+  async function tagAll(tagId: number, tagName: string, remove = false) {
     const has = (id: string) => !!cards.find((c) => c.oracle_id === id)?.tag_ids.includes(tagId);
     const n = await each(
-      (id) => run(() => api.updateCard(deckId, id, { tag_ids: [...(cards.find((c) => c.oracle_id === id)?.tag_ids ?? []), tagId] })),
-      has,
+      (id) => {
+        const tags = cards.find((c) => c.oracle_id === id)?.tag_ids ?? [];
+        return run(() => api.updateCard(deckId, id, { tag_ids: remove ? tags.filter((tag) => tag !== tagId) : [...tags, tagId] }));
+      },
+      (id) => remove ? !has(id) : has(id),
     );
-    if (n != null) toast(n === 0 ? `Every selected card already has ${tagName}.` : `Tagged ${plural(n)} ${tagName}.`);
+    if (n != null) toast(n === 0 ? `No tags changed.` : remove ? `Removed ${tagName} from ${plural(n)}.` : `Tagged ${plural(n)} ${tagName}.`);
   }
 
   async function cutAll() {
@@ -78,7 +81,10 @@ export function SelectionBar() {
   ];
 
   const tagItems: MenuItem[] = state.tags.length
-    ? state.tags.map((t) => ({ id: `tag-${t.id}`, label: t.name, onSelect: () => void tagAll(t.id, t.name) }))
+    ? state.tags.flatMap((t) => [
+        { id: `tag-${t.id}`, label: `Add ${t.name}`, onSelect: () => void tagAll(t.id, t.name), disabled: busy },
+        { id: `untag-${t.id}`, label: `Remove ${t.name}`, onSelect: () => void tagAll(t.id, t.name, true), disabled: busy },
+      ])
     : [{ id: "none", label: "No tags yet. Add them under Edit slots and tags.", onSelect: () => {}, disabled: true }];
 
   const paperItems: MenuItem[] = [

@@ -22,6 +22,7 @@ import {
   Loading,
   Menu,
   Meter,
+  MultiSelect,
   Page,
   PageHeader,
   Popover,
@@ -394,6 +395,16 @@ function Navigation() {
               align="end"
               items={[{ id: "a", label: "One", onSelect: () => undefined }, { id: "b", label: "Two", onSelect: () => undefined }]}
             />
+            <Menu
+              label="More actions"
+              icon="more"
+              size="sm"
+              align="end"
+              items={[
+                { id: "a", label: "Rename", onSelect: () => undefined },
+                { id: "b", label: "Delete", tone: "cut", onSelect: () => undefined },
+              ]}
+            />
           </Row>
         </Demo>
       </Section>
@@ -406,6 +417,7 @@ function Forms() {
   const [area, setArea] = useState("This one grows as you type.\nTry adding lines.");
   const [checked, setChecked] = useState(true);
   const [sel, setSel] = useState("b");
+  const [multi, setMulti] = useState<string[]>([]);
   return (
     <Stack gap={7}>
       <Section title="TextField">
@@ -439,6 +451,14 @@ function Forms() {
             <Checkbox checked={false} onChange={() => undefined} label="Unchecked" />
             <Checkbox checked disabled onChange={() => undefined} label="Disabled" />
           </Row>
+        </Demo>
+      </Section>
+      <Section title="MultiSelect" aside="search, check several choices, remove selected chips">
+        <Demo>
+          <Stack gap={5} className={styles.narrow}>
+            <MultiSelect label="Example tags" placeholder="Select tags…" options={[{ value: "a", label: "Need to get" }, { value: "b", label: "Engine piece" }, { value: "c", label: "A longer label that wraps when space is limited" }]} value={multi} onChange={setMulti} />
+            <MultiSelect label="Empty example" options={[]} value={[]} onChange={() => undefined} />
+          </Stack>
         </Demo>
       </Section>
       <Section title="Field" aside="label above, hint below, wired to the control">

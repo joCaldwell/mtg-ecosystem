@@ -58,6 +58,8 @@ export interface ScryfallCard {
   layout: string;
   legalities?: { commander?: string };
   card_faces?: ScryfallFace[];
+  /** Nullable Game Changer flag: https://scryfall.com/docs/api/cards */
+  game_changer?: boolean | null;
 }
 
 function numericOrNull(v: string | null | undefined): number | null {
@@ -86,6 +88,7 @@ export interface CardRow {
   ci_count: number;
   commander_legality: string;
   is_commander: number;
+  game_changer: number | null;
   layout: string;
   faces_json: string | null;
   search_text: string;
@@ -147,6 +150,7 @@ export function toRow(card: ScryfallCard): CardRow | null {
     ci_count: (card.color_identity ?? []).length,
     commander_legality: card.legalities?.commander ?? "not_legal",
     is_commander: isCommander ? 1 : 0,
+    game_changer: card.game_changer == null ? null : Number(card.game_changer),
     layout: card.layout,
     faces_json: faces.length
       ? JSON.stringify(
@@ -172,12 +176,12 @@ INSERT INTO cards (
   oracle_id, name, mana_cost, cmc, type_line, oracle_text,
   power, toughness, loyalty, power_num, toughness_num, loyalty_num,
   colors, color_identity, colors_mask, ci_mask, colors_count, ci_count,
-  commander_legality, is_commander, layout, faces_json, search_text, full_search_text
+  commander_legality, is_commander, game_changer, layout, faces_json, search_text, full_search_text
 ) VALUES (
   :oracle_id, :name, :mana_cost, :cmc, :type_line, :oracle_text,
   :power, :toughness, :loyalty, :power_num, :toughness_num, :loyalty_num,
   :colors, :color_identity, :colors_mask, :ci_mask, :colors_count, :ci_count,
-  :commander_legality, :is_commander, :layout, :faces_json, :search_text, :full_search_text
+  :commander_legality, :is_commander, :game_changer, :layout, :faces_json, :search_text, :full_search_text
 )
 ON CONFLICT(oracle_id) DO UPDATE SET
   name = excluded.name, mana_cost = excluded.mana_cost, cmc = excluded.cmc,
@@ -188,7 +192,7 @@ ON CONFLICT(oracle_id) DO UPDATE SET
   color_identity = excluded.color_identity, colors_mask = excluded.colors_mask,
   ci_mask = excluded.ci_mask, colors_count = excluded.colors_count,
   ci_count = excluded.ci_count,
-  commander_legality = excluded.commander_legality, is_commander = excluded.is_commander,
+  commander_legality = excluded.commander_legality, is_commander = excluded.is_commander, game_changer = excluded.game_changer,
   layout = excluded.layout, faces_json = excluded.faces_json,
   search_text = excluded.search_text, full_search_text = excluded.full_search_text
 `;

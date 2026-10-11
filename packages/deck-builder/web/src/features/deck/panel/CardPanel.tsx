@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from "react";
 import { ptString } from "../../../domain/cards.ts";
+import { formatUsd } from "../../../domain/price.ts";
 import { pendingOf } from "../../../domain/grouping.ts";
 import { CardImage, InlineText, ManaCost, OracleText, useCardLookup, type CardInfo } from "../../../mtg/index.ts";
 import { Button, Chip, Icon, Loading, Text } from "../../../ui/index.ts";
@@ -47,7 +48,8 @@ export function CardPanel({ card: open }: { card: OpenCard }) {
           ? "Companion"
           : "In the deck";
   const pt = info ? ptString(info) : "";
-  const parts = info ? [info.type_line, pt].filter(Boolean) : [];
+  const price = info?.usd_cents == null ? "" : `${formatUsd(info.usd_cents)} cheapest printing`;
+  const parts = info ? [info.type_line, pt, price].filter(Boolean) : [];
 
   return (
     <>

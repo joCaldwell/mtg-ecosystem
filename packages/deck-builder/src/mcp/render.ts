@@ -8,6 +8,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { CardRow, ResolutionFailure } from "../cards.ts";
 import type { ActivityEntry } from "../activity.ts";
+import { getPower, profileLines, targetText } from "../deck/power.ts";
 import { getBrief } from "../deck/brief.ts";
 import { type Finding, checkDeck } from "../deck/checks.ts";
 import type { DeckComparison } from "../deck/fork.ts";
@@ -23,6 +24,7 @@ import {
 } from "../deck/service.ts";
 import { type DocumentEditView, listDocumentEdits } from "../documents.ts";
 import { type LoadedScope, type MemoryView, loadScope } from "../memory.ts";
+import { type CostEstimate, formatUsd } from "../prices.ts";
 import type { PlayerStats } from "../stats.ts";
 
 // The corner stat as the card prints it: power/toughness, or loyalty.
@@ -40,14 +42,32 @@ const indent = (text: string, by = "    ") =>
     .map((l) => `${by}${l}`)
     .join("\n");
 
-/** One card: name, cost, type, stats; oracle text beneath when asked. */
+// Spec §4.4: a card's price is the cheapest printing's, and is part of how
+// the card is shown everywhere. A card with no price shows none.
+function priceTag(usdCents: number | null, quantity = 1): string {
+  if (usdCents == null) return "";
+  return ` · ${formatUsd(usdCents)}${quantity > 1 ? " each" : ""}`;
+}
+
+/** "$412.37 at the cheapest printing of each card (Scryfall prices of 2026-10-11); 2 cards have no price and are not counted". */
+function costPhrase(cost: CostEstimate & { as_of: string | null }): string {
+  const missing = cost.unpriced
+    ? `; ${cost.unpriced} card${cost.unpriced === 1 ? " has" : "s have"} no price and ${cost.unpriced === 1 ? "is" : "are"} not counted`
+    : "";
+  return `${formatUsd(cost.usd_cents)} at the cheapest printing of each card (Scryfall prices of ${cost.as_of!.slice(0, 10)})${missing}`;
+}
+
+/** One card: name, cost, type, stats, price; oracle text beneath when asked. */
 export function cardLine(
-  c: Pick<CardRow, "name" | "mana_cost" | "type_line" | "oracle_text" | "power" | "toughness" | "loyalty">,
+  c: Pick<
+    CardRow,
+    "name" | "mana_cost" | "type_line" | "oracle_text" | "power" | "toughness" | "loyalty" | "usd_cents"
+  >,
   opts: { text?: boolean; quantity?: number; suffix?: string } = {},
 ): string {
   const qty = opts.quantity && opts.quantity > 1 ? `${opts.quantity}x ` : "";
   const cost = c.mana_cost ? ` ${c.mana_cost}` : "";
-  const head = `- ${qty}${c.name}${cost} — ${c.type_line}${statline(c)}${opts.suffix ?? ""}`;
+  const head = `- ${qty}${c.name}${cost} — ${c.type_line}${statline(c)}${priceTag(c.usd_cents, opts.quantity)}${opts.suffix ?? ""}`;
   return opts.text === false || !c.oracle_text ? head : `${head}\n${indent(c.oracle_text)}`;
 }
 
@@ -123,6 +143,7 @@ export function resolutionFailureLine(f: ResolutionFailure): string {
 
 export const DECK_SECTIONS = [
   "brief",
+  "power",
   "list",
   "maybe",
   "state",
@@ -137,6 +158,7 @@ function header(view: DeckView): string {
   const d = view.deck;
   const bits = [
     d.status,
+    `category ${d.category}`,
     `revision ${d.revision}`,
     `identity ${d.color_identity || (d.ci_mask === 0 ? "colourless" : "none yet (no commander)")}`,
     `${view.computed.card_count}/100 cards`,
@@ -161,6 +183,8 @@ export function stateLines(view: DeckView): string {
       Object.entries(c.pips).filter(([, n]) => n > 0).map(([k, n]) => `${k} ${n}`).join(", ") || "none"
     }`,
   ];
+  // Nothing to say until prices have been loaded once.
+  if (c.cost.as_of) lines.push(`- Estimated cost: ${costPhrase(c.cost)}`);
   if (c.pending.adds || c.pending.cuts)
     lines.push(
       `- Awaiting the owner's ruling: +${c.pending.adds} / −${c.pending.cuts}; if all were accepted the deck would be ${c.pending.projected_count}/100`,
@@ -207,6 +231,7 @@ export function afterWrite(db: DatabaseSync, deckId: number): string {
     .map((s) => `${s.name} ${s.status} by ${Math.abs(s.delta)}`);
   return [
     `Deck ${view.deck.id} "${view.deck.name}" is now at revision ${view.deck.revision}: ${c.card_count}/100 cards (${countPhrase(c)}), ${c.land_count} lands.`,
+    c.cost.as_of ? `Estimated cost: ${costPhrase(c.cost)}.` : null,
     off.length ? `Slots off target: ${off.join("; ")}.` : null,
     problems.length
       ? `Checks:\n${findingLines(problems)}`
@@ -278,7 +303,7 @@ export function proposalLines(proposals: ProposalView[], edits: DocumentEditView
     lines.push(`- proposal #${p.id} by ${p.author}${p.summary ? `: ${p.summary}` : ""}`);
     for (const i of pending)
       lines.push(
-        `  - ${i.action} ${i.card_name}${i.group_id ? ` (group "${i.group_id}")` : ""}: ${i.reason}`,
+        `  - ${i.action} ${i.card_name}${i.to_maybe ? ", moving it to the maybe list" : ""}${i.group_id ? ` (group "${i.group_id}")` : ""}: ${i.reason}`,
       );
   }
   for (const e of edits)
@@ -342,6 +367,7 @@ export function renderDeck(
       }\n### Engines\n${engines.join("\n") || "(none defined)"}`,
     );
   }
+  if (want.has("power")) out.push(renderPower(getPower(db, deckId)));
   if (want.has("list")) out.push(listSection(view, withText));
   if (want.has("maybe")) {
     const maybe = view.cards.filter((c) => c.maybe);
@@ -369,6 +395,28 @@ export function renderDeck(
   return out.join("\n\n");
 }
 
+export function renderPower(power: ReturnType<typeof getPower>): string {
+  const mapping = (m: ReturnType<typeof getPower>["history"][number]["mapping"]) => [
+    `Suggested bracket: ${m.bracket == null ? "Undetermined" : `${m.bracket} — ${m.name}`}${m.provisional ? " (provisional)" : ""}`,
+    ...m.reasons.filter(s => !m.conflicts.includes(s)).map(s => `  - ${s}`),
+    ...m.conflicts.map(s => `  - REVIEW: ${s}`),
+    ...(m.unknowns.length ? [`  - Unknown: ${m.unknowns.join("; ")}`] : []),
+  ].join("\n");
+  const lines = ["## Power — target and current assessment", "### Target", power.target
+    ? `${targetText(power.target)}\n${mapping(power.target.mapping)}` : "Not set. Use propose_power_target to help the owner set one."];
+  lines.push("### Current assessment");
+  const a = power.assessment;
+  if (a) lines.push(`Assessment #${a.id} by ${a.author}, r${a.revision}, ${a.confidence}, evidence: ${a.evidence}${a.owner_touched ? "; the owner's assessment takes precedence" : ""}${a.stale ? " — STALE: cards changed; assess the current revision again" : ""}`,
+    profileLines(a.profile).join("\n"), `Reasoning: ${a.notes}`, mapping(a.mapping));
+  else lines.push("Not assessed. Read the list, then use assess_deck_power with its revision and your evidence.");
+  const g = power.game_changers;
+  lines.push(`Game Changers in the current list (app's count): ${g.count}${g.unknown_cards ? ` known; ${g.unknown_cards} card(s) have no metadata — refresh card data` : ""}${g.cards.length ? ` — ${g.cards.map(c => c.name).join("; ")}` : ""}`);
+  if (power.differences.length) lines.push("### Differences from target", ...power.differences.map(d => `- ${d.field}: target ${d.target}; current ${d.current}`));
+  lines.push("Field anchors: " + power.fields.map(f => `${f.label}: ${f.options.map(o => `${o.value} (${o.hint})`).join(" / ")}`).join("\n"));
+  lines.push(`Bracket suggestions use Wizards guidance of ${power.guidance.version}; they guide pregame discussion, not rules certification. Unknowns and conflicts require review. Consistency, resilience and interaction are descriptive, not averaged into a score.`);
+  return lines.join("\n");
+}
+
 // ---------- everything else ----------
 
 export function rosterLines(decks: DeckSummary[]): string {
@@ -380,6 +428,7 @@ export function rosterLines(decks: DeckSummary[]): string {
         d.commanders.length ? d.commanders.join(" + ") : "no commander",
         d.color_identity || "—",
         `${d.card_count}/100`,
+        `category ${d.category}`,
       ];
       if (d.parent_name) bits.push(`fork of "${d.parent_name}"`);
       const waiting = d.pending_items + d.pending_document_edits;
@@ -448,14 +497,20 @@ export function renderPaper(p: PaperStatus): string {
   );
   out.push(
     `## Buy list — missing here and in no other deck's paper (${p.buy.length})\n` +
-      (p.buy.map((c) => `- ${c.quantity > 1 ? `${c.quantity}x ` : ""}${c.name} (${c.type_line})`).join("\n") || "(none)"),
+      (p.buy.length && p.buy_cost.as_of ? `Estimated cost: ${costPhrase(p.buy_cost)}.\n` : "") +
+      (p.buy
+        .map(
+          (c) =>
+            `- ${c.quantity > 1 ? `${c.quantity}x ` : ""}${c.name} (${c.type_line})${priceTag(c.usd_cents, c.quantity)}`,
+        )
+        .join("\n") || "(none)"),
   );
   return out.join("\n\n");
 }
 
 export function renderStats(s: PlayerStats): string {
   const out = [
-    `# What the owner builds — computed from ${s.deck_count} deck(s) in ${s.families} famil${s.families === 1 ? "y" : "ies"}`,
+    `# What the owner builds — computed from ${s.deck_count} Paper deck(s) in ${s.families} famil${s.families === 1 ? "y" : "ies"}`,
     "These are the app's counts. A fork and its parent count as one family toward reuse.",
     `## Decks\n${
       s.decks

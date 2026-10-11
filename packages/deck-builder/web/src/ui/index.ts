@@ -22,6 +22,7 @@ export { Kbd } from "./Kbd.tsx";
 export { KeyValue, type KeyValueProps } from "./KeyValue.tsx";
 export { Loading } from "./Loading.tsx";
 export { Menu, type MenuItem, type MenuProps } from "./Menu.tsx";
+export { MultiSelect, type MultiSelectProps } from "./MultiSelect.tsx";
 export { Meter, type MeterProps } from "./Meter.tsx";
 export { Page, type PageProps } from "./Page.tsx";
 export { PageHeader, type PageHeaderProps } from "./PageHeader.tsx";

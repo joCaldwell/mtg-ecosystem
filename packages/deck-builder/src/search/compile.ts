@@ -175,6 +175,20 @@ function compileFilter(key: string, op: Op, value: string, ctx: CompileContext):
       return { sql: "commander_legality = 'banned'", params: [] };
     }
 
+    // Scryfall compares each printing's price; a card here has one price, its
+    // cheapest printing's (spec §4.4), so this is Scryfall's `cheapest:usd`
+    // view of the same filter. A card with no price matches no comparison.
+    // Source: https://scryfall.com/docs/syntax, "USD/EUR/TIX prices".
+    case "usd": {
+      if (!/^\d+(\.\d+)?$/.test(value))
+        throw new SearchError(`Expected a dollar amount for 'usd', got '${value}' (for example usd<=2 or usd>0.50)`);
+      const sqlOp = op === ":" ? "=" : op;
+      return {
+        sql: `oracle_id IN (SELECT oracle_id FROM card_prices WHERE usd_cents ${sqlOp} ?)`,
+        params: [Math.round(Number(value) * 100)],
+      };
+    }
+
     case "slot": {
       if (ctx.deckId === undefined)
         throw new SearchError("'slot:' filters require a deck context");
@@ -203,7 +217,7 @@ function compileFilter(key: string, op: Op, value: string, ctx: CompileContext):
 
     default:
       throw new SearchError(
-        `Unsupported search key '${key}'. Supported: t, o, fo, cmc/mv, c, id, pow, tou, loy, is, f, banned`,
+        `Unsupported search key '${key}'. Supported: t, o, fo, cmc/mv, c, id, pow, tou, loy, usd, is, f, banned`,
       );
   }
 }

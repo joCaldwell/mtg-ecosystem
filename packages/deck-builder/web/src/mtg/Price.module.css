@@ -1,0 +1,15 @@
+.price {
+  flex: none;
+  color: var(--price-color, var(--faint));
+  font: var(--text-xs) var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* In a list the prices line up on the right, priced or not. */
+.column {
+  display: inline-block;
+  flex: none;
+  min-width: 7ch;
+  text-align: right;
+}

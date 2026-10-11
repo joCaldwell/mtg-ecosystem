@@ -93,7 +93,7 @@ describe("Archidekt list parsing (verified format superset)", () => {
     );
   });
 
-  test("skips comments, section headers and count headers; strips SB:", () => {
+  test("skips comments, section headers and count headers; reads SB: as the sideboard", () => {
     const { entries, unparsed } = parseArchidektList(
       [
         "// exported from Archidekt",
@@ -107,10 +107,56 @@ describe("Archidekt list parsing (verified format superset)", () => {
       ].join("\n"),
     );
     assert.deepEqual(
-      entries.map((e) => e.name),
-      ["Teferi, Temporal Archmage", "Counterspell"],
+      entries.map((e) => [e.name, e.categories]),
+      [
+        ["Teferi, Temporal Archmage", ["Commander"]],
+        ["Counterspell", ["Sideboard"]],
+      ],
     );
     assert.equal(unparsed.length, 0);
+  });
+
+  test("a section header is the category of every line beneath it, until the next header", () => {
+    // The shape of Archidekt's plain text export: no [Category] on any line.
+    const { entries } = parseArchidektList(
+      [
+        "Commander",
+        "1 Teferi, Temporal Archmage",
+        "",
+        "Mainboard",
+        "1 Sol Ring",
+        "",
+        "10 Forest",
+        "",
+        "Maybeboard",
+        "1 Ball Lightning",
+        "",
+        "1 Tarmogoyf [ramp]",
+      ].join("\n"),
+    );
+    assert.deepEqual(
+      entries.map((e) => [e.name, e.categories]),
+      [
+        ["Teferi, Temporal Archmage", ["Commander"]],
+        ["Sol Ring", []],
+        ["Forest", []],
+        ["Ball Lightning", ["Maybeboard"]],
+        ["Tarmogoyf", ["ramp", "Maybeboard"]],
+      ],
+    );
+  });
+
+  test("a count header names its section too, and an unknown one returns to the deck", () => {
+    const { entries } = parseArchidektList(
+      ["Maybeboard (1)", "1 Ball Lightning", "Creatures (1)", "1 Tarmogoyf"].join("\n"),
+    );
+    assert.deepEqual(
+      entries.map((e) => [e.name, e.categories]),
+      [
+        ["Ball Lightning", ["Maybeboard"]],
+        ["Tarmogoyf", []],
+      ],
+    );
   });
 
   test("split-card names survive the metadata stripping", () => {
@@ -213,7 +259,7 @@ describe("import applies in full and at once (spec §12)", () => {
 
     const beforeRevision = getDeck(db, id).deck.revision;
     const r = applyImport(db, OWNER, id, "1 Counterspell\n1 Tarmogoyf\n4 Typhoid Rats");
-    assert.deepEqual(r.applied, { added: 5, cut: 1, quantity_changed: 1 });
+    assert.deepEqual(r.applied, { added: 5, cut: 1, quantity_changed: 1, role_changed: 0 });
 
     const names = getDeck(db, id).cards.map((c) => c.name).sort();
     assert.deepEqual(names, ["Counterspell", "Tarmogoyf", "Typhoid Rats"]);
@@ -284,7 +330,7 @@ describe("import applies in full and at once (spec §12)", () => {
     add(db, id, "id-solring");
     const r = applyImport(db, OWNER, id, "1 Sol Ring");
     assert.equal(r.log_id, null);
-    assert.deepEqual(r.applied, { added: 0, cut: 0, quantity_changed: 0 });
+    assert.deepEqual(r.applied, { added: 0, cut: 0, quantity_changed: 0, role_changed: 0 });
     // Only the owner's own add is in the log.
     assert.equal(listLog(db, { deckId: id }).length, 1);
   });
@@ -297,6 +343,73 @@ describe("import applies in full and at once (spec §12)", () => {
     const view = getDeck(db, id);
     assert.equal(view.computed.card_count, 1);
     assert.equal(view.cards.find((c) => c.name === "Ball Lightning")!.maybe, 1);
+  });
+
+  test("Archidekt's sectioned export sets the commander and keeps the maybeboard out of the deck", () => {
+    const id = createDeck(db, "Import sections");
+    const text = [
+      "Commander",
+      "1 Teferi, Temporal Archmage",
+      "",
+      "Mainboard",
+      "1 Sol Ring",
+      "5 Forest",
+      "",
+      "Maybeboard",
+      "1 Ball Lightning",
+      "1 Tarmogoyf",
+    ].join("\n");
+    applyImport(db, OWNER, id, text);
+    const view = getDeck(db, id);
+    assert.equal(view.cards.find((c) => c.name === "Teferi, Temporal Archmage")!.role, "commander");
+    assert.equal(view.deck.color_identity, "U");
+    assert.equal(view.computed.card_count, 7);
+    assert.deepEqual(
+      view.cards.filter((c) => c.maybe).map((c) => c.name).sort(),
+      ["Ball Lightning", "Tarmogoyf"],
+    );
+  });
+
+  test("pasting the sectioned list over a deck that took it all in flat repairs it, in one undoable entry", () => {
+    const id = createDeck(db, "Import repair");
+    // What the same list produced while the headers were being skipped.
+    applyImport(db, OWNER, id, "1 Teferi, Temporal Archmage\n1 Sol Ring\n1 Ball Lightning");
+    const text = "Commander\n1 Teferi, Temporal Archmage\n\nMainboard\n1 Sol Ring\n\nMaybeboard\n1 Ball Lightning";
+
+    const diff = diffImport(db, id, text);
+    assert.deepEqual(diff.role_changes, [
+      { oracle_id: "id-teferi", name: "Teferi, Temporal Archmage", from: "card", to: "commander" },
+    ]);
+    assert.deepEqual(diff.cuts.map((c) => c.name), ["Ball Lightning"]);
+    assert.deepEqual(diff.set_aside.map((c) => c.name), ["Ball Lightning"]);
+
+    const r = applyImport(db, OWNER, id, text);
+    assert.deepEqual(r.applied, { added: 0, cut: 1, quantity_changed: 0, role_changed: 1 });
+    let view = getDeck(db, id);
+    assert.equal(view.cards.find((c) => c.name === "Teferi, Temporal Archmage")!.role, "commander");
+    assert.equal(view.cards.find((c) => c.name === "Ball Lightning")!.maybe, 1);
+    assert.equal(view.computed.card_count, 2);
+    // Already as the list says: nothing left to do.
+    assert.equal(applyImport(db, OWNER, id, text).log_id, null);
+
+    undo(db, OWNER, r.log_id!);
+    view = getDeck(db, id);
+    assert.equal(view.cards.find((c) => c.name === "Teferi, Temporal Archmage")!.role, "card");
+    assert.equal(view.computed.card_count, 3);
+  });
+
+  test("a list never demotes the commander, and never seats a third", () => {
+    const id = createDeck(db, "Import keeps commander");
+    add(db, id, "id-teferi", { role: "commander" });
+    add(db, id, "id-kenrith", { role: "commander" });
+    add(db, id, "id-golos");
+    const diff = diffImport(
+      db,
+      id,
+      "Commander\n1 Golos, Tireless Pilgrim\n\nMainboard\n1 Teferi, Temporal Archmage\n1 Kenrith, the Returned King",
+    );
+    assert.deepEqual(diff.role_changes, []);
+    assert.deepEqual(diff.cuts, []);
   });
 
   test("the maybe list is not exported and a shortlisted card in the paste is an add", () => {

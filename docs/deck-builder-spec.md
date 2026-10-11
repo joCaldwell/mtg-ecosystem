@@ -50,13 +50,17 @@ to do** (its brief), **what the owner has decided and why** (rulings), and
 - No model calls inside the app. This includes embeddings and any "smart" ranking that needs a model.
 - No chat UI, no transcript storage, no context management. Those belong to the agent's own harness.
 - No hosting, deployment, accounts or multi-user support.
-- No external knowledge sources (EDHREC, Commander Spellbook, price sites). An agent may consult them itself; whatever it finds must resolve through the app's card search before it can be proposed.
+- No external knowledge sources (EDHREC, Commander Spellbook, vendor sites). An agent may consult them itself; whatever it finds must resolve through the app's card search before it can be proposed. Scryfall's bulk data is the one source the app reads (§4.1, §4.4).
 - No collection or inventory management beyond the per-deck paper flag (§5.5).
 - No live sync with any external service.
 - No formats other than Commander.
 
 Carried over from the previous spec without being re-examined; say so if any
-should be reopened: no price tracking, no mobile layout.
+should be reopened: no mobile layout.
+
+Reopened on 2026-10-11: **cards carry a price** (§4.4). It is an estimate
+from the same Scryfall refresh that loads the cards. There is still no price
+history, no choice of vendor and no record of which printing the owner holds.
 
 Reopened on 2026-10-10: **card images are shown on demand.** The deck stays a
 text list; a card's picture appears only in its hover card and its detail
@@ -89,16 +93,17 @@ and the playbook forbids storing them.
 **Source:** Scryfall bulk data, the `oracle-cards` file: one entry per unique
 card, not per printing.
 
-- SQLite, with an FTS5 index over name and oracle text. A refresh command re-pulls the bulk file and upserts.
+- SQLite, with an FTS5 index over name and oracle text. A refresh command re-pulls the bulk file and upserts, then refreshes prices (§4.4). The button in Settings does the same.
 - Keyed on `oracle_id` internally.
-- Retain: `oracle_id`, `name`, `mana_cost`, `cmc`, `type_line`, `oracle_text`, `power`, `toughness`, `loyalty`, `color_identity`, `legalities.commander`, `layout`, `card_faces`. Discard everything else.
+- Retain: `oracle_id`, `name`, `mana_cost`, `cmc`, `type_line`, `oracle_text`, `power`, `toughness`, `loyalty`, `color_identity`, `legalities.commander`, `layout`, `card_faces`, nullable `game_changer` (§5.7). Discard everything else.
 - Use Scryfall's `color_identity` directly. Do not compute it.
 - `legalities.commander` supplies the banned list. Commander eligibility is a separate check.
 
 ### 4.2 Search
 
 A subset of Scryfall query syntax: `t:`, `o:`, `cmc`/`mv` with comparators,
-`id:`/`id<=`, `c:`, `pow`/`tou`, `is:`, extended with `slot:` and `tag:`.
+`id:`/`id<=`, `c:`, `pow`/`tou`, `usd` with comparators (§4.4), `is:`, extended
+with `slot:` and `tag:`.
 Verify each operator's semantics against Scryfall's syntax documentation and
 cite it in a comment.
 
@@ -127,6 +132,37 @@ of a UUID and are far less likely to be mis-transcribed.
 Things the app mints (decks, proposals, memories, rulings) are referred to by
 short integer ids, always shown beside their names.
 
+### 4.4 Prices
+
+Every card has at most one price: what its **cheapest playable paper
+printing** costs, in USD. A deck records cards, not printings (§4.1), so this
+is the only price the app can state honestly: what it would cost to get a
+copy, not what the owner's copy is worth.
+
+**Source:** Scryfall bulk data, the `default-cards` file (every printing).
+The `oracle-cards` file also carries prices, but for one representative
+printing per card, chosen for recognisability; measured on 2026-10-11 that
+printing cost over 10% more than the cheapest one for about a quarter of
+priced cards, and had no price at all for 1,600 cards that another printing
+priced.
+
+- A printing counts if it is a paper card, not oversized, and not from a `memorabilia` set (gold-bordered, Collectors' Edition, 30th Anniversary Edition). Those are not legal to play and would otherwise be the "cheapest printing" of most Reserved List cards.
+- The lowest of the printing's `usd`, `usd_foil` and `usd_etched` is used; a foil is sometimes the cheapest copy.
+- Stored as whole cents in `card_prices`, with the printing it came from. Replaced wholesale on every refresh: a card that lost its price is unpriced, not stale.
+- The file is read as it downloads and not kept. A refresh skips the download when Scryfall has published nothing newer than the prices in use.
+- A card with no price on any counted printing has none. Totals leave it out and say how many cards they left out.
+
+Scryfall calls bulk prices "dangerously stale after 24 hours" and fit only
+for "a general estimate of card value". The app treats them that way: every
+total is labelled an estimate and carries the date of the prices.
+
+**Where a price appears.** On the card wherever the card is shown, to the
+owner and to agents alike; as a deck total in computed state (the companion
+counts, the maybe list does not); and as a total on the buy list (§5.5).
+`usd<=2` in a search compares this same price. Unlike the paper flag and
+cross-deck membership, price is on by default for agents: it is a fact about
+the card, and a budget is a constraint the brief can state.
+
 ---
 
 ## 5. Decks
@@ -138,6 +174,7 @@ short integer ids, always shown beside their names.
 - Each deck row stores its denormalized colour identity. Changing the commander may invalidate cards; that surfaces as a check finding (§9), never as silent corruption.
 - Each deck-card row: card, quantity, role (`card` / `commander` / `companion`), slot (at most one, may be null), tags (zero or more), `maybe` (on the maybe list, outside the 100), `in_paper` (§5.5).
 - Every change to membership bumps the deck's **revision** number.
+- Each deck has a category: `paper`, `theorycrafted`, or `legacy` (§5.6).
 
 ### 5.2 Draft and active
 
@@ -173,7 +210,7 @@ Forks replace named checkpoints. There is no snapshot system and no DAG.
 ### 5.4 Slots, tags and the maybe list
 
 - **Slots:** optional; a card belongs to at most one. Slots have target counts (a number or a min–max range). Targets are soft, and violations are visible. New decks define no slots.
-- **Tags:** many per card, from a per-deck vocabulary.
+- **Tags:** many per card, from a per-deck vocabulary. The card panel uses a searchable checkbox dropdown and shows only assigned tags beneath it; an untagged card shows no tag chips. The deck list can be filtered by one or more tags, matching **any** (union) or **all** (intersection), together with its name search. Filters apply to commanders, companions and the maybe list as well as ordinary cards. They affect visible rows only; counts, targets, costs and review decisions still describe the full deck. Selected cards support adding and removing tags in bulk.
 - **Maybe list:** cards under consideration, outside the 100. A parked card keeps its slot and tags.
 - **Naming rule:** slot and tag names may not equal a card type in singular or plural (`land`, `lands`), nor any search prefix. Slot and card type are independent axes; whole-name matches only, so `land destruction` is allowed.
 
@@ -181,7 +218,11 @@ Forks replace named checkpoints. There is no snapshot system and no DAG.
 any deck: define and retarget slots, file cards, tag, shortlist candidates
 onto the maybe list. None of it changes the 100 or bumps the revision. To keep
 the tag vocabulary from drifting, creating a tag that closely matches an
-existing one fails and names the existing tag.
+existing one fails and names the existing tag. Renaming follows the same rule.
+Tag assignments are unique per deck-card-tag and constrained to the same deck
+at the database level. A filing update replaces a card's tag set atomically.
+Choosing tags in the list filter is temporary UI state, independent of assigning
+tags to a card; a deleted tag is removed from that filter.
 
 ### 5.5 The paper flag
 
@@ -192,8 +233,111 @@ the few cards that are missing.
 
 - It is written only by the owner.
 - It appears in no default tool output.
-- `paper_status(deck)` returns the deck's missing cards and, for each, any other deck where that card is marked in paper. That separates a **pull list** from a **buy list**. Each pull-list line states that moving the copy leaves the other deck missing it.
+- `paper_status(deck)` returns the deck's missing cards and, for each, any other deck where that card is marked in paper. That separates a **pull list** from a **buy list**. Each pull-list line states that moving the copy leaves the other deck missing it. Each buy-list line carries the card's price, and the list its estimated total (§4.4).
 - There are no inventory counts. One flag per deck-card is the whole feature.
+
+---
+
+### 5.6 Deck category
+
+The owner or an agent marks each deck **Paper** (a physical deck), **Theorycrafted** (an
+idea being explored), or **Legacy** (a past deck kept for reference). This is
+independent of draft/active editing permissions (§5.2) and the per-card paper
+flags (§5.5). Changing category never changes the card list, its revision,
+assembly flags or agent permissions. Legacy decks remain accessible and editable.
+
+The UI lets the owner choose a category when creating a deck, change it in
+the deck header, and see it in All decks. New decks and forks default to
+Theorycrafted. Existing decks also default to Theorycrafted when the database
+upgrades; their category is not inferred from their cards. Categories appear in
+the deck roster and deck header returned to agents.
+
+Only Paper decks contribute to the All decks statistics and the agent's
+`player_stats`: counts, colours, commander types, averages, slots and card reuse.
+Draft/active status and per-card assembly flags do not affect inclusion.
+Changing category immediately updates the statistics. Fork-family ancestry
+is preserved through Theorycrafted and Legacy ancestors, whose cards and
+totals are excluded.
+
+All decks has a three-dot menu in the last column of every row: rename, change
+category and delete. The roster omits creation dates and revision numbers.
+Agents have the same capabilities through `rename_deck`, `set_deck_category`
+and `delete_deck`, on draft and active decks. Agent actions are attributed in
+Activity. Deck deletion permanently removes its associated records (including
+deck-scoped memories); global memories and fork decks remain. The UI confirms
+deletion, and the MCP tool is marked destructive.
+
+---
+
+### 5.7 Deck power: target and current assessment
+
+Power is a structured description of gameplay, with an explained suggestion
+for the community's Commander bracket (1–5). It is not an averaged score,
+a certification or an automatically evaluated card list.
+
+**Two independent profiles.** The optional target describes the experience
+being built toward. The optional current assessment describes one exact deck
+revision. Both describe intent (theme, social, strong synergy, optimized,
+cEDH metagame), usual win-turn range, an occasional early win, consistency,
+resilience, interaction, win conditions, infinite combos, extra turns and
+mass land denial. Named choices have gameplay anchors. Unknown is allowed;
+new decks receive no guessed power profile. The usual range describes normal
+win attempts under representative conditions, not a perfect opening draw.
+The target's range is acceptable; a current range contained within it fits.
+An occasional early win is an outlier, not a frequently accessible line.
+
+The target also sets an optional maximum Game Changer count and freeform
+preferences. Actual Game Changers are computed from Scryfall's nullable
+`game_changer` flag, retained on ingestion. Commanders and companions count;
+maybe cards do not. Missing metadata stays unknown and prompts a card-data
+refresh. No hand-maintained card list or agent-supplied count is accepted.
+
+**Mapping.** The app translates intent, speed and declared restricted play
+patterns into a suggested bracket, reports which inputs led there, and calls
+out unknowns and conflicts. It follows Wizards' October 2025 expectations and
+February 2026 update, with source links and a guidance version in the view.
+Speed refers to usual win attempts: a usual turn-7 or turn-8 win exceeds Core's
+eight-turn development expectation; turn 6 or earlier exceeds Upgraded's
+six-turn expectation. Outliers alone do not raise a bracket. Game Changers,
+early two-card infinites, chained extra turns and mass land denial may impose
+a higher ordinary bracket. Thematic exceptions in Exhibition need pod
+agreement. Fast casual decks do not become cEDH without competitive metagame
+intent. Descriptive dimensions are not averaged, and cheap interaction alone
+never determines power. The result is a conversation aid; ambiguous gameplay
+needs judgment and testing. This is separate from Commander legality (§9).
+
+**Assessment evidence.** Every assessment carries author, creation time,
+revision, evidence (`list`, `goldfish`, `games`), confidence (`tentative`,
+`supported`) and required reasoning. Notes are linted for card references.
+The app makes no model calls: an owner or connected external agent supplies
+judgments. Agents must not fabricate playtest observations. Assessments are
+retained as history (the most recent 20 are returned), with captured Game
+Changer facts for the assessed list. Current-list bracket suggestions use
+current Scryfall metadata; historical lists use captured facts. A card change
+flags the assessment for review; submission against an outdated revision fails
+with the current revision. Slots, tags, paper flags and target edits do not
+invalidate it. An agent cannot replace the owner's assessment of the same
+revision; after the list changes it may assess the new revision.
+
+**Permissions.** The owner sets or clears the target directly. Agents set it
+on drafts and propose replacements on active decks through the existing
+document-edit workflow (§6), with a reason. The owner sees a readable diff,
+including a warning if the target changed since proposal. Assessments may be
+recorded by agents on drafts and active decks without approval, are visibly
+attributed, and land in Activity. Target and assessment writes never change
+membership or bump the deck revision.
+
+**UI and tools.** A Power tab compares target and current values, shows
+reasoning, evidence, gaps and bracket explanations, and edits each separately.
+The header opens it. Differences from target and stale assessments surface in
+Checks. `get_deck` includes a selectable `power` section with field anchors;
+`propose_power_target` and `assess_deck_power` provide the write capabilities.
+Forks inherit the target and start unassessed. Deletion removes target and
+assessment history along with the deck.
+
+Sources: [Scryfall card objects](https://scryfall.com/docs/api/cards),
+[Wizards bracket expectations](https://magic.wizards.com/en/news/announcements/commander-brackets-beta-update-october-21-2025),
+[Wizards February update](https://magic.wizards.com/en/news/announcements/commander-brackets-beta-update-february-9-2026).
 
 ---
 
@@ -297,6 +441,7 @@ On an active deck, an agent changes membership by calling `propose_changes`.
 
 - A proposal has a one-line summary and **any number of items**. The agent sizes it to what was asked for.
 - An item is an add or a cut of one copy of one card, with a reason.
+- A cut may be marked `to_maybe`: if accepted, the card moves to the maybe list (§5.4) instead of leaving the deck, keeping its slot and tags. It is off unless the agent sets it, and the owner sees it on the item before ruling. `edit_draft` takes the same flag on a draft. A card with several copies cannot be parked this way, because the maybe list holds a card once.
 - Items may be **grouped**. A group is ruled on as a unit, so a swap justified by one argument cannot be half-accepted.
 - The app tracks the pending delta against 100 and against each slot target, and returns it with the proposal.
 - The response also returns, for each card, its linked memories and prior rulings in this deck (§8.3), so the agent sees what it should have considered.
@@ -386,7 +531,7 @@ memories and proposed brief edits, not as a stored report.
 - **Results are compact text meant to be read,** grouped the way the deck is organized. No JSON blobs, no ids the agent will not need. `get_deck` takes a `sections` argument so re-reads are cheap, and the full view must stay well under a typical client's tool-result cap.
 - **Writes return the new state:** card count, slot deltas and check results come back with the write, so the agent never re-fetches or counts.
 - **Errors say how to fix the call.** A failed name resolution lists suggestions; an `edit_draft` on an active deck says to use `propose_changes`.
-- **Annotations are honest:** read-only tools are marked read-only; nothing an agent can call is destructive.
+- **Annotations are honest:** read-only tools are marked read-only; `delete_deck` is marked destructive.
 - **Tool order is deterministic,** for client-side prompt caching.
 
 ### 10.3 Tools
@@ -394,7 +539,7 @@ memories and proposed brief edits, not as a stored report.
 | Group | Tool | Purpose |
 | --- | --- | --- |
 | Orient | `start_session` | Playbook, profile, global memories, deck roster (one line each), the owner's focus, unreviewed-ruling count, memory budget state |
-| | `player_stats` | Computed across decks: colours, commander types, curves, slot habits, most-reused cards |
+| | `player_stats` | Computed across Paper decks only: colours, commander types, curves, slot habits, most-reused cards |
 | Read | `get_deck` | Brief, list grouped by slot with oracle text, computed state, checks, deck memories, pending proposals, recent rulings; `sections` selects parts |
 | | `compare_decks` | Cards only in one, only in the other, and shared; defaults to a fork's parent |
 | | `search_cards` | §4.2 |
@@ -404,6 +549,9 @@ memories and proposed brief edits, not as a stored report.
 | | `paper_status` | §5.5 |
 | | `export_deck` | Archidekt-importable text (§12) |
 | Write freely | `create_deck` | New draft from a name, commanders, and optionally a pasted list |
+| | `rename_deck` | Rename a draft or active deck |
+| | `set_deck_category` | Paper, Theorycrafted or Legacy; independent of draft/active |
+| | `delete_deck` | Permanently delete a deck and its associated records when requested |
 | | `fork_deck` | §5.3 |
 | | `edit_draft` | Add and remove cards, set commanders, write the brief; drafts only |
 | | `define_slots` | Create, rename, retarget and remove slots |
@@ -415,6 +563,8 @@ memories and proposed brief edits, not as a stored report.
 | Propose | `propose_changes` | §8.1 |
 | | `propose_brief_edit` | §6 |
 | | `propose_profile_edit` | §6 |
+| | `propose_power_target` | Set a draft target or propose an active target (§5.7) |
+| Write freely | `assess_deck_power` | Attributed, revision-bound gameplay assessment (§5.7) |
 
 **Focus.** The app records what the owner has open in the UI (which deck,
 which cards are selected). `start_session` returns it and `get_deck` accepts
@@ -422,7 +572,7 @@ which cards are selected). `start_session` returns it and `get_deck` accepts
 screen.
 
 **Owner-only actions** have no tool: ruling on proposals and document edits,
-switching a deck between draft and active, deleting a deck, writing the paper
+switching a deck between draft and active, writing the paper
 flag, importing over an existing deck, undo.
 
 ### 10.4 The playbook
@@ -479,7 +629,7 @@ reload.
 Construction happens here. Playtesting and goldfishing happen in Archidekt.
 
 - **Export:** an Archidekt-importable list, optionally filtered to cards missing in paper.
-- **Import:** the owner pastes a list; the app diffs it against the deck, shows the diff with destructive cuts called out first, and applies it in full on confirmation. It is one rulings-log entry, so one undo reverts it. Lines in a `Maybeboard` or `Sideboard` category are shortlisted on the maybe list, not added, and the preview says so.
+- **Import:** the owner pastes a list; the app diffs it against the deck, shows the diff with destructive cuts called out first, and applies it in full on confirmation. It is one rulings-log entry, so one undo reverts it. Lines in a `Maybeboard` or `Sideboard` category, or under a section header of that name, are shortlisted on the maybe list, not added, and the preview says so. A `Commander` category or section header puts the card in the command zone, including a card already in the deck.
 - One-way out, one-way in. No sync layer.
 
 Verify Archidekt's text format against its own documentation and cite the
@@ -532,11 +682,33 @@ from what is known.
 - **Memory budgets.** The over-budget signal worked in a real run: a scope pushed past its budget was consolidated when the owner asked for a tidy-up. The default sizes themselves are untested against long use; they are settings.
 - **Output sizes.** A full 100-card deck reads at 4–7k estimated tokens; `start_session` at about 1.5k.
 
+Checked on 2026-10-11, when prices were added (§4.4):
+
+- **Scryfall's price data.** Read from the live `default-cards` file: 118,624 printings reduce to a price for 32,974 of 34,890 cards in about seven seconds. The unpriced remainder is digital-only cards and cards no counted printing prices.
+- **Bulk downloads decode correctly.** The oracle-cards download decoded each chunk separately, which corrupted a character that straddled two chunks: two cards in the owner's database had a mangled type line. Both downloads now decode as a stream; a refresh repairs the rows.
+
+Checked on 2026-10-11, when deck power profiles were added (§5.7):
+
+- Capability and protocol tests cover bracket boundaries, unknown metadata,
+  target approval and diffs, owner corrections, stale revisions, attribution,
+  forks, deletion, and schema migration preserving document-edit IDs.
+- A scripted session through the official MCP client read a demo deck,
+  recorded an illustrative assessment and proposed an active-deck target.
+  Its transcript was read. No agent model's assessment quality was measured.
+- Browser verification on an isolated database copy covered the target editor,
+  owner assessment editor, live agent assessment updates and target approval.
+  The comparison and dialog were inspected at desktop sizes.
+- The localhost app was rebuilt and restarted. Existing deck contents and
+  documents were verified against a pre-upgrade SQLite backup; targets and
+  assessments remain unset until deliberately written. Game Changer metadata
+  was populated from the installed Scryfall cache, without downloading it.
+
 ## 16. Not verified
 
 Everything in §1–§14 is built. What has not been checked:
 
 - Any client other than Claude Code and Codex.
+- How agents use prices. The price beside each card, the deck's estimated cost and the playbook's rule about them are pinned by tests, but no real transcript has been read since they were added.
 - ChatGPT on the web or phone. Its servers cannot reach a loopback address. The route is OpenAI's Secure MCP Tunnel running the stdio shim; the Settings page gives the commands from OpenAI's guide, but they have not been run, because they need a tunnel created in the owner's OpenAI Platform organization.
 - The "download the latest card data" button, which was not pressed: it rewrites the bulk file the oracle parser shares. The code under it is the same `refresh` command the CLI runs.
 - The evaluation was run once per task, on one model, with tasks written by the same hand as the tools. It shows the interface works; it does not measure how often.

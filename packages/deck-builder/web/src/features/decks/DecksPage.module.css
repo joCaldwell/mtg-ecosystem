@@ -9,6 +9,11 @@
   text-overflow: ellipsis;
 }
 
+.actions {
+  width: var(--s-8);
+  text-align: right;
+}
+
 /* Wide enough for eight columns, not so wide the eye loses the row. */
 .body {
   display: grid;

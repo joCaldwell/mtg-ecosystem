@@ -14,6 +14,7 @@ import {
   ManaCost,
   ManaSymbol,
   OracleText,
+  Price,
   RichText,
   useCardHover,
   useCardLookup,
@@ -223,6 +224,24 @@ export function MtgExamples() {
                 <ManaCost cost={null} />
                 <ManaCost cost="" />
                 <span className={styles.note}>(nothing above this line)</span>
+              </div>
+            </Labelled>
+          </Example>
+
+          <Example title="Price" note="A card's cheapest printing, from whole cents. In a list, `column` reserves the width so prices line up; no price renders nothing.">
+            <Labelled label="inline">
+              <div className={styles.strip}>
+                <Price cents={5} />
+                <Price cents={119} />
+                <Price cents={162623} />
+                <Price cents={null} />
+              </div>
+            </Labelled>
+            <Labelled label="column">
+              <div>
+                <div><Price cents={119} column /></div>
+                <div><Price cents={null} column /></div>
+                <div><Price cents={41237} column /></div>
               </div>
             </Labelled>
           </Example>

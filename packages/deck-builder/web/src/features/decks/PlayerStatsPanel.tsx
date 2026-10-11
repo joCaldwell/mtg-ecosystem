@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { api, type PlayerStats } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
 import { CardRef, ColorIdentity, ManaSymbol } from "../../mtg/index.ts";
-import { Box, Chip, ErrorNote, KeyValue, Meter, Section, Text } from "../../ui/index.ts";
+import { Box, Chip, EmptyState, ErrorNote, KeyValue, Meter, Section, Text } from "../../ui/index.ts";
 import styles from "./PlayerStatsPanel.module.css";
 
 const WUBRG = ["W", "U", "B", "R", "G"] as const;
@@ -41,7 +41,7 @@ function Colors({ stats }: { stats: PlayerStats }) {
 }
 
 /**
- * What the owner builds, across all their decks (spec §10.3). The numbers are
+ * What the owner builds, across their Paper decks (spec §10.3). The numbers are
  * computed on the server, the same ones an agent gets from `player_stats`;
  * this only arranges them. Empty blocks are left out.
  */
@@ -49,7 +49,14 @@ export function PlayerStatsPanel() {
   const query = useQuery(() => api.getStats(), []);
   const stats = query.data;
   if (query.error && !stats) return <ErrorNote>{query.error}</ErrorNote>;
-  if (!stats || stats.deck_count === 0) return null;
+  if (!stats) return null;
+  if (stats.deck_count === 0) return (
+    <Section title="Across your paper decks">
+      <EmptyState title="No paper decks yet">
+        Mark a deck as Paper using its Actions menu to include it in these statistics.
+      </EmptyState>
+    </Section>
+  );
 
   const byType: Array<[ReactNode, ReactNode]> = Object.entries(stats.averages.by_type).map(([type, n]) => [
     type,
@@ -62,7 +69,7 @@ export function PlayerStatsPanel() {
   if (stats.averages.lands != null) averages.push(["Land count", <Text mono key="l">{num(stats.averages.lands)}</Text>]);
 
   return (
-    <Section title="Across your decks">
+    <Section title="Across your paper decks">
       <div className={styles.grid}>
         <Block title="Decks">
           <KeyValue
@@ -156,7 +163,7 @@ export function PlayerStatsPanel() {
       )}
 
       <Text tone="faint" size="xs">
-        These are the same computed numbers an agent gets from <Text mono>player_stats</Text>.
+        Only Paper decks contribute. These are the same computed numbers an agent gets from <Text mono>player_stats</Text>.
       </Text>
     </Section>
   );

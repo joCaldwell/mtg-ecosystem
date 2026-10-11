@@ -10,7 +10,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { OWNER } from "./actor.ts";
 import { listActivity } from "./activity.ts";
 import { cardsNamed, requireCardById, suggestNames } from "./cards.ts";
-import { PKG_ROOT } from "./db.ts";
+import { PKG_ROOT, withTransaction } from "./db.ts";
 import { AppError, ServiceError } from "./errors.ts";
 import { getFocus, setFocus } from "./focus.ts";
 import { removeEngine, setEngine, updateBrief } from "./deck/brief.ts";
@@ -18,6 +18,7 @@ import { compareDecks, forkDeck } from "./deck/fork.ts";
 import { applyImport, diffImport, exportDeck } from "./deck/interop.ts";
 import { cardHistory, listLog, unreviewedCount } from "./deck/log.ts";
 import { applyChanges, setQuantity, undo } from "./deck/membership.ts";
+import { getPower, setPowerTarget, recordPowerAssessment } from "./deck/power.ts";
 import { paperStatus } from "./deck/paper.ts";
 import {
   acceptItems,
@@ -38,6 +39,7 @@ import {
   renameDeck,
   renameTag,
   setAllInPaper,
+  setDeckCategory,
   setDeckParent,
   setDeckStatus,
   setInPaper,
@@ -46,7 +48,6 @@ import {
   updateSlot,
 } from "./deck/service.ts";
 import { getProfile, listDocumentEdits, ruleDocumentEdit, setProfile } from "./documents.ts";
-import { ingestFromFile } from "./ingest.ts";
 import { MCP_PATH, createAgentEndpoint } from "./mcp/http.ts";
 import {
   getBudgets,
@@ -58,7 +59,8 @@ import {
   reviseMemory,
   setBudgets,
 } from "./memory.ts";
-import { ensureBulkFile } from "./scryfall.ts";
+import { priceStatus } from "./prices.ts";
+import { refreshCardData } from "./refresh.ts";
 import { SearchError, search } from "./search/index.ts";
 import { deckState } from "./state.ts";
 import { playerStats } from "./stats.ts";
@@ -120,17 +122,20 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
 
   // ---------- decks ----------
   route("GET", /^\/api\/decks$/, () => listDecks(db));
-  route("POST", /^\/api\/decks$/, (_p, body) => ({
-    state: state(createDeck(db, String(body.name ?? ""), { status: body.status })),
+  route("POST", /^\/api\/decks$/, (_p, body) => withTransaction(db, () => {
+    const id = createDeck(db, String(body.name ?? ""), { status: body.status });
+    if (body.category !== undefined) setDeckCategory(db, OWNER, id, body.category);
+    return { state: state(id) };
   }));
   route("GET", /^\/api\/decks\/(\d+)$/, ([id]) => ({ state: state(Number(id)) }));
-  route("PATCH", /^\/api\/decks\/(\d+)$/, ([id], body) => {
-    if (body.name !== undefined) renameDeck(db, Number(id), String(body.name));
+  route("PATCH", /^\/api\/decks\/(\d+)$/, ([id], body) => withTransaction(db, () => {
+    if (body.name !== undefined) renameDeck(db, OWNER, Number(id), String(body.name));
     if (body.status !== undefined) setDeckStatus(db, OWNER, Number(id), body.status);
+    if (body.category !== undefined) setDeckCategory(db, OWNER, Number(id), body.category);
     if (body.parent_id !== undefined)
       setDeckParent(db, OWNER, Number(id), body.parent_id == null ? null : Number(body.parent_id));
     return { state: state(Number(id)) };
-  });
+  }));
   route("DELETE", /^\/api\/decks\/(\d+)$/, ([id]) => {
     deleteDeck(db, OWNER, Number(id));
     return { ok: true };
@@ -269,6 +274,17 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
     }),
   );
 
+  // ---------- deck power (spec §5.7) ----------
+  route("GET", /^\/api\/decks\/(\d+)\/power$/, ([id]) => getPower(db, Number(id)));
+  route("PUT", /^\/api\/decks\/(\d+)\/power\/target$/, ([id], body) => {
+    setPowerTarget(db, OWNER, Number(id), body.target);
+    return { state: state(Number(id)) };
+  });
+  route("POST", /^\/api\/decks\/(\d+)\/power\/assessments$/, ([id], body) => {
+    const assessmentId = recordPowerAssessment(db, OWNER, Number(id), body);
+    return { assessment_id: assessmentId, state: state(Number(id)) };
+  });
+
   // ---------- documents (spec §6) ----------
   route("PUT", /^\/api\/decks\/(\d+)\/brief$/, ([id], body) => {
     updateBrief(db, Number(id), { thesis: body.thesis, constraints_md: body.constraints_md });
@@ -332,7 +348,7 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
       | undefined;
     return {
       budgets: getBudgets(db),
-      cards: { count: cards.n, updated_at: ingested?.value ?? null },
+      cards: { count: cards.n, updated_at: ingested?.value ?? null, prices: priceStatus(db) },
       agent: {
         url: `http://127.0.0.1:${opts.port ?? 8787}${MCP_PATH}`,
         token,
@@ -353,8 +369,7 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
     return settings();
   });
   route("POST", /^\/api\/cards\/refresh$/, async () => {
-    const path = await ensureBulkFile(true);
-    ingestFromFile(db, path);
+    await refreshCardData(db, { force: true });
     return settings();
   });
 

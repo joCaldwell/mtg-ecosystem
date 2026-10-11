@@ -123,10 +123,7 @@ export function createAgentEndpoint(db: DatabaseSync, opts: AgentEndpointOptions
           description: tool.description,
           annotations: {
             readOnlyHint: tool.readOnly,
-            // Nothing an agent can call destroys anything: memories are
-            // superseded or retired, never deleted, and deck changes are
-            // logged and undoable by the owner.
-            destructiveHint: false,
+            destructiveHint: tool.destructive ?? false,
             idempotentHint: tool.readOnly,
             openWorldHint: false,
           },

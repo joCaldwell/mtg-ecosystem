@@ -1,0 +1,72 @@
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  min-width: 0;
+}
+
+.trigger {
+  width: 100%;
+  justify-content: space-between;
+  text-align: left;
+}
+
+.trigger span, .chip span {
+  overflow-wrap: anywhere;
+}
+
+.selected {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  max-width: 100%;
+  min-height: var(--h-md);
+  padding: var(--s-1) var(--s-3);
+  border: 1px solid var(--sel-line);
+  border-radius: var(--r-sm);
+  background: var(--sel-bg);
+  color: var(--text);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  text-align: left;
+}
+
+.chip svg {
+  flex-shrink: 0;
+}
+
+.chip:hover { background: var(--hover); }
+.chip:disabled { cursor: wait; }
+
+.popover {
+  width: min(var(--panel-w), calc(100vw - var(--s-8)));
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4);
+}
+
+.options {
+  max-height: calc(var(--s-8) * 7);
+  overflow-y: auto;
+}
+
+.option {
+  display: flex;
+  min-height: var(--h-lg);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-sm);
+  overflow-wrap: anywhere;
+}
+
+.option:hover { background: var(--hover); }
+.empty { margin: var(--s-4); color: var(--muted); }

@@ -3,7 +3,7 @@ import { api, type Settings } from "../../api/client.ts";
 import { ago } from "../../domain/time.ts";
 import { Box, Button, ErrorNote, Row, Spacer, Stack, Text } from "../../ui/index.ts";
 
-/** The card database, ingested from Scryfall's bulk file (spec §13). */
+/** The card database and its prices, ingested from Scryfall's bulk files (spec §4.1, §4.4). */
 export function CardDataCard({ cards, onChanged }: { cards: Settings["cards"]; onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -15,7 +15,9 @@ export function CardDataCard({ cards, onChanged }: { cards: Settings["cards"]; o
     setResult(null);
     try {
       const next = await api.refreshCards();
-      setResult(`Loaded ${next.cards.count.toLocaleString()} cards.`);
+      setResult(
+        `Loaded ${next.cards.count.toLocaleString()} cards and ${next.cards.prices.priced.toLocaleString()} prices.`,
+      );
       onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -31,7 +33,7 @@ export function CardDataCard({ cards, onChanged }: { cards: Settings["cards"]; o
           Card data
         </Text>
         <Row gap={5} wrap>
-          <Text>Scryfall oracle-cards</Text>
+          <Text>Scryfall bulk data</Text>
           <Text mono tone="muted">
             {cards.count.toLocaleString()} cards
           </Text>
@@ -41,9 +43,15 @@ export function CardDataCard({ cards, onChanged }: { cards: Settings["cards"]; o
             {busy ? "Refreshing…" : "Refresh now"}
           </Button>
         </Row>
+        <Text tone="muted" size="sm" as="p">
+          {cards.prices.as_of
+            ? `${cards.prices.priced.toLocaleString()} cards have a price: the cheapest printing of each, from Scryfall's ` +
+              `prices, published ${ago(cards.prices.as_of)}. Scryfall updates them daily, and they are estimates.`
+            : "No prices loaded yet. Refresh to load them."}
+        </Text>
         {busy && (
           <Text tone="muted" size="sm" role="status">
-            Downloading Scryfall's bulk file and loading it. This can take a minute.
+            Downloading Scryfall's cards and every printing's price, then loading them. This can take a minute.
           </Text>
         )}
         {result && (

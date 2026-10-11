@@ -5,6 +5,8 @@
 // for the same reason it edits the draft's cards directly (§5.2).
 
 import type { DatabaseSync } from "node:sqlite";
+import { recordActivity } from "./activity.ts";
+import { type PowerTarget, getPowerTarget, parseTarget, targetText, writePowerTarget } from "./deck/power.ts";
 import { ServiceError } from "./errors.ts";
 import { withTransaction } from "./db.ts";
 import { type Actor, authorOf, requireOwner } from "./actor.ts";
@@ -53,11 +55,13 @@ function writeProfile(db: DatabaseSync, bodyMd: string) {
 
 // ---------- proposed edits ----------
 
-export type DocumentEditKind = "profile" | "thesis" | "constraints" | "engine_set" | "engine_remove";
+export type DocumentEditKind = "profile" | "thesis" | "constraints" | "engine_set" | "engine_remove" | "power_target";
 
 export interface DocumentEditPayload {
   /** Replacement text for profile / thesis / constraints. */
   content?: string;
+  /** Structured power target, null to clear it. Text diff is derived by the app. */
+  target?: PowerTarget | null;
   /** What the text was when the edit was proposed, so the diff stays honest. */
   base?: string;
   engine_name?: string;
@@ -85,6 +89,7 @@ export interface DocumentEditView {
 
 function currentText(db: DatabaseSync, kind: DocumentEditKind, deckId: number | null): string {
   if (kind === "profile") return getProfile(db).body_md;
+  if (kind === "power_target") return targetText(getPowerTarget(db, deckId!));
   const brief = getBrief(db, deckId!);
   return kind === "thesis" ? brief.thesis : kind === "constraints" ? brief.constraints_md : "";
 }
@@ -99,6 +104,11 @@ function validateEdit(
     if (typeof payload.content !== "string")
       throw new ServiceError(`A ${kind} edit needs the full replacement text`);
     lintProse(db, payload.content);
+  } else if (kind === "power_target") {
+    if (payload.target === undefined) throw new ServiceError("A power target edit needs a target, or null to clear it");
+    payload.target = payload.target == null ? null : parseTarget(payload.target);
+    if (payload.target) lintProse(db, payload.target.notes);
+    payload.content = targetText(payload.target);
   } else if (kind === "engine_set") {
     if (!payload.engine_name?.trim()) throw new ServiceError("An engine needs a name");
     for (const p of payload.pieces ?? []) requireCardById(db, p.oracle_id);
@@ -116,11 +126,14 @@ function validateEdit(
 
 function applyEdit(
   db: DatabaseSync,
+  actor: Actor,
   kind: DocumentEditKind,
   deckId: number | null,
   payload: DocumentEditPayload,
 ) {
   switch (kind) {
+    case "power_target":
+      return writePowerTarget(db, actor, deckId!, payload.target);
     case "profile":
       return writeProfile(db, payload.content ?? "");
     case "thesis":
@@ -158,9 +171,14 @@ export function proposeDocumentEdit(
     throw new ServiceError("A profile edit has no deck; a brief edit needs one");
   const deck = deckId == null ? null : requireDeck(db, deckId);
   validateEdit(db, kind, deckId, payload);
+  if (kind === "power_target") {
+    if (actor.kind === "agent" && !reason?.trim()) throw new ServiceError("A power target needs a reason grounded in the owner's preferences");
+    lintProse(db, reason);
+  }
 
   if (deck?.status === "draft" || actor.kind === "owner") {
-    applyEdit(db, kind, deckId, payload);
+    applyEdit(db, actor, kind, deckId, payload);
+    if (kind === "power_target") recordActivity(db, actor, "propose_power_target", deckId, `Set draft power target: ${reason}`);
     return { applied: true, edit_id: null };
   }
 
@@ -174,6 +192,7 @@ export function proposeDocumentEdit(
       "INSERT INTO document_edits (deck_id, kind, payload_json, reason, author) VALUES (?, ?, ?, ?, ?)",
     )
     .run(deckId, kind, JSON.stringify(stored), reason.trim(), authorOf(actor));
+  if (kind === "power_target") recordActivity(db, actor, "propose_power_target", deckId, `Proposed power target edit #${r.lastInsertRowid}: ${reason}`);
   return { applied: false, edit_id: Number(r.lastInsertRowid) };
 }
 
@@ -239,6 +258,8 @@ export function listDocumentEdits(
 
 function describe(edit: EditRow, payload: DocumentEditPayload): string {
   switch (edit.kind) {
+    case "power_target":
+      return "Power target edit";
     case "profile":
       return "Profile edit";
     case "thesis":
@@ -267,7 +288,7 @@ export function ruleDocumentEdit(
   const payload = JSON.parse(edit.payload_json) as DocumentEditPayload;
 
   return withTransaction(db, () => {
-    if (outcome === "accept") applyEdit(db, edit.kind, edit.deck_id, payload);
+    if (outcome === "accept") applyEdit(db, actor, edit.kind, edit.deck_id, payload);
     db.prepare(
       "UPDATE document_edits SET status = ?, resolved_at = datetime('now') WHERE id = ?",
     ).run(outcome === "accept" ? "accepted" : "rejected", editId);

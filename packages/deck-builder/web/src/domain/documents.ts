@@ -4,7 +4,7 @@ import type { DiffLine } from "./diff.ts";
 
 /** Profile, thesis and constraints are text the owner reads as a diff; engines are not. */
 export function isTextEdit(edit: DocumentEdit): boolean {
-  return edit.kind === "profile" || edit.kind === "thesis" || edit.kind === "constraints";
+  return edit.kind === "profile" || edit.kind === "thesis" || edit.kind === "constraints" || edit.kind === "power_target";
 }
 
 /**
@@ -20,6 +20,8 @@ export function editDiff(edit: DocumentEdit): DiffLine[] {
 export function editTitle(edit: DocumentEdit): string {
   const engine = `“${edit.payload.engine_name ?? "unnamed"}”`;
   switch (edit.kind) {
+    case "power_target":
+      return "Edit to the power target";
     case "profile":
       return "Edit to your profile";
     case "thesis":

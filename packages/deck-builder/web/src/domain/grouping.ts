@@ -1,11 +1,13 @@
 // How the deck list is arranged (spec §5). The server hands over every
 // number — slot counts, deltas, the unfiled count — and this module only
-// decides which cards sit under which heading. Type groups have no server
-// numbers, so those counts are the one thing summed here.
+// decides which cards sit under which heading. Two things are summed here,
+// because they follow the grouping and the grouping is chosen on screen: the
+// counts of type groups, and what each group costs (spec §4.4).
 
 import type { DeckCard, DeckState, ProposalItem } from "../api/client.ts";
 import { TYPE_GROUPS, byCurve, primaryType, quantityOf } from "./cards.ts";
 import { pendingItems } from "./inbox.ts";
+import { type GroupCost, costOf } from "./price.ts";
 
 export type GroupBy = "slot" | "type";
 export type GroupStatus = "ok" | "under" | "over" | "untargeted";
@@ -26,6 +28,8 @@ export interface DeckGroup {
   delta: number;
   /** Role "card", not on the maybe list, sorted by curve. */
   cards: DeckCard[];
+  /** What the group's cards cost; unchanged when a search hides some of them. */
+  cost: GroupCost;
 }
 
 export interface DeckLayout {
@@ -74,6 +78,7 @@ export function layoutDeck(state: DeckState, groupBy: GroupBy): DeckLayout {
       // Empty slots stay so an unmet target still shows. The numbers are the
       // server's; nothing is recounted here.
       const d = state.computed.slot_deltas.find((x) => x.slot_id === slot.id);
+      const inSlot = listed.filter((c) => c.slot_id === slot.id);
       groups.push({
         key: `slot-${slot.id}`,
         title: slot.name,
@@ -82,7 +87,8 @@ export function layoutDeck(state: DeckState, groupBy: GroupBy): DeckLayout {
         target: formatTarget(slot.target_min, slot.target_max),
         status: d?.status ?? "untargeted",
         delta: d?.delta ?? 0,
-        cards: listed.filter((c) => c.slot_id === slot.id),
+        cards: inSlot,
+        cost: costOf(inSlot),
       });
     }
     const unfiled = listed.filter((c) => c.slot_id == null);
@@ -96,6 +102,7 @@ export function layoutDeck(state: DeckState, groupBy: GroupBy): DeckLayout {
         status: "untargeted",
         delta: 0,
         cards: unfiled,
+        cost: costOf(unfiled),
       });
   } else {
     for (const type of [...TYPE_GROUPS, "Other"]) {
@@ -110,6 +117,7 @@ export function layoutDeck(state: DeckState, groupBy: GroupBy): DeckLayout {
         status: "untargeted",
         delta: 0,
         cards,
+        cost: costOf(cards),
       });
     }
   }

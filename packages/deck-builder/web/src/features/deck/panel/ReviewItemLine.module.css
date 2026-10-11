@@ -33,8 +33,10 @@
 }
 
 .slot {
-  margin-left: auto;
+  display: inline-flex;
   flex: none;
+  gap: var(--s-2);
+  margin-left: auto;
 }
 
 .why {

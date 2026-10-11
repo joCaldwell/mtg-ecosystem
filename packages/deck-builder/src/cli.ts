@@ -1,6 +1,6 @@
 import { openDb, DEFAULT_DB_PATH } from "./db.ts";
-import { ingestFromFile } from "./ingest.ts";
-import { ensureBulkFile } from "./scryfall.ts";
+import { formatUsd } from "./prices.ts";
+import { refreshCardData } from "./refresh.ts";
 import { search, SearchError } from "./search/index.ts";
 
 function formatCard(c: {
@@ -12,6 +12,7 @@ function formatCard(c: {
   toughness: string | null;
   loyalty: string | null;
   color_identity: string;
+  usd_cents: number | null;
 }): string {
   const cost = c.mana_cost ? `  ${c.mana_cost}` : "";
   const pt =
@@ -22,7 +23,8 @@ function formatCard(c: {
         : "";
   const id = c.color_identity || "C";
   const text = c.oracle_text ? "\n  " + c.oracle_text.replaceAll("\n", "\n  ") : "";
-  return `${c.name}${cost}  (${c.type_line})${pt}  id:${id}${text}`;
+  const price = c.usd_cents == null ? "" : `  ${formatUsd(c.usd_cents)}`;
+  return `${c.name}${cost}  (${c.type_line})${pt}  id:${id}${price}${text}`;
 }
 
 async function main() {
@@ -30,10 +32,8 @@ async function main() {
 
   switch (cmd) {
     case "refresh": {
-      const force = rest.includes("--force");
-      const path = await ensureBulkFile(force);
       const db = openDb();
-      ingestFromFile(db, path);
+      await refreshCardData(db, { force: rest.includes("--force") });
       db.close();
       break;
     }

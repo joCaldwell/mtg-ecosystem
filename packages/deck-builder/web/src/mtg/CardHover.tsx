@@ -18,6 +18,7 @@ import { cardImageUrl } from "./cardImage.ts";
 import { useCardLookup } from "./CardLookup.tsx";
 import { ManaCost } from "./ManaCost.tsx";
 import { OracleText } from "./OracleText.tsx";
+import { Price } from "./Price.tsx";
 import styles from "./CardHover.module.css";
 
 /** How long the pointer must rest on a card name before the hover card appears. */
@@ -76,6 +77,9 @@ function HoverCard({ shown }: { shown: Shown }) {
         <div className={styles.type}>
           {card.type_line}
           {pt && <span className={styles.pt}>{pt}</span>}
+          <span className={styles.price}>
+            <Price cents={card.usd_cents} />
+          </span>
         </div>
         <div className={styles.oracle}>
           <OracleText text={card.oracle_text} bare />

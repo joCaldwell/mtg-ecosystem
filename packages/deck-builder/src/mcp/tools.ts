@@ -22,6 +22,7 @@ import { paperStatus } from "../deck/paper.ts";
 import { createProposal, getProposal } from "../deck/proposals.ts";
 import {
   createDeck,
+  deleteDeck,
   defineSlots,
   fileCards,
   findDeckCard,
@@ -29,9 +30,12 @@ import {
   listDecks,
   requireDeck,
   requireSlotByName,
+  renameDeck,
+  setDeckCategory,
   shortlistCard,
   unshortlistCard,
 } from "../deck/service.ts";
+import { PowerTargetSchema, PowerAssessmentSchema, getPower, recordPowerAssessment } from "../deck/power.ts";
 import { getProfile, proposeDocumentEdit } from "../documents.ts";
 import {
   type MemoryView,
@@ -52,6 +56,7 @@ import {
   memoryLine,
   renderCompare,
   renderDeck,
+  renderPower,
   renderMemories,
   renderPaper,
   renderScope,
@@ -78,6 +83,7 @@ export interface ToolDef {
   description: string;
   input: z.ZodRawShape;
   readOnly: boolean;
+  destructive?: boolean;
   run: (ctx: ToolContext, args: any) => string | ToolResult;
 }
 
@@ -201,7 +207,7 @@ export const TOOLS: ToolDef[] = [
     title: "Player statistics",
     readOnly: true,
     description:
-      "What the owner builds, computed across all their decks: colours and identities, commanders and their " +
+      "What the owner builds, computed only across their Paper decks (category paper): colours and identities, commanders and their " +
       "creature types, average curve and land counts, slot habits, and the cards they reuse across decks. " +
       "Use this for questions about the owner's tastes or what to build next. These are facts the app " +
       "computes; never store them as memories.",
@@ -231,6 +237,44 @@ export const TOOLS: ToolDef[] = [
     run: ({ db }, a) => renderDeck(db, deckId(db, a.deck), a.sections ?? DECK_SECTIONS, a.card_text ?? true),
   },
   {
+    name: "propose_power_target",
+    title: "Set or propose a power target",
+    readOnly: false,
+    description:
+      "Set a deck's desired power profile: intent, usual win range, consistency, resilience, interaction, " +
+      "win conditions and allowed play patterns, plus a Game Changer limit. On a draft it applies directly; " +
+      "on an active deck the owner must accept the proposed edit. Unknown fields may be omitted. " +
+      "This changes the target, never the current assessment or cards. Give a reason grounded in the owner's preferences. " +
+      "Use get_deck sections: [power] for field anchors and the app's explained bracket mapping.",
+    input: {
+      deck: deckRef,
+      target: PowerTargetSchema.nullable().describe("The desired profile and limits, or null to clear the target. Turn ranges are inclusive; occasional early wins are outliers, not frequent lines."),
+      reason: z.string().trim().min(1).describe("Why this target fits what the owner wants; card references as [[Card Name]]."),
+    },
+    run: ({ db, actor }, a) => {
+      const id = deckId(db, a.deck);
+      const r = proposeDocumentEdit(db, actor, id, "power_target", { target: a.target }, a.reason);
+      return done(`${r.applied ? "Set the draft power target." : `Proposed power target edit #${r.edit_id}; awaiting the owner.`}\n${renderPower(getPower(db, id))}\n${afterWrite(db, id)}`);
+    },
+  },
+  {
+    name: "assess_deck_power",
+    title: "Record a deck power assessment",
+    readOnly: false,
+    description:
+      "Record an attributed assessment of the deck's current power after reading its exact list and target. " +
+      "Include the revision you read, your evidence (list, goldfish or games), confidence and reasoning. " +
+      "Do not invent playtest results: use list and tentative for an untested estimate. The app computes " +
+      "Game Changers and maps the profile to a suggested community bracket. Card edits make the assessment stale. " +
+      "An agent cannot overwrite the owner's assessment of the same revision. This never changes the target or cards.",
+    input: { deck: deckRef, assessment: PowerAssessmentSchema.describe("Gameplay judgments, not card counts. Unknown profile fields may be omitted. Explain evidence in notes, with cards as [[Card Name]].") },
+    run: ({ db, actor }, a) => {
+      const id = deckId(db, a.deck);
+      const assessmentId = recordPowerAssessment(db, actor, id, a.assessment);
+      return done(`Recorded power assessment #${assessmentId}.\n${renderPower(getPower(db, id))}\n${afterWrite(db, id)}`);
+    },
+  },
+  {
     name: "compare_decks",
     title: "Compare two decks",
     readOnly: true,
@@ -253,7 +297,8 @@ export const TOOLS: ToolDef[] = [
       "Search every Magic card with a subset of Scryfall syntax. Bare words match the name; " +
       't:creature (type), o:"draw a card" (oracle text), fo: (text including reminder text), ' +
       "mv<=2 or cmc>=5, c:rg (colours, at least these), id<=wub (colour identity within), " +
-      "pow>=4, tou<3, loy=3, is:commander, f:commander, banned:commander. Combine with spaces (AND), " +
+      "pow>=4, tou<3, loy=3, usd<=2 (price of the cheapest printing, in dollars), is:commander, " +
+      "f:commander, banned:commander. Combine with spaces (AND), " +
       "'or', '-' or 'not', and parentheses. With a deck named, results are limited to that deck's colour " +
       "identity, marked if already in it, and carry the owner's prior rulings on each card in that deck; " +
       "slot:ramp, slot:none and tag:name then filter to that deck's own cards. Memories linked to a card " +
@@ -288,7 +333,7 @@ export const TOOLS: ToolDef[] = [
       } catch (e) {
         if (e instanceof SearchError)
           throw new ServiceError(
-            `That search could not be read: ${e.message}. Supported keys: t, o, fo, mv/cmc, c, id, pow, tou, loy, ` +
+            `That search could not be read: ${e.message}. Supported keys: t, o, fo, mv/cmc, c, id, pow, tou, loy, usd, ` +
               `is:commander, f:commander, banned:commander, and with a deck: slot:, tag:. Quote phrases: o:"draw a card".`,
           );
         throw e;
@@ -411,8 +456,9 @@ export const TOOLS: ToolDef[] = [
     readOnly: true,
     description:
       "Which cards of a deck are missing from the physical deck, split into a pull list (another of the " +
-      "owner's decks physically holds a copy) and a buy list (none does). This is the only place the " +
-      "physical state of decks is visible. Use it when the owner asks what they still need to assemble a " +
+      "owner's decks physically holds a copy) and a buy list (none does), with what the buy list is " +
+      "estimated to cost. This is the only place the " +
+      "per-card assembly state is visible. Use it when the owner asks what they still need to assemble a " +
       "deck; do not use it to decide what to recommend.",
     input: { deck: deckRef },
     run: ({ db }, a) => renderPaper(paperStatus(db, deckId(db, a.deck))),
@@ -444,15 +490,63 @@ export const TOOLS: ToolDef[] = [
   // ---------- writes that need no ruling ----------
 
   {
+    name: "rename_deck",
+    title: "Rename a deck",
+    readOnly: false,
+    description:
+      "Rename a draft or active deck. The name must be nonempty and unique across decks. " +
+      "Its cards, revision, category and editing permissions stay the same. The change is attributed in Activity.",
+    input: { deck: deckRef, name: z.string().describe("The new deck name.") },
+    run: ({ db, actor }, a) => {
+      const id = deckId(db, a.deck);
+      renameDeck(db, actor, id, a.name);
+      return done(`Renamed deck ${id} to "${requireDeck(db, id).name}".\n${afterWrite(db, id)}`);
+    },
+  },
+  {
+    name: "set_deck_category",
+    title: "Change a deck's category",
+    readOnly: false,
+    description:
+      "Classify a deck as paper (a physical deck), theorycrafted (an idea), or legacy (a past deck kept " +
+      "for reference). This does not change draft/active permissions, its cards, revision or per-card paper flags. " +
+      "The change is attributed in Activity.",
+    input: { deck: deckRef, category: z.enum(["paper", "theorycrafted", "legacy"]) },
+    run: ({ db, actor }, a) => {
+      const id = deckId(db, a.deck);
+      setDeckCategory(db, actor, id, a.category);
+      return done(`Set deck ${id} category to ${a.category}.\n${afterWrite(db, id)}`);
+    },
+  },
+  {
+    name: "delete_deck",
+    title: "Delete a deck",
+    readOnly: false,
+    destructive: true,
+    description:
+      "Permanently delete a deck and its card list, slots, tags, brief, proposals, rulings and deck-scoped " +
+      "memories. This cannot be undone. Global memories and fork decks remain; forks lose their parent link. " +
+      "Use only when the owner asks to delete this deck. The deletion stays attributed in Activity.",
+    input: { deck: deckRef },
+    run: ({ db, actor }, a) => {
+      const id = deckId(db, a.deck);
+      const name = requireDeck(db, id).name;
+      deleteDeck(db, actor, id);
+      return done(`Deleted deck ${id} "${name}" and its associated records. This cannot be undone.\n${rosterLines(listDecks(db))}`);
+    },
+  },
+
+  {
     name: "create_deck",
     title: "Create a draft deck",
     readOnly: false,
     description:
       "Create a new deck. It starts as a draft, which you edit directly with edit_draft until the owner " +
       "makes it active. Optionally set the commanders, paste a whole list, and write the thesis in the " +
-      "same call. If any card name does not resolve, nothing is created.",
+      "same call, and choose paper, theorycrafted or legacy as its category. If any card name does not resolve, nothing is created.",
     input: {
       name: z.string().describe("A name not already used by another deck."),
+      category: z.enum(["paper", "theorycrafted", "legacy"]).optional().describe("Defaults to theorycrafted."),
       commanders: z.array(cardRef).max(2).optional().describe("One commander, or two that may be paired."),
       list: z
         .string()
@@ -467,6 +561,7 @@ export const TOOLS: ToolDef[] = [
       const commanders = resolveCards(db, a.commanders ?? []);
       const id = withTransaction(db, () => {
         const deck = createDeck(db, a.name, { status: "draft" });
+        if (a.category !== undefined) setDeckCategory(db, actor, deck, a.category);
         if (a.list?.trim()) fillFromList(db, actor, deck, a.list);
         const changes: Change[] = commanders.map((c) => {
           const row = findDeckCard(db, deck, c.oracle_id);
@@ -479,7 +574,7 @@ export const TOOLS: ToolDef[] = [
         return deck;
       });
       recordActivity(db, actor, "create_deck", id, `Created draft deck "${a.name}"`);
-      return done(`Created draft deck ${id} "${a.name.trim()}".\n${afterWrite(db, id)}`);
+      return done(`Created draft deck ${id} "${a.name.trim()}" (category ${requireDeck(db, id).category}).\n${afterWrite(db, id)}`);
     },
   },
   {
@@ -836,8 +931,9 @@ export const TOOLS: ToolDef[] = [
       "the owner rules on each item in the app, and you learn the outcome from list_rulings. Propose as " +
       "many items as the request calls for. Every item needs its own reason (write cards as [[Card Name]], " +
       "and quote the oracle text you rely on). Give items that only make sense together the same group " +
-      "so they are accepted or rejected as a unit. The result shows what the deck would become and any " +
-      "prior rulings and memories on the cards involved.",
+      "so they are accepted or rejected as a unit. A cut removes the card from the deck; set to_maybe on " +
+      "a cut to move it to the maybe list instead, when it is worth keeping in view. The result shows " +
+      "what the deck would become and any prior rulings and memories on the cards involved.",
     input: {
       deck: deckRef,
       summary: z.string().optional().describe("One line on what this proposal is for."),
@@ -848,6 +944,10 @@ export const TOOLS: ToolDef[] = [
             card: cardRef,
             reason: z.string().describe("Why. The owner reads this when ruling."),
             slot: z.string().optional().describe("For an add: an existing slot to file the card in."),
+            to_maybe: z
+              .boolean()
+              .optional()
+              .describe("For a cut: if accepted, move the card to the maybe list instead of out of the deck (default false)."),
             group: z.string().optional().describe("A label shared by items to be ruled on together."),
           }),
         )
@@ -855,7 +955,14 @@ export const TOOLS: ToolDef[] = [
     },
     run: ({ db, actor }, a) => {
       const deck = deckId(db, a.deck);
-      const items = a.items as Array<{ action: "add" | "cut"; card: string; reason: string; slot?: string; group?: string }>;
+      const items = a.items as Array<{
+        action: "add" | "cut";
+        card: string;
+        reason: string;
+        slot?: string;
+        to_maybe?: boolean;
+        group?: string;
+      }>;
       const cards = resolveCards(db, items.map((i) => i.card));
       const id = createProposal(db, actor, deck, {
         summary: a.summary,
@@ -864,6 +971,7 @@ export const TOOLS: ToolDef[] = [
           oracle_id: cards[n].oracle_id,
           reason: i.reason,
           slot_id: i.slot ? requireSlotByName(db, deck, i.slot).id : undefined,
+          to_maybe: i.to_maybe,
           group: i.group,
         })),
       });

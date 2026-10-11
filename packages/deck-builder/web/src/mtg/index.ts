@@ -1,6 +1,7 @@
 export type { CardInfo } from "./CardInfo.ts";
 export { ManaSymbol } from "./ManaSymbol.tsx";
 export { ManaCost } from "./ManaCost.tsx";
+export { Price } from "./Price.tsx";
 export { ColorIdentity } from "./ColorIdentity.tsx";
 export { OracleText } from "./OracleText.tsx";
 export { cardImageUrl } from "./cardImage.ts";

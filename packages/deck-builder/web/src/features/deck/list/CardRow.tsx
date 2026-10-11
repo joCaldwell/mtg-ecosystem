@@ -4,7 +4,7 @@
 
 import type { KeyboardEvent, MouseEvent } from "react";
 import type { CardMark } from "../../../domain/marks.ts";
-import { ManaCost, useCardHover, type CardInfo } from "../../../mtg/index.ts";
+import { ManaCost, Price, useCardHover, type CardInfo } from "../../../mtg/index.ts";
 import { useDeckUi } from "../DeckUi.tsx";
 import { Mark } from "./Mark.tsx";
 import styles from "./CardRow.module.css";
@@ -77,6 +77,7 @@ export function CardRow({ card, quantity = 1, change, mark, inPaper = true, bold
       <span className={styles.cost}>
         <ManaCost cost={card.mana_cost} />
       </span>
+      <Price cents={card.usd_cents} column />
     </button>
   );
 }

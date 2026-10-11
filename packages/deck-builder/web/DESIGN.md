@@ -80,10 +80,11 @@ or about this app.
 | `Dot` | A 6px status mark | `neutral` `agent` `warn` `add` `cut`; `pulse` |
 | `Tabs` | Switching panels, underline style, arrow keys | per-tab `badge`, `tone: "agent"` |
 | `Segmented` | Choosing one of a few views | |
-| `Menu` | A button that opens a list of actions | trigger `variant` and `size`; `align`; item `tone: "cut"`, `disabled` |
+| `Menu` | A text or icon button that opens a list of actions | trigger `variant` and `size`; `icon`; `align`; item `tone: "cut"`, `disabled` |
 | `TextField` | One-line input | `fieldSize` `md` `lg`; `invalid` |
 | `TextArea` | Multi-line input | `autosize` |
 | `Select`, `Checkbox` | Native controls, restyled | |
+| `MultiSelect` | Searchable checkbox dropdown with removable selected chips | controlled `value`, async `onChange`, empty state |
 | `Field` | Label, control and hint, wired together | |
 | `Meter` | A bar toward a limit | `neutral` `agent` `warn` `add`; clamps to 0-100% |
 | `Box` | A bordered container | tone `neutral` `agent` `warn`; `dashed`; padding `none` `sm` `md` |

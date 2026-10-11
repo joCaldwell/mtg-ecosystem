@@ -7,7 +7,8 @@ import { useState } from "react";
 import { api } from "../../../api/client.ts";
 import { useQuery } from "../../../api/useQuery.ts";
 import { quantityOf } from "../../../domain/cards.ts";
-import { CardRef, ManaCost } from "../../../mtg/index.ts";
+import { costCaption, formatUsd } from "../../../domain/price.ts";
+import { CardRef, ManaCost, Price } from "../../../mtg/index.ts";
 import { Box, Button, Chip, ConfirmDialog, ErrorNote, Eyebrow, Text, useToast } from "../../../ui/index.ts";
 import { useDeck, useDeckState } from "../DeckStore.tsx";
 import styles from "./PaperPanel.module.css";
@@ -126,12 +127,19 @@ export function PaperPanel() {
                 Nothing to buy.
               </Text>
             )}
+            {status.data.buy.length > 0 && status.data.buy_cost.as_of && (
+              <Text size="sm" as="p" title={costCaption(status.data.buy_cost)}>
+                About <span className={styles.num}>{formatUsd(status.data.buy_cost.usd_cents)}</span> at the cheapest
+                printing of each card.
+              </Text>
+            )}
             {status.data.buy.map((c) => (
               <div key={c.name} className={styles.row}>
                 <span className={styles.name}>
                   <CardRef name={c.name} />
                   {c.quantity > 1 && <span className={styles.qty}> ×{c.quantity}</span>}
                 </span>
+                <Price cents={c.usd_cents} column />
               </div>
             ))}
           </section>

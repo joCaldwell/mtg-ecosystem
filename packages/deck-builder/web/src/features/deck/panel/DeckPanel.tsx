@@ -11,12 +11,14 @@ import { CardPanel } from "./CardPanel.tsx";
 import { ChecksPanel } from "./ChecksPanel.tsx";
 import { HistoryPanel } from "./HistoryPanel.tsx";
 import { MemoriesPanel } from "./MemoriesPanel.tsx";
+import { PowerPanel } from "./PowerPanel.tsx";
 import { PaperPanel } from "./PaperPanel.tsx";
 import { ReviewPanel } from "./ReviewPanel.tsx";
 import styles from "./DeckPanel.module.css";
 
 const TABS: Array<{ id: PanelTab; label: string }> = [
   { id: "brief", label: "Brief" },
+  { id: "power", label: "Power" },
   { id: "checks", label: "Checks" },
   { id: "memories", label: "Memories" },
   { id: "history", label: "History" },
@@ -60,6 +62,8 @@ export function DeckPanel({ view, review }: { view: DeckViewModel; review: Revie
           <ReviewPanel view={view} review={review} />
         ) : tab === "brief" ? (
           <BriefPanel />
+        ) : tab === "power" ? (
+          <PowerPanel />
         ) : tab === "checks" ? (
           <ChecksPanel />
         ) : tab === "memories" ? (

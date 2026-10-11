@@ -29,6 +29,12 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
           {diff.add_count}
         </Text>{" "}
         to add · <Text mono>{diff.unchanged}</Text> unchanged
+        {diff.role_changes.length ? (
+          <>
+            {" "}
+            · <Text mono>{diff.role_changes.length}</Text> {diff.role_changes.length === 1 ? "role change" : "role changes"}
+          </>
+        ) : null}
         {diff.set_aside.length ? (
           <>
             {" "}
@@ -98,6 +104,14 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
               label="add"
               detail={`quantity ${q.from} → ${q.to}`}
             />
+          ))}
+        </Group>
+      ) : null}
+
+      {diff.role_changes.length > 0 ? (
+        <Group title="Will change role" count={diff.role_changes.length}>
+          {diff.role_changes.map((r) => (
+            <CardLine key={r.oracle_id} oracleId={r.oracle_id} name={r.name} detail={`${r.from} → ${r.to}`} />
           ))}
         </Group>
       ) : null}
@@ -183,8 +197,9 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
 }
 
 function addDetail(a: ImportDiff["adds"][number]): ReactNode {
+  // The command zone is not part of any slot, so a category says nothing more there.
+  if (a.role !== "card") return a.role;
   const bits: string[] = [];
-  if (a.role !== "card") bits.push(a.role);
   if (a.slot_name) bits.push(`to ${a.slot_name}`);
   else if (a.category) bits.push(`category “${a.category}” matches no slot`);
   return bits.length ? bits.join(" · ") : undefined;

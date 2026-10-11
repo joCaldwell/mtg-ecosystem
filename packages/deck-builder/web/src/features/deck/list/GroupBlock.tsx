@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import type { DeckCard, ProposalItem } from "../../../api/client.ts";
 import type { GroupStatus } from "../../../domain/grouping.ts";
 import type { CardMark } from "../../../domain/marks.ts";
+import type { GroupCost } from "../../../domain/price.ts";
 import { CardRow } from "./CardRow.tsx";
 import { GroupHeader } from "./GroupHeader.tsx";
 import styles from "./GroupBlock.module.css";
@@ -20,6 +21,7 @@ export interface GroupBlockProps {
   status?: GroupStatus;
   delta?: number;
   projected?: number;
+  cost?: GroupCost;
   cards: DeckCard[];
   /** Pending adds, drawn only while reviewing. */
   adds?: ProposalItem[];

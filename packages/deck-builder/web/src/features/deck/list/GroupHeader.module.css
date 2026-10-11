@@ -12,8 +12,16 @@
   font-weight: 600;
 }
 
+.spacer {
+  flex: 1;
+}
+
+/* Sits over the rows' price column, so it reads as that column's sum. */
+.cost {
+  --price-color: var(--muted);
+}
+
 .count {
-  margin-left: auto;
   color: var(--muted);
   font: var(--text-xs) var(--font-mono);
   font-variant-numeric: tabular-nums;

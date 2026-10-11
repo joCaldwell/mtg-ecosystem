@@ -24,6 +24,13 @@
 //    the parser ACCEPTS it and the exporter never EMITS it.
 //  * The same guides report that set codes, foil markers (*F*) and count
 //    headers ("Creatures (24)") each break some importers.
+//  * Archidekt's plain text export carries no per-line category at all. It
+//    groups the cards under whole-line headers separated by blank lines:
+//        Commander / Mainboard / Maybeboard
+//    We found no Archidekt page documenting this; it is read off a list the
+//    owner exported from Archidekt on 2026-10-10. The header is therefore the
+//    only thing saying which cards are the commander and which are outside
+//    the deck, so the parser applies it to every line beneath it.
 //
 // EXPORT therefore emits only `QTY Name [Category]`: we key cards on
 // oracle_id and store neither set code nor finish, so there is nothing to
@@ -43,6 +50,8 @@ import { type Role, getDeck, shortlistCard } from "./service.ts";
 const COMMANDER_CATEGORY = "Commander";
 const COMPANION_CATEGORY = "Companion";
 const UNSLOTTED_CATEGORY = "Unslotted";
+const SIDEBOARD_CATEGORY = "Sideboard";
+const MAYBEBOARD_CATEGORY = "Maybeboard";
 
 // Categories that mean "listed with the deck but not in it". Archidekt ships
 // with Maybeboard and Sideboard categories that it excludes from the deck
@@ -129,6 +138,7 @@ export interface ParsedLine {
   raw: string;
   quantity: number;
   name: string;
+  // The line's own [Category] tags, then the section header it sits under.
   categories: string[];
 }
 
@@ -139,26 +149,59 @@ export interface ParseResult {
   unparsed: Array<{ line_no: number; raw: string }>;
 }
 
-// Whole-line section headers Archidekt and other exporters emit. None of
-// these are Magic card names, so skipping them cannot swallow a real card.
-const SECTION_HEADER =
-  /^(deck|decklist|sideboard|maybeboard|commander|commanders|companion|tokens?|main(board)?|about)\s*:?\s*$/i;
+// Whole-line section headers Archidekt and other exporters emit, and the
+// category each one gives the lines beneath it (null: the deck itself). None
+// of these are Magic card names, so reading them as headers cannot swallow a
+// real card.
+const SECTIONS = new Map<string, string | null>([
+  ["deck", null],
+  ["decklist", null],
+  ["main", null],
+  ["mainboard", null],
+  ["about", null],
+  ["token", null],
+  ["tokens", null],
+  ["commander", COMMANDER_CATEGORY],
+  ["commanders", COMMANDER_CATEGORY],
+  ["companion", COMPANION_CATEGORY],
+  ["sideboard", SIDEBOARD_CATEGORY],
+  ["maybeboard", MAYBEBOARD_CATEGORY],
+]);
+const SECTION_HEADER = /^([A-Za-z]+)\s*:?\s*$/;
 // "Creatures (24)" style count headers — documented to break the importer,
 // so they turn up in lists people hand-edit.
-const COUNT_HEADER = /^[A-Za-z][A-Za-z '\/-]*\s*\(\d+\)\s*$/;
+const COUNT_HEADER = /^([A-Za-z][A-Za-z '\/-]*?)\s*\(\d+\)\s*$/;
 
 export function parseArchidektList(text: string): ParseResult {
   const entries: ParsedLine[] = [];
   const unparsed: Array<{ line_no: number; raw: string }> = [];
+  // The category of the header the current line sits under. It holds until
+  // the next header, not the next blank line.
+  let section: string | null = null;
 
   text.split(/\r?\n/).forEach((raw, i) => {
     const lineNo = i + 1;
     let line = raw.trim();
     if (!line) return;
     if (line.startsWith("//") || line.startsWith("#")) return;
-    if (SECTION_HEADER.test(line) || COUNT_HEADER.test(line)) return;
+    const header = line.match(SECTION_HEADER);
+    if (header && SECTIONS.has(header[1].toLowerCase())) {
+      section = SECTIONS.get(header[1].toLowerCase()) ?? null;
+      return;
+    }
+    // A count header we don't know ("Creatures (24)") is a grouping inside
+    // the deck, so it ends a Commander or Maybeboard section.
+    const counted = line.match(COUNT_HEADER);
+    if (counted) {
+      section = SECTIONS.get(counted[1].toLowerCase()) ?? null;
+      return;
+    }
+    const implied = section ? [section] : [];
     // MTGO sideboard prefix.
-    line = line.replace(/^SB:\s*/i, "");
+    if (/^SB:\s*/i.test(line)) {
+      line = line.replace(/^SB:\s*/i, "");
+      implied.push(SIDEBOARD_CATEGORY);
+    }
 
     // Leading quantity: "1", "1x", "1 x". Absent means one copy.
     let quantity = 1;
@@ -209,6 +252,8 @@ export function parseArchidektList(text: string): ParseResult {
       unparsed.push({ line_no: lineNo, raw });
       return;
     }
+    for (const c of implied)
+      if (!categories.some((own) => own.toLowerCase() === c.toLowerCase())) categories.push(c);
     entries.push({ line_no: lineNo, raw, quantity, name, categories });
   });
 
@@ -229,6 +274,10 @@ export interface ImportDiff {
   }>;
   cuts: Array<{ oracle_id: string; name: string; quantity: number; role: string }>;
   quantity_changes: Array<{ oracle_id: string; name: string; from: number; to: number }>;
+  // Cards already in the deck that the list names as commander or companion.
+  // A list only ever promotes: a bare list carries no roles at all, so its
+  // silence about the current commander is not an instruction to demote it.
+  role_changes: Array<{ oracle_id: string; name: string; from: Role; to: Role }>;
   // Physical card counts, not distinct database rows. Quantity increases and
   // decreases contribute to these totals, so 30 Forests really reads as 30
   // cards to add in the preview.
@@ -245,7 +294,7 @@ export interface ImportDiff {
     name: string;
     candidates: Array<{ name: string; oracle_id: string }>;
   }>;
-  // Lines in a Maybeboard or Sideboard category: shortlisted, not added.
+  // Lines in a Maybeboard or Sideboard category or section: shortlisted, not added.
   set_aside: Array<{ oracle_id: string; name: string; category: string }>;
   unparsed: Array<{ line_no: number; raw: string }>;
   revision: number;
@@ -304,16 +353,29 @@ export function diffImport(db: DatabaseSync, deckId: number, text: string): Impo
 
   const adds: ImportDiff["adds"] = [];
   const quantityChanges: ImportDiff["quantity_changes"] = [];
+  const roleChanges: ImportDiff["role_changes"] = [];
   let unchanged = 0;
 
   // Command-zone capacity left over once the cards absent from the pasted list
-  // are gone. A list carrying its own [Commander] category should land its
-  // commander in the command zone — that's what sets the deck's color
+  // are gone. A list carrying its own Commander category or section should
+  // land its commander in the command zone — that's what sets the deck's color
   // identity — but never past the 2/1 caps, which would throw mid-import.
   let commanderRoom =
     2 - main.filter((c) => c.role === "commander" && pasted.has(c.oracle_id)).length;
   let companionRoom =
     1 - main.filter((c) => c.role === "companion" && pasted.has(c.oracle_id)).length;
+  const claimRole = (categories: string[]): Role => {
+    const lowered = categories.map((c) => c.toLowerCase());
+    if (lowered.some((c) => c === "commander" || c === "commanders") && commanderRoom > 0) {
+      commanderRoom--;
+      return "commander";
+    }
+    if (lowered.includes("companion") && companionRoom > 0) {
+      companionRoom--;
+      return "companion";
+    }
+    return "card";
+  };
 
   for (const [oracleId, p] of pasted) {
     const existing = inDeck.get(oracleId);
@@ -326,20 +388,17 @@ export function diffImport(db: DatabaseSync, deckId: number, text: string): Impo
           from: existing.quantity,
           to: p.quantity,
         });
+      if (existing.role === "card") {
+        const role = claimRole(p.categories);
+        if (role !== "card")
+          roleChanges.push({ oracle_id: oracleId, name: p.name, from: existing.role, to: role });
+      }
       continue;
     }
     // First category that names an existing slot wins; Commander/Companion/
     // Unslotted are our own export categories and map to no slot.
     const slot = p.categories.map((c) => slotByName.get(c.toLowerCase())).find(Boolean) ?? null;
-    const lowered = p.categories.map((c) => c.toLowerCase());
-    let role: Role = "card";
-    if (lowered.some((c) => c === "commander" || c === "commanders") && commanderRoom > 0) {
-      role = "commander";
-      commanderRoom--;
-    } else if (lowered.includes("companion") && companionRoom > 0) {
-      role = "companion";
-      companionRoom--;
-    }
+    const role = claimRole(p.categories);
     adds.push({
       oracle_id: oracleId,
       name: p.name,
@@ -371,6 +430,7 @@ export function diffImport(db: DatabaseSync, deckId: number, text: string): Impo
     adds: adds.sort((a, b) => a.name.localeCompare(b.name)),
     cuts: cuts.sort((a, b) => a.name.localeCompare(b.name)),
     quantity_changes: quantityChanges.sort((a, b) => a.name.localeCompare(b.name)),
+    role_changes: roleChanges.sort((a, b) => a.name.localeCompare(b.name)),
     add_count: addCount,
     cut_count: cutCount,
     unchanged,
@@ -383,7 +443,7 @@ export function diffImport(db: DatabaseSync, deckId: number, text: string): Impo
 }
 
 export interface ImportResult {
-  applied: { added: number; cut: number; quantity_changed: number };
+  applied: { added: number; cut: number; quantity_changed: number; role_changed: number };
   // Null when the list matched the deck exactly — nothing was written.
   log_id: number | null;
   diff: ImportDiff;
@@ -396,6 +456,7 @@ function changesFor(diff: ImportDiff): Change[] {
     ...diff.quantity_changes
       .filter((q) => q.to < q.from)
       .map((q) => ({ action: "cut" as const, oracle_id: q.oracle_id, quantity: q.from - q.to })),
+    ...diff.role_changes.map((r) => ({ action: "role" as const, oracle_id: r.oracle_id, role: r.to })),
     ...diff.adds.map((a) => ({
       action: "add" as const,
       oracle_id: a.oracle_id,
@@ -421,11 +482,13 @@ function land(
     added: diff.add_count,
     cut: diff.cut_count,
     quantity_changed: diff.quantity_changes.length,
+    role_changed: diff.role_changes.length,
   };
   const summary =
     note?.trim() ||
     `Imported a list at revision ${diff.revision}: +${applied.added}/−${applied.cut}` +
-      (applied.quantity_changed ? `, ${applied.quantity_changed} quantity change(s)` : "");
+      (applied.quantity_changed ? `, ${applied.quantity_changed} quantity change(s)` : "") +
+      (applied.role_changed ? `, ${applied.role_changed} role change(s)` : "");
   const logId = applyChanges(db, actor, deckId, changesFor(diff), { kind, summary });
   for (const c of diff.set_aside) {
     const existing = getDeck(db, deckId).cards.find((x) => x.oracle_id === c.oracle_id);

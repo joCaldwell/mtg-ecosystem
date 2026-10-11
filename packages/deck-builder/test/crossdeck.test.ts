@@ -15,6 +15,7 @@ import {
   getDeck,
   organizeCard,
   setAllInPaper,
+  setDeckCategory,
   setDeckParent,
   setInPaper,
   shortlistCard,
@@ -33,6 +34,7 @@ describe("forks (spec §5.3)", () => {
   organizeCard(db, parent, "id-solring", { tagIds: [tag] });
   shortlistCard(db, parent, "id-counterspell", "maybe later");
   setAllInPaper(db, OWNER, parent, true);
+  setDeckCategory(db, OWNER, parent, "paper");
   updateBrief(db, parent, { thesis: "Artifacts." });
   setEngine(db, parent, "Mana", "", [{ oracle_id: "id-solring" }]);
   const fork = forkDeck(db, AGENT, parent, "Fork");
@@ -40,6 +42,8 @@ describe("forks (spec §5.3)", () => {
   test("a fork is a draft that records its parent and copies list, organization and brief", () => {
     const view = getDeck(db, fork);
     assert.equal(view.deck.status, "draft");
+    assert.equal(view.deck.category, "theorycrafted");
+    assert.equal(getDeck(db, parent).deck.category, "paper");
     assert.deepEqual(view.deck.parent, { id: parent, name: "Parent" });
     assert.equal(view.deck.color_identity, "U");
     assert.deepEqual(view.slots.map((s) => [s.name, s.target_min, s.target_max]), [["Ramp", 1, 2]]);
@@ -126,7 +130,9 @@ describe("paper status (spec §5.5)", () => {
     assert.deepEqual(status.pull, [
       { name: "Sol Ring", type_line: "Artifact", quantity: 1, held_by: [{ deck_id: golems, deck_name: "Golems" }] },
     ]);
-    assert.deepEqual(status.buy, [{ name: "Llanowar Elves", type_line: "Creature — Elf Druid", quantity: 1 }]);
+    assert.deepEqual(status.buy, [
+      { name: "Llanowar Elves", type_line: "Creature — Elf Druid", quantity: 1, usd_cents: null },
+    ]);
   });
 });
 
@@ -172,7 +178,7 @@ describe("checks (spec §9)", () => {
 });
 
 describe("player statistics (spec §3)", () => {
-  test("computed across decks, counting a fork and its parent as one family", () => {
+  test("computed across Paper decks, counting a fork and its parent as one family", () => {
     const db = testDb();
     const a = newDeck(db, "active", "Atraxa deck");
     add(db, a, "id-atraxa", { role: "commander" });
@@ -184,7 +190,8 @@ describe("player statistics (spec §3)", () => {
     add(db, b, "id-counterspell");
     createSlot(db, b, "Interaction");
     const fork = forkDeck(db, OWNER, b, "Teferi fork");
-    newDeck(db, "draft", "Empty");
+    const empty = newDeck(db, "draft", "Empty");
+    for (const id of [a, b, fork, empty]) setDeckCategory(db, OWNER, id, "paper");
 
     const stats = playerStats(db);
     assert.equal(stats.deck_count, 4);
@@ -200,6 +207,48 @@ describe("player statistics (spec §3)", () => {
     assert.equal(stats.decks.find((d) => d.id === fork)!.forked_from, "Teferi deck");
     assert.deepEqual(stats.slots, [{ name: "Interaction", decks: 2, average_count: 0 }]);
     assert.equal(stats.averages.lands, 0.7);
+  });
+  test("Theorycrafted and Legacy decks contribute to none of the statistics", () => {
+    const db = testDb();
+    const paper = newDeck(db, "draft", "Paper stats");
+    add(db, paper, "id-teferi", { role: "commander" });
+    add(db, paper, "id-solring");
+    createSlot(db, paper, "Ramp");
+    setDeckCategory(db, OWNER, paper, "paper");
+    const baseline = playerStats(db);
+    for (const category of ["theorycrafted", "legacy"] as const) {
+      const excluded = newDeck(db, "active", `${category} stats`);
+      add(db, excluded, "id-atraxa", { role: "commander" });
+      add(db, excluded, "id-solring");
+      add(db, excluded, "id-forest", { quantity: 10 });
+      createSlot(db, excluded, "Excluded slot");
+      setAllInPaper(db, OWNER, excluded, true);
+      setDeckCategory(db, OWNER, excluded, category);
+      assert.deepEqual(playerStats(db), baseline);
+      setDeckCategory(db, OWNER, excluded, "paper");
+      assert.equal(playerStats(db).deck_count, 2);
+      assert.equal(playerStats(db).reused_cards.length, 1);
+      setDeckCategory(db, OWNER, excluded, category);
+      assert.deepEqual(playerStats(db), baseline);
+    }
+    setDeckCategory(db, OWNER, paper, "legacy");
+    const empty = playerStats(testDb());
+    assert.deepEqual(playerStats(db), empty);
+  });
+  test("Paper forks share a family through excluded ancestors", () => {
+    const db = testDb();
+    const root = newDeck(db, "active", "Legacy root");
+    add(db, root, "id-solring");
+    setDeckCategory(db, OWNER, root, "legacy");
+    const middle = forkDeck(db, OWNER, root, "Theorycrafted middle");
+    const a = forkDeck(db, OWNER, middle, "Paper descendant A");
+    const b = forkDeck(db, OWNER, root, "Paper descendant B");
+    for (const id of [a, b]) setDeckCategory(db, OWNER, id, "paper");
+    const stats = playerStats(db);
+    assert.equal(stats.deck_count, 2);
+    assert.equal(stats.families, 1);
+    assert.deepEqual(stats.decks.map((d) => d.id), [a, b]);
+    assert.deepEqual(stats.reused_cards, []);
   });
 });
 

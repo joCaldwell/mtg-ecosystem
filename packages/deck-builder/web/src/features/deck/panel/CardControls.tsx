@@ -3,8 +3,9 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { api, type DeckCard } from "../../../api/client.ts";
-import { Checkbox, Chip, KeyValue, Select, Text, TextField } from "../../../ui/index.ts";
+import { Button, Checkbox, KeyValue, MultiSelect, Select, Text, TextField } from "../../../ui/index.ts";
 import { useDeck, useDeckState } from "../DeckStore.tsx";
+import { useDeckUi } from "../DeckUi.tsx";
 import styles from "./CardControls.module.css";
 
 const ROLES = ["card", "commander", "companion"] as const;
@@ -12,15 +13,11 @@ const ROLES = ["card", "commander", "companion"] as const;
 export function CardControls({ card }: { card: DeckCard }) {
   const { slots, tags } = useDeckState();
   const { deckId, run } = useDeck();
+  const ui = useDeckUi();
   const [quantity, setQuantity] = useState(String(card.quantity));
   useEffect(() => setQuantity(String(card.quantity)), [card.quantity]);
 
   const patch = (change: Parameters<typeof api.updateCard>[2]) => run(() => api.updateCard(deckId, card.oracle_id, change));
-
-  function toggleTag(tagId: number) {
-    const next = card.tag_ids.includes(tagId) ? card.tag_ids.filter((t) => t !== tagId) : [...card.tag_ids, tagId];
-    void patch({ tag_ids: next });
-  }
 
   async function commitQuantity() {
     const n = Number(quantity.trim());
@@ -54,22 +51,20 @@ export function CardControls({ card }: { card: DeckCard }) {
     ],
     [
       "Tags",
-      tags.length ? (
+      (
         <div key="tags" className={styles.tags}>
-          {tags.map((t) => {
-            const on = card.tag_ids.includes(t.id);
-            return (
-              <Chip key={t.id} dashed={!on} aria-pressed={on} onClick={() => toggleTag(t.id)}>
-                {on && "✓ "}
-                {t.name}
-              </Chip>
-            );
-          })}
+          <MultiSelect
+            key={card.oracle_id}
+            label="Card tags"
+            placeholder="Select tags…"
+            options={tags.map((tag) => ({ value: String(tag.id), label: tag.name }))}
+            value={card.tag_ids.map(String)}
+            onChange={(ids) => patch({ tag_ids: ids.map(Number) })}
+            emptyText="No tags yet. Create one using Edit slots and tags."
+          />
+          {card.tag_ids.length === 0 && <Text tone="muted" size="sm">No tags assigned</Text>}
+          {tags.length === 0 && <Button size="sm" variant="ghost" onClick={() => ui.openDialog("slots")}>Create a tag</Button>}
         </div>
-      ) : (
-        <Text key="tags" tone="faint">
-          none defined for this deck
-        </Text>
       ),
     ],
   ];

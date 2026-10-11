@@ -3,6 +3,7 @@
 // agent's work and reaches the app as proposals and memories, not here.
 
 import type { DatabaseSync } from "node:sqlite";
+import { getPower } from "./power.ts";
 import { getBrief } from "./brief.ts";
 import { getDeck } from "./service.ts";
 
@@ -154,5 +155,14 @@ export function checkDeck(db: DatabaseSync, deckId: number): Finding[] {
     });
   }
 
+  const power = getPower(db, deckId);
+  if (power.assessment?.stale) findings.push({
+    key: "power_assessment_stale", severity: "warn", title: "Power assessment needs review",
+    detail: `Assessed at r${power.assessment.revision}; the current list is r${deck.revision}. Reassess before comparing it with the target.`,
+  });
+  if (power.differences.length) findings.push({
+    key: "power_target_gap", severity: "warn", title: "Power profile differs from target",
+    detail: power.differences.map(d => `${d.field}: target ${d.target}, current ${d.current}`).join("; "),
+  });
   return findings;
 }

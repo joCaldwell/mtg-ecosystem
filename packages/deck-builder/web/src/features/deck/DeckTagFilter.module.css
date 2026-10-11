@@ -1,0 +1,16 @@
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--s-4);
+  width: 100%;
+}
+
+.label {
+  padding-top: var(--s-2);
+}
+
+.picker {
+  width: var(--sidebar-w);
+  max-width: 100%;
+}

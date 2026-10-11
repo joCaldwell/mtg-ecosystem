@@ -7,10 +7,13 @@ import type { DatabaseSync } from "node:sqlite";
 import { ServiceError } from "../errors.ts";
 import { withTransaction } from "../db.ts";
 import { type Actor, requireOwner } from "../actor.ts";
+import { recordActivity } from "../activity.ts";
 import { requireCardById } from "../cards.ts";
+import { estimateCost, pricesAsOf } from "../prices.ts";
 
 export type Role = "card" | "commander" | "companion";
 export type DeckStatus = "draft" | "active";
+export type DeckCategory = "paper" | "theorycrafted" | "legacy";
 
 // Card types and supertypes. Slots and tags say what a card *does* — "ramp",
 // "interaction" — and card type says what it *is*; the decklist groups by
@@ -28,7 +31,7 @@ const RESERVED_NAMES = new Set([
   // search prefixes
   "t", "type", "o", "oracle", "fo", "fulloracle", "cmc", "mv", "manavalue",
   "c", "color", "id", "identity", "pow", "power", "tou", "toughness",
-  "loy", "loyalty", "is", "f", "format", "banned", "slot", "tag",
+  "loy", "loyalty", "usd", "is", "f", "format", "banned", "slot", "tag",
   // grammar words and sentinels
   "or", "and", "not", "none",
 ]);
@@ -79,6 +82,7 @@ export interface DeckRow {
   id: number;
   name: string;
   status: DeckStatus;
+  category: DeckCategory;
   parent_id: number | null;
   ci_mask: number | null;
   color_identity: string;
@@ -105,12 +109,15 @@ export function createDeck(
   }
 }
 
-export function renameDeck(db: DatabaseSync, deckId: number, name: string): void {
-  requireDeck(db, deckId);
+export function renameDeck(db: DatabaseSync, actor: Actor, deckId: number, name: string): void {
+  const deck = requireDeck(db, deckId);
   const trimmed = name.trim();
   if (!trimmed) throw new ServiceError("Deck name cannot be empty");
   try {
-    db.prepare("UPDATE decks SET name = ? WHERE id = ?").run(trimmed, deckId);
+    withTransaction(db, () => {
+      db.prepare("UPDATE decks SET name = ? WHERE id = ?").run(trimmed, deckId);
+      recordActivity(db, actor, "rename_deck", deckId, `Renamed "${deck.name}" to "${trimmed}"`);
+    });
   } catch (e: any) {
     if (String(e.message).includes("UNIQUE"))
       throw new ServiceError(`A deck named '${trimmed}' already exists`, 409);
@@ -119,9 +126,12 @@ export function renameDeck(db: DatabaseSync, deckId: number, name: string): void
 }
 
 export function deleteDeck(db: DatabaseSync, actor: Actor, deckId: number): void {
-  requireOwner(actor, "delete a deck");
-  requireDeck(db, deckId);
-  db.prepare("DELETE FROM decks WHERE id = ?").run(deckId);
+  const deck = requireDeck(db, deckId);
+  withTransaction(db, () => {
+    db.prepare("DELETE FROM decks WHERE id = ?").run(deckId);
+    // The deck no longer exists; its name stays in the audit summary.
+    recordActivity(db, actor, "delete_deck", null, `Deleted deck ${deckId} "${deck.name}" and its associated records`);
+  });
 }
 
 /** Spec §5.2: only the owner moves a deck between draft and active. */
@@ -136,6 +146,22 @@ export function setDeckStatus(
   if (status !== "draft" && status !== "active")
     throw new ServiceError("Deck status must be 'draft' or 'active'");
   db.prepare("UPDATE decks SET status = ? WHERE id = ?").run(status, deckId);
+}
+
+/** Spec §5.6: classification never changes membership, assembly flags or permissions. */
+export function setDeckCategory(
+  db: DatabaseSync,
+  actor: Actor,
+  deckId: number,
+  category: DeckCategory,
+): void {
+  const deck = requireDeck(db, deckId);
+  if (category !== "paper" && category !== "theorycrafted" && category !== "legacy")
+    throw new ServiceError("Deck category must be 'paper', 'theorycrafted' or 'legacy'");
+  withTransaction(db, () => {
+    db.prepare("UPDATE decks SET category = ? WHERE id = ?").run(category, deckId);
+    recordActivity(db, actor, "set_deck_category", deckId, `Changed "${deck.name}" from ${deck.category} to ${category}`);
+  });
 }
 
 // Record, or clear, which deck this one was forked from (spec §5.3). For a
@@ -168,6 +194,7 @@ export interface DeckSummary {
   id: number;
   name: string;
   status: DeckStatus;
+  category: DeckCategory;
   parent_id: number | null;
   parent_name: string | null;
   color_identity: string;
@@ -183,7 +210,7 @@ export interface DeckSummary {
 export function listDecks(db: DatabaseSync): DeckSummary[] {
   const rows = db
     .prepare(
-      `SELECT d.id, d.name, d.status, d.parent_id, p.name AS parent_name, d.color_identity,
+      `SELECT d.id, d.name, d.status, d.category, d.parent_id, p.name AS parent_name, d.color_identity,
               d.revision, d.created_at,
               COALESCE((SELECT SUM(quantity) FROM deck_cards dc
                         WHERE dc.deck_id = d.id AND dc.role != 'companion' AND dc.maybe = 0), 0) AS card_count,
@@ -447,6 +474,12 @@ export function createTag(db: DatabaseSync, deckId: number, name: string): numbe
 export function renameTag(db: DatabaseSync, deckId: number, tagId: number, name: string): void {
   requireTag(db, deckId, tagId);
   const valid = validateVocabName(name);
+  const clash = similarTag(listTags(db, deckId).filter((tag) => tag.id !== tagId).map((tag) => tag.name), valid);
+  if (clash)
+    throw new ServiceError(
+      `This deck already has the tag '${clash}', which '${valid}' would duplicate. Use '${clash}'.`,
+      409,
+    );
   try {
     db.prepare("UPDATE tags SET name = ? WHERE id = ?").run(valid, tagId);
   } catch (e: any) {
@@ -483,32 +516,36 @@ export function organizeCard(
   oracleId: string,
   patch: OrganizePatch,
 ): void {
-  const row = requireDeckCard(db, deckId, oracleId);
-  if (patch.slotId !== undefined) {
-    if (patch.slotId != null) {
-      requireSlot(db, deckId, patch.slotId);
-      if (row.role !== "card")
-        throw new ServiceError(
-          `A ${row.role} is in the command zone, which is not part of any slot`,
-        );
+  withTransaction(db, () => {
+    const row = requireDeckCard(db, deckId, oracleId);
+    if (patch.tagIds !== undefined && (!Array.isArray(patch.tagIds) || patch.tagIds.some((id) => !Number.isSafeInteger(id) || id < 1)))
+      throw new ServiceError("Tag IDs must be an array of positive integers");
+    if (patch.slotId !== undefined) {
+      if (patch.slotId != null) {
+        requireSlot(db, deckId, patch.slotId);
+        if (row.role !== "card")
+          throw new ServiceError(
+            `A ${row.role} is in the command zone, which is not part of any slot`,
+          );
+      }
+      db.prepare("UPDATE deck_cards SET slot_id = ? WHERE deck_id = ? AND oracle_id = ?").run(
+        patch.slotId,
+        deckId,
+        oracleId,
+      );
     }
-    db.prepare("UPDATE deck_cards SET slot_id = ? WHERE deck_id = ? AND oracle_id = ?").run(
-      patch.slotId,
-      deckId,
-      oracleId,
-    );
-  }
-  if (patch.tagIds !== undefined) {
-    for (const tagId of patch.tagIds) requireTag(db, deckId, tagId);
-    db.prepare("DELETE FROM deck_card_tags WHERE deck_id = ? AND oracle_id = ?").run(
-      deckId,
-      oracleId,
-    );
-    const ins = db.prepare(
-      "INSERT INTO deck_card_tags (deck_id, oracle_id, tag_id) VALUES (?, ?, ?)",
-    );
-    for (const tagId of new Set(patch.tagIds)) ins.run(deckId, oracleId, tagId);
-  }
+    if (patch.tagIds !== undefined) {
+      for (const tagId of patch.tagIds) requireTag(db, deckId, tagId);
+      db.prepare("DELETE FROM deck_card_tags WHERE deck_id = ? AND oracle_id = ?").run(
+        deckId,
+        oracleId,
+      );
+      const ins = db.prepare(
+        "INSERT INTO deck_card_tags (deck_id, oracle_id, tag_id) VALUES (?, ?, ?)",
+      );
+      for (const tagId of new Set(patch.tagIds)) ins.run(deckId, oracleId, tagId);
+    }
+  });
 }
 
 export interface FilingInput {
@@ -675,6 +712,8 @@ export interface DeckCardView {
   ci_mask: number;
   commander_legality: string;
   is_commander: number;
+  /** Spec §4.4: the cheapest printing's price; null when no printing has one. */
+  usd_cents: number | null;
   slot_id: number | null;
   role: Role;
   /** 1 = on the maybe list: considered for the deck, not part of the 100. */
@@ -694,9 +733,10 @@ export function getDeck(db: DatabaseSync, deckId: number) {
     .prepare(
       `SELECT c.oracle_id, c.name, c.mana_cost, c.cmc, c.type_line, c.oracle_text,
               c.power, c.toughness, c.loyalty, c.color_identity, c.ci_mask,
-              c.commander_legality, c.is_commander,
+              c.commander_legality, c.is_commander, p.usd_cents,
               dc.slot_id, dc.role, dc.maybe, dc.maybe_note, dc.in_paper, dc.quantity
        FROM deck_cards dc JOIN cards c ON c.oracle_id = dc.oracle_id
+       LEFT JOIN card_prices p ON p.oracle_id = dc.oracle_id
        WHERE dc.deck_id = ? ORDER BY c.name`,
     )
     .all(deckId) as unknown as DeckCardView[];
@@ -734,6 +774,7 @@ export function getDeck(db: DatabaseSync, deckId: number) {
       id: deck.id,
       name: deck.name,
       status: deck.status,
+      category: deck.category,
       parent,
       ci_mask: deck.ci_mask,
       color_identity: deck.color_identity,
@@ -742,7 +783,7 @@ export function getDeck(db: DatabaseSync, deckId: number) {
     slots,
     tags,
     cards,
-    computed: computeState(deck, slots, cards, pendingItems),
+    computed: computeState(deck, slots, cards, pendingItems, pricesAsOf(db)),
   };
 }
 
@@ -765,6 +806,7 @@ function computeState(
   slots: SlotRow[],
   cards: DeckCardView[],
   pendingItems: PendingItem[],
+  pricesAsOf: string | null,
 ) {
   // Everything below counts the deck. The maybe list is explicitly not part
   // of it: parked cards contribute to no count, curve, pip spread, slot delta
@@ -851,6 +893,11 @@ function computeState(
   for (const c of mainCards)
     for (const letter of (c.mana_cost ?? "").matchAll(/[WUBRG]/g)) pips[letter[0]] += c.quantity;
 
+  // Spec §4.4: what the deck would cost to buy, every card at its cheapest
+  // printing. The companion is a card to buy too, so it counts here though it
+  // sits outside the 100.
+  const cost = { ...estimateCost(deckCards), as_of: pricesAsOf };
+
   const pendingAdds = pendingItems.filter((i) => i.action === "add").length;
   const pendingCuts = pendingItems.filter((i) => i.action === "cut").length;
   const pendingBySlot: Record<number, number> = {};
@@ -878,6 +925,7 @@ function computeState(
     average_mana_value: averageManaValue,
     curve,
     pips,
+    cost,
   };
 }
 

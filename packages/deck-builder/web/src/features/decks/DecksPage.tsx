@@ -2,7 +2,7 @@ import { Fragment, useState } from "react";
 import { api, type DeckSummary } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
 import { navigate } from "../../app/routes.ts";
-import { ago } from "../../domain/time.ts";
+import { DECK_CATEGORY_LABELS } from "../../domain/deckCategory.ts";
 import { CardRef, ColorIdentity } from "../../mtg/index.ts";
 import {
   Button,
@@ -19,6 +19,8 @@ import {
 import styles from "./DecksPage.module.css";
 import { NewDeckDialog } from "./NewDeckDialog.tsx";
 import { PlayerStatsPanel } from "./PlayerStatsPanel.tsx";
+import { DeckActions, type DeckAction } from "./DeckActions.tsx";
+import { DeckActionDialog } from "./DeckActionDialog.tsx";
 
 /** Forks listed directly under the deck they came from. */
 function familyOrder(decks: DeckSummary[]): Array<{ deck: DeckSummary; fork: boolean }> {
@@ -50,6 +52,7 @@ function Commanders({ deck }: { deck: DeckSummary }) {
 export function DecksPage() {
   const decks = useQuery(() => api.listDecks(), []);
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<{ deck: DeckSummary; action: DeckAction } | null>(null);
   const rows = familyOrder(decks.data ?? []);
 
   return (
@@ -84,10 +87,10 @@ export function DecksPage() {
                     <th>Commander</th>
                     <th>Identity</th>
                     <th>State</th>
-                    <th>Rev</th>
+                    <th>Category</th>
                     <th>Cards</th>
                     <th>Inbox</th>
-                    <th>Created</th>
+                    <th aria-label="Actions" className={styles.actions} />
                   </tr>
                 </thead>
                 <tbody>
@@ -126,19 +129,15 @@ export function DecksPage() {
                             {deck.status === "active" ? "Active" : "Draft"}
                           </Chip>
                         </td>
-                        <td>
-                          <Text mono tone="muted">
-                            r{deck.revision}
-                          </Text>
-                        </td>
+                        <td><Chip>{DECK_CATEGORY_LABELS[deck.category]}</Chip></td>
                         <td>
                           <Text mono tone={deck.card_count === 100 ? "muted" : "warn"}>
                             {deck.card_count}/100
                           </Text>
                         </td>
                         <td>{waiting > 0 && <Chip tone="agent">{waiting} waiting</Chip>}</td>
-                        <td>
-                          <Text tone="muted">{ago(deck.created_at)}</Text>
+                        <td className={styles.actions} onClick={(e) => e.stopPropagation()}>
+                          <DeckActions deck={deck} onAction={(action) => setEditing({ deck, action })} />
                         </td>
                       </ClickableRow>
                     );
@@ -150,6 +149,7 @@ export function DecksPage() {
         <PlayerStatsPanel />
       </div>
       {creating && <NewDeckDialog onClose={() => setCreating(false)} />}
+      {editing && <DeckActionDialog key={`${editing.deck.id}-${editing.action}`} {...editing} onClose={() => setEditing(null)} onSaved={decks.reload} />}
     </Page>
   );
 }

@@ -31,6 +31,7 @@ export function ReviewItemLine({ item }: { item: ProposalItem }) {
         </span>
         <ManaCost cost={item.mana_cost} />
         <span className={styles.slot}>
+          {!!item.to_maybe && <Chip title="If accepted, the card moves to the maybe list instead of leaving the deck.">to maybe list</Chip>}
           <Chip>{slot}</Chip>
         </span>
       </div>

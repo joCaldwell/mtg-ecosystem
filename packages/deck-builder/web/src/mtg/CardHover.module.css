@@ -49,8 +49,15 @@
 }
 
 .type {
+  display: flex;
+  align-items: baseline;
   color: var(--muted);
   font-size: var(--text-sm);
+}
+
+.price {
+  margin-left: auto;
+  padding-left: var(--s-4);
 }
 
 .pt {

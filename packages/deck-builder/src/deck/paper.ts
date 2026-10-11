@@ -4,6 +4,7 @@
 // knowledge of what the owner has would bias recommendations toward it.
 
 import type { DatabaseSync } from "node:sqlite";
+import { type CostEstimate, estimateCost, pricesAsOf } from "../prices.ts";
 import { getDeck } from "./service.ts";
 
 export interface PaperStatus {
@@ -19,7 +20,9 @@ export interface PaperStatus {
     held_by: Array<{ deck_id: number; deck_name: string }>;
   }>;
   /** Missing here and in no other deck's paper. */
-  buy: Array<{ name: string; type_line: string; quantity: number }>;
+  buy: Array<{ name: string; type_line: string; quantity: number; usd_cents: number | null }>;
+  /** What the buy list costs at the cheapest printing of each card (spec §4.4). */
+  buy_cost: CostEstimate & { as_of: string | null };
 }
 
 export function paperStatus(db: DatabaseSync, deckId: number): PaperStatus {
@@ -40,7 +43,7 @@ export function paperStatus(db: DatabaseSync, deckId: number): PaperStatus {
     // have to recall what each card is.
     if (heldBy.length)
       pull.push({ name: c.name, type_line: c.type_line, quantity: c.quantity, held_by: heldBy });
-    else buy.push({ name: c.name, type_line: c.type_line, quantity: c.quantity });
+    else buy.push({ name: c.name, type_line: c.type_line, quantity: c.quantity, usd_cents: c.usd_cents });
   }
 
   return {
@@ -49,5 +52,6 @@ export function paperStatus(db: DatabaseSync, deckId: number): PaperStatus {
     in_paper_cards: main.filter((c) => c.in_paper).reduce((n, c) => n + c.quantity, 0),
     pull,
     buy,
+    buy_cost: { ...estimateCost(buy), as_of: pricesAsOf(db) },
   };
 }

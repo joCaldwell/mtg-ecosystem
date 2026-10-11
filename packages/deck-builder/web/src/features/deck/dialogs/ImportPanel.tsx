@@ -50,6 +50,7 @@ export function ImportPanel({ draft, onDraft, onClose }: Props) {
     }
     const bits = [`${applied.added} added`, `${applied.cut} cut`];
     if (applied.quantity_changed) bits.push(`${applied.quantity_changed} quantity changed`);
+    if (applied.role_changed) bits.push(`${applied.role_changed} role changed`);
     onClose();
     toast(`Imported: ${bits.join(" · ")}.`, {
       duration: 12000,
@@ -68,7 +69,7 @@ export function ImportPanel({ draft, onDraft, onClose }: Props) {
     });
   }
 
-  const changes = diff ? diff.add_count + diff.cut_count : 0;
+  const changes = diff ? diff.add_count + diff.cut_count + diff.role_changes.length : 0;
 
   function changePaste(text: string) {
     setConfirming(false);

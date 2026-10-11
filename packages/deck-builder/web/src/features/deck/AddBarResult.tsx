@@ -1,6 +1,6 @@
 import { Fragment, type MouseEvent, type ReactNode } from "react";
 import type { AnnotatedResult } from "../../domain/search.ts";
-import { ManaCost, ManaSymbol, useCardHover } from "../../mtg/index.ts";
+import { ManaCost, ManaSymbol, Price, useCardHover } from "../../mtg/index.ts";
 import { Button, Chip } from "../../ui/index.ts";
 import styles from "./AddBarResult.module.css";
 
@@ -49,6 +49,7 @@ export function AddBarResult({ result, id, highlighted, offerCommander, onPick, 
         <span className={styles.name}>{card.name}</span>
         <ManaCost cost={card.mana_cost} />
         <span className={styles.type}>{card.type_line}</span>
+        <Price cents={card.usd_cents} />
       </span>
       <span className={styles.flags}>
         {!legal && <Chip tone="cut">not legal in Commander</Chip>}

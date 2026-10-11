@@ -8,4 +8,6 @@ export interface CardInfo {
   power: string | null;
   toughness: string | null;
   loyalty: string | null;
+  /** The cheapest printing's price in cents; absent or null when unknown. */
+  usd_cents?: number | null;
 }

@@ -5,12 +5,14 @@ import { OWNER, PermissionError } from "../src/actor.ts";
 import { listActivity } from "../src/activity.ts";
 import { CardResolutionError } from "../src/cards.ts";
 import { listLog, unreviewedCount } from "../src/deck/log.ts";
+import { forkDeck } from "../src/deck/fork.ts";
 import { acceptItems, pendingItemIds, rejectItems } from "../src/deck/proposals.ts";
 import {
   createSlot,
   getDeck,
   listDecks,
   setAllInPaper,
+  setDeckCategory,
   setDeckStatus,
   setInPaper,
 } from "../src/deck/service.ts";
@@ -33,15 +35,16 @@ function seeded(db: DatabaseSync, status: "draft" | "active" = "active") {
 }
 
 describe("the tool list (spec §10.3)", () => {
-  test("twenty-two tools, uniquely named, every one described", () => {
-    assert.equal(TOOLS.length, 22);
-    assert.equal(new Set(TOOLS.map((t) => t.name)).size, 22);
+  test("twenty-seven tools, uniquely named, every one described", () => {
+    assert.equal(TOOLS.length, 27);
+    assert.equal(new Set(TOOLS.map((t) => t.name)).size, 27);
     for (const t of TOOLS) assert.ok(t.description.length > 80, t.name);
     assert.equal(TOOLS[0].name, "start_session");
   });
-  test("no tool lets an agent rule, undo, delete, change status or write the paper flag", () => {
+  test("no tool lets an agent rule, undo, change status or write the paper flag", () => {
     for (const t of TOOLS)
-      assert.ok(!/^(accept|reject|rule|undo|delete|set_deck_status|set_in_paper|import)/.test(t.name), t.name);
+      assert.ok(!/^(accept|reject|rule|undo|set_deck_status|set_in_paper|import)/.test(t.name), t.name);
+    assert.deepEqual(TOOLS.filter((t) => t.destructive).map((t) => t.name), ["delete_deck"]);
     // The only tool that mentions paper is the read-only one.
     assert.deepEqual(TOOLS.filter((t) => /paper/.test(t.name)).map((t) => [t.name, t.readOnly]), [["paper_status", true]]);
   });
@@ -50,6 +53,72 @@ describe("the tool list (spec §10.3)", () => {
     assert.throws(() => call(db, "get_deck", {}), /Invalid arguments for get_deck: deck/);
     assert.throws(() => call(db, "remember", { text: "x", scope: "everywhere" }), /Invalid arguments/);
     assert.throws(() => call(db, "no_such_tool"), /Unknown tool/);
+  });
+});
+
+describe("deck management tools", () => {
+  test("renames and classifies draft and active decks with attributed, validated writes", () => {
+    const db = testDb();
+    for (const status of ["draft", "active"] as const) {
+      const id = seeded(db, status);
+      const before = getDeck(db, id);
+      const name = `Managed ${status}`;
+      const renamed = call(db, "rename_deck", { deck: before.deck.name, name });
+      assert.equal(renamed.changed, true);
+      assert.match(renamed.text, new RegExp(`Renamed deck ${id} to "${name}"`));
+      setFocus(db, id);
+      const categorized = call(db, "set_deck_category", { deck: "focus", category: "legacy" });
+      assert.match(categorized.text, /category to legacy/);
+      const after = getDeck(db, id);
+      assert.equal(after.deck.name, name);
+      assert.equal(after.deck.category, "legacy");
+      assert.equal(after.deck.status, status);
+      assert.equal(after.deck.revision, before.deck.revision);
+      assert.deepEqual(after.cards, before.cards);
+      assert.match(text(db, "start_session"), /category legacy/);
+      assert.match(text(db, "get_deck", { deck: id, sections: ["state"] }), /category legacy/);
+      assert.deepEqual(listActivity(db).slice(0, 2).map((a) => [a.actor, a.action]), [
+        ["test-agent", "set_deck_category"], ["test-agent", "rename_deck"],
+      ]);
+      const entries = listActivity(db).length;
+      assert.throws(() => call(db, "rename_deck", { deck: id, name: " " }), /cannot be empty/);
+      assert.throws(() => call(db, "set_deck_category", { deck: id, category: "unknown" }), /Invalid arguments/);
+      assert.equal(listActivity(db).length, entries);
+    }
+    const decks = listDecks(db);
+    assert.throws(() => call(db, "rename_deck", { deck: decks[0].id, name: decks[1].name }), /already exists/);
+  });
+
+  test("deletes an active deck and its records while preserving forks, global memories and attribution", () => {
+    const db = testDb();
+    const id = seeded(db);
+    const name = getDeck(db, id).deck.name;
+    const fork = forkDeck(db, AGENT, id, "Surviving fork");
+    remember(db, OWNER, { text: "Deck-specific preference", scope: "deck", deck_id: id });
+    const global = remember(db, OWNER, { text: "Global preference", scope: "global" });
+    const result = call(db, "delete_deck", { deck: name });
+    assert.equal(result.changed, true);
+    assert.match(result.text, /Deleted deck .*This cannot be undone/);
+    assert.throws(() => getDeck(db, id), /There is no deck/);
+    assert.equal(getDeck(db, fork).deck.parent, null);
+    assert.ok(getDeck(db, fork).cards.length > 0);
+    assert.equal(listMemories(db, { deckId: id }).length, 0);
+    assert.ok(listMemories(db, { scope: "global" }).some((m) => m.id === global.memory.id));
+    const entry = listActivity(db)[0];
+    assert.equal(entry.actor, "test-agent");
+    assert.equal(entry.action, "delete_deck");
+    assert.equal(entry.deck_id, null);
+    assert.ok(entry.summary.includes(name));
+    assert.throws(() => call(db, "delete_deck", { deck: id }), /There is no deck/);
+  });
+
+  test("creates a deck with a selected category atomically", () => {
+    const db = testDb();
+    const created = call(db, "create_deck", { name: "Paper idea", category: "paper" });
+    assert.match(created.text, /category paper/);
+    assert.equal(listDecks(db)[0].category, "paper");
+    assert.throws(() => call(db, "create_deck", { name: "Invalid idea", category: "unknown" }), /Invalid arguments/);
+    assert.equal(listDecks(db).length, 1);
   });
 });
 
@@ -109,7 +178,7 @@ describe("reading a deck", () => {
   add(db, id, "id-solring", { slotId: ramp });
   test("the counts are stated, grouped by slot, with oracle text", () => {
     const out = text(db, "get_deck", { deck: id });
-    assert.match(out, /active · revision 3 · identity U · 3\/100 cards/);
+    assert.match(out, /active · category theorycrafted · revision 3 · identity U · 3\/100 cards/);
     assert.match(out, /Active: change its cards only with propose_changes\./);
     assert.match(out, /### Ramp \(1; target 3–5\)\n- Sol Ring \{1\} — Artifact\n    \{T\}: Add \{C\}\{C\}\./);
     assert.match(out, /- Cards: 3\/100 \(97 short\)/);
@@ -127,6 +196,7 @@ describe("reading a deck", () => {
   });
   // Spec §5.5: the paper flag appears in no default view.
   test("nothing about paper status reaches any default view", () => {
+    setDeckCategory(db, OWNER, id, "paper");
     const before = [
       text(db, "get_deck", { deck: id }),
       text(db, "search_cards", { query: "t:artifact", deck: id }),
@@ -201,7 +271,7 @@ describe("drafts are edited directly (spec §5.2)", () => {
       thesis: "Go wide with [[Llanowar Elves]].",
     });
     assert.equal(r.changed, true);
-    assert.match(r.text, /Created draft deck 1 "Elves"\.\nDeck 1 "Elves" is now at revision 2: 5\/100 cards \(95 short\), 2 lands\./);
+    assert.match(r.text, /Created draft deck 1 "Elves" \(category theorycrafted\)\.\nDeck 1 "Elves" is now at revision 2: 5\/100 cards \(95 short\), 2 lands\./);
     const view = getDeck(db, 1);
     assert.deepEqual([view.deck.status, view.deck.color_identity], ["draft", "WUBG"]);
     assert.deepEqual(listActivity(db).map((a) => a.action), ["create_deck"]);
@@ -432,6 +502,9 @@ describe("statistics and export", () => {
   test("player_stats and export_deck render the app's numbers", () => {
     const db = testDb();
     const id = seeded(db);
+    assert.match(text(db, "player_stats"), /computed from 0 Paper deck\(s\)/);
+    setDeckCategory(db, OWNER, id, "paper");
+    assert.match(text(db, "player_stats"), /computed from 1 Paper deck\(s\)/);
     assert.match(text(db, "player_stats"), /By exact identity: U ×1/);
     assert.match(text(db, "export_deck", { deck: id }), /2 card\(s\) at revision 2:\n\n1 Teferi, Temporal Archmage \[Commander\]\n1 Counterspell \[Unslotted\]/);
   });

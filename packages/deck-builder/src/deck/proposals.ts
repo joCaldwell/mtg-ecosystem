@@ -17,6 +17,8 @@ export interface ProposalItemInput {
   oracle_id: string;
   /** For an add: the slot to file the card in. Optional; slots never are required. */
   slot_id?: number | null;
+  /** For a cut: if accepted, the card goes to the maybe list instead of out of the deck. */
+  to_maybe?: boolean;
   reason: string;
   /** Items sharing a group are ruled on as a unit (a swap with one argument). */
   group?: string | null;
@@ -56,6 +58,18 @@ export function createProposal(
       throw new ServiceError(
         `${card.name} is already in the deck, and a Commander deck holds one copy of it`,
       );
+    if (item.to_maybe) {
+      if (item.action !== "cut")
+        throw new ServiceError(
+          `Only a cut can move a card to the maybe list; to shortlist ${card.name} without adding it, use the maybe list directly`,
+        );
+      // The maybe list holds a card once, so parking takes every copy out.
+      if (row!.quantity > 1)
+        throw new ServiceError(
+          `${card.name} has ${row!.quantity} copies in the deck, and moving it to the maybe list would take all of them out. ` +
+            `Propose the cut without to_maybe.`,
+        );
+    }
     if (item.slot_id != null) {
       if (item.action !== "add")
         throw new ServiceError("Only an add can name a slot; a cut leaves the card's slot as it is");
@@ -83,8 +97,8 @@ export function createProposal(
       .run(deckId, (input.summary ?? "").trim(), authorOf(actor));
     const proposalId = Number(r.lastInsertRowid);
     const ins = db.prepare(
-      `INSERT INTO proposal_items (proposal_id, action, oracle_id, slot_id, reason, group_id)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO proposal_items (proposal_id, action, oracle_id, slot_id, to_maybe, reason, group_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const item of items)
       ins.run(
@@ -92,6 +106,7 @@ export function createProposal(
         item.action,
         item.oracle_id,
         item.slot_id ?? null,
+        item.to_maybe ? 1 : 0,
         item.reason.trim(),
         item.group?.trim() || null,
       );
@@ -113,8 +128,11 @@ export interface ProposalItemView {
   power: string | null;
   toughness: string | null;
   loyalty: string | null;
+  usd_cents: number | null;
   slot_id: number | null;
   slot_name: string | null;
+  /** 1 on a cut that, if accepted, moves the card to the maybe list. */
+  to_maybe: number;
   reason: string;
   group_id: string | null;
   status: "pending" | "accepted" | "rejected";
@@ -132,9 +150,10 @@ export interface ProposalView {
 }
 
 const ITEM_SELECT = `SELECT pi.id, pi.proposal_id, pi.action, pi.oracle_id, c.name AS card_name,
-       c.mana_cost, c.type_line, c.oracle_text, c.power, c.toughness, c.loyalty,
-       pi.slot_id, s.name AS slot_name, pi.reason, pi.group_id, pi.status
+       c.mana_cost, c.type_line, c.oracle_text, c.power, c.toughness, c.loyalty, pr.usd_cents,
+       pi.slot_id, s.name AS slot_name, pi.to_maybe, pi.reason, pi.group_id, pi.status
   FROM proposal_items pi JOIN cards c ON c.oracle_id = pi.oracle_id
+  LEFT JOIN card_prices pr ON pr.oracle_id = pi.oracle_id
   LEFT JOIN slots s ON s.id = pi.slot_id
   WHERE pi.proposal_id = ? ORDER BY pi.id`;
 
@@ -185,13 +204,14 @@ interface ItemRow {
   action: "add" | "cut";
   oracle_id: string;
   slot_id: number | null;
+  to_maybe: number;
   reason: string;
   group_id: string | null;
   status: string;
 }
 
 const ITEM_ROW = `SELECT pi.id, pi.proposal_id, p.deck_id, pi.action, pi.oracle_id, pi.slot_id,
-       pi.reason, pi.group_id, pi.status
+       pi.to_maybe, pi.reason, pi.group_id, pi.status
   FROM proposal_items pi JOIN proposals p ON p.id = pi.proposal_id`;
 
 // The items a ruling covers: the ones named, widened to whole groups — a
@@ -265,7 +285,7 @@ export function acceptItems(
               item_id: i.id,
               reason: i.reason,
             }
-          : { action: "cut" as const, oracle_id: i.oracle_id, item_id: i.id, reason: i.reason },
+          : { action: "cut" as const, oracle_id: i.oracle_id, park: !!i.to_maybe, item_id: i.id, reason: i.reason },
       );
     const logId = applyChanges(db, actor, deckId, changes, {
       kind: "accept",
