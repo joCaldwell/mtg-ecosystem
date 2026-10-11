@@ -7,14 +7,21 @@
 //  - Every mana/game symbol `{…}` is one token regardless of its contents
 //    (hybrid, Phyrexian, snow, … all covered for free).
 
-export type Punct = "." | "," | ":" | ";" | "—" | "•" | '"' | "+" | "-" | "/";
+import type { CardNameCatalog } from "./card-names.ts";
 
-export type Token =
+export type Punct = "." | "," | ":" | ";" | "—" | "•" | '"' | "+" | "-" | "/" | "!" | "|";
+
+/** Location within one normalized source line, retained when parsers slice or
+ * clone tokens. The index counts tokens, including punctuation and symbols. */
+export interface TokenProvenance { sourceId: string; index: number }
+
+export type Token = { provenance?: TokenProvenance } & (
   | { kind: "word"; value: string; raw: string; possessive: boolean }
   | { kind: "number"; value: number; raw: string }
   | { kind: "symbol"; value: string } // "{2}" → "2", "{G/P}" → "G/P", "{T}" → "T"
   | { kind: "selfref"; possessive: boolean }
-  | { kind: "punct"; value: Punct };
+  | { kind: "card-name"; value: string }
+  | { kind: "punct"; value: Punct });
 
 export class LexError extends Error {
   readonly position: number;
@@ -26,7 +33,7 @@ export class LexError extends Error {
   }
 }
 
-const PUNCT_CHARS = new Set([".", ",", ":", ";", "—", "•", '"', "+", "-", "/"]);
+const PUNCT_CHARS = new Set([".", ",", ":", ";", "—", "•", '"', "+", "-", "/", "!", "|"]);
 
 /** Contractions kept whole as a single word token (value includes the apostrophe). */
 const CONTRACTIONS = new Set([
@@ -40,7 +47,7 @@ function isLetter(c: string): boolean {
   return /[a-zA-Zàáâäèéêëìíîïòóôöùúûü]/.test(c);
 }
 
-export function lex(line: string): Token[] {
+export function lex(line: string, sourceId?: string, catalog?: CardNameCatalog): Token[] {
   const tokens: Token[] = [];
   let i = 0;
 
@@ -68,6 +75,30 @@ export function lex(line: string): Token[] {
         i += 2;
       }
       tokens.push({ kind: "selfref", possessive });
+      continue;
+    }
+
+    // Normalization quotes protected literal names in explicit name slots. This is
+    // lexical data, never an opaque fallback for an instruction or ability.
+    const previous = tokens[tokens.length - 1];
+    const beforePrevious = tokens[tokens.length - 2];
+    const partnerName = previous?.kind === "word" && previous.value === "with" && !previous.possessive &&
+      beforePrevious?.kind === "word" && beforePrevious.value === "partner" && !beforePrevious.possessive;
+    const nameContext = previous?.kind === "word" && !previous.possessive && ["named", "create", "creates"].includes(previous.value) || partnerName;
+    if (c === '"' && nameContext) {
+      let end = i + 1;
+      while (end < line.length) {
+        if (line[end] === "\\") { end += 2; continue; }
+        if (line[end] === '"') break;
+        end++;
+      }
+      if (end === line.length) throw new LexError("unclosed literal card name", i);
+      let value: unknown;
+      try { value = JSON.parse(line.slice(i, end + 1)); } catch { throw new LexError("invalid literal card name", i); }
+      if (typeof value !== "string" || !value.trim()) throw new LexError("empty literal card name", i);
+      if (catalog && !catalog.exact(value, partnerName ? ["card"] : ["card", "token"])) throw new LexError("literal name is absent from the source catalog", i);
+      tokens.push({ kind: "card-name", value });
+      i = end + 1;
       continue;
     }
 
@@ -122,5 +153,7 @@ export function lex(line: string): Token[] {
     throw new LexError(`unexpected character ${JSON.stringify(c)}`, i);
   }
 
-  return tokens;
+  return sourceId === undefined ? tokens : tokens.map((token, index) => ({
+    ...token, provenance: { sourceId, index },
+  }));
 }

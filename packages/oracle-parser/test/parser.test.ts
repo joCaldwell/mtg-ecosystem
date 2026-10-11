@@ -71,7 +71,7 @@ describe("activated abilities", () => {
       abilityWord: undefined,
       restriction: undefined,
       costs: [{ cost: "tap-self" }],
-      effects: [{ steps: [{ effect: "add-mana", mana: { mana: "fixed", symbols: ["G"] } }] }],
+      effects: [{ steps: [{ effect: "add-mana", who: { player: "you" }, mana: { mana: "fixed", symbols: ["G"] } }] }],
     });
   });
 
@@ -314,7 +314,7 @@ describe("modal abilities", () => {
     if (modal.effect === "modal") {
       assert.deepEqual(modal.count, { exactly: 1 });
       assert.equal(modal.options.length, 2);
-      assert.equal(modal.options[0][0].steps[0].effect, "destroy");
+      assert.equal(modal.options[0].effects[0].steps[0].effect, "destroy");
     }
   });
 

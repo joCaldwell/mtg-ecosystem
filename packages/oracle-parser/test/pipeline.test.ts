@@ -3,12 +3,18 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { gzipSync } from "node:zlib";
 import { ingest } from "../../../scripts/ingest-scryfall.ts";
-import { evaluateCorpus, sha256, buildReport } from "../../../scripts/validate-parser.ts";
-import { readCards, type ScryfallCard } from "../../../scripts/lib/scryfall.ts";
+import { evaluateCorpus as evaluate, sha256, buildReport as build } from "../../../scripts/validate-parser.ts";
+import { readCards, readOracleManifest, type ScryfallCard } from "../../../scripts/lib/scryfall.ts";
+import { paperEvidenceFixture } from "./paper-evidence-fixture.ts";
+
+const evidence = paperEvidenceFixture();
+const evaluateCorpus = (cards: ScryfallCard[]) => evaluate(cards, { paperEvidence: evidence });
+const buildReport = (cacheFile: string) => build(cacheFile, evidence);
 
 function card(id: string, text = "Flying", extra: Partial<ScryfallCard> = {}): ScryfallCard {
-  return { id, oracle_id: id, name: `Fixture ${id}`, layout: "normal", digital: false, border_color: "black", oracle_text: text, ...extra };
+  return { id, oracle_id: id, name: `Fixture ${id}`, layout: "normal", digital: false, games: ["paper"], border_color: "black", oracle_text: text, ...extra };
 }
 async function directory(run: (dir: string, cacheFile: string) => Promise<void>) {
   const dir = await mkdtemp(path.join(os.tmpdir(), "oracle-ingest-test-"));
@@ -25,14 +31,78 @@ function download(response: () => Response): typeof fetch {
   };
 }
 const quiet = () => {};
+function jsonlDownload(bytes: Buffer): typeof fetch {
+  let request = 0;
+  return async (url, options) => {
+    assert.ok(options?.headers);
+    if (request++ === 0) return Response.json({ data: [{ type: "oracle_cards",
+      jsonl_download_uri: "https://example.invalid/oracle-cards.jsonl.gz", updated_at: "2026-10-10T21:01:55Z", compressed_size: bytes.length }] });
+    assert.equal(url, "https://example.invalid/oracle-cards.jsonl.gz");
+    let offset = 0;
+    return new Response(new ReadableStream<Uint8Array>({ pull(controller) {
+      if (offset === bytes.length) { controller.close(); return; }
+      controller.enqueue(bytes.subarray(offset, offset += Math.min(17, bytes.length - offset)));
+    } }));
+  };
+}
 
 describe("atomic corpus ingestion", () => {
+  it("consumes the current gzip JSONL manifest while preserving original record number and string spellings", async () => directory(async (dir, cacheFile) => {
+    const first = JSON.stringify({ ...card("one", "Flying", { name: "Fixture élève" }), future_number: "EXACT" }).replace('"EXACT"', "9007199254740993");
+    const second = JSON.stringify(card("two", "Vigilance"));
+    const data = `${first}\r\n${second}\n`;
+    await writeFile(cacheFile, JSON.stringify([card("old")])); await utimes(cacheFile, 0, 0);
+    assert.equal(await ingest({ cacheFile, fetcher: jsonlDownload(gzipSync(data)), log: quiet }), "downloaded");
+    const stored = await readFile(cacheFile, "utf8");
+    assert.equal(stored, `[\n${first}\r,\n${second}\n]\n`);
+    assert.deepEqual(readCards(stored).map(c => c.id), ["one", "two"]);
+    assert.deepEqual(await readdir(dir), ["oracle-cards.json"]);
+  }));
+  it("preserves the previous cache for truncated gzip, invalid UTF-8, malformed JSONL and empty downloads", async () => {
+    const good = gzipSync(JSON.stringify(card("one")) + "\n");
+    const badInputs = [good.subarray(0, good.length - 7), gzipSync(Buffer.from([0xff, 0x0a])), gzipSync(""),
+      gzipSync("{}\n"), gzipSync(`${JSON.stringify(card("one"))}\nnot-json\n`),
+      gzipSync(`${JSON.stringify(card("one"))},${JSON.stringify(card("two"))}\n`)];
+    for (const bytes of badInputs) await directory(async (dir, cacheFile) => {
+      const previous = JSON.stringify([card("previous")]);
+      await writeFile(cacheFile, previous); await utimes(cacheFile, 0, 0);
+      await assert.rejects(ingest({ cacheFile, fetcher: jsonlDownload(bytes), log: quiet }));
+      assert.equal(await readFile(cacheFile, "utf8"), previous);
+      assert.deepEqual(await readdir(dir), ["oracle-cards.json"]);
+    });
+  });
+  it("selects an explicit bulk format and rejects insecure or unknown compressed formats", () => {
+    const entry = { type: "oracle_cards", updated_at: "2026-10-10T21:01:55Z" };
+    assert.deepEqual(readOracleManifest({ data: [{ ...entry, jsonl_download_uri: "https://example.invalid/cards.jsonl.gz" }] }),
+      { download_uri: "https://example.invalid/cards.jsonl.gz", updated_at: entry.updated_at, format: "gzip-jsonl" });
+    assert.deepEqual(readOracleManifest({ data: [{ ...entry, download_uri: "https://example.invalid/cards.json" }] }),
+      { download_uri: "https://example.invalid/cards.json", updated_at: entry.updated_at, format: "json-array" });
+    for (const uri of ["http://example.invalid/cards.jsonl.gz", "https://example.invalid/cards.zip", "https://example.invalid/cards.jsonl"])
+      assert.throws(() => readOracleManifest({ data: [{ ...entry, jsonl_download_uri: uri }] }));
+  });
   it("publishes a valid complete replacement", async () => directory(async (dir, cacheFile) => {
     const old = JSON.stringify([card("old")]), replacement = JSON.stringify([card("new")]);
     await writeFile(cacheFile, old); await utimes(cacheFile, 0, 0);
     assert.equal(await ingest({ cacheFile, fetcher: download(() => new Response(replacement)), log: quiet }), "downloaded");
     assert.equal(await readFile(cacheFile, "utf8"), replacement);
     assert.deepEqual(await readdir(dir), ["oracle-cards.json"]);
+  }));
+  it("rejects invalid UTF-8 in a legacy array and keeps the previous exact cache bytes", async () => directory(async (dir, cacheFile) => {
+    const old = Buffer.from(JSON.stringify([card("old")]));
+    const invalid = Buffer.from(JSON.stringify([card("new", "Flying", { name: "Invalid marker" })]));
+    invalid[invalid.indexOf("marker")] = 0xff;
+    await writeFile(cacheFile, old); await utimes(cacheFile, 0, 0);
+    await assert.rejects(ingest({ cacheFile, fetcher: download(() => new Response(invalid)), log: quiet }), /Invalid UTF-8/);
+    assert.deepEqual(await readFile(cacheFile), old);
+    assert.deepEqual(await readdir(dir), ["oracle-cards.json"]);
+  }));
+  it("replaces a fresh cache with invalid UTF-8 instead of accepting replacement characters", async () => directory(async (_dir, cacheFile) => {
+    const invalid = Buffer.from(JSON.stringify([card("cached", "Flying", { name: "Invalid marker" })]));
+    invalid[invalid.indexOf("marker")] = 0xff;
+    await writeFile(cacheFile, invalid);
+    const replacement = JSON.stringify([card("recovered")]);
+    assert.equal(await ingest({ cacheFile, fetcher: download(() => new Response(replacement)), log: quiet }), "downloaded");
+    assert.equal(await readFile(cacheFile, "utf8"), replacement);
   }));
   it("validates a fresh cache before skipping the network", async () => directory(async (_dir, cacheFile) => {
     await writeFile(cacheFile, JSON.stringify([card("cached")]));
@@ -86,7 +156,7 @@ describe("reproducible acceptance reporting", () => {
       card("token", "Flying", { layout: "token" }),
     ]);
     assert.equal(report.cardsChecked, 2); assert.equal(report.cardsOk, 2);
-    assert.deepEqual(report.excluded, { duplicate: 1, digital: 1, "silver-or-acorn": 2, "layout:token": 1 });
+    assert.deepEqual(report.excluded, { duplicate: 1, "no-eligible-paper-printing": 1, "silver-or-acorn": 2, "layout:token": 1 });
   });
   it("includes empty-text cards but fails a missing face's text", () => {
     const report = evaluateCorpus([

@@ -2,8 +2,10 @@
 
 ## Implemented input
 
-The parser entry point accepts Oracle text and an optional card name:
-`parseOracleText(text, cardName?)`. Bulk ingestion uses Scryfall's `oracle_cards`
+The parser entry point accepts Oracle text, an optional card name, and optional
+context: `parseOracleText(text, cardName?, context?)`. Context carries layout,
+type line, and `includeSourceProvenance` for stable target identities. Bulk
+ingestion uses Scryfall's `oracle_cards`
 export. The reporting adapter validates the fields it consumes before use:
 `id`, `oracle_id`, `name`, `layout`, `oracle_text`, `card_faces`, `digital`,
 `border_color`, and optional `security_stamp`.
@@ -64,6 +66,74 @@ For example, parsing `Flying` produces:
 The AST is experimental and intentionally permits breaking changes. Success is
 supported parsing, not engine capability certification. Symbolic references and
 atomic keywords still require semantic interpretation by future consumers.
+
+## Implemented storage: nonexecutable AST archive
+
+`npm run archive-parser` writes `generated/oracle-ast.jsonl` from the current
+cached corpus. Optional `--input <path>` and `--output <path>` arguments select
+other local files. It does not download data. The generated archive is ignored
+by Git and is not executable Card IR.
+
+The first JSON line is a manifest with `artifactKind: "oracle-ast-archive"`,
+`schemaVersion: 3`, and `executable: false`. It records the exact corpus byte
+hash, canonical source-record hash, parser source hash and Git revision, rules
+edition, versioned acceptance scope, frozen paper-printing evidence identity,
+and the same card/block acceptance and
+exclusion counts used by validation. Generation fails if parser sources change
+between starting the parse and finishing the verified write.
+
+`corpus.snapshotFile` names an adjacent, content-addressed raw source snapshot.
+Its bytes and SHA-256 exactly match the input corpus, preserving whitespace,
+JSON number spellings, and future fields independently of JavaScript's numeric
+representation. An existing snapshot is verified and never overwritten; a
+corrupt snapshot prevents publication of a replacement archive. The decoded
+`source` objects below are convenient metadata, while this snapshot is the
+authoritative exact original input.
+
+`paperEvidence.snapshotFile` names a second content-addressed snapshot. It
+preserves the exact evidence bytes, their size and SHA-256, and the originating
+complete printing download's hash, size, record count, URL, and update time.
+Each witness is an actual paper printing of one Oracle identity; names and
+format legality never establish eligibility. A digital Oracle representative
+can therefore remain intact in `source` while its paper identity is included.
+Archive verification rechecks every exclusion against the stored evidence.
+Missing, changed, or corrupt evidence prevents publication.
+
+Every following JSON line stores one input record, in original input order:
+
+- `source` is the complete original Scryfall object, including all faces,
+  characteristics, metadata, and fields the parser does not consume.
+  `sourceIndex`, `oracleIdentity`, and `sourceSha256` retain its provenance.
+- `status: "excluded"` stores the scope exclusion or duplicate reason while
+  retaining the complete source. Excluded cards never inflate acceptance.
+- `status: "parsed"` contains face results with the full structured AST and
+  a complete-card AST hash. Every face must have parsed successfully.
+- `status: "unsupported"` contains all available per-face results and
+  diagnostics. Missing/null face text has explicit `missing-oracle-text`
+  status, and there is no complete-card AST hash. The source preserves the
+  distinction between missing, null, and empty Oracle text.
+
+Face results retain normalized ability blocks as well as the structured nodes;
+targets include parser-minted selection IDs, preserving repeated use of one
+target separately from independently stated targets with identical filters.
+The original Oracle text remains in `source`. Atomic keyword names and symbolic
+references remain symbolic. A parsed archive record is an acceptance result,
+not a claim that its mechanics are executable or independently certified.
+
+Every in-scope record also stores `binding` and `bindingSha256`: the separate
+reference graph, runtime slots, resolved edges, and unresolved diagnostics.
+The manifest's `bindingSummary` counts analyzed cards, cards with all inspected
+references bound, reference obligations, and diagnostics. These metrics are
+separate from syntax acceptance. Missing target provenance, ambiguous
+antecedents, or unsupported scopes cannot become a fully bound result.
+Reference completeness is not full semantic validation or engine support.
+
+The writer publishes complete source and evidence snapshots first and uses a unique
+temporary file beside the archive destination. Before atomic
+replacement it reads every JSON line back, checks exact serialization, and
+recomputes raw-snapshot, source-record, successful-AST, and binding hashes. Invalid input, non-finite numbers,
+source edits, or verification failures preserve the previous archive. JSONL
+allows verification to stream rather than load a second bulk corpus in memory.
 
 ## Proposed output: versioned Card IR
 

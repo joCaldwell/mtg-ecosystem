@@ -10,6 +10,7 @@
     "test": "npm run test --workspaces",
     "ingest": "node scripts/ingest-scryfall.ts",
     "build-ir": "node scripts/build-ir.ts",
+    "archive-parser": "node scripts/archive-parser.ts",
     "validate": "node scripts/validate-parser.ts"
   },
   "devDependencies": {

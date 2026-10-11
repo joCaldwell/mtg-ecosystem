@@ -99,7 +99,7 @@ describe("semantic distinctions", () => {
   it("preserves search zone ownership", () => {
     for (const [text, owner] of [["your", "your"], ["an opponent's", "an-opponent"], ["each opponent's", "each-opponent"]]) {
       assert.deepEqual(steps(`Search ${text} library for a land card.`), [{
-        effect: "search", who: { player: "you" }, zone: { zone: "library", owner },
+        effect: "search", who: { player: "you" }, zones: { selection: "all", of: [{ zone: "library", owner }] },
         for: { ref: "filter", filter: { types: ["land"], cls: "card" }, count: { amount: "fixed", value: 1 } },
       }]);
     }
@@ -131,10 +131,18 @@ describe("complete supported ability blocks", () => {
   it("rejects invalid mana in production, costs, and payment conditions", () => {
     for (const symbol of ["NOT_MANA", "", "T", "Q", "E", "2/P", "W/W", "W/C", "02"]) {
       failure(`Add {${symbol}}.`);
-      failure(`Counter target spell unless its controller pays {${symbol}}.`);
+      if (symbol !== "E") failure(`Counter target spell unless its controller pays {${symbol}}.`);
     }
     failure("{NOT_MANA}: Draw a card.");
-    assert.deepEqual(steps("Add {G}{G}."), [{ effect: "add-mana", mana: { mana: "fixed", symbols: ["G", "G"] } }]);
+    assert.deepEqual(steps("Add {G}{G}."), [{ effect: "add-mana", who: { player: "you" }, mana: { mana: "fixed", symbols: ["G", "G"] } }]);
+    // Energy is a valid nonmana payment (CR 107.14 / 118.12a).
+    assert.deepEqual(one("Counter target spell unless its controller pays {E}."), {
+      kind: "spell", abilityWord: undefined, effects: [{
+        steps: [{ effect: "counter", what: { ref: "target", filter: { cls: "spell" }, count: { amount: "fixed", value: 1 } } }],
+        condition: { condition: "pays", who: { player: "controller", of: { ref: "it" } }, cost: [{ cost: "energy", amount: { amount: "fixed", value: 1 } }] },
+        conditionKind: "unless",
+      }],
+    });
   });
   it("never drops orphaned bullets, invalid options, or extra clauses", () => {
     for (const text of [

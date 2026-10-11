@@ -6,10 +6,45 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
+import { createGunzip } from "node:zlib";
 import { readCards, readOracleManifest } from "./lib/scryfall.ts";
 
 const CACHE_FILE = fileURLToPath(new URL("../.scryfall-cache/oracle-cards.json", import.meta.url));
 const HEADERS = { "User-Agent": "MTGEcosystemParser/1.0.0 (joCaldwell/mtg-ecosystem)", Accept: "application/json" };
+
+/** Frame validated JSONL records as an array without reserializing them.
+ * Preserve strings, future fields, and exact numeric spellings. Fatal UTF-8
+ * decoding prevents silently replacing malformed input bytes. */
+async function* jsonlArray(chunks: AsyncIterable<Uint8Array>): AsyncGenerator<string> {
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let pending = "", records = 0;
+  function record(line: string): string {
+    if (readCards(`[${line}]`).length !== 1) throw new Error("Expected exactly one Scryfall card per JSONL record");
+    return `${records++ ? ",\n" : ""}${line}`;
+  }
+  yield "[\n";
+  for await (const chunk of chunks) {
+    pending += decoder.decode(chunk, { stream: true });
+    let end: number;
+    while ((end = pending.indexOf("\n")) !== -1) {
+      const line = pending.slice(0, end);
+      pending = pending.slice(end + 1);
+      yield record(line);
+    }
+  }
+  pending += decoder.decode();
+  if (pending.length) yield record(pending);
+  if (!records) throw new Error("Expected nonempty Scryfall JSONL data");
+  yield "\n]\n";
+}
+
+/** File-system failures retain their error codes; invalid corpus encoding
+ * is a validation failure, so a corrupt fresh cache can be downloaded again.
+ * Decode only for validation: legacy downloads keep their exact input bytes. */
+function decodeCorpus(bytes: Uint8Array): string {
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+  catch (cause) { throw new Error("Invalid UTF-8 in Scryfall corpus", { cause }); }
+}
 
 /** Keep the last known good corpus until the replacement is fully received
  * and validated. A same-directory rename publishes the complete file. */
@@ -27,7 +62,7 @@ export async function ingest(options: {
   try {
     const info = await stat(cacheFile);
     if (now - info.mtimeMs < 24 * 60 * 60 * 1000) {
-      readCards(await readFile(cacheFile, "utf8"));
+      readCards(decodeCorpus(await readFile(cacheFile)));
       log("Validated cache is fresh; skipping download.");
       return "cached";
     }
@@ -45,8 +80,11 @@ export async function ingest(options: {
 
   const temporary = `${cacheFile}.${randomUUID()}.tmp`;
   try {
-    await pipeline(Readable.fromWeb(response.body), createWriteStream(temporary, { flags: "wx" }));
-    const cards = readCards(await readFile(temporary, "utf8"));
+    const input = Readable.fromWeb(response.body);
+    const output = createWriteStream(temporary, { flags: "wx" });
+    if (entry.format === "gzip-jsonl") await pipeline(input, createGunzip(), jsonlArray, output);
+    else await pipeline(input, output);
+    const cards = readCards(decodeCorpus(await readFile(temporary)));
     await rename(temporary, cacheFile);
     log(`Cached ${cards.length} validated records.`);
     return "downloaded";
