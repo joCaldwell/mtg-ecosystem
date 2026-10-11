@@ -26,6 +26,7 @@ import {
   Page,
   PageHeader,
   Popover,
+  ResizeHandle,
   Row,
   Section,
   Segmented,
@@ -644,6 +645,28 @@ function HooksDemo({ note, setNote }: { note: string; setNote: (v: string) => vo
   );
 }
 
+const RESIZE_DEMO = { initial: 280, min: 200, max: 480 };
+
+function ResizeDemo() {
+  const [width, setWidth] = useState(RESIZE_DEMO.initial);
+  return (
+    <Demo note="Drag the right edge, or focus it and use the arrow keys, Home and End. Double-click resets. The caller owns the width and its limits.">
+      <div className={styles.resizable} style={{ width }}>
+        <Text mono tone="muted">{width}px, between {RESIZE_DEMO.min} and {RESIZE_DEMO.max}</Text>
+        <ResizeHandle
+          label="Resize the example"
+          edge="right"
+          value={width}
+          min={RESIZE_DEMO.min}
+          max={RESIZE_DEMO.max}
+          onChange={setWidth}
+          onReset={() => setWidth(RESIZE_DEMO.initial)}
+        />
+      </div>
+    </Demo>
+  );
+}
+
 function Layout() {
   const [picked, setPicked] = useState("one");
   return (
@@ -683,6 +706,9 @@ function Layout() {
         <Demo>
           <KeyValue items={[["Format", "Commander"], ["Cards", <Text key="c" mono>99 / 100</Text>], ["State", <Chip key="s" tone="warn">draft</Chip>]]} />
         </Demo>
+      </Section>
+      <Section title="ResizeHandle">
+        <ResizeDemo />
       </Section>
       <Section title="Page, PageHeader, SplitPane">
         <div className={styles.framed}>

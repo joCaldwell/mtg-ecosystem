@@ -1,5 +1,5 @@
 // The right-hand column of the deck screen: one tab at a time, or the open
-// card over whichever tab that is. The page grid sets the width; this fills it.
+// card over whichever tab that is. DeckBody sets the width; this fills it.
 
 import { useEffect, useRef } from "react";
 import { Tabs, type TabSpec } from "../../../ui/index.ts";

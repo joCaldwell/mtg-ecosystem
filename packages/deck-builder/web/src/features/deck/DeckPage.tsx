@@ -8,6 +8,7 @@ import { useCallback, useEffect } from "react";
 import { href } from "../../app/routes.ts";
 import { CardOpenProvider, useCardLookup } from "../../mtg/index.ts";
 import { Banner, Button, EmptyState, Loading, Page, pressesFocusedControl, useHotkeys } from "../../ui/index.ts";
+import { DeckBody } from "./DeckBody.tsx";
 import { DeckDialogs } from "./dialogs/DeckDialogs.tsx";
 import { DeckHeader } from "./DeckHeader.tsx";
 import { DeckProvider, useDeck, useDeckState } from "./DeckStore.tsx";
@@ -115,13 +116,15 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
             </Banner>
           )}
           <ProposalBanner units={view.units} review={review} />
-          <div className={styles.body}>
-            <div className={styles.listPane}>
-              <DeckList view={view} />
-              <SelectionBar />
-            </div>
-            <DeckPanel view={view} review={review} />
-          </div>
+          <DeckBody
+            list={
+              <>
+                <DeckList view={view} />
+                <SelectionBar />
+              </>
+            }
+            panel={<DeckPanel view={view} review={review} />}
+          />
           <DeckDialogs />
         </div>
       </DeckViewProvider>

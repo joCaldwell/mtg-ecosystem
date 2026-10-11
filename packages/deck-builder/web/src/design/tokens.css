@@ -99,6 +99,11 @@
   /* Layout */
   --sidebar-w: 216px;
   --panel-w: 392px;
+  /* The deck's side panel can be dragged between these, and never so wide
+     that the list beside it has less than --list-w-min. */
+  --panel-w-min: 340px;
+  --panel-w-max: 640px;
+  --list-w-min: 360px;
   --measure: 720px;
 
   /* Elevation and stacking */

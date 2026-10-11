@@ -100,7 +100,9 @@ or about this app.
 | `DiffView` | Added and deleted lines | line kind `same` `add` `del` |
 | `Table`, `ClickableRow` | Plain tables with small uppercase headers; rows that open something | |
 | `KeyValue` | Two-column label and value list | |
+| `ResizeHandle` | A draggable edge inside the element it resizes; arrow keys, Home, End, double-click to reset | `edge` `left` `right`; caller owns `value`, `min`, `max` |
 | `Page`, `PageHeader`, `SplitPane` | Screen frame with a sticky header and scrolling body; list and detail columns | Page width `md` `lg` `full` |
 | `useHotkeys` | Declare a screen's shortcuts (`"j"`, `"shift+a"`, `"mod+k"`); ignored while typing except Escape | `enabled`, `allowInInputs` |
 | `useLocalStorage` | State kept in localStorage | |
+| `tokenPx` | A size token as a number, where script has to do arithmetic with one | |
 <!-- inventory:end -->

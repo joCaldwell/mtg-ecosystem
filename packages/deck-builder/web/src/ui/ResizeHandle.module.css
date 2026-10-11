@@ -1,0 +1,51 @@
+/* A strip just inside the edge it moves, so it never covers a neighbour's
+   scrollbar. Nothing shows until it is pointed at. */
+.handle {
+  position: absolute;
+  inset-block: 0;
+  z-index: var(--z-sticky);
+  width: var(--s-3);
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.left {
+  left: 0;
+}
+
+.right {
+  right: 0;
+}
+
+.handle::after {
+  position: absolute;
+  inset-block: 0;
+  width: var(--s-1);
+  background: transparent;
+  transition: background var(--fast);
+  content: "";
+}
+
+.left::after {
+  left: 0;
+}
+
+.right::after {
+  right: 0;
+}
+
+.handle:hover::after {
+  background: var(--line-strong);
+}
+
+.dragging::after,
+.dragging:hover::after,
+.handle:focus-visible::after {
+  background: var(--sel);
+}
+
+/* The line is the focus mark; a ring around a strip this thin reads as a glitch. */
+.handle:focus-visible {
+  outline: none;
+}

@@ -115,6 +115,14 @@
   background: var(--bg);
 }
 
+.resizable {
+  position: relative;
+  padding: var(--s-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg);
+}
+
 .stackDemo > span,
 .rowDemo > span:not([aria-hidden]) {
   padding: var(--s-2) var(--s-4);
