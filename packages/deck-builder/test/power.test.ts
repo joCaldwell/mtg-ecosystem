@@ -174,7 +174,7 @@ describe("computed Game Changers and power tools", () => {
     assert.equal(gameChangerFacts(db, unknown).unknown_cards, 1);
     db.close();
   });
-  test("tools return profiles, computed deltas and actionable errors without exposing paper flags", () => {
+  test("tools return profiles, computed deltas and actionable errors without obsolete assembly state", () => {
     const db = testDb(); const id = newDeck(db, "draft"); const ctx = { db, actor: AGENT };
     const proposed = callTool(ctx, "propose_power_target", { deck: id, target: target(), reason: "Owner's intended play experience." });
     assert.equal(proposed.changed, true);

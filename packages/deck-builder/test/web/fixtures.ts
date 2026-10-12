@@ -40,7 +40,6 @@ export function card(over: Partial<DeckCard> & { name?: string } = {}): DeckCard
     role: "card",
     maybe: 0,
     maybe_note: "",
-    in_paper: 0,
     quantity: 1,
     tag_ids: [],
     ...over,

@@ -1,7 +1,10 @@
 # 🔮 oracle-parser — Layer 0: Oracle Text Parser & Card IR
 
-Parse every Magic card's oracle text into a typed AST, then (next milestone)
-compile it to per-set JSON IR that Layer 1 (the rules engine) will consume.
+Parse every Magic card's oracle text into a typed AST and versioned source
+archive. The Rust semantic compiler (future work under `packages/game-engine/`)
+will bind and lower that archive to JSON Card IR for the Rust rules engine.
+The parser and its ingestion/archive tooling remain TypeScript; see the
+[adopted language decision](../../docs/runtime-language-decision.md).
 See [docs/oracle_parser.md](../../docs/oracle_parser.md) for the design and
 [docs/architecture.md](../../docs/architecture.md) for where it sits.
 
@@ -23,7 +26,7 @@ oracle text ──normalize──▶ lines ──lex──▶ tokens ──parse
 | `src/lexer.ts` | Tokens: words (possessive-flagged, contractions kept whole), numbers, `{…}` symbols, punctuation. Unknown characters throw — never silently dropped. |
 | `src/symbols.ts` | Shared mana-symbol validation for costs, production, and payment conditions. |
 | `src/vocab.ts` | Closed word classes (card types, zones, colors…) + singularization. |
-| `src/ast.ts` | The typed AST. Discriminated unions, no `any`. This is the contract Layer 1 consumes — treat changes as API changes. |
+| `src/ast.ts` | The typed AST. Discriminated unions, no `any`. This is the source contract the Rust compiler consumes through its versioned archive adapter — treat changes as API changes. |
 | `src/parser/cursor.ts` | Backtracking token cursor; tracks farthest failure for diagnostics. |
 | `src/parser/refs.ts` | Shared grammar: filters, object/player refs, amounts, zones, durations, conditions, counters. |
 | `src/parser/keywords.ts` | Table-driven keyword abilities. The `KEYWORDS` table is the single source of truth; unknown keywords fail the line. |

@@ -44,6 +44,33 @@ export function byCurve<T extends { cmc: number; name: string }>(a: T, b: T): nu
   return a.cmc - b.cmc || a.name.localeCompare(b.name);
 }
 
+/** A to Z. */
+export function byName<T extends { name: string }>(a: T, b: T): number {
+  return a.name.localeCompare(b.name);
+}
+
+/** Most expensive first, then name. A card with no price has no place in the order, so it goes last. */
+export function byPrice<T extends { usd_cents?: number | null; name: string }>(a: T, b: T): number {
+  if (a.usd_cents == null || b.usd_cents == null)
+    return Number(a.usd_cents == null) - Number(b.usd_cents == null) || byName(a, b);
+  return b.usd_cents - a.usd_cents || byName(a, b);
+}
+
+/** How the cards inside a group are ordered. The owner picks; "curve" is the default. */
+export type SortBy = "curve" | "name" | "price";
+
+export const CARD_ORDER: Record<SortBy, (a: SortableCard, b: SortableCard) => number> = {
+  curve: byCurve,
+  name: byName,
+  price: byPrice,
+};
+
+interface SortableCard {
+  cmc: number;
+  name: string;
+  usd_cents?: number | null;
+}
+
 /** Copies, not rows: a group holding six of one basic reads 6. */
 export function quantityOf(cards: Array<{ quantity: number }>): number {
   return cards.reduce((n, c) => n + c.quantity, 0);

@@ -11,7 +11,6 @@ import type { Finding } from "../../../src/deck/checks.ts";
 import type { DeckComparison } from "../../../src/deck/fork.ts";
 import type { ExportResult, ImportDiff } from "../../../src/deck/interop.ts";
 import type { CardRuling, LogEntry } from "../../../src/deck/log.ts";
-import type { PaperStatus } from "../../../src/deck/paper.ts";
 import type { ProposalView } from "../../../src/deck/proposals.ts";
 import type { DeckCategory, DeckSummary } from "../../../src/deck/service.ts";
 import type { DocumentEditView, ProfileView } from "../../../src/documents.ts";
@@ -35,7 +34,6 @@ export type {
   Finding,
   ImportDiff,
   LogEntry,
-  PaperStatus,
   PlayerStats,
 };
 export type Power = DeckState["power"];
@@ -115,7 +113,6 @@ export const api = {
   forkDeck: (id: number, name: string) => request<StateResponse>("POST", `/api/decks/${id}/fork`, { name }),
   compareDecks: (id: number, other?: number) =>
     request<DeckComparison>("GET", `/api/decks/${id}/compare${other ? `?other=${other}` : ""}`),
-  paperStatus: (id: number) => request<PaperStatus>("GET", `/api/decks/${id}/paper`),
 
   // ---------- cards in a deck ----------
   addCard: (deckId: number, oracleId: string, opts: { slotId?: number | null; role?: string; maybe?: boolean } = {}) =>
@@ -131,7 +128,6 @@ export const api = {
     patch: Partial<{
       slot_id: number | null;
       role: string;
-      in_paper: boolean;
       quantity: number;
       tag_ids: number[];
       /** true parks the card on the maybe list; false promotes it into the deck. */
@@ -140,8 +136,6 @@ export const api = {
   ) => request<StateResponse>("PATCH", `/api/decks/${deckId}/cards/${oracleId}`, patch),
   removeCard: (deckId: number, oracleId: string) =>
     request<StateResponse>("DELETE", `/api/decks/${deckId}/cards/${oracleId}`),
-  setAllInPaper: (deckId: number, inPaper: boolean) =>
-    request<StateResponse>("PATCH", `/api/decks/${deckId}/cards`, { in_paper: inPaper }),
   cardHistory: (deckId: number, oracleId: string) =>
     request<{ rulings: CardRuling[]; memories: Memory[] }>(
       "GET",
@@ -222,10 +216,9 @@ export const api = {
   refreshCards: () => request<Settings>("POST", "/api/cards/refresh"),
 
   // ---------- Archidekt interop (spec §12) ----------
-  exportDeck: (deckId: number, opts: { categories?: boolean; onlyMissing?: boolean } = {}) => {
+  exportDeck: (deckId: number, opts: { categories?: boolean } = {}) => {
     const params = new URLSearchParams();
     if (opts.categories === false) params.set("categories", "off");
-    if (opts.onlyMissing) params.set("missing", "1");
     return request<ExportResult>("GET", `/api/decks/${deckId}/export?${params}`);
   },
   previewImport: (deckId: number, text: string) =>

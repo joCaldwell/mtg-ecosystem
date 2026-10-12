@@ -54,7 +54,7 @@ src/
   prices.ts          the cheapest playable printing of each card (spec §4.4)
   refresh.ts         refreshCardData(): cards, then prices — the CLI and Settings both call it
   deck/
-    service.ts       decks (draft/active, parent), slots, tags, maybe list, paper flag, computed state
+    service.ts       decks (draft/active, parent), slots, tags, maybe list, computed state
     membership.ts    ⭐ applyChanges — the one place a deck's contents change; undo
     log.ts           the rulings log, per-card history, the review queue
     proposals.ts     proposals; accept/reject per item, group or whole proposal
@@ -62,7 +62,6 @@ src/
     power.ts         target, revision-bound assessments, explained bracket suggestions
     checks.ts        deterministic checks
     fork.ts          forkDeck, compareDecks
-    paper.ts         pull list / buy list (the only reader of in_paper for agents)
     interop.ts       Archidekt export/import
   documents.ts       profile + proposed edits to profile and brief, and their rulings
   memory.ts          ⭐ memories: scopes, card links, budgets, supersede/retire
@@ -75,7 +74,7 @@ src/
   mcp/
     playbook.ts      INSTRUCTIONS (short) and PLAYBOOK (returned by start_session)
     render.ts        text for agents — compact, grouped, counts stated
-    tools.ts         the 27 tools: thin adapters over the capability layer
+    tools.ts         the 26 tools: thin adapters over the capability layer
     http.ts          Streamable HTTP endpoint: Host/Origin checks, token, attribution
     stdio.ts         stdio shim: a pipe to the running app
 skill/commander-deck-building/SKILL.md   method for agents (optional Agent Skill)
@@ -161,17 +160,15 @@ Vite proxy follows the API port.
 *   **Permissions live in the capability layer.** If a new capability must be
     owner-only, call `requireOwner` inside it. Never guard it only in a tool
     or a route. Owner-only today: ruling, undo, draft/active,
-    the paper flag, importing over a deck, editing the profile directly.
+    importing over a deck, editing the profile directly.
     Owners and agents may rename, delete and classify decks (`paper` /
     `theorycrafted` / `legacy`, spec §5.6). Agent actions are attributed in
-    Activity. Category is independent of draft/active and per-card `in_paper`.
+    Activity. Category is independent of draft/active and card membership.
 *   **A deck's contents change only through `applyChanges`.** It applies a
     batch atomically, bumps the revision once, and writes one log entry. Do
     not add a second write path to `deck_cards` for membership.
-*   **`in_paper` reaches agents only through `paper_status`.** `render.ts`
-    reads it in `renderPaper` and nowhere else; a test asserts that setting
-    the flag changes no other tool's output. Cross-deck membership in search
-    is likewise off unless the call sets `include_my_decks`.
+*   **Cross-deck membership in search is off** unless the call sets
+    `include_my_decks`.
 *   **Card facts come from the database, never from model memory.** This
     applies to you: do not type a card name into code, a fixture, or a seed
     without checking it resolves.

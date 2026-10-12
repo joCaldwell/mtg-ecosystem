@@ -115,7 +115,6 @@ describe("rules-defined object actions", () => {
       "Attach it to another permanent it can enchant.",
       "Attach it to target permanent or player.",
       "This creature phases out and can't phase in during its controller's next untap step.",
-      "Permanents can't phase in.",
     ]) assert.equal(parseOracleText(text).ok, false, text);
   });
 

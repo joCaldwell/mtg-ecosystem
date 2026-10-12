@@ -9,7 +9,7 @@ import {
   markReviewed,
   unreviewedCount,
 } from "../src/deck/log.ts";
-import { createSlot, createTag, getDeck, organizeCard, setDeckStatus, setInPaper } from "../src/deck/service.ts";
+import { createSlot, createTag, getDeck, organizeCard, setDeckStatus } from "../src/deck/service.ts";
 import { AGENT, add, cut, newDeck, testDb } from "./helpers.ts";
 
 const db = testDb();
@@ -108,20 +108,19 @@ describe("draft and active (spec §5.2)", () => {
 });
 
 describe("undo is the reversal of a log entry (spec §8.2)", () => {
-  test("undoing an add removes it; undoing a cut restores slot, tags and paper status", () => {
+  test("undoing an add removes it; undoing a cut restores slot and tags", () => {
     const id = newDeck(db);
     const slot = createSlot(db, id, "Ramp");
     const tag = createTag(db, id, "rock");
     const addId = add(db, id, "id-solring", { slotId: slot })!;
     organizeCard(db, id, "id-solring", { tagIds: [tag] });
-    setInPaper(db, OWNER, id, "id-solring", true);
 
     const cutId = cut(db, id, "id-solring")!;
     assert.deepEqual(names(id), []);
     const result = undo(db, OWNER, cutId);
     assert.deepEqual(result.skipped, []);
     const card = getDeck(db, id).cards[0];
-    assert.deepEqual([card.slot_id, card.tag_ids, card.in_paper], [slot, [tag], 1]);
+    assert.deepEqual([card.slot_id, card.tag_ids], [slot, [tag]]);
     assert.equal(getLogEntry(db, cutId)!.undone_by, result.log_id);
     assert.equal(getLogEntry(db, result.log_id)!.kind, "undo");
 

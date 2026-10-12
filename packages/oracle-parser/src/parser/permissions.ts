@@ -11,6 +11,8 @@ import type {
 import type { Token } from "../lexer.ts";
 import { CARD_TYPES, canonicalSubtypeName, singularize } from "../vocab.ts";
 import { Cursor } from "./cursor.ts";
+import { parseLandPlayEffect } from "./casting-rules.ts";
+import { parsePermissionRider } from "./permission-riders.ts";
 import { parseCostList } from "./costs.ts";
 import { parseKeywordLine } from "./keywords.ts";
 import {
@@ -359,6 +361,8 @@ function parseCoordinatedPlays(c: Cursor, options: PlayInstructionOptions): Pars
  * "may" describes the later choice and must not become optional:true here. */
 export function parsePlayInstruction(c: Cursor, options: PlayInstructionOptions = {}): Effect[] | null {
   return c.attempt((c) => {
+    const landPlays = parseLandPlayEffect(c, options);
+    if (landPlays) return landPlays;
     const coordinated = c.attempt((c): Effect[] | null => {
       const results = parseCoordinatedPlays(c, options);
       if (!results || results.length < 2 || results.some(result => !result.optional || !result.duration)) return null;
@@ -442,7 +446,7 @@ function parseStaticPermission(c: Cursor, complete: boolean): StaticEffect | nul
     // A once-per-turn bound on a coordinated choice must be shared, not
     // incorrectly multiplied into one use for each action (Hauken's Insight).
     if (results.length > 1 && useLimit) return null;
-    const effects: StaticEffect[] = [];
+    const effects: Extract<StaticEffect, { static: "play-permission" }>[] = [];
     for (const result of results) {
       const permission = result.instruction;
       const ownCard = permission.what.ref === "self" || permission.what.ref === "this";
@@ -460,6 +464,11 @@ function parseStaticPermission(c: Cursor, complete: boolean): StaticEffect | nul
       effects.push({ static: "play-permission", permission });
     }
     c.punct(".");
+    for (;;) {
+      const permissions = parsePermissionRider(c, effects.map(effect => effect.permission), { allowIfYouDo: false });
+      if (!permissions) break;
+      effects.forEach((effect, index) => { effect.permission = permissions[index]; });
+    }
     if (complete && !c.done()) return c.fail("complete static cast/play permission");
     return effects.length === 1 ? effects[0] : { static: "group", effects };
   });

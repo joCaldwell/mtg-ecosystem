@@ -51,6 +51,20 @@
   font-weight: 600;
 }
 
+.row.match {
+  background: var(--sel-bg);
+  box-shadow: inset 0 0 0 1px var(--sel-line);
+}
+
+.match .name {
+  font-weight: 600;
+}
+
+/* Keep muted cards interactive and readable when the owner focuses on one. */
+.row.muted:not(:hover):not(:focus-visible):not(.selected):not(.open):not(.current) {
+  opacity: var(--filter-muted-opacity);
+}
+
 .row.selected {
   background: var(--sel-bg);
 }
@@ -87,6 +101,6 @@
 }
 
 /* Last, so the review cursor still reads on a cut or add row. */
-.current {
+.row.current {
   box-shadow: inset 0 0 0 1px var(--agent);
 }

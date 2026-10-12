@@ -4,13 +4,16 @@ import { Chip } from "../../../ui/index.ts";
 import { useDeckUi } from "../DeckUi.tsx";
 import styles from "./MaybeRow.module.css";
 
-export function MaybeRow({ card, slotName }: { card: DeckCard; slotName: string | null }) {
+export function MaybeRow({ card, slotName, filterMatch }: { card: DeckCard; slotName: string | null; filterMatch?: boolean }) {
   const ui = useDeckUi();
   const hover = useCardHover();
   const open = ui.openCard?.oracleId === card.oracle_id;
 
   return (
-    <div className={`${styles.row} ${open ? styles.open : ""}`}>
+    <div
+      className={[styles.row, filterMatch === true && styles.match, filterMatch === false && styles.muted, open && styles.open].filter(Boolean).join(" ")}
+      data-filter-match={filterMatch}
+    >
       <button
         type="button"
         className={styles.name}

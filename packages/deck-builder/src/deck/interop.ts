@@ -63,15 +63,12 @@ const OUTSIDE_CATEGORIES = new Set(["maybeboard", "sideboard"]);
 export interface ExportOptions {
   // Emit [Category] tags derived from slots / role. Off = bare "QTY Name".
   categories?: boolean;
-  // Buy list: only cards missing from the physical deck (spec §5.5).
-  onlyMissing?: boolean;
 }
 
 export interface ExportResult {
   text: string;
   card_count: number;
   line_count: number;
-  omitted_in_paper: number;
   revision: number;
 }
 
@@ -99,16 +96,8 @@ export function exportDeck(
   order.set(UNSLOTTED_CATEGORY, slots.length + 1);
   order.set(COMPANION_CATEGORY, slots.length + 2);
 
-  let omitted = 0;
   const rows = cards
     .filter((c) => !c.maybe)
-    .filter((c) => {
-      if (opts.onlyMissing && c.in_paper) {
-        omitted++;
-        return false;
-      }
-      return true;
-    })
     .map((c) => ({ card: c, category: categoryOf(c) }))
     .sort(
       (a, b) =>
@@ -126,7 +115,6 @@ export function exportDeck(
     text: lines.join("\n") + (lines.length ? "\n" : ""),
     card_count: rows.reduce((n, r) => n + r.card.quantity, 0),
     line_count: lines.length,
-    omitted_in_paper: omitted,
     revision: deck.revision,
   };
 }

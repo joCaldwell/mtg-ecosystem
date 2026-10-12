@@ -18,7 +18,6 @@ import { compareDecks, forkDeck } from "../deck/fork.ts";
 import { exportDeck, fillFromList } from "../deck/interop.ts";
 import { cardHistories, listLog, markReviewed, unreviewedCount } from "../deck/log.ts";
 import { type Change, applyChanges } from "../deck/membership.ts";
-import { paperStatus } from "../deck/paper.ts";
 import { createProposal, getProposal } from "../deck/proposals.ts";
 import {
   createDeck,
@@ -58,7 +57,6 @@ import {
   renderDeck,
   renderPower,
   renderMemories,
-  renderPaper,
   renderScope,
   renderStats,
   resolutionFailureLine,
@@ -451,19 +449,6 @@ export const TOOLS: ToolDef[] = [
       ),
   },
   {
-    name: "paper_status",
-    title: "Paper status of a deck",
-    readOnly: true,
-    description:
-      "Which cards of a deck are missing from the physical deck, split into a pull list (another of the " +
-      "owner's decks physically holds a copy) and a buy list (none does), with what the buy list is " +
-      "estimated to cost. This is the only place the " +
-      "per-card assembly state is visible. Use it when the owner asks what they still need to assemble a " +
-      "deck; do not use it to decide what to recommend.",
-    input: { deck: deckRef },
-    run: ({ db }, a) => renderPaper(paperStatus(db, deckId(db, a.deck))),
-  },
-  {
     name: "export_deck",
     title: "Export a deck as text",
     readOnly: true,
@@ -473,15 +458,10 @@ export const TOOLS: ToolDef[] = [
     input: {
       deck: deckRef,
       categories: z.boolean().optional().describe("Include [Category] from slots (default true)."),
-      only_missing: z
-        .boolean()
-        .optional()
-        .describe("Only cards missing from the physical deck: a buy list."),
     },
     run: ({ db }, a) => {
       const r = exportDeck(db, deckId(db, a.deck), {
         categories: a.categories,
-        onlyMissing: a.only_missing,
       });
       return `${r.card_count} card(s) at revision ${r.revision}:\n\n${r.text}`;
     },
@@ -509,7 +489,7 @@ export const TOOLS: ToolDef[] = [
     readOnly: false,
     description:
       "Classify a deck as paper (a physical deck), theorycrafted (an idea), or legacy (a past deck kept " +
-      "for reference). This does not change draft/active permissions, its cards, revision or per-card paper flags. " +
+      "for reference). This does not change draft/active permissions, its cards or revision. " +
       "The change is attributed in Activity.",
     input: { deck: deckRef, category: z.enum(["paper", "theorycrafted", "legacy"]) },
     run: ({ db, actor }, a) => {

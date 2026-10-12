@@ -56,7 +56,6 @@ export function DeckHeader() {
 
   const count = computed.card_count;
   const hasError = checks.some((c) => c.severity === "error");
-  const notInPaper = cards.reduce((n, c) => n + (!c.maybe && !c.in_paper ? c.quantity : 0), 0);
   const commanders = cards.filter((c) => c.role === "commander" && !c.maybe);
 
   const moreItems: MenuItem[] = [
@@ -119,9 +118,6 @@ export function DeckHeader() {
           >
             {/* The count is in the figure; the words say how bad. */}
             {hasError ? (checks.length === 1 ? "problem" : "problems") : checks.length ? "off target" : "Checks clear"}
-          </DeckStat>
-          <DeckStat figure={notInPaper} tone="neutral" title="Open the paper list" onClick={() => ui.setTab("paper")}>
-            not in paper
           </DeckStat>
           <Menu label="More" align="end" items={moreItems} />
         </div>

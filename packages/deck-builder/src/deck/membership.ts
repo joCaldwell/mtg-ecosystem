@@ -31,7 +31,6 @@ export type Change =
       reason?: string;
       /** Restored by undo; never set by a caller adding a card fresh. */
       tag_ids?: number[];
-      in_paper?: boolean;
     }
   | {
       action: "cut";
@@ -57,7 +56,6 @@ export interface ChangeEntry {
 interface CutBefore {
   slot_id: number | null;
   role: Role;
-  in_paper: number;
   tag_ids: number[];
   parked: boolean;
 }
@@ -134,15 +132,14 @@ function applyAdd(
     const role = c.role ?? "card";
     if (role !== "card") assertRoleCapacity(db, deckId, role);
     db.prepare(
-      `INSERT INTO deck_cards (deck_id, oracle_id, slot_id, role, quantity, in_paper)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO deck_cards (deck_id, oracle_id, slot_id, role, quantity)
+       VALUES (?, ?, ?, ?, ?)`,
     ).run(
       deckId,
       c.oracle_id,
       role === "card" ? (c.slot_id ?? null) : null,
       role,
       quantity,
-      c.in_paper ? 1 : 0,
     );
     if (c.tag_ids?.length) {
       const live = new Set(
@@ -185,7 +182,6 @@ function applyCut(
   const before: CutBefore = {
     slot_id: row.slot_id,
     role: row.role,
-    in_paper: row.in_paper,
     tag_ids: tagIdsOf(db, deckId, c.oracle_id),
     parked: !!c.park,
   };
@@ -379,7 +375,6 @@ export function undo(db: DatabaseSync, actor: Actor, logId: number): UndoResult 
           quantity: r.quantity,
           slot_id: b.slot_id != null && slotExists(db, deckId, b.slot_id) ? b.slot_id : null,
           tag_ids: b.tag_ids ?? [],
-          in_paper: !!b.in_paper,
         });
         if (b.role && b.role !== "card")
           roles.push({ action: "role", oracle_id: r.oracle_id, role: b.role });

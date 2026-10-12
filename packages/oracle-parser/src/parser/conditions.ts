@@ -15,6 +15,10 @@ import { parseControlledSubset } from "./selection-constraints.ts";
 import { parseCharacteristicRelationCondition } from "./characteristic-relations.ts";
 import { parseCurrentPhaseCondition } from "./temporal.ts";
 import { parsePutActionOutcome } from "./action-outcomes.ts";
+import { parseDesignationCondition } from "./condition-designations.ts";
+import { parseLinkedCondition } from "./condition-links.ts";
+import { parsePlayerCondition } from "./condition-players.ts";
+import { parseComparativeCondition } from "./comparatives.ts";
 
 export interface ConditionGrammar {
   /** In an unless clause, bare present-tense actions describe optional
@@ -151,7 +155,7 @@ function parseZoneState(c: Cursor, g: ConditionGrammar): Condition | null {
 function parsePersonalZoneCount(c: Cursor, g: ConditionGrammar): Condition | null {
   return c.attempt(c => {
     const who = g.parsePlayerRef(c);
-    if (!who || !["you", "that-player", "they", "controller", "owner", "target-player", "target-opponent"].includes(who.player) ||
+    if (!who || !["you", "that-player", "they", "controller", "owner", "target-player", "target-opponent", "an-opponent", "defending-player"].includes(who.player) ||
         c.word("have", "has") === null) return null;
     const comparison = c.word("a", "an") !== null ? { op: "ge" as const, value: one } : parseComparison(c, g);
     const of = comparison && g.parseFilter(c);
@@ -160,6 +164,19 @@ function parsePersonalZoneCount(c: Cursor, g: ConditionGrammar): Condition | nul
     const owner = of.zone.owner;
     if (owner === "your" ? who.player !== "you" : owner === "their" ? who.player === "you" : owner !== undefined) return null;
     return { condition: "count", of: { ...of, zone: { ...of.zone, owner: who } }, comparison };
+  });
+}
+
+/** "A graveyard has twenty or more cards in it": one player's zone holds
+ * that many cards; the cards of different players are never pooled. */
+function parseZoneSize(c: Cursor, g: ConditionGrammar): Condition | null {
+  return c.attempt(c => {
+    if (c.word("a") === null) return null;
+    const zone = c.word("graveyard", "library", "hand") as "graveyard" | "library" | "hand" | null;
+    if (!zone || c.word("has") === null) return null;
+    const comparison = parseComparison(c, g);
+    if (!comparison || c.word("card", "cards") === null || !c.words("in", "it")) return null;
+    return { condition: "count", of: { cls: "card", zone: { zone, owner: "any-single" } }, comparison };
   });
 }
 
@@ -172,19 +189,40 @@ function hasZone(filter: ObjectFilter): boolean {
  * historical clauses such as "were put into" or "have left". */
 function parseCopularZoneCount(c: Cursor, g: ConditionGrammar): Condition | null {
   return c.attempt(c => {
-    const comparison = parseComparison(c, g);
+    // "An artifact card is in your graveyard" is existential, not exactly one.
+    const comparison = c.word("a", "an") !== null ? { op: "ge" as const, value: one } : parseComparison(c, g);
     const of = comparison && g.parseFilter(c);
-    if (!of || !comparison || hasZone(of) || c.word("are", "is") === null || c.word("in") === null) return null;
+    if (!of || !comparison || hasZone(of) || c.word("are", "is") === null) return null;
+    if (c.words("on", "the", "battlefield")) return { condition: "count", of: { ...of, zone: { zone: "battlefield" } }, comparison };
+    if (c.word("in") === null) return null;
     const zone = g.parseZoneRef(c);
     if (!zone || zone.position || (["hand", "library", "graveyard"].includes(zone.zone) && zone.owner === undefined)) return null;
     return { condition: "count", of: { ...of, zone }, comparison };
   });
 }
 
+/** "There are two or more ki counters on this creature" states the same
+ * fact as "this creature has two or more ki counters on it" (CR 122.1). */
+function parseCountersOn(c: Cursor, g: ConditionGrammar): Condition | null {
+  return c.attempt(c => {
+    const explicit = c.isWord("no", "exactly");
+    const comparison = c.word("a", "an") !== null ? { op: "ge" as const, value: one } : parseComparison(c, g);
+    if (!comparison || (comparison.op === "eq" && !explicit)) return null;
+    const counter = c.isWord("counter", "counters") ? "any" : g.parseCounterSpec(c);
+    if (!counter || c.word("counter", "counters") === null || c.word("on") === null) return null;
+    const what = parseHistoricalObject(c, g);
+    if (!what || what.ref === "them" || (what.ref === "that" && what.plural)) return null;
+    return { condition: "is-filter", what, filter: { counterConstraints: [{ counter, comparison }] } };
+  });
+}
+
 function parseQualifiedCount(c: Cursor, g: ConditionGrammar): Condition | null {
   return c.attempt(c => {
-    if (c.words("there", "are") || c.words("there", "is")) {
-      const comparison = parseComparison(c, g);
+    if (c.words("there", "are") || c.words("there", "is") || c.word("there's") !== null) {
+      const counters = parseCountersOn(c, g);
+      if (counters) return counters;
+      // "There is a land card in your graveyard" is existential, not exactly one.
+      const comparison = c.word("a", "an") !== null ? { op: "ge" as const, value: one } : parseComparison(c, g);
       const of = comparison && g.parseFilter(c);
       return of && comparison ? { condition: "count", of, comparison } : null;
     }
@@ -502,23 +540,50 @@ function parseZoneHistory(c: Cursor, g: ConditionGrammar): Condition | null {
   return c.attempt(c => {
     type History = Extract<Condition, { condition: "zone-change-history" }>;
     let subject: History["subject"];
-    const what = parseHistoricalObject(c, g);
+    let controllerAtMove: PlayerRef | undefined;
+    let negate = false;
+    // "You had a land enter the battlefield under your control" is the same
+    // event as "a land entered the battlefield under your control".
+    const possessor = c.attempt(c => {
+      const who = g.parsePlayerRef(c);
+      return who && c.word("had") !== null ? who : null;
+    });
+    const what = possessor ? null : parseHistoricalObject(c, g);
     if (what) subject = { match: "object", what };
     else {
       const article = c.word("a", "an") !== null;
+      const another = !article && c.word("another") !== null;
       const exact = c.isWord("no", "exactly");
-      let comparison: Comparison | null = article ? { op: "ge", value: one } : parseComparison(c, g);
+      let comparison: Comparison | null = article || another ? { op: "ge", value: one } : parseComparison(c, g);
       if (!comparison) return null;
-      if (!article && !exact && comparison.op === "eq") comparison = { op: "ge", value: comparison.value };
+      if (!article && !another && !exact && comparison.op === "eq") comparison = { op: "ge", value: comparison.value };
       const filter = g.parseFilter(c);
       if (!filter) return null;
+      if (another) {
+        if (filter.other) return null;
+        filter.other = true;
+      }
+      // Past-tense control belongs to the movement, not the object's present.
+      if (!possessor && c.words("you", "controlled")) controllerAtMove = { player: "you" };
       subject = { match: "filter", filter, comparison };
     }
-    c.word("has", "have");
     let event: History["event"];
     let from: History["from"];
     let to: ZoneRef | undefined;
-    if (c.word("died") !== null) {
+    if (what && c.word("didn't") !== null) negate = true;
+    else if (!possessor) c.word("has", "have");
+    if (possessor) {
+      if (!c.words("enter", "the", "battlefield", "under") ||
+          c.word(possessor.player === "you" ? "your" : "their") === null || c.word("control") === null) return null;
+      event = "enters";
+      to = { zone: "battlefield" };
+      controllerAtMove = possessor;
+    } else if (negate) {
+      if (c.word("die") !== null) { event = "dies"; from = { zone: "battlefield" }; to = { zone: "graveyard" }; }
+      else if (c.words("enter", "the", "battlefield")) { event = "enters"; to = { zone: "battlefield" }; }
+      else if (c.words("leave", "the", "battlefield")) { event = "leaves-battlefield"; from = { zone: "battlefield" }; }
+      else return null;
+    } else if (c.word("died") !== null) {
       event = "dies";
       from = { zone: "battlefield" }; to = { zone: "graveyard" };
     } else if (c.word("entered") !== null) {
@@ -526,9 +591,17 @@ function parseZoneHistory(c: Cursor, g: ConditionGrammar): Condition | null {
       c.words("the", "battlefield") || c.word("battlefield");
       to = { zone: "battlefield" };
     } else if (c.word("left") !== null) {
-      event = "leaves-battlefield";
-      if (!c.words("the", "battlefield")) return null;
-      from = { zone: "battlefield" };
+      if (c.words("the", "battlefield")) {
+        event = "leaves-battlefield";
+        from = { zone: "battlefield" };
+      } else {
+        // CR 603.10a: leaving a graveyard is its own looked-back event.
+        const origin = g.parseZoneRef(c);
+        if (!origin || origin.position || origin.zone === "battlefield" ||
+            (["hand", "library", "graveyard"].includes(origin.zone) && origin.owner === undefined)) return null;
+        event = "leaves-zone";
+        from = origin;
+      }
     } else if (c.word("was", "were") !== null && c.words("put", "into")) {
       event = "put-into-zone";
       const destination = g.parseZoneRef(c);
@@ -541,15 +614,41 @@ function parseZoneHistory(c: Cursor, g: ConditionGrammar): Condition | null {
       if (!origin) return null;
       from = origin;
     }
-    let controllerAtMove: PlayerRef | undefined;
-    if (c.word("under") !== null) {
+    if (!possessor && c.word("under") !== null) {
       const controller = parseHistoryOwner(c, g);
-      if (!controller || c.word("control") === null) return null;
+      if (controllerAtMove || !controller || c.word("control") === null) return null;
       controllerAtMove = controller;
     }
     const during = parseHistoryPeriod(c);
-    return during && { condition: "zone-change-history", event, subject, ...(from ? { from } : {}), ...(to ? { to } : {}),
-      ...(controllerAtMove ? { controllerAtMove } : {}), during };
+    return during && negated({ condition: "zone-change-history", event, subject, ...(from ? { from } : {}), ...(to ? { to } : {}),
+      ...(controllerAtMove ? { controllerAtMove } : {}), during }, negate);
+  });
+}
+
+/** CR 700.11: a player descended if a permanent card was put into that
+ * player's graveyard from anywhere this turn; it need not still be there. */
+function parseDescended(c: Cursor): Condition | null {
+  return c.attempt((c): Condition | null => {
+    let negate = false;
+    if (c.word("you've") === null) {
+      if (c.word("you") === null) return null;
+      negate = c.word("haven't") !== null;
+    }
+    if (c.word("descended") === null || !c.words("this", "turn")) return null;
+    return negated({ condition: "zone-change-history", event: "put-into-zone",
+      subject: { match: "filter", filter: { cls: "card", permanent: true }, comparison: { op: "ge", value: one } },
+      from: "anywhere", to: { zone: "graveyard", owner: "your" }, during: "this-turn" }, negate);
+  });
+}
+
+/** "No creatures attacked" counts declared attackers of every player in
+ * the window (CR 508.1); see combat-history-count for what is counted. */
+function parseNoAttackers(c: Cursor): Condition | null {
+  return c.attempt((c): Condition | null => {
+    if (!c.words("no", "creatures", "attacked")) return null;
+    const during = parseHistoryPeriod(c);
+    return during && { condition: "compare", value: { amount: "combat-history-count", action: "attacked", during,
+      distinct: "object-incarnations" }, comparison: { op: "eq", value: zero } };
   });
 }
 
@@ -557,19 +656,24 @@ function parseLifeHistory(c: Cursor, g: ConditionGrammar): Condition | null {
   return c.attempt(c => {
     const subject = parseHistorySubject(c, g);
     if (!subject) return null;
-    const change = c.word("gained", "lost");
+    const verb = c.word("gained", "lost", ...(subject.negate ? ["gain", "lose"] : []));
+    const change = verb === "gain" ? "gained" : verb === "lose" ? "lost" : verb;
     if (change !== "gained" && change !== "lost") return null;
     let alternative: "gained" | "lost" | undefined;
-    if (c.word("or") !== null) {
+    const join = c.word("or", "and");
+    if (join !== null) {
       const other = c.word("gained", "lost");
-      if (other !== "gained" && other !== "lost") return null;
+      if ((other !== "gained" && other !== "lost") || other === change) return null;
+      // "Didn't gain and lose" has no single reading; only positive "and".
+      if (join === "and" && subject.negate) return null;
       alternative = other;
     }
     const comparison = c.isWord("life") ? { op: "gt" as const, value: zero } : parseComparison(c, g);
     if (!comparison || c.word("life") === null || !c.words("this", "turn")) return null;
-    const condition: Condition = { condition: "life-change", who: subject.who, change, comparison, during: "this-turn" };
-    return negated(alternative ? { condition: "any-of", conditions: [condition,
-      { condition: "life-change", who: subject.who, change: alternative, comparison, during: "this-turn" },
+    const during = "this-turn" as const;
+    const condition: Condition = { condition: "life-change", who: subject.who, change, comparison, during };
+    return negated(alternative ? { condition: join === "and" ? "all-of" : "any-of", conditions: [condition,
+      { condition: "life-change", who: subject.who, change: alternative, comparison, during },
     ] } : condition, subject.negate);
   });
 }
@@ -630,7 +734,7 @@ function hasFilterZone(filter: ObjectFilter): boolean {
  * instead tests a specific player's counters (CR 205.2b, 305.6, 122.1). */
 function parseAggregateCondition(c: Cursor, g: ConditionGrammar): Condition | null {
   return c.attempt((c): Condition | null => {
-    if (c.words("there", "are") || c.words("there", "is")) {
+    if (c.words("there", "are") || c.words("there", "is") || c.word("there's") !== null) {
       const comparison = parseComparison(c, g);
       if (!comparison) return null;
       const value = parseAggregateCount(c, g);
@@ -662,13 +766,21 @@ function parsePlayerCounters(c: Cursor, g: ConditionGrammar): Condition | null {
 function parseAtom(c: Cursor, g: ConditionGrammar): Condition | null {
   const currentPhase = parseCurrentPhaseCondition(c);
   if (currentPhase) return currentPhase;
+  // Fixed reference players reuse the ordinary count/life/hand conditions with
+  // the other player's measurement as the compared value; quantified reference
+  // players ("than each other player") need player-comparison below.
+  const comparative = parseComparativeCondition(c, g);
+  if (comparative) return comparative;
+  const own = parseDesignationCondition(c, g) ?? parseLinkedCondition(c, g) ?? parsePlayerCondition(c, g)
+    ?? parseDescended(c) ?? parseNoAttackers(c);
+  if (own) return own;
   const subset = parseControlledSubset(c, g);
   if (subset) return subset;
   const dice = parseDiceCondition(c, g);
   if (dice) return dice;
   const aggregate = parseAggregateCondition(c, g) ?? parsePlayerCounters(c, g);
   if (aggregate) return aggregate;
-  return parsePutActionOutcome(c, g) ?? parseCharacteristicRelationCondition(c, g) ?? parseSearchHistory(c, g) ?? parseZoneState(c, g) ?? parseKicked(c, g) ?? parseHandCount(c, g) ?? parsePersonalZoneCount(c, g) ?? parseCopularZoneCount(c, g) ?? parseQualifiedCount(c, g)
+  return parsePutActionOutcome(c, g) ?? parseCharacteristicRelationCondition(c, g) ?? parseSearchHistory(c, g) ?? parseZoneState(c, g) ?? parseKicked(c, g) ?? parseHandCount(c, g) ?? parsePersonalZoneCount(c, g) ?? parseZoneSize(c, g) ?? parseCopularZoneCount(c, g) ?? parseQualifiedCount(c, g)
     ?? parseHasKeyword(c, g) ?? parseManaSpent(c, g) ?? parseDamageHistory(c, g)
     ?? parseCombatHistory(c, g) ?? parseCastObjectHistory(c, g) ?? parseZoneHistory(c, g)
     ?? parseLifeHistory(c, g) ?? parseCastHistory(c, g) ?? g.parseAtomic(c);

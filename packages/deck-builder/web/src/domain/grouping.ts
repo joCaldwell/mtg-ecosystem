@@ -5,7 +5,7 @@
 // counts of type groups, and what each group costs (spec §4.4).
 
 import type { DeckCard, DeckState, ProposalItem } from "../api/client.ts";
-import { TYPE_GROUPS, byCurve, primaryType, quantityOf } from "./cards.ts";
+import { CARD_ORDER, TYPE_GROUPS, byName, byPrice, primaryType, quantityOf, type SortBy } from "./cards.ts";
 import { pendingItems } from "./inbox.ts";
 import { type GroupCost, costOf } from "./price.ts";
 
@@ -26,7 +26,7 @@ export interface DeckGroup {
   status: GroupStatus;
   /** How far outside the target (negative = under). */
   delta: number;
-  /** Role "card", not on the maybe list, sorted by curve. */
+  /** Role "card", not on the maybe list, in the chosen order. */
   cards: DeckCard[];
   /** What the group's cards cost; unchanged when a search hides some of them. */
   cost: GroupCost;
@@ -36,7 +36,7 @@ export interface DeckLayout {
   commanders: DeckCard[];
   companions: DeckCard[];
   groups: DeckGroup[];
-  /** Sorted by name. */
+  /** Sorted by name, or by price when that is the chosen order. */
   maybe: DeckCard[];
 }
 
@@ -66,9 +66,9 @@ export function groupKeyForAdd(item: ProposalItem, state: DeckState, groupBy: Gr
     : UNFILED_KEY;
 }
 
-export function layoutDeck(state: DeckState, groupBy: GroupBy): DeckLayout {
+export function layoutDeck(state: DeckState, groupBy: GroupBy, sortBy: SortBy = "curve"): DeckLayout {
   const inDeck = state.cards.filter((c) => !c.maybe);
-  const listed = inDeck.filter((c) => c.role === "card").sort(byCurve);
+  const listed = inDeck.filter((c) => c.role === "card").sort(CARD_ORDER[sortBy]);
   const pendingAdds = pendingOf(state).filter((i) => i.action === "add");
   const addKeys = new Set(pendingAdds.map((i) => groupKeyForAdd(i, state, groupBy)));
 
@@ -126,6 +126,7 @@ export function layoutDeck(state: DeckState, groupBy: GroupBy): DeckLayout {
     commanders: inDeck.filter((c) => c.role === "commander"),
     companions: inDeck.filter((c) => c.role === "companion"),
     groups,
-    maybe: state.cards.filter((c) => c.maybe).sort((a, b) => a.name.localeCompare(b.name)),
+    // The maybe list has no curve to read, so it only leaves name order for price.
+    maybe: state.cards.filter((c) => c.maybe).sort(sortBy === "price" ? byPrice : byName),
   };
 }

@@ -148,7 +148,7 @@ export function setDeckStatus(
   db.prepare("UPDATE decks SET status = ? WHERE id = ?").run(status, deckId);
 }
 
-/** Spec §5.6: classification never changes membership, assembly flags or permissions. */
+/** Spec §5.6: classification never changes membership or permissions. */
 export function setDeckCategory(
   db: DatabaseSync,
   actor: Actor,
@@ -273,7 +273,6 @@ export interface DeckCardRow {
   role: Role;
   maybe: number;
   maybe_note: string;
-  in_paper: number;
   quantity: number;
 }
 
@@ -284,7 +283,7 @@ export function findDeckCard(
 ): DeckCardRow | undefined {
   return db
     .prepare(
-      `SELECT oracle_id, slot_id, role, maybe, maybe_note, in_paper, quantity
+      `SELECT oracle_id, slot_id, role, maybe, maybe_note, quantity
        FROM deck_cards WHERE deck_id = ? AND oracle_id = ?`,
     )
     .get(deckId, oracleId) as DeckCardRow | undefined;
@@ -663,39 +662,6 @@ export function unshortlistCard(db: DatabaseSync, deckId: number, oracleId: stri
   db.prepare("DELETE FROM deck_cards WHERE deck_id = ? AND oracle_id = ?").run(deckId, oracleId);
 }
 
-// ---------- the paper flag (spec §5.5) ----------
-
-export function setInPaper(
-  db: DatabaseSync,
-  actor: Actor,
-  deckId: number,
-  oracleId: string,
-  inPaper: boolean,
-): void {
-  requireOwner(actor, "mark which cards are in the physical deck");
-  requireDeckCard(db, deckId, oracleId);
-  db.prepare("UPDATE deck_cards SET in_paper = ? WHERE deck_id = ? AND oracle_id = ?").run(
-    inPaper ? 1 : 0,
-    deckId,
-    oracleId,
-  );
-}
-
-/** The exception-first baseline: mark the whole deck assembled, then the few that are not. */
-export function setAllInPaper(
-  db: DatabaseSync,
-  actor: Actor,
-  deckId: number,
-  inPaper: boolean,
-): void {
-  requireOwner(actor, "mark which cards are in the physical deck");
-  requireDeck(db, deckId);
-  db.prepare("UPDATE deck_cards SET in_paper = ? WHERE deck_id = ? AND maybe = 0").run(
-    inPaper ? 1 : 0,
-    deckId,
-  );
-}
-
 // ---------- the deck view ----------
 
 export interface DeckCardView {
@@ -719,7 +685,6 @@ export interface DeckCardView {
   /** 1 = on the maybe list: considered for the deck, not part of the 100. */
   maybe: number;
   maybe_note: string;
-  in_paper: number;
   quantity: number;
   tag_ids: number[];
 }
@@ -734,7 +699,7 @@ export function getDeck(db: DatabaseSync, deckId: number) {
       `SELECT c.oracle_id, c.name, c.mana_cost, c.cmc, c.type_line, c.oracle_text,
               c.power, c.toughness, c.loyalty, c.color_identity, c.ci_mask,
               c.commander_legality, c.is_commander, p.usd_cents,
-              dc.slot_id, dc.role, dc.maybe, dc.maybe_note, dc.in_paper, dc.quantity
+              dc.slot_id, dc.role, dc.maybe, dc.maybe_note, dc.quantity
        FROM deck_cards dc JOIN cards c ON c.oracle_id = dc.oracle_id
        LEFT JOIN card_prices p ON p.oracle_id = dc.oracle_id
        WHERE dc.deck_id = ? ORDER BY c.name`,

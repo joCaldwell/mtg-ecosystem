@@ -33,20 +33,3 @@ export function cardMarks(state: DeckState, memories: Memory[]): Map<string, Car
 
   return marks;
 }
-
-/**
- * Whether per-card "not in paper" markers say anything. The paper flag works
- * exception-first (spec §5.5): build the deck, then mark the few cards that
- * are missing. Until most of the deck is in paper, nearly every row would
- * carry the marker and it would mark nothing.
- */
-export function paperMarksUseful(state: DeckState): boolean {
-  let total = 0;
-  let inPaper = 0;
-  for (const c of state.cards) {
-    if (c.maybe) continue;
-    total += c.quantity;
-    if (c.in_paper) inPaper += c.quantity;
-  }
-  return total > 0 && inPaper * 2 >= total;
-}

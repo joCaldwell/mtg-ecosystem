@@ -15,6 +15,22 @@
   overflow-wrap: anywhere;
 }
 
+.trigger .summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trigger.active {
+  border-color: var(--sel-line);
+  background: var(--sel-bg);
+}
+
+.trigger > svg {
+  flex-shrink: 0;
+}
+
 .selected {
   display: flex;
   flex-wrap: wrap;

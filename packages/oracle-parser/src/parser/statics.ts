@@ -12,14 +12,19 @@ import { parseCombatEffect, parseCombatStatic } from "./combat.ts";
 import { parseStaticReplacement } from "./replacement.ts";
 import { parsePlayPermissionStatic } from "./permissions.ts";
 import { parsePersistentRule } from "./persistent-rules.ts";
+import { parsePregameRule } from "./pregame.ts";
 import { parseStaticSkip } from "./temporal.ts";
+import { parseAsTurnedFaceUp } from "./status-actions.ts";
 import { parseStaticUntapSuppression } from "./untap.ts";
-import { parseEntryChoice, parseStaticEntryCounters } from "./entry.ts";
+import { parseEntryChoice, parseStaticEntryCounters, parseStaticEntryTappedCompound } from "./entry.ts";
+import { parseControlStatic } from "./control-statics.ts";
+import { parseTriggerRule } from "./trigger-rules.ts";
 import { parseEntryCopy } from "./entry-copy.ts";
 import { parseUnlessPayment } from "./payment-choices.ts";
 import { parseStaticProhibition } from "./prohibitions.ts";
 import { hasFreshProtectionChoice, parseProtectionAttachmentException } from "./protection.ts";
-import { parseCharacteristicModifiers, parseStaticBasePt } from "./characteristics.ts";
+import { parseCharacteristicModifiers, parseSameIsTrueSubjects, parseStaticBasePt } from "./characteristics.ts";
+import { attachKeywordCostDefinition, parseAbilityProhibition, parseKeywordCostDefinition } from "./ability-grants.ts";
 import { intrinsicCharacteristicDefinition, ordinaryCharacteristicDefinition } from "./characteristic-origin.ts";
 import { hasCombatHistory, parseAggregateCount } from "./aggregates.ts";
 import {
@@ -80,6 +85,11 @@ function parseStaticModifiers(c: Cursor, what: ObjectRef, allowFreshChoice = fal
         modifiers.push(...characteristics.slice(0, -1));
         modifier = characteristics[characteristics.length - 1];
       } else if (combat) modifier = { modifier: "combat-rule", rule: combat.rule };
+      else if (c.isWord("can't") && c.peek(1)?.kind === "word" && (c.peek(1) as { value: string }).value === "have") {
+        const abilities = parseAbilityProhibition(c);
+        if (!abilities) return null;
+        modifier = { modifier: "cant-have-abilities", abilities };
+      } else if (c.words("is", "goaded") || c.words("are", "goaded")) modifier = { modifier: "goaded" };
       else if (c.word("can't") !== null) {
         const action = parseCantAction(c);
         if (!action) return null;
@@ -145,6 +155,9 @@ function parseStaticModifiers(c: Cursor, what: ObjectRef, allowFreshChoice = fal
       });
       if (!next) break;
     }
+    // "All other abilities" needs the abilities this same effect grants.
+    if (modifiers.some(modifier => modifier.modifier === "lose-abilities" && modifier.removal.removal === "all-other") &&
+        !modifiers.some(modifier => modifier.modifier === "abilities")) return c.fail("abilities granted by the same effect");
     const last = modifiers[modifiers.length - 1];
     // A single trailing condition qualifies the coordinated modifier group;
     // individually conditioned clauses, as on Tek, retain their own guards.
@@ -161,6 +174,10 @@ function parseStaticModifiers(c: Cursor, what: ObjectRef, allowFreshChoice = fal
 
 export function parseStatic(c: Cursor): StaticEffect | null {
   return c.attempt((c) => {
+    // A printed ability never opens with a bare pronoun statement: "It's a …"
+    // needs the clause that establishes "it" (a condition, or the preceding
+    // instruction it completes), so it is not a free-standing static ability.
+    if (c.isWord("it's")) return c.fail("static subject");
     const effect = parseStaticUnbound(c);
     if (!effect) return null;
     if (containsStaticTarget(effect)) return c.fail("static effects without announced targets");
@@ -350,6 +367,15 @@ function containsField(value: unknown, key: string, expected: string): boolean {
   return Object.values(value).some(item => containsField(item, key, expected));
 }
 
+/** The active-player prefix is represented for continuous modifiers and
+ * player ability grants; permissions, prevention and cost rules scoped to a
+ * turn keep their own grammars. */
+function isTurnScopedModifier(effect: StaticEffect): boolean {
+  if (effect.static === "group") return effect.effects.every(isTurnScopedModifier);
+  if (effect.static === "conditional") return !effect.otherwise && isTurnScopedModifier(effect.effect);
+  return effect.static === "modify" || effect.static === "player-abilities";
+}
+
 function isUngovernedStaticClause(effect: StaticEffect): boolean {
   if (effect.static === "group") return effect.effects.every(isUngovernedStaticClause);
   if (!["modify", "cant", "combat-rule", "untap-step-suppression", "player-abilities", "prohibit", "cast-limit"].includes(effect.static)) return false;
@@ -393,8 +419,12 @@ function parseStaticBase(c: Cursor): StaticEffect | null {
   return c.attempt((c): StaticEffect | null => {
     const entryCopy = parseEntryCopy(c, parseGainedAbilities);
     if (entryCopy) return entryCopy;
-    const persistent = parsePersistentRule(c);
+    const persistent = parsePersistentRule(c) ?? parsePregameRule(c);
     if (persistent) return persistent;
+    const control = parseControlStatic(c);
+    if (control) return control;
+    const triggerRule = parseTriggerRule(c);
+    if (triggerRule) return triggerRule;
     const prohibition = parseStaticProhibition(c);
     if (prohibition) return prohibition;
     const entryChoice = parseEntryChoice(c);
@@ -413,16 +443,24 @@ function parseStaticBase(c: Cursor): StaticEffect | null {
     if (prevention) return prevention;
     // "As long as <condition>, <static>" / entry replacement "If <condition>"
     const conditioned = c.attempt((c): StaticEffect | null => {
-      if (!c.words("as", "long", "as") && c.word("if") === null) return null;
-      const condition = parseCondition(c);
+      // "During your turn" / "During turns other than yours" state the same
+      // continuously checked condition as "as long as it's [not] your turn".
+      const turn: Condition | null = c.words("during", "your", "turn") ? { condition: "your-turn" }
+        : c.words("during", "turns", "other", "than", "yours") ? { condition: "not-your-turn" } : null;
+      if (!turn && !c.words("as", "long", "as") && c.word("if") === null) return null;
+      const condition = turn ?? parseCondition(c);
       if (!condition || !c.punct(",")) return null;
       const inner = parseStaticBase(c) ?? parseStaticGroup(c);
       if (!inner) return null;
+      if (turn && !isTurnScopedModifier(inner)) return c.fail("turn-scoped characteristic or ability modifier");
       // Preserve both an outer condition and any nested/trailing condition.
       // A conditional characteristic-setting ability is not a CDA (604.3a).
       return { static: "conditional", condition, effect: ordinaryCharacteristicDefinition(inner) };
     });
     if (conditioned) return conditioned;
+
+    const asFaceUp = parseAsTurnedFaceUp(c, body => parseSentences(body, { modalOptions: [] }));
+    if (asFaceUp) return asFaceUp;
 
     // Choices made as a permanent enters are replacement instructions, not
     // triggered abilities (CR 614.1c). Keep the complete associated body.
@@ -446,6 +484,10 @@ function parseStaticBase(c: Cursor): StaticEffect | null {
       if (!what) return null;
       if (c.word("enters", "enter") === null) return null;
       c.words("the", "battlefield");
+      if (c.word("untapped") !== null) {
+        c.punct(".");
+        return c.done() ? { static: "enters-untapped", what } : null;
+      }
       if (c.word("tapped") === null) return null;
       const conditionKind = c.word("if", "unless") as "if" | "unless" | null;
       const condition = conditionKind ? parseCondition(c) : null;
@@ -458,7 +500,8 @@ function parseStaticBase(c: Cursor): StaticEffect | null {
     if (entersTapped) return entersTapped;
 
     // "~ enters with N <kind> counters on it."
-    const entersWithCounters = parseStaticEntryCounters(c);
+    const entersWithCounters = parseStaticEntryCounters(c, parseGainedAbilities)
+      ?? parseStaticEntryTappedCompound(c, parseGainedAbilities);
     if (entersWithCounters) return entersWithCounters;
 
     // CDA: "~'s power and toughness are each equal to <amount>." /
@@ -565,7 +608,8 @@ function parseStaticBase(c: Cursor): StaticEffect | null {
     // is resolution text, not a continuous ability — reject and let the spell
     // parser take it.
     const modify = c.attempt((c): StaticEffect | null => {
-      const what = parseStaticSubject(c);
+      // "it's" carries the verb of a characteristic statement about "it".
+      const what = c.isWord("it's") ? { ref: "it" as const } : parseStaticSubject(c);
       if (!what || what.ref === "target") return null;
       const group = parseStaticModifiers(c, what);
       if (!group) return null;
@@ -574,7 +618,17 @@ function parseStaticBase(c: Cursor): StaticEffect | null {
         return parseAmount(c);
       });
       const protectionModifiers = parseProtectionAttachmentException(c, what, group.modifiers);
+      // "…has flashback. The flashback cost is equal to its mana cost."
+      const costDefinition = c.attempt(c => c.punct(".") ? parseKeywordCostDefinition(c) : null);
+      if (costDefinition && !attachKeywordCostDefinition(group.modifiers, costDefinition)) return c.fail("one preceding grant of that cost keyword");
       c.punct(".");
+      const sameIsTrue = !group.condition && !binding && !protectionModifiers ? parseSameIsTrueSubjects(c, what, group.modifiers) : null;
+      if (sameIsTrue) {
+        c.punct(".");
+        if (!c.done()) return null;
+        return { static: "group", effects: [what, ...sameIsTrue].map((what): StaticEffect =>
+          ({ static: "modify", what, modifiers: structuredClone(group.modifiers) })) };
+      }
       if (!c.done() && !c.isWord("otherwise")) return null;
       return intrinsicCharacteristicDefinition({ static: "modify", what, modifiers: protectionModifiers ?? group.modifiers, condition: group.condition, duration: undefined,
         ...(group.conditionScope ? { conditionScope: group.conditionScope } : {}),

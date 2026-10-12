@@ -8,7 +8,7 @@ import type { Cursor } from "./cursor.ts";
  * here. Direct grants from continuous static effects have no resolution at
  * which the represented fresh choice could be made. */
 export function hasFreshProtectionChoice(abilities: GainedAbility[]): boolean {
-  return abilities.some(ability => ability.gained === "keyword" &&
+  return abilities.some(ability => ability.gained === "keyword-choice" || ability.gained === "keyword" &&
     ability.keyword.from?.some(scope => scope.scope === "fresh-choice"));
 }
 

@@ -3,6 +3,22 @@
 > [!NOTE]
 > This is a **vision document** spanning all layers of the MTG Ecosystem (Layers 0–3). Layer 0 currently exposes a limited typed AST. Card IR, rules evaluation, and the Layer 1+ examples below are future capabilities, not implemented APIs. The active deck-builder is standalone.
 
+Detailed proposed execution and agent contracts now live in the
+[engine specification](game-engine-spec.md), with staged delivery and headless
+search benchmarks in the [implementation plan](game-engine-plan.md). Those
+documents distinguish private observations, exact state forks, pending
+decisions, and authoritative legality from strategy/search policy. Examples in
+this vision document remain illustrative, not the protocol schema. The game
+product scope is Commander only; search interfaces must support multiple
+independent players and per-player outcomes rather than a two-player minimax
+assumption.
+
+The [adopted language stack](runtime-language-decision.md) uses Rust for native
+simulation/search policies and server-side agent/session orchestration.
+TypeScript owns browser/application integration, the client SDK, and the
+standalone deck-builder's MCP tools. External agents access the versioned
+protocol; browser-local rules reuse the Rust core compiled to WebAssembly.
+
 One of Project Multiverse's core tenets is that **artificial intelligence is a first-class participant**. Whether it's an LLM explaining rules to a beginner, a reinforcement learning (RL) agent playtesting a new set, or a deck-building assistant recommending synergies, the system must expose game data in formats optimized for AI consumption.
 
 ---
@@ -49,10 +65,16 @@ mechanics, schema version, and source provenance. See
 
 ### Layer 1–2: Game-Playing Agent (RL or LLM-driven)
 - **Goal**: Play matches, evaluate board positions, and simulate matchups.
-- **System Requirements**: 
+- **System Requirements**:
   - A comprehensive, fast, and structured state representation.
   - A deterministic, enumerable list of valid actions (action space).
   - High-throughput simulation capabilities (headless game engine).
+
+The detailed proposal refines enumeration into structured decision domains,
+joint constraints, and response validation. Full enumeration is optional for
+small finite domains; target combinations, payments, combat declarations, and
+integer choices cannot always be represented as a practical flat list.
+In-process search must still respect the agent's private-information view.
 
 ### Layer 2: Rules Advisor Agent (LLM-driven Chatbot)
 - **Goal**: Answer players' questions during a game (e.g., *"Why did my creature die when I cast this?"* or *"Can I respond to my opponent's trigger?"*).

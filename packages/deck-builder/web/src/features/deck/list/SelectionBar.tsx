@@ -87,19 +87,6 @@ export function SelectionBar() {
       ])
     : [{ id: "none", label: "No tags yet. Add them under Edit slots and tags.", onSelect: () => {}, disabled: true }];
 
-  const paperItems: MenuItem[] = [
-    {
-      id: "in",
-      label: "Mark in paper",
-      onSelect: () => void patchAll(() => ({ in_paper: true }), (n) => `Marked ${plural(n)} in paper.`),
-    },
-    {
-      id: "out",
-      label: "Mark missing",
-      onSelect: () => void patchAll(() => ({ in_paper: false }), (n) => `Marked ${plural(n)} not in paper.`),
-    },
-  ];
-
   return (
     <div className={styles.bar} role="toolbar" aria-label="Selected cards" aria-busy={busy}>
       <Text weight="bold" size="sm">
@@ -114,7 +101,6 @@ export function SelectionBar() {
       >
         To maybe
       </Button>
-      <Menu size="sm" label="Paper" items={paperItems} />
       <Button
         size="sm"
         variant="reject"

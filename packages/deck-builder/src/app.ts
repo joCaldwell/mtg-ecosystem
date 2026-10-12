@@ -19,7 +19,6 @@ import { applyImport, diffImport, exportDeck } from "./deck/interop.ts";
 import { cardHistory, listLog, unreviewedCount } from "./deck/log.ts";
 import { applyChanges, setQuantity, undo } from "./deck/membership.ts";
 import { getPower, setPowerTarget, recordPowerAssessment } from "./deck/power.ts";
-import { paperStatus } from "./deck/paper.ts";
 import {
   acceptItems,
   listProposals,
@@ -38,11 +37,9 @@ import {
   organizeCard,
   renameDeck,
   renameTag,
-  setAllInPaper,
   setDeckCategory,
   setDeckParent,
   setDeckStatus,
-  setInPaper,
   shortlistCard,
   unshortlistCard,
   updateSlot,
@@ -147,7 +144,6 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
     const other = url.searchParams.get("other");
     return compareDecks(db, Number(id), other ? Number(other) : undefined);
   });
-  route("GET", /^\/api\/decks\/(\d+)\/paper$/, ([id]) => paperStatus(db, Number(id)));
 
   // ---------- cards in a deck ----------
   route("POST", /^\/api\/decks\/(\d+)\/cards$/, ([id], body) => {
@@ -164,10 +160,6 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
       );
     return { state: state(deckId) };
   });
-  route("PATCH", /^\/api\/decks\/(\d+)\/cards$/, ([id], body) => {
-    setAllInPaper(db, OWNER, Number(id), !!body.in_paper);
-    return { state: state(Number(id)) };
-  });
   route("PATCH", /^\/api\/decks\/(\d+)\/cards\/([0-9a-z-]+)$/, ([id, oid], body) => {
     const deckId = Number(id);
     if (body.maybe !== undefined) {
@@ -182,7 +174,6 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
     if (body.role !== undefined)
       applyChanges(db, OWNER, deckId, [{ action: "role", oracle_id: oid, role: body.role }], { kind: "edit" });
     if (body.quantity !== undefined) setQuantity(db, OWNER, deckId, oid, Number(body.quantity));
-    if (body.in_paper !== undefined) setInPaper(db, OWNER, deckId, oid, !!body.in_paper);
     if (body.slot_id !== undefined || body.tag_ids !== undefined)
       organizeCard(db, deckId, oid, { slotId: body.slot_id, tagIds: body.tag_ids });
     return { state: state(deckId) };
@@ -377,7 +368,6 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
   route("GET", /^\/api\/decks\/(\d+)\/export$/, ([id], _b, url) =>
     exportDeck(db, Number(id), {
       categories: url.searchParams.get("categories") !== "off",
-      onlyMissing: url.searchParams.get("missing") === "1",
     }),
   );
   route("POST", /^\/api\/decks\/(\d+)\/import\/preview$/, ([id], body) =>

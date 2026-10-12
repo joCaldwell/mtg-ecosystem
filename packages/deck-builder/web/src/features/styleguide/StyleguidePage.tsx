@@ -76,7 +76,7 @@ const MEANINGS: Array<{ name: string; means: string; use: string }> = [
   { name: "agent", means: "An agent wrote or proposed it", use: "proposal banner, memory chips, agent names, waiting on you" },
   { name: "add", means: "Coming in, passing, accepted", use: "proposed add, a passing check, Accept" },
   { name: "cut", means: "Going out, failing, rejected", use: "proposed cut, a rule violation, Reject" },
-  { name: "warn", means: "Off target, missing, provisional", use: "slot under target, not in paper, draft deck" },
+  { name: "warn", means: "Off target, missing, provisional", use: "slot under target, draft deck" },
   { name: "sel", means: "The owner's selection and focus", use: "selected rows, focus ring, focused field" },
 ];
 
@@ -459,6 +459,7 @@ function Forms() {
           <Stack gap={5} className={styles.narrow}>
             <MultiSelect label="Example tags" placeholder="Select tags…" options={[{ value: "a", label: "Need to get" }, { value: "b", label: "Engine piece" }, { value: "c", label: "A longer label that wraps when space is limited" }]} value={multi} onChange={setMulti} />
             <MultiSelect label="Empty example" options={[]} value={[]} onChange={() => undefined} />
+            <MultiSelect compact label="Compact example" placeholder="Select tags…" options={[{ value: "a", label: "Need to get" }, { value: "b", label: "Engine piece" }, { value: "c", label: "A longer label that wraps when space is limited" }]} value={multi} onChange={setMulti} footer={<Button size="sm" variant="ghost" onClick={() => setMulti([])}>Clear selection</Button>} />
           </Stack>
         </Demo>
       </Section>

@@ -151,3 +151,34 @@ describe("layoutDeck, by type", () => {
     assert.deepEqual(layoutDeck(deckState(), "type").groups, []);
   });
 });
+
+describe("layoutDeck, card order within a group", () => {
+  const state = deckState({
+    cards: [
+      card({ name: "Test Card B", cmc: 1, usd_cents: 500 }),
+      card({ name: "Test Card A", cmc: 3, usd_cents: 50 }),
+      card({ name: "Test Card C", cmc: 2, usd_cents: null }),
+      card({ name: "Test Maybe Z", usd_cents: 9000, maybe: 1 }),
+      card({ name: "Test Maybe Y", usd_cents: 10, maybe: 1 }),
+    ],
+  });
+  const rows = (layout: ReturnType<typeof layoutDeck>) => layout.groups[0].cards.map((c) => c.name.slice(-1)).join("");
+
+  test("mana value unless told otherwise", () => {
+    assert.equal(rows(layoutDeck(state, "slot")), "BCA");
+    assert.equal(rows(layoutDeck(state, "type", "curve")), "BCA");
+  });
+
+  test("by name or by price, in either grouping, without changing a group's count or cost", () => {
+    assert.equal(rows(layoutDeck(state, "slot", "name")), "ABC");
+    assert.equal(rows(layoutDeck(state, "type", "name")), "ABC");
+    assert.equal(rows(layoutDeck(state, "slot", "price")), "BAC");
+    assert.equal(rows(layoutDeck(state, "type", "price")), "BAC");
+    assert.deepEqual(layoutDeck(state, "type", "price").groups[0].cost, layoutDeck(state, "type").groups[0].cost);
+  });
+
+  test("the maybe list stays in name order except when sorting by price", () => {
+    assert.deepEqual(layoutDeck(state, "slot", "name").maybe.map((c) => c.name), ["Test Maybe Y", "Test Maybe Z"]);
+    assert.deepEqual(layoutDeck(state, "slot", "price").maybe.map((c) => c.name), ["Test Maybe Z", "Test Maybe Y"]);
+  });
+});

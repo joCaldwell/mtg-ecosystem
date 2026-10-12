@@ -47,9 +47,11 @@ function parseSuppression(c: Cursor, previousSubject?: ObjectRef): { what: Objec
 /** Complete static clause: repeated suppression follows the represented step
  * owner. A "next" occurrence is a resolution-created effect, not a static
  * instruction to skip an indefinitely moving "next" step. */
-export function parseStaticUntapSuppression(c: Cursor): StaticEffect | null {
+export function parseStaticUntapSuppression(c: Cursor, subject?: ObjectRef): StaticEffect | null {
   return c.attempt(c => {
-    const result = parseSuppression(c);
+    // A coordinated clause ("~ enters tapped and doesn't untap …") supplies
+    // its explicit preceding subject; nothing is inferred from context.
+    const result = parseSuppression(c, subject);
     if (!result || result.what.ref === "target" || result.step.occurrence === "next") return null;
     if (typeof result.step.owner !== "string" &&
         isTargetedPlayerRef(result.step.owner)) return null;

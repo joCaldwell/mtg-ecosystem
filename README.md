@@ -29,7 +29,12 @@ graph BT
 
 ## 📂 Project Structure
 
-The project is structured as a **TypeScript monorepo** using **npm workspaces**:
+The adopted stack is **TypeScript + Rust**: TypeScript for ingestion/parser,
+the deck-builder, browser applications, and client SDK; Rust for semantic
+compilation, rules, native simulation/search/agents, and the game server.
+Browser-local rules use the Rust core compiled to WebAssembly. Existing packages
+use npm workspaces; Cargo joins them when native implementation is scaffolded.
+See the [language decision](docs/runtime-language-decision.md).
 
 ```
 mtg-ecosystem/
@@ -48,12 +53,12 @@ mtg-ecosystem/
 │   ├── project-structure.md            # Directory structure and workspaces guide
 │   └── scryfall-integration.md         # Scryfall bulk data ingestion pipeline
 │
-└── packages/                           # Monorepo packages (npm workspaces)
+└── packages/                           # TypeScript packages and planned Rust crates
     ├── oracle-parser/                  # Layer 0: hand-written TypeScript parser
     ├── deck-builder/                   # Active standalone deck application
-    ├── card-data/                      # Compiled Card IR (output of oracle-parser)
-    ├── game-engine/                    # Layer 1: Rules engine (future)
-    └── game-server/                    # Layer 2: Game server & API (future)
+    ├── card-data/                      # Generated Card IR from the Rust compiler
+    ├── game-engine/                    # Rust compiler, rules, and native simulation (future)
+    └── game-server/                    # Rust game server & API (future)
 ```
 
 For a detailed explanation of each directory and config file, see the [Project Structure Guide](docs/project-structure.md).
@@ -85,10 +90,13 @@ For deck-builder setup, use its [package manual](packages/deck-builder/AGENTS.md
 | Document | Description |
 |----------|-------------|
 | [Architecture](docs/architecture.md) | System-wide layered architecture and build order |
+| [Game Engine Plan](docs/game-engine-plan.md) | Proposed Commander milestones, verification, and headless search benchmarks |
+| [Game Engine Specification](docs/game-engine-spec.md) | Proposed Commander execution, state, rules, decisions, replay, and branching |
+| [Language Decision](docs/runtime-language-decision.md) | Adopted TypeScript/Rust assignments across all layers and their integration boundaries |
 | [Oracle Parser](docs/oracle_parser.md) | **Layer 0** — Parser design, pipeline, AST spec, and IR format |
 | [Data Schemas](docs/data_schemas.md) | Implemented AST contract and proposed Card IR envelope |
 | [Agent Design](docs/agent_design.md) | Agent-first integration patterns and AI assistant vision |
-| [Decisions Log](docs/decisions.md) | Current decisions and superseded historical proposals |
+| [Decisions Log](docs/decisions.md) | Adopted architecture decisions and implementation status |
 | [Glossary](docs/glossary.md) | Reference mapping MTG jargon to system concepts |
 | [Project Structure](docs/project-structure.md) | Detailed walkthrough of repository directories and workspaces |
 | [Scryfall Integration](docs/scryfall-integration.md) | Ingestion and normalization pipeline for Scryfall bulk data |

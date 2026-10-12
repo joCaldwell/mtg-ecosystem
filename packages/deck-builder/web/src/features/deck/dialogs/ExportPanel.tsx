@@ -10,13 +10,12 @@ export function ExportPanel() {
   const { deck } = useDeckState();
   const { toast } = useToast();
   const [categories, setCategories] = useState(true);
-  const [onlyMissing, setOnlyMissing] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
 
   // Refetched when the revision moves, so a card added elsewhere is in the text.
   const exported = useQuery(
-    () => api.exportDeck(deckId, { categories, onlyMissing }),
-    [deckId, categories, onlyMissing, deck.revision],
+    () => api.exportDeck(deckId, { categories }),
+    [deckId, categories, deck.revision],
   );
   const result = exported.data;
 
@@ -35,7 +34,6 @@ export function ExportPanel() {
     <Stack gap={5} className={styles.panel}>
       <Row gap={6} wrap>
         <Checkbox checked={categories} onChange={setCategories} label="Include categories" />
-        <Checkbox checked={onlyMissing} onChange={setOnlyMissing} label="Only cards missing in paper" />
       </Row>
 
       {exported.error ? <ErrorNote>{exported.error}</ErrorNote> : null}
@@ -52,8 +50,7 @@ export function ExportPanel() {
         />
       ) : result ? (
         <Text tone="muted" as="p" className={styles.empty}>
-          Nothing to export. The deck is empty
-          {onlyMissing ? ", or every card is marked in paper and you asked only for the ones that are missing" : ""}.
+          Nothing to export. The deck is empty.
         </Text>
       ) : null}
 
@@ -68,11 +65,6 @@ export function ExportPanel() {
               {result.line_count}
             </Text>{" "}
             {result.line_count === 1 ? "line" : "lines"}
-            {onlyMissing ? (
-              <>
-                ; <Text mono>{result.omitted_in_paper}</Text> already in paper left out
-              </>
-            ) : null}
             .
           </Text>
         ) : null}

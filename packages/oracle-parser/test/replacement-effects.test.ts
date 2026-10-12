@@ -271,7 +271,6 @@ describe("replacement scope boundaries reject unsupported meaning", () => {
       "If you would gain life while the moon is full, you gain twice that much life instead.",
       "If you would gain life while, you gain twice that much life instead.",
       "If you would draw a card except the first one you draw each turn, draw two cards instead.",
-      "If a card would be put into a graveyard, exile it face down instead.",
       "If you would gain life, you gain twice that much life instead, rounded up.",
       "If you would gain life, you gain half that much life instead.",
       "If you would gain life, gain 2 life and draw that many cards instead.",

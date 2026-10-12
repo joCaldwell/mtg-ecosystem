@@ -234,6 +234,29 @@ describe("the UI's API", () => {
   const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
     api(path, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) });
 
+  test("assembly uses ordinary tags through HTTP and MCP; obsolete paper endpoints are absent", async () => {
+    const created = await (await post("/api/decks", { name: "Tagged assembly", category: "paper" })).json();
+    const id = created.state.deck.id;
+    await post(`/api/decks/${id}/cards`, { oracle_id: "id-solring" });
+    await api(`/api/decks/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "active" }) });
+    const before = await (await api(`/api/decks/${id}`)).json();
+    assert.equal("in_paper" in before.state.cards[0], false);
+    assert.equal((await api(`/api/decks/${id}/paper`)).status, 404);
+    assert.equal((await api(`/api/decks/${id}/cards`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ in_paper: true }) })).status, 404);
+    const client = await connect("/mcp/assembly-test");
+    try {
+      assert.equal((await client.listTools()).tools.some(t => t.name === "paper_status"), false);
+      const filed = await client.callTool({ name: "file_cards", arguments: { deck: id, filings: [{ card: "Sol Ring", add_tags: ["Need to get"] }] } });
+      assert.ok(!filed.isError, textOf(filed));
+      const after = await (await api(`/api/decks/${id}`)).json();
+      assert.equal(after.state.deck.category, "paper");
+      assert.equal(after.state.deck.revision, before.state.deck.revision);
+      assert.deepEqual(after.state.tags.filter((t: any) => after.state.cards[0].tag_ids.includes(t.id)).map((t: any) => t.name), ["Need to get"]);
+    } finally {
+      await client.close();
+    }
+  });
+
   test("power target approval and assessments work across MCP and HTTP with revision checks", async () => {
     const created = await (await post("/api/decks", { name: "Power endpoint deck" })).json();
     const id = created.state.deck.id;

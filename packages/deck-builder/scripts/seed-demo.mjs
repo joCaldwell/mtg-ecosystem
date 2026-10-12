@@ -29,7 +29,6 @@ import {
   deleteDeck,
   organizeCard,
   setDeckStatus,
-  setInPaper,
   shortlistCard,
 } from "../src/deck/service.ts";
 import { proposeDocumentEdit } from "../src/documents.ts";
@@ -95,16 +94,14 @@ const tags = {
 // One logged act for the whole first build, as an import or an agent's
 // edit_draft would be.
 const build = [];
-const paper = [];
 function add(name, slot, opts = {}) {
   const oid = oracle(name);
   if (!oid) return null;
   build.push({ action: "add", oracle_id: oid, slot_id: opts.role ? undefined : (slot ?? undefined), role: opts.role, quantity: opts.quantity });
-  if (opts.inPaper) paper.push(oid);
   return oid;
 }
 
-add("Atraxa, Praetors' Voice", null, { role: "commander", inPaper: true });
+add("Atraxa, Praetors' Voice", null, { role: "commander" });
 
 // Deliberately leaves `walkers` under target and `ramp` over it, so the slot
 // deltas and the checks have something real to report.
@@ -128,13 +125,12 @@ const groups = [
 for (const [slot, names] of groups) for (const n of names) add(n, slot);
 
 // Basics fill the mana base slot toward its target and exercise the quantity path.
-add("Forest", slots.manaBase, { quantity: 6, inPaper: true });
-add("Plains", slots.manaBase, { quantity: 5, inPaper: true });
-add("Island", slots.manaBase, { quantity: 5, inPaper: true });
-add("Swamp", slots.manaBase, { quantity: 5, inPaper: true });
+add("Forest", slots.manaBase, { quantity: 6 });
+add("Plains", slots.manaBase, { quantity: 5 });
+add("Island", slots.manaBase, { quantity: 5 });
+add("Swamp", slots.manaBase, { quantity: 5 });
 
 applyChanges(db, OWNER, deckId, build, { kind: "edit", summary: "First build" });
-for (const oid of paper) setInPaper(db, OWNER, deckId, oid, true);
 
 for (const [name, tagIds] of [
   ["Flux Channeler", [tags.proliferate]],

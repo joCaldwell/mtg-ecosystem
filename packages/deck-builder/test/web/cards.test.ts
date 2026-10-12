@@ -1,6 +1,16 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { TYPE_GROUPS, byCurve, isLand, primaryType, ptString, quantityOf } from "../../web/src/domain/cards.ts";
+import {
+  CARD_ORDER,
+  TYPE_GROUPS,
+  byCurve,
+  byName,
+  byPrice,
+  isLand,
+  primaryType,
+  ptString,
+  quantityOf,
+} from "../../web/src/domain/cards.ts";
 
 describe("primaryType", () => {
   test("a card with several types files under the first group that matches", () => {
@@ -57,5 +67,31 @@ describe("byCurve and quantityOf", () => {
   test("quantityOf counts copies", () => {
     assert.equal(quantityOf([{ quantity: 6 }, { quantity: 1 }]), 7);
     assert.equal(quantityOf([]), 0);
+  });
+});
+
+describe("byName and byPrice", () => {
+  const cards = [
+    { cmc: 1, name: "Test Card B", usd_cents: 500 },
+    { cmc: 5, name: "Test Card D", usd_cents: null },
+    { cmc: 3, name: "Test Card A", usd_cents: 500 },
+    { cmc: 2, name: "Test Card C", usd_cents: 1999 },
+    { cmc: 0, name: "Test Card E" },
+  ];
+  const order = (cmp: (a: (typeof cards)[number], b: (typeof cards)[number]) => number) =>
+    [...cards].sort(cmp).map((c) => c.name.slice(-1)).join("");
+
+  test("byName is A to Z", () => {
+    assert.equal(order(byName), "ABCDE");
+  });
+
+  test("byPrice is most expensive first, ties by name, and cards with no price last", () => {
+    assert.equal(order(byPrice), "CABDE");
+  });
+
+  test("CARD_ORDER names the three orders", () => {
+    assert.equal(order(CARD_ORDER.curve), "EBCAD");
+    assert.equal(order(CARD_ORDER.name), "ABCDE");
+    assert.equal(order(CARD_ORDER.price), "CABDE");
   });
 });

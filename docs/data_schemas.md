@@ -137,9 +137,21 @@ allows verification to stream rather than load a second bulk corpus in memory.
 
 ## Proposed output: versioned Card IR
 
+The semantic compiler and emitter will be implemented in **Rust**, as fixed by
+the [language decision](runtime-language-decision.md). The source parser/archive
+stays TypeScript; Card IR is language-neutral JSON. Schema and emission design
+remain implementation work within that adopted boundary.
+
 **Proposal only.** `scripts/build-ir.ts` fails explicitly. The previous schema
 examples used retired discriminator names and unresolved JSON Schema references;
 they were not an implemented contract and have been removed.
+
+The [Layer 1 contract proposal](game-engine-spec.md#3-card-compiler-and-executable-contract)
+now specifies compilation stages, executable admission, capability profiles,
+source provenance, and strict cross-language interchange. It proposes canonical
+Oracle definitions with separate printing/set membership indexes, refining the
+earlier per-set packaging direction below. Neither representation is implemented
+or adopted; settle the schema and packaging at P1 before writing an emitter.
 
 The proposed location is `packages/card-data/sets/<set-code>.json`, containing
 versioned set metadata and cards. Before implementing it, decide and test:

@@ -14,8 +14,3 @@
   border: 1.5px solid var(--muted);
   border-radius: 50%;
 }
-
-.paper {
-  border: 1.5px solid var(--warn);
-  border-radius: 1px;
-}

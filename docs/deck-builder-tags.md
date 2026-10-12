@@ -33,7 +33,7 @@ The deck toolbar has a separate tag filter, initially empty:
 | Same-deck integrity | Composite FK `(deck_id, tag_id)` → `tags(deck_id, id)` | Direct invalid SQL insert tests |
 | Card membership | Composite FK to `deck_cards`; tags require a deck-card row | Direct invalid SQL insert and cut tests |
 | Quantities | Tags describe the oracle-card row, so every copy in that row shares the tag set | Filtering preserves the row and its quantity |
-| Slots, roles and paper | Independent fields; commanders and companions can have tags; slots remain optional | Filter tests across all sections |
+| Slots and roles | Independent fields; commanders and companions can have tags; slots remain optional | Filter tests across all sections |
 | Maybe list | Uses the same deck-card row and join table | Parking, promotion and fork lifecycle tests |
 | Single-card writes | Complete tag-set replacement, validated and transactional with slot filing | Invalid IDs, empty sets and rollback tests |
 | Agent writes | `file_cards` adds/removes tags by name in one transaction and records Activity; organization needs no membership approval | Existing MCP and bulk-filing tests |
@@ -77,7 +77,7 @@ The app remains desktop-oriented as specified. Tag controls were inspected at
 clipping. A 390px viewport still exceeds the existing application shell's
 width, so full phone layout support remains outside this change.
 
-## Validation
+## Initial tag redesign validation
 
 `npm run check` passes server/UI typechecks and all 344 tests, including the new
 filter, integrity, migration and lifecycle regressions. Browser checks covered
@@ -91,3 +91,23 @@ when compared with that backup, and `PRAGMA foreign_key_check` returned no
 violations. The two cards in the supplied screenshots were checked read-only
 in the rebuilt app: the tagged card displays its assigned chip, and the
 untagged card displays no chips.
+
+## Physical assembly follow-up (2026-10-11)
+
+Physical assembly now uses ordinary tags when the owner wants to track it.
+The dedicated per-card flag, controls, Paper panel, missing-card export,
+pull/buy computation and `paper_status` agent tool have been removed. The
+schema-6 migration discards existing marks, as requested by the owner, and
+removes the obsolete field from cut snapshots without changing their tag or
+slot restoration data. It creates no replacement tags. Whole-deck categories
+remain independent of tags and membership.
+
+Validation: `npm run check` passes both typechecks and all 366 tests. New
+regressions cover migration, historical undo, absence of the old endpoints
+and tool, and agent tag filing on an active deck. A backup comparison of the
+live schema-6 database preserved all 1,165 deck-card rows, 83 tag assignments,
+14 decks and remaining application data, with no foreign-key violations;
+379 old marks were discarded. Browser checks on an isolated seeded copy
+confirmed tag assignment and chips still work, the Paper panel and checkbox
+are gone, and export offers only the remaining category option. The local
+app was rebuilt and restarted after the backup.

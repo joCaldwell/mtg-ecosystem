@@ -11,10 +11,8 @@ import {
   createSlot,
   getDeck,
   listDecks,
-  setAllInPaper,
   setDeckCategory,
   setDeckStatus,
-  setInPaper,
 } from "../src/deck/service.ts";
 import { getProfile, listDocumentEdits, setProfile } from "../src/documents.ts";
 import { setFocus } from "../src/focus.ts";
@@ -36,17 +34,17 @@ function seeded(db: DatabaseSync, status: "draft" | "active" = "active") {
 
 describe("the tool list (spec §10.3)", () => {
   test("twenty-seven tools, uniquely named, every one described", () => {
-    assert.equal(TOOLS.length, 27);
-    assert.equal(new Set(TOOLS.map((t) => t.name)).size, 27);
+    assert.equal(TOOLS.length, 26);
+    assert.equal(new Set(TOOLS.map((t) => t.name)).size, 26);
     for (const t of TOOLS) assert.ok(t.description.length > 80, t.name);
     assert.equal(TOOLS[0].name, "start_session");
   });
-  test("no tool lets an agent rule, undo, change status or write the paper flag", () => {
+  test("no tool lets an agent rule, undo or change status", () => {
     for (const t of TOOLS)
-      assert.ok(!/^(accept|reject|rule|undo|set_deck_status|set_in_paper|import)/.test(t.name), t.name);
+      assert.ok(!/^(accept|reject|rule|undo|set_deck_status|import)/.test(t.name), t.name);
     assert.deepEqual(TOOLS.filter((t) => t.destructive).map((t) => t.name), ["delete_deck"]);
-    // The only tool that mentions paper is the read-only one.
-    assert.deepEqual(TOOLS.filter((t) => /paper/.test(t.name)).map((t) => [t.name, t.readOnly]), [["paper_status", true]]);
+    // Physical assembly is ordinary tag organization, with no dedicated tool.
+    assert.ok(TOOLS.every((t) => t.name !== "paper_status"));
   });
   test("bad arguments are explained, not thrown as a type error", () => {
     const db = testDb();
@@ -194,27 +192,7 @@ describe("reading a deck", () => {
     assert.ok(names.includes("- Sol Ring {1} — Artifact"));
     assert.ok(!names.includes("## Checks"));
   });
-  // Spec §5.5: the paper flag appears in no default view.
-  test("nothing about paper status reaches any default view", () => {
-    setDeckCategory(db, OWNER, id, "paper");
-    const before = [
-      text(db, "get_deck", { deck: id }),
-      text(db, "search_cards", { query: "t:artifact", deck: id }),
-      text(db, "get_cards", { cards: ["Sol Ring"], deck: id }),
-      text(db, "player_stats"),
-    ];
-    setAllInPaper(db, OWNER, id, true);
-    setInPaper(db, OWNER, id, "id-solring", false);
-    const after = [
-      text(db, "get_deck", { deck: id }),
-      text(db, "search_cards", { query: "t:artifact", deck: id }),
-      text(db, "get_cards", { cards: ["Sol Ring"], deck: id }),
-      text(db, "player_stats"),
-    ];
-    assert.deepEqual(after, before);
-    assert.match(text(db, "paper_status", { deck: id }), /2 of 3 cards are marked as physically in the deck/);
-    assert.match(text(db, "paper_status", { deck: id }), /## Buy list[^\n]*\(1\)\n- Sol Ring \(Artifact\)/);
-  });
+
 });
 
 describe("searching and looking up cards (spec §4.2, §7.2, §8.3)", () => {

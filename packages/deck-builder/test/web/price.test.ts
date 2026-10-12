@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { filterDeckList } from "../../web/src/domain/deckSearch.ts";
+import { matchDeckList } from "../../web/src/domain/deckSearch.ts";
 import { layoutDeck } from "../../web/src/domain/grouping.ts";
 import { costCaption, costOf, formatUsd, groupCostCaption } from "../../web/src/domain/price.ts";
 import { card, deckState, slot } from "./fixtures.ts";
@@ -57,9 +57,12 @@ describe("what a group costs", () => {
     });
   });
 
-  test("searching the deck hides rows without changing a group's total", () => {
-    const { layout } = filterDeckList(layoutDeck(state, "type"), new Map(), "card a");
-    assert.deepEqual(layout.groups.map((g) => [g.title, g.cards.length, g.cost.usd_cents]), [["Creature", 1, 250]]);
+  test("searching the deck identifies matches without changing rows or group costs", () => {
+    const layout = layoutDeck(state, "type");
+    const snapshot = structuredClone(layout);
+    const matches = matchDeckList(layout, new Map(), "card a");
+    assert.equal(matches.cardIds.size, 1);
+    assert.deepEqual(layout, snapshot);
   });
 
   test("the caption says what was left out", () => {

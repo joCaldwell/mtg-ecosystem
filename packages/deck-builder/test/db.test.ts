@@ -9,10 +9,11 @@ import { proposeDocumentEdit, listDocumentEdits } from "../src/documents.ts";
 import { getPower, parseTarget } from "../src/deck/power.ts";
 import { AGENT } from "./helpers.ts";
 import { OWNER } from "../src/actor.ts";
-import { createDeck, createTag, getDeck, organizeCard, setDeckCategory, setInPaper } from "../src/deck/service.ts";
+import { createDeck, createSlot, createTag, getDeck, organizeCard, setDeckCategory, shortlistCard } from "../src/deck/service.ts";
+import { undo } from "../src/deck/membership.ts";
 import { ingestCards } from "../src/ingest.ts";
 import { FIXTURES } from "./fixtures.ts";
-import { add } from "./helpers.ts";
+import { add, cut } from "./helpers.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "deck-builder-db-"));
 test.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -24,7 +25,47 @@ describe("opening a database", () => {
     const db = openDb(path);
     const row = db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string };
     assert.equal(row.value, String(SCHEMA_VERSION));
+    assert.ok(!db.prepare("PRAGMA table_info(deck_cards)").all().some((c: any) => c.name === "in_paper"));
     db.close();
+  });
+  test("schema 5 discards assembly marks while preserving cards, tags and historical undo", () => {
+    const path = join(dir, "v5.db");
+    const old = openDb(path);
+    ingestCards(old, FIXTURES);
+    const deck = createDeck(old, "Existing assembled deck", { status: "active" });
+    setDeckCategory(old, OWNER, deck, "paper");
+    const slot = createSlot(old, deck, "Ramp");
+    const tag = createTag(old, deck, "Need to get");
+    add(old, deck, "id-forest", { quantity: 3 });
+    add(old, deck, "id-solring", { slotId: slot });
+    organizeCard(old, deck, "id-solring", { tagIds: [tag] });
+    shortlistCard(old, deck, "id-counterspell", "Later.");
+    organizeCard(old, deck, "id-counterspell", { tagIds: [tag] });
+    const entry = cut(old, deck, "id-solring")!;
+    // Recreate v5's obsolete column and a true mark in a cut snapshot.
+    old.exec("ALTER TABLE deck_cards ADD COLUMN in_paper INTEGER NOT NULL DEFAULT 0");
+    old.prepare("UPDATE deck_cards SET in_paper = 1 WHERE deck_id = ?").run(deck);
+    old.prepare("UPDATE log_cards SET before_json = json_set(before_json, '$.in_paper', 1) WHERE log_id = ?").run(entry);
+    old.exec("UPDATE meta SET value = '5' WHERE key = 'schema_version'");
+    const before = getDeck(old, deck);
+    old.close();
+
+    const migrated = openDb(path);
+    assert.deepEqual(getDeck(migrated, deck), before, "no card fields, tags, category or revision change");
+    assert.ok(!migrated.prepare("PRAGMA table_info(deck_cards)").all().some((c: any) => c.name === "in_paper"));
+    const snapshot = migrated.prepare("SELECT before_json FROM log_cards WHERE log_id = ?").get(entry) as { before_json: string };
+    assert.ok(!snapshot.before_json.includes("in_paper"));
+    undo(migrated, OWNER, entry);
+    const restored = getDeck(migrated, deck).cards.find((c) => c.oracle_id === "id-solring")!;
+    assert.equal(restored.slot_id, slot);
+    assert.deepEqual(restored.tag_ids, [tag]);
+    assert.equal("in_paper" in restored, false);
+    assert.deepEqual(migrated.prepare("PRAGMA foreign_key_check").all(), []);
+    migrated.close();
+    const reopened = openDb(path);
+    assert.equal(getDeck(reopened, deck).cards.length, 3);
+    assert.deepEqual(getDeck(reopened, deck).tags.map(t => ({ ...t })), [{ id: tag, name: "Need to get" }], "migration creates no replacement tag");
+    reopened.close();
   });
   // The schema is CREATE IF NOT EXISTS: without this check it would add its
   // tables beside a stranger's and leave a file nothing can read.
@@ -74,7 +115,6 @@ describe("opening a database", () => {
     ingestCards(old, FIXTURES);
     const id = createDeck(old, "Existing deck", { status: "active" });
     add(old, id, "id-solring");
-    setInPaper(old, OWNER, id, "id-solring", true);
     const before = getDeck(old, id);
     old.exec("ALTER TABLE decks DROP COLUMN category; UPDATE meta SET value = '2' WHERE key = 'schema_version'");
     old.close();

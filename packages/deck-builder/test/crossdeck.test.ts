@@ -6,7 +6,6 @@ import { getBrief, setEngine, updateBrief } from "../src/deck/brief.ts";
 import { checkDeck, isDoctorPair } from "../src/deck/checks.ts";
 import { compareDecks, forkDeck } from "../src/deck/fork.ts";
 import { cardHistory, listLog } from "../src/deck/log.ts";
-import { paperStatus } from "../src/deck/paper.ts";
 import { createProposal, pendingItemIds, rejectItems } from "../src/deck/proposals.ts";
 import {
   createSlot,
@@ -14,10 +13,8 @@ import {
   deleteDeck,
   getDeck,
   organizeCard,
-  setAllInPaper,
   setDeckCategory,
   setDeckParent,
-  setInPaper,
   shortlistCard,
 } from "../src/deck/service.ts";
 import { getFocus, setFocus } from "../src/focus.ts";
@@ -33,7 +30,6 @@ describe("forks (spec §5.3)", () => {
   add(db, parent, "id-solring", { slotId: ramp });
   organizeCard(db, parent, "id-solring", { tagIds: [tag] });
   shortlistCard(db, parent, "id-counterspell", "maybe later");
-  setAllInPaper(db, OWNER, parent, true);
   setDeckCategory(db, OWNER, parent, "paper");
   updateBrief(db, parent, { thesis: "Artifacts." });
   setEngine(db, parent, "Mana", "", [{ oracle_id: "id-solring" }]);
@@ -56,9 +52,7 @@ describe("forks (spec §5.3)", () => {
     assert.equal(getBrief(db, fork).engines[0].pieces[0].in_deck, true);
     assert.match(listLog(db, { deckId: fork })[0].summary, /Forked from "Parent"/);
   });
-  test("the paper flag is not copied: the physical cards are in the parent", () => {
-    assert.ok(getDeck(db, fork).cards.every((c) => c.in_paper === 0));
-  });
+
   test("the two diverge, and compare defaults to the parent", () => {
     add(db, fork, "id-forest", { quantity: 2 });
     cut(db, fork, "id-solring");
@@ -108,31 +102,6 @@ describe("forks (spec §5.3)", () => {
     const f = forkDeck(db, OWNER, p, "Orphan");
     deleteDeck(db, OWNER, p);
     assert.equal(getDeck(db, f).deck.parent, null);
-  });
-});
-
-describe("paper status (spec §5.5)", () => {
-  test("missing cards split into a pull list and a buy list", () => {
-    const db = testDb();
-    const golems = newDeck(db, "active", "Golems");
-    const green = newDeck(db, "active", "Green");
-    add(db, golems, "id-solring");
-    add(db, golems, "id-forest", { quantity: 3 });
-    setAllInPaper(db, OWNER, golems, true);
-    add(db, green, "id-solring");
-    add(db, green, "id-llanowar");
-    add(db, green, "id-seedborn");
-    setInPaper(db, OWNER, green, "id-seedborn", true);
-    shortlistCard(db, green, "id-forest");
-
-    const status = paperStatus(db, green);
-    assert.deepEqual([status.total_cards, status.in_paper_cards], [3, 1]);
-    assert.deepEqual(status.pull, [
-      { name: "Sol Ring", type_line: "Artifact", quantity: 1, held_by: [{ deck_id: golems, deck_name: "Golems" }] },
-    ]);
-    assert.deepEqual(status.buy, [
-      { name: "Llanowar Elves", type_line: "Creature — Elf Druid", quantity: 1, usd_cents: null },
-    ]);
   });
 });
 
@@ -222,7 +191,6 @@ describe("player statistics (spec §3)", () => {
       add(db, excluded, "id-solring");
       add(db, excluded, "id-forest", { quantity: 10 });
       createSlot(db, excluded, "Excluded slot");
-      setAllInPaper(db, OWNER, excluded, true);
       setDeckCategory(db, OWNER, excluded, category);
       assert.deepEqual(playerStats(db), baseline);
       setDeckCategory(db, OWNER, excluded, "paper");

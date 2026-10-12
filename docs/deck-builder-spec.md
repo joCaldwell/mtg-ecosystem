@@ -12,7 +12,7 @@
 > - Memories replace card notes, hard filters and playtest notes. They are written by agents without approval and are always visible to the owner (§7).
 > - The player profile and deck briefs are the owner's documents; agent edits to them are proposed (§6).
 > - Agents edit draft decks freely; the approval gate applies to active decks (§5.2).
-> - The `owned` flag becomes a per-deck "in paper" flag (§5.5).
+> - Physical assembly is tracked with ordinary deck tags (§5.5); the dedicated toggle was removed on 2026-10-11.
 > - Cross-deck membership is off by default in card search and is turned on per call (§4.2).
 
 ---
@@ -51,7 +51,7 @@ to do** (its brief), **what the owner has decided and why** (rulings), and
 - No chat UI, no transcript storage, no context management. Those belong to the agent's own harness.
 - No hosting, deployment, accounts or multi-user support.
 - No external knowledge sources (EDHREC, Commander Spellbook, vendor sites). An agent may consult them itself; whatever it finds must resolve through the app's card search before it can be proposed. Scryfall's bulk data is the one source the app reads (§4.1, §4.4).
-- No collection or inventory management beyond the per-deck paper flag (§5.5).
+- No collection or inventory management; ordinary deck tags can record organization such as cards to obtain (§5.5).
 - No live sync with any external service.
 - No formats other than Commander.
 
@@ -158,9 +158,8 @@ total is labelled an estimate and carries the date of the prices.
 
 **Where a price appears.** On the card wherever the card is shown, to the
 owner and to agents alike; as a deck total in computed state (the companion
-counts, the maybe list does not); and as a total on the buy list (§5.5).
-`usd<=2` in a search compares this same price. Unlike the paper flag and
-cross-deck membership, price is on by default for agents: it is a fact about
+counts, the maybe list does not).
+`usd<=2` in a search compares this same price. Price is on by default for agents: it is a fact about
 the card, and a budget is a constraint the brief can state.
 
 ---
@@ -172,7 +171,7 @@ the card, and a budget is a constraint the brief can state.
 - A deck targets exactly **100 cards** including commanders.
 - **Commanders are a list.** Zero to two, plus Background, plus Companion (outside the 100).
 - Each deck row stores its denormalized colour identity. Changing the commander may invalidate cards; that surfaces as a check finding (§9), never as silent corruption.
-- Each deck-card row: card, quantity, role (`card` / `commander` / `companion`), slot (at most one, may be null), tags (zero or more), `maybe` (on the maybe list, outside the 100), `in_paper` (§5.5).
+- Each deck-card row: card, quantity, role (`card` / `commander` / `companion`), slot (at most one, may be null), tags (zero or more), `maybe` (on the maybe list, outside the 100).
 - Every change to membership bumps the deck's **revision** number.
 - Each deck has a category: `paper`, `theorycrafted`, or `legacy` (§5.6).
 
@@ -210,7 +209,7 @@ Forks replace named checkpoints. There is no snapshot system and no DAG.
 ### 5.4 Slots, tags and the maybe list
 
 - **Slots:** optional; a card belongs to at most one. Slots have target counts (a number or a min–max range). Targets are soft, and violations are visible. New decks define no slots.
-- **Tags:** many per card, from a per-deck vocabulary. The card panel uses a searchable checkbox dropdown and shows only assigned tags beneath it; an untagged card shows no tag chips. The deck list can be filtered by one or more tags, matching **any** (union) or **all** (intersection), together with its name search. Filters apply to commanders, companions and the maybe list as well as ordinary cards. They affect visible rows only; counts, targets, costs and review decisions still describe the full deck. Selected cards support adding and removing tags in bulk.
+- **Tags:** many per card, from a per-deck vocabulary. The card panel uses a searchable checkbox dropdown and shows only assigned tags beneath it; an untagged card shows no tag chips. The deck list can be filtered by one or more tags, matching **any** (union) or **all** (intersection), together with its name search. Filters apply to commanders, companions and the maybe list as well as ordinary cards. Matching rows are highlighted and nonmatches muted; every card and group stays visible in its original position and remains interactive. Counts, targets, costs and review decisions still describe the full deck. Selected cards support adding and removing tags in bulk.
 - **Maybe list:** cards under consideration, outside the 100. A parked card keeps its slot and tags.
 - **Naming rule:** slot and tag names may not equal a card type in singular or plural (`land`, `lands`), nor any search prefix. Slot and card type are independent axes; whole-name matches only, so `land destruction` is allowed.
 
@@ -224,17 +223,19 @@ at the database level. A filing update replaces a card's tag set atomically.
 Choosing tags in the list filter is temporary UI state, independent of assigning
 tags to a card; a deleted tag is removed from that filter.
 
-### 5.5 The paper flag
+### 5.5 Physical assembly through tags
 
-`in_paper` on a deck-card row means the physical card is in the physical deck.
-It does not mean "owned": a card can be owned and still missing from this
-deck. The UI works exception-first: mark a deck "fully assembled", then mark
-the few cards that are missing.
+Physical assembly and cards to obtain use ordinary per-deck tags (§5.4).
+The owner chooses their vocabulary; agents can assign and remove those tags
+with `file_cards` on draft or active decks, with attribution in Activity.
+The app gives no tag special inventory or ownership meaning, and makes no
+inference about which physical copies are available elsewhere.
 
-- It is written only by the owner.
-- It appears in no default tool output.
-- `paper_status(deck)` returns the deck's missing cards and, for each, any other deck where that card is marked in paper. That separates a **pull list** from a **buy list**. Each pull-list line states that moving the copy leaves the other deck missing it. Each buy-list line carries the card's price, and the list its estimated total (§4.4).
-- There are no inventory counts. One flag per deck-card is the whole feature.
+The dedicated per-card assembly field, toggle, counts, markers, Paper panel,
+pull/buy lists, agent tool and missing-only export option were removed on
+2026-10-11 at the owner's request. Schema 6 discards the previous marks rather
+than converting them to tags, preserves other deck-card fields and tag links,
+and removes the obsolete mark from historical undo snapshots.
 
 ---
 
@@ -242,9 +243,9 @@ the few cards that are missing.
 
 The owner or an agent marks each deck **Paper** (a physical deck), **Theorycrafted** (an
 idea being explored), or **Legacy** (a past deck kept for reference). This is
-independent of draft/active editing permissions (§5.2) and the per-card paper
-flags (§5.5). Changing category never changes the card list, its revision,
-assembly flags or agent permissions. Legacy decks remain accessible and editable.
+independent of draft/active editing permissions (§5.2) and per-card tags
+(§5.4). Changing category never changes the card list, its revision or agent
+permissions. Legacy decks remain accessible and editable.
 
 The UI lets the owner choose a category when creating a deck, change it in
 the deck header, and see it in All decks. New decks and forks default to
@@ -254,7 +255,7 @@ the deck roster and deck header returned to agents.
 
 Only Paper decks contribute to the All decks statistics and the agent's
 `player_stats`: counts, colours, commander types, averages, slots and card reuse.
-Draft/active status and per-card assembly flags do not affect inclusion.
+Draft/active status and per-card tags do not affect inclusion.
 Changing category immediately updates the statistics. Fork-family ancestry
 is preserved through Theorycrafted and Legacy ancestors, whose cards and
 totals are excluded.
@@ -315,7 +316,7 @@ retained as history (the most recent 20 are returned), with captured Game
 Changer facts for the assessed list. Current-list bracket suggestions use
 current Scryfall metadata; historical lists use captured facts. A card change
 flags the assessment for review; submission against an outdated revision fails
-with the current revision. Slots, tags, paper flags and target edits do not
+with the current revision. Slots, tags and target edits do not
 invalidate it. An agent cannot replace the owner's assessment of the same
 revision; after the list changes it may assess the new revision.
 
@@ -546,7 +547,6 @@ memories and proposed brief edits, not as a stored report.
 | | `get_cards` | Exact-name lookup of several cards: full text, linked memories, and rulings if a deck is named. Also the way to check that names are real |
 | | `list_rulings` | By deck, by date, or unreviewed only |
 | | `search_memories` | Full-text, filtered by scope, deck or card |
-| | `paper_status` | §5.5 |
 | | `export_deck` | Archidekt-importable text (§12) |
 | Write freely | `create_deck` | New draft from a name, commanders, and optionally a pasted list |
 | | `rename_deck` | Rename a draft or active deck |
@@ -572,8 +572,8 @@ which cards are selected). `start_session` returns it and `get_deck` accepts
 screen.
 
 **Owner-only actions** have no tool: ruling on proposals and document edits,
-switching a deck between draft and active, writing the paper
-flag, importing over an existing deck, undo.
+switching a deck between draft and active, importing over an existing deck,
+undo.
 
 ### 10.4 The playbook
 
@@ -610,7 +610,7 @@ card.
 ## 11. The app for people
 
 - **Decks:** list, create, fork, delete; draft or active state.
-- **Deck view:** the list grouped by slot or by card type, slot targets and deltas, the maybe list, the brief, a live checks count, the paper flag, direct editing, card search.
+- **Deck view:** the list grouped by slot or by card type, slot targets and deltas, the maybe list, the brief, a live checks count, tags, direct editing, card search.
 - **Proposals inbox:** everything waiting on the owner across decks. A proposal is ruled on in its deck's list, where each change is drawn in place among the cards around it — per item, per group or all at once, with an optional reason; the inbox links there. Proposed brief and profile edits are ruled in the inbox as diffs. (Settled 2026-10-10: the owner preferred reviewing in the list to ruling from the inbox.)
 - **Rulings log:** per deck, with undo.
 - **Memories:** §7.5.
@@ -628,7 +628,7 @@ reload.
 
 Construction happens here. Playtesting and goldfishing happen in Archidekt.
 
-- **Export:** an Archidekt-importable list, optionally filtered to cards missing in paper.
+- **Export:** an Archidekt-importable list.
 - **Import:** the owner pastes a list; the app diffs it against the deck, shows the diff with destructive cuts called out first, and applies it in full on confirmation. It is one rulings-log entry, so one undo reverts it. Lines in a `Maybeboard` or `Sideboard` category, or under a section header of that name, are shortlisted on the maybe list, not added, and the preview says so. A `Commander` category or section header puts the card in the command zone, including a card already in the deck.
 - One-way out, one-way in. No sync layer.
 
@@ -663,7 +663,7 @@ the one above it.
 2. **Agent interface, read side.** MCP endpoint with token and Origin check, stdio shim, `start_session`, the read tools, the playbook. Verify by connecting a real agent and reading decks.
 3. **The gate.** `edit_draft`, organization tools, `propose_changes`, prior rulings following the card, linting on write; the proposals inbox and live UI updates.
 4. **Memories and documents.** The memory store, budgets, the review queue, the profile, proposed document edits, the Memories page and activity feed.
-5. **Cross-deck.** `player_stats`, `compare_decks`, `paper_status`, focus.
+5. **Cross-deck.** `player_stats`, `compare_decks`, focus.
 6. **Method and evaluation.** The Agent Skill, and a set of realistic multi-step tasks ("rework this fork toward a new thesis", "what should I build next") run against a real agent, with transcripts read and the tools revised from what they show.
 7. **Interop.** Archidekt export and import.
 

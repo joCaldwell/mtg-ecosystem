@@ -1,11 +1,48 @@
 .toolbar {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-direction: column;
   gap: var(--s-4);
   padding: var(--s-4) var(--s-6);
   border-bottom: 1px solid var(--line);
   background: var(--bg);
+}
+
+.add {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+}
+
+.filterSummary {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--s-4);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.view {
+  display: flex;
+  align-items: center;
+  overflow-x: auto;
+  justify-content: space-between;
+  gap: var(--s-4) var(--s-6);
+}
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4) var(--s-5);
+  flex: 1 1 var(--panel-w);
+  min-width: min-content;
+}
+
+.layout {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--s-4);
 }
 
 .search {
@@ -13,8 +50,14 @@
   align-items: center;
   gap: var(--s-2);
   flex: 1 1 var(--sidebar-w);
-  min-width: 0;
+  min-width: var(--sidebar-w);
   max-width: var(--panel-w);
+}
+
+.sort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
 }
 
 .search input::-webkit-search-cancel-button {

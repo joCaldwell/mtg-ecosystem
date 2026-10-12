@@ -5,10 +5,11 @@
 // to Review, and so on.
 
 import { createContext, useContext, useEffect, useMemo, useReducer, type ReactNode } from "react";
+import type { SortBy } from "../../domain/cards.ts";
 import type { GroupBy } from "../../domain/grouping.ts";
 import type { TagMatch } from "../../domain/deckSearch.ts";
 
-export type PanelTab = "review" | "brief" | "power" | "checks" | "memories" | "history" | "paper";
+export type PanelTab = "review" | "brief" | "power" | "checks" | "memories" | "history";
 export type DeckDialog = "fork" | "compare" | "interop" | "slots" | "delete";
 
 export interface OpenCard {
@@ -18,6 +19,8 @@ export interface OpenCard {
 
 export interface DeckUiState {
   groupBy: GroupBy;
+  /** The order of the cards inside each group. */
+  sortBy: SortBy;
   searchTerm: string;
   tagIds: number[];
   tagMatch: TagMatch;
@@ -38,6 +41,7 @@ export interface DeckUiState {
 
 type Action =
   | { t: "groupBy"; value: GroupBy }
+  | { t: "sortBy"; value: SortBy }
   | { t: "searchTerm"; value: string }
   | { t: "tagIds"; value: number[] }
   | { t: "tagMatch"; value: TagMatch }
@@ -52,11 +56,19 @@ type Action =
   | { t: "dialog"; value: DeckDialog | null };
 
 const GROUP_BY_KEY = "deck.groupBy";
+const SORT_BY_KEY = "deck.sortBy";
+
+function storedSortBy(): SortBy {
+  const raw = localStorage.getItem(SORT_BY_KEY);
+  return raw === "name" || raw === "price" ? raw : "curve";
+}
 
 function reducer(ui: DeckUiState, action: Action): DeckUiState {
   switch (action.t) {
     case "groupBy":
       return { ...ui, groupBy: action.value };
+    case "sortBy":
+      return { ...ui, sortBy: action.value };
     case "searchTerm":
       return { ...ui, searchTerm: action.value };
     case "tagIds":
@@ -89,6 +101,7 @@ function reducer(ui: DeckUiState, action: Action): DeckUiState {
 
 export interface DeckUi extends DeckUiState {
   setGroupBy: (value: GroupBy) => void;
+  setSortBy: (value: SortBy) => void;
   setSearchTerm: (value: string) => void;
   setTagIds: (value: number[]) => void;
   setTagMatch: (value: TagMatch) => void;
@@ -109,6 +122,7 @@ const DeckUiContext = createContext<DeckUi | null>(null);
 export function DeckUiProvider({ children }: { children: ReactNode }) {
   const [ui, dispatch] = useReducer(reducer, null, (): DeckUiState => ({
     groupBy: localStorage.getItem(GROUP_BY_KEY) === "type" ? "type" : "slot",
+    sortBy: storedSortBy(),
     searchTerm: "",
     tagIds: [],
     tagMatch: "any",
@@ -125,9 +139,14 @@ export function DeckUiProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(GROUP_BY_KEY, ui.groupBy);
   }, [ui.groupBy]);
 
+  useEffect(() => {
+    localStorage.setItem(SORT_BY_KEY, ui.sortBy);
+  }, [ui.sortBy]);
+
   const actions = useMemo(
     () => ({
       setGroupBy: (value: GroupBy) => dispatch({ t: "groupBy", value }),
+      setSortBy: (value: SortBy) => dispatch({ t: "sortBy", value }),
       setSearchTerm: (value: string) => dispatch({ t: "searchTerm", value }),
       setTagIds: (value: number[]) => dispatch({ t: "tagIds", value }),
       setTagMatch: (value: TagMatch) => dispatch({ t: "tagMatch", value }),

@@ -27,8 +27,8 @@ the rules behind it.
 | `--agent` violet | An agent wrote or proposed it | proposal banner, memory chips, agent names, "waiting on you" |
 | `--add` green | Coming in, passing, accepted | proposed add, a check that passes, Accept |
 | `--cut` red | Going out, failing, rejected | proposed cut, a rule violation, Reject |
-| `--warn` amber | Off target, missing, provisional | slot under target, not in paper, draft deck |
-| `--sel` blue | The owner's selection and focus | selected rows, focus ring, focused field |
+| `--warn` amber | Off target, missing, provisional | slot under target, draft deck |
+| `--sel` blue | The owner's selection and focus | selected rows, search and tag matches, focus ring, focused field |
 | greys | Everything else | structure, text, neutral chips |
 
 Mana colours (`--mana-*`) are used only inside mana symbols and the pip chart.
@@ -84,7 +84,7 @@ or about this app.
 | `TextField` | One-line input | `fieldSize` `md` `lg`; `invalid` |
 | `TextArea` | Multi-line input | `autosize` |
 | `Select`, `Checkbox` | Native controls, restyled | |
-| `MultiSelect` | Searchable checkbox dropdown with removable selected chips | controlled `value`, async `onChange`, empty state |
+| `MultiSelect` | Searchable checkbox dropdown with removable selected chips | controlled `value`, async `onChange`, empty state, `compact` trigger summary, dropdown `footer` |
 | `Field` | Label, control and hint, wired together | |
 | `Meter` | A bar toward a limit | `neutral` `agent` `warn` `add`; clamps to 0-100% |
 | `Box` | A bordered container | tone `neutral` `agent` `warn`; `dashed`; padding `none` `sm` `md` |

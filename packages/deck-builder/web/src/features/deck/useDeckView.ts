@@ -4,8 +4,9 @@
 // keystroke elsewhere on the page.
 
 import { createContext, useContext, useMemo } from "react";
-import { api } from "../../api/client.ts";
+import { api, type ProposalItem } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
+import { matchDeckList, type DeckFilterMatches } from "../../domain/deckSearch.ts";
 import { layoutDeck, type DeckLayout } from "../../domain/grouping.ts";
 import { cardMarks, type CardMark } from "../../domain/marks.ts";
 import { reviewOverlay, reviewUnits, type ReviewOverlay, type ReviewUnit } from "../../domain/review.ts";
@@ -19,9 +20,11 @@ export interface DeckViewModel {
   /** What the list would be if everything pending were accepted. */
   overlay: ReviewOverlay;
   marks: Map<string, CardMark>;
+  matches: DeckFilterMatches;
 }
 
 const DeckViewContext = createContext<DeckViewModel | null>(null);
+const NO_ADDS = new Map<string, ProposalItem[]>();
 
 /** Provided once by the deck page, so the list is grouped a single time. */
 export const DeckViewProvider = DeckViewContext.Provider;
@@ -35,14 +38,21 @@ export function useSharedDeckView(): DeckViewModel {
 
 export function useDeckView(): DeckViewModel {
   const state = useDeckState();
-  const { groupBy } = useDeckUi();
+  const { groupBy, sortBy, reviewing, searchTerm, tagIds, tagMatch } = useDeckUi();
   // Active memories of every scope; cardMarks keeps the global ones and this deck's.
   const memories = useQuery(() => api.listMemories(), [state.deck.id]);
 
-  const layout = useMemo(() => layoutDeck(state, groupBy), [state, groupBy]);
+  const layout = useMemo(() => layoutDeck(state, groupBy, sortBy), [state, groupBy, sortBy]);
   const units = useMemo(() => reviewUnits(state.proposals), [state.proposals]);
   const overlay = useMemo(() => reviewOverlay(state, layout, groupBy), [state, layout, groupBy]);
   const marks = useMemo(() => cardMarks(state, memories.data?.memories ?? []), [state, memories.data]);
+  const matches = useMemo(() => matchDeckList(
+    layout,
+    reviewing ? overlay.addsByGroup : NO_ADDS,
+    searchTerm,
+    { ids: tagIds.filter((id) => state.tags.some((tag) => tag.id === id)), match: tagMatch },
+    state.cards,
+  ), [layout, overlay, reviewing, searchTerm, tagIds, tagMatch, state.tags, state.cards]);
 
-  return { layout, units, overlay, marks };
+  return { layout, units, overlay, marks, matches };
 }

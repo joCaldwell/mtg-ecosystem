@@ -3,8 +3,7 @@ import assert from "node:assert/strict";
 import type { DatabaseSync } from "node:sqlite";
 import { OWNER } from "../src/actor.ts";
 import { resolveCard } from "../src/cards.ts";
-import { paperStatus } from "../src/deck/paper.ts";
-import { createSlot, getDeck, setInPaper, shortlistCard } from "../src/deck/service.ts";
+import { createSlot, getDeck, shortlistCard } from "../src/deck/service.ts";
 import { ingestCards } from "../src/ingest.ts";
 import { callTool } from "../src/mcp/tools.ts";
 import {
@@ -188,16 +187,7 @@ describe("what a deck costs", () => {
     assert.equal(getDeck(db, deck).cards.find((c) => c.name === "Sol Ring")?.usd_cents, 119);
   });
 
-  test("the buy list is priced and totalled", async () => {
-    const { db, deck } = await build();
-    setInPaper(db, OWNER, deck, "id-teferi", true);
-    const status = paperStatus(db, deck);
-    assert.deepEqual(
-      status.buy.map((c) => [c.name, c.quantity, c.usd_cents]),
-      [["Counterspell", 1, null], ["Forest", 3, 5], ["Sol Ring", 1, 119]],
-    );
-    assert.deepEqual(status.buy_cost, { usd_cents: 134, unpriced: 1, as_of: AS_OF });
-  });
+
 
   test("agents are shown prices by default, with the app's totals", async () => {
     const { db, deck } = await build();
@@ -215,9 +205,6 @@ describe("what a deck costs", () => {
     assert.match(text("get_cards", { cards: ["Seedborn Muse"] }), /Creature — Spirit 2\/4 · \$14\.00/);
     assert.match(text("edit_draft", { deck, add: [{ card: "Llanowar Elves" }] }), /Estimated cost: \$3\.84 at/);
 
-    const paper = text("paper_status", { deck });
-    assert.match(paper, /Estimated cost: \$3\.84 at the cheapest printing of each card/);
-    assert.match(paper, /- 3x Forest \(Basic Land — Forest\) · \$0\.05 each/);
   });
 
   test("before any prices are loaded, nothing about cost is said", () => {

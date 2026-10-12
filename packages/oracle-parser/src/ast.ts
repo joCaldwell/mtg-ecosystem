@@ -36,6 +36,11 @@ export type Ability =
   | SpellLine
   | { kind: "chapter"; chapters: number[]; effects: Sentence[] }
   | { kind: "max-speed"; ability: Ability }
+  /** CR 701.43d: "You may exert [this creature] as it attacks" is an optional
+   * cost to attack (508.1g). The "When you do" ability printed in the same
+   * paragraph is linked to it and triggers only if exerted; `reflexive` is its
+   * resolution text, where "it" is the exerted permanent. */
+  | { kind: "exert-on-attack"; what: ObjectRef; reflexive?: Sentence[] }
   /** CR 716.2: one printed level bar represents both an activation and a
    * static grant. The activation pays these costs, requires current Class
    * designation level-1 and sorcery timing, and sets the designation to
@@ -129,6 +134,12 @@ export interface TriggeredAbility {
   effects: Sentence[];
   /** Limits actual triggers, independently of matching-event ordinals. */
   limit?: TriggerLimit;
+  /** CR 603.2h "Do this only once each turn": the ability triggers only if
+   * its controller has not yet taken the indicated action this turn. A
+   * declined action does not count, unlike `limit`, which counts triggers.
+   * "This" is the ability's own instruction containing the optional action;
+   * identifying that action among several is left to binding. */
+  actionLimit?: { maximum: 1; period: "turn" };
 }
 
 export interface TriggerLimit { maximum: number; period: "turn" | "ability-instance" }
@@ -151,6 +162,10 @@ export interface SpellLine {
 export interface AdditionalCostLine {
   kind: "additional-cost";
   costs: Cost[];
+  /** CR 118.8b, 601.2b: "you may" — the caster announces whether to pay it. */
+  optional?: true;
+  /** Printed with the cost: adjusts this spell's own total cost (601.2f). */
+  costModifications?: CostModification[];
 }
 
 // ---------------------------------------------------------------------------
@@ -164,6 +179,10 @@ export interface KeywordInstance {
   cost?: Cost[];
   /** Explicit activation-payment instructions attached to this keyword. */
   costModifications?: CostModification[];
+  /** Printed restriction on this keyword's activated ability, in addition
+   * to the keyword's own rules (CR 602.5b): "Equip {0}. Activate only once
+   * each turn." */
+  restriction?: ActivationRestriction;
   /** For number-parameterized keywords: Crew 2, Toxic 1, Fading 3. */
   amount?: number | "x";
   /** Protection from …, hexproof from … */
@@ -235,7 +254,10 @@ export type Cost =
 export type Trigger = {
   grouping?: "one-or-more";
   controller?: PlayerRef;
-  occurrence?: { ordinal: number; period: "turn" };
+  /** `per: "player"` ("their second spell each turn") counts separately for
+   * each player performing the event; otherwise the matching events of the
+   * period are counted together. */
+  occurrence?: { ordinal: number; period: "turn"; per?: "player" };
   during?: TurnOwner;
 } & (
   | { trigger: "any-of"; events: Trigger[] }
@@ -245,16 +267,35 @@ export type Trigger = {
    * tests the object that participates in that occurrence; it is not a
    * freshly selected object or a current board-wide filter at resolution. */
   | { trigger: "event-gated"; event: Trigger; gate: TriggerEventGate }
-  | { trigger: "enters"; what: ObjectRef; from?: ZoneRef }
-  | { trigger: "leaves"; what: ObjectRef }
+  /** CR 603.8: a state trigger. It triggers as soon as the game state matches
+   * the condition and not again until this ability has left the stack. This
+   * is neither an event nor an intervening-if clause (603.4). */
+  | { trigger: "state"; condition: Condition }
+  /** untapped restricts the entry event itself (CR 603.6a, 614.12); it is
+   * not a test of the permanent's status when the ability resolves. */
+  | { trigger: "enters"; what: ObjectRef; from?: ZoneRef; untapped?: true }
+  /** withoutDying: any destination except a graveyard (CR 700.4). */
+  | { trigger: "leaves"; what: ObjectRef; withoutDying?: true }
   | { trigger: "leaves-zone"; what: ObjectRef; from: ZoneRef }
   | { trigger: "dies"; what: ObjectRef }
   | { trigger: "enters-or-leaves"; what: ObjectRef }
   | { trigger: "enters-or-attacks"; what: ObjectRef }
   | { trigger: "enters-or-dies"; what: ObjectRef }
-  | { trigger: "put-into-graveyard"; what: ObjectRef; from: Zone | ZoneRef | "anywhere"; to: ZoneRef }
+  /** notFrom ("from anywhere other than") excludes one origin zone. */
+  | { trigger: "put-into-graveyard"; what: ObjectRef; from: Zone | ZoneRef | "anywhere"; to: ZoneRef; notFrom?: ZoneRef }
+  /** A move into exile, a library, a hand or the command zone. An omitted
+   * origin was not printed; it is never inferred from the subject. From the
+   * battlefield this is a leaves-the-battlefield ability (CR 603.6c). */
+  | { trigger: "put-into-zone"; what: ObjectRef; from?: ZoneRef | "anywhere"; to: ZoneRef }
   | { trigger: "cast"; who: PlayerRef; what: ObjectFilter | ObjectRef; from?: ZoneRef }
-  | { trigger: "attacks"; what: ObjectRef; alone?: boolean; whom?: (PlayerRef | ObjectRef)[] }
+  /** CR 701.18a/b: playing a land is the special action, not a land entering
+   * by an effect; playing a card is that land play or casting it as a spell.
+   * from is the zone the card was played from, not its zone afterwards. */
+  | { trigger: "plays"; who: PlayerRef; what: ObjectFilter | ObjectRef; from?: ZoneRef }
+  /** alongside: the same declaration also contains this many other attackers
+   * matching the filter, besides the subject (CR 508.1, 508.3a). */
+  | { trigger: "attacks"; what: ObjectRef; alone?: boolean; whom?: (PlayerRef | ObjectRef)[];
+      alongside?: { filter: ObjectFilter; count: Comparison } }
   | { trigger: "you-attack" }
   /** CR 508.3c–e: "with a creature" triggers for each matching attacker;
    * "with one or more" triggers once per declaration (or attacked player).
@@ -298,15 +339,39 @@ export type Trigger = {
   | { trigger: "phase-instance"; phase: { phase: "that"; kind: "combat"; scope: "contextual" }; boundary: "beginning" }
   /** `to: "any"` denotes the printed event recipient "a player" (each
    * matching player occurrence), not an arbitrary damageable object. */
+  /** combat: true is combat damage only, false is noncombat damage only,
+   * omitted is any damage (CR 120.2). */
   | { trigger: "deals-damage"; what: ObjectRef; combat?: boolean; to?: PlayerRef | ObjectRef | "any" }
-  | { trigger: "is-dealt-damage"; what: ObjectRef }
+  | { trigger: "is-dealt-damage"; what: ObjectRef; combat?: boolean }
+  /** The printed event names only the damaged player and no source, so the
+   * occurrence is the player being dealt damage (CR 120.3a/b, 603.2c); it
+   * is not rewritten as a per-source deals-damage event. */
+  | { trigger: "player-dealt-damage"; who: PlayerRef; combat?: boolean }
   | { trigger: "gains-life"; who: PlayerRef }
   | { trigger: "loses-life"; who: PlayerRef }
   | { trigger: "draws"; who: PlayerRef }
   | { trigger: "discards"; who: PlayerRef; what?: ObjectRef }
-  | { trigger: "sacrifices"; who: PlayerRef; what: ObjectFilter }
+  | { trigger: "sacrifices"; who: PlayerRef; what: ObjectFilter | ObjectRef }
   | { trigger: "scries" | "surveils"; who: PlayerRef }
-  | { trigger: "taps-for-mana"; what: ObjectRef });
+  /** CR 702.110b: the creature's controller sacrifices a creature as its
+   * exploit ability resolves. exploited describes the sacrificed creature. */
+  | { trigger: "exploits"; what: ObjectRef; exploited: ObjectRef }
+  /** CR 700.13: the player casts a spell, activates an ability or puts a
+   * triggered ability on the stack that targets an opponent, something an
+   * opponent controls, or a card in an opponent's graveyard. */
+  | { trigger: "commits-crime"; who: PlayerRef }
+  /** CR 700.14: the total mana this player spent to cast spells this turn
+   * was below amount and reaches at least amount with this payment. */
+  | { trigger: "expends"; who: PlayerRef; amount: number }
+  /** CR 709.5h/j: the permanent gets the unlocked designation of the half
+   * (door) this ability is printed on, on entering or afterwards. */
+  | { trigger: "unlocks-door"; who: PlayerRef; door: "this" }
+  /** Contraption rules are outside the Comprehensive Rules (CR 701.45a
+   * defers to the Unstable FAQ); this names the printed crank event only. */
+  | { trigger: "cranks"; who: PlayerRef; what: ObjectRef }
+  /** CR 106.12/106.12a: a mana ability with {T} in its cost resolves and
+   * produces mana. who, if printed, is the player who activated it. */
+  | { trigger: "taps-for-mana"; what: ObjectRef; who?: PlayerRef });
 
 export type TriggerEventGate =
   | { gate: "condition"; condition: Condition }
@@ -373,6 +438,9 @@ interface EffectBase {
   optional?: true;
   /** "… for each Elf you control." */
   forEach?: ObjectFilter;
+  /** "… for each death vote." The effect is repeated once per vote cast for
+   * that choice by the preceding vote (CR 701.38). */
+  forEachVote?: { choice: string };
   /** "… until end of turn." */
   duration?: Duration;
 }
@@ -444,6 +512,15 @@ export type Effect = EffectBase &
      * count and applicable modifiers, followed by that table again. This is
      * distinct from rerolling a natural result as a modifier under 706.2b. */
     | { effect: "roll-again"; who: PlayerRef; of: { roll: "enclosing-table" } }
+    /** CR 705: `who` flips `count` coins (a flip "until you lose" repeats). A
+     * called flip is won or lost by the flipper (705.2); a result-only flip
+     * comes up heads or tails. Every outcome clause printed after the flip
+     * belongs here (never a separate sentence), and all outcomes of one flip
+     * use the same vocabulary: win/lose or heads/tails. */
+    | { effect: "flip-coin"; who: PlayerRef; count: Amount; until?: "lose"; outcomes?: CoinFlipOutcome[] }
+    /** The game, not a player, selects at random among the matching objects or
+     * players; nobody chooses and nothing is targeted. */
+    | { effect: "choose-random"; what: ObjectRef | PlayerRef }
     | { effect: "draw"; who: PlayerRef; amount: Amount }
     | { effect: "get-counters"; who: PlayerRef; counter: CounterSpec; count: Amount }
     | { effect: "get-emblem"; who: PlayerRef; abilities: GainedAbility[] }
@@ -454,6 +531,31 @@ export type Effect = EffectBase &
     /** CR 701.27–28: turn the existing double-faced permanent over, not a
      * zone change and not the face-up/face-down game action. */
     | { effect: "transform" | "convert"; what: ObjectRef; who?: PlayerRef }
+    /** CR 710.4: flipping a flip-card permanent is a one-way status change,
+     * distinct from transforming and from turning face up/down. */
+    | { effect: "flip"; what: ObjectRef }
+    /** CR 701.40a/701.58a: `who` turns each card face down and puts it onto
+     * the battlefield face down. A cloaked permanent also has ward {2}
+     * (701.58a). Several cards are processed one at a time (701.40e/701.58e);
+     * `what` names the cards, not the resulting permanents. */
+    | { effect: "manifest" | "cloak"; who: PlayerRef; what: ObjectRef }
+    /** CR 701.62a: look at the top two cards of the library, manifest one and
+     * put the other into the graveyard; `times` repeats the whole procedure. */
+    | { effect: "manifest-dread"; who: PlayerRef; times?: Amount }
+    /** CR 708.2a/708.8: an object turned face down becomes a 2/2 face-down
+     * creature unless the instruction lists other characteristics; turning
+     * face up restores its normal characteristics. Not transform (701.27b). */
+    | { effect: "turn-face"; what: ObjectRef; face: "up" | "down"; who?: PlayerRef;
+        characteristics?: FaceDownCharacteristics }
+    /** CR 701.35a: until the next turn of the controller of the detaining
+     * spell or ability, the permanent can't attack or block and its
+     * activated abilities can't be activated. */
+    | { effect: "detain"; what: ObjectRef }
+    /** CR 701.60a: the creature becomes suspected; "no longer suspected" ends
+     * that designation (suspected is a designation, 701.60b). */
+    | { effect: "suspect" | "unsuspect"; what: ObjectRef }
+    /** CR 731.1: the game gains the day or night designation. */
+    | { effect: "set-day-night"; to: "day" | "night" }
     /** CR 701.3: attachment legality is checked when the action occurs;
      * this instruction does not itself change control of either object. */
     | { effect: "attach"; what: ObjectRef; to: ObjectRef | PlayerRef; who?: PlayerRef }
@@ -472,23 +574,82 @@ export type Effect = EffectBase &
         targetPolicy: "retain-original" | "alternative-by-kicker";
         /** Declining an optional replacement performs the original effect;
          * this is not an optional action after replacing the original. */
-        replacementChoice?: { who: PlayerRef; declined: "original" } }
+        replacementChoice?: { who: PlayerRef; declined: "original" };
+        /** CR 614.15: the replacement was printed as its own paragraph after
+         * the replaced ability; this is that paragraph's ability word, if
+         * any (207.2c: no rules meaning). The block spans both paragraphs. */
+        abilityWord?: string }
     | { effect: "optional-group"; who: PlayerRef; steps: Effect[] }
+    /** CR 608.2d: exactly one listed instruction is performed, chosen by who
+     * while the effect is applied. It is not a mode announced with the spell
+     * or ability (700.2), and an illegal or impossible option can't be
+     * chosen. A subject, object, or target shared by the printed alternatives
+     * is the same reference (and target selection) in every option. */
+    | { effect: "choice"; who: PlayerRef; options: Effect[] }
     | { effect: "simultaneous"; steps: Effect[] }
     | { effect: "pay-cost"; who: PlayerRef; costs: Cost[] }
     | { effect: "play-card"; instruction: CardPlayInstruction }
     | { effect: "grant-play-permission"; permission: CardPlayInstruction; duration: Duration; durationScope?: "each-permitted-card" }
     | { effect: "grant-look-permission"; permission: LookPermission; duration: Duration }
-    | { effect: "keyword-action"; action: "proliferate" | "populate" | "investigate"; who: PlayerRef }
+    /** CR 305.2: for the duration, raises the number of lands the player can
+     * play in a turn. "May" describes the later land plays; creating this
+     * continuous effect is mandatory (611.2a). See LandPlayAllowance. */
+    | { effect: "additional-land-plays"; allowance: LandPlayAllowance; duration: Duration }
+    /** `times` is "twice" / "N times": the action happens that many times in
+     * sequence, as separate events (not one scaled event). */
+    | { effect: "keyword-action"; action: "proliferate" | "populate" | "investigate"; who: PlayerRef; times?: Amount }
+    /** Designations and player-level keyword actions with no further
+     * parameters: CR 725.2 (become the monarch), 726.2 (take the initiative),
+     * 701.54a (the Ring tempts), 701.48a, 701.61a, 701.56a, 701.51b. */
+    | { effect: "become-monarch" | "take-initiative" | "ring-tempts" | "learn" | "forage" | "time-travel" | "open-attraction"; who: PlayerRef }
+    /** CR 701.49a-c: "venture into the dungeon" (not the quality variants). */
+    | { effect: "venture"; who: PlayerRef }
+    /** CR 701.53a: create an Incubator token with `amount` +1/+1 counters;
+     * `times` repeats it ("incubate 2 that many times"). */
+    | { effect: "incubate"; who: PlayerRef; amount: Amount; times?: Amount }
+    /** CR 701.66a: the implied target ("target land you control") is part of
+     * the instruction, so it is carried here as `what`. */
+    | { effect: "earthbend"; who: PlayerRef; amount: Amount; what: ObjectRef }
+    /** CR 701.65a. */
+    | { effect: "airbend"; who: PlayerRef; what: ObjectRef }
+    /** CR 701.15a: until the next turn of the controller of the spell or
+     * ability that goaded it. The goading player is the controller. */
+    | { effect: "goad"; what: ObjectRef }
+    /** CR 701.63a: the permanent's controller makes a Spirit or adds counters. */
+    | { effect: "endure"; what: ObjectRef; amount: Amount }
+    /** CR 701.71a ("empower Jace N"). */
+    | { effect: "empower-jace"; who: PlayerRef; amount: Amount }
+    /** CR 701.30a-b: `with` is the opponent ("an opponent", "defending player"). */
+    | { effect: "clash"; who: PlayerRef; with: PlayerRef }
+    /** CR 701.38a: every player votes, starting with `starting` when stated.
+     * `secret`: votes are cast secretly and then revealed. */
+    | { effect: "vote"; starting?: PlayerRef; secret?: true; choices: VoteChoices }
+    /** CR 111.10j-r: a Role token (Aura) created attached to `attachedTo`
+     * (CR 303.7a); the role's abilities are those defined by the CR. */
+    | { effect: "create-role"; role: RoleName; count: Amount; attachedTo: ObjectRef; who?: PlayerRef }
+    /** CR 701.70a: draw a card, then discard a card; if a nonland card was
+     * discarded this way, create a 1/1 white Human Soldier creature token. */
+    | { effect: "keyword-action"; action: "recruit"; who: PlayerRef }
+    /** CR 701.68: who puts amount -1/-1 counters on one creature they
+     * control, chosen as the action is performed. A player who cannot do so
+     * cannot choose to blight (701.68b). */
+    | { effect: "blight"; who: PlayerRef; amount: Amount }
     | { effect: "discover"; who: PlayerRef; amount: Amount }
     | { effect: "amass"; subtype: string; amount: Amount }
     | { effect: "adapt" | "monstrosity" | "bolster" | "support"; amount: Amount }
-    | { effect: "explore" | "connive"; what: ObjectRef }
+    /** `times`: "explores X times" / "explores, then it explores again". */
+    | { effect: "explore"; what: ObjectRef; times?: Amount }
+    /** `amount`: connive N (CR 701.50d). */
+    | { effect: "connive"; what: ObjectRef; amount?: Amount }
     | { effect: "damage"; source: ObjectRef; amount: Amount; to: DamageTarget }
     /** A no-regeneration rider modifies this destruction (CR 608.2c),
      * rather than resolving after the permanent has already been destroyed. */
     | { effect: "destroy"; what: ObjectRef; regenerationForbidden?: true }
-    | { effect: "exile"; what: ObjectRef; from?: ZoneRef; who?: PlayerRef }
+    /** CR 406.3: "face down" is information-bearing; a face-down exiled card
+     * has no characteristics and cannot be examined except as instructed.
+     * `counters` are on the card as it arrives in exile (CR 702.62a's
+     * "exile it with N time counters on it"), not a later put-counters step. */
+    | { effect: "exile"; what: ObjectRef; from?: ZoneRef; who?: PlayerRef; faceDown?: true; counters?: { counter: CounterSpec; count: Amount }[] }
     /** CR 610.3: one simultaneous exile move linked to a second one-shot
      * return, not a delayed triggered ability or a duration on ordinary exile.
      * If the return event already occurred within the CR 610.3a/b window,
@@ -497,13 +658,26 @@ export type Effect = EffectBase &
     | { effect: "exile-until"; what: ObjectRef[]; from?: ZoneRef; who?: PlayerRef;
         until: { event: "leaves-battlefield"; what: ObjectRef };
         return: { to: "previous-zone"; battlefieldController: "owner" } }
-    | { effect: "counter"; what: ObjectRef }
+    | { effect: "counter"; what: ObjectRef; countered?: CounteredSpellDestination }
     | { effect: "move-zone"; what: ObjectRef; to: ZoneRef; from?: ZoneRef; tapped?: boolean; controller?: "you" | "owner"; order?: "any" | "random"; who?: PlayerRef; entry?: BattlefieldEntryModifiers }
-    | { effect: "return-to-hand"; what: ObjectRef; to: "your" | "owner"; from?: ZoneRef; who?: PlayerRef }
+    /** `their` keeps the printed pronoun for the hand of the acting or just
+     * mentioned player; CR 400.3 still sends each card to its owner's hand. */
+    | { effect: "return-to-hand"; what: ObjectRef; to: "your" | "owner" | "their"; from?: ZoneRef; who?: PlayerRef }
     | { effect: "create-token"; count: Amount; token: TokenSpec; who?: PlayerRef }
     | { effect: "pump"; what: ObjectRef; power: SignedAmount; toughness: SignedAmount }
+    /** CR 701.10a-c / 701.11: doubling (or tripling) power and/or toughness is
+     * a layer 7c modifier (+X/+0, +0/+X) computed from the value as the
+     * effect begins to apply. It is not a set-value effect. `times` repeats
+     * the doubling, each time from the value then current. */
+    | { effect: "multiply-pt"; what: ObjectRef; stat: "power" | "toughness" | "both"; factor: "double" | "triple"; times?: Amount }
+    /** CR 613.4d (layer 7d), 701.12g exclusion: a switch is a continuous
+     * effect with a duration, not an exchange of two numerical values. */
+    | { effect: "switch-pt"; what: ObjectRef }
     | { effect: "set-pt"; what: ObjectRef; power: Amount; toughness: Amount }
     | { effect: "lose-abilities"; what: ObjectRef; removal: AbilityRemoval }
+    /** CR 113.11: the objects lose each listed ability and no effect or
+     * keyword counter can add it while this effect lasts. */
+    | { effect: "cant-have-abilities"; what: ObjectRef; abilities: KeywordInstance[] }
     /** The printed pronoun "they" alone does not establish whether its
      * recipient is an object set or a player (CR 109.1, 113.1). Keep that
      * distinction unresolved until antecedent binding, rather than treating
@@ -511,24 +685,54 @@ export type Effect = EffectBase &
     | { effect: "gain-abilities"; what: ObjectRef | { recipient: "they" }; abilities: GainedAbility[] }
     | { effect: "player-gain-abilities"; who: PlayerRef; abilities: GainedAbility[] }
     | { effect: "gain-life" | "lose-life"; who: PlayerRef; amount: Amount }
+    /** CR 701.10d: gain or lose life so the new total is twice the current. */
+    | { effect: "double-life-total"; who: PlayerRef }
+    /** CR 701.10f: add as much of each type of mana as is already in the pool. */
+    | { effect: "double-mana-pool"; who: PlayerRef }
     /** An explicit instruction to win/lose, subject to game rules and
      * replacement/prohibition effects (CR 104.2b, 104.3e), not life loss. */
     | { effect: "win-game" | "lose-game"; who: PlayerRef }
     | { effect: "tap" | "untap"; what: ObjectRef; who?: PlayerRef }
+    /** CR 506.4: the permanent stops being an attacking, blocking, blocked
+     * and/or unblocked creature (or stops being attacked). It does not
+     * change zones or tapped status, and is ineffective outside combat. */
+    | { effect: "remove-from-combat"; what: ObjectRef }
     | { effect: "untap-step-suppression"; what: ObjectRef; step: UntapStepWindow }
     | { effect: "sacrifice"; who: PlayerRef; what: ObjectRef; chosenBy?: PlayerRef }
     | { effect: "discard"; who: PlayerRef; what: ObjectRef | "hand"; random?: boolean }
     | { effect: "mill"; who: PlayerRef; amount: Amount }
-    | { effect: "scry" | "surveil"; amount: Amount }
+    | { effect: "scry" | "surveil"; amount: Amount; who?: PlayerRef }
     | { effect: "put-counters"; counter: CounterSpec; count: Amount; on: ObjectRef; who?: PlayerRef }
-    | { effect: "remove-counters"; counter: CounterSpec; count: Amount | "all"; from: ObjectRef }
-    | { effect: "add-mana"; who: PlayerRef; mana: ManaProduction; restriction?: ManaSpendingRestriction }
+    /** counter "any": the removing player chooses among the counters present,
+     * of any kinds. upTo permits any smaller number, including zero. */
+    | { effect: "remove-counters"; counter: CounterSpec | "any"; count: Amount | "all"; from: ObjectRef; upTo?: true }
+    /** CR 701.10e: give the player or permanent as many counters of that kind
+     * as it already has. "each-kind" doubles every kind separately. */
+    | { effect: "double-counters"; on: ObjectRef; counter: CounterSpec | "each-kind" }
+    /** CR 122.5: remove counters from `from`, then put them onto `to`. If either
+     * half is impossible nothing moves. `"any"` is any kind of counter; with a
+     * count of 1 the kind is chosen on resolution, with "all" every kind moves. */
+    | { effect: "move-counters"; counter: CounterSpec | "any"; count: Amount | "all"; from: ObjectRef; to: ObjectRef }
+    /** CR 601.2d / 608.2d: the division is announced with the targets (or, for
+     * an untargeted group, chosen on resolution); each recipient gets at least one. */
+    | { effect: "distribute-counters"; counter: CounterSpec; count: Amount; among: ObjectRef }
+    | { effect: "add-mana"; who: PlayerRef; mana: ManaProduction; restriction?: ManaSpendingRestriction; riders?: ManaSpendingRider[] }
     | { effect: "search"; who: PlayerRef; zones: SearchZones; for: ObjectRef }
     | { effect: "shuffle"; who: PlayerRef; library: ZoneRef }
     /** One grouped move followed by a library shuffle even when no specified
      * objects move (CR 701.24c–d), not a shuffle conditional on moving a card. */
     | { effect: "shuffle-into-library"; who: PlayerRef; what: ObjectRef[]; library: ZoneRef }
     | { effect: "gain-control"; who: PlayerRef; what: ObjectRef }
+    /** CR 701.12a-b: all-or-nothing and simultaneous; the operands are either
+     * two refs or one selection of exactly two objects. Same controller: no-op. */
+    | { effect: "exchange-control"; what: ObjectRef[] }
+    /** CR 701.12c: each player gains or loses life to equal the other's total. */
+    | { effect: "exchange-life-totals"; between: [PlayerRef, PlayerRef] | ({ players: "two-target" } & TargetSelection) }
+    /** CR 701.12g: each value becomes the other's previous value. A life total
+     * is adjusted by gain/loss; power/toughness by a layer 7b setting effect. */
+    | { effect: "exchange-values"; a: ExchangeValue; b: ExchangeValue }
+    /** CR 701.12d/f: exchange the contents of two zones of one player. */
+    | { effect: "exchange-zones"; a: ZoneRef; b: ZoneRef }
     | { effect: "reveal"; who: PlayerRef; what: ObjectRef }
     /** Process successive cards from the top, including the last match.
      * Reveal keeps those cards in the library (701.20b); exile moves each
@@ -540,6 +744,8 @@ export type Effect = EffectBase &
     | { effect: "look-at"; who: PlayerRef; what: ObjectRef | LookTop }
     | { effect: "fight"; a: ObjectRef; b: ObjectRef }
     | { effect: "modal"; count: ModalCount; options: ModalOption[]; allowRepeat?: true;
+        /** The modes are selected by the game at random, not by a player. */
+        random?: true;
         keyword?: "spree" | "tiered";
         /** The same modal ability on this source remembers chosen modes;
          * changing zones creates a new source object (CR 400.7). */
@@ -559,18 +765,43 @@ export type Effect = EffectBase &
     | { effect: "prevent-damage"; prevention: DamagePrevention }
     | { effect: "prohibit"; prohibition: GameProhibition }
     | { effect: "cast-limit"; limit: CastLimit }
+    /** A payment adjustment created on resolution for its stated duration
+     * (CR 601.2f, 611.2a); it never changes a mana cost or mana value. */
+    | ({ effect: "cost-modification"; scope: CostModificationScope } & CostModification)
     | { effect: "become"; what: ObjectRef; spec: BecomeSpec }
     /** One continuous effect across layers 4–7 (CR 613.6). The affected
      * objects and direct values are fixed when it begins (611.2c/d);
      * calculations inside granted abilities remain those abilities' own
      * calculations. Ordinary grants cannot create CDAs (604.3a). */
     | { effect: "modify-characteristics"; what: ObjectRef;
-        modifiers: ResolvingCharacteristicModifier[]; snapshot: "effect-created" }
+        modifiers: ResolvingCharacteristicModifier[]; snapshot: "effect-created";
+        /** CR 611.2e: stated as "is/isn't [characteristic]" or "has
+         * [characteristic]" instead of "becomes". If this resolution also
+         * puts the affected nontoken permanent onto the battlefield, the
+         * effect applies simultaneously with that entry rather than once
+         * the permanent is there. */
+        statedAs?: "is" | "has" }
     | { effect: "cant"; what: ObjectRef; action: CantAction }
+    /** CR 509.1h, 509.3c-d: an effect makes the attacker a blocked creature
+     * without any creature blocking it. */
+    | { effect: "become-blocked"; what: ObjectRef }
     | { effect: "combat-rule"; what: ObjectRef; rule: CombatRule }
   );
 
+/** CR 608.2c, 701.6a: later text modifies the counter event itself. A spell
+ * actually countered by that instruction is put `to` instead of into its
+ * owner's graveyard; a spell that isn't countered doesn't move. `only`
+ * limits this to matching countered spells (Desertion); `controller` is
+ * printed for a battlefield destination. Never a later zone-change effect. */
+export interface CounteredSpellDestination { to: ZoneRef; only?: ObjectFilter; controller?: "you" }
+
 export interface LookTop { top: Amount; of: ZoneRef }
+
+export interface CoinFlipOutcome { result: "win" | "lose" | "heads" | "tails"; effects: Sentence[] }
+
+export type ExchangeValue =
+  | { value: "life-total"; of: PlayerRef }
+  | { value: "power" | "toughness"; of: ObjectRef };
 
 /** Modifies the same battlefield-entry event. Counters and attachments are
  * already present as it enters; these are never later put-counter/attach
@@ -582,6 +813,22 @@ export interface BattlefieldEntryModifiers {
    * each entering creature unless this instruction names its defender. */
   attacking?: { choice: "entering-controller" } | { defender: PlayerRef | ObjectRef };
   attachedTo?: PlayerRef | ObjectRef;
+  /** CR 712.14a: a double-faced card put onto the battlefield "transformed"
+   * or "converted" enters with its back face up. */
+  face?: "transformed" | "converted";
+  /** CR 708.2–708.3: put onto the battlefield face down, turned face down
+   * before it enters. Without listed characteristics it is a 2/2 face-down
+   * creature (708.2a). */
+  faceDown?: { characteristics?: FaceDownCharacteristics };
+}
+
+/** The characteristics an effect lists for a face-down object (CR 708.2);
+ * a face-down object has no other characteristics. */
+export interface FaceDownCharacteristics {
+  power?: Amount;
+  toughness?: Amount;
+  types: string[];
+  subtypes: string[];
 }
 
 export type ModalCount =
@@ -603,15 +850,24 @@ export interface ModalOption {
 }
 
 export type DamageTarget =
-  | ({ to: "any-target" } & TargetSelection)
+  | ({ to: "any-target"; random?: true } & TargetSelection)
   | { to: "object"; ref: ObjectRef }
   | { to: "player"; ref: PlayerRef }
+  /** CR 508.1b, 506.4c: whatever the referenced creature is attacking as the
+   * damage is dealt, if it is one of the printed kinds; otherwise there is
+   * no recipient. Neither a target nor a choice. */
+  | { to: "attacked"; by: ObjectRef; kinds: ("player" | "planeswalker" | "battle")[] }
   | { to: "each"; refs: (ObjectRef | PlayerRef)[] }
-  | { to: "divided"; among: ObjectRef };
+  /** CR 601.2d: "divided as you choose" is announced with the targets; "evenly,
+   * rounded down" is split equally by the game with no choice. */
+  | { to: "divided"; among: ObjectRef; evenly?: "round-down" };
 
 /** Recurring windows are checked whenever the prohibited action is proposed;
  * they are not an expiry such as "this combat" (CR 611.2c, 611.3a). */
-export type ProhibitionWindow = { during: "combat" } | { during: "turn"; whose: PlayerRef };
+export type ProhibitionWindow = { during: "combat" } | { during: "turn"; whose: PlayerRef }
+  /** One identified turn: the next turn of the stated player after the
+   * effect is created. "That player" is each prohibited player in turn. */
+  | { during: "next-turn"; whose: PlayerRef };
 
 /** "Their hands" is evaluated independently for each acting player, never
  * the union of every affected player's hand. Missing owner permits any owner. */
@@ -692,8 +948,33 @@ export interface DamagePrevention {
 }
 
 export type GainedAbility =
-  | { gained: "keyword"; keyword: KeywordInstance; protectionAttachmentException?: ProtectionAttachmentException }
+  | { gained: "keyword"; keyword: KeywordInstance; protectionAttachmentException?: ProtectionAttachmentException;
+      /** The keyword's cost parameter, printed as its own sentence ("The
+       * flashback cost is equal to its mana cost") instead of after the name. */
+      costDefinition?: GrantedKeywordCost }
+  /** Exactly `count` of the listed keywords, chosen by `who` while the
+   * granting instruction is applied (CR 608.2d); the choice is not a target
+   * and the unchosen keywords are not granted. One choice per instruction. */
+  | { gained: "keyword-choice"; who: PlayerRef; count: Amount; options: KeywordInstance[]; when: "granting-effect-applies" }
+  /** Every ability of the listed kinds that the referenced objects have, as
+   * abilities of the recipient (CR 113.10, 201.5b: a gained ability's name
+   * references mean the recipient). A static grant reevaluates the referenced
+   * objects and their abilities (611.3a); a resolving grant determines them
+   * once (608.2h). `except` removes that class from the granted set. */
+  | { gained: "abilities-of"; kinds: ("activated" | "triggered" | "loyalty")[]; of: ObjectRef; except?: "mana-abilities" }
   | { gained: "quoted"; ability: Ability };
+
+/** A granted keyword's cost computed for each object that has the keyword:
+ * that object's own mana cost (CR 202.1), which alternative costs and cost
+ * changes never alter (118.9c). `reducedBy` is the printed "reduced by"
+ * mana, applied to this cost as a reduction (118.7); `additional` are the
+ * further printed components after "plus". An object without a mana cost
+ * yields an unpayable cost (118.6), not a free one. */
+export interface GrantedKeywordCost {
+  manaCostOf: "each-recipient";
+  reducedBy?: string[];
+  additional?: Cost[];
+}
 
 /** CR 702.16n/p: an exception belongs to this particular protection grant.
  * It affects only attachment state-based actions, not targeting or permission
@@ -709,8 +990,22 @@ export type ProtectionAttachmentException =
  * CR 613.1f, 613.4b; choosing one keyword is not removing every option. */
 export type AbilityRemoval =
   | { removal: "all" }
+  /** "loses all other abilities": every ability except those this same
+   * continuous effect gives the object; both parts apply in layer 6 with one
+   * timestamp (CR 613.1f, 613.6). */
+  | { removal: "all-other"; than: "abilities-granted-by-this-effect" }
   | { removal: "listed"; abilities: GainedAbility[] }
   | { removal: "choice"; who: PlayerRef; count: Amount; options: KeywordInstance[] };
+
+/** What a vote is for (CR 701.38b): words connected to different effects,
+ * objects, or players. */
+export type VoteChoices =
+  | { choices: "named"; names: string[] }
+  | { choices: "objects"; filter: ObjectFilter }
+  | { choices: "players"; other?: true };
+
+/** CR 111.10j-r: the Role tokens defined by the Comprehensive Rules. */
+export type RoleName = "Cursed" | "Monster" | "Royal" | "Sorcerer" | "Virtuous" | "Wicked" | "Young Hero";
 
 export type PredefinedTokenName = "Treasure" | "Food" | "Gold" | "Walker" | "Shard" | "Clue" | "Blood" | "Powerstone" | "Incubator" | "Map" | "Junk" | "Lander" | "Mutagen" | "Vibranium" | "Heartwood";
 
@@ -759,14 +1054,21 @@ export interface BecomeSpec {
 
 export type ResolvingCharacteristicModifier =
   | { modifier: "types"; change: TypeChange }
-  | { modifier: "colors"; operation: "set" | "add"; colors: Color[] }
-  | { modifier: "base-pt"; power: Amount; toughness: Amount;
+  | { modifier: "colors"; operation: "set" | "add"; colors: Color[] | ChosenValueRef<"color"> | FreshCharacteristicChoice<"color"> }
+  /** CR 613.4b: an unstated base value keeps its current definition. */
+  | ({ modifier: "base-pt";
       /** A bare possessive in a direct value denotes this affected object,
        * while an explicit source reference still denotes the source. */
-      valueScope?: "each-affected-object" }
+      valueScope?: "each-affected-object" } & (
+      | { power: Amount; toughness?: Amount }
+      | { power?: Amount; toughness: Amount }))
   | { modifier: "abilities"; abilities: GainedAbility[] };
 
-export type CantAction = "attack" | "block" | "attack-or-block" | "be-blocked" | "untap" | "be-countered" | "be-regenerated";
+/** "phase-in"/"phase-out" (CR 702.26), "transform" (CR 701.27; also blocks
+ * converting, 701.28f), "be-turned-face-up" (CR 708) and "become-suspected"
+ * (CR 701.60) are status-change prohibitions. */
+export type CantAction = "attack" | "block" | "attack-or-block" | "be-blocked" | "untap" | "be-countered" | "be-regenerated"
+  | "phase-in" | "phase-out" | "transform" | "be-turned-face-up" | "become-suspected";
 
 export type CombatDefender =
   | { defender: "player"; who: PlayerRef }
@@ -784,7 +1086,22 @@ export type CombatRule = { condition?: Condition; conditionKind?: "if" | "unless
   | { rule: "blocking-filter"; mode: "exclude" | "only"; attackers: ObjectRef }
   | { rule: "block-capacity"; capacity: { additional: Amount } | { maximum: Amount | "unlimited" } }
   | { rule: "attack-requirement"; frequency: "each-combat" | "each-turn"; defender?: CombatDefender }
+  /** CR 509.1c: each affected creature blocks if able, at every declare
+   * blockers step while the rule exists. With attackers, each must block
+   * that attacker; "all creatures able to block X do so" is this rule on
+   * every creature. Absent attackers, any legal block satisfies it. */
+  | { rule: "block-requirement"; attackers?: ObjectRef }
+  /** CR 509.1c: the affected attacker must be blocked if able. This is one
+   * requirement on the defending player's declaration, satisfied by a single
+   * qualifying blocker, not a requirement on each potential blocker.
+   * blockers limits which creatures satisfy it; count is the printed number
+   * of creatures that must block it if able. */
+  | { rule: "blocked-requirement"; blockers?: ObjectRef; count?: Comparison }
   | { rule: "attack-restriction"; defenders: CombatDefender[] }
+  /** CR 506.5: alone means the only creature declared as an attacker or as
+   * a blocker in that declaration. exclude forbids being declared alone;
+   * only forbids being declared together with any other creature. */
+  | { rule: "alone-restriction"; action: "attack" | "block"; mode: "exclude" | "only" }
   | { rule: "all-of"; rules: CombatRule[] }
 );
 
@@ -804,12 +1121,26 @@ export type ManaProduction =
  * spells generally. Allowed payment purposes are alternatives. */
 export interface ManaSpendingRestriction {
   restriction: "only" | "not";
-  uses: (
-    | { use: "cast"; filter: ObjectFilter; from?: ZoneRef }
-    | { use: "cast-commander"; whose: PlayerRef }
-    | { use: "activate"; source: ObjectFilter }
-  )[];
+  uses: ManaSpendingUse[];
 }
+
+/** One purpose mana can be spent on. An activation purpose without a source
+ * covers every activated ability (CR 602.1). */
+export type ManaSpendingUse =
+  | { use: "cast"; filter: ObjectFilter; from?: ZoneRef }
+  | { use: "cast-commander"; whose: PlayerRef }
+  | { use: "activate"; source?: ObjectFilter };
+
+/** CR 106.6: besides restrictions, produced mana can carry an additional
+ * effect on the spell or ability it is spent on, or a delayed triggered
+ * ability that triggers when it is spent (603.7a). Each unit of the produced
+ * mana carries its own copy (106.6a); "any-of-that" is the printed wording
+ * for several units. In `effects`, "it" / "that spell" / "that creature"
+ * denote the spell or ability the mana was spent on and, for a permanent
+ * spell, the permanent it becomes; they stay symbolic. */
+export type ManaSpendingRider =
+  | { rider: "effect"; mana: "that" | "any-of-that"; spentOn: ManaSpendingUse[]; effects: Sentence[] }
+  | { rider: "delayed-trigger"; spentOn: ManaSpendingUse[]; effects: Sentence[] };
 
 export interface CounterSpec {
   /** "+1/+1", "-1/-1", or a named counter: "charge", "loyalty", "stun" … */
@@ -867,6 +1198,10 @@ export type StaticEffect =
   | { static: "replacement"; replacement: ReplacementInstruction }
   | ({ static: "cost-modification"; scope: CostModificationScope } & CostModification)
   | { static: "as-enters"; what: ObjectRef; effects: Sentence[] }
+  /** CR 708.11: an "As [this permanent] is turned face up" ability is applied
+   * while it is being turned face up, not afterward and not as a trigger.
+   * `alsoEnters` is "As this creature enters or is turned face up". */
+  | { static: "as-turned-face-up"; what: ObjectRef; effects: Sentence[]; alsoEnters?: true }
   /** Optional payment/reveal before entry, with a declined-payment entry
    * modification. This is one replacement choice, not a tap instruction.
    * CR 614.1c, 614.12a–b. */
@@ -874,17 +1209,56 @@ export type StaticEffect =
   | { static: "prevent-damage"; prevention: DamagePrevention }
   | { static: "prohibit"; prohibition: GameProhibition }
   | { static: "cast-limit"; limit: CastLimit }
+  /** CR 603.2d: whenever a matching ability would trigger, it triggers
+   * `additional` more times. Only abilities the matching sources themselves
+   * have are affected, never delayed or reflexive triggers they create, and
+   * the effect neither reapplies to its own additional triggers nor combines
+   * multiplicatively with another such effect. `cause` restricts the event
+   * that made the ability trigger (absent: any event). `condition` is the
+   * printed "while" test, evaluated as the ability triggers. */
+  | { static: "additional-triggers"; abilities: ObjectFilter; cause?: Trigger; additional: number; condition?: Condition }
+  /** CR 603.2/603.6a: an event matching `cause` doesn't make the matching
+   * abilities trigger at all. The same abilities still trigger on other
+   * events, and no ability is removed or countered. */
+  | { static: "trigger-suppression"; abilities: ObjectFilter; cause: Trigger }
   | { static: "play-permission"; permission: CardPlayInstruction }
   | { static: "look-permission"; permission: LookPermission }
+  /** CR 113.6e, 601.3: restricts when this particular object can begin to be
+   * cast. It functions in every zone the card could be cast from and on the
+   * stack; it is never an activation restriction or a condition checked on
+   * resolution. `windows` are alternatives (any one suffices); `condition`
+   * must also be true at that moment. */
+  | { static: "cast-restriction"; what: Extract<ObjectRef, { ref: "self" | "this" }>; windows?: CastWindow[]; condition?: Condition }
+  | { static: "additional-land-plays"; allowance: LandPlayAllowance }
+  /** CR 401.5–6, 701.20a: cards in this hidden zone position stay revealed
+   * to all players while the ability functions; it is not a one-shot reveal
+   * instruction. A newly exposed library top is revealed only after the
+   * current casting, activation, or special action has finished (401.5).
+   * Each affected player's own zone is revealed. */
+  | { static: "play-revealed"; who: PlayerRef; what: "library-top" | "hand" }
   /** CR 903.3a / 113.6n: eligibility during deck construction, not an
    * in-game designation, characteristic, or controller-based permission. */
   | { static: "commander-eligibility"; what: Extract<ObjectRef, { ref: "self" | "this" }>; during: "deck-construction" }
+  /** CR 103.6a: a pregame action with this card from its owner's opening
+   * hand, taken after mulligans in turn order. `who` may put the card onto
+   * the battlefield so the game begins with it there; this is a permission,
+   * never a resolving instruction or a replacement of a later entry. */
+  | { static: "opening-hand-action"; what: Extract<ObjectRef, { ref: "self" | "this" }>; who: PlayerRef; action: "begin-on-battlefield" }
+  /** CR 100.2a / 113.6n: replaces the four-copy limit for cards with this
+   * English name during deck construction (deck and sideboard combined,
+   * 100.4a). Absent maximum means any number. The name is the printed
+   * literal, not a reference to whatever this object is currently named. */
+  | { static: "deck-copy-limit"; name: { name: "literal"; value: string }; maximum?: number; during: "deck-construction" }
   /** CR 502.3: the chooser may omit this object from the simultaneous
    * turn-based untap action; this never prohibits untapping by an effect. */
   | { static: "optional-untap"; who: PlayerRef; what: ObjectRef; step: { occurrence: "each"; owner: PlayerRef } }
   /** CR 118.9: an optional casting payment, never a resolution instruction. */
   | { static: "alternative-cost"; who: PlayerRef; spells: ObjectRef; costs: Cost[]; condition?: Condition }
   | { static: "player-abilities"; who: PlayerRef; abilities: GainedAbility[] }
+  /** CR 613.1b (layer 2): a continuous control-changing effect that lasts
+   * while this static ability functions. It is not a one-shot gain-control
+   * instruction and creates no duration of its own (CR 611.3a). */
+  | { static: "control"; who: PlayerRef; what: ObjectRef }
   | {
       static: "modify";
       what: ObjectRef;
@@ -901,8 +1275,23 @@ export type StaticEffect =
   | { static: "cda-colors"; what: ObjectRef; operation: "set" | "add"; colors: Color[] | ChosenValueRef<"color"> }
   | { static: "cda-types"; what: ObjectRef; change: TypeChange }
   | { static: "enters-tapped"; what: ObjectRef; condition?: Condition; conditionKind?: "if" | "unless" }
+  /** CR 614.1d: the matching permanents enter untapped. This contends with
+   * enters-tapped replacement effects (CR 616.1); it never untaps a
+   * permanent that is already on the battlefield. */
+  | { static: "enters-untapped"; what: ObjectRef }
+  /** CR 110.2, 614.1d, 614.12a: the permanent enters under the chosen
+   * opponent's control. `who` chooses before it enters; this is neither a
+   * target nor a later control-changing effect. */
+  | { static: "enters-under-control"; what: ObjectRef; controller: { choice: "opponent"; who: PlayerRef } }
+  /** CR 614.1c: the permanent has these abilities from the moment it enters,
+   * for as long as it remains on the battlefield. They are granted by the
+   * entry replacement effect and are not part of its copiable values. */
+  | { static: "enters-with-abilities"; what: ObjectRef; abilities: GainedAbility[] }
   | { static: "untap-step-suppression"; what: ObjectRef; step: UntapStepWindow }
-  | { static: "enters-with-counters"; what: ObjectRef; counter: CounterSpec; count: Amount; additional?: true; multiplier?: Amount; condition?: Condition; conditionKind?: "if" | "unless" }
+  | { static: "enters-with-counters"; what: ObjectRef; counter: CounterSpec; count: Amount; additional?: true; multiplier?: Amount; condition?: Condition; conditionKind?: "if" | "unless";
+      /** A printed "where X is" definition, evaluated as the permanent would
+       * enter (CR 614.12); it is not the X of the permanent's mana cost. */
+      bindings?: { variable: "x"; value: Amount }[] }
   | { static: "cant"; what: ObjectRef; action: CantAction; condition?: Condition; conditionKind?: "if" | "unless" }
   | { static: "combat-rule"; what: ObjectRef; rule: CombatRule }
   | { static: "must-attack"; what: ObjectRef };
@@ -917,6 +1306,9 @@ export type StaticModifier = { forEach?: ObjectFilter; multiplier?: Amount;
   valueScope?: "each-affected-object"; condition?: Condition; conditionScope?: "each-affected-object" } & (
   | { modifier: "combat-rule"; rule: CombatRule }
   | { modifier: "cant"; action: CantAction }
+  /** CR 701.15a-b: the affected permanents are goaded for as long as this
+   * static ability applies; the goading player is its controller. */
+  | { modifier: "goaded" }
   | { modifier: "pt"; power: SignedAmount; toughness: SignedAmount }
   | ({ modifier: "base-pt" } & (
       | { power: Amount; toughness?: Amount }
@@ -924,7 +1316,17 @@ export type StaticModifier = { forEach?: ObjectFilter; multiplier?: Amount;
   | { modifier: "colors"; operation: "set" | "add"; colors: Color[] | ChosenValueRef<"color"> }
   | { modifier: "types"; change: TypeChange }
   | { modifier: "lose-abilities"; removal: AbilityRemoval }
+  /** CR 113.11 "can't have": see the cant-have-abilities effect. */
+  | { modifier: "cant-have-abilities"; abilities: KeywordInstance[] }
   | { modifier: "abilities"; abilities: GainedAbility[] });
+
+/** CR 608.2d, 611.2c/d: one value announced by `who` as the resolving effect
+ * is created, shared by every affected object and fixed for its duration.
+ * Neither a target nor a linked earlier choice (607.2d). A color choice of
+ * one-or-more selects a nonempty set of colors; colorless is not a color. */
+export type FreshCharacteristicChoice<Category extends "color" | "creature-type" | "basic-land-type"> = {
+  choice: "fresh-choice"; category: Category; who: PlayerRef; when: "effect-created";
+} & (Category extends "color" ? { quantity: "one" | "one-or-more" } : unknown);
 
 export type SubtypeFamily = "artifact" | "enchantment" | "land" | "planeswalker" | "spell" | "creature" | "battle" | "dungeon";
 /** CR 205.1a-b / 305.7: type operations preserve the relevant family. A set
@@ -934,18 +1336,35 @@ export type SubtypeFamily = "artifact" | "enchantment" | "land" | "planeswalker"
 export interface TypeChange {
   cardTypes?: { operation: "set" | "add" | "remove"; types: string[] };
   subtypes?: { family: SubtypeFamily; operation: "set" | "add" | "remove";
-    types: string[] | { all: true; basic?: boolean } }[];
+    types: string[] | { all: true; basic?: boolean } | FreshCharacteristicChoice<"creature-type" | "basic-land-type"> }[];
+  /** A symbolic earlier subtype choice (CR 205.3e, 607.2d). Its subtype
+   * family is that of the linked choice; setting replaces only that family
+   * and a chosen basic land type still invokes CR 305.7. */
+  chosenSubtype?: { operation: "set" | "add"; choice: NonNullable<ObjectFilter["chosenType"]> };
   supertypes?: { operation: "add" | "remove"; types: string[] };
 }
 
 /** CR 118.7 and 601.2f: a payment adjustment does not change mana cost or
  * mana value. A caster or activation source is not an object controller. */
 export type CostModificationScope =
-  | { action: "cast"; spells: ObjectRef; caster?: PlayerRef; from?: ZoneRef }
+  | { action: "cast"; spells: ObjectRef; caster?: PlayerRef; from?: ZoneRef;
+      /** Cast from any zone except this one ("from anywhere other than your hand"). */
+      notFrom?: ZoneRef; occurrence?: CostModificationOccurrence }
   | { action: "activate"; source?: ObjectRef; activator?: PlayerRef;
       /** An ability's targets are distinct from the object bearing it. */
       abilities?: ObjectRef; keyword?: "equip" | "boast" | "cycling" | "ninjutsu" | "exhaust" | "power-up";
-      loyalty?: true };
+      loyalty?: true; occurrence?: CostModificationOccurrence }
+  /** Every payment of the named keyword cost, whichever kind of cost that
+   * keyword defines: alternative (flashback 702.34a, dash 702.109a),
+   * additional (buyback 702.27a), or special-action (morph 116.2b, unlock
+   * 116.2m). The cost to cast a spell face down is not a morph cost. */
+  | { action: "pay-cost"; cost: "flashback" | "buyback" | "dash" | "morph" | "unlock"; payer?: PlayerRef };
+
+/** Which of the stated actor's matching casts or activations are adjusted.
+ * An ordinal counts all of that actor's matching ones within each turn;
+ * "next" is the first matching one after a resolving effect is created,
+ * which uses that effect up. */
+export type CostModificationOccurrence = { ordinal: number; period: "turn" } | { next: true };
 
 /** Shared payment adjustment. On an activated or loyalty ability, this
  * applies to that ability's total activation cost, before it resolves.
@@ -987,6 +1406,48 @@ export interface CardPlayInstruction {
     | { maximum: Amount; period: "permission" };
   /** Alters acceptable payment only; does not change mana actually spent. */
   manaPayment?: "any-color" | "any-type";
+  riders?: PermissionRider[];
+}
+
+/** A consequence tied to using a play permission. Its sentence forms one
+ * instruction with the permission (CR 608.2c), so it is never a test made
+ * while the granting ability resolves. Inside a rider, `it` and "that
+ * creature" denote the spell cast (or land played) this way and then the
+ * permanent it becomes. */
+export type PermissionRider =
+  /** CR 614.1c, 614.12: modifies how that permanent enters the battlefield.
+   * `appliesTo` restricts the rider to matching spells cast this way. */
+  | { rider: "entry"; appliesTo?: ObjectFilter; tapped?: true; counters?: NonNullable<BattlefieldEntryModifiers["counters"]> }
+  /** CR 307.5a: applies if the spell was cast this way without priority,
+   * outside its controller's main phase, or while another object was on the
+   * stack. The instructions are carried out as it is cast. */
+  | { rider: "cast-off-sorcery-timing"; effects: Sentence[] };
+
+/** CR 506.8: the point of a turn that bounds a casting window. Declaration
+ * points mean the beginning of that step, whether or not anything is
+ * declared (506.8a–b). Without a during-combat window in the same CastWindow
+ * a combat point refers to the first combat phase of the turn (506.8d–e);
+ * with one it applies within each combat phase (506.8c, 506.8f). */
+export type CastTimingPoint = "combat" | "attackers-declared" | "blockers-declared" | "combat-damage-step" | "upkeep-step";
+
+/** All stated parts must hold together as the spell would begin to be cast. */
+export interface CastWindow {
+  /** Whose turn it must be, relative to the would-be caster. Absent: any. */
+  turn?: "your" | "opponent";
+  /** The phase or step that must be the current one. */
+  during?: "combat" | "declare-attackers" | "declare-blockers" | "upkeep" | "end-step";
+  before?: CastTimingPoint;
+  after?: CastTimingPoint;
+}
+
+/** CR 305.2: the number of lands a player can play during each of their own
+ * turns is one plus every applicable allowance; 305.2a compares that number
+ * with the lands already played. This neither plays a land nor permits
+ * playing one outside the player's own main phase (305.3, 505.6b). A
+ * quantified player gets the allowance on each of their own turns. */
+export interface LandPlayAllowance {
+  who: PlayerRef;
+  additional: Amount | "unlimited";
 }
 
 /** CR 614.1, 614.5–6, 614.11, 614.16 and 616.1: these are prospective
@@ -1061,6 +1522,11 @@ export type Condition =
   /** CR 508.4: having attacked requires declaring an attacker; merely
    * controlling a creature put onto the battlefield attacking is insufficient. */
   | { condition: "attacked"; who: PlayerRef; during: "this-turn" | "this-combat"; with?: ObjectFilter }
+  /** Passive counterpart: a creature was declared as an attacker against
+   * this player during the current step (CR 508.1b). The printed text does
+   * not say whether an attack on the player's planeswalker or battle
+   * qualifies; this node asserts only the printed predicate. */
+  | { condition: "was-attacked"; who: PlayerRef; during: "this-step" }
   /** Historical declared combat actions, distinct from current attacking or
    * blocking status. Shared-subject alternatives use explicit any-of nodes. */
   | { condition: "combat-action-history"; what: ObjectRef; action: "attacked" | "blocked"; during: "this-turn" | "this-combat" }
@@ -1084,7 +1550,7 @@ export type Condition =
    * are evaluated at that movement, not using the object's current state.
    * A dies history is battlefield -> graveyard (CR 700.4). */
   | { condition: "zone-change-history";
-      event: "dies" | "enters" | "leaves-battlefield" | "put-into-zone";
+      event: "dies" | "enters" | "leaves-battlefield" | "leaves-zone" | "put-into-zone";
       subject: { match: "filter"; filter: ObjectFilter; comparison: Comparison } | { match: "object"; what: ObjectRef };
       from?: ZoneRef | "anywhere"; to?: ZoneRef; controllerAtMove?: PlayerRef; during: "this-turn" | "this-combat" }
   | { condition: "targets"; what: ObjectRef; target: ObjectRef | PlayerRef }
@@ -1097,18 +1563,60 @@ export type Condition =
   | { condition: "not"; of: Condition }
   /** CR 702.33d–f: records how many kicks and the linked kicker cost, if specified. */
   | { condition: "kicked"; what: ObjectRef; comparison: Comparison; kickerCost?: Cost[] }
+  /** A keyword's own linked casting/entry decision, as its rule defines it:
+   * bargained (CR 702.166b), gift promised (702.174k), evidence collected
+   * (701.59c), tribute paid (702.104b), escaped (702.138b), or cast for the
+   * keyword's alternative cost (prowl 702.76a, surge 702.117a, madness
+   * 702.35b, spectacle 702.137a). `what` is the printed spell or the
+   * permanent it became (400.7d); when the text names no object, the query
+   * belongs to the object bearing this linked ability (607.2). */
+  | { condition: "keyword-choice"; keyword: LinkedChoiceKeyword; what?: ObjectRef }
+  /** This spell was cast by paying the alternative cost its own text offers
+   * with exactly these components (CR 118.9, 607.2). */
+  | { condition: "alternative-cost-paid"; cost: Cost[] }
+  /** Resolutions of this same ability of this source during the period,
+   * counting the current one; a copy counts as the same ability (CR
+   * 707.10b). True when that count is any listed ordinal. */
+  | { condition: "ability-resolution-ordinal"; ordinals: number[]; during: "this-turn" }
+  /** Activations of this same ability of this source during the period,
+   * including the one resolving (CR 602.2). */
+  | { condition: "ability-activation-count"; comparison: Comparison; during: "this-turn" }
   /** Gross life gained/lost over the period, not a net life-total change. */
   | { condition: "life-change"; who: PlayerRef; change: "gained" | "lost"; comparison: Comparison; during: "this-turn" }
+  /** Completed actions by one matching player during the period. The
+   * comparison counts objects (sacrifice, discard, draw, create-token,
+   * cycle) or occurrences (the rest). Filters describe each object as the
+   * action happened, not its current state (CR 608.2i). */
+  | { condition: "player-action-history"; who: PlayerRef; action: PlayerHistoryAction; comparison: Comparison;
+      during: "this-turn" | "last-turn" }
   | { condition: "cast-count"; who: PlayerRef | "all-players-combined"; what: ObjectFilter; comparison: Comparison; during: "this-turn" | "last-turn"; from?: ZoneRef }
-  | { condition: "control"; who: PlayerRef; what: ObjectRef }
+  /** time "previous" is the referenced object's last existence before the
+   * instruction just applied to it moved or destroyed it (CR 608.2h). */
+  | { condition: "control"; who: PlayerRef; what: ObjectRef; time?: "previous" }
   | { condition: "control-count"; who: PlayerRef; of: ObjectFilter; comparison: Comparison }
+  /** The same quantity measured for two player operands. Each operand keeps
+   * its printed quantifier: an opponent / a player is existential, each
+   * opponent / each other player universal. Every pair is compared
+   * separately; quantities of several players are never summed. */
+  | { condition: "player-comparison"; who: PlayerRef; quantity: PlayerQuantity; op: "gt" | "lt";
+      than: PlayerRef | { player: "each-other-player" } }
   /** There exists a subset of the controlled eligible objects of at least
    * minimum size satisfying all group constraints. This makes no choice and
    * need not include every controlled object. Names obey CR201.2b, including
    * objects with multiple names and nameless objects. */
   | { condition: "controls-subset"; who: PlayerRef; of: ObjectFilter; minimum: Amount; groupConstraints: GroupConstraint[] }
+  /** CR 701.38: the result of the preceding vote. "more" is strictly more
+   * votes than the other choice; "most" is strictly the most votes;
+   * "-or-tied" also holds when the vote is tied (for "more": "or the vote is
+   * tied"; for "most": "or is tied for the most votes"). */
+  | { condition: "vote-result"; choice: string; result: "more" | "more-or-tied" | "most" | "most-or-tied" }
+  /** CR 701.30d: the contextual preceding clash was won by `who`. */
+  | { condition: "clash-result"; who: PlayerRef; result: "won" }
   | { condition: "you-do" }
   | { condition: "you-dont" }
+  /** CR 118.12: the player could not begin the mandatory action of the
+   * immediately preceding instruction. Not a declined optional action. */
+  | { condition: "preceding-action"; who: PlayerRef; outcome: "unable" }
   | { condition: "pays"; who: PlayerRef; cost: Cost[] }
   | { condition: "status"; what: ObjectRef; status: string; time?: "previous" }
   | { condition: "is-filter"; what: ObjectRef; filter: ObjectFilter; time?: "previous" }
@@ -1116,8 +1624,39 @@ export type Condition =
   | { condition: "life-total"; who: PlayerRef; comparison: Comparison }
   | { condition: "your-turn" }
   | { condition: "not-your-turn" }
+  /** The active player is one of the stated players (CR 102.1). */
+  | { condition: "turn-of"; who: PlayerRef }
+  /** Monarch (CR 725) and the initiative (726) have at most one holder; any
+   * number of players can have the city's blessing (702.131c). `a-player`
+   * asks whether any player currently holds the designation. */
+  | { condition: "designation"; who: PlayerRef; designation: PlayerDesignation }
+  /** CR 731.1: a designation of the game itself; "neither" holds until it
+   * first becomes day or night. */
+  | { condition: "day-night"; state: "day" | "night" | "neither" }
+  /** CR 309.7: this player has completed at least one dungeon this game. */
+  | { condition: "completed-dungeon"; who: PlayerRef }
+  /** CR 700.8c: four creatures in that player's party. */
+  | { condition: "full-party"; who: PlayerRef }
   | { condition: "remains"; what: ObjectRef; zone: ZoneRef }
   | { condition: "cards-in-hand"; who: PlayerRef; comparison: Comparison };
+
+export type PlayerDesignation = "monarch" | "initiative" | "city's-blessing";
+
+export type LinkedChoiceKeyword = "bargain" | "gift" | "collect-evidence" | "tribute" | "escape"
+  | "prowl" | "surge" | "madness" | "spectacle";
+
+/** A per-player quantity for player-comparison. `of` has no controller of
+ * its own; each compared player supplies it. */
+export type PlayerQuantity =
+  | { quantity: "controlled-count"; of: ObjectFilter }
+  | { quantity: "cards-in-hand" }
+  | { quantity: "life-total" };
+
+/** CR 701.21 (sacrifice), 701.9 (discard), 121 (draw), 111 (tokens),
+ * 702.29 (cycle), 305 (land plays), 700.13 (crimes), 701.22/701.25. */
+export type PlayerHistoryAction =
+  | { action: "sacrifice" | "discard" | "create-token" | "cycle"; what: ObjectFilter }
+  | { action: "draw" | "play-land" | "commit-crime" | "scry" | "surveil" };
 
 export type Duration =
   | { duration: "end-of-turn" }
@@ -1125,6 +1664,8 @@ export type Duration =
   | { duration: "end-of-your-next-turn" }
   /** Expires as the next end step of your turn begins, not in its cleanup. */
   | { duration: "your-next-end-step" }
+  /** Expires as the beginning of your next upkeep begins (CR 502.1, 611.2). */
+  | { duration: "your-next-upkeep" }
   | { duration: "this-turn" }
   | { duration: "this-combat" }
   | { duration: "as-long-as"; condition: Condition }
@@ -1195,6 +1736,11 @@ export type PlayerRef =
   | ({ player: "target-opponent" } & TargetSelection)
   | { player: "an-opponent" }
   | { player: "that-player" }
+  /** "That player or that planeswalker's controller": one earlier
+   * object-or-player antecedent. This is that antecedent if it is a player,
+   * otherwise the controller of that object; exactly one case applies. It is
+   * neither a choice nor a pair of players (CR 608.2c). */
+  | { player: "that-player-or-controller"; of: ObjectRef }
   /** Definite contextual reference, not a new player choice. Its original
    * event/choice role must be established before execution. */
   | { player: "the-player" }
@@ -1282,7 +1828,7 @@ export type ObjectRef =
   | { ref: "that"; filter: ObjectFilter; plural?: true }      // "that card", "those creatures"
   /** Select the stated number from an established pool at the enclosing
    * instruction's choice time (payment or resolution), not a new target. */
-  | { ref: "from-pool"; pool: ObjectRef; count: Amount; upTo?: true; groupConstraints?: GroupConstraint[] }
+  | { ref: "from-pool"; pool: ObjectRef; count: Amount; upTo?: true; groupConstraints?: GroupConstraint[]; random?: true }
   /** Distinct card allocations for search/reveal/move instructions, e.g.
    * "a creature card and/or an enchantment card". This is not a filter OR
    * under one count, nor reusable representative roles (Tragic Arrogance).
@@ -1291,8 +1837,10 @@ export type ObjectRef =
    * M20 ruling assigns a multitype card to just one extraction slot. */
   | { ref: "card-extraction-group"; members: CardExtractionSlot[]; combine: "all" | "any-nonempty"; allocation: "distinct-objects";
       source?: { kind: "pool"; pool: ObjectRef } | { kind: "zone"; zone: ZoneRef } }
-  | ({ ref: "target"; filter: ObjectFilter; count: Amount; upTo?: boolean; groupConstraints?: GroupConstraint[] } & TargetSelection)
-  | ({ ref: "any-target"; count?: Amount } & TargetSelection)
+  | ({ ref: "target"; filter: ObjectFilter; count: Amount; upTo?: boolean; groupConstraints?: GroupConstraint[]; random?: true } & TargetSelection)
+  /** CR 115.4: "any target", "another target", "two targets". `other` is the
+   * unresolved lexical contrast, exactly as ObjectFilter.other. */
+  | ({ ref: "any-target"; count?: Amount; upTo?: boolean; other?: true; random?: true } & TargetSelection)
   /** Symbolic event/linked referent; antecedent resolution is a later pass. */
   | { ref: "related"; filter: ObjectFilter; relation: ObjectRelation; number: "singular" | "plural" }
   /** Complement of the selected objects in the contextual or stated pool. */
@@ -1302,8 +1850,13 @@ export type ObjectRef =
   /** CR 702.124e: if both commanders qualify, choice occurs as the effect applies. */
   | { ref: "commander"; owner: PlayerRef; count: Amount }
   | { ref: "each"; filter: ObjectFilter }
+  /** CR 701.38: the objects that received the most votes in the preceding
+   * vote, including objects tied for the most. */
+  | { ref: "vote-leaders"; filter: ObjectFilter }
   | { ref: "all"; filter: ObjectFilter }
-  | { ref: "filter"; filter: ObjectFilter; count: Amount; upTo?: boolean; groupConstraints?: GroupConstraint[] } // "a creature", "up to seven lands"
+  /** `random`: the game selects the stated number at random from the matching
+   * objects ("a card at random from your hand"); no player chooses. */
+  | { ref: "filter"; filter: ObjectFilter; count: Amount; upTo?: boolean; groupConstraints?: GroupConstraint[]; random?: true } // "a creature", "up to seven lands"
   | { ref: "equipped" | "enchanted"; noun: string };         // "equipped creature"
 
 /**
@@ -1348,6 +1901,9 @@ export interface ObjectFilter {
   abilityKind?: "activated" | "triggered" | "static" | "spell";
   manaAbility?: boolean;
   loyaltyAbility?: boolean;
+  /** Canonical keyword whose rules define this activated ability, e.g. an
+   * exhaust ability (CR 702.177a) or a boast ability (702.142a). */
+  abilityKeyword?: string;
   /** The ability's single source must match this operand. A query operand
    * defines eligible sources; it does not instruct anyone to choose a source. */
   abilitySource?: ObjectRef;
@@ -1357,6 +1913,9 @@ export interface ObjectFilter {
   attachedTo?: ObjectRef | PlayerRef;
   blocking?: ObjectRef;
   blockedBy?: ObjectRef;
+  /** CR 508.1b, 506.4c: currently attacking one of these players or
+   * permanents; an attacker whose planeswalker/battle left combat matches none. */
+  attacking?: CombatDefender[];
   /** Permanent card/spell: has a permanent card type, independent of zone. */
   permanent?: true;
   /** CR 903.3: persistent card designation, not a card type or subtype. */
@@ -1371,16 +1930,30 @@ export interface ObjectFilter {
   multicolored?: boolean;
   monocolored?: boolean;
   nonToken?: boolean;
+  /** "attacking-alone"/"blocking-alone" are the CR 506.5 states: attacking
+   * or blocking while no other creature is. */
   status?: string[];                                         // tapped, attacking …
   /** A declared attacker earlier in the explicit window; a creature put
    * onto the battlefield attacking has not attacked (CR508.4). */
-  combatHistory?: { action: "attacked"; during: "this-turn" | "this-combat" };
+  combatHistory?: { during: "this-turn" | "this-combat" } & (
+    /** negated: was not declared as an attacker in the window. */
+    | { action: "attacked"; negated?: true }
+    /** CR 509.1g, 509.4: was declared as a blocker or made to block by an
+     * effect; never by entering the battlefield blocking. attacker limits
+     * what it blocked (membership for a set operand). */
+    | { action: "blocked"; attacker?: ObjectRef }
+    /** CR 509.1h: became a blocked creature; blocker limits by what. */
+    | { action: "was-blocked"; blocker?: ObjectRef });
   /** Unresolved lexical "another"/"other". Its excluded antecedent is
    * contextual; it must never be assumed to mean the source by default. */
   other?: boolean;
   /** Explicit exclusion, bound where the local grammar establishes it.
    * affected-object is rebound for each object a modifier applies to. */
   otherThan?: ObjectRef | { ref: "affected-object" };
+  /** CR 702.33d: a spell whose controller declared a kicker payment. */
+  kicked?: true;
+  /** Symbols printed in the object's mana cost, e.g. ["X"] (CR 107.3, 202.1). */
+  manaCostContains?: string[];
   control?: "you" | "opponent" | "not-you" | "that-player";
   /** A specifically referenced controller, including a targeted player. */
   controlledBy?: PlayerRef;
@@ -1392,13 +1965,22 @@ export interface ObjectFilter {
    * determine whether that choice was a card type or a subtype. */
   chosenType?: { choice: "chosen-type"; kind?: "card" | "creature" | "land" | "artifact" | "enchantment" | "planeswalker" };
   chosenColor?: ChosenValueRef<"color">;
-  own?: "you" | "opponent";
+  own?: "you" | "opponent" | "not-you";
   zone?: ZoneRef;
+  /** CR 400.11: in none of the game's zones (a sideboard, 400.11a). Outside
+   * the game is not a zone, so this is deliberately not a ZoneRef. */
+  outsideGame?: true;
+  /** In any zone other than this one ("that aren't on the battlefield"). */
+  outsideZone?: ZoneRef;
   properties?: PropertyConstraint[];
   /** "that targets …" */
   targets?: ObjectRef | PlayerRef;
   /** "…or player": the filter unions in players ("target creature or player"). */
   orPlayer?: boolean;
+  /** "…or opponent": unions in only the opponents of the spell or ability's
+   * controller ("target opponent or planeswalker"). The object branch is not
+   * restricted by controller (CR 102.2–3, 115.1). Never set with orPlayer. */
+  orOpponent?: boolean;
   /** Validated canonical keyword names; every listed ability is required. */
   withAbility?: string[];
   /** Every listed keyword must be absent. */
@@ -1423,7 +2005,18 @@ export interface Comparison {
 export type ZoneRef = {
   zone: Zone;
   position?: "top" | "bottom";
-  owner?: "your" | "their" | "its-owner" | "each-player" | "any" | "an-opponent" | "each-opponent" | "that-player"
+  /** CR 401.7: Nth card counted from `position` ("third from the top" is 3);
+   * absent means that end itself. A shorter library places it on the bottom. */
+  depth?: number;
+  /** CR 400.1: libraries, hands and graveyards are per player, so plural zone
+   * phrases quantify over owners. "each-player"/"each-opponent" distribute the
+   * enclosing instruction over every such zone ("each graveyard");
+   * "all-players"/"all-opponents" pool those zones' contents ("all graveyards",
+   * "your opponents' graveyards"); "any" is one unspecified zone per object
+   * ("a graveyard"), while "any-single" additionally requires everything the
+   * enclosing selection or count covers to share that one zone ("a single
+   * graveyard"). */
+  owner?: "your" | "their" | "its-owner" | "each-player" | "all-players" | "any" | "any-single" | "an-opponent" | "each-opponent" | "all-opponents" | "that-player"
     | PlayerRef;
 };
 
@@ -1449,11 +2042,20 @@ export type Amount =
    * heuristic supplies this contextual reference. */
   | { amount: "dice-result"; roll: { roll: "contextual" }; measure: "result" | "total" }
   | { amount: "fixed"; value: number }
+  /** CR 701.38: the number of votes cast for the named choice of the
+   * preceding vote. */
+  | { amount: "vote-count"; choice: string }
+  /** CR 702.179f: a player's speed; with no speed it is 0 for this purpose. */
+  | { amount: "speed"; who: PlayerRef }
   | { amount: "replacement-event-quantity" }
   | { amount: "prevention-event-quantity"; quantity: "incoming" | "prevented" }
+  | ({ amount: "event-quantity" } & EventQuantity)
   | { amount: "x" }
   | { amount: "chosen"; minimum: number; maximum?: Amount }
   | { amount: "count"; of: ObjectFilter }                    // "the number of Elves you control"
+  /** CR 700.8a–b: the number of creatures in that player's party, computed
+   * by the game to the highest result from zero to four. */
+  | { amount: "party-size"; who: PlayerRef }
   /** Distinct creature incarnations declared as attackers in this window,
    * across all players. Repeated attacks by the same incarnation count once;
    * leaving the battlefield or ceasing to be a creature does not erase the
@@ -1480,13 +2082,42 @@ export type Amount =
   | { amount: "kicker-count"; of: ObjectRef }
   | { amount: "attribute-extremum"; extremum: "maximum" | "minimum"; attribute: "power" | "toughness" | "mana-value"; among: ObjectFilter }
   | { amount: "attribute"; of: ObjectRef; attribute: "power" | "toughness" | "mana-value" }
+  /** CR 700.5: the number of mana symbols of the listed color(s) among the
+   * mana costs of permanents `who` controls. With two colors, each symbol
+   * that is either or both colors counts once (hybrid symbols). This is not
+   * mana spent, mana value, or those permanents' current colors; modifiers
+   * and layer timing follow CR 700.5a. */
+  | { amount: "devotion"; who: PlayerRef; colors: [Color] | [Color, Color] }
   | { amount: "life-total"; of: PlayerRef }
+  /** CR 103.4: fixed when the game begins; unaffected by later life changes. */
+  | { amount: "starting-life-total"; of: PlayerRef }
+  /** CR 103.4 / 119.1: the format-defined total the player began the game
+   * with, not their current, previous or highest life total. */
+  /** Gross life gained or lost over the period, summed over every such event
+   * (damage and life payments are life loss, CR 119.2–4); never a net change
+   * of life total. "all-players-combined" is the printed total across players.
+   * A contextual player ("they", "that player") is evaluated for that player. */
+  | { amount: "life-change"; who: PlayerRef | "all-players-combined"; change: "gained" | "lost"; during: "this-turn" }
   | { amount: "twice"; of: Amount }
   | { amount: "half"; of: Amount; round: "up" | "down" }
   | { amount: "plus"; a: Amount; b: Amount }
   | { amount: "minus"; a: Amount; b: Amount }
   | { amount: "that-number" }
   | { amount: "that-much" };
+
+/** What one earlier event actually did, after replacement and prevention
+ * (CR 608.2h, 609.3, 119.3, 120.3), never the number its instruction stated
+ * and never a current-state query. "this-way" is the stated event in the same
+ * resolving instruction sequence; "contextual" has no printed scope (typically
+ * the triggering event) and needs its antecedent event bound. A quantity is
+ * the total over every matching occurrence and participant of that event;
+ * omitted participants are unconstrained, not implied. */
+export type EventQuantity = { scope: "contextual" | "this-way" } & (
+  | { event: "life-change"; change: "gained" | "lost"; who?: PlayerRef }
+  /** Excess damage follows CR 120.4a / 120.10: the part beyond lethal damage
+   * (a creature), loyalty (a planeswalker) or defense (a battle). */
+  | { event: "damage"; measure: "dealt" | "excess"; by?: ObjectRef; to?: ObjectRef | PlayerRef }
+);
 
 export interface SignedAmount {
   sign: 1 | -1;

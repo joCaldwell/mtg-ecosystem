@@ -37,7 +37,7 @@ function cardCount(amount: Amount | undefined): BindingCardinality {
 function objectCardinality(ref: ObjectRef): BindingCardinality {
   switch (ref.ref) {
     case "self": case "this": case "it": case "enchanted": case "equipped": case "trigger-event-object": return "one";
-    case "them": case "each": case "all": case "zone-cards": case "rest": return "many";
+    case "them": case "each": case "all": case "zone-cards": case "rest": case "vote-leaders": return "many";
     case "related": case "copy-result": case "choice-result": return ref.number === "singular" ? "one" : "many";
     case "that": return ref.plural ? "many" : "one";
     case "target": case "filter": case "commander": case "library-cards": case "from-pool": return cardCount(ref.count);
@@ -59,7 +59,7 @@ function description(ref: ObjectRef): ObjectFilter | undefined {
 function domain(expression: ReferenceExpression): Candidate["domain"] {
   if ("player" in expression) return "player";
   if (!("ref" in expression)) return "number";
-  return expression.ref === "any-target" || ("filter" in expression && expression.filter.orPlayer) ? "object-or-player" : "object";
+  return expression.ref === "any-target" || ("filter" in expression && (expression.filter.orPlayer || expression.filter.orOpponent)) ? "object-or-player" : "object";
 }
 function referenceCardinality(expression: ReferenceExpression): BindingCardinality {
   return "ref" in expression ? expression.ref === "affected-object" ? "one" : objectCardinality(expression)
@@ -167,7 +167,7 @@ class Analyzer {
         "This number needs a rule-specific definition, choice, or capture; no default value is inferred.", ["107.3a", "107.3f", "107.3j"]);
       return;
     }
-    if (value.gained === "quoted" || value.gained === "keyword") {
+    if (value.gained === "quoted" || value.gained === "keyword" || value.gained === "keyword-choice" || value.gained === "abilities-of") {
       const barrier = "Granted-ability source rebinding and captures require a separate scope (CR 201.5a/b).";
       this.diagnostic("unsupported-scope", path, barrier, ["201.5a", "201.5b", "107.3j"]);
       this.walkChildren(value, path, { ...context, barrier });
@@ -237,6 +237,14 @@ class Analyzer {
       this.diagnostic("unsupported-scope", path, "A die result needs its exact roll occurrence, natural/final stage, retained-results set, and table/trigger scope bound.", ["706.2", "706.3", "706.6", "706.7"]);
     if (value.amount === "kicker-count")
       this.diagnostic("unsupported-number-binding", path, "This count requires the linked originating spell's recorded kicker payments.", ["400.7d", "702.33"]);
+    if (value.amount === "event-quantity" || value.amount === "life-change") {
+      const barrier = "An event or history quantity needs its exact measured event(s), participants and period bound; no nearby number substitutes for it.";
+      this.diagnostic("unsupported-scope", path, barrier, ["119.3", "120.3", "608.2h"]);
+      this.walkChildren(value, path, { ...context, barrier });
+      return;
+    }
+    if (value.amount === "devotion")
+      this.diagnostic("unsupported-number-binding", path, "Devotion needs the mana costs of the player's permanents evaluated at the CR 700.5a point in the layer system.", ["700.5", "700.5a"]);
     if (value.amount === "mana-spent") {
       const barrier = "Mana payment quantities need the exact originating spell's payment event, including additional costs and actual colors spent.";
       this.diagnostic("unsupported-scope", path, barrier, ["400.7d", "601.2f", "601.2h", "609.4b"]);
@@ -360,7 +368,7 @@ class Analyzer {
     if (value.condition === "cast-count" && value.who === "all-players-combined")
       this.diagnostic("unsupported-reference", child(path, "who"), "This aggregate requires the complete participating-player set.", ["109.5"]);
     if (value.condition === "your-turn" || value.condition === "not-your-turn" ||
-        ["your-next-turn", "end-of-your-next-turn", "your-next-end-step"].includes(String(value.duration)))
+        ["your-next-turn", "end-of-your-next-turn", "your-next-end-step", "your-next-upkeep"].includes(String(value.duration)))
       this.player({ player: "you" }, child(path, "whose"), context);
     if (Array.isArray(value.symbols)) value.symbols.forEach((symbol, index) => {
       if (symbol === "X") this.walk({ amount: "x" }, child(child(path, "symbols"), index), context);
@@ -429,6 +437,9 @@ class Analyzer {
       case "copy-result":
         this.unresolved(expression, path, "unsupported-reference", "This printed copy reference needs a specific copy-result binding; it is not the most recent object.", ["707.10"]);
         return undefined;
+      case "vote-leaders":
+        this.unresolved(expression, path, "unsupported-reference", "The objects with the most votes need the preceding vote's tally.", ["701.38"]);
+        return undefined;
       case "equipped": case "enchanted": case "related": case "rest": case "replacement-event-object": case "prevention-event-object":
         this.unresolved(expression, path, "unsupported-reference", "This relation needs an attachment, event, pool, or linked-ability binding.", ["303.4", "301.5", "607"]);
         return undefined;
@@ -464,6 +475,10 @@ class Analyzer {
     }
     if (expression.player === "they" || expression.player === "that-player")
       return this.antecedent(expression, path, context.players, "unknown", ["608.2k"]);
+    if (expression.player === "that-player-or-controller") {
+      this.unresolved(expression, path, "unsupported-reference", "This player depends on whether one earlier object-or-player antecedent is a player or an object; that shared antecedent must be bound first.", ["608.2c"]);
+      return undefined;
+    }
     if (expression.player === "enchanted-player") {
       this.unresolved(expression, path, "unsupported-reference", "This player requires the source Aura's attachment relation, independently of its controller.", ["303.4b", "303.4e"]);
       return undefined;
@@ -600,7 +615,7 @@ class Analyzer {
       context.objects = []; context.players = []; context.quantities = [];
       return;
     }
-    if (["optional-group", "simultaneous", "modal", "create-delayed-trigger", "create-reflexive-trigger", "create-replacement", "self-replacement", "shuffle-into-library", "pay-cost", "roll-dice", "roll-again"].includes(effect.effect) || effect.optional || effect.forEach) {
+    if (["optional-group", "choice", "simultaneous", "modal", "create-delayed-trigger", "create-reflexive-trigger", "create-replacement", "self-replacement", "shuffle-into-library", "pay-cost", "roll-dice", "roll-again", "flip-coin"].includes(effect.effect) || effect.optional || effect.forEach || effect.forEachVote) {
       const barrier = "Nested, optional, simultaneous, or delayed instruction scopes need explicit capture and merge rules.";
       this.diagnostic("unsupported-scope", path, barrier, ["603.7", "608.2c"]);
       this.walk(effect, path, { ...context, barrier });
@@ -649,9 +664,14 @@ class Analyzer {
         break;
       case "destroy": case "counter": case "pump": case "set-pt":
       case "transform": case "convert": case "phase-out": case "phase-in":
-      case "gain-abilities": case "lose-abilities": case "untap-step-suppression":
-      case "become": case "cant": case "combat-rule":
+      case "flip": case "detain": case "suspect": case "unsuspect":
+      case "gain-abilities": case "lose-abilities": case "cant-have-abilities": case "untap-step-suppression":
+      case "become": case "cant": case "remove-from-combat": case "become-blocked": case "combat-rule":
         objectPaths.push(child(path, "what")); break;
+      case "turn-face":
+        objectPaths.push(child(path, "what"));
+        if (effect.who) playerPaths.push(child(path, "who"));
+        break;
       case "attach": objectPaths.push(child(path, "what"), child(path, "to")); playerPaths.push(child(path, "who")); break;
       case "unattach": objectPaths.push(child(path, "what"), child(path, "from")); playerPaths.push(child(path, "who")); break;
       case "put-counters": objectPaths.push(child(path, "on")); break;
@@ -659,9 +679,12 @@ class Analyzer {
       case "add-mana": case "get-counters": case "get-emblem": case "pay-cost": case "choose-value": case "player-gain-abilities":
       case "shuffle": case "win-game": case "lose-game": playerPaths.push(child(path, "who")); break;
       case "declare-target": objectPaths.push(child(path, "what")); break;
-      case "prohibit": case "cast-limit":
-      case "skip-time": case "add-turns": case "add-phases": case "end-turn": case "end-combat":
-      case "exile-until": case "scan-library": case "play-card": case "grant-play-permission": case "grant-look-permission": case "prevent-damage": case "shuffle-into-library": case "self-replacement":
+      case "prohibit": case "cast-limit": case "cost-modification":
+      case "skip-time": case "add-turns": case "add-phases": case "end-turn": case "end-combat": case "set-day-night":
+      case "double-counters": case "move-counters": case "distribute-counters": case "multiply-pt": case "switch-pt":
+      case "double-life-total": case "double-mana-pool": case "exchange-control": case "exchange-life-totals":
+      case "exchange-values": case "exchange-zones": case "choose-random":
+      case "exile-until": case "scan-library": case "play-card": case "grant-play-permission": case "grant-look-permission": case "additional-land-plays": case "prevent-damage": case "shuffle-into-library": case "self-replacement":
         this.diagnostic("unsupported-scope", path, "This instruction's event/result associations are not yet established.", ["608.2c"]);
         context.objects = []; context.players = []; context.quantities = [];
         return;
@@ -669,14 +692,17 @@ class Analyzer {
         this.diagnostic("unsupported-scope", path, "Stack-copy results and copy target-selection timing require their own binding scope.", ["707.10", "115.7"]);
         context.objects = []; context.players = []; context.quantities = [];
         return;
+      case "become-monarch": case "take-initiative": case "ring-tempts": case "learn": case "forage": case "time-travel": case "open-attraction":
+      case "venture": case "incubate": case "earthbend": case "airbend": case "goad": case "endure": case "empower-jace": case "clash": case "vote": case "create-role":
       case "amass": case "adapt": case "monstrosity": case "bolster": case "support": case "scry": case "surveil":
-      case "keyword-action": case "discover": case "explore": case "connive": case "regenerate":
+      case "keyword-action": case "blight": case "discover": case "explore": case "connive": case "regenerate":
+      case "manifest": case "cloak": case "manifest-dread":
         // Keyword actions have internal selections/results not visible in
         // this AST. Do not let later pronouns bind across them by accident.
         this.diagnostic("unsupported-scope", path, "This action's implicit runtime selections need a rule-specific binding model.", ["701"]);
         context.objects = []; context.players = []; context.quantities = [];
         return;
-      case "optional-group": case "simultaneous": case "modal": case "create-delayed-trigger": case "create-reflexive-trigger": case "create-replacement": case "roll-dice": case "roll-again":
+      case "optional-group": case "choice": case "simultaneous": case "modal": case "create-delayed-trigger": case "create-reflexive-trigger": case "create-replacement": case "roll-dice": case "roll-again": case "flip-coin":
         return; // Handled above; retained for exhaustiveness.
       default: {
         const unreachable: never = effect;
@@ -826,7 +852,17 @@ class Analyzer {
           "Replacement-event roles and captures need a separate scope.", ["614"]);
         break;
       case "keywords": this.walk(ability.keywords, child(path, "keywords"), context); break;
-      case "additional-cost": this.walk(ability.costs, child(path, "costs"), { ...context, phase: "payment" }); break;
+      case "additional-cost": this.walk(ability.costs, child(path, "costs"), { ...context, phase: "payment" });
+        this.walk(ability.costModifications, child(path, "costModifications"), { ...context, phase: "payment" }); break;
+      case "exert-on-attack": {
+        // The linked "When you do" ability is a separate reflexive trigger
+        // whose "it" is the exerted object; its capture is not bound here.
+        const barrier = "A linked reflexive exert trigger needs the exert cost's capture and its own ability scope bound.";
+        this.diagnostic("unsupported-scope", path, barrier, ["701.43d", "607.2h"]);
+        this.walk(ability.what, child(path, "what"), { ...context, phase: "payment", barrier });
+        this.sentences(ability.reflexive ?? [], child(path, "reflexive"), { ...context, barrier });
+        break;
+      }
       case "max-speed":
         this.diagnostic("unsupported-scope", path, "The nested ability's source and controller scope have not been bound.", ["702.179"]);
         this.walk(ability.ability, child(path, "ability"), { ...context, barrier: "Nested ability scope is unsupported." });

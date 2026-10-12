@@ -2,7 +2,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { OWNER, PermissionError } from "../src/actor.ts";
 import { CardResolutionError } from "../src/cards.ts";
-import { createDeck, createSlot, getDeck, setInPaper } from "../src/deck/service.ts";
+import { createDeck, createSlot, getDeck } from "../src/deck/service.ts";
 import { listLog } from "../src/deck/log.ts";
 import { setQuantity, undo } from "../src/deck/membership.ts";
 import {
@@ -47,20 +47,7 @@ describe("Archidekt export (spec §12)", () => {
     assert.equal(exportDeck(db, id, { categories: false }).text.trim(), "12 Forest");
   });
 
-  test("buy list filters to unowned cards only", () => {
-    const id = createDeck(db, "Export buylist");
-    add(db, id, "id-solring");
-    add(db, id, "id-counterspell");
-    setInPaper(db, OWNER, id, "id-solring", true);
 
-    const all = exportDeck(db, id);
-    assert.equal(all.line_count, 2);
-    const buy = exportDeck(db, id, { onlyMissing: true });
-    assert.equal(buy.line_count, 1);
-    assert.equal(buy.omitted_in_paper, 1);
-    assert.match(buy.text, /Counterspell/);
-    assert.doesNotMatch(buy.text, /Sol Ring/);
-  });
 
   test("companion is exported but stays outside the 100", () => {
     const id = createDeck(db, "Export companion");
@@ -296,7 +283,6 @@ describe("import applies in full and at once (spec §12)", () => {
     const ramp = createSlot(db, id, "ramp", 8, 12);
     add(db, id, "id-teferi", { role: "commander" });
     add(db, id, "id-solring", { slotId: ramp });
-    setInPaper(db, OWNER, id, "id-solring", true);
 
     applyImport(db, OWNER, id, "1 Counterspell\n1 Tarmogoyf");
     assert.deepEqual(getDeck(db, id).cards.map((c) => c.name).sort(), ["Counterspell", "Tarmogoyf"]);
@@ -309,7 +295,6 @@ describe("import applies in full and at once (spec §12)", () => {
     assert.deepEqual(after.cards.map((c) => c.name).sort(), ["Sol Ring", "Teferi, Temporal Archmage"]);
     const solring = after.cards.find((c) => c.name === "Sol Ring")!;
     assert.equal(solring.slot_id, ramp); // slot survives the round trip
-    assert.ok(solring.in_paper); //             …and so does the paper flag
     assert.equal(after.cards.find((c) => c.name === "Teferi, Temporal Archmage")!.role, "commander");
     assert.equal(after.deck.revision, importedRevision + 1);
     // The undo is itself logged, and the import row is marked as undone.

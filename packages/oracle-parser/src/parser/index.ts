@@ -10,7 +10,7 @@
 //   7. spell text (imperative sentences)
 // Anything else fails loudly with the farthest-failure diagnostic.
 
-import type { Ability, CostModification, ParseCardResult, ParsedLine, Sentence, TriggerLimit } from "../ast.ts";
+import type { Ability, CostModification, ParseCardResult, ParsedLine, Sentence, TriggeredAbility, TriggerLimit } from "../ast.ts";
 import { LexError, lex, type Token } from "../lexer.ts";
 import { normalizeOracleText } from "../normalize.ts";
 import type { CardNameCatalog } from "../card-names.ts";
@@ -29,10 +29,13 @@ import { parseClassCard, parseLevelCard } from "./level-cards.ts";
 import { parseCaseAbility, startsCaseKeyword } from "./case-cards.ts";
 import { parseTrigger, parseTriggerLimit } from "./triggers.ts";
 import { parseDelayedSpellPrefix } from "./delayed.ts";
-import { parseActivationCostModifications } from "./cost-modifiers.ts";
+import { parseActivationCostModifications, parseAdditionalCostModifications } from "./cost-modifiers.ts";
 import { looksLikeStaticReplacement } from "./replacement.ts";
-import { parseActivationRules, type ActivationRules } from "./restrictions.ts";
+import { mergeReplacementParagraph } from "./paragraph-replacement.ts";
+import { parseActionLimit, parseActivationRules, type ActivationRules } from "./restrictions.ts";
 import { looksLikeStaticPlayPermission } from "./permissions.ts";
+import { parseExertOnAttack } from "./status-actions.ts";
+import { hasUnresolvedKeywordCost } from "./ability-grants.ts";
 
 // ---------------------------------------------------------------------------
 
@@ -53,13 +56,25 @@ class LineSession {
   }
 }
 
-type EffectsBlock = { sentences: Sentence[]; costModifications?: CostModification[]; triggerLimit?: TriggerLimit } & ActivationRules;
-function parseEffectsBlock(c: Cursor, options: Token[][], stackCopyInput?: StackCopyInputProof): EffectsBlock | null {
+type EffectsBlock = { sentences: Sentence[]; costModifications?: CostModification[]; triggerLimit?: TriggerLimit;
+  actionLimit?: TriggeredAbility["actionLimit"] } & ActivationRules;
+/** CR 603.2h presupposes an action its controller can decline to take. */
+function hasOptionalAction(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasOptionalAction);
+  if (!value || typeof value !== "object") return false;
+  if ("kind" in value) return false; // a quoted ability's own choices
+  if (("optional" in value && value.optional === true) || ("effect" in value &&
+      (value.effect === "optional-group" || value.effect === "grant-play-permission"))) return true;
+  return Object.values(value).some(hasOptionalAction);
+}
+function parseEffectsBlock(c: Cursor, options: Token[][], stackCopyInput?: StackCopyInputProof, triggered = false): EffectsBlock | null {
   return c.attempt((c): EffectsBlock | null => {
     const ctx: EffectContext = { modalOptions: options, ...(stackCopyInput ? { stackCopyInput } : {}) };
     const sentences = parseSentences(c, ctx);
     if (!sentences) return null;
     if (c.done()) return { sentences };
+    const actionLimit = triggered && hasOptionalAction(sentences) ? parseActionLimit(c) : null;
+    if (actionLimit) return { sentences, actionLimit };
     const costModifications = parseActivationCostModifications(c);
     const triggerLimit = parseTriggerLimit(c);
     const rules = parseActivationRules(c);
@@ -76,6 +91,8 @@ function parseLineTokens(tokens: Token[], options: Token[][], session = new Line
   // Kicker alternative targets are chosen while casting that spell, never
   // when a triggered/activated ability happens to resolve (601.2c/702.33g).
   if (ability && ability.kind !== "spell" && (hasAlternativeKickerTargets(ability) || hasCastingCostModes(ability))) return null;
+  // A granted cost keyword must have its cost sentence folded in.
+  if (ability && hasUnresolvedKeywordCost(ability)) return null;
   return ability;
 }
 
@@ -151,12 +168,17 @@ function tryAbilityWord(tokens: Token[], options: Token[][], session: LineSessio
       dash = i;
       break;
     }
+    // CR 207.2c: "descend 4" and "descend 8" are the ability words that
+    // contain a number; it is part of the label, not a parameter.
+    const previous = tokens[i - 1];
+    if (t.kind === "number" && (t.value === 4 || t.value === 8) && i === 1
+      && previous.kind === "word" && previous.value === "descend") continue;
     if (t.kind !== "word") return null;
   }
   if (dash < 1 || tokens[0].kind !== "word") return null;
   const word = tokens
     .slice(0, dash)
-    .map((t) => (t.kind === "word" ? t.raw : ""))
+    .map((t) => (t.kind === "word" || t.kind === "number" ? t.raw : ""))
     .join(" ");
   const rest = tokens.slice(dash + 1);
   if (rest.length === 0) return null;
@@ -186,9 +208,12 @@ function parseLineCore(tokens: Token[], options: Token[][], abilityWord: string 
   {
     const c = session.cursor(tokens);
     if (c.words("as", "an", "additional", "cost", "to", "cast", "this", "spell") && c.punct(",")) {
+      const optional = c.words("you", "may");
       const costs = parseCostList(c);
       c.punct(".");
-      if (costs && c.done()) return { kind: "additional-cost", costs };
+      const costModifications = costs && !c.done() ? parseAdditionalCostModifications(c) : null;
+      if (costs && c.done()) return { kind: "additional-cost", costs, ...(optional ? { optional: true as const } : {}),
+        ...(costModifications ? { costModifications } : {}) };
       return null;
     }
   }
@@ -209,7 +234,7 @@ function parseLineCore(tokens: Token[], options: Token[][], abilityWord: string 
       // tests this condition already at trigger time. A fresh target cannot
       // establish either predicate. Do not backtrack into a resolving `if`.
       if (condition && hasMatchTimeTarget(condition)) return null;
-      const block = parseEffectsBlock(c, options, condition ? undefined : prepareStackCopyInput(c, trigger));
+      const block = parseEffectsBlock(c, options, condition ? undefined : prepareStackCopyInput(c, trigger), true);
       if (block && !block.restriction && !block.permission && !block.costModifications) {
         return {
           kind: "triggered",
@@ -218,6 +243,7 @@ function parseLineCore(tokens: Token[], options: Token[][], abilityWord: string 
           condition: condition ?? undefined,
           effects: block.sentences,
           ...(block.triggerLimit ? { limit: block.triggerLimit } : {}),
+          ...(block.actionLimit ? { actionLimit: block.actionLimit } : {}),
         };
       }
     }
@@ -264,6 +290,13 @@ function parseLineCore(tokens: Token[], options: Token[][], abilityWord: string 
     const c = session.cursor(tokens);
     const keywords = parseKeywordLine(c);
     if (keywords) return { kind: "keywords", keywords };
+  }
+
+  // 5b. Exert as an attack cost (with its linked "When you do" ability)
+  {
+    const c = session.cursor(tokens);
+    const exert = parseExertOnAttack(c, body => parseSentences(body, { modalOptions: [] }));
+    if (exert && c.done()) return exert;
   }
 
   // 6. Static
@@ -326,6 +359,16 @@ function parseLineWithDiagnostics(text: string, optionTokens: Token[][], sourceI
   }
   return { text, ok: false, error: session.error() };
 
+}
+
+function mergeFollowingReplacement(first: Ability, next: string, sourceId?: string, cardNames?: CardNameCatalog): Ability | null {
+  if (!/\binstead\b/i.test(next) || parseLineWithDiagnostics(next, [], sourceId, cardNames).ok) return null;
+  let tokens: Token[];
+  try { tokens = lex(next, sourceId, cardNames); } catch (error) {
+    if (error instanceof LexError) return null;
+    throw error;
+  }
+  return mergeReplacementParagraph(first, tokens, body => parseSentences(body, { modalOptions: [] }));
 }
 
 export interface ParseContext {
@@ -399,7 +442,17 @@ function parseAbilityBlocks(lines: readonly string[], startIndex: number, contex
       continue;
     }
 
-    results.push(parseLineWithDiagnostics(line, [], sourceId(i), context.cardNames));
+    const parsed = parseLineWithDiagnostics(line, [], sourceId(i), context.cardNames);
+    // CR 614.15: a following paragraph may only replace this spell ability's
+    // instruction. It then belongs to this block instead of failing alone.
+    const merged = parsed.ok && i + 1 < lines.length && !lines[i + 2]?.startsWith("•")
+      ? mergeFollowingReplacement(parsed.ability, lines[i + 1], sourceId(i + 1), context.cardNames) : null;
+    if (merged) {
+      results.push({ text: `${line}\n${lines[i + 1]}`, ok: true, ability: merged });
+      i++;
+      continue;
+    }
+    results.push(parsed);
   }
 
   return results;

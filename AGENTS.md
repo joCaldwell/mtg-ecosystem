@@ -15,7 +15,7 @@ package's conventions inside another produces confidently wrong work.
 
 **If the request does not make the target obvious, ask before doing anything.**
 A file path, a package name, or an unambiguous subject ("the deck's brief",
-"the ANTLR grammar") all count as obvious — this is not a reason to interrogate
+"the parser grammar") all count as obvious — this is not a reason to interrogate
 someone who has already told you where they are. It's a reason not to guess
 when they haven't.
 
@@ -98,9 +98,17 @@ Project-wide docs in [docs/](docs/), relevant regardless of package:
 
 ## 🧭 Conventions that hold everywhere
 
-*   **TypeScript monorepo, npm workspaces.** `npm install` at the root links
-    packages. Root scripts drive the parser pipeline; the deck-builder has its
-    own scripts in its own package.json.
+*   **Adopted stack: TypeScript + Rust.** TypeScript owns ingestion, parsing,
+    AST archives, the deck-builder, browser applications, and the client SDK.
+    Rust owns the semantic compiler, rules engine, native simulation/search
+    and agent policies, and game server. Browser-local rules use the Rust core
+    compiled to WebAssembly. Language selection is complete; follow the
+    [language decision](docs/runtime-language-decision.md).
+*   **npm now; Cargo added with the native scaffold.** `npm install` at the root
+    links the existing TypeScript workspaces. The Cargo workspace is planned
+    but not implemented yet. Root scripts drive the parser pipeline; the
+    deck-builder has its own scripts. Use package-specific checks, and add
+    native checks when the Rust workspace exists.
 *   **Card facts come from card data, never from model memory.** Card names,
     oracle text, and legality are all checkable — check them. This is the
     project's founding premise, not a per-package preference.

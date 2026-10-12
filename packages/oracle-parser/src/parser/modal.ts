@@ -7,6 +7,7 @@ import type { Token } from '../lexer.ts';
 import { wordNumber } from '../vocab.ts';
 import { Cursor } from './cursor.ts';
 import { parseCostList } from './costs.ts';
+import { parseActivationRules } from './restrictions.ts';
 
 type Modal = Extract<Effect, { effect: 'modal' }>;
 type BodyParser = (c: Cursor) => Sentence[] | null;
@@ -79,6 +80,8 @@ export function parseModalEffect(c: Cursor, optionTokens: Token[][], parseBody: 
     let selection: ModalCount;
     let unchosen: Modal['unchosen'];
     let allowRepeat: true | undefined;
+    let random = false;
+    let activationTail = false;
     if (keyword) {
       selection = keyword === 'spree' ? { atLeast: 1 } : { exactly: 1 };
     } else {
@@ -86,17 +89,26 @@ export function parseModalEffect(c: Cursor, optionTokens: Token[][], parseBody: 
       const parsed = count(c);
       if (!parsed) return null;
       selection = parsed;
+      random = c.words('at', 'random');
       if (c.words('that', "hasn't", 'been', 'chosen')) {
         unchosen = { period: c.words('this', 'turn') ? 'turn' : 'source-object' };
       }
-      if (c.punct('.')) {
+      // CR 602.5: "Choose one. Activate only ..." ends the modal instruction;
+      // the complete restriction tail stays for the enclosing ability block.
+      activationTail = c.attempt(c => {
+        if (!c.punct('.') || !c.isWord('activate')) return null;
+        const tail = new Cursor(c.tokens.slice(c.pos));
+        return parseActivationRules(tail) && tail.done() ? true : null;
+      }) === true;
+      if (activationTail) c.pos--;
+      else if (c.punct('.')) {
         if (!c.done()) {
           if (!c.words('you', 'may', 'choose', 'the', 'same', 'mode', 'more', 'than', 'once') || !c.punct('.')) return null;
           allowRepeat = true;
         }
       } else if (!c.punct('—')) return null;
     }
-    if (!c.done() || !optionTokens.length || (allowRepeat && unchosen)) return null;
+    if ((!c.done() && !activationTail) || !optionTokens.length || (allowRepeat && unchosen)) return null;
     const options: ModalOption[] = [];
     for (const tokens of optionTokens) {
       const body = new Cursor(tokens);
@@ -124,6 +136,6 @@ export function parseModalEffect(c: Cursor, optionTokens: Token[][], parseBody: 
     const minimum = 'exactly' in selection ? selection.exactly : 'min' in selection ? selection.min : 'atLeast' in selection ? selection.atLeast : 0;
     if (!allowRepeat && minimum > options.length) return c.fail('enough modal options');
     return { effect: 'modal', count: selection, options, ...(keyword ? { keyword } : {}),
-      ...(allowRepeat ? { allowRepeat } : {}), ...(unchosen ? { unchosen } : {}) };
+      ...(allowRepeat ? { allowRepeat } : {}), ...(unchosen ? { unchosen } : {}), ...(random ? { random: true as const } : {}) };
   });
 }

@@ -5,8 +5,8 @@
 import type { Amount, Color, Effect, GainedAbility, ObjectRef, ResolvingCharacteristicModifier, SubtypeFamily, TypeChange } from '../ast.ts';
 import { CARD_TYPES, COLORS, SUPERTYPES, canonicalSubtypeName, singularize } from '../vocab.ts';
 import { Cursor } from './cursor.ts';
-import { characteristicSubtypeFamily, parseStaticBasePt } from './characteristics.ts';
-import { parseAmount, parseDuration, parseObjectRef, parsePossessiveObject } from './refs.ts';
+import { characteristicSubtypeFamily, parseCharacteristicModifiers, parseStaticBasePt } from './characteristics.ts';
+import { parseAmount, parseDuration, parseEqualTo, parseObjectRef, parsePossessiveObject } from './refs.ts';
 
 type AbilityParser = (c: Cursor) => GainedAbility[] | null;
 type Stats = { power: Amount; toughness: Amount };
@@ -43,6 +43,71 @@ function retainedTypes(c: Cursor, plural: boolean): boolean {
   });
 }
 
+/** The preceding complete sentence of this same body instructs choosing a
+ * subtype, so "that type" has exactly one antecedent (CR 205.3e, 608.2c).
+ * A lexical proof only: the choice sentence must itself still parse. */
+function precedingTypeChoice(c: Cursor): 'creature' | 'land' | null {
+  const punct = (index: number, ...values: string[]) => {
+    const token = c.tokens[index];
+    return token.kind === 'punct' && values.includes(token.value);
+  };
+  let end = c.pos - 1;
+  while (end >= 0 && !punct(end, '.')) end--;
+  if (end < 0) return null;
+  let start = end - 1;
+  while (start >= 0 && !punct(start, '.', ':', '—', ',')) start--;
+  const sentence = new Cursor(c.tokens.slice(start + 1, end));
+  if (!sentence.words('choose', 'a')) return null;
+  const kind = sentence.words('creature', 'type') ? 'creature' : sentence.words('basic', 'land', 'type') ? 'land' : null;
+  return kind && sentence.done() ? kind : null;
+}
+
+/** Values supplied by a choice rather than printed: a fresh choice made as
+ * the effect is created (608.2d) or a symbolic earlier choice (607.2d).
+ * Setting a color or subtype replaces the previous ones unless the effect
+ * says "in addition" (105.3, 205.1a/b); a set basic land type is 305.7. */
+function parseChoiceCharacteristics(c: Cursor): ResolvingCharacteristicModifier[] | null {
+  return c.attempt((c): ResolvingCharacteristicModifier[] | null => {
+    const you = { player: 'you' } as const;
+    const inAddition = (kind: 'types' | 'colors') => c.attempt(c => {
+      if (!c.words('in', 'addition', 'to') || c.word('its', 'their') === null || c.word('other') === null) return null;
+      if (kind === 'types') c.word('creature', 'land');
+      return c.word(kind) !== null ? true : null;
+    }) === true;
+    if (c.words('all', 'colors'))
+      return [{ modifier: 'colors', operation: 'set', colors: ['white', 'blue', 'black', 'red', 'green'] }];
+    if (c.words('that', 'type')) {
+      const kind = precedingTypeChoice(c);
+      if (!kind) return c.fail('preceding subtype choice for "that type"');
+      return [{ modifier: 'types', change: { chosenSubtype: { operation: inAddition('types') ? 'add' : 'set', choice: { choice: 'chosen-type', kind } } } }];
+    }
+    if (c.word('the') === null) return null;
+    const last = c.word('last') !== null;
+    if (c.word('chosen') !== null) {
+      if (c.word('color') !== null)
+        return [{ modifier: 'colors', operation: inAddition('colors') ? 'add' : 'set',
+          colors: { choice: 'chosen-value', category: 'color', which: last ? 'last-chosen' : 'chosen' } }];
+      if (last) return null;
+      const kind = c.word('creature', 'land');
+      if (c.word('type') === null) return null;
+      return [{ modifier: 'types', change: { chosenSubtype: { operation: inAddition('types') ? 'add' : 'set',
+        choice: { choice: 'chosen-type', ...(kind === 'creature' || kind === 'land' ? { kind } : {}) } } } }];
+    }
+    if (last) return null;
+    if (c.word('color') !== null) {
+      const quantity = c.words('or', 'colors') ? 'one-or-more' : 'one';
+      if (!c.words('of', 'your', 'choice')) return null;
+      return [{ modifier: 'colors', operation: inAddition('colors') ? 'add' : 'set',
+        colors: { choice: 'fresh-choice', category: 'color', who: you, when: 'effect-created', quantity } }];
+    }
+    const category = c.words('basic', 'land', 'type') ? 'basic-land-type' : c.words('creature', 'type') ? 'creature-type' : null;
+    if (!category || !c.words('of', 'your', 'choice')) return null;
+    return [{ modifier: 'types', change: { subtypes: [{ family: category === 'creature-type' ? 'creature' : 'land',
+      operation: inAddition('types') ? 'add' : 'set',
+      types: { choice: 'fresh-choice', category, who: you, when: 'effect-created' } }] } }];
+  });
+}
+
 function pluralSubject(what: ObjectRef): boolean {
   if (what.ref === 'them' || what.ref === 'each' || what.ref === 'all' || what.ref === 'zone-cards') return true;
   if (what.ref === 'that') return !!what.plural;
@@ -51,16 +116,142 @@ function pluralSubject(what: ObjectRef): boolean {
   return false;
 }
 
+type BasePt = Extract<ResolvingCharacteristicModifier, { modifier: 'base-pt' }>;
+type Modify = Extract<Effect, { effect: 'modify-characteristics' }>;
+
+/** CR 613.4b: an effect that sets only base power or only base toughness
+ * leaves the other value alone. Values are fixed when the effect begins
+ * (611.2d). "[object]'s base ... becomes" changes it; "[object] has base
+ * ..." states it (611.2e). The fixed "has base power and toughness N/N"
+ * form keeps its existing set-pt node and is not accepted here. */
+function parseBasePtChange(c: Cursor, previous: ObjectRef | undefined): Modify | null {
+  const stats = (c: Cursor): 'both' | 'power' | 'toughness' | null => c.attempt(c => {
+    if (c.word('base') === null) return null;
+    const first = c.word('power', 'toughness');
+    if (first === 'toughness') return 'toughness';
+    if (first !== 'power') return null;
+    return c.attempt(c => {
+      if (c.word('and') === null) return null;
+      c.word('base');
+      return c.word('toughness') !== null ? 'both' as const : null;
+    }) ?? 'power';
+  });
+  const scoped = (value: Omit<BasePt, 'modifier' | 'valueScope'>): BasePt => ({ modifier: 'base-pt', ...value,
+    ...([value.power, value.toughness].some(amount => amount && amount.amount !== 'fixed') ? { valueScope: 'each-affected-object' as const } : {}) } as BasePt);
+  const single = (c: Cursor, stat: 'power' | 'toughness'): BasePt | null => {
+    const value = parseEqualTo(c) ?? parseAmount(c);
+    return value && scoped(stat === 'power' ? { power: value } : { toughness: value });
+  };
+  const finish = (what: ObjectRef, modifier: BasePt, statedAs?: 'has'): Modify => {
+    const duration = parseDuration(c) ?? undefined;
+    return { effect: 'modify-characteristics', what, modifiers: [modifier], snapshot: 'effect-created',
+      ...(statedAs ? { statedAs } : {}), ...(duration ? { duration } : {}) };
+  };
+  return c.attempt((c): Modify | null => {
+    const changed = c.attempt((c): Modify | null => {
+      const what = parsePossessiveObject(c);
+      const stat = what && stats(c);
+      if (!what || !stat || c.word('becomes', 'become') === null) return null;
+      if (stat !== 'both') {
+        const modifier = single(c, stat);
+        return modifier && finish(what, modifier);
+      }
+      const pair = c.attempt((c): BasePt | null => {
+        // "equal to that creature's power and toughness": each from its own.
+        if (!c.words('equal', 'to')) return null;
+        const of = parsePossessiveObject(c);
+        if (!of || !c.words('power', 'and', 'toughness')) return null;
+        return scoped({ power: { amount: 'attribute', of, attribute: 'power' },
+          toughness: { amount: 'attribute', of: structuredClone(of), attribute: 'toughness' } });
+      }) ?? c.attempt((c): BasePt | null => {
+        const power = parseAmount(c);
+        if (!power || !c.punct('/')) return null;
+        const toughness = parseAmount(c);
+        return toughness && scoped({ power, toughness });
+      });
+      return pair && finish(what, pair);
+    });
+    if (changed) return changed;
+    const what = parseObjectRef(c) ?? previous;
+    if (!what || c.word('has', 'have') === null) return null;
+    const start = c.pos;
+    const stat = stats(c);
+    if (!stat) return null;
+    if (stat !== 'both') {
+      const modifier = single(c, stat);
+      return modifier && finish(what, modifier, 'has');
+    }
+    c.pos = start;
+    const pt = parseStaticBasePt(c);
+    if (!pt || pt.power.amount === 'fixed' && pt.toughness.amount === 'fixed') return null;
+    return finish(what, scoped(pt), 'has');
+  });
+}
+
+/** CR 611.2e: resolving text stating that an object "is/isn't
+ * [characteristic]" creates the same kind of continuous effect as
+ * "becomes", but applies simultaneously with that object's entry when this
+ * resolution also puts it onto the battlefield. The subject is explicit;
+ * a pronoun may carry the verb ("it's", "they're"). */
+function parseStatedCharacteristics(c: Cursor, parseAbilities: AbilityParser): Extract<Effect, { effect: 'modify-characteristics' }> | null {
+  return c.attempt(c => {
+    // After "return it ... at the beginning of the next end step." the stated
+    // characteristic belongs to that delayed return (Grave Betrayal), not to
+    // this resolution. That scope is not represented; keep it failing.
+    for (let i = c.pos - 2; i >= 2; i--) {
+      const token = c.tokens[i];
+      if (token.kind === 'punct' && token.value === '.') break;
+      const word = (index: number, value: string) => { const t = c.tokens[index]; return t.kind === 'word' && t.value === value; };
+      if (word(i, 'beginning') && word(i - 1, 'the') && word(i - 2, 'at')) return c.fail('stated characteristic outside a delayed instruction');
+    }
+    const what: ObjectRef | null = c.isWord("it's") ? { ref: 'it' } : c.isWord("they're") ? { ref: 'them' } : parseObjectRef(c);
+    if (!what) return null;
+    const stated = parseCharacteristicModifiers(c, what, parseAbilities);
+    if (!stated) return null;
+    // "is black and is a Nightmare in addition to its other creature types":
+    // each predicate keeps its own set/add operation (CR 105.3, 205.1b).
+    for (;;) {
+      const next = c.attempt(c => c.word('and') !== null && c.isWord('is', 'are', "isn't", "aren't")
+        ? parseCharacteristicModifiers(c, what, parseAbilities) : null);
+      if (!next) break;
+      stated.push(...next);
+    }
+    const modifiers: ResolvingCharacteristicModifier[] = [];
+    for (const modifier of stated) {
+      if (modifier.condition || modifier.forEach || modifier.multiplier) return null;
+      if (modifier.modifier === 'types') modifiers.push({ modifier: 'types', change: modifier.change });
+      else if (modifier.modifier === 'colors') modifiers.push({ modifier: 'colors', operation: modifier.operation, colors: modifier.colors });
+      else if (modifier.modifier === 'base-pt' && modifier.power && modifier.toughness) modifiers.push({ modifier: 'base-pt',
+        power: modifier.power, toughness: modifier.toughness, ...(modifier.valueScope ? { valueScope: modifier.valueScope } : {}) });
+      else if (modifier.modifier === 'abilities') modifiers.push({ modifier: 'abilities', abilities: modifier.abilities });
+      else return null;
+    }
+    // Oracle states a temporary change with "becomes ... until end of turn".
+    // A stated characteristic lasts indefinitely or "for as long as" (611.2b);
+    // any other trailing lifetime keeps this production from applying.
+    const duration = parseDuration(c) ?? undefined;
+    if (duration && duration.duration !== 'as-long-as') return null;
+    return { effect: 'modify-characteristics', what, modifiers, snapshot: 'effect-created', statedAs: 'is', ...(duration ? { duration } : {}) };
+  });
+}
+
 /** New descriptions only. Already supported simple BecomeSpec productions
  * keep their existing AST; no grammar text is rewritten to obtain a parse. */
 export function parseResolvingCharacteristics(c: Cursor, previous: ObjectRef | undefined,
   parseAbilities: AbilityParser): Extract<Effect, { effect: 'modify-characteristics' }> | null {
+  const stated = parseStatedCharacteristics(c, parseAbilities) ?? parseBasePtChange(c, previous);
+  if (stated) return stated;
   return c.attempt(c => {
     const what = parseObjectRef(c) ?? previous;
     if (!what) return null;
     const distributive = c.word('each') !== null;
     const verb = c.word('becomes', 'become');
     if (!verb) return null;
+    const chosen = parseChoiceCharacteristics(c);
+    if (chosen) {
+      const duration = parseDuration(c) ?? undefined;
+      return { effect: 'modify-characteristics', what, modifiers: chosen, snapshot: 'effect-created', ...(duration ? { duration } : {}) };
+    }
     c.word('a', 'an');
     const cardTypes: string[] = [], supertypes: string[] = [];
     const subtypes = new Map<SubtypeFamily, string[]>();
@@ -147,7 +338,8 @@ export function parseResolvingCharacteristics(c: Cursor, previous: ObjectRef | u
           addTypes = true; advanced = true;
         }
       } else {
-        c.word('creature', 'land');
+        // The older BecomeSpec production never accepted a named family.
+        if (c.word('creature', 'land') !== null) advanced = true;
         if (c.word('types') === null) return null;
         addTypes = true;
       }

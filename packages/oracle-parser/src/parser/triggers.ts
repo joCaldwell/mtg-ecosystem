@@ -7,6 +7,7 @@ import { parseAmount, parseCount, parseComparison, parseFilter, parseObjectRef, 
 import { parseDiceTrigger } from "./dice.ts";
 import { parseTriggerGate } from "./trigger-gates.ts";
 import { parseCounterChangeTrigger } from "./counter-events.ts";
+import { parsePlayerActionEvent, parsePlayerDamagedEvent, parseStateTrigger } from "./trigger-actions.ts";
 
 /** Subject of an event trigger: "~", "a creature", "another Elf you control" … */
 type TriggerSubject = { what: ObjectRef; grouping?: "one-or-more" };
@@ -133,6 +134,13 @@ function parseOccurrencePeriod(c: Cursor): { during?: TurnOwner } | null {
   });
 }
 
+/** A non-collective player other than "you": the antecedent of a following
+ * "their" is the one player performing each matching event. */
+function isSingularOtherPlayer(who: PlayerRef): boolean {
+  return who.player === "an-opponent" || who.player === "a-player" || who.player === "enchanted-player"
+    || who.player === "that-player";
+}
+
 function hasZoneQualifier(filter: ObjectFilter): boolean {
   return !!filter.zone || !!filter.anyOf?.some(hasZoneQualifier) || !!filter.allOf?.some(hasZoneQualifier);
 }
@@ -167,6 +175,8 @@ function parsePlayerAttack(c: Cursor): Trigger | null {
 /** CR 109.2: an unqualified creature/artifact/etc description denotes a
  * permanent. A generic card or source-name reference does not prove origin. */
 function isPermanentReference(what: ObjectRef): boolean {
+  // CR 303.4, 205.3i: "enchanted Forest" is the land this Aura is attached to.
+  if (what.ref === "enchanted" && ["plains", "island", "swamp", "mountain", "forest"].includes(what.noun)) return true;
   if (what.ref === "this" || what.ref === "enchanted" || what.ref === "equipped")
     return what.noun !== undefined && ["creature", "artifact", "land", "enchantment", "permanent", "token", "planeswalker", "battle"].includes(what.noun);
   if (what.ref !== "filter" && what.ref !== "that") return false;
@@ -180,7 +190,67 @@ function isPermanentReference(what: ObjectRef): boolean {
   return permanent(what.filter);
 }
 
+/** "you play a land or cast a spell", "you cast a black spell or a Swamp
+ * you control enters": an "or" left over after one complete event starts a
+ * further complete event of the same introduced clause. It either repeats
+ * the first event's player subject or has its own subject (CR 603.2). */
 function parseSingleTrigger(c: Cursor): Trigger | null {
+  return c.attempt((c): Trigger | null => {
+    const start = c.pos;
+    const complete = parseSingleEvent(c);
+    const first = complete ?? parseEventBeforeAlternative(c);
+    if (!first) return null;
+    const events = [first];
+    const probe = new Cursor(c.tokens.slice(start));
+    const introduced = probe.word("when", "whenever") !== null;
+    const subject = introduced && parsePlayerRef(probe) ? c.tokens.slice(start + 1, start + probe.pos) : null;
+    while (introduced && c.isWord("or")) {
+      const rest = c.tokens.slice(c.pos + 1);
+      const next = c.attempt((c): Trigger | null => {
+        for (const prefix of subject ? [subject, []] : [[]]) {
+          const tokens = [c.tokens[start], ...prefix, ...rest];
+          const alternative = new Cursor(tokens);
+          const event = parseSingleEvent(alternative);
+          if (!event || alternative.pos <= 1 + prefix.length) continue;
+          c.pos += alternative.pos - prefix.length;
+          return event;
+        }
+        return null;
+      });
+      if (!next) break;
+      events.push(next);
+    }
+    // An event cut at an "or" stands only with the alternative after it.
+    if (events.length === 1) return complete;
+    // A trailing ordinal, turn or while qualifier could belong to the last
+    // alternative or to all of them; that scope is not guessed.
+    if (c.isWord("for", "during", "on", "while")) return c.fail("unambiguous qualifier scope for alternative events");
+    return { trigger: "any-of", events: events.flatMap(event =>
+      event.trigger === "any-of" && Object.keys(event).length === 2 ? event.events : [event]) };
+  });
+}
+
+/** A noun phrase directly before the connecting "or" can otherwise absorb
+ * the next event's subject as a filter alternative ("a black spell or a
+ * Swamp you control enters"). The first event must end exactly at that "or";
+ * the caller still has to parse everything after it as complete events. */
+function parseEventBeforeAlternative(c: Cursor): Trigger | null {
+  if (!c.isWord("when", "whenever")) return null;
+  for (let end = c.pos + 1; end < c.tokens.length; end++) {
+    const token = c.tokens[end];
+    if (token.kind === "punct") return null;
+    if (token.kind !== "word" || token.possessive || token.value !== "or") continue;
+    const clause = new Cursor(c.tokens.slice(c.pos, end));
+    const event = parseSingleEvent(clause);
+    if (event && clause.done()) {
+      c.pos = end;
+      return event;
+    }
+  }
+  return null;
+}
+
+function parseSingleEvent(c: Cursor): Trigger | null {
   return c.attempt((c): Trigger | null => {
     const dice = parseDiceTrigger(c, { parseAmount, parseCount, parsePlayerRef });
     if (dice) return dice;
@@ -190,6 +260,10 @@ function parseSingleTrigger(c: Cursor): Trigger | null {
     if (at || opener === "at") return parsePhaseTrigger(c);
     const counters = parseCounterChangeTrigger(c);
     if (counters) return counters;
+    const state = parseStateTrigger(c);
+    if (state) return state;
+    const damaged = parsePlayerDamagedEvent(c);
+    if (damaged) return damaged;
 
     // "Whenever you cast a(n) <filter> spell"
     const youCast = c.attempt((c): Trigger | null => {
@@ -219,10 +293,17 @@ function parseSingleTrigger(c: Cursor): Trigger | null {
         return { trigger: "cast", who, what: specific, ...(from ? { from } : {}) };
       }
       let ordinal: number | null = null;
+      let perPlayer = false;
       if (c.word("your") !== null) {
         if (who.player !== "you" || copyToo) return null;
         ordinal = parseOrdinal(c);
         if (ordinal === null) return null;
+      } else if (c.word("their") !== null) {
+        // "their second spell": each matching player's own count.
+        if (!isSingularOtherPlayer(who) || copyToo) return null;
+        ordinal = parseOrdinal(c);
+        if (ordinal === null) return null;
+        perPlayer = true;
       } else c.word("a", "an");
       const filterStart = c.pos;
       const filter = parseFilter(c);
@@ -251,7 +332,7 @@ function parseSingleTrigger(c: Cursor): Trigger | null {
       if (ordinal !== null) {
         const period = parseOccurrencePeriod(c);
         if (!period) return null;
-        return { ...event, occurrence: { ordinal, period: "turn" }, ...period };
+        return { ...event, occurrence: { ordinal, period: "turn", ...(perPlayer ? { per: "player" as const } : {}) }, ...period };
       }
       if (copyToo) return { trigger: "any-of", events: [
         { trigger: "cast", who, what }, { trigger: "copy", who, what },
@@ -284,6 +365,8 @@ function parseSingleTrigger(c: Cursor): Trigger | null {
     const playerEvent = c.attempt((c): Trigger | null => {
       const who = parsePlayerRef(c);
       if (!who) return null;
+      const action = parsePlayerActionEvent(c, who);
+      if (action) return action;
       if (c.word("cycle", "cycles") !== null) {
         const discardToo = c.words("or", "discard");
         const card = parseTriggerSubject(c);
@@ -299,11 +382,12 @@ function parseSingleTrigger(c: Cursor): Trigger | null {
         return { trigger: "loses-life", who };
       if (c.word("draw", "draws") !== null) {
         if (c.words("a", "card")) return { trigger: "draws", who };
-        if (who.player !== "you" || c.word("your") === null) return null;
+        const perPlayer = isSingularOtherPlayer(who) && c.word("their") !== null;
+        if (!perPlayer && (who.player !== "you" || c.word("your") === null)) return null;
         const ordinal = parseOrdinal(c);
         if (ordinal === null || c.word("card") === null) return null;
         const period = parseOccurrencePeriod(c);
-        return period && { trigger: "draws", who, occurrence: { ordinal, period: "turn" }, ...period };
+        return period && { trigger: "draws", who, occurrence: { ordinal, period: "turn", ...(perPlayer ? { per: "player" as const } : {}) }, ...period };
       }
       if (c.word("discard", "discards") !== null) {
         const subject = parseTriggerSubject(c);
@@ -331,6 +415,15 @@ function parseSingleTrigger(c: Cursor): Trigger | null {
     // Object-subject triggers.
     const parsedSubject = parseTriggerSubject(c);
     if (!parsedSubject) return c.fail("trigger subject");
+    // "~ and at least one other creature attack": one attack declaration
+    // containing the subject and the stated number of further attackers.
+    const alongside = c.attempt(c => {
+      if (parsedSubject.grouping || !isSingleIdentifiedObject(parsedSubject.what) || c.word("and") === null || !c.isWord("at")) return null;
+      const count = parseComparison(c);
+      const filter = count && count.op === "ge" ? parseFilter(c) : null;
+      return filter && count && c.word("attack") !== null ? { filter, count } : null;
+    });
+    if (alongside) return { trigger: "attacks", what: parsedSubject.what, alone: undefined, whom: undefined, alongside };
     const subjects = [parsedSubject];
     while (c.word("or") !== null) {
       const next = parseTriggerSubject(c);
@@ -350,6 +443,19 @@ function parseSingleTrigger(c: Cursor): Trigger | null {
     }
     return events.length === 1 ? events[0] : { trigger: "any-of", events };
   });
+}
+
+/** A player participant of an event. "One of your opponents" is each single
+ * opponent the event happens to, the same participant as "an opponent". */
+function parseEventPlayer(c: Cursor): PlayerRef | null {
+  return c.attempt((c): PlayerRef | null => {
+    if (c.words("one", "of", "your", "opponents")) return { player: "an-opponent" };
+    return parsePlayerRef(c);
+  });
+}
+
+function isSingleIdentifiedObject(what: ObjectRef): boolean {
+  return what.ref === "self" || what.ref === "this" || what.ref === "equipped" || what.ref === "enchanted";
 }
 
 function parseSubjectEvents(c: Cursor, subject: ObjectRef): Trigger | null {
@@ -375,6 +481,7 @@ function parseObjectEvent(c: Cursor, subject: ObjectRef): Trigger | null {
     // Plural verb forms cover collective subjects ("one or more creatures enter").
     if (c.word("enters", "enter") !== null) {
       c.words("the", "battlefield");
+      const untapped = c.word("untapped") !== null;
       let controller: PlayerRef | undefined;
       let from: ZoneRef | undefined;
       for (;;) {
@@ -385,23 +492,36 @@ function parseObjectEvent(c: Cursor, subject: ObjectRef): Trigger | null {
           from = zone;
         } else break;
       }
-      return { trigger: "enters", what: subject, ...(controller ? { controller } : {}), ...(from ? { from } : {}) };
+      return { trigger: "enters", what: subject, ...(untapped ? { untapped } : {}), ...(controller ? { controller } : {}), ...(from ? { from } : {}) };
     }
     if (c.word("leaves", "leave") !== null) {
       const from = parseZoneRef(c);
       if (from && from.zone !== "battlefield") return { trigger: "leaves-zone", what: subject, from };
       if (from && Object.keys(from).length !== 1) return null;
+      if (from && c.words("without", "dying")) return { trigger: "leaves", what: subject, withoutDying: true };
       return { trigger: "leaves", what: subject };
     }
     if (c.word("dies", "die") !== null) return { trigger: "dies", what: subject };
     if (c.attempt((c) => (c.word("is", "are") !== null && c.words("put", "into") ? true : null))) {
       const to = parseZoneRef(c);
+      if (to && to.zone !== "graveyard" && to.zone !== "battlefield" && to.zone !== "stack" && !to.position) {
+        // Exile, a library, a hand or the command zone. The printed origin
+        // is kept as printed; none is supplied when it is omitted.
+        if (c.word("from") === null) return { trigger: "put-into-zone", what: subject, to };
+        const origin = c.word("anywhere") !== null ? "anywhere" : parseZoneRef(c);
+        if (!origin || c.isWord("other")) return c.fail("zone event source");
+        return { trigger: "put-into-zone", what: subject, from: origin, to };
+      }
       if (to?.zone !== "graveyard") return null;
       if (c.word("from") === null)
         return isPermanentReference(subject) ? { trigger: "put-into-graveyard", what: subject, from: "battlefield", to } : null;
       const source = c.word("anywhere") !== null ? "anywhere" : parseZoneRef(c);
       if (!source) return c.fail("graveyard event source");
       const from = source === "anywhere" ? source : source.zone === "battlefield" && !source.owner ? "battlefield" : source;
+      if (from === "anywhere" && c.words("other", "than")) {
+        const notFrom = parseZoneRef(c);
+        return notFrom && { trigger: "put-into-graveyard", what: subject, from, to, notFrom };
+      }
       return { trigger: "put-into-graveyard", what: subject, from, to };
     }
 
@@ -409,16 +529,22 @@ function parseObjectEvent(c: Cursor, subject: ObjectRef): Trigger | null {
       const alone = c.word("alone") !== null;
       // optional "you or a planeswalker you control" tail
       const whom: (PlayerRef | ObjectRef)[] = [];
-      const first = c.attempt(parsePlayerRef) ?? c.attempt(parseObjectRef);
+      const first = c.attempt(parseEventPlayer) ?? c.attempt(parseObjectRef);
       if (first) {
         whom.push(first);
         while (c.word("or") !== null) {
-          const nxt = c.attempt(parsePlayerRef) ?? c.attempt(parseObjectRef);
+          const nxt = c.attempt(parseEventPlayer) ?? c.attempt(parseObjectRef);
           if (!nxt) return null;
           whom.push(nxt);
         }
       }
       return { trigger: "attacks", what: subject, alone: alone || undefined, whom: whom.length ? whom : undefined };
+    }
+    if (c.word("exploits", "exploit") !== null) {
+      // CR 702.110b: the sacrificed creature, described by the printed filter.
+      if (c.word("a", "an") === null) return null;
+      const filter = parseFilter(c);
+      return filter && { trigger: "exploits", what: subject, exploited: { ref: "filter", filter, count: { amount: "fixed", value: 1 } } };
     }
     if (c.word("blocks", "block") !== null) {
       if (c.words("or", "becomes", "blocked")) {
@@ -475,14 +601,28 @@ function parseObjectEvent(c: Cursor, subject: ObjectRef): Trigger | null {
     }
     if (c.attempt((c) => (c.words("is", "dealt", "damage") ? true : null)))
       return { trigger: "is-dealt-damage", what: subject };
+    const dealtKind = c.attempt(c => c.word("is", "are") !== null && c.word("dealt") !== null
+      ? c.attempt(c => { const kind = c.word("combat", "noncombat"); return kind && c.word("damage") !== null ? kind : null; }) : null);
+    if (dealtKind) return { trigger: "is-dealt-damage", what: subject, combat: dealtKind === "combat" };
     if (c.word("deals", "deal") !== null) {
-      const combat = c.word("combat") !== null;
+      const kind = c.word("combat", "noncombat");
+      const combat = kind === "combat";
       if (c.word("damage") === null) return null;
       let to: "any" | PlayerRef | ObjectRef | undefined;
       if (c.word("to") !== null) {
-        if (c.attempt((c) => (c.words("a", "player") ? true : null))) to = "any";
+        // "a player or planeswalker": each damaged player or such permanent.
+        const union = c.attempt((c): ObjectRef | null => {
+          const start = c.pos;
+          if (!c.words("a", "player", "or")) return null;
+          c.pos = start;
+          const recipient = parseObjectRef(c);
+          return recipient?.ref === "filter" && recipient.filter.orPlayer && recipient.filter.types?.length === 1
+            && Object.keys(recipient.filter).length === 2 ? recipient : null;
+        });
+        if (union) to = union;
+        else if (c.attempt((c) => (c.words("a", "player") ? true : null))) to = "any";
         else {
-          const p = c.attempt(parsePlayerRef);
+          const p = c.attempt(parseEventPlayer);
           if (p) to = p;
           else {
             const o = parseObjectRef(c);
@@ -491,7 +631,7 @@ function parseObjectEvent(c: Cursor, subject: ObjectRef): Trigger | null {
           }
         }
       }
-      return { trigger: "deals-damage", what: subject, combat: combat || undefined, to };
+      return { trigger: "deals-damage", what: subject, combat: kind === "noncombat" ? false : combat || undefined, to };
     }
     if (c.attempt((c) => (c.words("is", "tapped", "for", "mana") ? true : null)))
       return { trigger: "taps-for-mana", what: subject };
@@ -525,6 +665,7 @@ function parseQualifiedTrigger(c: Cursor): Trigger | null {
       if (c.word("during", "on") === null) return null;
       if (c.words("your", "turn")) return "your";
       if (c.word("each") !== null && c.possessive("opponent") !== null && c.word("turn") !== null) return "each-opponent";
+      if (c.word("an") !== null && c.possessive("opponent") !== null && c.word("turn") !== null) return "opponent";
       return null;
     });
     if (during) {

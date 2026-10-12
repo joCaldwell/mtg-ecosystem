@@ -22,6 +22,8 @@ function containsLoop(value: unknown): boolean {
 export function parseForEach(c: Cursor, parseBody: (body: Cursor) => Sentence[] | null): Effect | null {
   return c.attempt(c => {
     if (c.word("for") === null || !c.isWord("each")) return null;
+    const following = c.peek(1);
+    const establishedGroup = following?.kind === "word" && !following.possessive && following.value === "of";
     const each = c.attempt(c => {
       const player = parsePlayerRef(c);
       return player && isPluralPlayerRef(player) ? player : null;
@@ -46,6 +48,12 @@ export function parseForEach(c: Cursor, parseBody: (body: Cursor) => Sentence[] 
     const body = new Cursor(c.tokens.slice(start, end));
     const effects = parseBody(body);
     if (!body.done() || effects?.length !== 1 || containsLoop(effects)) return null;
+    // CR 608.2f (Soulfire Eruption example): a dependent action sequence for
+    // each member of an established group is completed member by member when
+    // it cannot be simultaneous. That is not instruction-wise processing, so
+    // only a single action is accepted for "For each of <group>, ...".
+    if (establishedGroup && effects[0].steps.length !== 1)
+      return c.fail("a single action for each member of an established group");
     c.pos = end;
     return { effect: "for-each", each, effects, processing: "instruction-wise" };
   });

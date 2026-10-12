@@ -27,6 +27,8 @@ export const STATUS_WORDS = new Set([
   // distinct from granted keyword abilities.
   // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
   "modified", "goaded", "suspected",
+  // CR 712: a double-faced permanent with its back face up.
+  "transformed",
 ]);
 
 const WORD_NUMBERS: Record<string, number> = {

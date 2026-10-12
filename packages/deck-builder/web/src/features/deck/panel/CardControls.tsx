@@ -3,7 +3,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { api, type DeckCard } from "../../../api/client.ts";
-import { Button, Checkbox, KeyValue, MultiSelect, Select, Text, TextField } from "../../../ui/index.ts";
+import { Button, KeyValue, MultiSelect, Select, Text, TextField } from "../../../ui/index.ts";
 import { useDeck, useDeckState } from "../DeckStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import styles from "./CardControls.module.css";
@@ -70,15 +70,6 @@ export function CardControls({ card }: { card: DeckCard }) {
   ];
   if (inDeck) {
     rows.push(
-      [
-        "Paper",
-        <Checkbox
-          key="paper"
-          checked={!!card.in_paper}
-          onChange={(in_paper) => void patch({ in_paper })}
-          label="In the paper deck"
-        />,
-      ],
       [
         "Role",
         <Select key="role" aria-label="Role" value={card.role} onChange={(e) => void patch({ role: e.target.value })}>

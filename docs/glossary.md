@@ -43,7 +43,7 @@ A reference mapping Magic: The Gathering terminology to their system-level equiv
 | **Grammar** | Parser | The supported Oracle-text productions, implemented directly in the hand-written TypeScript parser. The earlier ANTLR `.g4` grammar was retired. |
 | **Visitor Pattern** | Historical parser | The retired ANTLR design separated parse trees from an AST visitor. The current parser builds typed nodes directly. |
 | **Scryfall** | Data Source | The community-standard MTG card database and API ([scryfall.com](https://scryfall.com)). Used as the single source of truth for card data. The ingestion pipeline pulls Scryfall's bulk data exports (JSON), normalizes them, and feeds them into the parser. See [Scryfall Integration](scryfall-integration.md). |
-| **Monorepo / npm Workspaces** | Project | The project is structured as a TypeScript monorepo using npm workspaces. Each major component (oracle-parser, card-data, game-engine) is a separate package under `packages/`. See [Project Structure](project-structure.md). |
+| **Monorepo / Workspaces** | Project | One repository with TypeScript/npm packages and the adopted Rust/Cargo workspace, to be added with native scaffolding. Components live under `packages/`; card-data is generated JSON. See [Project Structure](project-structure.md). |
 | **Snapshot Tests** | Testing | A testing strategy where the parser's AST output for a curated set of cards is recorded as "snapshots." Future test runs compare against these snapshots to detect regressions. |
 | **Bulk Validation** | Testing | Running the parser against the entire Scryfall card database and reporting coverage statistics — what percentage of cards parse without errors. Used to track parser completeness. |
 

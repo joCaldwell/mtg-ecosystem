@@ -153,7 +153,33 @@ export function lex(line: string, sourceId?: string, catalog?: CardNameCatalog):
     throw new LexError(`unexpected character ${JSON.stringify(c)}`, i);
   }
 
+  settleQuotedPunctuation(tokens);
   return sourceId === undefined ? tokens : tokens.map((token, index) => ({
     ...token, provenance: { sourceId, index },
   }));
+}
+
+/** Oracle typesets a comma or final period inside a closing quotation mark
+ * although it punctuates the enclosing sentence ('has "…," and is a Rogue';
+ * 'with "…." Then …'). Give the mark to the enclosing sentence: no token is
+ * dropped, and a quoted ability never needed its own trailing punctuation.
+ * A period stays inside when the enclosing sentence visibly continues (in
+ * lowercase, or with its own punctuation), and before "Then", which the
+ * effect grammar already reads as a continuation of the quoted instruction.
+ * Literal names are card-name tokens, so ability quotation marks alternate. */
+function settleQuotedPunctuation(tokens: Token[]): void {
+  let open = false;
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index];
+    if (token.kind !== "punct" || token.value !== '"') continue;
+    const previous = tokens[index - 1];
+    const next = tokens[index + 1];
+    const continues = next?.kind === "word" ? next.raw[0] === next.raw[0].toLowerCase() || next.value === "then"
+      : next?.kind === "punct" && next.value !== '"';
+    if (open && previous?.kind === "punct" && (previous.value === "," || (previous.value === "." && !continues))) {
+      tokens[index - 1] = token;
+      tokens[index] = previous;
+    }
+    open = !open;
+  }
 }

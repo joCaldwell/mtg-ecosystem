@@ -8,7 +8,7 @@ export const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const DATA_DIR = process.env.DECKBUILDER_DATA ?? join(PKG_ROOT, "data");
 export const DEFAULT_DB_PATH = process.env.DECKBUILDER_DB ?? join(DATA_DIR, "deck-builder.db");
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS cards (
@@ -125,8 +125,6 @@ CREATE TABLE IF NOT EXISTS deck_cards (
   maybe     INTEGER NOT NULL DEFAULT 0,
   -- Why a card was shortlisted. Free text, linted on write (spec §10.5).
   maybe_note TEXT NOT NULL DEFAULT '',
-  -- Spec §5.5: the physical card is in the physical deck. Not "owned".
-  in_paper  INTEGER NOT NULL DEFAULT 0,
   quantity  INTEGER NOT NULL DEFAULT 1 CHECK (quantity >= 1),
   added_at  TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (deck_id, oracle_id)
@@ -347,7 +345,7 @@ export function openDb(path: string = DEFAULT_DB_PATH): DatabaseSync {
     withTransaction(db, () => {
       db.exec(SCHEMA);
       if (version === "2") {
-        // Preserve existing decks and card-level paper flags; classification is
+        // Preserve existing decks; classification is
         // an owner's decision, so do not infer it from assembly progress.
         db.exec(`ALTER TABLE decks ADD COLUMN category TEXT NOT NULL DEFAULT 'theorycrafted'
                  CHECK (category IN ('paper', 'theorycrafted', 'legacy'))`);
@@ -367,7 +365,7 @@ export function openDb(path: string = DEFAULT_DB_PATH): DatabaseSync {
         DROP TABLE deck_card_tags;
         ALTER TABLE deck_card_tags_v4 RENAME TO deck_card_tags;`);
       }
-      if (version != null && version !== "5") {
+      if (version != null && Number(version) < 5) {
         // NULL until a card refresh supplies Scryfall's optional metadata.
         const columns = db.prepare("PRAGMA table_info(cards)").all() as unknown as { name: string }[];
         if (!columns.some(c => c.name === "game_changer"))
@@ -396,6 +394,14 @@ export function openDb(path: string = DEFAULT_DB_PATH): DatabaseSync {
       const itemColumns = db.prepare("PRAGMA table_info(proposal_items)").all() as unknown as { name: string }[];
       if (!itemColumns.some((c) => c.name === "to_maybe"))
         db.exec("ALTER TABLE proposal_items ADD COLUMN to_maybe INTEGER NOT NULL DEFAULT 0 CHECK (to_maybe IN (0, 1))");
+      const cardColumns = db.prepare("PRAGMA table_info(deck_cards)").all() as unknown as { name: string }[];
+      if (cardColumns.some((c) => c.name === "in_paper")) {
+        // The owner chose to discard assembly marks and use ordinary tags.
+        // Keep historical membership/filing snapshots usable for undo.
+        db.exec(`ALTER TABLE deck_cards DROP COLUMN in_paper;
+          UPDATE log_cards SET before_json = json_remove(before_json, '$.in_paper')
+          WHERE json_valid(before_json) AND json_type(before_json, '$.in_paper') IS NOT NULL;`);
+      }
       db.exec("CREATE INDEX IF NOT EXISTS idx_deck_card_tags_tag ON deck_card_tags(deck_id, tag_id, oracle_id)");
       db.prepare("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(
         String(SCHEMA_VERSION),
@@ -427,7 +433,7 @@ function assertOurs(db: DatabaseSync, path: string) {
   } catch {
     /* no meta table at all */
   }
-  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4") return found;
+  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5") return found;
   db.close();
   throw new SchemaError(
     `${path} is not a database this version of the deck builder can open ` +

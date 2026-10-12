@@ -40,7 +40,7 @@ export function ReviewItemLine({ item }: { item: ProposalItem }) {
           <InlineText text={item.reason} />
         </p>
       )}
-      <ItemContext item={item} inPaper={owned ? !!owned.in_paper : null} />
+      <ItemContext item={item} />
     </div>
   );
 }

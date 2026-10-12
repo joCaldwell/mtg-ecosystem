@@ -6,6 +6,7 @@
 import type { Duration, Effect, LookPermission, ObjectRef, PlayerRef, StaticEffect } from "../ast.ts";
 import { Cursor } from "./cursor.ts";
 import { parsePlayPermissionStatic } from "./permissions.ts";
+import { parseCastingRule } from "./casting-rules.ts";
 import { parseDuration, parseObjectRef, parsePlayerRef } from "./refs.ts";
 
 interface LookOptions {
@@ -112,5 +113,5 @@ function parseOptionalUntap(c: Cursor): StaticEffect | null {
 /** Complete persistent clauses only: a following unsupported deck rule or
  * action must fail the ability rather than be silently discarded. */
 export function parsePersistentRule(c: Cursor): StaticEffect | null {
-  return parseStaticLook(c) ?? parseCommanderEligibility(c) ?? parseOptionalUntap(c);
+  return parseStaticLook(c) ?? parseCommanderEligibility(c) ?? parseOptionalUntap(c) ?? parseCastingRule(c);
 }

@@ -6,7 +6,7 @@
 import type { Amount, ChosenValueRef, Color, GainedAbility, ObjectRef, StaticModifier, SubtypeFamily, TypeChange } from '../ast.ts';
 import { CARD_TYPES, COLORS, SUPERTYPES, canonicalSubtypeName, singularize } from '../vocab.ts';
 import { Cursor } from './cursor.ts';
-import { parseAmount } from './refs.ts';
+import { parseAmount, parseFilter } from './refs.ts';
 
 type AbilityParser = (c: Cursor) => GainedAbility[] | null;
 const FAMILY_NAMES: Partial<Record<SubtypeFamily, string>> = {
@@ -71,9 +71,32 @@ function retainedTypes(c: Cursor, plural: boolean): boolean {
   });
 }
 
+/** "The same is true for <objects> and <objects>." extends one continuous
+ * type/color change to the stated spells and cards in their own zones
+ * (Conspiracy; CR 611.3a). Each added set is an explicit, zone-bearing
+ * filter; any other "the same is true" rider remains unsupported here. */
+export function parseSameIsTrueSubjects(c: Cursor, what: ObjectRef, modifiers: StaticModifier[]): ObjectRef[] | null {
+  return c.attempt(c => {
+    if (what.ref !== 'each' || !modifiers.every(modifier => (modifier.modifier === 'types' || modifier.modifier === 'colors')
+      && !modifier.condition && !modifier.forEach && !modifier.multiplier)) return null;
+    if (!c.words('the', 'same', 'is', 'true', 'for')) return null;
+    const subjects: ObjectRef[] = [];
+    for (;;) {
+      const filter = parseFilter(c);
+      // Only spells and cards outside the battlefield extend a battlefield rule.
+      if (!filter || !(filter.cls === 'spell' || filter.cls === 'card' && filter.outsideZone)) return null;
+      subjects.push({ ref: 'each', filter });
+      if (c.word('and') === null) break;
+    }
+    return subjects;
+  });
+}
+
 export function parseCharacteristicModifiers(c: Cursor, _what: ObjectRef, parseAbilities: AbilityParser): StaticModifier[] | null {
   return c.attempt(c => {
-    const verb = c.word("isn't", "aren't", 'is', 'are');
+    // A pronoun subject can carry its verb: "it's a creature in addition ...".
+    const verb = c.word("isn't", "aren't", 'is', 'are') ?? (_what.ref === 'it' ? c.word("it's") && 'is'
+      : _what.ref === 'them' ? c.word("they're") && 'are' : null);
     if (!verb) return null;
     const negative = verb === "isn't" || verb === "aren't";
     const noLonger = c.words('no', 'longer');
@@ -83,6 +106,7 @@ export function parseCharacteristicModifiers(c: Cursor, _what: ObjectRef, parseA
     const subtypes = new Map<SubtypeFamily, string[]>();
     let colors: Color[] | ChosenValueRef<'color'> | undefined;
     let allSubtypes: { family: 'land' | 'creature'; basic?: boolean } | undefined;
+    let chosenSubtype: NonNullable<TypeChange['chosenSubtype']>['choice'] | undefined;
     let stats: { power: Amount; toughness: Amount } | undefined;
     let abilities: GainedAbility[] | undefined;
     const earlyStats = c.attempt(c => {
@@ -94,6 +118,9 @@ export function parseCharacteristicModifiers(c: Cursor, _what: ObjectRef, parseA
     if (earlyStats) stats = earlyStats;
     if (c.words('all', 'colors')) colors = ['white', 'blue', 'black', 'red', 'green'];
     else if (c.words('the', 'chosen', 'color')) colors = { choice: 'chosen-value', category: 'color', which: 'chosen' };
+    else if (c.words('the', 'chosen', 'type')) chosenSubtype = { choice: 'chosen-type' };
+    else if (c.words('the', 'chosen', 'creature', 'type')) chosenSubtype = { choice: 'chosen-type', kind: 'creature' };
+    else if (c.words('the', 'chosen', 'land', 'type')) chosenSubtype = { choice: 'chosen-type', kind: 'land' };
     else if (c.word('all', 'every') !== null) {
       const basic = c.word('basic', 'nonbasic');
       const family = c.word('land', 'creature');
@@ -159,13 +186,13 @@ export function parseCharacteristicModifiers(c: Cursor, _what: ObjectRef, parseA
         if (c.word('types') === null) return null;
         addTypes = true;
       }
-      if (addTypes && !cardTypes.length && !subtypes.size && !allSubtypes && !supertypes.length || addColors && !colors) return null;
+      if (addTypes && !cardTypes.length && !subtypes.size && !allSubtypes && !chosenSubtype && !supertypes.length || addColors && !colors) return null;
     }
     if (retainedTypes(c, verb === 'are' || verb === "aren't")) addTypes = true;
     // "Also" is currently represented only for types. It must not silently
     // turn an additional color into a color replacement.
     if (also && colors) return null;
-    if ((negative || noLonger) && (colors || stats || abilities || allSubtypes || also || addTypes || addColors)) return null;
+    if ((negative || noLonger) && (colors || stats || abilities || allSubtypes || chosenSubtype || also || addTypes || addColors)) return null;
     const removing = negative || noLonger;
     const artifactCreature = cardTypes.includes('artifact') && cardTypes.includes('creature');
     const change: TypeChange = {};
@@ -175,6 +202,12 @@ export function parseCharacteristicModifiers(c: Cursor, _what: ObjectRef, parseA
       operation: removing ? 'remove' : addTypes || artifactCreature && family !== 'creature' ? 'add' : 'set', types }));
     if (allSubtypes) change.subtypes = [{ family: allSubtypes.family, operation: addTypes ? 'add' : 'set',
       types: { all: true, ...(allSubtypes.basic === undefined ? {} : { basic: allSubtypes.basic }) } }];
+    // CR 205.1a/b, 305.7: without "in addition" the chosen subtype replaces
+    // the subtypes of its own family (the linked choice supplies that family).
+    // A source replacing its own subtypes with a linked choice is left
+    // unsupported (pinned by static-characteristics.test.ts).
+    if (chosenSubtype && !addTypes && (_what.ref === 'self' || _what.ref === 'this')) return null;
+    if (chosenSubtype) change.chosenSubtype = { operation: addTypes ? 'add' : 'set', choice: chosenSubtype };
     const modifiers: StaticModifier[] = [];
     if (Object.keys(change).length) modifiers.push({ modifier: 'types', change });
     if (colors) modifiers.push({ modifier: 'colors', operation: addColors ? 'add' : 'set', colors });

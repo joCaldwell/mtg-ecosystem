@@ -7,7 +7,11 @@ import { Text } from "../../../ui/index.ts";
 import { MaybeRow } from "./MaybeRow.tsx";
 import styles from "./MaybeList.module.css";
 
-export function MaybeList({ cards, slots }: { cards: DeckCard[]; slots: Slot[] }) {
+export function MaybeList({ cards, slots, matchingCards }: {
+  cards: DeckCard[];
+  slots: Slot[];
+  matchingCards?: ReadonlySet<string>;
+}) {
   if (cards.length === 0) return null;
   const slotName = (id: number | null) => slots.find((s) => s.id === id)?.name ?? null;
   return (
@@ -19,7 +23,7 @@ export function MaybeList({ cards, slots }: { cards: DeckCard[]; slots: Slot[] }
         </Text>
       </div>
       {cards.map((c) => (
-        <MaybeRow key={c.oracle_id} card={c} slotName={slotName(c.slot_id)} />
+        <MaybeRow key={c.oracle_id} card={c} slotName={slotName(c.slot_id)} filterMatch={matchingCards?.has(c.oracle_id)} />
       ))}
     </section>
   );

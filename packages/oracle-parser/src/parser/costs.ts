@@ -54,6 +54,15 @@ function parseActionCost(c: Cursor): Cost | null {
     if (c.word("pay") !== null) {
       const symbols = c.attempt(parseSymbolCosts);
       if (symbols) return symbols.length === 1 ? symbols[0] : c.fail("single payment cost");
+      // CR 107.1a, 119.4: the stated rounding is part of the amount paid.
+      const half = c.attempt((c): Cost | null => {
+        if (!c.words("half", "your", "life")) return null;
+        c.punct(",");
+        const round = c.word("rounded") !== null ? c.word("up", "down") : null;
+        return round ? { cost: "pay-life", amount: { amount: "half", of: { amount: "life-total", of: { player: "you" } },
+          round: round as "up" | "down" } } : null;
+      });
+      if (half) return half;
       const amount = parseAmount(c);
       if (!amount) return null;
       // CR 107.14: "Pay six {E}" and "Pay X {E}" remove that many
@@ -189,6 +198,22 @@ function parseActionCost(c: Cursor): Cost | null {
   });
 }
 
+/** "Sacrifice a red creature, a green creature, and a white creature": the
+ * one verb governs every listed payment, and each is paid (CR 118.3, 601.2h).
+ * A following cost with its own verb or symbol is never an object. */
+function parseSharedSacrifices(c: Cursor): Cost[] {
+  const costs: Cost[] = [];
+  for (;;) {
+    const what = c.attempt(c => {
+      const comma = c.punct(",");
+      if (c.word("and") === null && !comma) return null;
+      return parsePaymentObjects(c);
+    });
+    if (!what) return costs;
+    costs.push({ cost: "sacrifice", what });
+  }
+}
+
 /** Full comma-separated cost list before the colon of an activated ability. */
 function parseConjunctiveCosts(c: Cursor): Cost[] | null {
   return c.attempt((c): Cost[] | null => {
@@ -200,6 +225,7 @@ function parseConjunctiveCosts(c: Cursor): Cost[] | null {
         const action = parseActionCost(c);
         if (!action) return costs.length ? c.fail("cost after separator") : null;
         costs.push(action);
+        if (action.cost === "sacrifice") costs.push(...parseSharedSacrifices(c));
       }
       if (c.isPunct(",")) {
         c.punct(",");

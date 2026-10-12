@@ -2,7 +2,8 @@
 // spell/ability. CR 608.2c, 614.15 and 616.1a distinguish these from later
 // ordinary actions and from continuous event replacements.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-import type { Effect, Sentence } from "../ast.ts";
+import type { Condition, Effect, Sentence } from "../ast.ts";
+import type { Token } from "../lexer.ts";
 import { Cursor } from "./cursor.ts";
 import { parseAmount, parseCondition, parseObjectRef, parsePlayerRef } from "./refs.ts";
 
@@ -38,50 +39,109 @@ export function hasAlternativeKickerTargets(value: unknown): boolean {
   return Object.values(value).some(hasAlternativeKickerTargets);
 }
 
+const LASTING = new Set<Effect["effect"]>(["pump", "set-pt", "gain-abilities", "player-gain-abilities", "lose-abilities", "gain-control", "become", "modify-characteristics", "cant", "combat-rule"]);
+
+/** Index of this sentence's final period (or end of input); -1 when a
+ * quotation is left open. */
+function sentenceEnd(c: Cursor): number {
+  let end = c.pos;
+  let quoted = false;
+  while (end < c.tokens.length) {
+    const token = c.tokens[end];
+    if (token.kind === "punct" && token.value === '"') quoted = !quoted;
+    if (!quoted && token.kind === "punct" && token.value === ".") break;
+    end++;
+  }
+  return quoted ? -1 : end;
+}
+
+const isInstead = (token: Token | undefined): boolean => token?.kind === "word" && !token.possessive && token.value === "instead";
+
+/** Abbreviated replacements restate only what changes. The unstated parts
+ * are those of the replaced instruction itself, never a new selection:
+ * Burst Lightning / Akoum Hellkite omit the damage recipient, and "N of
+ * those tokens" (Rite of Replication) changes only the number created. */
+function parseAbbreviated(tokens: Token[], original: Effect): Effect | null {
+  const c = new Cursor(tokens);
+  if (original.effect === "damage") {
+    const source = parseObjectRef(c);
+    if (!source || c.word("deal", "deals") === null) return null;
+    const amount = parseAmount(c);
+    if (!amount || c.word("damage") === null) return null;
+    // An explicitly repeated recipient must be the original announced one.
+    if (!c.done() && !(original.to.to === "any-target" && c.words("to", "that", "permanent", "or", "player") && c.done())) return null;
+    return { effect: "damage", source, amount, to: structuredClone(original.to) };
+  }
+  if (original.effect === "create-token") {
+    if (c.word("create") === null) return null;
+    const count = parseAmount(c);
+    if (!count || !c.words("of", "those", "tokens") || !c.done()) return null;
+    return { ...structuredClone(original), count };
+  }
+  return null;
+}
+
 /** One adjacent, unconditional instruction has unambiguous replacement
  * scope. A multi-instruction original, original condition, or otherwise
- * branch needs an explicit association before it can be accepted. */
+ * branch needs an explicit association before it can be accepted.
+ * "X instead if C" states the same replacement with its condition last. */
 export function parseSelfReplacement(c: Cursor, previous: Sentence, parseBody: BodyParser): Effect | null {
   return c.attempt(c => {
     if (previous.steps.length !== 1 || previous.condition || previous.otherwise || previous.bindings) return null;
     const original = previous.steps[0];
     if (original.optional || original.forEach || ["self-replacement", "simultaneous", "optional-group", "modal", "create-delayed-trigger", "create-replacement"].includes(original.effect)) return null;
-    if (c.word("if") === null) return null;
-    const condition = parseCondition(c);
-    if (!condition || !c.punct(",")) return null;
-    const leadingInstead = c.word("instead") !== null;
-    let end = c.pos;
-    let quoted = false;
-    while (end < c.tokens.length) {
-      const token = c.tokens[end];
-      if (token.kind === "punct" && token.value === '"') quoted = !quoted;
-      if (!quoted && token.kind === "punct" && token.value === ".") break;
-      end++;
+    let condition: Condition | null;
+    let bodyTokens: Token[];
+    let end: number;
+    if (c.word("if") !== null) {
+      condition = parseCondition(c);
+      if (!condition || !c.punct(",")) return null;
+      const leadingInstead = c.word("instead") !== null;
+      end = sentenceEnd(c);
+      if (end < 0) return null;
+      const trailingInstead = isInstead(c.tokens[end - 1]);
+      if (leadingInstead === trailingInstead) return null;
+      bodyTokens = c.tokens.slice(c.pos, trailingInstead ? end - 1 : end);
+    } else {
+      end = sentenceEnd(c);
+      if (end < 0) return null;
+      let quoted = false, at = -1;
+      for (let i = c.pos; i < end; i++) {
+        const token = c.tokens[i];
+        if (token.kind === "punct" && token.value === '"') quoted = !quoted;
+        if (!isInstead(token)) continue;
+        if (quoted || at >= 0) return null;
+        at = i;
+      }
+      const next = c.tokens[at + 1];
+      if (at <= c.pos || next?.kind !== "word" || next.possessive || next.value !== "if") return null;
+      const tail = new Cursor(c.tokens.slice(at + 2, end));
+      condition = parseCondition(tail);
+      if (!condition || !tail.done()) return null;
+      bodyTokens = c.tokens.slice(c.pos, at);
     }
-    if (quoted) return null;
-    const tail = c.tokens[end - 1];
-    const trailingInstead = tail?.kind === "word" && !tail.possessive && tail.value === "instead";
-    if (leadingInstead === trailingInstead) return null;
-    const bodyTokens = c.tokens.slice(c.pos, trailingInstead ? end - 1 : end);
     const body = new Cursor(bodyTokens);
     const parsed = parseBody(body);
     let instead: Effect[] | undefined;
     let explicitReplacementTargets = false;
     if (parsed?.length === 1 && body.done() && !parsed[0].condition && !parsed[0].otherwise && !parsed[0].bindings) {
       instead = parsed[0].steps;
+      // "That creature gets -4/-4 instead" restates only the modifier; a
+      // replacement of the same pump keeps its duration (CR 611.2a). Any
+      // other lasting replacement must print its own duration.
+      if (original.duration && instead.some(step => !step.duration && LASTING.has(step.effect))) {
+        const only = instead[0];
+        if (instead.length !== 1 || only.effect !== "pump" || original.effect !== "pump") return null;
+        instead = [{ ...only, duration: structuredClone(original.duration) }];
+      }
       explicitReplacementTargets = containsExplicitTargets(instead);
     }
-    else if (original.effect === "damage") {
-      // Burst Lightning / Akoum Hellkite omit a repeated damage recipient.
-      // Keep the actual announced selection from the original instruction;
-      // the source and replacement quantity are both explicitly reparsed.
-      const abbreviated = new Cursor(bodyTokens);
-      const source = parseObjectRef(abbreviated);
-      if (!source || abbreviated.word("deal", "deals") === null) return null;
-      const amount = parseAmount(abbreviated);
-      if (!amount || abbreviated.word("damage") === null || !abbreviated.done()) return null;
-      instead = [{ effect: "damage", source, amount, to: structuredClone(original.to) }];
-      explicitReplacementTargets = containsExplicitTargets({ source, amount });
+    else {
+      const abbreviated = parseAbbreviated(bodyTokens, original);
+      if (!abbreviated) return null;
+      instead = [abbreviated];
+      explicitReplacementTargets = containsExplicitTargets(abbreviated.effect === "damage"
+        ? { source: abbreviated.source, amount: abbreviated.amount } : abbreviated.effect === "create-token" ? abbreviated.count : abbreviated);
     }
     if (!instead?.length) return null;
     // CR 601.2c and 702.33g permit alternative targets due to a spell's kicker

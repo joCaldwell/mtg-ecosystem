@@ -12,6 +12,7 @@ import type { Cursor } from "./cursor.ts";
 import { parseCostList, parseSymbolCosts } from "./costs.ts";
 import { parseChosenValueRef } from "./choices.ts";
 import { parseActivationCostModifications } from "./cost-modifiers.ts";
+import { parseActivationRules } from "./restrictions.ts";
 import { parseFilter, parseObjectRef, parsePlayerRef, parsePossessivePlayer } from "./refs.ts";
 
 type Shape =
@@ -115,6 +116,11 @@ export function isKeywordName(name: string): boolean {
   const canonical = name.toLowerCase();
   return Object.hasOwn(KEYWORDS, canonical) ||
     ["splice", "boast", "exhaust", "forecast", "companion", "craft", "gift", "partner with", "power-up", "max speed"].includes(canonical);
+}
+
+/** Keywords whose only parameter is a cost ("flashback [cost]"). */
+export function isCostKeyword(name: string): boolean {
+  return KEYWORDS[name] === "cost";
 }
 
 const LAND_WALKS: Record<string, string> = {
@@ -453,10 +459,14 @@ export function parseKeywordLine(c: Cursor): KeywordInstance[] | null {
     if (sentenceEnd && !c.done()) {
       // CR 602.1b and 702.6: Plate Armor's second sentence modifies this
       // equip ability's payment. A list has no single unambiguous antecedent.
-      if (keywords.length !== 1 || keywords[0].keyword !== "equip") return null;
-      const costModifications = parseActivationCostModifications(c);
-      if (!costModifications) return null;
-      keywords[0].costModifications = costModifications;
+      if (keywords.length !== 1 || !["equip", "crew"].includes(keywords[0].keyword)) return null;
+      const costModifications = keywords[0].keyword === "equip" ? parseActivationCostModifications(c) : null;
+      if (costModifications) keywords[0].costModifications = costModifications;
+      // CR 602.5b: equip (702.6a) and crew (702.122a) are activated
+      // abilities, so a printed "Activate only ..." restricts that ability.
+      const rules = c.done() ? null : parseActivationRules(c);
+      if (rules?.restriction && !rules.permission) keywords[0].restriction = rules.restriction;
+      else if (rules || !costModifications || !c.done()) return null;
     }
     if (!c.done()) return null;
     return keywords;

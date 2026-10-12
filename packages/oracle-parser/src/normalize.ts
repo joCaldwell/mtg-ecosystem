@@ -10,6 +10,7 @@
 //  - Typographic quotes/minus are canonicalized so the lexer stays simple.
 
 import { canonicalizeNamePunctuation, type CardNameCatalog } from "./card-names.ts";
+import { namesLegendaryCharacter, rewriteSourcePronouns } from "./source-pronouns.ts";
 
 // CR 207.2a: parenthetical reminder text summarizes a rule rather than adding
 // an ability. Remove a whole balanced parenthetical, including nested pairs,
@@ -133,6 +134,9 @@ export function normalizeOracleText(text: string, cardName?: string, catalog?: C
       const subtypes = typeLine.split(/—|\s-\s/u)[1]?.trim().split(/\s+/u) ?? [];
       if (name !== prefix && subtypes.includes(prefix)) t = replaceName(t, prefix, protect, true);
     }
+    // Literal names are still opaque markers here, so a pronoun-shaped word
+    // inside one ("A Girl and Her Dogs") cannot be rewritten.
+    if (namesLegendaryCharacter(typeLine)) t = t.split("\n").map(rewriteSourcePronouns).join("\n");
     names.forEach((value, index) => { t = t.replace(`${marker}${index}${marker}`, JSON.stringify(value)); });
   }
 

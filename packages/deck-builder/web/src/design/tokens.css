@@ -31,6 +31,7 @@
   --text-soft: #cfd3d9;
   --muted: #8d949e;
   --faint: #5c636d;
+  --filter-muted-opacity: 0.45;
 
   /* Meaning. Each has a foreground, a tinted background and a border. */
   --agent: #a78bfa;

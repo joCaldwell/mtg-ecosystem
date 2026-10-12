@@ -5,10 +5,8 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import type { ProposalItem } from "../../../api/client.ts";
-import { filterDeckList } from "../../../domain/deckSearch.ts";
-import { paperMarksUseful } from "../../../domain/marks.ts";
 import { costOf } from "../../../domain/price.ts";
-import { Button, EmptyState, Text } from "../../../ui/index.ts";
+import { EmptyState, Text } from "../../../ui/index.ts";
 import { useDeckState } from "../DeckStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import type { DeckViewModel } from "../useDeckView.ts";
@@ -20,7 +18,6 @@ import styles from "./DeckList.module.css";
 const LEGEND: Array<[MarkKind, string]> = [
   ["memory", "memory linked"],
   ["ruling", "ruled on before"],
-  ["paper", "not in paper"],
 ];
 
 const NONE = new Set<string>();
@@ -28,19 +25,15 @@ const NO_ADDS = new Map<string, ProposalItem[]>();
 
 export function DeckList({ view }: { view: DeckViewModel }) {
   const state = useDeckState();
-  const paperMarks = paperMarksUseful(state);
   const ui = useDeckUi();
   const scroll = useRef<HTMLDivElement>(null);
-  const { overlay, marks, units } = view;
+  const { layout, overlay, marks, units, matches } = view;
   const reviewing = ui.reviewing;
-  const tagIds = ui.tagIds.filter((id) => state.tags.some((tag) => tag.id === id));
-  const searching = ui.searchTerm.trim().length > 0 || tagIds.length > 0;
-  const { layout, addsByGroup } = useMemo(
-    () => filterDeckList(view.layout, reviewing ? overlay.addsByGroup : NO_ADDS, ui.searchTerm, { ids: tagIds, match: ui.tagMatch }, state.cards),
-    [view.layout, reviewing, overlay.addsByGroup, ui.searchTerm, ui.tagIds, ui.tagMatch, state.tags, state.cards],
-  );
+  const addsByGroup = reviewing ? overlay.addsByGroup : NO_ADDS;
+  const matchingCards = matches.active ? matches.cardIds : undefined;
+  const matchingAdds = matches.active ? matches.addIds : undefined;
 
-  // From the unfiltered layout, like the groups' own: a search hides rows, not totals.
+  // Totals always describe the full deck, independent of the highlighted matches.
   const commanderCost = useMemo(() => costOf(view.layout.commanders), [view.layout.commanders]);
   const companionCost = useMemo(() => costOf(view.layout.companions), [view.layout.companions]);
 
@@ -57,43 +50,35 @@ export function DeckList({ view }: { view: DeckViewModel }) {
   }, [unitKey]);
 
   const nothingToShow = state.cards.length === 0 && !(reviewing && overlay.addsByGroup.size > 0);
-  const noMatches = searching && layout.commanders.length === 0 && layout.companions.length === 0
-    && layout.groups.length === 0 && layout.maybe.length === 0;
 
   return (
     <div ref={scroll} className={styles.scroll}>
-      {noMatches ? (
-        <EmptyState title="No cards match your filters">
-          Try another card name or tag, or clear the filters to show the full list.
-          <Button onClick={() => { ui.setSearchTerm(""); ui.setTagIds([]); }}>Clear filters</Button>
-        </EmptyState>
-      ) : nothingToShow ? (
+      {nothingToShow ? (
         <EmptyState title="No cards yet">
           Use the bar above to add the first one, or import a list from the More menu.
         </EmptyState>
       ) : (
         <>
           <div className={styles.cols}>
-            {(!searching || layout.commanders.length > 0) && (
-              <GroupBlock
-                paperMarks={paperMarks}
-                title="Commander"
-                cost={commanderCost}
-                cards={layout.commanders}
-                cuts={cuts}
-                current={current}
-                marks={marks}
-                bold
-                empty={
-                  <p className={styles.hint}>
-                    No commander yet. Search for a legendary creature above and add it as the commander.
-                  </p>
-                }
-              />
-            )}
+            <GroupBlock
+              matchingCards={matchingCards}
+              title="Commander"
+              cost={commanderCost}
+              cards={layout.commanders}
+              cuts={cuts}
+              current={current}
+              marks={marks}
+              bold
+              empty={
+                <p className={styles.hint}>
+                  No commander yet. Search for a legendary creature above and add it as the commander.
+                </p>
+              }
+            />
             {layout.groups.map((g) => (
               <GroupBlock
-                paperMarks={paperMarks}
+                matchingCards={matchingCards}
+                matchingAdds={matchingAdds}
                 key={g.key}
                 title={g.title}
                 count={g.count}
@@ -112,7 +97,7 @@ export function DeckList({ view }: { view: DeckViewModel }) {
             ))}
             {layout.companions.length > 0 && (
               <GroupBlock
-                paperMarks={paperMarks}
+                matchingCards={matchingCards}
                 title="Companion"
                 cost={companionCost}
                 cards={layout.companions}
@@ -122,7 +107,7 @@ export function DeckList({ view }: { view: DeckViewModel }) {
               />
             )}
           </div>
-          <MaybeList cards={layout.maybe} slots={state.slots} />
+          <MaybeList cards={layout.maybe} slots={state.slots} matchingCards={matchingCards} />
         </>
       )}
       <p className={styles.legend}>

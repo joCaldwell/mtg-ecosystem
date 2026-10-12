@@ -69,15 +69,23 @@ function parsePlayerAction(c: Cursor, lastPlayer?: PlayerRef): Effect | null {
   });
 }
 
-function parseObjectAction(c: Cursor, lastSubject?: ObjectRef): Effect | null {
+function parseObjectAction(c: Cursor, lastSubject?: ObjectRef): Effect[] | null {
   return c.attempt(c => {
-    const what = parseObjectRef(c) ?? lastSubject;
-    if (!what) return null;
+    const first = parseObjectRef(c) ?? lastSubject;
+    if (!first) return null;
     const change = c.word("transforms", "converts");
-    if (change) return { effect: change === "transforms" ? "transform" : "convert", what };
+    if (change) return [{ effect: change === "transforms" ? "transform" : "convert", what: first }];
+    // A coordinated subject ("this creature and that creature phase out") is
+    // one simultaneous event over every listed object (CR 702.26).
+    const subjects = [first];
+    while (c.isWord("and")) {
+      const more = c.attempt(c => c.word("and") !== null ? parseObjectRef(c) : null);
+      if (!more) return null;
+      subjects.push(more);
+    }
     if (c.word("phase", "phases") === null) return null;
     const direction = c.word("out", "in");
-    return direction ? { effect: direction === "out" ? "phase-out" : "phase-in", what } : null;
+    return direction ? subjects.map((what): Effect => ({ effect: direction === "out" ? "phase-out" : "phase-in", what })) : null;
   });
 }
 
@@ -86,7 +94,7 @@ function parseObjectAction(c: Cursor, lastSubject?: ObjectRef): Effect | null {
  * the cursor, and this function never mutates the caller's elision context. */
 export function parseObjectActions(c: Cursor, lastSubject?: ObjectRef, lastPlayer?: PlayerRef): Effect[] | null {
   return c.attempt(c => {
-    const result = parsePlayerAction(c, lastPlayer) ?? parseObjectAction(c, lastSubject);
-    return result ? [result] : null;
+    const player = parsePlayerAction(c, lastPlayer);
+    return player ? [player] : parseObjectAction(c, lastSubject);
   });
 }

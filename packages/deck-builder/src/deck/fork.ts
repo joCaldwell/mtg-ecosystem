@@ -43,7 +43,6 @@ export function forkDeck(db: DatabaseSync, actor: Actor, deckId: number, name: s
     }>)
       tagMap.set(t.id, Number(insTag.run(forkId, t.name).lastInsertRowid));
 
-    // in_paper is not copied: the physical cards are in the parent's deck box.
     const insCard = db.prepare(
       `INSERT INTO deck_cards (deck_id, oracle_id, slot_id, role, maybe, maybe_note, quantity)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,

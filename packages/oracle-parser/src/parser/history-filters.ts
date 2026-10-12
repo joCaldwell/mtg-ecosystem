@@ -12,13 +12,61 @@ interface ReferenceGrammar {
 
 /** CR508.4: declared attacking history survives the end of combat and is
  * not inferred from current attacking/tapped status. */
-export function parseCombatActionHistoryPredicate(c: Cursor): ObjectFilter["combatHistory"] | null {
+export function parseCombatActionHistoryPredicate(c: Cursor): { action: "attacked"; during: "this-turn" | "this-combat" } | null {
   return c.attempt(c => {
     if (c.word("that") === null) return null;
     c.word("has", "have");
     if (c.word("attacked") === null) return null;
     const during = c.words("this", "turn") ? "this-turn" : c.words("this", "combat") ? "this-combat" : null;
     return during ? { action: "attacked", during } : null;
+  });
+}
+
+/** CR 509.1g-h, 509.4: a creature blocked if it was declared as a blocker
+ * or an effect made it block; an attacker was blocked once it became a
+ * blocked creature. A creature put onto the battlefield blocking never
+ * blocked. An operand restricts the historical counterpart of that block;
+ * it selects nothing. Not having attacked is the absence of a declaration
+ * as an attacker in the window (CR 508.4). */
+export function parseBlockHistoryQualifier(c: Cursor, grammar: ReferenceGrammar): ObjectFilter | null {
+  type During = "this-turn" | "this-combat";
+  const window = (c: Cursor): During | null =>
+    c.words("this", "turn") ? "this-turn" : c.words("this", "combat") ? "this-combat" : null;
+  return c.attempt((c): ObjectFilter | null => {
+    if (c.word("that") === null) {
+      // "creatures it blocked this turn": the candidates were blocked by it.
+      if (!c.isWord("it", "this", "that") && c.peek()?.kind !== "selfref") return null;
+      const blocker = grammar.parseRelationObject(c);
+      if (!blocker || c.word("blocked") === null) return null;
+      const during = window(c);
+      return during ? { combatHistory: { action: "was-blocked", during, blocker } } : null;
+    }
+    if (c.word("didn't") !== null) {
+      if (c.word("attack") === null) return null;
+      const during = window(c);
+      return during ? { combatHistory: { action: "attacked", during, negated: true } } : null;
+    }
+    const passive = (c: Cursor): true | null => c.word("was", "were") !== null && c.word("blocked") !== null ? true : null;
+    const operand = (c: Cursor): ObjectRef | null | undefined =>
+      c.word("by") === null ? undefined : grammar.parseRelationObject(c);
+    if (c.attempt(passive)) {
+      const blocker = operand(c);
+      const during = blocker === null ? null : window(c);
+      return during ? { combatHistory: { action: "was-blocked", during, ...(blocker ? { blocker } : {}) } } : null;
+    }
+    if (c.word("blocked") === null) return null;
+    if (c.attempt(c => c.word("or") !== null ? passive(c) : null)) {
+      // "blocked or was blocked by X": X is the counterpart in either role.
+      const other = operand(c);
+      const during = other === null ? null : window(c);
+      return during ? { anyOf: [
+        { combatHistory: { action: "blocked", during, ...(other ? { attacker: other } : {}) } },
+        { combatHistory: { action: "was-blocked", during, ...(other ? { blocker: other } : {}) } },
+      ] } : null;
+    }
+    const attacker = c.attempt(grammar.parseRelationObject);
+    const during = window(c);
+    return during ? { combatHistory: { action: "blocked", during, ...(attacker ? { attacker } : {}) } } : null;
   });
 }
 

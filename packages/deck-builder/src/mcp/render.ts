@@ -1,9 +1,6 @@
 // Text for agents (spec §10.2): compact, meant to be read, grouped the way
 // the deck is organized. No JSON blobs and no ids the agent will not need.
 // Counts are always the app's, stated outright, so the reader never counts.
-//
-// The paper flag (§5.5) appears in exactly one renderer, renderPaper. Nothing
-// else here reads `in_paper`; a test asserts it.
 
 import type { DatabaseSync } from "node:sqlite";
 import type { CardRow, ResolutionFailure } from "../cards.ts";
@@ -13,7 +10,6 @@ import { getBrief } from "../deck/brief.ts";
 import { type Finding, checkDeck } from "../deck/checks.ts";
 import type { DeckComparison } from "../deck/fork.ts";
 import { type CardRuling, type LogEntry, listLog } from "../deck/log.ts";
-import type { PaperStatus } from "../deck/paper.ts";
 import { type ProposalView, listProposals } from "../deck/proposals.ts";
 import {
   type ComputedState,
@@ -473,38 +469,6 @@ export function renderCompare(d: DeckComparison): string {
     out.push(
       `## Different roles\n${d.role_differs.map((q) => `- ${q.name}: ${q.in_a} vs ${q.in_b}`).join("\n")}`,
     );
-  return out.join("\n\n");
-}
-
-export function renderPaper(p: PaperStatus): string {
-  const out = [
-    `# Paper status of deck ${p.deck.id} "${p.deck.name}"`,
-    `${p.in_paper_cards} of ${p.total_cards} cards are marked as physically in the deck. ` +
-      `"In paper" means the card is in this deck's box, not that the owner owns it.`,
-  ];
-  if (!p.in_paper_cards && p.total_cards)
-    out.push("Nothing is marked in paper here, so every card is listed as missing. The owner may simply not have recorded it.");
-  out.push(
-    `## Pull list — missing here, physically in another deck (${p.pull.length})\n` +
-      (p.pull
-        .map(
-          (c) =>
-            `- ${c.quantity > 1 ? `${c.quantity}x ` : ""}${c.name} (${c.type_line}) — in ${c.held_by
-              .map((h) => `"${h.deck_name}"`)
-              .join(", ")}; the deck a copy is taken from will then be missing it`,
-        )
-        .join("\n") || "(none)"),
-  );
-  out.push(
-    `## Buy list — missing here and in no other deck's paper (${p.buy.length})\n` +
-      (p.buy.length && p.buy_cost.as_of ? `Estimated cost: ${costPhrase(p.buy_cost)}.\n` : "") +
-      (p.buy
-        .map(
-          (c) =>
-            `- ${c.quantity > 1 ? `${c.quantity}x ` : ""}${c.name} (${c.type_line})${priceTag(c.usd_cents, c.quantity)}`,
-        )
-        .join("\n") || "(none)"),
-  );
   return out.join("\n\n");
 }
 

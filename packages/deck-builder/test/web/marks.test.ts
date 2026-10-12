@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { cardMarks, paperMarksUseful } from "../../web/src/domain/marks.ts";
+import { cardMarks } from "../../web/src/domain/marks.ts";
 import { card, deckState, logEntry, memory } from "./fixtures.ts";
 
 const A = "oid-Test Card A";
@@ -68,22 +68,5 @@ describe("cardMarks, rulings", () => {
     const state = deckState({ log: [logEntry({ kind: "reject", cards: [logCard(A)] })] });
     const marks = cardMarks(state, [memory({ cards: [A] })]);
     assert.deepEqual(marks.get(A), { memories: 1, rulings: 1 });
-  });
-});
-
-describe("paperMarksUseful", () => {
-  test("only once at least half the deck is in paper; the maybe list does not count", () => {
-    const deck = (inPaper: number, missing: number) =>
-      deckState({
-        cards: [
-          ...Array.from({ length: inPaper }, (_, i) => card({ name: `Test Card P${i}`, in_paper: 1 })),
-          ...Array.from({ length: missing }, (_, i) => card({ name: `Test Card M${i}`, in_paper: 0 })),
-          card({ name: "Test Card Maybe", maybe: 1, in_paper: 0 }),
-        ],
-      });
-    assert.equal(paperMarksUseful(deck(3, 1)), true);
-    assert.equal(paperMarksUseful(deck(2, 2)), true);
-    assert.equal(paperMarksUseful(deck(1, 3)), false);
-    assert.equal(paperMarksUseful(deckState({ cards: [] })), false);
   });
 });

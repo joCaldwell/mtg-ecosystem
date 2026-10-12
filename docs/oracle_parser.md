@@ -9,6 +9,11 @@ standalone; it does not consume this AST. A rules engine and IR emitter are not
 implemented. See [architecture.md](architecture.md) and the package
 [AGENTS.md](../packages/oracle-parser/AGENTS.md).
 
+The parser, ingestion, archive, and diagnostic reference analysis remain
+TypeScript. Production semantic binding, lowering, and Card IR emission belong
+to the Rust compiler alongside the rules engine; see the
+[adopted language decision](runtime-language-decision.md).
+
 The [2026-10-10 checkpoint](oracle-parser-checkpoint.md) records the stopping
 point, verified coverage, reproduction inputs, and unfinished work.
 
@@ -62,6 +67,9 @@ rules review are the correctness gate.
 - **Ability blocks** ordinarily follow lines. Modal headers own all immediately
   following bullet, Spree `+`, or weighted `{P}` lines. A successful header must actually consume those
   options. One failed option fails the entire block; orphaned bullets fail.
+  A paragraph that only replaces the preceding spell ability's instruction
+  (CR 614.15, "Morbid — ~ deals 5 damage instead if …") joins that ability's
+  block; its ability word is kept on the `self-replacement` node.
 - **Lexing** never drops unknown characters. Brace tokens remain generic game
   symbols; costs, mana production, and payment conditions validate their own
   supported symbols.
@@ -94,6 +102,8 @@ AST; no compatibility adapters are provided.
 | Coordinated pump and ability gain | Shared trailing duration on both effects |
 | Conditional self-replacement | Original instruction, replacement instructions, typed condition, and target-selection policy |
 | Optional self-replacement | Explicit chooser; declining performs the original instruction |
+| Abbreviated self-replacement | Unstated parts are the replaced instruction's own: damage recipient, token specification (`N of those tokens`), a pump's duration |
+| Spell countered this way | `countered` destination on the counter event itself, replacing its owner's graveyard |
 | Kicker alternative targets | Choose targets from the applicable casting branch, rather than announcing both branches |
 | Conditional static grant | Condition scoped to each affected object when the wording refers to that object |
 | Entering tapped, attached, attacking, or with counters | Modifiers of the entry event, rather than later instructions |

@@ -19,10 +19,8 @@ import {
   organizeCard,
   renameDeck,
   renameTag,
-  setAllInPaper,
   setDeckCategory,
   setDeckStatus,
-  setInPaper,
   shortlistCard,
   similarTag,
   unshortlistCard,
@@ -64,10 +62,9 @@ describe("deck lifecycle", () => {
     assert.equal(row.color_identity, "WUBG");
     assert.equal(row.pending_items, 0);
   });
-  test("owners and agents classify a deck independently of permissions and paper flags", () => {
+  test("owners and agents classify a deck independently of membership and permissions", () => {
     const id = newDeck(db, "active", "Classification");
     add(db, id, "id-solring");
-    setInPaper(db, OWNER, id, "id-solring", true);
     const before = getDeck(db, id);
     assert.equal(before.deck.category, "theorycrafted");
     for (const category of ["paper", "legacy", "theorycrafted"] as const) {
@@ -398,27 +395,6 @@ describe("the maybe list", () => {
     assert.equal(card.maybe, 1);
     assert.equal(card.slot_id, slot);
     assert.equal(getDeck(db, id).computed.card_count, 0);
-  });
-});
-
-describe("the paper flag (spec §5.5)", () => {
-  test("only the owner writes it, and it never changes the revision", () => {
-    const id = newDeck(db);
-    add(db, id, "id-solring");
-    add(db, id, "id-forest");
-    const revision = getDeck(db, id).deck.revision;
-
-    assert.throws(() => setInPaper(db, AGENT, id, "id-solring", true), PermissionError);
-    assert.throws(() => setAllInPaper(db, AGENT, id, true), PermissionError);
-
-    setAllInPaper(db, OWNER, id, true);
-    assert.ok(getDeck(db, id).cards.every((c) => c.in_paper === 1));
-    setInPaper(db, OWNER, id, "id-forest", false);
-    assert.deepEqual(
-      getDeck(db, id).cards.map((c) => [c.name, c.in_paper]),
-      [["Forest", 0], ["Sol Ring", 1]],
-    );
-    assert.equal(getDeck(db, id).deck.revision, revision);
   });
 });
 

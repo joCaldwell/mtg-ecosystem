@@ -10,7 +10,7 @@ import { Cursor } from "./cursor.ts";
 import { parseEligibleCardRef } from "./permissions.ts";
 import {
   isTargetedPlayerRef, parseAmount, parseCondition, parseDuration, parseFilter, parseObjectRef,
-  parsePlayerRef, parsePossessiveObject, parseZoneRef,
+  parsePlayerRef, parsePossessiveObject, parsePossessivePlayer, parseZoneRef,
 } from "./refs.ts";
 
 type Rule = { prohibition: GameProhibition } | { limit: CastLimit };
@@ -32,10 +32,13 @@ function parseActor(c: Cursor): PlayerRef | null {
 }
 
 function parseWindow(c: Cursor): ProhibitionWindow | null {
-  return c.attempt(c => {
+  return c.attempt((c): ProhibitionWindow | null => {
     if (c.words("during", "combat")) return { during: "combat" };
     if (c.words("during", "your", "turn")) return { during: "turn", whose: { player: "you" } };
-    return null;
+    if (c.word("during") === null) return null;
+    const whose = parsePossessivePlayer(c);
+    if (!whose || isTargetedPlayerRef(whose) || !c.words("next", "turn")) return null;
+    return { during: "next-turn", whose };
   });
 }
 
@@ -237,7 +240,16 @@ function parseRules(c: Cursor): Parsed | null {
         const abilities = addManaException(c, query);
         return abilities ? { prohibition: { prohibition: "activate" as const, abilities } } : null;
       });
+      // "Creature spells can't be cast" forbids every player from casting
+      // them (CR 101.2), exactly as "Players can't cast creature spells".
+      const passiveCast = passive ? null : c.attempt(c => {
+        const what = parseEligibleCardRef(c);
+        if (!what || what.ref !== "each" || what.filter.cls !== "spell" || what.filter.cast || what.filter.zone ||
+            !c.words("can't", "be", "cast")) return null;
+        return { prohibition: { prohibition: "cast" as const, who: { player: "each-player" as const }, what } };
+      });
       if (passive) rules = [passive];
+      else if (passiveCast) rules = [passiveCast];
       else {
         const who = parseActor(c);
         if (!who || c.word("can't") === null) return null;
@@ -271,6 +283,7 @@ function parseRules(c: Cursor): Parsed | null {
       for (const rule of rules) if ('prohibition' in rule) rule.prohibition.when = window;
     }
     const duration = parseDuration(c);
+    if (duration && window?.during === "next-turn") return null;
     return { rules, ...(duration ? { duration } : {}) };
   });
 }
@@ -305,6 +318,8 @@ export function parseStaticProhibition(c: Cursor): StaticEffect | null {
   return c.attempt(c => {
     const result = parseRules(c);
     if (!result || hasTarget(result.rules) || result.duration && result.duration.duration !== "as-long-as") return null;
+    // One identified future turn belongs to an effect created at a moment.
+    if (result.rules.some(rule => 'prohibition' in rule && rule.prohibition.when?.during === "next-turn")) return null;
     const qualifier = c.word("if", "unless");
     const condition = qualifier ? parseCondition(c, qualifier === "unless" ? { purpose: "unless" } : undefined) : null;
     if (qualifier && (!condition || paymentCondition(condition) || result.duration)) return null;

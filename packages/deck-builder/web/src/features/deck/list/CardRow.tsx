@@ -16,14 +16,15 @@ export interface CardRowProps {
   /** In review mode a pending cut or add is drawn in place. */
   change?: "cut" | "add";
   mark?: CardMark;
-  inPaper?: boolean;
   /** Commanders read as the head of the list. */
   bold?: boolean;
   /** The row belongs to the decision under the review cursor. */
   current?: boolean;
+  /** Undefined without filters; false keeps the row visible with muted styling. */
+  filterMatch?: boolean;
 }
 
-export function CardRow({ card, quantity = 1, change, mark, inPaper = true, bold, current }: CardRowProps) {
+export function CardRow({ card, quantity = 1, change, mark, bold, current, filterMatch }: CardRowProps) {
   const ui = useDeckUi();
   const hover = useCardHover();
   const selected = ui.selected.includes(card.oracle_id);
@@ -45,6 +46,8 @@ export function CardRow({ card, quantity = 1, change, mark, inPaper = true, bold
   const sign = change === "cut" ? "−" : change === "add" ? "+" : quantity > 1 ? quantity : "";
   const cls = [
     styles.row,
+    filterMatch === true && styles.match,
+    filterMatch === false && styles.muted,
     change === "cut" && styles.cut,
     change === "add" && styles.add,
     selected && styles.selected,
@@ -60,6 +63,7 @@ export function CardRow({ card, quantity = 1, change, mark, inPaper = true, bold
       type="button"
       className={cls}
       data-current={current || undefined}
+      data-filter-match={filterMatch}
       aria-current={open || undefined}
       onClick={onClick}
       onKeyDown={onKeyDown}
@@ -67,11 +71,10 @@ export function CardRow({ card, quantity = 1, change, mark, inPaper = true, bold
     >
       <span className={styles.q}>{sign}</span>
       <span className={styles.name}>{card.name}</span>
-      {(mark?.memories || mark?.rulings || !inPaper) && (
+      {(mark?.memories || mark?.rulings) && (
         <span className={styles.marks}>
           {!!mark?.memories && <Mark kind="memory" />}
           {!!mark?.rulings && <Mark kind="ruling" />}
-          {!inPaper && <Mark kind="paper" />}
         </span>
       )}
       <span className={styles.cost}>

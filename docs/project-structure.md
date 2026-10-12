@@ -1,15 +1,22 @@
 # Project structure
 
-This is a TypeScript monorepo using npm workspaces. Packages are independent;
-read the relevant package manual before applying commands or conventions.
+The adopted stack combines TypeScript/npm workspaces with Rust/Cargo. Packages
+are independent; read the relevant package manual before applying commands or
+conventions. See the [language decision](runtime-language-decision.md).
+
+The Cargo workspace will contain semantic compilation, the engine, native
+simulation/search/agents, and the game server. It does not exist yet. Current
+TypeScript package commands and dependency rules remain unchanged until native
+scaffolding adds the Cargo checks. The source layout is in
+[game-engine-spec.md](game-engine-spec.md#9-proposed-source-organization).
 
 | Location | Responsibility |
 | --- | --- |
 | `packages/oracle-parser/` | Hand-written TypeScript Oracle-text parser; limited supported subset |
-| `packages/deck-builder/` | Active standalone deck-building application |
+| `packages/deck-builder/` | Active standalone TypeScript deck-building application, backend, and MCP tools |
 | `packages/card-data/` | Reserved output location for future compiled Card IR |
-| `packages/game-engine/` | Future rules engine; README only |
-| `packages/game-server/` | Future game API; README only |
+| `packages/game-engine/` | Rust semantic compiler, rules engine, and native simulation/search; README only until scaffolded |
+| `packages/game-server/` | Rust game server/API with direct core calls; README only until scaffolded |
 | `scripts/` | Parser ingestion, acceptance reporting, and explicit IR-emitter stub |
 | `docs/` | Shared design documentation |
 

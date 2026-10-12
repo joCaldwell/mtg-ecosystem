@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Button } from "./Button.tsx";
 import { Checkbox } from "./Checkbox.tsx";
 import { Icon } from "./Icon.tsx";
@@ -14,10 +14,14 @@ export interface MultiSelectProps {
   /** Controlled selection; async writes keep controls disabled until they settle. */
   onChange: (value: string[]) => void | Promise<unknown>;
   emptyText?: string;
+  /** Keep selection in the trigger rather than adding rows of chips beneath it. */
+  compact?: boolean;
+  /** Optional controls inside the dropdown, before Done. */
+  footer?: ReactNode;
 }
 
-/** A searchable checkbox dropdown. Only selected values appear under the trigger. */
-export function MultiSelect({ label, placeholder = "Select…", options, value, onChange, emptyText = "No options available." }: MultiSelectProps) {
+/** A searchable checkbox dropdown with optional compact selection display. */
+export function MultiSelect({ label, placeholder = "Select…", options, value, onChange, emptyText = "No options available.", compact = false, footer }: MultiSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
@@ -67,7 +71,7 @@ export function MultiSelect({ label, placeholder = "Select…", options, value, 
     <div className={styles.control} aria-busy={busy}>
       <Button
         ref={setAnchor}
-        className={styles.trigger}
+        className={`${styles.trigger} ${compact && selected.length > 0 ? styles.active : ""}`}
         aria-label={label}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -80,10 +84,14 @@ export function MultiSelect({ label, placeholder = "Select…", options, value, 
           }
         }}
       >
-        <span>{placeholder}</span>
+        <span className={compact ? styles.summary : undefined}>
+          {compact && selected.length > 0
+            ? selected.length === 1 ? selected[0].label : `${selected.length} selected`
+            : placeholder}
+        </span>
         <Icon name="chevronDown" size={12} />
       </Button>
-      {selected.length > 0 && (
+      {!compact && selected.length > 0 && (
         <div className={styles.selected} aria-label={`${label}: selected`}>
           {selected.map((option) => (
             <button
@@ -126,6 +134,7 @@ export function MultiSelect({ label, placeholder = "Select…", options, value, 
             ))}
             {visible.length === 0 && <p className={styles.empty}>{options.length ? "No matching options." : emptyText}</p>}
           </div>
+          {footer}
           <Button size="sm" variant="ghost" onClick={close}>Done</Button>
         </div>
       </Popover>
