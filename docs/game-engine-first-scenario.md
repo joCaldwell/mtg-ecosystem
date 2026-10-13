@@ -1,5 +1,10 @@
 # First compiler and engine implementation brief
 
+The follow-up [Commander/departure contract](game-engine-departure-slice.md)
+adds Isamaru to the exact reviewed catalog and advances IR to version 2 and
+snapshots to version 3. The original gameplay trace below remains unchanged;
+its earlier version/hash evidence is historical.
+
 Status: **P0 inputs frozen, 2026-10-13; initial P1 scenario implemented**.
 This work delivers a native, four-seat source-to-runtime scenario. Complete
 Commander matches, broader card support, and search remain later gates in the

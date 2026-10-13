@@ -2,7 +2,9 @@
 
 Rust owns contracts, offline compilation, deterministic core, and the scenario
 CLI. Read `docs/game-engine-first-scenario.md` for frozen inputs and restrictions.
-This package is scenario-only; do not advertise playable Commander matches.
+The current follow-up contracts are `docs/game-engine-p2-slice.md` and
+`docs/game-engine-departure-slice.md`; the latter adds the exact Isamaru scenario,
+IR v2, snapshot v3, and bundle v3. This package is scenario-only; do not advertise playable Commander matches.
 
 Run from repository root, using pinned Rust 1.99.0:
 
@@ -42,3 +44,10 @@ Commit small reviewed fixtures and gate summaries. Keep downloaded corpora,
 bulk IR, schema exports, replay bundles, timing reports, and Cargo target output
 ignored. Add mechanics only after their compiler/runtime/interaction evidence;
 do not broaden the first pool as an incidental fix.
+
+Concessions are trusted host external inputs queued at recorded rule boundaries;
+process them before ordinary work and expose no query while they are pending.
+Keep original seating, departed-player facts, and physical Commander history.
+Default control is separate from ownership and explicit control grants.
+Command-zone casting and combat damage remain unsupported; ledger domain tests
+do not constitute production lifecycle or combat support.

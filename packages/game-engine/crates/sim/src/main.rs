@@ -1,8 +1,8 @@
 use mtg_compiler::{CompileResult, compile, fixture_catalog, fixtures};
 use mtg_contracts::{Catalog, canonical, sha256, strict_read};
 use mtg_core::{
-    AcceptedInput, Advance, BUILD_ID, BUILD_PROFILE, BUILD_RUSTC, BUILD_RUSTFLAGS, BUILD_TARGET,
-    Budget, CardId, Game, ObjectId, Observation, PlayerId, Prepared, QueryResult, QueryValue,
+    Advance, BUILD_ID, BUILD_PROFILE, BUILD_RUSTC, BUILD_RUSTFLAGS, BUILD_TARGET, Budget, CardId,
+    Game, ObjectId, Observation, PlayerId, Prepared, QueryResult, QueryValue, ReplayJournal,
     Response, ScenarioConfig, SearchContext, Zone,
 };
 use serde::{Deserialize, Serialize};
@@ -19,6 +19,7 @@ struct SourceFile {
 #[serde(deny_unknown_fields)]
 struct Bundle {
     bundle_version: u32,
+    departure: DepartureEvidence,
     build_id: String,
     catalog: Catalog,
     config: ScenarioConfig,
@@ -27,7 +28,7 @@ struct Bundle {
     records: Vec<String>,
     initial_snapshot: String,
     announcement_snapshot: String,
-    inputs: Vec<AcceptedInput>,
+    journal: ReplayJournal,
     final_snapshot: String,
     source_files: Vec<SourceFile>,
     rustc: String,
@@ -35,6 +36,93 @@ struct Bundle {
     target: String,
     rustflags: String,
     query_sidecar: String,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DepartureEvidence {
+    config: ScenarioConfig,
+    journal: ReplayJournal,
+    checkpoints: Vec<String>,
+    final_snapshot: String,
+}
+fn checkpoint(game: &Game, saved: &mut Vec<String>) -> Result<(), String> {
+    let snapshot = game.snapshot()?;
+    if Game::restore(
+        Prepared::admit(fixture_catalog()?, ScenarioConfig::commander_foundation())?,
+        &snapshot,
+    )?
+    .state_digest()?
+        != game.state_digest()?
+    {
+        return Err("departure checkpoint recovery differs".into());
+    }
+    saved.push(snapshot);
+    Ok(())
+}
+fn departure_demo(catalog: Catalog) -> Result<(DepartureEvidence, serde_json::Value), String> {
+    let prepared = Prepared::admit(catalog, ScenarioConfig::commander_foundation())?;
+    let mut game = Game::new(prepared.clone());
+    let mut checkpoints = vec![];
+    checkpoint(&game, &mut checkpoints)?;
+    let land = game.object_id(CardId(0)).ok_or("missing land")?;
+    respond(&mut game, Response::ActivateMana { object: land })?;
+    respond(&mut game, Response::Cast { card: CardId(1) })?;
+    let _ = game.advance(Budget::unlimited());
+    checkpoint(&game, &mut checkpoints)?;
+    let target = game.object_id(CardId(2)).ok_or("missing target")?;
+    respond(
+        &mut game,
+        Response::Targets {
+            objects: vec![target],
+        },
+    )?;
+    let _ = game.advance(Budget::new(1));
+    checkpoint(&game, &mut checkpoints)?;
+    let _ = game.advance(Budget::new(1));
+    checkpoint(&game, &mut checkpoints)?;
+    respond(&mut game, Response::Pass)?;
+    let _ = game.advance(Budget::new(1));
+    checkpoint(&game, &mut checkpoints)?;
+    // Departing default controller exiles the targeted Bears (800.4a).
+    game.concede(PlayerId(2))?;
+    checkpoint(&game, &mut checkpoints)?;
+    let _ = game.advance(Budget::new(1));
+    checkpoint(&game, &mut checkpoints)?;
+    respond(&mut game, Response::Pass)?;
+    let _ = game.advance(Budget::new(1));
+    checkpoint(&game, &mut checkpoints)?;
+    game.concede(PlayerId(3))?;
+    checkpoint(&game, &mut checkpoints)?;
+    let _ = game.advance(Budget::new(1));
+    checkpoint(&game, &mut checkpoints)?;
+    let _ = game.advance(Budget::new(1));
+    checkpoint(&game, &mut checkpoints)?;
+    game.concede(PlayerId(0))?;
+    checkpoint(&game, &mut checkpoints)?;
+    if game.advance(Budget::new(1))
+        != (Advance::Finished {
+            winner: PlayerId(1),
+        })
+    {
+        return Err("departure winner mismatch".into());
+    }
+    checkpoint(&game, &mut checkpoints)?;
+    let replay = Game::replay(prepared.clone(), &game.replay_journal())?;
+    if replay.state_digest()? != game.state_digest()? {
+        return Err("departure replay differs".into());
+    }
+    let report = serde_json::json!({"status":"departure_verified","state_sha256":game.state_digest()?,"events":game.events(),
+        "journal":game.replay_journal(),"checkpoints":checkpoints.len(),"winner":1,"observation":observation(&game,PlayerId(1))?,
+        "commander_ledger":game.commander_ledger(),"profile_digest":prepared.profile_digest()});
+    Ok((
+        DepartureEvidence {
+            config: prepared.config().clone(),
+            journal: game.replay_journal(),
+            checkpoints,
+            final_snapshot: game.snapshot()?,
+        },
+        report,
+    ))
 }
 fn observation(game: &Game, viewer: PlayerId) -> Result<Observation, String> {
     match game.observe(viewer, Budget::unlimited()) {
@@ -78,6 +166,7 @@ fn finish(game: &mut Game) -> Result<(), String> {
     }
     match game.advance(Budget::unlimited()) {
         Advance::AwaitingDecision(_) => Ok(()),
+        Advance::Finished { .. } => Err("unexpected scenario finish".into()),
         Advance::Fault(e) => Err(e),
         Advance::Suspended { .. } => Err("unexpected suspension with an unlimited budget".into()),
     }
@@ -154,7 +243,7 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
     finish(&mut game)?;
     finish(&mut restored)?;
     finish(&mut fork)?;
-    let replay = Game::replay(prepared.clone(), game.journal())?;
+    let replay = Game::replay(prepared.clone(), &game.replay_journal())?;
     if game.state_digest()? != restored.state_digest()?
         || game.state_digest()? != fork.state_digest()?
         || game.state_digest()? != replay.state_digest()?
@@ -188,8 +277,10 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
     std::hint::black_box(&retained);
     drop(retained);
     let rustc = format!("{BUILD_RUSTC}\n");
+    let (departure, departure_report) = departure_demo(catalog.clone())?;
     let bundle = Bundle {
-        bundle_version: 2,
+        departure,
+        bundle_version: 3,
         build_id: BUILD_ID.into(),
         catalog,
         config: prepared.config().clone(),
@@ -198,7 +289,7 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         records: fixtures::RECORDS.iter().map(|(_, r)| (*r).into()).collect(),
         initial_snapshot,
         announcement_snapshot,
-        inputs: game.journal().to_vec(),
+        journal: game.replay_journal(),
         final_snapshot: game.snapshot()?,
         source_files: source_files()?,
         rustc,
@@ -207,7 +298,7 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         rustflags: BUILD_RUSTFLAGS.into(),
         query_sidecar,
     };
-    let report = serde_json::json!({"status":"scenario_verified","build_id":BUILD_ID,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
+    let report = serde_json::json!({"status":"scenario_verified","departure":departure_report,"build_id":BUILD_ID,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
         "state_sha256":game.state_digest()?,"accepted_inputs":game.journal().len(),"events":game.events(),"restore_fork_replay_equal":true,
         "player_observations": (0..4).map(|v|observation(&game,PlayerId(v))).collect::<Result<Vec<_>,_>>()?,
         "search_context":search_context(&game,PlayerId(0),"separate-sampling-seed".into())?,
@@ -217,7 +308,7 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
 }
 fn verify_bundle(json: &str) -> Result<String, String> {
     let b: Bundle = strict_read(json)?;
-    if b.bundle_version != 2 || b.build_id != BUILD_ID {
+    if b.bundle_version != 3 || b.build_id != BUILD_ID {
         return Err("unsupported bundle version/build".into());
     }
     if !b.source_files.windows(2).all(|w| w[0].path < w[1].path) {
@@ -259,6 +350,15 @@ fn verify_bundle(json: &str) -> Result<String, String> {
     if definitions != b.catalog.definitions {
         return Err("retained source-to-IR mismatch".into());
     }
+    let departure_prepared = Prepared::admit(b.catalog.clone(), b.departure.config)?;
+    for snapshot in &b.departure.checkpoints {
+        Game::restore(departure_prepared.clone(), snapshot)?;
+    }
+    let departure_replay = Game::replay(departure_prepared.clone(), &b.departure.journal)?;
+    let departure_expected = Game::restore(departure_prepared, &b.departure.final_snapshot)?;
+    if departure_replay.state_digest()? != departure_expected.state_digest()? {
+        return Err("retained departure replay differs".into());
+    }
     let prepared = Prepared::admit(b.catalog, b.config)?;
     if prepared.profile_digest() != b.profile_digest {
         return Err("retained profile mismatch".into());
@@ -274,11 +374,17 @@ fn verify_bundle(json: &str) -> Result<String, String> {
         _ => return Err("retained query sidecar did not reproduce its observation".into()),
     }
     let restored = Game::restore(prepared.clone(), &b.announcement_snapshot)?;
-    let announcement = Game::replay(prepared.clone(), &b.inputs[..2.min(b.inputs.len())])?;
+    let announcement = Game::replay(
+        prepared.clone(),
+        &ReplayJournal {
+            decisions: b.journal.decisions[..2.min(b.journal.decisions.len())].to_vec(),
+            concessions: vec![],
+        },
+    )?;
     if restored.state_digest()? != announcement.state_digest()? {
         return Err("announcement restore mismatch".into());
     }
-    let replay = Game::replay(prepared.clone(), &b.inputs)?;
+    let replay = Game::replay(prepared.clone(), &b.journal)?;
     let expected = Game::restore(prepared, &b.final_snapshot)?;
     if replay.state_digest()? != expected.state_digest()? {
         return Err("retained replay differs from expected final state".into());
@@ -360,16 +466,22 @@ mod tests {
         .unwrap();
         assert_eq!(report["events"], expected["events"]);
         let p2: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../tests/fixtures/expected-p2-scenario.json"
+            "../../../tests/fixtures/expected-departure-scenario.json"
         ))
         .unwrap();
         assert_eq!(report["state_sha256"], p2["final_state_sha256"]);
+        assert_eq!(report["departure"]["events"], p2["departure_events"]);
+        assert_eq!(report["departure"]["journal"], p2["departure_journal"]);
+        assert_eq!(
+            report["departure"]["state_sha256"],
+            p2["departure_state_sha256"]
+        );
         let final_snapshot: serde_json::Value =
             serde_json::from_str(&bundle.final_snapshot).unwrap();
         assert_eq!(final_snapshot["snapshot_version"], p2["snapshot_version"]);
         assert_eq!(final_snapshot["state"]["rule_steps"], p2["rule_steps"]);
         assert_eq!(
-            serde_json::to_value(&bundle.inputs).unwrap(),
+            serde_json::to_value(&bundle.journal.decisions).unwrap(),
             expected["accepted_inputs"]
         );
         let json = canonical(&bundle).unwrap();
@@ -378,7 +490,7 @@ mod tests {
             report["state_sha256"].as_str().unwrap()
         );
         assert!(
-            verify_bundle(&json.replace("\"bundle_version\":2", "\"bundle_version\":3")).is_err()
+            verify_bundle(&json.replace("\"bundle_version\":3", "\"bundle_version\":4")).is_err()
         );
         let mut corrupt: serde_json::Value = serde_json::from_str(&json).unwrap();
         corrupt["source_files"] = serde_json::json!([]);

@@ -127,11 +127,64 @@ branches increased process RSS by 12,296,192 bytes; version-2 snapshots encoded
 do not establish representative Commander throughput, memory capacity, or search
 latency. Copying retained histories and journals still grows with run length.
 
+## Commander and departure follow-up — October 13, 2026
+
+The [frozen departure brief](game-engine-departure-slice.md) is implemented for
+both exact scenarios. IR v2 adds an explicit legendary characteristic and the
+source-verified Isamaru fixture; complete source/AST hashes still use archive
+schema 3. The catalog contains five reviewed definitions and one paired
+unsupported source record. Snapshot/bundle v3 retain original seats, absent
+active-player state, last-known departed-player facts, default/control-effect
+provenance, a physical Commander ledger, and a mixed decision/external journal.
+Observations and SearchContext v2 expose only permitted commander designation
+handles and public history, without authoritative physical IDs.
+
+Concessions invalidate work/receipts immediately and run before ordinary steps.
+Tests cover owned objects leaving, default-controller exile, ending grants,
+static-source versus persistent grants, live priority and prior passes, casting
+reversal before payment, source departure, target removal before/during
+resolution, final-survivor victory, budget partitions, and forged recovery.
+Command-zone tax and per-commander combat history have exact domain checks;
+combat accumulation is test-only until the damage interpreter is implemented.
+Neither admitted scenario casts its commander or deals damage.
+
+Validation: `npm run check:engine` passed formatting, Clippy, **38 Rust tests**
+and **3 Node cross-language checks**. `cargo test --workspace --locked --release`
+passed the same 38 Rust tests. `npm run retain:engine` rebuilt with
+`cargo --frozen` using 1,581 vendored files, an initially empty Cargo home, and a fresh
+target directory. The rebuilt executable verified both mixed journals, all
+thirteen departure checkpoints, and the query recovery sidecar. The original seven decision inputs and
+thirteen events remain byte-for-byte equivalent as JSON values. The current
+baseline state hash is
+`862f13d9e8f38ce272b7664f672875395cd522d2a6481a1143c3e581c49f8778`.
+The departure demo uses five decision inputs and three concessions, verifies
+thirteen exact recovery checkpoints, and ends with P1 winning. Its state hash is
+`5aa8dca40556c64ca229a4c091fac00cce9faf60413da89fcd9ac0c985a17998`.
+Reviewed trace/state witnesses are in `expected-departure-scenario.json`.
+
+Current native release retention:
+
+- Build: `91db7bf35112686e578fa931607a2c851e9affcab369167feeb7df4f1b868cfd`.
+- Catalog: `7ca94c66fd9c8d1884fa13ccbd5066f0d62c2ed08c0c67d741f4b260d6b92a66`.
+- Baseline profile: `758cade50b263c744cd7dc5db08f20685496f73f82adacb8a57da8dfff942272`.
+- Commander profile: `87fca35a63ff9ccc5e22a48ae9c71d92ee6c3c8b0ae4766206bc80d7ebef4588`.
+- Bundle: `68b7847d11c977f3593f92b36973d214bb06250ace8738a12db67f2971e86e16`.
+- Dependency manifest: `387384711d404f44993e8ab583e269c5105d1cc8b583307e3035f14e03d7474f`.
+- Executable: `2cba0516b0a69f85a1a36475feeea8209219096c2abad656a17ded4e8f6dcdb7`.
+
+Retained closure: `/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-68b7847d11c977f3-VMkaSX/`.
+The evidence manifest is `evidence.json` there and
+`generated/p2-retention.json` in this worktree. Generated artifacts stay ignored.
+For this tiny scenario, 256 retained branches increased RSS by 13,217,792 bytes
+and snapshots encoded 38,037 bytes. These observations are not representative
+Commander performance or memory guarantees.
+
 ## Remaining delivery gates
 
-Remaining P2 foundations include Commander designation/damage/cast-history tables,
-live/departed-player history, out-of-band input boundaries and concession handling,
-additional event compositions and trace modes, and wider recovery invariants.
+Remaining P2 foundations include additional event compositions and trace modes,
+and wider recovery invariants. Commander designation/history and departure
+foundations are implemented in the bounded follow-up described above; production
+command-zone casts and actual combat damage remain later mechanics.
 Recovery still replays the small scenario to prove reachability. Rules work units
 are not wall-clock or process-memory guarantees; larger profiles require measured
 limits and finer resumable work. Core authoritative getters remain trusted host

@@ -89,7 +89,7 @@ enum Task {
     },
     Search {
         builder: ObservationWork,
-        observation: Option<Observation>,
+        observation: Option<Box<Observation>>,
         history: Vec<PermittedView>,
         decks: Vec<OpenDecklist>,
     },
@@ -158,9 +158,13 @@ impl Game {
         if viewer.0 >= 4 {
             return Err(QueryRejection::InvalidViewer);
         }
+        if !self.state.pending_concessions.is_empty() {
+            return Err(QueryRejection::UnsupportedBoundary);
+        }
         if let Query::Search { sampling_seed, .. } = &query
             && (!matches!(self.state.frame, Frame::Priority)
                 || self.state.pending.is_some()
+                || !self.is_live(viewer)
                 || sampling_seed.is_empty()
                 || sampling_seed.len() > 128)
         {
@@ -264,7 +268,7 @@ impl Game {
         if b.cursor as usize >= 4 + self.state.objects.len() {
             b.view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
             return Ok(Some(Observation {
-                observation_version: 1,
+                observation_version: 2,
                 view: b.view.clone(),
                 decision: b.decision.clone(),
             }));
@@ -366,7 +370,7 @@ impl Game {
                 },
             ) => {
                 if observation.is_none() {
-                    *observation = self.observation_unit(builder)?;
+                    *observation = self.observation_unit(builder)?.map(Box::new);
                     return Ok(None);
                 }
                 let permitted = &self.state.visibility[viewer.0 as usize].history;
@@ -394,12 +398,12 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 1,
-                    observation: observation.clone().ok_or(QueryRejection::Invariant)?,
+                    context_version: 2,
+                    observation: *observation.clone().ok_or(QueryRejection::Invariant)?,
                     permitted_history: history.clone(),
                     open_decklists: decks.clone(),
                     catalog_digest: self.prepared.catalog_digest.clone(),
-                    profile_id: SCENARIO_PROFILE.into(),
+                    profile_id: self.prepared.config.profile.clone(),
                     sampling_seed: sampling_seed.clone(),
                 })))
             }

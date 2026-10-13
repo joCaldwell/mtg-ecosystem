@@ -48,7 +48,15 @@ fn context(game: &Game, viewer: PlayerId) -> SearchContext {
 fn execution_budget_partitions_and_every_suspended_boundary_restore_exactly() {
     let p = prepared();
     let input = inputs();
-    let expected = Game::replay(p.clone(), &input).unwrap();
+    let mut reference = Game::new(p.clone());
+    for i in &input {
+        let _ = reference.advance(Budget::unlimited());
+        reference
+            .respond(i.player, i.decision_id, i.response.clone())
+            .unwrap();
+    }
+    let _ = reference.advance(Budget::unlimited());
+    let expected = Game::replay(p.clone(), &reference.replay_journal()).unwrap();
     for units in [1, 2, 3, 7, u64::MAX] {
         let mut game = Game::new(p.clone());
         let mut index = 0;
@@ -82,6 +90,7 @@ fn execution_budget_partitions_and_every_suspended_boundary_restore_exactly() {
                 Advance::Suspended { .. } => {
                     suspensions += 1;
                 }
+                Advance::Finished { .. } => panic!("unexpected finished fixture"),
                 Advance::Fault(e) => panic!("execution fault: {e}"),
             }
             let snapshot = game.snapshot().unwrap();

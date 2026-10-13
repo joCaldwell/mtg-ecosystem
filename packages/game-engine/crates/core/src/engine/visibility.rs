@@ -10,6 +10,7 @@ pub struct DecisionToken(pub String);
 #[serde(deny_unknown_fields)]
 pub struct VisiblePlayer {
     pub player: PlayerId,
+    pub status: PlayerStatus,
     pub life: Quantity,
     pub mana: BTreeMap<Color, Quantity>,
     pub hand_count: u32,
@@ -27,9 +28,19 @@ pub struct VisibleObject {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct VisibleCommander {
+    pub designation: String,
+    pub oracle_id: String,
+    pub history: CommanderHistory,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PermittedView {
     pub viewer: PlayerId,
-    pub active: PlayerId,
+    pub active: Option<PlayerId>,
+    pub turn_owner: PlayerId,
+    pub live_turn_order: Vec<PlayerId>,
+    pub commanders: Vec<VisibleCommander>,
     pub priority: Option<PlayerId>,
     pub players: Vec<VisiblePlayer>,
     pub objects: Vec<VisibleObject>,
@@ -126,6 +137,7 @@ impl Game {
         };
         Ok(VisiblePlayer {
             player,
+            status: p.status,
             life: p.life.clone(),
             mana: p.mana.clone(),
             hand_count: count(Zone::Hand { owner: player })?,
@@ -173,6 +185,20 @@ impl Game {
         Ok(PermittedView {
             viewer,
             active: self.state.active,
+            turn_owner: self.state.turn_owner,
+            live_turn_order: self.live_players(),
+            commanders: self
+                .state
+                .commanders
+                .records
+                .iter()
+                .enumerate()
+                .map(|(index, (card, history))| VisibleCommander {
+                    designation: format!("v{}-c{index}", viewer.0),
+                    oracle_id: self.state.cards[card].oracle_id.clone(),
+                    history: history.clone(),
+                })
+                .collect(),
             priority: matches!(self.state.frame, Frame::Priority).then_some(self.state.priority),
             players: vec![],
             objects: vec![],
@@ -182,7 +208,7 @@ impl Game {
         if viewer.0 >= 4 {
             return Err("invalid viewer".into());
         }
-        if self.state.pending.is_some() {
+        if self.state.pending.is_some() || !self.state.pending_concessions.is_empty() {
             return Ok(None);
         }
         let token = self.state.visibility[viewer.0 as usize]
@@ -246,7 +272,8 @@ impl Game {
                     k.handles.insert(handle, id);
                 }
             }
-            let key = if self.state.pending.is_some() {
+            let key = if self.state.pending.is_some() || !self.state.pending_concessions.is_empty()
+            {
                 None
             } else {
                 match self.state.frame {

@@ -144,7 +144,10 @@ exists; broader schema and emission design remain implementation work.
 
 The initial scenario catalog is implemented by Rust types in
 `packages/game-engine/crates/contracts/`; `mtg-sim schema` exports its generated
-JSON Schema and `mtg-sim compile` emits the four-definition fixture catalog.
+JSON Schema and `mtg-sim compile` emits the five-definition fixture catalog.
+Current IR version 2 explicitly retains the legendary characteristic; the
+[Commander/departure slice](game-engine-departure-slice.md) adds the source-backed
+Isamaru definition. Archive schema 3 remains unchanged.
 The [first scenario brief](game-engine-first-scenario.md) defines this narrow
 contract and its source adapter. General/per-set bulk emission remains a
 **proposal**; `scripts/build-ir.ts` fails explicitly. The previous schema

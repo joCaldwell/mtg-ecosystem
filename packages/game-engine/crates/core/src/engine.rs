@@ -10,29 +10,38 @@ const ISLAND: &str = "b2c6aa39-2d2a-459c-a555-fb48ba993373";
 const FOREST: &str = "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6";
 const SPELL: &str = "837182db-1bf3-4a2c-bd01-1af9d9873561";
 const BEARS: &str = "14c8f55d-d177-4c25-a931-ebeb9e6062a0";
+const ISAMARU: &str = "cfb756dd-6fe1-430a-8f04-8b10cac62a86";
 // Reviewed canonical definition digests, independent of compiler success.
-const ALLOWED: [(&str, &str); 4] = [
+const ALLOWED: [(&str, &str); 5] = [
+    (
+        ISAMARU,
+        "9d6619bfb5ceee58efd54c12ceb6f2b814f7a3e2d3b5e8261057894c6783b30f",
+    ),
     (
         ISLAND,
-        "7a2a011a9b407f7a0b7862710d7a38d992b391897334ee9dc2af77f43916c88f",
+        "b4ee04295bb8d7b19ceed34a30d31ab98feb92cca7df245cd1a51b3d783c8077",
     ),
     (
         FOREST,
-        "29aa41c4c2a13fca1ee91d04c08e2d45fa21271c725be1a7061ef3063ba1b984",
+        "e97708a1d40c178b8355f78c9c1f52e5a3cb7f04be1b9bc406d38598581bb63c",
     ),
     (
         SPELL,
-        "9c2399378a12367e3fe261f32bb4d9a3a033affc6992628d1b2fbce0427ba507",
+        "b9238623f9c0a7ad0b202a16c3036cf21c59057e58964b0c16b42b319f5a4b89",
     ),
     (
         BEARS,
-        "16d8eee1c1ff1e15cbf4c3ed0cd2e587f5e96986322ace3b2867606dacf5504f",
+        "83c5d4c810e25b84f607f9c8b99b5179abf39e060d093cd7dd38c0be90a8a083",
     ),
 ];
+mod multiplayer;
+pub use multiplayer::*;
 mod visibility;
 mod work;
 pub use visibility::*;
 pub use work::*;
+#[cfg(test)]
+mod departure_tests;
 #[cfg(test)]
 mod p2_tests;
 
@@ -88,6 +97,19 @@ pub struct ScenarioConfig {
     pub cards: Vec<CardSetup>,
 }
 impl ScenarioConfig {
+    pub fn commander_foundation() -> Self {
+        let mut config = Self::land_return();
+        config.profile = "commander-foundation-scenario-v1".into();
+        config.commanders.push(CardId(3));
+        config.cards.push(CardSetup {
+            id: CardId(3),
+            oracle_id: ISAMARU.into(),
+            owner: PlayerId(0),
+            controller: PlayerId(0),
+            zone: Zone::Command { owner: PlayerId(0) },
+        });
+        config
+    }
     pub fn land_return() -> Self {
         Self {
             mode: Mode::Scenario,
@@ -130,7 +152,9 @@ pub struct Prepared {
 impl Prepared {
     pub fn admit(catalog: Catalog, config: ScenarioConfig) -> Result<Self, String> {
         catalog.validate()?;
-        if config != ScenarioConfig::land_return() {
+        if config != ScenarioConfig::land_return()
+            && config != ScenarioConfig::commander_foundation()
+        {
             return Err(
                 "configuration is outside the reviewed four-seat scenario; no match admission"
                     .into(),
@@ -173,6 +197,8 @@ impl Prepared {
 struct Player {
     life: Quantity,
     mana: BTreeMap<Color, Quantity>,
+    status: PlayerStatus,
+    last_known: Option<PlayerLastKnown>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -185,6 +211,7 @@ struct Card {
 struct Object {
     id: ObjectId,
     controller: PlayerId,
+    default_controller: PlayerId,
     zone: Zone,
     tapped: bool,
 }
@@ -196,6 +223,7 @@ struct StackInstance {
     controller: PlayerId,
     targets: Vec<ObjectId>,
     paid: Option<ManaCost>,
+    cast_from: Zone,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -219,6 +247,7 @@ enum Frame {
     Payment { cast: Casting },
     Resolve { frame: Resolving },
     Fault { reason: String },
+    Finished { winner: PlayerId },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
@@ -319,6 +348,28 @@ enum InstructionOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Event {
+    PlayerDeparted {
+        player: PlayerId,
+    },
+    ObjectLeftGame {
+        object: ObjectId,
+        owner: PlayerId,
+    },
+    ControlEffectEnded {
+        effect_id: u32,
+    },
+    ControlChanged {
+        object: ObjectId,
+        previous: PlayerId,
+        controller: PlayerId,
+    },
+    StackRemovedForDeparture {
+        stack_id: StackId,
+        player: PlayerId,
+    },
+    GameWon {
+        winner: PlayerId,
+    },
     Committed {
         proposed: ProposedEvent,
         actual: EventOutcome,
@@ -351,9 +402,15 @@ struct State {
     players: Vec<Player>,
     cards: BTreeMap<CardId, Card>,
     objects: BTreeMap<CardId, Object>,
-    active: PlayerId,
+    active: Option<PlayerId>,
+    turn_owner: PlayerId,
+    original_seating: Vec<PlayerId>,
+    commanders: CommanderLedger,
+    control_effects: Vec<ControlEffect>,
+    external_inputs: Vec<ExternalInput>,
+    pending_concessions: Vec<PlayerId>,
     priority: PlayerId,
-    passes: u8,
+    passes: Vec<PlayerId>,
     next_stack_id: u32,
     stack: Vec<StackInstance>,
     frame: Frame,
@@ -385,6 +442,7 @@ pub struct Snapshot {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Advance {
+    Finished { winner: PlayerId },
     AwaitingDecision(Request),
     Fault(String),
     Suspended { required_minimum: u64 },
@@ -419,6 +477,7 @@ impl Game {
                             incarnation: 0,
                         },
                         controller: c.controller,
+                        default_controller: c.controller,
                         zone: c.zone,
                         tapped: false,
                     },
@@ -433,13 +492,21 @@ impl Game {
                 .map(|_| Player {
                     life: Quantity::from(40),
                     mana: BTreeMap::new(),
+                    status: PlayerStatus::Live,
+                    last_known: None,
                 })
                 .collect(),
             cards,
             objects,
-            active: PlayerId(0),
+            active: Some(PlayerId(0)),
+            turn_owner: PlayerId(0),
+            original_seating: (0..4).map(PlayerId).collect(),
+            commanders: CommanderLedger::new(),
+            control_effects: vec![],
+            external_inputs: vec![],
+            pending_concessions: vec![],
             priority: PlayerId(0),
-            passes: 0,
+            passes: vec![],
             next_stack_id: 0,
             stack: vec![],
             frame: Frame::Priority,
@@ -453,6 +520,8 @@ impl Game {
             executor: Arc::new(()),
             state_token: Arc::new(()),
         };
+        game.initialize_commanders()
+            .expect("admitted commander configuration");
         game.refresh_visibility()
             .expect("admitted initial visibility");
         game
@@ -544,7 +613,7 @@ impl Game {
             .ok_or_else(|| "missing spell program".into())
     }
     pub fn decision_for(&self, viewer: PlayerId) -> Result<Option<Request>, String> {
-        if self.state.pending.is_some() {
+        if self.state.pending.is_some() || !self.state.pending_concessions.is_empty() {
             return Ok(None);
         }
         let req = match &self.state.frame {
@@ -667,10 +736,14 @@ impl Game {
     }
     pub fn advance(&mut self, mut budget: Budget) -> Advance {
         loop {
+            if let Frame::Finished { winner } = self.state.frame {
+                return Advance::Finished { winner };
+            }
             if let Frame::Fault { reason } = &self.state.frame {
                 return Advance::Fault(reason.clone());
             }
             if self.state.pending.is_none()
+                && self.state.pending_concessions.is_empty()
                 && matches!(self.state.frame, Frame::Priority | Frame::Targets { .. })
             {
                 let viewer = if matches!(self.state.frame, Frame::Priority) {
@@ -716,6 +789,10 @@ impl Game {
         }
     }
     fn step(&mut self) -> Result<(), String> {
+        if let Some(player) = self.state.pending_concessions.first().copied() {
+            self.state.pending_concessions.remove(0);
+            return self.apply_departure(player);
+        }
         match self.state.frame.clone() {
             Frame::Priority => {
                 let input = self
@@ -736,7 +813,7 @@ impl Game {
                             amount: Quantity::from(1),
                             source: object,
                         })?;
-                        self.state.passes = 0;
+                        self.state.passes.clear();
                         self.stabilize()?;
                     }
                     Response::Cast { card } => {
@@ -762,6 +839,9 @@ impl Game {
                             controller: input.player,
                             targets: vec![],
                             paid: None,
+                            cast_from: Zone::Hand {
+                                owner: input.player,
+                            },
                         });
                         self.state.frame = Frame::Targets {
                             cast: Casting {
@@ -769,36 +849,20 @@ impl Game {
                                 original_object,
                             },
                         };
-                        self.state.passes = 0;
+                        self.state.passes.clear();
                     }
                     Response::Pass => {
                         self.state.events.push(Event::PriorityPassed {
                             player: input.player,
                         });
-                        self.state.passes = self
-                            .state
-                            .passes
-                            .checked_add(1)
-                            .ok_or("pass counter resource limit")?;
-                        // CR 117.3d / 117.4: all four live seats pass in order.
-                        if self.state.passes == 4 {
-                            self.state.passes = 0;
-                            let stack = self.top()?.clone();
-                            let legal_targets = stack
-                                .targets
-                                .iter()
-                                .map(|t| self.target_legal(*t))
-                                .collect();
-                            self.state.frame = Frame::Resolve {
-                                frame: Resolving {
-                                    stack_id: stack.id,
-                                    cursor: 0,
-                                    legal_targets,
-                                    outcomes: vec![],
-                                },
-                            };
+                        self.state.passes.push(input.player);
+                        // CR 117.4 applies to the current live player set.
+                        if self.all_live_passed() {
+                            self.begin_resolution()?;
                         } else {
-                            self.state.priority = PlayerId((input.player.0 + 1) % 4);
+                            self.state.priority = self
+                                .next_live(input.player)
+                                .ok_or("no live priority recipient")?;
                             self.stabilize()?;
                         }
                     }
@@ -839,6 +903,7 @@ impl Game {
                         owner: stack.controller,
                     };
                     o.controller = stack.controller;
+                    o.default_controller = stack.controller;
                     o.tapped = false;
                     self.state.events.push(Event::CastReversed {
                         stack_id: cast.stack_id,
@@ -856,6 +921,11 @@ impl Game {
                     self.state.events.push(Event::SpellCast {
                         stack_id: cast.stack_id,
                     });
+                    self.state.commanders.record_cast(
+                        stack.source.card,
+                        stack.controller,
+                        stack.cast_from,
+                    )?;
                     self.state.priority = stack.controller;
                     self.state.frame = Frame::Priority;
                     self.stabilize()?;
@@ -896,6 +966,7 @@ impl Game {
                 }
             }
             Frame::Fault { reason } => return Err(reason),
+            Frame::Finished { .. } => {}
         }
         Ok(())
     }
@@ -908,7 +979,11 @@ impl Game {
             resolved,
         });
         self.state.frame = Frame::Priority;
-        self.state.priority = self.state.active;
+        self.state.priority = self
+            .state
+            .active
+            .or_else(|| self.next_live(self.state.turn_owner))
+            .ok_or("no live player after resolution")?;
         self.stabilize()
     }
     fn payment_pool(
@@ -1037,6 +1112,7 @@ impl Game {
                     Object {
                         id: successor,
                         controller,
+                        default_controller: controller,
                         zone: *destination,
                         tapped: false,
                     },
@@ -1086,7 +1162,7 @@ impl Game {
     }
     pub fn snapshot(&self) -> Result<String, String> {
         canonical(&Snapshot {
-            snapshot_version: 2,
+            snapshot_version: 3,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             profile_digest: self.prepared.profile_digest.clone(),
@@ -1096,7 +1172,7 @@ impl Game {
     }
     pub fn restore(prepared: Prepared, json: &str) -> Result<Self, String> {
         let s: Snapshot = strict_read(json)?;
-        if s.snapshot_version != 2
+        if s.snapshot_version != 3
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -1113,28 +1189,11 @@ impl Game {
         game.validate_state()?;
         // The first profile is tiny: verify reachability by replay rather than
         // accepting a rehashed arbitrary state through the recovery API.
-        let mut replayed = Self::new(game.prepared.clone());
-        for input in &game.state.journal {
-            let remaining = game
-                .state
-                .rule_steps
-                .checked_sub(replayed.state.rule_steps)
-                .ok_or("snapshot boundary precedes journal")?;
-            let Advance::AwaitingDecision(request) = replayed.advance(Budget::new(remaining))
-            else {
-                return Err("snapshot journal exceeds execution boundary".into());
-            };
-            if request.player() != input.player || request.decision_id() != input.decision_id {
-                return Err("snapshot journal decision mismatch".into());
-            }
-            replayed.respond(input.player, input.decision_id, input.response.clone())?;
-        }
-        let remaining = game
-            .state
-            .rule_steps
-            .checked_sub(replayed.state.rule_steps)
-            .ok_or("snapshot boundary mismatch")?;
-        let _ = replayed.advance(Budget::new(remaining));
+        let mut replayed = Self::replay_to(
+            game.prepared.clone(),
+            &game.replay_journal(),
+            Some(game.state.rule_steps),
+        )?;
         if matches!(game.state.frame, Frame::Fault { .. })
             && !matches!(replayed.state.frame, Frame::Fault { .. })
         {
@@ -1149,11 +1208,16 @@ impl Game {
         let s = &self.state;
         if s.players.len() != 4
             || s.visibility.len() != 4
-            || s.active != PlayerId(0)
+            || s.turn_owner != PlayerId(0)
+            || s.active.is_some_and(|p| !self.is_live(p))
+            || s.original_seating != (0..4).map(PlayerId).collect::<Vec<_>>()
             || s.priority.0 >= 4
-            || s.passes >= 4
-            || s.cards.len() != 3
-            || s.objects.len() != 3
+            || !self.is_live(s.priority)
+            || s.passes.len() > self.live_players().len()
+            || s.passes.iter().any(|p| !self.is_live(*p))
+            || s.passes.iter().collect::<BTreeSet<_>>().len() != s.passes.len()
+            || s.cards.len() != self.prepared.config.cards.len()
+            || s.objects.len() > s.cards.len()
             || s.stack.len() > 1
         {
             return Err("snapshot seating/table invariant".into());
@@ -1163,9 +1227,19 @@ impl Game {
             if card.owner != setup.owner || card.oracle_id != setup.oracle_id {
                 return Err("snapshot physical identity invariant".into());
             }
-            let o = s.objects.get(&setup.id).ok_or("snapshot missing object")?;
+            let Some(o) = s.objects.get(&setup.id) else {
+                if self.is_live(setup.owner) {
+                    return Err("snapshot missing live owner's object".into());
+                }
+                continue;
+            };
+            if !self.is_live(card.owner) {
+                return Err("departed owner still has an object".into());
+            }
             if o.id.card != setup.id
                 || o.controller.0 >= 4
+                || o.default_controller.0 >= 4
+                || !self.is_live(o.controller)
                 || (o.tapped && setup.oracle_id != ISLAND)
             {
                 return Err("snapshot object invariant".into());
@@ -1177,6 +1251,13 @@ impl Game {
             }
         }
         for p in &s.players {
+            if (p.status == PlayerStatus::Left) != p.last_known.is_some()
+                || p.last_known
+                    .as_ref()
+                    .is_some_and(|last| last.life != p.life || last.mana != p.mana)
+            {
+                return Err("snapshot departed-player history invariant".into());
+            }
             if p.mana.values().any(|n| n.is_negative()) {
                 return Err("snapshot negative mana".into());
             }
@@ -1241,29 +1322,15 @@ impl Game {
             _ => {}
         }
         if let Some(pending) = &s.pending {
-            if pending.decision_id.checked_add(1) != Some(s.revision)
-                || s.journal.last() != Some(pending)
-            {
+            if pending.decision_id >= s.revision || s.journal.last() != Some(pending) {
                 return Err("snapshot pending-input invariant".into());
             }
             self.validate_response(pending.player, &pending.response)?;
         }
         self.stabilize()
     }
-    pub fn replay(prepared: Prepared, inputs: &[AcceptedInput]) -> Result<Self, String> {
-        let mut game = Self::new(prepared);
-        for input in inputs {
-            match game.advance(Budget::unlimited()) {
-                Advance::AwaitingDecision(r)
-                    if r.decision_id() == input.decision_id && r.player() == input.player => {}
-                _ => return Err("replay decision mismatch".into()),
-            }
-            game.respond(input.player, input.decision_id, input.response.clone())?;
-        }
-        if let Advance::Fault(e) = game.advance(Budget::unlimited()) {
-            return Err(e);
-        }
-        Ok(game)
+    pub fn replay(prepared: Prepared, journal: &ReplayJournal) -> Result<Self, String> {
+        Self::replay_to(prepared, journal, None)
     }
 }
 
@@ -1347,7 +1414,7 @@ mod tests {
         complete(&mut fork);
         assert_eq!(game.state, restored.state);
         assert_eq!(game.state, fork.state);
-        let replay = Game::replay(p, game.journal()).unwrap();
+        let replay = Game::replay(p, &game.replay_journal()).unwrap();
         assert_eq!(game.state, replay.state);
     }
     #[test]
@@ -1421,7 +1488,7 @@ mod tests {
             game.events().last(),
             Some(Event::CastReversed { .. })
         ));
-        let replay = Game::replay(prepared(), game.journal()).unwrap();
+        let replay = Game::replay(prepared(), &game.replay_journal()).unwrap();
         assert_eq!(replay.state, game.state);
     }
     #[test]

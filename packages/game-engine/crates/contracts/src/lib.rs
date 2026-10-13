@@ -11,7 +11,7 @@ pub const RULES_SHA256: &str = "8d860e451f20f38865b725b42d82feb714c725373dd8f3b3
 pub const PARSER_SHA256: &str = "98980a967a70d57008847ce0952edf0cc277af9ad26b8cb8739a555d97082b8d";
 pub const ARCHIVE_MANIFEST_SHA256: &str =
     "b20406acec7b9af4610324af8848c76a2966315f1bb4043de2b03d53aa1a6f1b";
-pub const SCENARIO_PROFILE: &str = "land-return-scenario-v1";
+pub const SCENARIO_PROFILE: &str = "land-return-departure-scenario-v2";
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Quantity(BigInt);
@@ -98,6 +98,7 @@ pub struct Characteristics {
     pub kind: CardKind,
     pub subtypes: Vec<String>,
     pub basic: bool,
+    pub legendary: bool,
     pub mana_cost: ManaCost,
     pub colors: Vec<Color>,
     pub color_identity: Vec<Color>,
@@ -112,6 +113,7 @@ pub enum Capability {
     NormalLayoutV1,
     BasicLandManaV1,
     BaseCreatureV1,
+    CommanderIdentityV1,
     CastInstantV1,
     CreatureTargetV1,
     OwnerHandMoveV1,
@@ -194,6 +196,9 @@ impl Definition {
             }
             CardKind::Creature => {
                 set.insert(Capability::BaseCreatureV1);
+                if self.characteristics.legendary {
+                    set.insert(Capability::CommanderIdentityV1);
+                }
             }
             CardKind::Instant => {
                 set.extend([
@@ -226,7 +231,8 @@ impl Definition {
         }
         match c.kind {
             CardKind::Land => {
-                if !c.basic
+                if c.legendary
+                    || !c.basic
                     || c.subtypes.len() != 1
                     || basic_land_color(&c.subtypes[0]).is_none()
                     || c.power.is_some()
@@ -248,7 +254,8 @@ impl Definition {
                 }
             }
             CardKind::Instant => {
-                if c.basic
+                if c.legendary
+                    || c.basic
                     || !c.subtypes.is_empty()
                     || c.power.is_some()
                     || c.toughness.is_some()
@@ -300,7 +307,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 1, max = 1))]
+    #[schemars(range(min = 2, max = 2))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -308,7 +315,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if self.schema_version != 1
+        if self.schema_version != 2
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -339,7 +346,7 @@ impl Catalog {
 pub fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
-/// IR v1 canonicalization: UTF-8 compact serde_json Value (sorted object keys),
+/// IR v2 canonicalization (same algorithm as v1): UTF-8 compact serde_json Value (sorted object keys),
 /// ordered arrays, exact quantities as strings. Separate from JS archive hashes.
 pub fn canonical<T: Serialize>(value: &T) -> Result<String, String> {
     serde_json::to_value(value)

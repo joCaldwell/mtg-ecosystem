@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub mod fixtures {
     pub const MANIFEST: &str = include_str!("../../../tests/fixtures/archive-manifest.json");
-    pub const RECORDS: [(&str, &str); 5] = [
+    pub const RECORDS: [(&str, &str); 6] = [
         (
             "forest",
             include_str!("../../../tests/fixtures/forest.json"),
@@ -22,6 +22,10 @@ pub mod fixtures {
         (
             "unsummon",
             include_str!("../../../tests/fixtures/unsummon.json"),
+        ),
+        (
+            "isamaru",
+            include_str!("../../../tests/fixtures/isamaru.json"),
         ),
         (
             "cruel-edict",
@@ -330,6 +334,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     let (kind, basic) = match types {
         "Basic Land" => (CardKind::Land, true),
         "Creature" => (CardKind::Creature, false),
+        "Legendary Creature" => (CardKind::Creature, false),
         "Instant" => (CardKind::Instant, false),
         _ => {
             return Err(unsupported(
@@ -354,6 +359,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         characteristics: Characteristics {
             kind,
             basic,
+            legendary: types == "Legendary Creature",
             subtypes: subtypes.split_whitespace().map(str::to_owned).collect(),
             mana_cost: mana_cost(&source.mana_cost)?,
             colors: source.colors,
@@ -468,7 +474,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
 
 pub fn fixture_catalog() -> Result<Catalog, String> {
     let mut definitions = vec![];
-    for (_, r) in &fixtures::RECORDS[..4] {
+    for (_, r) in &fixtures::RECORDS[..5] {
         match compile(fixtures::MANIFEST, r) {
             CompileResult::Lowered { definition } => definitions.push(*definition),
             result => return Err(format!("unexpected fixture compile result: {result:?}")),
@@ -476,7 +482,7 @@ pub fn fixture_catalog() -> Result<Catalog, String> {
     }
     definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     let catalog = Catalog {
-        schema_version: 1,
+        schema_version: 2,
         rules_edition: RULES_EDITION.into(),
         rules_sha256: RULES_SHA256.into(),
         definitions,
@@ -582,7 +588,7 @@ mod tests {
     #[test]
     fn cross_player_choice_remains_unsupported() {
         assert!(matches!(
-            compile(fixtures::MANIFEST, fixtures::RECORDS[4].1),
+            compile(fixtures::MANIFEST, fixtures::RECORDS[5].1),
             CompileResult::Unsupported { .. }
         ));
     }
@@ -612,7 +618,7 @@ mod tests {
         let c = fixture_catalog().unwrap();
         let raw = canonical(&c).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":1", "\"schema_version\":9"),
+            raw.replace("\"schema_version\":2", "\"schema_version\":9"),
             raw.replace("\"op\":\"return_to_owner_hand\"", "\"op\":\"execute_text\""),
             raw.replace("\"target_slot\":0", "\"target_slot\":99"),
             raw.replace("\"source_block\":0", "\"unknown\":true,\"source_block\":0"),

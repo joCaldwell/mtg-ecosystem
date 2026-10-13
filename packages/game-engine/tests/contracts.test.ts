@@ -67,7 +67,7 @@ test("Rust lowering matches reviewed IR and its generated JSON Schema", () => {
   assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
   for (const mutate of [
     (c: any) => { c.unknownSemanticField = true; },
-    (c: any) => { c.schema_version = 2; },
+    (c: any) => { c.schema_version = 3; },
     (c: any) => { c.definitions[0].characteristics.power = 2; },
     (c: any) => { c.definitions[0].characteristics.power = "02"; },
     (c: any) => { c.definitions.find((d: any) => d.spell).spell.instructions[0].op = "execute_text"; },

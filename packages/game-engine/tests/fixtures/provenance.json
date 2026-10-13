@@ -26,6 +26,13 @@
       "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
     },
     {
+      "file": "isamaru.json",
+      "oracle_id": "cfb756dd-6fe1-430a-8f04-8b10cac62a86",
+      "record_sha256": "22bb848cea7e1d2f638966f9ca19aa9f096f1910ec9fd01f4d918bfdabce8e40",
+      "source_sha256": "b71e7507f77abada88bb3512955ed9ca8fd5a3ff395ec8f1ff915940166b9602",
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
+    },
+    {
       "file": "island.json",
       "oracle_id": "b2c6aa39-2d2a-459c-a555-fb48ba993373",
       "record_sha256": "2c96d0181155ee5c55da6cfb74e68c11fe8ad6489928fee23d54c12771f0df37",
