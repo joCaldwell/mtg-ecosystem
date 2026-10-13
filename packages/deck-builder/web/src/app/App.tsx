@@ -1,3 +1,4 @@
+import { PlaytestPage } from "../features/playtest/index.ts";
 import type { ReactNode } from "react";
 import { ActivityPage } from "../features/activity/index.ts";
 import { DeckPage } from "../features/deck/index.ts";
@@ -15,6 +16,8 @@ import { useRoute, type Route } from "./routes.ts";
  *  line in routes.ts. */
 function screen(route: Route): ReactNode {
   switch (route.page) {
+    case "playtest":
+      return <PlaytestPage deckId={route.deckId} key={route.deckId} />;
     case "deck":
       return <DeckPage deckId={route.deckId} review={route.review} key={route.deckId} />;
     case "decks":

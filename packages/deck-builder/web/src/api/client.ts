@@ -1,3 +1,5 @@
+import type { PlaytestView, PlaytestAction, PlaytestUiPatch, TableCard, TableObject, CardFace, Zone, Row as TableRow, Mode } from "../../../src/playtest/service.ts";
+export type { PlaytestView, PlaytestAction, PlaytestUiPatch, TableCard, TableObject, CardFace, Zone, TableRow, Mode };
 // Typed client. Wire types are imported from the server source (type-only,
 // so they are erased at build and Vite never bundles server code) — a field
 // change on the server fails this typecheck instead of failing at runtime.
@@ -97,6 +99,13 @@ type StateResponse = { state: DeckState };
 export type Outcome = "accept" | "reject";
 
 export const api = {
+  tableCard: (oracleId: string) => request<{ card: TableCard }>("GET", `/api/cards/${oracleId}/table`),
+  getPlaytest: (deckId: number) => request<{ playtest: PlaytestView | null }>("GET", `/api/decks/${deckId}/playtest`),
+  startPlaytest: (deckId: number, mode: Mode, previous?: PlaytestView, replace = false) => request<{ playtest: PlaytestView }>("POST", `/api/decks/${deckId}/playtest`, { mode, replace, session_id: previous?.session.id, expected_version: previous?.session.version }),
+  playtestAction: (deckId: number, sessionId: string, version: number, action: PlaytestAction) => request<{ playtest: PlaytestView }>("POST", `/api/decks/${deckId}/playtest/actions`, { session_id: sessionId, expected_version: version, action }),
+  playtestUi: (deckId: number, sessionId: string, version: number, ui: PlaytestUiPatch) => request<{ playtest: PlaytestView }>("PATCH", `/api/decks/${deckId}/playtest/ui`, { session_id: sessionId, expected_version: version, ui }),
+  playtestObservation: (deckId: number, input: { session_id: string; request_id: string; text: string; oracle_id: string | null; deck_revision?: number }) => request<{ memory: Memory }>("POST", `/api/decks/${deckId}/playtest/observations`, input),
+
   // ---------- decks ----------
   listDecks: () => request<DeckSummary[]>("GET", "/api/decks"),
   createDeck: (name: string, category: DeckCategory = "theorycrafted") =>

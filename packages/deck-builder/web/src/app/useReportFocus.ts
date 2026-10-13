@@ -4,8 +4,8 @@
 // server treats old focus as possibly a closed tab, hence the heartbeat.
 
 import { useEffect } from "react";
-import { api } from "../../api/client.ts";
-import { useFocus } from "../../app/Focus.tsx";
+import { api } from "../api/client.ts";
+import { useFocus } from "./Focus.tsx";
 
 const HEARTBEAT_MS = 60_000;
 

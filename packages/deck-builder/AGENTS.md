@@ -65,6 +65,7 @@ src/
     interop.ts       Archidekt export/import
   documents.ts       profile + proposed edits to profile and brief, and their rulings
   memory.ts          ⭐ memories: scopes, card links, budgets, supersede/retire
+  playtest/          owner-only manual session service and action model; snapshot, undo, resume
   stats.ts           player statistics across Paper decks only
   activity.ts        the activity feed          focus.ts   what the owner has open
   token.ts           the agent bearer token

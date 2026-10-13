@@ -10,3 +10,8 @@ export { CardLookupProvider, useCardLookup } from "./CardLookup.tsx";
 export { CardHoverProvider, useCardHover, HOVER_DELAY_MS } from "./CardHover.tsx";
 export { CardOpenProvider, CardRef } from "./CardRef.tsx";
 export { RichText, InlineText } from "./RichText.tsx";
+
+export { TextCard } from "./table/TextCard.tsx";
+export { TableZone } from "./table/TableZone.tsx";
+export { PlayerSummary } from "./table/PlayerSummary.tsx";
+export { CardInspection } from "./table/CardInspection.tsx";

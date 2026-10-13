@@ -60,6 +60,7 @@ import { priceStatus } from "./prices.ts";
 import { refreshCardData } from "./refresh.ts";
 import { SearchError, search } from "./search/index.ts";
 import { deckState } from "./state.ts";
+import { getPlaytest, startPlaytest, changePlaytest, savePlaytestUi, saveObservation, tableCard } from "./playtest/service.ts";
 import { playerStats } from "./stats.ts";
 
 export const APP_VERSION = "2.0.0";
@@ -144,6 +145,14 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
     const other = url.searchParams.get("other");
     return compareDecks(db, Number(id), other ? Number(other) : undefined);
   });
+
+  route("GET", /^\/api\/cards\/([0-9a-z-]+)\/table$/, ([id]) => ({ card: tableCard(db, id) }));
+  // Owner's private solo table: capability-layer permissions and validation.
+  route("GET", /^\/api\/decks\/(\d+)\/playtest$/, ([id]) => ({ playtest: getPlaytest(db, OWNER, Number(id)) }));
+  route("POST", /^\/api\/decks\/(\d+)\/playtest$/, ([id], body) => ({ playtest: startPlaytest(db, OWNER, Number(id), body) }));
+  route("POST", /^\/api\/decks\/(\d+)\/playtest\/actions$/, ([id], body) => ({ playtest: changePlaytest(db, OWNER, Number(id), body) }));
+  route("PATCH", /^\/api\/decks\/(\d+)\/playtest\/ui$/, ([id], body) => ({ playtest: savePlaytestUi(db, OWNER, Number(id), body) }));
+  route("POST", /^\/api\/decks\/(\d+)\/playtest\/observations$/, ([id], body) => ({ memory: saveObservation(db, OWNER, Number(id), body) }));
 
   // ---------- cards in a deck ----------
   route("POST", /^\/api\/decks\/(\d+)\/cards$/, ([id], body) => {

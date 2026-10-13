@@ -1,0 +1,13 @@
+.inspection {
+  display: grid;
+  gap: var(--s-5);
+  min-width: 0;
+}
+.inspection > article {
+  width: 100%;
+  cursor: default;
+}
+.context {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}

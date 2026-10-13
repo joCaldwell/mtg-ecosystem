@@ -1,0 +1,11 @@
+.control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.control output {
+  min-width: var(--s-8);
+  text-align: center;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}

@@ -8,7 +8,7 @@
   border-left: 2px solid var(--line-strong);
   color: var(--text-soft);
   font-size: var(--size);
-  line-height: var(--leading);
+  line-height: var(--oracle-leading, var(--leading));
 }
 
 .bare {

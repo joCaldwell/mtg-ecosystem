@@ -1,0 +1,56 @@
+.zone {
+  border-bottom: 1px solid var(--line);
+  min-height: var(--battlefield-row-min);
+  padding-bottom: var(--s-6);
+}
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  min-height: var(--zone-header-h);
+  padding: var(--s-4) 0;
+}
+.head h2 {
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+.actions {
+  display: flex;
+  gap: var(--s-4);
+  margin-left: auto;
+}
+.cards {
+  display: flex;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.empty {
+  min-height: var(--empty-row-h);
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+  padding: 0 var(--s-5);
+}
+.hand {
+  min-height: 0;
+  border-top: 1px solid var(--line-strong);
+  border-bottom: none;
+  background: var(--surface);
+  padding: 0 var(--s-7) var(--s-6);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.hand .cards {
+  overflow: auto;
+  padding: var(--s-2);
+  align-items: stretch;
+  align-content: start;
+}
+
+.hand .cards > article {
+  flex-basis: calc((100% - 6 * var(--s-4)) / 7);
+  width: auto;
+  min-width: var(--hand-card-min-w);
+  max-width: var(--hand-card-max-w);
+}

@@ -8,7 +8,7 @@ export const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const DATA_DIR = process.env.DECKBUILDER_DATA ?? join(PKG_ROOT, "data");
 export const DEFAULT_DB_PATH = process.env.DECKBUILDER_DB ?? join(DATA_DIR, "deck-builder.db");
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS cards (
@@ -318,6 +318,19 @@ CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
   text, memory_id UNINDEXED
 );
 
+-- One resumable solo table per deck; no completed-game archive.
+CREATE TABLE IF NOT EXISTS playtest_sessions (
+  deck_id INTEGER PRIMARY KEY REFERENCES decks(id) ON DELETE CASCADE,
+  payload_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS playtest_observations (
+  deck_id INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+  request_id TEXT NOT NULL,
+  memory_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+  input_json TEXT NOT NULL,
+  PRIMARY KEY(deck_id, request_id)
+);
+
 -- Every agent write, approved or not (spec §11): the audit trail for writes
 -- that needed no approval.
 CREATE TABLE IF NOT EXISTS activity (
@@ -433,7 +446,7 @@ function assertOurs(db: DatabaseSync, path: string) {
   } catch {
     /* no meta table at all */
   }
-  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5") return found;
+  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5" || found === "6") return found;
   db.close();
   throw new SchemaError(
     `${path} is not a database this version of the deck builder can open ` +

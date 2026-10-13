@@ -119,6 +119,7 @@ export function DeckHeader() {
             {/* The count is in the figure; the words say how bad. */}
             {hasError ? (checks.length === 1 ? "problem" : "problems") : checks.length ? "off target" : "Checks clear"}
           </DeckStat>
+          <a className={styles.link} href={href({ page: "playtest", deckId: deck.id })}>Playtest</a>
           <Menu label="More" align="end" items={moreItems} />
         </div>
       </div>

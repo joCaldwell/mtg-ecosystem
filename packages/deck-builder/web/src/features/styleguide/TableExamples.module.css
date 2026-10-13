@@ -1,0 +1,16 @@
+.examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-6);
+  align-items: flex-start;
+}
+.players {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-6);
+}
+.players > section {
+  border: 1px solid var(--line);
+  padding: var(--s-5);
+  border-radius: var(--r-lg);
+}

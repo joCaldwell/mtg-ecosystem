@@ -45,6 +45,7 @@ import {
   type Gap,
   type IconName,
 } from "../../ui/index.ts";
+import { TableExamples } from "./TableExamples.tsx";
 import { MtgExamples } from "./MtgExamples.tsx";
 import styles from "./StyleguidePage.module.css";
 
@@ -746,6 +747,7 @@ export function StyleguidePage() {
         <Layout />
         <Section title="Card components">
           <MtgExamples />
+          <TableExamples />
         </Section>
       </div>
     </Page>

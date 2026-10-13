@@ -68,7 +68,7 @@ export function Sidebar({ route }: { route: Route }) {
       </div>
       <nav className={styles.decks} aria-label="Decks">
         {familyOrder(decks.data ?? []).map(({ deck, fork }) => {
-          const open = route.page === "deck" && route.deckId === deck.id;
+          const open = (route.page === "deck" || route.page === "playtest") && route.deckId === deck.id;
           const pending = deck.pending_items + deck.pending_document_edits > 0;
           return (
             <a

@@ -99,6 +99,7 @@ or about this app.
 | `ToastProvider`, `useToast` | One toast at a time, bottom centre, with an optional action | `duration`; `action` with `kbd` |
 | `DiffView` | Added and deleted lines | line kind `same` `add` `del` |
 | `Table`, `ClickableRow` | Plain tables with small uppercase headers; rows that open something | |
+| `CounterControl` | Visible increment/decrement controls and a numeric readout | labeled, disabled |
 | `KeyValue` | Two-column label and value list | |
 | `ResizeHandle` | A draggable edge inside the element it resizes; arrow keys, Home, End, double-click to reset | `edge` `left` `right`; caller owns `value`, `min`, `max` |
 | `Page`, `PageHeader`, `SplitPane` | Screen frame with a sticky header and scrolling body; list and detail columns | Page width `md` `lg` `full` |
@@ -106,3 +107,23 @@ or about this app.
 | `useLocalStorage` | State kept in localStorage | |
 | `tokenPx` | A size token as a number, where script has to do arithmetic with one | |
 <!-- inventory:end -->
+
+
+## Manual table extensions
+
+The playtester deliberately uses larger rules text (`--text-rules`, 15px,
+`--leading-rules`, 1.6) without changing the dense deck-list typography.
+`mtg/table` contains text cards, zone containers, player summaries and card
+inspection with host-supplied contextual tools. Full, compact, hidden, selected,
+tapped, targeted and disabled observations are shown at `#/design`.
+
+The battlefield uses three rows separated by simple rules. It has no visible
+Battlefield heading, row headings or row counts. Hand and off-table zone counts
+remain visible. The hand, battlefield, library drawer and inspection panel scroll
+independently; fonts never shrink as a table grows. Selection has a blue border,
+tapping has an explicit state/action and a dashed edge, and temporary inspection
+never changes the pinned selection or an unfinished observation's target.
+
+A hidden `CardObservation` has no card identity. Future game hosts must supply
+only permitted observations. Deck memory and tag tools belong to the playtest
+feature, never the shared card or zone presentation.

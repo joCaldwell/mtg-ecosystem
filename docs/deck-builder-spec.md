@@ -626,7 +626,9 @@ reload.
 
 ## 12. Archidekt interop
 
-Construction happens here. Playtesting and goldfishing happen in Archidekt.
+Construction and desktop solo goldfishing happen here. The manual playtester
+was added on 2026-10-13; see [its requirements](playtester-design-brief.md)
+and [implementation guide](playtester.md). Archidekt interop remains available.
 
 - **Export:** an Archidekt-importable list.
 - **Import:** the owner pastes a list; the app diffs it against the deck, shows the diff with destructive cuts called out first, and applies it in full on confirmation. It is one rulings-log entry, so one undo reverts it. Lines in a `Maybeboard` or `Sideboard` category, or under a section header of that name, are shortlisted on the maybe list, not added, and the preview says so. A `Commander` category or section header puts the card in the command zone, including a card already in the deck.

@@ -19,7 +19,7 @@ import { SelectionBar } from "./list/SelectionBar.tsx";
 import { DeckPanel } from "./panel/DeckPanel.tsx";
 import { ProposalBanner } from "./ProposalBanner.tsx";
 import { DeckViewProvider, useDeckView } from "./useDeckView.ts";
-import { useReportFocus } from "./useReportFocus.ts";
+import { useReportFocus } from "../../app/useReportFocus.ts";
 import { useReview } from "./useReview.ts";
 import styles from "./DeckPage.module.css";
 

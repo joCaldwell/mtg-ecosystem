@@ -43,3 +43,5 @@ export { TextField, type TextFieldProps } from "./TextField.tsx";
 export { ToastProvider, useToast, type ToastOptions } from "./Toast.tsx";
 export { tokenPx } from "./tokens.ts";
 export { pressesFocusedControl, useHotkeys, type HotkeyOptions } from "./useHotkeys.ts";
+
+export { CounterControl } from "./CounterControl.tsx";

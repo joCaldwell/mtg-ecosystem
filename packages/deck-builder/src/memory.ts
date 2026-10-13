@@ -272,6 +272,8 @@ export interface RememberInput {
   cards?: string[];
   basis?: MemoryBasis;
   source_log_id?: number | null;
+  /** The list tested; defaults to the current deck revision. */
+  deck_revision?: number;
 }
 
 export interface RememberResult {
@@ -302,6 +304,8 @@ export function remember(db: DatabaseSync, actor: Actor, input: RememberInput): 
   if (input.scope === "deck" && deckId == null)
     throw new ServiceError("A deck-scoped memory needs the deck it belongs to");
   const deck = deckId == null ? null : requireDeck(db, deckId);
+  if (input.deck_revision !== undefined && (!deck || !Number.isInteger(input.deck_revision) || input.deck_revision < 0 || input.deck_revision > deck.revision))
+    throw new ServiceError("The tested revision must be a revision of this deck");
   const cardIds = linkedCards(db, text, input.cards);
   // What an agent concludes is a hypothesis until the owner says so.
   const basis: MemoryBasis = input.basis ?? (actor.kind === "owner" ? "stated" : "inferred");
@@ -332,7 +336,7 @@ export function remember(db: DatabaseSync, actor: Actor, input: RememberInput): 
         authorOf(actor),
         actor.kind === "owner" ? 1 : 0,
         input.source_log_id ?? null,
-        deck?.revision ?? null,
+        input.deck_revision ?? deck?.revision ?? null,
       );
     const id = Number(r.lastInsertRowid);
     setCards(db, id, cardIds);
