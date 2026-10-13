@@ -1,8 +1,9 @@
 # Language decision for Layers 0–3
 
 Status: **adopted, 2026-10-11**. The language assignments below are final for
-implementation. Compiler, engine, simulator, and server implementation remains
-future work; this decision does not claim those components already exist.
+implementation. The initial compiler/engine/scenario slice now exists; full
+simulation/search and server implementation remain future work. See the
+[first scenario brief](game-engine-first-scenario.md).
 Primary workload: **high-volume headless simulation and agent search for
 Commander**, followed by interactive Commander hosting.
 
@@ -190,6 +191,7 @@ and batching when budgets are missed. Benchmarks guide implementation and
 capacity within the adopted stack. Delivery dates and support
 claims depend on the implementation plan's correctness and performance evidence.
 
-The adopted language decision is complete. P0 now freezes the initial scope,
-source snapshots, consumer workload, and reference environment. Native package
-scaffolding and implementation follow the remaining gates in the plan.
+The adopted language decision is complete. The first implementation brief freezes
+P0 scope, source snapshots, consumer workload, and reference environment. The
+initial native compiler/runtime scenario exists; remaining delivery gates stay
+in the implementation plan.

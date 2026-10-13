@@ -25,7 +25,11 @@ graph BT
     L2 --> L3
 ```
 
-**Current focus → deck-builder**, a standalone Layer-3 application. The Layer-0 parser is a limited supported subset; the rules engine, game server, and Card IR emitter remain future work. Read the relevant package’s `AGENTS.md` before development.
+**Current applications → deck-builder and initial engine scenario.** The standalone
+deck-builder is active. The Layer-0 parser is a limited supported subset, and the
+Rust compiler/kernel now execute a reviewed four-seat scenario. Full Commander
+games, search, server, and bulk Card IR emission remain future work. Read the
+relevant package’s `AGENTS.md` before development.
 
 ## 📂 Project Structure
 
@@ -33,7 +37,7 @@ The adopted stack is **TypeScript + Rust**: TypeScript for ingestion/parser,
 the deck-builder, browser applications, and client SDK; Rust for semantic
 compilation, rules, native simulation/search/agents, and the game server.
 Browser-local rules use the Rust core compiled to WebAssembly. Existing packages
-use npm workspaces; Cargo joins them when native implementation is scaffolded.
+use npm workspaces alongside the initial compiler/engine Cargo workspace.
 See the [language decision](docs/runtime-language-decision.md).
 
 ```
@@ -57,7 +61,7 @@ mtg-ecosystem/
     ├── oracle-parser/                  # Layer 0: hand-written TypeScript parser
     ├── deck-builder/                   # Active standalone deck application
     ├── card-data/                      # Generated Card IR from the Rust compiler
-    ├── game-engine/                    # Rust compiler, rules, and native simulation (future)
+    ├── game-engine/                    # Rust compiler/kernel and initial scenario CLI
     └── game-server/                    # Rust game server & API (future)
 ```
 
@@ -84,6 +88,9 @@ lower coverage. `npm run build-ir` intentionally fails because emission is not
 implemented.
 
 For deck-builder setup, use its [package manual](packages/deck-builder/AGENTS.md).
+For the first compiler/engine demo, use the
+[engine manual](packages/game-engine/AGENTS.md): `npm run check:engine` and
+`npm run demo:engine` from the root with Rust 1.99.0.
 
 ## 📚 Documentation
 

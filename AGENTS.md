@@ -31,7 +31,7 @@ needed.
 | **[deck-builder](packages/deck-builder/AGENTS.md)** | 3 (built early) | ⭐ **Active** | [AGENTS.md](packages/deck-builder/AGENTS.md) |
 | [oracle-parser](packages/oracle-parser/AGENTS.md) | 0 | ⏸️ Paused | [AGENTS.md](packages/oracle-parser/AGENTS.md) |
 | [card-data](packages/card-data) | 0 | Output artifact — compiled Card IR, not hand-edited | — |
-| [game-engine](packages/game-engine) | 1 | 🕳️ Not started (README only) | — |
+| [game-engine](packages/game-engine) | 1 | Initial compiler/runtime scenario; match support pending | [AGENTS.md](packages/game-engine/AGENTS.md) |
 | [game-server](packages/game-server) | 2 | 🕳️ Not started (README only) | — |
 
 ---
@@ -104,11 +104,10 @@ Project-wide docs in [docs/](docs/), relevant regardless of package:
     and agent policies, and game server. Browser-local rules use the Rust core
     compiled to WebAssembly. Language selection is complete; follow the
     [language decision](docs/runtime-language-decision.md).
-*   **npm now; Cargo added with the native scaffold.** `npm install` at the root
-    links the existing TypeScript workspaces. The Cargo workspace is planned
-    but not implemented yet. Root scripts drive the parser pipeline; the
-    deck-builder has its own scripts. Use package-specific checks, and add
-    native checks when the Rust workspace exists.
+*   **npm and Cargo workspaces.** `npm install` at the root links the Node
+    workspaces. Cargo builds the initial compiler/engine/scenario crates;
+    `npm run check:engine` runs their checks. Root scripts drive the parser
+    pipeline; the deck-builder has its own scripts. Use package-specific checks.
 *   **Card facts come from card data, never from model memory.** Card names,
     oracle text, and legality are all checkable — check them. This is the
     project's founding premise, not a per-package preference.

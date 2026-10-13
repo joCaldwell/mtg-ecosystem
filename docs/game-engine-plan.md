@@ -1,6 +1,10 @@
 # Layer 1 implementation plan
 
-Status: **implementation plan; language stack adopted, engine unimplemented**.
+Status: **implementation plan; P0 frozen and initial compiler/runtime scenario implemented**.
+The broader gates below remain future work; see the
+[first implementation brief](game-engine-first-scenario.md) for the bounded slice.
+Actual checks and retained artifact identities are in the
+[implementation progress](game-engine-progress.md).
 Prepared 2026-10-11. Josh selected **high-volume headless simulation and agent
 search for Commander** as the primary performance workload. Commander is the
 only product format in scope. Four-player headless Commander is the first
@@ -28,9 +32,10 @@ check results are recovered or a new baseline is captured. Never infer grammar
 progress from percentages on different corpora. P0 freezes its own inputs and
 records the current verified state without overwriting prior checkpoint evidence.
 
-The existing archive is nonexecutable. Reference binding is partial;
-semantic compilation and executable emission are unfinished. `build-ir`
-intentionally fails. `game-engine` and `game-server` contain READMEs only.
+The existing archive is nonexecutable. Reference binding is partial. The initial
+Rust compiler and kernel execute a reviewed four-seat scenario using four
+definitions; broader compilation and the bulk pipeline are unfinished.
+`build-ir` intentionally fails. `game-server` contains a README only.
 
 Use separate measures throughout development:
 
@@ -422,7 +427,7 @@ follow its own manual, and retain structural negative tests.
 
 When the package is initialized, add its own `AGENTS.md` with chosen commands,
 dependency rules, invariants, fixture workflow, and rules citation requirements.
-Cargo commands are proposals until the Rust workspace exists; npm parser tests
+The first Cargo workspace and engine package manual now exist; npm parser tests
 remain unchanged. Do not port the parser, implement AI strategy, build UI,
 select hosting infrastructure, or clean up the interrupted parser copies as an
 incidental part of this plan.

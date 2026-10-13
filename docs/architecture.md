@@ -2,8 +2,8 @@
 
 This document describes the full layered architecture of the MTG Ecosystem. The intended dependency order is **bottom-up**. The standalone deck-builder was pulled forward and is the active package; it does not depend on the parser or rules engine. The parser remains a limited supported subset, with broader work paused.
 
-The language stack is **adopted**; engine and server implementation remains
-future work. Start with the
+The language stack is **adopted**. An initial compiler/runtime scenario exists;
+full games, search, and server implementation remain future work. Start with the
 [implementation plan](game-engine-plan.md), then the
 [engine specification](game-engine-spec.md) and
 [runtime language decision](runtime-language-decision.md). Commander is the
@@ -48,7 +48,8 @@ graph LR
 **Stack**: Ingestion/parser/archive use zero-runtime-dependency TypeScript,
 executed directly by Node ≥ 23. The semantic compiler uses Rust and exchanges
 versioned JSON artifacts with the parser and engine.
-`npm run build-ir` fails explicitly; parsed ASTs are not yet executable Card IR.
+`npm run build-ir` fails explicitly. The Rust compiler lowers the frozen first
+scenario subset; parsed ASTs themselves are never executable Card IR.
 
 See **[Oracle Parser Design](oracle_parser.md)** for full details.
 

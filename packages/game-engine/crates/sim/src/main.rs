@@ -1,0 +1,314 @@
+use mtg_compiler::{CompileResult, compile, fixture_catalog, fixtures};
+use mtg_contracts::{Catalog, canonical, sha256, strict_read};
+use mtg_core::{
+    AcceptedInput, Advance, BUILD_ID, BUILD_PROFILE, BUILD_RUSTC, BUILD_RUSTFLAGS, BUILD_TARGET,
+    CardId, Game, ObjectId, PlayerId, Prepared, Response, ScenarioConfig, Zone,
+};
+use serde::{Deserialize, Serialize};
+use std::{fs, path::Path, time::Instant};
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceFile {
+    path: String,
+    sha256: String,
+    contents: String,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Bundle {
+    bundle_version: u32,
+    build_id: String,
+    catalog: Catalog,
+    config: ScenarioConfig,
+    profile_digest: String,
+    archive_manifest: String,
+    records: Vec<String>,
+    initial_snapshot: String,
+    announcement_snapshot: String,
+    inputs: Vec<AcceptedInput>,
+    final_snapshot: String,
+    source_files: Vec<SourceFile>,
+    rustc: String,
+    build_profile: String,
+    target: String,
+    rustflags: String,
+}
+fn respond(game: &mut Game, response: Response) -> Result<(), String> {
+    let Advance::AwaitingDecision(r) = game.advance() else {
+        return Err("scenario fault before input".into());
+    };
+    game.respond(r.player(), r.decision_id(), response)
+}
+fn finish(game: &mut Game) -> Result<(), String> {
+    respond(
+        game,
+        Response::Targets {
+            objects: vec![ObjectId {
+                card: CardId(2),
+                incarnation: 0,
+            }],
+        },
+    )?;
+    for _ in 0..4 {
+        respond(game, Response::Pass)?;
+    }
+    match game.advance() {
+        Advance::AwaitingDecision(_) => Ok(()),
+        Advance::Fault(e) => Err(e),
+    }
+}
+fn source_files() -> Result<Vec<SourceFile>, String> {
+    fn walk(root: &Path, path: &Path, files: &mut Vec<SourceFile>) -> Result<(), String> {
+        for entry in fs::read_dir(path).map_err(|e| e.to_string())? {
+            let p = entry.map_err(|e| e.to_string())?.path();
+            if p.is_dir() {
+                walk(root, &p, files)?;
+            } else if p.extension().is_some_and(|x| x == "rs" || x == "json")
+                || p.file_name().is_some_and(|x| x == "Cargo.toml")
+            {
+                let contents = fs::read_to_string(&p).map_err(|e| e.to_string())?;
+                files.push(SourceFile {
+                    path: p
+                        .strip_prefix(root)
+                        .map_err(|e| e.to_string())?
+                        .to_string_lossy()
+                        .into_owned(),
+                    sha256: sha256(contents.as_bytes()),
+                    contents,
+                });
+            }
+        }
+        Ok(())
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../..")
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    let mut files = vec![];
+    walk(&root, &root.join("packages/game-engine/crates"), &mut files)?;
+    walk(
+        &root,
+        &root.join("packages/game-engine/tests/fixtures"),
+        &mut files,
+    )?;
+    for file in ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml"] {
+        let contents = fs::read_to_string(root.join(file)).map_err(|e| e.to_string())?;
+        files.push(SourceFile {
+            path: file.into(),
+            sha256: sha256(contents.as_bytes()),
+            contents,
+        });
+    }
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(files)
+}
+fn demo() -> Result<(Bundle, serde_json::Value), String> {
+    let catalog = fixture_catalog()?;
+    let prepared = Prepared::admit(catalog.clone(), ScenarioConfig::land_return())?;
+    let mut game = Game::new(prepared.clone());
+    let initial_snapshot = game.snapshot()?;
+    let start = Instant::now();
+    respond(
+        &mut game,
+        Response::ActivateMana {
+            object: ObjectId {
+                card: CardId(0),
+                incarnation: 0,
+            },
+        },
+    )?;
+    respond(&mut game, Response::Cast { card: CardId(1) })?;
+    let _ = game.advance();
+    let announcement_snapshot = game.snapshot()?;
+    let mut restored = Game::restore(prepared.clone(), &announcement_snapshot)?;
+    let mut fork = game.fork();
+    finish(&mut game)?;
+    finish(&mut restored)?;
+    finish(&mut fork)?;
+    let replay = Game::replay(prepared.clone(), game.journal())?;
+    if game.state_digest()? != restored.state_digest()?
+        || game.state_digest()? != fork.state_digest()?
+        || game.state_digest()? != replay.state_digest()?
+    {
+        return Err("restored/forked/replayed semantic state differs".into());
+    }
+    if game.zone(game.object_id(CardId(2)).ok_or("missing target")?)
+        != Some(Zone::Hand { owner: PlayerId(1) })
+        || game.zone(game.object_id(CardId(1)).ok_or("missing spell")?)
+            != Some(Zone::Graveyard { owner: PlayerId(0) })
+    {
+        return Err("unexpected final owner/destination".into());
+    }
+    let elapsed = start.elapsed().as_nanos().to_string();
+    let query_start = Instant::now();
+    for _ in 0..1000 {
+        std::hint::black_box(game.decision_for(PlayerId(0))?);
+    }
+    let query_ns = query_start.elapsed().as_nanos() / 1000;
+    let fork_start = Instant::now();
+    for _ in 0..1000 {
+        std::hint::black_box(game.fork());
+    }
+    let fork_ns = fork_start.elapsed().as_nanos() / 1000;
+    let rustc = format!("{BUILD_RUSTC}\n");
+    let bundle = Bundle {
+        bundle_version: 1,
+        build_id: BUILD_ID.into(),
+        catalog,
+        config: prepared.config().clone(),
+        profile_digest: prepared.profile_digest().into(),
+        archive_manifest: fixtures::MANIFEST.into(),
+        records: fixtures::RECORDS.iter().map(|(_, r)| (*r).into()).collect(),
+        initial_snapshot,
+        announcement_snapshot,
+        inputs: game.journal().to_vec(),
+        final_snapshot: game.snapshot()?,
+        source_files: source_files()?,
+        rustc,
+        build_profile: BUILD_PROFILE.into(),
+        target: BUILD_TARGET.into(),
+        rustflags: BUILD_RUSTFLAGS.into(),
+    };
+    let report = serde_json::json!({"status":"scenario_verified","build_id":BUILD_ID,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
+        "state_sha256":game.state_digest()?,"accepted_inputs":game.journal().len(),"events":game.events(),"restore_fork_replay_equal":true,
+        "timing_observations":{"four_equivalent_runs_ns":elapsed,"priority_query_mean_ns":query_ns.to_string(),"clone_and_dispose_mean_ns":fork_ns.to_string(),"representative_commander_benchmark":false}});
+    Ok((bundle, report))
+}
+fn verify_bundle(json: &str) -> Result<String, String> {
+    let b: Bundle = strict_read(json)?;
+    if b.bundle_version != 1 || b.build_id != BUILD_ID {
+        return Err("unsupported bundle version/build".into());
+    }
+    if !b.source_files.windows(2).all(|w| w[0].path < w[1].path) {
+        return Err("retained source paths must be unique and ordered".into());
+    }
+    let mut source_bytes = Vec::new();
+    for file in &b.source_files {
+        if sha256(file.contents.as_bytes()) != file.sha256 {
+            return Err("retained source hash mismatch".into());
+        }
+        source_bytes.extend_from_slice(file.path.as_bytes());
+        source_bytes.push(0);
+        source_bytes.extend_from_slice(file.contents.as_bytes());
+        source_bytes.push(0);
+    }
+    source_bytes.extend_from_slice(b.rustc.as_bytes());
+    for value in [&b.build_profile, &b.target, &b.rustflags] {
+        source_bytes.push(0);
+        source_bytes.extend_from_slice(value.as_bytes());
+    }
+    if sha256(&source_bytes) != b.build_id {
+        return Err(
+            "retained source/toolchain closure does not reproduce the build identity".into(),
+        );
+    }
+    let mut definitions = vec![];
+    let mut unsupported = 0;
+    for record in &b.records {
+        match compile(&b.archive_manifest, record) {
+            CompileResult::Lowered { definition } => definitions.push(*definition),
+            CompileResult::Unsupported { .. } => unsupported += 1,
+            CompileResult::Invalid { .. } => return Err("retained record is invalid".into()),
+        }
+    }
+    if unsupported != 1 {
+        return Err("missing paired unsupported source fixture".into());
+    }
+    definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    if definitions != b.catalog.definitions {
+        return Err("retained source-to-IR mismatch".into());
+    }
+    let prepared = Prepared::admit(b.catalog, b.config)?;
+    if prepared.profile_digest() != b.profile_digest {
+        return Err("retained profile mismatch".into());
+    }
+    let initial = Game::restore(prepared.clone(), &b.initial_snapshot)?;
+    if initial.state_digest()? != Game::new(prepared.clone()).state_digest()? {
+        return Err("initial scenario mismatch".into());
+    }
+    let restored = Game::restore(prepared.clone(), &b.announcement_snapshot)?;
+    let announcement = Game::replay(prepared.clone(), &b.inputs[..2.min(b.inputs.len())])?;
+    if restored.state_digest()? != announcement.state_digest()? {
+        return Err("announcement restore mismatch".into());
+    }
+    let replay = Game::replay(prepared.clone(), &b.inputs)?;
+    let expected = Game::restore(prepared, &b.final_snapshot)?;
+    if replay.state_digest()? != expected.state_digest()? {
+        return Err("retained replay differs from expected final state".into());
+    }
+    replay.state_digest()
+}
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.first().map(String::as_str) {
+        Some("schema") if args.len() == 1 => println!(
+            "{}",
+            serde_json::to_string_pretty(&mtg_contracts::catalog_schema())?
+        ),
+        Some("compile") if args.len() == 1 => println!("{}", canonical(&fixture_catalog()?)?),
+        Some("report") if args.len() == 1 => {
+            for (name, r) in fixtures::RECORDS {
+                println!(
+                    "{}",
+                    serde_json::json!({"fixture":name,"result":compile(fixtures::MANIFEST,r)})
+                );
+            }
+        }
+        Some("demo") if args.len() == 1 || (args.len() == 3 && args[1] == "--bundle") => {
+            let (bundle, report) = demo()?;
+            verify_bundle(&canonical(&bundle)?)?;
+            if args.len() == 3 {
+                fs::create_dir_all(&args[2])?;
+                let bytes = canonical(&bundle)?;
+                let path = Path::new(&args[2]).join(format!("{}.json", sha256(bytes.as_bytes())));
+                fs::write(&path, bytes)?;
+                eprintln!("replay bundle: {}", path.display());
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Some("verify-bundle") if args.len() == 2 => {
+            let state = verify_bundle(&fs::read_to_string(&args[1])?)?;
+            println!(
+                "{}",
+                serde_json::json!({"status":"replay_verified","state_sha256":state})
+            );
+        }
+        _ => {
+            return Err(
+                "usage: mtg-sim schema|compile|report|demo [--bundle DIR]|verify-bundle FILE"
+                    .into(),
+            );
+        }
+    }
+    Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn bundle_contains_replayable_source_to_runtime_evidence() {
+        let (bundle, report) = demo().unwrap();
+        let expected: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/expected-scenario.json"
+        ))
+        .unwrap();
+        assert_eq!(report["events"], expected["events"]);
+        assert_eq!(report["state_sha256"], expected["final_state_sha256"]);
+        assert_eq!(
+            serde_json::to_value(&bundle.inputs).unwrap(),
+            expected["accepted_inputs"]
+        );
+        let json = canonical(&bundle).unwrap();
+        assert_eq!(
+            verify_bundle(&json).unwrap(),
+            report["state_sha256"].as_str().unwrap()
+        );
+        assert!(
+            verify_bundle(&json.replace("\"bundle_version\":1", "\"bundle_version\":2")).is_err()
+        );
+        let mut corrupt: serde_json::Value = serde_json::from_str(&json).unwrap();
+        corrupt["source_files"] = serde_json::json!([]);
+        assert!(verify_bundle(&canonical(&corrupt).unwrap()).is_err());
+    }
+}

@@ -1,0 +1,1547 @@
+use crate::BUILD_ID;
+use mtg_contracts::*;
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
+
+const ISLAND: &str = "b2c6aa39-2d2a-459c-a555-fb48ba993373";
+const FOREST: &str = "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6";
+const SPELL: &str = "837182db-1bf3-4a2c-bd01-1af9d9873561";
+const BEARS: &str = "14c8f55d-d177-4c25-a931-ebeb9e6062a0";
+// Reviewed canonical definition digests, independent of compiler success.
+const ALLOWED: [(&str, &str); 4] = [
+    (
+        ISLAND,
+        "7a2a011a9b407f7a0b7862710d7a38d992b391897334ee9dc2af77f43916c88f",
+    ),
+    (
+        FOREST,
+        "29aa41c4c2a13fca1ee91d04c08e2d45fa21271c725be1a7061ef3063ba1b984",
+    ),
+    (
+        SPELL,
+        "9c2399378a12367e3fe261f32bb4d9a3a033affc6992628d1b2fbce0427ba507",
+    ),
+    (
+        BEARS,
+        "16d8eee1c1ff1e15cbf4c3ed0cd2e587f5e96986322ace3b2867606dacf5504f",
+    ),
+];
+
+macro_rules! id {
+    ($name:ident,$inner:ty) => {
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+        #[serde(transparent)]
+        pub struct $name(pub $inner);
+    };
+}
+id!(PlayerId, u8);
+id!(CardId, u32);
+id!(StackId, u32);
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObjectId {
+    pub card: CardId,
+    pub incarnation: u32,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "zone", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Zone {
+    Battlefield,
+    Hand { owner: PlayerId },
+    Graveyard { owner: PlayerId },
+    Stack,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CardSetup {
+    pub id: CardId,
+    pub oracle_id: String,
+    pub owner: PlayerId,
+    pub controller: PlayerId,
+    pub zone: Zone,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Mode {
+    Scenario,
+    CommanderMatch,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScenarioConfig {
+    pub mode: Mode,
+    pub players: u8,
+    pub profile: String,
+    pub commanders: Vec<CardId>,
+    pub cards: Vec<CardSetup>,
+}
+impl ScenarioConfig {
+    pub fn land_return() -> Self {
+        Self {
+            mode: Mode::Scenario,
+            players: 4,
+            profile: SCENARIO_PROFILE.into(),
+            commanders: vec![],
+            cards: vec![
+                CardSetup {
+                    id: CardId(0),
+                    oracle_id: ISLAND.into(),
+                    owner: PlayerId(0),
+                    controller: PlayerId(0),
+                    zone: Zone::Battlefield,
+                },
+                CardSetup {
+                    id: CardId(1),
+                    oracle_id: SPELL.into(),
+                    owner: PlayerId(0),
+                    controller: PlayerId(0),
+                    zone: Zone::Hand { owner: PlayerId(0) },
+                },
+                CardSetup {
+                    id: CardId(2),
+                    oracle_id: BEARS.into(),
+                    owner: PlayerId(1),
+                    controller: PlayerId(2),
+                    zone: Zone::Battlefield,
+                },
+            ],
+        }
+    }
+}
+#[derive(Clone)]
+pub struct Prepared {
+    catalog: Arc<Catalog>,
+    catalog_digest: String,
+    config: ScenarioConfig,
+    profile_digest: String,
+}
+impl Prepared {
+    pub fn admit(catalog: Catalog, config: ScenarioConfig) -> Result<Self, String> {
+        catalog.validate()?;
+        if config != ScenarioConfig::land_return() {
+            return Err(
+                "configuration is outside the reviewed four-seat scenario; no match admission"
+                    .into(),
+            );
+        }
+        if catalog.definitions.len() != ALLOWED.len() {
+            return Err("definition pool is not the closed reviewed scenario pool".into());
+        }
+        for d in &catalog.definitions {
+            let expected = ALLOWED
+                .iter()
+                .find(|(id, _)| *id == d.oracle_id)
+                .ok_or("definition is not admitted")?
+                .1;
+            if digest(d)? != expected {
+                return Err("definition digest is not admitted by this build/profile".into());
+            }
+        }
+        let catalog_digest = digest(&catalog)?;
+        let profile_digest = digest(&(SCENARIO_PROFILE, ALLOWED, &config))?;
+        Ok(Self {
+            catalog: Arc::new(catalog),
+            catalog_digest,
+            config,
+            profile_digest,
+        })
+    }
+    pub fn catalog_digest(&self) -> &str {
+        &self.catalog_digest
+    }
+    pub fn profile_digest(&self) -> &str {
+        &self.profile_digest
+    }
+    pub fn config(&self) -> &ScenarioConfig {
+        &self.config
+    }
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Player {
+    life: Quantity,
+    mana: BTreeMap<Color, Quantity>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Card {
+    owner: PlayerId,
+    oracle_id: String,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Object {
+    id: ObjectId,
+    controller: PlayerId,
+    zone: Zone,
+    tapped: bool,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StackInstance {
+    id: StackId,
+    source: ObjectId,
+    controller: PlayerId,
+    targets: Vec<ObjectId>,
+    paid: Option<ManaCost>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Casting {
+    stack_id: StackId,
+    original_object: ObjectId,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Resolving {
+    stack_id: StackId,
+    cursor: u32,
+    legal_targets: Vec<bool>,
+    outcomes: Vec<InstructionOutcome>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
+enum Frame {
+    Priority,
+    Targets { cast: Casting },
+    Payment { cast: Casting },
+    Resolve { frame: Resolving },
+    Fault { reason: String },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Response {
+    ActivateMana { object: ObjectId },
+    Cast { card: CardId },
+    Pass,
+    Targets { objects: Vec<ObjectId> },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AcceptedInput {
+    pub decision_id: u64,
+    pub player: PlayerId,
+    pub response: Response,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Request {
+    Priority {
+        decision_id: u64,
+        player: PlayerId,
+    },
+    Targets {
+        decision_id: u64,
+        player: PlayerId,
+        occurrences: Vec<TargetSpec>,
+        candidates: Vec<ObjectId>,
+    },
+}
+impl Request {
+    pub fn decision_id(&self) -> u64 {
+        match self {
+            Self::Priority { decision_id, .. } | Self::Targets { decision_id, .. } => *decision_id,
+        }
+    }
+    pub fn player(&self) -> PlayerId {
+        match self {
+            Self::Priority { player, .. } | Self::Targets { player, .. } => *player,
+        }
+    }
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ProposedEvent {
+    Tap {
+        object: ObjectId,
+    },
+    AddMana {
+        player: PlayerId,
+        color: Color,
+        amount: Quantity,
+        source: ObjectId,
+    },
+    PayMana {
+        player: PlayerId,
+        cost: ManaCost,
+    },
+    Move {
+        object: ObjectId,
+        destination: Zone,
+    },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MoveOutcome {
+    pub previous: ObjectId,
+    pub successor: ObjectId,
+    pub from: Zone,
+    pub destination: Zone,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
+pub enum EventOutcome {
+    Tapped {
+        object: ObjectId,
+    },
+    ManaAdded {
+        player: PlayerId,
+        color: Color,
+        amount: Quantity,
+    },
+    ManaPaid {
+        player: PlayerId,
+        cost: ManaCost,
+    },
+    Moved {
+        movement: MoveOutcome,
+    },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
+enum InstructionOutcome {
+    Moved { movement: MoveOutcome },
+    IllegalTarget { target: ObjectId },
+    ObjectNoLongerPresent { target: ObjectId },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Event {
+    Committed {
+        proposed: ProposedEvent,
+        actual: EventOutcome,
+    },
+    SpellProposed {
+        card: CardId,
+        stack_id: StackId,
+    },
+    SpellCast {
+        stack_id: StackId,
+    },
+    PriorityPassed {
+        player: PlayerId,
+    },
+    SpellCompleted {
+        stack_id: StackId,
+        resolved: bool,
+    },
+    CastReversed {
+        stack_id: StackId,
+        reason: String,
+    },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct State {
+    revision: u64,
+    players: Vec<Player>,
+    cards: BTreeMap<CardId, Card>,
+    objects: BTreeMap<CardId, Object>,
+    active: PlayerId,
+    priority: PlayerId,
+    passes: u8,
+    next_stack_id: u32,
+    stack: Vec<StackInstance>,
+    frame: Frame,
+    pending: Option<AcceptedInput>,
+    journal: Vec<AcceptedInput>,
+    events: Vec<Event>,
+}
+pub struct Game {
+    prepared: Prepared,
+    state: State,
+    executor: Arc<()>,
+}
+pub struct ValidatedResponse {
+    executor: Arc<()>,
+    revision: u64,
+    input: AcceptedInput,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Snapshot {
+    snapshot_version: u32,
+    build_id: String,
+    catalog_digest: String,
+    profile_digest: String,
+    state_sha256: String,
+    state: State,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Advance {
+    AwaitingDecision(Request),
+    Fault(String),
+}
+
+impl Game {
+    pub fn new(prepared: Prepared) -> Self {
+        let cards = prepared
+            .config
+            .cards
+            .iter()
+            .map(|c| {
+                (
+                    c.id,
+                    Card {
+                        owner: c.owner,
+                        oracle_id: c.oracle_id.clone(),
+                    },
+                )
+            })
+            .collect();
+        let objects = prepared
+            .config
+            .cards
+            .iter()
+            .map(|c| {
+                (
+                    c.id,
+                    Object {
+                        id: ObjectId {
+                            card: c.id,
+                            incarnation: 0,
+                        },
+                        controller: c.controller,
+                        zone: c.zone,
+                        tapped: false,
+                    },
+                )
+            })
+            .collect();
+        let state = State {
+            revision: 0,
+            players: (0..4)
+                .map(|_| Player {
+                    life: Quantity::from(40),
+                    mana: BTreeMap::new(),
+                })
+                .collect(),
+            cards,
+            objects,
+            active: PlayerId(0),
+            priority: PlayerId(0),
+            passes: 0,
+            next_stack_id: 0,
+            stack: vec![],
+            frame: Frame::Priority,
+            pending: None,
+            journal: vec![],
+            events: vec![],
+        };
+        Self {
+            prepared,
+            state,
+            executor: Arc::new(()),
+        }
+    }
+    pub fn fork(&self) -> Self {
+        Self {
+            prepared: self.prepared.clone(),
+            state: self.state.clone(),
+            executor: Arc::new(()),
+        }
+    }
+    pub fn state_digest(&self) -> Result<String, String> {
+        digest(&self.state)
+    }
+    pub fn events(&self) -> &[Event] {
+        &self.state.events
+    }
+    pub fn journal(&self) -> &[AcceptedInput] {
+        &self.state.journal
+    }
+    pub fn object_id(&self, card: CardId) -> Option<ObjectId> {
+        self.state.objects.get(&card).map(|o| o.id)
+    }
+    pub fn zone(&self, object: ObjectId) -> Option<Zone> {
+        self.current(object).ok().map(|o| o.zone)
+    }
+    pub fn mana(&self, player: PlayerId, color: Color) -> Option<Quantity> {
+        self.state
+            .players
+            .get(player.0 as usize)
+            .map(|p| p.mana.get(&color).cloned().unwrap_or_default())
+    }
+    pub fn characteristics(&self, object: ObjectId) -> Result<Characteristics, String> {
+        self.current(object)?;
+        Ok(self.definition(object.card)?.characteristics.clone())
+    }
+    // Characteristics supply intrinsic behavior; reminder text never supplies
+    // runtime code. CR 305.6 / 113.6 / 605.3b, pinned official rules:
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    pub fn mana_abilities(&self, object: ObjectId) -> Result<Vec<Color>, String> {
+        let o = self.current(object)?;
+        let d = self.definition(object.card)?;
+        if o.zone != Zone::Battlefield || d.intrinsic_zone != Some(FunctioningZone::Battlefield) {
+            return Ok(vec![]);
+        }
+        let c = self.characteristics(object)?;
+        Ok(if c.kind == CardKind::Land {
+            c.subtypes
+                .iter()
+                .filter_map(|s| basic_land_color(s))
+                .collect()
+        } else {
+            vec![]
+        })
+    }
+    fn definition(&self, card: CardId) -> Result<&Definition, String> {
+        let physical = self.state.cards.get(&card).ok_or("unknown physical card")?;
+        self.prepared
+            .catalog
+            .definitions
+            .iter()
+            .find(|d| d.oracle_id == physical.oracle_id)
+            .ok_or_else(|| "missing admitted definition".into())
+    }
+    fn current(&self, id: ObjectId) -> Result<&Object, String> {
+        self.state
+            .objects
+            .get(&id.card)
+            .filter(|o| o.id == id)
+            .ok_or_else(|| "stale or absent object incarnation".into())
+    }
+    fn target_legal(&self, id: ObjectId) -> bool {
+        self.current(id).is_ok_and(|o| o.zone == Zone::Battlefield)
+            && self
+                .characteristics(id)
+                .is_ok_and(|c| c.kind == CardKind::Creature)
+    }
+    fn top(&self) -> Result<&StackInstance, String> {
+        self.state
+            .stack
+            .last()
+            .ok_or_else(|| "missing stack frame".into())
+    }
+    fn program(&self) -> Result<&SpellProgram, String> {
+        self.definition(self.top()?.source.card)?
+            .spell
+            .as_ref()
+            .ok_or_else(|| "missing spell program".into())
+    }
+    pub fn decision_for(&self, viewer: PlayerId) -> Result<Option<Request>, String> {
+        if self.state.pending.is_some() {
+            return Ok(None);
+        }
+        let req = match &self.state.frame {
+            Frame::Priority => Request::Priority {
+                decision_id: self.state.revision,
+                player: self.state.priority,
+            },
+            Frame::Targets { .. } => Request::Targets {
+                decision_id: self.state.revision,
+                player: self.top()?.controller,
+                occurrences: self.program()?.targets.clone(),
+                candidates: self
+                    .state
+                    .objects
+                    .values()
+                    .filter(|o| self.target_legal(o.id))
+                    .map(|o| o.id)
+                    .collect(),
+            },
+            _ => return Ok(None),
+        };
+        Ok((req.player() == viewer).then_some(req))
+    }
+    fn validate_response(&self, player: PlayerId, response: &Response) -> Result<(), String> {
+        match (&self.state.frame, response) {
+            (Frame::Priority, Response::Pass) if self.state.priority == player => Ok(()),
+            (Frame::Priority, Response::ActivateMana { object })
+                if self.state.priority == player =>
+            {
+                let o = self.current(*object)?;
+                if o.controller != player || o.tapped || self.mana_abilities(*object)?.len() != 1 {
+                    return Err("invalid mana activation".into());
+                }
+                Ok(())
+            }
+            (Frame::Priority, Response::Cast { card }) if self.state.priority == player => {
+                let o = self.state.objects.get(card).ok_or("invalid cast")?;
+                if o.zone != (Zone::Hand { owner: player })
+                    || self.state.cards[card].owner != player
+                    || self.definition(*card)?.spell.is_none()
+                    || !self.state.stack.is_empty()
+                {
+                    return Err("invalid or unsupported cast".into());
+                }
+                // Restrict proposals to spells with at least one eligible target;
+                // the target-stage request never waits for an impossible choice.
+                if !self.state.objects.values().any(|o| self.target_legal(o.id)) {
+                    return Err("no legal target for this proposal".into());
+                }
+                Ok(())
+            }
+            (Frame::Targets { .. }, Response::Targets { objects })
+                if self.top()?.controller == player =>
+            {
+                if objects.len() != self.program()?.targets.len()
+                    || objects.iter().any(|o| !self.target_legal(*o))
+                {
+                    return Err("invalid targets".into());
+                }
+                Ok(())
+            }
+            _ => Err("invalid or unauthorized decision response".into()),
+        }
+    }
+    pub fn check_response(
+        &self,
+        player: PlayerId,
+        decision_id: u64,
+        response: Response,
+    ) -> Result<ValidatedResponse, String> {
+        if self.state.pending.is_some()
+            || decision_id != self.state.revision
+            || self.decision_for(player)?.is_none()
+        {
+            return Err("stale or unauthorized decision".into());
+        }
+        self.validate_response(player, &response)?;
+        Ok(ValidatedResponse {
+            executor: self.executor.clone(),
+            revision: self.state.revision,
+            input: AcceptedInput {
+                decision_id,
+                player,
+                response,
+            },
+        })
+    }
+    /// Submit is a bounded state transition; automatic rules run in advance.
+    pub fn submit(&mut self, receipt: ValidatedResponse) -> Result<(), String> {
+        if !Arc::ptr_eq(&receipt.executor, &self.executor)
+            || receipt.revision != self.state.revision
+            || self.state.pending.is_some()
+        {
+            return Err("stale or foreign validation receipt".into());
+        }
+        let revision = self
+            .state
+            .revision
+            .checked_add(1)
+            .ok_or("structural revision resource limit")?;
+        self.state.journal.push(receipt.input.clone());
+        self.state.pending = Some(receipt.input);
+        self.state.revision = revision;
+        Ok(())
+    }
+    pub fn respond(
+        &mut self,
+        player: PlayerId,
+        decision_id: u64,
+        response: Response,
+    ) -> Result<(), String> {
+        let r = self.check_response(player, decision_id, response)?;
+        self.submit(r)
+    }
+    pub fn advance(&mut self) -> Advance {
+        loop {
+            if let Frame::Fault { reason } = &self.state.frame {
+                return Advance::Fault(reason.clone());
+            }
+            if self.state.pending.is_none()
+                && matches!(self.state.frame, Frame::Priority | Frame::Targets { .. })
+            {
+                let viewer = if matches!(self.state.frame, Frame::Priority) {
+                    self.state.priority
+                } else {
+                    match self.top() {
+                        Ok(s) => s.controller,
+                        Err(e) => {
+                            self.state.frame = Frame::Fault { reason: e.clone() };
+                            return Advance::Fault(e);
+                        }
+                    }
+                };
+                return match self.decision_for(viewer) {
+                    Ok(Some(r)) => Advance::AwaitingDecision(r),
+                    _ => Advance::Fault("missing current decision".into()),
+                };
+            }
+            // A rules step commits atomically. Resource/invariant failures retain
+            // its pre-step state and become faults, never wins/losses/draws.
+            let mut next = self.fork();
+            if let Err(reason) = next.step() {
+                self.state.frame = Frame::Fault {
+                    reason: reason.clone(),
+                };
+                return Advance::Fault(reason);
+            }
+            self.state = next.state;
+        }
+    }
+    fn step(&mut self) -> Result<(), String> {
+        match self.state.frame.clone() {
+            Frame::Priority => {
+                let input = self
+                    .state
+                    .pending
+                    .take()
+                    .ok_or("missing accepted priority input")?;
+                match input.response {
+                    Response::ActivateMana { object } => {
+                        let color = *self
+                            .mana_abilities(object)?
+                            .first()
+                            .ok_or("missing intrinsic mana ability")?;
+                        self.commit(ProposedEvent::Tap { object })?;
+                        self.commit(ProposedEvent::AddMana {
+                            player: input.player,
+                            color,
+                            amount: Quantity::from(1),
+                            source: object,
+                        })?;
+                        self.state.passes = 0;
+                        self.stabilize()?;
+                    }
+                    Response::Cast { card } => {
+                        let original_object = self
+                            .state
+                            .objects
+                            .get(&card)
+                            .ok_or("missing cast source")?
+                            .id;
+                        let id = StackId(self.state.next_stack_id);
+                        self.state.next_stack_id = self
+                            .state
+                            .next_stack_id
+                            .checked_add(1)
+                            .ok_or("stack ID resource limit")?;
+                        self.state
+                            .events
+                            .push(Event::SpellProposed { card, stack_id: id });
+                        let source = self.move_object(original_object, Zone::Stack)?.successor;
+                        self.state.stack.push(StackInstance {
+                            id,
+                            source,
+                            controller: input.player,
+                            targets: vec![],
+                            paid: None,
+                        });
+                        self.state.frame = Frame::Targets {
+                            cast: Casting {
+                                stack_id: id,
+                                original_object,
+                            },
+                        };
+                        self.state.passes = 0;
+                    }
+                    Response::Pass => {
+                        self.state.events.push(Event::PriorityPassed {
+                            player: input.player,
+                        });
+                        self.state.passes = self
+                            .state
+                            .passes
+                            .checked_add(1)
+                            .ok_or("pass counter resource limit")?;
+                        // CR 117.3d / 117.4: all four live seats pass in order.
+                        if self.state.passes == 4 {
+                            self.state.passes = 0;
+                            let stack = self.top()?.clone();
+                            let legal_targets = stack
+                                .targets
+                                .iter()
+                                .map(|t| self.target_legal(*t))
+                                .collect();
+                            self.state.frame = Frame::Resolve {
+                                frame: Resolving {
+                                    stack_id: stack.id,
+                                    cursor: 0,
+                                    legal_targets,
+                                    outcomes: vec![],
+                                },
+                            };
+                        } else {
+                            self.state.priority = PlayerId((input.player.0 + 1) % 4);
+                            self.stabilize()?;
+                        }
+                    }
+                    _ => return Err("response/frame invariant".into()),
+                }
+            }
+            Frame::Targets { cast } => {
+                let input = self
+                    .state
+                    .pending
+                    .take()
+                    .ok_or("missing accepted target input")?;
+                let Response::Targets { objects } = input.response else {
+                    return Err("target response/frame invariant".into());
+                };
+                self.state.stack.last_mut().ok_or("missing stack")?.targets = objects;
+                self.state.frame = Frame::Payment { cast };
+            }
+            Frame::Payment { cast } => {
+                let stack = self.top()?.clone();
+                let cost = self
+                    .definition(stack.source.card)?
+                    .characteristics
+                    .mana_cost
+                    .clone();
+                if self.payment_pool(stack.controller, &cost).is_err() {
+                    // The restricted reversal has no library/reveal/shuffle or
+                    // mana abilities during announcement (CR 733.1). Restore
+                    // original incarnation; retain accepted input stages.
+                    self.state.stack.pop();
+                    let o = self
+                        .state
+                        .objects
+                        .get_mut(&cast.original_object.card)
+                        .ok_or("missing reversal object")?;
+                    o.id = cast.original_object;
+                    o.zone = Zone::Hand {
+                        owner: stack.controller,
+                    };
+                    o.controller = stack.controller;
+                    o.tapped = false;
+                    self.state.events.push(Event::CastReversed {
+                        stack_id: cast.stack_id,
+                        reason: "insufficient mana".into(),
+                    });
+                    self.state.priority = stack.controller;
+                    self.state.frame = Frame::Priority;
+                    self.stabilize()?;
+                } else {
+                    self.commit(ProposedEvent::PayMana {
+                        player: stack.controller,
+                        cost: cost.clone(),
+                    })?;
+                    self.state.stack.last_mut().ok_or("missing stack")?.paid = Some(cost);
+                    self.state.events.push(Event::SpellCast {
+                        stack_id: cast.stack_id,
+                    });
+                    self.state.priority = stack.controller;
+                    self.state.frame = Frame::Priority;
+                    self.stabilize()?;
+                }
+            }
+            Frame::Resolve { mut frame } => {
+                let stack = self.top()?.clone();
+                let program = self.program()?.clone();
+                // One spell-wide legality check before any block resolves.
+                // CR 608.2b: if all targets are illegal, the entire spell does
+                // not resolve, including its otherwise untargeted blocks.
+                if !frame.legal_targets.iter().any(|l| *l) {
+                    self.finish_spell(&stack, false)?;
+                } else if let Some(instruction) = program.instructions.get(frame.cursor as usize) {
+                    match instruction {
+                        Instruction::ReturnToOwnerHand { target_slot, .. } => {
+                            let target = stack.targets[*target_slot as usize];
+                            let outcome = if !frame.legal_targets[*target_slot as usize] {
+                                InstructionOutcome::IllegalTarget { target }
+                            } else if self.current(target).is_err() {
+                                InstructionOutcome::ObjectNoLongerPresent { target }
+                            } else {
+                                let owner = self.state.cards[&target.card].owner;
+                                InstructionOutcome::Moved {
+                                    movement: self.move_object(target, Zone::Hand { owner })?,
+                                }
+                            };
+                            frame.outcomes.push(outcome);
+                        }
+                    }
+                    frame.cursor = frame
+                        .cursor
+                        .checked_add(1)
+                        .ok_or("instruction cursor resource limit")?;
+                    self.state.frame = Frame::Resolve { frame };
+                } else {
+                    self.finish_spell(&stack, true)?;
+                }
+            }
+            Frame::Fault { reason } => return Err(reason),
+        }
+        Ok(())
+    }
+    fn finish_spell(&mut self, stack: &StackInstance, resolved: bool) -> Result<(), String> {
+        let owner = self.state.cards[&stack.source.card].owner;
+        self.move_object(stack.source, Zone::Graveyard { owner })?;
+        self.state.stack.pop();
+        self.state.events.push(Event::SpellCompleted {
+            stack_id: stack.id,
+            resolved,
+        });
+        self.state.frame = Frame::Priority;
+        self.state.priority = self.state.active;
+        self.stabilize()
+    }
+    fn payment_pool(
+        &self,
+        player: PlayerId,
+        cost: &ManaCost,
+    ) -> Result<BTreeMap<Color, Quantity>, String> {
+        let mut pool = self
+            .state
+            .players
+            .get(player.0 as usize)
+            .ok_or("missing paying player")?
+            .mana
+            .clone();
+        for color in &cost.colored {
+            let n = pool.entry(*color).or_default();
+            if *n < Quantity::from(1) {
+                return Err("insufficient mana".into());
+            }
+            n.subtract(&Quantity::from(1));
+        }
+        let mut generic = cost.generic.clone();
+        for n in pool.values_mut() {
+            let spent = std::cmp::min(n.clone(), generic.clone());
+            n.subtract(&spent);
+            generic.subtract(&spent);
+        }
+        if generic > Quantity::zero() {
+            return Err("insufficient mana".into());
+        }
+        Ok(pool)
+    }
+    fn move_object(&mut self, object: ObjectId, destination: Zone) -> Result<MoveOutcome, String> {
+        match self.commit(ProposedEvent::Move {
+            object,
+            destination,
+        })? {
+            EventOutcome::Moved { movement } => Ok(movement),
+            _ => Err("movement outcome invariant".into()),
+        }
+    }
+    fn commit(&mut self, proposed: ProposedEvent) -> Result<EventOutcome, String> {
+        // The admitted profile has no replacement/prevention/trigger abilities.
+        // All future registries extend this same proposal/result path.
+        let actual = match &proposed {
+            ProposedEvent::Tap { object } => {
+                let o = self.current(*object)?;
+                if o.zone != Zone::Battlefield || o.tapped {
+                    return Err("invalid tap event".into());
+                }
+                self.state
+                    .objects
+                    .get_mut(&object.card)
+                    .ok_or("missing tap object")?
+                    .tapped = true;
+                EventOutcome::Tapped { object: *object }
+            }
+            ProposedEvent::AddMana {
+                player,
+                color,
+                amount,
+                source,
+            } => {
+                self.current(*source)?;
+                if amount.is_negative() {
+                    return Err("negative mana event".into());
+                }
+                self.state
+                    .players
+                    .get_mut(player.0 as usize)
+                    .ok_or("missing mana player")?
+                    .mana
+                    .entry(*color)
+                    .or_default()
+                    .add(amount);
+                EventOutcome::ManaAdded {
+                    player: *player,
+                    color: *color,
+                    amount: amount.clone(),
+                }
+            }
+            ProposedEvent::PayMana { player, cost } => {
+                let pool = self.payment_pool(*player, cost)?;
+                self.state
+                    .players
+                    .get_mut(player.0 as usize)
+                    .ok_or("missing payment player")?
+                    .mana = pool;
+                EventOutcome::ManaPaid {
+                    player: *player,
+                    cost: cost.clone(),
+                }
+            }
+            ProposedEvent::Move {
+                object,
+                destination,
+            } => {
+                let o = self.current(*object)?.clone();
+                let owner = self
+                    .state
+                    .cards
+                    .get(&object.card)
+                    .ok_or("missing movement card")?
+                    .owner;
+                if let Zone::Hand { owner: p } | Zone::Graveyard { owner: p } = destination
+                    && *p != owner
+                {
+                    return Err("zone owner invariant".into());
+                }
+                // CR 400.7: a zone move creates a new incarnation, and an actual
+                // outcome explicitly provides its successor. No stale lookup.
+                let successor = ObjectId {
+                    card: object.card,
+                    incarnation: object
+                        .incarnation
+                        .checked_add(1)
+                        .ok_or("incarnation resource limit")?,
+                };
+                let controller = if *destination == Zone::Battlefield {
+                    o.controller
+                } else {
+                    owner
+                };
+                self.state.objects.insert(
+                    object.card,
+                    Object {
+                        id: successor,
+                        controller,
+                        zone: *destination,
+                        tapped: false,
+                    },
+                );
+                EventOutcome::Moved {
+                    movement: MoveOutcome {
+                        previous: *object,
+                        successor,
+                        from: o.zone,
+                        destination: *destination,
+                    },
+                }
+            }
+        };
+        self.state.events.push(Event::Committed {
+            proposed,
+            actual: actual.clone(),
+        });
+        Ok(actual)
+    }
+    fn stabilize(&self) -> Result<(), String> {
+        // CR 704.3: this entry point runs before granting priority. The closed
+        // scenario has no life changes, marked damage, counters, or triggers.
+        // Unsupported reachable conditions fault instead of being skipped.
+        if self
+            .state
+            .players
+            .iter()
+            .any(|p| p.life != Quantity::from(40))
+        {
+            return Err("unsupported reachable life/SBA state".into());
+        }
+        for o in self
+            .state
+            .objects
+            .values()
+            .filter(|o| o.zone == Zone::Battlefield)
+        {
+            let c = self.characteristics(o.id)?;
+            if c.kind == CardKind::Creature
+                && c.toughness.as_ref().is_none_or(|n| n <= &Quantity::zero())
+            {
+                return Err("unsupported reachable creature SBA state".into());
+            }
+        }
+        Ok(())
+    }
+    pub fn snapshot(&self) -> Result<String, String> {
+        canonical(&Snapshot {
+            snapshot_version: 1,
+            build_id: BUILD_ID.into(),
+            catalog_digest: self.prepared.catalog_digest.clone(),
+            profile_digest: self.prepared.profile_digest.clone(),
+            state_sha256: self.state_digest()?,
+            state: self.state.clone(),
+        })
+    }
+    pub fn restore(prepared: Prepared, json: &str) -> Result<Self, String> {
+        let s: Snapshot = strict_read(json)?;
+        if s.snapshot_version != 1
+            || s.build_id != BUILD_ID
+            || s.catalog_digest != prepared.catalog_digest
+            || s.profile_digest != prepared.profile_digest
+            || digest(&s.state)? != s.state_sha256
+        {
+            return Err("snapshot version/build/catalog/profile/hash mismatch".into());
+        }
+        let game = Self {
+            prepared,
+            state: s.state,
+            executor: Arc::new(()),
+        };
+        game.validate_state()?;
+        // The first profile is tiny: verify reachability by replay rather than
+        // accepting a rehashed arbitrary state through the recovery API.
+        let replayed = if game.state.pending.is_some() {
+            let (last, prefix) = game
+                .state
+                .journal
+                .split_last()
+                .ok_or("pending input has no journal entry")?;
+            let mut replay = Self::replay(game.prepared.clone(), prefix)?;
+            replay.respond(last.player, last.decision_id, last.response.clone())?;
+            replay
+        } else {
+            Self::replay(game.prepared.clone(), &game.state.journal)?
+        };
+        if replayed.state != game.state {
+            return Err("snapshot is not reachable from this scenario's accepted inputs".into());
+        }
+        Ok(game)
+    }
+    fn validate_state(&self) -> Result<(), String> {
+        let s = &self.state;
+        if s.players.len() != 4
+            || s.active != PlayerId(0)
+            || s.priority.0 >= 4
+            || s.passes >= 4
+            || s.cards.len() != 3
+            || s.objects.len() != 3
+            || s.stack.len() > 1
+        {
+            return Err("snapshot seating/table invariant".into());
+        }
+        for setup in &self.prepared.config.cards {
+            let card = s.cards.get(&setup.id).ok_or("snapshot missing card")?;
+            if card.owner != setup.owner || card.oracle_id != setup.oracle_id {
+                return Err("snapshot physical identity invariant".into());
+            }
+            let o = s.objects.get(&setup.id).ok_or("snapshot missing object")?;
+            if o.id.card != setup.id
+                || o.controller.0 >= 4
+                || (o.tapped && setup.oracle_id != ISLAND)
+            {
+                return Err("snapshot object invariant".into());
+            }
+            if let Zone::Hand { owner } | Zone::Graveyard { owner } = o.zone
+                && owner != card.owner
+            {
+                return Err("snapshot zone-owner invariant".into());
+            }
+        }
+        for p in &s.players {
+            if p.mana.values().any(|n| n.is_negative()) {
+                return Err("snapshot negative mana".into());
+            }
+        }
+        for stack in &s.stack {
+            if stack.id.0 >= s.next_stack_id
+                || stack.controller.0 >= 4
+                || self.current(stack.source)?.zone != Zone::Stack
+                || self.definition(stack.source.card)?.spell.is_none()
+            {
+                return Err("snapshot stack identity invariant".into());
+            }
+            let n = self.program()?.targets.len();
+            if matches!(s.frame, Frame::Priority | Frame::Resolve { .. })
+                && (stack.targets.len() != n
+                    || stack.paid.as_ref()
+                        != Some(
+                            &self
+                                .definition(stack.source.card)?
+                                .characteristics
+                                .mana_cost,
+                        ))
+            {
+                return Err("snapshot completed cast invariant".into());
+            }
+        }
+        let stack_cards: BTreeSet<_> = s.stack.iter().map(|v| v.source.card).collect();
+        if s.objects
+            .values()
+            .any(|o| (o.zone == Zone::Stack) != stack_cards.contains(&o.id.card))
+        {
+            return Err("snapshot stack/zone invariant".into());
+        }
+        match &s.frame {
+            Frame::Targets { cast } | Frame::Payment { cast } => {
+                let top = self.top()?;
+                if cast.stack_id != top.id
+                    || cast.original_object.card != top.source.card
+                    || cast.original_object.incarnation.checked_add(1)
+                        != Some(top.source.incarnation)
+                    || top.paid.is_some()
+                {
+                    return Err("snapshot casting frame invariant".into());
+                }
+                if matches!(s.frame, Frame::Targets { .. }) && !top.targets.is_empty() {
+                    return Err("snapshot announcement target invariant".into());
+                }
+                if matches!(s.frame, Frame::Payment { .. })
+                    && top.targets.len() != self.program()?.targets.len()
+                {
+                    return Err("snapshot payment target invariant".into());
+                }
+            }
+            Frame::Resolve { frame }
+                if self.top()?.id != frame.stack_id
+                    || frame.cursor as usize > self.program()?.instructions.len()
+                    || frame.outcomes.len() != frame.cursor as usize
+                    || frame.legal_targets.len() != self.program()?.targets.len() =>
+            {
+                return Err("snapshot resolving frame invariant".into());
+            }
+            _ => {}
+        }
+        if let Some(pending) = &s.pending {
+            if pending.decision_id.checked_add(1) != Some(s.revision)
+                || s.journal.last() != Some(pending)
+            {
+                return Err("snapshot pending-input invariant".into());
+            }
+            self.validate_response(pending.player, &pending.response)?;
+        }
+        self.stabilize()
+    }
+    pub fn replay(prepared: Prepared, inputs: &[AcceptedInput]) -> Result<Self, String> {
+        let mut game = Self::new(prepared);
+        for input in inputs {
+            match game.advance() {
+                Advance::AwaitingDecision(r)
+                    if r.decision_id() == input.decision_id && r.player() == input.player => {}
+                _ => return Err("replay decision mismatch".into()),
+            }
+            game.respond(input.player, input.decision_id, input.response.clone())?;
+        }
+        if let Advance::Fault(e) = game.advance() {
+            return Err(e);
+        }
+        Ok(game)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn prepared() -> Prepared {
+        Prepared::admit(
+            Catalog::read(include_str!("../../../tests/fixtures/expected-ir.json")).unwrap(),
+            ScenarioConfig::land_return(),
+        )
+        .unwrap()
+    }
+    fn respond(game: &mut Game, response: Response) {
+        let Advance::AwaitingDecision(r) = game.advance() else {
+            panic!("expected decision")
+        };
+        game.respond(r.player(), r.decision_id(), response).unwrap();
+    }
+    fn cast(game: &mut Game) {
+        respond(
+            game,
+            Response::ActivateMana {
+                object: game.object_id(CardId(0)).unwrap(),
+            },
+        );
+        respond(game, Response::Cast { card: CardId(1) });
+    }
+    fn complete(game: &mut Game) {
+        respond(
+            game,
+            Response::Targets {
+                objects: vec![game.object_id(CardId(2)).unwrap()],
+            },
+        );
+        for _ in 0..4 {
+            respond(game, Response::Pass);
+        }
+        assert!(matches!(game.advance(), Advance::AwaitingDecision(_)));
+    }
+    #[test]
+    fn complete_source_scenario_preserves_owner_and_incarnations() {
+        let mut game = Game::new(prepared());
+        cast(&mut game);
+        complete(&mut game);
+        assert_eq!(
+            game.state.objects[&CardId(2)].zone,
+            Zone::Hand { owner: PlayerId(1) }
+        );
+        assert_eq!(game.state.objects[&CardId(2)].id.incarnation, 1);
+        assert_eq!(
+            game.state.objects[&CardId(1)].zone,
+            Zone::Graveyard { owner: PlayerId(0) }
+        );
+        assert_eq!(game.state.objects[&CardId(1)].id.incarnation, 2);
+        assert_eq!(game.mana(PlayerId(0), Color::U), Some(Quantity::zero()));
+        assert_eq!(game.state.priority, PlayerId(0));
+        assert_eq!(game.events().len(), 13);
+    }
+    #[test]
+    fn snapshot_fork_and_replay_agree_and_receipts_do_not_cross_executors() {
+        let p = prepared();
+        let mut game = Game::new(p.clone());
+        cast(&mut game);
+        let _ = game.advance();
+        let mut restored = Game::restore(p.clone(), &game.snapshot().unwrap()).unwrap();
+        let mut fork = game.fork();
+        let response = Response::Targets {
+            objects: vec![game.object_id(CardId(2)).unwrap()],
+        };
+        let req = game.decision_for(PlayerId(0)).unwrap().unwrap();
+        let receipt = game
+            .check_response(PlayerId(0), req.decision_id(), response)
+            .unwrap();
+        assert!(fork.submit(receipt).is_err());
+        complete(&mut game);
+        complete(&mut restored);
+        complete(&mut fork);
+        assert_eq!(game.state, restored.state);
+        assert_eq!(game.state, fork.state);
+        let replay = Game::replay(p, game.journal()).unwrap();
+        assert_eq!(game.state, replay.state);
+    }
+    #[test]
+    fn queries_and_invalid_responses_leave_state_unchanged() {
+        let mut game = Game::new(prepared());
+        let before = game.state_digest().unwrap();
+        for _ in 0..3 {
+            for viewer in 0..4 {
+                let _ = game.decision_for(PlayerId(viewer)).unwrap();
+            }
+            let _ = game
+                .characteristics(game.object_id(CardId(2)).unwrap())
+                .unwrap();
+            let _ = game
+                .mana_abilities(game.object_id(CardId(0)).unwrap())
+                .unwrap();
+        }
+        assert!(game.respond(PlayerId(1), 0, Response::Pass).is_err());
+        assert!(game.respond(PlayerId(0), 99, Response::Pass).is_err());
+        assert!(
+            game.respond(
+                PlayerId(0),
+                0,
+                Response::ActivateMana {
+                    object: ObjectId {
+                        card: CardId(0),
+                        incarnation: 9
+                    }
+                }
+            )
+            .is_err()
+        );
+        assert_eq!(game.state_digest().unwrap(), before);
+        cast(&mut game);
+        let _ = game.advance();
+        let before = game.state_digest().unwrap();
+        assert!(
+            game.respond(
+                PlayerId(0),
+                game.state.revision,
+                Response::Targets {
+                    objects: vec![ObjectId {
+                        card: CardId(2),
+                        incarnation: 9
+                    }]
+                }
+            )
+            .is_err()
+        );
+        assert_eq!(game.state_digest().unwrap(), before);
+    }
+    #[test]
+    fn payment_reversal_retains_inputs_and_original_incarnation() {
+        let mut game = Game::new(prepared());
+        let original = game.object_id(CardId(1)).unwrap();
+        respond(&mut game, Response::Cast { card: CardId(1) });
+        respond(
+            &mut game,
+            Response::Targets {
+                objects: vec![ObjectId {
+                    card: CardId(2),
+                    incarnation: 0,
+                }],
+            },
+        );
+        let _ = game.advance();
+        assert_eq!(game.zone(original), Some(Zone::Hand { owner: PlayerId(0) }));
+        assert!(game.state.stack.is_empty());
+        assert_eq!(game.journal().len(), 2);
+        assert!(matches!(
+            game.events().last(),
+            Some(Event::CastReversed { .. })
+        ));
+        let replay = Game::replay(prepared(), game.journal()).unwrap();
+        assert_eq!(replay.state, game.state);
+    }
+    #[test]
+    fn pending_accepted_input_survives_restore_and_rehashed_impossible_state_rejects() {
+        let p = prepared();
+        let mut game = Game::new(p.clone());
+        let Advance::AwaitingDecision(request) = game.advance() else {
+            panic!("expected decision")
+        };
+        game.respond(
+            PlayerId(0),
+            request.decision_id(),
+            Response::ActivateMana {
+                object: ObjectId {
+                    card: CardId(0),
+                    incarnation: 0,
+                },
+            },
+        )
+        .unwrap();
+        let mut restored = Game::restore(p.clone(), &game.snapshot().unwrap()).unwrap();
+        assert_eq!(game.state, restored.state);
+        let _ = game.advance();
+        let _ = restored.advance();
+        assert_eq!(game.state, restored.state);
+        let mut snapshot: Snapshot = strict_read(&game.snapshot().unwrap()).unwrap();
+        snapshot.state.players[0]
+            .mana
+            .insert(Color::U, Quantity::from(99));
+        snapshot.state_sha256 = digest(&snapshot.state).unwrap();
+        assert!(Game::restore(p, &canonical(&snapshot).unwrap()).is_err());
+    }
+    #[test]
+    fn forest_intrinsic_is_derived_and_partial_multiblock_legality_keeps_other_block() {
+        let mut game = Game::new(prepared());
+        game.state.cards.get_mut(&CardId(0)).unwrap().oracle_id = FOREST.into();
+        assert_eq!(
+            game.mana_abilities(game.object_id(CardId(0)).unwrap())
+                .unwrap(),
+            [Color::G]
+        );
+        let mut p = prepared();
+        let mut c = (*p.catalog).clone();
+        let program = c
+            .definitions
+            .iter_mut()
+            .find(|d| d.oracle_id == SPELL)
+            .unwrap()
+            .spell
+            .as_mut()
+            .unwrap();
+        let mut second = program.targets[0].clone();
+        second.slot = 1;
+        second.selection_id = "synthetic:second".into();
+        program.targets.push(second);
+        program.instructions.push(Instruction::ReturnToOwnerHand {
+            target_slot: 1,
+            source_block: 1,
+        });
+        p.catalog = Arc::new(c);
+        let mut game = Game::new(p);
+        cast(&mut game);
+        respond(
+            &mut game,
+            Response::Targets {
+                objects: vec![
+                    ObjectId {
+                        card: CardId(2),
+                        incarnation: 0
+                    };
+                    2
+                ],
+            },
+        );
+        let _ = game.advance();
+        // Test-only inaccessible mutation makes one occurrence stale. Both
+        // blocks still share one resolution legality check and stack object.
+        game.state.stack.last_mut().unwrap().targets[0].incarnation = 99;
+        for _ in 0..4 {
+            respond(&mut game, Response::Pass);
+        }
+        let _ = game.advance();
+        assert_eq!(
+            game.state.objects[&CardId(2)].zone,
+            Zone::Hand { owner: PlayerId(1) }
+        );
+        assert!(matches!(
+            game.events().last(),
+            Some(Event::SpellCompleted { resolved: true, .. })
+        ));
+    }
+    #[test]
+    fn unsupported_configuration_and_modified_ir_reject_admission() {
+        let p = prepared();
+        let mut config = ScenarioConfig::land_return();
+        config.mode = Mode::CommanderMatch;
+        assert!(Prepared::admit((*p.catalog).clone(), config).is_err());
+        let mut c = (*p.catalog).clone();
+        c.definitions[0].name = "modified definition".into();
+        assert!(Prepared::admit(c, ScenarioConfig::land_return()).is_err());
+    }
+    #[test]
+    fn stale_resolution_target_does_not_follow_physical_card() {
+        let mut game = Game::new(prepared());
+        cast(&mut game);
+        respond(
+            &mut game,
+            Response::Targets {
+                objects: vec![ObjectId {
+                    card: CardId(2),
+                    incarnation: 0,
+                }],
+            },
+        );
+        let _ = game.advance();
+        let target = game.object_id(CardId(2)).unwrap();
+        let moved = game
+            .move_object(target, Zone::Hand { owner: PlayerId(1) })
+            .unwrap();
+        game.move_object(moved.successor, Zone::Battlefield)
+            .unwrap();
+        for _ in 0..4 {
+            respond(&mut game, Response::Pass);
+        }
+        let _ = game.advance();
+        assert_eq!(game.state.objects[&CardId(2)].zone, Zone::Battlefield);
+        assert!(matches!(
+            game.events().last(),
+            Some(Event::SpellCompleted {
+                resolved: false,
+                ..
+            })
+        ));
+    }
+    #[test]
+    fn synthetic_multiple_blocks_have_one_target_check_and_stack_frame() {
+        let mut p = prepared();
+        let mut c = (*p.catalog).clone();
+        let d = c
+            .definitions
+            .iter_mut()
+            .find(|d| d.oracle_id == SPELL)
+            .unwrap();
+        let program = d.spell.as_mut().unwrap();
+        program.instructions.push(Instruction::ReturnToOwnerHand {
+            target_slot: 0,
+            source_block: 1,
+        });
+        // Test-only interpreter fixture. No public admission bypass is provided.
+        p.catalog = Arc::new(c);
+        let mut game = Game::new(p);
+        cast(&mut game);
+        complete(&mut game);
+        let target_moves=game.events().iter().filter(|e|matches!(e,Event::Committed{proposed:ProposedEvent::Move{object,..},..} if object.card==CardId(2))).count();
+        assert_eq!(target_moves, 1);
+        assert_eq!(
+            game.state.objects[&CardId(2)].zone,
+            Zone::Hand { owner: PlayerId(1) }
+        );
+    }
+    #[test]
+    fn zone_intrinsics_and_corrupt_snapshot_fail_closed() {
+        let p = prepared();
+        let mut game = Game::new(p.clone());
+        let id = game.object_id(CardId(0)).unwrap();
+        assert_eq!(game.mana_abilities(id).unwrap(), vec![Color::U]);
+        let movement = game
+            .move_object(id, Zone::Hand { owner: PlayerId(0) })
+            .unwrap();
+        assert!(game.mana_abilities(movement.successor).unwrap().is_empty());
+        assert!(
+            Game::restore(
+                p.clone(),
+                &game.snapshot().unwrap().replace(BUILD_ID, "wrong-build")
+            )
+            .is_err()
+        );
+        let mut snapshot: Snapshot =
+            strict_read(&Game::new(p.clone()).snapshot().unwrap()).unwrap();
+        snapshot.state.objects.get_mut(&CardId(2)).unwrap().id.card = CardId(99);
+        snapshot.state_sha256 = digest(&snapshot.state).unwrap();
+        assert!(Game::restore(p, &canonical(&snapshot).unwrap()).is_err());
+    }
+}

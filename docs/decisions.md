@@ -12,7 +12,7 @@
 | Rust game server and authoritative agent/session orchestration | Adopted 2026-10-11 | Direct core calls with one rules implementation; isolate CPU work from network scheduling |
 | TypeScript ingestion/parser/archive, deck-builder, browser applications, and client SDK | Adopted 2026-10-11 | Retain existing implementations and use TypeScript at the browser/protocol boundary |
 | Browser-local rules/search from the Rust core compiled to WebAssembly | Adopted 2026-10-11; feature delivery deferred | Reuse the same rules implementation inside TypeScript browser applications |
-| Cargo alongside npm workspaces | Adopted 2026-10-11; native scaffold pending | Separate package toolchains while preserving shared versioned JSON contracts |
+| Cargo alongside npm workspaces | Adopted 2026-10-11; initial scaffold implemented 2026-10-13 | Separate package toolchains while preserving shared versioned JSON contracts |
 | Commander as the only game product format | User requirement, 2026-10-11 | Build multiplayer and Commander mechanics into the foundation; four-player headless pods are the first planned delivery |
 | Canonical executable definitions with separate printing/set indexes | Proposed refinement of per-set storage | Keep Oracle semantics separate from reprints and preserve language-neutral artifact contracts |
 
@@ -22,9 +22,13 @@ and delivery evidence remain in [game-engine-spec.md](game-engine-spec.md) and
 [game-engine-plan.md](game-engine-plan.md). Performance measurements guide
 optimization within the adopted stack.
 
-No Cargo workspace, executable compiler, engine, or server exists yet. Adoption
-fixes implementation direction; each component still needs its planned
-correctness and performance evidence. Card IR remains versioned JSON data.
+The first Cargo workspace, strict subset compiler, and four-seat scenario kernel
+are implemented. Full Commander games, search, server, and bulk IR emission
+remain future work. The [first scenario brief](game-engine-first-scenario.md)
+freezes source/rules inputs, uses Rust types with generated JSON Schema as the
+IR authority, chooses exact `num-bigint` quantities, and limits admission to
+reviewed immutable definitions and one scenario configuration. Card IR remains
+versioned JSON data.
 
 The current implementation and invariants are documented in
 [oracle_parser.md](oracle_parser.md). The source of truth for the experimental

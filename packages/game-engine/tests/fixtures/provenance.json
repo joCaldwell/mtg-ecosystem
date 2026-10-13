@@ -1,0 +1,43 @@
+{
+  "fixture_version": 1,
+  "archive_manifest_sha256": "b20406acec7b9af4610324af8848c76a2966315f1bb4043de2b03d53aa1a6f1b",
+  "rules_edition": "2026-09-25",
+  "rules_sha256": "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca",
+  "records": [
+    {
+      "file": "cruel-edict.json",
+      "oracle_id": "10c585c4-bf5b-4d8f-94a9-e9a5036a688f",
+      "record_sha256": "16659c771b7443c23b9193a364891410aa1efd1d0e308f3094499fe60b843fef",
+      "source_sha256": "20646c8a1569e733a8d1db930fc6ed4fa1d3dfa6c3030fea0bb1d2c09c9c3f0a",
+      "ast_sha256": "6ed597e9deae79bc975ef443eb5264b2e9d6ea18d7f4359c248c305c77fff513"
+    },
+    {
+      "file": "forest.json",
+      "oracle_id": "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6",
+      "record_sha256": "88cc92acedaa06983e21abada4ce21abe4bf177bc30c269bea55c994e44c78e3",
+      "source_sha256": "50f2a53e3ed1ca1148b4e97a9e50a6923744944fca6306f3f1eb67231140c2ca",
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
+    },
+    {
+      "file": "grizzly-bears.json",
+      "oracle_id": "14c8f55d-d177-4c25-a931-ebeb9e6062a0",
+      "record_sha256": "54f128f4edd526ff1b9c99e43c07ed749418e3a28d553c689242a585a656b3b1",
+      "source_sha256": "0c19e173c1697928e3bb8c46cc6fde36912566e736c8fbfa9c6ee8fc2484743e",
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
+    },
+    {
+      "file": "island.json",
+      "oracle_id": "b2c6aa39-2d2a-459c-a555-fb48ba993373",
+      "record_sha256": "2c96d0181155ee5c55da6cfb74e68c11fe8ad6489928fee23d54c12771f0df37",
+      "source_sha256": "0e6758f21c30efca20f2e89ac83ce7286ccfd2a3e66c95fe5f2e8c1c25629b20",
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
+    },
+    {
+      "file": "unsummon.json",
+      "oracle_id": "837182db-1bf3-4a2c-bd01-1af9d9873561",
+      "record_sha256": "2ccc2cfc21e2ceb0594280ab8d1c8c2decb63dcbdfcc55524c5667cc057b3d38",
+      "source_sha256": "6ce1877b4b39b55c3500bc0b5f472026c81b3ad944b1c88879240f863d4f7ec7",
+      "ast_sha256": "56e025ce420e42b19e06c0fa535f1840e48c22ca56e26e36b60442ce791b277c"
+    }
+  ]
+}

@@ -2,13 +2,15 @@
 
 Start with the root [AGENTS.md](AGENTS.md), identify the package, and read its
 manual. The deck-builder is active and standalone. The oracle-parser is a
-limited supported subset; the rules engine and game server are future work.
+limited supported subset; the first compiler/runtime scenario is implemented,
+while complete games and the game server remain future work.
 
 The [language stack](docs/runtime-language-decision.md) is adopted: TypeScript
 for ingestion/parser/archive, the deck-builder, browser apps, and client SDK;
 Rust for semantic compilation, rules, native simulation/search/agents, and the
-game server. Native implementation will add a Cargo workspace and package
-manuals with their checks. Existing npm commands do not validate native code.
+game server. The initial Cargo workspace has its own
+[engine manual](packages/game-engine/AGENTS.md). Use `npm run check:engine` for
+native and cross-language checks, and `npm run demo:engine` for the scenario.
 
 ## Oracle parser setup
 
