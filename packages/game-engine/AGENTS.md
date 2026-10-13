@@ -11,6 +11,8 @@ Run from repository root, using pinned Rust 1.99.0:
 - `cargo test --workspace --locked` and `cargo test --workspace --locked --release`.
 - `cargo run --locked -p mtg-sim -- demo`: verified source-to-runtime demonstration.
 - `cargo run --locked -p mtg-sim -- schema`: export the executable JSON Schema.
+- `npm run retain:engine`: retain source/dependency closure and verify an offline
+  rebuild/replay with a fresh Cargo home and target directory.
 
 Contracts' Rust types are the IR authority; schema output is generated and
 ignored. Source archive/AST, IR, and internal snapshots have separate versions.
@@ -28,6 +30,12 @@ Keep physical IDs, zone incarnations, stack IDs, owners, and controllers distinc
 Use exact game quantities and checked structural arithmetic. Frames, inputs,
 events, and outcomes serialize as data. Queries cannot mutate semantic state.
 Restore/replay must preserve behavior and clone branches must be independent.
+Use explicit `Budget` with `advance`. Player-facing code consumes `Observation`,
+`PlayerRequest`, and `PlayerResponse` and budgeted query outcomes; raw IDs,
+`decision_for`, snapshots, and full-state getters are trusted host APIs. Never
+send query recovery sidecars or validation receipts to clients. Queries cannot
+mint handles or observation history. See `docs/game-engine-p2-slice.md` for
+handle lifetime and work invalidation/recovery contracts.
 Do not update a failing expected result without reviewing its source and rules.
 
 Commit small reviewed fixtures and gate summaries. Keep downloaded corpora,

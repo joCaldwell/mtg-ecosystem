@@ -2,7 +2,8 @@ use mtg_compiler::{CompileResult, compile, fixture_catalog, fixtures};
 use mtg_contracts::{Catalog, canonical, sha256, strict_read};
 use mtg_core::{
     AcceptedInput, Advance, BUILD_ID, BUILD_PROFILE, BUILD_RUSTC, BUILD_RUSTFLAGS, BUILD_TARGET,
-    CardId, Game, ObjectId, PlayerId, Prepared, Response, ScenarioConfig, Zone,
+    Budget, CardId, Game, ObjectId, Observation, PlayerId, Prepared, QueryResult, QueryValue,
+    Response, ScenarioConfig, SearchContext, Zone,
 };
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path, time::Instant};
@@ -33,9 +34,31 @@ struct Bundle {
     build_profile: String,
     target: String,
     rustflags: String,
+    query_sidecar: String,
+}
+fn observation(game: &Game, viewer: PlayerId) -> Result<Observation, String> {
+    match game.observe(viewer, Budget::unlimited()) {
+        QueryResult::Complete(QueryValue::Observation(o)) => Ok(o),
+        _ => Err("observation did not complete".into()),
+    }
+}
+fn search_context(game: &Game, viewer: PlayerId, seed: String) -> Result<SearchContext, String> {
+    match game.search_context(viewer, seed, Budget::unlimited()) {
+        QueryResult::Complete(QueryValue::SearchContext(c)) => Ok(c),
+        _ => Err("context did not complete".into()),
+    }
+}
+fn resident_bytes() -> Option<u64> {
+    let status = fs::read_to_string("/proc/self/status").ok()?;
+    let kb = status.lines().find_map(|line| {
+        line.strip_prefix("VmRSS:")
+            .and_then(|v| v.split_whitespace().next())
+            .and_then(|v| v.parse::<u64>().ok())
+    })?;
+    kb.checked_mul(1024)
 }
 fn respond(game: &mut Game, response: Response) -> Result<(), String> {
-    let Advance::AwaitingDecision(r) = game.advance() else {
+    let Advance::AwaitingDecision(r) = game.advance(Budget::unlimited()) else {
         return Err("scenario fault before input".into());
     };
     game.respond(r.player(), r.decision_id(), response)
@@ -53,9 +76,10 @@ fn finish(game: &mut Game) -> Result<(), String> {
     for _ in 0..4 {
         respond(game, Response::Pass)?;
     }
-    match game.advance() {
+    match game.advance(Budget::unlimited()) {
         Advance::AwaitingDecision(_) => Ok(()),
         Advance::Fault(e) => Err(e),
+        Advance::Suspended { .. } => Err("unexpected suspension with an unlimited budget".into()),
     }
 }
 fn source_files() -> Result<Vec<SourceFile>, String> {
@@ -108,6 +132,10 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
     let prepared = Prepared::admit(catalog.clone(), ScenarioConfig::land_return())?;
     let mut game = Game::new(prepared.clone());
     let initial_snapshot = game.snapshot()?;
+    let QueryResult::Incomplete { work, .. } = game.observe(PlayerId(0), Budget::new(2)) else {
+        return Err("missing resumable observation".into());
+    };
+    let query_sidecar = game.save_work(&work)?;
     let start = Instant::now();
     respond(
         &mut game,
@@ -119,7 +147,7 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         },
     )?;
     respond(&mut game, Response::Cast { card: CardId(1) })?;
-    let _ = game.advance();
+    let _ = game.advance(Budget::unlimited());
     let announcement_snapshot = game.snapshot()?;
     let mut restored = Game::restore(prepared.clone(), &announcement_snapshot)?;
     let mut fork = game.fork();
@@ -151,9 +179,17 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         std::hint::black_box(game.fork());
     }
     let fork_ns = fork_start.elapsed().as_nanos() / 1000;
+    let rss_before = resident_bytes();
+    let retained = (0..256).map(|_| game.fork()).collect::<Vec<_>>();
+    let rss_after = resident_bytes();
+    let retained_branch_observations = serde_json::json!({"branches":retained.len(),"rss_before_bytes":rss_before,"rss_after_bytes":rss_after,
+        "rss_increment_bytes":rss_before.zip(rss_after).and_then(|(before,after)|after.checked_sub(before)),
+        "snapshot_bytes":game.snapshot()?.len(),"representative_commander_benchmark":false});
+    std::hint::black_box(&retained);
+    drop(retained);
     let rustc = format!("{BUILD_RUSTC}\n");
     let bundle = Bundle {
-        bundle_version: 1,
+        bundle_version: 2,
         build_id: BUILD_ID.into(),
         catalog,
         config: prepared.config().clone(),
@@ -169,15 +205,19 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         build_profile: BUILD_PROFILE.into(),
         target: BUILD_TARGET.into(),
         rustflags: BUILD_RUSTFLAGS.into(),
+        query_sidecar,
     };
     let report = serde_json::json!({"status":"scenario_verified","build_id":BUILD_ID,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
         "state_sha256":game.state_digest()?,"accepted_inputs":game.journal().len(),"events":game.events(),"restore_fork_replay_equal":true,
+        "player_observations": (0..4).map(|v|observation(&game,PlayerId(v))).collect::<Result<Vec<_>,_>>()?,
+        "search_context":search_context(&game,PlayerId(0),"separate-sampling-seed".into())?,
+        "retained_branch_observations":retained_branch_observations,
         "timing_observations":{"four_equivalent_runs_ns":elapsed,"priority_query_mean_ns":query_ns.to_string(),"clone_and_dispose_mean_ns":fork_ns.to_string(),"representative_commander_benchmark":false}});
     Ok((bundle, report))
 }
 fn verify_bundle(json: &str) -> Result<String, String> {
     let b: Bundle = strict_read(json)?;
-    if b.bundle_version != 1 || b.build_id != BUILD_ID {
+    if b.bundle_version != 2 || b.build_id != BUILD_ID {
         return Err("unsupported bundle version/build".into());
     }
     if !b.source_files.windows(2).all(|w| w[0].path < w[1].path) {
@@ -227,6 +267,12 @@ fn verify_bundle(json: &str) -> Result<String, String> {
     if initial.state_digest()? != Game::new(prepared.clone()).state_digest()? {
         return Err("initial scenario mismatch".into());
     }
+    let work = initial.restore_work(&b.query_sidecar)?;
+    match initial.resume_work(work, Budget::unlimited()) {
+        QueryResult::Complete(QueryValue::Observation(recovered))
+            if recovered == observation(&initial, PlayerId(0))? => {}
+        _ => return Err("retained query sidecar did not reproduce its observation".into()),
+    }
     let restored = Game::restore(prepared.clone(), &b.announcement_snapshot)?;
     let announcement = Game::replay(prepared.clone(), &b.inputs[..2.min(b.inputs.len())])?;
     if restored.state_digest()? != announcement.state_digest()? {
@@ -247,6 +293,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             serde_json::to_string_pretty(&mtg_contracts::catalog_schema())?
         ),
         Some("compile") if args.len() == 1 => println!("{}", canonical(&fixture_catalog()?)?),
+        Some("observe") if args.len() == 2 => {
+            let viewer = PlayerId(args[1].parse()?);
+            let game = Game::new(Prepared::admit(
+                fixture_catalog()?,
+                ScenarioConfig::land_return(),
+            )?);
+            println!("{}", canonical(&observation(&game, viewer)?)?);
+        }
+        Some("context") if args.len() == 3 => {
+            let viewer = PlayerId(args[1].parse()?);
+            let game = Game::new(Prepared::admit(
+                fixture_catalog()?,
+                ScenarioConfig::land_return(),
+            )?);
+            println!(
+                "{}",
+                canonical(&search_context(&game, viewer, args[2].clone())?)?
+            );
+        }
         Some("report") if args.len() == 1 => {
             for (name, r) in fixtures::RECORDS {
                 println!(
@@ -276,7 +341,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {
             return Err(
-                "usage: mtg-sim schema|compile|report|demo [--bundle DIR]|verify-bundle FILE"
+                "usage: mtg-sim schema|compile|report|observe PLAYER|context PLAYER SEED|demo [--bundle DIR]|verify-bundle FILE"
                     .into(),
             );
         }
@@ -294,7 +359,15 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(report["events"], expected["events"]);
-        assert_eq!(report["state_sha256"], expected["final_state_sha256"]);
+        let p2: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/expected-p2-scenario.json"
+        ))
+        .unwrap();
+        assert_eq!(report["state_sha256"], p2["final_state_sha256"]);
+        let final_snapshot: serde_json::Value =
+            serde_json::from_str(&bundle.final_snapshot).unwrap();
+        assert_eq!(final_snapshot["snapshot_version"], p2["snapshot_version"]);
+        assert_eq!(final_snapshot["state"]["rule_steps"], p2["rule_steps"]);
         assert_eq!(
             serde_json::to_value(&bundle.inputs).unwrap(),
             expected["accepted_inputs"]
@@ -305,7 +378,7 @@ mod tests {
             report["state_sha256"].as_str().unwrap()
         );
         assert!(
-            verify_bundle(&json.replace("\"bundle_version\":1", "\"bundle_version\":2")).is_err()
+            verify_bundle(&json.replace("\"bundle_version\":2", "\"bundle_version\":3")).is_err()
         );
         let mut corrupt: serde_json::Value = serde_json::from_str(&json).unwrap();
         corrupt["source_files"] = serde_json::json!([]);

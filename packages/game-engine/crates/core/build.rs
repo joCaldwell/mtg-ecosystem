@@ -36,7 +36,14 @@ fn main() {
         "cargo:rerun-if-changed={}",
         root.join("packages/game-engine/tests/fixtures").display()
     );
-    files.sort();
+    // The manifest is ordered by serialized path bytes, not PathBuf's
+    // component ordering (which differs once sources have nested modules).
+    files.sort_by_key(|p| {
+        p.strip_prefix(&root)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned()
+    });
     let mut hash = Sha256::new();
     for p in files {
         println!("cargo:rerun-if-changed={}", p.display());

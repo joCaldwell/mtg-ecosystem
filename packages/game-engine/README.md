@@ -3,6 +3,9 @@
 This directory contains the first Rust semantic compiler, deterministic scenario
 kernel, executable contracts, and native scenario CLI. General Commander match
 support, search, and the bulk Card IR pipeline remain later work.
+The current P2 slice adds budget suspension, resumable query work, private
+observations with scoped handles, permitted SearchContext, and recovery during
+payment/resolution. See the [P2 slice contract](../../docs/game-engine-p2-slice.md).
 
 The first slice compiles four frozen source definitions and runs a four-seat
 land-mana / targeted return-to-hand scenario with strict admission, serializable
@@ -31,7 +34,13 @@ cargo run --locked --release -p mtg-sim -- demo --bundle generated/p1-bundles
 `mtg-sim compile` emits the fixture catalog; `schema` exports its generated
 JSON Schema; `report` includes the paired unsupported source definition;
 `verify-bundle <file>` recompiles retained records and checks recovery/replay
-against their pinned build. Replay bundles contain source files and dependency
-lockfiles, not vendored dependencies; offline rebuilding in a clean dependency
-store remains a P2 retention check. `npm run build-ir` still rejects the
+against their pinned build. `observe <player>` and `context <player> <seed>`
+emit player-facing projections of the initial scenario. They do not emit the
+authoritative bundle, snapshots, or internal IDs.
+
+`npm run retain:engine` captures a release bundle and complete vendored dependency
+closure outside the worktree, rebuilds with `cargo --frozen` in an empty Cargo
+home/target directory, and verifies replay with the rebuilt executable. The
+capture phase may download locked dependencies; the rebuild is offline.
+`npm run build-ir` still rejects the
 unimplemented bulk pipeline.

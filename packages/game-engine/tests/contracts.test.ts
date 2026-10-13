@@ -11,8 +11,8 @@ const root = fileURLToPath(new URL("../../../", import.meta.url));
 const fixtureDir = new URL("fixtures/", import.meta.url);
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 const read = (name: string) => fs.readFileSync(new URL(name, fixtureDir), "utf8");
-function run(command: string) {
-  const result = spawnSync("cargo", ["run", "--quiet", "--locked", "-p", "mtg-sim", "--", command], { cwd: root, encoding: "utf8" });
+function run(command: string, ...args: string[]) {
+  const result = spawnSync("cargo", ["run", "--quiet", "--locked", "-p", "mtg-sim", "--", command, ...args], { cwd: root, encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout);
 }
@@ -34,6 +34,27 @@ test("retained archive hashes agree with JavaScript and source parser", () => {
     // Archive interchange is JSON: optional undefined TS properties are absent.
     if (parsed.ok) assert.deepEqual(JSON.parse(JSON.stringify(parsed.abilities)), record.faces[0].result.abilities, record.source.name);
   }
+});
+
+test("player CLI projections keep private card data and recovery fields out", () => {
+  const own = run("observe", "0");
+  const other = run("observe", "1");
+  const spell = JSON.parse(read("unsummon.json")).oracleIdentity;
+  assert.equal(own.view.objects.some((o: any) => o.oracle_id === spell), true);
+  assert.equal(other.view.objects.some((o: any) => o.oracle_id === spell), false);
+  assert.equal(other.view.players[0].hand_count, 1);
+  const context = run("context", "1", "independent-seed");
+  assert.equal(context.sampling_seed, "independent-seed");
+  const forbidden = new Set(["state_sha256", "state", "initial_snapshot", "journal", "incarnation", "rule_steps", "source_json", "frame", "game_seed"]);
+  function check(value: unknown) {
+    if (Array.isArray(value)) value.forEach(check);
+    else if (value !== null && typeof value === "object") {
+      for (const [key, child] of Object.entries(value)) { assert.equal(forbidden.has(key), false, key); check(child); }
+    }
+  }
+  check(own); check(other); check(context);
+  const ownHandles = new Set(own.view.objects.map((o: any) => o.handle));
+  assert.equal(other.view.objects.some((o: any) => ownHandles.has(o.handle)), false);
 });
 
 test("Rust lowering matches reviewed IR and its generated JSON Schema", () => {

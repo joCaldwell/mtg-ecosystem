@@ -64,13 +64,79 @@ the four equivalent tiny runs. These single-run calibration observations
 include a three-object state and do not establish Commander throughput, memory
 capacity, p95 latency, or search performance.
 
+## Budget and observation slice verified on October 13 2026
+
+The [bounded P2 slice](game-engine-p2-slice.md) is implemented. Execution uses
+explicit work budgets and suspends without inventing a game outcome. Observation,
+decision, response-validation, and SearchContext queries resume from actual row
+or stage cursors. Live work and receipts bind to executor and exact state epoch;
+automatic execution invalidates them even when the accepted-input revision stays
+unchanged. Recovered query work recomputes its saved prefix before rebinding.
+
+Player-facing types expose own hands, public objects, and hidden-zone counts,
+using viewer-specific handles that expire on movement or lost visibility.
+Observation history and handle allocation happen during deterministic transitions,
+never queries. SearchContext contains permitted observations/history, open deck
+compositions, public definition/profile identity, and a caller-supplied sampling
+seed. Raw internal IDs, game-state hashes, snapshots, frames, and game seeds are
+absent from these projections. The sampler remains future work.
+
+Snapshot version 2 restores pending inputs and suspended payment/resolution
+frames at the recorded rule-step boundary. The original seven inputs and thirteen
+events remain unchanged. The new state hash includes persisted visibility and
+the ten deterministic rule steps; it is recorded separately from the P1 hash.
+Library, command, and exile zone types are represented without admitting their
+new gameplay. Legal-match mode remains rejected.
+
+Validation completed:
+
+- `npm run check:engine`: formatting, Clippy with warnings denied, 25 Rust tests,
+  and 3 cross-language/CLI projection tests passed.
+- `cargo test --workspace --locked --release`: all 25 Rust tests passed.
+- Execution budgets of 1, 2, 3, 7, and unlimited units produced equal final
+  states/events. Every pending/suspended boundary restored exactly.
+- Query checks covered purity, zero-budget incompleteness versus complete empty
+  domains, stale/foreign work, scoped/stale handles and decision tokens, receipt
+  invalidation, tampered recovery scratch, and equal permitted contexts despite
+  different hidden internal IDs.
+- `npm run retain:engine`: retained 1,581 dependency files and native source
+  closure, rebuilt with `cargo --frozen` in an initially empty Cargo home and
+  target directory, and verified replay plus the observation-query sidecar with
+  the rebuilt executable. Preparing the vendor closure fetched a locked
+  target-specific dependency; the independent rebuild was offline.
+
+Current release identities:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Release build identity | `317ef0d4de787ede292276b47c2b1f6843715f13516ad271af14ff5c03d12772` |
+| Final version-2 state | `ab6e126940e3af4e4847f2e9afdba7a788c9efc388b969faf96b4b678e7aa60f` |
+| Replay bundle | `5af01a788e07ac3e8310d641308d2385b99048e8fe8d3f5fe27d81c96185a3a4` |
+| Rebuilt executable | `ac20768f94483477d024258dafa43c9d491224c24d21b1019e20e656a11d08c4` |
+| Dependency file manifest | `387384711d404f44993e8ab583e269c5105d1cc8b583307e3035f14e03d7474f` |
+
+The catalog and scenario-profile digests are unchanged. Current evidence,
+sources, vendor files, and rebuilt executable are retained in
+`~/.local/share/mtg-ecosystem/engine-evidence/p2-5af01a788e07ac3e-B1D47x/`;
+`evidence.json` records every dependency file hash and verification result.
+The P1 bundle and executable remain separately retained for their original build.
+
+Tiny-scenario release observations: 6,061 ns mean clone-and-dispose; 256 retained
+branches increased process RSS by 12,296,192 bytes; version-2 snapshots encoded
+32,772 bytes. These include the added four-viewer history/knowledge state and
+do not establish representative Commander throughput, memory capacity, or search
+latency. Copying retained histories and journals still grows with run length.
+
 ## Remaining delivery gates
 
-P2 must add bounded/resumable execution and queries, permitted observations and
-visibility handles, SearchContext, general recovery invariants, and dependency
-closure retention/offline rebuilding. Recovery currently replays the small
-scenario to prove reachability, and the core's authoritative getters are for
-trusted orchestration; they are not a player-facing observation API.
+Remaining P2 foundations include Commander designation/damage/cast-history tables,
+live/departed-player history, out-of-band input boundaries and concession handling,
+additional event compositions and trace modes, and wider recovery invariants.
+Recovery still replays the small scenario to prove reachability. Rules work units
+are not wall-clock or process-memory guarantees; larger profiles require measured
+limits and finer resumable work. Core authoritative getters remain trusted host
+APIs; player-facing consumers use the new projection/query types. This slice is
+not full P2 signoff.
 
 P1 contracts also need refinement as later slices arrive: broader source-AST
 schema export, complete printing/membership indexes, structured build/admission

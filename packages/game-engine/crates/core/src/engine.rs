@@ -29,6 +29,12 @@ const ALLOWED: [(&str, &str); 4] = [
         "16d8eee1c1ff1e15cbf4c3ed0cd2e587f5e96986322ace3b2867606dacf5504f",
     ),
 ];
+mod visibility;
+mod work;
+pub use visibility::*;
+pub use work::*;
+#[cfg(test)]
+mod p2_tests;
 
 macro_rules! id {
     ($name:ident,$inner:ty) => {
@@ -52,6 +58,9 @@ pub enum Zone {
     Battlefield,
     Hand { owner: PlayerId },
     Graveyard { owner: PlayerId },
+    Library { owner: PlayerId },
+    Command { owner: PlayerId },
+    Exile,
     Stack,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -337,6 +346,8 @@ pub enum Event {
 #[serde(deny_unknown_fields)]
 struct State {
     revision: u64,
+    rule_steps: u64,
+    visibility: Vec<visibility::Knowledge>,
     players: Vec<Player>,
     cards: BTreeMap<CardId, Card>,
     objects: BTreeMap<CardId, Object>,
@@ -354,10 +365,12 @@ pub struct Game {
     prepared: Prepared,
     state: State,
     executor: Arc<()>,
+    state_token: Arc<()>,
 }
 pub struct ValidatedResponse {
     executor: Arc<()>,
     revision: u64,
+    state_token: Arc<()>,
     input: AcceptedInput,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -374,6 +387,7 @@ pub struct Snapshot {
 pub enum Advance {
     AwaitingDecision(Request),
     Fault(String),
+    Suspended { required_minimum: u64 },
 }
 
 impl Game {
@@ -413,6 +427,8 @@ impl Game {
             .collect();
         let state = State {
             revision: 0,
+            rule_steps: 0,
+            visibility: (0..4).map(|_| visibility::Knowledge::default()).collect(),
             players: (0..4)
                 .map(|_| Player {
                     life: Quantity::from(40),
@@ -431,17 +447,22 @@ impl Game {
             journal: vec![],
             events: vec![],
         };
-        Self {
+        let mut game = Self {
             prepared,
             state,
             executor: Arc::new(()),
-        }
+            state_token: Arc::new(()),
+        };
+        game.refresh_visibility()
+            .expect("admitted initial visibility");
+        game
     }
     pub fn fork(&self) -> Self {
         Self {
             prepared: self.prepared.clone(),
             state: self.state.clone(),
             executor: Arc::new(()),
+            state_token: Arc::new(()),
         }
     }
     pub fn state_digest(&self) -> Result<String, String> {
@@ -604,6 +625,7 @@ impl Game {
         Ok(ValidatedResponse {
             executor: self.executor.clone(),
             revision: self.state.revision,
+            state_token: self.state_token.clone(),
             input: AcceptedInput {
                 decision_id,
                 player,
@@ -614,6 +636,7 @@ impl Game {
     /// Submit is a bounded state transition; automatic rules run in advance.
     pub fn submit(&mut self, receipt: ValidatedResponse) -> Result<(), String> {
         if !Arc::ptr_eq(&receipt.executor, &self.executor)
+            || !Arc::ptr_eq(&receipt.state_token, &self.state_token)
             || receipt.revision != self.state.revision
             || self.state.pending.is_some()
         {
@@ -624,9 +647,13 @@ impl Game {
             .revision
             .checked_add(1)
             .ok_or("structural revision resource limit")?;
-        self.state.journal.push(receipt.input.clone());
-        self.state.pending = Some(receipt.input);
-        self.state.revision = revision;
+        let mut next = self.fork();
+        next.state.journal.push(receipt.input.clone());
+        next.state.pending = Some(receipt.input);
+        next.state.revision = revision;
+        next.refresh_visibility()?;
+        self.state = next.state;
+        self.state_token = Arc::new(());
         Ok(())
     }
     pub fn respond(
@@ -638,7 +665,7 @@ impl Game {
         let r = self.check_response(player, decision_id, response)?;
         self.submit(r)
     }
-    pub fn advance(&mut self) -> Advance {
+    pub fn advance(&mut self, mut budget: Budget) -> Advance {
         loop {
             if let Frame::Fault { reason } = &self.state.frame {
                 return Advance::Fault(reason.clone());
@@ -662,6 +689,11 @@ impl Game {
                     _ => Advance::Fault("missing current decision".into()),
                 };
             }
+            if !budget.consume() {
+                return Advance::Suspended {
+                    required_minimum: 1,
+                };
+            }
             // A rules step commits atomically. Resource/invariant failures retain
             // its pre-step state and become faults, never wins/losses/draws.
             let mut next = self.fork();
@@ -669,9 +701,18 @@ impl Game {
                 self.state.frame = Frame::Fault {
                     reason: reason.clone(),
                 };
+                self.state_token = Arc::new(());
+                return Advance::Fault(reason);
+            }
+            let Some(steps) = next.state.rule_steps.checked_add(1) else {
+                return Advance::Fault("execution boundary resource limit".into());
+            };
+            next.state.rule_steps = steps;
+            if let Err(reason) = next.refresh_visibility() {
                 return Advance::Fault(reason);
             }
             self.state = next.state;
+            self.state_token = Arc::new(());
         }
     }
     fn step(&mut self) -> Result<(), String> {
@@ -1045,7 +1086,7 @@ impl Game {
     }
     pub fn snapshot(&self) -> Result<String, String> {
         canonical(&Snapshot {
-            snapshot_version: 1,
+            snapshot_version: 2,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             profile_digest: self.prepared.profile_digest.clone(),
@@ -1055,7 +1096,7 @@ impl Game {
     }
     pub fn restore(prepared: Prepared, json: &str) -> Result<Self, String> {
         let s: Snapshot = strict_read(json)?;
-        if s.snapshot_version != 1
+        if s.snapshot_version != 2
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -1067,22 +1108,38 @@ impl Game {
             prepared,
             state: s.state,
             executor: Arc::new(()),
+            state_token: Arc::new(()),
         };
         game.validate_state()?;
         // The first profile is tiny: verify reachability by replay rather than
         // accepting a rehashed arbitrary state through the recovery API.
-        let replayed = if game.state.pending.is_some() {
-            let (last, prefix) = game
+        let mut replayed = Self::new(game.prepared.clone());
+        for input in &game.state.journal {
+            let remaining = game
                 .state
-                .journal
-                .split_last()
-                .ok_or("pending input has no journal entry")?;
-            let mut replay = Self::replay(game.prepared.clone(), prefix)?;
-            replay.respond(last.player, last.decision_id, last.response.clone())?;
-            replay
-        } else {
-            Self::replay(game.prepared.clone(), &game.state.journal)?
-        };
+                .rule_steps
+                .checked_sub(replayed.state.rule_steps)
+                .ok_or("snapshot boundary precedes journal")?;
+            let Advance::AwaitingDecision(request) = replayed.advance(Budget::new(remaining))
+            else {
+                return Err("snapshot journal exceeds execution boundary".into());
+            };
+            if request.player() != input.player || request.decision_id() != input.decision_id {
+                return Err("snapshot journal decision mismatch".into());
+            }
+            replayed.respond(input.player, input.decision_id, input.response.clone())?;
+        }
+        let remaining = game
+            .state
+            .rule_steps
+            .checked_sub(replayed.state.rule_steps)
+            .ok_or("snapshot boundary mismatch")?;
+        let _ = replayed.advance(Budget::new(remaining));
+        if matches!(game.state.frame, Frame::Fault { .. })
+            && !matches!(replayed.state.frame, Frame::Fault { .. })
+        {
+            let _ = replayed.advance(Budget::new(1));
+        }
         if replayed.state != game.state {
             return Err("snapshot is not reachable from this scenario's accepted inputs".into());
         }
@@ -1091,6 +1148,7 @@ impl Game {
     fn validate_state(&self) -> Result<(), String> {
         let s = &self.state;
         if s.players.len() != 4
+            || s.visibility.len() != 4
             || s.active != PlayerId(0)
             || s.priority.0 >= 4
             || s.passes >= 4
@@ -1195,14 +1253,14 @@ impl Game {
     pub fn replay(prepared: Prepared, inputs: &[AcceptedInput]) -> Result<Self, String> {
         let mut game = Self::new(prepared);
         for input in inputs {
-            match game.advance() {
+            match game.advance(Budget::unlimited()) {
                 Advance::AwaitingDecision(r)
                     if r.decision_id() == input.decision_id && r.player() == input.player => {}
                 _ => return Err("replay decision mismatch".into()),
             }
             game.respond(input.player, input.decision_id, input.response.clone())?;
         }
-        if let Advance::Fault(e) = game.advance() {
+        if let Advance::Fault(e) = game.advance(Budget::unlimited()) {
             return Err(e);
         }
         Ok(game)
@@ -1220,7 +1278,7 @@ mod tests {
         .unwrap()
     }
     fn respond(game: &mut Game, response: Response) {
-        let Advance::AwaitingDecision(r) = game.advance() else {
+        let Advance::AwaitingDecision(r) = game.advance(Budget::unlimited()) else {
             panic!("expected decision")
         };
         game.respond(r.player(), r.decision_id(), response).unwrap();
@@ -1244,7 +1302,10 @@ mod tests {
         for _ in 0..4 {
             respond(game, Response::Pass);
         }
-        assert!(matches!(game.advance(), Advance::AwaitingDecision(_)));
+        assert!(matches!(
+            game.advance(Budget::unlimited()),
+            Advance::AwaitingDecision(_)
+        ));
     }
     #[test]
     fn complete_source_scenario_preserves_owner_and_incarnations() {
@@ -1270,7 +1331,7 @@ mod tests {
         let p = prepared();
         let mut game = Game::new(p.clone());
         cast(&mut game);
-        let _ = game.advance();
+        let _ = game.advance(Budget::unlimited());
         let mut restored = Game::restore(p.clone(), &game.snapshot().unwrap()).unwrap();
         let mut fork = game.fork();
         let response = Response::Targets {
@@ -1321,7 +1382,7 @@ mod tests {
         );
         assert_eq!(game.state_digest().unwrap(), before);
         cast(&mut game);
-        let _ = game.advance();
+        let _ = game.advance(Budget::unlimited());
         let before = game.state_digest().unwrap();
         assert!(
             game.respond(
@@ -1352,7 +1413,7 @@ mod tests {
                 }],
             },
         );
-        let _ = game.advance();
+        let _ = game.advance(Budget::unlimited());
         assert_eq!(game.zone(original), Some(Zone::Hand { owner: PlayerId(0) }));
         assert!(game.state.stack.is_empty());
         assert_eq!(game.journal().len(), 2);
@@ -1367,7 +1428,7 @@ mod tests {
     fn pending_accepted_input_survives_restore_and_rehashed_impossible_state_rejects() {
         let p = prepared();
         let mut game = Game::new(p.clone());
-        let Advance::AwaitingDecision(request) = game.advance() else {
+        let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
             panic!("expected decision")
         };
         game.respond(
@@ -1383,8 +1444,8 @@ mod tests {
         .unwrap();
         let mut restored = Game::restore(p.clone(), &game.snapshot().unwrap()).unwrap();
         assert_eq!(game.state, restored.state);
-        let _ = game.advance();
-        let _ = restored.advance();
+        let _ = game.advance(Budget::unlimited());
+        let _ = restored.advance(Budget::unlimited());
         assert_eq!(game.state, restored.state);
         let mut snapshot: Snapshot = strict_read(&game.snapshot().unwrap()).unwrap();
         snapshot.state.players[0]
@@ -1435,14 +1496,14 @@ mod tests {
                 ],
             },
         );
-        let _ = game.advance();
+        let _ = game.advance(Budget::unlimited());
         // Test-only inaccessible mutation makes one occurrence stale. Both
         // blocks still share one resolution legality check and stack object.
         game.state.stack.last_mut().unwrap().targets[0].incarnation = 99;
         for _ in 0..4 {
             respond(&mut game, Response::Pass);
         }
-        let _ = game.advance();
+        let _ = game.advance(Budget::unlimited());
         assert_eq!(
             game.state.objects[&CardId(2)].zone,
             Zone::Hand { owner: PlayerId(1) }
@@ -1475,7 +1536,7 @@ mod tests {
                 }],
             },
         );
-        let _ = game.advance();
+        let _ = game.advance(Budget::unlimited());
         let target = game.object_id(CardId(2)).unwrap();
         let moved = game
             .move_object(target, Zone::Hand { owner: PlayerId(1) })
@@ -1485,7 +1546,7 @@ mod tests {
         for _ in 0..4 {
             respond(&mut game, Response::Pass);
         }
-        let _ = game.advance();
+        let _ = game.advance(Budget::unlimited());
         assert_eq!(game.state.objects[&CardId(2)].zone, Zone::Battlefield);
         assert!(matches!(
             game.events().last(),

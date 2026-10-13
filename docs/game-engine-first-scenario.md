@@ -4,6 +4,8 @@ Status: **P0 inputs frozen, 2026-10-13; initial P1 scenario implemented**.
 This work delivers a native, four-seat source-to-runtime scenario. Complete
 Commander matches, broader card support, and search remain later gates in the
 [implementation plan](game-engine-plan.md).
+The subsequent [P2 slice](game-engine-p2-slice.md) adds budgets, private
+observations, query recovery, and offline retained rebuilding on this same pool.
 
 ## Frozen inputs and product choices
 
