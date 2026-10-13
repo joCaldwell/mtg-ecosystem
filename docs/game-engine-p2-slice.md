@@ -75,5 +75,7 @@ The subsequent [departure slice](game-engine-departure-slice.md) implements
 departure history, Commander identity/history tables, and boundary-ordered
 concessions. It advances snapshots to version 3 and observations/contexts to
 version 2; the version-2 snapshot/hash above remains historical evidence.
-Additional event compositions and broader recovery invariants remain work. This delivery is
+The next [event slice](game-engine-event-slice.md) adds atomic compositions and
+three nonsemantic trace modes, advancing snapshots/bundles to version 4.
+Broader recovery and interaction invariants remain work. This delivery is
 not full P2 signoff. No user decision blocks it.

@@ -9,6 +9,9 @@ payment/resolution. See the [P2 slice contract](../../docs/game-engine-p2-slice.
 The next [bounded departure slice](../../docs/game-engine-departure-slice.md)
 adds physical Commander history, surviving turn/priority state, and ordered
 concessions with recovery through casting and resolution.
+The [event slice](../../docs/game-engine-event-slice.md) adds atomic ordered and
+independent simultaneous batches, pre-event facts, typed occurrence results, and
+off/compact/detailed tracing with equal semantic hashes.
 
 The compiler now emits five frozen source definitions and runs a four-seat
 land-mana / targeted return-to-hand scenario with strict admission, serializable
@@ -38,7 +41,9 @@ cargo run --locked --release -p mtg-sim -- demo --bundle generated/p2-bundles
 JSON Schema; `report` includes the paired unsupported source definition;
 `verify-bundle <file>` recompiles retained records and checks recovery/replay
 against their pinned build. The demo bundle includes both scenarios and thirteen
-departure recovery checkpoints. `observe <player>` and `context <player> <seed>`
+departure recovery checkpoints, plus both scenarios in all three trace modes.
+Native trace evidence is separate from semantic state and remains trusted host
+data; only detailed mode retains the flat `events()` compatibility stream. `observe <player>` and `context <player> <seed>`
 emit player-facing projections of the initial scenario. They do not emit the
 authoritative bundle, snapshots, or internal IDs.
 

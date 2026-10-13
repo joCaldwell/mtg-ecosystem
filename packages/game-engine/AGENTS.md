@@ -4,7 +4,10 @@ Rust owns contracts, offline compilation, deterministic core, and the scenario
 CLI. Read `docs/game-engine-first-scenario.md` for frozen inputs and restrictions.
 The current follow-up contracts are `docs/game-engine-p2-slice.md` and
 `docs/game-engine-departure-slice.md`; the latter adds the exact Isamaru scenario,
-IR v2, snapshot v3, and bundle v3. This package is scenario-only; do not advertise playable Commander matches.
+IR v2 and the exact Isamaru profile. The next contract is
+`docs/game-engine-event-slice.md`: atomic event groups, nonsemantic trace modes,
+and snapshot/bundle v4. This package is scenario-only; do not advertise playable
+Commander matches.
 
 Run from repository root, using pinned Rust 1.99.0:
 
@@ -51,3 +54,10 @@ Keep original seating, departed-player facts, and physical Commander history.
 Default control is separate from ownership and explicit control grants.
 Command-zone casting and combat damage remain unsupported; ledger domain tests
 do not constitute production lifecycle or combat support.
+
+Batch mutation is private and atomic. Capture consumed pre-event facts and use
+actual typed outcome slots. Simultaneous groups admit independent read/write
+footprints only; general event/replacement interactions remain unsupported.
+`Game::with_trace` selects off, compact, or detailed retention. Diagnostics never
+enter semantic hashes or player projections. Native `events()` is populated only
+in detailed mode; `trace()` is trusted evidence, not a client stream.

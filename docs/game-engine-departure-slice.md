@@ -1,5 +1,8 @@
 # Commander state and multiplayer departure
 
+The follow-up [event contract](game-engine-event-slice.md) advances snapshots
+and bundles to version 4, preserving the departure behavior and flat trace.
+
 Scope frozen October 13 2026. Extend the existing scenario kernel with physical
 commander identity/history, original seating and live-player state, explicit
 default/control-effect provenance, and out-of-band concessions. Legal Commander

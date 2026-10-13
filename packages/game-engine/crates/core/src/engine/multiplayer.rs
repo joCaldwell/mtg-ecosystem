@@ -235,6 +235,7 @@ impl Game {
         next.state.revision = revision;
         next.refresh_visibility()?;
         self.state = next.state;
+        self.trace = next.trace;
         self.state_token = Arc::new(());
         Ok(())
     }
@@ -256,13 +257,13 @@ impl Game {
         self.state.pending = None;
         self.state.frame = Frame::Priority;
         self.state.priority = stack.controller;
-        self.state.events.push(Event::CastReversed {
+        self.record_event(Event::CastReversed {
             stack_id: cast.stack_id,
             reason: "departure made casting targets illegal".into(),
-        });
+        })?;
         Ok(())
     }
-    fn refresh_controllers(&mut self) -> Result<(), String> {
+    fn refresh_controllers(&mut self, departing: PlayerId) -> Result<(), String> {
         // CR 110.2, 800.4a-c: ending a grant restores the latest remaining
         // grant or the default controller, never ownership as a substitute.
         let objects = self
@@ -282,18 +283,22 @@ impl Game {
                 .map(|e| e.controller)
                 .unwrap_or(object.default_controller);
             if !self.is_live(controller) {
-                self.move_object(object.id, Zone::Exile)?;
+                self.move_object_for(
+                    object.id,
+                    Zone::Exile,
+                    BatchCause::Departure { player: departing },
+                )?;
             } else if controller != object.controller {
                 self.state
                     .objects
                     .get_mut(&object.id.card)
                     .ok_or("missing control object")?
                     .controller = controller;
-                self.state.events.push(Event::ControlChanged {
+                self.record_event(Event::ControlChanged {
                     object: object.id,
                     previous: object.controller,
                     controller,
-                });
+                })?;
             }
         }
         Ok(())
@@ -308,7 +313,7 @@ impl Game {
         };
         self.state.players[player.0 as usize].last_known = Some(last);
         self.state.players[player.0 as usize].status = PlayerStatus::Left;
-        self.state.events.push(Event::PlayerDeparted { player });
+        self.record_event(Event::PlayerDeparted { player })?;
         // Owned objects leave, not a graveyard move and not an SBA (800.4a).
         let removed = self
             .state
@@ -317,12 +322,19 @@ impl Game {
             .filter(|o| self.state.cards[&o.id.card].owner == player)
             .map(|o| o.id)
             .collect::<Vec<_>>();
-        for id in &removed {
-            self.state.objects.remove(&id.card);
-            self.state.events.push(Event::ObjectLeftGame {
-                object: *id,
-                owner: player,
-            });
+        if !removed.is_empty() {
+            self.commit_batch(
+                BatchCause::Departure { player },
+                EventGroup::Simultaneous {
+                    occurrences: removed
+                        .iter()
+                        .map(|object| ProposedEvent::LeaveGame {
+                            object: *object,
+                            departing_owner: player,
+                        })
+                        .collect(),
+                },
+            )?;
         }
         let ended = self
             .state
@@ -339,11 +351,9 @@ impl Game {
             .control_effects
             .retain(|e| !ended.contains(&e.id));
         for id in ended {
-            self.state
-                .events
-                .push(Event::ControlEffectEnded { effect_id: id });
+            self.record_event(Event::ControlEffectEnded { effect_id: id })?;
         }
-        self.refresh_controllers()?;
+        self.refresh_controllers(player)?;
         let lost_stack = self
             .state
             .stack
@@ -353,10 +363,10 @@ impl Game {
             .collect::<Vec<_>>();
         self.state.stack.retain(|s| !lost_stack.contains(&s.id));
         for stack_id in &lost_stack {
-            self.state.events.push(Event::StackRemovedForDeparture {
+            self.record_event(Event::StackRemovedForDeparture {
                 stack_id: *stack_id,
                 player,
-            });
+            })?;
         }
         if self.state.active == Some(player) {
             self.state.active = None;
@@ -379,7 +389,7 @@ impl Game {
             self.state.pending = None;
             self.state.frame = Frame::Finished { winner };
             self.state.priority = winner;
-            self.state.events.push(Event::GameWon { winner });
+            self.record_event(Event::GameWon { winner })?;
             return Ok(());
         }
         if !lost_stack.is_empty()
@@ -413,8 +423,9 @@ impl Game {
         prepared: Prepared,
         journal: &ReplayJournal,
         boundary: Option<u64>,
+        mode: TraceMode,
     ) -> Result<Self, String> {
-        let mut game = Self::new(prepared);
+        let mut game = Self::with_trace(prepared, mode);
         let mut external = 0;
         for index in 0..=journal.decisions.len() {
             while external < journal.concessions.len()

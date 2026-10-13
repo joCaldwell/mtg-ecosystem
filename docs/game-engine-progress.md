@@ -162,7 +162,7 @@ thirteen exact recovery checkpoints, and ends with P1 winning. Its state hash is
 `5aa8dca40556c64ca229a4c091fac00cce9faf60413da89fcd9ac0c985a17998`.
 Reviewed trace/state witnesses are in `expected-departure-scenario.json`.
 
-Current native release retention:
+Departure-slice release retention:
 
 - Build: `91db7bf35112686e578fa931607a2c851e9affcab369167feeb7df4f1b868cfd`.
 - Catalog: `7ca94c66fd9c8d1884fa13ccbd5066f0d62c2ed08c0c67d741f4b260d6b92a66`.
@@ -173,16 +173,73 @@ Current native release retention:
 - Executable: `2cba0516b0a69f85a1a36475feeea8209219096c2abad656a17ded4e8f6dcdb7`.
 
 Retained closure: `/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-68b7847d11c977f3-VMkaSX/`.
-The evidence manifest is `evidence.json` there and
-`generated/p2-retention.json` in this worktree. Generated artifacts stay ignored.
+The historical evidence manifest is `evidence.json` there.
+`generated/p2-retention.json` points to the most recent capture in this worktree. Generated artifacts stay ignored.
 For this tiny scenario, 256 retained branches increased RSS by 13,217,792 bytes
 and snapshots encoded 38,037 bytes. These observations are not representative
 Commander performance or memory guarantees.
 
+## Atomic events and trace modes — October 13, 2026
+
+The [event brief](game-engine-event-slice.md) is implemented without adding any
+card definitions or IR vocabulary. Private batch commits capture root/occurrence
+pre-state, typed cause/rule references, hierarchy paths, and actual outcome slots.
+Intrinsic mana is one ordered tap/add batch; casting, payment, instructions and
+completion use singleton batches. Owned objects leaving during departure form
+one simultaneous removal batch. Independent simultaneous writes use a common
+pre-view; conflicting dependencies, empty/oversized groups, stale IDs, negative
+payments, wrong zone owners, and structural overflow reject atomically.
+General replacements, triggers, simultaneous damage, and SBA batches remain
+unsupported. No public batch mutation API bypasses legality.
+
+Diagnostic traces now live outside semantic state. `off` retains no evidence,
+`compact` retains a rolling verification digest/count, and `detailed` adds records
+and the unchanged flat events. Logical counters and typed results are shared by
+all modes; player observations and state hashes do not contain trace payloads.
+Snapshot/bundle v4 verify semantic state and diagnostic evidence independently by
+exact-boundary replay. IR and player projection formats stay at version 2.
+
+Validation: `npm run check:engine` passed formatting, Clippy, **45 Rust tests**
+and **3 Node cross-language checks**. Tests compare all three modes at nineteen
+pending/suspended departure boundaries and multiple execution-budget partitions,
+check rollback and branch isolation, and reject forged diagnostic recovery.
+The native bundle contains all six scenario/mode runs, the original source/IR
+closure, thirteen departure checkpoints, and the saved query-work sidecar.
+The seven-input/thirteen-event P1 trace and prior departure flat trace remain
+unchanged. New witnesses are retained in `expected-event-scenario.json`:
+
+- Baseline state: `f24c5dcc785a849ef7d58e373734c9b74465541bae5d641288be982cc56eb922`.
+- Departure state: `8908bda0c86d8e0b34b95b3be52f1ae0b2ab9f353ca9721d8f0ba561d321a806`.
+
+`cargo test --workspace --locked --release` passed the same 45 Rust tests.
+`npm run retain:engine` rebuilt the source/dependency closure with `cargo --frozen`
+in an initially empty Cargo home and a fresh target directory. The rebuilt
+executable verified all six scenario/mode runs, thirteen detailed departure
+checkpoints, source-to-IR equality, and the query-work sidecar. The vendored
+closure still contains 1,581 files. Current native release retention:
+
+- Build: `4adc62121fe1a2db9a8222912b58856427a6f1c360296b5bf39b2496dd41b0c9`.
+- Catalog: `7ca94c66fd9c8d1884fa13ccbd5066f0d62c2ed08c0c67d741f4b260d6b92a66` (unchanged).
+- Baseline profile: `758cade50b263c744cd7dc5db08f20685496f73f82adacb8a57da8dfff942272` (unchanged).
+- Bundle: `ba07fea135b0bf0fdfcb5217e1a47245d902cce5af7698f0bc1fb7dd88d74620`.
+- Dependency manifest: `387384711d404f44993e8ab583e269c5105d1cc8b583307e3035f14e03d7474f`.
+- Rebuilt executable: `90da901395700b110b9c70bb5a85cd3df4ee165fc17c9c6d31a292f5c8f3da07`.
+
+Retained closure: `/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-ba07fea135b0bf0f-vzMiV8/`.
+Its `evidence.json` contains the offline verification and dependency checksums;
+`generated/p2-retention.json` is the current worktree summary. These remain
+ignored. Baseline snapshots encode 36,353 bytes off,
+36,443 compact, and 48,447 detailed. These are artifact-size
+observations for the tiny fixture, not representative Commander memory/latency
+limits. Histories, snapshots, and cloning still grow with run length.
+This advances P2 foundations; it is not full P2 signoff or legal-match support.
+
 ## Remaining delivery gates
 
-Remaining P2 foundations include additional event compositions and trace modes,
-and wider recovery invariants. Commander designation/history and departure
+Remaining P2 foundations include broader functioning-zone/ability discovery,
+interaction-specific event compositions, and wider recovery invariants.
+Atomic batches and the three trace modes are implemented for the closed profiles;
+replacement/trigger/SBA consumers still need their own source/runtime slices. Commander designation/history and departure
 foundations are implemented in the bounded follow-up described above; production
 command-zone casts and actual combat damage remain later mechanics.
 Recovery still replays the small scenario to prove reachability. Rules work units

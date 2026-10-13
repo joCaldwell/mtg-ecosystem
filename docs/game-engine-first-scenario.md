@@ -2,7 +2,9 @@
 
 The follow-up [Commander/departure contract](game-engine-departure-slice.md)
 adds Isamaru to the exact reviewed catalog and advances IR to version 2 and
-snapshots to version 3. The original gameplay trace below remains unchanged;
+snapshots to version 3. The subsequent [event slice](game-engine-event-slice.md)
+uses snapshot/bundle version 4 with separate diagnostic evidence. The original
+gameplay trace below remains unchanged;
 its earlier version/hash evidence is historical.
 
 Status: **P0 inputs frozen, 2026-10-13; initial P1 scenario implemented**.

@@ -45,7 +45,7 @@ test("player CLI projections keep private card data and recovery fields out", ()
   assert.equal(other.view.players[0].hand_count, 1);
   const context = run("context", "1", "independent-seed");
   assert.equal(context.sampling_seed, "independent-seed");
-  const forbidden = new Set(["state_sha256", "state", "initial_snapshot", "journal", "incarnation", "rule_steps", "source_json", "frame", "game_seed"]);
+  const forbidden = new Set(["state_sha256", "state", "initial_snapshot", "journal", "incarnation", "rule_steps", "source_json", "frame", "game_seed", "trace", "verification", "batch_id", "next_batch_id", "next_event_sequence", "before"]);
   function check(value: unknown) {
     if (Array.isArray(value)) value.forEach(check);
     else if (value !== null && typeof value === "object") {

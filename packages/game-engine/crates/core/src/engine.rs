@@ -34,6 +34,10 @@ const ALLOWED: [(&str, &str); 5] = [
         "83c5d4c810e25b84f607f9c8b99b5179abf39e060d093cd7dd38c0be90a8a083",
     ),
 ];
+mod events;
+mod trace;
+pub use events::*;
+pub use trace::*;
 mod multiplayer;
 pub use multiplayer::*;
 mod visibility;
@@ -42,6 +46,8 @@ pub use visibility::*;
 pub use work::*;
 #[cfg(test)]
 mod departure_tests;
+#[cfg(test)]
+mod event_tests;
 #[cfg(test)]
 mod p2_tests;
 
@@ -55,7 +61,7 @@ macro_rules! id {
 id!(PlayerId, u8);
 id!(CardId, u32);
 id!(StackId, u32);
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObjectId {
     pub card: CardId,
@@ -310,6 +316,10 @@ pub enum ProposedEvent {
         object: ObjectId,
         destination: Zone,
     },
+    LeaveGame {
+        object: ObjectId,
+        departing_owner: PlayerId,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -322,6 +332,10 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    LeftGame {
+        object: ObjectId,
+        owner: PlayerId,
+    },
     Tapped {
         object: ObjectId,
     },
@@ -416,11 +430,13 @@ struct State {
     frame: Frame,
     pending: Option<AcceptedInput>,
     journal: Vec<AcceptedInput>,
-    events: Vec<Event>,
+    next_batch_id: u64,
+    next_event_sequence: u64,
 }
 pub struct Game {
     prepared: Prepared,
     state: State,
+    trace: TraceEvidence,
     executor: Arc<()>,
     state_token: Arc<()>,
 }
@@ -439,6 +455,7 @@ pub struct Snapshot {
     profile_digest: String,
     state_sha256: String,
     state: State,
+    trace: TraceEvidence,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Advance {
@@ -512,11 +529,13 @@ impl Game {
             frame: Frame::Priority,
             pending: None,
             journal: vec![],
-            events: vec![],
+            next_batch_id: 0,
+            next_event_sequence: 0,
         };
         let mut game = Self {
             prepared,
             state,
+            trace: Self::initial_trace(),
             executor: Arc::new(()),
             state_token: Arc::new(()),
         };
@@ -530,6 +549,7 @@ impl Game {
         Self {
             prepared: self.prepared.clone(),
             state: self.state.clone(),
+            trace: self.trace.clone(),
             executor: Arc::new(()),
             state_token: Arc::new(()),
         }
@@ -538,7 +558,10 @@ impl Game {
         digest(&self.state)
     }
     pub fn events(&self) -> &[Event] {
-        &self.state.events
+        &self.trace.events
+    }
+    pub fn config(&self) -> &ScenarioConfig {
+        self.prepared.config()
     }
     pub fn journal(&self) -> &[AcceptedInput] {
         &self.state.journal
@@ -722,6 +745,7 @@ impl Game {
         next.state.revision = revision;
         next.refresh_visibility()?;
         self.state = next.state;
+        self.trace = next.trace;
         self.state_token = Arc::new(());
         Ok(())
     }
@@ -785,6 +809,7 @@ impl Game {
                 return Advance::Fault(reason);
             }
             self.state = next.state;
+            self.trace = next.trace;
             self.state_token = Arc::new(());
         }
     }
@@ -806,13 +831,28 @@ impl Game {
                             .mana_abilities(object)?
                             .first()
                             .ok_or("missing intrinsic mana ability")?;
-                        self.commit(ProposedEvent::Tap { object })?;
-                        self.commit(ProposedEvent::AddMana {
-                            player: input.player,
-                            color,
-                            amount: Quantity::from(1),
-                            source: object,
-                        })?;
+                        self.commit_batch(
+                            BatchCause::ManaActivation {
+                                decision_id: input.decision_id,
+                                player: input.player,
+                                source: object,
+                            },
+                            EventGroup::Ordered {
+                                children: vec![
+                                    EventGroup::Occurrence {
+                                        proposed: ProposedEvent::Tap { object },
+                                    },
+                                    EventGroup::Occurrence {
+                                        proposed: ProposedEvent::AddMana {
+                                            player: input.player,
+                                            color,
+                                            amount: Quantity::from(1),
+                                            source: object,
+                                        },
+                                    },
+                                ],
+                            },
+                        )?;
                         self.state.passes.clear();
                         self.stabilize()?;
                     }
@@ -829,10 +869,18 @@ impl Game {
                             .next_stack_id
                             .checked_add(1)
                             .ok_or("stack ID resource limit")?;
-                        self.state
-                            .events
-                            .push(Event::SpellProposed { card, stack_id: id });
-                        let source = self.move_object(original_object, Zone::Stack)?.successor;
+                        self.record_event(Event::SpellProposed { card, stack_id: id })?;
+                        let source = self
+                            .move_object_for(
+                                original_object,
+                                Zone::Stack,
+                                BatchCause::Casting {
+                                    stack_id: id,
+                                    player: input.player,
+                                    source: original_object,
+                                },
+                            )?
+                            .successor;
                         self.state.stack.push(StackInstance {
                             id,
                             source,
@@ -852,9 +900,9 @@ impl Game {
                         self.state.passes.clear();
                     }
                     Response::Pass => {
-                        self.state.events.push(Event::PriorityPassed {
+                        self.record_event(Event::PriorityPassed {
                             player: input.player,
-                        });
+                        })?;
                         self.state.passes.push(input.player);
                         // CR 117.4 applies to the current live player set.
                         if self.all_live_passed() {
@@ -905,22 +953,28 @@ impl Game {
                     o.controller = stack.controller;
                     o.default_controller = stack.controller;
                     o.tapped = false;
-                    self.state.events.push(Event::CastReversed {
+                    self.record_event(Event::CastReversed {
                         stack_id: cast.stack_id,
                         reason: "insufficient mana".into(),
-                    });
+                    })?;
                     self.state.priority = stack.controller;
                     self.state.frame = Frame::Priority;
                     self.stabilize()?;
                 } else {
-                    self.commit(ProposedEvent::PayMana {
-                        player: stack.controller,
-                        cost: cost.clone(),
-                    })?;
+                    self.commit(
+                        ProposedEvent::PayMana {
+                            player: stack.controller,
+                            cost: cost.clone(),
+                        },
+                        BatchCause::Payment {
+                            stack_id: cast.stack_id,
+                            player: stack.controller,
+                        },
+                    )?;
                     self.state.stack.last_mut().ok_or("missing stack")?.paid = Some(cost);
-                    self.state.events.push(Event::SpellCast {
+                    self.record_event(Event::SpellCast {
                         stack_id: cast.stack_id,
-                    });
+                    })?;
                     self.state.commanders.record_cast(
                         stack.source.card,
                         stack.controller,
@@ -941,7 +995,10 @@ impl Game {
                     self.finish_spell(&stack, false)?;
                 } else if let Some(instruction) = program.instructions.get(frame.cursor as usize) {
                     match instruction {
-                        Instruction::ReturnToOwnerHand { target_slot, .. } => {
+                        Instruction::ReturnToOwnerHand {
+                            target_slot,
+                            source_block,
+                        } => {
                             let target = stack.targets[*target_slot as usize];
                             let outcome = if !frame.legal_targets[*target_slot as usize] {
                                 InstructionOutcome::IllegalTarget { target }
@@ -950,7 +1007,17 @@ impl Game {
                             } else {
                                 let owner = self.state.cards[&target.card].owner;
                                 InstructionOutcome::Moved {
-                                    movement: self.move_object(target, Zone::Hand { owner })?,
+                                    movement: self.move_object_for(
+                                        target,
+                                        Zone::Hand { owner },
+                                        BatchCause::Instruction {
+                                            stack_id: stack.id,
+                                            player: stack.controller,
+                                            source: stack.source,
+                                            cursor: frame.cursor,
+                                            source_block: *source_block,
+                                        },
+                                    )?,
                                 }
                             };
                             frame.outcomes.push(outcome);
@@ -972,12 +1039,20 @@ impl Game {
     }
     fn finish_spell(&mut self, stack: &StackInstance, resolved: bool) -> Result<(), String> {
         let owner = self.state.cards[&stack.source.card].owner;
-        self.move_object(stack.source, Zone::Graveyard { owner })?;
+        self.move_object_for(
+            stack.source,
+            Zone::Graveyard { owner },
+            BatchCause::SpellCompletion {
+                stack_id: stack.id,
+                player: stack.controller,
+                source: stack.source,
+            },
+        )?;
         self.state.stack.pop();
-        self.state.events.push(Event::SpellCompleted {
+        self.record_event(Event::SpellCompleted {
             stack_id: stack.id,
             resolved,
-        });
+        })?;
         self.state.frame = Frame::Priority;
         self.state.priority = self
             .state
@@ -1016,123 +1091,6 @@ impl Game {
         }
         Ok(pool)
     }
-    fn move_object(&mut self, object: ObjectId, destination: Zone) -> Result<MoveOutcome, String> {
-        match self.commit(ProposedEvent::Move {
-            object,
-            destination,
-        })? {
-            EventOutcome::Moved { movement } => Ok(movement),
-            _ => Err("movement outcome invariant".into()),
-        }
-    }
-    fn commit(&mut self, proposed: ProposedEvent) -> Result<EventOutcome, String> {
-        // The admitted profile has no replacement/prevention/trigger abilities.
-        // All future registries extend this same proposal/result path.
-        let actual = match &proposed {
-            ProposedEvent::Tap { object } => {
-                let o = self.current(*object)?;
-                if o.zone != Zone::Battlefield || o.tapped {
-                    return Err("invalid tap event".into());
-                }
-                self.state
-                    .objects
-                    .get_mut(&object.card)
-                    .ok_or("missing tap object")?
-                    .tapped = true;
-                EventOutcome::Tapped { object: *object }
-            }
-            ProposedEvent::AddMana {
-                player,
-                color,
-                amount,
-                source,
-            } => {
-                self.current(*source)?;
-                if amount.is_negative() {
-                    return Err("negative mana event".into());
-                }
-                self.state
-                    .players
-                    .get_mut(player.0 as usize)
-                    .ok_or("missing mana player")?
-                    .mana
-                    .entry(*color)
-                    .or_default()
-                    .add(amount);
-                EventOutcome::ManaAdded {
-                    player: *player,
-                    color: *color,
-                    amount: amount.clone(),
-                }
-            }
-            ProposedEvent::PayMana { player, cost } => {
-                let pool = self.payment_pool(*player, cost)?;
-                self.state
-                    .players
-                    .get_mut(player.0 as usize)
-                    .ok_or("missing payment player")?
-                    .mana = pool;
-                EventOutcome::ManaPaid {
-                    player: *player,
-                    cost: cost.clone(),
-                }
-            }
-            ProposedEvent::Move {
-                object,
-                destination,
-            } => {
-                let o = self.current(*object)?.clone();
-                let owner = self
-                    .state
-                    .cards
-                    .get(&object.card)
-                    .ok_or("missing movement card")?
-                    .owner;
-                if let Zone::Hand { owner: p } | Zone::Graveyard { owner: p } = destination
-                    && *p != owner
-                {
-                    return Err("zone owner invariant".into());
-                }
-                // CR 400.7: a zone move creates a new incarnation, and an actual
-                // outcome explicitly provides its successor. No stale lookup.
-                let successor = ObjectId {
-                    card: object.card,
-                    incarnation: object
-                        .incarnation
-                        .checked_add(1)
-                        .ok_or("incarnation resource limit")?,
-                };
-                let controller = if *destination == Zone::Battlefield {
-                    o.controller
-                } else {
-                    owner
-                };
-                self.state.objects.insert(
-                    object.card,
-                    Object {
-                        id: successor,
-                        controller,
-                        default_controller: controller,
-                        zone: *destination,
-                        tapped: false,
-                    },
-                );
-                EventOutcome::Moved {
-                    movement: MoveOutcome {
-                        previous: *object,
-                        successor,
-                        from: o.zone,
-                        destination: *destination,
-                    },
-                }
-            }
-        };
-        self.state.events.push(Event::Committed {
-            proposed,
-            actual: actual.clone(),
-        });
-        Ok(actual)
-    }
     fn stabilize(&self) -> Result<(), String> {
         // CR 704.3: this entry point runs before granting priority. The closed
         // scenario has no life changes, marked damage, counters, or triggers.
@@ -1162,17 +1120,18 @@ impl Game {
     }
     pub fn snapshot(&self) -> Result<String, String> {
         canonical(&Snapshot {
-            snapshot_version: 3,
+            snapshot_version: 4,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             profile_digest: self.prepared.profile_digest.clone(),
             state_sha256: self.state_digest()?,
             state: self.state.clone(),
+            trace: self.trace.clone(),
         })
     }
     pub fn restore(prepared: Prepared, json: &str) -> Result<Self, String> {
         let s: Snapshot = strict_read(json)?;
-        if s.snapshot_version != 3
+        if s.snapshot_version != 4
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -1183,6 +1142,7 @@ impl Game {
         let game = Self {
             prepared,
             state: s.state,
+            trace: s.trace,
             executor: Arc::new(()),
             state_token: Arc::new(()),
         };
@@ -1193,13 +1153,14 @@ impl Game {
             game.prepared.clone(),
             &game.replay_journal(),
             Some(game.state.rule_steps),
+            game.trace.mode,
         )?;
         if matches!(game.state.frame, Frame::Fault { .. })
             && !matches!(replayed.state.frame, Frame::Fault { .. })
         {
             let _ = replayed.advance(Budget::new(1));
         }
-        if replayed.state != game.state {
+        if replayed.state != game.state || replayed.trace != game.trace {
             return Err("snapshot is not reachable from this scenario's accepted inputs".into());
         }
         Ok(game)
@@ -1330,7 +1291,7 @@ impl Game {
         self.stabilize()
     }
     pub fn replay(prepared: Prepared, journal: &ReplayJournal) -> Result<Self, String> {
-        Self::replay_to(prepared, journal, None)
+        Self::replay_to(prepared, journal, None, TraceMode::Detailed)
     }
 }
 
