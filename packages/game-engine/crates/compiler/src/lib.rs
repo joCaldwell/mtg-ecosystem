@@ -402,12 +402,26 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     "empty AST for nonempty creature behavior",
                 ));
             }
+            if kind == CardKind::Creature {
+                // CR 302.1–2 and 608.3a: ordinary creature timing and permanent
+                // resolution apply even when the card has no printed abilities.
+                // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+                definition.spell = Some(SpellProgram {
+                    timing: SpellTiming::MainPhase,
+                    resolution: SpellResolution::Permanent,
+                    functioning_zone: FunctioningZone::Stack,
+                    targets: vec![],
+                    instructions: vec![],
+                });
+            }
         }
         CardKind::Instant => {
             if source.oracle_text.is_empty() {
                 return Err(invalid("source.oracle_text", "spell has no source text"));
             }
             let mut program = SpellProgram {
+                timing: SpellTiming::Instant,
+                resolution: SpellResolution::Instructions,
                 functioning_zone: FunctioningZone::Stack,
                 targets: vec![],
                 instructions: vec![],
@@ -482,7 +496,7 @@ pub fn fixture_catalog() -> Result<Catalog, String> {
     }
     definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     let catalog = Catalog {
-        schema_version: 2,
+        schema_version: 3,
         rules_edition: RULES_EDITION.into(),
         rules_sha256: RULES_SHA256.into(),
         definitions,
@@ -618,7 +632,7 @@ mod tests {
         let c = fixture_catalog().unwrap();
         let raw = canonical(&c).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":2", "\"schema_version\":9"),
+            raw.replace("\"schema_version\":3", "\"schema_version\":9"),
             raw.replace("\"op\":\"return_to_owner_hand\"", "\"op\":\"execute_text\""),
             raw.replace("\"target_slot\":0", "\"target_slot\":99"),
             raw.replace("\"source_block\":0", "\"unknown\":true,\"source_block\":0"),
@@ -628,6 +642,196 @@ mod tests {
             ),
         ] {
             assert!(Catalog::read(&bad).is_err());
+        }
+    }
+    #[test]
+    fn vanilla_creature_spells_and_land_permissions_are_explicit() {
+        let catalog = fixture_catalog().unwrap();
+        assert_eq!(catalog.schema_version, 3);
+        for d in &catalog.definitions {
+            match d.characteristics.kind {
+                CardKind::Land => {
+                    assert!(d.spell.is_none());
+                    assert_eq!(
+                        d.capabilities,
+                        BTreeSet::from([
+                            Capability::NormalLayoutV1,
+                            Capability::BasicLandManaV1,
+                            Capability::LandPlayV1,
+                        ])
+                    );
+                }
+                CardKind::Creature => {
+                    let spell = d.spell.as_ref().unwrap();
+                    assert_eq!(spell.timing, SpellTiming::MainPhase);
+                    assert_eq!(spell.resolution, SpellResolution::Permanent);
+                    assert_eq!(spell.functioning_zone, FunctioningZone::Stack);
+                    assert!(spell.targets.is_empty());
+                    assert!(spell.instructions.is_empty());
+                    assert!(d.capabilities.contains(&Capability::CastCreatureV1));
+                    assert_eq!(
+                        d.capabilities.contains(&Capability::CommanderIdentityV1),
+                        d.characteristics.legendary
+                    );
+                }
+                CardKind::Instant => {
+                    let spell = d.spell.as_ref().unwrap();
+                    assert_eq!(spell.timing, SpellTiming::Instant);
+                    assert_eq!(spell.resolution, SpellResolution::Instructions);
+                    assert!(!spell.instructions.is_empty());
+                }
+            }
+            for capability in &d.capabilities {
+                let mut missing = d.clone();
+                missing.capabilities.remove(capability);
+                assert!(missing.validate().is_err(), "missing {capability:?}");
+            }
+        }
+        // Same base semantics on a different source identity/display name must
+        // lower; runtime exact-profile admission remains a separate check.
+        let renamed = changed_record(1, |r| {
+            r["source"]["name"] = "Renamed vanilla source".into();
+            r["faces"][0]["result"]["name"] = "Renamed vanilla source".into();
+        });
+        assert!(matches!(
+            compile(fixtures::MANIFEST, &renamed),
+            CompileResult::Lowered { .. }
+        ));
+    }
+
+    #[test]
+    fn creature_lowering_rejects_unrepresented_or_unsupported_complete_behavior() {
+        type Mutation = fn(&mut serde_json::Value);
+        let mutations: Vec<Mutation> = vec![
+            |r| {
+                r["source"]["oracle_text"] = "(Flying)".into();
+            },
+            |r| {
+                r["source"]["type_line"] = "Artifact Creature — Bear".into();
+            },
+            |r| {
+                r["source"]["mana_cost"] = "{X}{G}".into();
+            },
+            |r| {
+                r["source"]["toughness"] = "0".into();
+            },
+            |r| {
+                r["source"]["power"] = "*".into();
+            },
+            |r| {
+                r["source"]["oracle_text"] = "Return target creature to its owner's hand.".into();
+                let instant: serde_json::Value =
+                    serde_json::from_str(fixtures::RECORDS[3].1).unwrap();
+                r["faces"][0]["result"]["lines"] = instant["faces"][0]["result"]["lines"].clone();
+                r["faces"][0]["result"]["abilities"] =
+                    instant["faces"][0]["result"]["abilities"].clone();
+            },
+        ];
+        for mutation in mutations {
+            let result = compile(fixtures::MANIFEST, &changed_record(1, mutation));
+            assert!(
+                !matches!(result, CompileResult::Lowered { .. }),
+                "{result:?}"
+            );
+        }
+        let empty_instant = changed_record(3, |r| {
+            r["source"]["oracle_text"] = "(Reminder only)".into();
+            r["faces"][0]["result"]["lines"] = serde_json::json!([]);
+            r["faces"][0]["result"]["abilities"] = serde_json::json!([]);
+        });
+        assert!(matches!(
+            compile(fixtures::MANIFEST, &empty_instant),
+            CompileResult::Unsupported { .. }
+        ));
+    }
+
+    #[test]
+    fn ir_reader_rejects_mismatched_spell_timing_resolution_and_shape() {
+        type Mutation = fn(&mut Definition);
+        let catalog = fixture_catalog().unwrap();
+        let creature = catalog
+            .definitions
+            .iter()
+            .find(|d| d.characteristics.kind == CardKind::Creature)
+            .unwrap();
+        let instant = catalog
+            .definitions
+            .iter()
+            .find(|d| d.characteristics.kind == CardKind::Instant)
+            .unwrap();
+        let mutations: Vec<Mutation> = vec![
+            |d| {
+                d.spell = None;
+            },
+            |d| {
+                d.spell.as_mut().unwrap().timing = SpellTiming::Instant;
+            },
+            |d| {
+                d.spell.as_mut().unwrap().resolution = SpellResolution::Instructions;
+            },
+            |d| {
+                d.spell.as_mut().unwrap().functioning_zone = FunctioningZone::Battlefield;
+            },
+            |d| {
+                d.spell
+                    .as_mut()
+                    .unwrap()
+                    .instructions
+                    .push(Instruction::ReturnToOwnerHand {
+                        target_slot: 0,
+                        source_block: 0,
+                    });
+            },
+            |d| {
+                d.spell.as_mut().unwrap().targets.push(TargetSpec {
+                    slot: 0,
+                    selection_id: "forged".into(),
+                    chooser: Chooser::Controller,
+                    stage: EvaluationStage::Announcement,
+                    domain: TargetDomain::BattlefieldCreature,
+                });
+            },
+        ];
+        for mutation in mutations {
+            let mut bad = creature.clone();
+            mutation(&mut bad);
+            let mut malformed = catalog.clone();
+            let target = malformed
+                .definitions
+                .iter_mut()
+                .find(|d| d.oracle_id == bad.oracle_id)
+                .unwrap();
+            *target = bad;
+            assert!(Catalog::read(&canonical(&malformed).unwrap()).is_err());
+        }
+        for mutation in [
+            (|d: &mut Definition| {
+                d.spell.as_mut().unwrap().timing = SpellTiming::MainPhase;
+            }) as Mutation,
+            |d| {
+                d.spell.as_mut().unwrap().resolution = SpellResolution::Permanent;
+            },
+            |d| {
+                d.spell.as_mut().unwrap().instructions.clear();
+            },
+        ] {
+            let mut bad = instant.clone();
+            mutation(&mut bad);
+            assert!(bad.validate().is_err());
+        }
+        let raw = canonical(&catalog).unwrap();
+        for malformed in [
+            raw.replace("\"schema_version\":3", "\"schema_version\":2"),
+            raw.replace("\"timing\":\"main_phase\"", "\"timing\":\"anytime\""),
+            raw.replace(
+                "\"resolution\":\"permanent\"",
+                "\"resolution\":\"instructions\"",
+            ),
+            raw.replace(",\"timing\":\"main_phase\"", ""),
+            raw.replace("\"resolution\":\"permanent\",", ""),
+        ] {
+            assert!(malformed != raw, "mutation must change the fixture");
+            assert!(Catalog::read(&malformed).is_err());
         }
     }
 }

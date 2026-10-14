@@ -389,6 +389,84 @@ Evidence lives in
 the ignored summary is `generated/p2-retention.json`. No scenario admission,
 schema versions, or supported mechanics were broadened.
 
+## Explicit turns, land plays, and creatures — October 13, 2026
+
+The [frozen turns brief](game-engine-turns-slice.md) is implemented on a fresh
+`feat/engine-turns-permanents` worktree from merged main `5ab3cba`. It adds one
+exact eight-card profile using the existing source-verified Forest and Grizzly
+Bears records. IR v3 distinguishes instant/instruction programs from main-phase,
+targetless permanent programs and records land-play/creature-cast capabilities.
+Compiler success still does not admit arbitrary definitions or configurations.
+All five configurations are checked against exact reviewed definition digests.
+
+P0 plays a land and casts Bears through its caster-only mana window, payment,
+and stack; the creature resolves to the battlefield with a new incarnation.
+Explicit step/entry continuations then rotate the four seats through mana
+clearing, untap, singleton-library draws, forced-empty combat, and restricted
+cleanup. P0 reaches turn 5 precombat main and plays another land after its
+allowance resets. Lands and creatures require active-player main-phase priority
+and an empty stack. Empty-stack progression is enabled only for this profile;
+earlier profiles preserve their unsupported boundary and all three merged
+departure-ordering regressions.
+
+New typed atomic events capture land usage, scheduler facts, simultaneous untap,
+and mana loss. Snapshot/bundle v7, Observation/SearchContext v5, and query-sidecar
+v4 retain those facts and entry-work continuations. Departed-active turns finish
+without replacing their active player; queued concessions still drain before
+ordinary work. Queries remain pure, budgeted, and private. No core compiler,
+parser, network, filesystem, clock, or random-source dependency was introduced.
+
+The witness has **122 decisions, 316 events, and 321 recovery checkpoints**.
+Its final state is P0 priority on turn 5, one land played, three untapped Forests
+and untapped Bears on the battlefield, each player holding their single drawn
+Forest, empty libraries/stack/mana, and unchanged life. The new
+`expected-turns-scenario.json` records current semantic/trace identities while
+preserving older fixtures as historical evidence. Every earlier flat gameplay
+trace and mixed journal was compared and remains unchanged. Eight witness
+families run in three trace modes (**24 retained executions**).
+
+Independent rules review verified the official pinned rules bytes. Independent
+implementation tests cover timing/land counts, creature payment and reversal,
+both main phases, pending decisions, departures at each scheduler/casting stage,
+query/snapshot recovery, stale handles/receipts, branch isolation, atomic failure,
+trace/budget equivalence, and explicit unsupported boundaries. Final independent
+review found an event-evidence completeness gap; recording priority, live seat
+order, and stack emptiness in pre-event turn facts resolved it. No unresolved
+findings remain. An additional external review harness recovered/replayed
+**3,318 boundaries across 900 ordered-concession branches**; its source and
+review summary are retained alongside this evidence in `independent-review/`.
+
+Optimized `cargo test --workspace --locked --release` passed **101 Rust tests**.
+`npm run check:engine` passed formatting, Clippy with warnings denied, the same
+**101 debug Rust tests**, and **6 Node cross-language/CLI checks**.
+`npm run retain:engine` retained 1,581 vendored dependency files and the exact
+official rules bytes, rebuilt with frozen/offline Cargo using an initially empty
+Cargo home and fresh target directory, and verified all 24 trace-mode executions,
+all saved checkpoints, source-to-IR equality, and the query recovery sidecar.
+Retained identities:
+
+- Release build: `10f448aed613a9664347a6c57370850e5a6874815359623e9a107ddad5d512b5`.
+- Catalog: `885924ca7234ad41d81b4a01c50c07e5d693850b36c3c5b1236d5ca2df86570e`.
+- Turns profile: `fc9026bc69f850898fa03a0ed9eb8828b8235bbaa270925498fe2a9ddbaa6d7a`.
+- Turns final state: `83d53d69430b42fde1cad1e3f7cb02d53d0e49fd1d08036a373bd8ee192ce19d`.
+- Baseline v7 final state: `675636d8307c09165ca7c6df997ea1b112c90571eb7327f6a2055e252e6e6060`.
+- Replay bundle: `5d627e95abff2e2b572db5239ee05cec7993bc1af5d033e8185f520aa0cd41cf`.
+- Rebuilt executable: `e61aa81c10cb8bfc26396a621b8a72ba7bbc5935dc191b78bb19b5c2b15016c9`.
+- Dependency manifest: `387384711d404f44993e8ab583e269c5105d1cc8b583307e3035f14e03d7474f`.
+
+Evidence lives in `/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-5d627e95abff2e2b-qyyHzm/`.
+The ignored worktree summary is `generated/p2-retention.json`. Downloaded rules,
+source/vendor closure, executable, and bundles remain outside version control.
+All 148 dirty parser files in the main checkout were hash-checked unchanged;
+none were copied into this worktree.
+
+Creature combat (even where summoning sickness might prohibit attacks),
+empty/multiple-card-library draws, cleanup discard, triggers/replacements,
+additional costs, other casting zones, and Commander lifecycle remain explicit
+unsupported boundaries. This is a deterministic bounded scenario loop, not full
+P3 signoff or playable Commander matches. Snapshot reachability still uses replay;
+recovery-heavy debug checks and history copying grow with execution length.
+
 ## Remaining delivery gates
 
 Remaining P2 foundations include broader functioning-zone/ability discovery,
@@ -408,10 +486,10 @@ schema export, complete printing/membership indexes, structured build/admission
 reports, and additional mechanic/functioning-zone descriptors. No parser rewrite
 or port of the entire TypeScript binding analyzer is required.
 
-P3 still expands general cost families, permanent casting, phase progression,
-and resolution-time choices. Ordinary supported instant responses and
-casting-time intrinsic mana are now
-implemented for the exact scenario pool; broader stack/cost families remain. P4 adds the Commander lifecycle and
+P3 still expands general cost families, broader permanent and turn behavior,
+and resolution-time choices. Ordinary supported instant responses, casting-time
+intrinsic mana, and the bounded turns/land/targetless-creature loop are now
+implemented for exact scenario configurations; broader stack/cost families remain. P4 adds the Commander lifecycle and
 event interactions. P5 validates full legal decks/pods, a closed reachable pool,
 and seeded complete games. Unsupported runtime paths currently fault or reject;
 legal-match mode is rejected. Random operations, search, server, and UI remain

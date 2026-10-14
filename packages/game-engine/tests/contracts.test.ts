@@ -60,6 +60,19 @@ test("player CLI projections keep private card data and recovery fields out", ()
 test("Rust lowering matches reviewed IR and its generated JSON Schema", () => {
   const catalog = run("compile");
   assert.deepEqual(catalog, JSON.parse(read("expected-ir.json")));
+  assert.equal(catalog.schema_version, 3);
+  for (const definition of catalog.definitions) {
+    if (definition.characteristics.kind === "creature") {
+      assert.deepEqual(definition.spell, {
+        timing: "main_phase", resolution: "permanent", functioning_zone: "stack",
+        targets: [], instructions: [],
+      });
+      assert.equal(definition.capabilities.includes("cast_creature_v1"), true);
+    } else if (definition.characteristics.kind === "land") {
+      assert.equal(definition.spell, null);
+      assert.equal(definition.capabilities.includes("land_play_v1"), true);
+    }
+  }
   const schema = run("schema");
   const validate = new Ajv2020({ strict: false, formats: {
     uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },
@@ -67,22 +80,32 @@ test("Rust lowering matches reviewed IR and its generated JSON Schema", () => {
   assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
   for (const mutate of [
     (c: any) => { c.unknownSemanticField = true; },
-    (c: any) => { c.schema_version = 3; },
+    (c: any) => { c.schema_version = 4; },
+    (c: any) => { c.schema_version = 2; },
+    (c: any) => { delete c.definitions.find((d: any) => d.spell).spell.timing; },
+    (c: any) => { delete c.definitions.find((d: any) => d.spell).spell.resolution; },
+    (c: any) => { c.definitions.find((d: any) => d.spell).spell.timing = "anytime"; },
+    (c: any) => { c.definitions.find((d: any) => d.spell).spell.resolution = "execute_text"; },
     (c: any) => { c.definitions[0].characteristics.power = 2; },
     (c: any) => { c.definitions[0].characteristics.power = "02"; },
-    (c: any) => { c.definitions.find((d: any) => d.spell).spell.instructions[0].op = "execute_text"; },
-    (c: any) => { c.definitions.find((d: any) => d.spell).spell.instructions[0].extra = true; },
+    (c: any) => { c.definitions.find((d: any) => d.characteristics.kind === "instant").spell.instructions[0].op = "execute_text"; },
+    (c: any) => { c.definitions.find((d: any) => d.characteristics.kind === "instant").spell.instructions[0].extra = true; },
   ]) {
     const bad = structuredClone(catalog); mutate(bad);
     assert.equal(validate(bad), false);
   }
 });
 
+// The deterministic CLI demo verifies all retained families; share that expensive
+// execution across projection assertions in this process.
+let demoResult: any;
+function demo() { return demoResult ??= run("demo"); }
+
 test("response observations expose stack order without reviving historical targets", () => {
-  const response = run("demo").response;
+  const response = demo().response;
   const before = response.stacked_observation;
   const after = response.after_top_observation;
-  assert.equal(before.observation_version, 4);
+  assert.equal(before.observation_version, 5);
   assert.deepEqual(before.view.stack.map((s: any) => s.controller), [0, 2]);
   assert.equal(before.view.stack.every((s: any) => s.cast_complete), true);
   assert.equal(after.view.stack.length, 1);
@@ -98,9 +121,9 @@ test("response observations expose stack order without reviving historical targe
 });
 
 test("casting mana witnesses expose the caster request and preserve keep/undo outcomes", () => {
-  const report = run("demo");
+  const report = demo();
   const casting = report.mana_casting;
-  assert.equal(casting.mana_observation.observation_version, 4);
+  assert.equal(casting.mana_observation.observation_version, 5);
   assert.equal(casting.mana_observation.decision.request, "mana");
   assert.deepEqual(casting.mana_observation.decision.cost, { generic: "0", colored: ["U"] });
   assert.equal(casting.mana_observation.view.priority, null);
@@ -122,4 +145,27 @@ test("casting mana witnesses expose the caster request and preserve keep/undo ou
       assert.equal(observation.view.objects.filter((o: any) => o.zone.zone === "hand").every((o: any) => o.owner === observation.view.viewer), true);
     }
   }
+});
+
+
+test("turn progression and permanent casting expose only permitted public state", () => {
+  const turns = demo().turns;
+  assert.equal(turns.status, "turns_permanents_verified");
+  assert.deepEqual(turns.turn, { number: 5, step: "precombat_main", lands_played: 1 });
+  const own = turns.final_observations[0];
+  assert.equal(own.observation_version, 5);
+  assert.deepEqual(own.view.turn, turns.turn);
+  assert.equal(own.view.priority, 0);
+  assert.equal(own.view.stack.length, 0);
+  assert.equal(own.view.objects.filter((o: any) => o.zone.zone === "battlefield").length, 4);
+  for (const view of turns.final_observations.map((o: any) => o.view)) {
+    assert.equal(view.objects.every((o: any) => !o.tapped), true);
+    assert.equal(view.objects.filter((o: any) => o.zone.zone === "hand").every((o: any) => o.owner === view.viewer), true);
+    assert.equal(view.objects.some((o: any) => o.zone.zone === "library"), false);
+    assert.equal(view.players.every((p: any) => p.library_count === 0 && Object.keys(p.mana).length === 0 && p.life === "40"), true);
+    assert.equal(JSON.stringify(view).includes('"incarnation"'), false);
+  }
+  const expected = JSON.parse(read("expected-turns-scenario.json"));
+  assert.equal(turns.state_sha256, expected.turns.state_sha256);
+  assert.deepEqual(turns.journal, expected.turns.journal);
 });

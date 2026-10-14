@@ -17,6 +17,11 @@ function run(command: string, args: string[], cwd = root, env = process.env) {
   if (result.status !== 0) throw new Error(`${command} failed: ${result.status}\n${result.stdout}`);
   return result.stdout;
 }
+// Retain the exact official rules alongside sources; never refresh rules during replay.
+const rulesPath = process.env.MTG_ENGINE_RULES_PATH ?? path.join(root, ".scryfall-cache/rules-20260925.txt");
+const rulesBytes = fs.readFileSync(rulesPath);
+const rulesSha256 = "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca";
+if (sha(rulesBytes) !== rulesSha256) throw new Error("Pinned official rules digest mismatch.");
 const bundleDir = path.join(root, "generated/p2-bundles");
 const report = JSON.parse(run("cargo", ["run", "--quiet", "--locked", "--release", "-p", "mtg-sim", "--", "demo", "--bundle", bundleDir]));
 const matching = fs.readdirSync(bundleDir).filter(name => name.endsWith(".json")).map(name => path.join(bundleDir, name))
@@ -27,6 +32,8 @@ const bundle = JSON.parse(bundleBytes.toString("utf8"));
 const storeRoot = process.argv[2] ? path.resolve(process.argv[2]) : path.join(os.homedir(), ".local/share/mtg-ecosystem/engine-evidence");
 fs.mkdirSync(storeRoot, { recursive: true });
 const store = fs.mkdtempSync(path.join(storeRoot, `p2-${sha(bundleBytes).slice(0, 16)}-`));
+const retainedRulesPath = path.join(store, "rules-20260925.txt");
+fs.writeFileSync(retainedRulesPath, rulesBytes);
 const sourceRoot = path.join(store, "source");
 fs.mkdirSync(sourceRoot);
 for (const file of bundle.source_files) {
@@ -62,7 +69,8 @@ run("cargo", ["build", "--frozen", "--release", "--target", bundle.target, "-p",
 const rebuilt = path.join(targetPath, bundle.target, "release/mtg-sim");
 const verification = JSON.parse(run(rebuilt, ["verify-bundle", bundlePath], store, env));
 if (verification.state_sha256 !== report.state_sha256) throw new Error("Offline rebuilt replay differs.");
-const evidence = { build_id: report.build_id, catalog_digest: report.catalog_digest, profile_digest: report.profile_digest,
+if (sha(fs.readFileSync(retainedRulesPath)) !== bundle.catalog.rules_sha256) throw new Error("Retained rules/catalog mismatch.");
+const evidence = { rules_path: retainedRulesPath, rules_sha256: rulesSha256, build_id: report.build_id, catalog_digest: report.catalog_digest, profile_digest: report.profile_digest,
   state_sha256: report.state_sha256, bundle: bundlePath, bundle_sha256: sha(bundleBytes), rebuilt_executable: rebuilt,
   executable_sha256: sha(fs.readFileSync(rebuilt)), dependency_files: dependencyFiles, dependency_manifest_sha256: sha(JSON.stringify(dependencyFiles)),
   empty_cargo_home_before_build: initialCargoHomeEmpty, cargo_frozen_offline: true, verification,

@@ -53,6 +53,7 @@ pub struct PermittedView {
     pub viewer: PlayerId,
     pub active: Option<PlayerId>,
     pub turn_owner: PlayerId,
+    pub turn: TurnState,
     pub live_turn_order: Vec<PlayerId>,
     pub commanders: Vec<VisibleCommander>,
     pub priority: Option<PlayerId>,
@@ -98,6 +99,7 @@ pub struct Observation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerResponse {
+    PlayLand { object: ObjectHandle },
     ActivateMana { object: ObjectHandle },
     Cast { card: ObjectHandle },
     Pass,
@@ -244,6 +246,7 @@ impl Game {
             viewer,
             active: self.state.active,
             turn_owner: self.state.turn_owner,
+            turn: self.state.turn.clone(),
             live_turn_order: self.live_players(),
             commanders: self
                 .state
@@ -407,6 +410,9 @@ impl Game {
         response: &PlayerResponse,
     ) -> Result<Response, String> {
         match response {
+            PlayerResponse::PlayLand { object } => Ok(Response::PlayLand {
+                card: self.resolve_handle(viewer, object)?.card,
+            }),
             PlayerResponse::ActivateMana { object } => Ok(Response::ActivateMana {
                 object: self.resolve_handle(viewer, object)?,
             }),

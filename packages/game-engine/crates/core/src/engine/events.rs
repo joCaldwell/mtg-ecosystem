@@ -3,6 +3,16 @@ use super::*;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "cause", rename_all = "snake_case", deny_unknown_fields)]
 pub enum BatchCause {
+    LandPlay {
+        player: PlayerId,
+        decision_id: u64,
+        source: ObjectId,
+    },
+    TurnProgression,
+    UntapStep,
+    DrawStep {
+        player: PlayerId,
+    },
     ManaActivation {
         decision_id: u64,
         player: PlayerId,
@@ -41,10 +51,15 @@ pub enum BatchCause {
 impl BatchCause {
     fn rules(&self) -> Vec<String> {
         let rules: &[&str] = match self {
+            Self::LandPlay { .. } => &["305.1", "305.2", "305.3", "400.7"],
+            Self::TurnProgression => &["106.4", "500.5", "800.4j"],
+            Self::UntapStep => &["502.3", "502.4"],
+            Self::DrawStep { .. } => &["504.1", "400.7"],
             Self::ManaActivation { .. } => &["106.3", "305.6", "605.3b"],
             Self::Casting { .. } | Self::Payment { .. } => &["601.2"],
             Self::CastReversal { .. } => &["733.1", "733.2"],
-            Self::Instruction { .. } | Self::SpellCompletion { .. } => &["400.7", "608.2"],
+            Self::Instruction { .. } => &["400.7", "608.2"],
+            Self::SpellCompletion { .. } => &["400.7", "608.2", "608.3a"],
             Self::Departure { .. } => &["800.4a"],
             Self::Fixture => &["700.1"],
         };
@@ -80,8 +95,19 @@ pub struct PlayerBefore {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PreEventFacts {
+    pub turn: Option<TurnBefore>,
     pub objects: Vec<ObjectBefore>,
     pub players: Vec<PlayerBefore>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TurnBefore {
+    pub turn: TurnState,
+    pub owner: PlayerId,
+    pub active: Option<PlayerId>,
+    pub priority: Option<PlayerId>,
+    pub live_turn_order: Vec<PlayerId>,
+    pub stack_empty: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -117,12 +143,14 @@ impl CommittedBatch {
 }
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum FactKey {
+    Turn,
     Object(CardId),
     Mana(PlayerId),
 }
 fn access(event: &ProposedEvent) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
     match event {
-        ProposedEvent::Tap { object }
+        ProposedEvent::Untap { object }
+        | ProposedEvent::Tap { object }
         | ProposedEvent::Move { object, .. }
         | ProposedEvent::LeaveGame { object, .. } => {
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
@@ -132,8 +160,12 @@ fn access(event: &ProposedEvent) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
             BTreeSet::from([FactKey::Object(source.card), FactKey::Mana(*player)]),
             BTreeSet::from([FactKey::Mana(*player)]),
         ),
-        ProposedEvent::PayMana { player, .. } => {
+        ProposedEvent::ClearMana { player } | ProposedEvent::PayMana { player, .. } => {
             let keys = BTreeSet::from([FactKey::Mana(*player)]);
+            (keys.clone(), keys)
+        }
+        ProposedEvent::LandPlayed { .. } | ProposedEvent::TurnTransition { .. } => {
+            let keys = BTreeSet::from([FactKey::Turn]);
             (keys.clone(), keys)
         }
         ProposedEvent::ReverseMana { player, source, .. } => {
@@ -187,9 +219,12 @@ impl Game {
     fn facts(&self, events: &[&ProposedEvent]) -> Result<PreEventFacts, String> {
         let mut objects = BTreeSet::new();
         let mut players = BTreeSet::new();
+        let mut turn = None;
         for event in events {
             match event {
-                ProposedEvent::Tap { object } | ProposedEvent::Move { object, .. } => {
+                ProposedEvent::Untap { object }
+                | ProposedEvent::Tap { object }
+                | ProposedEvent::Move { object, .. } => {
                     objects.insert(*object);
                 }
                 ProposedEvent::LeaveGame {
@@ -203,8 +238,19 @@ impl Game {
                     objects.insert(*source);
                     players.insert(*player);
                 }
-                ProposedEvent::PayMana { player, .. } => {
+                ProposedEvent::ClearMana { player } | ProposedEvent::PayMana { player, .. } => {
                     players.insert(*player);
+                }
+                ProposedEvent::LandPlayed { .. } | ProposedEvent::TurnTransition { .. } => {
+                    turn = Some(TurnBefore {
+                        turn: self.state.turn.clone(),
+                        owner: self.state.turn_owner,
+                        active: self.state.active,
+                        priority: matches!(self.state.frame, Frame::Priority)
+                            .then_some(self.state.priority),
+                        live_turn_order: self.live_players(),
+                        stack_empty: self.state.stack.is_empty(),
+                    });
                 }
                 ProposedEvent::ReverseMana { player, source, .. } => {
                     players.insert(*player);
@@ -245,7 +291,11 @@ impl Game {
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
-        Ok(PreEventFacts { objects, players })
+        Ok(PreEventFacts {
+            turn,
+            objects,
+            players,
+        })
     }
     // CR 700.1: grouping is explicit. These profiles contain no replacement,
     // prevention, or trigger consumers; those extend this same actual path.
@@ -391,6 +441,58 @@ impl Game {
 impl Game {
     fn apply_occurrence(&mut self, proposed: &ProposedEvent) -> Result<EventOutcome, String> {
         let actual = match proposed {
+            ProposedEvent::Untap { object } => {
+                let o = self.current(*object)?;
+                if o.zone != Zone::Battlefield || !o.tapped {
+                    return Err("invalid untap event".into());
+                }
+                self.state
+                    .objects
+                    .get_mut(&object.card)
+                    .ok_or("missing untap object")?
+                    .tapped = false;
+                EventOutcome::Untapped { object: *object }
+            }
+            ProposedEvent::ClearMana { player } => {
+                if !self.is_live(*player) {
+                    return Err("invalid mana clearing player".into());
+                }
+                let previous = std::mem::take(&mut self.state.players[player.0 as usize].mana);
+                EventOutcome::ManaCleared {
+                    player: *player,
+                    previous,
+                }
+            }
+            ProposedEvent::LandPlayed { player } => {
+                if !self.main_phase_action(*player) || self.state.turn.lands_played != 0 {
+                    return Err("invalid land-play counting event".into());
+                }
+                let previous = self.state.turn.lands_played;
+                let current = previous.checked_add(1).ok_or("land play resource limit")?;
+                self.state.turn.lands_played = current;
+                EventOutcome::LandPlayCounted {
+                    player: *player,
+                    previous,
+                    current,
+                }
+            }
+            ProposedEvent::TurnTransition { next, owner } => {
+                if !self.turns_enabled()
+                    || !matches!(self.state.frame, Frame::Transition)
+                    || self.next_turn_state()? != (next.clone(), *owner)
+                {
+                    return Err("invalid turn-transition event".into());
+                }
+                let previous = std::mem::replace(&mut self.state.turn, next.clone());
+                let previous_owner = std::mem::replace(&mut self.state.turn_owner, *owner);
+                self.state.active = self.is_live(*owner).then_some(*owner);
+                EventOutcome::TurnTransitioned {
+                    previous,
+                    current: next.clone(),
+                    previous_owner,
+                    owner: *owner,
+                }
+            }
             ProposedEvent::Tap { object } => {
                 let o = self.current(*object)?;
                 if o.zone != Zone::Battlefield || o.tapped {

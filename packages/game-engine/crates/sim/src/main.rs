@@ -3,7 +3,7 @@ use mtg_contracts::{Catalog, canonical, sha256, strict_read};
 use mtg_core::{
     Advance, BUILD_ID, BUILD_PROFILE, BUILD_RUSTC, BUILD_RUSTFLAGS, BUILD_TARGET, Budget, CardId,
     Game, ObjectId, Observation, PlayerId, Prepared, QueryResult, QueryValue, ReplayJournal,
-    Response, ScenarioConfig, SearchContext, TraceMode, Zone,
+    Response, ScenarioConfig, SearchContext, TraceMode, TurnStep, Zone,
 };
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path, time::Instant};
@@ -26,6 +26,7 @@ struct Bundle {
     mana_casting: ScenarioEvidence,
     mana_undo: ScenarioEvidence,
     mana_keep: ScenarioEvidence,
+    turns: ScenarioEvidence,
     build_id: String,
     catalog: Catalog,
     config: ScenarioConfig,
@@ -435,6 +436,141 @@ fn mana_demo(
         report,
     ))
 }
+// CR 302.1–2, 305.1–3, 500–514, 608.3a in the pinned 2026-09-25 rules.
+// This policy stops at turn 5 main phase; it does not claim a completed match.
+fn turns_demo(catalog: Catalog) -> Result<(ScenarioEvidence, serde_json::Value), String> {
+    let prepared = Prepared::admit(catalog, ScenarioConfig::turns_permanents())?;
+    let mut game = Game::new(prepared.clone());
+    let mut checkpoints = vec![];
+    checkpoint(&game, &mut checkpoints)?;
+    checked_input(
+        &mut game,
+        Response::PlayLand { card: CardId(1) },
+        &mut checkpoints,
+    )?;
+    checked_input(
+        &mut game,
+        Response::Cast { card: CardId(2) },
+        &mut checkpoints,
+    )?;
+    for card in [0, 1] {
+        let object = ObjectId {
+            card: CardId(card),
+            incarnation: u32::from(card == 1),
+        };
+        checked_input(
+            &mut game,
+            Response::ActivateMana { object },
+            &mut checkpoints,
+        )?;
+    }
+    checked_input(
+        &mut game,
+        Response::FinishMana { undo_mana: false },
+        &mut checkpoints,
+    )?;
+    // Bounded policy guard is a host resource limit, never a rules result.
+    let mut reached = false;
+    for _ in 0..512 {
+        match checked_advance(&mut game, &mut checkpoints)? {
+            Advance::AwaitingDecision(request) => {
+                if game.turn().number == 5 && game.turn().step == TurnStep::PrecombatMain {
+                    reached = true;
+                    break;
+                }
+                game.respond(request.player(), request.decision_id(), Response::Pass)?;
+                checkpoint(&game, &mut checkpoints)?;
+            }
+            Advance::Suspended { .. } => {}
+            _ => return Err("turn witness ended before its horizon".into()),
+        }
+    }
+    if !reached {
+        return Err("turn witness exhausted its host policy budget".into());
+    }
+    checked_input(
+        &mut game,
+        Response::PlayLand { card: CardId(3) },
+        &mut checkpoints,
+    )?;
+    loop {
+        if matches!(
+            checked_advance(&mut game, &mut checkpoints)?,
+            Advance::AwaitingDecision(_)
+        ) {
+            break;
+        }
+    }
+    // Assert the reviewed final state independently of recorded state hashes.
+    for (card, incarnation) in [(0, 0), (1, 1), (2, 2), (3, 1)] {
+        if game.object_id(CardId(card))
+            != Some(ObjectId {
+                card: CardId(card),
+                incarnation,
+            })
+            || game.zone(game.object_id(CardId(card)).ok_or("missing permanent")?)
+                != Some(Zone::Battlefield)
+        {
+            return Err("turn witness permanent identity/destination mismatch".into());
+        }
+    }
+    for (card, owner) in [(4, 0), (5, 1), (6, 2), (7, 3)] {
+        if game.object_id(CardId(card))
+            != Some(ObjectId {
+                card: CardId(card),
+                incarnation: 1,
+            })
+            || game.zone(game.object_id(CardId(card)).ok_or("missing drawn card")?)
+                != Some(Zone::Hand {
+                    owner: PlayerId(owner),
+                })
+        {
+            return Err("turn witness drawn-card identity/destination mismatch".into());
+        }
+    }
+    if game.turn().lands_played != 1 || game.active_player() != Some(PlayerId(0)) {
+        return Err("turn witness scheduler mismatch".into());
+    }
+    let request = game
+        .decision_for(PlayerId(0))?
+        .ok_or("missing final priority")?;
+    if game
+        .check_response(
+            PlayerId(0),
+            request.decision_id(),
+            Response::PlayLand { card: CardId(4) },
+        )
+        .is_ok()
+    {
+        return Err("turn witness allowed a second land".into());
+    }
+    let views = (0..4)
+        .map(|v| observation(&game, PlayerId(v)))
+        .collect::<Result<Vec<_>, _>>()?;
+    // Visibility-safe public facts establish untap and empty pools, independent
+    // of trusted full-state serialization.
+    if views[0].view.objects.iter().any(|o| o.tapped)
+        || views[0].view.players.iter().any(|p| {
+            !p.mana.is_empty()
+                || p.library_count != 0
+                || p.life != mtg_contracts::Quantity::from(40)
+        })
+        || !views[0].view.stack.is_empty()
+        || views[0].view.priority != Some(PlayerId(0))
+    {
+        return Err("turn witness untap/pool/life/priority mismatch".into());
+    }
+    let report = serde_json::json!({"status":"turns_permanents_verified","state_sha256":game.state_digest()?,"events":game.events(),"journal":game.replay_journal(),"checkpoints":checkpoints.len(),"final_observations":views,"turn":game.turn(),"profile_digest":prepared.profile_digest()});
+    Ok((
+        ScenarioEvidence {
+            config: prepared.config().clone(),
+            journal: game.replay_journal(),
+            checkpoints,
+            final_snapshot: game.snapshot()?,
+        },
+        report,
+    ))
+}
 fn observation(game: &Game, viewer: PlayerId) -> Result<Observation, String> {
     match game.observe(viewer, Budget::unlimited()) {
         QueryResult::Complete(QueryValue::Observation(o)) => Ok(o),
@@ -616,6 +752,11 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
             )
         })
         .collect::<Result<Vec<_>, String>>()?;
+    let (turns, turns_report) = turns_demo(catalog.clone())?;
+    let turns_game = Game::restore(
+        Prepared::admit(catalog.clone(), turns.config.clone())?,
+        &turns.final_snapshot,
+    )?;
     let (trace_runs, trace_report) = trace_runs(
         &catalog,
         &[
@@ -626,6 +767,7 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
             &mana_games[0],
             &mana_games[1],
             &mana_games[2],
+            &turns_game,
         ],
     )?;
     let bundle = Bundle {
@@ -636,7 +778,8 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         mana_casting,
         mana_undo,
         mana_keep,
-        bundle_version: 6,
+        turns,
+        bundle_version: 7,
         build_id: BUILD_ID.into(),
         catalog,
         config: prepared.config().clone(),
@@ -654,7 +797,7 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         rustflags: BUILD_RUSTFLAGS.into(),
         query_sidecar,
     };
-    let report = serde_json::json!({"status":"scenario_verified","departure":departure_report,"response":response_report,"detached_response":detached_report,"mana_casting":mana_casting_report,"mana_undo":mana_undo_report,"mana_keep":mana_keep_report,"trace_equivalence":trace_report,"build_id":BUILD_ID,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
+    let report = serde_json::json!({"status":"scenario_verified","turns":turns_report,"departure":departure_report,"response":response_report,"detached_response":detached_report,"mana_casting":mana_casting_report,"mana_undo":mana_undo_report,"mana_keep":mana_keep_report,"trace_equivalence":trace_report,"build_id":BUILD_ID,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
         "state_sha256":game.state_digest()?,"accepted_inputs":game.journal().len(),"events":game.events(),"restore_fork_replay_equal":true,
         "player_observations": (0..4).map(|v|observation(&game,PlayerId(v))).collect::<Result<Vec<_>,_>>()?,
         "search_context":search_context(&game,PlayerId(0),"separate-sampling-seed".into())?,
@@ -664,7 +807,7 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
 }
 fn verify_bundle(json: &str) -> Result<String, String> {
     let b: Bundle = strict_read(json)?;
-    if b.bundle_version != 6 || b.build_id != BUILD_ID {
+    if b.bundle_version != 7 || b.build_id != BUILD_ID {
         return Err("unsupported bundle version/build".into());
     }
     if !b.source_files.windows(2).all(|w| w[0].path < w[1].path) {
@@ -706,7 +849,7 @@ fn verify_bundle(json: &str) -> Result<String, String> {
     if definitions != b.catalog.definitions {
         return Err("retained source-to-IR mismatch".into());
     }
-    if b.trace_runs.len() != 21 {
+    if b.trace_runs.len() != 24 {
         return Err("missing trace-mode evidence".into());
     }
     for (index, run) in b.trace_runs.iter().enumerate() {
@@ -743,6 +886,7 @@ fn verify_bundle(json: &str) -> Result<String, String> {
                 &b.mana_keep.journal,
                 &b.mana_keep.final_snapshot,
             ),
+            7 => (&b.turns.config, &b.turns.journal, &b.turns.final_snapshot),
             _ => return Err("unexpected trace-mode group".into()),
         };
         if run.mode != required_mode
@@ -772,6 +916,7 @@ fn verify_bundle(json: &str) -> Result<String, String> {
         &b.mana_casting,
         &b.mana_undo,
         &b.mana_keep,
+        &b.turns,
     ] {
         let p = Prepared::admit(b.catalog.clone(), scenario.config.clone())?;
         for snapshot in &scenario.checkpoints {
@@ -900,7 +1045,7 @@ mod tests {
         .unwrap();
         assert_eq!(report["events"], expected["events"]);
         let p2: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../tests/fixtures/expected-payment-scenario.json"
+            "../../../tests/fixtures/expected-turns-scenario.json"
         ))
         .unwrap();
         assert_eq!(report["state_sha256"], p2["final_state_sha256"]);
@@ -925,7 +1070,7 @@ mod tests {
         assert_eq!(report["departure"]["events"], prior["departure_events"]);
         // Input IDs and boundaries now include the explicit mana-window decline.
 
-        assert_eq!(bundle.trace_runs.len(), 21);
+        assert_eq!(bundle.trace_runs.len(), 24);
         let normalized:Vec<_>=report["trace_equivalence"].as_array().unwrap().iter().map(|x|serde_json::json!({"profile":x["profile"],"mode":x["mode"],"state_sha256":x["state_sha256"],"verification":x["verification"]})).collect();
         assert_eq!(
             serde_json::to_value(normalized).unwrap(),
@@ -937,6 +1082,7 @@ mod tests {
             "mana_casting",
             "mana_undo",
             "mana_keep",
+            "turns",
         ] {
             assert_eq!(report[name]["journal"], p2[name]["journal"]);
             assert_eq!(report[name]["events"], p2[name]["events"]);
@@ -948,7 +1094,7 @@ mod tests {
             report["state_sha256"].as_str().unwrap()
         );
         assert!(
-            verify_bundle(&json.replace("\"bundle_version\":6", "\"bundle_version\":7")).is_err()
+            verify_bundle(&json.replace("\"bundle_version\":7", "\"bundle_version\":8")).is_err()
         );
         let mut corrupt: serde_json::Value = serde_json::from_str(&json).unwrap();
         corrupt["source_files"] = serde_json::json!([]);
