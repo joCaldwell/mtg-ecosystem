@@ -746,6 +746,67 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_combat_pool_reuses_complete_vanilla_ir_and_rejects_extra_mechanics() {
+        let catalog = fixture_catalog().unwrap();
+        let bears = catalog
+            .definitions
+            .iter()
+            .find(|definition| definition.oracle_id == "14c8f55d-d177-4c25-a931-ebeb9e6062a0")
+            .unwrap();
+        assert_eq!(bears.characteristics.power, Some(Quantity::from(2)));
+        assert_eq!(bears.characteristics.toughness, Some(Quantity::from(2)));
+        assert_eq!(bears.characteristics.mana_cost.generic, Quantity::from(1));
+        assert_eq!(bears.characteristics.mana_cost.colored, vec![Color::G]);
+        assert!(!bears.characteristics.legendary);
+        assert_eq!(bears.provenance.abilities_json, "[]");
+        assert_eq!(catalog.schema_version, 3);
+
+        // These are rehashed synthetic negative variants of the retained exact
+        // source, not additional cards. Account for the complete source block
+        // before verifying that unknown keyword/trigger/static semantics reject.
+        // Combat rules remain core behavior; they must not make extra source
+        // abilities disappear during complete-card lowering.
+        for (text, ability) in [
+            (
+                "Flying",
+                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"flying"}]}),
+            ),
+            (
+                "First strike",
+                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"first strike"}]}),
+            ),
+            (
+                "Trample",
+                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"trample"}]}),
+            ),
+            (
+                "When this creature dies, draw a card.",
+                serde_json::json!({"kind":"triggered","effects":[]}),
+            ),
+            (
+                "Other creatures you control get +1/+1.",
+                serde_json::json!({"kind":"static","effects":[]}),
+            ),
+        ] {
+            let changed = changed_record(1, |record| {
+                record["source"]["oracle_text"] = text.into();
+                record["faces"][0]["result"]["lines"] = serde_json::json!([
+                    {"text":text,"ok":true,"ability":ability}
+                ]);
+                record["faces"][0]["result"]["abilities"] = serde_json::json!([ability]);
+            });
+            assert!(matches!(
+                compile(fixtures::MANIFEST, &changed),
+                CompileResult::Unsupported { .. }
+            ));
+        }
+        assert!(matches!(
+            compile(fixtures::MANIFEST, fixtures::RECORDS[5].1),
+            CompileResult::Unsupported { .. }
+        ));
+    }
+
+    #[test]
     fn ir_reader_rejects_mismatched_spell_timing_resolution_and_shape() {
         type Mutation = fn(&mut Definition);
         let catalog = fixture_catalog().unwrap();

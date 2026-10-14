@@ -19,6 +19,8 @@ pub struct VisiblePlayer {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleObject {
+    pub marked_damage: Quantity,
+    pub attack_ready: bool,
     pub handle: ObjectHandle,
     pub oracle_id: String,
     pub owner: PlayerId,
@@ -49,7 +51,16 @@ pub struct VisibleStackEntry {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct VisibleAttacker {
+    pub attacker: ObjectHandle,
+    pub defender: PlayerId,
+    pub blocked: bool,
+    pub blockers: Vec<ObjectHandle>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PermittedView {
+    pub combat: Vec<VisibleAttacker>,
     pub viewer: PlayerId,
     pub active: Option<PlayerId>,
     pub turn_owner: PlayerId,
@@ -64,6 +75,31 @@ pub struct PermittedView {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerRequest {
+    Attackers {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+        defenders: Vec<PlayerId>,
+    },
+    Blockers {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+        attackers: Vec<ObjectHandle>,
+    },
+    Damage {
+        token: DecisionToken,
+        player: PlayerId,
+        source: ObjectHandle,
+        power: Quantity,
+        recipients: Vec<ObjectHandle>,
+    },
+    Discard {
+        token: DecisionToken,
+        player: PlayerId,
+        count: usize,
+        candidates: Vec<ObjectHandle>,
+    },
     Priority {
         token: DecisionToken,
         player: PlayerId,
@@ -83,7 +119,11 @@ pub enum PlayerRequest {
 impl PlayerRequest {
     pub fn token(&self) -> &DecisionToken {
         match self {
-            Self::Priority { token, .. }
+            Self::Attackers { token, .. }
+            | Self::Blockers { token, .. }
+            | Self::Damage { token, .. }
+            | Self::Discard { token, .. }
+            | Self::Priority { token, .. }
             | Self::Targets { token, .. }
             | Self::Mana { token, .. } => token,
         }
@@ -99,12 +139,34 @@ pub struct Observation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerResponse {
-    PlayLand { object: ObjectHandle },
-    ActivateMana { object: ObjectHandle },
-    Cast { card: ObjectHandle },
+    Attackers {
+        attacks: Vec<(ObjectHandle, PlayerId)>,
+    },
+    Blockers {
+        blocks: Vec<(ObjectHandle, ObjectHandle)>,
+    },
+    Damage {
+        assignments: Vec<(ObjectHandle, Quantity)>,
+    },
+    Discard {
+        objects: Vec<ObjectHandle>,
+    },
+    PlayLand {
+        object: ObjectHandle,
+    },
+    ActivateMana {
+        object: ObjectHandle,
+    },
+    Cast {
+        card: ObjectHandle,
+    },
     Pass,
-    Targets { objects: Vec<ObjectHandle> },
-    FinishMana { undo_mana: bool },
+    Targets {
+        objects: Vec<ObjectHandle>,
+    },
+    FinishMana {
+        undo_mana: bool,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -195,6 +257,8 @@ impl Game {
             .get(&object.id.card)
             .ok_or("missing object definition")?;
         Ok(Some(VisibleObject {
+            marked_damage: object.marked_damage.clone(),
+            attack_ready: object.attack_ready,
             handle: self.handle_for(viewer, object.id)?,
             oracle_id: physical.oracle_id.clone(),
             owner: physical.owner,
@@ -243,6 +307,23 @@ impl Game {
             return Err("invalid viewer".into());
         }
         Ok(PermittedView {
+            combat: self
+                .state
+                .combat
+                .iter()
+                .map(|a| {
+                    Ok(VisibleAttacker {
+                        attacker: self.handle_for(viewer, a.attacker)?,
+                        defender: a.defender,
+                        blocked: a.blocked,
+                        blockers: a
+                            .blockers
+                            .iter()
+                            .map(|b| self.handle_for(viewer, *b))
+                            .collect::<Result<_, _>>()?,
+                    })
+                })
+                .collect::<Result<_, String>>()?,
             viewer,
             active: self.state.active,
             turn_owner: self.state.turn_owner,
@@ -279,6 +360,58 @@ impl Game {
         let Some(token) = token else {
             return Ok(None);
         };
+        if self.combat_decision_player() == Some(viewer) {
+            let handles = |v: Vec<ObjectId>| {
+                v.into_iter()
+                    .map(|o| self.handle_for(viewer, o))
+                    .collect::<Result<Vec<_>, String>>()
+            };
+            return Ok(Some(
+                match self.combat_request()?.ok_or("missing combat request")? {
+                    Request::Attackers {
+                        candidates,
+                        defenders,
+                        ..
+                    } => PlayerRequest::Attackers {
+                        token,
+                        player: viewer,
+                        candidates: handles(candidates)?,
+                        defenders,
+                    },
+                    Request::Blockers {
+                        candidates,
+                        attackers,
+                        ..
+                    } => PlayerRequest::Blockers {
+                        token,
+                        player: viewer,
+                        candidates: handles(candidates)?,
+                        attackers: handles(attackers)?,
+                    },
+                    Request::Damage {
+                        source,
+                        power,
+                        recipients,
+                        ..
+                    } => PlayerRequest::Damage {
+                        token,
+                        player: viewer,
+                        source: self.handle_for(viewer, source)?,
+                        power,
+                        recipients: handles(recipients)?,
+                    },
+                    Request::Discard {
+                        count, candidates, ..
+                    } => PlayerRequest::Discard {
+                        token,
+                        player: viewer,
+                        count,
+                        candidates: handles(candidates)?,
+                    },
+                    _ => return Err("combat request invariant".into()),
+                },
+            ));
+        }
         match &self.state.frame {
             Frame::Priority if self.state.priority == viewer => Ok(Some(PlayerRequest::Priority {
                 token,
@@ -351,6 +484,8 @@ impl Game {
             let key = if self.state.pending.is_some() || !self.state.pending_concessions.is_empty()
             {
                 None
+            } else if self.combat_decision_player() == Some(viewer) {
+                Some((self.state.revision, 3))
             } else {
                 match self.state.frame {
                     Frame::Priority if self.state.priority == viewer => {
@@ -409,7 +544,46 @@ impl Game {
         viewer: PlayerId,
         response: &PlayerResponse,
     ) -> Result<Response, String> {
+        let size = match response {
+            PlayerResponse::Attackers { attacks } => attacks.len(),
+            PlayerResponse::Blockers { blocks } => blocks.len(),
+            PlayerResponse::Damage { assignments } => assignments.len(),
+            PlayerResponse::Discard { objects } => objects.len(),
+            _ => 0,
+        };
+        if size > self.state.objects.len() {
+            return Err("oversized player declaration".into());
+        }
         match response {
+            PlayerResponse::Attackers { attacks } => Ok(Response::Attackers {
+                attacks: attacks
+                    .iter()
+                    .map(|(o, p)| Ok((self.resolve_handle(viewer, o)?, *p)))
+                    .collect::<Result<_, String>>()?,
+            }),
+            PlayerResponse::Blockers { blocks } => Ok(Response::Blockers {
+                blocks: blocks
+                    .iter()
+                    .map(|(b, a)| {
+                        Ok((
+                            self.resolve_handle(viewer, b)?,
+                            self.resolve_handle(viewer, a)?,
+                        ))
+                    })
+                    .collect::<Result<_, String>>()?,
+            }),
+            PlayerResponse::Damage { assignments } => Ok(Response::Damage {
+                assignments: assignments
+                    .iter()
+                    .map(|(o, n)| Ok((self.resolve_handle(viewer, o)?, n.clone())))
+                    .collect::<Result<_, String>>()?,
+            }),
+            PlayerResponse::Discard { objects } => Ok(Response::Discard {
+                objects: objects
+                    .iter()
+                    .map(|o| self.resolve_handle(viewer, o))
+                    .collect::<Result<_, _>>()?,
+            }),
             PlayerResponse::PlayLand { object } => Ok(Response::PlayLand {
                 card: self.resolve_handle(viewer, object)?.card,
             }),

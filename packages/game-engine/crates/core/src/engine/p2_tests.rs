@@ -91,6 +91,7 @@ fn execution_budget_partitions_and_every_suspended_boundary_restore_exactly() {
                     suspensions += 1;
                 }
                 Advance::Finished { .. } => panic!("unexpected finished fixture"),
+                Advance::Draw => panic!("unexpected draw"),
                 Advance::Fault(e) => panic!("execution fault: {e}"),
             }
             let snapshot = game.snapshot().unwrap();

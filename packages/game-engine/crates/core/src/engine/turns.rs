@@ -18,6 +18,8 @@ pub enum TurnStep {
     PrecombatMain,
     BeginningCombat,
     DeclareAttackers,
+    DeclareBlockers,
+    CombatDamage,
     EndCombat,
     PostcombatMain,
     End,
@@ -28,7 +30,11 @@ impl TurnStep {
         match self {
             Self::Untap | Self::Upkeep | Self::Draw => Phase::Beginning,
             Self::PrecombatMain => Phase::PrecombatMain,
-            Self::BeginningCombat | Self::DeclareAttackers | Self::EndCombat => Phase::Combat,
+            Self::BeginningCombat
+            | Self::DeclareAttackers
+            | Self::DeclareBlockers
+            | Self::CombatDamage
+            | Self::EndCombat => Phase::Combat,
             Self::PostcombatMain => Phase::PostcombatMain,
             Self::End | Self::Cleanup => Phase::Ending,
         }
@@ -40,7 +46,9 @@ impl TurnStep {
             Self::Draw => Self::PrecombatMain,
             Self::PrecombatMain => Self::BeginningCombat,
             Self::BeginningCombat => Self::DeclareAttackers,
-            Self::DeclareAttackers => Self::EndCombat,
+            Self::DeclareAttackers => Self::DeclareBlockers,
+            Self::DeclareBlockers => Self::CombatDamage,
+            Self::CombatDamage => Self::EndCombat,
             Self::EndCombat => Self::PostcombatMain,
             Self::PostcombatMain => Self::End,
             Self::End => Self::Cleanup,
@@ -61,7 +69,7 @@ impl Game {
         &self.state.turn
     }
     pub(super) fn turns_enabled(&self) -> bool {
-        self.prepared.config.profile == "four-seat-turns-permanents-v1"
+        self.prepared.config.profile == "four-seat-turns-permanents-v1" || self.combat_enabled()
     }
     pub(super) fn main_phase_action(&self, player: PlayerId) -> bool {
         self.is_live(player)
@@ -154,14 +162,23 @@ impl Game {
             EventGroup::Ordered { children },
         )?;
         self.state.passes.clear();
+        self.state.cleanup_repeat = false;
         self.state.frame = Frame::EnterStep;
         Ok(())
     }
     pub(super) fn next_turn_state(&self) -> Result<(TurnState, PlayerId), String> {
         let mut next = self.state.turn.clone();
-        next.step = next.step.next();
+        next.step = if self.state.turn.step == TurnStep::DeclareAttackers
+            && (!self.combat_enabled() || !self.state.combat_declared)
+        {
+            TurnStep::EndCombat
+        } else if self.state.turn.step == TurnStep::Cleanup && self.state.cleanup_repeat {
+            TurnStep::Cleanup
+        } else {
+            next.step.next()
+        };
         let mut owner = self.state.turn_owner;
-        if self.state.turn.step == TurnStep::Cleanup {
+        if self.state.turn.step == TurnStep::Cleanup && !self.state.cleanup_repeat {
             next.number = next
                 .number
                 .checked_add(1)
@@ -196,6 +213,79 @@ impl Game {
                     )?;
                 }
                 self.state.frame = Frame::Transition;
+                return Ok(());
+            }
+            TurnStep::Draw if self.combat_enabled() => {
+                if let Some(player) = self.state.active {
+                    if let Some(card) = self
+                        .state
+                        .libraries
+                        .get(&player)
+                        .and_then(|v| v.first())
+                        .copied()
+                    {
+                        self.move_object_for(
+                            self.object_id(card).ok_or("missing library object")?,
+                            Zone::Hand { owner: player },
+                            BatchCause::DrawStep { player },
+                        )?;
+                    } else {
+                        self.commit(
+                            ProposedEvent::FailedDraw { player },
+                            BatchCause::DrawStep { player },
+                        )?;
+                    }
+                }
+            }
+            TurnStep::BeginningCombat if self.combat_enabled() => {
+                self.state.combat.clear();
+                self.state.combat_declared = false;
+                self.state.damage_choices.clear();
+            }
+            TurnStep::DeclareAttackers if self.combat_enabled() => {
+                if self.state.active.is_some() {
+                    self.state.frame = Frame::Attackers;
+                    return Ok(());
+                }
+            }
+            TurnStep::DeclareBlockers if self.combat_enabled() => {
+                let remaining = (1..4)
+                    .map(|n| PlayerId((self.state.turn_owner.0 + n) % 4))
+                    .filter(|p| {
+                        self.is_live(*p) && self.state.combat.iter().any(|a| a.defender == *p)
+                    })
+                    .collect::<Vec<_>>();
+                if !remaining.is_empty() {
+                    self.state.frame = Frame::Blockers { remaining };
+                    return Ok(());
+                }
+            }
+            TurnStep::CombatDamage if self.combat_enabled() => {
+                self.state.frame = Frame::Damage;
+                return Ok(());
+            }
+            TurnStep::EndCombat if self.combat_enabled() => {}
+            TurnStep::PostcombatMain if self.combat_enabled() => {
+                self.state.combat.clear();
+                self.state.damage_choices.clear();
+            }
+            TurnStep::Cleanup if self.combat_enabled() => {
+                self.state.frame = if let Some(player) = self.state.active {
+                    let count = self
+                        .state
+                        .objects
+                        .values()
+                        .filter(|o| o.zone == (Zone::Hand { owner: player }))
+                        .count()
+                        .saturating_sub(7);
+                    if count > 0 {
+                        Frame::Discard { player, count }
+                    } else {
+                        Frame::CleanupClear
+                    }
+                } else {
+                    Frame::CleanupClear
+                };
                 return Ok(());
             }
             TurnStep::Draw => {
@@ -255,14 +345,18 @@ impl Game {
             }
             _ => {}
         }
-        self.stabilize()?;
-        self.state.priority = self
-            .state
-            .active
-            .or_else(|| self.next_live(self.state.turn_owner))
-            .ok_or("no living priority recipient")?;
-        self.state.frame = Frame::Priority;
-        Ok(())
+        if self.combat_enabled() {
+            self.grant_turn_priority()
+        } else {
+            self.stabilize()?;
+            self.state.priority = self
+                .state
+                .active
+                .or_else(|| self.next_live(self.state.turn_owner))
+                .ok_or("no living priority recipient")?;
+            self.state.frame = Frame::Priority;
+            Ok(())
+        }
     }
 }
 
