@@ -65,6 +65,7 @@ fn cast(game: &mut Game, player: u8, pay: bool) {
             }],
         },
     );
+    input(game, player, Response::FinishMana { undo_mana: false });
     assert!(
         matches!(settle(game),Advance::AwaitingDecision(Request::Priority{player:p,..}) if p==PlayerId(player))
     );
@@ -261,6 +262,9 @@ fn lower_source_departure_preserves_top_announcement_payment_and_resolution() {
             );
             let _ = game.advance(Budget::new(1));
             recover(&game);
+            input(&mut game, 1, Response::FinishMana { undo_mana: false });
+            let _ = game.advance(Budget::new(1));
+            recover(&game);
         }
         if boundary == 2 {
             let _ = settle(&mut game);
@@ -303,6 +307,7 @@ fn reversing_after_departure_filters_saved_passes_and_removes_only_its_source() 
     game.concede(PlayerId(0)).unwrap();
     let _ = game.advance(Budget::new(1));
     recover(&game);
+    input(&mut game, 1, Response::FinishMana { undo_mana: false });
     let _ = settle(&mut game);
     assert!(game.state.passes.is_empty());
     assert!(game.state.stack.is_empty());
@@ -509,6 +514,7 @@ fn each_lower_entry_is_validated_against_its_own_program() {
             ],
         },
     );
+    input(&mut game, 1, Response::FinishMana { undo_mana: false });
     let _ = settle(&mut game);
     assert_eq!(game.state.stack[0].targets.len(), 1);
     assert_eq!(game.state.stack[1].targets.len(), 2);

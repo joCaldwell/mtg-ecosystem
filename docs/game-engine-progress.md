@@ -299,6 +299,64 @@ Recovery still replays the small closed profile; these checks do not establish
 representative full-game throughput or general timing/choice correctness.
 This completes the bounded slice; full P2/P3 and Commander match gates remain.
 
+## Casting-time mana follow-up — October 13, 2026
+
+The [frozen payment brief](game-engine-payment-slice.md) is implemented. All
+admitted profiles offer a caster-only mana window after targets, even with an
+already sufficient pool. Intrinsic mana abilities use the typed tap/add path
+without priority or stack entries. FinishMana attempts full payment; it cannot
+cancel an affordable spell. On failure, the player can keep all or undo all
+casting-time mana activations. Exact receipts and typed reversal outcomes
+preserve pre-cast mana, zero-entry shape, original spell incarnation, and
+intervening departures. A retained mana action interrupts the old pass round,
+including when its caster subsequently leaves. No player can respond during
+target announcement, the mana window, payment, or resolution.
+
+A fourth exact admitted configuration uses two source-backed Forests against
+Unsummon's U cost. It witnesses an unpayable attempt after floating G before
+casting and producing G during casting: undo restores the second Forest and
+leaves G=1; keep leaves it tapped and G=2. No source/AST/IR definitions change.
+Snapshot/bundle v6, Observation/SearchContext v4, and sidecar v3 record the new
+stages. Historical flat gameplay traces still agree, with explicit mana-window
+decline inputs added to current witnesses. `expected-payment-scenario.json`
+records current state hashes and journals; prior fixtures remain historical.
+
+Validation: `npm run check:engine` passed formatting, Clippy with warnings
+denied, **73 Rust tests** and **5 Node checks**. Optimized release tests passed
+all 73 cases. New coverage includes successful casting-time mana, affordable
+extra activation, keep/undo failure, pre-floated mana and zero-entry shape,
+wrong seat/timing/stale handles, atomic reversal failures, departed sources and
+payer history, accepted activation invalidation, saved query/decision boundaries,
+rehashed forged receipts, trace/budget equivalence, and replay. Independent review
+found a caster-departure pass-round bug; the fix and a production lower-stack
+regression passed. No unresolved correctness findings remain in this slice.
+
+The success witness retains 8 decisions, 13 events and 23 recovery checkpoints;
+failed undo retains 5 decisions, 8 events and 14 checkpoints; failed keep retains
+5 decisions, 7 events and 14 checkpoints. The ordinary/detached response witnesses
+now have 18 decisions with 45/47 checkpoints, preserving their 27/30 flat events.
+The Commander/departure witness has 15 checkpoints. All seven witness families
+run in off/compact/detailed trace modes (**21 retained executions**).
+
+`npm run retain:engine` rebuilt the native source and 1,581 vendored dependency
+files with an empty Cargo home and fresh target directory, using offline frozen
+Cargo. The independently rebuilt executable verified all trace-mode runs,
+recovery checkpoints and the query sidecar. Retained identities:
+
+- Release build: `c06c2b25d566c9bdd9c0c84816e07c6c55881404cf9b46c023a06fb33eda3596`.
+- Baseline v6 state: `8a96749b46b382c93b61daa151b1498f40b3a65771f5e0aede172fb66b4da057`.
+- Replay bundle: `91393f2636a9950296d4572d2601fe0089da6290800f469efaddefedbea15e07`.
+- Rebuilt executable: `d55abf5b4edda6ae7e9d63452cc24758fca7871411d9f6fbe99f24ca1ed6a688`.
+- Dependency manifest: `387384711d404f44993e8ab583e269c5105d1cc8b583307e3035f14e03d7474f`.
+
+Evidence lives in `/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-91393f2636a99502-aKZgnA/`; `evidence.json`
+records the source/dependency closure and verification. The ignored worktree
+summary remains `generated/p2-retention.json`. No parser edits or bulk artifact
+commits are part of this work. Keep-all/undo-all is a restricted reversal policy;
+subset choices, dependent mana abilities, control-changing source exile,
+general costs, permanent casts, full phases and legal Commander games remain
+later slices. This completes the bounded payment slice, not full P3 signoff.
+
 ## Remaining delivery gates
 
 Remaining P2 foundations include broader functioning-zone/ability discovery,
@@ -318,8 +376,9 @@ schema export, complete printing/membership indexes, structured build/admission
 reports, and additional mechanic/functioning-zone descriptors. No parser rewrite
 or port of the entire TypeScript binding analyzer is required.
 
-P3 still expands mana-payment staging, permanent casting, phase progression,
-and resolution-time choices. Ordinary supported instant responses are now
+P3 still expands general cost families, permanent casting, phase progression,
+and resolution-time choices. Ordinary supported instant responses and
+casting-time intrinsic mana are now
 implemented for the exact scenario pool; broader stack/cost families remain. P4 adds the Commander lifecycle and
 event interactions. P5 validates full legal decks/pods, a closed reachable pool,
 and seeded complete games. Unsupported runtime paths currently fault or reject;

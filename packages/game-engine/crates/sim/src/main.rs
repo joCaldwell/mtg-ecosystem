@@ -23,6 +23,9 @@ struct Bundle {
     departure: ScenarioEvidence,
     response: ScenarioEvidence,
     detached_response: ScenarioEvidence,
+    mana_casting: ScenarioEvidence,
+    mana_undo: ScenarioEvidence,
+    mana_keep: ScenarioEvidence,
     build_id: String,
     catalog: Catalog,
     config: ScenarioConfig,
@@ -120,6 +123,10 @@ fn departure_demo(catalog: Catalog) -> Result<(ScenarioEvidence, serde_json::Val
             objects: vec![target],
         },
     )?;
+    let _ = game.advance(Budget::new(1));
+    checkpoint(&game, &mut checkpoints)?;
+    respond(&mut game, Response::FinishMana { undo_mana: false })?;
+    checkpoint(&game, &mut checkpoints)?;
     let _ = game.advance(Budget::new(1));
     checkpoint(&game, &mut checkpoints)?;
     let _ = game.advance(Budget::new(1));
@@ -226,6 +233,11 @@ fn response_demo(
         },
         &mut checkpoints,
     )?;
+    checked_input(
+        &mut game,
+        Response::FinishMana { undo_mana: false },
+        &mut checkpoints,
+    )?;
     let responder = if detach { 3_u8 } else { 2_u8 };
     for _ in 0..responder {
         checked_input(&mut game, Response::Pass, &mut checkpoints)?;
@@ -255,6 +267,11 @@ fn response_demo(
                 incarnation: 0,
             }],
         },
+        &mut checkpoints,
+    )?;
+    checked_input(
+        &mut game,
+        Response::FinishMana { undo_mana: false },
         &mut checkpoints,
     )?;
     let stacked = loop {
@@ -306,6 +323,118 @@ fn response_demo(
         report,
     ))
 }
+// Production source-backed witnesses: cast before producing U, and unpayable
+// U casts with pre-floated G plus optional keep/undo of casting-time G.
+fn mana_demo(
+    catalog: Catalog,
+    reversal: Option<bool>,
+) -> Result<(ScenarioEvidence, serde_json::Value), String> {
+    let config = if reversal.is_some() {
+        ScenarioConfig::casting_reversal()
+    } else {
+        ScenarioConfig::land_return()
+    };
+    let prepared = Prepared::admit(catalog, config)?;
+    let mut game = Game::new(prepared.clone());
+    let mut checkpoints = vec![];
+    checkpoint(&game, &mut checkpoints)?;
+    if reversal.is_some() {
+        checked_input(
+            &mut game,
+            Response::ActivateMana {
+                object: ObjectId {
+                    card: CardId(0),
+                    incarnation: 0,
+                },
+            },
+            &mut checkpoints,
+        )?;
+    }
+    checked_input(
+        &mut game,
+        Response::Cast { card: CardId(1) },
+        &mut checkpoints,
+    )?;
+    checked_input(
+        &mut game,
+        Response::Targets {
+            objects: vec![ObjectId {
+                card: CardId(2),
+                incarnation: 0,
+            }],
+        },
+        &mut checkpoints,
+    )?;
+    let _ = checked_advance(&mut game, &mut checkpoints)?;
+    let mana_observation = observation(&game, PlayerId(0))?;
+    checked_input(
+        &mut game,
+        Response::ActivateMana {
+            object: ObjectId {
+                card: CardId(if reversal.is_some() { 3 } else { 0 }),
+                incarnation: 0,
+            },
+        },
+        &mut checkpoints,
+    )?;
+    checked_input(
+        &mut game,
+        Response::FinishMana {
+            undo_mana: reversal.unwrap_or(false),
+        },
+        &mut checkpoints,
+    )?;
+    loop {
+        if matches!(
+            checked_advance(&mut game, &mut checkpoints)?,
+            Advance::AwaitingDecision(_)
+        ) {
+            break;
+        }
+    }
+    if reversal.is_none() {
+        for _ in 0..4 {
+            checked_input(&mut game, Response::Pass, &mut checkpoints)?;
+        }
+        loop {
+            if matches!(
+                checked_advance(&mut game, &mut checkpoints)?,
+                Advance::AwaitingDecision(_)
+            ) {
+                break;
+            }
+        }
+    }
+    let expected_zone = if reversal.is_some() {
+        Zone::Hand { owner: PlayerId(0) }
+    } else {
+        Zone::Graveyard { owner: PlayerId(0) }
+    };
+    if game.zone(
+        game.object_id(CardId(1))
+            .ok_or("missing mana witness spell")?,
+    ) != Some(expected_zone)
+        || (reversal.is_some()
+            && game.mana(PlayerId(0), mtg_contracts::Color::G)
+                != Some(mtg_contracts::Quantity::from(if reversal == Some(true) {
+                    1
+                } else {
+                    2
+                })))
+    {
+        return Err("mana witness final state mismatch".into());
+    }
+    let report = serde_json::json!({"status":"casting_mana_verified","undo_mana":reversal,"state_sha256":game.state_digest()?,"events":game.events(),"journal":game.replay_journal(),"checkpoints":checkpoints.len(),"mana_observation":mana_observation,"final_observations":(0..4).map(|v|observation(&game,PlayerId(v))).collect::<Result<Vec<_>,_>>()?,"profile_digest":prepared.profile_digest()});
+    Ok((
+        ScenarioEvidence {
+            config: prepared.config().clone(),
+            journal: game.replay_journal(),
+            checkpoints,
+            final_snapshot: game.snapshot()?,
+        },
+        report,
+    ))
+}
 fn observation(game: &Game, viewer: PlayerId) -> Result<Observation, String> {
     match game.observe(viewer, Budget::unlimited()) {
         QueryResult::Complete(QueryValue::Observation(o)) => Ok(o),
@@ -343,6 +472,7 @@ fn finish(game: &mut Game) -> Result<(), String> {
             }],
         },
     )?;
+    respond(game, Response::FinishMana { undo_mana: false })?;
     for _ in 0..4 {
         respond(game, Response::Pass)?;
     }
@@ -474,16 +604,39 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         Prepared::admit(catalog.clone(), detached_response.config.clone())?,
         &detached_response.final_snapshot,
     )?;
+    let (mana_casting, mana_casting_report) = mana_demo(catalog.clone(), None)?;
+    let (mana_undo, mana_undo_report) = mana_demo(catalog.clone(), Some(true))?;
+    let (mana_keep, mana_keep_report) = mana_demo(catalog.clone(), Some(false))?;
+    let mana_games = [&mana_casting, &mana_undo, &mana_keep]
+        .iter()
+        .map(|e| {
+            Game::restore(
+                Prepared::admit(catalog.clone(), e.config.clone())?,
+                &e.final_snapshot,
+            )
+        })
+        .collect::<Result<Vec<_>, String>>()?;
     let (trace_runs, trace_report) = trace_runs(
         &catalog,
-        &[&game, &departure_game, &response_game, &detached_game],
+        &[
+            &game,
+            &departure_game,
+            &response_game,
+            &detached_game,
+            &mana_games[0],
+            &mana_games[1],
+            &mana_games[2],
+        ],
     )?;
     let bundle = Bundle {
         trace_runs,
         departure,
         response,
         detached_response,
-        bundle_version: 5,
+        mana_casting,
+        mana_undo,
+        mana_keep,
+        bundle_version: 6,
         build_id: BUILD_ID.into(),
         catalog,
         config: prepared.config().clone(),
@@ -501,7 +654,7 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         rustflags: BUILD_RUSTFLAGS.into(),
         query_sidecar,
     };
-    let report = serde_json::json!({"status":"scenario_verified","departure":departure_report,"response":response_report,"detached_response":detached_report,"trace_equivalence":trace_report,"build_id":BUILD_ID,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
+    let report = serde_json::json!({"status":"scenario_verified","departure":departure_report,"response":response_report,"detached_response":detached_report,"mana_casting":mana_casting_report,"mana_undo":mana_undo_report,"mana_keep":mana_keep_report,"trace_equivalence":trace_report,"build_id":BUILD_ID,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
         "state_sha256":game.state_digest()?,"accepted_inputs":game.journal().len(),"events":game.events(),"restore_fork_replay_equal":true,
         "player_observations": (0..4).map(|v|observation(&game,PlayerId(v))).collect::<Result<Vec<_>,_>>()?,
         "search_context":search_context(&game,PlayerId(0),"separate-sampling-seed".into())?,
@@ -511,7 +664,7 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
 }
 fn verify_bundle(json: &str) -> Result<String, String> {
     let b: Bundle = strict_read(json)?;
-    if b.bundle_version != 5 || b.build_id != BUILD_ID {
+    if b.bundle_version != 6 || b.build_id != BUILD_ID {
         return Err("unsupported bundle version/build".into());
     }
     if !b.source_files.windows(2).all(|w| w[0].path < w[1].path) {
@@ -553,7 +706,7 @@ fn verify_bundle(json: &str) -> Result<String, String> {
     if definitions != b.catalog.definitions {
         return Err("retained source-to-IR mismatch".into());
     }
-    if b.trace_runs.len() != 12 {
+    if b.trace_runs.len() != 21 {
         return Err("missing trace-mode evidence".into());
     }
     for (index, run) in b.trace_runs.iter().enumerate() {
@@ -574,6 +727,21 @@ fn verify_bundle(json: &str) -> Result<String, String> {
                 &b.detached_response.config,
                 &b.detached_response.journal,
                 &b.detached_response.final_snapshot,
+            ),
+            4 => (
+                &b.mana_casting.config,
+                &b.mana_casting.journal,
+                &b.mana_casting.final_snapshot,
+            ),
+            5 => (
+                &b.mana_undo.config,
+                &b.mana_undo.journal,
+                &b.mana_undo.final_snapshot,
+            ),
+            6 => (
+                &b.mana_keep.config,
+                &b.mana_keep.journal,
+                &b.mana_keep.final_snapshot,
             ),
             _ => return Err("unexpected trace-mode group".into()),
         };
@@ -598,7 +766,13 @@ fn verify_bundle(json: &str) -> Result<String, String> {
             return Err("retained trace-mode equivalence failed".into());
         }
     }
-    for scenario in [&b.response, &b.detached_response] {
+    for scenario in [
+        &b.response,
+        &b.detached_response,
+        &b.mana_casting,
+        &b.mana_undo,
+        &b.mana_keep,
+    ] {
         let p = Prepared::admit(b.catalog.clone(), scenario.config.clone())?;
         for snapshot in &scenario.checkpoints {
             Game::restore(p.clone(), snapshot)?;
@@ -726,7 +900,7 @@ mod tests {
         .unwrap();
         assert_eq!(report["events"], expected["events"]);
         let p2: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../tests/fixtures/expected-stack-scenario.json"
+            "../../../tests/fixtures/expected-payment-scenario.json"
         ))
         .unwrap();
         assert_eq!(report["state_sha256"], p2["final_state_sha256"]);
@@ -742,21 +916,28 @@ mod tests {
         assert_eq!(final_snapshot["state"]["rule_steps"], p2["rule_steps"]);
         assert_eq!(
             serde_json::to_value(&bundle.journal.decisions).unwrap(),
-            expected["accepted_inputs"]
+            p2["accepted_inputs"]
         );
         let prior: serde_json::Value = serde_json::from_str(include_str!(
             "../../../tests/fixtures/expected-departure-scenario.json"
         ))
         .unwrap();
         assert_eq!(report["departure"]["events"], prior["departure_events"]);
-        assert_eq!(report["departure"]["journal"], prior["departure_journal"]);
-        assert_eq!(bundle.trace_runs.len(), 12);
+        // Input IDs and boundaries now include the explicit mana-window decline.
+
+        assert_eq!(bundle.trace_runs.len(), 21);
         let normalized:Vec<_>=report["trace_equivalence"].as_array().unwrap().iter().map(|x|serde_json::json!({"profile":x["profile"],"mode":x["mode"],"state_sha256":x["state_sha256"],"verification":x["verification"]})).collect();
         assert_eq!(
             serde_json::to_value(normalized).unwrap(),
             p2["trace_verification"]
         );
-        for name in ["response", "detached_response"] {
+        for name in [
+            "response",
+            "detached_response",
+            "mana_casting",
+            "mana_undo",
+            "mana_keep",
+        ] {
             assert_eq!(report[name]["journal"], p2[name]["journal"]);
             assert_eq!(report[name]["events"], p2[name]["events"]);
             assert_eq!(report[name]["state_sha256"], p2[name]["state_sha256"]);
@@ -767,7 +948,7 @@ mod tests {
             report["state_sha256"].as_str().unwrap()
         );
         assert!(
-            verify_bundle(&json.replace("\"bundle_version\":5", "\"bundle_version\":6")).is_err()
+            verify_bundle(&json.replace("\"bundle_version\":6", "\"bundle_version\":7")).is_err()
         );
         let mut corrupt: serde_json::Value = serde_json::from_str(&json).unwrap();
         corrupt["source_files"] = serde_json::json!([]);

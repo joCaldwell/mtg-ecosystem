@@ -241,34 +241,7 @@ impl Game {
         Ok(())
     }
     fn reverse_departure_cast(&mut self, cast: Casting) -> Result<(), String> {
-        let stack = self.top()?.clone();
-        self.state.stack.pop();
-        let o = self
-            .state
-            .objects
-            .get_mut(&cast.original_object.card)
-            .ok_or("missing surviving casting object")?;
-        o.id = cast.original_object;
-        o.zone = Zone::Hand {
-            owner: stack.controller,
-        };
-        o.controller = stack.controller;
-        o.default_controller = stack.controller;
-        o.tapped = false;
-        self.state.pending = None;
-        self.state.frame = Frame::Priority;
-        self.state.priority = stack.controller;
-        let live = self.live_players();
-        self.state.passes = cast
-            .prior_passes
-            .into_iter()
-            .filter(|p| live.contains(p))
-            .collect();
-        self.record_event(Event::CastReversed {
-            stack_id: cast.stack_id,
-            reason: "departure made casting targets illegal".into(),
-        })?;
-        Ok(())
+        self.reverse_cast(cast, "departure made casting targets illegal", true)
     }
     fn refresh_controllers(&mut self, departing: PlayerId) -> Result<(), String> {
         // CR 110.2, 800.4a-c: ending a grant restores the latest remaining
@@ -402,18 +375,27 @@ impl Game {
         // CR 608.2m: a started invocation owns its frozen instance and keeps
         // resolving after its source leaves. Only an unfinished casting frame
         // whose own source left is discarded; lower departures cannot replace it.
-        if let Frame::Targets { cast } | Frame::Payment { cast } = self.state.frame.clone()
+        if let Frame::Targets { cast } | Frame::Mana { cast } | Frame::Payment { cast } =
+            self.state.frame.clone()
             && lost_stack.contains(&cast.stack_id)
         {
             self.state.pending = None;
             self.state.frame = Frame::Priority;
-            self.state.passes = cast
-                .prior_passes
-                .into_iter()
-                .filter(|p| live.contains(p))
-                .collect();
+            // The departure removes the unfinished spell, but does not undo
+            // legal casting-time mana activations. Those interrupt CR 117.4's
+            // consecutive pass round even if their controller has now left.
+            self.state.passes = if cast.mana_activations.is_empty() {
+                cast.prior_passes
+                    .into_iter()
+                    .filter(|p| live.contains(p))
+                    .collect()
+            } else {
+                vec![]
+            };
         }
-        if let Frame::Targets { cast } | Frame::Payment { cast } = self.state.frame.clone() {
+        if let Frame::Targets { cast } | Frame::Mana { cast } | Frame::Payment { cast } =
+            self.state.frame.clone()
+        {
             let targets_bad = self.state.stack.last().is_some_and(|s| {
                 !s.targets.is_empty() && s.targets.iter().any(|t| !self.target_legal(*t))
             });
@@ -422,6 +404,17 @@ impl Game {
             if targets_bad || pending_bad || no_domain {
                 self.reverse_departure_cast(cast)?;
             }
+        }
+        // A departure can invalidate an accepted mana activation before its
+        // rule step. Keep the input journal, discard only the stale proposal.
+        if matches!(self.state.frame, Frame::Mana { .. })
+            && self
+                .state
+                .pending
+                .as_ref()
+                .is_some_and(|p| self.validate_response(p.player, &p.response).is_err())
+        {
+            self.state.pending = None;
         }
         if matches!(self.state.frame, Frame::Priority)
             && self.state.pending.is_none()

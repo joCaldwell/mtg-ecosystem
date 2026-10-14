@@ -203,14 +203,19 @@ fn active_departure_keeps_turn_owner_and_surviving_priority_order() {
 }
 #[test]
 fn target_departure_reverses_unfinished_cast_without_spending_mana() {
-    // Test announcement, accepted targets, and automatic payment boundaries.
-    for boundary in 0..3 {
+    // Test announcement, accepted targets, mana window, and automatic payment.
+    for boundary in 0..4 {
         let mut game = Game::new(prepared(false));
         cast(&mut game);
         if boundary > 0 {
             select(&mut game);
         }
-        if boundary == 2 {
+        if boundary >= 2 {
+            let _ = game.advance(Budget::new(1));
+            assert!(matches!(game.state.frame, Frame::Mana { .. }));
+        }
+        if boundary == 3 {
+            respond(&mut game, Response::FinishMana { undo_mana: false });
             let _ = game.advance(Budget::new(1));
             assert!(matches!(game.state.frame, Frame::Payment { .. }));
         }
@@ -248,6 +253,7 @@ fn source_departure_discards_casting_but_started_resolution_continues() {
             let _ = game.advance(Budget::new(1));
         }
         if boundary >= 2 {
+            respond(&mut game, Response::FinishMana { undo_mana: false });
             let _ = game.advance(Budget::unlimited());
         }
         if boundary == 3 {
@@ -290,6 +296,7 @@ fn target_departure_after_casting_uses_resolution_legality_and_preserves_passes(
     let mut game = Game::new(prepared(false));
     cast(&mut game);
     select(&mut game);
+    respond(&mut game, Response::FinishMana { undo_mana: false });
     let _ = game.advance(Budget::unlimited());
     depart(&mut game, 1);
     for _ in 0..2 {
@@ -321,6 +328,7 @@ fn mid_resolution_target_departure_keeps_captured_legality_but_skips_removed_obj
     let mut game = Game::new(prepared(false));
     cast(&mut game);
     select(&mut game);
+    respond(&mut game, Response::FinishMana { undo_mana: false });
     for _ in 0..4 {
         respond(&mut game, Response::Pass);
     }

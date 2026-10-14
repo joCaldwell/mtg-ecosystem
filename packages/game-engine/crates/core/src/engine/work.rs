@@ -275,7 +275,7 @@ impl Game {
         if b.cursor as usize >= 4 + self.state.objects.len() + self.state.stack.len() {
             b.view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
             return Ok(Some(Observation {
-                observation_version: 3,
+                observation_version: 4,
                 view: b.view.clone(),
                 decision: b.decision.clone(),
             }));
@@ -321,13 +321,23 @@ impl Game {
                 if !*header_checked {
                     self.validate_player_token(*viewer, token)
                         .map_err(invalid)?;
-                    if let PlayerResponse::Targets { objects } = response {
-                        if !matches!(self.state.frame, Frame::Targets { .. })
-                            || objects.len() != self.program().map_err(invalid)?.targets.len()
-                        {
-                            return Err(QueryRejection::InvalidResponse);
+                    let timing_valid = match (&self.state.frame, response) {
+                        (Frame::Targets { .. }, PlayerResponse::Targets { objects }) => {
+                            objects.len() == self.program().map_err(invalid)?.targets.len()
                         }
-                    } else if !matches!(self.state.frame, Frame::Priority) {
+                        (
+                            Frame::Priority,
+                            PlayerResponse::ActivateMana { .. }
+                            | PlayerResponse::Cast { .. }
+                            | PlayerResponse::Pass,
+                        ) => true,
+                        (
+                            Frame::Mana { .. },
+                            PlayerResponse::ActivateMana { .. } | PlayerResponse::FinishMana { .. },
+                        ) => true,
+                        _ => false,
+                    };
+                    if !timing_valid {
                         return Err(QueryRejection::InvalidResponse);
                     }
                     *header_checked = true;
@@ -405,7 +415,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 3,
+                    context_version: 4,
                     observation: *observation.clone().ok_or(QueryRejection::Invariant)?,
                     permitted_history: history.clone(),
                     open_decklists: decks.clone(),
@@ -424,7 +434,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: 2,
+            work_version: 3,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -433,7 +443,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != 2
+        if saved.work_version != 3
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?

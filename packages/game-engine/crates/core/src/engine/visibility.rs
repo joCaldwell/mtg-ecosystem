@@ -73,11 +73,18 @@ pub enum PlayerRequest {
         occurrences: Vec<TargetSpec>,
         candidates: Vec<ObjectHandle>,
     },
+    Mana {
+        token: DecisionToken,
+        player: PlayerId,
+        cost: ManaCost,
+    },
 }
 impl PlayerRequest {
     pub fn token(&self) -> &DecisionToken {
         match self {
-            Self::Priority { token, .. } | Self::Targets { token, .. } => token,
+            Self::Priority { token, .. }
+            | Self::Targets { token, .. }
+            | Self::Mana { token, .. } => token,
         }
     }
 }
@@ -95,6 +102,7 @@ pub enum PlayerResponse {
     Cast { card: ObjectHandle },
     Pass,
     Targets { objects: Vec<ObjectHandle> },
+    FinishMana { undo_mana: bool },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -281,6 +289,17 @@ impl Game {
                     candidates: vec![],
                 }))
             }
+            Frame::Mana { .. } if self.top()?.controller == viewer => {
+                Ok(Some(PlayerRequest::Mana {
+                    token,
+                    player: viewer,
+                    cost: self
+                        .definition(self.top()?.source.card)?
+                        .characteristics
+                        .mana_cost
+                        .clone(),
+                }))
+            }
             _ => Ok(None),
         }
     }
@@ -337,6 +356,9 @@ impl Game {
                     Frame::Targets { .. } if self.top()?.controller == viewer => {
                         Some((self.state.revision, 1))
                     }
+                    Frame::Mana { .. } if self.top()?.controller == viewer => {
+                        Some((self.state.revision, 2))
+                    }
                     _ => None,
                 }
             };
@@ -392,6 +414,9 @@ impl Game {
                 card: self.resolve_handle(viewer, card)?.card,
             }),
             PlayerResponse::Pass => Ok(Response::Pass),
+            PlayerResponse::FinishMana { undo_mana } => Ok(Response::FinishMana {
+                undo_mana: *undo_mana,
+            }),
             PlayerResponse::Targets { objects } => Ok(Response::Targets {
                 objects: objects
                     .iter()

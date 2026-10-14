@@ -8,7 +8,10 @@ IR v2 and the exact Isamaru profile. The next contract is
 `docs/game-engine-event-slice.md`: atomic event groups, nonsemantic trace modes,
 and snapshot/bundle v4. `docs/game-engine-stack-slice.md` adds the exact
 nine-card instant-response profile, detached resolution, snapshot/bundle v5,
-projection v3, and query-sidecar v2. This package is scenario-only; do not advertise playable
+projection v3, and query-sidecar v2. `docs/game-engine-payment-slice.md` adds
+casting-time intrinsic mana, keep-all/undo-all failed-payment choices, the exact
+four-card Forest reversal profile, snapshot/bundle v6, projection v4, and
+query-sidecar v3. This package is scenario-only; do not advertise playable
 Commander matches.
 
 Run from repository root, using pinned Rust 1.99.0:
@@ -69,5 +72,11 @@ references; they cannot rebind to a later incarnation or authorize responses.
 Lower entries remain completed while the top is announced. Reversal restores
 prior passes filtered by living players. Resolving frames own frozen instances
 and continue supported choice-free effects after their source leaves (CR 608.2m).
-No responses occur during announcement or resolution. Empty-stack phase
+Only the caster answers target and mana-window requests; no player receives
+priority during announcement or resolution. Always offer casting-time mana,
+even when already funded. FinishMana attempts complete payment and cannot
+cancel a payable spell. Undo subtracts only receipt-recorded casting-time mana
+and untaps surviving sources; preserve pre-cast mana and departures. Retained
+legal mana activations clear prior passes. A removed caster never restores its
+last-known mana or resurrects sources. Empty-stack phase
 advancement still faults; restore proves fault reachability by replay.

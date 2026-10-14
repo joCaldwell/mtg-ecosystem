@@ -191,7 +191,7 @@ fn failed_children_conflicts_limits_and_overflows_roll_back_state_and_evidence()
 }
 fn run(mode: TraceMode, units: u64) -> Game {
     let expected: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../tests/fixtures/expected-scenario.json"
+        "../../../../tests/fixtures/expected-payment-scenario.json"
     ))
     .unwrap();
     let inputs: Vec<AcceptedInput> =
@@ -267,7 +267,7 @@ fn every_trace_mode_and_budget_partition_preserves_semantics_queries_and_recover
     let json: serde_json::Value = serde_json::from_str(&detailed.snapshot().unwrap()).unwrap();
     assert!(json["state"].get("trace").is_none());
     assert!(json["state"].get("events").is_none());
-    assert_eq!(json["snapshot_version"], 5);
+    assert_eq!(json["snapshot_version"], 6);
 }
 #[test]
 fn trace_and_branch_mutation_cannot_change_rules_or_forge_recovery() {
@@ -330,7 +330,7 @@ fn departures_are_one_simultaneous_removal_batch_in_every_trace_mode() {
 #[test]
 fn mixed_input_trace_modes_restore_every_pending_and_suspended_departure_boundary() {
     let witness: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../tests/fixtures/expected-departure-scenario.json"
+        "../../../../tests/fixtures/expected-payment-scenario.json"
     ))
     .unwrap();
     let journal: ReplayJournal =
@@ -340,7 +340,8 @@ fn mixed_input_trace_modes_restore_every_pending_and_suspended_departure_boundar
         ScenarioConfig::commander_foundation(),
     )
     .unwrap();
-    // Reviewed rule boundaries: mana, cast/targets, payment, passes, three
+    // Reviewed rule boundaries: mana, cast/targets, mana-window completion,
+    // payment, passes, three
     // external arrivals, illegal-target completion, and the final survivor.
     for (boundary, decisions, concessions) in [
         (0, 0, 0),
@@ -350,18 +351,20 @@ fn mixed_input_trace_modes_restore_every_pending_and_suspended_departure_boundar
         (2, 2, 0),
         (2, 3, 0),
         (3, 3, 0),
-        (4, 3, 0),
+        (3, 4, 0),
         (4, 4, 0),
         (5, 4, 0),
-        (5, 4, 1),
-        (6, 4, 1),
+        (5, 5, 0),
+        (6, 5, 0),
         (6, 5, 1),
         (7, 5, 1),
-        (7, 5, 2),
-        (8, 5, 2),
-        (9, 5, 2),
-        (9, 5, 3),
-        (10, 5, 3),
+        (7, 6, 1),
+        (8, 6, 1),
+        (8, 6, 2),
+        (9, 6, 2),
+        (10, 6, 2),
+        (10, 6, 3),
+        (11, 6, 3),
     ] {
         let prefix = ReplayJournal {
             decisions: journal.decisions[..decisions].to_vec(),

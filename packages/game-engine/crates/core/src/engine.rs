@@ -34,6 +34,7 @@ const ALLOWED: [(&str, &str); 5] = [
         "83c5d4c810e25b84f607f9c8b99b5179abf39e060d093cd7dd38c0be90a8a083",
     ),
 ];
+mod casting;
 mod events;
 mod trace;
 pub use events::*;
@@ -50,6 +51,12 @@ mod departure_tests;
 mod event_tests;
 #[cfg(test)]
 mod p2_tests;
+#[cfg(test)]
+mod payment_event_tests;
+#[cfg(test)]
+mod payment_query_tests;
+#[cfg(test)]
+mod payment_tests;
 #[cfg(test)]
 mod stack_tests;
 
@@ -105,6 +112,19 @@ pub struct ScenarioConfig {
     pub cards: Vec<CardSetup>,
 }
 impl ScenarioConfig {
+    pub fn casting_reversal() -> Self {
+        let mut config = Self::land_return();
+        config.profile = "casting-mana-reversal-v1".into();
+        config.cards[0].oracle_id = FOREST.into();
+        config.cards.push(CardSetup {
+            id: CardId(3),
+            oracle_id: FOREST.into(),
+            owner: PlayerId(0),
+            controller: PlayerId(0),
+            zone: Zone::Battlefield,
+        });
+        config
+    }
     pub fn stack_response() -> Self {
         let mut config = Self::land_return();
         config.profile = "four-seat-instant-response-v1".into();
@@ -189,6 +209,7 @@ impl Prepared {
         if config != ScenarioConfig::land_return()
             && config != ScenarioConfig::commander_foundation()
             && config != ScenarioConfig::stack_response()
+            && config != ScenarioConfig::casting_reversal()
         {
             return Err(
                 "configuration is outside the reviewed four-seat scenario; no match admission"
@@ -267,6 +288,17 @@ struct Casting {
     stack_id: StackId,
     original_object: ObjectId,
     prior_passes: Vec<PlayerId>,
+    mana_activations: Vec<ManaActivationUndo>,
+    undo_mana: bool,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ManaActivationUndo {
+    object: ObjectId,
+    player: PlayerId,
+    color: Color,
+    amount: Quantity,
+    mana_was_absent: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -282,6 +314,7 @@ struct Resolving {
 enum Frame {
     Priority,
     Targets { cast: Casting },
+    Mana { cast: Casting },
     Payment { cast: Casting },
     Resolve { frame: Resolving },
     Fault { reason: String },
@@ -293,6 +326,7 @@ pub enum Response {
     ActivateMana { object: ObjectId },
     Cast { card: CardId },
     Pass,
+    FinishMana { undo_mana: bool },
     Targets { objects: Vec<ObjectId> },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -305,6 +339,11 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    Mana {
+        decision_id: u64,
+        player: PlayerId,
+        cost: ManaCost,
+    },
     Priority {
         decision_id: u64,
         player: PlayerId,
@@ -319,18 +358,29 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::Priority { decision_id, .. } | Self::Targets { decision_id, .. } => *decision_id,
+            Self::Priority { decision_id, .. }
+            | Self::Targets { decision_id, .. }
+            | Self::Mana { decision_id, .. } => *decision_id,
         }
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::Priority { player, .. } | Self::Targets { player, .. } => *player,
+            Self::Priority { player, .. }
+            | Self::Targets { player, .. }
+            | Self::Mana { player, .. } => *player,
         }
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    ReverseMana {
+        player: PlayerId,
+        color: Color,
+        amount: Quantity,
+        source: Option<ObjectId>,
+        remove_zero: bool,
+    },
     Tap {
         object: ObjectId,
     },
@@ -364,6 +414,13 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    ManaReversed {
+        player: PlayerId,
+        color: Color,
+        amount: Quantity,
+        source: Option<ObjectId>,
+        removed_entry: bool,
+    },
     LeftGame {
         object: ObjectId,
         owner: PlayerId,
@@ -679,6 +736,15 @@ impl Game {
                 decision_id: self.state.revision,
                 player: self.state.priority,
             },
+            Frame::Mana { .. } => Request::Mana {
+                decision_id: self.state.revision,
+                player: self.top()?.controller,
+                cost: self
+                    .definition(self.top()?.source.card)?
+                    .characteristics
+                    .mana_cost
+                    .clone(),
+            },
             Frame::Targets { .. } => Request::Targets {
                 decision_id: self.state.revision,
                 player: self.top()?.controller,
@@ -701,10 +767,16 @@ impl Game {
             (Frame::Priority, Response::ActivateMana { object })
                 if self.state.priority == player =>
             {
-                let o = self.current(*object)?;
-                if o.controller != player || o.tapped || self.mana_abilities(*object)?.len() != 1 {
-                    return Err("invalid mana activation".into());
-                }
+                self.validate_mana_activation(player, *object)
+            }
+            (Frame::Mana { .. }, Response::ActivateMana { object })
+                if self.top()?.controller == player =>
+            {
+                self.validate_mana_activation(player, *object)
+            }
+            (Frame::Mana { .. }, Response::FinishMana { .. })
+                if self.top()?.controller == player =>
+            {
                 Ok(())
             }
             (Frame::Priority, Response::Cast { card }) if self.state.priority == player => {
@@ -803,7 +875,10 @@ impl Game {
             }
             if self.state.pending.is_none()
                 && self.state.pending_concessions.is_empty()
-                && matches!(self.state.frame, Frame::Priority | Frame::Targets { .. })
+                && matches!(
+                    self.state.frame,
+                    Frame::Priority | Frame::Targets { .. } | Frame::Mana { .. }
+                )
             {
                 let viewer = if matches!(self.state.frame, Frame::Priority) {
                     self.state.priority
@@ -862,32 +937,7 @@ impl Game {
                     .ok_or("missing accepted priority input")?;
                 match input.response {
                     Response::ActivateMana { object } => {
-                        let color = *self
-                            .mana_abilities(object)?
-                            .first()
-                            .ok_or("missing intrinsic mana ability")?;
-                        self.commit_batch(
-                            BatchCause::ManaActivation {
-                                decision_id: input.decision_id,
-                                player: input.player,
-                                source: object,
-                            },
-                            EventGroup::Ordered {
-                                children: vec![
-                                    EventGroup::Occurrence {
-                                        proposed: ProposedEvent::Tap { object },
-                                    },
-                                    EventGroup::Occurrence {
-                                        proposed: ProposedEvent::AddMana {
-                                            player: input.player,
-                                            color,
-                                            amount: Quantity::from(1),
-                                            source: object,
-                                        },
-                                    },
-                                ],
-                            },
-                        )?;
+                        self.activate_intrinsic_mana(&input, object)?;
                         self.state.passes.clear();
                         self.stabilize()?;
                     }
@@ -932,6 +982,8 @@ impl Game {
                                 stack_id: id,
                                 original_object,
                                 prior_passes: self.state.passes.clone(),
+                                mana_activations: vec![],
+                                undo_mana: false,
                             },
                         };
                         self.state.passes.clear();
@@ -974,7 +1026,26 @@ impl Game {
                 let top = self.state.stack.last_mut().ok_or("missing stack")?;
                 top.targets = objects;
                 top.announced_targets = announced;
-                self.state.frame = Frame::Payment { cast };
+                self.state.frame = Frame::Mana { cast };
+            }
+            Frame::Mana { mut cast } => {
+                let input = self
+                    .state
+                    .pending
+                    .take()
+                    .ok_or("missing accepted mana input")?;
+                match input.response {
+                    Response::ActivateMana { object } => {
+                        let receipt = self.activate_intrinsic_mana(&input, object)?;
+                        cast.mana_activations.push(receipt);
+                        self.state.frame = Frame::Mana { cast };
+                    }
+                    Response::FinishMana { undo_mana } => {
+                        cast.undo_mana = undo_mana;
+                        self.state.frame = Frame::Payment { cast };
+                    }
+                    _ => return Err("mana response/frame invariant".into()),
+                }
             }
             Frame::Payment { cast } => {
                 let stack = self.top()?.clone();
@@ -984,34 +1055,8 @@ impl Game {
                     .mana_cost
                     .clone();
                 if self.payment_pool(stack.controller, &cost).is_err() {
-                    // The restricted reversal has no library/reveal/shuffle or
-                    // mana abilities during announcement (CR 733.1). Restore
-                    // original incarnation; retain accepted input stages.
-                    self.state.stack.pop();
-                    let o = self
-                        .state
-                        .objects
-                        .get_mut(&cast.original_object.card)
-                        .ok_or("missing reversal object")?;
-                    o.id = cast.original_object;
-                    o.zone = Zone::Hand {
-                        owner: stack.controller,
-                    };
-                    o.controller = stack.controller;
-                    o.default_controller = stack.controller;
-                    o.tapped = false;
-                    self.record_event(Event::CastReversed {
-                        stack_id: cast.stack_id,
-                        reason: "insufficient mana".into(),
-                    })?;
-                    self.state.priority = stack.controller;
-                    let live = self.live_players();
-                    self.state.passes = cast
-                        .prior_passes
-                        .into_iter()
-                        .filter(|p| live.contains(p))
-                        .collect();
-                    self.state.frame = Frame::Priority;
+                    let undo = cast.undo_mana;
+                    self.reverse_cast(cast, "insufficient mana", undo)?;
                     self.stabilize()?;
                 } else {
                     self.commit(
@@ -1180,7 +1225,7 @@ impl Game {
     }
     pub fn snapshot(&self) -> Result<String, String> {
         canonical(&Snapshot {
-            snapshot_version: 5,
+            snapshot_version: 6,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             profile_digest: self.prepared.profile_digest.clone(),
@@ -1191,7 +1236,7 @@ impl Game {
     }
     pub fn restore(prepared: Prepared, json: &str) -> Result<Self, String> {
         let s: Snapshot = strict_read(json)?;
-        if s.snapshot_version != 5
+        if s.snapshot_version != 6
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -1261,7 +1306,7 @@ impl Game {
                 || o.controller.0 >= 4
                 || o.default_controller.0 >= 4
                 || !self.is_live(o.controller)
-                || (o.tapped && setup.oracle_id != ISLAND)
+                || (o.tapped && self.definition(setup.id)?.characteristics.kind != CardKind::Land)
             {
                 return Err("snapshot object invariant".into());
             }
@@ -1308,9 +1353,11 @@ impl Game {
                 return Err("snapshot target announcement invariant".into());
             }
             let incomplete_top = index + 1 == s.stack.len()
-                && (matches!(s.frame, Frame::Targets { .. } | Frame::Payment { .. })
-                    || (matches!(s.frame, Frame::Finished { .. } | Frame::Fault { .. })
-                        && stack.paid.is_none()));
+                && (matches!(
+                    s.frame,
+                    Frame::Targets { .. } | Frame::Mana { .. } | Frame::Payment { .. }
+                ) || (matches!(s.frame, Frame::Finished { .. } | Frame::Fault { .. })
+                    && stack.paid.is_none()));
             if !incomplete_top
                 && (stack.targets.len() != n
                     || stack.paid.as_ref()
@@ -1332,7 +1379,7 @@ impl Game {
             return Err("snapshot stack/zone invariant".into());
         }
         match &s.frame {
-            Frame::Targets { cast } | Frame::Payment { cast } => {
+            Frame::Targets { cast } | Frame::Mana { cast } | Frame::Payment { cast } => {
                 let top = self.top()?;
                 if cast.stack_id != top.id
                     || cast.original_object.card != top.source.card
@@ -1342,10 +1389,23 @@ impl Game {
                 {
                     return Err("snapshot casting frame invariant".into());
                 }
+                let sources: BTreeSet<_> = cast.mana_activations.iter().map(|a| a.object).collect();
+                if sources.len() != cast.mana_activations.len()
+                    || cast.mana_activations.len() > self.prepared.config.cards.len()
+                    || cast
+                        .mana_activations
+                        .iter()
+                        .any(|a| a.player != top.controller || a.amount != Quantity::from(1))
+                    || (matches!(s.frame, Frame::Targets { .. })
+                        && (!cast.mana_activations.is_empty() || cast.undo_mana))
+                    || (matches!(s.frame, Frame::Mana { .. }) && cast.undo_mana)
+                {
+                    return Err("snapshot casting mana receipt invariant".into());
+                }
                 if matches!(s.frame, Frame::Targets { .. }) && !top.targets.is_empty() {
                     return Err("snapshot announcement target invariant".into());
                 }
-                if matches!(s.frame, Frame::Payment { .. })
+                if matches!(s.frame, Frame::Mana { .. } | Frame::Payment { .. })
                     && top.targets.len() != self.program()?.targets.len()
                 {
                     return Err("snapshot payment target invariant".into());
@@ -1429,6 +1489,7 @@ mod tests {
                 objects: vec![game.object_id(CardId(2)).unwrap()],
             },
         );
+        respond(game, Response::FinishMana { undo_mana: false });
         for _ in 0..4 {
             respond(game, Response::Pass);
         }
@@ -1543,10 +1604,11 @@ mod tests {
                 }],
             },
         );
+        respond(&mut game, Response::FinishMana { undo_mana: true });
         let _ = game.advance(Budget::unlimited());
         assert_eq!(game.zone(original), Some(Zone::Hand { owner: PlayerId(0) }));
         assert!(game.state.stack.is_empty());
-        assert_eq!(game.journal().len(), 2);
+        assert_eq!(game.journal().len(), 3);
         assert!(matches!(
             game.events().last(),
             Some(Event::CastReversed { .. })
@@ -1626,6 +1688,7 @@ mod tests {
                 ],
             },
         );
+        respond(&mut game, Response::FinishMana { undo_mana: false });
         let _ = game.advance(Budget::unlimited());
         // Test-only inaccessible mutation makes one occurrence stale. Both
         // blocks still share one resolution legality check and stack object.
@@ -1666,6 +1729,7 @@ mod tests {
                 }],
             },
         );
+        respond(&mut game, Response::FinishMana { undo_mana: false });
         let _ = game.advance(Budget::unlimited());
         let target = game.object_id(CardId(2)).unwrap();
         let moved = game

@@ -82,7 +82,7 @@ test("response observations expose stack order without reviving historical targe
   const response = run("demo").response;
   const before = response.stacked_observation;
   const after = response.after_top_observation;
-  assert.equal(before.observation_version, 3);
+  assert.equal(before.observation_version, 4);
   assert.deepEqual(before.view.stack.map((s: any) => s.controller), [0, 2]);
   assert.equal(before.view.stack.every((s: any) => s.cast_complete), true);
   assert.equal(after.view.stack.length, 1);
@@ -94,5 +94,32 @@ test("response observations expose stack order without reviving historical targe
     assert.equal(JSON.stringify(observation).includes('"incarnation"'), false);
     assert.equal(JSON.stringify(observation).includes('"stack_id"'), false);
     assert.equal(observation.view.stack.length, 0);
+  }
+});
+
+test("casting mana witnesses expose the caster request and preserve keep/undo outcomes", () => {
+  const report = run("demo");
+  const casting = report.mana_casting;
+  assert.equal(casting.mana_observation.observation_version, 4);
+  assert.equal(casting.mana_observation.decision.request, "mana");
+  assert.deepEqual(casting.mana_observation.decision.cost, { generic: "0", colored: ["U"] });
+  assert.equal(casting.mana_observation.view.priority, null);
+  assert.equal(casting.mana_observation.view.stack[0].cast_complete, false);
+  assert.equal(casting.journal.decisions[0].response.response, "cast");
+  assert.equal(casting.journal.decisions[2].response.response, "activate_mana");
+  for (const [name, retained, tapped] of [["mana_undo", "1", false], ["mana_keep", "2", true]] as const) {
+    const witness = report[name];
+    const own = witness.final_observations[0];
+    assert.equal(own.view.players[0].mana.G, retained);
+    assert.equal(own.view.stack.length, 0);
+    // Both sources are Forest; the first was floated before casting.
+    const forests = own.view.objects.filter((o: any) => o.zone.zone === "battlefield" && o.owner === 0);
+    assert.deepEqual(forests.map((o: any) => o.tapped), [true, tapped]);
+    assert.equal(witness.events.filter((e: any) => e.actual?.outcome === "mana_reversed").length, name === "mana_undo" ? 1 : 0);
+    for (const observation of witness.final_observations) {
+      assert.equal(JSON.stringify(observation).includes('"mana_activations"'), false);
+      assert.equal(JSON.stringify(observation).includes('"incarnation"'), false);
+      assert.equal(observation.view.objects.filter((o: any) => o.zone.zone === "hand").every((o: any) => o.owner === observation.view.viewer), true);
+    }
   }
 });

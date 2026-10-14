@@ -17,6 +17,10 @@ pub enum BatchCause {
         stack_id: StackId,
         player: PlayerId,
     },
+    CastReversal {
+        stack_id: StackId,
+        player: PlayerId,
+    },
     Instruction {
         stack_id: StackId,
         player: PlayerId,
@@ -39,6 +43,7 @@ impl BatchCause {
         let rules: &[&str] = match self {
             Self::ManaActivation { .. } => &["106.3", "305.6", "605.3b"],
             Self::Casting { .. } | Self::Payment { .. } => &["601.2"],
+            Self::CastReversal { .. } => &["733.1", "733.2"],
             Self::Instruction { .. } | Self::SpellCompletion { .. } => &["400.7", "608.2"],
             Self::Departure { .. } => &["800.4a"],
             Self::Fixture => &["700.1"],
@@ -131,6 +136,13 @@ fn access(event: &ProposedEvent) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
             let keys = BTreeSet::from([FactKey::Mana(*player)]);
             (keys.clone(), keys)
         }
+        ProposedEvent::ReverseMana { player, source, .. } => {
+            let mut keys = BTreeSet::from([FactKey::Mana(*player)]);
+            if let Some(object) = source {
+                keys.insert(FactKey::Object(object.card));
+            }
+            (keys.clone(), keys)
+        }
     }
 }
 fn collect<'a>(
@@ -193,6 +205,12 @@ impl Game {
                 }
                 ProposedEvent::PayMana { player, .. } => {
                     players.insert(*player);
+                }
+                ProposedEvent::ReverseMana { player, source, .. } => {
+                    players.insert(*player);
+                    if let Some(object) = source {
+                        objects.insert(*object);
+                    }
                 }
             }
         }
@@ -422,6 +440,59 @@ impl Game {
                 EventOutcome::ManaPaid {
                     player: *player,
                     cost: cost.clone(),
+                }
+            }
+            ProposedEvent::ReverseMana {
+                player,
+                color,
+                amount,
+                source,
+                remove_zero,
+            } => {
+                // CR 733.1/733.2: undo only recorded casting-stage mana. A
+                // departed source stays absent; a surviving source may have a
+                // new controller after the intervening departure boundary.
+                // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+                if *amount <= Quantity::zero() || !self.is_live(*player) {
+                    return Err("invalid mana reversal quantity or player".into());
+                }
+                if let Some(object) = source {
+                    let o = self.current(*object)?;
+                    if o.zone != Zone::Battlefield
+                        || !o.tapped
+                        || self.characteristics(*object)?.kind != CardKind::Land
+                    {
+                        return Err("invalid mana reversal source".into());
+                    }
+                }
+                let pool = &mut self
+                    .state
+                    .players
+                    .get_mut(player.0 as usize)
+                    .ok_or("missing mana reversal player")?
+                    .mana;
+                let remaining = pool.get_mut(color).ok_or("missing reversal mana")?;
+                if *remaining < *amount {
+                    return Err("insufficient reversal mana".into());
+                }
+                remaining.subtract(amount);
+                let removed_entry = *remove_zero && *remaining == Quantity::zero();
+                if removed_entry {
+                    pool.remove(color);
+                }
+                if let Some(object) = source {
+                    self.state
+                        .objects
+                        .get_mut(&object.card)
+                        .ok_or("missing mana reversal source")?
+                        .tapped = false;
+                }
+                EventOutcome::ManaReversed {
+                    player: *player,
+                    color: *color,
+                    amount: amount.clone(),
+                    source: *source,
+                    removed_entry,
                 }
             }
             ProposedEvent::LeaveGame {
