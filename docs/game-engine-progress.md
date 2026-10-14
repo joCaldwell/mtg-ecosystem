@@ -538,40 +538,53 @@ ordered-concession branches. Six additional branches exercise actor/unrelated
 departures before/after accepted cleanup discard and departures between failed
 draw and SBA. All twelve independent black-box tests pass in debug and release.
 
-### Requested stopping point — verification still pending
+### Verification completed — October 14, 2026
 
-The user requested a stopping point before the long final gates completed.
-The implementation, independent reviews, and full release demo succeeded:
-all 1,421 new semantic recovery boundaries, detailed final replay traces,
-36 trace-mode executions, and unchanged historical events/journals were checked.
-The reviewed expected fixture was populated from that successful report.
-Formatting and Clippy passed. All 129 compiler/contract/core/independent tests
-passed in both debug and release; the two smaller simulator tests passed in
-release, and the budget-exhaustion simulator test passed in debug.
+Verification resumed from the requested stopping point without changing runtime
+source or reviewed fixtures. Formatting and Clippy with warnings denied passed.
+All **132 Rust tests passed in debug and release**, including the complete-game
+policies and source-to-runtime bundle recovery/replay test. `npm run check:engine`
+completed successfully, including all **7 Node cross-language/CLI checks**.
+The Node checks now run the optimized CLI after the full debug Rust gate. This
+reviewed harness-only change preserves all assertions and executes the complete
+demonstration live; it neither uses cached output nor changes the retained native
+source closure.
 
-The final full debug/release bundle tests, remaining Node CLI checks, and fresh
-offline retained-source rebuild/replay were **not completed**. Their processes
-were explicitly stopped at the user's request; no failing assertion had been
-reported. Do not describe this checkpoint as fully verified or ready to merge.
-The successful demo report and interrupted logs are preserved, ignored, under
-`generated/combat-checkpoint/`. The expected fixture and full journals are tracked
-in `packages/game-engine/tests/fixtures/expected-combat-games.json`.
+`npm run retain:engine` passed: it retained the exact official rules and all
+1,581 vendored dependency files, rebuilt from retained sources with frozen/offline
+Cargo, an initially empty Cargo home and a fresh target directory, and verified
+replay with the independently rebuilt executable. Verification covers all
+**36 trace-mode executions**, **1,421 new semantic recovery boundaries**, detailed
+final traces, historical checkpoints, source-to-IR equality and query recovery.
+Independent final audit matched all 50 retained source files to both the bundle
+and current worktree, checked every dependency hash, and verified bundle, rules
+and executable hashes. No independent adversarial findings remain unresolved.
 
-Resume in `/home/josh/Code/mtg-engine-combat-games` on
-`feat/engine-combat-games`, keeping the main checkout's parser work untouched:
+Retained identities:
 
-```sh
-npm run check:engine
-cargo test --workspace --locked --release
-npm run retain:engine
-```
+- Release build: `b01f9c3d889ef98efe86aa0d01f21477f4a0bc6bccbcab2b3f0c58a4de841b0d`.
+- Catalog: `885924ca7234ad41d81b4a01c50c07e5d693850b36c3c5b1236d5ca2df86570e`.
+- Integrated game final state: `ad1c33020249e83218f3ad18792e96675cf256d59ac828cebb523c3b66d38052`.
+- Empty-attacks game final state: `7256a3d53feebeb3f59e41859d96cba733bbe8b1aeff4c6a0c21d6bb905bf6da`.
+- Baseline v8 final state: `58a0a241c4662d403dec8944430c1fe402c7fd15d22a2ce242c9a0b01d54f657`.
+- Replay bundle: `8f73f7c116c609f308c5a452bf41b2b77bdc349529beb669db2e2344e1d20c98`.
+- Rebuilt executable: `a6bd4c6a7db805229f40ed62b89010230f5278b49e795975d1e7ad84b4b3b870`.
+- Dependency manifest: `387384711d404f44993e8ab583e269c5105d1cc8b583307e3035f14e03d7474f`.
 
-The pinned rules bytes are already in `.scryfall-cache/rules-20260925.txt`.
-Keep Rust source and JSON fixtures unchanged while bundle verification runs:
-source closure is part of build identity. Recovery-heavy gates take substantial
-CPU time. After they pass, record final build/bundle/executable identities and
-retention location here, resolve any findings, and commit that evidence locally.
-Do not merge without a later instruction.
+Evidence lives in
+`/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-8f73f7c116c609f3-UayNiD/`.
+The ignored worktree summary is `generated/p2-retention.json`; final gate logs
+are retained under `generated/combat-verification/`. Complete journals and
+expected outcomes are tracked in
+`packages/game-engine/tests/fixtures/expected-combat-games.json`. Downloaded
+rules, source/vendor closure, executables and bundles remain outside version
+control. The earlier successful demo and intentionally interrupted logs remain
+under ignored `generated/combat-checkpoint/` as historical checkpoint evidence.
+
+Restore still proves reachability by replaying execution prefixes. Full recovery
+gates therefore take substantial CPU time; these checks do not establish a
+wall-clock performance guarantee. This delivery is committed locally for review
+and must not be merged without a later instruction.
 
 Full legal Commander games, arbitrary decks, keywords, triggers, replacements,
 continuous effects, setup and randomness remain excluded. This is a connected

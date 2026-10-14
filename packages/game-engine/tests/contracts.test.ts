@@ -12,7 +12,9 @@ const fixtureDir = new URL("fixtures/", import.meta.url);
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 const read = (name: string) => fs.readFileSync(new URL(name, fixtureDir), "utf8");
 function run(command: string, ...args: string[]) {
-  const result = spawnSync("cargo", ["run", "--quiet", "--locked", "-p", "mtg-sim", "--", command, ...args], { cwd: root, encoding: "utf8" });
+  // The package gate already runs all Rust tests in debug; use the optimized CLI
+  // for these profile-independent contracts and the full recovery demonstration.
+  const result = spawnSync("cargo", ["run", "--quiet", "--locked", "--release", "-p", "mtg-sim", "--", command, ...args], { cwd: root, encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout);
 }
