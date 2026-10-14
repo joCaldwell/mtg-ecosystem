@@ -15,13 +15,16 @@ query-sidecar v3. `docs/game-engine-turns-slice.md` adds the exact eight-card
 turn/land/creature profile, IR v3, snapshot/bundle v7, projection v5 and
 query-sidecar v4. `docs/game-engine-combat-games.md` adds two exact combat
 configurations, ordered libraries, cleanup, damage/SBAs, and complete scenario
-games; snapshot/bundle v8, projection v6 and query-sidecar v5. This package is scenario-only; do not advertise playable
+games; snapshot v8, bundle v9, projection v6 and query-sidecar v5. Bundle v9
+records effective optimization/debug settings; ordered snapshot verification
+shares a proved independent replay prefix without weakening standalone restore. This package is scenario-only; do not advertise playable
 Commander matches.
 
 Run from repository root, using pinned Rust 1.99.0:
 
 - `npm run check:engine`: toolchain check, formatting, Clippy, Rust tests, and
-  the Node cross-language fixture contract check.
+  the Node cross-language fixture contract check. The test profile uses optimization
+  level 2 with debug assertions and overflow checks enabled.
 - `cargo test --workspace --locked` and `cargo test --workspace --locked --release`.
 - `cargo run --locked -p mtg-sim -- demo`: verified source-to-runtime demonstration.
 - `cargo run --locked -p mtg-sim -- schema`: export the executable JSON Schema.

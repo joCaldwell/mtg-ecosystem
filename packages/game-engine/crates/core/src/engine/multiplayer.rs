@@ -484,8 +484,25 @@ impl Game {
         mode: TraceMode,
     ) -> Result<Self, String> {
         let mut game = Self::with_trace(prepared, mode);
-        let mut external = 0;
-        for index in 0..=journal.decisions.len() {
+        game.extend_replay(journal, boundary)?;
+        Ok(game)
+    }
+    // Extend only a proved prefix. Accepted-but-pending inputs and queued
+    // concessions belong to that prefix even when the rule boundary is unchanged.
+    pub(super) fn extend_replay(
+        &mut self,
+        journal: &ReplayJournal,
+        boundary: Option<u64>,
+    ) -> Result<(), String> {
+        if !journal.decisions.starts_with(&self.state.journal)
+            || !journal.concessions.starts_with(&self.state.external_inputs)
+            || boundary.is_some_and(|limit| limit < self.state.rule_steps)
+        {
+            return Err("snapshot does not extend the verified replay prefix".into());
+        }
+        let game = self;
+        let mut external = game.state.external_inputs.len();
+        for index in game.state.journal.len()..=journal.decisions.len() {
             while external < journal.concessions.len()
                 && journal.concessions[external].after_decisions == index as u64
             {
@@ -544,6 +561,6 @@ impl Game {
         {
             return Err(reason);
         }
-        Ok(game)
+        Ok(())
     }
 }

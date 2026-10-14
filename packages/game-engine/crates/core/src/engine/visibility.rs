@@ -194,7 +194,7 @@ pub(super) struct Knowledge {
     decision_key: Option<(u64, u8)>,
     decision_token: Option<DecisionToken>,
     next_decision: u64,
-    pub(super) history: Vec<PermittedView>,
+    pub(super) history: History<PermittedView>,
 }
 impl Game {
     // CR 400.2, 401.2, 402.3: own hand is visible; all libraries and other

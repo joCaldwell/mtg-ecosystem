@@ -85,3 +85,11 @@ brief. Download the linked official September 25 rules before a fresh retention
 capture; runtime and replay never fetch rules.
 `npm run build-ir` still rejects the
 unimplemented bulk pipeline.
+
+The test profile is optimized at level 2 with debug assertions and overflow checks
+enabled. Bundle v9 records the effective optimization/check settings for its build
+identity and offline rebuild. Snapshots remain v8 with the same ordered history
+and trace arrays. `SnapshotVerifier` verifies ordered checkpoint sequences using
+one independent forward replay while applying the complete standalone restore
+checks at every boundary. Histories share immutable chunks across native forks;
+branch mutations remain independent.

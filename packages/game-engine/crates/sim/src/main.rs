@@ -1,9 +1,10 @@
 use mtg_compiler::{CompileResult, compile, fixture_catalog, fixtures};
 use mtg_contracts::{Catalog, canonical, sha256, strict_read};
 use mtg_core::{
-    Advance, BUILD_ID, BUILD_PROFILE, BUILD_RUSTC, BUILD_RUSTFLAGS, BUILD_TARGET, Budget, CardId,
-    Game, ObjectId, Observation, PlayerId, Prepared, QueryResult, QueryValue, ReplayJournal,
-    Response, ScenarioConfig, SearchContext, TraceMode, TurnStep, Zone,
+    Advance, BUILD_DEBUG, BUILD_DEBUG_ASSERTIONS, BUILD_ID, BUILD_OPT_LEVEL, BUILD_PROFILE,
+    BUILD_RUSTC, BUILD_RUSTFLAGS, BUILD_TARGET, Budget, CardId, Game, ObjectId, Observation,
+    PlayerId, Prepared, QueryResult, QueryValue, ReplayJournal, Response, ScenarioConfig,
+    SearchContext, SnapshotVerifier, TraceMode, TurnStep, Zone,
 };
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path, time::Instant};
@@ -43,6 +44,9 @@ struct Bundle {
     source_files: Vec<SourceFile>,
     rustc: String,
     build_profile: String,
+    opt_level: String,
+    debug: String,
+    debug_assertions: String,
     target: String,
     rustflags: String,
     query_sidecar: String,
@@ -783,7 +787,7 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         mana_keep,
         turns,
         combat,
-        bundle_version: 8,
+        bundle_version: 9,
         build_id: BUILD_ID.into(),
         catalog,
         config: prepared.config().clone(),
@@ -797,6 +801,9 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         source_files: source_files()?,
         rustc,
         build_profile: BUILD_PROFILE.into(),
+        opt_level: BUILD_OPT_LEVEL.into(),
+        debug: BUILD_DEBUG.into(),
+        debug_assertions: BUILD_DEBUG_ASSERTIONS.into(),
         target: BUILD_TARGET.into(),
         rustflags: BUILD_RUSTFLAGS.into(),
         query_sidecar,
@@ -811,7 +818,7 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
 }
 fn verify_bundle(json: &str) -> Result<String, String> {
     let b: Bundle = strict_read(json)?;
-    if b.bundle_version != 8 || b.build_id != BUILD_ID {
+    if b.bundle_version != 9 || b.build_id != BUILD_ID {
         return Err("unsupported bundle version/build".into());
     }
     if !b.source_files.windows(2).all(|w| w[0].path < w[1].path) {
@@ -828,7 +835,14 @@ fn verify_bundle(json: &str) -> Result<String, String> {
         source_bytes.push(0);
     }
     source_bytes.extend_from_slice(b.rustc.as_bytes());
-    for value in [&b.build_profile, &b.target, &b.rustflags] {
+    for value in [
+        &b.build_profile,
+        &b.target,
+        &b.rustflags,
+        &b.opt_level,
+        &b.debug,
+        &b.debug_assertions,
+    ] {
         source_bytes.push(0);
         source_bytes.extend_from_slice(value.as_bytes());
     }
@@ -857,6 +871,7 @@ fn verify_bundle(json: &str) -> Result<String, String> {
         return Err("missing trace-mode evidence".into());
     }
     eprintln!("verifying 36 retained trace-mode executions");
+    let mut reference_cache: Option<Game> = None;
     for (index, run) in b.trace_runs.iter().enumerate() {
         let required_mode = [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed][index % 3];
         let (required_config, required_journal, reference_snapshot) = match index / 3 {
@@ -906,7 +921,12 @@ fn verify_bundle(json: &str) -> Result<String, String> {
         }
         let p = Prepared::admit(b.catalog.clone(), run.config.clone())?;
         let expected = Game::restore(p.clone(), &run.final_snapshot)?;
-        let reference = Game::restore(p.clone(), reference_snapshot)?;
+        if index % 3 == 0 {
+            reference_cache = Some(Game::restore(p.clone(), reference_snapshot)?);
+        }
+        let reference = reference_cache
+            .as_ref()
+            .ok_or("missing verified trace reference")?;
         let replay = Game::replay_with_trace(p, &run.journal, run.mode)?;
         if reference.trace().mode != TraceMode::Detailed
             || expected.trace().mode != run.mode
@@ -929,8 +949,9 @@ fn verify_bundle(json: &str) -> Result<String, String> {
         &b.turns,
     ] {
         let p = Prepared::admit(b.catalog.clone(), scenario.config.clone())?;
+        let mut verifier = SnapshotVerifier::new(p.clone(), TraceMode::Detailed);
         for snapshot in &scenario.checkpoints {
-            Game::restore(p.clone(), snapshot)?;
+            verifier.verify(snapshot)?;
         }
         let restored = Game::restore(p.clone(), &scenario.final_snapshot)?;
         let replay = Game::replay(p, &scenario.journal)?;
@@ -941,8 +962,10 @@ fn verify_bundle(json: &str) -> Result<String, String> {
     }
     combat_games::verify(&b.catalog, &b.combat)?;
     let departure_prepared = Prepared::admit(b.catalog.clone(), b.departure.config)?;
+    let mut departure_verifier =
+        SnapshotVerifier::new(departure_prepared.clone(), TraceMode::Detailed);
     for snapshot in &b.departure.checkpoints {
-        Game::restore(departure_prepared.clone(), snapshot)?;
+        departure_verifier.verify(snapshot)?;
     }
     let departure_replay = Game::replay(departure_prepared.clone(), &b.departure.journal)?;
     let departure_expected = Game::restore(departure_prepared, &b.departure.final_snapshot)?;
@@ -1125,7 +1148,7 @@ mod tests {
             report["state_sha256"].as_str().unwrap()
         );
         assert!(
-            verify_bundle(&json.replace("\"bundle_version\":8", "\"bundle_version\":9")).is_err()
+            verify_bundle(&json.replace("\"bundle_version\":9", "\"bundle_version\":10")).is_err()
         );
         let mut corrupt: serde_json::Value = serde_json::from_str(&json).unwrap();
         corrupt["source_files"] = serde_json::json!([]);

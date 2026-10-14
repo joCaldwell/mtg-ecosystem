@@ -34,6 +34,10 @@ const ALLOWED: [(&str, &str); 5] = [
         "572ff55cf5fedc97884e3a801b7e2c8f6de5c13e93c24bebce95f4d16432b4c8",
     ),
 ];
+mod history;
+pub use history::History;
+mod recovery;
+pub use recovery::SnapshotVerifier;
 mod casting;
 mod combat;
 #[cfg(test)]
@@ -765,6 +769,16 @@ pub struct Snapshot {
     state: State,
     trace: TraceEvidence,
 }
+#[derive(Serialize)]
+struct SnapshotRef<'a> {
+    snapshot_version: u32,
+    build_id: &'a str,
+    catalog_digest: &'a str,
+    profile_digest: &'a str,
+    state_sha256: &'a str,
+    state: &'a State,
+    trace: &'a TraceEvidence,
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Advance {
     Draw,
@@ -878,11 +892,15 @@ impl Game {
             state_token: Arc::new(()),
         }
     }
+    /// Trusted host execution boundary; never a player-facing identifier.
+    pub fn rule_boundary(&self) -> u64 {
+        self.state.rule_steps
+    }
     pub fn state_digest(&self) -> Result<String, String> {
         digest(&self.state)
     }
     pub fn events(&self) -> &[Event] {
-        &self.trace.events
+        self.trace.events.as_slice()
     }
     pub fn config(&self) -> &ScenarioConfig {
         self.prepared.config()
@@ -1508,17 +1526,23 @@ impl Game {
         Ok(())
     }
     pub fn snapshot(&self) -> Result<String, String> {
-        canonical(&Snapshot {
-            snapshot_version: 8,
-            build_id: BUILD_ID.into(),
-            catalog_digest: self.prepared.catalog_digest.clone(),
-            profile_digest: self.prepared.profile_digest.clone(),
-            state_sha256: self.state_digest()?,
-            state: self.state.clone(),
-            trace: self.trace.clone(),
-        })
+        self.snapshot_with_digest().map(|(json, _)| json)
     }
-    pub fn restore(prepared: Prepared, json: &str) -> Result<Self, String> {
+    /// Snapshot JSON and its semantic digest, computed once at this boundary.
+    pub fn snapshot_with_digest(&self) -> Result<(String, String), String> {
+        let state_sha256 = self.state_digest()?;
+        let json = canonical(&SnapshotRef {
+            snapshot_version: 8,
+            build_id: BUILD_ID,
+            catalog_digest: &self.prepared.catalog_digest,
+            profile_digest: &self.prepared.profile_digest,
+            state_sha256: &state_sha256,
+            state: &self.state,
+            trace: &self.trace,
+        })?;
+        Ok((json, state_sha256))
+    }
+    fn read_snapshot(prepared: Prepared, json: &str) -> Result<(Self, String), String> {
         let s: Snapshot = strict_read(json)?;
         if s.snapshot_version != 8
             || s.build_id != BUILD_ID
@@ -1536,23 +1560,11 @@ impl Game {
             state_token: Arc::new(()),
         };
         game.validate_state()?;
-        // The first profile is tiny: verify reachability by replay rather than
-        // accepting a rehashed arbitrary state through the recovery API.
-        let mut replayed = Self::replay_to(
-            game.prepared.clone(),
-            &game.replay_journal(),
-            Some(game.state.rule_steps),
-            game.trace.mode,
-        )?;
-        if matches!(game.state.frame, Frame::Fault { .. })
-            && !matches!(replayed.state.frame, Frame::Fault { .. })
-        {
-            let _ = replayed.advance(Budget::new(1));
-        }
-        if replayed.state != game.state || replayed.trace != game.trace {
-            return Err("snapshot is not reachable from this scenario's accepted inputs".into());
-        }
-        Ok(game)
+        Ok((game, s.state_sha256))
+    }
+    pub fn restore(prepared: Prepared, json: &str) -> Result<Self, String> {
+        let (game, digest) = Self::read_snapshot(prepared, json)?;
+        SnapshotVerifier::new(game.prepared.clone(), game.trace.mode).verify_game(game, digest)
     }
     fn validate_state(&self) -> Result<(), String> {
         let s = &self.state;

@@ -110,7 +110,7 @@ expanding admission or claiming a production complete-game draw witness.
 ## Decisions, events, and continuation contracts
 
 Extend the existing shared frames, typed batch pipeline, queries, observation,
-snapshot and replay. Snapshot/bundle v8, projection v6, query sidecar v5. IR stays
+snapshot and replay. Snapshot v8, bundle v9, projection v6, query sidecar v5. IR stays
 v3; general combat rules belong to core, not per-card programs.
 
 Attacker response is the complete set of distinct eligible creatures and live
@@ -212,3 +212,30 @@ Review: independent rules reviewer verified rules bytes, G eight-turn outcome,
 I current-rule splits, departure semantics and continuation requirements. Separate
 configuration/compiler reviewer checked both exact setups, mono-color payment
 closure and sixteen-object batch bounds. No unresolved contract objection.
+
+## Verification performance follow-up
+
+Ordered checkpoint sequences use `SnapshotVerifier`: a private independent replay
+starts at the admitted initial state and advances through every snapshot's exact
+rule boundary, accepted-input prefix and queued-concession prefix. Snapshot
+decoding, duplicate-key rejection, build/catalog/profile/hash checks, structural
+invariants, semantic equality and complete trace equality remain required at
+every boundary. Backward or changed prefixes reject, and failed verification
+cannot advance the proved cursor. Standalone `Game::restore` still proves
+reachability from the initial state. Neither API trusts caller-supplied hashes as
+a substitute for replay. Returned games have fresh receipt/work scopes.
+
+Capture reads the native rule counter and computes one semantic digest without
+serializing a snapshot. Verification still round-trips JSON at every retained
+boundary. Snapshot serialization borrows the current state and trace; histories
+and native trace arrays share immutable 32-entry chunks across staging/forks.
+Serialized arrays, semantic hashes, rule/event budgets and diagnostic hashes stay
+unchanged. Native `events()` lazily materializes its flat slice and mutations
+invalidate that nonsemantic cache.
+
+The Cargo test profile uses optimization level 2 with debug assertions and
+overflow checks enabled. Native bundle v9 records effective optimization level,
+debug-info presence and debug assertions in its build identity; offline rebuilding
+reapplies those settings. Snapshot v8, IR v3, projection v6 and query sidecar v5
+remain unchanged. Maintained timings and completed checks are recorded in
+`game-engine-progress.md`.

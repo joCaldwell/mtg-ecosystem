@@ -622,3 +622,64 @@ event interactions. P5 validates full legal decks/pods, a closed reachable pool,
 and seeded complete games. Unsupported runtime paths currently fault or reject;
 legal-match mode is rejected. Random operations, search, server, and UI remain
 outside this first slice. No product decision currently blocks P2 work.
+
+## Checkpoint and fork performance — October 14, 2026
+
+The complete debug bundle fixture now passes in **150.19 seconds** in an isolated
+run (150.225 seconds including the Cargo command). The preceding unoptimized
+debug run was stopped after approximately 42 minutes while still running, so
+that baseline is a lower bound, not a completed timing. The prior completed
+release fixture took 1,305.90 seconds. These are local elapsed-time observations;
+they do not establish representative match throughput.
+
+The follow-up removes full snapshot creation/parsing during scalar witness
+capture, borrows state/trace for snapshot serialization, and verifies ordered
+checkpoint sequences using one private independent forward replay. Each boundary
+still undergoes strict decoding, identity/hash/invariant checks and complete
+state/trace equality. Standalone restore starts from the initial state. Changed
+or backward prefixes, rehashed forgeries, same-boundary queued concessions,
+pending inputs, faults without boundary advancement and failed-verifier rollback
+are covered by regressions. Returned games retain independent receipt scopes.
+
+Player histories and native trace records share immutable 32-entry chunks across
+forks/staging; branch mutation copies the affected chunk. Their serialized arrays
+and all existing semantic/diagnostic hashes remain unchanged. Native event slices
+are materialized lazily with cache invalidation on mutation. The test profile
+uses optimization level 2 with debug assertions and overflow checks enabled.
+Native bundle v9 adds effective optimization/debug settings to build identity
+and offline rebuild metadata. Snapshot v8, IR v3, projection v6 and query-sidecar
+v5 remain unchanged. No existing expected fixture was edited.
+
+An isolated eight-turn replay probe with optimization level 2 measured a final
+fork at 7 microseconds, versus 1,800 microseconds before chunk sharing. Complete
+replay took 112.75 ms versus 2,000.06 ms, and standalone final restore took
+201.52 ms versus 2,075.26 ms. These are single-run component measurements with
+debug checks enabled, rather than whole-suite speedup claims.
+
+Completed validation:
+
+- `npm run check:engine`: formatting, Clippy with warnings denied, **138 Rust
+  tests** in the optimized test profile, and **7 Node checks** passed.
+- `cargo test --workspace --locked --release`: all **138 Rust tests** passed.
+- The final full test-profile run took 23.07 seconds for 111 core unit tests,
+  9.47 seconds for 12 independent combat tests, and 166.52 seconds for all three
+  simulator tests. The corresponding release timings were 19.43, 9.18 and
+  156.88 seconds. The seven Node checks completed in 143.87 seconds.
+- `npm run retain:engine`: a fresh empty Cargo home/target rebuilt the retained
+  closure with frozen/offline Cargo and verified all **36 trace-mode runs**,
+  **1,421 combat recovery boundaries**, historical checkpoints, complete detailed
+  final traces, source-to-IR equality and query recovery.
+- Final artifact audit matched all **52 source files** to the current worktree,
+  checked all **1,581 dependency files**, and verified bundle, executable and
+  official rules checksums.
+
+Retained release identities:
+
+- Build: `4b7a876be19f45ce1e3704e71eb3d41d2f853ddf53d501beb6ff6864e9460b94`.
+- Bundle: `30d40cec61470317cc81becd2ab6c01162016d321ddcebf8ebcbd46e5164d9b0`.
+- Rebuilt executable: `d8a4864f5b65227c8f31694407f7f4e67f9c6b1d6dd813ea119aa83dc90664d4`.
+- Dependency manifest: `387384711d404f44993e8ab583e269c5105d1cc8b583307e3035f14e03d7474f`.
+
+Retained closure: `/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-30d40cec61470317-4kajxw/`. Generated bundles,
+component timing logs and the retention summary remain ignored or outside the
+worktree.

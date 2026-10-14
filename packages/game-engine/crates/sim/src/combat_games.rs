@@ -2,7 +2,7 @@
 //! Trusted replay/recovery evidence is collected separately by the host below.
 use super::*;
 use mtg_contracts::Quantity;
-use mtg_core::{Event, PlayerLossReason, PlayerRequest, PlayerResponse};
+use mtg_core::{Event, PlayerLossReason, PlayerRequest, PlayerResponse, SnapshotVerifier};
 
 const BEARS: &str = "14c8f55d-d177-4c25-a931-ebeb9e6062a0";
 const FOREST: &str = "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6";
@@ -282,32 +282,33 @@ pub(super) enum Recovery {
 
 fn retain_boundary(
     game: &Game,
-    prepared: &Prepared,
     saved: &mut Vec<BoundaryEvidence>,
-    verify: bool,
+    verifier: Option<&mut SnapshotVerifier>,
 ) -> Result<(), String> {
-    let snapshot = game.snapshot()?;
-    let value: serde_json::Value = serde_json::from_str(&snapshot).map_err(|e| e.to_string())?;
-    let boundary = value["state"]["rule_steps"]
-        .as_u64()
-        .ok_or("missing execution boundary")?;
+    // Capture retains scalar witnesses only. Verification additionally exercises
+    // JSON recovery at every boundary, with one independent incremental replay.
+    let (snapshot, state_sha256) = if verifier.is_some() {
+        let (snapshot, digest) = game.snapshot_with_digest()?;
+        (Some(snapshot), digest)
+    } else {
+        (None, game.state_digest()?)
+    };
     let evidence = BoundaryEvidence {
         decisions: game.journal().len(),
-        boundary,
-        state_sha256: game.state_digest()?,
+        boundary: game.rule_boundary(),
+        state_sha256,
     };
     if saved.last() == Some(&evidence) {
         return Ok(());
     }
-    if verify {
-        let restored = Game::restore(prepared.clone(), &snapshot)?;
-        if restored.state_digest()? != evidence.state_sha256 || restored.trace() != game.trace() {
+    if let Some(verifier) = verifier {
+        let restored = verifier.verify(snapshot.as_deref().ok_or("missing recovery snapshot")?)?;
+        if verifier.verified_digest() != Some(evidence.state_sha256.as_str())
+            || restored.trace() != game.trace()
+        {
             return Err("combat boundary recovery differs".into());
         }
     }
-    // Store the exact journal position and semantic digest; verify_bundle reruns
-    // the versioned policy, restores each reconstructed snapshot, and compares
-    // these witnesses. This avoids duplicating growing histories at every step.
     saved.push(evidence);
     Ok(())
 }
@@ -326,23 +327,15 @@ pub(super) fn run(
     let prepared = Prepared::admit(catalog, policy.config())?;
     let mut game = Game::with_trace(prepared.clone(), mode);
     let mut checkpoints = vec![];
+    let mut verifier =
+        (recovery == Recovery::Verify).then(|| SnapshotVerifier::new(prepared.clone(), mode));
     if recovery != Recovery::None {
-        retain_boundary(
-            &game,
-            &prepared,
-            &mut checkpoints,
-            recovery == Recovery::Verify,
-        )?;
+        retain_boundary(&game, &mut checkpoints, verifier.as_mut())?;
     }
     for _ in 0..host_steps {
         let result = game.advance(Budget::new(quantum));
         if recovery != Recovery::None {
-            retain_boundary(
-                &game,
-                &prepared,
-                &mut checkpoints,
-                recovery == Recovery::Verify,
-            )?;
+            retain_boundary(&game, &mut checkpoints, verifier.as_mut())?;
         }
         match result {
             Advance::Finished { winner } => {
@@ -361,12 +354,7 @@ pub(super) fn run(
                 let response = policy.choose(&observation)?;
                 send(&mut game, &observation, response, quantum)?;
                 if recovery != Recovery::None {
-                    retain_boundary(
-                        &game,
-                        &prepared,
-                        &mut checkpoints,
-                        recovery == Recovery::Verify,
-                    )?;
+                    retain_boundary(&game, &mut checkpoints, verifier.as_mut())?;
                 }
             }
         }

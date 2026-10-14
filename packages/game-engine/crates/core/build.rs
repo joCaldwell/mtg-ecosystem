@@ -57,8 +57,24 @@ fn main() {
         .output()
         .expect("rustc identity");
     hash.update(&rustc.stdout);
-    for key in ["PROFILE", "TARGET", "CARGO_ENCODED_RUSTFLAGS"] {
-        let value = env::var(key).unwrap_or_default();
+    // Cargo PROFILE alone conflates dev and optimized test builds. Capture
+    // effective optimization and checks as part of the reproducible identity.
+    // https://doc.rust-lang.org/cargo/reference/environment-variables.html
+    for key in [
+        "PROFILE",
+        "TARGET",
+        "CARGO_ENCODED_RUSTFLAGS",
+        "OPT_LEVEL",
+        "DEBUG",
+        "DEBUG_ASSERTIONS",
+    ] {
+        let value = if key == "DEBUG_ASSERTIONS" {
+            env::var_os("CARGO_CFG_DEBUG_ASSERTIONS")
+                .is_some()
+                .to_string()
+        } else {
+            env::var(key).unwrap_or_default()
+        };
         hash.update([0]);
         hash.update(value.as_bytes());
         println!("cargo:rustc-env=MTG_{key}={value}");
