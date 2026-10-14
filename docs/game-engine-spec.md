@@ -2,7 +2,7 @@
 
 Status: **proposed full design; initial compiler/runtime scenario implemented**.
 Only the subset documented in the [first scenario brief](game-engine-first-scenario.md),
-subsequent briefs through the [turns/permanents slice](game-engine-turns-slice.md),
+subsequent briefs through the [combat games slice](game-engine-combat-games.md),
 and engine package is implemented. The interfaces below remain design vocabulary
 where the package does not yet expose them.
 Prepared 2026-10-11. Primary workload: high-volume headless simulation and agent

@@ -172,6 +172,7 @@ impl Game {
             .players
             .get(player.0 as usize)
             .is_some_and(|p| p.status == PlayerStatus::Live)
+            && !self.state.losing_players.contains(&player)
     }
     pub(super) fn next_live(&self, after: PlayerId) -> Option<PlayerId> {
         (1..=4)
@@ -214,7 +215,7 @@ impl Game {
             || self.state.pending_concessions.contains(&player)
             || matches!(
                 self.state.frame,
-                Frame::Finished { .. } | Frame::Fault { .. }
+                Frame::Finished { .. } | Frame::Draw | Frame::Fault { .. }
             )
             || self
                 .live_players()
@@ -278,6 +279,12 @@ impl Game {
                     .get_mut(&object.id.card)
                     .ok_or("missing control object")?
                     .controller = controller;
+                self.remove_from_combat(object.id);
+                self.state
+                    .objects
+                    .get_mut(&object.id.card)
+                    .ok_or("missing control object")?
+                    .attack_ready = false;
                 self.record_event(Event::ControlChanged {
                     object: object.id,
                     previous: object.controller,
@@ -287,8 +294,13 @@ impl Game {
         }
         Ok(())
     }
-    pub(super) fn apply_departure(&mut self, player: PlayerId) -> Result<(), String> {
-        if !self.is_live(player) {
+    fn begin_departure(&mut self, player: PlayerId) -> Result<Vec<ObjectId>, String> {
+        if self
+            .state
+            .players
+            .get(player.0 as usize)
+            .is_none_or(|p| p.status != PlayerStatus::Live)
+        {
             return Err("duplicate departure".into());
         }
         let last = PlayerLastKnown {
@@ -320,6 +332,13 @@ impl Game {
                 },
             )?;
         }
+        Ok(removed)
+    }
+    pub(super) fn apply_departure(&mut self, player: PlayerId) -> Result<(), String> {
+        let removed = self.begin_departure(player)?;
+        self.finish_departure(player, &removed)
+    }
+    fn finish_departure(&mut self, player: PlayerId, removed: &[ObjectId]) -> Result<(), String> {
         let ended = self
             .state
             .control_effects
@@ -356,7 +375,11 @@ impl Game {
             self.state.active = None;
         }
         if self.state.priority == player {
-            self.state.priority = self.next_live(player).ok_or("no remaining player")?;
+            if let Some(next) = self.next_live(player) {
+                self.state.priority = next;
+            } else if !self.state.simultaneous_losses {
+                return Err("no remaining player".into());
+            }
         }
         if self
             .state
@@ -368,12 +391,7 @@ impl Game {
         }
         let live = self.live_players();
         self.state.passes.retain(|p| live.contains(p));
-        if live.len() == 1 {
-            let winner = live[0];
-            self.state.pending = None;
-            self.state.frame = Frame::Finished { winner };
-            self.state.priority = winner;
-            self.record_event(Event::GameWon { winner })?;
+        if !self.state.simultaneous_losses && self.finish_if_ended()? {
             return Ok(());
         }
         // CR 608.2m: a started invocation owns its frozen instance and keeps
@@ -431,7 +449,33 @@ impl Game {
         {
             self.begin_resolution()?;
         }
+        if self.combat_enabled() && !self.state.simultaneous_losses {
+            self.revalidate_combat_departure()?;
+        }
         self.stabilize()
+    }
+    pub(super) fn apply_simultaneous_losses(&mut self, players: &[PlayerId]) -> Result<(), String> {
+        self.state.simultaneous_losses = true;
+        self.state.losing_players = players.to_vec();
+        let mut removed = vec![];
+        // 800.4a: every losing owner's objects leave before control grants end.
+        // Frozen doomed membership prevents temporary control by another loser.
+        for player in players {
+            removed.push((*player, self.begin_departure(*player)?));
+        }
+        let ended=self.state.control_effects.iter().filter(|e|!self.is_live(e.controller) || self.current(e.object).is_err() || matches!(e.source,ControlSource::Static {object} if self.current(object).is_err())).map(|e|e.id).collect::<Vec<_>>();
+        self.state
+            .control_effects
+            .retain(|e| !ended.contains(&e.id));
+        for effect_id in ended {
+            self.record_event(Event::ControlEffectEnded { effect_id })?;
+        }
+        for (player, objects) in removed {
+            self.finish_departure(player, &objects)?;
+        }
+        self.state.simultaneous_losses = false;
+        self.state.losing_players.clear();
+        Ok(())
     }
     pub(super) fn replay_to(
         prepared: Prepared,
@@ -440,8 +484,25 @@ impl Game {
         mode: TraceMode,
     ) -> Result<Self, String> {
         let mut game = Self::with_trace(prepared, mode);
-        let mut external = 0;
-        for index in 0..=journal.decisions.len() {
+        game.extend_replay(journal, boundary)?;
+        Ok(game)
+    }
+    // Extend only a proved prefix. Accepted-but-pending inputs and queued
+    // concessions belong to that prefix even when the rule boundary is unchanged.
+    pub(super) fn extend_replay(
+        &mut self,
+        journal: &ReplayJournal,
+        boundary: Option<u64>,
+    ) -> Result<(), String> {
+        if !journal.decisions.starts_with(&self.state.journal)
+            || !journal.concessions.starts_with(&self.state.external_inputs)
+            || boundary.is_some_and(|limit| limit < self.state.rule_steps)
+        {
+            return Err("snapshot does not extend the verified replay prefix".into());
+        }
+        let game = self;
+        let mut external = game.state.external_inputs.len();
+        for index in game.state.journal.len()..=journal.decisions.len() {
             while external < journal.concessions.len()
                 && journal.concessions[external].after_decisions == index as u64
             {
@@ -500,6 +561,6 @@ impl Game {
         {
             return Err(reason);
         }
-        Ok(game)
+        Ok(())
     }
 }

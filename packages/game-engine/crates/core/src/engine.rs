@@ -34,7 +34,16 @@ const ALLOWED: [(&str, &str); 5] = [
         "572ff55cf5fedc97884e3a801b7e2c8f6de5c13e93c24bebce95f4d16432b4c8",
     ),
 ];
+mod history;
+pub use history::History;
+mod recovery;
+pub use recovery::SnapshotVerifier;
 mod casting;
+mod combat;
+#[cfg(test)]
+mod combat_tests;
+mod scenarios;
+pub use combat::*;
 mod turns;
 pub use turns::*;
 mod events;
@@ -240,6 +249,8 @@ impl Prepared {
             && config != ScenarioConfig::stack_response()
             && config != ScenarioConfig::casting_reversal()
             && config != ScenarioConfig::turns_permanents()
+            && config != ScenarioConfig::combat_game()
+            && config != ScenarioConfig::combat_interactions()
         {
             return Err(
                 "configuration is outside the reviewed four-seat scenario; no match admission"
@@ -281,6 +292,7 @@ impl Prepared {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Player {
+    failed_draw: bool,
     life: Quantity,
     mana: BTreeMap<Color, Quantity>,
     status: PlayerStatus,
@@ -295,6 +307,8 @@ struct Card {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Object {
+    marked_damage: Quantity,
+    attack_ready: bool,
     id: ObjectId,
     controller: PlayerId,
     default_controller: PlayerId,
@@ -342,25 +356,78 @@ struct Resolving {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 enum Frame {
+    Attackers,
+    Blockers {
+        remaining: Vec<PlayerId>,
+    },
+    Damage,
+    DamageChoice {
+        source: ObjectId,
+    },
+    Discard {
+        player: PlayerId,
+        count: usize,
+    },
+    CleanupClear,
+    Stabilize {
+        resume: Box<Frame>,
+        cleanup: bool,
+        changed: bool,
+    },
+    Draw,
     Priority,
     Transition,
     EnterStep,
-    Targets { cast: Casting },
-    Mana { cast: Casting },
-    Payment { cast: Casting },
-    Resolve { frame: Resolving },
-    Fault { reason: String },
-    Finished { winner: PlayerId },
+    Targets {
+        cast: Casting,
+    },
+    Mana {
+        cast: Casting,
+    },
+    Payment {
+        cast: Casting,
+    },
+    Resolve {
+        frame: Resolving,
+    },
+    Fault {
+        reason: String,
+    },
+    Finished {
+        winner: PlayerId,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
-    PlayLand { card: CardId },
-    ActivateMana { object: ObjectId },
-    Cast { card: CardId },
+    Attackers {
+        attacks: Vec<(ObjectId, PlayerId)>,
+    },
+    Blockers {
+        blocks: Vec<(ObjectId, ObjectId)>,
+    },
+    Damage {
+        assignments: Vec<(ObjectId, Quantity)>,
+    },
+    Discard {
+        objects: Vec<ObjectId>,
+    },
+    PlayLand {
+        card: CardId,
+    },
+    ActivateMana {
+        object: ObjectId,
+    },
+    Cast {
+        card: CardId,
+    },
     Pass,
-    FinishMana { undo_mana: bool },
-    Targets { objects: Vec<ObjectId> },
+    FinishMana {
+        undo_mana: bool,
+    },
+    Targets {
+        objects: Vec<ObjectId>,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -372,6 +439,31 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    Attackers {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<ObjectId>,
+        defenders: Vec<PlayerId>,
+    },
+    Blockers {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<ObjectId>,
+        attackers: Vec<ObjectId>,
+    },
+    Damage {
+        decision_id: u64,
+        player: PlayerId,
+        source: ObjectId,
+        power: Quantity,
+        recipients: Vec<ObjectId>,
+    },
+    Discard {
+        decision_id: u64,
+        player: PlayerId,
+        count: usize,
+        candidates: Vec<ObjectId>,
+    },
     Mana {
         decision_id: u64,
         player: PlayerId,
@@ -391,14 +483,22 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::Priority { decision_id, .. }
+            Self::Attackers { decision_id, .. }
+            | Self::Blockers { decision_id, .. }
+            | Self::Damage { decision_id, .. }
+            | Self::Discard { decision_id, .. }
+            | Self::Priority { decision_id, .. }
             | Self::Targets { decision_id, .. }
             | Self::Mana { decision_id, .. } => *decision_id,
         }
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::Priority { player, .. }
+            Self::Attackers { player, .. }
+            | Self::Blockers { player, .. }
+            | Self::Damage { player, .. }
+            | Self::Discard { player, .. }
+            | Self::Priority { player, .. }
             | Self::Targets { player, .. }
             | Self::Mana { player, .. } => *player,
         }
@@ -407,6 +507,28 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    Lose {
+        player: PlayerId,
+        reason: PlayerLossReason,
+    },
+    DeclareAttackers {
+        attacks: Vec<(ObjectId, PlayerId)>,
+    },
+    DeclareBlockers {
+        player: PlayerId,
+        blocks: Vec<(ObjectId, ObjectId)>,
+    },
+    CombatDamage {
+        damage: Vec<DamageOccurrence>,
+    },
+    FailedDraw {
+        player: PlayerId,
+    },
+    ClearDamage,
+    StateBasedGraveyard {
+        object: ObjectId,
+        reason: CreatureLossReason,
+    },
     Untap {
         object: ObjectId,
     },
@@ -460,6 +582,31 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    Lost {
+        player: PlayerId,
+        reason: PlayerLossReason,
+    },
+    AttackersDeclared {
+        attacks: Vec<(ObjectId, PlayerId)>,
+    },
+    BlockersDeclared {
+        player: PlayerId,
+        blocks: Vec<(ObjectId, ObjectId)>,
+    },
+    DamageDealt {
+        damage: Vec<DamageOccurrence>,
+        results: Vec<DamageResult>,
+    },
+    DrawFailed {
+        player: PlayerId,
+    },
+    DamageCleared {
+        previous: Vec<(ObjectId, Quantity)>,
+    },
+    StateBasedMoved {
+        movement: MoveOutcome,
+        reason: CreatureLossReason,
+    },
     Untapped {
         object: ObjectId,
     },
@@ -515,6 +662,10 @@ enum InstructionOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Event {
+    GameDrawn,
+    PlayersLost {
+        losses: Vec<(PlayerId, PlayerLossReason)>,
+    },
     PlayerDeparted {
         player: PlayerId,
     },
@@ -563,6 +714,13 @@ pub enum Event {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct State {
+    libraries: BTreeMap<PlayerId, Vec<CardId>>,
+    combat: Vec<Attacker>,
+    combat_declared: bool,
+    damage_choices: BTreeMap<ObjectId, Vec<(ObjectId, Quantity)>>,
+    cleanup_repeat: bool,
+    simultaneous_losses: bool,
+    losing_players: Vec<PlayerId>,
     revision: u64,
     rule_steps: u64,
     visibility: Vec<visibility::Knowledge>,
@@ -611,8 +769,19 @@ pub struct Snapshot {
     state: State,
     trace: TraceEvidence,
 }
+#[derive(Serialize)]
+struct SnapshotRef<'a> {
+    snapshot_version: u32,
+    build_id: &'a str,
+    catalog_digest: &'a str,
+    profile_digest: &'a str,
+    state_sha256: &'a str,
+    state: &'a State,
+    trace: &'a TraceEvidence,
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Advance {
+    Draw,
     Finished { winner: PlayerId },
     AwaitingDecision(Request),
     Fault(String),
@@ -643,6 +812,8 @@ impl Game {
                 (
                     c.id,
                     Object {
+                        marked_damage: Quantity::zero(),
+                        attack_ready: c.zone == Zone::Battlefield,
                         id: ObjectId {
                             card: c.id,
                             incarnation: 0,
@@ -656,12 +827,20 @@ impl Game {
             })
             .collect();
         let state = State {
+            libraries: prepared.config.initial_libraries(),
+            combat: vec![],
+            combat_declared: false,
+            damage_choices: BTreeMap::new(),
+            cleanup_repeat: false,
+            simultaneous_losses: false,
+            losing_players: vec![],
             revision: 0,
             rule_steps: 0,
             visibility: (0..4).map(|_| visibility::Knowledge::default()).collect(),
             players: (0..4)
-                .map(|_| Player {
-                    life: Quantity::from(40),
+                .map(|p| Player {
+                    failed_draw: false,
+                    life: prepared.config.initial_life(PlayerId(p)),
                     mana: BTreeMap::new(),
                     status: PlayerStatus::Live,
                     last_known: None,
@@ -673,7 +852,7 @@ impl Game {
             turn_owner: PlayerId(0),
             turn: TurnState {
                 number: 1,
-                step: TurnStep::PostcombatMain,
+                step: prepared.config.initial_turn_step(),
                 lands_played: 0,
             },
             original_seating: (0..4).map(PlayerId).collect(),
@@ -713,11 +892,15 @@ impl Game {
             state_token: Arc::new(()),
         }
     }
+    /// Trusted host execution boundary; never a player-facing identifier.
+    pub fn rule_boundary(&self) -> u64 {
+        self.state.rule_steps
+    }
     pub fn state_digest(&self) -> Result<String, String> {
         digest(&self.state)
     }
     pub fn events(&self) -> &[Event] {
-        &self.trace.events
+        self.trace.events.as_slice()
     }
     pub fn config(&self) -> &ScenarioConfig {
         self.prepared.config()
@@ -801,6 +984,9 @@ impl Game {
         if self.state.pending.is_some() || !self.state.pending_concessions.is_empty() {
             return Ok(None);
         }
+        if let Some(req) = self.combat_request()? {
+            return Ok((req.player() == viewer).then_some(req));
+        }
         let req = match &self.state.frame {
             Frame::Priority => Request::Priority {
                 decision_id: self.state.revision,
@@ -832,6 +1018,14 @@ impl Game {
         Ok((req.player() == viewer).then_some(req))
     }
     fn validate_response(&self, player: PlayerId, response: &Response) -> Result<(), String> {
+        if let Frame::Stabilize { resume, .. } = &self.state.frame {
+            let mut validation = self.fork();
+            validation.state.frame = *resume.clone();
+            return validation.validate_response(player, response);
+        }
+        if self.combat_decision_player().is_some() {
+            return self.validate_combat_response(player, response);
+        }
         match (&self.state.frame, response) {
             (Frame::Priority, Response::PlayLand { card }) if self.state.priority == player => {
                 self.validate_land_play(player, *card)
@@ -958,28 +1152,17 @@ impl Game {
             if let Frame::Fault { reason } = &self.state.frame {
                 return Advance::Fault(reason.clone());
             }
-            if self.state.pending.is_none()
-                && self.state.pending_concessions.is_empty()
-                && matches!(
-                    self.state.frame,
-                    Frame::Priority | Frame::Targets { .. } | Frame::Mana { .. }
-                )
-            {
-                let viewer = if matches!(self.state.frame, Frame::Priority) {
-                    self.state.priority
-                } else {
-                    match self.top() {
-                        Ok(s) => s.controller,
-                        Err(e) => {
-                            self.state.frame = Frame::Fault { reason: e.clone() };
-                            return Advance::Fault(e);
-                        }
+            if matches!(self.state.frame, Frame::Draw) {
+                return Advance::Draw;
+            }
+            if self.state.pending.is_none() && self.state.pending_concessions.is_empty() {
+                for p in self.live_players() {
+                    match self.decision_for(p) {
+                        Ok(Some(r)) => return Advance::AwaitingDecision(r),
+                        Ok(None) => {}
+                        Err(e) => return Advance::Fault(e),
                     }
-                };
-                return match self.decision_for(viewer) {
-                    Ok(Some(r)) => Advance::AwaitingDecision(r),
-                    _ => Advance::Fault("missing current decision".into()),
-                };
+                }
             }
             if !budget.consume() {
                 return Advance::Suspended {
@@ -1221,6 +1404,14 @@ impl Game {
                     self.finish_spell(&stack, true)?;
                 }
             }
+            Frame::Attackers
+            | Frame::Blockers { .. }
+            | Frame::Damage
+            | Frame::DamageChoice { .. }
+            | Frame::Discard { .. }
+            | Frame::CleanupClear
+            | Frame::Stabilize { .. } => self.combat_step()?,
+            Frame::Draw => {}
             Frame::Transition => self.transition_turn_step()?,
             Frame::EnterStep => self.enter_turn_step()?,
             Frame::Fault { reason } => return Err(reason),
@@ -1298,7 +1489,16 @@ impl Game {
         }
         Ok(pool)
     }
-    fn stabilize(&self) -> Result<(), String> {
+    fn stabilize(&mut self) -> Result<(), String> {
+        if self.combat_enabled() {
+            if matches!(self.state.frame, Frame::Priority) {
+                self.schedule_stabilization(Frame::Priority, false);
+            }
+            return Ok(());
+        }
+        self.validate_legacy_stability()
+    }
+    fn validate_legacy_stability(&self) -> Result<(), String> {
         // CR 704.3: this entry point runs before granting priority. The closed
         // scenario has no life changes, marked damage, counters, or triggers.
         // Unsupported reachable conditions fault instead of being skipped.
@@ -1326,19 +1526,25 @@ impl Game {
         Ok(())
     }
     pub fn snapshot(&self) -> Result<String, String> {
-        canonical(&Snapshot {
-            snapshot_version: 7,
-            build_id: BUILD_ID.into(),
-            catalog_digest: self.prepared.catalog_digest.clone(),
-            profile_digest: self.prepared.profile_digest.clone(),
-            state_sha256: self.state_digest()?,
-            state: self.state.clone(),
-            trace: self.trace.clone(),
-        })
+        self.snapshot_with_digest().map(|(json, _)| json)
     }
-    pub fn restore(prepared: Prepared, json: &str) -> Result<Self, String> {
+    /// Snapshot JSON and its semantic digest, computed once at this boundary.
+    pub fn snapshot_with_digest(&self) -> Result<(String, String), String> {
+        let state_sha256 = self.state_digest()?;
+        let json = canonical(&SnapshotRef {
+            snapshot_version: 8,
+            build_id: BUILD_ID,
+            catalog_digest: &self.prepared.catalog_digest,
+            profile_digest: &self.prepared.profile_digest,
+            state_sha256: &state_sha256,
+            state: &self.state,
+            trace: &self.trace,
+        })?;
+        Ok((json, state_sha256))
+    }
+    fn read_snapshot(prepared: Prepared, json: &str) -> Result<(Self, String), String> {
         let s: Snapshot = strict_read(json)?;
-        if s.snapshot_version != 7
+        if s.snapshot_version != 8
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -1354,23 +1560,11 @@ impl Game {
             state_token: Arc::new(()),
         };
         game.validate_state()?;
-        // The first profile is tiny: verify reachability by replay rather than
-        // accepting a rehashed arbitrary state through the recovery API.
-        let mut replayed = Self::replay_to(
-            game.prepared.clone(),
-            &game.replay_journal(),
-            Some(game.state.rule_steps),
-            game.trace.mode,
-        )?;
-        if matches!(game.state.frame, Frame::Fault { .. })
-            && !matches!(replayed.state.frame, Frame::Fault { .. })
-        {
-            let _ = replayed.advance(Budget::new(1));
-        }
-        if replayed.state != game.state || replayed.trace != game.trace {
-            return Err("snapshot is not reachable from this scenario's accepted inputs".into());
-        }
-        Ok(game)
+        Ok((game, s.state_sha256))
+    }
+    pub fn restore(prepared: Prepared, json: &str) -> Result<Self, String> {
+        let (game, digest) = Self::read_snapshot(prepared, json)?;
+        SnapshotVerifier::new(game.prepared.clone(), game.trace.mode).verify_game(game, digest)
     }
     fn validate_state(&self) -> Result<(), String> {
         let s = &self.state;
@@ -1390,7 +1584,7 @@ impl Game {
             || s.active.is_some_and(|p| !self.is_live(p))
             || s.original_seating != (0..4).map(PlayerId).collect::<Vec<_>>()
             || s.priority.0 >= 4
-            || !self.is_live(s.priority)
+            || (!self.is_live(s.priority) && !matches!(s.frame, Frame::Draw))
             || s.passes.len() > self.live_players().len()
             || s.passes.iter().any(|p| !self.is_live(*p))
             || s.passes.iter().collect::<BTreeSet<_>>().len() != s.passes.len()
@@ -1418,7 +1612,7 @@ impl Game {
                 || o.controller.0 >= 4
                 || o.default_controller.0 >= 4
                 || !self.is_live(o.controller)
-                || (o.tapped && self.definition(setup.id)?.characteristics.kind != CardKind::Land)
+                || (o.tapped && o.zone != Zone::Battlefield)
             {
                 return Err("snapshot object invariant".into());
             }
@@ -1562,7 +1756,11 @@ impl Game {
                 self.validate_response(pending.player, &pending.response)?;
             }
         }
-        self.stabilize()
+        if self.combat_enabled() {
+            self.validate_combat_state()
+        } else {
+            self.validate_legacy_stability()
+        }
     }
     pub fn replay(prepared: Prepared, journal: &ReplayJournal) -> Result<Self, String> {
         Self::replay_to(prepared, journal, None, TraceMode::Detailed)

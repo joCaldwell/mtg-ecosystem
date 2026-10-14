@@ -63,7 +63,10 @@ recordFiles(vendorPath);
 const cargoHomePath = path.join(store, "fresh-cargo-home");fs.mkdirSync(cargoHomePath);
 const targetPath = path.join(store, "fresh-target");
 const env = { ...process.env, CARGO_HOME: cargoHomePath, CARGO_TARGET_DIR: targetPath,
-  CARGO_NET_OFFLINE: "true", CARGO_ENCODED_RUSTFLAGS: bundle.rustflags };
+  CARGO_NET_OFFLINE: "true", CARGO_ENCODED_RUSTFLAGS: bundle.rustflags,
+  CARGO_PROFILE_RELEASE_OPT_LEVEL: bundle.opt_level,
+  CARGO_PROFILE_RELEASE_DEBUG: bundle.debug,
+  CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: bundle.debug_assertions };
 const initialCargoHomeEmpty = fs.readdirSync(cargoHomePath).length === 0;
 run("cargo", ["build", "--frozen", "--release", "--target", bundle.target, "-p", "mtg-sim"], sourceRoot, env);
 const rebuilt = path.join(targetPath, bundle.target, "release/mtg-sim");

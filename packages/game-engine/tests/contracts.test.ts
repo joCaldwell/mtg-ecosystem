@@ -12,7 +12,9 @@ const fixtureDir = new URL("fixtures/", import.meta.url);
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 const read = (name: string) => fs.readFileSync(new URL(name, fixtureDir), "utf8");
 function run(command: string, ...args: string[]) {
-  const result = spawnSync("cargo", ["run", "--quiet", "--locked", "-p", "mtg-sim", "--", command, ...args], { cwd: root, encoding: "utf8" });
+  // The package gate already runs all Rust tests in debug; use the optimized CLI
+  // for these profile-independent contracts and the full recovery demonstration.
+  const result = spawnSync("cargo", ["run", "--quiet", "--locked", "--release", "-p", "mtg-sim", "--", command, ...args], { cwd: root, encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout);
 }
@@ -105,7 +107,7 @@ test("response observations expose stack order without reviving historical targe
   const response = demo().response;
   const before = response.stacked_observation;
   const after = response.after_top_observation;
-  assert.equal(before.observation_version, 5);
+  assert.equal(before.observation_version, 6);
   assert.deepEqual(before.view.stack.map((s: any) => s.controller), [0, 2]);
   assert.equal(before.view.stack.every((s: any) => s.cast_complete), true);
   assert.equal(after.view.stack.length, 1);
@@ -123,7 +125,7 @@ test("response observations expose stack order without reviving historical targe
 test("casting mana witnesses expose the caster request and preserve keep/undo outcomes", () => {
   const report = demo();
   const casting = report.mana_casting;
-  assert.equal(casting.mana_observation.observation_version, 5);
+  assert.equal(casting.mana_observation.observation_version, 6);
   assert.equal(casting.mana_observation.decision.request, "mana");
   assert.deepEqual(casting.mana_observation.decision.cost, { generic: "0", colored: ["U"] });
   assert.equal(casting.mana_observation.view.priority, null);
@@ -153,7 +155,7 @@ test("turn progression and permanent casting expose only permitted public state"
   assert.equal(turns.status, "turns_permanents_verified");
   assert.deepEqual(turns.turn, { number: 5, step: "precombat_main", lands_played: 1 });
   const own = turns.final_observations[0];
-  assert.equal(own.observation_version, 5);
+  assert.equal(own.observation_version, 6);
   assert.deepEqual(own.view.turn, turns.turn);
   assert.equal(own.view.priority, 0);
   assert.equal(own.view.stack.length, 0);
@@ -165,7 +167,36 @@ test("turn progression and permanent casting expose only permitted public state"
     assert.equal(view.players.every((p: any) => p.library_count === 0 && Object.keys(p.mana).length === 0 && p.life === "40"), true);
     assert.equal(JSON.stringify(view).includes('"incarnation"'), false);
   }
-  const expected = JSON.parse(read("expected-turns-scenario.json"));
+  const expected = JSON.parse(read("expected-combat-games.json"));
   assert.equal(turns.state_sha256, expected.turns.state_sha256);
   assert.deepEqual(turns.journal, expected.turns.journal);
+});
+
+test("complete scenario games retain rules outcomes and private combat projections", () => {
+  const combat = demo().combat;
+  assert.equal(combat.length, 4);
+  assert.deepEqual(combat[0].result, { result: "won", winner: 0 });
+  assert.equal(combat[0].turn.number, 8);
+  assert.equal(combat[0].final_observations[0].view.players[0].life, "4");
+  assert.equal(combat[0].final_observations[0].view.players[0].library_count, 1);
+  assert.deepEqual(combat[1].result, { result: "won", winner: 0 });
+  assert.equal(combat[1].turn.number, 4);
+  for (const run of combat) {
+    assert.equal(run.journal.concessions.length, 0);
+    assert.ok(run.checkpoints > 0);
+    for (const observation of run.final_observations) {
+      assert.equal(observation.observation_version, 6);
+      assert.equal(observation.view.objects.some((o: any) => o.zone.zone === "library"), false);
+      assert.equal(observation.view.objects.filter((o: any) => o.zone.zone === "hand").every((o: any) => o.owner === observation.view.viewer), true);
+      for (const forbidden of ["incarnation", "damage_choices", "libraries", "frame", "rule_steps"]) {
+        assert.equal(JSON.stringify(observation).includes(`"${forbidden}"`), false, forbidden);
+      }
+    }
+  }
+  const expected = JSON.parse(read("expected-combat-games.json"));
+  for (let n = 0; n < combat.length; n++) {
+    assert.deepEqual(combat[n].journal, expected.combat[n].journal);
+    assert.deepEqual(combat[n].result, expected.combat[n].result);
+    assert.equal(combat[n].state_sha256, expected.combat[n].state_sha256);
+  }
 });

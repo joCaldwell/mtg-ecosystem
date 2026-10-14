@@ -24,3 +24,10 @@ unsafe_code = "forbid"
 
 [profile.release]
 overflow-checks = true
+
+# Optimize runtime-heavy verification while retaining development checks.
+# https://doc.rust-lang.org/cargo/reference/profiles.html
+[profile.test]
+opt-level = 2
+debug-assertions = true
+overflow-checks = true

@@ -1,12 +1,15 @@
 use mtg_compiler::{CompileResult, compile, fixture_catalog, fixtures};
 use mtg_contracts::{Catalog, canonical, sha256, strict_read};
 use mtg_core::{
-    Advance, BUILD_ID, BUILD_PROFILE, BUILD_RUSTC, BUILD_RUSTFLAGS, BUILD_TARGET, Budget, CardId,
-    Game, ObjectId, Observation, PlayerId, Prepared, QueryResult, QueryValue, ReplayJournal,
-    Response, ScenarioConfig, SearchContext, TraceMode, TurnStep, Zone,
+    Advance, BUILD_DEBUG, BUILD_DEBUG_ASSERTIONS, BUILD_ID, BUILD_OPT_LEVEL, BUILD_PROFILE,
+    BUILD_RUSTC, BUILD_RUSTFLAGS, BUILD_TARGET, Budget, CardId, Game, ObjectId, Observation,
+    PlayerId, Prepared, QueryResult, QueryValue, ReplayJournal, Response, ScenarioConfig,
+    SearchContext, SnapshotVerifier, TraceMode, TurnStep, Zone,
 };
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path, time::Instant};
+
+mod combat_games;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -27,6 +30,7 @@ struct Bundle {
     mana_undo: ScenarioEvidence,
     mana_keep: ScenarioEvidence,
     turns: ScenarioEvidence,
+    combat: Vec<combat_games::CombatEvidence>,
     build_id: String,
     catalog: Catalog,
     config: ScenarioConfig,
@@ -40,6 +44,9 @@ struct Bundle {
     source_files: Vec<SourceFile>,
     rustc: String,
     build_profile: String,
+    opt_level: String,
+    debug: String,
+    debug_assertions: String,
     target: String,
     rustflags: String,
     query_sidecar: String,
@@ -614,7 +621,7 @@ fn finish(game: &mut Game) -> Result<(), String> {
     }
     match game.advance(Budget::unlimited()) {
         Advance::AwaitingDecision(_) => Ok(()),
-        Advance::Finished { .. } => Err("unexpected scenario finish".into()),
+        Advance::Finished { .. } | Advance::Draw => Err("unexpected scenario finish".into()),
         Advance::Fault(e) => Err(e),
         Advance::Suspended { .. } => Err("unexpected suspension with an unlimited budget".into()),
     }
@@ -757,19 +764,19 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         Prepared::admit(catalog.clone(), turns.config.clone())?,
         &turns.final_snapshot,
     )?;
-    let (trace_runs, trace_report) = trace_runs(
-        &catalog,
-        &[
-            &game,
-            &departure_game,
-            &response_game,
-            &detached_game,
-            &mana_games[0],
-            &mana_games[1],
-            &mana_games[2],
-            &turns_game,
-        ],
-    )?;
+    let (combat, combat_games, combat_report) = combat_games::suite(&catalog, false)?;
+    let mut trace_games = vec![
+        &game,
+        &departure_game,
+        &response_game,
+        &detached_game,
+        &mana_games[0],
+        &mana_games[1],
+        &mana_games[2],
+        &turns_game,
+    ];
+    trace_games.extend(combat_games.iter());
+    let (trace_runs, trace_report) = trace_runs(&catalog, &trace_games)?;
     let bundle = Bundle {
         trace_runs,
         departure,
@@ -779,7 +786,8 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         mana_undo,
         mana_keep,
         turns,
-        bundle_version: 7,
+        combat,
+        bundle_version: 9,
         build_id: BUILD_ID.into(),
         catalog,
         config: prepared.config().clone(),
@@ -793,11 +801,14 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         source_files: source_files()?,
         rustc,
         build_profile: BUILD_PROFILE.into(),
+        opt_level: BUILD_OPT_LEVEL.into(),
+        debug: BUILD_DEBUG.into(),
+        debug_assertions: BUILD_DEBUG_ASSERTIONS.into(),
         target: BUILD_TARGET.into(),
         rustflags: BUILD_RUSTFLAGS.into(),
         query_sidecar,
     };
-    let report = serde_json::json!({"status":"scenario_verified","turns":turns_report,"departure":departure_report,"response":response_report,"detached_response":detached_report,"mana_casting":mana_casting_report,"mana_undo":mana_undo_report,"mana_keep":mana_keep_report,"trace_equivalence":trace_report,"build_id":BUILD_ID,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
+    let report = serde_json::json!({"status":"scenario_verified","combat":combat_report,"turns":turns_report,"departure":departure_report,"response":response_report,"detached_response":detached_report,"mana_casting":mana_casting_report,"mana_undo":mana_undo_report,"mana_keep":mana_keep_report,"trace_equivalence":trace_report,"build_id":BUILD_ID,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
         "state_sha256":game.state_digest()?,"accepted_inputs":game.journal().len(),"events":game.events(),"restore_fork_replay_equal":true,
         "player_observations": (0..4).map(|v|observation(&game,PlayerId(v))).collect::<Result<Vec<_>,_>>()?,
         "search_context":search_context(&game,PlayerId(0),"separate-sampling-seed".into())?,
@@ -807,7 +818,7 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
 }
 fn verify_bundle(json: &str) -> Result<String, String> {
     let b: Bundle = strict_read(json)?;
-    if b.bundle_version != 7 || b.build_id != BUILD_ID {
+    if b.bundle_version != 9 || b.build_id != BUILD_ID {
         return Err("unsupported bundle version/build".into());
     }
     if !b.source_files.windows(2).all(|w| w[0].path < w[1].path) {
@@ -824,7 +835,14 @@ fn verify_bundle(json: &str) -> Result<String, String> {
         source_bytes.push(0);
     }
     source_bytes.extend_from_slice(b.rustc.as_bytes());
-    for value in [&b.build_profile, &b.target, &b.rustflags] {
+    for value in [
+        &b.build_profile,
+        &b.target,
+        &b.rustflags,
+        &b.opt_level,
+        &b.debug,
+        &b.debug_assertions,
+    ] {
         source_bytes.push(0);
         source_bytes.extend_from_slice(value.as_bytes());
     }
@@ -849,9 +867,11 @@ fn verify_bundle(json: &str) -> Result<String, String> {
     if definitions != b.catalog.definitions {
         return Err("retained source-to-IR mismatch".into());
     }
-    if b.trace_runs.len() != 24 {
+    if b.trace_runs.len() != 36 {
         return Err("missing trace-mode evidence".into());
     }
+    eprintln!("verifying 36 retained trace-mode executions");
+    let mut reference_cache: Option<Game> = None;
     for (index, run) in b.trace_runs.iter().enumerate() {
         let required_mode = [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed][index % 3];
         let (required_config, required_journal, reference_snapshot) = match index / 3 {
@@ -887,6 +907,10 @@ fn verify_bundle(json: &str) -> Result<String, String> {
                 &b.mana_keep.final_snapshot,
             ),
             7 => (&b.turns.config, &b.turns.journal, &b.turns.final_snapshot),
+            n @ 8..=11 => {
+                let entry = b.combat.get(n - 8).ok_or("missing combat trace group")?;
+                (&entry.config, &entry.journal, &entry.final_snapshot)
+            }
             _ => return Err("unexpected trace-mode group".into()),
         };
         if run.mode != required_mode
@@ -897,7 +921,12 @@ fn verify_bundle(json: &str) -> Result<String, String> {
         }
         let p = Prepared::admit(b.catalog.clone(), run.config.clone())?;
         let expected = Game::restore(p.clone(), &run.final_snapshot)?;
-        let reference = Game::restore(p.clone(), reference_snapshot)?;
+        if index % 3 == 0 {
+            reference_cache = Some(Game::restore(p.clone(), reference_snapshot)?);
+        }
+        let reference = reference_cache
+            .as_ref()
+            .ok_or("missing verified trace reference")?;
         let replay = Game::replay_with_trace(p, &run.journal, run.mode)?;
         if reference.trace().mode != TraceMode::Detailed
             || expected.trace().mode != run.mode
@@ -910,6 +939,7 @@ fn verify_bundle(json: &str) -> Result<String, String> {
             return Err("retained trace-mode equivalence failed".into());
         }
     }
+    eprintln!("verifying retained legacy recovery checkpoints");
     for scenario in [
         &b.response,
         &b.detached_response,
@@ -919,8 +949,9 @@ fn verify_bundle(json: &str) -> Result<String, String> {
         &b.turns,
     ] {
         let p = Prepared::admit(b.catalog.clone(), scenario.config.clone())?;
+        let mut verifier = SnapshotVerifier::new(p.clone(), TraceMode::Detailed);
         for snapshot in &scenario.checkpoints {
-            Game::restore(p.clone(), snapshot)?;
+            verifier.verify(snapshot)?;
         }
         let restored = Game::restore(p.clone(), &scenario.final_snapshot)?;
         let replay = Game::replay(p, &scenario.journal)?;
@@ -929,9 +960,12 @@ fn verify_bundle(json: &str) -> Result<String, String> {
             return Err("response checkpoint/replay mismatch".into());
         }
     }
+    combat_games::verify(&b.catalog, &b.combat)?;
     let departure_prepared = Prepared::admit(b.catalog.clone(), b.departure.config)?;
+    let mut departure_verifier =
+        SnapshotVerifier::new(departure_prepared.clone(), TraceMode::Detailed);
     for snapshot in &b.departure.checkpoints {
-        Game::restore(departure_prepared.clone(), snapshot)?;
+        departure_verifier.verify(snapshot)?;
     }
     let departure_replay = Game::replay(departure_prepared.clone(), &b.departure.journal)?;
     let departure_expected = Game::restore(departure_prepared, &b.departure.final_snapshot)?;
@@ -973,6 +1007,10 @@ fn verify_bundle(json: &str) -> Result<String, String> {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
+        Some("combat-games") if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") => {
+            let (_, _, report) = combat_games::suite(&fixture_catalog()?, args.len() == 2)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
         Some("schema") if args.len() == 1 => println!(
             "{}",
             serde_json::to_string_pretty(&mtg_contracts::catalog_schema())?
@@ -1026,7 +1064,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {
             return Err(
-                "usage: mtg-sim schema|compile|report|observe PLAYER|context PLAYER SEED|demo [--bundle DIR]|verify-bundle FILE"
+                "usage: mtg-sim combat-games|schema|compile|report|observe PLAYER|context PLAYER SEED|demo [--bundle DIR]|verify-bundle FILE"
                     .into(),
             );
         }
@@ -1045,7 +1083,7 @@ mod tests {
         .unwrap();
         assert_eq!(report["events"], expected["events"]);
         let p2: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../tests/fixtures/expected-turns-scenario.json"
+            "../../../tests/fixtures/expected-combat-games.json"
         ))
         .unwrap();
         assert_eq!(report["state_sha256"], p2["final_state_sha256"]);
@@ -1070,7 +1108,7 @@ mod tests {
         assert_eq!(report["departure"]["events"], prior["departure_events"]);
         // Input IDs and boundaries now include the explicit mana-window decline.
 
-        assert_eq!(bundle.trace_runs.len(), 24);
+        assert_eq!(bundle.trace_runs.len(), 36);
         let normalized:Vec<_>=report["trace_equivalence"].as_array().unwrap().iter().map(|x|serde_json::json!({"profile":x["profile"],"mode":x["mode"],"state_sha256":x["state_sha256"],"verification":x["verification"]})).collect();
         assert_eq!(
             serde_json::to_value(normalized).unwrap(),
@@ -1088,13 +1126,29 @@ mod tests {
             assert_eq!(report[name]["events"], p2[name]["events"]);
             assert_eq!(report[name]["state_sha256"], p2[name]["state_sha256"]);
         }
+        assert_eq!(report["combat"], p2["combat"]);
+        let historical: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/expected-turns-scenario.json"
+        ))
+        .unwrap();
+        for name in [
+            "response",
+            "detached_response",
+            "mana_casting",
+            "mana_undo",
+            "mana_keep",
+            "turns",
+        ] {
+            assert_eq!(report[name]["journal"], historical[name]["journal"]);
+            assert_eq!(report[name]["events"], historical[name]["events"]);
+        }
         let json = canonical(&bundle).unwrap();
         assert_eq!(
             verify_bundle(&json).unwrap(),
             report["state_sha256"].as_str().unwrap()
         );
         assert!(
-            verify_bundle(&json.replace("\"bundle_version\":7", "\"bundle_version\":8")).is_err()
+            verify_bundle(&json.replace("\"bundle_version\":9", "\"bundle_version\":10")).is_err()
         );
         let mut corrupt: serde_json::Value = serde_json::from_str(&json).unwrap();
         corrupt["source_files"] = serde_json::json!([]);

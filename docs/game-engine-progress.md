@@ -467,14 +467,141 @@ unsupported boundaries. This is a deterministic bounded scenario loop, not full
 P3 signoff or playable Commander matches. Snapshot reachability still uses replay;
 recovery-heavy debug checks and history copying grow with execution length.
 
+## Ordinary combat and complete scenario games — October 13, 2026
+
+The [reviewed combat contract](game-engine-combat-games.md) freezes two additional
+whole configurations on merged main `bb3f245`, including the turns/permanents and
+departure-ordering fixes. The five exact source definitions and IR v3 remain
+unchanged; runtime admission now recognizes seven reviewed configurations.
+Existing profiles retain their previous unsupported boundaries.
+
+Ordinary creature combat now supports complete attacker declarations across
+multiple opponents, defender-specific complete blocks, multiple blockers, and
+explicit damage splits under the pinned current rules (no historical ordering or
+lethal-first restriction). Continuous control determines attack readiness; new
+incarnations and controller changes reset it. The shared typed event path records
+declarations, simultaneous damage, marked damage distinct from toughness, and
+SBA waves with common pre-state candidates. Relevant zone changes remove combat
+membership without clearing an attacker's blocked status. All simultaneous
+losers leave before departure cleanup and outcome adjudication.
+
+The same turn loop handles top-first ordered libraries, failed draws, cleanup
+discard and damage clearing, and repeated turns with land, mana and untap rules.
+The ordinary priority/instant-response stack remains the interaction path. The
+reachable pool requires lethal-damage, life-loss and failed-draw SBAs; private
+kernel fixtures additionally verify zero toughness, all-player loss/draw and the
+cleanup-SBA priority exception without widening production admission.
+
+The outside-core policy runner consumes only player-facing observations and
+requests and submits responses through budgeted validation. Its G witness ends
+on turn 8 with P0 winning at life 4. Along the way, two instants target the same
+blocker and the lower spell fizzles; creatures die simultaneously; P3 discards
+during cleanup; P1/P2 lose to life totals and P3 loses after a failed draw.
+A second game chooses no attackers and ends on turn 4 when
+P1, P2 and P3 have failed their draws. Two interaction witnesses compare 1/1 and
+2/0 damage splits and simultaneous P1/P2 losses. Interaction completion, host
+budget exhaustion and faults are distinct from game outcomes.
+
+The new `expected-combat-games.json` retains the reviewed outcomes and complete
+journals while preserving historical fixtures. The verified witness counts are:
+
+| Policy | Decisions | Events | Recovery boundaries | Result |
+| --- | ---: | ---: | ---: | --- |
+| Integrated | 281 | 723 | 1,014 | P0 wins, turn 8, life 4 |
+| Empty attacks | 69 | 205 | 273 | P0 wins, turn 4 |
+| Split evenly | 20 | 49 | 67 | Simultaneous P1/P2 loss; P0/P3 remain |
+| Split concentrated | 20 | 50 | 67 | Same player losses plus a lethal blocker |
+
+All four journals contain no concessions. All earlier flat gameplay events and
+mixed journals were compared unchanged. The twelve witness families run in
+three trace modes, yielding **36 retained executions** across seven configurations.
+
+Snapshot/bundle v8, projection v6 and query-sidecar v5 extend the existing
+continuation, characteristic, event, observation, query, replay and recovery
+paths. Complete journals and compact boundary/digest witnesses reconstruct every
+new decision and automatic boundary for snapshot restoration. Full-game recovery
+restores every recorded semantic boundary with diagnostics off and compares the
+entire detailed final trace with detailed replay; independent continuation and
+departure tests also recover detailed snapshots. This avoids redundant copies
+and repeated serialization of growing diagnostic histories, without skipping
+semantic boundaries. Independent review approved this split. It does not change restore's
+replay-based reachability proof or make work units wall-clock guarantees.
+
+Independent implementation and adversarial review covered declarations, stale
+handles and decisions, hidden information, response windows, blocker departures,
+control readiness, simultaneous damage/losses, queries, recovery, forks and
+budget/trace equivalence. Review fixes preserve priority progression after a
+last-unpassed departure during stabilization, include readiness changes in typed
+turn-transition evidence, and reject oversized response vectors before handle
+conversion. The independent interaction sweep covers 48 boundaries and 188
+ordered-concession branches. Six additional branches exercise actor/unrelated
+departures before/after accepted cleanup discard and departures between failed
+draw and SBA. All twelve independent black-box tests pass in debug and release.
+
+### Verification completed — October 14, 2026
+
+Verification resumed from the requested stopping point without changing runtime
+source or reviewed fixtures. Formatting and Clippy with warnings denied passed.
+All **132 Rust tests passed in debug and release**, including the complete-game
+policies and source-to-runtime bundle recovery/replay test. `npm run check:engine`
+completed successfully, including all **7 Node cross-language/CLI checks**.
+The Node checks now run the optimized CLI after the full debug Rust gate. This
+reviewed harness-only change preserves all assertions and executes the complete
+demonstration live; it neither uses cached output nor changes the retained native
+source closure.
+
+`npm run retain:engine` passed: it retained the exact official rules and all
+1,581 vendored dependency files, rebuilt from retained sources with frozen/offline
+Cargo, an initially empty Cargo home and a fresh target directory, and verified
+replay with the independently rebuilt executable. Verification covers all
+**36 trace-mode executions**, **1,421 new semantic recovery boundaries**, detailed
+final traces, historical checkpoints, source-to-IR equality and query recovery.
+Independent final audit matched all 50 retained source files to both the bundle
+and current worktree, checked every dependency hash, and verified bundle, rules
+and executable hashes. No independent adversarial findings remain unresolved.
+
+Retained identities:
+
+- Release build: `b01f9c3d889ef98efe86aa0d01f21477f4a0bc6bccbcab2b3f0c58a4de841b0d`.
+- Catalog: `885924ca7234ad41d81b4a01c50c07e5d693850b36c3c5b1236d5ca2df86570e`.
+- Integrated game final state: `ad1c33020249e83218f3ad18792e96675cf256d59ac828cebb523c3b66d38052`.
+- Empty-attacks game final state: `7256a3d53feebeb3f59e41859d96cba733bbe8b1aeff4c6a0c21d6bb905bf6da`.
+- Baseline v8 final state: `58a0a241c4662d403dec8944430c1fe402c7fd15d22a2ce242c9a0b01d54f657`.
+- Replay bundle: `8f73f7c116c609f308c5a452bf41b2b77bdc349529beb669db2e2344e1d20c98`.
+- Rebuilt executable: `a6bd4c6a7db805229f40ed62b89010230f5278b49e795975d1e7ad84b4b3b870`.
+- Dependency manifest: `387384711d404f44993e8ab583e269c5105d1cc8b583307e3035f14e03d7474f`.
+
+Evidence lives in
+`/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-8f73f7c116c609f3-UayNiD/`.
+The ignored worktree summary is `generated/p2-retention.json`; final gate logs
+are retained under `generated/combat-verification/`. Complete journals and
+expected outcomes are tracked in
+`packages/game-engine/tests/fixtures/expected-combat-games.json`. Downloaded
+rules, source/vendor closure, executables and bundles remain outside version
+control. The earlier successful demo and intentionally interrupted logs remain
+under ignored `generated/combat-checkpoint/` as historical checkpoint evidence.
+
+Restore still proves reachability by replaying execution prefixes. Full recovery
+gates therefore take substantial CPU time; these checks do not establish a
+wall-clock performance guarantee. This delivery is committed locally for review
+and must not be merged without a later instruction.
+
+Full legal Commander games, arbitrary decks, keywords, triggers, replacements,
+continuous effects, setup and randomness remain excluded. This is a connected
+scenario delivery, not P3/P4/P5 completion. All work is isolated on
+`feat/engine-combat-games`; no dirty parser work from the main checkout was copied
+or edited by this delivery.
+
 ## Remaining delivery gates
 
 Remaining P2 foundations include broader functioning-zone/ability discovery,
 interaction-specific event compositions, and wider recovery invariants.
 Atomic batches and the three trace modes are implemented for the closed profiles;
-replacement/trigger/SBA consumers still need their own source/runtime slices. Commander designation/history and departure
+replacement/trigger consumers and additional SBA families still need their own
+source/runtime slices. Commander designation/history and departure
 foundations are implemented in the bounded follow-up described above; production
-command-zone casts and actual combat damage remain later mechanics.
+command-zone casts and Commander combat-damage accounting remain later mechanics;
+ordinary creature combat is implemented in the reviewed combat configurations.
 Recovery still replays the small scenario to prove reachability. Rules work units
 are not wall-clock or process-memory guarantees; larger profiles require measured
 limits and finer resumable work. Core authoritative getters remain trusted host
@@ -488,9 +615,71 @@ or port of the entire TypeScript binding analyzer is required.
 
 P3 still expands general cost families, broader permanent and turn behavior,
 and resolution-time choices. Ordinary supported instant responses, casting-time
-intrinsic mana, and the bounded turns/land/targetless-creature loop are now
-implemented for exact scenario configurations; broader stack/cost families remain. P4 adds the Commander lifecycle and
+intrinsic mana, and the bounded turns/land/targetless-creature loop, ordinary combat, damage/SBAs,
+ordered draws, cleanup and complete small scenario games are now implemented for
+exact configurations; broader stack/cost families remain. P4 adds the Commander lifecycle and
 event interactions. P5 validates full legal decks/pods, a closed reachable pool,
 and seeded complete games. Unsupported runtime paths currently fault or reject;
 legal-match mode is rejected. Random operations, search, server, and UI remain
 outside this first slice. No product decision currently blocks P2 work.
+
+## Checkpoint and fork performance — October 14, 2026
+
+The complete debug bundle fixture now passes in **150.19 seconds** in an isolated
+run (150.225 seconds including the Cargo command). The preceding unoptimized
+debug run was stopped after approximately 42 minutes while still running, so
+that baseline is a lower bound, not a completed timing. The prior completed
+release fixture took 1,305.90 seconds. These are local elapsed-time observations;
+they do not establish representative match throughput.
+
+The follow-up removes full snapshot creation/parsing during scalar witness
+capture, borrows state/trace for snapshot serialization, and verifies ordered
+checkpoint sequences using one private independent forward replay. Each boundary
+still undergoes strict decoding, identity/hash/invariant checks and complete
+state/trace equality. Standalone restore starts from the initial state. Changed
+or backward prefixes, rehashed forgeries, same-boundary queued concessions,
+pending inputs, faults without boundary advancement and failed-verifier rollback
+are covered by regressions. Returned games retain independent receipt scopes.
+
+Player histories and native trace records share immutable 32-entry chunks across
+forks/staging; branch mutation copies the affected chunk. Their serialized arrays
+and all existing semantic/diagnostic hashes remain unchanged. Native event slices
+are materialized lazily with cache invalidation on mutation. The test profile
+uses optimization level 2 with debug assertions and overflow checks enabled.
+Native bundle v9 adds effective optimization/debug settings to build identity
+and offline rebuild metadata. Snapshot v8, IR v3, projection v6 and query-sidecar
+v5 remain unchanged. No existing expected fixture was edited.
+
+An isolated eight-turn replay probe with optimization level 2 measured a final
+fork at 7 microseconds, versus 1,800 microseconds before chunk sharing. Complete
+replay took 112.75 ms versus 2,000.06 ms, and standalone final restore took
+201.52 ms versus 2,075.26 ms. These are single-run component measurements with
+debug checks enabled, rather than whole-suite speedup claims.
+
+Completed validation:
+
+- `npm run check:engine`: formatting, Clippy with warnings denied, **138 Rust
+  tests** in the optimized test profile, and **7 Node checks** passed.
+- `cargo test --workspace --locked --release`: all **138 Rust tests** passed.
+- The final full test-profile run took 23.07 seconds for 111 core unit tests,
+  9.47 seconds for 12 independent combat tests, and 166.52 seconds for all three
+  simulator tests. The corresponding release timings were 19.43, 9.18 and
+  156.88 seconds. The seven Node checks completed in 143.87 seconds.
+- `npm run retain:engine`: a fresh empty Cargo home/target rebuilt the retained
+  closure with frozen/offline Cargo and verified all **36 trace-mode runs**,
+  **1,421 combat recovery boundaries**, historical checkpoints, complete detailed
+  final traces, source-to-IR equality and query recovery.
+- Final artifact audit matched all **52 source files** to the current worktree,
+  checked all **1,581 dependency files**, and verified bundle, executable and
+  official rules checksums.
+
+Retained release identities:
+
+- Build: `4b7a876be19f45ce1e3704e71eb3d41d2f853ddf53d501beb6ff6864e9460b94`.
+- Bundle: `30d40cec61470317cc81becd2ab6c01162016d321ddcebf8ebcbd46e5164d9b0`.
+- Rebuilt executable: `d8a4864f5b65227c8f31694407f7f4e67f9c6b1d6dd813ea119aa83dc90664d4`.
+- Dependency manifest: `387384711d404f44993e8ab583e269c5105d1cc8b583307e3035f14e03d7474f`.
+
+Retained closure: `/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-30d40cec61470317-4kajxw/`. Generated bundles,
+component timing logs and the retention summary remain ignored or outside the
+worktree.

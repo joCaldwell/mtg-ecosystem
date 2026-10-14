@@ -34,8 +34,8 @@ pub struct TraceRecord {
 pub struct TraceEvidence {
     pub mode: TraceMode,
     pub verification: Option<TraceVerification>,
-    pub records: Vec<TraceRecord>,
-    pub events: Vec<Event>,
+    pub records: History<TraceRecord>,
+    pub events: History<Event>,
 }
 impl TraceEvidence {
     fn new(mode: TraceMode) -> Self {
@@ -45,8 +45,8 @@ impl TraceEvidence {
                 records: 0,
                 sha256: sha256(b"mtg-event-trace-v1"),
             }),
-            records: vec![],
-            events: vec![],
+            records: History::default(),
+            events: History::default(),
         }
     }
 }

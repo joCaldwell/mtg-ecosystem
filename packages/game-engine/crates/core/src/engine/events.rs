@@ -3,6 +3,9 @@ use super::*;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "cause", rename_all = "snake_case", deny_unknown_fields)]
 pub enum BatchCause {
+    Combat,
+    Cleanup,
+    StateBased,
     LandPlay {
         player: PlayerId,
         decision_id: u64,
@@ -51,6 +54,9 @@ pub enum BatchCause {
 impl BatchCause {
     fn rules(&self) -> Vec<String> {
         let rules: &[&str] = match self {
+            Self::Combat => &["508", "509", "510"],
+            Self::Cleanup => &["514.1", "514.2"],
+            Self::StateBased => &["704.3", "704.5a", "704.5b", "704.5f", "704.5g"],
             Self::LandPlay { .. } => &["305.1", "305.2", "305.3", "400.7"],
             Self::TurnProgression => &["106.4", "500.5", "800.4j"],
             Self::UntapStep => &["502.3", "502.4"],
@@ -82,11 +88,14 @@ pub struct ObjectBefore {
     pub default_controller: PlayerId,
     pub zone: Zone,
     pub tapped: bool,
+    pub marked_damage: Quantity,
+    pub attack_ready: bool,
     pub characteristics: Characteristics,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlayerBefore {
+    pub failed_draw: bool,
     pub player: PlayerId,
     pub life: Quantity,
     pub mana: BTreeMap<Color, Quantity>,
@@ -146,9 +155,55 @@ enum FactKey {
     Turn,
     Object(CardId),
     Mana(PlayerId),
+    Life(PlayerId),
+    AllDamage,
 }
 fn access(event: &ProposedEvent) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
     match event {
+        ProposedEvent::Lose { player, .. } => {
+            let keys = BTreeSet::from([FactKey::Life(*player)]);
+            (keys.clone(), keys)
+        }
+        ProposedEvent::DeclareAttackers { attacks } => {
+            let mut keys = BTreeSet::from([FactKey::Turn]);
+            keys.extend(attacks.iter().map(|(o, _)| FactKey::Object(o.card)));
+            (keys.clone(), keys)
+        }
+        ProposedEvent::DeclareBlockers { blocks, .. } => {
+            let mut keys = BTreeSet::from([FactKey::Turn]);
+            for (b, a) in blocks {
+                keys.insert(FactKey::Object(b.card));
+                keys.insert(FactKey::Object(a.card));
+            }
+            (keys.clone(), keys)
+        }
+        ProposedEvent::CombatDamage { damage } => {
+            let mut keys = BTreeSet::new();
+            for d in damage {
+                keys.insert(FactKey::Object(d.source.card));
+                match d.recipient {
+                    DamageRecipient::Player { player } => {
+                        keys.insert(FactKey::Life(player));
+                    }
+                    DamageRecipient::Creature { object } => {
+                        keys.insert(FactKey::Object(object.card));
+                    }
+                }
+            }
+            (keys.clone(), keys)
+        }
+        ProposedEvent::FailedDraw { player } => {
+            let keys = BTreeSet::from([FactKey::Life(*player)]);
+            (keys.clone(), keys)
+        }
+        ProposedEvent::ClearDamage => {
+            let keys = BTreeSet::from([FactKey::AllDamage]);
+            (keys.clone(), keys)
+        }
+        ProposedEvent::StateBasedGraveyard { object, .. } => {
+            let keys = BTreeSet::from([FactKey::Object(object.card)]);
+            (keys.clone(), keys)
+        }
         ProposedEvent::Untap { object }
         | ProposedEvent::Tap { object }
         | ProposedEvent::Move { object, .. }
@@ -199,6 +254,19 @@ fn collect<'a>(
             if occurrences.is_empty() || occurrences.len() > 16 {
                 return Err("empty or oversized simultaneous group".into());
             }
+            if occurrences.len() > 1
+                && occurrences.iter().any(|e| {
+                    matches!(
+                        e,
+                        ProposedEvent::ClearDamage
+                            | ProposedEvent::TurnTransition { .. }
+                            | ProposedEvent::DeclareAttackers { .. }
+                            | ProposedEvent::DeclareBlockers { .. }
+                    )
+                })
+            {
+                return Err("global aggregate cannot compose simultaneously".into());
+            }
             out.extend(occurrences);
             let keys = occurrences.iter().map(access).collect::<Vec<_>>();
             for i in 0..keys.len() {
@@ -222,6 +290,51 @@ impl Game {
         let mut turn = None;
         for event in events {
             match event {
+                ProposedEvent::Lose { player, .. } => {
+                    players.insert(*player);
+                }
+                ProposedEvent::DeclareAttackers { attacks } => {
+                    for (o, p) in attacks {
+                        objects.insert(*o);
+                        players.insert(*p);
+                    }
+                }
+                ProposedEvent::DeclareBlockers { player, blocks } => {
+                    players.insert(*player);
+                    for (b, a) in blocks {
+                        objects.insert(*b);
+                        objects.insert(*a);
+                    }
+                }
+                ProposedEvent::CombatDamage { damage } => {
+                    for d in damage {
+                        objects.insert(d.source);
+                        players.insert(d.controller);
+                        match d.recipient {
+                            DamageRecipient::Player { player } => {
+                                players.insert(player);
+                            }
+                            DamageRecipient::Creature { object } => {
+                                objects.insert(object);
+                            }
+                        }
+                    }
+                }
+                ProposedEvent::FailedDraw { player } => {
+                    players.insert(*player);
+                }
+                ProposedEvent::ClearDamage => {
+                    objects.extend(
+                        self.state
+                            .objects
+                            .values()
+                            .filter(|o| o.marked_damage > Quantity::zero())
+                            .map(|o| o.id),
+                    );
+                }
+                ProposedEvent::StateBasedGraveyard { object, .. } => {
+                    objects.insert(*object);
+                }
                 ProposedEvent::Untap { object }
                 | ProposedEvent::Tap { object }
                 | ProposedEvent::Move { object, .. } => {
@@ -242,6 +355,17 @@ impl Game {
                     players.insert(*player);
                 }
                 ProposedEvent::LandPlayed { .. } | ProposedEvent::TurnTransition { .. } => {
+                    if let ProposedEvent::TurnTransition { next, owner } = event
+                        && next.number != self.state.turn.number
+                    {
+                        objects.extend(
+                            self.state
+                                .objects
+                                .values()
+                                .filter(|o| o.zone == Zone::Battlefield && o.controller == *owner)
+                                .map(|o| o.id),
+                        );
+                    }
                     turn = Some(TurnBefore {
                         turn: self.state.turn.clone(),
                         owner: self.state.turn_owner,
@@ -271,6 +395,8 @@ impl Game {
                     default_controller: o.default_controller,
                     zone: o.zone,
                     tapped: o.tapped,
+                    marked_damage: o.marked_damage.clone(),
+                    attack_ready: o.attack_ready,
                     characteristics: self.characteristics(object)?,
                 })
             })
@@ -284,6 +410,7 @@ impl Game {
                     .get(player.0 as usize)
                     .ok_or("invalid event player")?;
                 Ok(PlayerBefore {
+                    failed_draw: p.failed_draw,
                     player,
                     life: p.life.clone(),
                     mana: p.mana.clone(),
@@ -441,6 +568,127 @@ impl Game {
 impl Game {
     fn apply_occurrence(&mut self, proposed: &ProposedEvent) -> Result<EventOutcome, String> {
         let actual = match proposed {
+            ProposedEvent::Lose { player, reason } => {
+                if !self.is_live(*player)
+                    || match reason {
+                        PlayerLossReason::Life => {
+                            self.state.players[player.0 as usize].life > Quantity::zero()
+                        }
+                        PlayerLossReason::FailedDraw => {
+                            !self.state.players[player.0 as usize].failed_draw
+                        }
+                    }
+                {
+                    return Err("invalid state-based player loss".into());
+                }
+                self.state.losing_players.push(*player);
+                EventOutcome::Lost {
+                    player: *player,
+                    reason: *reason,
+                }
+            }
+            ProposedEvent::DeclareAttackers { attacks } => {
+                let player = self.state.active.ok_or("missing attacking player")?;
+                self.validate_combat_response(
+                    player,
+                    &Response::Attackers {
+                        attacks: attacks.clone(),
+                    },
+                )?;
+                for (object, _) in attacks {
+                    self.apply_occurrence(&ProposedEvent::Tap { object: *object })?;
+                }
+                self.state.combat_declared = !attacks.is_empty();
+                self.state.combat = attacks
+                    .iter()
+                    .map(|(attacker, defender)| Attacker {
+                        attacker: *attacker,
+                        defender: *defender,
+                        blocked: false,
+                        blockers: vec![],
+                    })
+                    .collect();
+                EventOutcome::AttackersDeclared {
+                    attacks: attacks.clone(),
+                }
+            }
+            ProposedEvent::DeclareBlockers { player, blocks } => {
+                self.validate_combat_response(
+                    *player,
+                    &Response::Blockers {
+                        blocks: blocks.clone(),
+                    },
+                )?;
+                for (b, a) in blocks {
+                    let attacker = self
+                        .state
+                        .combat
+                        .iter_mut()
+                        .find(|x| x.attacker == *a)
+                        .ok_or("missing blocker attacker")?;
+                    attacker.blocked = true;
+                    attacker.blockers.push(*b);
+                }
+                EventOutcome::BlockersDeclared {
+                    player: *player,
+                    blocks: blocks.clone(),
+                }
+            }
+            ProposedEvent::CombatDamage { damage } => self.apply_damage(damage)?,
+            ProposedEvent::FailedDraw { player } => {
+                if !self.is_live(*player)
+                    || self
+                        .state
+                        .libraries
+                        .get(player)
+                        .is_none_or(|l| !l.is_empty())
+                {
+                    return Err("invalid failed draw".into());
+                }
+                self.state.players[player.0 as usize].failed_draw = true;
+                EventOutcome::DrawFailed { player: *player }
+            }
+            ProposedEvent::ClearDamage => {
+                let mut previous = vec![];
+                for o in self.state.objects.values_mut() {
+                    if o.marked_damage > Quantity::zero() {
+                        previous.push((o.id, std::mem::take(&mut o.marked_damage)));
+                    }
+                }
+                EventOutcome::DamageCleared { previous }
+            }
+            ProposedEvent::StateBasedGraveyard { object, reason } => {
+                let o = self.current(*object)?;
+                let toughness = self
+                    .characteristics(*object)?
+                    .toughness
+                    .ok_or("missing SBA toughness")?;
+                if !self.target_legal(*object)
+                    || match reason {
+                        CreatureLossReason::ZeroToughness => toughness > Quantity::zero(),
+                        CreatureLossReason::LethalDamage => {
+                            toughness <= Quantity::zero() || o.marked_damage < toughness
+                        }
+                    }
+                {
+                    return Err("invalid creature SBA".into());
+                }
+                let destination = Zone::Graveyard {
+                    owner: self.state.cards[&object.card].owner,
+                };
+                let EventOutcome::Moved { movement } =
+                    self.apply_occurrence(&ProposedEvent::Move {
+                        object: *object,
+                        destination,
+                    })?
+                else {
+                    return Err("SBA movement".into());
+                };
+                EventOutcome::StateBasedMoved {
+                    movement,
+                    reason: *reason,
+                }
+            }
             ProposedEvent::Untap { object } => {
                 let o = self.current(*object)?;
                 if o.zone != Zone::Battlefield || !o.tapped {
@@ -486,6 +734,13 @@ impl Game {
                 let previous = std::mem::replace(&mut self.state.turn, next.clone());
                 let previous_owner = std::mem::replace(&mut self.state.turn_owner, *owner);
                 self.state.active = self.is_live(*owner).then_some(*owner);
+                if next.number != previous.number {
+                    for o in self.state.objects.values_mut() {
+                        if o.zone == Zone::Battlefield && Some(o.controller) == self.state.active {
+                            o.attack_ready = true;
+                        }
+                    }
+                }
                 EventOutcome::TurnTransitioned {
                     previous,
                     current: next.clone(),
@@ -607,6 +862,10 @@ impl Game {
                 {
                     return Err("invalid leave-game ownership/status".into());
                 }
+                self.remove_from_combat(*object);
+                for library in self.state.libraries.values_mut() {
+                    library.retain(|c| *c != object.card);
+                }
                 self.state.objects.remove(&object.card);
                 EventOutcome::LeftGame {
                     object: *object,
@@ -646,9 +905,22 @@ impl Game {
                 } else {
                     owner
                 };
+                self.remove_from_combat(*object);
+                for library in self.state.libraries.values_mut() {
+                    library.retain(|c| *c != object.card);
+                }
+                if let Zone::Library { owner } = destination {
+                    self.state
+                        .libraries
+                        .entry(*owner)
+                        .or_default()
+                        .push(object.card);
+                }
                 self.state.objects.insert(
                     object.card,
                     Object {
+                        marked_damage: Quantity::zero(),
+                        attack_ready: false,
                         id: successor,
                         controller,
                         default_controller: controller,
@@ -667,5 +939,70 @@ impl Game {
             }
         };
         Ok(actual)
+    }
+}
+
+impl Game {
+    // CR 120.3 / 510.2: all sources and recipients are validated against the
+    // common pre-state. One typed aggregate owns overlapping recipient writes.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    fn apply_damage(&mut self, damage: &[DamageOccurrence]) -> Result<EventOutcome, String> {
+        let mut totals: BTreeMap<(u8, u32), Quantity> = BTreeMap::new();
+        for d in damage {
+            if !self.target_legal(d.source)
+                || self.current(d.source)?.controller != d.controller
+                || !self.is_live(d.controller)
+                || d.amount <= Quantity::zero()
+            {
+                return Err("invalid damage source/amount".into());
+            }
+            let key = match d.recipient {
+                DamageRecipient::Player { player } => {
+                    if !self.is_live(player) {
+                        return Err("departed damage recipient".into());
+                    }
+                    (0, u32::from(player.0))
+                }
+                DamageRecipient::Creature { object } => {
+                    if !self.target_legal(object) {
+                        return Err("invalid creature damage recipient".into());
+                    }
+                    (1, object.card.0)
+                }
+            };
+            totals.entry(key).or_default().add(&d.amount);
+        }
+        let mut results = vec![];
+        for ((kind, id), amount) in totals {
+            let (recipient, previous, current) = if kind == 0 {
+                let player = PlayerId(id as u8);
+                let life = &mut self.state.players[player.0 as usize].life;
+                let previous = life.clone();
+                life.subtract(&amount);
+                (DamageRecipient::Player { player }, previous, life.clone())
+            } else {
+                let object = self
+                    .state
+                    .objects
+                    .get_mut(&CardId(id))
+                    .ok_or("missing damage object")?;
+                let previous = object.marked_damage.clone();
+                object.marked_damage.add(&amount);
+                (
+                    DamageRecipient::Creature { object: object.id },
+                    previous,
+                    object.marked_damage.clone(),
+                )
+            };
+            results.push(DamageResult {
+                recipient,
+                previous,
+                current,
+            });
+        }
+        Ok(EventOutcome::DamageDealt {
+            damage: damage.to_vec(),
+            results,
+        })
     }
 }

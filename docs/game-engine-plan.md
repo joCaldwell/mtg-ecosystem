@@ -33,10 +33,11 @@ progress from percentages on different corpora. P0 freezes its own inputs and
 records the current verified state without overwriting prior checkpoint evidence.
 
 The existing archive is nonexecutable. Reference binding is partial. The initial
-Rust compiler and kernel execute five exact four-seat scenario configurations
+Rust compiler and kernel execute seven exact four-seat scenario configurations
 using five reviewed definitions, including ordinary instant responses and
 casting-time intrinsic mana, explicit bounded turns, land plays, and targetless
-creature casting; broader compilation and the bulk pipeline are
+creature casting, ordinary combat/damage/SBAs, ordered draws, cleanup and
+rules-defined small scenario games; broader compilation and the bulk pipeline are
 unfinished.
 `build-ir` intentionally fails. `game-server` contains a README only.
 

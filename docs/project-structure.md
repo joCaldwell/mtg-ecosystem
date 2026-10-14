@@ -16,7 +16,7 @@ rules remain unchanged. The source layout is in
 | `packages/oracle-parser/` | Hand-written TypeScript Oracle-text parser; limited supported subset |
 | `packages/deck-builder/` | Active standalone TypeScript deck-building application, backend, and MCP tools |
 | `packages/card-data/` | Reserved output location for future compiled Card IR |
-| `packages/game-engine/` | Rust contracts, compiler, initial scenario kernel and CLI; full games/search pending |
+| `packages/game-engine/` | Rust contracts, compiler, bounded scenario games and CLI; legal Commander matches/search pending |
 | `packages/game-server/` | Rust game server/API with direct core calls; README only until scaffolded |
 | `scripts/` | Parser ingestion, acceptance reporting, and explicit IR-emitter stub |
 | `docs/` | Shared design documentation |
