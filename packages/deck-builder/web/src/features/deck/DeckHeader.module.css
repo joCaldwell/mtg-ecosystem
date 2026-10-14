@@ -39,16 +39,6 @@
   max-width: 100%;
 }
 
-/* The segmented control is generic, so the deck's mode colours the pressed
-   option from here: amber for draft, green for active. */
-.status[data-tone="warn"] button[aria-pressed="true"] {
-  color: var(--warn);
-}
-
-.status[data-tone="add"] button[aria-pressed="true"] {
-  color: var(--add);
-}
-
 .stats {
   display: flex;
   align-items: center;

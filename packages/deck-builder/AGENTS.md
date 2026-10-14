@@ -2,7 +2,7 @@
 
 > **Status: ACTIVE.** Built against
 > [docs/deck-builder-spec.md](../../docs/deck-builder-spec.md) (2026-10-10).
-> Section numbers in code comments (§5.2 draft/active, §7 memories, §8
+> Section numbers in code comments (§5.2 lifecycle, §7 memories, §8
 > rulings, §10 agent interface) refer to that document.
 
 A localhost app for building Commander decks, designed to be used by a person
@@ -22,10 +22,11 @@ design intent.
     tools call the same service functions, each passing an `Actor` (`OWNER`,
     or the calling agent). Every permission is enforced *below* both doors.
     Nothing in `src/mcp/` or `src/app.ts` decides what an agent may do.
-2.  **The owner rules on membership of active decks.** A deck is `draft` or
-    `active`. An agent edits a draft's cards directly and changes an active
-    deck's only through a proposal the owner accepts. The single enforcement
-    point is `applyChanges` in `src/deck/membership.ts`.
+2.  **Lifecycle controls editing.** Agents edit Theorycrafted cards directly;
+    Paper card changes and all brief/power-target edits require proposals.
+    Legacy is read-only for both actors; the owner alone changes lifecycle or
+    restores an archive. Membership is enforced by `applyChanges`; all deck
+    mutators use `requireEditableDeck` in `src/deck/service.ts`.
 3.  **No invented card anywhere in the app.** Card references resolve exactly
     (`src/cards.ts`) or the whole call fails with suggestions; prose an agent
     stores is linted for `[[Card Name]]` on write. What an agent says in its
@@ -33,7 +34,7 @@ design intent.
 4.  **If the app can compute it, nobody else derives it.** Counts, deltas and
     checks are returned with every read and every write.
 5.  **Everything an agent writes is attributed and visible.** Unapproved
-    writes (memories, filing, draft edits) land in the activity feed.
+    writes (memories, filing, Theorycrafted card edits) land in the activity feed.
 
 ---
 
@@ -54,7 +55,7 @@ src/
   prices.ts          the cheapest playable printing of each card (spec §4.4)
   refresh.ts         refreshCardData(): cards, then prices — the CLI and Settings both call it
   deck/
-    service.ts       decks (draft/active, parent), slots, tags, maybe list, computed state
+    service.ts       decks (lifecycle, parent), slots, tags, maybe list, computed state
     membership.ts    ⭐ applyChanges — the one place a deck's contents change; undo
     log.ts           the rulings log, per-card history, the review queue
     proposals.ts     proposals; accept/reject per item, group or whole proposal
@@ -75,7 +76,7 @@ src/
   mcp/
     playbook.ts      INSTRUCTIONS (short) and PLAYBOOK (returned by start_session)
     render.ts        text for agents — compact, grouped, counts stated
-    tools.ts         the 26 tools: thin adapters over the capability layer
+    tools.ts         the 25 tools: thin adapters over the capability layer
     http.ts          Streamable HTTP endpoint: Host/Origin checks, token, attribution
     stdio.ts         stdio shim: a pipe to the running app
 skill/commander-deck-building/SKILL.md   method for agents (optional Agent Skill)
@@ -160,11 +161,11 @@ Vite proxy follows the API port.
 
 *   **Permissions live in the capability layer.** If a new capability must be
     owner-only, call `requireOwner` inside it. Never guard it only in a tool
-    or a route. Owner-only today: ruling, undo, draft/active,
+    or a route. Owner-only today: ruling, undo, lifecycle,
     importing over a deck, editing the profile directly.
-    Owners and agents may rename, delete and classify decks (`paper` /
-    `theorycrafted` / `legacy`, spec §5.6). Agent actions are attributed in
-    Activity. Category is independent of draft/active and card membership.
+    Owners and agents may rename and delete editable decks. Only the owner
+    classifies decks (`paper` / `theorycrafted` / `legacy`, spec §5.6), since
+    lifecycle governs permissions. Agent actions are attributed in Activity.
 *   **A deck's contents change only through `applyChanges`.** It applies a
     batch atomically, bumps the revision once, and writes one log entry. Do
     not add a second write path to `deck_cards` for membership.
@@ -197,6 +198,11 @@ Vite proxy follows the API port.
     The Archidekt research is cited in `src/deck/interop.ts`; the MCP
     behaviour in `src/mcp/http.ts`.
 *   **Slots are optional.** Nothing — proposals included — may require one.
+*   **Slots describe purpose; tags track sourcing and status.** `slot_id` is
+    the optional primary purpose; `secondary_slot_ids` contains additional
+    purposes. Targets count only primary copies. Secondary counts and total
+    coverage are separate computed fields. A card cannot carry the same slot
+    in both roles. Preserve both on parking, promotion, forks and undo.
 *   **Slot and card type are independent axes.** `validateVocabName` rejects
     card types as slot or tag names in singular and plural.
 *   **Tool text is an interface.** `tools.test.ts` pins the wording agents see.

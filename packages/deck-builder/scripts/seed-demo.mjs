@@ -28,7 +28,7 @@ import {
   createTag,
   deleteDeck,
   organizeCard,
-  setDeckStatus,
+  setDeckCategory,
   shortlistCard,
 } from "../src/deck/service.ts";
 import { proposeDocumentEdit } from "../src/documents.ts";
@@ -51,8 +51,8 @@ for (const name of [FORK_NAME, DECK_NAME]) {
   console.log(`Replaced the previous "${name}".`);
 }
 
-// Built as a draft, made active at the end: that is the life of a real deck.
-const deckId = createDeck(db, DECK_NAME, { status: "draft" });
+// Built as Theorycrafted, classified as Paper at the end: that is the life of a real deck.
+const deckId = createDeck(db, DECK_NAME, {});
 
 // Global memories outlive the demo decks, so a second run finds them already
 // written. The server refuses an exact duplicate; that refusal is the
@@ -92,7 +92,7 @@ const tags = {
 };
 
 // One logged act for the whole first build, as an import or an agent's
-// edit_draft would be.
+// edit_cards would be.
 const build = [];
 function add(name, slot, opts = {}) {
   const oid = oracle(name);
@@ -144,7 +144,7 @@ for (const [name, tagIds] of [
   if (oid) organizeCard(db, deckId, oid, { tagIds });
 }
 
-updateBrief(db, deckId, {
+updateBrief(db, OWNER, deckId, {
   thesis:
     "Atraxa proliferates planeswalker loyalty every end step until an ultimate ends the game. " +
     "The deck is a control shell first: survive, stick a walker, then let the proliferate engine " +
@@ -161,10 +161,10 @@ const enginePieces = ["Flux Channeler", "Evolution Sage", "Inexorable Tide", "Co
   .filter(Boolean)
   .map((oracle_id) => ({ oracle_id }));
 if (enginePieces.length)
-  setEngine(db, deckId, "proliferate loop", "Cheap proliferate triggers that stack with Atraxa's end step.", enginePieces);
+  setEngine(db, OWNER, deckId, "proliferate loop", "Cheap proliferate triggers that stack with Atraxa's end step.", enginePieces);
 
 
-setDeckStatus(db, OWNER, deckId, "active");
+setDeckCategory(db, OWNER, deckId, "paper");
 
 // --- history: the rulings log is the version history, so give it one ---
 
@@ -271,7 +271,7 @@ recordActivity(db, AGENT, "fork_deck", forkId, `Forked "${DECK_NAME}"`);
 const state = db
   .prepare("SELECT COALESCE(SUM(quantity), 0) n FROM deck_cards WHERE deck_id = ? AND role != 'companion' AND maybe = 0")
   .get(deckId);
-console.log(`Seeded "${DECK_NAME}" (deck #${deckId}) — ${state.n}/100 cards — and its draft fork (deck #${forkId}).`);
+console.log(`Seeded "${DECK_NAME}" (deck #${deckId}) — ${state.n}/100 cards — and its Theorycrafted fork (deck #${forkId}).`);
 if (missing.size) {
   console.log(`\n${missing.size} name(s) not in this card snapshot, skipped:`);
   console.log("  " + [...missing].join(", "));

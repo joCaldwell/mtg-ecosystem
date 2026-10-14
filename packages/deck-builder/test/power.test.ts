@@ -5,7 +5,7 @@ import { listActivity } from "../src/activity.ts";
 import { checkDeck } from "../src/deck/checks.ts";
 import { forkDeck } from "../src/deck/fork.ts";
 import { PowerProfileSchema, gameChangerFacts, getPower, mapBracket, recordPowerAssessment, setPowerTarget, writePowerTarget } from "../src/deck/power.ts";
-import { deleteDeck, getDeck, setDeckStatus, shortlistCard } from "../src/deck/service.ts";
+import { deleteDeck, getDeck, setDeckCategory, shortlistCard } from "../src/deck/service.ts";
 import { listDocumentEdits, proposeDocumentEdit, ruleDocumentEdit } from "../src/documents.ts";
 import { ingestCards } from "../src/ingest.ts";
 import { callTool } from "../src/mcp/tools.ts";
@@ -56,14 +56,16 @@ describe("power profile → community brackets", () => {
 });
 
 describe("power capabilities and document permissions", () => {
-  test("draft targets apply; active targets are reviewed as honest diffs", () => {
-    const db = testDb(); const id = newDeck(db, "draft");
+  test("all agent targets require approval and retain honest diffs", () => {
+    const db = testDb(); const id = newDeck(db, "theorycrafted");
     assert.throws(() => setPowerTarget(db, AGENT, id, target()), PermissionError);
     const r = proposeDocumentEdit(db, AGENT, id, "power_target", { target: target() }, "Owner requested low pressure games.");
-    assert.equal(r.applied, true);
+    assert.equal(r.applied, false);
+    assert.equal(getPower(db, id).target, null);
+    ruleDocumentEdit(db, OWNER, r.edit_id!, "accept");
     assert.equal(getPower(db, id).target!.mapping.bracket, 2);
     assert.equal(getDeck(db, id).deck.revision, 0);
-    setDeckStatus(db, OWNER, id, "active");
+    setDeckCategory(db, OWNER, id, "paper");
     assert.throws(() => writePowerTarget(db, AGENT, id, target()), PermissionError);
     const next = target({ intent: "synergy" });
     const pending = proposeDocumentEdit(db, AGENT, id, "power_target", { target: next }, "Owner asked for more synergy.");
@@ -124,7 +126,7 @@ describe("power capabilities and document permissions", () => {
     db.close();
   });
   test("strict validation and prose linting fail atomically below both front doors", () => {
-    const db = testDb(); const id = newDeck(db, "draft");
+    const db = testDb(); const id = newDeck(db, "theorycrafted");
     for (const value of [undefined, {}, { ...target(), game_changers_max: -1 }, { ...target(), profile: { ...profile(), win_turn: { min: 10, max: 8 } } }, { ...target(), profile: { ...profile(), early_win_turn: 12 } }, { ...target(), profile: { ...profile(), consistency: "excellent" } }])
       assert.throws(() => setPowerTarget(db, OWNER, id, value), /Invalid power target/);
     assert.throws(() => setPowerTarget(db, OWNER, id, { ...target(), notes: "[[Imaginary Power Card]]" }), /did not resolve/);
@@ -175,10 +177,11 @@ describe("computed Game Changers and power tools", () => {
     db.close();
   });
   test("tools return profiles, computed deltas and actionable errors without obsolete assembly state", () => {
-    const db = testDb(); const id = newDeck(db, "draft"); const ctx = { db, actor: AGENT };
+    const db = testDb(); const id = newDeck(db, "theorycrafted"); const ctx = { db, actor: AGENT };
     const proposed = callTool(ctx, "propose_power_target", { deck: id, target: target(), reason: "Owner's intended play experience." });
     assert.equal(proposed.changed, true);
-    assert.match(proposed.text, /Set the draft power target/);
+    assert.match(proposed.text, /Proposed power target edit #1; awaiting the owner/);
+    ruleDocumentEdit(db, OWNER, 1, "accept");
     const assessed = callTool(ctx, "assess_deck_power", { deck: id, assessment: assessment(db, id) });
     assert.match(assessed.text, /Recorded power assessment #1/);
     assert.match(assessed.text, /test-agent, r0, tentative, evidence: list/);

@@ -195,7 +195,7 @@ describe("ruling (spec §8.2)", () => {
 describe("rulings and the review queue (spec §8.4)", () => {
   test("every ruling waits for an agent to read it, with its reason", () => {
     const fresh = testDb();
-    const id = newDeck(fresh, "draft");
+    const id = newDeck(fresh, "theorycrafted");
     const pid = createProposal(fresh, AGENT, id, {
       items: [{ action: "add", oracle_id: "id-solring", reason: "Ramp." }],
     });

@@ -1,7 +1,6 @@
 // The Brief tab (spec §6): the owner's document about what the deck is for.
 // Agents read it every session and can only propose edits to it, which show
-// up in place under the section they concern. The one exception is a draft
-// deck, where an agent edits directly (spec §5.2).
+// up in place under the section they concern. Legacy briefs are read-only.
 
 import { useState } from "react";
 import { api, type DocumentEdit, type Engine } from "../../../api/client.ts";
@@ -22,7 +21,7 @@ export function BriefPanel() {
   const { deckId, run, apply } = useDeck();
   const inbox = useInbox();
   const { brief, document_edits: edits } = state;
-  const draft = state.deck.status === "draft";
+  const readOnly = state.deck.category === "legacy";
 
   const [form, setForm] = useState<EngineForm>(null);
   const [removing, setRemoving] = useState<Engine | null>(null);
@@ -48,6 +47,7 @@ export function BriefPanel() {
   return (
     <>
       <BriefField
+        readOnly={readOnly}
         title="Thesis"
         value={brief.thesis}
         purpose="What is this deck trying to do, and why would it win?"
@@ -57,6 +57,7 @@ export function BriefPanel() {
       </BriefField>
 
       <BriefField
+        readOnly={readOnly}
         title="Constraints"
         value={brief.constraints_md}
         purpose="Budget, pod expectations, cards you will not play."
@@ -68,7 +69,7 @@ export function BriefPanel() {
       <section className={styles.engines}>
         <div className={styles.head}>
           <Eyebrow>Engines</Eyebrow>
-          {!form && (
+          {!form && !readOnly && (
             <Button size="sm" variant="ghost" onClick={() => setForm({})}>
               Add an engine
             </Button>
@@ -97,9 +98,7 @@ export function BriefPanel() {
       </section>
 
       <Text tone="faint" size="xs" as="p">
-        {draft
-          ? "The brief is yours. This deck is a draft, so agents may edit its brief directly instead of proposing."
-          : "The brief is yours. Agents read it every session and can only propose edits to it."}
+        {readOnly ? "This archived brief is read-only." : "The brief is yours. Agents read it every session and can only propose edits to it."}
       </Text>
 
       {removing && (

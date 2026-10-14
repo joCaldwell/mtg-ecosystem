@@ -129,7 +129,7 @@ export function createAgentEndpoint(db: DatabaseSync, opts: AgentEndpointOptions
           },
         };
         if (Object.keys(tool.input).length)
-          server.registerTool(tool.name, { ...config, inputSchema: z.object(tool.input) }, run);
+          server.registerTool(tool.name, { ...config, inputSchema: ["create_deck", "edit_cards"].includes(tool.name) ? z.strictObject(tool.input) : z.object(tool.input) }, run);
         else server.registerTool(tool.name, config, () => run({}));
       }
       return server;

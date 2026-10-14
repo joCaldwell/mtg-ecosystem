@@ -9,6 +9,8 @@ import type { GroupCost } from "../../../domain/price.ts";
 import { CardRow } from "./CardRow.tsx";
 import { GroupHeader } from "./GroupHeader.tsx";
 import styles from "./GroupBlock.module.css";
+import { useDeckState } from "../DeckStore.tsx";
+import { useDeckUi } from "../DeckUi.tsx";
 
 // A group this long would leave the other columns empty if it stayed whole,
 // as in a deck with no slots where every card is unfiled.
@@ -17,12 +19,16 @@ const LONG_GROUP = 30;
 export interface GroupBlockProps {
   title: string;
   count?: number;
+  primaryCount?: number;
+  secondaryCount?: number;
   target?: string | null;
   status?: GroupStatus;
   delta?: number;
   projected?: number;
   cost?: GroupCost;
   cards: DeckCard[];
+  secondaryCards?: DeckCard[];
+  commandZoneCards?: DeckCard[];
   matchingCards?: ReadonlySet<string>;
   matchingAdds?: ReadonlySet<number>;
   /** Pending adds, drawn only while reviewing. */
@@ -37,7 +43,10 @@ export interface GroupBlockProps {
   empty?: ReactNode;
 }
 
-export function GroupBlock({ cards, matchingCards, matchingAdds, adds = [], cuts, current, marks, bold, empty, ...head }: GroupBlockProps) {
+export function GroupBlock({ cards, secondaryCards = [], commandZoneCards = [], matchingCards, matchingAdds, adds = [], cuts, current, marks, bold, empty, ...head }: GroupBlockProps) {
+  const { slots } = useDeckState();
+  const showPrimary = useDeckUi().groupBy === "slot";
+  const slotName = (id: number) => slots.find(s => s.id === id)?.name ?? "";
   return (
     <section className={`${styles.group} ${cards.length + adds.length > LONG_GROUP ? styles.long : ""}`}>
       <GroupHeader {...head} />
@@ -45,6 +54,7 @@ export function GroupBlock({ cards, matchingCards, matchingAdds, adds = [], cuts
         <CardRow
           key={c.oracle_id}
           card={c}
+          purpose={showPrimary && c.role !== "card" && c.slot_id != null ? `Primary: ${slotName(c.slot_id)}` : undefined}
           filterMatch={matchingCards?.has(c.oracle_id)}
           quantity={c.quantity}
           change={cuts?.has(c.oracle_id) ? "cut" : undefined}
@@ -63,7 +73,28 @@ export function GroupBlock({ cards, matchingCards, matchingAdds, adds = [], cuts
           current={current.has(item.oracle_id)}
         />
       ))}
-      {cards.length === 0 && adds.length === 0 && empty}
+      {commandZoneCards.length > 0 && (
+        <details className={styles.secondary}>
+          <summary>Primary contributors in the command zone</summary>
+          {commandZoneCards.map(c => (
+            <CardRow key={`command-${c.oracle_id}`} card={c} quantity={c.quantity} purpose="Primary purpose · command zone"
+              filterMatch={matchingCards?.has(c.oracle_id)} change={cuts?.has(c.oracle_id) ? "cut" : undefined}
+              mark={marks.get(c.oracle_id)} current={current.has(c.oracle_id)} />
+          ))}
+        </details>
+      )}
+      {secondaryCards.length > 0 && (
+        <details className={styles.secondary}>
+          <summary>{head.primaryCount} primary · {head.secondaryCount} secondary {head.secondaryCount === 1 ? "contributor" : "contributors"}</summary>
+          {secondaryCards.map(c => (
+            <CardRow key={`secondary-${c.oracle_id}`} card={c} quantity={c.quantity}
+              purpose={c.slot_id == null ? "Secondary purpose · no primary slot" : `Secondary purpose · primary: ${slotName(c.slot_id)}`}
+              filterMatch={matchingCards?.has(c.oracle_id)} change={cuts?.has(c.oracle_id) ? "cut" : undefined}
+              mark={marks.get(c.oracle_id)} current={current.has(c.oracle_id)} />
+          ))}
+        </details>
+      )}
+      {cards.length === 0 && secondaryCards.length === 0 && commandZoneCards.length === 0 && adds.length === 0 && empty}
     </section>
   );
 }

@@ -74,7 +74,7 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
     [state.cards, state.proposals, lookup, openCardPanel],
   );
 
-  const pending = view.units.length > 0;
+  const pending = state.deck.category !== "legacy" && view.units.length > 0;
 
   // Arriving from the inbox: go straight into the review it linked to.
   const { startReview } = ui;
@@ -115,12 +115,12 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
               {error}
             </Banner>
           )}
-          <ProposalBanner units={view.units} review={review} />
+          {state.deck.category === "legacy" ? <Banner tone="neutral">Legacy deck · read-only. Restore its lifecycle or fork it to make changes.</Banner> : <ProposalBanner units={view.units} review={review} />}
           <DeckBody
             list={
               <>
                 <DeckList view={view} />
-                <SelectionBar />
+                {state.deck.category !== "legacy" && <SelectionBar />}
               </>
             }
             panel={<DeckPanel view={view} review={review} />}

@@ -28,6 +28,11 @@ export interface DeckGroup {
   delta: number;
   /** Role "card", not on the maybe list, in the chosen order. */
   cards: DeckCard[];
+  /** Additional contributors, kept separate from the primary list. */
+  secondaryCards?: DeckCard[];
+  commandZoneCards?: DeckCard[];
+  primaryCount?: number;
+  secondaryCount?: number;
   /** What the group's cards cost; unchanged when a search hides some of them. */
   cost: GroupCost;
 }
@@ -88,6 +93,10 @@ export function layoutDeck(state: DeckState, groupBy: GroupBy, sortBy: SortBy = 
         status: d?.status ?? "untargeted",
         delta: d?.delta ?? 0,
         cards: inSlot,
+        secondaryCards: inDeck.filter(c => c.role !== "companion" && c.secondary_slot_ids.includes(slot.id)).sort(CARD_ORDER[sortBy]),
+        commandZoneCards: inDeck.filter(c => c.role === "commander" && c.slot_id === slot.id),
+        primaryCount: d?.primary_count ?? 0,
+        secondaryCount: d?.secondary_count ?? 0,
         cost: costOf(inSlot),
       });
     }

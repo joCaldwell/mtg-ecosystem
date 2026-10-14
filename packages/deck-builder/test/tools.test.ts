@@ -12,7 +12,6 @@ import {
   getDeck,
   listDecks,
   setDeckCategory,
-  setDeckStatus,
 } from "../src/deck/service.ts";
 import { getProfile, listDocumentEdits, setProfile } from "../src/documents.ts";
 import { setFocus } from "../src/focus.ts";
@@ -25,7 +24,7 @@ const call = (db: DatabaseSync, name: string, args: unknown = {}) =>
   callTool({ db, actor: AGENT }, name, args);
 const text = (db: DatabaseSync, name: string, args: unknown = {}) => call(db, name, args).text;
 
-function seeded(db: DatabaseSync, status: "draft" | "active" = "active") {
+function seeded(db: DatabaseSync, status: "theorycrafted" | "paper" = "paper") {
   const id = newDeck(db, status, `Teferi ${status} ${Math.random().toString(36).slice(2, 7)}`);
   add(db, id, "id-teferi", { role: "commander" });
   add(db, id, "id-counterspell");
@@ -33,9 +32,9 @@ function seeded(db: DatabaseSync, status: "draft" | "active" = "active") {
 }
 
 describe("the tool list (spec §10.3)", () => {
-  test("twenty-seven tools, uniquely named, every one described", () => {
-    assert.equal(TOOLS.length, 26);
-    assert.equal(new Set(TOOLS.map((t) => t.name)).size, 26);
+  test("twenty-five tools, uniquely named, every one described", () => {
+    assert.equal(TOOLS.length, 25);
+    assert.equal(new Set(TOOLS.map((t) => t.name)).size, 25);
     for (const t of TOOLS) assert.ok(t.description.length > 80, t.name);
     assert.equal(TOOLS[0].name, "start_session");
   });
@@ -55,39 +54,21 @@ describe("the tool list (spec §10.3)", () => {
 });
 
 describe("deck management tools", () => {
-  test("renames and classifies draft and active decks with attributed, validated writes", () => {
+  test("renames editable decks, while lifecycle changes are owner-only", () => {
     const db = testDb();
-    for (const status of ["draft", "active"] as const) {
-      const id = seeded(db, status);
+    for (const category of ["theorycrafted", "paper"] as const) {
+      const id = seeded(db, category);
       const before = getDeck(db, id);
-      const name = `Managed ${status}`;
-      const renamed = call(db, "rename_deck", { deck: before.deck.name, name });
-      assert.equal(renamed.changed, true);
-      assert.match(renamed.text, new RegExp(`Renamed deck ${id} to "${name}"`));
-      setFocus(db, id);
-      const categorized = call(db, "set_deck_category", { deck: "focus", category: "legacy" });
-      assert.match(categorized.text, /category to legacy/);
-      const after = getDeck(db, id);
-      assert.equal(after.deck.name, name);
-      assert.equal(after.deck.category, "legacy");
-      assert.equal(after.deck.status, status);
-      assert.equal(after.deck.revision, before.deck.revision);
-      assert.deepEqual(after.cards, before.cards);
-      assert.match(text(db, "start_session"), /category legacy/);
-      assert.match(text(db, "get_deck", { deck: id, sections: ["state"] }), /category legacy/);
-      assert.deepEqual(listActivity(db).slice(0, 2).map((a) => [a.actor, a.action]), [
-        ["test-agent", "set_deck_category"], ["test-agent", "rename_deck"],
-      ]);
-      const entries = listActivity(db).length;
-      assert.throws(() => call(db, "rename_deck", { deck: id, name: " " }), /cannot be empty/);
-      assert.throws(() => call(db, "set_deck_category", { deck: id, category: "unknown" }), /Invalid arguments/);
-      assert.equal(listActivity(db).length, entries);
+      const name = `Managed ${category}`;
+      assert.match(text(db, "rename_deck", { deck: id, name }), /Renamed deck/);
+      assert.equal(getDeck(db, id).deck.category, category);
+      assert.equal(getDeck(db, id).deck.revision, before.deck.revision);
+      assert.deepEqual(getDeck(db, id).cards, before.cards);
+      assert.equal(listActivity(db)[0].actor, "test-agent");
+      assert.throws(() => call(db, "set_deck_category", { deck: id, category: "theorycrafted" }), /Unknown tool/);
     }
-    const decks = listDecks(db);
-    assert.throws(() => call(db, "rename_deck", { deck: decks[0].id, name: decks[1].name }), /already exists/);
   });
-
-  test("deletes an active deck and its records while preserving forks, global memories and attribution", () => {
+  test("deletes a Paper deck and its records while preserving forks, global memories and attribution", () => {
     const db = testDb();
     const id = seeded(db);
     const name = getDeck(db, id).deck.name;
@@ -110,13 +91,13 @@ describe("deck management tools", () => {
     assert.throws(() => call(db, "delete_deck", { deck: id }), /There is no deck/);
   });
 
-  test("creates a deck with a selected category atomically", () => {
+  test("agents create only Theorycrafted decks, with category writes rejected", () => {
     const db = testDb();
-    const created = call(db, "create_deck", { name: "Paper idea", category: "paper" });
-    assert.match(created.text, /category paper/);
-    assert.equal(listDecks(db)[0].category, "paper");
-    assert.throws(() => call(db, "create_deck", { name: "Invalid idea", category: "unknown" }), /Invalid arguments/);
-    assert.equal(listDecks(db).length, 1);
+    assert.throws(() => call(db, "create_deck", { name: "Paper idea", category: "paper" }), /Invalid arguments/);
+    assert.equal(listDecks(db).length, 0);
+    const created = call(db, "create_deck", { name: "New idea" });
+    assert.match(created.text, /lifecycle theorycrafted/);
+    assert.equal(listDecks(db)[0].category, "theorycrafted");
   });
 });
 
@@ -132,7 +113,7 @@ describe("start_session", () => {
     assert.ok(out.startsWith(PLAYBOOK));
     assert.match(out, /# The owner's profile\nLikes long games\./);
     assert.match(out, /memory #1 \(global, inferred — a hypothesis\): Avoids fast mana\./);
-    assert.match(out, new RegExp(`- deck ${id} "Teferi active \\w+" — active · Teferi, Temporal Archmage · U · 3/100`));
+    assert.match(out, new RegExp(`- deck ${id} "Teferi paper \\w+" — Teferi, Temporal Archmage · U · 3/100`));
     assert.match(out, new RegExp(`The owner has deck ${id} .* open, with these cards selected: Counterspell`));
     assert.match(out, /# Rulings you have not read\n3\./);
   });
@@ -155,7 +136,7 @@ describe("start_session", () => {
 
 describe("naming a deck", () => {
   const db = testDb();
-  const id = newDeck(db, "active", "Jo's Golems");
+  const id = newDeck(db, "paper", "Jo's Golems");
   test("by id, numeric string, exact name, or focus", () => {
     for (const ref of [id, String(id), "jo's golems"])
       assert.match(text(db, "get_deck", { deck: ref, sections: ["state"] }), /# Deck \d+ "Jo's Golems"/);
@@ -176,11 +157,11 @@ describe("reading a deck", () => {
   add(db, id, "id-solring", { slotId: ramp });
   test("the counts are stated, grouped by slot, with oracle text", () => {
     const out = text(db, "get_deck", { deck: id });
-    assert.match(out, /active · category theorycrafted · revision 3 · identity U · 3\/100 cards/);
-    assert.match(out, /Active: change its cards only with propose_changes\./);
-    assert.match(out, /### Ramp \(1; target 3–5\)\n- Sol Ring \{1\} — Artifact\n    \{T\}: Add \{C\}\{C\}\./);
+    assert.match(out, /lifecycle paper · revision 3 · identity U · 3\/100 cards/);
+    assert.match(out, /Paper: change its cards only with propose_changes\./);
+    assert.match(out, /### Ramp \(1 primary; target 3–5; 0 secondary\)\n- Sol Ring \{1\} — Artifact\n    \{T\}: Add \{C\}\{C\}\./);
     assert.match(out, /- Cards: 3\/100 \(97 short\)/);
-    assert.match(out, /- Ramp: 1 \(target 3–5\) — UNDER by 2/);
+    assert.match(out, /- Ramp: 1 primary \(target 3–5\) — UNDER by 2; 0 secondary; 1 total coverage/);
     assert.match(out, /PROBLEM: Deck is 3\/100/);
     assert.match(out, /note: Ramp is under target/);
   });
@@ -198,7 +179,7 @@ describe("reading a deck", () => {
 describe("searching and looking up cards (spec §4.2, §7.2, §8.3)", () => {
   const db = testDb();
   const id = seeded(db);
-  const other = newDeck(db, "active", "Other deck");
+  const other = newDeck(db, "paper", "Other deck");
   add(db, other, "id-solring");
   // The owner has rejected Sol Ring here before, and a memory is linked to it.
   const pid = Number(call(db, "propose_changes", {
@@ -220,7 +201,7 @@ describe("searching and looking up cards (spec §4.2, §7.2, §8.3)", () => {
       text(db, "search_cards", { query: "Sol Ring", deck: id, include_my_decks: true }),
       /- in your decks: Other deck/,
     );
-    assert.match(text(db, "get_cards", { cards: ["Counterspell", "Sol Ring"], include_my_decks: true }), /in your decks: Teferi active \w+\n.*in your decks: Other deck$/s);
+    assert.match(text(db, "get_cards", { cards: ["Counterspell", "Sol Ring"], include_my_decks: true }), /in your decks: Teferi paper \w+\n.*in your decks: Other deck$/s);
   });
   test("identity can be lifted, and an empty result says what to try", () => {
     assert.match(text(db, "search_cards", { query: "Llanowar", deck: id }), /No cards match.*ignore_identity: true/);
@@ -239,7 +220,7 @@ describe("searching and looking up cards (spec §4.2, §7.2, §8.3)", () => {
   });
 });
 
-describe("drafts are edited directly (spec §5.2)", () => {
+describe("Theorycrafted cards are edited directly (spec §5.2)", () => {
   test("create, fill, set commanders and write the brief in one call", () => {
     const db = testDb();
     const r = call(db, "create_deck", {
@@ -249,9 +230,9 @@ describe("drafts are edited directly (spec §5.2)", () => {
       thesis: "Go wide with [[Llanowar Elves]].",
     });
     assert.equal(r.changed, true);
-    assert.match(r.text, /Created draft deck 1 "Elves" \(category theorycrafted\)\.\nDeck 1 "Elves" is now at revision 2: 5\/100 cards \(95 short\), 2 lands\./);
+    assert.match(r.text, /Created Theorycrafted deck 1 "Elves" \(lifecycle theorycrafted\)\.\nInitial thesis proposed as edit #1; awaiting the owner\.\nDeck 1 "Elves" is now at revision 2: 5\/100 cards \(95 short\), 2 lands\./);
     const view = getDeck(db, 1);
-    assert.deepEqual([view.deck.status, view.deck.color_identity], ["draft", "WUBG"]);
+    assert.deepEqual([view.deck.category, view.deck.color_identity], ["theorycrafted", "WUBG"]);
     assert.deepEqual(listActivity(db).map((a) => a.action), ["create_deck"]);
   });
   test("one bad name and nothing is created", () => {
@@ -263,19 +244,18 @@ describe("drafts are edited directly (spec §5.2)", () => {
     assert.throws(() => call(db, "create_deck", { name: "Bad", commanders: ["Atraxa"] }), CardResolutionError);
     assert.equal(listDecks(db).length, 0);
   });
-  test("edit_draft adds, removes, re-seats the commander and reports the new state", () => {
+  test("edit_cards adds, removes, re-seats the commander and reports the new state", () => {
     const db = testDb();
-    const id = seeded(db, "draft");
+    const id = seeded(db, "theorycrafted");
     createSlot(db, id, "Ramp");
-    const out = text(db, "edit_draft", {
+    const out = text(db, "edit_cards", {
       deck: id,
       add: [{ card: "Sol Ring", slot: "ramp" }, { card: "Forest", quantity: 3 }],
       remove: [{ card: "Counterspell" }],
       commanders: ["Atraxa, Praetors' Voice"],
-      thesis: "Superfriends.",
       note: "Rebuild around Atraxa",
     });
-    assert.match(out, /Done \(added 2, removed 1, set commanders, wrote the brief\)/);
+    assert.match(out, /Done \(added 2, removed 1, set commanders\)/);
     assert.match(out, /is now at revision 3: 6\/100 cards/);
     const view = getDeck(db, id);
     assert.deepEqual(
@@ -287,31 +267,31 @@ describe("drafts are edited directly (spec §5.2)", () => {
     assert.equal(listLog(db, { deckId: id })[0].summary, "Rebuild around Atraxa");
     assert.equal(listLog(db, { deckId: id })[0].author, "test-agent");
   });
-  test("on an active deck it is refused, with the way forward", () => {
+  test("on a Paper deck it is refused, with the way forward", () => {
     const db = testDb();
-    const id = seeded(db, "active");
+    const id = seeded(db, "paper");
     assert.throws(
-      () => call(db, "edit_draft", { deck: id, add: [{ card: "Sol Ring" }] }),
+      () => call(db, "edit_cards", { deck: id, add: [{ card: "Sol Ring" }] }),
       (e: Error) => e instanceof PermissionError && /Use propose_changes/.test(e.message),
     );
-    assert.throws(() => call(db, "edit_draft", { deck: id, thesis: "x" }), PermissionError);
+    assert.throws(() => call(db, "edit_cards", { deck: id, thesis: "x" }), /Invalid arguments/);
     assert.equal(getDeck(db, id).computed.card_count, 2);
   });
-  test("a fork of an active deck is a draft the agent can rework", () => {
+  test("a fork of a Paper deck is Theorycrafted so the agent can rework", () => {
     const db = testDb();
-    const id = seeded(db, "active");
+    const id = seeded(db, "paper");
     const out = text(db, "fork_deck", { deck: id, name: "Teferi rework" });
-    const forkId = Number(out.match(/draft deck (\d+)/)![1]);
-    text(db, "edit_draft", { deck: forkId, remove: [{ card: "Counterspell" }], add: [{ card: "Sol Ring" }] });
-    assert.match(out, /rewrite its thesis first/);
+    const forkId = Number(out.match(/Theorycrafted deck (\d+)/)![1]);
+    text(db, "edit_cards", { deck: forkId, remove: [{ card: "Counterspell" }], add: [{ card: "Sol Ring" }] });
+    assert.match(out, /propose a new thesis first/);
     const diff = text(db, "compare_decks", { deck: forkId });
     assert.match(diff, /— its parent/);
     assert.match(diff, /## Only in "Teferi rework" \(1\)\n- Sol Ring/);
-    assert.match(diff, /## Only in "Teferi active \w+" \(1\)\n- Counterspell/);
+    assert.match(diff, /## Only in "Teferi paper \w+" \(1\)\n- Counterspell/);
   });
 });
 
-describe("proposing on an active deck (spec §8)", () => {
+describe("proposing on a Paper deck (spec §8)", () => {
   test("a proposal waits for the owner and reports what the deck would become", () => {
     const db = testDb();
     const id = seeded(db);
@@ -360,49 +340,50 @@ describe("proposing on an active deck (spec §8)", () => {
     );
     assert.equal(getDeck(db, id).computed.pending.adds, 0);
   });
-  test("the brief is gated on an active deck and direct on a draft", () => {
+  test("the brief is gated on both Paper and Theorycrafted decks", () => {
     const db = testDb();
-    const active = seeded(db, "active");
-    const draft = seeded(db, "draft");
+    const active = seeded(db, "paper");
+    const draft = seeded(db, "theorycrafted");
     assert.match(
       text(db, "propose_brief_edit", { deck: active, kind: "thesis", text: "Control.", reason: "Owner asked." }),
       /Proposed edit #1 is waiting/,
     );
     assert.throws(
       () => call(db, "propose_brief_edit", { deck: active, kind: "thesis", text: "Control." }),
-      /needs a reason/,
+      /Invalid arguments.*reason/,
     );
     assert.match(
       text(db, "propose_brief_edit", {
         deck: draft,
+        reason: "Owner wants a control engine.",
         kind: "engine_set",
         engine_name: "Counter wall",
         description: "Say no.",
         pieces: [{ card: "Counterspell" }, { card: "Sol Ring", note: "pays for it" }],
       }),
-      /Applied: this deck is a draft.*- Counter wall: Say no\.\n  pieces: Counterspell; Sol Ring \(NOT in the deck\) — pays for it/s,
+      /Proposed edit #2 is waiting/,
     );
     assert.match(
       text(db, "propose_profile_edit", { text: "Plays control.", reason: "Three blue decks, all reactive." }),
-      /Proposed edit #2 is waiting/,
+      /Proposed edit #3 is waiting/,
     );
     assert.equal(getProfile(db).body_md, "");
-    assert.equal(listDocumentEdits(db, { status: "pending" }).length, 2);
+    assert.equal(listDocumentEdits(db, { status: "pending" }).length, 3);
   });
 });
 
 describe("organization needs no ruling (spec §5.4)", () => {
-  test("slots, filing, tags and the maybe list on an active deck", () => {
+  test("slots, filing, tags and the maybe list on a Paper deck", () => {
     const db = testDb();
-    const id = seeded(db, "active");
+    const id = seeded(db, "paper");
     const revision = getDeck(db, id).deck.revision;
     assert.match(
       text(db, "define_slots", { deck: id, slots: [{ name: "Interaction", target_min: 8, target_max: 12 }] }),
-      /- Interaction: 0 \(target 8–12\) — UNDER by 8/,
+      /- Interaction: 0 primary \(target 8–12\) — UNDER by 8/,
     );
     assert.match(
       text(db, "file_cards", { deck: id, filings: [{ card: "Counterspell", slot: "interaction", add_tags: ["counter"] }] }),
-      /- Interaction: 1 \(target 8–12\) — UNDER by 7/,
+      /- Interaction: 1 primary \(target 8–12\) — UNDER by 7/,
     );
     assert.match(
       text(db, "shortlist_cards", { deck: id, add: [{ card: "Sol Ring", note: "If [[Counterspell]] stays." }] }),
@@ -471,15 +452,15 @@ describe("memories and the review queue through the tools (spec §7, §8.4)", ()
     text(db, "propose_changes", { deck: id, items: [{ action: "add", card: "Forest", reason: "A land." }] });
     acceptItems(db, OWNER, pendingItemIds(db, 1));
     assert.match(text(db, "list_rulings", { deck: id, limit: 1 }), /ACCEPTED: Added Forest/);
-    setDeckStatus(db, OWNER, id, "draft");
-    assert.match(text(db, "get_deck", { deck: id, sections: [] }), /Draft: edit it directly with edit_draft\./);
+    setDeckCategory(db, OWNER, id, "theorycrafted");
+    assert.match(text(db, "get_deck", { deck: id, sections: [] }), /Theorycrafted: edit its cards directly with edit_cards\./);
   });
 });
 
 describe("statistics and export", () => {
   test("player_stats and export_deck render the app's numbers", () => {
     const db = testDb();
-    const id = seeded(db);
+    const id = seeded(db, "theorycrafted");
     assert.match(text(db, "player_stats"), /computed from 0 Paper deck\(s\)/);
     setDeckCategory(db, OWNER, id, "paper");
     assert.match(text(db, "player_stats"), /computed from 1 Paper deck\(s\)/);

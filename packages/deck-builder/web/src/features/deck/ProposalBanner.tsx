@@ -1,6 +1,6 @@
 // The strip under the toolbar that says whether anything is waiting on the
-// owner (spec §8.2): an agent's proposal, or the review in progress. A draft
-// gets no strip; the header's Draft / Active control is its mark.
+// owner (spec §8.2): an agent's proposal, or the review in progress. Legacy
+// decks show an archive notice instead.
 
 import { useEffect, useState } from "react";
 import { ago } from "../../domain/time.ts";

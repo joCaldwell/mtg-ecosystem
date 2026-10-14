@@ -153,17 +153,17 @@ export type DeckSection = (typeof DECK_SECTIONS)[number];
 function header(view: DeckView): string {
   const d = view.deck;
   const bits = [
-    d.status,
-    `category ${d.category}`,
+    `lifecycle ${d.category}`,
     `revision ${d.revision}`,
     `identity ${d.color_identity || (d.ci_mask === 0 ? "colourless" : "none yet (no commander)")}`,
     `${view.computed.card_count}/100 cards`,
   ];
   if (d.parent) bits.push(`forked from deck ${d.parent.id} "${d.parent.name}"`);
-  const rule =
-    d.status === "draft"
-      ? "Draft: edit it directly with edit_draft."
-      : "Active: change its cards only with propose_changes.";
+  const rule = d.category === "legacy"
+    ? "Legacy: read-only. View, export or fork it; only the owner can restore it."
+    : (d.category === "paper"
+      ? "Paper: change its cards only with propose_changes."
+      : "Theorycrafted: edit its cards directly with edit_cards.") + " Brief and power target changes always require proposals.";
   return `# Deck ${d.id} "${d.name}" — ${bits.join(" · ")}\n${rule}`;
 }
 
@@ -194,7 +194,7 @@ export function stateLines(view: DeckView): string {
           : s.status === "over"
             ? ` — OVER by ${s.delta}`
             : "";
-      lines.push(`  - ${s.name}: ${s.count} (${range(s.target_min, s.target_max)})${status}`);
+      lines.push(`  - ${s.name}: ${s.count} primary (${range(s.target_min, s.target_max)})${status}; ${s.secondary_count} secondary; ${s.coverage_count} total coverage`);
     }
     lines.push(`  - unslotted: ${c.unslotted_count}`);
   }
@@ -239,12 +239,15 @@ export function afterWrite(db: DatabaseSync, deckId: number): string {
 
 function listSection(view: DeckView, withText: boolean): string {
   const tagName = new Map(view.tags.map((t) => [t.id, t.name]));
+  const slotName = new Map(view.slots.map(s => [s.id, s.name]));
   const line = (c: DeckCardView) => {
     const tags = c.tag_ids.map((id) => tagName.get(id)).filter(Boolean);
     return cardLine(c, {
       text: withText,
       quantity: c.quantity,
-      suffix: tags.length ? `  [tags: ${tags.join(", ")}]` : "",
+      suffix: [c.role !== "card" && c.slot_id != null ? `  [primary slot: ${slotName.get(c.slot_id)}]` : "",
+        c.secondary_slot_ids.length ? `  [secondary slots: ${c.secondary_slot_ids.map(id => slotName.get(id)).join(", ")}]` : "",
+        tags.length ? `  [tags: ${tags.join(", ")}]` : ""].join(""),
     });
   };
   const main = view.cards.filter((c) => !c.maybe);
@@ -258,7 +261,8 @@ function listSection(view: DeckView, withText: boolean): string {
     const inSlot = cards.filter((c) => c.slot_id === s.id);
     const delta = view.computed.slot_deltas.find((d) => d.slot_id === s.id)!;
     groups.push(
-      `### ${s.name} (${delta.count}; ${range(s.target_min, s.target_max)})\n${inSlot.map(line).join("\n") || "(empty)"}`,
+      `### ${s.name} (${delta.count} primary; ${range(s.target_min, s.target_max)}; ${delta.secondary_count} secondary)\n${inSlot.map(line).join("\n") || "(no ordinary cards primarily filed here)"}` +
+      (delta.secondary_count ? `\nSecondary contributors: ${main.filter(c => c.role !== "companion" && c.secondary_slot_ids.includes(s.id)).map(c => `${c.quantity > 1 ? `${c.quantity}x ` : ""}${c.name}`).join("; ")}` : ""),
     );
   }
   const unslotted = cards.filter((c) => c.slot_id == null);
@@ -274,6 +278,7 @@ function listSection(view: DeckView, withText: boolean): string {
     view.slots.length
       ? null
       : "This deck defines no slots; that is allowed. Define some with define_slots if filing would help.",
+    view.slots.length ? "List grouped by primary purpose. Targets count only primary assignments; secondary purposes are shown separately." : null,
     view.tags.length ? `Tags in use: ${view.tags.map((t) => t.name).join(", ")}` : null,
   ].filter(Boolean);
   return [`## List`, ...vocab, ...groups].join("\n\n");
@@ -299,7 +304,7 @@ export function proposalLines(proposals: ProposalView[], edits: DocumentEditView
     lines.push(`- proposal #${p.id} by ${p.author}${p.summary ? `: ${p.summary}` : ""}`);
     for (const i of pending)
       lines.push(
-        `  - ${i.action} ${i.card_name}${i.to_maybe ? ", moving it to the maybe list" : ""}${i.group_id ? ` (group "${i.group_id}")` : ""}: ${i.reason}`,
+        `  - ${i.action} ${i.card_name}${i.to_maybe ? ", moving it to the maybe list" : ""}${i.secondary_slot_names.length ? ` [secondary slots: ${i.secondary_slot_names.join(", ")}]` : ""}${i.group_id ? ` (group "${i.group_id}")` : ""}: ${i.reason}`,
       );
   }
   for (const e of edits)
@@ -371,7 +376,11 @@ export function renderDeck(
       out.push(
         `## Maybe list (${maybe.length}; outside the 100)\n` +
           maybe
-            .map((c) => cardLine(c, { text: withText, suffix: c.maybe_note ? `  — ${c.maybe_note}` : "" }))
+            .map(c => cardLine(c, { text: withText, suffix: [
+              c.slot_id == null ? "" : `  [primary slot: ${view.slots.find(s => s.id === c.slot_id)?.name}]`,
+              c.secondary_slot_ids.length ? `  [secondary slots: ${c.secondary_slot_ids.map(id => view.slots.find(s => s.id === id)?.name).join(", ")}]` : "",
+              c.maybe_note ? `  — ${c.maybe_note}` : "",
+            ].join("") }))
             .join("\n"),
       );
   }
@@ -420,11 +429,10 @@ export function rosterLines(decks: DeckSummary[]): string {
   return decks
     .map((d) => {
       const bits = [
-        d.status,
-        d.commanders.length ? d.commanders.join(" + ") : "no commander",
+          d.commanders.length ? d.commanders.join(" + ") : "no commander",
         d.color_identity || "—",
         `${d.card_count}/100`,
-        `category ${d.category}`,
+        `lifecycle ${d.category}`,
       ];
       if (d.parent_name) bits.push(`fork of "${d.parent_name}"`);
       const waiting = d.pending_items + d.pending_document_edits;
@@ -480,7 +488,7 @@ export function renderStats(s: PlayerStats): string {
       s.decks
         .map(
           (d) =>
-            `- deck ${d.id} "${d.name}" (${d.status}${d.forked_from ? `, fork of "${d.forked_from}"` : ""}): ` +
+            `- deck ${d.id} "${d.name}" (Paper${d.forked_from ? `, fork of "${d.forked_from}"` : ""}): ` +
             `${d.commanders.join(" + ") || "no commander"} · ${d.color_identity || "—"} · ${d.card_count} cards · ` +
             `${d.land_count} lands · avg MV ${d.average_mana_value ?? "n/a"}`,
         )

@@ -200,8 +200,11 @@ function compileFilter(key: string, op: Op, value: string, ctx: CompileContext):
       return {
         sql: `oracle_id IN (
           SELECT dc.oracle_id FROM deck_cards dc JOIN slots s ON s.id = dc.slot_id
-          WHERE dc.deck_id = ? AND s.name = ? COLLATE NOCASE)`,
-        params: [ctx.deckId, value],
+          WHERE dc.deck_id = ? AND s.name = ? COLLATE NOCASE
+          UNION
+          SELECT ds.oracle_id FROM deck_card_secondary_slots ds JOIN slots s ON s.id = ds.slot_id
+          WHERE ds.deck_id = ? AND s.name = ? COLLATE NOCASE)`,
+        params: [ctx.deckId, value, ctx.deckId, value],
       };
     }
     case "tag": {

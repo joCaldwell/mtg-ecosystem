@@ -3,8 +3,8 @@
   align-items: center;
   gap: var(--s-3);
   width: 100%;
-  height: var(--row);
-  padding: 0 var(--s-3);
+  min-height: var(--row);
+  padding: var(--s-1) var(--s-3);
   border-left: 2px solid transparent;
   border-radius: var(--r-sm);
   text-align: left;
@@ -39,6 +39,15 @@
   align-items: center;
   gap: var(--s-2);
   margin-left: var(--s-1);
+}
+
+.purpose {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 400;
 }
 
 .cost {

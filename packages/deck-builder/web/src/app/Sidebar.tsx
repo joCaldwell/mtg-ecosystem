@@ -80,7 +80,7 @@ export function Sidebar({ route }: { route: Route }) {
             >
               <Dot tone={pending ? "agent" : "neutral"} />
               <span className={styles.name}>{deck.name}</span>
-              {deck.status === "draft" && <span className={styles.draft}>draft</span>}
+              {deck.category === "legacy" && <span className={styles.draft}>legacy</span>}
             </a>
           );
         })}

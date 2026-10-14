@@ -4,7 +4,7 @@
 // entry (spec §5.1, §8.2).
 //
 // The permission rule of the whole app lives in applyChanges (spec §5.2): an
-// agent may change membership directly only on a draft.
+// agent may change membership directly only on a Theorycrafted deck.
 
 import type { DatabaseSync } from "node:sqlite";
 import { ServiceError } from "../errors.ts";
@@ -17,7 +17,10 @@ import {
   type Role,
   findDeckCard,
   recomputeIdentity,
-  requireDeck,
+  requireEditableDeck,
+  requireDirectCardEdit,
+  organizeCard,
+  validateSlotAssignments,
 } from "./service.ts";
 
 export type Change =
@@ -26,6 +29,7 @@ export type Change =
       oracle_id: string;
       quantity?: number;
       slot_id?: number | null;
+      secondary_slot_ids?: number[];
       role?: Role;
       item_id?: number;
       reason?: string;
@@ -55,6 +59,7 @@ export interface ChangeEntry {
 // What a cut removed, so undo can put it back as it was.
 interface CutBefore {
   slot_id: number | null;
+  secondary_slot_ids: number[];
   role: Role;
   tag_ids: number[];
   parked: boolean;
@@ -88,11 +93,9 @@ function assertRoleCapacity(db: DatabaseSync, deckId: number, role: "commander" 
 
 function setRole(db: DatabaseSync, deckId: number, oracleId: string, role: Role) {
   if (role !== "card") assertRoleCapacity(db, deckId, role);
-  // The command zone is not part of any slot.
-  db.prepare(
-    `UPDATE deck_cards SET role = ?, slot_id = CASE WHEN ? = 'card' THEN slot_id ELSE NULL END
-     WHERE deck_id = ? AND oracle_id = ?`,
-  ).run(role, role, deckId, oracleId);
+  // Zone and purpose are independent; becoming a commander keeps its roles.
+  db.prepare("UPDATE deck_cards SET role = ? WHERE deck_id = ? AND oracle_id = ?")
+    .run(role, deckId, oracleId);
 }
 
 function applyAdd(
@@ -108,6 +111,9 @@ function applyAdd(
     throw new ServiceError(`Slot ${c.slot_id} not found in deck ${deckId}`, 404);
 
   const existing = findDeckCard(db, deckId, c.oracle_id);
+  const primary = c.slot_id !== undefined ? c.slot_id : existing?.slot_id ?? null;
+  const secondary = c.secondary_slot_ids !== undefined ? c.secondary_slot_ids : (existing?.secondary_slot_ids ?? []).filter(id => id !== primary);
+  validateSlotAssignments(db, deckId, primary, secondary);
   let wasMaybe = false;
   if (existing?.maybe) {
     // Promoting a shortlisted card keeps the slot and tags it was parked with.
@@ -115,12 +121,7 @@ function applyAdd(
     db.prepare(
       "UPDATE deck_cards SET maybe = 0, maybe_note = '', quantity = ? WHERE deck_id = ? AND oracle_id = ?",
     ).run(quantity, deckId, c.oracle_id);
-    if (c.slot_id !== undefined)
-      db.prepare("UPDATE deck_cards SET slot_id = ? WHERE deck_id = ? AND oracle_id = ?").run(
-        c.slot_id,
-        deckId,
-        c.oracle_id,
-      );
+    organizeCard(db, deckId, c.oracle_id, { slotId: primary, secondarySlotIds: secondary });
     if (c.role && c.role !== "card") setRole(db, deckId, c.oracle_id, c.role);
   } else if (existing) {
     // A second add is another copy (basics need it). Whether the count is
@@ -137,10 +138,11 @@ function applyAdd(
     ).run(
       deckId,
       c.oracle_id,
-      role === "card" ? (c.slot_id ?? null) : null,
+      primary,
       role,
       quantity,
     );
+    organizeCard(db, deckId, c.oracle_id, { secondarySlotIds: secondary });
     if (c.tag_ids?.length) {
       const live = new Set(
         (db.prepare("SELECT id FROM tags WHERE deck_id = ?").all(deckId) as unknown as {
@@ -181,6 +183,7 @@ function applyCut(
 
   const before: CutBefore = {
     slot_id: row.slot_id,
+    secondary_slot_ids: row.secondary_slot_ids,
     role: row.role,
     tag_ids: tagIdsOf(db, deckId, c.oracle_id),
     parked: !!c.park,
@@ -244,17 +247,9 @@ export function applyChanges(
   changes: Change[],
   entry: ChangeEntry,
 ): number | null {
-  const deck = requireDeck(db, deckId);
-  if (actor.kind === "agent") {
-    if (entry.kind !== "edit")
-      throw new PermissionError("Only the owner can rule on proposals, import over a deck, or undo.");
-    if (deck.status !== "draft")
-      throw new PermissionError(
-        `"${deck.name}" is an active deck, so its cards change only through a proposal the owner ` +
-          `accepts. Use propose_changes. (Agents edit draft decks directly; only the owner can ` +
-          `return a deck to draft.)`,
-      );
-  }
+  requireDirectCardEdit(db, actor, deckId);
+  if (actor.kind === "agent" && entry.kind !== "edit")
+    throw new PermissionError("Only the owner can rule on proposals, import over a deck, or undo.");
 
   return withTransaction(db, () => {
     const logged: LogCardInput[] = [];
@@ -317,6 +312,7 @@ export function undo(db: DatabaseSync, actor: Actor, logId: number): UndoResult 
   requireOwner(actor, "undo a change");
   const entry = getLogEntry(db, logId);
   if (!entry || entry.deck_id == null) throw new ServiceError(`Log entry ${logId} not found`, 404);
+  requireEditableDeck(db, entry.deck_id);
   if (entry.kind === "reject")
     throw new ServiceError("A rejection changed nothing, so there is nothing to undo");
   if (entry.kind === "undo") throw new ServiceError("An undo cannot itself be undone");
@@ -374,6 +370,7 @@ export function undo(db: DatabaseSync, actor: Actor, logId: number): UndoResult 
           oracle_id: r.oracle_id,
           quantity: r.quantity,
           slot_id: b.slot_id != null && slotExists(db, deckId, b.slot_id) ? b.slot_id : null,
+          secondary_slot_ids: (b.secondary_slot_ids ?? []).filter(id => slotExists(db, deckId, id) && id !== b.slot_id),
           tag_ids: b.tag_ids ?? [],
         });
         if (b.role && b.role !== "card")

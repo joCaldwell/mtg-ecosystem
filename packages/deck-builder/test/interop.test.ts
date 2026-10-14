@@ -408,11 +408,11 @@ describe("import applies in full and at once (spec §12)", () => {
 
 describe("who may paste a list (spec §10.3)", () => {
   test("importing over a deck is the owner's; an agent fills a draft, all or nothing", () => {
-    const active = newDeck(db, "active");
+    const active = newDeck(db, "paper");
     assert.throws(() => applyImport(db, AGENT, active, "1 Sol Ring"), PermissionError);
     assert.throws(() => fillFromList(db, AGENT, active, "1 Sol Ring"), PermissionError);
 
-    const draft = newDeck(db, "draft");
+    const draft = newDeck(db, "theorycrafted");
     assert.throws(
       () => fillFromList(db, AGENT, draft, "1 Sol Ring\n1 Sol Ringz"),
       (e: Error) => e instanceof CardResolutionError && /nothing was changed/.test(e.message),

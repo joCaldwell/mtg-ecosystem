@@ -4,6 +4,7 @@ import type { SortBy } from "../../domain/cards.ts";
 import type { GroupBy } from "../../domain/grouping.ts";
 import { AddBar } from "./AddBar.tsx";
 import { DeckTagFilter } from "./DeckTagFilter.tsx";
+import { useDeckState } from "./DeckStore.tsx";
 import { useDeckUi } from "./DeckUi.tsx";
 import { useSharedDeckView } from "./useDeckView.ts";
 import styles from "./DeckToolbar.module.css";
@@ -21,13 +22,14 @@ const SORT_OPTIONS: Array<{ value: SortBy; label: string; title: string }> = [
 
 export function DeckToolbar() {
   const ui = useDeckUi();
+  const readOnly = useDeckState().deck.category === "legacy";
   const { matches } = useSharedDeckView();
   const matchCount = matches.cardIds.size + matches.addIds.size;
   const search = useRef<HTMLInputElement>(null);
   return (
     <div className={styles.toolbar}>
       <div className={styles.add}>
-        <AddBar />
+        {!readOnly && <AddBar />}
         {matches.active && (
           <div className={styles.filterSummary}>
             <Text tone="muted" size="sm" role="status" title="Matching cards are highlighted; other cards are muted">

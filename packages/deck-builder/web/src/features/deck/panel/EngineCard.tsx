@@ -20,10 +20,10 @@ export function EngineCard({ engine, onEdit, onRemove }: { engine: Engine; onEdi
         <b className={styles.name}>{engine.name}</b>
         {missing > 0 ? <Chip tone="warn">{missing} missing</Chip> : <Chip tone="add">complete</Chip>}
         <span className={styles.actions}>
-          <Button size="sm" variant="ghost" onClick={onEdit} aria-label={`Edit the engine ${engine.name}`}>
+          <Button size="sm" variant="ghost" disabled={state.deck.category === "legacy"} onClick={onEdit} aria-label={`Edit the engine ${engine.name}`}>
             Edit
           </Button>
-          <Button size="sm" variant="ghost" onClick={onRemove} aria-label={`Remove the engine ${engine.name}`}>
+          <Button size="sm" variant="ghost" disabled={state.deck.category === "legacy"} onClick={onRemove} aria-label={`Remove the engine ${engine.name}`}>
             Remove
           </Button>
         </span>

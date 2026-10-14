@@ -22,7 +22,6 @@ export interface PlayerStats {
   decks: Array<{
     id: number;
     name: string;
-    status: string;
     forked_from: string | null;
     commanders: string[];
     color_identity: string;
@@ -135,7 +134,6 @@ export function playerStats(db: DatabaseSync, opts: { reusedLimit?: number } = {
     decks: views.map((v, i) => ({
       id: v.deck.id,
       name: v.deck.name,
-      status: v.deck.status,
       forked_from: v.deck.parent?.name ?? null,
       commanders: roster[i].commanders,
       color_identity: v.deck.color_identity || (v.deck.ci_mask === 0 ? "C" : ""),

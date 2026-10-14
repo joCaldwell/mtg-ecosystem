@@ -104,7 +104,7 @@ export function MemoryCard({
         <span>{ago(memory.revised_at)}</span>
         {memory.owner_touched && !byOwner && <span>edited by you</span>}
 
-        <span className={styles.acts}>
+        {!memory.read_only && <span className={styles.acts}>
           {draft == null ? (
             <>
               {active && inferred && (
@@ -162,7 +162,7 @@ export function MemoryCard({
               </Button>
             </>
           )}
-        </span>
+        </span>}
       </div>
     </Box>
   );

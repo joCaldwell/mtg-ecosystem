@@ -19,6 +19,61 @@ const dir = mkdtempSync(join(tmpdir(), "deck-builder-db-"));
 test.after(() => rmSync(dir, { recursive: true, force: true }));
 
 describe("opening a database", () => {
+  test("schema 8 drops Draft/Active and preserves categories, IDs and related records", () => {
+    const path = join(dir, "v8-lifecycle.db");
+    const old = openDb(path);
+    ingestCards(old, FIXTURES);
+    const ids = (["paper", "theorycrafted", "legacy"] as const).map((category, index) => {
+      const id = createDeck(old, `Lifecycle ${index}`);
+      const slot = createSlot(old, id, "Utility");
+      const tag = createTag(old, id, "Have");
+      add(old, id, "id-solring", { slotId: slot });
+      organizeCard(old, id, "id-solring", { tagIds: [tag] });
+      setDeckCategory(old, OWNER, id, category);
+      return id;
+    });
+    const before = ids.map(id => getDeck(old, id));
+    old.exec("ALTER TABLE decks ADD COLUMN status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('draft', 'active')); UPDATE meta SET value = '8' WHERE key = 'schema_version'");
+    old.prepare("UPDATE decks SET status = 'draft' WHERE id = ?").run(ids[0]);
+    old.close();
+    const migrated = openDb(path);
+    assert.deepEqual(ids.map(id => getDeck(migrated, id)), before);
+    assert.ok(!migrated.prepare("PRAGMA table_info(decks)").all().some((c: any) => c.name === "status"));
+    assert.deepEqual(migrated.prepare("PRAGMA foreign_key_check").all(), []);
+    assert.ok(createDeck(migrated, "Next lifecycle deck") > ids[2]);
+    migrated.close();
+    const reopened = openDb(path);
+    assert.deepEqual(ids.map(id => getDeck(reopened, id)), before);
+    reopened.close();
+  });
+  test("schema 7 gains secondary purposes without changing existing decks or historical undo", () => {
+    const path = join(dir, "v7.db");
+    const old = openDb(path);
+    ingestCards(old, FIXTURES);
+    const deck = createDeck(old, "Existing purposes");
+    const primary = createSlot(old, deck, "Ramp", 1, 2);
+    const tag = createTag(old, deck, "Have");
+    add(old, deck, "id-solring", { slotId: primary });
+    organizeCard(old, deck, "id-solring", { tagIds: [tag] });
+    const cutId = cut(old, deck, "id-solring")!;
+    const before = getDeck(old, deck).deck;
+    old.prepare("UPDATE log_cards SET before_json = json_remove(before_json, '$.secondary_slot_ids') WHERE log_id = ?").run(cutId);
+    old.exec(`DROP TRIGGER primary_slot_not_secondary;
+      DROP TABLE deck_card_secondary_slots;
+      ALTER TABLE proposal_items DROP COLUMN secondary_slot_ids_json;
+      UPDATE meta SET value = '7' WHERE key = 'schema_version'`);
+    old.close();
+    const migrated = openDb(path);
+    assert.deepEqual(getDeck(migrated, deck).deck, before);
+    undo(migrated, OWNER, cutId);
+    const card = getDeck(migrated, deck).cards[0];
+    assert.equal(card.slot_id, primary);
+    assert.deepEqual(card.tag_ids, [tag]);
+    assert.deepEqual(card.secondary_slot_ids, []);
+    assert.deepEqual(migrated.prepare("PRAGMA foreign_key_check").all(), []);
+    migrated.close();
+    openDb(path).close();
+  });
   test("a new file gets the schema and its version, and reopens", () => {
     const path = join(dir, "new.db");
     openDb(path).close();
@@ -32,7 +87,7 @@ describe("opening a database", () => {
     const path = join(dir, "v5.db");
     const old = openDb(path);
     ingestCards(old, FIXTURES);
-    const deck = createDeck(old, "Existing assembled deck", { status: "active" });
+    const deck = createDeck(old, "Existing assembled deck", { category: "paper" });
     setDeckCategory(old, OWNER, deck, "paper");
     const slot = createSlot(old, deck, "Ramp");
     const tag = createTag(old, deck, "Need to get");
@@ -90,7 +145,7 @@ describe("opening a database", () => {
     const path = join(dir, "v4.db");
     const old = openDb(path);
     ingestCards(old, FIXTURES);
-    const id = createDeck(old, "Power migration", { status: "active" });
+    const id = createDeck(old, "Power migration", { category: "paper" });
     add(old, id, "id-solring");
     const edit = proposeDocumentEdit(old, AGENT, id, "thesis", { content: "Existing thesis" }, "Owner requested it.");
     old.exec("UPDATE sqlite_sequence SET seq = 100 WHERE name = 'document_edits'; ALTER TABLE cards DROP COLUMN game_changer; DROP TABLE power_assessments; DROP TABLE power_targets; UPDATE meta SET value = '4' WHERE key = 'schema_version'");
@@ -113,7 +168,7 @@ describe("opening a database", () => {
     const path = join(dir, "v2.db");
     const old = openDb(path);
     ingestCards(old, FIXTURES);
-    const id = createDeck(old, "Existing deck", { status: "active" });
+    const id = createDeck(old, "Existing deck", { category: "paper" });
     add(old, id, "id-solring");
     const before = getDeck(old, id);
     old.exec("ALTER TABLE decks DROP COLUMN category; UPDATE meta SET value = '2' WHERE key = 'schema_version'");
@@ -122,7 +177,7 @@ describe("opening a database", () => {
     const migrated = openDb(path);
     const deck = getDeck(migrated, id).deck;
     assert.equal(deck.name, "Existing deck");
-    assert.equal(deck.status, "active");
+    assert.ok(!("status" in deck));
     assert.equal(deck.category, "theorycrafted");
     assert.equal(deck.revision, before.deck.revision);
     assert.deepEqual(getDeck(migrated, id).cards, before.cards);

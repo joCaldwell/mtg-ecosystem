@@ -8,3 +8,13 @@
 .long {
   break-inside: auto;
 }
+.secondary {
+  margin-top: var(--s-2);
+}
+
+.secondary > summary {
+  padding: var(--s-2) var(--s-3);
+  color: var(--muted);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}

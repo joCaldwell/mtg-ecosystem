@@ -2,14 +2,14 @@
 // engines as structured records whose pieces are card references — so "is
 // every piece of this engine in the deck" is a check, not a judgement.
 //
-// These are the direct writes. The owner always uses them; an agent uses
-// them only on a draft, and otherwise proposes through documents.ts.
+// Direct brief writes are owner-only; agents always propose through documents.ts.
 
 import type { DatabaseSync } from "node:sqlite";
 import { ServiceError } from "../errors.ts";
+import { type Actor, requireOwner } from "../actor.ts";
 import { withTransaction } from "../db.ts";
 import { requireCardById } from "../cards.ts";
-import { requireDeck } from "./service.ts";
+import { requireDeck, requireEditableDeck } from "./service.ts";
 
 export interface EngineView {
   id: number;
@@ -62,9 +62,12 @@ export function getBrief(db: DatabaseSync, deckId: number): BriefView {
 
 export function updateBrief(
   db: DatabaseSync,
+  actor: Actor,
   deckId: number,
   patch: { thesis?: string; constraints_md?: string },
 ): void {
+  requireOwner(actor, "edit a deck brief directly (use propose_brief_edit)");
+  requireEditableDeck(db, deckId);
   const current = getBrief(db, deckId);
   db.prepare(
     `INSERT INTO briefs (deck_id, thesis, constraints_md, updated_at)
@@ -82,12 +85,14 @@ export interface EnginePieceInput {
 /** Create the engine, or replace the one of the same name. */
 export function setEngine(
   db: DatabaseSync,
+  actor: Actor,
   deckId: number,
   name: string,
   description: string,
   pieces: EnginePieceInput[],
 ): number {
-  requireDeck(db, deckId);
+  requireOwner(actor, "edit a deck brief directly (use propose_brief_edit)");
+  requireEditableDeck(db, deckId);
   const trimmed = name.trim();
   if (!trimmed) throw new ServiceError("Engine name cannot be empty");
   for (const p of pieces) requireCardById(db, p.oracle_id);
@@ -123,12 +128,16 @@ export function setEngine(
   });
 }
 
-export function removeEngine(db: DatabaseSync, deckId: number, engineId: number): void {
+export function removeEngine(db: DatabaseSync, actor: Actor, deckId: number, engineId: number): void {
+  requireOwner(actor, "edit a deck brief directly (use propose_brief_edit)");
+  requireEditableDeck(db, deckId);
   const r = db.prepare("DELETE FROM engines WHERE id = ? AND deck_id = ?").run(engineId, deckId);
   if (!r.changes) throw new ServiceError(`Engine ${engineId} not found in deck ${deckId}`, 404);
 }
 
-export function removeEngineByName(db: DatabaseSync, deckId: number, name: string): void {
+export function removeEngineByName(db: DatabaseSync, actor: Actor, deckId: number, name: string): void {
+  requireOwner(actor, "edit a deck brief directly (use propose_brief_edit)");
+  requireEditableDeck(db, deckId);
   const engine = db
     .prepare("SELECT id FROM engines WHERE deck_id = ? AND name = ? COLLATE NOCASE")
     .get(deckId, name.trim()) as { id: number } | undefined;
@@ -140,5 +149,5 @@ export function removeEngineByName(db: DatabaseSync, deckId: number, name: strin
       404,
     );
   }
-  removeEngine(db, deckId, engine.id);
+  removeEngine(db, actor, deckId, engine.id);
 }

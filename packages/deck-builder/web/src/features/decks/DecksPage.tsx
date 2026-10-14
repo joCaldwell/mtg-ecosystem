@@ -76,7 +76,7 @@ export function DecksPage() {
         {decks.data &&
           (rows.length === 0 ? (
             <EmptyState title="No decks yet">
-              Create one with New deck, or ask a connected agent to build a draft.
+              Create one with New deck, or ask a connected agent to build a Theorycrafted deck.
             </EmptyState>
           ) : (
             <div className={styles.tableWrap}>
@@ -86,8 +86,7 @@ export function DecksPage() {
                     <th>Deck</th>
                     <th>Commander</th>
                     <th>Identity</th>
-                    <th>State</th>
-                    <th>Category</th>
+                    <th>Lifecycle</th>
                     <th>Cards</th>
                     <th>Inbox</th>
                     <th aria-label="Actions" className={styles.actions} />
@@ -117,25 +116,13 @@ export function DecksPage() {
                         <td>
                           <ColorIdentity colors={deck.color_identity} />
                         </td>
-                        <td>
-                          <Chip
-                            tone={deck.status === "active" ? "add" : "warn"}
-                            title={
-                              deck.status === "active"
-                                ? "Active: an agent's changes come to you as proposals"
-                                : "Draft: an agent may edit it directly"
-                            }
-                          >
-                            {deck.status === "active" ? "Active" : "Draft"}
-                          </Chip>
-                        </td>
                         <td><Chip>{DECK_CATEGORY_LABELS[deck.category]}</Chip></td>
                         <td>
                           <Text mono tone={deck.card_count === 100 ? "muted" : "warn"}>
                             {deck.card_count}/100
                           </Text>
                         </td>
-                        <td>{waiting > 0 && <Chip tone="agent">{waiting} waiting</Chip>}</td>
+                        <td>{waiting > 0 && <Chip tone={deck.category === "legacy" ? "neutral" : "agent"}>{waiting} {deck.category === "legacy" ? "paused" : "waiting"}</Chip>}</td>
                         <td className={styles.actions} onClick={(e) => e.stopPropagation()}>
                           <DeckActions deck={deck} onAction={(action) => setEditing({ deck, action })} />
                         </td>

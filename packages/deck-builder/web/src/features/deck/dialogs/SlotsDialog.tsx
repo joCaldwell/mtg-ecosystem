@@ -16,15 +16,16 @@ export function SlotsDialog({ onClose }: { onClose: () => void }) {
       <Stack gap={7}>
         <Section title="Slots">
           <Text tone="muted" as="p">
-            Slots are optional. A card sits in at most one, and targets are soft: a slot outside its target is
-            flagged, never blocked. Leave a side empty for no limit, or put the same number in both for exactly
-            that many.
+            Slots describe purpose. A card can have one primary slot and any number of secondary slots.
+            Targets count primary assignments only. Secondary purposes are shown separately and do not affect target checks.
+            Targets are soft. Leave a side empty for no limit, or use the same number in both for an exact target.
           </Text>
           <SlotsTable />
         </Section>
         <Section title="Tags">
           <Text tone="muted" as="p">
-            A card can have as many tags as you like. Tags carry no targets.
+            Tags track sourcing, ownership, assembly and status. A card can have as many as you like.
+            Use secondary slots for additional purposes. Tags carry no targets.
           </Text>
           <TagsSection />
         </Section>

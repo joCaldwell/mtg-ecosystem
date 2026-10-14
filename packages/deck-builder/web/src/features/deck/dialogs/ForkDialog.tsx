@@ -41,7 +41,7 @@ export function ForkDialog({ onClose }: { onClose: () => void }) {
       <form id={formId} onSubmit={submit}>
         <Stack gap={5}>
           <Text tone="muted" as="p">
-            Copies the list, slots, tags, maybe list, brief and this deck's memories into a new draft, and
+            Copies the list, slots, tags, maybe list, brief and this deck's memories into a new Theorycrafted deck, and
             keeps this deck as it is. The two then change independently.
           </Text>
           <Field label="Name for the fork">

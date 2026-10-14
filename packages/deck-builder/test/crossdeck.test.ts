@@ -23,7 +23,7 @@ import { AGENT, add, cut, newDeck, testDb } from "./helpers.ts";
 
 describe("forks (spec §5.3)", () => {
   const db = testDb();
-  const parent = newDeck(db, "active", "Parent");
+  const parent = newDeck(db, "paper", "Parent");
   const ramp = createSlot(db, parent, "Ramp", 1, 2);
   const tag = createTag(db, parent, "rock");
   add(db, parent, "id-teferi", { role: "commander" });
@@ -31,13 +31,13 @@ describe("forks (spec §5.3)", () => {
   organizeCard(db, parent, "id-solring", { tagIds: [tag] });
   shortlistCard(db, parent, "id-counterspell", "maybe later");
   setDeckCategory(db, OWNER, parent, "paper");
-  updateBrief(db, parent, { thesis: "Artifacts." });
-  setEngine(db, parent, "Mana", "", [{ oracle_id: "id-solring" }]);
+  updateBrief(db, OWNER, parent, { thesis: "Artifacts." });
+  setEngine(db, OWNER, parent, "Mana", "", [{ oracle_id: "id-solring" }]);
   const fork = forkDeck(db, AGENT, parent, "Fork");
 
-  test("a fork is a draft that records its parent and copies list, organization and brief", () => {
+  test("a fork is Theorycrafted and records its parent and copies list, organization and brief", () => {
     const view = getDeck(db, fork);
-    assert.equal(view.deck.status, "draft");
+    assert.ok(!("status" in view.deck));
     assert.equal(view.deck.category, "theorycrafted");
     assert.equal(getDeck(db, parent).deck.category, "paper");
     assert.deepEqual(view.deck.parent, { id: parent, name: "Parent" });
@@ -67,7 +67,7 @@ describe("forks (spec §5.3)", () => {
   });
   // The case that started v2: a reworked copy whose agent knew nothing of the original.
   test("a fork inherits the rulings made in the deck it came from, labelled as such", () => {
-    const original = newDeck(db, "active", "Ruled original");
+    const original = newDeck(db, "paper", "Ruled original");
     add(db, original, "id-teferi", { role: "commander" });
     const pid = createProposal(db, AGENT, original, {
       items: [{ action: "add", oracle_id: "id-counterspell", reason: "Interaction." }],
@@ -85,8 +85,8 @@ describe("forks (spec §5.3)", () => {
     assert.equal(cardHistory(db, original, "id-solring").length, 0);
   });
   test("the owner can link a hand-made copy to its original, but not in a circle", () => {
-    const original = newDeck(db, "active", "Original");
-    const copy = newDeck(db, "active", "Hand copy");
+    const original = newDeck(db, "paper", "Original");
+    const copy = newDeck(db, "paper", "Hand copy");
     add(db, original, "id-solring");
     add(db, copy, "id-forest");
     assert.throws(() => setDeckParent(db, AGENT, copy, original), /Only the owner/);
@@ -98,7 +98,7 @@ describe("forks (spec §5.3)", () => {
     assert.equal(getDeck(db, copy).deck.parent, null);
   });
   test("deleting the parent leaves the fork standing with no parent", () => {
-    const p = newDeck(db, "active");
+    const p = newDeck(db, "paper");
     const f = forkDeck(db, OWNER, p, "Orphan");
     deleteDeck(db, OWNER, p);
     assert.equal(getDeck(db, f).deck.parent, null);
@@ -149,17 +149,17 @@ describe("checks (spec §9)", () => {
 describe("player statistics (spec §3)", () => {
   test("computed across Paper decks, counting a fork and its parent as one family", () => {
     const db = testDb();
-    const a = newDeck(db, "active", "Atraxa deck");
+    const a = newDeck(db, "paper", "Atraxa deck");
     add(db, a, "id-atraxa", { role: "commander" });
     add(db, a, "id-solring");
     add(db, a, "id-forest", { quantity: 2 });
-    const b = newDeck(db, "active", "Teferi deck");
+    const b = newDeck(db, "paper", "Teferi deck");
     add(db, b, "id-teferi", { role: "commander" });
     add(db, b, "id-solring");
     add(db, b, "id-counterspell");
     createSlot(db, b, "Interaction");
     const fork = forkDeck(db, OWNER, b, "Teferi fork");
-    const empty = newDeck(db, "draft", "Empty");
+    const empty = newDeck(db, "theorycrafted", "Empty");
     for (const id of [a, b, fork, empty]) setDeckCategory(db, OWNER, id, "paper");
 
     const stats = playerStats(db);
@@ -179,14 +179,14 @@ describe("player statistics (spec §3)", () => {
   });
   test("Theorycrafted and Legacy decks contribute to none of the statistics", () => {
     const db = testDb();
-    const paper = newDeck(db, "draft", "Paper stats");
+    const paper = newDeck(db, "theorycrafted", "Paper stats");
     add(db, paper, "id-teferi", { role: "commander" });
     add(db, paper, "id-solring");
     createSlot(db, paper, "Ramp");
     setDeckCategory(db, OWNER, paper, "paper");
     const baseline = playerStats(db);
     for (const category of ["theorycrafted", "legacy"] as const) {
-      const excluded = newDeck(db, "active", `${category} stats`);
+      const excluded = newDeck(db, "paper", `${category} stats`);
       add(db, excluded, "id-atraxa", { role: "commander" });
       add(db, excluded, "id-solring");
       add(db, excluded, "id-forest", { quantity: 10 });
@@ -205,7 +205,7 @@ describe("player statistics (spec §3)", () => {
   });
   test("Paper forks share a family through excluded ancestors", () => {
     const db = testDb();
-    const root = newDeck(db, "active", "Legacy root");
+    const root = newDeck(db, "paper", "Legacy root");
     add(db, root, "id-solring");
     setDeckCategory(db, OWNER, root, "legacy");
     const middle = forkDeck(db, OWNER, root, "Theorycrafted middle");
@@ -224,7 +224,7 @@ describe("focus and activity", () => {
   const db = testDb();
   test("focus names the deck on screen and the selected cards", () => {
     assert.equal(getFocus(db), null);
-    const id = newDeck(db, "active", "On screen");
+    const id = newDeck(db, "paper", "On screen");
     setFocus(db, id, ["id-solring", "id-nonexistent"]);
     const focus = getFocus(db)!;
     assert.deepEqual([focus.deck_id, focus.deck_name, focus.selected], [id, "On screen", ["Sol Ring"]]);

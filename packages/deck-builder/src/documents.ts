@@ -1,8 +1,7 @@
 // The two documents (spec §6) and the gate in front of them. The player
 // profile and each deck's brief are the owner's voice: the owner edits either
 // directly, and an agent proposes an edit the owner sees as a diff and rules
-// on. The one exception is a draft deck, whose brief an agent writes directly
-// for the same reason it edits the draft's cards directly (§5.2).
+// on. This applies to all editable decks; Legacy decks are read-only.
 
 import type { DatabaseSync } from "node:sqlite";
 import { recordActivity } from "./activity.ts";
@@ -12,7 +11,7 @@ import { withTransaction } from "./db.ts";
 import { type Actor, authorOf, requireOwner } from "./actor.ts";
 import { lintProse, requireCardById } from "./cards.ts";
 import { writeLog } from "./deck/log.ts";
-import { requireDeck } from "./deck/service.ts";
+import { requireDeck, requireEditableDeck } from "./deck/service.ts";
 import {
   type EnginePieceInput,
   getBrief,
@@ -73,6 +72,7 @@ export interface DocumentEditView {
   id: number;
   deck_id: number | null;
   deck_name: string | null;
+  read_only: boolean;
   kind: DocumentEditKind;
   payload: DocumentEditPayload;
   reason: string;
@@ -137,27 +137,27 @@ function applyEdit(
     case "profile":
       return writeProfile(db, payload.content ?? "");
     case "thesis":
-      return updateBrief(db, deckId!, { thesis: payload.content ?? "" });
+      return updateBrief(db, actor, deckId!, { thesis: payload.content ?? "" });
     case "constraints":
-      return updateBrief(db, deckId!, { constraints_md: payload.content ?? "" });
+      return updateBrief(db, actor, deckId!, { constraints_md: payload.content ?? "" });
     case "engine_set":
-      setEngine(db, deckId!, payload.engine_name!, payload.description ?? "", payload.pieces ?? []);
+      setEngine(db, actor, deckId!, payload.engine_name!, payload.description ?? "", payload.pieces ?? []);
       return;
     case "engine_remove":
-      return removeEngineByName(db, deckId!, payload.engine_name!);
+      return removeEngineByName(db, actor, deckId!, payload.engine_name!);
   }
 }
 
 export interface ProposeResult {
-  /** True when the edit took effect immediately (a draft deck's brief). */
+  /** True when the owner applied the edit directly. */
   applied: boolean;
   edit_id: number | null;
 }
 
 /**
  * Propose an edit to the profile (deckId null) or to a deck's brief. On a
- * draft deck a brief edit applies at once; everywhere else it waits for the
- * owner. The reason is required: it is what the owner rules on.
+ * Paper or Theorycrafted deck an agent edit waits for the owner. The reason
+ * is required: it is what the owner rules on.
  */
 export function proposeDocumentEdit(
   db: DatabaseSync,
@@ -169,16 +169,16 @@ export function proposeDocumentEdit(
 ): ProposeResult {
   if ((kind === "profile") !== (deckId == null))
     throw new ServiceError("A profile edit has no deck; a brief edit needs one");
-  const deck = deckId == null ? null : requireDeck(db, deckId);
+  if (deckId != null) requireEditableDeck(db, deckId);
   validateEdit(db, kind, deckId, payload);
   if (kind === "power_target") {
     if (actor.kind === "agent" && !reason?.trim()) throw new ServiceError("A power target needs a reason grounded in the owner's preferences");
     lintProse(db, reason);
   }
 
-  if (deck?.status === "draft" || actor.kind === "owner") {
+  if (actor.kind === "owner") {
     applyEdit(db, actor, kind, deckId, payload);
-    if (kind === "power_target") recordActivity(db, actor, "propose_power_target", deckId, `Set draft power target: ${reason}`);
+    if (kind === "power_target") recordActivity(db, actor, "propose_power_target", deckId, `Set power target: ${reason}`);
     return { applied: true, edit_id: null };
   }
 
@@ -222,6 +222,7 @@ function toView(db: DatabaseSync, row: EditRow): DocumentEditView {
   const nameOf = db.prepare("SELECT name FROM cards WHERE oracle_id = ?");
   return {
     ...rest,
+    read_only: row.deck_id != null && requireDeck(db, row.deck_id).category === "legacy",
     payload,
     stale,
     current: payload.content === undefined ? "" : currentText(db, row.kind, row.deck_id),
@@ -285,6 +286,7 @@ export function ruleDocumentEdit(
   const edit = db.prepare(`${EDIT_SELECT} WHERE e.id = ?`).get(editId) as EditRow | undefined;
   if (!edit) throw new ServiceError(`Proposed edit ${editId} not found`, 404);
   if (edit.status !== "pending") throw new ServiceError(`Proposed edit ${editId} is already ${edit.status}`);
+  if (edit.deck_id != null) requireEditableDeck(db, edit.deck_id);
   const payload = JSON.parse(edit.payload_json) as DocumentEditPayload;
 
   return withTransaction(db, () => {

@@ -11,7 +11,7 @@ import styles from "./CardControls.module.css";
 const ROLES = ["card", "commander", "companion"] as const;
 
 export function CardControls({ card }: { card: DeckCard }) {
-  const { slots, tags } = useDeckState();
+  const { slots, tags, deck } = useDeckState();
   const { deckId, run } = useDeck();
   const ui = useDeckUi();
   const [quantity, setQuantity] = useState(String(card.quantity));
@@ -34,10 +34,10 @@ export function CardControls({ card }: { card: DeckCard }) {
 
   const rows: Array<[string, ReactNode]> = [
     [
-      "Slot",
+      "Primary slot",
       <Select
         key="slot"
-        aria-label="Slot"
+        aria-label="Primary slot"
         value={card.slot_id ?? ""}
         onChange={(e) => void patch({ slot_id: e.target.value === "" ? null : Number(e.target.value) })}
       >
@@ -48,6 +48,18 @@ export function CardControls({ card }: { card: DeckCard }) {
           </option>
         ))}
       </Select>,
+    ],
+    [
+      "Secondary slots",
+      <MultiSelect
+        key={`purposes-${card.oracle_id}`}
+        label="Secondary slots"
+        placeholder="Select other purposes…"
+        options={slots.filter(s => s.id !== card.slot_id).map(s => ({ value: String(s.id), label: s.name }))}
+        value={card.secondary_slot_ids.map(String)}
+        onChange={ids => patch({ secondary_slot_ids: ids.map(Number) })}
+        emptyText="No other slots. Create purposes using Edit slots and tags."
+      />,
     ],
     [
       "Tags",
@@ -104,5 +116,11 @@ export function CardControls({ card }: { card: DeckCard }) {
       />,
     ]);
 
+  if (deck.category === "legacy") return <KeyValue items={[
+    ["Primary slot", slots.find(s => s.id === card.slot_id)?.name ?? "Unfiled"],
+    ["Secondary slots", slots.filter(s => card.secondary_slot_ids.includes(s.id)).map(s => s.name).join(", ") || "None"],
+    ["Tags", tags.filter(t => card.tag_ids.includes(t.id)).map(t => t.name).join(", ") || "None"],
+    ["Role", card.role], ["Copies", card.quantity],
+  ]} className={styles.kv} />;
   return <KeyValue items={rows} className={styles.kv} />;
 }

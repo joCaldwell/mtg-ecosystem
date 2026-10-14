@@ -43,6 +43,8 @@ export function MemoriesPage() {
     [scope, showOld, q],
   );
   // Unfiltered, so the scope pills and the budgets stay put while the list narrows.
+  const roster = useQuery(() => api.listDecks(), []);
+  const archived = new Set((roster.data ?? []).filter(d => d.category === "legacy").map(d => d.id));
   const overview = useQuery(() => api.listMemories({ status: "any" }), []);
 
   const decks = new Map<number, string>();
@@ -133,7 +135,7 @@ export function MemoriesPage() {
           />
         </div>
 
-        <AddMemory
+        {!(addToDeck != null && archived.has(addToDeck)) && <AddMemory
           key={addToDeck ?? "global"}
           scope={addToDeck != null ? "deck" : "global"}
           deckId={addToDeck ?? undefined}
@@ -141,9 +143,9 @@ export function MemoriesPage() {
             list.reload();
             overview.reload();
           }}
-        />
+        />}
         <span className={styles.addTo}>
-          {addToDeck != null
+          {addToDeck != null && archived.has(addToDeck) ? "Legacy deck memories are read-only." : addToDeck != null
             ? `Adding to ${decks.get(addToDeck)}, because that deck is selected above.`
             : "Adding a global memory. Select a deck above to add one to that deck instead."}
         </span>

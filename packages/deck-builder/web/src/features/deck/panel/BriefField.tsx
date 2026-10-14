@@ -10,6 +10,7 @@ import { Button, Eyebrow, Text, TextArea } from "../../../ui/index.ts";
 import styles from "./BriefField.module.css";
 
 interface BriefFieldProps {
+  readOnly?: boolean;
   title: string;
   value: string;
   /** What the field is for; shown when it is empty and in the editor. */
@@ -20,11 +21,11 @@ interface BriefFieldProps {
   children?: ReactNode;
 }
 
-export function BriefField({ title, value, purpose, onSave, children }: BriefFieldProps) {
+export function BriefField({ title, value, purpose, onSave, children, readOnly = false }: BriefFieldProps) {
   const [draft, setDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const area = useRef<HTMLTextAreaElement>(null);
-  const editing = draft !== null;
+  const editing = !readOnly && draft !== null;
 
   useEffect(() => {
     const el = area.current;
@@ -69,7 +70,7 @@ export function BriefField({ title, value, purpose, onSave, children }: BriefFie
               </Button>
             </>
           ) : (
-            <Button size="sm" variant="ghost" onClick={() => setDraft(value)} aria-label={`Edit the ${title.toLowerCase()}`}>
+            <Button size="sm" variant="ghost" onClick={() => setDraft(value)} disabled={readOnly} aria-label={`Edit the ${title.toLowerCase()}`}>
               Edit
             </Button>
           )}

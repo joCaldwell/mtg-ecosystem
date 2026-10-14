@@ -33,12 +33,12 @@ export interface LogInput {
 
 // Spec §8.4. An entry waits for an agent to read it when it is something the
 // owner did that an agent could learn from: every ruling, and every direct
-// change to an active deck. What an agent did itself needs no review, and
-// neither does the owner assembling a draft card by card.
-function awaitsReview(actor: Actor, kind: LogKind, deckStatus: string | null): boolean {
+// change to a Paper deck. What an agent did itself needs no review, and
+// neither does the owner assembling a Theorycrafted deck card by card.
+function awaitsReview(actor: Actor, kind: LogKind, deckCategory: string | null): boolean {
   if (actor.kind !== "owner") return false;
   if (kind === "accept" || kind === "reject") return true;
-  return deckStatus === "active";
+  return deckCategory === "paper";
 }
 
 export function writeLog(
@@ -50,8 +50,8 @@ export function writeLog(
   const deck =
     entry.deck_id == null
       ? null
-      : (db.prepare("SELECT revision, status FROM decks WHERE id = ?").get(entry.deck_id) as
-          | { revision: number; status: string }
+      : (db.prepare("SELECT revision, category FROM decks WHERE id = ?").get(entry.deck_id) as
+          | { revision: number; category: string }
           | undefined);
   if (entry.deck_id != null && !deck) throw new ServiceError(`Deck ${entry.deck_id} not found`, 404);
 
@@ -60,7 +60,7 @@ export function writeLog(
       `INSERT INTO log (deck_id, revision, kind, summary, ruling_reason, proposal_id,
                         document_edit_id, author, undo_of, reviewed_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${
-         awaitsReview(actor, entry.kind, deck?.status ?? null) ? "NULL" : "datetime('now')"
+         awaitsReview(actor, entry.kind, deck?.category ?? null) ? "NULL" : "datetime('now')"
        })`,
     )
     .run(
@@ -111,6 +111,7 @@ export interface LogCard {
 export interface LogEntry {
   id: number;
   deck_id: number | null;
+  read_only: boolean;
   deck_name: string | null;
   revision: number;
   kind: LogKind;
@@ -126,7 +127,7 @@ export interface LogEntry {
   cards: LogCard[];
 }
 
-const ENTRY_SELECT = `SELECT l.id, l.deck_id, d.name AS deck_name, l.revision, l.kind, l.summary,
+const ENTRY_SELECT = `SELECT l.id, l.deck_id, (d.category = 'legacy') AS read_only, d.name AS deck_name, l.revision, l.kind, l.summary,
        l.ruling_reason, l.proposal_id, l.document_edit_id, l.author, l.undo_of, l.undone_by,
        l.reviewed_at, l.ts
   FROM log l LEFT JOIN decks d ON d.id = l.deck_id`;
@@ -135,7 +136,7 @@ function withCards(db: DatabaseSync, rows: Array<Omit<LogEntry, "cards">>): LogE
   const stmt = db.prepare(
     "SELECT oracle_id, card_name, action, quantity, item_id, reason FROM log_cards WHERE log_id = ? ORDER BY id",
   );
-  return rows.map((r) => ({ ...r, cards: stmt.all(r.id) as unknown as LogCard[] }));
+  return rows.map((r) => ({ ...r, read_only: !!r.read_only, cards: stmt.all(r.id) as unknown as LogCard[] }));
 }
 
 export interface LogQuery {

@@ -25,7 +25,9 @@ export function MaybeRow({ card, slotName, filterMatch }: { card: DeckCard; slot
       >
         {card.name}
       </button>
-      <span className={styles.note}>{card.maybe_note && <InlineText text={card.maybe_note} />}</span>
+      <span className={styles.note}>
+        {card.maybe_note && <InlineText text={card.maybe_note} />}
+      </span>
       {slotName && <Chip>{slotName}</Chip>}
       <ManaCost cost={card.mana_cost} />
       <Price cents={card.usd_cents} column />

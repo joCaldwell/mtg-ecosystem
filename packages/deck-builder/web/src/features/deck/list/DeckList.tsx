@@ -88,6 +88,10 @@ export function DeckList({ view }: { view: DeckViewModel }) {
                 projected={reviewing ? overlay.projected.get(g.key) : undefined}
                 cost={g.cost}
                 cards={g.cards}
+                secondaryCards={g.secondaryCards}
+                commandZoneCards={g.commandZoneCards}
+                primaryCount={g.primaryCount}
+                secondaryCount={g.secondaryCount}
                 adds={addsByGroup.get(g.key)}
                 cuts={cuts}
                 current={current}

@@ -9,7 +9,7 @@ import {
   markReviewed,
   unreviewedCount,
 } from "../src/deck/log.ts";
-import { createSlot, createTag, getDeck, organizeCard, setDeckStatus } from "../src/deck/service.ts";
+import { createSlot, createTag, getDeck, organizeCard, setDeckCategory } from "../src/deck/service.ts";
 import { AGENT, add, cut, newDeck, testDb } from "./helpers.ts";
 
 const db = testDb();
@@ -76,27 +76,27 @@ describe("one act, one revision, one log entry (spec §5.1, §8.2)", () => {
   });
 });
 
-describe("draft and active (spec §5.2)", () => {
-  test("an agent edits a draft directly and is logged as its author", () => {
-    const id = newDeck(db, "draft");
+describe("Theorycrafted and Paper (spec §5.2)", () => {
+  test("an agent edits Theorycrafted cards directly and is logged as its author", () => {
+    const id = newDeck(db, "theorycrafted");
     const logId = applyChanges(db, AGENT, id, [{ action: "add", oracle_id: "id-solring" }], {
       kind: "edit",
     })!;
     assert.deepEqual(names(id), ["Sol Ring"]);
     assert.equal(getLogEntry(db, logId)!.author, "test-agent");
   });
-  test("an agent cannot change an active deck's cards, and is told what to do instead", () => {
-    const id = newDeck(db, "active");
+  test("an agent cannot change a Paper deck's cards, and is told what to do instead", () => {
+    const id = newDeck(db, "paper");
     assert.throws(
       () => applyChanges(db, AGENT, id, [{ action: "add", oracle_id: "id-solring" }], { kind: "edit" }),
       (e: Error) => e instanceof PermissionError && /propose_changes/.test(e.message),
     );
     assert.deepEqual(names(id), []);
   });
-  test("returning a deck to draft reopens it to an agent; an agent can never rule or undo", () => {
-    const id = newDeck(db, "active");
+  test("changing a deck to Theorycrafted reopens it to an agent; an agent can never rule or undo", () => {
+    const id = newDeck(db, "paper");
     const logId = add(db, id, "id-solring")!;
-    setDeckStatus(db, OWNER, id, "draft");
+    setDeckCategory(db, OWNER, id, "theorycrafted");
     applyChanges(db, AGENT, id, [{ action: "add", oracle_id: "id-forest" }], { kind: "edit" });
     assert.deepEqual(names(id), ["Forest", "Sol Ring"]);
     assert.throws(() => undo(db, AGENT, logId), PermissionError);
@@ -205,10 +205,10 @@ describe("prior rulings follow the card (spec §8.3)", () => {
 });
 
 describe("the review queue (spec §8.4)", () => {
-  test("the owner's changes to an active deck wait for an agent; draft assembly and agent edits do not", () => {
+  test("the owner's changes to a Paper deck wait for an agent; draft assembly and agent edits do not", () => {
     const fresh = testDb();
-    const active = newDeck(fresh, "active");
-    const draft = newDeck(fresh, "draft");
+    const active = newDeck(fresh, "paper");
+    const draft = newDeck(fresh, "theorycrafted");
     add(fresh, draft, "id-solring");
     applyChanges(fresh, AGENT, draft, [{ action: "add", oracle_id: "id-forest" }], { kind: "edit" });
     assert.equal(unreviewedCount(fresh), 0);

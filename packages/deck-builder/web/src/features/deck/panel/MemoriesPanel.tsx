@@ -10,7 +10,7 @@ import { useDeck, useDeckState } from "../DeckStore.tsx";
 import styles from "./MemoriesPanel.module.css";
 
 export function MemoriesPanel() {
-  const { memory_budget: budget } = useDeckState();
+  const { memory_budget: budget, deck } = useDeckState();
   const { deckId } = useDeck();
   const list = useQuery(() => api.listMemories({ scope: "deck", deck: deckId }), [deckId]);
   const memories = list.data?.memories ?? [];
@@ -47,7 +47,7 @@ export function MemoriesPanel() {
             No memories for this deck yet. Agents add them as they learn how you play it, or you can write one below.
           </Text>
         )}
-        <AddMemory scope="deck" deckId={deckId} onAdded={list.reload} />
+        {deck.category !== "legacy" && <AddMemory scope="deck" deckId={deckId} onAdded={list.reload} />}
       </section>
 
       <a className={styles.all} href={href({ page: "memories" })}>

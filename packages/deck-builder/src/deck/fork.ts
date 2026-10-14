@@ -1,5 +1,5 @@
 // Forks and comparison (spec §5.3). A fork copies a deck's list,
-// organization, brief and deck memories into a new draft and records the
+// organization, brief and deck memories into a new Theorycrafted deck and records the
 // parent. The copies then diverge; the link exists so the two can be compared.
 // Forks replace named checkpoints: there is no snapshot system and no DAG.
 
@@ -15,7 +15,7 @@ import { createDeck, getDeck, recomputeIdentity, requireDeck } from "./service.t
 export function forkDeck(db: DatabaseSync, actor: Actor, deckId: number, name: string): number {
   const parent = requireDeck(db, deckId);
   return withTransaction(db, () => {
-    const forkId = createDeck(db, name, { status: "draft", parentId: deckId });
+    const forkId = createDeck(db, name, { parentId: deckId });
 
     const slotMap = new Map<number, number>();
     const insSlot = db.prepare(
@@ -68,6 +68,12 @@ export function forkDeck(db: DatabaseSync, actor: Actor, deckId: number, name: s
         c.maybe_note,
         c.quantity,
       );
+
+    const insSecondary = db.prepare("INSERT INTO deck_card_secondary_slots (deck_id, oracle_id, slot_id) VALUES (?, ?, ?)");
+    for (const c of db.prepare("SELECT oracle_id, slot_id FROM deck_card_secondary_slots WHERE deck_id = ?").all(deckId) as unknown as { oracle_id: string; slot_id: number }[]) {
+      const slotId = slotMap.get(c.slot_id);
+      if (slotId != null) insSecondary.run(forkId, c.oracle_id, slotId);
+    }
 
     const insCardTag = db.prepare(
       "INSERT INTO deck_card_tags (deck_id, oracle_id, tag_id) VALUES (?, ?, ?)",

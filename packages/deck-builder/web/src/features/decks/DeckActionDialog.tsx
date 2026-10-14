@@ -16,7 +16,7 @@ export function DeckActionDialog({ deck, action, onClose, onSaved }: {
   const [category, setCategory] = useState<DeckCategory>(deck.category);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const title = action === "rename" ? "Rename deck" : action === "category" ? "Change category" : "Delete deck";
+  const title = action === "rename" ? "Rename deck" : action === "category" ? "Change lifecycle" : "Delete deck";
   const unchanged = action === "rename" ? name.trim() === deck.name : action === "category" ? category === deck.category : false;
 
   async function submit(e: FormEvent) {
@@ -68,7 +68,7 @@ export function DeckActionDialog({ deck, action, onClose, onSaved }: {
               <TextField data-autofocus value={name} disabled={busy} onFocus={(e) => e.currentTarget.select()} onChange={(e) => setName(e.target.value)} autoComplete="off" />
             </Field>
           ) : action === "category" ? (
-            <Field label={`Category for ${deck.name}`} hint="Paper for physical decks, Theorycrafted for ideas, Legacy for past decks.">
+            <Field label={`Lifecycle for ${deck.name}`} hint="Paper requires agent card proposals; Theorycrafted allows direct agent card edits; Legacy is read-only. Only you can change lifecycle.">
               <Select data-autofocus value={category} disabled={busy} onChange={(e) => setCategory(e.target.value as DeckCategory)}>
                 {DECK_CATEGORY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </Select>

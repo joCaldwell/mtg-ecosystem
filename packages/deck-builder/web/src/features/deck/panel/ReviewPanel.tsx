@@ -17,6 +17,8 @@ export function ReviewPanel({ view, review }: { view: DeckViewModel; review: Rev
   const state = useDeckState();
   const ui = useDeckUi();
 
+  if (state.deck.category === "legacy") return <Text tone="muted">Pending proposals are preserved. Restore this deck to rule on them.</Text>;
+
   // Units come oldest proposal first, so the proposals do too.
   const proposals = state.proposals
     .filter((p) => view.units.some((u) => u.proposalId === p.id))

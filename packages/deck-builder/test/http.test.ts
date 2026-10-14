@@ -13,7 +13,7 @@ import { add, newDeck, testDb } from "./helpers.ts";
 
 const TOKEN = "test-token-0123456789";
 const db = testDb();
-const deck = newDeck(db, "active", "Served deck");
+const deck = newDeck(db, "paper", "Served deck");
 add(db, deck, "id-teferi", { role: "commander" });
 
 const app = createApp(db, { token: TOKEN });
@@ -89,7 +89,7 @@ describe("the agent endpoint, through the official MCP client (spec §10.1)", ()
     assert.equal(failed.isError, true);
 
     const refused = await client.callTool({
-      name: "edit_draft",
+      name: "edit_cards",
       arguments: { deck, add: [{ card: "Sol Ring" }] },
     });
     assert.equal(refused.isError, true);
@@ -103,17 +103,16 @@ describe("the agent endpoint, through the official MCP client (spec §10.1)", ()
     assert.match(textOf(unknown), /Did you mean: Sol Ring/);
     await client.close();
   });
-  test("an agent can create, rename, classify and delete through the official client", async () => {
+  test("an agent can create, rename and delete through the official client", async () => {
     const client = await connect("/mcp/deck-manager", true);
     const run = async (name: string, args: Record<string, unknown>) => {
       const result = await client.callTool({ name, arguments: args });
       assert.ok(!result.isError, textOf(result));
       return textOf(result);
     };
-    await run("create_deck", { name: "MCP managed deck", category: "paper" });
+    await run("create_deck", { name: "MCP managed deck" });
     await run("rename_deck", { deck: "MCP managed deck", name: "MCP renamed deck" });
-    await run("set_deck_category", { deck: "MCP renamed deck", category: "legacy" });
-    assert.match(await run("get_deck", { deck: "MCP renamed deck", sections: ["state"] }), /category legacy/);
+    assert.match(await run("get_deck", { deck: "MCP renamed deck", sections: ["state"] }), /lifecycle theorycrafted/);
     assert.match(await run("delete_deck", { deck: "MCP renamed deck" }), /This cannot be undone/);
     assert.equal(listActivity(db)[0].actor, "deck-manager");
     assert.equal(listActivity(db)[0].action, "delete_deck");
@@ -234,6 +233,34 @@ describe("the UI's API", () => {
   const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
     api(path, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) });
 
+  test("primary and secondary purposes round-trip through HTTP and the official MCP client", async () => {
+    const created = await (await post("/api/decks", { name: "Purpose endpoint deck" })).json();
+    const id = created.state.deck.id;
+    const client = await connect("/mcp/purposes-test");
+    try {
+      const slots = await client.callTool({ name: "define_slots", arguments: { deck: id, slots: [
+        { name: "Ramp", target_min: 1, target_max: 1 }, { name: "Utility", target_min: 1, target_max: 1 },
+      ] } });
+      assert.ok(!slots.isError, textOf(slots));
+      const name = (db.prepare("SELECT name FROM cards WHERE oracle_id = 'id-solring'").get() as { name: string }).name;
+      const added = await client.callTool({ name: "edit_cards", arguments: { deck: id, add: [{ card: name, slot: "Ramp", secondary_slots: ["Utility"] }] } });
+      assert.ok(!added.isError, textOf(added));
+      assert.match(textOf(added), /100/);
+      const state = (await (await api(`/api/decks/${id}`)).json()).state;
+      const utility = state.slots.find((s: any) => s.name === "Utility").id;
+      assert.deepEqual(state.cards[0].secondary_slot_ids, [utility]);
+      assert.equal(state.computed.slot_deltas.find((s: any) => s.slot_id === utility).count, 0);
+      const patch = (body: unknown) => api(`/api/decks/${id}/cards/id-solring`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      assert.equal((await patch({ quantity: 2, secondary_slot_ids: [-1] })).status, 400);
+      const unchanged = (await (await api(`/api/decks/${id}`)).json()).state;
+      assert.equal(unchanged.cards[0].quantity, 1);
+      assert.equal(unchanged.deck.revision, state.deck.revision);
+      assert.equal((await patch({ secondary_slot_ids: [] })).status, 200);
+      const read = await client.callTool({ name: "get_deck", arguments: { deck: id, sections: ["state"] } });
+      assert.match(textOf(read), /Utility: 0 primary .*0 secondary/);
+    } finally { await client.close(); }
+  });
+
   test("assembly uses ordinary tags through HTTP and MCP; obsolete paper endpoints are absent", async () => {
     const created = await (await post("/api/decks", { name: "Tagged assembly", category: "paper" })).json();
     const id = created.state.deck.id;
@@ -296,7 +323,7 @@ describe("the UI's API", () => {
     const created = await (await post("/api/decks", { name: "Paper deck", category: "paper" })).json();
     const id = created.state.deck.id;
     assert.equal(created.state.deck.category, "paper");
-    assert.equal(created.state.deck.status, "draft");
+    assert.ok(!("status" in created.state.deck));
     const patch = (body: unknown) => api(`/api/decks/${id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
@@ -304,12 +331,13 @@ describe("the UI's API", () => {
     assert.equal(updated.state.deck.category, "legacy");
     assert.equal((await (await api(`/api/decks/${id}`)).json()).state.deck.category, "legacy");
     assert.equal((await (await api("/api/decks")).json()).find((d: any) => d.id === id).category, "legacy");
+    await patch({ category: "paper" });
     const invalid = await patch({ name: "Should roll back", category: "unknown" });
     assert.equal(invalid.status, 400);
     assert.match((await invalid.json()).error, /Deck category must be/);
     const unchanged = await (await api(`/api/decks/${id}`)).json();
     assert.equal(unchanged.state.deck.name, "Paper deck");
-    assert.equal(unchanged.state.deck.category, "legacy");
+    assert.equal(unchanged.state.deck.category, "paper");
     for (const category of [null, "unknown", 1]) {
       assert.equal((await post("/api/decks", { name: "Invalid category", category })).status, 400);
     }
@@ -318,10 +346,52 @@ describe("the UI's API", () => {
     assert.equal(defaulted.state.deck.category, "theorycrafted");
   });
 
+  test("Legacy is read-only through HTTP and MCP, and owner restoration reopens pending work", async () => {
+    const created = await (await post("/api/decks", { name: "Archived API deck", category: "paper" })).json();
+    const id = created.state.deck.id;
+    await post(`/api/decks/${id}/cards`, { oracle_id: "id-solring" });
+    const client = await connect();
+    try {
+      await client.callTool({ name: "propose_changes", arguments: { deck: id,
+        items: [{ action: "cut", card: "Sol Ring", reason: "Owner requested a slower deck." }] } });
+      await client.callTool({ name: "propose_brief_edit", arguments: { deck: id,
+        kind: "thesis", text: "Slower plan", reason: "Owner requested slower games." } });
+      const pending = await (await api("/api/inbox")).json();
+      const item = pending.proposals.find((p: any) => p.deck_id === id).items[0].id;
+      const edit = pending.document_edits.find((e: any) => e.deck_id === id).id;
+      const patch = (body: unknown) => api(`/api/decks/${id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      assert.equal((await patch({ category: "legacy" })).status, 200);
+      for (const result of [
+        await post(`/api/decks/${id}/cards`, { oracle_id: "id-forest" }),
+        await api(`/api/decks/${id}/brief`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ thesis: "Changed" }) }),
+        await patch({ name: "Changed archive" }),
+        await api(`/api/decks/${id}`, { method: "DELETE" }),
+        await post(`/api/decks/${id}/items/rule`, { item_ids: [item], outcome: "accept" }),
+        await post(`/api/document-edits/${edit}/rule`, { outcome: "accept" }),
+      ]) assert.equal(result.status, 403);
+      const blocked = await client.callTool({ name: "edit_cards", arguments: { deck: id,
+        remove: [{ card: "Sol Ring" }] } });
+      assert.equal(blocked.isError, true);
+      assert.match(textOf(blocked), /read-only/);
+      const hidden = await (await api("/api/inbox")).json();
+      assert.ok(!hidden.proposals.some((p: any) => p.deck_id === id));
+      assert.ok(!hidden.document_edits.some((e: any) => e.deck_id === id));
+      assert.equal((await post(`/api/decks/${id}/fork`, { name: "Archived API fork" })).status, 200);
+      assert.equal((await patch({ category: "theorycrafted" })).status, 200);
+      const restored = await (await api("/api/inbox")).json();
+      assert.ok(restored.proposals.some((p: any) => p.deck_id === id));
+      assert.ok(restored.document_edits.some((e: any) => e.deck_id === id));
+      assert.equal((await post(`/api/document-edits/${edit}/rule`, { outcome: "reject" })).status, 200);
+      assert.equal((await post(`/api/decks/${id}/items/rule`, { item_ids: [item], outcome: "reject" })).status, 200);
+    } finally { await client.close(); }
+  });
+
   test("acts as the owner: adds a card, rules on a proposal, undoes it", async () => {
     const added = await (await post(`/api/decks/${deck}/cards`, { oracle_id: "id-counterspell" })).json();
     assert.equal(added.state.computed.card_count, 2);
-    assert.equal(added.state.deck.status, "active");
+    assert.equal(added.state.deck.category, "paper");
     assert.ok(Array.isArray(added.state.checks));
 
     const client = await connect();

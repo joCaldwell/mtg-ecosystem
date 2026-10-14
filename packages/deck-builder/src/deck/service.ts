@@ -6,13 +6,12 @@
 import type { DatabaseSync } from "node:sqlite";
 import { ServiceError } from "../errors.ts";
 import { withTransaction } from "../db.ts";
-import { type Actor, requireOwner } from "../actor.ts";
+import { type Actor, PermissionError, requireOwner } from "../actor.ts";
 import { recordActivity } from "../activity.ts";
 import { requireCardById } from "../cards.ts";
 import { estimateCost, pricesAsOf } from "../prices.ts";
 
 export type Role = "card" | "commander" | "companion";
-export type DeckStatus = "draft" | "active";
 export type DeckCategory = "paper" | "theorycrafted" | "legacy";
 
 // Card types and supertypes. Slots and tags say what a card *does* — "ramp",
@@ -81,7 +80,6 @@ export function copyLimit(card: { type_line: string; oracle_text?: string }): nu
 export interface DeckRow {
   id: number;
   name: string;
-  status: DeckStatus;
   category: DeckCategory;
   parent_id: number | null;
   ci_mask: number | null;
@@ -93,14 +91,16 @@ export interface DeckRow {
 export function createDeck(
   db: DatabaseSync,
   name: string,
-  opts: { status?: DeckStatus; parentId?: number | null } = {},
+  opts: { category?: DeckCategory; parentId?: number | null } = {},
 ): number {
   const trimmed = name.trim();
   if (!trimmed) throw new ServiceError("Deck name cannot be empty");
+  if (opts.category !== undefined && !["paper", "theorycrafted", "legacy"].includes(opts.category))
+    throw new ServiceError("Deck category must be 'paper', 'theorycrafted' or 'legacy'");
   try {
     const r = db
-      .prepare("INSERT INTO decks (name, status, parent_id) VALUES (?, ?, ?)")
-      .run(trimmed, opts.status ?? "draft", opts.parentId ?? null);
+      .prepare("INSERT INTO decks (name, category, parent_id) VALUES (?, ?, ?)")
+      .run(trimmed, opts.category ?? "theorycrafted", opts.parentId ?? null);
     return Number(r.lastInsertRowid);
   } catch (e: any) {
     if (String(e.message).includes("UNIQUE"))
@@ -110,7 +110,7 @@ export function createDeck(
 }
 
 export function renameDeck(db: DatabaseSync, actor: Actor, deckId: number, name: string): void {
-  const deck = requireDeck(db, deckId);
+  const deck = requireEditableDeck(db, deckId);
   const trimmed = name.trim();
   if (!trimmed) throw new ServiceError("Deck name cannot be empty");
   try {
@@ -126,7 +126,7 @@ export function renameDeck(db: DatabaseSync, actor: Actor, deckId: number, name:
 }
 
 export function deleteDeck(db: DatabaseSync, actor: Actor, deckId: number): void {
-  const deck = requireDeck(db, deckId);
+  const deck = requireEditableDeck(db, deckId);
   withTransaction(db, () => {
     db.prepare("DELETE FROM decks WHERE id = ?").run(deckId);
     // The deck no longer exists; its name stays in the audit summary.
@@ -134,27 +134,14 @@ export function deleteDeck(db: DatabaseSync, actor: Actor, deckId: number): void
   });
 }
 
-/** Spec §5.2: only the owner moves a deck between draft and active. */
-export function setDeckStatus(
-  db: DatabaseSync,
-  actor: Actor,
-  deckId: number,
-  status: DeckStatus,
-): void {
-  requireOwner(actor, "switch a deck between draft and active");
-  requireDeck(db, deckId);
-  if (status !== "draft" && status !== "active")
-    throw new ServiceError("Deck status must be 'draft' or 'active'");
-  db.prepare("UPDATE decks SET status = ? WHERE id = ?").run(status, deckId);
-}
-
-/** Spec §5.6: classification never changes membership or permissions. */
+/** Only the owner changes lifecycle: it controls agent permissions. */
 export function setDeckCategory(
   db: DatabaseSync,
   actor: Actor,
   deckId: number,
   category: DeckCategory,
 ): void {
+  requireOwner(actor, "change a deck’s lifecycle");
   const deck = requireDeck(db, deckId);
   if (category !== "paper" && category !== "theorycrafted" && category !== "legacy")
     throw new ServiceError("Deck category must be 'paper', 'theorycrafted' or 'legacy'");
@@ -173,6 +160,7 @@ export function setDeckParent(
   deckId: number,
   parentId: number | null,
 ): void {
+  requireEditableDeck(db, deckId);
   requireOwner(actor, "change which deck a deck was forked from");
   const deck = requireDeck(db, deckId);
   if (parentId != null) {
@@ -193,7 +181,6 @@ export function setDeckParent(
 export interface DeckSummary {
   id: number;
   name: string;
-  status: DeckStatus;
   category: DeckCategory;
   parent_id: number | null;
   parent_name: string | null;
@@ -210,7 +197,7 @@ export interface DeckSummary {
 export function listDecks(db: DatabaseSync): DeckSummary[] {
   const rows = db
     .prepare(
-      `SELECT d.id, d.name, d.status, d.category, d.parent_id, p.name AS parent_name, d.color_identity,
+      `SELECT d.id, d.name, d.category, d.parent_id, p.name AS parent_name, d.color_identity,
               d.revision, d.created_at,
               COALESCE((SELECT SUM(quantity) FROM deck_cards dc
                         WHERE dc.deck_id = d.id AND dc.role != 'companion' AND dc.maybe = 0), 0) AS card_count,
@@ -241,8 +228,25 @@ export function requireDeck(db: DatabaseSync, deckId: number): DeckRow {
   return deck;
 }
 
+/** All writes to an archived deck pass this guard, including organization. */
+export function requireEditableDeck(db: DatabaseSync, deckId: number): DeckRow {
+  const deck = requireDeck(db, deckId);
+  if (deck.category === "legacy")
+    throw new PermissionError(`"${deck.name}" is a Legacy deck and is read-only. Fork it to explore changes, or have the owner restore it to Paper or Theorycrafted.`);
+  return deck;
+}
+
+/** The shared permission gate for direct membership changes. */
+export function requireDirectCardEdit(db: DatabaseSync, actor: Actor, deckId: number): DeckRow {
+  const deck = requireEditableDeck(db, deckId);
+  if (actor.kind === "agent" && deck.category === "paper")
+    throw new PermissionError(`"${deck.name}" is a Paper deck, so its cards change only through a proposal the owner accepts. Use propose_changes. Agents edit Theorycrafted cards directly with edit_cards; only the owner can change lifecycle.`);
+  return deck;
+}
+
 // Deck identity = union of commander identities (spec §5.1, denormalized).
 export function recomputeIdentity(db: DatabaseSync, deckId: number): void {
+  requireEditableDeck(db, deckId);
   const commanders = db
     .prepare(
       `SELECT c.ci_mask, c.color_identity FROM deck_cards dc JOIN cards c ON c.oracle_id = dc.oracle_id
@@ -269,7 +273,9 @@ export function recomputeIdentity(db: DatabaseSync, deckId: number): void {
 
 export interface DeckCardRow {
   oracle_id: string;
+  /** The card's primary purpose. */
   slot_id: number | null;
+  secondary_slot_ids: number[];
   role: Role;
   maybe: number;
   maybe_note: string;
@@ -281,12 +287,19 @@ export function findDeckCard(
   deckId: number,
   oracleId: string,
 ): DeckCardRow | undefined {
-  return db
+  const row = db
     .prepare(
       `SELECT oracle_id, slot_id, role, maybe, maybe_note, quantity
        FROM deck_cards WHERE deck_id = ? AND oracle_id = ?`,
     )
     .get(deckId, oracleId) as DeckCardRow | undefined;
+  if (row) row.secondary_slot_ids = secondarySlotsOf(db, deckId, oracleId);
+  return row;
+}
+
+export function secondarySlotsOf(db: DatabaseSync, deckId: number, oracleId: string): number[] {
+  return (db.prepare("SELECT slot_id FROM deck_card_secondary_slots WHERE deck_id = ? AND oracle_id = ? ORDER BY slot_id")
+    .all(deckId, oracleId) as unknown as { slot_id: number }[]).map(r => r.slot_id);
 }
 
 function requireDeckCard(db: DatabaseSync, deckId: number, oracleId: string): DeckCardRow {
@@ -364,7 +377,7 @@ export function createSlot(
   targetMin: number | null = null,
   targetMax: number | null = null,
 ): number {
-  requireDeck(db, deckId);
+  requireEditableDeck(db, deckId);
   const valid = validateVocabName(name);
   validateTargets(targetMin, targetMax);
   const { p } = db
@@ -390,6 +403,7 @@ export function updateSlot(
   slotId: number,
   patch: { name?: string; targetMin?: number | null; targetMax?: number | null },
 ): void {
+  requireEditableDeck(db, deckId);
   const slot = requireSlot(db, deckId, slotId);
   const name = patch.name !== undefined ? validateVocabName(patch.name) : slot.name;
   const min = patch.targetMin !== undefined ? patch.targetMin : slot.target_min;
@@ -410,6 +424,7 @@ export function updateSlot(
 }
 
 export function deleteSlot(db: DatabaseSync, deckId: number, slotId: number): void {
+  requireEditableDeck(db, deckId);
   requireSlot(db, deckId, slotId);
   db.prepare("DELETE FROM slots WHERE id = ?").run(slotId);
 }
@@ -455,7 +470,7 @@ export function similarTag(existing: string[], candidate: string): string | null
 }
 
 export function createTag(db: DatabaseSync, deckId: number, name: string): number {
-  requireDeck(db, deckId);
+  requireEditableDeck(db, deckId);
   const valid = validateVocabName(name);
   const clash = similarTag(
     listTags(db, deckId).map((t) => t.name),
@@ -471,6 +486,7 @@ export function createTag(db: DatabaseSync, deckId: number, name: string): numbe
 }
 
 export function renameTag(db: DatabaseSync, deckId: number, tagId: number, name: string): void {
+  requireEditableDeck(db, deckId);
   requireTag(db, deckId, tagId);
   const valid = validateVocabName(name);
   const clash = similarTag(listTags(db, deckId).filter((tag) => tag.id !== tagId).map((tag) => tag.name), valid);
@@ -489,6 +505,7 @@ export function renameTag(db: DatabaseSync, deckId: number, tagId: number, name:
 }
 
 export function deleteTag(db: DatabaseSync, deckId: number, tagId: number): void {
+  requireEditableDeck(db, deckId);
   requireTag(db, deckId, tagId);
   db.prepare("DELETE FROM tags WHERE id = ?").run(tagId);
 }
@@ -502,36 +519,51 @@ function findOrCreateTag(db: DatabaseSync, deckId: number, name: string): number
 // ---------- organization of cards (spec §5.4) ----------
 
 export interface OrganizePatch {
-  /** Slot id, or null to unslot. Omit to leave the slot alone. */
+  /** Primary slot id, or null to clear it. Omit to leave it alone. */
   slotId?: number | null;
+  /** Replace secondary purposes; [] clears them. Omit to keep them. */
+  secondarySlotIds?: number[];
   /** Replace the card's tags with exactly these tag ids. */
   tagIds?: number[];
 }
 
-/** File one card: its slot and its tags. Changes no membership. */
+export function validateSlotAssignments(db: DatabaseSync, deckId: number, primary: number | null, secondary: number[]): void {
+  if (primary != null && (!Number.isSafeInteger(primary) || primary < 1))
+    throw new ServiceError("Primary slot ID must be a positive integer or null");
+  if (!Array.isArray(secondary) || secondary.some(id => !Number.isSafeInteger(id) || id < 1))
+    throw new ServiceError("Secondary slot IDs must be an array of positive integers");
+  if (primary != null) requireSlot(db, deckId, primary);
+  for (const id of secondary) requireSlot(db, deckId, id);
+  if (primary != null && secondary.includes(primary))
+    throw new ServiceError("A primary slot cannot also be secondary");
+}
+
+/** File one card's purposes and management tags. Changes no membership. */
 export function organizeCard(
   db: DatabaseSync,
   deckId: number,
   oracleId: string,
   patch: OrganizePatch,
 ): void {
+  requireEditableDeck(db, deckId);
   withTransaction(db, () => {
     const row = requireDeckCard(db, deckId, oracleId);
     if (patch.tagIds !== undefined && (!Array.isArray(patch.tagIds) || patch.tagIds.some((id) => !Number.isSafeInteger(id) || id < 1)))
       throw new ServiceError("Tag IDs must be an array of positive integers");
-    if (patch.slotId !== undefined) {
-      if (patch.slotId != null) {
-        requireSlot(db, deckId, patch.slotId);
-        if (row.role !== "card")
-          throw new ServiceError(
-            `A ${row.role} is in the command zone, which is not part of any slot`,
-          );
-      }
+    if (patch.slotId !== undefined || patch.secondarySlotIds !== undefined) {
+      const primary = patch.slotId !== undefined ? patch.slotId : row.slot_id;
+      // Promoting a secondary purpose removes its secondary assignment. An
+      // explicit duplicate is an error, so ambiguous writes never land.
+      const secondary = patch.secondarySlotIds !== undefined ? patch.secondarySlotIds : row.secondary_slot_ids.filter(id => id !== primary);
+      validateSlotAssignments(db, deckId, primary, secondary);
+      db.prepare("DELETE FROM deck_card_secondary_slots WHERE deck_id = ? AND oracle_id = ?").run(deckId, oracleId);
       db.prepare("UPDATE deck_cards SET slot_id = ? WHERE deck_id = ? AND oracle_id = ?").run(
-        patch.slotId,
+        primary,
         deckId,
         oracleId,
       );
+      const ins = db.prepare("INSERT INTO deck_card_secondary_slots (deck_id, oracle_id, slot_id) VALUES (?, ?, ?)");
+      for (const id of new Set(secondary)) ins.run(deckId, oracleId, id);
     }
     if (patch.tagIds !== undefined) {
       for (const tagId of patch.tagIds) requireTag(db, deckId, tagId);
@@ -549,22 +581,31 @@ export function organizeCard(
 
 export interface FilingInput {
   oracle_id: string;
-  /** Slot name; null unslots; undefined leaves the slot alone. */
+  /** Primary slot name; null clears it; undefined leaves it alone. */
   slot?: string | null;
+  /** Replace secondary purposes by name; [] clears them. */
+  secondary_slots?: string[];
   add_tags?: string[];
   remove_tags?: string[];
 }
 
 // Bulk filing by name, for agents: every entry lands or none does. Tags named
 // here are created if the deck lacks them, subject to the near-duplicate rule.
-export function fileCards(db: DatabaseSync, deckId: number, filings: FilingInput[]): void {
-  requireDeck(db, deckId);
+export function fileCards(db: DatabaseSync, deckId: number, filings: FilingInput[], removeUnusedTags: string[] = []): void {
+  requireEditableDeck(db, deckId);
+  if (!Array.isArray(removeUnusedTags) || removeUnusedTags.some(name => typeof name !== "string"))
+    throw new ServiceError("Unused tags to remove must be an array of tag names");
   withTransaction(db, () => {
     for (const f of filings) {
       requireDeckCard(db, deckId, f.oracle_id);
       const patch: OrganizePatch = {};
       if (f.slot !== undefined)
         patch.slotId = f.slot === null ? null : requireSlotByName(db, deckId, f.slot).id;
+      if (f.secondary_slots !== undefined) {
+        if (!Array.isArray(f.secondary_slots) || f.secondary_slots.some(name => typeof name !== "string"))
+          throw new ServiceError("Secondary slots must be an array of slot names");
+        patch.secondarySlotIds = f.secondary_slots.map(name => requireSlotByName(db, deckId, name).id);
+      }
       if (f.add_tags?.length || f.remove_tags?.length) {
         const current = new Set(
           (
@@ -584,6 +625,15 @@ export function fileCards(db: DatabaseSync, deckId: number, filings: FilingInput
       }
       organizeCard(db, deckId, f.oracle_id, patch);
     }
+    // Explicit vocabulary cleanup, never inferred from an empty assignment.
+    // Reserved status tags can stay even while no card carries them.
+    for (const name of removeUnusedTags) {
+      const tag = listTags(db, deckId).find(t => t.name.toLowerCase() === name.trim().toLowerCase());
+      if (!tag) continue;
+      if (db.prepare("SELECT 1 FROM deck_card_tags WHERE deck_id = ? AND tag_id = ? LIMIT 1").get(deckId, tag.id))
+        throw new ServiceError(`Tag '${tag.name}' is still assigned; remove its assignments before removing it from the vocabulary`);
+      deleteTag(db, deckId, tag.id);
+    }
   });
 }
 
@@ -600,7 +650,7 @@ export interface SlotSpec {
 // Create, rename, retarget and remove slots in one transactional call. A slot
 // named here that does not exist is created; one that exists is updated.
 export function defineSlots(db: DatabaseSync, deckId: number, specs: SlotSpec[]): void {
-  requireDeck(db, deckId);
+  requireEditableDeck(db, deckId);
   withTransaction(db, () => {
     for (const s of specs) {
       const existing = findSlotByName(db, deckId, s.name);
@@ -634,7 +684,7 @@ export function shortlistCard(
   oracleId: string,
   note = "",
 ): void {
-  requireDeck(db, deckId);
+  requireEditableDeck(db, deckId);
   const card = requireCardById(db, oracleId);
   const existing = findDeckCard(db, deckId, oracleId);
   if (existing && !existing.maybe)
@@ -653,6 +703,7 @@ export function shortlistCard(
 }
 
 export function unshortlistCard(db: DatabaseSync, deckId: number, oracleId: string): void {
+  requireEditableDeck(db, deckId);
   const row = requireDeckCard(db, deckId, oracleId);
   if (!row.maybe)
     throw new ServiceError(
@@ -681,6 +732,7 @@ export interface DeckCardView {
   /** Spec §4.4: the cheapest printing's price; null when no printing has one. */
   usd_cents: number | null;
   slot_id: number | null;
+  secondary_slot_ids: number[];
   role: Role;
   /** 1 = on the maybe list: considered for the deck, not part of the 100. */
   maybe: number;
@@ -716,10 +768,20 @@ export function getDeck(db: DatabaseSync, deckId: number) {
     tagsByCard.set(r.oracle_id, list);
   }
   for (const card of cards) card.tag_ids = tagsByCard.get(card.oracle_id) ?? [];
+  const secondaryRows = db.prepare("SELECT oracle_id, slot_id FROM deck_card_secondary_slots WHERE deck_id = ? ORDER BY slot_id")
+    .all(deckId) as unknown as { oracle_id: string; slot_id: number }[];
+  const secondaryByCard = new Map<string, number[]>();
+  for (const r of secondaryRows) {
+    const ids = secondaryByCard.get(r.oracle_id) ?? [];
+    ids.push(r.slot_id);
+    secondaryByCard.set(r.oracle_id, ids);
+  }
+  for (const card of cards) card.secondary_slot_ids = secondaryByCard.get(card.oracle_id) ?? [];
 
   const pendingItems = db
     .prepare(
-      `SELECT pi.action, pi.slot_id, dc.slot_id AS current_slot_id
+      `SELECT pi.action, pi.slot_id, dc.slot_id AS current_slot_id,
+              dc.maybe AS current_maybe, dc.role AS current_role
        FROM proposal_items pi
        JOIN proposals p ON p.id = pi.proposal_id
        LEFT JOIN deck_cards dc ON dc.deck_id = p.deck_id AND dc.oracle_id = pi.oracle_id
@@ -738,7 +800,6 @@ export function getDeck(db: DatabaseSync, deckId: number) {
     deck: {
       id: deck.id,
       name: deck.name,
-      status: deck.status,
       category: deck.category,
       parent,
       ci_mask: deck.ci_mask,
@@ -758,6 +819,8 @@ interface PendingItem {
   action: "add" | "cut";
   slot_id: number | null;
   current_slot_id: number | null;
+  current_maybe: number | null;
+  current_role: Role | null;
 }
 
 export type SlotStatus = "ok" | "under" | "over" | "untargeted";
@@ -784,9 +847,13 @@ function computeState(
   const cardCount = mainCards.reduce((n, c) => n + c.quantity, 0);
 
   const slotDeltas = slots.map((s) => {
-    const count = mainCards
+    const primaryCount = mainCards
       .filter((c) => c.slot_id === s.id)
       .reduce((n, c) => n + c.quantity, 0);
+    const secondaryCount = mainCards
+      .filter(c => c.slot_id !== s.id && c.secondary_slot_ids.includes(s.id))
+      .reduce((n, c) => n + c.quantity, 0);
+    const count = primaryCount;
     let status: SlotStatus = "untargeted";
     let delta = 0;
     if (s.target_min != null || s.target_max != null) {
@@ -804,6 +871,9 @@ function computeState(
       slot_id: s.id,
       name: s.name,
       count,
+      primary_count: primaryCount,
+      secondary_count: secondaryCount,
+      coverage_count: primaryCount + secondaryCount,
       target_min: s.target_min,
       target_max: s.target_max,
       status,
@@ -867,8 +937,15 @@ function computeState(
   const pendingCuts = pendingItems.filter((i) => i.action === "cut").length;
   const pendingBySlot: Record<number, number> = {};
   for (const i of pendingItems) {
-    const slot = i.action === "add" ? i.slot_id : i.current_slot_id;
-    if (slot != null) pendingBySlot[slot] = (pendingBySlot[slot] ?? 0) + (i.action === "add" ? 1 : -1);
+    // Targets count primary assignments only. A promoted maybe card retains
+    // its primary purpose if no surviving replacement slot is named.
+    if (i.current_role === "companion") continue;
+    const proposed = slots.some(s => s.id === i.slot_id) ? i.slot_id : null;
+    const primary = i.action === "add"
+      ? (i.current_maybe === 0 ? i.current_slot_id : proposed ?? (i.current_maybe ? i.current_slot_id : null))
+      : i.current_slot_id;
+    if (primary != null && slots.some(s => s.id === primary))
+      pendingBySlot[primary] = (pendingBySlot[primary] ?? 0) + (i.action === "add" ? 1 : -1);
   }
 
   return {

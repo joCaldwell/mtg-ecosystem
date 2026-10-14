@@ -78,7 +78,7 @@ const MEANINGS: Array<{ name: string; means: string; use: string }> = [
   { name: "agent", means: "An agent wrote or proposed it", use: "proposal banner, memory chips, agent names, waiting on you" },
   { name: "add", means: "Coming in, passing, accepted", use: "proposed add, a passing check, Accept" },
   { name: "cut", means: "Going out, failing, rejected", use: "proposed cut, a rule violation, Reject" },
-  { name: "warn", means: "Off target, missing, provisional", use: "slot under target, draft deck" },
+  { name: "warn", means: "Off target, missing, provisional", use: "slot under target, incomplete deck" },
   { name: "sel", means: "The owner's selection and focus", use: "selected rows, focus ring, focused field" },
 ];
 
@@ -513,7 +513,7 @@ function Feedback() {
           <Banner tone="agent" actions={<><Button size="sm" variant="reject">Reject all</Button><Button size="sm" variant="accept" kbd="A">Accept all</Button></>}>
             <Text weight="medium">Claude Code</Text> proposed 6 changes to this deck.
           </Banner>
-          <Banner tone="warn" actions={<Button size="sm">Activate</Button>}>This deck is a draft.</Banner>
+          <Banner tone="warn" actions={<Button size="sm">Fork</Button>}>This Legacy deck is read-only.</Banner>
           <Banner tone="error">Could not reach the server.</Banner>
           <Banner tone="neutral">Nothing is waiting on you.</Banner>
         </div>
@@ -708,7 +708,7 @@ function Layout() {
       </Section>
       <Section title="KeyValue">
         <Demo>
-          <KeyValue items={[["Format", "Commander"], ["Cards", <Text key="c" mono>99 / 100</Text>], ["State", <Chip key="s" tone="warn">draft</Chip>]]} />
+          <KeyValue items={[["Format", "Commander"], ["Cards", <Text key="c" mono>99 / 100</Text>], ["Lifecycle", <Chip key="s">Theorycrafted</Chip>]]} />
         </Demo>
       </Section>
       <Section title="ResizeHandle">

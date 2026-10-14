@@ -7,7 +7,7 @@ import { recordActivity } from "../activity.ts";
 import { lintProse } from "../cards.ts";
 import { withTransaction } from "../db.ts";
 import { ServiceError } from "../errors.ts";
-import { requireDeck } from "./service.ts";
+import { requireDeck, requireEditableDeck } from "./service.ts";
 
 const turn = z.number().int().min(1).max(99);
 export const PowerProfileSchema = z.strictObject({
@@ -181,8 +181,8 @@ export function getPowerTarget(db: DatabaseSync, deckId: number): PowerTarget | 
 
 /** Internal document write; agents reach it through proposeDocumentEdit. */
 export function writePowerTarget(db: DatabaseSync, actor: Actor, deckId: number, input: unknown, author = authorOf(actor)) {
-  const deck = requireDeck(db, deckId);
-  if (deck.status === "active") requireOwner(actor, "apply a power target to an active deck (use propose_power_target)");
+  requireEditableDeck(db, deckId);
+  requireOwner(actor, "apply a power target directly (use propose_power_target)");
   const target = input === null ? null : parseTarget(input);
   if (target) lintProse(db, target.notes);
   if (target == null) db.prepare("DELETE FROM power_targets WHERE deck_id = ?").run(deckId);
@@ -217,6 +217,7 @@ function assessmentRows(db: DatabaseSync, deckId: number) {
   return db.prepare("SELECT * FROM power_assessments WHERE deck_id = ? ORDER BY id DESC LIMIT 20").all(deckId) as unknown as AssessmentRow[];
 }
 export function recordPowerAssessment(db: DatabaseSync, actor: Actor, deckId: number, input: unknown): number {
+  requireEditableDeck(db, deckId);
   const deck = requireDeck(db, deckId);
   const value = parseAssessment(input);
   if (value.revision !== deck.revision)
@@ -285,6 +286,7 @@ export function getPower(db: DatabaseSync, deckId: number) {
 
 /** Forks inherit the target; a fresh assessment must describe the new deck. */
 export function copyPowerTarget(db: DatabaseSync, parentId: number, forkId: number) {
+  requireEditableDeck(db, forkId);
   db.prepare(`INSERT INTO power_targets (deck_id, target_json, author)
     SELECT ?, target_json, author FROM power_targets WHERE deck_id = ?`).run(forkId, parentId);
 }

@@ -22,9 +22,11 @@ export interface CardRowProps {
   current?: boolean;
   /** Undefined without filters; false keeps the row visible with muted styling. */
   filterMatch?: boolean;
+  /** Purpose metadata, distinct from sourcing/status tags. */
+  purpose?: string;
 }
 
-export function CardRow({ card, quantity = 1, change, mark, bold, current, filterMatch }: CardRowProps) {
+export function CardRow({ card, quantity = 1, change, mark, bold, current, filterMatch, purpose }: CardRowProps) {
   const ui = useDeckUi();
   const hover = useCardHover();
   const selected = ui.selected.includes(card.oracle_id);
@@ -70,7 +72,10 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
       {...hover(card)}
     >
       <span className={styles.q}>{sign}</span>
-      <span className={styles.name}>{card.name}</span>
+      <span className={styles.name}>
+        <span>{card.name}</span>
+        {purpose && <span className={styles.purpose}>{purpose}</span>}
+      </span>
       {(mark?.memories || mark?.rulings) && (
         <span className={styles.marks}>
           {!!mark?.memories && <Mark kind="memory" />}

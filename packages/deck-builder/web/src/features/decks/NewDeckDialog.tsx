@@ -5,7 +5,7 @@ import { DECK_CATEGORY_OPTIONS } from "../../domain/deckCategory.ts";
 import { Button, Dialog, ErrorNote, Field, Select, TextField } from "../../ui/index.ts";
 import styles from "./NewDeckDialog.module.css";
 
-/** Creates a deck and opens it. The server makes it a draft with no slots (createDeck defaults status to draft). */
+/** Creates a deck and opens it. The lifecycle defaults to Theorycrafted, with no slots. */
 export function NewDeckDialog({ onClose }: { onClose: () => void }) {
   const formId = useId();
   const [name, setName] = useState("");
@@ -44,12 +44,12 @@ export function NewDeckDialog({ onClose }: { onClose: () => void }) {
       }
     >
       <form id={formId} onSubmit={create} className={styles.form}>
-        <Field label="Deck name" hint="New decks start as drafts with no slots.">
+        <Field label="Deck name" hint="Choose how this deck is used and edited.">
           <TextField data-autofocus value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />
         </Field>
-        <Field label="Category" hint="Paper for physical decks, Theorycrafted for ideas, Legacy for past decks.">
+        <Field label="Lifecycle" hint="Paper requires agent card proposals; Theorycrafted allows direct agent card edits. Brief changes always need approval. You can archive this deck as Legacy later.">
           <Select value={category} onChange={(e) => setCategory(e.target.value as DeckCategory)} disabled={busy}>
-            {DECK_CATEGORY_OPTIONS.map((option) => (
+            {DECK_CATEGORY_OPTIONS.filter(o => o.value !== "legacy").map((option) => (
               <option key={option.value} value={option.value}>{option.label}</option>
             ))}
           </Select>

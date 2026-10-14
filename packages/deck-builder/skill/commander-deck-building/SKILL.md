@@ -33,7 +33,7 @@ those, not a general tune-up.
 
 ## Proposing changes
 
-- Size the proposal to the request. "Fix the mana" is the mana. "Rebuild around this" on an active deck is a reason to suggest forking, not a sixty-item proposal.
+- Size the proposal to the request. "Fix the mana" is the mana. "Rebuild around this" on a Paper deck is a reason to suggest forking, not a sixty-item proposal.
 - Search in the deck's context (`search_cards` with `deck`) so results respect its colour identity and arrive with the owner's prior rulings on each card.
 - For each add, decide what it replaces. A deck at 100 needs a cut for every add; group the pair when the argument for one depends on the other.
 - Write each reason so it stands alone when read in the app, away from this conversation: what the card does here, quoting the clause, and what it is better than.
@@ -43,14 +43,15 @@ those, not a general tune-up.
 
 1. Look the commander up (`get_cards`). Read what it actually does.
 2. Agree a thesis with the owner in a sentence or two, and their constraints: power level, budget, anything the profile already answers.
-3. `create_deck` with the commander and the thesis. It is a draft: you edit it directly.
+3. `create_deck` with the commander and the thesis. It is Theorycrafted: you edit its cards directly; the supplied thesis is a proposal.
 4. `define_slots` with targets that fit this plan. Typical starting points for a 100-card deck are roughly 36–38 lands, 10–12 ramp, 10 card advantage, 10 interaction, with the rest carrying the thesis; adjust to the curve and say why.
-5. Fill slot by slot with `edit_draft`, searching per slot. After each batch read the returned counts and checks, and steer by them.
-6. When the draft is at 100 with no check problems, walk the owner through it by slot. Record engines with `propose_brief_edit`. The owner makes it active when they are satisfied.
+   File the principal purpose as `slot`, and additional purposes as `secondary_slots`. Targets count primary assignments only; read the app's separate secondary coverage before deciding a role is missing. Tags track where cards come from, ownership, assembly and status, rather than card purposes.
+5. Fill slot by slot with `edit_cards`, searching per slot. After each batch read the returned counts and checks, and steer by them.
+6. When the Theorycrafted deck is at 100 with no check problems, walk the owner through it by slot. Record engines with `propose_brief_edit`. Only the owner changes lifecycle to Paper. Brief edits always require approval; Legacy decks are read-only.
 
 ## Reworking a deck the owner wants to keep
 
-Fork it (`fork_deck`). The fork is a draft with the parent's list, brief and
+Fork it (`fork_deck`). The fork is Theorycrafted with the parent's list, brief and
 memories. Change the fork's thesis first, then the cards. `compare_decks` on
 the fork shows what has changed from the parent; use it to summarise.
 

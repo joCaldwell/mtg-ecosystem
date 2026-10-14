@@ -37,6 +37,7 @@ export function card(over: Partial<DeckCard> & { name?: string } = {}): DeckCard
     is_commander: 0,
     usd_cents: null,
     slot_id: null,
+    secondary_slot_ids: [],
     role: "card",
     maybe: 0,
     maybe_note: "",
@@ -89,6 +90,8 @@ export function item(over: Partial<ProposalItem> & { name?: string } = {}): Prop
     usd_cents: null,
     slot_id: null,
     slot_name: null,
+    secondary_slot_ids: [],
+    secondary_slot_names: [],
     to_maybe: 0,
     reason: "Test reason",
     group_id: null,
@@ -114,6 +117,7 @@ export function proposal(items: ProposalItem[], over: Partial<Proposal> = {}): P
 
 export function logEntry(over: Partial<LogEntry> = {}): LogEntry {
   return {
+    read_only: false,
     id: id(),
     deck_id: 1,
     deck_name: "Test Deck",
@@ -136,6 +140,7 @@ export function logEntry(over: Partial<LogEntry> = {}): LogEntry {
 export function memory(over: Partial<Omit<Memory, "cards">> & { cards?: string[] } = {}): Memory {
   const { cards = [], ...rest } = over;
   return {
+    read_only: false,
     id: id(),
     text: "Test memory",
     scope: "global",
@@ -157,6 +162,7 @@ export function memory(over: Partial<Omit<Memory, "cards">> & { cards?: string[]
 
 export function documentEdit(over: Partial<DocumentEdit> = {}): DocumentEdit {
   return {
+    read_only: false,
     id: id(),
     deck_id: 1,
     deck_name: "Test Deck",
@@ -215,6 +221,7 @@ function computedFor(
     maybe_count: cards.filter((c) => c.maybe).length,
     slot_deltas: slots.map((s) => {
       const count = main.filter((c) => c.slot_id === s.id).reduce((n, c) => n + c.quantity, 0);
+      const secondaryCount = main.filter(c => c.slot_id !== s.id && c.secondary_slot_ids.includes(s.id)).reduce((n, c) => n + c.quantity, 0);
       const { target_min: min, target_max: max } = s;
       const under = min != null && count < min;
       const over = max != null && count > max;
@@ -222,6 +229,9 @@ function computedFor(
         slot_id: s.id,
         name: s.name,
         count,
+        primary_count: count,
+        secondary_count: secondaryCount,
+        coverage_count: count + secondaryCount,
         target_min: min,
         target_max: max,
         status: under ? "under" : over ? "over" : min != null || max != null ? "ok" : "untargeted",
@@ -251,7 +261,6 @@ export function deckState(
     deck: {
       id: 1,
       name: "Test Deck",
-      status: "active",
       category: "theorycrafted",
       parent: null,
       ci_mask: null,

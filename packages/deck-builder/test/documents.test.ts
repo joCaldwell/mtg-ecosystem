@@ -76,9 +76,9 @@ describe("the profile (spec §6)", () => {
 });
 
 describe("the brief (spec §6)", () => {
-  test("on an active deck an agent's brief edit is gated; rejecting it changes nothing", () => {
-    const id = newDeck(db, "active");
-    updateBrief(db, id, { thesis: "Superfriends." });
+  test("on a Paper deck an agent's brief edit is gated; rejecting it changes nothing", () => {
+    const id = newDeck(db, "paper");
+    updateBrief(db, OWNER, id, { thesis: "Superfriends." });
     const r = proposeDocumentEdit(db, AGENT, id, "thesis", { content: "Proliferate value." }, "The list has drifted.");
     assert.equal(r.applied, false);
     assert.equal(getBrief(db, id).thesis, "Superfriends.");
@@ -89,23 +89,23 @@ describe("the brief (spec §6)", () => {
     assert.equal(entry.kind, "reject");
     assert.match(entry.summary, /Brief edit: thesis rejected — proposed because: The list has drifted\./);
   });
-  test("on a draft deck an agent writes the brief directly", () => {
-    const id = newDeck(db, "draft");
-    const r = proposeDocumentEdit(db, AGENT, id, "thesis", { content: "Elves." }, "");
-    assert.deepEqual(r, { applied: true, edit_id: null });
+  test("Theorycrafted briefs still require proposals and owner approval", () => {
+    const id = newDeck(db, "theorycrafted");
+    assert.throws(() => updateBrief(db, AGENT, id, { thesis: "Elves." }), PermissionError);
+    assert.throws(() => proposeDocumentEdit(db, AGENT, id, "thesis", { content: "Elves." }, ""), /needs a reason/);
+    const r = proposeDocumentEdit(db, AGENT, id, "thesis", { content: "Elves." }, "Owner requested an elf plan.");
+    assert.equal(r.applied, false);
+    assert.equal(getBrief(db, id).thesis, "");
+    ruleDocumentEdit(db, OWNER, r.edit_id!, "accept");
     assert.equal(getBrief(db, id).thesis, "Elves.");
-    proposeDocumentEdit(
-      db,
-      AGENT,
-      id,
-      "engine_set",
-      { engine_name: "Untap", description: "Untap everything.", pieces: [{ oracle_id: "id-seedborn" }] },
-      "",
-    );
+    const engine = proposeDocumentEdit(db, AGENT, id, "engine_set",
+      { engine_name: "Untap", description: "Untap everything.", pieces: [{ oracle_id: "id-seedborn" }] }, "Supports the proposed plan.");
+    assert.deepEqual(getBrief(db, id).engines, []);
+    ruleDocumentEdit(db, OWNER, engine.edit_id!, "accept");
     assert.equal(getBrief(db, id).engines[0].pieces[0].name, "Seedborn Muse");
   });
-  test("engine edits are gated on an active deck and applied on accept", () => {
-    const id = newDeck(db, "active");
+  test("engine edits are gated on a Paper deck and applied on accept", () => {
+    const id = newDeck(db, "paper");
     const set = proposeDocumentEdit(
       db,
       AGENT,
@@ -131,9 +131,9 @@ describe("the brief (spec §6)", () => {
 
 describe("engines are checkable (spec §6, §9)", () => {
   test("a missing piece is a finding; a piece on the maybe list is missing", () => {
-    const id = newDeck(db, "active");
+    const id = newDeck(db, "paper");
     add(db, id, "id-solring");
-    setEngine(db, id, "Mana", "Fast mana.", [{ oracle_id: "id-solring" }, { oracle_id: "id-llanowar" }]);
+    setEngine(db, OWNER, id, "Mana", "Fast mana.", [{ oracle_id: "id-solring" }, { oracle_id: "id-llanowar" }]);
     const finding = checkDeck(db, id).find((f) => f.key.startsWith("engine_incomplete"))!;
     assert.match(finding.title, /Engine "Mana" is missing 1 of 2 piece/);
     assert.match(finding.detail, /Llanowar Elves/);

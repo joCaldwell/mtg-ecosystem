@@ -7,6 +7,8 @@ export interface GroupHeaderProps {
   title: string;
   /** Omitted for the commander and companion groups, which are not counted. */
   count?: number;
+  primaryCount?: number;
+  secondaryCount?: number;
   /** Formatted target, e.g. "8–12". */
   target?: string | null;
   status?: GroupStatus;
@@ -26,7 +28,7 @@ function describe(status: GroupStatus, delta: number, target: string | null | un
   return undefined;
 }
 
-export function GroupHeader({ title, count, target, status = "untargeted", delta = 0, projected, cost }: GroupHeaderProps) {
+export function GroupHeader({ title, count, primaryCount, secondaryCount, target, status = "untargeted", delta = 0, projected, cost }: GroupHeaderProps) {
   // A total of nothing priced would read as "free".
   const total = cost?.priced ? cost : null;
   return (
@@ -34,7 +36,7 @@ export function GroupHeader({ title, count, target, status = "untargeted", delta
       <span className={styles.title}>{title}</span>
       <span className={styles.spacer} />
       {count != null && (
-        <span className={`${styles.count} ${styles[status]}`} title={describe(status, delta, target)}>
+        <span className={`${styles.count} ${styles[status]}`} title={[describe(status, delta, target), primaryCount == null ? null : `${primaryCount} primary + ${secondaryCount ?? 0} secondary`].filter(Boolean).join("; ")}>
           {count}
           {projected != null && (
             <span className={styles.projected} title="After the pending changes">

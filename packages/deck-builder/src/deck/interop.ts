@@ -502,7 +502,7 @@ export function applyImport(
 
 // Filling a deck from a pasted list on an agent's behalf (create_deck). The
 // agent rule applies in full: one name that does not resolve fails the whole
-// call (spec §4.3), and applyChanges refuses unless the deck is a draft.
+// call (spec §4.3), and applyChanges refuses unless the deck is Theorycrafted.
 export function fillFromList(
   db: DatabaseSync,
   actor: Actor,

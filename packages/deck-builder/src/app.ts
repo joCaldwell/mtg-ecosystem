@@ -36,10 +36,10 @@ import {
   listDecks,
   organizeCard,
   renameDeck,
+  requireDeck,
   renameTag,
   setDeckCategory,
   setDeckParent,
-  setDeckStatus,
   shortlistCard,
   unshortlistCard,
   updateSlot,
@@ -121,14 +121,13 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
   // ---------- decks ----------
   route("GET", /^\/api\/decks$/, () => listDecks(db));
   route("POST", /^\/api\/decks$/, (_p, body) => withTransaction(db, () => {
-    const id = createDeck(db, String(body.name ?? ""), { status: body.status });
+    const id = createDeck(db, String(body.name ?? ""), { category: body.category });
     if (body.category !== undefined) setDeckCategory(db, OWNER, id, body.category);
     return { state: state(id) };
   }));
   route("GET", /^\/api\/decks\/(\d+)$/, ([id]) => ({ state: state(Number(id)) }));
   route("PATCH", /^\/api\/decks\/(\d+)$/, ([id], body) => withTransaction(db, () => {
     if (body.name !== undefined) renameDeck(db, OWNER, Number(id), String(body.name));
-    if (body.status !== undefined) setDeckStatus(db, OWNER, Number(id), body.status);
     if (body.category !== undefined) setDeckCategory(db, OWNER, Number(id), body.category);
     if (body.parent_id !== undefined)
       setDeckParent(db, OWNER, Number(id), body.parent_id == null ? null : Number(body.parent_id));
@@ -155,21 +154,24 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
   route("POST", /^\/api\/decks\/(\d+)\/playtest\/observations$/, ([id], body) => ({ memory: saveObservation(db, OWNER, Number(id), body) }));
 
   // ---------- cards in a deck ----------
-  route("POST", /^\/api\/decks\/(\d+)\/cards$/, ([id], body) => {
+  route("POST", /^\/api\/decks\/(\d+)\/cards$/, ([id], body) => withTransaction(db, () => {
     const deckId = Number(id);
     const oracleId = String(body.oracle_id);
-    if (body.maybe) shortlistCard(db, deckId, oracleId, String(body.maybe_note ?? ""));
+    if (body.maybe) {
+      shortlistCard(db, deckId, oracleId, String(body.maybe_note ?? ""));
+      organizeCard(db, deckId, oracleId, { slotId: body.slot_id, secondarySlotIds: body.secondary_slot_ids });
+    }
     else
       applyChanges(
         db,
         OWNER,
         deckId,
-        [{ action: "add", oracle_id: oracleId, slot_id: body.slot_id ?? undefined, role: body.role, quantity: body.quantity }],
+        [{ action: "add", oracle_id: oracleId, slot_id: body.slot_id ?? undefined, secondary_slot_ids: body.secondary_slot_ids, role: body.role, quantity: body.quantity }],
         { kind: "edit" },
       );
     return { state: state(deckId) };
-  });
-  route("PATCH", /^\/api\/decks\/(\d+)\/cards\/([0-9a-z-]+)$/, ([id, oid], body) => {
+  }));
+  route("PATCH", /^\/api\/decks\/(\d+)\/cards\/([0-9a-z-]+)$/, ([id, oid], body) => withTransaction(db, () => {
     const deckId = Number(id);
     if (body.maybe !== undefined) {
       const row = findDeckCard(db, deckId, oid);
@@ -183,10 +185,10 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
     if (body.role !== undefined)
       applyChanges(db, OWNER, deckId, [{ action: "role", oracle_id: oid, role: body.role }], { kind: "edit" });
     if (body.quantity !== undefined) setQuantity(db, OWNER, deckId, oid, Number(body.quantity));
-    if (body.slot_id !== undefined || body.tag_ids !== undefined)
-      organizeCard(db, deckId, oid, { slotId: body.slot_id, tagIds: body.tag_ids });
+    if (body.slot_id !== undefined || body.secondary_slot_ids !== undefined || body.tag_ids !== undefined)
+      organizeCard(db, deckId, oid, { slotId: body.slot_id, secondarySlotIds: body.secondary_slot_ids, tagIds: body.tag_ids });
     return { state: state(deckId) };
-  });
+  }));
   route("DELETE", /^\/api\/decks\/(\d+)\/cards\/([0-9a-z-]+)$/, ([id, oid]) => {
     const deckId = Number(id);
     const row = findDeckCard(db, deckId, oid);
@@ -231,8 +233,8 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
 
   // ---------- proposals and rulings (spec §8) ----------
   const inbox = () => ({
-    proposals: listProposals(db, { status: "open" }),
-    document_edits: listDocumentEdits(db, { status: "pending" }),
+    proposals: listProposals(db, { status: "open" }).filter(p => requireDeck(db, p.deck_id).category !== "legacy"),
+    document_edits: listDocumentEdits(db, { status: "pending" }).filter(e => e.deck_id == null || requireDeck(db, e.deck_id).category !== "legacy"),
     unreviewed: unreviewedCount(db),
   });
   route("GET", /^\/api\/inbox$/, inbox);
@@ -287,15 +289,15 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
 
   // ---------- documents (spec §6) ----------
   route("PUT", /^\/api\/decks\/(\d+)\/brief$/, ([id], body) => {
-    updateBrief(db, Number(id), { thesis: body.thesis, constraints_md: body.constraints_md });
+    updateBrief(db, OWNER, Number(id), { thesis: body.thesis, constraints_md: body.constraints_md });
     return { state: state(Number(id)) };
   });
   route("POST", /^\/api\/decks\/(\d+)\/engines$/, ([id], body) => {
-    setEngine(db, Number(id), String(body.name ?? ""), String(body.description ?? ""), body.pieces ?? []);
+    setEngine(db, OWNER, Number(id), String(body.name ?? ""), String(body.description ?? ""), body.pieces ?? []);
     return { state: state(Number(id)) };
   });
   route("DELETE", /^\/api\/decks\/(\d+)\/engines\/(\d+)$/, ([id, engineId]) => {
-    removeEngine(db, Number(id), Number(engineId));
+    removeEngine(db, OWNER, Number(id), Number(engineId));
     return { state: state(Number(id)) };
   });
   route("GET", /^\/api\/profile$/, () => ({ profile: getProfile(db) }));

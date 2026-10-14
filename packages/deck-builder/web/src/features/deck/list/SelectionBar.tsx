@@ -75,10 +75,21 @@ export function SelectionBar() {
     })),
     {
       id: "unfiled",
-      label: "Unfiled",
-      onSelect: () => void patchAll(() => ({ slot_id: null }), (n) => `Moved ${plural(n)} out of their slots.`),
+      label: "Clear primary slot",
+      onSelect: () => void patchAll(() => ({ slot_id: null }), (n) => `Cleared the primary slot of ${plural(n)}.`),
     },
   ];
+
+  const secondaryItems: MenuItem[] = state.slots.flatMap(s => [
+    { id: `also-${s.id}`, label: `Add ${s.name}`, disabled: busy,
+      onSelect: () => void patchAll(id => {
+        const c = cards.find(c => c.oracle_id === id)!;
+        return { secondary_slot_ids: c.slot_id === s.id ? c.secondary_slot_ids : [...new Set([...c.secondary_slot_ids, s.id])] };
+      }, n => `Added ${s.name} as a secondary purpose for ${plural(n)} where it was not already primary.`) },
+    { id: `unalso-${s.id}`, label: `Remove ${s.name}`, disabled: busy,
+      onSelect: () => void patchAll(id => ({ secondary_slot_ids: cards.find(c => c.oracle_id === id)!.secondary_slot_ids.filter(slot => slot !== s.id) }),
+        n => `Removed ${s.name} as a secondary purpose from ${plural(n)}.`) },
+  ]);
 
   const tagItems: MenuItem[] = state.tags.length
     ? state.tags.flatMap((t) => [
@@ -92,7 +103,8 @@ export function SelectionBar() {
       <Text weight="bold" size="sm">
         {ui.selected.length} selected
       </Text>
-      <Menu size="sm" label="File into slot" items={slotItems} />
+      <Menu size="sm" label="Primary slot" items={slotItems} />
+      {secondaryItems.length > 0 && <Menu size="sm" label="Secondary slots" items={secondaryItems} />}
       <Menu size="sm" label="Tag" items={tagItems} />
       <Button
         size="sm"

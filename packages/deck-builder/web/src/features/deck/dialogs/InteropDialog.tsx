@@ -7,6 +7,7 @@
 // element in it, hidden or not), so the pasted list and its preview live here
 // and survive a look at the export.
 
+import { useDeckState } from "../DeckStore.tsx";
 import { useState } from "react";
 import { Button, Dialog, Tabs } from "../../../ui/index.ts";
 import { ExportPanel } from "./ExportPanel.tsx";
@@ -15,6 +16,7 @@ import { ImportPanel, type ImportDraft } from "./ImportPanel.tsx";
 type Tab = "export" | "import";
 
 export function InteropDialog({ onClose }: { onClose: () => void }) {
+  const readOnly = useDeckState().deck.category === "legacy";
   const [tab, setTab] = useState<Tab>("export");
   const [draft, setDraft] = useState<ImportDraft>({ paste: "", note: "", diff: null });
   return (
@@ -28,13 +30,13 @@ export function InteropDialog({ onClose }: { onClose: () => void }) {
         aria-label="Archidekt"
         tabs={[
           { id: "export", label: "Export" },
-          { id: "import", label: "Import" },
+          ...(readOnly ? [] : [{ id: "import", label: "Import" }]),
         ]}
         value={tab}
         onChange={(id) => setTab(id === "import" ? "import" : "export")}
       />
       <div role="tabpanel">
-        {tab === "export" ? (
+        {tab === "export" || readOnly ? (
           <ExportPanel />
         ) : (
           <ImportPanel draft={draft} onDraft={(patch) => setDraft((d) => ({ ...d, ...patch }))} onClose={onClose} />

@@ -11,8 +11,9 @@
 > - Typed rejections, hard filters and the 3–5 item proposal cap are gone. A rejection carries an optional free-text reason (§8).
 > - Memories replace card notes, hard filters and playtest notes. They are written by agents without approval and are always visible to the owner (§7).
 > - The player profile and deck briefs are the owner's documents; agent edits to them are proposed (§6).
-> - Agents edit draft decks freely; the approval gate applies to active decks (§5.2).
+> - Agents edit Theorycrafted cards freely; Paper cards and all brief edits require approval (§5.2). Legacy is read-only.
 > - Physical assembly is tracked with ordinary deck tags (§5.5); the dedicated toggle was removed on 2026-10-11.
+> - Slots describe purpose: one optional primary plus any number of secondary slots. Targets count primary assignments only; tags track sourcing and status (2026-10-14, §5.4).
 > - Cross-deck membership is off by default in card search and is turned on per call (§4.2).
 
 ---
@@ -40,7 +41,7 @@ to do** (its brief), **what the owner has decided and why** (rulings), and
 1. **Card facts come from the database, never from model memory.** Names, oracle text and legality are looked up, on every path.
 2. **If the app can compute it or look it up, nobody else derives it.** Counts, deltas, legality and cross-deck statistics are computed by the app and handed over. This applies to agents and to memories alike (§3).
 3. **One capability layer, two front doors.** The UI and the agent interface call the same service functions. Validation lives below both.
-4. **The owner rules on membership of active decks.** An agent changes which cards are in an active deck only through an accepted proposal.
+4. **The owner rules on membership of Paper decks.** An agent changes which cards are in a Paper deck only through an accepted proposal.
 5. **Everything an agent writes is attributed and visible.** No write is hidden, whether or not it needed approval.
 
 ---
@@ -171,32 +172,37 @@ the card, and a budget is a constraint the brief can state.
 - A deck targets exactly **100 cards** including commanders.
 - **Commanders are a list.** Zero to two, plus Background, plus Companion (outside the 100).
 - Each deck row stores its denormalized colour identity. Changing the commander may invalidate cards; that surfaces as a check finding (§9), never as silent corruption.
-- Each deck-card row: card, quantity, role (`card` / `commander` / `companion`), slot (at most one, may be null), tags (zero or more), `maybe` (on the maybe list, outside the 100).
+- Each deck-card row: card, quantity, role (`card` / `commander` / `companion`), optional primary slot, secondary slots (zero or more), tags (zero or more), `maybe` (on the maybe list, outside the 100). Zone and purpose are independent: commanders and companions may also have slot assignments.
 - Every change to membership bumps the deck's **revision** number.
 - Each deck has a category: `paper`, `theorycrafted`, or `legacy` (§5.6).
 
-### 5.2 Draft and active
+### 5.2 Lifecycle and editing permissions
 
-A deck is either **draft** or **active**. Only the owner changes this.
+A deck’s lifecycle is **Paper**, **Theorycrafted**, or **Legacy** (§5.6).
+There is no separate Draft/Active flag. Only the owner changes lifecycle.
 
-| | Draft | Active |
-| --- | --- | --- |
-| Agent changes membership | Directly (`edit_draft`) | Only by proposal (§8) |
-| Agent edits the brief | Directly | Only by proposed edit (§6) |
-| Owner changes anything | Directly | Directly |
-| Changes are logged with author and revision | Yes | Yes |
+| | Theorycrafted | Paper | Legacy |
+| --- | --- | --- | --- |
+| Agent changes cards | Directly (`edit_cards`) | By accepted proposal | Read-only |
+| Agent changes brief or power target | By accepted proposal | By accepted proposal | Read-only |
+| Owner edits | Directly | Directly | Read-only |
+| Organization, memories, assessments | Direct writes | Direct writes | Read-only |
 
-Every new deck starts as a draft, whoever creates it *(as built: the owner's
-new decks too, since an empty deck is a draft by any definition)*. A fork
-starts as a draft. The owner makes a deck active when it is ready, and may
-return an active deck to draft for a rebuild. This is what makes
-"build me a first 100" workable: a hundred cards do not go through a
-per-item gate.
+New agent-created decks and all forks are Theorycrafted. The owner may create
+Paper or Theorycrafted decks and archive them as Legacy. Legacy decks can be
+viewed, exported, compared and forked, but neither the owner nor agents can
+rename, delete, change cards, change organization, revise deck memories, or
+rule on proposals while archived. The owner can restore them to Paper or
+Theorycrafted. Pending proposals stay stored, leave the actionable inbox
+while archived, and return on restoration. All writes are attributed and
+membership changes retain their revision and history behavior.
+
+---
 
 ### 5.3 Forks
 
 `fork_deck` copies the card list, organization, brief and deck memories into a
-new draft, and records the parent. The copies then diverge independently; the
+new Theorycrafted deck, and records the parent. The copies then diverge independently; the
 parent link exists so the two can be compared (`compare_decks` defaults to
 the parent) and so an agent working on the fork can read where it came from.
 
@@ -208,9 +214,10 @@ Forks replace named checkpoints. There is no snapshot system and no DAG.
 
 ### 5.4 Slots, tags and the maybe list
 
-- **Slots:** optional; a card belongs to at most one. Slots have target counts (a number or a min–max range). Targets are soft, and violations are visible. New decks define no slots.
-- **Tags:** many per card, from a per-deck vocabulary. The card panel uses a searchable checkbox dropdown and shows only assigned tags beneath it; an untagged card shows no tag chips. The deck list can be filtered by one or more tags, matching **any** (union) or **all** (intersection), together with its name search. Filters apply to commanders, companions and the maybe list as well as ordinary cards. Matching rows are highlighted and nonmatches muted; every card and group stays visible in its original position and remains interactive. Counts, targets, costs and review decisions still describe the full deck. Selected cards support adding and removing tags in bulk.
-- **Maybe list:** cards under consideration, outside the 100. A parked card keeps its slot and tags.
+- **Slots:** purposes such as ramp, interaction, card advantage, and a deck's particular engines. A card may have one optional **primary** slot and any number of **secondary** slots. A slot cannot be both primary and secondary on the same card. New decks define no slots. Primary assignments group the ordinary deck list; the command zone remains separate. Secondary purposes are available in expandable contributor lists for each slot. Card rows do not repeat the card's secondary slots beneath its name in either grouping mode, including in the command zone, proposed additions and maybe list. The card panel and bulk actions edit primary and secondary assignments separately.
+- **Targets:** a number or min–max range, soft and visibly checked. **Only primary assignments count toward targets.** The server reports primary count, secondary count, and total coverage separately, weighted by quantity. Coverage counts a card once per slot; secondary coverage never changes target status or pending target deltas. Parked cards and companions contribute to neither primary nor secondary counts; commanders in the 100 contribute according to their assignments. Slot totals must not be used to derive the deck's card count.
+- **Tags:** sourcing, ownership, assembly, and overall status (for example Have, Ordered, or From another deck), from a per-deck vocabulary. Additional card purposes belong in secondary slots. The card panel uses a searchable checkbox dropdown and shows only assigned tags beneath it; an untagged card shows no tag chips. The deck list can be filtered by one or more tags, matching **any** (union) or **all** (intersection), together with its name search. Filters apply to commanders, companions and the maybe list as well as ordinary cards. Matching rows are highlighted and nonmatches muted; every card and group stays visible in its original position and remains interactive. Counts, targets, costs and review decisions still describe the full deck. Selected cards support adding and removing tags in bulk.
+- **Maybe list:** cards under consideration, outside the 100. A parked card keeps its primary slot, secondary slots, and tags.
 - **Naming rule:** slot and tag names may not equal a card type in singular or plural (`land`, `lands`), nor any search prefix. Slot and card type are independent axes; whole-name matches only, so `land destruction` is allowed.
 
 **All of this is organization, not membership, and agents do it directly** on
@@ -220,6 +227,18 @@ the tag vocabulary from drifting, creating a tag that closely matches an
 existing one fails and names the existing tag. Renaming follows the same rule.
 Tag assignments are unique per deck-card-tag and constrained to the same deck
 at the database level. A filing update replaces a card's tag set atomically.
+Secondary assignments are likewise unique and deck-scoped. Deleting a slot
+removes only that purpose, preserving the card's other assignments. Changing
+a primary slot to an existing secondary promotes it and removes the duplicate;
+explicitly assigning the same slot in both roles fails atomically. Clearing
+the primary slot leaves secondary purposes intact. Forks remap both kinds of
+assignments; membership undo restores surviving purposes. Schema 8 preserves
+all existing primary assignments and starts with empty secondary assignments;
+it does not guess roles from existing tags. `slot:` search matches either
+kind of assignment; `slot:none` means no primary slot on an ordinary in-deck card.
+For an explicit cleanup, `file_cards` accepts `remove_unused_tags`: named
+vocabulary entries are removed after filing only if no card still uses them.
+Other unused tags are preserved; an assigned tag aborts the entire filing.
 Choosing tags in the list filter is temporary UI state, independent of assigning
 tags to a card; a deleted tag is removed from that filter.
 
@@ -227,7 +246,7 @@ tags to a card; a deleted tag is removed from that filter.
 
 Physical assembly and cards to obtain use ordinary per-deck tags (§5.4).
 The owner chooses their vocabulary; agents can assign and remove those tags
-with `file_cards` on draft or active decks, with attribution in Activity.
+with `file_cards` on Paper or Theorycrafted decks, with attribution in Activity.
 The app gives no tag special inventory or ownership meaning, and makes no
 inference about which physical copies are available elsewhere.
 
@@ -239,34 +258,29 @@ and removes the obsolete mark from historical undo snapshots.
 
 ---
 
-### 5.6 Deck category
+### 5.6 Deck lifecycle
 
-The owner or an agent marks each deck **Paper** (a physical deck), **Theorycrafted** (an
-idea being explored), or **Legacy** (a past deck kept for reference). This is
-independent of draft/active editing permissions (§5.2) and per-card tags
-(§5.4). Changing category never changes the card list, its revision or agent
-permissions. Legacy decks remain accessible and editable.
+The owner marks each deck **Paper** (a physical deck), **Theorycrafted** (an
+idea being explored), or **Legacy** (a read-only archive). Lifecycle controls
+editing permissions (§5.2); per-card tags remain independent (§5.4). Changing
+lifecycle never changes the card list or its revision.
 
-The UI lets the owner choose a category when creating a deck, change it in
-the deck header, and see it in All decks. New decks and forks default to
-Theorycrafted. Existing decks also default to Theorycrafted when the database
-upgrades; their category is not inferred from their cards. Categories appear in
-the deck roster and deck header returned to agents.
+The UI shows one Lifecycle control in the deck header and one column in All
+decks. New decks and forks default to Theorycrafted. Schema 9 preserves
+existing categories and removes the Draft/Active column; it does not infer a
+lifecycle from the former flag. The internal field remains `category`.
 
-Only Paper decks contribute to the All decks statistics and the agent's
-`player_stats`: counts, colours, commander types, averages, slots and card reuse.
-Draft/active status and per-card tags do not affect inclusion.
-Changing category immediately updates the statistics. Fork-family ancestry
-is preserved through Theorycrafted and Legacy ancestors, whose cards and
-totals are excluded.
+Only Paper decks contribute to All decks statistics and `player_stats`.
+Changing lifecycle immediately updates statistics. Fork-family ancestry is
+preserved through Theorycrafted and Legacy ancestors, whose cards and totals
+are excluded.
 
-All decks has a three-dot menu in the last column of every row: rename, change
-category and delete. The roster omits creation dates and revision numbers.
-Agents have the same capabilities through `rename_deck`, `set_deck_category`
-and `delete_deck`, on draft and active decks. Agent actions are attributed in
-Activity. Deck deletion permanently removes its associated records (including
-deck-scoped memories); global memories and fork decks remain. The UI confirms
-deletion, and the MCP tool is marked destructive.
+All decks has a menu for rename, change lifecycle and delete. Agents can
+rename or delete Paper and Theorycrafted decks through `rename_deck` and
+`delete_deck`; lifecycle changes are owner-only and have no MCP tool. Legacy
+rename and delete actions are disabled. Deletion permanently removes the
+associated records, including deck-scoped memories; global memories and
+fork decks remain. Agent actions are attributed in Activity.
 
 ---
 
@@ -320,11 +334,10 @@ with the current revision. Slots, tags and target edits do not
 invalidate it. An agent cannot replace the owner's assessment of the same
 revision; after the list changes it may assess the new revision.
 
-**Permissions.** The owner sets or clears the target directly. Agents set it
-on drafts and propose replacements on active decks through the existing
+**Permissions.** The owner sets or clears the target directly. Agents always propose target changes on Paper and Theorycrafted decks through the existing
 document-edit workflow (§6), with a reason. The owner sees a readable diff,
 including a warning if the target changed since proposal. Assessments may be
-recorded by agents on drafts and active decks without approval, are visibly
+recorded by agents on Paper and Theorycrafted decks without approval, are visibly
 attributed, and land in Activity. Target and assessment writes never change
 membership or bump the deck revision.
 
@@ -361,7 +374,7 @@ judgement.
 **Editing:** the owner edits either directly. An agent calls
 `propose_profile_edit` or `propose_brief_edit` with the replacement text and a
 reason that cites what prompted it (rulings, memories). The owner sees a diff
-and accepts or rejects it. On a draft deck, brief edits apply directly.
+and accepts or rejects it. Agents always propose brief changes on both Paper and Theorycrafted decks; Legacy is read-only.
 
 Memories are where an agent learns; documents are what the owner has
 confirmed. When a group of memories has settled into something durable, the
@@ -438,11 +451,11 @@ hidden.
 
 ### 8.1 Proposals
 
-On an active deck, an agent changes membership by calling `propose_changes`.
+On a Paper deck, an agent changes membership by calling `propose_changes`.
 
 - A proposal has a one-line summary and **any number of items**. The agent sizes it to what was asked for.
 - An item is an add or a cut of one copy of one card, with a reason.
-- A cut may be marked `to_maybe`: if accepted, the card moves to the maybe list (§5.4) instead of leaving the deck, keeping its slot and tags. It is off unless the agent sets it, and the owner sees it on the item before ruling. `edit_draft` takes the same flag on a draft. A card with several copies cannot be parked this way, because the maybe list holds a card once.
+- A cut may be marked `to_maybe`: if accepted, the card moves to the maybe list (§5.4) instead of leaving the deck, keeping its slot and tags. It is off unless the agent sets it, and the owner sees it on the item before ruling. `edit_cards` takes the same flag on a Theorycrafted deck. A card with several copies cannot be parked this way, because the maybe list holds a card once.
 - Items may be **grouped**. A group is ruled on as a unit, so a swap justified by one argument cannot be half-accepted.
 - The app tracks the pending delta against 100 and against each slot target, and returns it with the proposal.
 - The response also returns, for each card, its linked memories and prior rulings in this deck (§8.3), so the agent sees what it should have considered.
@@ -480,8 +493,8 @@ prior ruling and say what changed.
 The owner often rules while no agent is running. Each ruling therefore has a
 `reviewed` mark, unset until an agent has read it. *(As built: the queue holds
 every ruling on a proposal or a proposed edit, and every direct change the
-owner makes to an active deck. What an agent did itself, and the owner
-assembling a draft card by card, are not queued.)* `start_session` reports how
+owner makes to a Paper deck. What an agent did itself, and the owner
+assembling a Theorycrafted deck card by card, are not queued.)* `start_session` reports how
 many rulings are unreviewed, `list_rulings` returns them, and
 `mark_rulings_reviewed` clears them once the agent has decided what, if
 anything, is worth a memory. A reason given in the app is never lost for lack
@@ -531,7 +544,7 @@ memories and proposed brief edits, not as a stored report.
 - **Few tools, shaped around tasks,** not one per database operation.
 - **Results are compact text meant to be read,** grouped the way the deck is organized. No JSON blobs, no ids the agent will not need. `get_deck` takes a `sections` argument so re-reads are cheap, and the full view must stay well under a typical client's tool-result cap.
 - **Writes return the new state:** card count, slot deltas and check results come back with the write, so the agent never re-fetches or counts.
-- **Errors say how to fix the call.** A failed name resolution lists suggestions; an `edit_draft` on an active deck says to use `propose_changes`.
+- **Errors say how to fix the call.** A failed name resolution lists suggestions; an `edit_cards` on a Paper deck says to use `propose_changes`.
 - **Annotations are honest:** read-only tools are marked read-only; `delete_deck` is marked destructive.
 - **Tool order is deterministic,** for client-side prompt caching.
 
@@ -548,14 +561,13 @@ memories and proposed brief edits, not as a stored report.
 | | `list_rulings` | By deck, by date, or unreviewed only |
 | | `search_memories` | Full-text, filtered by scope, deck or card |
 | | `export_deck` | Archidekt-importable text (§12) |
-| Write freely | `create_deck` | New draft from a name, commanders, and optionally a pasted list |
-| | `rename_deck` | Rename a draft or active deck |
-| | `set_deck_category` | Paper, Theorycrafted or Legacy; independent of draft/active |
+| Write freely | `create_deck` | New Theorycrafted deck; supplied thesis becomes a proposal |
+| | `rename_deck` | Rename a Paper or Theorycrafted deck |
 | | `delete_deck` | Permanently delete a deck and its associated records when requested |
 | | `fork_deck` | §5.3 |
-| | `edit_draft` | Add and remove cards, set commanders, write the brief; drafts only |
+| | `edit_cards` | Add and remove cards, set commanders; Theorycrafted only |
 | | `define_slots` | Create, rename, retarget and remove slots |
-| | `file_cards` | Assign slot and tags to cards already in the deck |
+| | `file_cards` | Assign a primary slot (`slot`), replace secondary purposes (`secondary_slots`), and manage tags on cards already in the deck |
 | | `shortlist_cards` | Add to or remove from the maybe list, with a note |
 | | `remember` | §7.3 |
 | | `revise_memory` | Update, supersede, retire or confirm |
@@ -563,7 +575,7 @@ memories and proposed brief edits, not as a stored report.
 | Propose | `propose_changes` | §8.1 |
 | | `propose_brief_edit` | §6 |
 | | `propose_profile_edit` | §6 |
-| | `propose_power_target` | Set a draft target or propose an active target (§5.7) |
+| | `propose_power_target` | Propose a target change on editable decks (§5.7) |
 | Write freely | `assess_deck_power` | Attributed, revision-bound gameplay assessment (§5.7) |
 
 **Focus.** The app records what the owner has open in the UI (which deck,
@@ -572,7 +584,7 @@ which cards are selected). `start_session` returns it and `get_deck` accepts
 screen.
 
 **Owner-only actions** have no tool: ruling on proposals and document edits,
-switching a deck between draft and active, importing over an existing deck,
+changing a deck’s lifecycle, importing over an existing deck,
 undo.
 
 ### 10.4 The playbook
@@ -609,7 +621,7 @@ card.
 
 ## 11. The app for people
 
-- **Decks:** list, create, fork, delete; draft or active state.
+- **Decks:** list, create, fork, delete; Paper, Theorycrafted or Legacy lifecycle.
 - **Deck view:** the list grouped by slot or by card type, slot targets and deltas, the maybe list, the brief, a live checks count, tags, direct editing, card search.
 - **Proposals inbox:** everything waiting on the owner across decks. A proposal is ruled on in its deck's list, where each change is drawn in place among the cards around it — per item, per group or all at once, with an optional reason; the inbox links there. Proposed brief and profile edits are ruled in the inbox as diffs. (Settled 2026-10-10: the owner preferred reviewing in the list to ruling from the inbox.)
 - **Rulings log:** per deck, with undo.
@@ -661,9 +673,9 @@ effects.
 Each phase is verified before the next begins, and each is testable without
 the one above it.
 
-1. **Capability core.** Card database and search; decks with draft and active states, forks, slots, tags, maybe list; checks; the rulings log with undo. Tested with no UI and no agent.
+1. **Capability core.** Card database and search; decks with lifecycle permissions, forks, slots, tags, maybe list; checks; the rulings log with undo. Tested with no UI and no agent.
 2. **Agent interface, read side.** MCP endpoint with token and Origin check, stdio shim, `start_session`, the read tools, the playbook. Verify by connecting a real agent and reading decks.
-3. **The gate.** `edit_draft`, organization tools, `propose_changes`, prior rulings following the card, linting on write; the proposals inbox and live UI updates.
+3. **The gate.** `edit_cards`, organization tools, `propose_changes`, prior rulings following the card, linting on write; the proposals inbox and live UI updates.
 4. **Memories and documents.** The memory store, budgets, the review queue, the profile, proposed document edits, the Memories page and activity feed.
 5. **Cross-deck.** `player_stats`, `compare_decks`, focus.
 6. **Method and evaluation.** The Agent Skill, and a set of realistic multi-step tasks ("rework this fork toward a new thesis", "what should I build next") run against a real agent, with transcripts read and the tools revised from what they show.

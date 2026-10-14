@@ -15,6 +15,21 @@ describe("formatTarget", () => {
 });
 
 describe("layoutDeck, by slot", () => {
+  test("secondary contributors stay separate and counts use server primary targets", () => {
+    const state = deckState({
+      slots: [slot({ id: 10 }), slot({ id: 11, target_min: 2 })],
+      cards: [card({ name: "Test Dual Purpose", slot_id: 10, secondary_slot_ids: [11], quantity: 3 }),
+        card({ name: "Test Parked Purpose", slot_id: 10, secondary_slot_ids: [11], maybe: 1 })],
+    });
+    const [primary, secondary] = layoutDeck(state, "slot").groups;
+    assert.equal(primary.cards.length, 1);
+    assert.equal(secondary.cards.length, 0);
+    assert.equal(secondary.secondaryCards!.length, 1);
+    assert.equal(secondary.secondaryCount, 3);
+    assert.equal(secondary.count, 0);
+    assert.equal(secondary.status, "under");
+    assert.equal(secondary.delta, -2);
+  });
   test("one group per slot in state order, empty slots kept, with the server's numbers", () => {
     const ramp = slot({ id: 10, name: "Test Ramp", target_min: 8, target_max: 10 });
     const draw = slot({ id: 11, name: "Test Draw", target_min: 5, target_max: null });
@@ -44,7 +59,7 @@ describe("layoutDeck, by slot", () => {
       cards: [card({ slot_id: 10 })],
       computed: {
         ...base.computed,
-        slot_deltas: [{ slot_id: 10, name: s.name, count: 99, target_min: 1, target_max: 2, status: "over", delta: 97 }],
+        slot_deltas: [{ slot_id: 10, name: s.name, count: 99, primary_count: 99, secondary_count: 12, coverage_count: 111, target_min: 1, target_max: 2, status: "over", delta: 97 }],
         unslotted_count: 42,
       },
     });

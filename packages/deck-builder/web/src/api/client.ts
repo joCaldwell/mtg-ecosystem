@@ -112,8 +112,6 @@ export const api = {
     request<StateResponse>("POST", "/api/decks", { name, category }),
   getDeck: (id: number) => request<StateResponse>("GET", `/api/decks/${id}`),
   renameDeck: (id: number, name: string) => request<StateResponse>("PATCH", `/api/decks/${id}`, { name }),
-  setDeckStatus: (id: number, status: "draft" | "active") =>
-    request<StateResponse>("PATCH", `/api/decks/${id}`, { status }),
   setDeckCategory: (id: number, category: DeckCategory) =>
     request<StateResponse>("PATCH", `/api/decks/${id}`, { category }),
   setDeckParent: (id: number, parentId: number | null) =>
@@ -124,10 +122,11 @@ export const api = {
     request<DeckComparison>("GET", `/api/decks/${id}/compare${other ? `?other=${other}` : ""}`),
 
   // ---------- cards in a deck ----------
-  addCard: (deckId: number, oracleId: string, opts: { slotId?: number | null; role?: string; maybe?: boolean } = {}) =>
+  addCard: (deckId: number, oracleId: string, opts: { slotId?: number | null; secondarySlotIds?: number[]; role?: string; maybe?: boolean } = {}) =>
     request<StateResponse>("POST", `/api/decks/${deckId}/cards`, {
       oracle_id: oracleId,
       slot_id: opts.slotId ?? null,
+      secondary_slot_ids: opts.secondarySlotIds,
       role: opts.role,
       maybe: opts.maybe,
     }),
@@ -136,6 +135,7 @@ export const api = {
     oracleId: string,
     patch: Partial<{
       slot_id: number | null;
+      secondary_slot_ids: number[];
       role: string;
       quantity: number;
       tag_ids: number[];

@@ -8,7 +8,7 @@
 
 import type { DatabaseSync } from "node:sqlite";
 import * as z from "zod/v4";
-import { type Actor, PermissionError } from "../actor.ts";
+import { type Actor } from "../actor.ts";
 import { recordActivity } from "../activity.ts";
 import { type CardRow, lintProse, resolveCard, resolveCards, tryResolveCard } from "../cards.ts";
 import { withTransaction } from "../db.ts";
@@ -28,9 +28,9 @@ import {
   getDeck,
   listDecks,
   requireDeck,
+  requireDirectCardEdit,
   requireSlotByName,
   renameDeck,
-  setDeckCategory,
   shortlistCard,
   unshortlistCard,
 } from "../deck/service.ts";
@@ -152,15 +152,6 @@ function contextFor(
   };
 }
 
-function requireDraftForAgent(db: DatabaseSync, actor: Actor, deck: number) {
-  const row = requireDeck(db, deck);
-  if (actor.kind === "agent" && row.status !== "draft")
-    throw new PermissionError(
-      `"${row.name}" is an active deck, so its cards change only through a proposal the owner accepts. ` +
-        `Use propose_changes. (Agents edit draft decks directly; only the owner can return a deck to draft.)`,
-    );
-}
-
 // ---------- the tools ----------
 
 export const TOOLS: ToolDef[] = [
@@ -240,8 +231,8 @@ export const TOOLS: ToolDef[] = [
     readOnly: false,
     description:
       "Set a deck's desired power profile: intent, usual win range, consistency, resilience, interaction, " +
-      "win conditions and allowed play patterns, plus a Game Changer limit. On a draft it applies directly; " +
-      "on an active deck the owner must accept the proposed edit. Unknown fields may be omitted. " +
+      "win conditions and allowed play patterns, plus a Game Changer limit. Agents always propose targets " +
+      "for the owner to accept. Legacy is read-only. Unknown fields may be omitted. " +
       "This changes the target, never the current assessment or cards. Give a reason grounded in the owner's preferences. " +
       "Use get_deck sections: [power] for field anchors and the app's explained bracket mapping.",
     input: {
@@ -252,7 +243,7 @@ export const TOOLS: ToolDef[] = [
     run: ({ db, actor }, a) => {
       const id = deckId(db, a.deck);
       const r = proposeDocumentEdit(db, actor, id, "power_target", { target: a.target }, a.reason);
-      return done(`${r.applied ? "Set the draft power target." : `Proposed power target edit #${r.edit_id}; awaiting the owner.`}\n${renderPower(getPower(db, id))}\n${afterWrite(db, id)}`);
+      return done(`${r.applied ? "Set the power target." : `Proposed power target edit #${r.edit_id}; awaiting the owner.`}\n${renderPower(getPower(db, id))}\n${afterWrite(db, id)}`);
     },
   },
   {
@@ -474,28 +465,13 @@ export const TOOLS: ToolDef[] = [
     title: "Rename a deck",
     readOnly: false,
     description:
-      "Rename a draft or active deck. The name must be nonempty and unique across decks. " +
+      "Rename a Paper or Theorycrafted deck. The name must be nonempty and unique across decks. " +
       "Its cards, revision, category and editing permissions stay the same. The change is attributed in Activity.",
     input: { deck: deckRef, name: z.string().describe("The new deck name.") },
     run: ({ db, actor }, a) => {
       const id = deckId(db, a.deck);
       renameDeck(db, actor, id, a.name);
       return done(`Renamed deck ${id} to "${requireDeck(db, id).name}".\n${afterWrite(db, id)}`);
-    },
-  },
-  {
-    name: "set_deck_category",
-    title: "Change a deck's category",
-    readOnly: false,
-    description:
-      "Classify a deck as paper (a physical deck), theorycrafted (an idea), or legacy (a past deck kept " +
-      "for reference). This does not change draft/active permissions, its cards or revision. " +
-      "The change is attributed in Activity.",
-    input: { deck: deckRef, category: z.enum(["paper", "theorycrafted", "legacy"]) },
-    run: ({ db, actor }, a) => {
-      const id = deckId(db, a.deck);
-      setDeckCategory(db, actor, id, a.category);
-      return done(`Set deck ${id} category to ${a.category}.\n${afterWrite(db, id)}`);
     },
   },
   {
@@ -518,15 +494,14 @@ export const TOOLS: ToolDef[] = [
 
   {
     name: "create_deck",
-    title: "Create a draft deck",
+    title: "Create a Theorycrafted deck",
     readOnly: false,
     description:
-      "Create a new deck. It starts as a draft, which you edit directly with edit_draft until the owner " +
-      "makes it active. Optionally set the commanders, paste a whole list, and write the thesis in the " +
-      "same call, and choose paper, theorycrafted or legacy as its category. If any card name does not resolve, nothing is created.",
+      "Create a Theorycrafted deck, whose cards you can edit directly with edit_cards. Optionally set " +
+      "commanders or paste a whole list. A supplied thesis becomes a proposed brief edit for the owner’s approval. " +
+      "Only the owner changes lifecycle. If any card name does not resolve, nothing is created.",
     input: {
       name: z.string().describe("A name not already used by another deck."),
-      category: z.enum(["paper", "theorycrafted", "legacy"]).optional().describe("Defaults to theorycrafted."),
       commanders: z.array(cardRef).max(2).optional().describe("One commander, or two that may be paired."),
       list: z
         .string()
@@ -539,9 +514,9 @@ export const TOOLS: ToolDef[] = [
     },
     run: ({ db, actor }, a) => {
       const commanders = resolveCards(db, a.commanders ?? []);
+      let thesisProposal: number | null = null;
       const id = withTransaction(db, () => {
-        const deck = createDeck(db, a.name, { status: "draft" });
-        if (a.category !== undefined) setDeckCategory(db, actor, deck, a.category);
+        const deck = createDeck(db, a.name);
         if (a.list?.trim()) fillFromList(db, actor, deck, a.list);
         const changes: Change[] = commanders.map((c) => {
           const row = findDeckCard(db, deck, c.oracle_id);
@@ -550,11 +525,14 @@ export const TOOLS: ToolDef[] = [
             : { action: "add", oracle_id: c.oracle_id, role: "commander" };
         });
         if (changes.length) applyChanges(db, actor, deck, changes, { kind: "edit", summary: "Set the commander" });
-        if (a.thesis?.trim()) proposeDocumentEdit(db, actor, deck, "thesis", { content: a.thesis }, "");
+        if (a.thesis?.trim()) {
+          const edit = proposeDocumentEdit(db, actor, deck, "thesis", { content: a.thesis }, "Initial thesis proposed while creating the requested deck.");
+          thesisProposal = edit.edit_id;
+        }
         return deck;
       });
-      recordActivity(db, actor, "create_deck", id, `Created draft deck "${a.name}"`);
-      return done(`Created draft deck ${id} "${a.name.trim()}" (category ${requireDeck(db, id).category}).\n${afterWrite(db, id)}`);
+      recordActivity(db, actor, "create_deck", id, `Created Theorycrafted deck "${a.name}"`);
+      return done(`Created Theorycrafted deck ${id} "${a.name.trim()}" (lifecycle ${requireDeck(db, id).category}).\n${thesisProposal != null ? `Initial thesis proposed as edit #${thesisProposal}; awaiting the owner.\n` : ""}${afterWrite(db, id)}`);
     },
   },
   {
@@ -562,7 +540,7 @@ export const TOOLS: ToolDef[] = [
     title: "Fork a deck",
     readOnly: false,
     description:
-      "Copy a deck — its list, slots, tags, maybe list, brief and deck memories — into a new draft that " +
+      "Copy a deck — its list, slots, tags, maybe list, brief and deck memories — into a new Theorycrafted deck that " +
       "records where it came from. Use it when the owner wants to make big changes to a deck but keep the " +
       "original. The original is untouched; compare_decks shows how the two diverge.",
     input: { deck: deckRef, name: z.string().describe("The new deck's name.") },
@@ -571,20 +549,21 @@ export const TOOLS: ToolDef[] = [
       const id = forkDeck(db, actor, parent, a.name);
       recordActivity(db, actor, "fork_deck", id, `Forked "${requireDeck(db, parent).name}" as "${a.name}"`);
       return done(
-        `Forked into draft deck ${id} "${a.name.trim()}". It is a draft: edit it with edit_draft.\n` +
+        `Forked into Theorycrafted deck ${id} "${a.name.trim()}". Edit its cards with edit_cards.\n` +
           `It starts with the original's brief, memories and rulings history. If the fork has a different ` +
-          `aim, rewrite its thesis first (edit_draft with thesis), then change the cards.\n${afterWrite(db, id)}`,
+          `aim, propose a new thesis first (propose_brief_edit), then change the cards.\n${afterWrite(db, id)}`,
       );
     },
   },
   {
-    name: "edit_draft",
-    title: "Edit a draft deck",
+    name: "edit_cards",
+    title: "Edit Theorycrafted cards",
     readOnly: false,
     description:
-      "Change a DRAFT deck directly: add and remove cards, set the commanders, write the thesis and " +
-      "constraints. Everything in one call lands together as one logged change, or none of it does. On an " +
-      "active deck this fails; use propose_changes there. Returns the new counts and check results.",
+      "Change a Theorycrafted deck’s cards directly: add and remove cards or set commanders. " +
+      "Everything in one call lands together as one logged change, or none of it does. On a Paper deck " +
+      "use propose_changes; Legacy is read-only. Brief changes always use propose_brief_edit. " +
+      "Returns the new counts and check results.",
     input: {
       deck: deckRef,
       add: z
@@ -592,7 +571,8 @@ export const TOOLS: ToolDef[] = [
           z.object({
             card: cardRef,
             quantity: z.number().int().min(1).optional().describe("Copies to add (default 1)."),
-            slot: z.string().optional().describe("An existing slot to file the card in."),
+            slot: z.string().optional().describe("An existing primary purpose slot."),
+            secondary_slots: z.array(z.string()).optional().describe("Additional purpose slots; omit to retain a maybe card's assignments."),
           }),
         )
         .optional(),
@@ -618,14 +598,12 @@ export const TOOLS: ToolDef[] = [
           "Replace the command zone with exactly these cards (added if not in the deck). A former " +
             "commander stays in the deck as an ordinary card unless you also remove it.",
         ),
-      thesis: z.string().optional().describe("Replace the brief's thesis."),
-      constraints: z.string().optional().describe("Replace the brief's constraints."),
       note: z.string().optional().describe("One line for the log saying what this edit was."),
     },
     run: ({ db, actor }, a) => {
       const deck = deckId(db, a.deck);
-      requireDraftForAgent(db, actor, deck);
-      const adds = (a.add ?? []) as Array<{ card: string; quantity?: number; slot?: string }>;
+      requireDirectCardEdit(db, actor, deck);
+      const adds = (a.add ?? []) as Array<{ card: string; quantity?: number; slot?: string; secondary_slots?: string[] }>;
       const removes = (a.remove ?? []) as Array<{ card: string; quantity?: number; to_maybe?: boolean }>;
       const addCards = resolveCards(db, adds.map((x) => x.card));
       const removeCards = resolveCards(db, removes.map((x) => x.card));
@@ -652,6 +630,7 @@ export const TOOLS: ToolDef[] = [
           oracle_id: addCards[i].oracle_id,
           quantity: x.quantity,
           slot_id: x.slot ? requireSlotByName(db, deck, x.slot).id : undefined,
+          secondary_slot_ids: x.secondary_slots?.map(name => requireSlotByName(db, deck, name).id),
         }),
       );
       for (const c of commanders ?? []) {
@@ -667,18 +646,14 @@ export const TOOLS: ToolDef[] = [
       withTransaction(db, () => {
         if (changes.length)
           applyChanges(db, actor, deck, changes, { kind: "edit", summary: a.note?.trim() || undefined });
-        if (a.thesis !== undefined) proposeDocumentEdit(db, actor, deck, "thesis", { content: a.thesis }, "");
-        if (a.constraints !== undefined)
-          proposeDocumentEdit(db, actor, deck, "constraints", { content: a.constraints }, "");
       });
       const did = [
         adds.length ? `added ${adds.length}` : null,
         removes.length ? `removed ${removes.length}` : null,
         commanders ? "set commanders" : null,
-        a.thesis !== undefined || a.constraints !== undefined ? "wrote the brief" : null,
       ].filter(Boolean);
-      if (!did.length) throw new ServiceError("Nothing to do: give cards to add or remove, commanders, or brief text");
-      recordActivity(db, actor, "edit_draft", deck, `${did.join(", ")}${a.note ? ` — ${a.note}` : ""}`);
+      if (!did.length) throw new ServiceError("Nothing to do: give cards to add or remove, or commanders");
+      recordActivity(db, actor, "edit_cards", deck, `${did.join(", ")}${a.note ? ` — ${a.note}` : ""}`);
       return done(`Done (${did.join(", ")}).\n${afterWrite(db, deck)}`);
     },
   },
@@ -687,7 +662,7 @@ export const TOOLS: ToolDef[] = [
     title: "Define a deck's slots",
     readOnly: false,
     description:
-      "Create, retarget, rename and remove slots on any deck, draft or active; this is organization and " +
+      "Create, retarget, rename and remove slots on Paper or Theorycrafted decks; this is organization and " +
       "needs no ruling. A slot says what a card does (ramp, interaction, card advantage) and may carry a " +
       "soft target count or range. A name you give that does not exist is created; one that exists is " +
       "updated. Card types (land, creatures…) cannot be slot names. All of it lands or none does.",
@@ -700,7 +675,7 @@ export const TOOLS: ToolDef[] = [
             rename_to: z.string().optional(),
             target_min: z.number().int().min(0).nullable().optional().describe("null clears it."),
             target_max: z.number().int().min(0).nullable().optional().describe("null clears it."),
-            remove: z.boolean().optional().describe("Remove the slot; its cards become unslotted."),
+            remove: z.boolean().optional().describe("Remove this purpose from all cards; their other slot assignments stay."),
           }),
         )
         .min(1),
@@ -717,17 +692,20 @@ export const TOOLS: ToolDef[] = [
     title: "File cards into slots and tags",
     readOnly: false,
     description:
-      "Set the slot and tags of cards already in a deck (or on its maybe list), on any deck; this is " +
+      "Set primary and secondary purpose slots and management tags of cards already in a deck (or on its maybe list), on Paper or Theorycrafted decks; this is " +
       "organization and needs no ruling. File many cards in one call; if any card or slot name is wrong, " +
       "nothing is filed. A tag that does not exist yet is created, unless it would duplicate an existing " +
-      "tag (same words, different spelling), in which case the call fails and names the tag to use.",
+      "tag (same words, different spelling), in which case the call fails and names the tag to use. " +
+      "remove_unused_tags removes explicitly named vocabulary entries after filing, only if no card still uses them.",
     input: {
       deck: deckRef,
+      remove_unused_tags: z.array(z.string()).optional().describe("Remove these tags from the vocabulary after filing, only if no card still uses them. Other unused tags stay."),
       filings: z
         .array(
           z.object({
             card: cardRef,
-            slot: z.string().nullable().optional().describe("Slot name; null unslots; omit to leave it."),
+            slot: z.string().nullable().optional().describe("Primary slot name; null clears the primary; omit to leave it."),
+            secondary_slots: z.array(z.string()).optional().describe("Replace secondary purpose slots; [] clears them; omit to leave them. Cannot include the primary slot."),
             add_tags: z.array(z.string()).optional(),
             remove_tags: z.array(z.string()).optional(),
           }),
@@ -736,14 +714,15 @@ export const TOOLS: ToolDef[] = [
     },
     run: ({ db, actor }, a) => {
       const deck = deckId(db, a.deck);
-      const filings = a.filings as Array<{ card: string; slot?: string | null; add_tags?: string[]; remove_tags?: string[] }>;
+      const filings = a.filings as Array<{ card: string; slot?: string | null; secondary_slots?: string[]; add_tags?: string[]; remove_tags?: string[] }>;
       const cards = resolveCards(db, filings.map((f) => f.card));
       fileCards(
         db,
         deck,
         filings.map((f, i) => ({ ...f, oracle_id: cards[i].oracle_id })),
+        a.remove_unused_tags,
       );
-      recordActivity(db, actor, "file_cards", deck, `Filed ${cards.length} card(s)`);
+      recordActivity(db, actor, "file_cards", deck, `Filed ${cards.length} card(s)${a.remove_unused_tags?.length ? `; removed unused tags: ${a.remove_unused_tags.join(", ")}` : ""}`);
       return done(`Filed ${cards.length} card(s).\n${renderDeck(db, deck, ["state"])}`);
     },
   },
@@ -752,9 +731,9 @@ export const TOOLS: ToolDef[] = [
     title: "Add to or remove from the maybe list",
     readOnly: false,
     description:
-      "Put cards on a deck's maybe list, or take them off it, on any deck; needs no ruling. The maybe list " +
+      "Put cards on a deck's maybe list, or take them off it, on Paper or Theorycrafted decks; needs no ruling. The maybe list " +
       "is outside the 100: use it to park candidates worth considering, each with a note saying why. " +
-      "Moving a card from the deck itself to the maybe list is a cut and goes through edit_draft or " +
+      "Moving a card from the deck itself to the maybe list is a cut and goes through edit_cards or " +
       "propose_changes.",
     input: {
       deck: deckRef,
@@ -923,7 +902,8 @@ export const TOOLS: ToolDef[] = [
             action: z.enum(["add", "cut"]),
             card: cardRef,
             reason: z.string().describe("Why. The owner reads this when ruling."),
-            slot: z.string().optional().describe("For an add: an existing slot to file the card in."),
+            slot: z.string().optional().describe("For an add: an existing primary purpose slot."),
+            secondary_slots: z.array(z.string()).optional().describe("For an add: additional purpose slots; omit to retain a maybe card's assignments."),
             to_maybe: z
               .boolean()
               .optional()
@@ -940,6 +920,7 @@ export const TOOLS: ToolDef[] = [
         card: string;
         reason: string;
         slot?: string;
+        secondary_slots?: string[];
         to_maybe?: boolean;
         group?: string;
       }>;
@@ -951,6 +932,7 @@ export const TOOLS: ToolDef[] = [
           oracle_id: cards[n].oracle_id,
           reason: i.reason,
           slot_id: i.slot ? requireSlotByName(db, deck, i.slot).id : undefined,
+          secondary_slot_ids: i.secondary_slots?.map(name => requireSlotByName(db, deck, name).id),
           to_maybe: i.to_maybe,
           group: i.group,
         })),
@@ -993,8 +975,8 @@ export const TOOLS: ToolDef[] = [
     description:
       "Propose a change to a deck's brief: replace the thesis or the constraints, define or replace a " +
       "named engine (with the cards that are its required pieces), or remove one. The brief is the " +
-      "owner's document, so on an active deck this waits for their ruling and needs a reason citing what " +
-      "prompted it. On a draft deck it applies at once.",
+      "owner's document, so this always waits for their ruling and needs a reason citing what " +
+      "prompted it. Legacy is read-only.",
     input: {
       deck: deckRef,
       kind: z.enum(["thesis", "constraints", "engine_set", "engine_remove"]),
@@ -1005,7 +987,7 @@ export const TOOLS: ToolDef[] = [
         .array(z.object({ card: cardRef, note: z.string().optional() }))
         .optional()
         .describe("For engine_set: the cards the engine needs."),
-      reason: z.string().optional().describe("What prompted this (rulings, memories). Required on an active deck."),
+      reason: z.string().trim().min(1).describe("What prompted this (rulings, memories). Required for every brief proposal."),
     },
     run: ({ db, actor }, a) => {
       const deck = deckId(db, a.deck);
@@ -1024,10 +1006,10 @@ export const TOOLS: ToolDef[] = [
         },
         a.reason ?? "",
       );
-      recordActivity(db, actor, "propose_brief_edit", deck, r.applied ? `Wrote the brief (${a.kind}) of a draft` : `Proposed brief edit #${r.edit_id} (${a.kind})`);
+      recordActivity(db, actor, "propose_brief_edit", deck, r.applied ? `Wrote the brief (${a.kind})` : `Proposed brief edit #${r.edit_id} (${a.kind})`);
       return done(
         r.applied
-          ? `Applied: this deck is a draft, so its brief is yours to write.\n${renderDeck(db, deck, ["brief"])}`
+          ? `Applied the brief edit.\n${renderDeck(db, deck, ["brief"])}`
           : `Proposed edit #${r.edit_id} is waiting for the owner's ruling in the app.`,
       );
     },
@@ -1057,7 +1039,7 @@ export const TOOLS: ToolDef[] = [
 
 // ---------- calling a tool without a transport ----------
 
-const SCHEMAS = new Map(TOOLS.map((t) => [t.name, z.object(t.input)]));
+const SCHEMAS = new Map(TOOLS.map((t) => [t.name, (["create_deck", "edit_cards"].includes(t.name) ? z.strictObject(t.input) : z.object(t.input))]));
 
 /** Validate arguments and run a tool. Errors propagate; the transport turns them into tool errors. */
 export function callTool(ctx: ToolContext, name: string, args: unknown = {}): ToolResult {

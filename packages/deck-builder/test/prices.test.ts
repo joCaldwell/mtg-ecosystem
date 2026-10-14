@@ -166,7 +166,7 @@ describe("searching by price", () => {
 describe("what a deck costs", () => {
   async function build() {
     const db = testDb();
-    const deck = newDeck(db, "draft");
+    const deck = newDeck(db, "theorycrafted");
     await priced(db, [
       printing("id-teferi", { prices: { usd: "2.50" } }),
       printing("id-solring", { prices: { usd: "1.19" } }),
@@ -203,13 +203,13 @@ describe("what a deck costs", () => {
     );
     assert.match(text("search_cards", { query: "usd<=2 t:artifact" }), /- Sol Ring \{1\} — Artifact · \$1\.19/);
     assert.match(text("get_cards", { cards: ["Seedborn Muse"] }), /Creature — Spirit 2\/4 · \$14\.00/);
-    assert.match(text("edit_draft", { deck, add: [{ card: "Llanowar Elves" }] }), /Estimated cost: \$3\.84 at/);
+    assert.match(text("edit_cards", { deck, add: [{ card: "Llanowar Elves" }] }), /Estimated cost: \$3\.84 at/);
 
   });
 
   test("before any prices are loaded, nothing about cost is said", () => {
     const db = testDb();
-    const deck = newDeck(db, "draft");
+    const deck = newDeck(db, "theorycrafted");
     add(db, deck, "id-solring");
     const read = callTool({ db, actor: AGENT }, "get_deck", { deck }).text;
     assert.doesNotMatch(read, /Estimated cost|\$/);

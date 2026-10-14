@@ -17,17 +17,18 @@ export function PowerPanel() {
   const { deckId, run, apply } = useDeck();
   const inbox = useInbox();
   const [editing, setEditing] = useState<"target" | "assessment" | null>(null);
+  const readOnly = deck.category === "legacy";
   const a = power.assessment;
   const t = power.target;
   return <>
     <Stack gap={4}>
-      <Row justify="between"><Eyebrow>Deck power</Eyebrow><Button size="sm" variant="ghost" onClick={() => setEditing("assessment")}>{a ? "Reassess" : "Assess deck"}</Button></Row>
+      <Row justify="between"><Eyebrow>Deck power</Eyebrow><Button size="sm" variant="ghost" disabled={readOnly} onClick={() => setEditing("assessment")}>{a ? "Reassess" : "Assess deck"}</Button></Row>
       <div className={styles.summary}>
         <Stack gap={2}><Text size="xs" tone="muted">Current assessment</Text><Text size="xl" mono tone={a?.stale ? "warn" : "soft"}>{a ? bracketLabel(a.mapping) : "Not assessed"}</Text>
           {a && <Text size="xs" tone={a.owner_touched ? "muted" : "agent"}>{a.author} · r{a.revision} · {ago(a.created_at)}</Text>}
         </Stack>
         <Stack gap={2}><Text size="xs" tone="muted">Target</Text><Text size="xl" mono>{t ? bracketLabel(t.mapping) : "Not set"}</Text>
-          <Button size="sm" variant="ghost" onClick={() => setEditing("target")}>{t ? "Edit target" : "Set target"}</Button>
+          <Button size="sm" variant="ghost" disabled={readOnly} onClick={() => setEditing("target")}>{t ? "Edit target" : "Set target"}</Button>
           {t && <Text size="xs" tone={t.author === "owner" ? "muted" : "agent"}>{t.author} · {ago(t.updated_at)}</Text>}
         </Stack>
       </div>
@@ -61,9 +62,9 @@ export function PowerPanel() {
         <RichText text={old.notes} />
       </Stack>)}
     </Stack></details>}
-    <Stack gap={3}><Text as="p" size="xs" tone="faint">{deck.status === "draft" ? "Agents may help set this draft's target directly." : "Agents propose target changes for your approval."} Assessments are attributed estimates; your corrections take precedence.</Text>
-      {t && <Button size="sm" variant="ghost" onClick={() => void run(() => api.setPowerTarget(deckId, null))}>Clear target</Button>}
+    <Stack gap={3}><Text as="p" size="xs" tone="faint">{readOnly ? "Legacy decks are read-only." : "Agents propose target changes for your approval."} Assessments are attributed estimates; your corrections take precedence.</Text>
+      {t && !readOnly && <Button size="sm" variant="ghost" onClick={() => void run(() => api.setPowerTarget(deckId, null))}>Clear target</Button>}
     </Stack>
-    {editing && <PowerEditor kind={editing} power={power} revision={deck.revision} onClose={() => setEditing(null)} />}
+    {editing && !readOnly && <PowerEditor kind={editing} power={power} revision={deck.revision} onClose={() => setEditing(null)} />}
   </>;
 }

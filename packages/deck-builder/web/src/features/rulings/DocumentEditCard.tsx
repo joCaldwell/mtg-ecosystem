@@ -99,7 +99,7 @@ export function DocumentEditCard({
 
       <Change edit={edit} />
 
-      <RulingControls
+      {!edit.read_only && <RulingControls
         rejecting={rejecting}
         busy={busy}
         acceptLabel="Accept the edit"
@@ -108,7 +108,7 @@ export function DocumentEditCard({
         onStartReject={() => setRejecting(true)}
         onReject={(reason) => rule("reject", reason)}
         onCancelReject={() => setRejecting(false)}
-      />
+      />}
       {error && <ErrorNote>{error}</ErrorNote>}
 
       <Text tone="faint" size="xs">

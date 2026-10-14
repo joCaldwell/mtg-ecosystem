@@ -11,7 +11,7 @@ import { ServiceError } from "./errors.ts";
 import { getSetting, setSetting, withTransaction } from "./db.ts";
 import { type Actor, PermissionError, authorOf } from "./actor.ts";
 import { lintProse, requireCardById } from "./cards.ts";
-import { requireDeck } from "./deck/service.ts";
+import { requireDeck, requireEditableDeck } from "./deck/service.ts";
 
 export type MemoryScope = "global" | "deck";
 export type MemoryBasis = "stated" | "inferred";
@@ -23,6 +23,7 @@ export interface MemoryView {
   scope: MemoryScope;
   deck_id: number | null;
   deck_name: string | null;
+  read_only: boolean;
   basis: MemoryBasis;
   author: string;
   owner_touched: boolean;
@@ -35,7 +36,7 @@ export interface MemoryView {
   cards: Array<{ oracle_id: string; name: string }>;
 }
 
-const SELECT = `SELECT m.id, m.text, m.scope, m.deck_id, d.name AS deck_name, m.basis, m.author,
+const SELECT = `SELECT m.id, m.text, m.scope, m.deck_id, d.name AS deck_name, (d.category = 'legacy') AS read_only, m.basis, m.author,
        m.owner_touched, m.source_log_id, m.deck_revision, m.status, m.superseded_by,
        m.created_at, m.revised_at
   FROM memories m LEFT JOIN decks d ON d.id = m.deck_id`;
@@ -50,6 +51,7 @@ function toViews(db: DatabaseSync, rows: Row[]): MemoryView[] {
   return rows.map((r) => ({
     ...r,
     owner_touched: !!r.owner_touched,
+    read_only: !!r.read_only,
     cards: cards.all(r.id) as unknown as Array<{ oracle_id: string; name: string }>,
   }));
 }
@@ -303,7 +305,7 @@ export function remember(db: DatabaseSync, actor: Actor, input: RememberInput): 
   const deckId = input.scope === "deck" ? (input.deck_id ?? null) : null;
   if (input.scope === "deck" && deckId == null)
     throw new ServiceError("A deck-scoped memory needs the deck it belongs to");
-  const deck = deckId == null ? null : requireDeck(db, deckId);
+  const deck = deckId == null ? null : requireEditableDeck(db, deckId);
   if (input.deck_revision !== undefined && (!deck || !Number.isInteger(input.deck_revision) || input.deck_revision < 0 || input.deck_revision > deck.revision))
     throw new ServiceError("The tested revision must be a revision of this deck");
   const cardIds = linkedCards(db, text, input.cards);
@@ -378,6 +380,7 @@ export function reviseMemory(
   revision: Revision,
 ): MemoryView {
   const memory = getMemory(db, id);
+  if (memory.deck_id != null) requireEditableDeck(db, memory.deck_id);
   const touched = actor.kind === "owner" ? 1 : memory.owner_touched ? 1 : 0;
 
   switch (revision.action) {
@@ -453,7 +456,7 @@ export function reviseMemory(
 // the two decks diverge, and so does what is known about each.
 export function copyDeckMemories(db: DatabaseSync, fromDeckId: number, toDeckId: number): number {
   const source = listMemories(db, { scope: "deck", deckId: fromDeckId, limit: 1000 });
-  const revision = requireDeck(db, toDeckId).revision;
+  const revision = requireEditableDeck(db, toDeckId).revision;
   const ins = db.prepare(
     `INSERT INTO memories (text, scope, deck_id, basis, author, owner_touched, source_log_id,
                            deck_revision, created_at, revised_at)

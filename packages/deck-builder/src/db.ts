@@ -8,7 +8,7 @@ export const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const DATA_DIR = process.env.DECKBUILDER_DATA ?? join(PKG_ROOT, "data");
 export const DEFAULT_DB_PATH = process.env.DECKBUILDER_DB ?? join(DATA_DIR, "deck-builder.db");
 
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 9;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS cards (
@@ -76,10 +76,9 @@ CREATE TABLE IF NOT EXISTS meta (
 CREATE TABLE IF NOT EXISTS decks (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   name       TEXT NOT NULL UNIQUE COLLATE NOCASE,
-  -- Spec §5.2. Agents change membership of a draft directly and of an active
-  -- deck only by proposal. Only the owner flips this.
-  status     TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'active')),
-  -- Spec §5.6: classification, independent of editing permissions.
+  -- Spec §5.2 and §5.6: lifecycle controls editing. Only the owner changes it.
+  -- Paper requires card proposals; Theorycrafted permits direct card edits;
+  -- Legacy is read-only.
   category   TEXT NOT NULL DEFAULT 'theorycrafted'
              CHECK (category IN ('paper', 'theorycrafted', 'legacy')),
   -- Spec §5.3: the deck this one was forked from. Kept when the parent is
@@ -111,6 +110,8 @@ CREATE TABLE IF NOT EXISTS tags (
   UNIQUE (deck_id, name COLLATE NOCASE)
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_slots_deck_id ON slots(deck_id, id);
+
 -- Composite parent key prevents a card from carrying another deck's tag.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_deck_id ON tags(deck_id, id);
 
@@ -131,6 +132,30 @@ CREATE TABLE IF NOT EXISTS deck_cards (
 );
 
 CREATE INDEX IF NOT EXISTS idx_deck_cards_card ON deck_cards(oracle_id);
+
+-- slot_id is the primary purpose; additional purposes belong to the same
+-- deck and survive parking, forks and membership undo (spec §5.4).
+CREATE TABLE IF NOT EXISTS deck_card_secondary_slots (
+  deck_id INTEGER NOT NULL,
+  oracle_id TEXT NOT NULL,
+  slot_id INTEGER NOT NULL,
+  PRIMARY KEY (deck_id, oracle_id, slot_id),
+  FOREIGN KEY (deck_id, slot_id) REFERENCES slots(deck_id, id) ON DELETE CASCADE,
+  FOREIGN KEY (deck_id, oracle_id) REFERENCES deck_cards(deck_id, oracle_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_secondary_slots_slot ON deck_card_secondary_slots(deck_id, slot_id, oracle_id);
+CREATE TRIGGER IF NOT EXISTS secondary_slot_not_primary
+BEFORE INSERT ON deck_card_secondary_slots
+WHEN EXISTS (SELECT 1 FROM deck_cards WHERE deck_id = NEW.deck_id AND oracle_id = NEW.oracle_id AND slot_id = NEW.slot_id)
+BEGIN SELECT RAISE(ABORT, 'A primary slot cannot also be secondary'); END;
+CREATE TRIGGER IF NOT EXISTS primary_slot_not_secondary
+BEFORE UPDATE OF slot_id ON deck_cards
+WHEN EXISTS (SELECT 1 FROM deck_card_secondary_slots WHERE deck_id = NEW.deck_id AND oracle_id = NEW.oracle_id AND slot_id = NEW.slot_id)
+BEGIN SELECT RAISE(ABORT, 'A primary slot cannot also be secondary'); END;
+CREATE TRIGGER IF NOT EXISTS secondary_slot_update_not_primary
+BEFORE UPDATE ON deck_card_secondary_slots
+WHEN EXISTS (SELECT 1 FROM deck_cards WHERE deck_id = NEW.deck_id AND oracle_id = NEW.oracle_id AND slot_id = NEW.slot_id)
+BEGIN SELECT RAISE(ABORT, 'A primary slot cannot also be secondary'); END;
 
 CREATE TABLE IF NOT EXISTS deck_card_tags (
   deck_id   INTEGER NOT NULL,
@@ -224,6 +249,7 @@ CREATE TABLE IF NOT EXISTS proposal_items (
   action      TEXT NOT NULL CHECK (action IN ('add', 'cut')),
   oracle_id   TEXT NOT NULL REFERENCES cards(oracle_id),
   slot_id     INTEGER,
+  secondary_slot_ids_json TEXT,
   -- Spec §8.1: an accepted cut moves the card to the maybe list instead of
   -- out of the deck. Only ever set on a cut.
   to_maybe    INTEGER NOT NULL DEFAULT 0 CHECK (to_maybe IN (0, 1)),
@@ -404,9 +430,15 @@ export function openDb(path: string = DEFAULT_DB_PATH): DatabaseSync {
       }
       // Added by presence, not by version: an existing file gains the column
       // the first time it is opened, whatever version it reports.
+      // Category now owns permissions. Preserve each existing category and remove
+      // the redundant flag; SQLite keeps IDs, foreign keys and dependent records.
+      const deckColumns = db.prepare("PRAGMA table_info(decks)").all() as unknown as { name: string }[];
+      if (deckColumns.some(c => c.name === "status")) db.exec("ALTER TABLE decks DROP COLUMN status");
       const itemColumns = db.prepare("PRAGMA table_info(proposal_items)").all() as unknown as { name: string }[];
       if (!itemColumns.some((c) => c.name === "to_maybe"))
         db.exec("ALTER TABLE proposal_items ADD COLUMN to_maybe INTEGER NOT NULL DEFAULT 0 CHECK (to_maybe IN (0, 1))");
+      if (!itemColumns.some((c) => c.name === "secondary_slot_ids_json"))
+        db.exec("ALTER TABLE proposal_items ADD COLUMN secondary_slot_ids_json TEXT");
       const cardColumns = db.prepare("PRAGMA table_info(deck_cards)").all() as unknown as { name: string }[];
       if (cardColumns.some((c) => c.name === "in_paper")) {
         // The owner chose to discard assembly marks and use ordinary tags.
@@ -446,7 +478,7 @@ function assertOurs(db: DatabaseSync, path: string) {
   } catch {
     /* no meta table at all */
   }
-  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5" || found === "6") return found;
+  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5" || found === "6" || found === "7" || found === "8") return found;
   db.close();
   throw new SchemaError(
     `${path} is not a database this version of the deck builder can open ` +

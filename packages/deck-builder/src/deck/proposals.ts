@@ -1,4 +1,4 @@
-// Proposals and rulings (spec §8). On an active deck an agent changes
+// Proposals and rulings (spec §8). On a Paper deck an agent changes
 // membership only by proposing; the owner rules per item, per group, or on
 // the whole proposal, with an optional free-text reason. There are no reason
 // types and no cap on items.
@@ -10,13 +10,15 @@ import { type Actor, authorOf, requireOwner } from "../actor.ts";
 import { lintProse, requireCardById } from "../cards.ts";
 import { type LogCardInput, writeLog } from "./log.ts";
 import { type Change, applyChanges } from "./membership.ts";
-import { copyLimit, findDeckCard, requireDeck } from "./service.ts";
+import { copyLimit, findDeckCard, requireDeck, requireEditableDeck, listSlots, validateSlotAssignments } from "./service.ts";
 
 export interface ProposalItemInput {
   action: "add" | "cut";
   oracle_id: string;
   /** For an add: the slot to file the card in. Optional; slots never are required. */
   slot_id?: number | null;
+  /** Additional purposes for an add. Omit to retain a maybe card's purposes. */
+  secondary_slot_ids?: number[];
   /** For a cut: if accepted, the card goes to the maybe list instead of out of the deck. */
   to_maybe?: boolean;
   reason: string;
@@ -32,7 +34,7 @@ export function createProposal(
   deckId: number,
   input: { summary?: string; items: ProposalItemInput[] },
 ): number {
-  requireDeck(db, deckId);
+  requireEditableDeck(db, deckId);
   const items = input.items ?? [];
   if (!items.length) throw new ServiceError("A proposal needs at least one item");
 
@@ -76,6 +78,12 @@ export function createProposal(
       if (!db.prepare("SELECT 1 FROM slots WHERE id = ? AND deck_id = ?").get(item.slot_id, deckId))
         throw new ServiceError(`Slot ${item.slot_id} not found in deck ${deckId}`, 404);
     }
+    if (item.secondary_slot_ids !== undefined && item.action !== "add")
+      throw new ServiceError("Only an add can name secondary slots; a cut keeps the card's purposes");
+    if (item.action === "add") {
+      const primary = item.slot_id ?? (row?.maybe ? row.slot_id : null);
+      validateSlotAssignments(db, deckId, primary, item.secondary_slot_ids !== undefined ? item.secondary_slot_ids : (row?.maybe ? row.secondary_slot_ids.filter(id => id !== primary) : []));
+    }
 
     const pending = db
       .prepare(
@@ -97,8 +105,8 @@ export function createProposal(
       .run(deckId, (input.summary ?? "").trim(), authorOf(actor));
     const proposalId = Number(r.lastInsertRowid);
     const ins = db.prepare(
-      `INSERT INTO proposal_items (proposal_id, action, oracle_id, slot_id, to_maybe, reason, group_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO proposal_items (proposal_id, action, oracle_id, slot_id, secondary_slot_ids_json, to_maybe, reason, group_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const item of items)
       ins.run(
@@ -106,6 +114,7 @@ export function createProposal(
         item.action,
         item.oracle_id,
         item.slot_id ?? null,
+        item.secondary_slot_ids === undefined ? null : JSON.stringify([...new Set(item.secondary_slot_ids)]),
         item.to_maybe ? 1 : 0,
         item.reason.trim(),
         item.group?.trim() || null,
@@ -131,6 +140,8 @@ export interface ProposalItemView {
   usd_cents: number | null;
   slot_id: number | null;
   slot_name: string | null;
+  secondary_slot_ids: number[];
+  secondary_slot_names: string[];
   /** 1 on a cut that, if accepted, moves the card to the maybe list. */
   to_maybe: number;
   reason: string;
@@ -151,7 +162,7 @@ export interface ProposalView {
 
 const ITEM_SELECT = `SELECT pi.id, pi.proposal_id, pi.action, pi.oracle_id, c.name AS card_name,
        c.mana_cost, c.type_line, c.oracle_text, c.power, c.toughness, c.loyalty, pr.usd_cents,
-       pi.slot_id, s.name AS slot_name, pi.to_maybe, pi.reason, pi.group_id, pi.status
+       pi.slot_id, s.name AS slot_name, pi.secondary_slot_ids_json, pi.to_maybe, pi.reason, pi.group_id, pi.status
   FROM proposal_items pi JOIN cards c ON c.oracle_id = pi.oracle_id
   LEFT JOIN card_prices pr ON pr.oracle_id = pi.oracle_id
   LEFT JOIN slots s ON s.id = pi.slot_id
@@ -162,7 +173,21 @@ const PROPOSAL_SELECT = `SELECT p.id, p.deck_id, d.name AS deck_name, p.summary,
 
 function withItems(db: DatabaseSync, rows: Array<Omit<ProposalView, "items">>): ProposalView[] {
   const stmt = db.prepare(ITEM_SELECT);
-  return rows.map((p) => ({ ...p, items: stmt.all(p.id) as unknown as ProposalItemView[] }));
+  return rows.map(p => {
+    const slots = new Map(listSlots(db, p.deck_id).map(s => [s.id, s.name]));
+    const items = (stmt.all(p.id) as unknown as (ProposalItemView & { secondary_slot_ids_json: string | null })[]).map(raw => {
+      const { secondary_slot_ids_json: json, ...item } = raw;
+      const current = findDeckCard(db, p.deck_id, item.oracle_id);
+      const proposedPrimary = item.slot_id != null && slots.has(item.slot_id) ? item.slot_id : null;
+      const primary = item.action === "add" && item.status === "pending"
+        ? (current && !current.maybe ? current.slot_id : proposedPrimary ?? (current?.maybe ? current.slot_id : null))
+        : proposedPrimary;
+      const ids: number[] = json == null ? (item.action === "add" && current?.maybe ? current.secondary_slot_ids : []) : JSON.parse(json);
+      const secondary_slot_ids = ids.filter(id => slots.has(id) && id !== primary);
+      return { ...item, slot_id: primary, slot_name: primary == null ? null : slots.get(primary)!, secondary_slot_ids, secondary_slot_names: secondary_slot_ids.map(id => slots.get(id)!) };
+    });
+    return { ...p, items };
+  });
 }
 
 /** Proposals for one deck, or across every deck when deckId is omitted (the inbox). */
@@ -204,6 +229,7 @@ interface ItemRow {
   action: "add" | "cut";
   oracle_id: string;
   slot_id: number | null;
+  secondary_slot_ids_json: string | null;
   to_maybe: number;
   reason: string;
   group_id: string | null;
@@ -211,7 +237,7 @@ interface ItemRow {
 }
 
 const ITEM_ROW = `SELECT pi.id, pi.proposal_id, p.deck_id, pi.action, pi.oracle_id, pi.slot_id,
-       pi.to_maybe, pi.reason, pi.group_id, pi.status
+       pi.secondary_slot_ids_json, pi.to_maybe, pi.reason, pi.group_id, pi.status
   FROM proposal_items pi JOIN proposals p ON p.id = pi.proposal_id`;
 
 // The items a ruling covers: the ones named, widened to whole groups — a
@@ -266,6 +292,7 @@ export function acceptItems(
   requireOwner(actor, "rule on a proposal");
   const items = itemsToRule(db, itemIds);
   const deckId = items[0].deck_id;
+  requireEditableDeck(db, deckId);
 
   return withTransaction(db, () => {
     // Cuts first: a swap that replaces a commander needs the seat free.
@@ -282,6 +309,8 @@ export function acceptItems(
                 db.prepare("SELECT 1 FROM slots WHERE id = ? AND deck_id = ?").get(i.slot_id, deckId)
                   ? i.slot_id
                   : undefined,
+              secondary_slot_ids: i.secondary_slot_ids_json == null ? undefined : (JSON.parse(i.secondary_slot_ids_json) as number[])
+                .filter(id => id !== i.slot_id && db.prepare("SELECT 1 FROM slots WHERE id = ? AND deck_id = ?").get(id, deckId)),
               item_id: i.id,
               reason: i.reason,
             }
@@ -308,6 +337,7 @@ export function rejectItems(
   requireOwner(actor, "rule on a proposal");
   const items = itemsToRule(db, itemIds);
   const deckId = items[0].deck_id;
+  requireEditableDeck(db, deckId);
 
   return withTransaction(db, () => {
     const cards: LogCardInput[] = items.map((i) => ({

@@ -112,6 +112,9 @@ export function SlotRow({ slot, onSave, onInvalid, onRevert, onDelete }: Props) 
         </td>
         <td className={styles.count}>
           <Text mono>{slot.count}</Text>
+          <Text tone="muted" size="sm" className={styles.status}>
+            primary · {slot.secondary_count} secondary
+          </Text>
           {slot.status === "under" || slot.status === "over" ? (
             <Text tone="warn" size="sm" className={styles.status}>
               {Math.abs(slot.delta)} {slot.status}
@@ -137,9 +140,7 @@ export function SlotRow({ slot, onSave, onInvalid, onRevert, onDelete }: Props) 
               onConfirm={() => onDelete(slot.slot_id)}
             >
               Delete the slot <strong>{slot.name}</strong>?{" "}
-              {slot.count === 0
-                ? "It holds no cards."
-                : `Its ${slot.count} ${slot.count === 1 ? "card stays" : "cards stay"} in the deck and become unfiled.`}
+              Cards stay in the deck and on the maybe list. Only this purpose is removed; their other assignments stay.
             </ConfirmStrip>
           </td>
         </tr>

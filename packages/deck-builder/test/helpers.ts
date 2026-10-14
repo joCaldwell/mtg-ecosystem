@@ -3,7 +3,7 @@ import { openDb } from "../src/db.ts";
 import { ingestCards } from "../src/ingest.ts";
 import { OWNER, agent } from "../src/actor.ts";
 import { type Change, applyChanges } from "../src/deck/membership.ts";
-import { type DeckStatus, type Role, createDeck } from "../src/deck/service.ts";
+import { type DeckCategory, type Role, createDeck } from "../src/deck/service.ts";
 import { FIXTURES } from "./fixtures.ts";
 
 export const AGENT = agent("test-agent");
@@ -16,8 +16,8 @@ export function testDb(): DatabaseSync {
 }
 
 let n = 0;
-export function newDeck(db: DatabaseSync, status: DeckStatus = "active", name?: string): number {
-  return createDeck(db, name ?? `Deck ${++n}`, { status });
+export function newDeck(db: DatabaseSync, category: DeckCategory = "paper", name?: string): number {
+  return createDeck(db, name ?? `Deck ${++n}`, { category });
 }
 
 /** The owner adding one card directly, as the UI does. */

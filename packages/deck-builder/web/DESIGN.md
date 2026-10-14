@@ -27,7 +27,7 @@ the rules behind it.
 | `--agent` violet | An agent wrote or proposed it | proposal banner, memory chips, agent names, "waiting on you" |
 | `--add` green | Coming in, passing, accepted | proposed add, a check that passes, Accept |
 | `--cut` red | Going out, failing, rejected | proposed cut, a rule violation, Reject |
-| `--warn` amber | Off target, missing, provisional | slot under target, draft deck |
+| `--warn` amber | Off target, missing, provisional | slot under target, incomplete deck |
 | `--sel` blue | The owner's selection and focus | selected rows, search and tag matches, focus ring, focused field |
 | greys | Everything else | structure, text, neutral chips |
 

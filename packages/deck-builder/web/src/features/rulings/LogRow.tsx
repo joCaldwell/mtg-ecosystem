@@ -121,7 +121,7 @@ export function LogRow({
         {undone && <span className={styles.undone}>undone</span>}
       </div>
       <div className={styles.action}>
-        {onUndo && canUndo(entry) && (
+        {onUndo && !entry.read_only && canUndo(entry) && (
           <Button variant="ghost" size="sm" onClick={() => onUndo(entry)}>
             Undo
           </Button>

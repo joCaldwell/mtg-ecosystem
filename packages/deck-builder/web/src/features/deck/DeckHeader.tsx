@@ -15,24 +15,12 @@ import { useDeck, useDeckState } from "./DeckStore.tsx";
 import { useDeckUi } from "./DeckUi.tsx";
 import styles from "./DeckHeader.module.css";
 
-const STATUS_OPTIONS = [
-  {
-    value: "draft" as const,
-    label: "Draft",
-    title: "Draft: agents edit the list directly, and every edit lands in History. Only you can change this.",
-  },
-  {
-    value: "active" as const,
-    label: "Active",
-    title: "Active: agents propose changes and you rule on them. Only you can change this.",
-  },
-];
-
 export function DeckHeader() {
   const state = useDeckState();
   const { run } = useDeck();
   const ui = useDeckUi();
   const { deck, computed, checks, cards } = state;
+  const readOnly = deck.category === "legacy";
   const [draft, setDraft] = useState<string | null>(null);
 
   function startRename() {
@@ -61,9 +49,9 @@ export function DeckHeader() {
   const moreItems: MenuItem[] = [
     { id: "fork", label: "Fork", onSelect: () => ui.openDialog("fork") },
     { id: "compare", label: "Compare", onSelect: () => ui.openDialog("compare") },
-    { id: "interop", label: "Import / export", onSelect: () => ui.openDialog("interop") },
-    { id: "slots", label: "Edit slots and tags", onSelect: () => ui.openDialog("slots") },
-    { id: "delete", label: "Delete deck", tone: "cut", onSelect: () => ui.openDialog("delete") },
+    { id: "interop", label: readOnly ? "Export" : "Import / export", onSelect: () => ui.openDialog("interop") },
+    { id: "slots", label: "Edit slots and tags", disabled: readOnly, onSelect: () => ui.openDialog("slots") },
+    { id: "delete", label: "Delete deck", disabled: readOnly, tone: "cut", onSelect: () => ui.openDialog("delete") },
   ];
 
   return (
@@ -71,7 +59,7 @@ export function DeckHeader() {
       <div className={styles.top}>
         {draft == null ? (
           <h1 className={styles.title}>
-            <button type="button" className={styles.name} onClick={startRename} title="Click to rename">
+            <button type="button" className={styles.name} onClick={readOnly ? undefined : startRename} title={readOnly ? "Legacy deck: read-only" : "Click to rename"}>
               {deck.name}
             </button>
           </h1>
@@ -90,16 +78,14 @@ export function DeckHeader() {
           </form>
         )}
 
-        <div className={styles.status} data-tone={deck.status === "draft" ? "warn" : "add"}>
-          <Segmented
-            label="Deck status"
-            options={STATUS_OPTIONS}
-            value={deck.status}
-            onChange={(status) => {
-              if (status !== deck.status) void run(() => api.setDeckStatus(deck.id, status));
-            }}
-          />
-        </div>
+        <Segmented
+          label="Deck lifecycle"
+          options={DECK_CATEGORY_OPTIONS}
+          value={deck.category}
+          onChange={(category) => {
+            if (category !== deck.category) void run(() => api.setDeckCategory(deck.id, category));
+          }}
+        />
 
         <div className={styles.stats}>
           <DeckStat
@@ -125,17 +111,7 @@ export function DeckHeader() {
       </div>
 
       <Row className={styles.sub} gap={5} wrap>
-        <Row gap={2}>
-          <Text size="xs" tone="faint">Category</Text>
-          <Segmented
-            label="Deck category"
-            options={DECK_CATEGORY_OPTIONS}
-            value={deck.category}
-            onChange={(category) => {
-              if (category !== deck.category) void run(() => api.setDeckCategory(deck.id, category));
-            }}
-          />
-        </Row>
+        <Text size="xs" tone="muted">{readOnly ? "Read-only archive · restore or fork to edit" : deck.category === "paper" ? "Agents propose card and brief changes" : "Agents edit cards directly · brief changes need approval"}</Text>
         {commanders.length > 0 ? (
           <>
             {commanders.map((c) => (

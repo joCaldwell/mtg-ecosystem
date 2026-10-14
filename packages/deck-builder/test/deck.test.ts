@@ -20,7 +20,6 @@ import {
   renameDeck,
   renameTag,
   setDeckCategory,
-  setDeckStatus,
   shortlistCard,
   similarTag,
   unshortlistCard,
@@ -45,15 +44,15 @@ describe("deck lifecycle", () => {
     assert.throws(() => createDeck(db, "dupe"), /already exists/);
   });
   // Spec §5.2: a new deck is a draft; only the owner changes that.
-  test("new decks are drafts, and only the owner changes draft/active status", () => {
+  test("new decks are Theorycrafted, and only the owner changes lifecycle", () => {
     const id = createDeck(db, "Status");
-    assert.equal(getDeck(db, id).deck.status, "draft");
-    assert.throws(() => setDeckStatus(db, AGENT, id, "active"), PermissionError);
-    setDeckStatus(db, OWNER, id, "active");
-    assert.equal(getDeck(db, id).deck.status, "active");
+    assert.equal(getDeck(db, id).deck.category, "theorycrafted");
+    assert.throws(() => setDeckCategory(db, AGENT, id, "paper"), PermissionError);
+    setDeckCategory(db, OWNER, id, "paper");
+    assert.equal(getDeck(db, id).deck.category, "paper");
   });
   test("the roster carries commanders, counts and pending work", () => {
-    const id = newDeck(db, "active", "Roster");
+    const id = newDeck(db, "paper", "Roster");
     add(db, id, "id-atraxa", { role: "commander" });
     add(db, id, "id-solring");
     const row = listDecks(db).find((d) => d.id === id)!;
@@ -62,20 +61,21 @@ describe("deck lifecycle", () => {
     assert.equal(row.color_identity, "WUBG");
     assert.equal(row.pending_items, 0);
   });
-  test("owners and agents classify a deck independently of membership and permissions", () => {
-    const id = newDeck(db, "active", "Classification");
+  test("only the owner changes lifecycle, preserving membership and revisions", () => {
+    const id = newDeck(db, "paper", "Classification");
     add(db, id, "id-solring");
     const before = getDeck(db, id);
-    assert.equal(before.deck.category, "theorycrafted");
+    assert.equal(before.deck.category, "paper");
     for (const category of ["paper", "legacy", "theorycrafted"] as const) {
-      setDeckCategory(db, AGENT, id, category);
+      assert.throws(() => setDeckCategory(db, AGENT, id, category), PermissionError);
+      setDeckCategory(db, OWNER, id, category);
       const after = getDeck(db, id);
       assert.equal(after.deck.category, category);
       assert.equal(listDecks(db).find((d) => d.id === id)!.category, category);
-      assert.equal(after.deck.status, "active");
+      assert.ok(!("status" in after.deck));
       assert.equal(after.deck.revision, before.deck.revision);
       assert.deepEqual(after.cards, before.cards);
-      assert.throws(() => applyChanges(db, AGENT, id, [{ action: "cut", oracle_id: "id-solring" }], { kind: "edit" }), PermissionError);
+      if (category !== "theorycrafted") assert.throws(() => applyChanges(db, AGENT, id, [{ action: "cut", oracle_id: "id-solring" }], { kind: "edit" }), PermissionError);
     }
     assert.throws(() => setDeckCategory(db, OWNER, id, "invalid" as any), ServiceError);
     assert.equal(getDeck(db, id).deck.category, "theorycrafted");
@@ -115,7 +115,7 @@ describe("commanders and color identity", () => {
       /at most one companion/,
     );
   });
-  test("a role change recomputes identity and leaves the slot behind", () => {
+  test("a role change recomputes identity and preserves its purpose", () => {
     const id = newDeck(db);
     const slot = createSlot(db, id, "Card Advantage");
     add(db, id, "id-teferi", { slotId: slot });
@@ -124,8 +124,7 @@ describe("commanders and color identity", () => {
     });
     const view = getDeck(db, id);
     assert.equal(view.deck.color_identity, "U");
-    // The command zone is not part of any slot.
-    assert.equal(view.cards[0].slot_id, null);
+    assert.equal(view.cards[0].slot_id, slot);
   });
 });
 
