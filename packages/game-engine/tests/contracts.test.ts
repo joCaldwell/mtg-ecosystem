@@ -77,3 +77,22 @@ test("Rust lowering matches reviewed IR and its generated JSON Schema", () => {
     assert.equal(validate(bad), false);
   }
 });
+
+test("response observations expose stack order without reviving historical targets", () => {
+  const response = run("demo").response;
+  const before = response.stacked_observation;
+  const after = response.after_top_observation;
+  assert.equal(before.observation_version, 3);
+  assert.deepEqual(before.view.stack.map((s: any) => s.controller), [0, 2]);
+  assert.equal(before.view.stack.every((s: any) => s.cast_complete), true);
+  assert.equal(after.view.stack.length, 1);
+  assert.equal(after.view.stack[0].targets[0].announced, before.view.stack[0].targets[0].announced);
+  assert.equal(after.view.stack[0].targets[0].current, null);
+  assert.equal(after.view.priority, 0);
+  for (const observation of response.final_observations) {
+    assert.equal(observation.view.objects.filter((o: any) => o.zone.zone === "hand").every((o: any) => o.owner === observation.view.viewer), true);
+    assert.equal(JSON.stringify(observation).includes('"incarnation"'), false);
+    assert.equal(JSON.stringify(observation).includes('"stack_id"'), false);
+    assert.equal(observation.view.stack.length, 0);
+  }
+});

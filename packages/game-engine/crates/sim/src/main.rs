@@ -20,7 +20,9 @@ struct SourceFile {
 struct Bundle {
     bundle_version: u32,
     trace_runs: Vec<TraceRun>,
-    departure: DepartureEvidence,
+    departure: ScenarioEvidence,
+    response: ScenarioEvidence,
+    detached_response: ScenarioEvidence,
     build_id: String,
     catalog: Catalog,
     config: ScenarioConfig,
@@ -40,7 +42,7 @@ struct Bundle {
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct DepartureEvidence {
+struct ScenarioEvidence {
     config: ScenarioConfig,
     journal: ReplayJournal,
     checkpoints: Vec<String>,
@@ -90,7 +92,7 @@ fn trace_runs(
 fn checkpoint(game: &Game, saved: &mut Vec<String>) -> Result<(), String> {
     let snapshot = game.snapshot()?;
     if Game::restore(
-        Prepared::admit(fixture_catalog()?, ScenarioConfig::commander_foundation())?,
+        Prepared::admit(fixture_catalog()?, game.config().clone())?,
         &snapshot,
     )?
     .state_digest()?
@@ -101,7 +103,7 @@ fn checkpoint(game: &Game, saved: &mut Vec<String>) -> Result<(), String> {
     saved.push(snapshot);
     Ok(())
 }
-fn departure_demo(catalog: Catalog) -> Result<(DepartureEvidence, serde_json::Value), String> {
+fn departure_demo(catalog: Catalog) -> Result<(ScenarioEvidence, serde_json::Value), String> {
     let prepared = Prepared::admit(catalog, ScenarioConfig::commander_foundation())?;
     let mut game = Game::new(prepared.clone());
     let mut checkpoints = vec![];
@@ -157,7 +159,145 @@ fn departure_demo(catalog: Catalog) -> Result<(DepartureEvidence, serde_json::Va
         "journal":game.replay_journal(),"checkpoints":checkpoints.len(),"winner":1,"observation":observation(&game,PlayerId(1))?,
         "commander_ledger":game.commander_ledger(),"profile_digest":prepared.profile_digest()});
     Ok((
-        DepartureEvidence {
+        ScenarioEvidence {
+            config: prepared.config().clone(),
+            journal: game.replay_journal(),
+            checkpoints,
+            final_snapshot: game.snapshot()?,
+        },
+        report,
+    ))
+}
+fn checked_advance(game: &mut Game, saved: &mut Vec<String>) -> Result<Advance, String> {
+    let result = game.advance(Budget::new(1));
+    if let Advance::Fault(reason) = &result {
+        return Err(reason.clone());
+    }
+    checkpoint(game, saved)?;
+    Ok(result)
+}
+fn checked_input(
+    game: &mut Game,
+    response: Response,
+    saved: &mut Vec<String>,
+) -> Result<(), String> {
+    loop {
+        match checked_advance(game, saved)? {
+            Advance::AwaitingDecision(request) => {
+                game.respond(request.player(), request.decision_id(), response)?;
+                checkpoint(game, saved)?;
+                return Ok(());
+            }
+            Advance::Suspended { .. } => {}
+            _ => return Err("response run finished prematurely".into()),
+        }
+    }
+}
+fn response_demo(
+    catalog: Catalog,
+    detach: bool,
+) -> Result<(ScenarioEvidence, serde_json::Value), String> {
+    let prepared = Prepared::admit(catalog, ScenarioConfig::stack_response())?;
+    let mut game = Game::new(prepared.clone());
+    let mut checkpoints = vec![];
+    checkpoint(&game, &mut checkpoints)?;
+    checked_input(
+        &mut game,
+        Response::ActivateMana {
+            object: ObjectId {
+                card: CardId(0),
+                incarnation: 0,
+            },
+        },
+        &mut checkpoints,
+    )?;
+    checked_input(
+        &mut game,
+        Response::Cast { card: CardId(1) },
+        &mut checkpoints,
+    )?;
+    checked_input(
+        &mut game,
+        Response::Targets {
+            objects: vec![ObjectId {
+                card: CardId(2),
+                incarnation: 0,
+            }],
+        },
+        &mut checkpoints,
+    )?;
+    let responder = if detach { 3_u8 } else { 2_u8 };
+    for _ in 0..responder {
+        checked_input(&mut game, Response::Pass, &mut checkpoints)?;
+    }
+    checked_input(
+        &mut game,
+        Response::ActivateMana {
+            object: ObjectId {
+                card: CardId(2 * u32::from(responder) + 1),
+                incarnation: 0,
+            },
+        },
+        &mut checkpoints,
+    )?;
+    checked_input(
+        &mut game,
+        Response::Cast {
+            card: CardId(2 * u32::from(responder) + 2),
+        },
+        &mut checkpoints,
+    )?;
+    checked_input(
+        &mut game,
+        Response::Targets {
+            objects: vec![ObjectId {
+                card: CardId(2),
+                incarnation: 0,
+            }],
+        },
+        &mut checkpoints,
+    )?;
+    let stacked = loop {
+        if matches!(
+            checked_advance(&mut game, &mut checkpoints)?,
+            Advance::AwaitingDecision(_)
+        ) {
+            break observation(&game, PlayerId(0))?;
+        }
+    };
+    for _ in 0..4 {
+        checked_input(&mut game, Response::Pass, &mut checkpoints)?;
+    }
+    if detach {
+        // The last pass starts resolution. Concede before its first instruction.
+        let _ = checked_advance(&mut game, &mut checkpoints)?;
+        game.concede(PlayerId(responder))?;
+        checkpoint(&game, &mut checkpoints)?;
+    }
+    loop {
+        if matches!(
+            checked_advance(&mut game, &mut checkpoints)?,
+            Advance::AwaitingDecision(_)
+        ) {
+            break;
+        }
+    }
+    let after_top = observation(&game, PlayerId(0))?;
+    for _ in 0..if detach { 3 } else { 4 } {
+        checked_input(&mut game, Response::Pass, &mut checkpoints)?;
+    }
+    loop {
+        if matches!(
+            checked_advance(&mut game, &mut checkpoints)?,
+            Advance::AwaitingDecision(_)
+        ) {
+            break;
+        }
+    }
+    let report = serde_json::json!({"status":"response_verified","detached":detach,"state_sha256":game.state_digest()?,"events":game.events(),"journal":game.replay_journal(),
+        "checkpoints":checkpoints.len(),"stacked_observation":stacked,"after_top_observation":after_top,"final_observations":(0..4).map(|v|observation(&game,PlayerId(v))).collect::<Result<Vec<_>,_>>()?,"profile_digest":prepared.profile_digest()});
+    Ok((
+        ScenarioEvidence {
             config: prepared.config().clone(),
             journal: game.replay_journal(),
             checkpoints,
@@ -324,11 +464,26 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         Prepared::admit(catalog.clone(), departure.config.clone())?,
         &departure.final_snapshot,
     )?;
-    let (trace_runs, trace_report) = trace_runs(&catalog, &[&game, &departure_game])?;
+    let (response, response_report) = response_demo(catalog.clone(), false)?;
+    let (detached_response, detached_report) = response_demo(catalog.clone(), true)?;
+    let response_game = Game::restore(
+        Prepared::admit(catalog.clone(), response.config.clone())?,
+        &response.final_snapshot,
+    )?;
+    let detached_game = Game::restore(
+        Prepared::admit(catalog.clone(), detached_response.config.clone())?,
+        &detached_response.final_snapshot,
+    )?;
+    let (trace_runs, trace_report) = trace_runs(
+        &catalog,
+        &[&game, &departure_game, &response_game, &detached_game],
+    )?;
     let bundle = Bundle {
         trace_runs,
         departure,
-        bundle_version: 4,
+        response,
+        detached_response,
+        bundle_version: 5,
         build_id: BUILD_ID.into(),
         catalog,
         config: prepared.config().clone(),
@@ -346,7 +501,7 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         rustflags: BUILD_RUSTFLAGS.into(),
         query_sidecar,
     };
-    let report = serde_json::json!({"status":"scenario_verified","departure":departure_report,"trace_equivalence":trace_report,"build_id":BUILD_ID,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
+    let report = serde_json::json!({"status":"scenario_verified","departure":departure_report,"response":response_report,"detached_response":detached_report,"trace_equivalence":trace_report,"build_id":BUILD_ID,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
         "state_sha256":game.state_digest()?,"accepted_inputs":game.journal().len(),"events":game.events(),"restore_fork_replay_equal":true,
         "player_observations": (0..4).map(|v|observation(&game,PlayerId(v))).collect::<Result<Vec<_>,_>>()?,
         "search_context":search_context(&game,PlayerId(0),"separate-sampling-seed".into())?,
@@ -356,7 +511,7 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
 }
 fn verify_bundle(json: &str) -> Result<String, String> {
     let b: Bundle = strict_read(json)?;
-    if b.bundle_version != 4 || b.build_id != BUILD_ID {
+    if b.bundle_version != 5 || b.build_id != BUILD_ID {
         return Err("unsupported bundle version/build".into());
     }
     if !b.source_files.windows(2).all(|w| w[0].path < w[1].path) {
@@ -398,20 +553,29 @@ fn verify_bundle(json: &str) -> Result<String, String> {
     if definitions != b.catalog.definitions {
         return Err("retained source-to-IR mismatch".into());
     }
-    if b.trace_runs.len() != 6 {
+    if b.trace_runs.len() != 12 {
         return Err("missing trace-mode evidence".into());
     }
     for (index, run) in b.trace_runs.iter().enumerate() {
         let required_mode = [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed][index % 3];
-        let required_config = if index < 3 {
-            &b.config
-        } else {
-            &b.departure.config
-        };
-        let required_journal = if index < 3 {
-            &b.journal
-        } else {
-            &b.departure.journal
+        let (required_config, required_journal, reference_snapshot) = match index / 3 {
+            0 => (&b.config, &b.journal, &b.final_snapshot),
+            1 => (
+                &b.departure.config,
+                &b.departure.journal,
+                &b.departure.final_snapshot,
+            ),
+            2 => (
+                &b.response.config,
+                &b.response.journal,
+                &b.response.final_snapshot,
+            ),
+            3 => (
+                &b.detached_response.config,
+                &b.detached_response.journal,
+                &b.detached_response.final_snapshot,
+            ),
+            _ => return Err("unexpected trace-mode group".into()),
         };
         if run.mode != required_mode
             || &run.config != required_config
@@ -421,11 +585,6 @@ fn verify_bundle(json: &str) -> Result<String, String> {
         }
         let p = Prepared::admit(b.catalog.clone(), run.config.clone())?;
         let expected = Game::restore(p.clone(), &run.final_snapshot)?;
-        let reference_snapshot = if index < 3 {
-            &b.final_snapshot
-        } else {
-            &b.departure.final_snapshot
-        };
         let reference = Game::restore(p.clone(), reference_snapshot)?;
         let replay = Game::replay_with_trace(p, &run.journal, run.mode)?;
         if reference.trace().mode != TraceMode::Detailed
@@ -437,6 +596,18 @@ fn verify_bundle(json: &str) -> Result<String, String> {
                 && expected.trace().verification != reference.trace().verification)
         {
             return Err("retained trace-mode equivalence failed".into());
+        }
+    }
+    for scenario in [&b.response, &b.detached_response] {
+        let p = Prepared::admit(b.catalog.clone(), scenario.config.clone())?;
+        for snapshot in &scenario.checkpoints {
+            Game::restore(p.clone(), snapshot)?;
+        }
+        let restored = Game::restore(p.clone(), &scenario.final_snapshot)?;
+        let replay = Game::replay(p, &scenario.journal)?;
+        if restored.state_digest()? != replay.state_digest()? || restored.trace() != replay.trace()
+        {
+            return Err("response checkpoint/replay mismatch".into());
         }
     }
     let departure_prepared = Prepared::admit(b.catalog.clone(), b.departure.config)?;
@@ -555,7 +726,7 @@ mod tests {
         .unwrap();
         assert_eq!(report["events"], expected["events"]);
         let p2: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../tests/fixtures/expected-event-scenario.json"
+            "../../../tests/fixtures/expected-stack-scenario.json"
         ))
         .unwrap();
         assert_eq!(report["state_sha256"], p2["final_state_sha256"]);
@@ -579,19 +750,24 @@ mod tests {
         .unwrap();
         assert_eq!(report["departure"]["events"], prior["departure_events"]);
         assert_eq!(report["departure"]["journal"], prior["departure_journal"]);
-        assert_eq!(bundle.trace_runs.len(), 6);
+        assert_eq!(bundle.trace_runs.len(), 12);
         let normalized:Vec<_>=report["trace_equivalence"].as_array().unwrap().iter().map(|x|serde_json::json!({"profile":x["profile"],"mode":x["mode"],"state_sha256":x["state_sha256"],"verification":x["verification"]})).collect();
         assert_eq!(
             serde_json::to_value(normalized).unwrap(),
             p2["trace_verification"]
         );
+        for name in ["response", "detached_response"] {
+            assert_eq!(report[name]["journal"], p2[name]["journal"]);
+            assert_eq!(report[name]["events"], p2[name]["events"]);
+            assert_eq!(report[name]["state_sha256"], p2[name]["state_sha256"]);
+        }
         let json = canonical(&bundle).unwrap();
         assert_eq!(
             verify_bundle(&json).unwrap(),
             report["state_sha256"].as_str().unwrap()
         );
         assert!(
-            verify_bundle(&json.replace("\"bundle_version\":4", "\"bundle_version\":5")).is_err()
+            verify_bundle(&json.replace("\"bundle_version\":5", "\"bundle_version\":6")).is_err()
         );
         let mut corrupt: serde_json::Value = serde_json::from_str(&json).unwrap();
         corrupt["source_files"] = serde_json::json!([]);

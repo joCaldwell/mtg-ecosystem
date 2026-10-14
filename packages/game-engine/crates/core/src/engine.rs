@@ -50,6 +50,8 @@ mod departure_tests;
 mod event_tests;
 #[cfg(test)]
 mod p2_tests;
+#[cfg(test)]
+mod stack_tests;
 
 macro_rules! id {
     ($name:ident,$inner:ty) => {
@@ -103,6 +105,32 @@ pub struct ScenarioConfig {
     pub cards: Vec<CardSetup>,
 }
 impl ScenarioConfig {
+    pub fn stack_response() -> Self {
+        let mut config = Self::land_return();
+        config.profile = "four-seat-instant-response-v1".into();
+        for player in 1..4 {
+            let land = CardId(2 * u32::from(player) + 1);
+            let spell = CardId(land.0 + 1);
+            config.cards.push(CardSetup {
+                id: land,
+                oracle_id: ISLAND.into(),
+                owner: PlayerId(player),
+                controller: PlayerId(player),
+                zone: Zone::Battlefield,
+            });
+            config.cards.push(CardSetup {
+                id: spell,
+                oracle_id: SPELL.into(),
+                owner: PlayerId(player),
+                controller: PlayerId(player),
+                zone: Zone::Hand {
+                    owner: PlayerId(player),
+                },
+            });
+        }
+        config
+    }
+
     pub fn commander_foundation() -> Self {
         let mut config = Self::land_return();
         config.profile = "commander-foundation-scenario-v1".into();
@@ -160,6 +188,7 @@ impl Prepared {
         catalog.validate()?;
         if config != ScenarioConfig::land_return()
             && config != ScenarioConfig::commander_foundation()
+            && config != ScenarioConfig::stack_response()
         {
             return Err(
                 "configuration is outside the reviewed four-seat scenario; no match admission"
@@ -228,6 +257,7 @@ struct StackInstance {
     source: ObjectId,
     controller: PlayerId,
     targets: Vec<ObjectId>,
+    announced_targets: Vec<Vec<ObjectHandle>>,
     paid: Option<ManaCost>,
     cast_from: Zone,
 }
@@ -236,11 +266,13 @@ struct StackInstance {
 struct Casting {
     stack_id: StackId,
     original_object: ObjectId,
+    prior_passes: Vec<PlayerId>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Resolving {
     stack_id: StackId,
+    spell: StackInstance,
     cursor: u32,
     legal_targets: Vec<bool>,
     outcomes: Vec<InstructionOutcome>,
@@ -630,7 +662,10 @@ impl Game {
             .ok_or_else(|| "missing stack frame".into())
     }
     fn program(&self) -> Result<&SpellProgram, String> {
-        self.definition(self.top()?.source.card)?
+        self.program_for(self.top()?)
+    }
+    fn program_for(&self, stack: &StackInstance) -> Result<&SpellProgram, String> {
+        self.definition(stack.source.card)?
             .spell
             .as_ref()
             .ok_or_else(|| "missing spell program".into())
@@ -677,7 +712,7 @@ impl Game {
                 if o.zone != (Zone::Hand { owner: player })
                     || self.state.cards[card].owner != player
                     || self.definition(*card)?.spell.is_none()
-                    || !self.state.stack.is_empty()
+                    || self.state.stack.len() >= 4
                 {
                     return Err("invalid or unsupported cast".into());
                 }
@@ -886,6 +921,7 @@ impl Game {
                             source,
                             controller: input.player,
                             targets: vec![],
+                            announced_targets: vec![vec![]; 4],
                             paid: None,
                             cast_from: Zone::Hand {
                                 owner: input.player,
@@ -895,6 +931,7 @@ impl Game {
                             cast: Casting {
                                 stack_id: id,
                                 original_object,
+                                prior_passes: self.state.passes.clone(),
                             },
                         };
                         self.state.passes.clear();
@@ -926,7 +963,17 @@ impl Game {
                 let Response::Targets { objects } = input.response else {
                     return Err("target response/frame invariant".into());
                 };
-                self.state.stack.last_mut().ok_or("missing stack")?.targets = objects;
+                let announced = (0..4)
+                    .map(|v| {
+                        objects
+                            .iter()
+                            .map(|object| self.handle_for(PlayerId(v), *object))
+                            .collect::<Result<Vec<_>, _>>()
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let top = self.state.stack.last_mut().ok_or("missing stack")?;
+                top.targets = objects;
+                top.announced_targets = announced;
                 self.state.frame = Frame::Payment { cast };
             }
             Frame::Payment { cast } => {
@@ -958,6 +1005,12 @@ impl Game {
                         reason: "insufficient mana".into(),
                     })?;
                     self.state.priority = stack.controller;
+                    let live = self.live_players();
+                    self.state.passes = cast
+                        .prior_passes
+                        .into_iter()
+                        .filter(|p| live.contains(p))
+                        .collect();
                     self.state.frame = Frame::Priority;
                     self.stabilize()?;
                 } else {
@@ -986,8 +1039,8 @@ impl Game {
                 }
             }
             Frame::Resolve { mut frame } => {
-                let stack = self.top()?.clone();
-                let program = self.program()?.clone();
+                let stack = frame.spell.clone();
+                let program = self.program_for(&stack)?.clone();
                 // One spell-wide legality check before any block resolves.
                 // CR 608.2b: if all targets are illegal, the entire spell does
                 // not resolve, including its otherwise untargeted blocks.
@@ -1039,16 +1092,23 @@ impl Game {
     }
     fn finish_spell(&mut self, stack: &StackInstance, resolved: bool) -> Result<(), String> {
         let owner = self.state.cards[&stack.source.card].owner;
-        self.move_object_for(
-            stack.source,
-            Zone::Graveyard { owner },
-            BatchCause::SpellCompletion {
-                stack_id: stack.id,
-                player: stack.controller,
-                source: stack.source,
-            },
-        )?;
-        self.state.stack.pop();
+        if self.current(stack.source).is_ok() {
+            if self.top()?.id != stack.id {
+                return Err("completion is not the top stack entry".into());
+            }
+            self.move_object_for(
+                stack.source,
+                Zone::Graveyard { owner },
+                BatchCause::SpellCompletion {
+                    stack_id: stack.id,
+                    player: stack.controller,
+                    source: stack.source,
+                },
+            )?;
+            self.state.stack.pop();
+        } else if self.is_live(owner) || self.state.stack.iter().any(|s| s.id == stack.id) {
+            return Err("unsupported resolving-source movement".into());
+        }
         self.record_event(Event::SpellCompleted {
             stack_id: stack.id,
             resolved,
@@ -1120,7 +1180,7 @@ impl Game {
     }
     pub fn snapshot(&self) -> Result<String, String> {
         canonical(&Snapshot {
-            snapshot_version: 4,
+            snapshot_version: 5,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             profile_digest: self.prepared.profile_digest.clone(),
@@ -1131,7 +1191,7 @@ impl Game {
     }
     pub fn restore(prepared: Prepared, json: &str) -> Result<Self, String> {
         let s: Snapshot = strict_read(json)?;
-        if s.snapshot_version != 4
+        if s.snapshot_version != 5
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -1179,7 +1239,7 @@ impl Game {
             || s.passes.iter().collect::<BTreeSet<_>>().len() != s.passes.len()
             || s.cards.len() != self.prepared.config.cards.len()
             || s.objects.len() > s.cards.len()
-            || s.stack.len() > 1
+            || s.stack.len() > 4
         {
             return Err("snapshot seating/table invariant".into());
         }
@@ -1223,16 +1283,35 @@ impl Game {
                 return Err("snapshot negative mana".into());
             }
         }
-        for stack in &s.stack {
+        let ids: BTreeSet<_> = s.stack.iter().map(|entry| entry.id).collect();
+        let sources: BTreeSet<_> = s.stack.iter().map(|entry| entry.source.card).collect();
+        if ids.len() != s.stack.len()
+            || sources.len() != s.stack.len()
+            || !s.stack.windows(2).all(|w| w[0].id < w[1].id)
+        {
+            return Err("snapshot duplicate or unordered stack identity".into());
+        }
+        for (index, stack) in s.stack.iter().enumerate() {
             if stack.id.0 >= s.next_stack_id
-                || stack.controller.0 >= 4
+                || !self.is_live(stack.controller)
                 || self.current(stack.source)?.zone != Zone::Stack
-                || self.definition(stack.source.card)?.spell.is_none()
             {
                 return Err("snapshot stack identity invariant".into());
             }
-            let n = self.program()?.targets.len();
-            if matches!(s.frame, Frame::Priority | Frame::Resolve { .. })
+            let n = self.program_for(stack)?.targets.len();
+            if stack.announced_targets.len() != 4
+                || stack
+                    .announced_targets
+                    .iter()
+                    .any(|a| a.len() != stack.targets.len())
+            {
+                return Err("snapshot target announcement invariant".into());
+            }
+            let incomplete_top = index + 1 == s.stack.len()
+                && (matches!(s.frame, Frame::Targets { .. } | Frame::Payment { .. })
+                    || (matches!(s.frame, Frame::Finished { .. } | Frame::Fault { .. })
+                        && stack.paid.is_none()));
+            if !incomplete_top
                 && (stack.targets.len() != n
                     || stack.paid.as_ref()
                         != Some(
@@ -1242,7 +1321,7 @@ impl Game {
                                 .mana_cost,
                         ))
             {
-                return Err("snapshot completed cast invariant".into());
+                return Err("snapshot completed lower/top cast invariant".into());
             }
         }
         let stack_cards: BTreeSet<_> = s.stack.iter().map(|v| v.source.card).collect();
@@ -1272,13 +1351,34 @@ impl Game {
                     return Err("snapshot payment target invariant".into());
                 }
             }
-            Frame::Resolve { frame }
-                if self.top()?.id != frame.stack_id
-                    || frame.cursor as usize > self.program()?.instructions.len()
+            Frame::Resolve { frame } => {
+                let spell = &frame.spell;
+                let program = self.program_for(spell)?;
+                if spell.id != frame.stack_id
+                    || spell.id.0 >= s.next_stack_id
+                    || spell.targets.len() != program.targets.len()
+                    || spell.paid.as_ref()
+                        != Some(
+                            &self
+                                .definition(spell.source.card)?
+                                .characteristics
+                                .mana_cost,
+                        )
+                    || frame.cursor as usize > program.instructions.len()
                     || frame.outcomes.len() != frame.cursor as usize
-                    || frame.legal_targets.len() != self.program()?.targets.len() =>
-            {
-                return Err("snapshot resolving frame invariant".into());
+                    || frame.legal_targets.len() != program.targets.len()
+                {
+                    return Err("snapshot resolving invocation invariant".into());
+                }
+                if self.current(spell.source).is_ok() {
+                    if self.top()? != spell {
+                        return Err("snapshot resolving top binding".into());
+                    }
+                } else if self.is_live(s.cards[&spell.source.card].owner)
+                    || s.stack.iter().any(|entry| entry.id == spell.id)
+                {
+                    return Err("snapshot detached invocation owner/source invariant".into());
+                }
             }
             _ => {}
         }
@@ -1286,7 +1386,9 @@ impl Game {
             if pending.decision_id >= s.revision || s.journal.last() != Some(pending) {
                 return Err("snapshot pending-input invariant".into());
             }
-            self.validate_response(pending.player, &pending.response)?;
+            if !matches!(s.frame, Frame::Fault { .. }) {
+                self.validate_response(pending.player, &pending.response)?;
+            }
         }
         self.stabilize()
     }

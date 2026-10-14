@@ -3,7 +3,9 @@
 The follow-up [Commander/departure contract](game-engine-departure-slice.md)
 adds Isamaru to the exact reviewed catalog and advances IR to version 2 and
 snapshots to version 3. The subsequent [event slice](game-engine-event-slice.md)
-uses snapshot/bundle version 4 with separate diagnostic evidence. The original
+uses snapshot/bundle version 4 with separate diagnostic evidence.
+The [instant-response slice](game-engine-stack-slice.md) adds the third exact
+configuration with snapshot/bundle version 5 and projection version 3. The original
 gameplay trace below remains unchanged;
 its earlier version/hash evidence is historical.
 

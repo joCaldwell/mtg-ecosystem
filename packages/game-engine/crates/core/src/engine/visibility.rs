@@ -35,6 +35,20 @@ pub struct VisibleCommander {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct VisibleTarget {
+    pub announced: ObjectHandle,
+    pub current: Option<ObjectHandle>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VisibleStackEntry {
+    pub spell: ObjectHandle,
+    pub controller: PlayerId,
+    pub cast_complete: bool,
+    pub targets: Vec<VisibleTarget>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PermittedView {
     pub viewer: PlayerId,
     pub active: Option<PlayerId>,
@@ -44,6 +58,7 @@ pub struct PermittedView {
     pub priority: Option<PlayerId>,
     pub players: Vec<VisiblePlayer>,
     pub objects: Vec<VisibleObject>,
+    pub stack: Vec<VisibleStackEntry>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
@@ -178,6 +193,41 @@ impl Game {
             tapped: object.tapped,
         }))
     }
+    pub(super) fn visible_stack(
+        &self,
+        viewer: PlayerId,
+        index: usize,
+    ) -> Result<VisibleStackEntry, String> {
+        let instance = self
+            .state
+            .stack
+            .get(index)
+            .ok_or("missing stack projection row")?;
+        let announced = instance
+            .announced_targets
+            .get(viewer.0 as usize)
+            .ok_or("missing announcement viewer")?;
+        let targets = instance
+            .targets
+            .iter()
+            .enumerate()
+            .map(|(slot, target)| {
+                Ok(VisibleTarget {
+                    announced: announced
+                        .get(slot)
+                        .ok_or("missing announced target handle")?
+                        .clone(),
+                    current: self.handle_for(viewer, *target).ok(),
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        Ok(VisibleStackEntry {
+            spell: self.handle_for(viewer, instance.source)?,
+            controller: instance.controller,
+            cast_complete: instance.paid.is_some(),
+            targets,
+        })
+    }
     pub(super) fn blank_view(&self, viewer: PlayerId) -> Result<PermittedView, String> {
         if viewer.0 >= 4 {
             return Err("invalid viewer".into());
@@ -202,6 +252,7 @@ impl Game {
             priority: matches!(self.state.frame, Frame::Priority).then_some(self.state.priority),
             players: vec![],
             objects: vec![],
+            stack: vec![],
         })
     }
     pub(super) fn request_header(&self, viewer: PlayerId) -> Result<Option<PlayerRequest>, String> {
@@ -242,6 +293,9 @@ impl Game {
             if let Some(o) = self.visible_object(viewer, object)? {
                 view.objects.push(o);
             }
+        }
+        for index in 0..self.state.stack.len() {
+            view.stack.push(self.visible_stack(viewer, index)?);
         }
         view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
         Ok(view)

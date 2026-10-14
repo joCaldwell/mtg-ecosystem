@@ -267,7 +267,7 @@ fn every_trace_mode_and_budget_partition_preserves_semantics_queries_and_recover
     let json: serde_json::Value = serde_json::from_str(&detailed.snapshot().unwrap()).unwrap();
     assert!(json["state"].get("trace").is_none());
     assert!(json["state"].get("events").is_none());
-    assert_eq!(json["snapshot_version"], 4);
+    assert_eq!(json["snapshot_version"], 5);
 }
 #[test]
 fn trace_and_branch_mutation_cannot_change_rules_or_forge_recovery() {

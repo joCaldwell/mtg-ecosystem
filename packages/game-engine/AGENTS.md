@@ -6,7 +6,9 @@ The current follow-up contracts are `docs/game-engine-p2-slice.md` and
 `docs/game-engine-departure-slice.md`; the latter adds the exact Isamaru scenario,
 IR v2 and the exact Isamaru profile. The next contract is
 `docs/game-engine-event-slice.md`: atomic event groups, nonsemantic trace modes,
-and snapshot/bundle v4. This package is scenario-only; do not advertise playable
+and snapshot/bundle v4. `docs/game-engine-stack-slice.md` adds the exact
+nine-card instant-response profile, detached resolution, snapshot/bundle v5,
+projection v3, and query-sidecar v2. This package is scenario-only; do not advertise playable
 Commander matches.
 
 Run from repository root, using pinned Rust 1.99.0:
@@ -61,3 +63,11 @@ footprints only; general event/replacement interactions remain unsupported.
 `Game::with_trace` selects off, compact, or detailed retention. Diagnostics never
 enter semantic hashes or player projections. Native `events()` is populated only
 in detailed mode; `trace()` is trusted evidence, not a client stream.
+
+Stack projections run bottom to top. Saved announcement handles are historical
+references; they cannot rebind to a later incarnation or authorize responses.
+Lower entries remain completed while the top is announced. Reversal restores
+prior passes filtered by living players. Resolving frames own frozen instances
+and continue supported choice-free effects after their source leaves (CR 608.2m).
+No responses occur during announcement or resolution. Empty-stack phase
+advancement still faults; restore proves fault reachability by replay.

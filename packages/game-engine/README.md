@@ -12,11 +12,14 @@ concessions with recovery through casting and resolution.
 The [event slice](../../docs/game-engine-event-slice.md) adds atomic ordered and
 independent simultaneous batches, pre-event facts, typed occurrence results, and
 off/compact/detailed tracing with equal semantic hashes.
+The [instant-response slice](../../docs/game-engine-stack-slice.md) adds a third
+exact profile with four physical supported spells, public stack order, prior-pass
+restoration, and choice-free resolution after a source leaves the stack.
 
 The compiler now emits five frozen source definitions and runs a four-seat
 land-mana / targeted return-to-hand scenario with strict admission, serializable
 announcement, owned/incarnation identities, events, restore, fork, and replay.
-It admits two exact scenario configurations, including one designated commander
+It admits three exact scenario configurations, including one designated commander
 in the command zone. It cannot start a legal Commander match. Command-zone
 casting, combat, commander movement choices, and full phases remain later work:
 
@@ -41,7 +44,8 @@ cargo run --locked --release -p mtg-sim -- demo --bundle generated/p2-bundles
 JSON Schema; `report` includes the paired unsupported source definition;
 `verify-bundle <file>` recompiles retained records and checks recovery/replay
 against their pinned build. The demo bundle includes both scenarios and thirteen
-departure recovery checkpoints, plus both scenarios in all three trace modes.
+departure recovery checkpoints, plus ordinary and detached response runs in all three trace modes (twelve
+mode executions across three configurations).
 Native trace evidence is separate from semantic state and remains trusted host
 data; only detailed mode retains the flat `events()` compatibility stream. `observe <player>` and `context <player> <seed>`
 emit player-facing projections of the initial scenario. They do not emit the

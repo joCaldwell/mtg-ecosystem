@@ -237,7 +237,7 @@ fn target_departure_reverses_unfinished_cast_without_spending_mana() {
     }
 }
 #[test]
-fn source_departure_discards_casting_and_resolution_frames() {
+fn source_departure_discards_casting_but_started_resolution_continues() {
     for boundary in 0..4 {
         let mut game = Game::new(prepared(false));
         cast(&mut game);
@@ -259,7 +259,23 @@ fn source_departure_discards_casting_and_resolution_frames() {
         }
         depart(&mut game, 0);
         assert!(game.state.stack.is_empty());
-        assert!(matches!(game.state.frame, Frame::Priority));
+        if boundary == 3 {
+            assert!(matches!(game.state.frame, Frame::Resolve { .. }));
+            let _ = game.advance(Budget::unlimited());
+            recover(&game);
+            assert_eq!(
+                game.zone(game.object_id(CardId(2)).unwrap()),
+                Some(Zone::Hand { owner: PlayerId(1) })
+            );
+            assert!(
+                game.events()
+                    .iter()
+                    .any(|e| matches!(e, Event::SpellCompleted { resolved: true, .. }))
+            );
+            assert_eq!(game.state.priority, PlayerId(1));
+        } else {
+            assert!(matches!(game.state.frame, Frame::Priority));
+        }
         assert!(game.object_id(CardId(1)).is_none());
         assert_eq!(game.active_player(), None);
         assert!(

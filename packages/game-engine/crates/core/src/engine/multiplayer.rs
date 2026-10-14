@@ -194,6 +194,7 @@ impl Game {
         self.state.frame = Frame::Resolve {
             frame: Resolving {
                 stack_id: stack.id,
+                spell: stack,
                 cursor: 0,
                 legal_targets,
                 outcomes: vec![],
@@ -257,6 +258,12 @@ impl Game {
         self.state.pending = None;
         self.state.frame = Frame::Priority;
         self.state.priority = stack.controller;
+        let live = self.live_players();
+        self.state.passes = cast
+            .prior_passes
+            .into_iter()
+            .filter(|p| live.contains(p))
+            .collect();
         self.record_event(Event::CastReversed {
             stack_id: cast.stack_id,
             reason: "departure made casting targets illegal".into(),
@@ -392,14 +399,19 @@ impl Game {
             self.record_event(Event::GameWon { winner })?;
             return Ok(());
         }
-        if !lost_stack.is_empty()
-            && matches!(
-                self.state.frame,
-                Frame::Targets { .. } | Frame::Payment { .. } | Frame::Resolve { .. }
-            )
+        // CR 608.2m: a started invocation owns its frozen instance and keeps
+        // resolving after its source leaves. Only an unfinished casting frame
+        // whose own source left is discarded; lower departures cannot replace it.
+        if let Frame::Targets { cast } | Frame::Payment { cast } = self.state.frame.clone()
+            && lost_stack.contains(&cast.stack_id)
         {
             self.state.pending = None;
             self.state.frame = Frame::Priority;
+            self.state.passes = cast
+                .prior_passes
+                .into_iter()
+                .filter(|p| live.contains(p))
+                .collect();
         }
         if let Frame::Targets { cast } | Frame::Payment { cast } = self.state.frame.clone() {
             let targets_bad = self.state.stack.last().is_some_and(|s| {

@@ -2,6 +2,10 @@
 
 The follow-up [event contract](game-engine-event-slice.md) advances snapshots
 and bundles to version 4, preserving the departure behavior and flat trace.
+The [instant-response slice](game-engine-stack-slice.md) advances them to version
+5 and corrects source departure during started resolution under CR 608.2m: the
+choice-free invocation continues. Earlier casting-source removal still aborts
+that casting frame. The original departure demo flat trace remains unchanged.
 
 Scope frozen October 13 2026. Extend the existing scenario kernel with physical
 commander identity/history, original seating and live-player state, explicit

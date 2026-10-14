@@ -1,5 +1,9 @@
 # Atomic events and nonsemantic tracing
 
+The follow-up [instant-response slice](game-engine-stack-slice.md) adds a third
+exact profile, snapshot/bundle v5, and player projection v3. Earlier hashes below
+remain historical evidence.
+
 Scope frozen October 13, 2026. Complete the next bounded P2 foundation without
 expanding the five-definition pool or admitting new card mechanics. General
 replacement/prevention, triggers, simultaneous damage, and SBA batches remain

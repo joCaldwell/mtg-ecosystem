@@ -216,7 +216,7 @@ unchanged. New witnesses are retained in `expected-event-scenario.json`:
 in an initially empty Cargo home and a fresh target directory. The rebuilt
 executable verified all six scenario/mode runs, thirteen detailed departure
 checkpoints, source-to-IR equality, and the query-work sidecar. The vendored
-closure still contains 1,581 files. Current native release retention:
+closure still contains 1,581 files. Event-slice release retention:
 
 - Build: `4adc62121fe1a2db9a8222912b58856427a6f1c360296b5bf39b2496dd41b0c9`.
 - Catalog: `7ca94c66fd9c8d1884fa13ccbd5066f0d62c2ed08c0c67d741f4b260d6b92a66` (unchanged).
@@ -233,6 +233,71 @@ ignored. Baseline snapshots encode 36,353 bytes off,
 observations for the tiny fixture, not representative Commander memory/latency
 limits. Histories, snapshots, and cloning still grow with run length.
 This advances P2 foundations; it is not full P2 signoff or legal-match support.
+
+## Four-player instant responses — October 13, 2026
+
+The [frozen stack brief](game-engine-stack-slice.md) is implemented. The third
+exact configuration gives every seat an Island and Unsummon, plus the original
+borrowed Bears; all nine physical cards reuse the existing five definitions.
+Each opponent can respond, completed entries remain below the announcement,
+and each live-player pass round resolves exactly the top spell. A four-entry
+chain resolves in reverse order; later spells recheck stale target incarnations.
+No new compiler grammar, card-name dispatch, source definitions, or randomness
+is introduced. General phase scheduling and permanent casting remain unsupported.
+
+Casting reversal restores the saved pass round and original hand incarnation,
+filtering departed seats. Losing a lower source preserves the top frame.
+A resolving frame now owns its frozen spell instance: this corrects the earlier
+source-departure limitation under CR 608.2m. Supported choice-free effects keep
+resolving after their source leaves, skip an already absent source movement,
+and then release priority. No resolution-time chooser reassignment is claimed.
+The earlier source-departure regression was updated only after reading that
+pinned rule and adding detached-source replay/recovery evidence.
+
+Projection v3 exposes bottom-to-top stack order and per-viewer announcement
+references. Expired targets expose no current handle; projections never follow
+the physical card into another player's private hand. Queries budget stack rows
+and still allocate no handles/history. Snapshot/bundle v5 and sidecar v2 retain
+these contracts. Restore validates each lower program separately, unique/order
+identities, top invocation binding, and exact diagnostic replay. Fault recovery
+now accepts the original pending input only after replay proves the failed
+transition; unsupported empty-stack advancement remains a fault, never a win.
+
+Validation: `npm run check:engine` passed formatting, Clippy, **55 Rust tests**
+and **4 Node checks**; release tests passed the same 55 Rust cases. Tests cover
+all three opponents, four entries, invalid timing/ownership, unpaid response
+reversal, affected versus unrelated departure, detached invocation, query
+sidecars, private-hand/target projections, rehashed malformed metadata, and
+multi-program lower-entry validation through a private interpreter fixture.
+Old baseline/departure flat traces stay unchanged. Current witnesses are in
+`expected-stack-scenario.json`: the ordinary response has 16 decisions, 27
+events, and 41 checkpoints; the detached-source run has 16 decisions, one
+concession, 30 events, and 43 checkpoints. Twelve retained trace-mode executions
+cover three configurations and both response paths.
+
+`npm run retain:engine` completed a fresh offline `cargo --frozen` rebuild with
+an initially empty Cargo home and target directory, using 1,581 vendored files.
+The rebuilt executable verified all twelve mode executions, the thirteen older
+departure checkpoints, 41 normal-response checkpoints, 43 detached-response
+checkpoints, source-to-IR equality, and query recovery. Current release identity:
+
+- Build: `31e66f91677319cb67d6bc75c8640dc250f6524c28a0d024f12f4eb913254c38`.
+- Catalog: `7ca94c66fd9c8d1884fa13ccbd5066f0d62c2ed08c0c67d741f4b260d6b92a66` (unchanged).
+- Baseline profile: `758cade50b263c744cd7dc5db08f20685496f73f82adacb8a57da8dfff942272` (unchanged).
+- Response profile: `cdb88fe5c65483c5bdfb15f62f4477efcd2495a25423ad39fc0a4bce120fcb54`.
+- Baseline state: `beae413ee28be2dd85e3d2ff4d8bdc7438bcbaecdc8282bf035c9ce03fd2b96e`.
+- Ordinary response state: `c51afc9730efa945d8541f061a7996e9dff75a3a6fe1c305a85c3313cd002331`.
+- Detached response state: `b764c77fc97e27466372d668a78b1443131eb957034c0cd452003bec78e0ecad`.
+- Bundle: `f2f2844f0769ea0884e87d8aa1533e8db37d5953acf47a127c5c0b08f30ce3e1`.
+- Rebuilt executable: `92f21ebed0b0385548d85a320a7b34ab9cffc43f578001295e78ce9cd1420e6a`.
+- Dependency manifest: `387384711d404f44993e8ab583e269c5105d1cc8b583307e3035f14e03d7474f`.
+
+Retained closure: `/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-f2f2844f0769ea08-p91nDd/`.
+`evidence.json` there and `generated/p2-retention.json` in this worktree record
+verification and dependency checksums. Generated artifacts stay ignored.
+Recovery still replays the small closed profile; these checks do not establish
+representative full-game throughput or general timing/choice correctness.
+This completes the bounded slice; full P2/P3 and Commander match gates remain.
 
 ## Remaining delivery gates
 
@@ -253,8 +318,9 @@ schema export, complete printing/membership indexes, structured build/admission
 reports, and additional mechanic/functioning-zone descriptors. No parser rewrite
 or port of the entire TypeScript binding analyzer is required.
 
-P3 expands mana-payment staging, stack responses, permanent casting, phase
-progression, and resolution-time choices. P4 adds the Commander lifecycle and
+P3 still expands mana-payment staging, permanent casting, phase progression,
+and resolution-time choices. Ordinary supported instant responses are now
+implemented for the exact scenario pool; broader stack/cost families remain. P4 adds the Commander lifecycle and
 event interactions. P5 validates full legal decks/pods, a closed reachable pool,
 and seeded complete games. Unsupported runtime paths currently fault or reject;
 legal-match mode is rejected. Random operations, search, server, and UI remain

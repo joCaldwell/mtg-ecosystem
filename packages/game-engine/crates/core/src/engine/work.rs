@@ -252,23 +252,30 @@ impl Game {
                 self.visible_player(PlayerId(cursor as u8))
                     .map_err(|_| QueryRejection::Invariant)?,
             );
-        } else if let Some(object) = self.state.objects.values().nth(cursor - 4)
-            && let Some(visible) = self
-                .visible_object(viewer, object)
-                .map_err(|_| QueryRejection::Invariant)?
-        {
-            if let Some(PlayerRequest::Targets { candidates, .. }) = &mut b.decision
-                && self.target_legal(object.id)
+        } else if cursor < 4 + self.state.objects.len() {
+            if let Some(object) = self.state.objects.values().nth(cursor - 4)
+                && let Some(visible) = self
+                    .visible_object(viewer, object)
+                    .map_err(|_| QueryRejection::Invariant)?
             {
-                candidates.push(visible.handle.clone());
+                if let Some(PlayerRequest::Targets { candidates, .. }) = &mut b.decision
+                    && self.target_legal(object.id)
+                {
+                    candidates.push(visible.handle.clone());
+                }
+                b.view.objects.push(visible);
             }
-            b.view.objects.push(visible);
+        } else {
+            b.view.stack.push(
+                self.visible_stack(viewer, cursor - 4 - self.state.objects.len())
+                    .map_err(|_| QueryRejection::Invariant)?,
+            );
         }
         b.cursor = b.cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-        if b.cursor as usize >= 4 + self.state.objects.len() {
+        if b.cursor as usize >= 4 + self.state.objects.len() + self.state.stack.len() {
             b.view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
             return Ok(Some(Observation {
-                observation_version: 2,
+                observation_version: 3,
                 view: b.view.clone(),
                 decision: b.decision.clone(),
             }));
@@ -398,7 +405,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 2,
+                    context_version: 3,
                     observation: *observation.clone().ok_or(QueryRejection::Invariant)?,
                     permitted_history: history.clone(),
                     open_decklists: decks.clone(),
@@ -417,7 +424,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: 1,
+            work_version: 2,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -426,7 +433,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != 1
+        if saved.work_version != 2
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?
@@ -437,6 +444,11 @@ impl Game {
             .start_work(saved.data.query.clone())
             .map_err(|_| "unsupported recovered query")?;
         let max_units = 16_u64
+            .checked_add(
+                u64::try_from(self.state.stack.len())
+                    .map_err(|_| "stack work bound resource limit")?,
+            )
+            .ok_or("stack work bound resource limit")?
             .checked_add(self.state.objects.len() as u64)
             .and_then(|n| {
                 n.checked_add(
