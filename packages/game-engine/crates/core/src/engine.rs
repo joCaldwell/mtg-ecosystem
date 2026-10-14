@@ -15,28 +15,32 @@ const ISAMARU: &str = "cfb756dd-6fe1-430a-8f04-8b10cac62a86";
 const ALLOWED: [(&str, &str); 5] = [
     (
         ISAMARU,
-        "9d6619bfb5ceee58efd54c12ceb6f2b814f7a3e2d3b5e8261057894c6783b30f",
+        "af28942c4c8ef05823184ba4c7d8c5a992194756ce103960e3d1dab3a5408af1",
     ),
     (
         ISLAND,
-        "b4ee04295bb8d7b19ceed34a30d31ab98feb92cca7df245cd1a51b3d783c8077",
+        "ddfebd6862a2efa3dac3801845ff4c8ddde157d4497b8ac7475e35a8e12f9e15",
     ),
     (
         FOREST,
-        "e97708a1d40c178b8355f78c9c1f52e5a3cb7f04be1b9bc406d38598581bb63c",
+        "13cf7a38a355b770de69d6d9a248eeadd5064e752bc6d02a818a62ae0b29b608",
     ),
     (
         SPELL,
-        "b9238623f9c0a7ad0b202a16c3036cf21c59057e58964b0c16b42b319f5a4b89",
+        "88c77ff446ee901d24b6e3582645cef8745f993a8cf203db00f4f13ae4960f74",
     ),
     (
         BEARS,
-        "83c5d4c810e25b84f607f9c8b99b5179abf39e060d093cd7dd38c0be90a8a083",
+        "572ff55cf5fedc97884e3a801b7e2c8f6de5c13e93c24bebce95f4d16432b4c8",
     ),
 ];
 mod casting;
+mod turns;
+pub use turns::*;
 mod events;
 mod trace;
+#[cfg(test)]
+mod turns_tests;
 pub use events::*;
 pub use trace::*;
 mod multiplayer;
@@ -112,6 +116,31 @@ pub struct ScenarioConfig {
     pub cards: Vec<CardSetup>,
 }
 impl ScenarioConfig {
+    pub fn turns_permanents() -> Self {
+        Self {
+            mode: Mode::Scenario,
+            players: 4,
+            profile: "four-seat-turns-permanents-v1".into(),
+            commanders: vec![],
+            cards: (0..8)
+                .map(|id| {
+                    let owner = PlayerId(if id < 5 { 0 } else { (id - 4) as u8 });
+                    CardSetup {
+                        id: CardId(id),
+                        oracle_id: if id == 2 { BEARS } else { FOREST }.into(),
+                        owner,
+                        controller: owner,
+                        zone: match id {
+                            0 => Zone::Battlefield,
+                            1..=3 => Zone::Hand { owner },
+                            _ => Zone::Library { owner },
+                        },
+                    }
+                })
+                .collect(),
+        }
+    }
+
     pub fn casting_reversal() -> Self {
         let mut config = Self::land_return();
         config.profile = "casting-mana-reversal-v1".into();
@@ -210,6 +239,7 @@ impl Prepared {
             && config != ScenarioConfig::commander_foundation()
             && config != ScenarioConfig::stack_response()
             && config != ScenarioConfig::casting_reversal()
+            && config != ScenarioConfig::turns_permanents()
         {
             return Err(
                 "configuration is outside the reviewed four-seat scenario; no match admission"
@@ -313,6 +343,8 @@ struct Resolving {
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 enum Frame {
     Priority,
+    Transition,
+    EnterStep,
     Targets { cast: Casting },
     Mana { cast: Casting },
     Payment { cast: Casting },
@@ -323,6 +355,7 @@ enum Frame {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    PlayLand { card: CardId },
     ActivateMana { object: ObjectId },
     Cast { card: CardId },
     Pass,
@@ -374,6 +407,19 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    Untap {
+        object: ObjectId,
+    },
+    ClearMana {
+        player: PlayerId,
+    },
+    LandPlayed {
+        player: PlayerId,
+    },
+    TurnTransition {
+        next: TurnState,
+        owner: PlayerId,
+    },
     ReverseMana {
         player: PlayerId,
         color: Color,
@@ -414,6 +460,24 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    Untapped {
+        object: ObjectId,
+    },
+    ManaCleared {
+        player: PlayerId,
+        previous: BTreeMap<Color, Quantity>,
+    },
+    LandPlayCounted {
+        player: PlayerId,
+        previous: u32,
+        current: u32,
+    },
+    TurnTransitioned {
+        previous: TurnState,
+        current: TurnState,
+        previous_owner: PlayerId,
+        owner: PlayerId,
+    },
     ManaReversed {
         player: PlayerId,
         color: Color,
@@ -507,6 +571,7 @@ struct State {
     objects: BTreeMap<CardId, Object>,
     active: Option<PlayerId>,
     turn_owner: PlayerId,
+    turn: TurnState,
     original_seating: Vec<PlayerId>,
     commanders: CommanderLedger,
     control_effects: Vec<ControlEffect>,
@@ -606,6 +671,11 @@ impl Game {
             objects,
             active: Some(PlayerId(0)),
             turn_owner: PlayerId(0),
+            turn: TurnState {
+                number: 1,
+                step: TurnStep::PostcombatMain,
+                lands_played: 0,
+            },
             original_seating: (0..4).map(PlayerId).collect(),
             commanders: CommanderLedger::new(),
             control_effects: vec![],
@@ -763,6 +833,9 @@ impl Game {
     }
     fn validate_response(&self, player: PlayerId, response: &Response) -> Result<(), String> {
         match (&self.state.frame, response) {
+            (Frame::Priority, Response::PlayLand { card }) if self.state.priority == player => {
+                self.validate_land_play(player, *card)
+            }
             (Frame::Priority, Response::Pass) if self.state.priority == player => Ok(()),
             (Frame::Priority, Response::ActivateMana { object })
                 if self.state.priority == player =>
@@ -788,9 +861,21 @@ impl Game {
                 {
                     return Err("invalid or unsupported cast".into());
                 }
-                // Restrict proposals to spells with at least one eligible target;
+                let program = self
+                    .definition(*card)?
+                    .spell
+                    .as_ref()
+                    .ok_or("missing cast program")?;
+                if program.timing == SpellTiming::MainPhase
+                    && (!self.turns_enabled() || !self.main_phase_action(player))
+                {
+                    return Err("creature casting requires active-player main-phase priority and empty stack".into());
+                }
+                // Restrict targeted proposals to spells with an eligible target;
                 // the target-stage request never waits for an impossible choice.
-                if !self.state.objects.values().any(|o| self.target_legal(o.id)) {
+                if !program.targets.is_empty()
+                    && !self.state.objects.values().any(|o| self.target_legal(o.id))
+                {
                     return Err("no legal target for this proposal".into());
                 }
                 Ok(())
@@ -936,6 +1021,9 @@ impl Game {
                     .take()
                     .ok_or("missing accepted priority input")?;
                 match input.response {
+                    Response::PlayLand { card } => {
+                        self.play_land(input.player, input.decision_id, card)?;
+                    }
                     Response::ActivateMana { object } => {
                         self.activate_intrinsic_mana(&input, object)?;
                         self.state.passes.clear();
@@ -977,14 +1065,17 @@ impl Game {
                                 owner: input.player,
                             },
                         });
-                        self.state.frame = Frame::Targets {
-                            cast: Casting {
-                                stack_id: id,
-                                original_object,
-                                prior_passes: self.state.passes.clone(),
-                                mana_activations: vec![],
-                                undo_mana: false,
-                            },
+                        let cast = Casting {
+                            stack_id: id,
+                            original_object,
+                            prior_passes: self.state.passes.clone(),
+                            mana_activations: vec![],
+                            undo_mana: false,
+                        };
+                        self.state.frame = if self.program()?.targets.is_empty() {
+                            Frame::Mana { cast }
+                        } else {
+                            Frame::Targets { cast }
                         };
                         self.state.passes.clear();
                     }
@@ -1089,7 +1180,7 @@ impl Game {
                 // One spell-wide legality check before any block resolves.
                 // CR 608.2b: if all targets are illegal, the entire spell does
                 // not resolve, including its otherwise untargeted blocks.
-                if !frame.legal_targets.iter().any(|l| *l) {
+                if !frame.legal_targets.is_empty() && !frame.legal_targets.iter().any(|l| *l) {
                     self.finish_spell(&stack, false)?;
                 } else if let Some(instruction) = program.instructions.get(frame.cursor as usize) {
                     match instruction {
@@ -1130,6 +1221,8 @@ impl Game {
                     self.finish_spell(&stack, true)?;
                 }
             }
+            Frame::Transition => self.transition_turn_step()?,
+            Frame::EnterStep => self.enter_turn_step()?,
             Frame::Fault { reason } => return Err(reason),
             Frame::Finished { .. } => {}
         }
@@ -1141,9 +1234,18 @@ impl Game {
             if self.top()?.id != stack.id {
                 return Err("completion is not the top stack entry".into());
             }
+            // CR 608.3a: a resolving permanent spell becomes a permanent;
+            // targetless spells do not fail the targeted-spell legality test.
+            // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+            let destination =
+                if resolved && self.program_for(stack)?.resolution == SpellResolution::Permanent {
+                    Zone::Battlefield
+                } else {
+                    Zone::Graveyard { owner }
+                };
             self.move_object_for(
                 stack.source,
-                Zone::Graveyard { owner },
+                destination,
                 BatchCause::SpellCompletion {
                     stack_id: stack.id,
                     player: stack.controller,
@@ -1225,7 +1327,7 @@ impl Game {
     }
     pub fn snapshot(&self) -> Result<String, String> {
         canonical(&Snapshot {
-            snapshot_version: 6,
+            snapshot_version: 7,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             profile_digest: self.prepared.profile_digest.clone(),
@@ -1236,7 +1338,7 @@ impl Game {
     }
     pub fn restore(prepared: Prepared, json: &str) -> Result<Self, String> {
         let s: Snapshot = strict_read(json)?;
-        if s.snapshot_version != 6
+        if s.snapshot_version != 7
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -1274,7 +1376,17 @@ impl Game {
         let s = &self.state;
         if s.players.len() != 4
             || s.visibility.len() != 4
-            || s.turn_owner != PlayerId(0)
+            || s.turn_owner.0 >= 4
+            || s.turn.number == 0
+            || s.turn.lands_played > 1
+            || (!self.turns_enabled()
+                && (s.turn_owner != PlayerId(0)
+                    || s.turn
+                        != TurnState {
+                            number: 1,
+                            step: TurnStep::PostcombatMain,
+                            lands_played: 0,
+                        }))
             || s.active.is_some_and(|p| !self.is_live(p))
             || s.original_seating != (0..4).map(PlayerId).collect::<Vec<_>>()
             || s.priority.0 >= 4

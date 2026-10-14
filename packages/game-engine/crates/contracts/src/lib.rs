@@ -112,9 +112,11 @@ pub struct Characteristics {
 pub enum Capability {
     NormalLayoutV1,
     BasicLandManaV1,
+    LandPlayV1,
     BaseCreatureV1,
     CommanderIdentityV1,
     CastInstantV1,
+    CastCreatureV1,
     CreatureTargetV1,
     OwnerHandMoveV1,
 }
@@ -155,9 +157,25 @@ pub struct TargetSpec {
 pub enum Instruction {
     ReturnToOwnerHand { target_slot: u32, source_block: u32 },
 }
+/// Supported announcement timing; permissions are checked by the runtime.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SpellTiming {
+    Instant,
+    MainPhase,
+}
+/// Permanent resolution is distinct from an empty instruction program.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SpellResolution {
+    Instructions,
+    Permanent,
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SpellProgram {
+    pub timing: SpellTiming,
+    pub resolution: SpellResolution,
     pub functioning_zone: FunctioningZone,
     pub targets: Vec<TargetSpec>,
     pub instructions: Vec<Instruction>,
@@ -192,10 +210,10 @@ impl Definition {
         let mut set = BTreeSet::from([Capability::NormalLayoutV1]);
         match self.characteristics.kind {
             CardKind::Land => {
-                set.insert(Capability::BasicLandManaV1);
+                set.extend([Capability::BasicLandManaV1, Capability::LandPlayV1]);
             }
             CardKind::Creature => {
-                set.insert(Capability::BaseCreatureV1);
+                set.extend([Capability::BaseCreatureV1, Capability::CastCreatureV1]);
                 if self.characteristics.legendary {
                     set.insert(Capability::CommanderIdentityV1);
                 }
@@ -247,10 +265,21 @@ impl Definition {
                 if c.basic
                     || c.power.is_none()
                     || c.toughness.as_ref().is_none_or(|n| n <= &Quantity::zero())
-                    || self.spell.is_some()
                     || self.intrinsic_zone.is_some()
                 {
                     return Err("unsupported creature characteristics".into());
+                }
+                let p = self
+                    .spell
+                    .as_ref()
+                    .ok_or("missing creature spell program")?;
+                if p.functioning_zone != FunctioningZone::Stack
+                    || p.timing != SpellTiming::MainPhase
+                    || p.resolution != SpellResolution::Permanent
+                    || !p.targets.is_empty()
+                    || !p.instructions.is_empty()
+                {
+                    return Err("unsupported creature spell semantics".into());
                 }
             }
             CardKind::Instant => {
@@ -265,6 +294,8 @@ impl Definition {
                 }
                 let p = self.spell.as_ref().ok_or("missing spell program")?;
                 if p.functioning_zone != FunctioningZone::Stack
+                    || p.timing != SpellTiming::Instant
+                    || p.resolution != SpellResolution::Instructions
                     || p.targets.is_empty()
                     || p.instructions.is_empty()
                 {
@@ -307,7 +338,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 2, max = 2))]
+    #[schemars(range(min = 3, max = 3))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -315,7 +346,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if self.schema_version != 2
+        if self.schema_version != 3
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -346,7 +377,7 @@ impl Catalog {
 pub fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
-/// IR v2 canonicalization (same algorithm as v1): UTF-8 compact serde_json Value (sorted object keys),
+/// IR v3 canonicalization (same algorithm as v1/v2): UTF-8 compact serde_json Value (sorted object keys),
 /// ordered arrays, exact quantities as strings. Separate from JS archive hashes.
 pub fn canonical<T: Serialize>(value: &T) -> Result<String, String> {
     serde_json::to_value(value)

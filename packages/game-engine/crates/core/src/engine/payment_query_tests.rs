@@ -54,7 +54,7 @@ fn mana_window_is_caster_only_and_has_no_priority_recipient() {
     let (_, game) = payment_game();
     let before = game.state_digest().unwrap();
     let own = observation(&game, PlayerId(0));
-    assert_eq!(own.observation_version, 4);
+    assert_eq!(own.observation_version, 5);
     assert_eq!(own.view.priority, None);
     let Some(PlayerRequest::Mana { player, cost, .. }) = own.decision else {
         panic!("expected player mana request")
@@ -152,7 +152,7 @@ fn mana_validation_sidecar_recovers_and_activation_invalidates_queries() {
     };
     let saved = game.save_work(&work).unwrap();
     let saved_value: serde_json::Value = serde_json::from_str(&saved).unwrap();
-    assert_eq!(saved_value["work_version"], 3);
+    assert_eq!(saved_value["work_version"], 4);
     let restored = Game::restore(prepared, &game.snapshot().unwrap()).unwrap();
     let restored_work = restored.restore_work(&saved).unwrap();
     assert!(matches!(

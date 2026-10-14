@@ -1,5 +1,9 @@
 # Casting-time intrinsic mana
 
+The subsequent [turns/permanents slice](game-engine-turns-slice.md) adds the
+fifth exact configuration, IR v3, snapshot/bundle v7, and projection v5. The
+version-6 evidence and restrictions below describe this earlier slice.
+
 Scope frozen October 13, 2026. Extend the existing three exact admitted
 configurations and five-definition catalog with a caster-only mana window
 between target announcement and payment. Add one exact four-card reversal

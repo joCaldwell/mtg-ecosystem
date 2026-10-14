@@ -1,0 +1,6730 @@
+{
+  "snapshot_version": 7,
+  "rule_steps": 11,
+  "final_state_sha256": "675636d8307c09165ca7c6df997ea1b112c90571eb7327f6a2055e252e6e6060",
+  "accepted_inputs": [
+    {
+      "decision_id": 0,
+      "player": 0,
+      "response": {
+        "object": {
+          "card": 0,
+          "incarnation": 0
+        },
+        "response": "activate_mana"
+      }
+    },
+    {
+      "decision_id": 1,
+      "player": 0,
+      "response": {
+        "card": 1,
+        "response": "cast"
+      }
+    },
+    {
+      "decision_id": 2,
+      "player": 0,
+      "response": {
+        "objects": [
+          {
+            "card": 2,
+            "incarnation": 0
+          }
+        ],
+        "response": "targets"
+      }
+    },
+    {
+      "decision_id": 3,
+      "player": 0,
+      "response": {
+        "response": "finish_mana",
+        "undo_mana": false
+      }
+    },
+    {
+      "decision_id": 4,
+      "player": 0,
+      "response": {
+        "response": "pass"
+      }
+    },
+    {
+      "decision_id": 5,
+      "player": 1,
+      "response": {
+        "response": "pass"
+      }
+    },
+    {
+      "decision_id": 6,
+      "player": 2,
+      "response": {
+        "response": "pass"
+      }
+    },
+    {
+      "decision_id": 7,
+      "player": 3,
+      "response": {
+        "response": "pass"
+      }
+    }
+  ],
+  "departure_events": [
+    {
+      "actual": {
+        "object": {
+          "card": 0,
+          "incarnation": 0
+        },
+        "outcome": "tapped"
+      },
+      "event": "committed",
+      "proposed": {
+        "object": {
+          "card": 0,
+          "incarnation": 0
+        },
+        "proposal": "tap"
+      }
+    },
+    {
+      "actual": {
+        "amount": "1",
+        "color": "U",
+        "outcome": "mana_added",
+        "player": 0
+      },
+      "event": "committed",
+      "proposed": {
+        "amount": "1",
+        "color": "U",
+        "player": 0,
+        "proposal": "add_mana",
+        "source": {
+          "card": 0,
+          "incarnation": 0
+        }
+      }
+    },
+    {
+      "card": 1,
+      "event": "spell_proposed",
+      "stack_id": 0
+    },
+    {
+      "actual": {
+        "movement": {
+          "destination": {
+            "zone": "stack"
+          },
+          "from": {
+            "owner": 0,
+            "zone": "hand"
+          },
+          "previous": {
+            "card": 1,
+            "incarnation": 0
+          },
+          "successor": {
+            "card": 1,
+            "incarnation": 1
+          }
+        },
+        "outcome": "moved"
+      },
+      "event": "committed",
+      "proposed": {
+        "destination": {
+          "zone": "stack"
+        },
+        "object": {
+          "card": 1,
+          "incarnation": 0
+        },
+        "proposal": "move"
+      }
+    },
+    {
+      "actual": {
+        "cost": {
+          "colored": [
+            "U"
+          ],
+          "generic": "0"
+        },
+        "outcome": "mana_paid",
+        "player": 0
+      },
+      "event": "committed",
+      "proposed": {
+        "cost": {
+          "colored": [
+            "U"
+          ],
+          "generic": "0"
+        },
+        "player": 0,
+        "proposal": "pay_mana"
+      }
+    },
+    {
+      "event": "spell_cast",
+      "stack_id": 0
+    },
+    {
+      "event": "priority_passed",
+      "player": 0
+    },
+    {
+      "event": "player_departed",
+      "player": 2
+    },
+    {
+      "actual": {
+        "movement": {
+          "destination": {
+            "zone": "exile"
+          },
+          "from": {
+            "zone": "battlefield"
+          },
+          "previous": {
+            "card": 2,
+            "incarnation": 0
+          },
+          "successor": {
+            "card": 2,
+            "incarnation": 1
+          }
+        },
+        "outcome": "moved"
+      },
+      "event": "committed",
+      "proposed": {
+        "destination": {
+          "zone": "exile"
+        },
+        "object": {
+          "card": 2,
+          "incarnation": 0
+        },
+        "proposal": "move"
+      }
+    },
+    {
+      "event": "priority_passed",
+      "player": 1
+    },
+    {
+      "event": "player_departed",
+      "player": 3
+    },
+    {
+      "actual": {
+        "movement": {
+          "destination": {
+            "owner": 0,
+            "zone": "graveyard"
+          },
+          "from": {
+            "zone": "stack"
+          },
+          "previous": {
+            "card": 1,
+            "incarnation": 1
+          },
+          "successor": {
+            "card": 1,
+            "incarnation": 2
+          }
+        },
+        "outcome": "moved"
+      },
+      "event": "committed",
+      "proposed": {
+        "destination": {
+          "owner": 0,
+          "zone": "graveyard"
+        },
+        "object": {
+          "card": 1,
+          "incarnation": 1
+        },
+        "proposal": "move"
+      }
+    },
+    {
+      "event": "spell_completed",
+      "resolved": false,
+      "stack_id": 0
+    },
+    {
+      "event": "player_departed",
+      "player": 0
+    },
+    {
+      "event": "object_left_game",
+      "object": {
+        "card": 0,
+        "incarnation": 0
+      },
+      "owner": 0
+    },
+    {
+      "event": "object_left_game",
+      "object": {
+        "card": 1,
+        "incarnation": 2
+      },
+      "owner": 0
+    },
+    {
+      "event": "object_left_game",
+      "object": {
+        "card": 3,
+        "incarnation": 0
+      },
+      "owner": 0
+    },
+    {
+      "event": "game_won",
+      "winner": 1
+    }
+  ],
+  "departure_journal": {
+    "concessions": [
+      {
+        "after_decisions": 5,
+        "boundary": 6,
+        "player": 2
+      },
+      {
+        "after_decisions": 6,
+        "boundary": 8,
+        "player": 3
+      },
+      {
+        "after_decisions": 6,
+        "boundary": 10,
+        "player": 0
+      }
+    ],
+    "decisions": [
+      {
+        "decision_id": 0,
+        "player": 0,
+        "response": {
+          "object": {
+            "card": 0,
+            "incarnation": 0
+          },
+          "response": "activate_mana"
+        }
+      },
+      {
+        "decision_id": 1,
+        "player": 0,
+        "response": {
+          "card": 1,
+          "response": "cast"
+        }
+      },
+      {
+        "decision_id": 2,
+        "player": 0,
+        "response": {
+          "objects": [
+            {
+              "card": 2,
+              "incarnation": 0
+            }
+          ],
+          "response": "targets"
+        }
+      },
+      {
+        "decision_id": 3,
+        "player": 0,
+        "response": {
+          "response": "finish_mana",
+          "undo_mana": false
+        }
+      },
+      {
+        "decision_id": 4,
+        "player": 0,
+        "response": {
+          "response": "pass"
+        }
+      },
+      {
+        "decision_id": 6,
+        "player": 1,
+        "response": {
+          "response": "pass"
+        }
+      }
+    ]
+  },
+  "departure_state_sha256": "f6a1d6c0fa011a6f3b117dbd1fc9583b4e363fc53d7c19349e9f71de78fd1af7",
+  "trace_verification": [
+    {
+      "profile": "land-return-departure-scenario-v2",
+      "mode": "off",
+      "state_sha256": "675636d8307c09165ca7c6df997ea1b112c90571eb7327f6a2055e252e6e6060",
+      "verification": null
+    },
+    {
+      "profile": "land-return-departure-scenario-v2",
+      "mode": "compact",
+      "state_sha256": "675636d8307c09165ca7c6df997ea1b112c90571eb7327f6a2055e252e6e6060",
+      "verification": {
+        "records": 18,
+        "sha256": "0b2c3291804ad4f342cbf9b9406c00be7f42913adf5cfb40fd6d13efbaf6c4f9"
+      }
+    },
+    {
+      "profile": "land-return-departure-scenario-v2",
+      "mode": "detailed",
+      "state_sha256": "675636d8307c09165ca7c6df997ea1b112c90571eb7327f6a2055e252e6e6060",
+      "verification": {
+        "records": 18,
+        "sha256": "0b2c3291804ad4f342cbf9b9406c00be7f42913adf5cfb40fd6d13efbaf6c4f9"
+      }
+    },
+    {
+      "profile": "commander-foundation-scenario-v1",
+      "mode": "off",
+      "state_sha256": "f6a1d6c0fa011a6f3b117dbd1fc9583b4e363fc53d7c19349e9f71de78fd1af7",
+      "verification": null
+    },
+    {
+      "profile": "commander-foundation-scenario-v1",
+      "mode": "compact",
+      "state_sha256": "f6a1d6c0fa011a6f3b117dbd1fc9583b4e363fc53d7c19349e9f71de78fd1af7",
+      "verification": {
+        "records": 24,
+        "sha256": "8e58ab2ac0d0abc9da352417c502c6e6fe171ed7c5e91225e74df5b8261479b7"
+      }
+    },
+    {
+      "profile": "commander-foundation-scenario-v1",
+      "mode": "detailed",
+      "state_sha256": "f6a1d6c0fa011a6f3b117dbd1fc9583b4e363fc53d7c19349e9f71de78fd1af7",
+      "verification": {
+        "records": 24,
+        "sha256": "8e58ab2ac0d0abc9da352417c502c6e6fe171ed7c5e91225e74df5b8261479b7"
+      }
+    },
+    {
+      "profile": "four-seat-instant-response-v1",
+      "mode": "off",
+      "state_sha256": "c61425dbdc23cdc0f96070338db9ff4ae1afc80fad57fe8044de9976ffcab233",
+      "verification": null
+    },
+    {
+      "profile": "four-seat-instant-response-v1",
+      "mode": "compact",
+      "state_sha256": "c61425dbdc23cdc0f96070338db9ff4ae1afc80fad57fe8044de9976ffcab233",
+      "verification": {
+        "records": 36,
+        "sha256": "1a4ec7317f9a7d451c46f029624351b06449cfd599a0183a606922275da4f5b1"
+      }
+    },
+    {
+      "profile": "four-seat-instant-response-v1",
+      "mode": "detailed",
+      "state_sha256": "c61425dbdc23cdc0f96070338db9ff4ae1afc80fad57fe8044de9976ffcab233",
+      "verification": {
+        "records": 36,
+        "sha256": "1a4ec7317f9a7d451c46f029624351b06449cfd599a0183a606922275da4f5b1"
+      }
+    },
+    {
+      "profile": "four-seat-instant-response-v1",
+      "mode": "off",
+      "state_sha256": "f143321cfd0fad336631868bff291ba37e854bfd5a95595162946bceb4ab6954",
+      "verification": null
+    },
+    {
+      "profile": "four-seat-instant-response-v1",
+      "mode": "compact",
+      "state_sha256": "f143321cfd0fad336631868bff291ba37e854bfd5a95595162946bceb4ab6954",
+      "verification": {
+        "records": 39,
+        "sha256": "005090bab13a7859f9d9e007eb64827016c23410d7434c40cdc4d9117bc05491"
+      }
+    },
+    {
+      "profile": "four-seat-instant-response-v1",
+      "mode": "detailed",
+      "state_sha256": "f143321cfd0fad336631868bff291ba37e854bfd5a95595162946bceb4ab6954",
+      "verification": {
+        "records": 39,
+        "sha256": "005090bab13a7859f9d9e007eb64827016c23410d7434c40cdc4d9117bc05491"
+      }
+    },
+    {
+      "profile": "land-return-departure-scenario-v2",
+      "mode": "off",
+      "state_sha256": "aa3ac22f996e730d71a261ae75ec8262ffbc123b40ca436e951eb2f5a55877cf",
+      "verification": null
+    },
+    {
+      "profile": "land-return-departure-scenario-v2",
+      "mode": "compact",
+      "state_sha256": "aa3ac22f996e730d71a261ae75ec8262ffbc123b40ca436e951eb2f5a55877cf",
+      "verification": {
+        "records": 18,
+        "sha256": "9b058883eb945b2b7cbfe57aa5a504a0b29d5e88a292399168e561a9aeae674d"
+      }
+    },
+    {
+      "profile": "land-return-departure-scenario-v2",
+      "mode": "detailed",
+      "state_sha256": "aa3ac22f996e730d71a261ae75ec8262ffbc123b40ca436e951eb2f5a55877cf",
+      "verification": {
+        "records": 18,
+        "sha256": "9b058883eb945b2b7cbfe57aa5a504a0b29d5e88a292399168e561a9aeae674d"
+      }
+    },
+    {
+      "profile": "casting-mana-reversal-v1",
+      "mode": "off",
+      "state_sha256": "ff72a3efef5258513fc12082fe3824fc443593edf23d231044f84704e7be772b",
+      "verification": null
+    },
+    {
+      "profile": "casting-mana-reversal-v1",
+      "mode": "compact",
+      "state_sha256": "ff72a3efef5258513fc12082fe3824fc443593edf23d231044f84704e7be772b",
+      "verification": {
+        "records": 12,
+        "sha256": "e30d88566a350de9140148147ed4c3d8c89bf8edbe7bac960df13a6e8471661c"
+      }
+    },
+    {
+      "profile": "casting-mana-reversal-v1",
+      "mode": "detailed",
+      "state_sha256": "ff72a3efef5258513fc12082fe3824fc443593edf23d231044f84704e7be772b",
+      "verification": {
+        "records": 12,
+        "sha256": "e30d88566a350de9140148147ed4c3d8c89bf8edbe7bac960df13a6e8471661c"
+      }
+    },
+    {
+      "profile": "casting-mana-reversal-v1",
+      "mode": "off",
+      "state_sha256": "63cb1355f1dbdc390dbb3f82edd808bb7bd5dd94aa65c39eae11a1dd645de4ed",
+      "verification": null
+    },
+    {
+      "profile": "casting-mana-reversal-v1",
+      "mode": "compact",
+      "state_sha256": "63cb1355f1dbdc390dbb3f82edd808bb7bd5dd94aa65c39eae11a1dd645de4ed",
+      "verification": {
+        "records": 10,
+        "sha256": "47ba138fdf2ccb8699a6c56d734d42cdd06f12ea96f7205952ad79a67e8cd8e6"
+      }
+    },
+    {
+      "profile": "casting-mana-reversal-v1",
+      "mode": "detailed",
+      "state_sha256": "63cb1355f1dbdc390dbb3f82edd808bb7bd5dd94aa65c39eae11a1dd645de4ed",
+      "verification": {
+        "records": 10,
+        "sha256": "47ba138fdf2ccb8699a6c56d734d42cdd06f12ea96f7205952ad79a67e8cd8e6"
+      }
+    },
+    {
+      "profile": "four-seat-turns-permanents-v1",
+      "mode": "off",
+      "state_sha256": "83d53d69430b42fde1cad1e3f7cb02d53d0e49fd1d08036a373bd8ee192ce19d",
+      "verification": null
+    },
+    {
+      "profile": "four-seat-turns-permanents-v1",
+      "mode": "compact",
+      "state_sha256": "83d53d69430b42fde1cad1e3f7cb02d53d0e49fd1d08036a373bd8ee192ce19d",
+      "verification": {
+        "records": 364,
+        "sha256": "9dd20297f1b37dec8ce212b15a54998fd643239b5dc78804f5674bafc22ce7c4"
+      }
+    },
+    {
+      "profile": "four-seat-turns-permanents-v1",
+      "mode": "detailed",
+      "state_sha256": "83d53d69430b42fde1cad1e3f7cb02d53d0e49fd1d08036a373bd8ee192ce19d",
+      "verification": {
+        "records": 364,
+        "sha256": "9dd20297f1b37dec8ce212b15a54998fd643239b5dc78804f5674bafc22ce7c4"
+      }
+    }
+  ],
+  "response": {
+    "state_sha256": "c61425dbdc23cdc0f96070338db9ff4ae1afc80fad57fe8044de9976ffcab233",
+    "events": [
+      {
+        "actual": {
+          "object": {
+            "card": 0,
+            "incarnation": 0
+          },
+          "outcome": "tapped"
+        },
+        "event": "committed",
+        "proposed": {
+          "object": {
+            "card": 0,
+            "incarnation": 0
+          },
+          "proposal": "tap"
+        }
+      },
+      {
+        "actual": {
+          "amount": "1",
+          "color": "U",
+          "outcome": "mana_added",
+          "player": 0
+        },
+        "event": "committed",
+        "proposed": {
+          "amount": "1",
+          "color": "U",
+          "player": 0,
+          "proposal": "add_mana",
+          "source": {
+            "card": 0,
+            "incarnation": 0
+          }
+        }
+      },
+      {
+        "card": 1,
+        "event": "spell_proposed",
+        "stack_id": 0
+      },
+      {
+        "actual": {
+          "movement": {
+            "destination": {
+              "zone": "stack"
+            },
+            "from": {
+              "owner": 0,
+              "zone": "hand"
+            },
+            "previous": {
+              "card": 1,
+              "incarnation": 0
+            },
+            "successor": {
+              "card": 1,
+              "incarnation": 1
+            }
+          },
+          "outcome": "moved"
+        },
+        "event": "committed",
+        "proposed": {
+          "destination": {
+            "zone": "stack"
+          },
+          "object": {
+            "card": 1,
+            "incarnation": 0
+          },
+          "proposal": "move"
+        }
+      },
+      {
+        "actual": {
+          "cost": {
+            "colored": [
+              "U"
+            ],
+            "generic": "0"
+          },
+          "outcome": "mana_paid",
+          "player": 0
+        },
+        "event": "committed",
+        "proposed": {
+          "cost": {
+            "colored": [
+              "U"
+            ],
+            "generic": "0"
+          },
+          "player": 0,
+          "proposal": "pay_mana"
+        }
+      },
+      {
+        "event": "spell_cast",
+        "stack_id": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "actual": {
+          "object": {
+            "card": 5,
+            "incarnation": 0
+          },
+          "outcome": "tapped"
+        },
+        "event": "committed",
+        "proposed": {
+          "object": {
+            "card": 5,
+            "incarnation": 0
+          },
+          "proposal": "tap"
+        }
+      },
+      {
+        "actual": {
+          "amount": "1",
+          "color": "U",
+          "outcome": "mana_added",
+          "player": 2
+        },
+        "event": "committed",
+        "proposed": {
+          "amount": "1",
+          "color": "U",
+          "player": 2,
+          "proposal": "add_mana",
+          "source": {
+            "card": 5,
+            "incarnation": 0
+          }
+        }
+      },
+      {
+        "card": 6,
+        "event": "spell_proposed",
+        "stack_id": 1
+      },
+      {
+        "actual": {
+          "movement": {
+            "destination": {
+              "zone": "stack"
+            },
+            "from": {
+              "owner": 2,
+              "zone": "hand"
+            },
+            "previous": {
+              "card": 6,
+              "incarnation": 0
+            },
+            "successor": {
+              "card": 6,
+              "incarnation": 1
+            }
+          },
+          "outcome": "moved"
+        },
+        "event": "committed",
+        "proposed": {
+          "destination": {
+            "zone": "stack"
+          },
+          "object": {
+            "card": 6,
+            "incarnation": 0
+          },
+          "proposal": "move"
+        }
+      },
+      {
+        "actual": {
+          "cost": {
+            "colored": [
+              "U"
+            ],
+            "generic": "0"
+          },
+          "outcome": "mana_paid",
+          "player": 2
+        },
+        "event": "committed",
+        "proposed": {
+          "cost": {
+            "colored": [
+              "U"
+            ],
+            "generic": "0"
+          },
+          "player": 2,
+          "proposal": "pay_mana"
+        }
+      },
+      {
+        "event": "spell_cast",
+        "stack_id": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "actual": {
+          "movement": {
+            "destination": {
+              "owner": 1,
+              "zone": "hand"
+            },
+            "from": {
+              "zone": "battlefield"
+            },
+            "previous": {
+              "card": 2,
+              "incarnation": 0
+            },
+            "successor": {
+              "card": 2,
+              "incarnation": 1
+            }
+          },
+          "outcome": "moved"
+        },
+        "event": "committed",
+        "proposed": {
+          "destination": {
+            "owner": 1,
+            "zone": "hand"
+          },
+          "object": {
+            "card": 2,
+            "incarnation": 0
+          },
+          "proposal": "move"
+        }
+      },
+      {
+        "actual": {
+          "movement": {
+            "destination": {
+              "owner": 2,
+              "zone": "graveyard"
+            },
+            "from": {
+              "zone": "stack"
+            },
+            "previous": {
+              "card": 6,
+              "incarnation": 1
+            },
+            "successor": {
+              "card": 6,
+              "incarnation": 2
+            }
+          },
+          "outcome": "moved"
+        },
+        "event": "committed",
+        "proposed": {
+          "destination": {
+            "owner": 2,
+            "zone": "graveyard"
+          },
+          "object": {
+            "card": 6,
+            "incarnation": 1
+          },
+          "proposal": "move"
+        }
+      },
+      {
+        "event": "spell_completed",
+        "resolved": true,
+        "stack_id": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "actual": {
+          "movement": {
+            "destination": {
+              "owner": 0,
+              "zone": "graveyard"
+            },
+            "from": {
+              "zone": "stack"
+            },
+            "previous": {
+              "card": 1,
+              "incarnation": 1
+            },
+            "successor": {
+              "card": 1,
+              "incarnation": 2
+            }
+          },
+          "outcome": "moved"
+        },
+        "event": "committed",
+        "proposed": {
+          "destination": {
+            "owner": 0,
+            "zone": "graveyard"
+          },
+          "object": {
+            "card": 1,
+            "incarnation": 1
+          },
+          "proposal": "move"
+        }
+      },
+      {
+        "event": "spell_completed",
+        "resolved": false,
+        "stack_id": 0
+      }
+    ],
+    "journal": {
+      "concessions": [],
+      "decisions": [
+        {
+          "decision_id": 0,
+          "player": 0,
+          "response": {
+            "object": {
+              "card": 0,
+              "incarnation": 0
+            },
+            "response": "activate_mana"
+          }
+        },
+        {
+          "decision_id": 1,
+          "player": 0,
+          "response": {
+            "card": 1,
+            "response": "cast"
+          }
+        },
+        {
+          "decision_id": 2,
+          "player": 0,
+          "response": {
+            "objects": [
+              {
+                "card": 2,
+                "incarnation": 0
+              }
+            ],
+            "response": "targets"
+          }
+        },
+        {
+          "decision_id": 3,
+          "player": 0,
+          "response": {
+            "response": "finish_mana",
+            "undo_mana": false
+          }
+        },
+        {
+          "decision_id": 4,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 5,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 6,
+          "player": 2,
+          "response": {
+            "object": {
+              "card": 5,
+              "incarnation": 0
+            },
+            "response": "activate_mana"
+          }
+        },
+        {
+          "decision_id": 7,
+          "player": 2,
+          "response": {
+            "card": 6,
+            "response": "cast"
+          }
+        },
+        {
+          "decision_id": 8,
+          "player": 2,
+          "response": {
+            "objects": [
+              {
+                "card": 2,
+                "incarnation": 0
+              }
+            ],
+            "response": "targets"
+          }
+        },
+        {
+          "decision_id": 9,
+          "player": 2,
+          "response": {
+            "response": "finish_mana",
+            "undo_mana": false
+          }
+        },
+        {
+          "decision_id": 10,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 11,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 12,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 13,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 14,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 15,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 16,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 17,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        }
+      ]
+    },
+    "checkpoints": 45
+  },
+  "detached_response": {
+    "state_sha256": "f143321cfd0fad336631868bff291ba37e854bfd5a95595162946bceb4ab6954",
+    "events": [
+      {
+        "actual": {
+          "object": {
+            "card": 0,
+            "incarnation": 0
+          },
+          "outcome": "tapped"
+        },
+        "event": "committed",
+        "proposed": {
+          "object": {
+            "card": 0,
+            "incarnation": 0
+          },
+          "proposal": "tap"
+        }
+      },
+      {
+        "actual": {
+          "amount": "1",
+          "color": "U",
+          "outcome": "mana_added",
+          "player": 0
+        },
+        "event": "committed",
+        "proposed": {
+          "amount": "1",
+          "color": "U",
+          "player": 0,
+          "proposal": "add_mana",
+          "source": {
+            "card": 0,
+            "incarnation": 0
+          }
+        }
+      },
+      {
+        "card": 1,
+        "event": "spell_proposed",
+        "stack_id": 0
+      },
+      {
+        "actual": {
+          "movement": {
+            "destination": {
+              "zone": "stack"
+            },
+            "from": {
+              "owner": 0,
+              "zone": "hand"
+            },
+            "previous": {
+              "card": 1,
+              "incarnation": 0
+            },
+            "successor": {
+              "card": 1,
+              "incarnation": 1
+            }
+          },
+          "outcome": "moved"
+        },
+        "event": "committed",
+        "proposed": {
+          "destination": {
+            "zone": "stack"
+          },
+          "object": {
+            "card": 1,
+            "incarnation": 0
+          },
+          "proposal": "move"
+        }
+      },
+      {
+        "actual": {
+          "cost": {
+            "colored": [
+              "U"
+            ],
+            "generic": "0"
+          },
+          "outcome": "mana_paid",
+          "player": 0
+        },
+        "event": "committed",
+        "proposed": {
+          "cost": {
+            "colored": [
+              "U"
+            ],
+            "generic": "0"
+          },
+          "player": 0,
+          "proposal": "pay_mana"
+        }
+      },
+      {
+        "event": "spell_cast",
+        "stack_id": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "actual": {
+          "object": {
+            "card": 7,
+            "incarnation": 0
+          },
+          "outcome": "tapped"
+        },
+        "event": "committed",
+        "proposed": {
+          "object": {
+            "card": 7,
+            "incarnation": 0
+          },
+          "proposal": "tap"
+        }
+      },
+      {
+        "actual": {
+          "amount": "1",
+          "color": "U",
+          "outcome": "mana_added",
+          "player": 3
+        },
+        "event": "committed",
+        "proposed": {
+          "amount": "1",
+          "color": "U",
+          "player": 3,
+          "proposal": "add_mana",
+          "source": {
+            "card": 7,
+            "incarnation": 0
+          }
+        }
+      },
+      {
+        "card": 8,
+        "event": "spell_proposed",
+        "stack_id": 1
+      },
+      {
+        "actual": {
+          "movement": {
+            "destination": {
+              "zone": "stack"
+            },
+            "from": {
+              "owner": 3,
+              "zone": "hand"
+            },
+            "previous": {
+              "card": 8,
+              "incarnation": 0
+            },
+            "successor": {
+              "card": 8,
+              "incarnation": 1
+            }
+          },
+          "outcome": "moved"
+        },
+        "event": "committed",
+        "proposed": {
+          "destination": {
+            "zone": "stack"
+          },
+          "object": {
+            "card": 8,
+            "incarnation": 0
+          },
+          "proposal": "move"
+        }
+      },
+      {
+        "actual": {
+          "cost": {
+            "colored": [
+              "U"
+            ],
+            "generic": "0"
+          },
+          "outcome": "mana_paid",
+          "player": 3
+        },
+        "event": "committed",
+        "proposed": {
+          "cost": {
+            "colored": [
+              "U"
+            ],
+            "generic": "0"
+          },
+          "player": 3,
+          "proposal": "pay_mana"
+        }
+      },
+      {
+        "event": "spell_cast",
+        "stack_id": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "player_departed",
+        "player": 3
+      },
+      {
+        "event": "object_left_game",
+        "object": {
+          "card": 7,
+          "incarnation": 0
+        },
+        "owner": 3
+      },
+      {
+        "event": "object_left_game",
+        "object": {
+          "card": 8,
+          "incarnation": 1
+        },
+        "owner": 3
+      },
+      {
+        "event": "stack_removed_for_departure",
+        "player": 3,
+        "stack_id": 1
+      },
+      {
+        "actual": {
+          "movement": {
+            "destination": {
+              "owner": 1,
+              "zone": "hand"
+            },
+            "from": {
+              "zone": "battlefield"
+            },
+            "previous": {
+              "card": 2,
+              "incarnation": 0
+            },
+            "successor": {
+              "card": 2,
+              "incarnation": 1
+            }
+          },
+          "outcome": "moved"
+        },
+        "event": "committed",
+        "proposed": {
+          "destination": {
+            "owner": 1,
+            "zone": "hand"
+          },
+          "object": {
+            "card": 2,
+            "incarnation": 0
+          },
+          "proposal": "move"
+        }
+      },
+      {
+        "event": "spell_completed",
+        "resolved": true,
+        "stack_id": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "actual": {
+          "movement": {
+            "destination": {
+              "owner": 0,
+              "zone": "graveyard"
+            },
+            "from": {
+              "zone": "stack"
+            },
+            "previous": {
+              "card": 1,
+              "incarnation": 1
+            },
+            "successor": {
+              "card": 1,
+              "incarnation": 2
+            }
+          },
+          "outcome": "moved"
+        },
+        "event": "committed",
+        "proposed": {
+          "destination": {
+            "owner": 0,
+            "zone": "graveyard"
+          },
+          "object": {
+            "card": 1,
+            "incarnation": 1
+          },
+          "proposal": "move"
+        }
+      },
+      {
+        "event": "spell_completed",
+        "resolved": false,
+        "stack_id": 0
+      }
+    ],
+    "journal": {
+      "concessions": [
+        {
+          "after_decisions": 15,
+          "boundary": 17,
+          "player": 3
+        }
+      ],
+      "decisions": [
+        {
+          "decision_id": 0,
+          "player": 0,
+          "response": {
+            "object": {
+              "card": 0,
+              "incarnation": 0
+            },
+            "response": "activate_mana"
+          }
+        },
+        {
+          "decision_id": 1,
+          "player": 0,
+          "response": {
+            "card": 1,
+            "response": "cast"
+          }
+        },
+        {
+          "decision_id": 2,
+          "player": 0,
+          "response": {
+            "objects": [
+              {
+                "card": 2,
+                "incarnation": 0
+              }
+            ],
+            "response": "targets"
+          }
+        },
+        {
+          "decision_id": 3,
+          "player": 0,
+          "response": {
+            "response": "finish_mana",
+            "undo_mana": false
+          }
+        },
+        {
+          "decision_id": 4,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 5,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 6,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 7,
+          "player": 3,
+          "response": {
+            "object": {
+              "card": 7,
+              "incarnation": 0
+            },
+            "response": "activate_mana"
+          }
+        },
+        {
+          "decision_id": 8,
+          "player": 3,
+          "response": {
+            "card": 8,
+            "response": "cast"
+          }
+        },
+        {
+          "decision_id": 9,
+          "player": 3,
+          "response": {
+            "objects": [
+              {
+                "card": 2,
+                "incarnation": 0
+              }
+            ],
+            "response": "targets"
+          }
+        },
+        {
+          "decision_id": 10,
+          "player": 3,
+          "response": {
+            "response": "finish_mana",
+            "undo_mana": false
+          }
+        },
+        {
+          "decision_id": 11,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 12,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 13,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 14,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 16,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 17,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 18,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        }
+      ]
+    },
+    "checkpoints": 47
+  },
+  "mana_casting": {
+    "state_sha256": "aa3ac22f996e730d71a261ae75ec8262ffbc123b40ca436e951eb2f5a55877cf",
+    "events": [
+      {
+        "card": 1,
+        "event": "spell_proposed",
+        "stack_id": 0
+      },
+      {
+        "actual": {
+          "movement": {
+            "destination": {
+              "zone": "stack"
+            },
+            "from": {
+              "owner": 0,
+              "zone": "hand"
+            },
+            "previous": {
+              "card": 1,
+              "incarnation": 0
+            },
+            "successor": {
+              "card": 1,
+              "incarnation": 1
+            }
+          },
+          "outcome": "moved"
+        },
+        "event": "committed",
+        "proposed": {
+          "destination": {
+            "zone": "stack"
+          },
+          "object": {
+            "card": 1,
+            "incarnation": 0
+          },
+          "proposal": "move"
+        }
+      },
+      {
+        "actual": {
+          "object": {
+            "card": 0,
+            "incarnation": 0
+          },
+          "outcome": "tapped"
+        },
+        "event": "committed",
+        "proposed": {
+          "object": {
+            "card": 0,
+            "incarnation": 0
+          },
+          "proposal": "tap"
+        }
+      },
+      {
+        "actual": {
+          "amount": "1",
+          "color": "U",
+          "outcome": "mana_added",
+          "player": 0
+        },
+        "event": "committed",
+        "proposed": {
+          "amount": "1",
+          "color": "U",
+          "player": 0,
+          "proposal": "add_mana",
+          "source": {
+            "card": 0,
+            "incarnation": 0
+          }
+        }
+      },
+      {
+        "actual": {
+          "cost": {
+            "colored": [
+              "U"
+            ],
+            "generic": "0"
+          },
+          "outcome": "mana_paid",
+          "player": 0
+        },
+        "event": "committed",
+        "proposed": {
+          "cost": {
+            "colored": [
+              "U"
+            ],
+            "generic": "0"
+          },
+          "player": 0,
+          "proposal": "pay_mana"
+        }
+      },
+      {
+        "event": "spell_cast",
+        "stack_id": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "actual": {
+          "movement": {
+            "destination": {
+              "owner": 1,
+              "zone": "hand"
+            },
+            "from": {
+              "zone": "battlefield"
+            },
+            "previous": {
+              "card": 2,
+              "incarnation": 0
+            },
+            "successor": {
+              "card": 2,
+              "incarnation": 1
+            }
+          },
+          "outcome": "moved"
+        },
+        "event": "committed",
+        "proposed": {
+          "destination": {
+            "owner": 1,
+            "zone": "hand"
+          },
+          "object": {
+            "card": 2,
+            "incarnation": 0
+          },
+          "proposal": "move"
+        }
+      },
+      {
+        "actual": {
+          "movement": {
+            "destination": {
+              "owner": 0,
+              "zone": "graveyard"
+            },
+            "from": {
+              "zone": "stack"
+            },
+            "previous": {
+              "card": 1,
+              "incarnation": 1
+            },
+            "successor": {
+              "card": 1,
+              "incarnation": 2
+            }
+          },
+          "outcome": "moved"
+        },
+        "event": "committed",
+        "proposed": {
+          "destination": {
+            "owner": 0,
+            "zone": "graveyard"
+          },
+          "object": {
+            "card": 1,
+            "incarnation": 1
+          },
+          "proposal": "move"
+        }
+      },
+      {
+        "event": "spell_completed",
+        "resolved": true,
+        "stack_id": 0
+      }
+    ],
+    "journal": {
+      "concessions": [],
+      "decisions": [
+        {
+          "decision_id": 0,
+          "player": 0,
+          "response": {
+            "card": 1,
+            "response": "cast"
+          }
+        },
+        {
+          "decision_id": 1,
+          "player": 0,
+          "response": {
+            "objects": [
+              {
+                "card": 2,
+                "incarnation": 0
+              }
+            ],
+            "response": "targets"
+          }
+        },
+        {
+          "decision_id": 2,
+          "player": 0,
+          "response": {
+            "object": {
+              "card": 0,
+              "incarnation": 0
+            },
+            "response": "activate_mana"
+          }
+        },
+        {
+          "decision_id": 3,
+          "player": 0,
+          "response": {
+            "response": "finish_mana",
+            "undo_mana": false
+          }
+        },
+        {
+          "decision_id": 4,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 5,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 6,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 7,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        }
+      ]
+    },
+    "checkpoints": 23
+  },
+  "mana_undo": {
+    "state_sha256": "ff72a3efef5258513fc12082fe3824fc443593edf23d231044f84704e7be772b",
+    "events": [
+      {
+        "actual": {
+          "object": {
+            "card": 0,
+            "incarnation": 0
+          },
+          "outcome": "tapped"
+        },
+        "event": "committed",
+        "proposed": {
+          "object": {
+            "card": 0,
+            "incarnation": 0
+          },
+          "proposal": "tap"
+        }
+      },
+      {
+        "actual": {
+          "amount": "1",
+          "color": "G",
+          "outcome": "mana_added",
+          "player": 0
+        },
+        "event": "committed",
+        "proposed": {
+          "amount": "1",
+          "color": "G",
+          "player": 0,
+          "proposal": "add_mana",
+          "source": {
+            "card": 0,
+            "incarnation": 0
+          }
+        }
+      },
+      {
+        "card": 1,
+        "event": "spell_proposed",
+        "stack_id": 0
+      },
+      {
+        "actual": {
+          "movement": {
+            "destination": {
+              "zone": "stack"
+            },
+            "from": {
+              "owner": 0,
+              "zone": "hand"
+            },
+            "previous": {
+              "card": 1,
+              "incarnation": 0
+            },
+            "successor": {
+              "card": 1,
+              "incarnation": 1
+            }
+          },
+          "outcome": "moved"
+        },
+        "event": "committed",
+        "proposed": {
+          "destination": {
+            "zone": "stack"
+          },
+          "object": {
+            "card": 1,
+            "incarnation": 0
+          },
+          "proposal": "move"
+        }
+      },
+      {
+        "actual": {
+          "object": {
+            "card": 3,
+            "incarnation": 0
+          },
+          "outcome": "tapped"
+        },
+        "event": "committed",
+        "proposed": {
+          "object": {
+            "card": 3,
+            "incarnation": 0
+          },
+          "proposal": "tap"
+        }
+      },
+      {
+        "actual": {
+          "amount": "1",
+          "color": "G",
+          "outcome": "mana_added",
+          "player": 0
+        },
+        "event": "committed",
+        "proposed": {
+          "amount": "1",
+          "color": "G",
+          "player": 0,
+          "proposal": "add_mana",
+          "source": {
+            "card": 3,
+            "incarnation": 0
+          }
+        }
+      },
+      {
+        "actual": {
+          "amount": "1",
+          "color": "G",
+          "outcome": "mana_reversed",
+          "player": 0,
+          "removed_entry": false,
+          "source": {
+            "card": 3,
+            "incarnation": 0
+          }
+        },
+        "event": "committed",
+        "proposed": {
+          "amount": "1",
+          "color": "G",
+          "player": 0,
+          "proposal": "reverse_mana",
+          "remove_zero": false,
+          "source": {
+            "card": 3,
+            "incarnation": 0
+          }
+        }
+      },
+      {
+        "event": "cast_reversed",
+        "reason": "insufficient mana",
+        "stack_id": 0
+      }
+    ],
+    "journal": {
+      "concessions": [],
+      "decisions": [
+        {
+          "decision_id": 0,
+          "player": 0,
+          "response": {
+            "object": {
+              "card": 0,
+              "incarnation": 0
+            },
+            "response": "activate_mana"
+          }
+        },
+        {
+          "decision_id": 1,
+          "player": 0,
+          "response": {
+            "card": 1,
+            "response": "cast"
+          }
+        },
+        {
+          "decision_id": 2,
+          "player": 0,
+          "response": {
+            "objects": [
+              {
+                "card": 2,
+                "incarnation": 0
+              }
+            ],
+            "response": "targets"
+          }
+        },
+        {
+          "decision_id": 3,
+          "player": 0,
+          "response": {
+            "object": {
+              "card": 3,
+              "incarnation": 0
+            },
+            "response": "activate_mana"
+          }
+        },
+        {
+          "decision_id": 4,
+          "player": 0,
+          "response": {
+            "response": "finish_mana",
+            "undo_mana": true
+          }
+        }
+      ]
+    },
+    "checkpoints": 14
+  },
+  "mana_keep": {
+    "state_sha256": "63cb1355f1dbdc390dbb3f82edd808bb7bd5dd94aa65c39eae11a1dd645de4ed",
+    "events": [
+      {
+        "actual": {
+          "object": {
+            "card": 0,
+            "incarnation": 0
+          },
+          "outcome": "tapped"
+        },
+        "event": "committed",
+        "proposed": {
+          "object": {
+            "card": 0,
+            "incarnation": 0
+          },
+          "proposal": "tap"
+        }
+      },
+      {
+        "actual": {
+          "amount": "1",
+          "color": "G",
+          "outcome": "mana_added",
+          "player": 0
+        },
+        "event": "committed",
+        "proposed": {
+          "amount": "1",
+          "color": "G",
+          "player": 0,
+          "proposal": "add_mana",
+          "source": {
+            "card": 0,
+            "incarnation": 0
+          }
+        }
+      },
+      {
+        "card": 1,
+        "event": "spell_proposed",
+        "stack_id": 0
+      },
+      {
+        "actual": {
+          "movement": {
+            "destination": {
+              "zone": "stack"
+            },
+            "from": {
+              "owner": 0,
+              "zone": "hand"
+            },
+            "previous": {
+              "card": 1,
+              "incarnation": 0
+            },
+            "successor": {
+              "card": 1,
+              "incarnation": 1
+            }
+          },
+          "outcome": "moved"
+        },
+        "event": "committed",
+        "proposed": {
+          "destination": {
+            "zone": "stack"
+          },
+          "object": {
+            "card": 1,
+            "incarnation": 0
+          },
+          "proposal": "move"
+        }
+      },
+      {
+        "actual": {
+          "object": {
+            "card": 3,
+            "incarnation": 0
+          },
+          "outcome": "tapped"
+        },
+        "event": "committed",
+        "proposed": {
+          "object": {
+            "card": 3,
+            "incarnation": 0
+          },
+          "proposal": "tap"
+        }
+      },
+      {
+        "actual": {
+          "amount": "1",
+          "color": "G",
+          "outcome": "mana_added",
+          "player": 0
+        },
+        "event": "committed",
+        "proposed": {
+          "amount": "1",
+          "color": "G",
+          "player": 0,
+          "proposal": "add_mana",
+          "source": {
+            "card": 3,
+            "incarnation": 0
+          }
+        }
+      },
+      {
+        "event": "cast_reversed",
+        "reason": "insufficient mana",
+        "stack_id": 0
+      }
+    ],
+    "journal": {
+      "concessions": [],
+      "decisions": [
+        {
+          "decision_id": 0,
+          "player": 0,
+          "response": {
+            "object": {
+              "card": 0,
+              "incarnation": 0
+            },
+            "response": "activate_mana"
+          }
+        },
+        {
+          "decision_id": 1,
+          "player": 0,
+          "response": {
+            "card": 1,
+            "response": "cast"
+          }
+        },
+        {
+          "decision_id": 2,
+          "player": 0,
+          "response": {
+            "objects": [
+              {
+                "card": 2,
+                "incarnation": 0
+              }
+            ],
+            "response": "targets"
+          }
+        },
+        {
+          "decision_id": 3,
+          "player": 0,
+          "response": {
+            "object": {
+              "card": 3,
+              "incarnation": 0
+            },
+            "response": "activate_mana"
+          }
+        },
+        {
+          "decision_id": 4,
+          "player": 0,
+          "response": {
+            "response": "finish_mana",
+            "undo_mana": false
+          }
+        }
+      ]
+    },
+    "checkpoints": 14
+  },
+  "turns": {
+    "state_sha256": "83d53d69430b42fde1cad1e3f7cb02d53d0e49fd1d08036a373bd8ee192ce19d",
+    "events": [
+      {
+        "actual": {
+          "movement": {
+            "destination": {
+              "zone": "battlefield"
+            },
+            "from": {
+              "owner": 0,
+              "zone": "hand"
+            },
+            "previous": {
+              "card": 1,
+              "incarnation": 0
+            },
+            "successor": {
+              "card": 1,
+              "incarnation": 1
+            }
+          },
+          "outcome": "moved"
+        },
+        "event": "committed",
+        "proposed": {
+          "destination": {
+            "zone": "battlefield"
+          },
+          "object": {
+            "card": 1,
+            "incarnation": 0
+          },
+          "proposal": "move"
+        }
+      },
+      {
+        "actual": {
+          "current": 1,
+          "outcome": "land_play_counted",
+          "player": 0,
+          "previous": 0
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "land_played"
+        }
+      },
+      {
+        "card": 2,
+        "event": "spell_proposed",
+        "stack_id": 0
+      },
+      {
+        "actual": {
+          "movement": {
+            "destination": {
+              "zone": "stack"
+            },
+            "from": {
+              "owner": 0,
+              "zone": "hand"
+            },
+            "previous": {
+              "card": 2,
+              "incarnation": 0
+            },
+            "successor": {
+              "card": 2,
+              "incarnation": 1
+            }
+          },
+          "outcome": "moved"
+        },
+        "event": "committed",
+        "proposed": {
+          "destination": {
+            "zone": "stack"
+          },
+          "object": {
+            "card": 2,
+            "incarnation": 0
+          },
+          "proposal": "move"
+        }
+      },
+      {
+        "actual": {
+          "object": {
+            "card": 0,
+            "incarnation": 0
+          },
+          "outcome": "tapped"
+        },
+        "event": "committed",
+        "proposed": {
+          "object": {
+            "card": 0,
+            "incarnation": 0
+          },
+          "proposal": "tap"
+        }
+      },
+      {
+        "actual": {
+          "amount": "1",
+          "color": "G",
+          "outcome": "mana_added",
+          "player": 0
+        },
+        "event": "committed",
+        "proposed": {
+          "amount": "1",
+          "color": "G",
+          "player": 0,
+          "proposal": "add_mana",
+          "source": {
+            "card": 0,
+            "incarnation": 0
+          }
+        }
+      },
+      {
+        "actual": {
+          "object": {
+            "card": 1,
+            "incarnation": 1
+          },
+          "outcome": "tapped"
+        },
+        "event": "committed",
+        "proposed": {
+          "object": {
+            "card": 1,
+            "incarnation": 1
+          },
+          "proposal": "tap"
+        }
+      },
+      {
+        "actual": {
+          "amount": "1",
+          "color": "G",
+          "outcome": "mana_added",
+          "player": 0
+        },
+        "event": "committed",
+        "proposed": {
+          "amount": "1",
+          "color": "G",
+          "player": 0,
+          "proposal": "add_mana",
+          "source": {
+            "card": 1,
+            "incarnation": 1
+          }
+        }
+      },
+      {
+        "actual": {
+          "cost": {
+            "colored": [
+              "G"
+            ],
+            "generic": "1"
+          },
+          "outcome": "mana_paid",
+          "player": 0
+        },
+        "event": "committed",
+        "proposed": {
+          "cost": {
+            "colored": [
+              "G"
+            ],
+            "generic": "1"
+          },
+          "player": 0,
+          "proposal": "pay_mana"
+        }
+      },
+      {
+        "event": "spell_cast",
+        "stack_id": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "actual": {
+          "movement": {
+            "destination": {
+              "zone": "battlefield"
+            },
+            "from": {
+              "zone": "stack"
+            },
+            "previous": {
+              "card": 2,
+              "incarnation": 1
+            },
+            "successor": {
+              "card": 2,
+              "incarnation": 2
+            }
+          },
+          "outcome": "moved"
+        },
+        "event": "committed",
+        "proposed": {
+          "destination": {
+            "zone": "battlefield"
+          },
+          "object": {
+            "card": 2,
+            "incarnation": 1
+          },
+          "proposal": "move"
+        }
+      },
+      {
+        "event": "spell_completed",
+        "resolved": true,
+        "stack_id": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {
+            "G": "0"
+          }
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 1,
+            "number": 1,
+            "step": "end"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 0,
+          "previous": {
+            "lands_played": 1,
+            "number": 1,
+            "step": "postcombat_main"
+          },
+          "previous_owner": 0
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 1,
+            "number": 1,
+            "step": "end"
+          },
+          "owner": 0,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 1,
+            "number": 1,
+            "step": "cleanup"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 0,
+          "previous": {
+            "lands_played": 1,
+            "number": 1,
+            "step": "end"
+          },
+          "previous_owner": 0
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 1,
+            "number": 1,
+            "step": "cleanup"
+          },
+          "owner": 0,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "untap"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 1,
+          "previous": {
+            "lands_played": 1,
+            "number": 1,
+            "step": "cleanup"
+          },
+          "previous_owner": 0
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "untap"
+          },
+          "owner": 1,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "upkeep"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 1,
+          "previous": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "untap"
+          },
+          "previous_owner": 1
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "upkeep"
+          },
+          "owner": 1,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "draw"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 1,
+          "previous": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "upkeep"
+          },
+          "previous_owner": 1
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "draw"
+          },
+          "owner": 1,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "actual": {
+          "movement": {
+            "destination": {
+              "owner": 1,
+              "zone": "hand"
+            },
+            "from": {
+              "owner": 1,
+              "zone": "library"
+            },
+            "previous": {
+              "card": 5,
+              "incarnation": 0
+            },
+            "successor": {
+              "card": 5,
+              "incarnation": 1
+            }
+          },
+          "outcome": "moved"
+        },
+        "event": "committed",
+        "proposed": {
+          "destination": {
+            "owner": 1,
+            "zone": "hand"
+          },
+          "object": {
+            "card": 5,
+            "incarnation": 0
+          },
+          "proposal": "move"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "precombat_main"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 1,
+          "previous": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "draw"
+          },
+          "previous_owner": 1
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "precombat_main"
+          },
+          "owner": 1,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "beginning_combat"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 1,
+          "previous": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "precombat_main"
+          },
+          "previous_owner": 1
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "beginning_combat"
+          },
+          "owner": 1,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "declare_attackers"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 1,
+          "previous": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "beginning_combat"
+          },
+          "previous_owner": 1
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "declare_attackers"
+          },
+          "owner": 1,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "end_combat"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 1,
+          "previous": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "declare_attackers"
+          },
+          "previous_owner": 1
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "end_combat"
+          },
+          "owner": 1,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "postcombat_main"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 1,
+          "previous": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "end_combat"
+          },
+          "previous_owner": 1
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "postcombat_main"
+          },
+          "owner": 1,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "end"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 1,
+          "previous": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "postcombat_main"
+          },
+          "previous_owner": 1
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "end"
+          },
+          "owner": 1,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "cleanup"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 1,
+          "previous": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "end"
+          },
+          "previous_owner": 1
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "cleanup"
+          },
+          "owner": 1,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "untap"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 2,
+          "previous": {
+            "lands_played": 0,
+            "number": 2,
+            "step": "cleanup"
+          },
+          "previous_owner": 1
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "untap"
+          },
+          "owner": 2,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "upkeep"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 2,
+          "previous": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "untap"
+          },
+          "previous_owner": 2
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "upkeep"
+          },
+          "owner": 2,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "draw"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 2,
+          "previous": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "upkeep"
+          },
+          "previous_owner": 2
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "draw"
+          },
+          "owner": 2,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "actual": {
+          "movement": {
+            "destination": {
+              "owner": 2,
+              "zone": "hand"
+            },
+            "from": {
+              "owner": 2,
+              "zone": "library"
+            },
+            "previous": {
+              "card": 6,
+              "incarnation": 0
+            },
+            "successor": {
+              "card": 6,
+              "incarnation": 1
+            }
+          },
+          "outcome": "moved"
+        },
+        "event": "committed",
+        "proposed": {
+          "destination": {
+            "owner": 2,
+            "zone": "hand"
+          },
+          "object": {
+            "card": 6,
+            "incarnation": 0
+          },
+          "proposal": "move"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "precombat_main"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 2,
+          "previous": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "draw"
+          },
+          "previous_owner": 2
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "precombat_main"
+          },
+          "owner": 2,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "beginning_combat"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 2,
+          "previous": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "precombat_main"
+          },
+          "previous_owner": 2
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "beginning_combat"
+          },
+          "owner": 2,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "declare_attackers"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 2,
+          "previous": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "beginning_combat"
+          },
+          "previous_owner": 2
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "declare_attackers"
+          },
+          "owner": 2,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "end_combat"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 2,
+          "previous": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "declare_attackers"
+          },
+          "previous_owner": 2
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "end_combat"
+          },
+          "owner": 2,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "postcombat_main"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 2,
+          "previous": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "end_combat"
+          },
+          "previous_owner": 2
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "postcombat_main"
+          },
+          "owner": 2,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "end"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 2,
+          "previous": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "postcombat_main"
+          },
+          "previous_owner": 2
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "end"
+          },
+          "owner": 2,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "cleanup"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 2,
+          "previous": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "end"
+          },
+          "previous_owner": 2
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "cleanup"
+          },
+          "owner": 2,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "untap"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 3,
+          "previous": {
+            "lands_played": 0,
+            "number": 3,
+            "step": "cleanup"
+          },
+          "previous_owner": 2
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "untap"
+          },
+          "owner": 3,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "upkeep"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 3,
+          "previous": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "untap"
+          },
+          "previous_owner": 3
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "upkeep"
+          },
+          "owner": 3,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "draw"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 3,
+          "previous": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "upkeep"
+          },
+          "previous_owner": 3
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "draw"
+          },
+          "owner": 3,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "actual": {
+          "movement": {
+            "destination": {
+              "owner": 3,
+              "zone": "hand"
+            },
+            "from": {
+              "owner": 3,
+              "zone": "library"
+            },
+            "previous": {
+              "card": 7,
+              "incarnation": 0
+            },
+            "successor": {
+              "card": 7,
+              "incarnation": 1
+            }
+          },
+          "outcome": "moved"
+        },
+        "event": "committed",
+        "proposed": {
+          "destination": {
+            "owner": 3,
+            "zone": "hand"
+          },
+          "object": {
+            "card": 7,
+            "incarnation": 0
+          },
+          "proposal": "move"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "precombat_main"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 3,
+          "previous": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "draw"
+          },
+          "previous_owner": 3
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "precombat_main"
+          },
+          "owner": 3,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "beginning_combat"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 3,
+          "previous": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "precombat_main"
+          },
+          "previous_owner": 3
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "beginning_combat"
+          },
+          "owner": 3,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "declare_attackers"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 3,
+          "previous": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "beginning_combat"
+          },
+          "previous_owner": 3
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "declare_attackers"
+          },
+          "owner": 3,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "end_combat"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 3,
+          "previous": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "declare_attackers"
+          },
+          "previous_owner": 3
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "end_combat"
+          },
+          "owner": 3,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "postcombat_main"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 3,
+          "previous": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "end_combat"
+          },
+          "previous_owner": 3
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "postcombat_main"
+          },
+          "owner": 3,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "end"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 3,
+          "previous": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "postcombat_main"
+          },
+          "previous_owner": 3
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "end"
+          },
+          "owner": 3,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "cleanup"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 3,
+          "previous": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "end"
+          },
+          "previous_owner": 3
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "cleanup"
+          },
+          "owner": 3,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 5,
+            "step": "untap"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 0,
+          "previous": {
+            "lands_played": 0,
+            "number": 4,
+            "step": "cleanup"
+          },
+          "previous_owner": 3
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 5,
+            "step": "untap"
+          },
+          "owner": 0,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "actual": {
+          "object": {
+            "card": 0,
+            "incarnation": 0
+          },
+          "outcome": "untapped"
+        },
+        "event": "committed",
+        "proposed": {
+          "object": {
+            "card": 0,
+            "incarnation": 0
+          },
+          "proposal": "untap"
+        }
+      },
+      {
+        "actual": {
+          "object": {
+            "card": 1,
+            "incarnation": 1
+          },
+          "outcome": "untapped"
+        },
+        "event": "committed",
+        "proposed": {
+          "object": {
+            "card": 1,
+            "incarnation": 1
+          },
+          "proposal": "untap"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 5,
+            "step": "upkeep"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 0,
+          "previous": {
+            "lands_played": 0,
+            "number": 5,
+            "step": "untap"
+          },
+          "previous_owner": 0
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 5,
+            "step": "upkeep"
+          },
+          "owner": 0,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 5,
+            "step": "draw"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 0,
+          "previous": {
+            "lands_played": 0,
+            "number": 5,
+            "step": "upkeep"
+          },
+          "previous_owner": 0
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 5,
+            "step": "draw"
+          },
+          "owner": 0,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "actual": {
+          "movement": {
+            "destination": {
+              "owner": 0,
+              "zone": "hand"
+            },
+            "from": {
+              "owner": 0,
+              "zone": "library"
+            },
+            "previous": {
+              "card": 4,
+              "incarnation": 0
+            },
+            "successor": {
+              "card": 4,
+              "incarnation": 1
+            }
+          },
+          "outcome": "moved"
+        },
+        "event": "committed",
+        "proposed": {
+          "destination": {
+            "owner": 0,
+            "zone": "hand"
+          },
+          "object": {
+            "card": 4,
+            "incarnation": 0
+          },
+          "proposal": "move"
+        }
+      },
+      {
+        "event": "priority_passed",
+        "player": 0
+      },
+      {
+        "event": "priority_passed",
+        "player": 1
+      },
+      {
+        "event": "priority_passed",
+        "player": 2
+      },
+      {
+        "event": "priority_passed",
+        "player": 3
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 0,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 1,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 1,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 2,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 2,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "outcome": "mana_cleared",
+          "player": 3,
+          "previous": {}
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 3,
+          "proposal": "clear_mana"
+        }
+      },
+      {
+        "actual": {
+          "current": {
+            "lands_played": 0,
+            "number": 5,
+            "step": "precombat_main"
+          },
+          "outcome": "turn_transitioned",
+          "owner": 0,
+          "previous": {
+            "lands_played": 0,
+            "number": 5,
+            "step": "draw"
+          },
+          "previous_owner": 0
+        },
+        "event": "committed",
+        "proposed": {
+          "next": {
+            "lands_played": 0,
+            "number": 5,
+            "step": "precombat_main"
+          },
+          "owner": 0,
+          "proposal": "turn_transition"
+        }
+      },
+      {
+        "actual": {
+          "movement": {
+            "destination": {
+              "zone": "battlefield"
+            },
+            "from": {
+              "owner": 0,
+              "zone": "hand"
+            },
+            "previous": {
+              "card": 3,
+              "incarnation": 0
+            },
+            "successor": {
+              "card": 3,
+              "incarnation": 1
+            }
+          },
+          "outcome": "moved"
+        },
+        "event": "committed",
+        "proposed": {
+          "destination": {
+            "zone": "battlefield"
+          },
+          "object": {
+            "card": 3,
+            "incarnation": 0
+          },
+          "proposal": "move"
+        }
+      },
+      {
+        "actual": {
+          "current": 1,
+          "outcome": "land_play_counted",
+          "player": 0,
+          "previous": 0
+        },
+        "event": "committed",
+        "proposed": {
+          "player": 0,
+          "proposal": "land_played"
+        }
+      }
+    ],
+    "journal": {
+      "concessions": [],
+      "decisions": [
+        {
+          "decision_id": 0,
+          "player": 0,
+          "response": {
+            "card": 1,
+            "response": "play_land"
+          }
+        },
+        {
+          "decision_id": 1,
+          "player": 0,
+          "response": {
+            "card": 2,
+            "response": "cast"
+          }
+        },
+        {
+          "decision_id": 2,
+          "player": 0,
+          "response": {
+            "object": {
+              "card": 0,
+              "incarnation": 0
+            },
+            "response": "activate_mana"
+          }
+        },
+        {
+          "decision_id": 3,
+          "player": 0,
+          "response": {
+            "object": {
+              "card": 1,
+              "incarnation": 1
+            },
+            "response": "activate_mana"
+          }
+        },
+        {
+          "decision_id": 4,
+          "player": 0,
+          "response": {
+            "response": "finish_mana",
+            "undo_mana": false
+          }
+        },
+        {
+          "decision_id": 5,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 6,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 7,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 8,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 9,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 10,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 11,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 12,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 13,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 14,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 15,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 16,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 17,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 18,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 19,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 20,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 21,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 22,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 23,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 24,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 25,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 26,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 27,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 28,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 29,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 30,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 31,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 32,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 33,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 34,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 35,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 36,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 37,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 38,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 39,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 40,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 41,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 42,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 43,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 44,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 45,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 46,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 47,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 48,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 49,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 50,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 51,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 52,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 53,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 54,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 55,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 56,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 57,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 58,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 59,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 60,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 61,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 62,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 63,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 64,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 65,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 66,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 67,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 68,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 69,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 70,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 71,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 72,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 73,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 74,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 75,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 76,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 77,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 78,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 79,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 80,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 81,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 82,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 83,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 84,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 85,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 86,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 87,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 88,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 89,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 90,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 91,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 92,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 93,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 94,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 95,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 96,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 97,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 98,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 99,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 100,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 101,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 102,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 103,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 104,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 105,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 106,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 107,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 108,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 109,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 110,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 111,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 112,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 113,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 114,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 115,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 116,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 117,
+          "player": 0,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 118,
+          "player": 1,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 119,
+          "player": 2,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 120,
+          "player": 3,
+          "response": {
+            "response": "pass"
+          }
+        },
+        {
+          "decision_id": 121,
+          "player": 0,
+          "response": {
+            "card": 3,
+            "response": "play_land"
+          }
+        }
+      ]
+    },
+    "checkpoints": 321,
+    "final_turn": {
+      "lands_played": 1,
+      "number": 5,
+      "step": "precombat_main"
+    }
+  }
+}

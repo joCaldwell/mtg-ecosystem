@@ -185,6 +185,10 @@ impl Game {
     }
     pub(super) fn begin_resolution(&mut self) -> Result<(), String> {
         self.state.passes.clear();
+        if self.state.stack.is_empty() && self.turns_enabled() {
+            self.state.frame = Frame::Transition;
+            return Ok(());
+        }
         let stack = self.top()?.clone();
         let legal_targets = stack
             .targets
@@ -400,7 +404,8 @@ impl Game {
                 !s.targets.is_empty() && s.targets.iter().any(|t| !self.target_legal(*t))
             });
             let pending_bad=self.state.pending.as_ref().is_some_and(|p|matches!(&p.response,Response::Targets{objects} if objects.iter().any(|t|!self.target_legal(*t))));
-            let no_domain = !self.state.objects.values().any(|o| self.target_legal(o.id));
+            let no_domain = !self.program()?.targets.is_empty()
+                && !self.state.objects.values().any(|o| self.target_legal(o.id));
             if targets_bad || pending_bad || no_domain {
                 self.reverse_departure_cast(cast)?;
             }

@@ -11,7 +11,9 @@ nine-card instant-response profile, detached resolution, snapshot/bundle v5,
 projection v3, and query-sidecar v2. `docs/game-engine-payment-slice.md` adds
 casting-time intrinsic mana, keep-all/undo-all failed-payment choices, the exact
 four-card Forest reversal profile, snapshot/bundle v6, projection v4, and
-query-sidecar v3. This package is scenario-only; do not advertise playable
+query-sidecar v3. `docs/game-engine-turns-slice.md` adds the exact eight-card
+turn/land/creature profile, IR v3, snapshot/bundle v7, projection v5 and
+query-sidecar v4. This package is scenario-only; do not advertise playable
 Commander matches.
 
 Run from repository root, using pinned Rust 1.99.0:
@@ -78,5 +80,9 @@ even when already funded. FinishMana attempts complete payment and cannot
 cancel a payable spell. Undo subtracts only receipt-recorded casting-time mana
 and untaps surviving sources; preserve pre-cast mana and departures. Retained
 legal mana activations clear prior passes. A removed caster never restores its
-last-known mana or resurrects sources. Empty-stack phase
-advancement still faults; restore proves fault reachability by replay.
+last-known mana or resurrects sources. Empty-stack progression is enabled only
+for the exact turns profile. Other profiles retain the earlier fault. The turns profile supports singleton-library
+draws, untap, restricted cleanup, and combat only without active-controlled
+creatures; unsupported boundaries fault explicitly. Restore proves fault
+reachability by replay. Land plays and creature casts require active-player
+main-phase priority and an empty stack; land usage resets only on a new turn.
