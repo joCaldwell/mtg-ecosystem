@@ -7,8 +7,8 @@ import styles from "./AppShell.module.css";
  *  page fills and scrolls inside. */
 export function AppShell({ route, children }: { route: Route; children: ReactNode }) {
   return (
-    <div className={styles.shell}>
-      <Sidebar route={route} />
+    <div className={`${styles.shell} ${route.page === "playtest" ? styles.focused : ""}`}>
+      {route.page !== "playtest" && <Sidebar route={route} />}
       <main className={styles.main}>{children}</main>
     </div>
   );

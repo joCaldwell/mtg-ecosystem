@@ -122,11 +122,14 @@
 /* Approved playtester extensions: rules remain readable at desktop 100% zoom. */
 :root {
   --text-rules: 15px;
+  --text-playtest-setup: 24px;
   --leading-rules: 1.6;
   --rules-measure: 60ch;
   --text-card-w: 264px;
   --compact-card-w: 248px;
   --compact-card-min-h: 114px;
+  --tap-control-size: 44px;
+  --tap-control-icon-size: 24px;
   --inspection-w: 432px;
   --battlefield-row-min: 148px;
   --zone-header-h: 36px;
@@ -136,7 +139,6 @@
   --playtest-preview-w: 410px;
   --playtest-drawer-h: 58%;
   --playtest-opening-board: 130px;
-  --playtest-footer-h: 30px;
 }
 
 :root { --playtest-number-w: 56px; --playtest-drawer-top: 62px; --hand-card-min-w: 228px; --hand-card-max-w: 320px; }

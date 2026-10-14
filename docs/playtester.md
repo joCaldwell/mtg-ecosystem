@@ -9,6 +9,14 @@ remain outside this version.
 
 ## Using the table
 
+Playtesting hides the app's deck sidebar to give the table more space. Use Deck
+overview in the header to return to the deck and restore normal navigation.
+The right bar keeps Draw and Next turn visible above the card inspector, with
+Undo/Redo and a More menu for drawing several cards, shuffling, untapping,
+tokens, deck observations and a new opening test. Save status stays beside
+those controls. Quiet zone controls above the battlefield open its viewers
+and remain drag-and-drop targets.
+
 Start a Commander or practice opening sequence. Commander redraws draw seven,
 with the first mulligan free; later hands require ordered bottom selections.
 Practice redraws have no penalty. Keep advances to turn one without drawing.
@@ -18,14 +26,29 @@ original tested revision.
 
 Click or Enter/Space on a card selects and pins it. Shift/Ctrl/Cmd-click toggles
 individual instances into a selection. Hover/focus displays rules immediately.
+Click outside cards to clear the selection and pin. Interactive controls, card
+menus and dialogs preserve selection so you can use them on the selected card.
 A separate scrollable preview inspects another object while the selected card
 stays pinned. Tap is an explicit action, never a side effect of selection.
+The circular tap control shows an upright card when untapped and a sideways
+card when tapped. Its tooltip and accessible label describe the state and action.
 
 The battlefield has three rows with simple dividers and no visible headings or
 row counts. Drag cards between zones and rows, or drop onto a card to insert
-before it. The inspector provides row selection and Move earlier/later as
-keyboard-accessible alternatives. The selection bar moves several objects and
-sets their tapped state explicitly.
+before or after it. Right-click a card for zone movement, tapping, row selection
+and token actions. Right-clicking a selected card acts on the
+selected group; right-clicking another card targets just that card. Focus a card
+and press Shift+F10 or the Menu key for the same menu. Arrow keys navigate it,
+Enter selects, and Escape closes it without clearing selection. There are no
+duplicated movement buttons below the hand or in the inspector. Counters, manual
+values and attachments remain in the inspector's collapsed Edit card state section.
+
+Drag hand cards to rearrange them, including before keeping an opening hand.
+Drop on the left or right half of a card to insert before or after it; the blue
+edge indicates the insertion position. Drop on empty hand space to move to the
+end. Selected hand cards move together in their existing order. Card menus have
+no reordering buttons. Hand ordering saves with the session
+and supports undo/redo; rearranging does not change mulligan bottom choices.
 
 Library tools reveal ordered top cards or search the whole current library by
 name. Search never sorts or changes its order. Select cards to move to hand,
@@ -115,13 +138,13 @@ npm run check
 npx vite build
 ```
 
-The package gate passes 381 tests, including new service, HTTP, domain and React
+The package gate passes 383 tests, including new service, HTTP, domain and React
 component integration checks. They cover mulligan limits and ordering, snapshot
 isolation, multiple commanders/companion/maybe cards, faces, exact shuffle
 undo/redo, independent token state, attachments/cycles, batch library order,
 revision-bound memories and retained drafts, idempotent retries, owner permissions,
 stale versions, invalid actions, migration from schema 6, disk resume, malformed
-payload preservation and anonymous hidden-card markup. Component checks load
+payload preservation, hand reordering during mulligans and anonymous hidden-card markup. Component checks load
 real JSX through the existing Vite pipeline without new runtime dependencies.
 
 Live browser checks used an isolated SQLite backup and seeded demo data, never

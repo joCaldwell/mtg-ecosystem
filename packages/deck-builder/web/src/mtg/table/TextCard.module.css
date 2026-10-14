@@ -1,7 +1,7 @@
 .card {
   border: 1px solid var(--line-strong);
   border-radius: var(--r-lg);
-  background: var(--surface);
+  background: var(--raised);
   padding: var(--s-5);
   min-width: 0;
   position: relative;
@@ -13,7 +13,7 @@
 }
 .card:hover {
   border-color: var(--muted);
-  background: var(--raised);
+  background: var(--hover);
 }
 .card[data-selected="true"] {
   border-color: var(--sel);
@@ -22,6 +22,22 @@
 .card[data-tapped="true"] {
   border-left-width: var(--s-2);
   border-left-style: dashed;
+}
+.card[data-drop-side]::after {
+  content: "";
+  position: absolute;
+  top: var(--s-3);
+  bottom: var(--s-3);
+  width: var(--s-1);
+  border-radius: var(--r-sm);
+  background: var(--sel);
+  pointer-events: none;
+}
+.card[data-drop-side="before"]::after {
+  left: var(--s-2);
+}
+.card[data-drop-side="after"]::after {
+  right: var(--s-2);
 }
 .head {
   display: flex;
@@ -86,4 +102,18 @@
   padding-top: var(--s-3);
   color: var(--muted);
   font-size: var(--text-xs);
+}
+/* Keep the large tap target from increasing compact cards' footer height. */
+.compact .footer:has([data-tap-control]) {
+  position: relative;
+  padding-top: 0;
+  padding-right: calc(var(--tap-control-size) - var(--s-5) + var(--s-3));
+}
+.compact .footer [data-tap-control] {
+  position: absolute;
+  right: calc(-1 * var(--s-5));
+  bottom: calc(-1 * var(--s-5));
+}
+.compact:has([data-tap-control]) .facts {
+  padding-right: var(--tap-control-size);
 }

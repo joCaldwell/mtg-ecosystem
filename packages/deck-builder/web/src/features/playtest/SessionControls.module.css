@@ -1,0 +1,29 @@
+.controls {
+  display: grid;
+  gap: var(--s-4);
+  padding: var(--s-5) var(--s-6);
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.heading {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.primary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-4);
+}
+.primary > button {
+  justify-content: center;
+}
+.secondary {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+.secondary > button:last-child {
+  margin-left: auto;
+}

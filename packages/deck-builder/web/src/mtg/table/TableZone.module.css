@@ -1,4 +1,7 @@
 .zone {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
   border-bottom: 1px solid var(--line);
   min-height: var(--battlefield-row-min);
   padding-bottom: var(--s-6);
@@ -23,7 +26,7 @@
   display: flex;
   gap: var(--s-4);
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: flex-end;
 }
 .empty {
   min-height: var(--empty-row-h);
@@ -39,6 +42,7 @@
   background: var(--surface);
   padding: 0 var(--s-7) var(--s-6);
   display: grid;
+  justify-content: normal;
   grid-template-rows: auto minmax(0, 1fr);
 }
 .hand .cards {

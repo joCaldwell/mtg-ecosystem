@@ -6,6 +6,7 @@ import {
   PlayerSummary,
   TableZone,
   TextCard,
+  TapButton,
 } from "../../mtg/index.ts";
 import { Button, CounterControl, Section } from "../../ui/index.ts";
 import styles from "./TableExamples.module.css";
@@ -77,12 +78,7 @@ export function TableExamples() {
               selected={selected}
               onSelect={() => setSelected((v) => !v)}
               footer={
-                <Button
-                  aria-pressed={tapped}
-                  onClick={() => setTapped((v) => !v)}
-                >
-                  {tapped ? "Untap" : "Tap"}
-                </Button>
+                <TapButton name={card.name} tapped={tapped} onToggle={() => setTapped((v) => !v)} />
               }
             />
             <TextCard

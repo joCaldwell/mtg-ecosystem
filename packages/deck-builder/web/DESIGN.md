@@ -81,6 +81,7 @@ or about this app.
 | `Tabs` | Switching panels, underline style, arrow keys | per-tab `badge`, `tone: "agent"` |
 | `Segmented` | Choosing one of a few views | |
 | `Menu` | A text or icon button that opens a list of actions | trigger `variant` and `size`; `icon`; `align`; item `tone: "cut"`, `disabled` |
+| `ContextMenu` | Pointer-positioned actions for a right-click or keyboard menu request | disabled items, separators, arrow navigation, focus restoration |
 | `TextField` | One-line input | `fieldSize` `md` `lg`; `invalid` |
 | `TextArea` | Multi-line input | `autosize` |
 | `Select`, `Checkbox` | Native controls, restyled | |

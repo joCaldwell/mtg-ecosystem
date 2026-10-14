@@ -14,19 +14,26 @@ import {
   objectZone,
   selectedAfterClick,
   observeObject,
+  faceOf,
 } from "../../domain/table.ts";
-import { PlayerSummary, TableZone, TextCard } from "../../mtg/index.ts";
+import { PlayerSummary, TableZone, TextCard, TapButton } from "../../mtg/index.ts";
 import {
   Banner,
   Button,
   ConfirmDialog,
+  ContextMenu,
+  Dialog,
+  Icon,
   ResizeHandle,
   Segmented,
   TextField,
   tokenPx,
   useHotkeys,
   useLocalStorage,
+  type ContextMenuTarget,
+  type ContextMenuProps,
 } from "../../ui/index.ts";
+import { SessionControls } from "./SessionControls.tsx";
 import { InspectionPanel } from "./InspectionPanel.tsx";
 import { ZoneViewer } from "./ZoneViewer.tsx";
 import { TokenDialog } from "./TokenDialog.tsx";
@@ -47,7 +54,9 @@ export function PlaytestTable({
     playing = f.opening.stage === "playing";
   const [hover, setHover] = useState<string | null>(null),
     [restart, setRestart] = useState(false),
-    [token, setToken] = useState(false);
+    [token, setToken] = useState(false),
+    [drawing, setDrawing] = useState(false);
+  const [context, setContext] = useState<(ContextMenuTarget & { id: string; ids: string[] }) | null>(null);
   const [mode, setMode] = useState<Mode>(f.opening.mode),
     [drawCount, setDrawCount] = useState("3");
   const [width, setWidth] = useLocalStorage<number | null>(
@@ -83,11 +92,63 @@ export function PlaytestTable({
       pinned: id,
     });
   }
+  function openContext(id: string, element: HTMLElement, x: number, y: number,
+    ids = selected.includes(id) ? selected : [id]) {
+    setHover(null);
+    if (pinned !== id || ids.length !== selected.length || ids.some((x) => !selected.includes(x)))
+      c.editUi({ selected: ids, pinned: id });
+    setContext({ id, ids, element, x, y });
+  }
+  const contextIds = context?.ids.filter((id) => !!f.objects[id]) ?? [];
+  const contextObject = context && f.objects[context.id];
+  const contextZone = contextObject ? objectZone(v, contextObject.id)! : null;
+  const contextItems: ContextMenuProps["items"] = [];
+  if (contextObject && contextZone && contextIds.length) {
+    const single = contextIds.length === 1;
+    if (playing) {
+      if (contextIds.every((id) => f.zones.battlefield.includes(id))) {
+        const tapped = contextIds.every((id) => f.objects[id].tapped);
+        contextItems.push({ id: "tap", label: tapped ? "Untap" : "Tap", disabled: busy,
+          onSelect: () => act({ type: "tap", ids: contextIds, tapped: !tapped }) });
+      }
+      for (const zone of ["hand", "battlefield", "graveyard", "exile", "command", "companion", "stack"] as Zone[]) {
+        contextItems.push({ id: zone, label: `Move to ${ZONE_LABELS[zone].toLowerCase()}`, disabled: busy,
+          separator: zone === "hand", onSelect: () => move(contextIds, zone) });
+      }
+      contextItems.push(
+        { id: "library-top", label: "Move to library top", disabled: busy, onSelect: () => move(contextIds, "library", undefined, 0) },
+        { id: "library-bottom", label: "Move to library bottom", disabled: busy, onSelect: () => move(contextIds, "library") },
+      );
+      if (contextIds.every((id) => f.zones.battlefield.includes(id))) {
+        for (const row of Object.keys(ROW_LABELS) as TableRow[])
+          contextItems.push({ id: row, label: `Row: ${ROW_LABELS[row]}`, separator: row === "creatures", disabled: busy,
+            onSelect: () => move(contextIds, "battlefield", row) });
+      }
+    }
+    if (playing) {
+      if (single) contextItems.push({ id: "copy", label: "Create token copy", separator: true, disabled: busy,
+        onSelect: () => act({ type: "token", copy_id: contextObject.id }) });
+      if (contextIds.every((id) => f.objects[id].token))
+        contextItems.push({ id: "remove-token", label: "Remove token", tone: "cut", disabled: busy,
+          onSelect: () => act({ type: "remove-token", ids: contextIds }) });
+    }
+    contextItems.push({ id: "clear", label: "Clear selection", separator: true, onSelect: clearSelection });
+  }
   function move(ids: string[], zone: Zone, row?: TableRow, index?: number) {
     act({ type: "move", ids, zone, row, index });
   }
+  function draggedIds(id: string, zone: Zone) {
+    // Rearranging a hand preserves its selected cards' table order and never
+    // pulls a selection from another zone into the hand.
+    if (zone === "hand" && f.zones.hand.includes(id))
+      return selected.includes(id)
+        ? f.zones.hand.filter((x) => selected.includes(x))
+        : [id];
+    return selected.includes(id) ? selected : [id];
+  }
   function drop(id: string, zone: Zone, row?: TableRow) {
-    if (f.objects[id]) move(selected.includes(id) ? selected : [id], zone, row);
+    if (!playing && (zone !== "hand" || !f.zones.hand.includes(id))) return;
+    if (f.objects[id]) move(draggedIds(id, zone), zone, row);
   }
   function card(id: string, full = false) {
     const obj = f.objects[id],
@@ -101,19 +162,27 @@ export function PlaytestTable({
         selected={selected.includes(id)}
         onSelect={(multiple) => select(id, multiple)}
         onPreview={() => setHover(id)}
-        draggable={playing}
-        onDrop={(dragged) => {
-          if (!playing || !f.objects[dragged]) return;
-          const zone = objectZone(v, id)!;
-          const ids = selected.includes(dragged) ? selected : [dragged];
-          if (ids.includes(id)) return;
-          move(
-            ids,
-            zone,
-            zone === "battlefield" ? obj.row : undefined,
-            f.zones[zone].filter((x) => !ids.includes(x)).indexOf(id),
-          );
-        }}
+        onContextMenu={(element, x, y) => openContext(id, element, x, y)}
+        draggable={!busy && (playing || f.zones.hand.includes(id))}
+        onDrop={
+          busy || (!playing && !f.zones.hand.includes(id))
+            ? undefined
+            : (dragged, side) => {
+                if (!f.objects[dragged]) return;
+                const zone = objectZone(v, id)!;
+                if (!playing && (zone !== "hand" || !f.zones.hand.includes(dragged)))
+                  return;
+                const ids = draggedIds(dragged, zone);
+                if (ids.includes(id)) return;
+                const index = f.zones[zone].filter((x) => !ids.includes(x)).indexOf(id);
+                move(
+                  ids,
+                  zone,
+                  zone === "battlefield" ? obj.row : undefined,
+                  index + (side === "after" ? 1 : 0),
+                );
+              }
+        }
         footer={
           <>
             <span>
@@ -153,16 +222,14 @@ export function PlaytestTable({
               </Button>
             ) : (
               objectZone(v, id) === "battlefield" && (
-                <Button
-                  size="sm"
+                <TapButton
+                  name={faceOf(card, obj.face).name}
+                  tapped={obj.tapped}
                   disabled={busy}
-                  aria-pressed={obj.tapped}
-                  onClick={() =>
+                  onToggle={() =>
                     act({ type: "tap", ids: [id], tapped: !obj.tapped })
                   }
-                >
-                  {obj.tapped ? "Untap" : "Tap"}
-                </Button>
+                />
               )
             )}
           </>
@@ -198,19 +265,39 @@ export function PlaytestTable({
       if (v.computed.can_redo) act({ type: "redo" });
     },
     escape: () => (c.ui.viewer ? c.editUi({ viewer: null }) : clearSelection()),
-  });
+  }, { enabled: !context });
   const modeOptions = [
     { value: "commander" as const, label: "Commander mulligans" },
     { value: "practice" as const, label: "Practice redraws" },
   ];
   return (
-    <div className={styles.page}>
+    <div
+      className={styles.page}
+      onClick={(e) => {
+        const target = e.target;
+        if (!(target instanceof Element) || !e.currentTarget.contains(target)) return;
+        // Controls and portal menus still need to act on the current selection.
+        // Use click, not pointer-down, so starting a drag never clears its cards.
+        if (target.closest('[data-object-id], button, a, input, textarea, select, label, summary, [role="separator"], [contenteditable="true"]'))
+          return;
+        if (selected.length || pinned) clearSelection();
+        else setHover(null);
+      }}
+    >
       <header className={styles.header}>
         <div>
-          <a href={href({ page: "deck", deckId: s.deck_id })}>Deck overview</a>
-          <h1>
-            {s.deck_name} <span>· Playtest</span>
-          </h1>
+          <div className={styles.titleRow}>
+            <h1>
+              {s.deck_name} <span>· Playtest</span>
+            </h1>
+            <a
+              className={styles.deckLink}
+              href={href({ page: "deck", deckId: s.deck_id })}
+            >
+              <Icon name="back" />
+              Deck overview
+            </a>
+          </div>
           <p>Solo table · manual play · tested r{s.deck_revision}</p>
         </div>
         <PlayerSummary
@@ -222,95 +309,7 @@ export function PlaytestTable({
             playing ? (value) => act({ type: "life", value }) : undefined
           }
         />
-        <Button
-          onClick={() => {
-            setMode(f.opening.mode);
-            setRestart(true);
-          }}
-          disabled={busy}
-        >
-          New opening test
-        </Button>
       </header>
-      <div className={styles.toolbar}>
-        <Button
-          variant="primary"
-          kbd="D"
-          disabled={!playing || busy || !v.computed.counts.library}
-          onClick={() => act({ type: "draw", count: 1 })}
-        >
-          Draw
-        </Button>
-        <TextField
-          type="number"
-          aria-label="Number of cards to draw"
-          value={drawCount}
-          min={1}
-          max={1000}
-          onChange={(e) => setDrawCount(e.target.value)}
-          className={styles.numberInput}
-        />
-        <Button
-          kbd="⇧D"
-          disabled={
-            !playing ||
-            busy ||
-            !Number.isInteger(Number(drawCount)) ||
-            Number(drawCount) < 1 ||
-            Number(drawCount) > 1000
-          }
-          onClick={() => act({ type: "draw", count: Number(drawCount) })}
-        >
-          Draw several
-        </Button>
-        <Button
-          kbd="S"
-          disabled={!playing || busy}
-          onClick={() => act({ type: "shuffle" })}
-        >
-          Shuffle
-        </Button>
-        <Button
-          kbd="U"
-          disabled={!playing || busy}
-          onClick={() => act({ type: "untap-all" })}
-        >
-          Untap all
-        </Button>
-        <Button
-          kbd="N"
-          disabled={!playing || busy}
-          onClick={() => act({ type: "next-turn" })}
-        >
-          Next turn
-        </Button>
-        <span className={styles.divider} />
-        <Button
-          kbd="Z"
-          disabled={busy || !v.computed.can_undo}
-          onClick={() => act({ type: "undo" })}
-        >
-          Undo
-        </Button>
-        <Button
-          kbd="⇧Z"
-          disabled={busy || !v.computed.can_redo}
-          onClick={() => act({ type: "redo" })}
-        >
-          Redo
-        </Button>
-        <Button disabled={!playing || busy} onClick={() => setToken(true)}>
-          Create token
-        </Button>
-        <Button onClick={() => clearSelection()}>Deck observation</Button>
-        <span className={styles.save} role="status">
-          {busy || c.status === "saving"
-            ? "Saving…"
-            : c.status === "failed"
-              ? "Save failed"
-              : "Saved"}
-        </span>
-      </div>
       {deck.deck.revision !== s.deck_revision && (
         <Banner tone="warn">
           Testing r{s.deck_revision}; the saved deck is now r
@@ -358,11 +357,11 @@ export function PlaytestTable({
               Keep hand
             </Button>
           </div>
-          <p>
-            {v.computed.bottom_required
-              ? `Choose ${v.computed.bottom_required} cards in bottom order (first chosen is nearer the library's top). Keep is available once all are chosen.`
-              : "Read your seven cards, then keep or redraw. The first Commander mulligan is free."}
-          </p>
+          {v.computed.bottom_required > 0 && (
+            <p>
+              {`Choose ${v.computed.bottom_required} cards in bottom order (first chosen is nearer the library's top). Keep is available once all are chosen.`}
+            </p>
+          )}
           {f.opening.bottom.length > 0 && (
             <div className={styles.bottom}>
               {f.opening.bottom.map((id, i) => (
@@ -405,6 +404,8 @@ export function PlaytestTable({
             ).map((zone) => (
               <Button
                 key={zone}
+                variant="ghost"
+                size="sm"
                 aria-pressed={c.ui.viewer === zone}
                 onClick={() =>
                   c.editUi({ viewer: c.ui.viewer === zone ? null : zone })
@@ -447,7 +448,7 @@ export function PlaytestTable({
             label="Hand"
             count={v.computed.counts.hand}
             variant="hand"
-            onDrop={playing ? (id) => drop(id, "hand") : undefined}
+            onDrop={busy ? undefined : (id) => drop(id, "hand")}
             emptyText="Draw cards to add to your hand"
           >
             {f.zones.hand.map((id) => card(id, true))}
@@ -472,15 +473,25 @@ export function PlaytestTable({
             onChange={setWidth}
             onReset={() => setWidth(null)}
           />
-          <InspectionPanel
-            controller={c}
-            deck={deck}
-            objectId={pinned ?? preview}
-            pinned={!!pinned}
-            onDeckReload={onDeckReload}
+          <SessionControls
+            view={v}
+            busy={busy}
+            status={c.status}
+            onAction={act}
+            onDrawSeveral={() => setDrawing(true)}
             onCreateToken={() => setToken(true)}
-            onClearSelection={clearSelection}
+            onRestart={() => { setMode(f.opening.mode); setRestart(true); }}
+            onObservation={clearSelection}
           />
+          <div className={styles.inspection}>
+            <InspectionPanel
+              controller={c}
+              deck={deck}
+              objectId={pinned ?? preview}
+              pinned={!!pinned}
+              onDeckReload={onDeckReload}
+            />
+          </div>
         </aside>
         {pinned && preview && preview !== pinned && (
           <div
@@ -489,7 +500,6 @@ export function PlaytestTable({
             tabIndex={0}
             onMouseLeave={() => setHover(null)}
           >
-            <p>Temporary preview · selection stays pinned</p>
             <TextCard observation={observeObject(v, preview)} full />
           </div>
         )}
@@ -501,74 +511,34 @@ export function PlaytestTable({
             onPreview={setHover}
             onSelect={select}
             onMove={move}
+            onContextMenu={openContext}
           />
         )}
       </div>
-      {selected.length > 0 && playing && (
-        <div className={styles.selection}>
-          <strong>{selected.length} selected</strong>
-          <Button size="sm" onClick={() => clearSelection()}>
-            Clear
-          </Button>
-          <Button
-            size="sm"
-            disabled={
-              busy || selected.some((id) => !f.zones.battlefield.includes(id))
-            }
-            onClick={() => act({ type: "tap", ids: selected, tapped: true })}
-          >
-            Tap selected
-          </Button>
-          <Button
-            size="sm"
-            disabled={
-              busy || selected.some((id) => !f.zones.battlefield.includes(id))
-            }
-            onClick={() => act({ type: "tap", ids: selected, tapped: false })}
-          >
-            Untap selected
-          </Button>
-          {(
-            [
-              "hand",
-              "battlefield",
-              "graveyard",
-              "exile",
-              "command",
-              "stack",
-            ] as Zone[]
-          ).map((zone) => (
-            <Button
-              key={zone}
-              size="sm"
-              disabled={busy}
-              onClick={() => move(selected, zone)}
-            >
-              {ZONE_LABELS[zone]}
-            </Button>
-          ))}
-          <Button
-            size="sm"
-            disabled={busy}
-            onClick={() => move(selected, "library", undefined, 0)}
-          >
-            Library top
-          </Button>
-          <Button
-            size="sm"
-            disabled={busy}
-            onClick={() => move(selected, "library")}
-          >
-            Library bottom
-          </Button>
-        </div>
+      <ContextMenu
+        target={contextObject ? context : null}
+        label={contextObject
+          ? contextIds.length > 1 ? `${contextIds.length} selected cards`
+            : faceOf(s.cards[contextObject.oracle_id], contextObject.face).name
+          : "Card actions"}
+        items={contextItems}
+        onClose={() => setContext(null)}
+      />
+      {drawing && (
+        <Dialog title="Draw cards" onClose={() => setDrawing(false)} footer={
+          <Button variant="primary"
+            disabled={busy || !playing || !Number.isInteger(Number(drawCount)) || Number(drawCount) < 1 || Number(drawCount) > 1000}
+            onClick={() => { act({ type: "draw", count: Number(drawCount) }); setDrawing(false); }}
+          >Draw cards</Button>
+        }>
+          <label className={styles.drawField}>
+            Number of cards
+            <TextField data-autofocus type="number" min={1} max={1000}
+              aria-label="Number of cards to draw" value={drawCount}
+              onChange={(e) => setDrawCount(e.target.value)} />
+          </label>
+        </Dialog>
       )}
-      <footer className={styles.footer}>
-        Next turn untaps and advances. Draw separately.{" "}
-        <span>
-          Shift-click to select several · T to tap/untap selected · Esc to clear
-        </span>
-      </footer>
       {restart && (
         <ConfirmDialog
           title="Start a new opening test?"

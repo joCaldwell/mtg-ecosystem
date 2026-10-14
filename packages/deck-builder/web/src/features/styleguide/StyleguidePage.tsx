@@ -47,6 +47,7 @@ import {
 } from "../../ui/index.ts";
 import { TableExamples } from "./TableExamples.tsx";
 import { MtgExamples } from "./MtgExamples.tsx";
+import { ContextMenuExample } from "./ContextMenuExample.tsx";
 import styles from "./StyleguidePage.module.css";
 
 // ---------------------------------------------------------------- data
@@ -378,6 +379,7 @@ function Navigation() {
           </Row>
         </Demo>
       </Section>
+      <ContextMenuExample />
       <Section title="Menu" aside="up and down move, Enter selects, Esc closes">
         <Demo>
           <Row gap={4}>

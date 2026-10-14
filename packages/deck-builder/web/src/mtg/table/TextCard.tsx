@@ -1,4 +1,4 @@
-import type { MouseEvent, ReactNode } from "react";
+import { useState, type MouseEvent, type ReactNode } from "react";
 import type { CardObservation } from "../../domain/table.ts";
 import { faceOf } from "../../domain/table.ts";
 import { ManaCost } from "../ManaCost.tsx";
@@ -14,8 +14,9 @@ export interface TextCardProps {
   onSelect?: (multiple: boolean) => void;
   onPreview?: () => void;
   onPreviewEnd?: () => void;
+  onContextMenu?: (element: HTMLElement, x: number, y: number) => void;
   draggable?: boolean;
-  onDrop?: (id: string) => void;
+  onDrop?: (id: string, side: "before" | "after") => void;
   footer?: ReactNode;
 }
 /** Display only the observation supplied by the host; hidden cards have no facts. */
@@ -29,10 +30,12 @@ export function TextCard({
   onSelect,
   onPreview,
   onPreviewEnd,
+  onContextMenu,
   draggable = false,
   onDrop,
   footer,
 }: TextCardProps) {
+  const [dropSide, setDropSide] = useState<"before" | "after" | null>(null);
   if (observation.visibility === "hidden")
     return (
       <article
@@ -59,11 +62,18 @@ export function TextCard({
       data-selected={selected}
       data-tapped={object?.tapped ?? false}
       data-object-id={object?.id}
+      data-drop-side={dropSide ?? undefined}
       tabIndex={onSelect ? 0 : undefined}
       role="group"
       aria-label={`${selected ? "Selected, " : ""}${face.name}${object?.token ? ", token" : ""}`}
       aria-disabled={disabled || undefined}
       title={disabledReason}
+      onContextMenu={(e) => {
+        if (!onContextMenu || disabled) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onContextMenu(e.currentTarget, e.clientX, e.clientY);
+      }}
       onClick={pick}
       onMouseEnter={onPreview}
       onMouseLeave={onPreviewEnd}
@@ -74,6 +84,13 @@ export function TextCard({
       }}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget || disabled) return;
+        if (onContextMenu && (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10"))) {
+          e.preventDefault();
+          e.stopPropagation();
+          const bounds = e.currentTarget.getBoundingClientRect();
+          onContextMenu(e.currentTarget, bounds.left, bounds.top);
+          return;
+        }
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           e.stopPropagation();
@@ -85,18 +102,35 @@ export function TextCard({
           onDrop &&
           !disabled &&
           Array.from(e.dataTransfer.types).includes("application/x-mtg-object")
-        )
+        ) {
           e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer.dropEffect = "move";
+          const bounds = e.currentTarget.getBoundingClientRect();
+          setDropSide(
+            e.clientX < bounds.left + bounds.width / 2 ? "before" : "after",
+          );
+        }
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null))
+          setDropSide(null);
       }}
       onDrop={(e) => {
+        setDropSide(null);
         const id = e.dataTransfer.getData("application/x-mtg-object");
         if (id && onDrop && !disabled) {
           e.preventDefault();
           e.stopPropagation();
-          onDrop(id);
+          const bounds = e.currentTarget.getBoundingClientRect();
+          onDrop(
+            id,
+            e.clientX < bounds.left + bounds.width / 2 ? "before" : "after",
+          );
         }
       }}
       draggable={draggable && !disabled}
+      onDragEnd={() => setDropSide(null)}
       onDragStart={(e) => {
         if (object) {
           e.dataTransfer.setData("application/x-mtg-object", object.id);

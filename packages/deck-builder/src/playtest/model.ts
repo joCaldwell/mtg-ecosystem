@@ -293,9 +293,15 @@ export function applyAction(
   const before = structuredClone(session.frame),
     f = session.frame;
   const openingActions = ["mode", "mulligan", "bottom", "keep"];
+  const reorderingHand =
+    action.type === "move" &&
+    action.zone === "hand" &&
+    action.row === undefined &&
+    action.ids.every((id) => f.zones.hand.includes(id));
   if (
     f.opening.stage === "choosing" &&
     !openingActions.includes(action.type) &&
+    !reorderingHand &&
     !(
       action.type === "edit" &&
       action.face !== undefined &&

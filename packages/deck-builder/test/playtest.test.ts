@@ -106,6 +106,57 @@ test("practice redraws are unlimited and changing mode starts a clean sequence",
   x.act({ type: "keep" });
   assert.throws(() => x.act({ type: "mulligan" }), /new opening/);
 });
+test("hand rearrangement works before keeping, preserves bottom choices and resumes with undo/redo", (t) => {
+  const x = setup(t);
+  x.act({ type: "mulligan" });
+  x.act({ type: "mulligan" });
+  const before = structuredClone(x.v.session.frame);
+  const [first, second, third] = before.zones.hand;
+  x.act({ type: "bottom", ids: [second] });
+  const selected = structuredClone(x.v.session.frame);
+  x.act({ type: "move", ids: [first, third], zone: "hand" });
+  const reordered = [
+    ...before.zones.hand.filter((id) => id !== first && id !== third),
+    first,
+    third,
+  ];
+  assert.deepEqual(x.v.session.frame.zones.hand, reordered);
+  assert.deepEqual(x.v.session.frame.opening, selected.opening);
+  assert.deepEqual(x.v.session.frame.objects, selected.objects);
+  for (const zone of [
+    "library", "command", "companion", "battlefield", "graveyard", "exile", "stack",
+  ] as const)
+    assert.deepEqual(x.v.session.frame.zones[zone], selected.zones[zone]);
+  assert.deepEqual(getPlaytest(x.db, OWNER, x.deck), x.v);
+  x.act({ type: "undo" });
+  assert.deepEqual(x.v.session.frame, selected);
+  x.act({ type: "redo" });
+  assert.deepEqual(x.v.session.frame.zones.hand, reordered);
+  x.act({ type: "keep" });
+  assert.deepEqual(
+    x.v.session.frame.zones.hand,
+    reordered.filter((id) => id !== second),
+  );
+  assert.equal(x.v.session.frame.zones.library.at(-1), second);
+  x.act({ type: "move", ids: [first], zone: "hand", index: 0 });
+  assert.equal(x.v.session.frame.zones.hand[0], first);
+  assert.deepEqual(getPlaytest(x.db, OWNER, x.deck), x.v);
+});
+test("opening hand rearrangement cannot move cards between zones or change their rows", (t) => {
+  const x = setup(t);
+  const hand = x.v.session.frame.zones.hand[0];
+  const library = x.v.session.frame.zones.library[0];
+  const before = structuredClone(x.v);
+  for (const action of [
+    { type: "move", ids: [hand], zone: "battlefield" },
+    { type: "move", ids: [hand, library], zone: "hand", index: 0 },
+    { type: "move", ids: [hand], zone: "hand", row: "lands" },
+    { type: "move", ids: ["missing"], zone: "hand" },
+  ] as PlaytestAction[]) {
+    assert.throws(() => x.act(action), /Keep an opening/);
+    assert.deepEqual(getPlaytest(x.db, OWNER, x.deck), before);
+  }
+});
 test("next turn untaps without drawing; exact shuffle undo and redo survive reload", (t) => {
   const x = setup(t);
   x.act({ type: "keep" });

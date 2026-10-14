@@ -5,11 +5,9 @@ import type {
   Memory,
   PlaytestAction,
   Zone,
-  TableRow,
 } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
 import {
-  ROW_LABELS,
   ZONE_LABELS,
   faceOf,
   objectZone,
@@ -32,16 +30,12 @@ export function InspectionPanel({
   objectId,
   pinned,
   onDeckReload,
-  onCreateToken,
-  onClearSelection,
 }: {
   controller: PlaytestController;
   deck: DeckState;
   objectId: string | null;
   pinned: boolean;
   onDeckReload: () => void;
-  onCreateToken: () => void;
-  onClearSelection: () => void;
 }) {
   const s = c.view!.session,
     f = s.frame,
@@ -136,20 +130,6 @@ export function InspectionPanel({
   const draftCard = c.ui.draft.oracle_id ? s.cards[c.ui.draft.oracle_id] : null;
   return (
     <div className={styles.panel}>
-      <header className={styles.header}>
-        <strong>
-          {pinned
-            ? "Pinned selection"
-            : card
-              ? "Rules preview"
-              : "Deck context"}
-        </strong>
-        {pinned && (
-          <Button size="sm" variant="ghost" onClick={onClearSelection}>
-            Clear selection
-          </Button>
-        )}
-      </header>
       <div className={styles.body}>
         {card && object ? (
           <CardInspection
@@ -217,126 +197,9 @@ export function InspectionPanel({
           </section>
         )}
         {pinned && object && card && (
-          <section className={styles.section}>
-            <h3>Manual game state</h3>
-            <div className={styles.row}>
-              <span>{object.tapped ? "Tapped" : "Untapped"}</span>
-              <Button
-                size="sm"
-                aria-pressed={object.tapped}
-                disabled={
-                  busy || !playing || !f.zones.battlefield.includes(object.id)
-                }
-                onClick={() =>
-                  act({ type: "tap", ids: [object.id], tapped: !object.tapped })
-                }
-              >
-                {object.tapped ? "Untap" : "Tap"}
-              </Button>
-            </div>
-            <div className={styles.moves}>
-              {(
-                [
-                  "hand",
-                  "battlefield",
-                  "graveyard",
-                  "exile",
-                  "command",
-                  "companion",
-                  "stack",
-                ] as Zone[]
-              ).map((zone) => (
-                <Button
-                  key={zone}
-                  size="sm"
-                  disabled={busy || !playing}
-                  onClick={() => act({ type: "move", ids: [object.id], zone })}
-                >
-                  {ZONE_LABELS[zone]}
-                </Button>
-              ))}
-              <Button
-                size="sm"
-                disabled={busy || !playing}
-                onClick={() =>
-                  act({
-                    type: "move",
-                    ids: [object.id],
-                    zone: "library",
-                    index: 0,
-                  })
-                }
-              >
-                Library top
-              </Button>
-              <Button
-                size="sm"
-                disabled={busy || !playing}
-                onClick={() =>
-                  act({ type: "move", ids: [object.id], zone: "library" })
-                }
-              >
-                Library bottom
-              </Button>
-            </div>
-            {f.zones.battlefield.includes(object.id) && (
-              <label>
-                Battlefield row
-                <Select
-                  aria-label="Battlefield row"
-                  value={object.row}
-                  disabled={busy}
-                  onChange={(e) =>
-                    act({
-                      type: "move",
-                      ids: [object.id],
-                      zone: "battlefield",
-                      row: e.target.value as TableRow,
-                    })
-                  }
-                >
-                  {(Object.keys(ROW_LABELS) as TableRow[]).map((row) => (
-                    <option key={row} value={row}>
-                      {ROW_LABELS[row]}
-                    </option>
-                  ))}
-                </Select>
-              </label>
-            )}
-            <div className={styles.row}>
-              <Button
-                size="sm"
-                disabled={busy || !playing}
-                onClick={() => {
-                  const zone = objectZone(c.view!, object.id)!;
-                  const order = f.zones[zone],
-                    index = order.indexOf(object.id);
-                  act({
-                    type: "move",
-                    ids: [object.id],
-                    zone,
-                    index: Math.max(0, index - 1),
-                  });
-                }}
-              >
-                Move earlier
-              </Button>
-              <Button
-                size="sm"
-                disabled={busy || !playing}
-                onClick={() => {
-                  const zone = objectZone(c.view!, object.id)!;
-                  act({
-                    type: "move",
-                    ids: [object.id],
-                    zone,
-                    index: f.zones[zone].indexOf(object.id) + 1,
-                  });
-                }}
-              >
-                Move later
-              </Button>
-            </div>
+          <details className={styles.section}>
+            <summary>Edit card state</summary>
+            <div className={styles.state}>
             <div className={styles.row}>
               <TextField
                 aria-label="Counter name"
@@ -450,27 +313,8 @@ export function InspectionPanel({
                 </Select>
               </label>
             )}
-            <div className={styles.row}>
-              <Button
-                size="sm"
-                disabled={busy || !playing}
-                onClick={() => act({ type: "token", copy_id: object.id })}
-              >
-                Create token copy
-              </Button>
-              {object.token && (
-                <Button
-                  size="sm"
-                  disabled={busy || !playing}
-                  onClick={() =>
-                    act({ type: "remove-token", ids: [object.id] })
-                  }
-                >
-                  Remove token
-                </Button>
-              )}
             </div>
-          </section>
+          </details>
         )}
         {pinned && card && (
           <section className={styles.section}>
@@ -579,11 +423,6 @@ export function InspectionPanel({
             <p className={styles.muted}>No observations linked here yet.</p>
           )}
         </section>
-        {!pinned && (
-          <Button disabled={!playing} onClick={onCreateToken}>
-            Create token from card data
-          </Button>
-        )}
       </div>
     </div>
   );

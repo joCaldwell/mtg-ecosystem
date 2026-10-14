@@ -12,6 +12,7 @@ export { CardOpenProvider, CardRef } from "./CardRef.tsx";
 export { RichText, InlineText } from "./RichText.tsx";
 
 export { TextCard } from "./table/TextCard.tsx";
+export { TapButton } from "./table/TapButton.tsx";
 export { TableZone } from "./table/TableZone.tsx";
 export { PlayerSummary } from "./table/PlayerSummary.tsx";
 export { CardInspection } from "./table/CardInspection.tsx";

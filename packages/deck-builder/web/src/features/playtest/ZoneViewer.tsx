@@ -11,12 +11,14 @@ export function ZoneViewer({
   onPreview,
   onSelect,
   onMove,
+  onContextMenu,
 }: {
   controller: PlaytestController;
   zone: Zone;
   onPreview: (id: string | null) => void;
   onSelect: (id: string, multiple: boolean) => void;
   onMove: (ids: string[], zone: Zone, row?: undefined, index?: number) => void;
+  onContextMenu: (id: string, element: HTMLElement, x: number, y: number, ids: string[]) => void;
 }) {
   const [query, setQuery] = useState(""),
     [top, setTop] = useState("5"),
@@ -92,7 +94,23 @@ export function ZoneViewer({
           return (
             <div
               key={id}
+              data-object-id={id}
               className={styles.item}
+              role="group"
+              tabIndex={0}
+              aria-label={card.name}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onContextMenu(id, e.currentTarget, e.clientX, e.clientY, chosen.includes(id) ? chosen : [id]);
+              }}
+              onKeyDown={(e) => {
+                if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return;
+                e.preventDefault();
+                e.stopPropagation();
+                const bounds = e.currentTarget.getBoundingClientRect();
+                onContextMenu(id, e.currentTarget, bounds.left, bounds.top, chosen.includes(id) ? chosen : [id]);
+              }}
               onMouseEnter={() => onPreview(id)}
               onFocus={() => onPreview(id)}
             >

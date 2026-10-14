@@ -7,6 +7,7 @@ export { Button, type ButtonProps } from "./Button.tsx";
 export { Checkbox, type CheckboxProps } from "./Checkbox.tsx";
 export { Chip, type ChipProps } from "./Chip.tsx";
 export { ConfirmDialog, type ConfirmDialogProps } from "./ConfirmDialog.tsx";
+export { ContextMenu, type ContextMenuProps, type ContextMenuTarget } from "./ContextMenu.tsx";
 export { Dialog, type DialogProps } from "./Dialog.tsx";
 export { DiffView, type DiffLine } from "./DiffView.tsx";
 export { Dot, type DotProps } from "./Dot.tsx";

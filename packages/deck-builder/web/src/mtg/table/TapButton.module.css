@@ -1,0 +1,17 @@
+.control {
+  width: var(--tap-control-size);
+  min-width: var(--tap-control-size);
+  height: var(--tap-control-size);
+  flex-shrink: 0;
+  padding: 0;
+  margin: 0;
+  border-radius: var(--r-pill);
+  justify-content: center;
+}
+.icon {
+  width: var(--tap-control-icon-size);
+  height: var(--tap-control-icon-size);
+}
+.control[aria-pressed="true"] .icon {
+  transform: rotate(90deg);
+}
