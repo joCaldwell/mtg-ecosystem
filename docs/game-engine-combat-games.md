@@ -74,7 +74,7 @@ fails its sole target. The attacker remains blocked and deals no player damage.
 Turn2 P1 draws and passes. Turn3 P2 draws, plays Forest, casts hand Bears and
 attacks P0 with the older Bears. P0 blocks with its newer Bears; both die together.
 Turn4 P3 draws and discards Island19 in cleanup (eight-card hand to seven), choosing the first
-Island in its deterministic own-hand observation order.
+Island offered in its private discard request.
 Turn5 P0 draws library top 6, attacks P1 with its surviving Bears; P1 loses.
 Turn6 P2 draws library top 15 and attacks P0 with its surviving Bears; P0 takes
 2, to 4. Turn7 P3 attempts an empty-library draw and loses at stabilization.
@@ -93,6 +93,9 @@ P2 chooses no blockers. Assign 0's two damage 1/1 (legal current-rule split),
 blockers deal 2 each to 0, and unblocked attackers deal 2 to each defender.
 Creature0 dies; P1/P2 lose simultaneously; their objects depart; P0/P3 remain.
 A second split 2/0 kills blocker3 in the same SBA wave before departures.
+A separate complete-game policy always chooses no attackers and passes: P1
+fails its draw on turn2, P2 on turn3 and P3 on turn4. P0 wins immediately on
+turn4, before its own next draw. Independent review confirmed this outcome.
 Branches remove one/both blockers with Unsummon or concessions, reject invalid
 complete declarations, and test departures at every automatic/combat boundary.
 Choosing no attackers skips blockers/damage. Declared attackers later all removed
@@ -122,8 +125,10 @@ between defender declarations. Record the blocked bit permanently for this comba
 
 Priority windows: beginning combat; after attackers; after all blockers; after
 simultaneous damage and stabilization; end combat. Instant responses use the
-existing stack and payment path. No priority between assignment choices and damage. Zero or negative power
-assigns no damage and emits no positive damage occurrence (CR 120.8/510.1a).
+existing stack and payment path. No priority between assignment choices and damage. Final assignment validation
+and damage commit form one atomic rules unit (CR 703.4m); earlier collected
+choices remain provisional and subject to departure revalidation. Zero or negative power assigns no damage and emits no positive
+damage occurrence (CR 120.8/510.1a).
 Assignment decisions expose full power and recipient domain, validating complete
 nonnegative exact-quantity distributions summing to current assignable power.
 Sole-recipient assignments may be automatic; genuinely multiple-recipient splits
@@ -179,6 +184,10 @@ hand noninterference, pure budgeted queries and saved query recovery, stale rece
 fork independence, forged snapshots, and complete replay. Compare off/compact/
 detailed trace modes and budgets zero/one/larger/unlimited. Recover every meaningful
 new boundary and retain complete-game journals, initial states and outcomes.
+Full-game boundary recovery uses diagnostics-off snapshots compared with the
+boundary/digest witnesses captured in detailed mode. Detailed final snapshots
+must restore and match the complete detailed replay trace. Independent tests
+retain detailed recovery across each new continuation/departure family.
 
 Runner policy lives outside core and receives only player-facing observations,
 requests, responses and budgeted query results. Host verification may read snapshots
@@ -189,6 +198,12 @@ Excluded: full Commander setup/decks/casting/return/tax/damage; arbitrary admiss
 combat keywords, planeswalker/battle attacks, attack/block costs/requirements,
 triggers, prevention/replacement, continuous effects, temporary effects, general
 control-changing spells, shuffling/randomness/mulligans, extra phases/turns.
+Each execution unit is bounded by the frozen configuration (at most 27 physical
+cards, 16 owned by any one player); atomic damage/declaration and new query
+validation stages use this finite bound. Oversized response vectors reject before
+handle conversion. Queries retain per-row observation work and resumable stage
+validation; these units are not wall-clock or process-memory guarantees.
+
 Run package checks, debug/release tests and fresh offline retained-source rebuild/
 replay. Resolve independent review findings, update maintained docs and evidence,
 commit locally on `feat/engine-combat-games`; do not merge.

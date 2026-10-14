@@ -467,14 +467,128 @@ unsupported boundaries. This is a deterministic bounded scenario loop, not full
 P3 signoff or playable Commander matches. Snapshot reachability still uses replay;
 recovery-heavy debug checks and history copying grow with execution length.
 
+## Ordinary combat and complete scenario games — October 13, 2026
+
+The [reviewed combat contract](game-engine-combat-games.md) freezes two additional
+whole configurations on merged main `bb3f245`, including the turns/permanents and
+departure-ordering fixes. The five exact source definitions and IR v3 remain
+unchanged; runtime admission now recognizes seven reviewed configurations.
+Existing profiles retain their previous unsupported boundaries.
+
+Ordinary creature combat now supports complete attacker declarations across
+multiple opponents, defender-specific complete blocks, multiple blockers, and
+explicit damage splits under the pinned current rules (no historical ordering or
+lethal-first restriction). Continuous control determines attack readiness; new
+incarnations and controller changes reset it. The shared typed event path records
+declarations, simultaneous damage, marked damage distinct from toughness, and
+SBA waves with common pre-state candidates. Relevant zone changes remove combat
+membership without clearing an attacker's blocked status. All simultaneous
+losers leave before departure cleanup and outcome adjudication.
+
+The same turn loop handles top-first ordered libraries, failed draws, cleanup
+discard and damage clearing, and repeated turns with land, mana and untap rules.
+The ordinary priority/instant-response stack remains the interaction path. The
+reachable pool requires lethal-damage, life-loss and failed-draw SBAs; private
+kernel fixtures additionally verify zero toughness, all-player loss/draw and the
+cleanup-SBA priority exception without widening production admission.
+
+The outside-core policy runner consumes only player-facing observations and
+requests and submits responses through budgeted validation. Its G witness ends
+on turn 8 with P0 winning at life 4. Along the way, two instants target the same
+blocker and the lower spell fizzles; creatures die simultaneously; P3 discards
+during cleanup; P1/P2 lose to life totals and P3 loses after a failed draw.
+A second game chooses no attackers and ends on turn 4 when
+P1, P2 and P3 have failed their draws. Two interaction witnesses compare 1/1 and
+2/0 damage splits and simultaneous P1/P2 losses. Interaction completion, host
+budget exhaustion and faults are distinct from game outcomes.
+
+The new `expected-combat-games.json` retains the reviewed outcomes and complete
+journals while preserving historical fixtures. The verified witness counts are:
+
+| Policy | Decisions | Events | Recovery boundaries | Result |
+| --- | ---: | ---: | ---: | --- |
+| Integrated | 281 | 723 | 1,014 | P0 wins, turn 8, life 4 |
+| Empty attacks | 69 | 205 | 273 | P0 wins, turn 4 |
+| Split evenly | 20 | 49 | 67 | Simultaneous P1/P2 loss; P0/P3 remain |
+| Split concentrated | 20 | 50 | 67 | Same player losses plus a lethal blocker |
+
+All four journals contain no concessions. All earlier flat gameplay events and
+mixed journals were compared unchanged. The twelve witness families run in
+three trace modes, yielding **36 retained executions** across seven configurations.
+
+Snapshot/bundle v8, projection v6 and query-sidecar v5 extend the existing
+continuation, characteristic, event, observation, query, replay and recovery
+paths. Complete journals and compact boundary/digest witnesses reconstruct every
+new decision and automatic boundary for snapshot restoration. Full-game recovery
+restores every recorded semantic boundary with diagnostics off and compares the
+entire detailed final trace with detailed replay; independent continuation and
+departure tests also recover detailed snapshots. This avoids redundant copies
+and repeated serialization of growing diagnostic histories, without skipping
+semantic boundaries. Independent review approved this split. It does not change restore's
+replay-based reachability proof or make work units wall-clock guarantees.
+
+Independent implementation and adversarial review covered declarations, stale
+handles and decisions, hidden information, response windows, blocker departures,
+control readiness, simultaneous damage/losses, queries, recovery, forks and
+budget/trace equivalence. Review fixes preserve priority progression after a
+last-unpassed departure during stabilization, include readiness changes in typed
+turn-transition evidence, and reject oversized response vectors before handle
+conversion. The independent interaction sweep covers 48 boundaries and 188
+ordered-concession branches. Six additional branches exercise actor/unrelated
+departures before/after accepted cleanup discard and departures between failed
+draw and SBA. All twelve independent black-box tests pass in debug and release.
+
+### Requested stopping point — verification still pending
+
+The user requested a stopping point before the long final gates completed.
+The implementation, independent reviews, and full release demo succeeded:
+all 1,421 new semantic recovery boundaries, detailed final replay traces,
+36 trace-mode executions, and unchanged historical events/journals were checked.
+The reviewed expected fixture was populated from that successful report.
+Formatting and Clippy passed. All 129 compiler/contract/core/independent tests
+passed in both debug and release; the two smaller simulator tests passed in
+release, and the budget-exhaustion simulator test passed in debug.
+
+The final full debug/release bundle tests, remaining Node CLI checks, and fresh
+offline retained-source rebuild/replay were **not completed**. Their processes
+were explicitly stopped at the user's request; no failing assertion had been
+reported. Do not describe this checkpoint as fully verified or ready to merge.
+The successful demo report and interrupted logs are preserved, ignored, under
+`generated/combat-checkpoint/`. The expected fixture and full journals are tracked
+in `packages/game-engine/tests/fixtures/expected-combat-games.json`.
+
+Resume in `/home/josh/Code/mtg-engine-combat-games` on
+`feat/engine-combat-games`, keeping the main checkout's parser work untouched:
+
+```sh
+npm run check:engine
+cargo test --workspace --locked --release
+npm run retain:engine
+```
+
+The pinned rules bytes are already in `.scryfall-cache/rules-20260925.txt`.
+Keep Rust source and JSON fixtures unchanged while bundle verification runs:
+source closure is part of build identity. Recovery-heavy gates take substantial
+CPU time. After they pass, record final build/bundle/executable identities and
+retention location here, resolve any findings, and commit that evidence locally.
+Do not merge without a later instruction.
+
+Full legal Commander games, arbitrary decks, keywords, triggers, replacements,
+continuous effects, setup and randomness remain excluded. This is a connected
+scenario delivery, not P3/P4/P5 completion. All work is isolated on
+`feat/engine-combat-games`; no dirty parser work from the main checkout was copied
+or edited by this delivery.
+
 ## Remaining delivery gates
 
 Remaining P2 foundations include broader functioning-zone/ability discovery,
 interaction-specific event compositions, and wider recovery invariants.
 Atomic batches and the three trace modes are implemented for the closed profiles;
-replacement/trigger/SBA consumers still need their own source/runtime slices. Commander designation/history and departure
+replacement/trigger consumers and additional SBA families still need their own
+source/runtime slices. Commander designation/history and departure
 foundations are implemented in the bounded follow-up described above; production
-command-zone casts and actual combat damage remain later mechanics.
+command-zone casts and Commander combat-damage accounting remain later mechanics;
+ordinary creature combat is implemented in the reviewed combat configurations.
 Recovery still replays the small scenario to prove reachability. Rules work units
 are not wall-clock or process-memory guarantees; larger profiles require measured
 limits and finer resumable work. Core authoritative getters remain trusted host
@@ -488,8 +602,9 @@ or port of the entire TypeScript binding analyzer is required.
 
 P3 still expands general cost families, broader permanent and turn behavior,
 and resolution-time choices. Ordinary supported instant responses, casting-time
-intrinsic mana, and the bounded turns/land/targetless-creature loop are now
-implemented for exact scenario configurations; broader stack/cost families remain. P4 adds the Commander lifecycle and
+intrinsic mana, and the bounded turns/land/targetless-creature loop, ordinary combat, damage/SBAs,
+ordered draws, cleanup and complete small scenario games are now implemented for
+exact configurations; broader stack/cost families remain. P4 adds the Commander lifecycle and
 event interactions. P5 validates full legal decks/pods, a closed reachable pool,
 and seeded complete games. Unsupported runtime paths currently fault or reject;
 legal-match mode is rejected. Random operations, search, server, and UI remain

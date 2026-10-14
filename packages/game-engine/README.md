@@ -26,11 +26,17 @@ land-mana / targeted return-to-hand scenario with strict admission, serializable
 announcement, owned/incarnation identities, events, restore, fork, and replay.
 The [turns slice](../../docs/game-engine-turns-slice.md) adds a deterministic
 four-seat rotation, explicit phase/step entry, basic-land plays, and targetless
-creature casting through the existing mana/payment/stack paths. It admits five
-exact scenario configurations, including one designated commander
-in the command zone. It cannot start a legal Commander match. Command-zone
-casting, creature combat, commander movement choices, general draws, cleanup
-discard, and complete matches remain later work:
+creature casting through the existing mana/payment/stack paths. The
+[combat games slice](../../docs/game-engine-combat-games.md) adds ordinary
+multiplayer combat, simultaneous damage and required SBAs, ordered draws, cleanup
+discard, and rules-defined elimination. Seven exact configurations are admitted.
+Two deterministic small games finish under player-facing policies: an eight-turn
+combat/response game and a four-turn failed-draw game. Additional witnesses cover
+multiple blockers and simultaneous losses.
+
+Legal Commander matches, command-zone casting/return/tax/damage, keywords,
+triggers, replacements/prevention, continuous effects, shuffling and arbitrary
+deck admission remain later work:
 
 - [Implementation plan](../../docs/game-engine-plan.md): milestones, exit evidence, tests, search benchmarks, and open decisions.
 - [Engine specification](../../docs/game-engine-spec.md): compiler/IR boundary, state, decisions, rule execution, observations, replay, and branching.
@@ -46,6 +52,7 @@ and use Rust 1.99.0:
 npm run check:engine
 cargo test --workspace --locked --release
 cargo run --locked -p mtg-sim -- demo
+cargo run --locked --release -p mtg-sim -- combat-games
 cargo run --locked --release -p mtg-sim -- demo --bundle generated/p2-bundles
 ```
 
@@ -55,7 +62,14 @@ JSON Schema; `report` includes the paired unsupported source definition;
 against their pinned build. The demo bundle includes recovery checkpoints for the original and departure
 scenarios, ordinary/detached response runs, and casting-time
 mana success/keep/undo runs, and the eight-card turns witness in all three trace
-modes (twenty-four mode executions across five configurations).
+modes, plus four combat policy witnesses (thirty-six mode executions across
+seven configurations). `combat-games --recover` additionally restores every
+accepted-input and automatic execution boundary. Combat recovery records retain
+complete journals plus boundary/digest witnesses; offline verification reconstructs
+and restores every exact semantic boundary with diagnostics off, then restores
+and compares the entire detailed final trace against detailed replay. Independent
+continuation/departure tests also restore detailed snapshots. This avoids storing
+or repeatedly serializing redundant growing histories at every game boundary.
 Native trace evidence is separate from semantic state and remains trusted host
 data; only detailed mode retains the flat `events()` compatibility stream. `observe <player>` and `context <player> <seed>`
 emit player-facing projections of the initial scenario. They do not emit the

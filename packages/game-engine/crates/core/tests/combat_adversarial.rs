@@ -1009,3 +1009,216 @@ fn resolved_creature_cannot_attack_until_its_controller_begins_another_turn() {
     }
     panic!("next controller turn did not start")
 }
+
+/// Later-turn automatic boundaries are deliberately reached without restoring
+/// every setup transition; only the new departure boundaries are recovered.
+fn cleanup_discard_boundary(prepared: &Prepared) -> Game {
+    let mut game = Game::new(prepared.clone());
+    for _ in 0..350 {
+        assert!(matches!(
+            settle(&mut game, prepared, u64::MAX, false),
+            Advance::AwaitingDecision(_)
+        ));
+        let (_, req) = request(&game);
+        if let PlayerRequest::Discard {
+            player,
+            count,
+            ref candidates,
+            ..
+        } = req
+        {
+            assert_eq!(game.turn().number, 4);
+            assert_eq!(player, PlayerId(3));
+            assert_eq!(count, 2);
+            assert_eq!(candidates.len(), 9);
+            return game;
+        }
+        submit(&mut game, passive(req));
+    }
+    panic!("G did not reach its first passive cleanup discard")
+}
+
+#[test]
+fn cleanup_departures_preserve_or_discard_pending_choices_and_recover() {
+    let prepared = prepared(ScenarioConfig::combat_game());
+    let original = cleanup_discard_boundary(&prepared);
+    recovery(&original, &prepared);
+    for accepted in [false, true] {
+        for departing in [PlayerId(3), PlayerId(0)] {
+            let mut boundary = original.fork();
+            if accepted {
+                let response = passive(request(&boundary).1);
+                submit(&mut boundary, response);
+            }
+            recovery(&boundary, &prepared);
+            let mut small = boundary.fork();
+            let mut large = boundary.fork();
+            small.concede(departing).unwrap();
+            large.concede(departing).unwrap();
+            recovery(&small, &prepared);
+            let small_result = settle(&mut small, &prepared, 1, true);
+            let large_result = settle(&mut large, &prepared, u64::MAX, false);
+            assert_eq!(small_result, large_result);
+            assert!(matches!(small_result, Advance::AwaitingDecision(_)));
+            assert_eq!(small.state_digest().unwrap(), large.state_digest().unwrap());
+            assert_eq!(small.trace().verification, large.trace().verification);
+            assert!(!small.live_players().contains(&departing));
+            if departing == PlayerId(3) {
+                assert_eq!(small.turn().number, 5);
+                assert_eq!(small.active_player(), Some(PlayerId(0)));
+                assert!(
+                    small.events().iter().all(|event| !matches!(event,
+                        Event::Committed { actual: EventOutcome::Moved { movement }, .. }
+                        if movement.destination == (Zone::Graveyard { owner: PlayerId(3) })
+                    )),
+                    "departed chooser's accepted discard must not become ghost graveyard moves"
+                );
+            } else {
+                if !accepted {
+                    let (actor, req) = request(&small);
+                    assert_eq!(actor, PlayerId(3));
+                    assert!(matches!(req, PlayerRequest::Discard { count: 2, .. }));
+                    submit(&mut small, passive(req));
+                    recovery(&small, &prepared);
+                    assert!(matches!(
+                        settle(&mut small, &prepared, 1, true),
+                        Advance::AwaitingDecision(_)
+                    ));
+                }
+                assert_eq!(observe(&small, PlayerId(3)).view.players[3].hand_count, 7);
+                for card in [18, 19] {
+                    assert_eq!(
+                        small.zone(small.object_id(CardId(card)).unwrap()),
+                        Some(Zone::Graveyard { owner: PlayerId(3) })
+                    );
+                }
+                assert_eq!(small.turn().number, 5);
+                assert_eq!(small.active_player(), Some(PlayerId(1)));
+            }
+            let replay = Game::replay(prepared.clone(), &small.replay_journal()).unwrap();
+            assert_eq!(
+                small.state_digest().unwrap(),
+                replay.state_digest().unwrap()
+            );
+            assert_eq!(small.trace(), replay.trace());
+            let (actor, req) = request(&small);
+            assert!(small.live_players().contains(&actor));
+            submit(&mut small, passive(req));
+            recovery(&small, &prepared);
+        }
+    }
+}
+
+fn failed_draw_boundary(prepared: &Prepared) -> Game {
+    let mut game = Game::new(prepared.clone());
+    for _ in 0..200 {
+        let result = game.advance(Budget::new(1));
+        if game.events().iter().any(|event| {
+            matches!(
+                event,
+                Event::Committed {
+                    actual: EventOutcome::DrawFailed {
+                        player: PlayerId(1)
+                    },
+                    ..
+                }
+            )
+        }) {
+            assert_eq!(
+                game.live_players().len(),
+                4,
+                "draw attempt precedes SBA loss"
+            );
+            assert_eq!(game.turn().number, 2);
+            assert_eq!(game.turn().step, TurnStep::Draw);
+            return game;
+        }
+        match result {
+            Advance::Suspended { .. } => {}
+            Advance::AwaitingDecision(_) => {
+                let response = passive(request(&game).1);
+                submit(&mut game, response);
+            }
+            other => panic!("I ended before failed-draw boundary: {other:?}"),
+        }
+    }
+    panic!("I did not reach its first failed draw")
+}
+
+#[test]
+fn departure_between_failed_draw_and_sba_has_no_duplicate_or_ghost_loss() {
+    let prepared = prepared(ScenarioConfig::combat_interactions());
+    let original = failed_draw_boundary(&prepared);
+    recovery(&original, &prepared);
+    for departing in [PlayerId(1), PlayerId(0)] {
+        let mut small = original.fork();
+        let mut large = original.fork();
+        small.concede(departing).unwrap();
+        large.concede(departing).unwrap();
+        recovery(&small, &prepared);
+        let small_result = settle(&mut small, &prepared, 1, true);
+        let large_result = settle(&mut large, &prepared, u64::MAX, false);
+        assert_eq!(small_result, large_result);
+        assert!(matches!(small_result, Advance::AwaitingDecision(_)));
+        assert_eq!(small.state_digest().unwrap(), large.state_digest().unwrap());
+        assert_eq!(small.trace().verification, large.trace().verification);
+        assert!(!small.live_players().contains(&PlayerId(1)));
+        assert!(!small.live_players().contains(&departing));
+        assert_eq!(small.turn().number, 2);
+        assert_eq!(small.turn().step, TurnStep::Draw);
+        assert_eq!(small.active_player(), None);
+        let view = observe(&small, PlayerId(2));
+        assert_eq!(view.view.players[1].life, Quantity::from(2));
+        assert_eq!(view.view.players[1].status, PlayerStatus::Left);
+        assert_eq!(view.view.priority, Some(PlayerId(2)));
+        assert_eq!(
+            small
+                .events()
+                .iter()
+                .filter(|event| matches!(
+                    event,
+                    Event::Committed {
+                        actual: EventOutcome::DrawFailed {
+                            player: PlayerId(1)
+                        },
+                        ..
+                    }
+                ))
+                .count(),
+            1
+        );
+        assert_eq!(
+            small
+                .events()
+                .iter()
+                .filter(|event| matches!(
+                    event,
+                    Event::Committed {
+                        actual: EventOutcome::Lost {
+                            player: PlayerId(1),
+                            reason: PlayerLossReason::FailedDraw
+                        },
+                        ..
+                    }
+                ))
+                .count(),
+            usize::from(departing != PlayerId(1))
+        );
+        assert!(
+            small
+                .events()
+                .iter()
+                .all(|event| !matches!(event, Event::GameWon { .. } | Event::GameDrawn))
+        );
+        let replay = Game::replay(prepared.clone(), &small.replay_journal()).unwrap();
+        assert_eq!(
+            small.state_digest().unwrap(),
+            replay.state_digest().unwrap()
+        );
+        assert_eq!(small.trace(), replay.trace());
+        let (actor, req) = request(&small);
+        assert_eq!(actor, PlayerId(2));
+        submit(&mut small, passive(req));
+        recovery(&small, &prepared);
+    }
+}

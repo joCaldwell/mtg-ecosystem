@@ -75,7 +75,11 @@ transition does not require a full-state clone for every action.
 5. **Triggered Ability Controller**: Detect and order triggers (APNAP).
 6. **Dynamic Rule Registry**: Track replacement effects, restrictions, and modifications.
 
-The first delivery is complete four-player headless Commander pods for a small
+The current implementation supports [reviewed small scenario games](game-engine-combat-games.md),
+including ordinary multiplayer combat and rules-defined outcomes. Legal Commander
+matches remain a later milestone.
+
+The first complete-match delivery targets four-player headless Commander pods for a small
 audited card profile, with deterministic replay and branchable state. Commander
 setup/deck rules, command-zone movement, tax, commander damage, multiplayer
 priority, and player departure are early requirements. Semantic compilation and the

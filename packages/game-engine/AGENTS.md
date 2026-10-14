@@ -13,7 +13,9 @@ casting-time intrinsic mana, keep-all/undo-all failed-payment choices, the exact
 four-card Forest reversal profile, snapshot/bundle v6, projection v4, and
 query-sidecar v3. `docs/game-engine-turns-slice.md` adds the exact eight-card
 turn/land/creature profile, IR v3, snapshot/bundle v7, projection v5 and
-query-sidecar v4. This package is scenario-only; do not advertise playable
+query-sidecar v4. `docs/game-engine-combat-games.md` adds two exact combat
+configurations, ordered libraries, cleanup, damage/SBAs, and complete scenario
+games; snapshot/bundle v8, projection v6 and query-sidecar v5. This package is scenario-only; do not advertise playable
 Commander matches.
 
 Run from repository root, using pinned Rust 1.99.0:
@@ -59,8 +61,9 @@ Concessions are trusted host external inputs queued at recorded rule boundaries;
 process them before ordinary work and expose no query while they are pending.
 Keep original seating, departed-player facts, and physical Commander history.
 Default control is separate from ownership and explicit control grants.
-Command-zone casting and combat damage remain unsupported; ledger domain tests
-do not constitute production lifecycle or combat support.
+Command-zone casting and Commander damage remain unsupported. Ordinary creature
+combat is enabled only in the two reviewed combat profiles; ledger domain tests
+do not constitute production Commander lifecycle support.
 
 Batch mutation is private and atomic. Capture consumed pre-event facts and use
 actual typed outcome slots. Simultaneous groups admit independent read/write
@@ -81,8 +84,24 @@ cancel a payable spell. Undo subtracts only receipt-recorded casting-time mana
 and untaps surviving sources; preserve pre-cast mana and departures. Retained
 legal mana activations clear prior passes. A removed caster never restores its
 last-known mana or resurrects sources. Empty-stack progression is enabled only
-for the exact turns profile. Other profiles retain the earlier fault. The turns profile supports singleton-library
-draws, untap, restricted cleanup, and combat only without active-controlled
-creatures; unsupported boundaries fault explicitly. Restore proves fault
+for the exact turns and combat profiles. Earlier profiles retain the original
+fault. The old turns profile retains singleton draws and forced-empty combat;
+new combat profiles use explicit ordered libraries, ordinary combat, failed-draw/
+life losses, and cleanup discard. Unsupported boundaries fault explicitly. Restore proves fault
 reachability by replay. Land plays and creature casts require active-player
 main-phase priority and an empty stack; land usage resets only on a new turn.
+
+Combat declarations, simultaneous damage and SBA waves use the typed event path.
+Multiple blockers have no damage-assignment order under the pinned current rules.
+Preserve blocked status after blockers leave, and skip blockers/damage only if
+no attackers were declared. Continuous-control eligibility is stamped at turn
+beginning and resets on new incarnations or controller changes. All simultaneous
+losers are absent before departure cleanup and outcome adjudication. Zero
+toughness and all-player loss/draw remain private domain fixtures: neither is
+reachable from this positive-life, positive-toughness admitted pool.
+
+Each new player's reachable mana is monochromatic; exact admission enforces
+that restriction. Do not widen to mixed-color generic payment without an explicit
+spending decision. The simulator's combat policies consume only player-facing
+observations/requests; host checkpoint/replay verification is separate. Budget
+truncation and faults never substitute for rules-defined outcomes.

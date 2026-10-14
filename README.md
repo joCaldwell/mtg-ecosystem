@@ -61,7 +61,7 @@ mtg-ecosystem/
     ├── oracle-parser/                  # Layer 0: hand-written TypeScript parser
     ├── deck-builder/                   # Active standalone deck application
     ├── card-data/                      # Generated Card IR from the Rust compiler
-    ├── game-engine/                    # Rust compiler/kernel and initial scenario CLI
+    ├── game-engine/                    # Rust compiler/kernel and bounded scenario-game CLI
     └── game-server/                    # Rust game server & API (future)
 ```
 
@@ -88,7 +88,7 @@ lower coverage. `npm run build-ir` intentionally fails because emission is not
 implemented.
 
 For deck-builder setup, use its [package manual](packages/deck-builder/AGENTS.md).
-For the first compiler/engine demo, use the
+For the compiler/engine scenario games, use the
 [engine manual](packages/game-engine/AGENTS.md): `npm run check:engine` and
 `npm run demo:engine` from the root with Rust 1.99.0.
 
