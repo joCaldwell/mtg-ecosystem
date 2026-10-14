@@ -1,0 +1,14 @@
+{
+  "name": "@mtg-ecosystem/game-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "cargo check --workspace --locked",
+    "test": "cargo test --workspace --locked",
+    "check": "node ../../scripts/check-engine.ts"
+  },
+  "devDependencies": {
+    "ajv": "8.20.0"
+  }
+}

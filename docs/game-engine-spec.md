@@ -1,6 +1,9 @@
 # Layer 1 game-engine specification
 
-Status: **proposed design; engine, compiler, and interfaces are unimplemented**.
+Status: **proposed full design; initial compiler/runtime scenario implemented**.
+Only the subset in the [first scenario brief](game-engine-first-scenario.md)
+and engine package is implemented. The interfaces below remain design vocabulary
+where the package does not yet expose them.
 Prepared 2026-10-11. Primary workload: high-volume headless simulation and agent
 search **for Commander**. Language stack: [adopted Rust and TypeScript assignments](runtime-language-decision.md).
 Delivery gates and benchmark procedure: [implementation plan](game-engine-plan.md).
@@ -877,7 +880,9 @@ Keep these as modules until a crate boundary has a concrete benefit.
 
 ## 10. Decisions still required
 
-Languages are settled: TypeScript for ingestion/parser/archive, the deck-builder,
+The first slice's source/IR authority, numeric backend, and initial pool are
+settled in the [frozen brief](game-engine-first-scenario.md). Broader contracts
+remain subject to their delivery gates. Languages are settled: TypeScript for ingestion/parser/archive, the deck-builder,
 browser applications, and client SDK; Rust for the semantic compiler, engine,
 simulation/search/native policies, and game server. Browser-local rules use the
 Rust core compiled to WebAssembly. See the [adopted decision](runtime-language-decision.md).
@@ -888,8 +893,8 @@ The remaining choices concern implementation within this stack:
 | Compiler contract | Rust owns production executable binding/lowering; finalize supported source/IR mapping | P1a |
 | Product scope | Commander only; four-player free-for-all first, separate scenario mode | Established by Josh; refine profile at P0 |
 | Commander configuration | One supported eligible commander/player first; multi-commander permissions later | P1a/P6.n |
-| Numeric backend | Exact arbitrary-precision quantities, bounded structural IDs | P1a |
-| IR authority | Versioned source adapter and one IR schema authority; worked examples before generalization | P1a/P1b |
+| Numeric backend | Adopted for first slice: `num-bigint`, canonical decimal strings, checked structural IDs | First slice implemented; broader use at P2 |
+| IR authority | Adopted for first slice: Rust types, generated JSON Schema, pinned schema-3 source adapter | First slice implemented; extend at later gates |
 | Public protocol | Separate generated client contract once a consumer exists | P8 |
 | PRNG and shuffle algorithms | Fixed, versioned, cross-target reproducible; select before the first random operation | P1b/P2 |
 | Branch representation | Clone baseline, optimize from measurements | P2/P7 |

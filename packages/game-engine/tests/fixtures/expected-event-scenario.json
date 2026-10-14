@@ -1,0 +1,345 @@
+{
+  "snapshot_version": 4,
+  "rule_steps": 10,
+  "final_state_sha256": "f24c5dcc785a849ef7d58e373734c9b74465541bae5d641288be982cc56eb922",
+  "departure_state_sha256": "8908bda0c86d8e0b34b95b3be52f1ae0b2ab9f353ca9721d8f0ba561d321a806",
+  "departure_journal": {
+    "concessions": [
+      {
+        "after_decisions": 4,
+        "boundary": 5,
+        "player": 2
+      },
+      {
+        "after_decisions": 5,
+        "boundary": 7,
+        "player": 3
+      },
+      {
+        "after_decisions": 5,
+        "boundary": 9,
+        "player": 0
+      }
+    ],
+    "decisions": [
+      {
+        "decision_id": 0,
+        "player": 0,
+        "response": {
+          "object": {
+            "card": 0,
+            "incarnation": 0
+          },
+          "response": "activate_mana"
+        }
+      },
+      {
+        "decision_id": 1,
+        "player": 0,
+        "response": {
+          "card": 1,
+          "response": "cast"
+        }
+      },
+      {
+        "decision_id": 2,
+        "player": 0,
+        "response": {
+          "objects": [
+            {
+              "card": 2,
+              "incarnation": 0
+            }
+          ],
+          "response": "targets"
+        }
+      },
+      {
+        "decision_id": 3,
+        "player": 0,
+        "response": {
+          "response": "pass"
+        }
+      },
+      {
+        "decision_id": 5,
+        "player": 1,
+        "response": {
+          "response": "pass"
+        }
+      }
+    ]
+  },
+  "departure_events": [
+    {
+      "actual": {
+        "object": {
+          "card": 0,
+          "incarnation": 0
+        },
+        "outcome": "tapped"
+      },
+      "event": "committed",
+      "proposed": {
+        "object": {
+          "card": 0,
+          "incarnation": 0
+        },
+        "proposal": "tap"
+      }
+    },
+    {
+      "actual": {
+        "amount": "1",
+        "color": "U",
+        "outcome": "mana_added",
+        "player": 0
+      },
+      "event": "committed",
+      "proposed": {
+        "amount": "1",
+        "color": "U",
+        "player": 0,
+        "proposal": "add_mana",
+        "source": {
+          "card": 0,
+          "incarnation": 0
+        }
+      }
+    },
+    {
+      "card": 1,
+      "event": "spell_proposed",
+      "stack_id": 0
+    },
+    {
+      "actual": {
+        "movement": {
+          "destination": {
+            "zone": "stack"
+          },
+          "from": {
+            "owner": 0,
+            "zone": "hand"
+          },
+          "previous": {
+            "card": 1,
+            "incarnation": 0
+          },
+          "successor": {
+            "card": 1,
+            "incarnation": 1
+          }
+        },
+        "outcome": "moved"
+      },
+      "event": "committed",
+      "proposed": {
+        "destination": {
+          "zone": "stack"
+        },
+        "object": {
+          "card": 1,
+          "incarnation": 0
+        },
+        "proposal": "move"
+      }
+    },
+    {
+      "actual": {
+        "cost": {
+          "colored": [
+            "U"
+          ],
+          "generic": "0"
+        },
+        "outcome": "mana_paid",
+        "player": 0
+      },
+      "event": "committed",
+      "proposed": {
+        "cost": {
+          "colored": [
+            "U"
+          ],
+          "generic": "0"
+        },
+        "player": 0,
+        "proposal": "pay_mana"
+      }
+    },
+    {
+      "event": "spell_cast",
+      "stack_id": 0
+    },
+    {
+      "event": "priority_passed",
+      "player": 0
+    },
+    {
+      "event": "player_departed",
+      "player": 2
+    },
+    {
+      "actual": {
+        "movement": {
+          "destination": {
+            "zone": "exile"
+          },
+          "from": {
+            "zone": "battlefield"
+          },
+          "previous": {
+            "card": 2,
+            "incarnation": 0
+          },
+          "successor": {
+            "card": 2,
+            "incarnation": 1
+          }
+        },
+        "outcome": "moved"
+      },
+      "event": "committed",
+      "proposed": {
+        "destination": {
+          "zone": "exile"
+        },
+        "object": {
+          "card": 2,
+          "incarnation": 0
+        },
+        "proposal": "move"
+      }
+    },
+    {
+      "event": "priority_passed",
+      "player": 1
+    },
+    {
+      "event": "player_departed",
+      "player": 3
+    },
+    {
+      "actual": {
+        "movement": {
+          "destination": {
+            "owner": 0,
+            "zone": "graveyard"
+          },
+          "from": {
+            "zone": "stack"
+          },
+          "previous": {
+            "card": 1,
+            "incarnation": 1
+          },
+          "successor": {
+            "card": 1,
+            "incarnation": 2
+          }
+        },
+        "outcome": "moved"
+      },
+      "event": "committed",
+      "proposed": {
+        "destination": {
+          "owner": 0,
+          "zone": "graveyard"
+        },
+        "object": {
+          "card": 1,
+          "incarnation": 1
+        },
+        "proposal": "move"
+      }
+    },
+    {
+      "event": "spell_completed",
+      "resolved": false,
+      "stack_id": 0
+    },
+    {
+      "event": "player_departed",
+      "player": 0
+    },
+    {
+      "event": "object_left_game",
+      "object": {
+        "card": 0,
+        "incarnation": 0
+      },
+      "owner": 0
+    },
+    {
+      "event": "object_left_game",
+      "object": {
+        "card": 1,
+        "incarnation": 2
+      },
+      "owner": 0
+    },
+    {
+      "event": "object_left_game",
+      "object": {
+        "card": 3,
+        "incarnation": 0
+      },
+      "owner": 0
+    },
+    {
+      "event": "game_won",
+      "winner": 1
+    }
+  ],
+  "trace_verification": [
+    {
+      "profile": "land-return-departure-scenario-v2",
+      "mode": "off",
+      "state_sha256": "f24c5dcc785a849ef7d58e373734c9b74465541bae5d641288be982cc56eb922",
+      "verification": null
+    },
+    {
+      "profile": "land-return-departure-scenario-v2",
+      "mode": "compact",
+      "state_sha256": "f24c5dcc785a849ef7d58e373734c9b74465541bae5d641288be982cc56eb922",
+      "verification": {
+        "records": 18,
+        "sha256": "e91fb0b4dfe55831fc1a9470ef8b45882152ee79eada0b74b2e6e3ede9097289"
+      }
+    },
+    {
+      "profile": "land-return-departure-scenario-v2",
+      "mode": "detailed",
+      "state_sha256": "f24c5dcc785a849ef7d58e373734c9b74465541bae5d641288be982cc56eb922",
+      "verification": {
+        "records": 18,
+        "sha256": "e91fb0b4dfe55831fc1a9470ef8b45882152ee79eada0b74b2e6e3ede9097289"
+      }
+    },
+    {
+      "profile": "commander-foundation-scenario-v1",
+      "mode": "off",
+      "state_sha256": "8908bda0c86d8e0b34b95b3be52f1ae0b2ab9f353ca9721d8f0ba561d321a806",
+      "verification": null
+    },
+    {
+      "profile": "commander-foundation-scenario-v1",
+      "mode": "compact",
+      "state_sha256": "8908bda0c86d8e0b34b95b3be52f1ae0b2ab9f353ca9721d8f0ba561d321a806",
+      "verification": {
+        "records": 24,
+        "sha256": "cc219a7b3cee867ca0e044d29c32367b26c78f810d9fca94ddacdc163fb23f49"
+      }
+    },
+    {
+      "profile": "commander-foundation-scenario-v1",
+      "mode": "detailed",
+      "state_sha256": "8908bda0c86d8e0b34b95b3be52f1ae0b2ab9f353ca9721d8f0ba561d321a806",
+      "verification": {
+        "records": 24,
+        "sha256": "cc219a7b3cee867ca0e044d29c32367b26c78f810d9fca94ddacdc163fb23f49"
+      }
+    }
+  ]
+}

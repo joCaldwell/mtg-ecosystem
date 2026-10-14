@@ -137,12 +137,20 @@ allows verification to stream rather than load a second bulk corpus in memory.
 
 ## Proposed output: versioned Card IR
 
-The semantic compiler and emitter will be implemented in **Rust**, as fixed by
+The semantic compiler and emitter use **Rust**, as fixed by
 the [language decision](runtime-language-decision.md). The source parser/archive
-stays TypeScript; Card IR is language-neutral JSON. Schema and emission design
-remain implementation work within that adopted boundary.
+stays TypeScript; Card IR is language-neutral JSON. The initial scenario schema
+exists; broader schema and emission design remain implementation work.
 
-**Proposal only.** `scripts/build-ir.ts` fails explicitly. The previous schema
+The initial scenario catalog is implemented by Rust types in
+`packages/game-engine/crates/contracts/`; `mtg-sim schema` exports its generated
+JSON Schema and `mtg-sim compile` emits the five-definition fixture catalog.
+Current IR version 2 explicitly retains the legendary characteristic; the
+[Commander/departure slice](game-engine-departure-slice.md) adds the source-backed
+Isamaru definition. Archive schema 3 remains unchanged.
+The [first scenario brief](game-engine-first-scenario.md) defines this narrow
+contract and its source adapter. General/per-set bulk emission remains a
+**proposal**; `scripts/build-ir.ts` fails explicitly. The previous schema
 examples used retired discriminator names and unresolved JSON Schema references;
 they were not an implemented contract and have been removed.
 
@@ -150,8 +158,9 @@ The [Layer 1 contract proposal](game-engine-spec.md#3-card-compiler-and-executab
 now specifies compilation stages, executable admission, capability profiles,
 source provenance, and strict cross-language interchange. It proposes canonical
 Oracle definitions with separate printing/set membership indexes, refining the
-earlier per-set packaging direction below. Neither representation is implemented
-or adopted; settle the schema and packaging at P1 before writing an emitter.
+earlier per-set packaging direction below. The first scenario uses canonical
+Oracle definitions and preserves representative printing identity in provenance;
+complete printing/set membership indexes and bulk packaging remain unfinished.
 
 The proposed location is `packages/card-data/sets/<set-code>.json`, containing
 versioned set metadata and cards. Before implementing it, decide and test:

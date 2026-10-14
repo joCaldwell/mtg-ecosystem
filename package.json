@@ -6,6 +6,9 @@
     "packages/*"
   ],
   "scripts": {
+    "check:engine": "node scripts/check-engine.ts",
+    "demo:engine": "cargo run --locked -p mtg-sim -- demo",
+    "retain:engine": "node scripts/retain-engine-evidence.ts",
     "build": "npm run build --workspaces",
     "test": "npm run test --workspaces",
     "ingest": "node scripts/ingest-scryfall.ts",
