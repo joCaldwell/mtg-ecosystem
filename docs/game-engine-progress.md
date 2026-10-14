@@ -357,6 +357,38 @@ subset choices, dependent mana abilities, control-changing source exile,
 general costs, permanent casts, full phases and legal Commander games remain
 later slices. This completes the bounded payment slice, not full P3 signoff.
 
+## Departure boundary review fixes — October 13, 2026
+
+Review found two gaps in the accepted-input/concession boundary. Departures now
+revalidate pending priority actions as well as casting-time mana actions. An
+accepted cast whose only target domain disappears is discarded before proposal,
+preserving its journal entry and original hand incarnation; unrelated departures
+still preserve valid pending casts. This prevents an unrecoverable intermediate
+snapshot followed by an impossible empty target request.
+
+Queued concessions now drain before ordinary resolution starts. A pass round
+cannot trigger unsupported empty-stack advancement before queued departures
+produce a winner, and resolution cannot capture target legality before another
+queued departure removes that target.
+
+Three new regression tests failed before the fixes and pass afterward. They
+exercise all three trace modes, single-unit versus unlimited budgets, recovery
+at intermediate boundaries, journal replay, public requests, and trace equality.
+`npm run check:engine` passed formatting, Clippy, **76 Rust tests**, and **5 Node
+checks**; optimized release tests passed all 76 cases. The external review
+harness also checked 2,990 boundaries without recovery failures or empty-domain
+deadlocks. Existing expected gameplay fixtures and semantic hashes are unchanged.
+
+`npm run retain:engine` verified a fresh offline frozen rebuild and all 21 retained
+trace-mode executions. Release build:
+`8496fd782a125704a4dc0299fa815ecccf250a28cd8f410f0e177690f093601f`.
+Replay bundle:
+`1109cc1c16e78e2615e236dcbb4058f81f0cec3a26039b627137281e33a50133`.
+Evidence lives in
+`/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-1109cc1c16e78e26-v0qMKo/`;
+the ignored summary is `generated/p2-retention.json`. No scenario admission,
+schema versions, or supported mechanics were broadened.
+
 ## Remaining delivery gates
 
 Remaining P2 foundations include broader functioning-zone/ability discovery,

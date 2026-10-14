@@ -41,6 +41,7 @@ fn select(game: &mut Game) {
 fn recover(game: &Game) {
     let restored = Game::restore(game.prepared.clone(), &game.snapshot().unwrap()).unwrap();
     assert_eq!(restored.state, game.state);
+    assert_eq!(restored.trace(), game.trace());
     assert_eq!(restored.fork().state, game.state);
 }
 fn depart(game: &mut Game, player: u8) {
@@ -58,6 +59,186 @@ fn observation(game: &Game, player: u8) -> Observation {
     };
     view
 }
+
+#[test]
+fn departure_revalidates_pending_priority_casts_without_losing_the_journal() {
+    for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
+        for departing in [1, 2, 3] {
+            let mut game = Game::with_trace(prepared(false), mode);
+            let original = game.object_id(CardId(1)).unwrap();
+            respond(&mut game, Response::Cast { card: CardId(1) });
+            let journal = game.journal().to_vec();
+            recover(&game);
+            game.concede(PlayerId(departing)).unwrap();
+            recover(&game);
+            let mut uninterrupted = game.fork();
+            let expected = uninterrupted.advance(Budget::unlimited());
+
+            let outcome = game.advance(Budget::new(1));
+            recover(&game);
+            assert_eq!(game.journal(), journal);
+            assert_eq!(game.object_id(CardId(1)), Some(original));
+            assert_eq!(game.zone(original), Some(Zone::Hand { owner: PlayerId(0) }));
+            assert!(game.state.stack.is_empty());
+            if departing == 3 {
+                // An unrelated departure must preserve the accepted cast.
+                assert_eq!(
+                    outcome,
+                    Advance::Suspended {
+                        required_minimum: 1
+                    }
+                );
+                assert!(game.state.pending.is_some());
+                assert!(matches!(
+                    game.advance(Budget::new(1)),
+                    Advance::AwaitingDecision(Request::Targets { candidates, .. })
+                        if candidates.len() == 1
+                ));
+            } else {
+                // Either removal by the owner or exile by the default
+                // controller's departure invalidates the only target domain.
+                assert!(matches!(
+                    outcome,
+                    Advance::AwaitingDecision(Request::Priority {
+                        player: PlayerId(0),
+                        ..
+                    })
+                ));
+                assert!(game.state.pending.is_none());
+                assert!(matches!(
+                    observation(&game, 0).decision,
+                    Some(PlayerRequest::Priority {
+                        player: PlayerId(0),
+                        ..
+                    })
+                ));
+            }
+            assert_eq!(game.advance(Budget::new(0)), expected);
+            assert_eq!(game.state, uninterrupted.state);
+            assert_eq!(game.trace(), uninterrupted.trace());
+            recover(&game);
+            let replay =
+                Game::replay_with_trace(game.prepared.clone(), &game.replay_journal(), mode)
+                    .unwrap();
+            assert_eq!(game.state, replay.state);
+            assert_eq!(game.trace(), replay.trace());
+        }
+    }
+}
+
+#[test]
+fn queued_departures_finish_before_empty_stack_phase_advancement() {
+    for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
+        let mut game = Game::with_trace(prepared(false), mode);
+        for _ in 0..2 {
+            respond(&mut game, Response::Pass);
+        }
+        assert!(matches!(
+            game.advance(Budget::unlimited()),
+            Advance::AwaitingDecision(Request::Priority {
+                player: PlayerId(2),
+                ..
+            })
+        ));
+        for player in [2, 3, 1] {
+            game.concede(PlayerId(player)).unwrap();
+            recover(&game);
+        }
+        let mut uninterrupted = game.fork();
+        let won = Advance::Finished {
+            winner: PlayerId(0),
+        };
+        assert_eq!(uninterrupted.advance(Budget::unlimited()), won);
+        for remaining in [2, 1] {
+            assert_eq!(
+                game.advance(Budget::new(1)),
+                Advance::Suspended {
+                    required_minimum: 1
+                }
+            );
+            assert_eq!(game.state.pending_concessions.len(), remaining);
+            assert!(matches!(game.state.frame, Frame::Priority));
+            assert!(matches!(
+                game.observe(PlayerId(0), Budget::unlimited()),
+                QueryResult::Rejected(QueryRejection::UnsupportedBoundary)
+            ));
+            recover(&game);
+        }
+        assert_eq!(game.advance(Budget::new(1)), won);
+        assert_eq!(game.live_players(), vec![PlayerId(0)]);
+        assert_eq!(game.state, uninterrupted.state);
+        assert_eq!(game.trace(), uninterrupted.trace());
+        recover(&game);
+        let replay =
+            Game::replay_with_trace(game.prepared.clone(), &game.replay_journal(), mode).unwrap();
+        assert_eq!(game.state, replay.state);
+        assert_eq!(game.trace(), replay.trace());
+    }
+}
+
+#[test]
+fn queued_departures_finish_before_resolution_target_legality_is_captured() {
+    for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
+        let mut game = Game::with_trace(prepared(false), mode);
+        cast(&mut game);
+        select(&mut game);
+        respond(&mut game, Response::FinishMana { undo_mana: false });
+        for _ in 0..3 {
+            respond(&mut game, Response::Pass);
+        }
+        assert!(matches!(
+            game.advance(Budget::unlimited()),
+            Advance::AwaitingDecision(Request::Priority {
+                player: PlayerId(3),
+                ..
+            })
+        ));
+        for player in [3, 1] {
+            game.concede(PlayerId(player)).unwrap();
+            recover(&game);
+        }
+        let mut uninterrupted = game.fork();
+        let expected = uninterrupted.advance(Budget::unlimited());
+        assert_eq!(
+            game.advance(Budget::new(1)),
+            Advance::Suspended {
+                required_minimum: 1
+            }
+        );
+        assert!(matches!(game.state.frame, Frame::Priority));
+        recover(&game);
+        assert_eq!(
+            game.advance(Budget::new(1)),
+            Advance::Suspended {
+                required_minimum: 1
+            }
+        );
+        let Frame::Resolve { frame } = &game.state.frame else {
+            panic!("expected resolution after both departures");
+        };
+        assert_eq!(frame.legal_targets, vec![false]);
+        recover(&game);
+        assert_eq!(game.advance(Budget::new(1)), expected);
+        assert_eq!(game.state, uninterrupted.state);
+        assert_eq!(game.trace(), uninterrupted.trace());
+        assert_eq!(
+            game.zone(game.object_id(CardId(1)).unwrap()),
+            Some(Zone::Graveyard { owner: PlayerId(0) })
+        );
+        if mode == TraceMode::Detailed {
+            assert!(game.events().contains(&Event::SpellCompleted {
+                stack_id: StackId(0),
+                resolved: false
+            }));
+        }
+        recover(&game);
+        let replay =
+            Game::replay_with_trace(game.prepared.clone(), &game.replay_journal(), mode).unwrap();
+        assert_eq!(game.state, replay.state);
+        assert_eq!(game.trace(), replay.trace());
+    }
+}
+
 #[test]
 fn owner_departure_removes_owned_objects_but_retains_physical_and_player_history() {
     let mut game = Game::new(prepared(false));

@@ -405,9 +405,10 @@ impl Game {
                 self.reverse_departure_cast(cast)?;
             }
         }
-        // A departure can invalidate an accepted mana activation before its
-        // rule step. Keep the input journal, discard only the stale proposal.
-        if matches!(self.state.frame, Frame::Mana { .. })
+        // A departure can invalidate an accepted priority cast or mana
+        // activation before its rule step. Keep the input journal, discard
+        // only the stale proposal, and leave valid pending actions intact.
+        if matches!(self.state.frame, Frame::Priority | Frame::Mana { .. })
             && self
                 .state
                 .pending
@@ -416,8 +417,11 @@ impl Game {
         {
             self.state.pending = None;
         }
+        // Drain boundary-ordered concessions before ordinary rules work:
+        // later departures may finish the game or change target legality.
         if matches!(self.state.frame, Frame::Priority)
             && self.state.pending.is_none()
+            && self.state.pending_concessions.is_empty()
             && self.all_live_passed()
         {
             self.begin_resolution()?;
