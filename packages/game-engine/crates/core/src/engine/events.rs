@@ -106,9 +106,26 @@ pub struct PlayerBefore {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PreEventFacts {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commander_damage: Vec<CommanderDamageBefore>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub libraries: Vec<LibraryBefore>,
     pub turn: Option<TurnBefore>,
     pub objects: Vec<ObjectBefore>,
     pub players: Vec<PlayerBefore>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CommanderDamageBefore {
+    pub commander: CardId,
+    pub recipient: PlayerId,
+    pub previous: Quantity,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LibraryBefore {
+    pub owner: PlayerId,
+    pub cards: Vec<CardId>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -158,12 +175,17 @@ enum FactKey {
     Object(CardId),
     Mana(PlayerId),
     Life(PlayerId),
+    CommanderDamage(PlayerId),
+    Libraries,
     AllDamage,
 }
 fn access(event: &ProposedEvent) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
     match event {
-        ProposedEvent::Lose { player, .. } => {
-            let keys = BTreeSet::from([FactKey::Life(*player)]);
+        ProposedEvent::Lose { player, reason } => {
+            let mut keys = BTreeSet::from([FactKey::Life(*player)]);
+            if *reason == PlayerLossReason::CommanderDamage {
+                keys.insert(FactKey::CommanderDamage(*player));
+            }
             (keys.clone(), keys)
         }
         ProposedEvent::DeclareAttackers { attacks } => {
@@ -186,6 +208,7 @@ fn access(event: &ProposedEvent) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
                 match d.recipient {
                     DamageRecipient::Player { player } => {
                         keys.insert(FactKey::Life(player));
+                        keys.insert(FactKey::CommanderDamage(player));
                     }
                     DamageRecipient::Creature { object } => {
                         keys.insert(FactKey::Object(object.card));
@@ -206,10 +229,25 @@ fn access(event: &ProposedEvent) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
             (keys.clone(), keys)
         }
-        ProposedEvent::Untap { object }
-        | ProposedEvent::Tap { object }
-        | ProposedEvent::Move { object, .. }
-        | ProposedEvent::LeaveGame { object, .. } => {
+        ProposedEvent::PutOnTopOwnerLibrary { object } => {
+            let keys = BTreeSet::from([FactKey::Object(object.card), FactKey::Libraries]);
+            (keys.clone(), keys)
+        }
+        ProposedEvent::Move {
+            object,
+            destination: Zone::Library { .. },
+        } => {
+            let keys = BTreeSet::from([FactKey::Object(object.card), FactKey::Libraries]);
+            (keys.clone(), keys)
+        }
+        ProposedEvent::Move { object, .. } | ProposedEvent::LeaveGame { object, .. } => {
+            let keys = BTreeSet::from([FactKey::Object(object.card)]);
+            (
+                BTreeSet::from([FactKey::Object(object.card), FactKey::Libraries]),
+                keys,
+            )
+        }
+        ProposedEvent::Untap { object } | ProposedEvent::Tap { object } => {
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
             (keys.clone(), keys)
         }
@@ -290,10 +328,31 @@ impl Game {
         let mut objects = BTreeSet::new();
         let mut players = BTreeSet::new();
         let mut turn = None;
+        let mut commander_damage = BTreeSet::new();
+        let mut libraries = BTreeSet::new();
         for event in events {
             match event {
-                ProposedEvent::Lose { player, .. } => {
+                ProposedEvent::Lose { player, reason } => {
                     players.insert(*player);
+                    if *reason == PlayerLossReason::CommanderDamage {
+                        commander_damage.extend(
+                            self.state
+                                .commanders
+                                .records
+                                .keys()
+                                .map(|card| (*card, *player)),
+                        );
+                    }
+                }
+                ProposedEvent::PutOnTopOwnerLibrary { object } => {
+                    objects.insert(*object);
+                    libraries.insert(
+                        self.state
+                            .cards
+                            .get(&object.card)
+                            .ok_or("missing library movement card")?
+                            .owner,
+                    );
                 }
                 ProposedEvent::DeclareAttackers { attacks } => {
                     for (o, p) in attacks {
@@ -315,6 +374,11 @@ impl Game {
                         match d.recipient {
                             DamageRecipient::Player { player } => {
                                 players.insert(player);
+                                if self.commander_damage_enabled()
+                                    && self.state.commanders.history(d.source.card).is_some()
+                                {
+                                    commander_damage.insert((d.source.card, player));
+                                }
                             }
                             DamageRecipient::Creature { object } => {
                                 objects.insert(object);
@@ -420,7 +484,35 @@ impl Game {
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
+        let commander_damage = commander_damage
+            .into_iter()
+            .map(|(commander, recipient)| CommanderDamageBefore {
+                commander,
+                recipient,
+                previous: self
+                    .state
+                    .commanders
+                    .history(commander)
+                    .and_then(|history| history.combat_damage.get(&recipient))
+                    .cloned()
+                    .unwrap_or_default(),
+            })
+            .collect();
+        let libraries = libraries
+            .into_iter()
+            .map(|owner| LibraryBefore {
+                owner,
+                cards: self
+                    .state
+                    .libraries
+                    .get(&owner)
+                    .cloned()
+                    .unwrap_or_default(),
+            })
+            .collect();
         Ok(PreEventFacts {
+            commander_damage,
+            libraries,
             turn,
             objects,
             players,
@@ -557,6 +649,21 @@ impl Game {
             _ => Err("movement outcome invariant".into()),
         }
     }
+    pub(super) fn move_instruction_object(
+        &mut self,
+        object: ObjectId,
+        destination: Zone,
+        cause: BatchCause,
+    ) -> Result<MoveOutcome, String> {
+        if matches!(destination, Zone::Library { .. }) {
+            match self.commit(ProposedEvent::PutOnTopOwnerLibrary { object }, cause)? {
+                EventOutcome::LibraryTopMoved { movement, .. } => Ok(movement),
+                _ => Err("missing top-library movement outcome".into()),
+            }
+        } else {
+            self.move_object_for(object, destination, cause)
+        }
+    }
     #[cfg(test)]
     pub(super) fn move_object(
         &mut self,
@@ -570,11 +677,55 @@ impl Game {
 impl Game {
     fn apply_occurrence(&mut self, proposed: &ProposedEvent) -> Result<EventOutcome, String> {
         let actual = match proposed {
+            ProposedEvent::PutOnTopOwnerLibrary { object } => {
+                if !self.prepared.config.library_profile() {
+                    return Err("unsupported top-library movement profile".into());
+                }
+                let owner = self
+                    .state
+                    .cards
+                    .get(&object.card)
+                    .ok_or("missing top-library card")?
+                    .owner;
+                let previous_top = self
+                    .state
+                    .libraries
+                    .get(&owner)
+                    .and_then(|cards| cards.first())
+                    .copied();
+                let EventOutcome::Moved { movement } =
+                    self.apply_occurrence(&ProposedEvent::Move {
+                        object: *object,
+                        destination: Zone::Library { owner },
+                    })?
+                else {
+                    return Err("top-library movement invariant".into());
+                };
+                let cards = self
+                    .state
+                    .libraries
+                    .get_mut(&owner)
+                    .ok_or("missing owner library")?;
+                cards.retain(|card| *card != object.card);
+                cards.insert(0, object.card);
+                EventOutcome::LibraryTopMoved {
+                    movement,
+                    previous_top,
+                }
+            }
             ProposedEvent::Lose { player, reason } => {
                 if !self.is_live(*player)
                     || match reason {
                         PlayerLossReason::Life => {
                             self.state.players[player.0 as usize].life > Quantity::zero()
+                        }
+                        PlayerLossReason::CommanderDamage => {
+                            !self.commander_damage_enabled()
+                                || !self
+                                    .state
+                                    .commanders
+                                    .combat_loss_candidates()
+                                    .contains(player)
                         }
                         PlayerLossReason::FailedDraw => {
                             !self.state.players[player.0 as usize].failed_draw
@@ -962,6 +1113,7 @@ impl Game {
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     fn apply_damage(&mut self, damage: &[DamageOccurrence]) -> Result<EventOutcome, String> {
         let mut totals: BTreeMap<(u8, u32), Quantity> = BTreeMap::new();
+        let mut commander_totals: BTreeMap<(CardId, PlayerId), Quantity> = BTreeMap::new();
         for d in damage {
             if !self.target_legal(d.source)
                 || self.current(d.source)?.controller != d.controller
@@ -972,11 +1124,19 @@ impl Game {
             }
             let key = match d.recipient {
                 DamageRecipient::Player { player } => {
-                    if self.state.commanders.history(d.source.card).is_some() {
+                    if self.state.commanders.history(d.source.card).is_some()
+                        && !self.commander_damage_enabled()
+                    {
                         return Err("unsupported commander combat damage to player".into());
                     }
                     if !self.is_live(player) {
                         return Err("departed damage recipient".into());
+                    }
+                    if self.state.commanders.history(d.source.card).is_some() {
+                        commander_totals
+                            .entry((d.source.card, player))
+                            .or_default()
+                            .add(&d.amount);
                     }
                     (0, u32::from(player.0))
                 }
@@ -1017,9 +1177,37 @@ impl Game {
                 current,
             });
         }
+        let mut commander_damage = vec![];
+        for ((commander, recipient), amount) in commander_totals {
+            let previous = self
+                .state
+                .commanders
+                .history(commander)
+                .and_then(|history| history.combat_damage.get(&recipient))
+                .cloned()
+                .unwrap_or_default();
+            self.state
+                .commanders
+                .record_damage(commander, recipient, true, &amount)?;
+            let current = self
+                .state
+                .commanders
+                .history(commander)
+                .and_then(|history| history.combat_damage.get(&recipient))
+                .cloned()
+                .ok_or("missing actual Commander damage")?;
+            commander_damage.push(CommanderDamageResult {
+                commander,
+                recipient,
+                amount,
+                previous,
+                current,
+            });
+        }
         Ok(EventOutcome::DamageDealt {
             damage: damage.to_vec(),
             results,
+            commander_damage,
         })
     }
 }

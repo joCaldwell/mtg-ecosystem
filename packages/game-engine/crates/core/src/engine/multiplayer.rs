@@ -94,8 +94,8 @@ impl CommanderLedger {
         }
         Ok(())
     }
-    #[cfg(test)]
-    // Domain ledger contract only; Commander combat damage remains unsupported.
+    // Only the typed actual combat-damage path records production history.
+    // The boolean also lets private domain tests prove noncombat exclusion.
     pub(super) fn record_damage(
         &mut self,
         card: CardId,
@@ -105,6 +105,9 @@ impl CommanderLedger {
     ) -> Result<(), String> {
         if actual.is_negative() || recipient.0 >= 4 {
             return Err("invalid actual damage fact".into());
+        }
+        if *actual == Quantity::zero() {
+            return Ok(());
         }
         if combat && let Some(h) = self.records.get_mut(&card) {
             h.combat_damage.entry(recipient).or_default().add(actual);

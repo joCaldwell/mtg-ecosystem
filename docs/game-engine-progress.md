@@ -601,8 +601,10 @@ general replacement/trigger consumers and additional SBA families still need the
 source/runtime slices. Commander designation/history and departure
 foundations are implemented in the bounded follow-up described above. Command-zone
 casting/tax and hand/graveyard/exile owner return choices are now implemented in
-the three exact [Commander profiles](game-engine-commander-casting.md);
-Commander combat-damage accounting and library-return replacement remain later mechanics;
+the three exact [Commander casting profiles](game-engine-commander-casting.md).
+Three additional [damage/library profiles](game-engine-commander-damage-library.md)
+now implement physical Commander combat-damage accounting, its loss check,
+library-top replacement and the subsequent draw replacement;
 ordinary creature combat is implemented in the reviewed combat configurations.
 Recovery still replays the small scenario to prove reachability. Rules work units
 are not wall-clock or process-memory guarantees; larger profiles require measured
@@ -620,8 +622,9 @@ and resolution-time choices. Ordinary supported instant responses, casting-time
 intrinsic mana, and the bounded turns/land/targetless-creature loop, ordinary combat, damage/SBAs,
 ordered draws, cleanup and complete small scenario games are now implemented for
 exact configurations, now including command casting/tax and connected return/recast
-choices; broader stack/cost families remain. P4 still needs Commander damage,
-library replacement and broader event interactions. P5 validates full legal decks/pods, a closed reachable pool,
+choices; broader stack/cost families remain. P4 still needs general replacement/
+prevention families, trigger scheduling/APNAP, continuous effects and broader
+event interactions. P5 validates full legal decks/pods, a closed reachable pool,
 and seeded complete games. Unsupported runtime paths currently fault or reject;
 legal-match mode is rejected. Random operations, search, server, and UI remain
 outside this first slice. No product decision currently blocks P2 work.
@@ -777,3 +780,119 @@ Commander-to-player combat damage faults before committing damage; library-retur
 replacement, general replacement ordering/triggers, arbitrary decks and full
 legal Commander matches remain unsupported. This advances connected P3/P4
 scenario evidence and does not claim either broad milestone complete.
+
+
+## Commander combat damage and library/draw replacement — October 15, 2026
+
+The prior Commander casting delivery `ee93696` was fast-forward merged into local
+main before this work began. All 368 unrelated modified/untracked paths were
+hash-checked unchanged by that merge. This follow-up is isolated in
+`feat/engine-commander-damage-library`.
+
+The [frozen damage/library contract](game-engine-commander-damage-library.md)
+is implemented for three additional exact four-seat profiles. Authentic historical
+Time Ebb and Yargle and Multani records were extracted from the existing pinned
+archive, with complete source/AST/provenance verification. No parser source was
+changed. The original five- and six-definition catalogs are unchanged; damage
+uses a separate seven-definition IR v3 catalog, while library movement uses a
+seven-definition IR v4 catalog. Rust and generated JSON Schema reject the new
+sorcery/library vocabulary under v3, and runtime admission enforces each exact
+profile's catalog and version separately.
+
+Actual combat damage now updates a physical commander's per-recipient ledger
+through the existing atomic damage interpreter. Typed evidence retains consumed
+history and actual changes. The next SBA wave includes Commander damage loss at
+21 alongside ordinary life and failed-draw losses, before simultaneous departures
+and outcome adjudication. New profiles enable this mechanic; historical Commander
+profiles retain their explicitly frozen unsupported boundary.
+Yargle and Multani starts on the battlefield with empty history: its first hit
+leaves P2 live at 22 life with 18 Commander damage; the second leaves 4 life and
+36 Commander damage, causing a Commander-damage loss. Borrowed-controller runs
+then concede P1 and demonstrate exile/owner return while preserving physical
+history for the departed recipient. Its printed {3}{B}{B}{G} cost is preserved;
+monochromatic profile resources cannot successfully recast it, and paired failed
+casts reverse correctly without growing tax.
+
+Time Ebb lowers its complete sorcery program to explicit owner-library-top
+movement using ordinary main-phase timing and existing targeting/payment paths.
+Library insertion retains the previous top and order. Owner replacement accepts
+command directly or declines into the library. Drawing that commander then
+requires a second, independent replacement under CR 903.9b. The draw continuation
+moves the original top exactly once to hand or command and preserves the next
+card. Its public request carries an existing viewer-scoped commander designation
+and `object: None`, never a hidden library row or handle. Visible-zone choices
+carry `Some(handle)`. Hand and command recasts use their actual origins and the
+existing tax ledger. A noncommander Bears witness proves top placement and an
+ordinary draw without Commander choices.
+
+Seven new reviewed journals retain these results:
+
+| Policy | Decisions | Events | Recovery boundaries |
+| --- | ---: | ---: | ---: |
+| `commander_damage` | 159 | 406 | 574 |
+| `borrowed_return` | 193 | 498 | 700 |
+| `borrowed_decline` | 193 | 497 | 700 |
+| `tuck_return` | 51 | 114 | 172 |
+| `draw_return` | 52 | 114 | 174 |
+| `draw_hand_cast` | 52 | 114 | 174 |
+| `ordinary_tuck` | 72 | 178 | 255 |
+
+The **2,749 new recovery boundaries** retain decision count, concession prefix,
+rule boundary and semantic hash; full journals/final snapshots reconstruct every
+exact continuation. Expected events, observations, choices, first-hit evidence
+and physical histories are in
+`packages/game-engine/tests/fixtures/expected-damage-library-scenario.json`.
+Historical gameplay events, journals, final semantic hashes and diagnostic
+verification references pass against unchanged fixtures; projection comparisons
+adjust only their explicit version tags. Recovery formats are snapshot v10,
+bundle v11, projection/context v8 and query-sidecar v7.
+
+Completed verification:
+
+- `npm run check:engine`: formatting, Clippy with warnings denied, all **184 Rust
+  tests** and **11 Node cross-language/CLI checks** passed.
+- `cargo test --workspace --locked --release`: all **184 Rust tests** passed.
+- **11 additional independent admission/adversarial tests** cover catalog/version
+  boundaries, source/owner departure before and after accepted choices, stale
+  handles/receipts, hidden-draw query recovery, failed mixed-cost casts and forged
+  ordered-library/continuation snapshots without panics. Private typed-event
+  tests cover exact 20/21 boundaries, independent physical sources/recipients,
+  life/noncombat distinctions, control/zone persistence, simultaneous losses and
+  atomic damage/library-order conflicts.
+- All seven policies agree across one-unit/unlimited execution and resumed query
+  budgets with off/compact/detailed tracing. Independent ordered replay restores
+  every new boundary, and standalone final restore matches detailed journal
+  replay. Missing/reordered policy coverage, missing checkpoints, forged roots
+  and fully formed changed unsupported records reject.
+- `npm run retain:engine`: retained **69 native source/fixture files** and all
+  **1,581 dependency files**, rebuilt with frozen/offline Cargo from an initially
+  empty Cargo home and fresh target, then verified with that rebuilt executable.
+  Evidence covers **78 trace-mode executions** across 13 exact configurations,
+  all **4,621 combat/Commander recovery boundaries** (1,421 historical combat,
+  451 prior Commander, 2,749 new), legacy checkpoints, all four exact source-to-IR
+  catalogs and the retained query sidecar.
+- Independent final audit recomputed the build closure, every embedded/worktree/
+  retained source hash, four catalog/profile/schema bindings, exact source arrays,
+  trace/state bindings, pinned rules, all dependency hashes, executable and bundle
+  checksums. The retained manifest copies, offline flags and replay result match.
+  No review findings remain unresolved.
+
+Retained release identities:
+
+- Build: `154b26c4611f36c767dd757698f8f3499e5652c38e385dba3d18d473aa5a5e76`.
+- Replay bundle: `05eba9cedd81fa2ecb0465a347b4e29600b31c0acf2492c29fa46890d8ef63be`.
+- Rebuilt executable: `4c57ccaca689c373ba13347de9861a87da16b30b1afc69c378149d608f550016`.
+- Dependency manifest: `387384711d404f44993e8ab583e269c5105d1cc8b583307e3035f14e03d7474f`.
+- Historical baseline final state: `58a0a241c4662d403dec8944430c1fe402c7fd15d22a2ce242c9a0b01d54f657`.
+
+Retained closure: `/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-05eba9cedd81fa2e-yJM9s4/`.
+Its `evidence.json` records hashes and offline verification;
+`generated/p2-retention.json` and `generated/damage-library-verification/` contain
+ignored worktree summaries and gate logs. Downloaded rules, dependency/source
+closures, executables and replay bundles remain outside version control.
+
+This new delivery is committed locally for review and is not merged. It advances
+P3/P4 scenario evidence; arbitrary decks, general replacement/prevention ordering,
+triggers/APNAP, continuous effects, mixed-color spending choices, shuffle/mulligan
+setup and full legal Commander match admission remain later work. Source-backed
+small scenarios are not P5 match-support evidence or a performance guarantee.

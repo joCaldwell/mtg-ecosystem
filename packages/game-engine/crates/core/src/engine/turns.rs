@@ -224,6 +224,9 @@ impl Game {
                         .and_then(|v| v.first())
                         .copied()
                     {
+                        if self.offer_commander_draw(player, card)? {
+                            return Ok(());
+                        }
                         self.move_object_for(
                             self.object_id(card).ok_or("missing library object")?,
                             Zone::Hand { owner: player },

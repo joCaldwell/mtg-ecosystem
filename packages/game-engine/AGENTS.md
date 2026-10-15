@@ -26,6 +26,13 @@ owner hand-replacement and fresh graveyard/exile SBA return choices, and recasti
 Snapshot v9, bundle v10, projection v7 and query-sidecar v6 retain these choices.
 Historical profiles retain their separate five-definition catalog.
 
+`docs/game-engine-commander-damage-library.md` adds three exact profiles with
+physical Commander combat-damage accumulation/loss and Time Ebb library-top
+movement. Damage uses a separate seven-definition IR v3 catalog; library uses
+another seven-definition IR v4 catalog with sorcery timing and explicit top
+placement. Snapshot v10, bundle v11, projection/context v8 and query-sidecar v7
+retain damage facts and mandatory library-to-hand draw replacement choices.
+
 Run from repository root, using pinned Rust 1.99.0:
 
 - `npm run check:engine`: toolchain check, formatting, Clippy, Rust tests, and
@@ -73,10 +80,12 @@ Default control is separate from ownership and explicit control grants.
 Command-zone casting/tax and hand/graveyard/exile return choices are supported
 only in the three exact Commander profiles. A failed cast restores its original
 zone/incarnation; completing a command-origin cast alone advances physical,
-per-caster tax history. Commander-to-player combat damage remains unsupported
-and faults atomically. Library-return replacements and general Commander match
-support remain later work. Ordinary combat is enabled in the reviewed combat
-and Commander profiles.
+per-caster tax history. The three newer damage/library profiles accumulate
+actual Commander combat damage and apply the 21-damage SBA loss rule. Earlier
+Commander profiles retain their explicit damage fault. Library replacement is
+enabled only for the reviewed Time Ebb and subsequent draw paths. General
+replacement ordering and legal Commander matches remain later work. Ordinary
+combat is enabled in the reviewed combat and Commander profiles.
 
 Batch mutation is private and atomic. Capture consumed pre-event facts and use
 actual typed outcome slots. Simultaneous groups admit independent read/write
@@ -126,3 +135,14 @@ opportunity. Drain concessions and revalidate pending choices before exposing
 queries. Source departure preserves a started resolution; owner departure never
 resurrects an object. Queries and recovered validation work retain executor/state
 scoping at these choices.
+
+Drawing a tucked commander requires a second owner replacement under CR 903.9b.
+The request uses an existing viewer-scoped public designation and an optional
+object handle: hidden-library draws carry `None`, visible-zone choices carry
+`Some(handle)`. Never reveal library rows or mint hidden object handles. Complete
+one draw attempt once, preserving the next library card when the move is replaced.
+Explicit library-top events retain prior ordering and cannot compose with a
+conflicting order write. Commander damage belongs to the physical source and
+recipient, survives zone/controller changes, and never derives from life changes.
+Validate the entire simultaneous damage group before writing life/history; freeze
+all simultaneous loss candidates before departures and outcome adjudication.

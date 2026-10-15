@@ -12,6 +12,10 @@ const SPELL: &str = "837182db-1bf3-4a2c-bd01-1af9d9873561";
 const BEARS: &str = "14c8f55d-d177-4c25-a931-ebeb9e6062a0";
 const PLAINS: &str = "bc71ebf6-2056-41f7-be35-b2e5c34afa99";
 const PLAINS_DIGEST: &str = "a72923bdb28920f11bacc3fb63f30f2eef3b26dbd08b61946c4f781edc0236e6";
+const TIME_EBB: &str = "30cc8f7b-3c28-40f5-8f8f-157e8212280b";
+const TIME_EBB_DIGEST: &str = "598891468a018c726036a5c65d64c81df04f18c0f087fa5774e40d38b2372d00";
+const YARGLE: &str = "980e1721-3717-4425-95a4-938dbf2ac661";
+const YARGLE_DIGEST: &str = "ab78799601f1a0f903ebaa63b1a4ce9681fe85b22bb1df3bb73b91a28df6f41e";
 const ISAMARU: &str = "cfb756dd-6fe1-430a-8f04-8b10cac62a86";
 // Reviewed canonical definition digests, independent of compiler success.
 const ALLOWED: [(&str, &str); 5] = [
@@ -46,6 +50,8 @@ use commander::CommanderContinuation;
 mod combat;
 #[cfg(test)]
 mod combat_tests;
+#[cfg(test)]
+mod commander_damage_library_tests;
 #[cfg(test)]
 mod commander_tests;
 mod scenarios;
@@ -260,15 +266,27 @@ impl Prepared {
             && config != ScenarioConfig::command_casting()
             && config != ScenarioConfig::commander_lifecycle()
             && config != ScenarioConfig::commander_exile()
+            && config != ScenarioConfig::commander_damage()
+            && config != ScenarioConfig::commander_damage_borrowed()
+            && config != ScenarioConfig::commander_library()
         {
             return Err(
                 "configuration is outside the reviewed four-seat scenario; no match admission"
                     .into(),
             );
         }
+        if catalog.schema_version != if config.library_profile() { 4 } else { 3 } {
+            return Err("catalog version is not admitted by this exact profile".into());
+        }
         let mut allowed = ALLOWED.to_vec();
         if config.commander_profile() {
             allowed.push((PLAINS, PLAINS_DIGEST));
+        }
+        if config.damage_profile() {
+            allowed.push((YARGLE, YARGLE_DIGEST));
+        }
+        if config.library_profile() {
+            allowed.push((TIME_EBB, TIME_EBB_DIGEST));
         }
         if catalog.definitions.len() != allowed.len() {
             return Err("definition pool is not the closed reviewed scenario pool".into());
@@ -537,6 +555,9 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    PutOnTopOwnerLibrary {
+        object: ObjectId,
+    },
     Lose {
         player: PlayerId,
         reason: PlayerLossReason,
@@ -612,6 +633,10 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    LibraryTopMoved {
+        movement: MoveOutcome,
+        previous_top: Option<CardId>,
+    },
     Lost {
         player: PlayerId,
         reason: PlayerLossReason,
@@ -626,6 +651,8 @@ pub enum EventOutcome {
     DamageDealt {
         damage: Vec<DamageOccurrence>,
         results: Vec<DamageResult>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        commander_damage: Vec<CommanderDamageResult>,
     },
     DrawFailed {
         player: PlayerId,
@@ -1110,7 +1137,7 @@ impl Game {
                 if program.timing == SpellTiming::MainPhase
                     && (!self.turns_enabled() || !self.main_phase_action(player))
                 {
-                    return Err("creature casting requires active-player main-phase priority and empty stack".into());
+                    return Err("main-phase spell casting requires active-player main-phase priority and empty stack".into());
                 }
                 // Restrict targeted proposals to spells with an eligible target;
                 // the target-stage request never waits for an impossible choice.
@@ -1419,6 +1446,10 @@ impl Game {
                         Instruction::ReturnToOwnerHand {
                             target_slot,
                             source_block,
+                        }
+                        | Instruction::PutOnTopOwnerLibrary {
+                            target_slot,
+                            source_block,
                         } => {
                             let target = stack.targets[*target_slot as usize];
                             let outcome = if !frame.legal_targets[*target_slot as usize] {
@@ -1427,13 +1458,21 @@ impl Game {
                                 InstructionOutcome::ObjectNoLongerPresent { target }
                             } else {
                                 let owner = self.state.cards[&target.card].owner;
+                                let destination = if matches!(
+                                    instruction,
+                                    Instruction::PutOnTopOwnerLibrary { .. }
+                                ) {
+                                    Zone::Library { owner }
+                                } else {
+                                    Zone::Hand { owner }
+                                };
                                 if self.commander_enabled()
                                     && self.state.commanders.history(target.card).is_some()
                                 {
                                     self.state.frame = Frame::CommanderReturn {
                                         object: target,
-                                        destination: Zone::Hand { owner },
-                                        continuation: Box::new(CommanderContinuation::Hand {
+                                        destination,
+                                        continuation: Box::new(CommanderContinuation::SpellMove {
                                             frame,
                                             source_block: *source_block,
                                         }),
@@ -1441,9 +1480,9 @@ impl Game {
                                     return Ok(());
                                 }
                                 InstructionOutcome::Moved {
-                                    movement: self.move_object_for(
+                                    movement: self.move_instruction_object(
                                         target,
-                                        Zone::Hand { owner },
+                                        destination,
                                         BatchCause::Instruction {
                                             stack_id: stack.id,
                                             player: stack.controller,
@@ -1599,7 +1638,7 @@ impl Game {
     pub fn snapshot_with_digest(&self) -> Result<(String, String), String> {
         let state_sha256 = self.state_digest()?;
         let json = canonical(&SnapshotRef {
-            snapshot_version: 9,
+            snapshot_version: 10,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -1611,7 +1650,7 @@ impl Game {
     }
     fn read_snapshot(prepared: Prepared, json: &str) -> Result<(Self, String), String> {
         let s: Snapshot = strict_read(json)?;
-        if s.snapshot_version != 9
+        if s.snapshot_version != 10
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

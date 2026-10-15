@@ -38,8 +38,19 @@ pub enum CreatureLossReason {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PlayerLossReason {
+    CommanderDamage,
     Life,
     FailedDraw,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CommanderDamageResult {
+    pub commander: CardId,
+    pub recipient: PlayerId,
+    pub amount: Quantity,
+    pub previous: Quantity,
+    pub current: Quantity,
 }
 
 impl Game {
@@ -425,6 +436,10 @@ impl Game {
                     Some((p, PlayerLossReason::Life))
                 } else if x.failed_draw {
                     Some((p, PlayerLossReason::FailedDraw))
+                } else if self.commander_damage_enabled()
+                    && self.state.commanders.combat_loss_candidates().contains(&p)
+                {
+                    Some((p, PlayerLossReason::CommanderDamage))
                 } else {
                     None
                 }

@@ -91,6 +91,7 @@ pub enum CardKind {
     Land,
     Creature,
     Instant,
+    Sorcery,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -119,6 +120,8 @@ pub enum Capability {
     CastCreatureV1,
     CreatureTargetV1,
     OwnerHandMoveV1,
+    CastSorceryV1,
+    OwnerLibraryTopMoveV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -156,6 +159,7 @@ pub struct TargetSpec {
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
     ReturnToOwnerHand { target_slot: u32, source_block: u32 },
+    PutOnTopOwnerLibrary { target_slot: u32, source_block: u32 },
 }
 /// Supported announcement timing; permissions are checked by the runtime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -218,12 +222,23 @@ impl Definition {
                     set.insert(Capability::CommanderIdentityV1);
                 }
             }
-            CardKind::Instant => {
-                set.extend([
-                    Capability::CastInstantV1,
-                    Capability::CreatureTargetV1,
-                    Capability::OwnerHandMoveV1,
-                ]);
+            CardKind::Instant | CardKind::Sorcery => {
+                set.insert(if self.characteristics.kind == CardKind::Instant {
+                    Capability::CastInstantV1
+                } else {
+                    Capability::CastSorceryV1
+                });
+                set.insert(Capability::CreatureTargetV1);
+                if let Some(program) = &self.spell {
+                    for instruction in &program.instructions {
+                        set.insert(match instruction {
+                            Instruction::ReturnToOwnerHand { .. } => Capability::OwnerHandMoveV1,
+                            Instruction::PutOnTopOwnerLibrary { .. } => {
+                                Capability::OwnerLibraryTopMoveV1
+                            }
+                        });
+                    }
+                }
             }
         }
         set
@@ -282,7 +297,7 @@ impl Definition {
                     return Err("unsupported creature spell semantics".into());
                 }
             }
-            CardKind::Instant => {
+            CardKind::Instant | CardKind::Sorcery => {
                 if c.legendary
                     || c.basic
                     || !c.subtypes.is_empty()
@@ -290,11 +305,16 @@ impl Definition {
                     || c.toughness.is_some()
                     || self.intrinsic_zone.is_some()
                 {
-                    return Err("unsupported instant characteristics".into());
+                    return Err("unsupported instant/sorcery characteristics".into());
                 }
                 let p = self.spell.as_ref().ok_or("missing spell program")?;
                 if p.functioning_zone != FunctioningZone::Stack
-                    || p.timing != SpellTiming::Instant
+                    || p.timing
+                        != if c.kind == CardKind::Instant {
+                            SpellTiming::Instant
+                        } else {
+                            SpellTiming::MainPhase
+                        }
                     || p.resolution != SpellResolution::Instructions
                     || p.targets.is_empty()
                     || p.instructions.is_empty()
@@ -311,7 +331,9 @@ impl Definition {
                     }
                 }
                 let mut used = BTreeSet::new();
-                for Instruction::ReturnToOwnerHand { target_slot, .. } in &p.instructions {
+                for instruction in &p.instructions {
+                    let (Instruction::ReturnToOwnerHand { target_slot, .. }
+                    | Instruction::PutOnTopOwnerLibrary { target_slot, .. }) = instruction;
                     if (*target_slot as usize) >= p.targets.len() {
                         return Err("unbound target slot".into());
                     }
@@ -338,7 +360,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 3, max = 3))]
+    #[schemars(range(min = 3, max = 4))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -346,7 +368,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if self.schema_version != 3
+        if !matches!(self.schema_version, 3 | 4)
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -355,6 +377,16 @@ impl Catalog {
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
             d.validate()?;
+            if self.schema_version == 3
+                && (d.characteristics.kind == CardKind::Sorcery
+                    || d.spell.as_ref().is_some_and(|program| {
+                        program.instructions.iter().any(|instruction| {
+                            matches!(instruction, Instruction::PutOnTopOwnerLibrary { .. })
+                        })
+                    }))
+            {
+                return Err("IR v3 does not support sorcery/library-top semantics".into());
+            }
             if !ids.insert(&d.oracle_id) {
                 return Err("duplicate Oracle identity".into());
             }
@@ -377,7 +409,7 @@ impl Catalog {
 pub fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
-/// IR v3 canonicalization (same algorithm as v1/v2): UTF-8 compact serde_json Value (sorted object keys),
+/// IR v3/v4 canonicalization (same algorithm as v1/v2): UTF-8 compact serde_json Value (sorted object keys),
 /// ordered arrays, exact quantities as strings. Separate from JS archive hashes.
 pub fn canonical<T: Serialize>(value: &T) -> Result<String, String> {
     serde_json::to_value(value)
@@ -388,7 +420,24 @@ pub fn digest<T: Serialize>(value: &T) -> Result<String, String> {
     Ok(sha256(canonical(value)?.as_bytes()))
 }
 pub fn catalog_schema() -> serde_json::Value {
-    serde_json::to_value(schemars::schema_for!(Catalog)).expect("schema is JSON")
+    let mut schema = serde_json::to_value(schemars::schema_for!(Catalog)).expect("schema is JSON");
+    // Catalog versions share unchanged definition shapes. Restrict the v3
+    // vocabulary explicitly so schema validation cannot downgrade v4 programs.
+    // https://json-schema.org/understanding-json-schema/reference/conditionals
+    schema["allOf"] = serde_json::json!([{
+        "if": {"required": ["schema_version"], "properties": {"schema_version": {"const": 3}}},
+        "then": {"properties": {"definitions": {"items": {"properties": {
+            "characteristics": {"properties": {"kind": {"enum": [CardKind::Land, CardKind::Creature, CardKind::Instant]}}},
+            "capabilities": {"items": {"enum": [Capability::NormalLayoutV1, Capability::BasicLandManaV1,
+                Capability::LandPlayV1, Capability::BaseCreatureV1, Capability::CommanderIdentityV1,
+                Capability::CastInstantV1, Capability::CastCreatureV1, Capability::CreatureTargetV1,
+                Capability::OwnerHandMoveV1]}},
+            "spell": {"anyOf": [{"type": "null"}, {"type": "object", "properties": {
+                "instructions": {"items": {"properties": {"op": {"enum": ["return_to_owner_hand"]}}}}
+            }}]}
+        }}}}}
+    }]);
+    schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
     let _: UniqueJson = serde_json::from_str(json).map_err(|e| e.to_string())?;

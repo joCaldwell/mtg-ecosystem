@@ -170,7 +170,7 @@ fn declined_hand_replacement_allows_untaxed_hand_cast_and_scoped_owner_choice() 
     assert!(branch.submit(receipt).is_err());
     answer(&mut g, Response::CommanderReturn { to_command: false });
     settle(&mut g);
-    assert!(g.resolve_handle(PlayerId(0), &object).is_err());
+    assert!(g.resolve_handle(PlayerId(0), &object.unwrap()).is_err());
     assert!(matches!(
         g.check_player_response(
             PlayerId(0),
@@ -374,7 +374,7 @@ fn commander_metadata_and_continuations_cannot_be_forged() {
             }
             _ => {
                 if let Frame::CommanderReturn { continuation, .. } = &mut snapshot.state.frame
-                    && let CommanderContinuation::Hand { frame, .. } = continuation.as_mut()
+                    && let CommanderContinuation::SpellMove { frame, .. } = continuation.as_mut()
                 {
                     frame.cursor = 1;
                 }

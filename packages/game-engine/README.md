@@ -43,7 +43,16 @@ player-facing policy witnesses cover keep/undo, hand recast, lethal combat, and
 default-controller departure. The original profiles keep their five-definition
 catalog and gameplay references.
 
-Legal Commander matches, Commander combat damage, library-return replacement, keywords,
+The [damage and library slice](../../docs/game-engine-commander-damage-library.md)
+adds three exact profiles with source-backed Yargle and Multani and Time Ebb.
+Actual Commander combat damage updates physical history and causes a loss at 21.
+Time Ebb uses sorcery timing and explicit ordered-library top placement, including
+owner replacement and the second owner choice when drawing the tucked commander.
+Hidden draw choices expose a public designation and no library object handle.
+Seven more policies demonstrate natural damage losses, borrowed-source departure,
+replacement/draw/recasting branches, and ordinary creature tuck/draw.
+
+Legal Commander matches, keywords,
 triggers, general replacements/prevention, continuous effects, shuffling and arbitrary
 deck admission remain later work:
 
@@ -63,11 +72,14 @@ cargo test --workspace --locked --release
 cargo run --locked -p mtg-sim -- demo
 cargo run --locked --release -p mtg-sim -- combat-games
 cargo run --locked --release -p mtg-sim -- commander-games --recover
+cargo run --locked --release -p mtg-sim -- damage-library-games --recover
 cargo run --locked --release -p mtg-sim -- demo --bundle generated/p2-bundles
 ```
 
 `mtg-sim compile` emits the historical fixture catalog; `compile-commander` emits
-the extended catalog. `schema` exports their generated
+that six-definition catalog. `compile-damage` and `compile-library` emit the
+separate seven-definition catalogs. The damage catalog remains IR v3; the library
+catalog uses IR v4 for sorcery timing and explicit top placement. `schema` exports their generated
 JSON Schema; `report` includes the paired unsupported source definition;
 `verify-bundle <file>` recompiles retained records and checks recovery/replay
 against their pinned build. The demo bundle includes recovery checkpoints for the original and departure
@@ -77,6 +89,9 @@ modes, plus four combat policy witnesses (thirty-six mode executions across
 seven historical configurations), plus seven Commander witnesses and twenty-one
 additional trace-mode runs in three new configurations. `commander-games --recover`
 restores all 451 Commander checkpoints, including queued/pending input boundaries.
+The damage/library suite adds 2,749 recovery boundaries and twenty-one trace runs,
+for 78 retained trace-mode executions in all. `damage-library-games --recover`
+checks every new boundary, including recorded concessions, with independent replay.
 `combat-games --recover` additionally restores every
 accepted-input and automatic execution boundary. Combat recovery records retain
 complete journals plus boundary/digest witnesses; offline verification reconstructs
@@ -101,9 +116,9 @@ capture; runtime and replay never fetch rules.
 unimplemented bulk pipeline.
 
 The test profile is optimized at level 2 with debug assertions and overflow checks
-enabled. Bundle v10 records the effective optimization/check settings for its build
-identity and offline rebuild, both exact source catalogs, and all 57 trace-mode
-runs. Snapshots are v9, player projections v7 and query sidecars v6.
+enabled. Bundle v11 records the effective optimization/check settings for its build
+identity and offline rebuild, all four exact source catalogs, and all 78 trace-mode
+runs. Snapshots are v10, player projections v8 and query sidecars v7.
 `SnapshotVerifier` verifies ordered checkpoint sequences using
 one independent forward replay while applying the complete standalone restore
 checks at every boundary. Histories share immutable chunks across native forks;

@@ -78,7 +78,8 @@ pub enum PlayerRequest {
     CommanderReturn {
         token: DecisionToken,
         player: PlayerId,
-        object: ObjectHandle,
+        object: Option<ObjectHandle>,
+        designation: String,
         destination: Zone,
     },
     Attackers {
@@ -431,7 +432,8 @@ impl Game {
                 Ok(Some(PlayerRequest::CommanderReturn {
                     token,
                     player: viewer,
-                    object: self.handle_for(viewer, *object)?,
+                    object: self.handle_for(viewer, *object).ok(),
+                    designation: self.commander_designation(viewer, object.card)?,
                     destination: *destination,
                 }))
             }

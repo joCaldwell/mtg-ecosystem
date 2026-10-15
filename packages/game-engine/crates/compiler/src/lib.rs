@@ -44,6 +44,32 @@ pub mod fixtures {
             include_str!("../../../tests/fixtures/plains.json"),
         ),
     ];
+    pub const LIBRARY_RECORDS: [(&str, &str); 8] = [
+        COMMANDER_RECORDS[0],
+        COMMANDER_RECORDS[1],
+        COMMANDER_RECORDS[2],
+        COMMANDER_RECORDS[3],
+        COMMANDER_RECORDS[4],
+        COMMANDER_RECORDS[5],
+        COMMANDER_RECORDS[6],
+        (
+            "time-ebb",
+            include_str!("../../../tests/fixtures/time-ebb.json"),
+        ),
+    ];
+    pub const DAMAGE_RECORDS: [(&str, &str); 8] = [
+        COMMANDER_RECORDS[0],
+        COMMANDER_RECORDS[1],
+        COMMANDER_RECORDS[2],
+        COMMANDER_RECORDS[3],
+        COMMANDER_RECORDS[4],
+        COMMANDER_RECORDS[5],
+        COMMANDER_RECORDS[6],
+        (
+            "yargle-and-multani",
+            include_str!("../../../tests/fixtures/yargle-and-multani.json"),
+        ),
+    ];
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -150,7 +176,20 @@ struct Sentence {
 struct Step {
     effect: String,
     what: Target,
-    to: String,
+    to: Destination,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+enum Destination {
+    Owner(String),
+    Zone(ZoneDestination),
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ZoneDestination {
+    zone: String,
+    owner: String,
+    position: String,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -348,6 +387,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         "Creature" => (CardKind::Creature, false),
         "Legendary Creature" => (CardKind::Creature, false),
         "Instant" => (CardKind::Instant, false),
+        "Sorcery" => (CardKind::Sorcery, false),
         _ => {
             return Err(unsupported(
                 "source.type_line",
@@ -427,12 +467,19 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                 });
             }
         }
-        CardKind::Instant => {
+        CardKind::Instant | CardKind::Sorcery => {
             if source.oracle_text.is_empty() {
                 return Err(invalid("source.oracle_text", "spell has no source text"));
             }
             let mut program = SpellProgram {
-                timing: SpellTiming::Instant,
+                // CR 304.1 / 307.1 distinguish ordinary instant and sorcery
+                // casting timing; neither is inferred from a display name.
+                // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+                timing: if kind == CardKind::Instant {
+                    SpellTiming::Instant
+                } else {
+                    SpellTiming::MainPhase
+                },
                 resolution: SpellResolution::Instructions,
                 functioning_zone: FunctioningZone::Stack,
                 targets: vec![],
@@ -452,8 +499,16 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     }
                     for step in &sentence.steps {
                         let target = &step.what;
-                        if step.effect != "return-to-hand"
-                            || step.to != "owner"
+                        let hand = step.effect == "return-to-hand"
+                            && step.to == Destination::Owner("owner".into());
+                        let library = step.effect == "move-zone"
+                            && step.to
+                                == Destination::Zone(ZoneDestination {
+                                    zone: "library".into(),
+                                    owner: "its-owner".into(),
+                                    position: "top".into(),
+                                });
+                        if !(hand || library)
                             || target.reference != "target"
                             || target.filter.types != ["creature"]
                             || target.count.amount != "fixed"
@@ -480,10 +535,18 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                             slots.insert(target.selection_id.clone(), slot);
                             slot
                         };
-                        program.instructions.push(Instruction::ReturnToOwnerHand {
-                            target_slot: slot,
-                            source_block: u32::try_from(block)
-                                .map_err(|_| invalid("abilities", "structural block limit"))?,
+                        let source_block = u32::try_from(block)
+                            .map_err(|_| invalid("abilities", "structural block limit"))?;
+                        program.instructions.push(if hand {
+                            Instruction::ReturnToOwnerHand {
+                                target_slot: slot,
+                                source_block,
+                            }
+                        } else {
+                            Instruction::PutOnTopOwnerLibrary {
+                                target_slot: slot,
+                                source_block,
+                            }
                         });
                     }
                 }
@@ -499,7 +562,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
 }
 
 pub fn fixture_catalog() -> Result<Catalog, String> {
-    catalog_from_records(&fixtures::RECORDS[..5])
+    catalog_from_records(&fixtures::RECORDS[..5], 3)
 }
 
 /// Exact extended source pool for the Commander casting/lifecycle scenarios.
@@ -510,10 +573,30 @@ pub fn commander_fixture_catalog() -> Result<Catalog, String> {
         .filter(|(name, _)| *name != "cruel-edict")
         .copied()
         .collect::<Vec<_>>();
-    catalog_from_records(&records)
+    catalog_from_records(&records, 3)
 }
 
-fn catalog_from_records(records: &[(&str, &str)]) -> Result<Catalog, String> {
+/// Exact IR-v4 source pool for reviewed library-top replacement scenarios.
+pub fn library_fixture_catalog() -> Result<Catalog, String> {
+    let records = fixtures::LIBRARY_RECORDS
+        .iter()
+        .filter(|(name, _)| *name != "cruel-edict")
+        .copied()
+        .collect::<Vec<_>>();
+    catalog_from_records(&records, 4)
+}
+
+/// Exact unchanged-vocabulary pool for natural Commander damage scenarios.
+pub fn damage_fixture_catalog() -> Result<Catalog, String> {
+    let records = fixtures::DAMAGE_RECORDS
+        .iter()
+        .filter(|(name, _)| *name != "cruel-edict")
+        .copied()
+        .collect::<Vec<_>>();
+    catalog_from_records(&records, 3)
+}
+
+fn catalog_from_records(records: &[(&str, &str)], schema_version: u32) -> Result<Catalog, String> {
     let mut definitions = vec![];
     for (_, r) in records {
         match compile(fixtures::MANIFEST, r) {
@@ -523,7 +606,7 @@ fn catalog_from_records(records: &[(&str, &str)]) -> Result<Catalog, String> {
     }
     definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     let catalog = Catalog {
-        schema_version: 3,
+        schema_version,
         rules_edition: RULES_EDITION.into(),
         rules_sha256: RULES_SHA256.into(),
         definitions,
@@ -536,8 +619,10 @@ fn catalog_from_records(records: &[(&str, &str)]) -> Result<Catalog, String> {
 mod tests {
     use super::*;
     fn changed_record(index: usize, change: impl FnOnce(&mut serde_json::Value)) -> String {
-        let mut r: serde_json::Value =
-            serde_json::from_str(fixtures::COMMANDER_RECORDS[index].1).unwrap();
+        changed_source(fixtures::LIBRARY_RECORDS[index].1, change)
+    }
+    fn changed_source(raw: &str, change: impl FnOnce(&mut serde_json::Value)) -> String {
+        let mut r: serde_json::Value = serde_json::from_str(raw).unwrap();
         change(&mut r);
         r["sourceSha256"] = sha256(canonical(&r["source"]).unwrap().as_bytes()).into();
         r["bindingSha256"] = sha256(canonical(&r["binding"]).unwrap().as_bytes()).into();
@@ -708,6 +793,7 @@ mod tests {
                     assert_eq!(spell.resolution, SpellResolution::Instructions);
                     assert!(!spell.instructions.is_empty());
                 }
+                CardKind::Sorcery => panic!("legacy catalog cannot contain sorceries"),
             }
             for capability in &d.capabilities {
                 let mut missing = d.clone();
@@ -826,6 +912,279 @@ mod tests {
             basic_land_color(&definition.characteristics.subtypes[0]),
             Some(Color::W)
         );
+    }
+
+    #[test]
+    fn library_catalog_lowers_complete_source_with_explicit_top_and_sorcery_timing() {
+        let previous = commander_fixture_catalog().unwrap();
+        let catalog = library_fixture_catalog().unwrap();
+        assert_eq!(catalog.schema_version, 4);
+        assert_eq!(catalog.definitions.len(), previous.definitions.len() + 1);
+        for definition in &previous.definitions {
+            assert!(catalog.definitions.contains(definition));
+        }
+        let ebb = catalog
+            .definitions
+            .iter()
+            .find(|d| d.oracle_id == "30cc8f7b-3c28-40f5-8f8f-157e8212280b")
+            .unwrap();
+        assert_eq!(ebb.name, "Time Ebb");
+        assert_eq!(ebb.provenance.source_index, 7282);
+        assert_eq!(ebb.characteristics.kind, CardKind::Sorcery);
+        assert_eq!(
+            ebb.characteristics.mana_cost,
+            ManaCost {
+                generic: Quantity::from(2),
+                colored: vec![Color::U]
+            }
+        );
+        assert_eq!(ebb.characteristics.colors, [Color::U]);
+        assert_eq!(ebb.characteristics.color_identity, [Color::U]);
+        assert_eq!(
+            ebb.spell,
+            Some(SpellProgram {
+                timing: SpellTiming::MainPhase,
+                resolution: SpellResolution::Instructions,
+                functioning_zone: FunctioningZone::Stack,
+                targets: vec![TargetSpec {
+                    slot: 0,
+                    selection_id: "line:0:1".into(),
+                    chooser: Chooser::Controller,
+                    stage: EvaluationStage::Announcement,
+                    domain: TargetDomain::BattlefieldCreature
+                }],
+                instructions: vec![Instruction::PutOnTopOwnerLibrary {
+                    target_slot: 0,
+                    source_block: 0
+                }],
+            })
+        );
+        assert_eq!(
+            ebb.capabilities,
+            BTreeSet::from([
+                Capability::NormalLayoutV1,
+                Capability::CastSorceryV1,
+                Capability::CreatureTargetV1,
+                Capability::OwnerLibraryTopMoveV1
+            ])
+        );
+        assert_eq!(
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/expected-library-ir.json"
+            ))
+            .unwrap(),
+            catalog
+        );
+        assert_eq!(
+            Catalog::read(&canonical(&catalog).unwrap()).unwrap(),
+            catalog
+        );
+        for capability in &ebb.capabilities {
+            let mut changed = ebb.clone();
+            changed.capabilities.remove(capability);
+            assert!(changed.validate().is_err());
+        }
+        let renamed = changed_record(7, |r| {
+            r["source"]["name"] = "Renamed library-top sorcery".into();
+            r["faces"][0]["result"]["name"] = "Renamed library-top sorcery".into();
+        });
+        let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, &renamed) else {
+            panic!("library movement cannot depend on display names")
+        };
+        assert_eq!(definition.spell, ebb.spell);
+    }
+
+    #[test]
+    fn damage_pool_is_exact_empty_text_legendary_without_new_ability_vocabulary() {
+        let previous = commander_fixture_catalog().unwrap();
+        let catalog = damage_fixture_catalog().unwrap();
+        assert_eq!(catalog.schema_version, 3);
+        assert_eq!(catalog.definitions.len(), previous.definitions.len() + 1);
+        for definition in &previous.definitions {
+            assert!(catalog.definitions.contains(definition));
+        }
+        let commander = catalog
+            .definitions
+            .iter()
+            .find(|d| d.oracle_id == "980e1721-3717-4425-95a4-938dbf2ac661")
+            .unwrap();
+        assert_eq!(commander.name, "Yargle and Multani");
+        assert_eq!(commander.provenance.source_index, 22862);
+        assert_eq!(
+            digest(commander).unwrap(),
+            "ab78799601f1a0f903ebaa63b1a4ce9681fe85b22bb1df3bb73b91a28df6f41e"
+        );
+        assert_eq!(commander.characteristics.kind, CardKind::Creature);
+        assert!(commander.characteristics.legendary);
+        assert_eq!(commander.characteristics.power, Some(Quantity::from(18)));
+        assert_eq!(commander.characteristics.toughness, Some(Quantity::from(6)));
+        assert_eq!(
+            commander.characteristics.mana_cost,
+            ManaCost {
+                generic: Quantity::from(3),
+                colored: vec![Color::B, Color::B, Color::G]
+            }
+        );
+        assert_eq!(commander.characteristics.colors, [Color::B, Color::G]);
+        assert_eq!(
+            commander.characteristics.color_identity,
+            [Color::B, Color::G]
+        );
+        assert_eq!(commander.provenance.abilities_json, "[]");
+        assert_eq!(
+            commander.capabilities,
+            BTreeSet::from([
+                Capability::NormalLayoutV1,
+                Capability::BaseCreatureV1,
+                Capability::CastCreatureV1,
+                Capability::CommanderIdentityV1
+            ])
+        );
+        let spell = commander.spell.as_ref().unwrap();
+        assert_eq!(spell.resolution, SpellResolution::Permanent);
+        assert!(spell.instructions.is_empty());
+        assert_eq!(
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/expected-damage-ir.json"
+            ))
+            .unwrap(),
+            catalog
+        );
+        assert_eq!(
+            Catalog::read(&canonical(&catalog).unwrap()).unwrap(),
+            catalog
+        );
+        for (text, ability) in [
+            (
+                "Trample",
+                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"trample"}]}),
+            ),
+            (
+                "When this creature attacks, draw a card.",
+                serde_json::json!({"kind":"triggered","effects":[]}),
+            ),
+        ] {
+            let bad = changed_source(fixtures::DAMAGE_RECORDS[7].1, |r| {
+                r["source"]["oracle_text"] = text.into();
+                r["faces"][0]["result"]["lines"] =
+                    serde_json::json!([{"text":text,"ok":true,"ability":ability}]);
+                r["faces"][0]["result"]["abilities"] = serde_json::json!([ability]);
+            });
+            assert!(matches!(
+                compile(fixtures::MANIFEST, &bad),
+                CompileResult::Unsupported { .. }
+            ));
+        }
+        for mutate in [
+            (|r: &mut serde_json::Value| r["source"]["power"] = "*".into())
+                as fn(&mut serde_json::Value),
+            |r| r["source"]["toughness"] = "0".into(),
+            |r| r["source"]["mana_cost"] = "{X}{B}{B}{G}".into(),
+        ] {
+            let bad = changed_source(fixtures::DAMAGE_RECORDS[7].1, mutate);
+            assert!(matches!(
+                compile(fixtures::MANIFEST, &bad),
+                CompileResult::Unsupported { .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn complete_library_lowering_rejects_other_positions_owners_and_abilities() {
+        type Mutation = fn(&mut serde_json::Value);
+        let mutations: Vec<Mutation> = vec![
+            |r| r["to"]["position"] = "bottom".into(),
+            |r| r["to"]["position"] = "random".into(),
+            |r| r["to"]["owner"] = "controller".into(),
+            |r| r["to"]["zone"] = "hand".into(),
+            |r| {
+                r["to"].as_object_mut().unwrap().remove("position");
+            },
+            |r| r["to"]["shuffle"] = true.into(),
+            |r| r["effect"] = "draw".into(),
+            |r| r["optional"] = true.into(),
+            |r| r["what"]["filter"]["types"] = serde_json::json!(["player"]),
+            |r| r["what"]["count"]["value"] = 2.into(),
+            |r| r["what"]["selectionId"] = "".into(),
+        ];
+        for mutate in mutations {
+            let changed = changed_record(7, |record| {
+                let ability = &mut record["faces"][0]["result"]["abilities"][0];
+                mutate(&mut ability["effects"][0]["steps"][0]);
+                let ability = ability.clone();
+                record["faces"][0]["result"]["lines"][0]["ability"] = ability;
+            });
+            let result = compile(fixtures::MANIFEST, &changed);
+            assert!(
+                matches!(result, CompileResult::Unsupported { .. }),
+                "{result:?}"
+            );
+        }
+        let extra = changed_record(7, |r| {
+            r["source"]["oracle_text"] =
+                "Put target creature on top of its owner's library. Draw a card.".into();
+        });
+        assert!(matches!(
+            compile(fixtures::MANIFEST, &extra),
+            CompileResult::Invalid { .. }
+        ));
+    }
+
+    #[test]
+    fn library_vocabulary_requires_ir_v4_and_valid_program_shape() {
+        let catalog = library_fixture_catalog().unwrap();
+        let mut old = catalog.clone();
+        old.schema_version = 3;
+        assert!(old.validate().is_err());
+        let raw = canonical(&catalog).unwrap();
+        for bad in [
+            raw.replace("\"schema_version\":4", "\"schema_version\":5"),
+            raw.replace(
+                "\"op\":\"put_on_top_owner_library\"",
+                "\"op\":\"put_on_bottom_owner_library\"",
+            ),
+            raw.replace(
+                "\"op\":\"put_on_top_owner_library\"",
+                "\"unknown\":true,\"op\":\"put_on_top_owner_library\"",
+            ),
+        ] {
+            assert!(Catalog::read(&bad).is_err());
+        }
+        let ebb = catalog
+            .definitions
+            .iter()
+            .find(|d| d.characteristics.kind == CardKind::Sorcery)
+            .unwrap();
+        for mutate in [
+            (|d: &mut Definition| d.spell.as_mut().unwrap().timing = SpellTiming::Instant)
+                as fn(&mut Definition),
+            |d| d.spell.as_mut().unwrap().resolution = SpellResolution::Permanent,
+            |d| {
+                d.spell.as_mut().unwrap().instructions = vec![Instruction::PutOnTopOwnerLibrary {
+                    target_slot: 1,
+                    source_block: 0,
+                }]
+            },
+            |d| d.spell.as_mut().unwrap().targets.clear(),
+        ] {
+            let mut bad = ebb.clone();
+            mutate(&mut bad);
+            assert!(bad.validate().is_err());
+        }
+        // The operation is independently versioned from casting timing: even
+        // an instant-form synthetic library instruction cannot enter IR v3.
+        let mut synthetic = catalog.clone();
+        let d = synthetic
+            .definitions
+            .iter_mut()
+            .find(|d| d.characteristics.kind == CardKind::Sorcery)
+            .unwrap();
+        d.characteristics.kind = CardKind::Instant;
+        d.spell.as_mut().unwrap().timing = SpellTiming::Instant;
+        d.capabilities = d.requirements();
+        synthetic.validate().unwrap();
+        synthetic.schema_version = 3;
+        assert!(synthetic.validate().is_err());
     }
 
     #[test]

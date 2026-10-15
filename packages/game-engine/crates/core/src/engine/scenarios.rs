@@ -4,6 +4,95 @@
 use super::*;
 
 impl ScenarioConfig {
+    pub fn commander_damage() -> Self {
+        let cards = (0..14)
+            .map(|id| {
+                let owner = PlayerId(match id {
+                    0 | 1 | 6 | 7 => 0,
+                    2 | 3 | 8 | 9 => 1,
+                    4 | 10 | 11 => 2,
+                    _ => 3,
+                });
+                CardSetup {
+                    id: CardId(id),
+                    owner,
+                    controller: owner,
+                    oracle_id: match id {
+                        0 => YARGLE,
+                        1 | 6 | 7 => FOREST,
+                        3 => SPELL,
+                        _ => ISLAND,
+                    }
+                    .into(),
+                    zone: match id {
+                        3 => Zone::Hand { owner },
+                        6..=13 => Zone::Library { owner },
+                        _ => Zone::Battlefield,
+                    },
+                }
+            })
+            .collect();
+        Self {
+            mode: Mode::Scenario,
+            players: 4,
+            profile: "four-seat-commander-damage-v1".into(),
+            commanders: vec![CardId(0)],
+            cards,
+        }
+    }
+    pub fn commander_damage_borrowed() -> Self {
+        let mut config = Self::commander_damage();
+        config.profile = "four-seat-commander-damage-borrowed-v1".into();
+        config.cards[0].controller = PlayerId(1);
+        config
+    }
+    pub fn commander_library() -> Self {
+        let cards = (0..17)
+            .map(|id| {
+                let owner = PlayerId(match id {
+                    0..=3 | 8 | 9 => 0,
+                    4 | 5 | 10 | 11 => 1,
+                    6 | 12 | 13 | 16 => 2,
+                    _ => 3,
+                });
+                CardSetup {
+                    id: CardId(id),
+                    owner,
+                    controller: owner,
+                    oracle_id: match id {
+                        0 => TIME_EBB,
+                        4 => ISAMARU,
+                        5 | 10 | 11 => PLAINS,
+                        16 => BEARS,
+                        _ => ISLAND,
+                    }
+                    .into(),
+                    zone: match id {
+                        0 => Zone::Hand { owner },
+                        8..=15 => Zone::Library { owner },
+                        _ => Zone::Battlefield,
+                    },
+                }
+            })
+            .collect();
+        Self {
+            mode: Mode::Scenario,
+            players: 4,
+            profile: "four-seat-commander-library-v1".into(),
+            commanders: vec![CardId(4)],
+            cards,
+        }
+    }
+    pub(super) fn damage_profile(&self) -> bool {
+        matches!(
+            self.profile.as_str(),
+            "four-seat-commander-damage-v1" | "four-seat-commander-damage-borrowed-v1"
+        )
+    }
+    pub(super) fn library_profile(&self) -> bool {
+        self.profile == "four-seat-commander-library-v1"
+    }
+
     pub fn command_casting() -> Self {
         let cards = (0..14)
             .map(|id| {
@@ -61,12 +150,14 @@ impl ScenarioConfig {
         config
     }
     pub(super) fn commander_profile(&self) -> bool {
-        matches!(
-            self.profile.as_str(),
-            "four-seat-commander-casting-v1"
-                | "four-seat-commander-lifecycle-v1"
-                | "four-seat-commander-exile-v1"
-        )
+        self.damage_profile()
+            || self.library_profile()
+            || matches!(
+                self.profile.as_str(),
+                "four-seat-commander-casting-v1"
+                    | "four-seat-commander-lifecycle-v1"
+                    | "four-seat-commander-exile-v1"
+            )
     }
 
     pub fn combat_game() -> Self {
@@ -144,14 +235,15 @@ impl ScenarioConfig {
     }
 
     pub(super) fn combat_profile(&self) -> bool {
-        matches!(
-            self.profile.as_str(),
-            "four-seat-combat-game-v1"
-                | "four-seat-combat-interactions-v1"
-                | "four-seat-commander-casting-v1"
-                | "four-seat-commander-lifecycle-v1"
-                | "four-seat-commander-exile-v1"
-        )
+        self.commander_profile()
+            || matches!(
+                self.profile.as_str(),
+                "four-seat-combat-game-v1"
+                    | "four-seat-combat-interactions-v1"
+                    | "four-seat-commander-casting-v1"
+                    | "four-seat-commander-lifecycle-v1"
+                    | "four-seat-commander-exile-v1"
+            )
     }
 
     pub(super) fn initial_life(&self, player: PlayerId) -> Quantity {

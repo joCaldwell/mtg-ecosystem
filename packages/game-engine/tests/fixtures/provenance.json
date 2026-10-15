@@ -47,11 +47,25 @@
       "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
     },
     {
+      "file": "time-ebb.json",
+      "oracle_id": "30cc8f7b-3c28-40f5-8f8f-157e8212280b",
+      "record_sha256": "a04619d10b374f8927e6d68b5bbba10c9142fc328c70f8fb5df8ba521b88c321",
+      "source_sha256": "30d342ea9e4ddace911969ad008d4f39244db74c134d2786832fb35c1d32392a",
+      "ast_sha256": "d0a2a24b923a7e56a68e89b7b69b426e53f7fee0919d63aaed8863d6f8d709eb"
+    },
+    {
       "file": "unsummon.json",
       "oracle_id": "837182db-1bf3-4a2c-bd01-1af9d9873561",
       "record_sha256": "2ccc2cfc21e2ceb0594280ab8d1c8c2decb63dcbdfcc55524c5667cc057b3d38",
       "source_sha256": "6ce1877b4b39b55c3500bc0b5f472026c81b3ad944b1c88879240f863d4f7ec7",
       "ast_sha256": "56e025ce420e42b19e06c0fa535f1840e48c22ca56e26e36b60442ce791b277c"
+    },
+    {
+      "file": "yargle-and-multani.json",
+      "oracle_id": "980e1721-3717-4425-95a4-938dbf2ac661",
+      "record_sha256": "dd2878582513bae556e31852560ea21cd694abad63d3756ea6b2296d0f124e13",
+      "source_sha256": "23a1eb822133fa8f171c83c85987f9685a28e00b39722c85f261e562572b73e9",
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
     }
   ]
 }
