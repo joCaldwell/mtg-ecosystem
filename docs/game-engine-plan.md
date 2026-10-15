@@ -32,14 +32,28 @@ check results are recovered or a new baseline is captured. Never infer grammar
 progress from percentages on different corpora. P0 freezes its own inputs and
 records the current verified state without overwriting prior checkpoint evidence.
 
-The existing archive is nonexecutable. Reference binding is partial. The initial
-Rust compiler and kernel execute seven exact four-seat scenario configurations
-using five reviewed definitions, including ordinary instant responses and
-casting-time intrinsic mana, explicit bounded turns, land plays, and targetless
-creature casting, ordinary combat/damage/SBAs, ordered draws, cleanup and
-rules-defined small scenario games; broader compilation and the bulk pipeline are
-unfinished.
+The existing archive is nonexecutable. Reference binding is partial. The Rust
+compiler and kernel have progressed through exact scenario slices for priority,
+explicit mana costs, combat, Commander casting/returns/damage, ordered libraries,
+activated abilities, noncombat damage and life programs. The ordinary-trigger
+slice adds actual-event matching, simultaneous death lookback, APNAP ordering,
+mandatory targets and countering detached triggered invocations. It brings the
+reviewed tables to 31 exact configurations across eight historical/current
+catalogs, with 24 definitions in the newest catalog. This remains scenario
+support; no legal Commander profile has been released. See the
+[progress ledger](game-engine-progress.md) for completed checks and artifact
+identities rather than treating this roadmap as gate evidence.
 `build-ir` intentionally fails. `game-server` contains a README only.
+
+The next finite vertical slice is replacement/prevention and temporary
+characteristic modifiers, reviewed against actual source ASTs. Remaining P3/P4
+gate items include supported modal/multiple-target paths, intervening conditions,
+replacement ordering and reapplication, temporary expiration and characteristic
+interactions. Then P5 supplies full deck/pod admission, shuffle/mulligan setup,
+seeded complete legal games and a named finite release. P6 is an ongoing series
+of separately scoped expansions, not an instruction to implement all Magic.
+P7 needs the consumer's measured workload/budgets before optimization; P8 targets
+one released profile and does not wait for arbitrary future expansions.
 
 Use separate measures throughout development:
 

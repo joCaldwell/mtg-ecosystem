@@ -14,6 +14,25 @@ pub struct VisibleAbility {
     pub oracle_id: String,
     pub ability: u32,
 }
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TriggerHandle(pub String);
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VisibleTriggered {
+    pub handle: StackHandle,
+    pub source: VisibleTarget,
+    pub oracle_id: String,
+    pub ability: u32,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VisiblePendingTrigger {
+    pub handle: TriggerHandle,
+    pub source: VisibleTarget,
+    pub oracle_id: String,
+    pub ability: u32,
+}
 fn is_zero(value: &u64) -> bool {
     *value == 0
 }
@@ -76,6 +95,8 @@ pub enum VisibleEntityTarget {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleStackEntry {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub triggered: Option<VisibleTriggered>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub entity_targets: Vec<VisibleEntityTarget>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -117,6 +138,11 @@ pub struct PermittedView {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerRequest {
+    OrderTriggers {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<VisiblePendingTrigger>,
+    },
     EntityTargets {
         token: DecisionToken,
         player: PlayerId,
@@ -203,7 +229,8 @@ pub enum PlayerRequest {
 impl PlayerRequest {
     pub fn token(&self) -> &DecisionToken {
         match self {
-            Self::EntityTargets { token, .. }
+            Self::OrderTriggers { token, .. }
+            | Self::EntityTargets { token, .. }
             | Self::StackTargets { token, .. }
             | Self::PlayerTargets { token, .. }
             | Self::Sacrifice { token, .. }
@@ -230,6 +257,9 @@ pub struct Observation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerResponse {
+    OrderTriggers {
+        order: Vec<TriggerHandle>,
+    },
     EntityTargets {
         entities: Vec<PlayerTargetEntity>,
     },
@@ -306,6 +336,10 @@ pub struct SearchContext {
 #[serde(deny_unknown_fields)]
 pub(super) struct Knowledge {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    trigger_handles: BTreeMap<TriggerId, TriggerHandle>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    next_trigger_handle: u64,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     ability_handles: BTreeMap<StackId, StackHandle>,
     #[serde(default, skip_serializing_if = "is_zero")]
     next_ability_handle: u64,
@@ -317,6 +351,83 @@ pub(super) struct Knowledge {
     pub(super) history: History<PermittedView>,
 }
 impl Game {
+    pub(super) fn capture_trigger_source_handles(
+        &mut self,
+        object: ObjectId,
+    ) -> Result<Vec<ObjectHandle>, String> {
+        let mut handles = vec![];
+        for viewer in 0..4 {
+            let k = &mut self.state.visibility[viewer];
+            let handle = if let Some((handle, _)) = k.handles.iter().find(|(_, id)| **id == object)
+            {
+                ObjectHandle(handle.clone())
+            } else {
+                let handle = ObjectHandle(format!("v{viewer}-o{}", k.next_handle));
+                k.next_handle = k
+                    .next_handle
+                    .checked_add(1)
+                    .ok_or("trigger source handle limit")?;
+                k.handles.insert(handle.0.clone(), object);
+                handle
+            };
+            handles.push(handle);
+        }
+        Ok(handles)
+    }
+    pub(super) fn resolve_trigger_handle(
+        &self,
+        viewer: PlayerId,
+        handle: &TriggerHandle,
+    ) -> Result<TriggerId, String> {
+        self.state
+            .visibility
+            .get(viewer.0 as usize)
+            .and_then(|k| {
+                k.trigger_handles
+                    .iter()
+                    .find(|(_, h)| *h == handle)
+                    .map(|(id, _)| *id)
+            })
+            .ok_or_else(|| "invalid trigger handle".into())
+    }
+    pub(super) fn visible_pending_trigger(
+        &self,
+        viewer: PlayerId,
+        id: TriggerId,
+    ) -> Result<VisiblePendingTrigger, String> {
+        let trigger = self
+            .state
+            .pending_triggers
+            .iter()
+            .find(|t| t.id == id)
+            .ok_or("missing pending trigger")?;
+        Ok(VisiblePendingTrigger {
+            handle: self
+                .state
+                .visibility
+                .get(viewer.0 as usize)
+                .and_then(|k| k.trigger_handles.get(&id))
+                .ok_or("missing trigger handle")?
+                .clone(),
+            source: VisibleTarget {
+                announced: trigger
+                    .source_handles
+                    .get(viewer.0 as usize)
+                    .ok_or("missing trigger source reference")?
+                    .clone(),
+                current: self.handle_for(viewer, trigger.source).ok(),
+            },
+            oracle_id: self
+                .state
+                .cards
+                .get(&trigger.source.card)
+                .ok_or("missing trigger physical source")?
+                .oracle_id
+                .clone(),
+            ability: trigger.ability,
+        })
+    }
+
     pub(super) fn player_entity(
         &self,
         viewer: PlayerId,
@@ -473,8 +584,34 @@ impl Game {
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
-        let (spell, ability) = match &instance.kind {
-            StackKind::Spell => (Some(self.handle_for(viewer, instance.source)?), None),
+        let (spell, ability, triggered) = match &instance.kind {
+            StackKind::Spell => (Some(self.handle_for(viewer, instance.source)?), None, None),
+            StackKind::Triggered {
+                ability,
+                source_handles,
+                ..
+            } => (
+                None,
+                None,
+                Some(VisibleTriggered {
+                    handle: self.stack_handle_for(viewer, instance.id)?,
+                    source: VisibleTarget {
+                        announced: source_handles
+                            .get(viewer.0 as usize)
+                            .ok_or("missing triggered source reference")?
+                            .clone(),
+                        current: self.handle_for(viewer, instance.source).ok(),
+                    },
+                    oracle_id: self
+                        .state
+                        .cards
+                        .get(&instance.source.card)
+                        .ok_or("missing triggered physical source")?
+                        .oracle_id
+                        .clone(),
+                    ability: *ability,
+                }),
+            ),
             StackKind::Activated {
                 ability,
                 source_handles,
@@ -502,6 +639,7 @@ impl Game {
                         .clone(),
                     ability: *ability,
                 }),
+                None,
             ),
         };
         let stack_targets = instance
@@ -542,6 +680,7 @@ impl Game {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(VisibleStackEntry {
+            triggered,
             entity_targets,
             handle: if self.prepared.config.stack_costs_profile() {
                 Some(self.stack_handle_for(viewer, instance.id)?)
@@ -693,6 +832,13 @@ impl Game {
                 },
             ));
         }
+        if let Some(Request::OrderTriggers { player, .. }) = self.trigger_request()? {
+            return Ok((player == viewer).then_some(PlayerRequest::OrderTriggers {
+                token,
+                player,
+                candidates: vec![],
+            }));
+        }
         match &self.state.frame {
             Frame::EntityTargets { .. } if self.top()?.controller == viewer => {
                 Ok(Some(PlayerRequest::EntityTargets {
@@ -717,7 +863,9 @@ impl Game {
                         .collect::<Result<Vec<_>, _>>()?,
                 }))
             }
-            Frame::PlayerTargets { .. } if self.top()?.controller == viewer => {
+            Frame::PlayerTargets { .. } | Frame::TriggerTargets { .. }
+                if self.top()?.controller == viewer =>
+            {
                 Ok(Some(PlayerRequest::PlayerTargets {
                     token,
                     player: viewer,
@@ -811,6 +959,25 @@ impl Game {
                 })
                 .map(|entry| entry.id)
                 .collect::<Vec<_>>();
+            let triggers = self
+                .state
+                .pending_triggers
+                .iter()
+                .map(|t| t.id)
+                .collect::<Vec<_>>();
+            k.trigger_handles.retain(|id, _| triggers.contains(id));
+            for id in triggers {
+                if let std::collections::btree_map::Entry::Vacant(entry) =
+                    k.trigger_handles.entry(id)
+                {
+                    let handle = TriggerHandle(format!("v{v}-t{}", k.next_trigger_handle));
+                    k.next_trigger_handle = k
+                        .next_trigger_handle
+                        .checked_add(1)
+                        .ok_or("trigger handle limit")?;
+                    entry.insert(handle);
+                }
+            }
             k.ability_handles.retain(|id, _| abilities.contains(id));
             for id in abilities {
                 if let std::collections::btree_map::Entry::Vacant(entry) =
@@ -850,6 +1017,11 @@ impl Game {
             {
                 None
             } else if self
+                .trigger_request()?
+                .is_some_and(|r| r.player() == viewer)
+            {
+                Some((self.state.revision, 11))
+            } else if self
                 .actions_request()?
                 .is_some_and(|request| request.player() == viewer)
             {
@@ -864,7 +1036,9 @@ impl Game {
                     Frame::StackTargets { .. } if self.top()?.controller == viewer => {
                         Some((self.state.revision, 9))
                     }
-                    Frame::PlayerTargets { .. } if self.top()?.controller == viewer => {
+                    Frame::PlayerTargets { .. } | Frame::TriggerTargets { .. }
+                        if self.top()?.controller == viewer =>
+                    {
                         Some((self.state.revision, 7))
                     }
                     Frame::SpendMana { .. } if self.top()?.controller == viewer => {
@@ -938,15 +1112,31 @@ impl Game {
             PlayerResponse::Discard { objects } | PlayerResponse::ResolveDiscard { objects } => {
                 objects.len()
             }
+            PlayerResponse::OrderTriggers { order } => order.len(),
             PlayerResponse::PlayerTargets { players } => players.len(),
             PlayerResponse::EntityTargets { entities } => entities.len(),
             PlayerResponse::StackTargets { entries } => entries.len(),
             _ => 0,
         };
-        if size > self.state.objects.len() {
+        if size
+            > std::cmp::max(
+                self.state.objects.len(),
+                if self.prepared.config.triggers_profile() {
+                    128
+                } else {
+                    0
+                },
+            )
+        {
             return Err("oversized player declaration".into());
         }
         match response {
+            PlayerResponse::OrderTriggers { order } => Ok(Response::OrderTriggers {
+                order: order
+                    .iter()
+                    .map(|h| self.resolve_trigger_handle(viewer, h))
+                    .collect::<Result<Vec<_>, _>>()?,
+            }),
             PlayerResponse::EntityTargets { entities } => Ok(Response::EntityTargets {
                 entities: entities
                     .iter()

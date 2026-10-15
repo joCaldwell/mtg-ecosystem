@@ -455,6 +455,12 @@ impl Game {
         {
             return Ok(());
         }
+        if occurrences.is_empty()
+            && losses.is_empty()
+            && self.begin_trigger_placement(resume.clone(), cleanup, changed)?
+        {
+            return Ok(());
+        }
         if occurrences.is_empty() && losses.is_empty() {
             self.state.frame = if cleanup && changed {
                 self.state.cleanup_repeat = true;

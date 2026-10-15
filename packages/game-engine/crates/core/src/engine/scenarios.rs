@@ -4,6 +4,88 @@
 use super::*;
 
 impl ScenarioConfig {
+    pub fn triggers() -> Self {
+        let cards = (0..38)
+            .map(|id| {
+                let owner = PlayerId(match id {
+                    0..=15 => 0,
+                    16..=27 => 1,
+                    28..=33 => 2,
+                    _ => 3,
+                });
+                CardSetup {
+                    id: CardId(id),
+                    owner,
+                    controller: owner,
+                    oracle_id: match id {
+                        0 => ISAMARU,
+                        1 | 2 | 16 | 28 | 34 => BLOOD_ARTIST,
+                        3 | 17 | 29 => WARDEN,
+                        4 => VISIONARY,
+                        5 => HAPLESS,
+                        6 => PRODIGAL,
+                        18 | 30 => BEARS,
+                        7 => SWAMP,
+                        8 | 9 | 14 | 31 | 32 | 33 | 35 | 36 | 37 => FOREST,
+                        10 => PLAINS,
+                        13 | 23 => MOUNTAIN,
+                        19 => BOLT,
+                        20 => SPELL,
+                        21 => COUNTERSPELL,
+                        22 => STIFLE,
+                        _ => ISLAND,
+                    }
+                    .into(),
+                    zone: match id {
+                        4 | 19..=22 => Zone::Hand { owner },
+                        14 | 15 | 26 | 27 | 32 | 33 | 36 | 37 => Zone::Library { owner },
+                        _ => Zone::Battlefield,
+                    },
+                }
+            })
+            .collect();
+        Self {
+            mode: Mode::Scenario,
+            players: 4,
+            profile: "four-seat-triggers-v1".into(),
+            commanders: vec![CardId(0)],
+            cards,
+        }
+    }
+    pub fn triggers_low() -> Self {
+        let mut c = Self::triggers();
+        c.profile = "four-seat-triggers-low-v1".into();
+        c
+    }
+    pub fn triggers_borrowed() -> Self {
+        let mut c = Self::triggers();
+        c.profile = "four-seat-triggers-borrowed-v1".into();
+        c.cards[1].owner = PlayerId(2);
+        c
+    }
+    pub fn triggers_empty_library() -> Self {
+        let mut c = Self::triggers();
+        c.profile = "four-seat-triggers-empty-library-v1".into();
+        c.cards.retain(|c| !matches!(c.id, CardId(14) | CardId(15)));
+        c
+    }
+    pub fn triggers_nonactive() -> Self {
+        let mut c = Self::triggers();
+        c.profile = "four-seat-triggers-nonactive-v1".into();
+        c.cards[5].owner = PlayerId(2);
+        c.cards[5].controller = PlayerId(1);
+        c
+    }
+    pub(super) fn triggers_profile(&self) -> bool {
+        matches!(
+            self.profile.as_str(),
+            "four-seat-triggers-v1"
+                | "four-seat-triggers-low-v1"
+                | "four-seat-triggers-borrowed-v1"
+                | "four-seat-triggers-empty-library-v1"
+                | "four-seat-triggers-nonactive-v1"
+        )
+    }
     pub fn damage_life() -> Self {
         let cards = (0..35)
             .map(|id| {
@@ -84,14 +166,15 @@ impl ScenarioConfig {
         c
     }
     pub(super) fn damage_life_profile(&self) -> bool {
-        matches!(
-            self.profile.as_str(),
-            "four-seat-damage-life-v1"
-                | "four-seat-damage-life-low-v1"
-                | "four-seat-damage-life-borrowed-v1"
-                | "four-seat-damage-life-empty-library-v1"
-                | "four-seat-damage-life-library-v1"
-        )
+        self.triggers_profile()
+            || matches!(
+                self.profile.as_str(),
+                "four-seat-damage-life-v1"
+                    | "four-seat-damage-life-low-v1"
+                    | "four-seat-damage-life-borrowed-v1"
+                    | "four-seat-damage-life-empty-library-v1"
+                    | "four-seat-damage-life-library-v1"
+            )
     }
     pub fn stack_costs() -> Self {
         let cards = (0..33)
@@ -526,7 +609,9 @@ impl ScenarioConfig {
     }
 
     pub(super) fn initial_life(&self, player: PlayerId) -> Quantity {
-        Quantity::from(if self.profile == "four-seat-damage-life-low-v1" {
+        Quantity::from(if self.profile == "four-seat-triggers-low-v1" {
+            2
+        } else if self.profile == "four-seat-damage-life-low-v1" {
             4
         } else if self.combat_profile() && !self.commander_profile() {
             if player == PlayerId(0) { 6 } else { 2 }

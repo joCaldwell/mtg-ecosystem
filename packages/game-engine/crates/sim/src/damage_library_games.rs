@@ -129,6 +129,9 @@ impl Strategy {
             .as_ref()
             .ok_or("missing lifecycle decision")?;
         Ok(match request {
+            PlayerRequest::OrderTriggers { .. } => {
+                return Err("ordinary trigger ordering outside historical profile".into());
+            }
             PlayerRequest::EntityTargets { .. } => {
                 return Err("mixed targets outside damage/life profile".into());
             }

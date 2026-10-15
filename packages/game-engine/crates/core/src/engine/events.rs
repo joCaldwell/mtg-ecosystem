@@ -620,8 +620,9 @@ impl Game {
             players,
         })
     }
-    // CR 700.1: grouping is explicit. These profiles contain no replacement,
-    // prevention, or trigger consumers; those extend this same actual path.
+    // CR 700.1: grouping is explicit. Ordinary trigger matching consumes the
+    // actual outcomes and group observer views. General replacement/prevention
+    // consumers remain outside these closed profiles.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub(super) fn commit_batch(
         &mut self,
@@ -662,8 +663,13 @@ impl Game {
     ) -> Result<(), String> {
         match group {
             EventGroup::Occurrence { proposed } => {
+                let trigger_before = self.prepared.config.triggers_profile().then(|| self.fork());
+                let offset = out.len();
                 let before = self.facts(&[proposed])?;
                 self.apply_leaf(proposed, batch, path, before, out)?;
+                if let Some(before) = trigger_before {
+                    self.collect_triggers(&before, &out[offset..])?;
+                }
             }
             EventGroup::Ordered { children } => {
                 for (i, child) in children.iter().enumerate() {
@@ -677,6 +683,7 @@ impl Game {
                 // pre-state before committing any leaf; no replacement ordering
                 // or aggregation of overlapping writes is inferred.
                 let common = self.fork();
+                let offset = out.len();
                 let mut facts = vec![];
                 for event in occurrences {
                     facts.push(common.facts(&[event])?);
@@ -687,6 +694,7 @@ impl Game {
                     self.apply_leaf(event, batch, path, before, out)?;
                     path.pop();
                 }
+                self.collect_triggers(&common, &out[offset..])?;
             }
         }
         Ok(())

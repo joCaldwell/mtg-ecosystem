@@ -65,6 +65,9 @@ impl Policy {
                 .find(|o| o.zone == (Zone::Hand { owner: v.viewer }) && o.oracle_id == id)
         };
         Ok(match request {
+            PlayerRequest::OrderTriggers { .. } => {
+                return Err("ordinary trigger ordering outside historical profile".into());
+            }
             PlayerRequest::EntityTargets { .. } => {
                 return Err("mixed targets outside damage/life profile".into());
             }

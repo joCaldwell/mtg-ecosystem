@@ -343,6 +343,9 @@ impl Strategy {
                     PlayerResponse::Pass
                 }
             }
+            PlayerRequest::OrderTriggers { .. } => {
+                return Err("ordinary trigger ordering outside historical profile".into());
+            }
             PlayerRequest::EntityTargets { .. } => {
                 return Err("mixed targets outside damage/life profile".into());
             }

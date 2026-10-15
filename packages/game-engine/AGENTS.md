@@ -56,6 +56,14 @@ Snapshot v13, bundle v14, projection/context v11 and query-sidecar v10 retain
 mixed target identities, targeted tap announcements and historical damage sources.
 The six earlier catalogs and their gameplay references remain separate.
 
+`docs/game-engine-triggers.md` adds five exact ordinary-trigger profiles and a
+separate twenty-four-definition IR v8 catalog. Blood Artist, Elvish Visionary
+and Essence Warden use actual typed events, simultaneous death lookback, pending
+identities, APNAP/controller ordering and mandatory targets. Stifle includes
+triggered invocations. Snapshot v14, bundle v15, projection/context v12 and
+query-sidecar v11 retain these choices. Historical catalogs remain separate;
+complete compiler lowering is distinct from their admission exclusions.
+
 Run from repository root, using pinned Rust 1.99.0:
 
 - `npm run check:engine`: toolchain check, formatting, Clippy, Rust tests, and

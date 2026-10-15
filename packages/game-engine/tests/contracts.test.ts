@@ -84,7 +84,7 @@ test("Rust lowering matches reviewed IR and its generated JSON Schema", () => {
   assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
   for (const mutate of [
     (c: any) => { c.unknownSemanticField = true; },
-    (c: any) => { c.schema_version = 8; },
+    (c: any) => { c.schema_version = 9; },
     (c: any) => { c.schema_version = 2; },
     (c: any) => { delete c.definitions.find((d: any) => d.spell).spell.timing; },
     (c: any) => { delete c.definitions.find((d: any) => d.spell).spell.resolution; },
@@ -172,7 +172,7 @@ test("library and damage catalogs retain exact source semantics and explicit IR 
   for (const catalog of [previous, library, damage]) assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
   for (const mutate of [
     (c: any) => { c.schema_version = 3; },
-    (c: any) => { c.schema_version = 8; },
+    (c: any) => { c.schema_version = 9; },
     (c: any) => { c.definitions.find((d: any) => d.characteristics.kind === "sorcery").spell.instructions[0].op = "put_on_bottom_owner_library"; },
     (c: any) => { c.definitions.find((d: any) => d.characteristics.kind === "sorcery").spell.instructions[0].position = "top"; },
   ]) {
@@ -223,7 +223,7 @@ test("action catalog preserves complete activated costs, opponent choice and sch
   for (const mutate of [
     (c: any) => { c.schema_version = 3; },
     (c: any) => { c.schema_version = 4; },
-    (c: any) => { c.schema_version = 8; },
+    (c: any) => { c.schema_version = 9; },
     (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].cost = "tap_source"; },
     (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].program.instructions[0].count = "01"; },
     (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].program.instructions[1].optional = true; },
@@ -278,7 +278,7 @@ test("stack catalog preserves complete counter domains and distinct tap and mana
     (c: any) => { c.schema_version = 3; },
     (c: any) => { c.schema_version = 4; },
     (c: any) => { c.schema_version = 5; },
-    (c: any) => { c.schema_version = 8; },
+    (c: any) => { c.schema_version = 9; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Stifle").spell.targets[0].domain = "stack_activated_ability"; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Counterspell").spell.instructions[0].destination = "graveyard"; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Azure Mage").activated[0].cost.mana.cost.extra = true; },
@@ -346,7 +346,7 @@ test("damage and life catalog preserves complete sources and explicit IR7 target
     }
   }
   for (const mutate of [
-    (c: any) => {c.schema_version=8;},
+    (c: any) => {c.schema_version=9;},
     (c: any) => {c.definitions.find((d: any) => d.name==="Lightning Bolt").spell.targets[0].domain="creature_or_player";},
     (c: any) => {c.definitions.find((d: any) => d.name==="Soul Feast").spell.instructions[0].recipient={opponent:{target_slot:0}};},
     (c: any) => {c.definitions.find((d: any) => d.name==="Sacred Nectar").spell.instructions[0].recipient={controller:{extra:true}};},
@@ -364,11 +364,76 @@ test("damage and life catalog preserves complete sources and explicit IR7 target
   assert.equal(validate(legacy),false);
 });
 
+test("trigger catalog binds mandatory self and other events without trusting archive diagnostics", () => {
+  const catalog=run("compile-triggers");
+  const previous=run("compile-damage-life");
+  assert.deepEqual(catalog,JSON.parse(read("expected-trigger-ir.json")));
+  assert.equal(catalog.schema_version,8);assert.equal(catalog.definitions.length,24);
+  for (const d of previous.definitions) {
+    assert.equal(d.triggered,undefined);
+    assert.deepEqual(catalog.definitions.find((next: any) => next.oracle_id===d.oracle_id),d);
+  }
+  for (const name of ["blood-artist","elvish-visionary","essence-warden"]) {
+    const record=JSON.parse(read(`${name}.json`));
+    const d=catalog.definitions.find((d: any) => d.oracle_id===record.oracleIdentity);
+    assert.equal(d.provenance.source_json,JSON.stringify(record.source));
+    assert.equal(d.provenance.abilities_json,JSON.stringify(record.faces[0].result.abilities));
+    assert.equal(d.provenance.binding_sha256,record.bindingSha256);
+    assert.equal(d.triggered.length,1);
+    assert.equal(d.triggered[0].functioning_zone,"battlefield");
+    assert.equal(d.triggered[0].program.functioning_zone,"stack");
+    assert.equal(d.triggered[0].program.timing,"instant");
+    assert.equal(d.triggered[0].program.resolution,"instructions");
+  }
+  const get=(name: string) => catalog.definitions.find((d: any) => d.name===name);
+  const visionary=get("Elvish Visionary");
+  assert.deepEqual(visionary.characteristics.mana_cost,{generic:"1",colored:["G"]});
+  assert.equal(visionary.triggered[0].condition,"self_enters_battlefield");
+  assert.deepEqual(visionary.triggered[0].program.targets,[]);
+  assert.deepEqual(visionary.triggered[0].program.instructions,[{op:"draw_cards",count:"1",source_block:0}]);
+  const warden=get("Essence Warden");
+  assert.deepEqual(warden.characteristics.mana_cost,{generic:"0",colored:["G"]});
+  assert.equal(warden.triggered[0].condition,"other_creature_enters_battlefield");
+  assert.deepEqual(warden.triggered[0].program.instructions,[{op:"gain_life",recipient:"controller",amount:"1",source_block:0}]);
+  const artist=get("Blood Artist");
+  assert.deepEqual(artist.characteristics.mana_cost,{generic:"1",colored:["B"]});
+  assert.equal(artist.characteristics.power,"0");assert.equal(artist.characteristics.toughness,"1");
+  assert.equal(artist.triggered[0].condition,"any_creature_dies");
+  assert.deepEqual(artist.triggered[0].program.targets,[{slot:0,selection_id:"line:0:8",chooser:"controller",stage:"announcement",domain:"any_player"}]);
+  assert.deepEqual(artist.triggered[0].program.instructions,[{op:"lose_life",recipient:{target:{target_slot:0}},amount:"1",source_block:0},{op:"gain_life",recipient:"controller",amount:"1",source_block:0}]);
+  for (const name of ["blood-artist","essence-warden"]) assert.equal(JSON.parse(read(`${name}.json`)).binding.fullyBound,false);
+  assert.equal(JSON.parse(read("elvish-visionary.json")).binding.fullyBound,true);
+  for (const name of ["Deathgreeter","Flame Rift"]) assert.equal(catalog.definitions.some((d: any) => d.name===name),false);
+  const optional=JSON.parse(read("deathgreeter.json"));
+  assert.equal(optional.status,"parsed");assert.equal(optional.faces[0].result.abilities[0].effects[0].steps[0].optional,true);
+  const validate = new Ajv2020({ strict: false, formats: {
+    uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },
+  } }).compile(run("schema"));
+  assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
+  for (const name of ["Blood Artist","Essence Warden","Elvish Visionary"]) for (const version of [3,4,5,6,7]) {
+    const bad=structuredClone(catalog);bad.definitions=bad.definitions.filter((d: any) => d.name===name);bad.schema_version=version;
+    assert.equal(validate(bad),false,`${name} IR${version}`);
+  }
+  for (const mutate of [
+    (c: any) => {c.schema_version=9;},
+    (c: any) => {c.definitions.find((d: any) => d.name==="Blood Artist").triggered[0].optional=true;},
+    (c: any) => {c.definitions.find((d: any) => d.name==="Blood Artist").triggered[0].cost="tap_source";},
+    (c: any) => {c.definitions.find((d: any) => d.name==="Blood Artist").triggered[0].condition="other_creature_dies";},
+    (c: any) => {c.definitions.find((d: any) => d.name==="Essence Warden").triggered[0].lookup="before_event";},
+    (c: any) => {c.definitions.find((d: any) => d.name==="Elvish Visionary").triggered[0].program.instructions[0].count="01";},
+  ]) {const bad=structuredClone(catalog);mutate(bad);assert.equal(validate(bad),false,JSON.stringify(validate.errors));}
+  // A newer capability removed from the list cannot hide a triggered field
+  // inside an older envelope: the version gate also constrains that field.
+  const bad=structuredClone(catalog);bad.schema_version=7;
+  for (const d of bad.definitions) d.capabilities=d.capabilities.filter((cap: string) => !["triggered_ability_v1","self_enters_battlefield_v1","other_creature_enters_battlefield_v1","creature_dies_v1"].includes(cap));
+  assert.equal(validate(bad),false);
+});
+
 function currentProjectionVersions(value: any): any {
   if (Array.isArray(value)) return value.map(currentProjectionVersions);
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(Object.entries(value).map(([key, child]) =>
-      [key, key === "observation_version" || key === "context_version" ? 11 : currentProjectionVersions(child)]));
+      [key, key === "observation_version" || key === "context_version" ? 12 : currentProjectionVersions(child)]));
   }
   return value;
 }
@@ -378,9 +443,137 @@ function currentProjectionVersions(value: any): any {
 let demoResult: any;
 function demo() { return demoResult ??= run("demo"); }
 
+test("ordinary trigger witnesses retain APNAP order, countered programs and historical sources", () => {
+  const reports = demo().triggers;
+  assert.deepEqual(reports, JSON.parse(read("expected-trigger-scenario.json")));
+  const expected: Record<string,number[]> = {
+    // Collected, placed, completed, fizzled, life losses, life gains.
+    visionary_etb: [4,4,4,0,0,3], visionary_stifled: [4,4,3,0,0,3],
+    visionary_bounced: [4,4,4,0,0,3], warden_bounced: [4,4,4,0,0,3],
+    warden_stifled: [4,4,3,0,0,2], visionary_countered: [0,0,0,0,0,0],
+    empty_draw_gain_first: [4,4,4,0,0,3], empty_draw_draw_first: [4,4,3,0,0,2],
+    artist_self_death: [5,5,5,0,5,5], artist_sacrifice: [5,5,5,0,5,5],
+    artist_stifled: [5,5,4,0,4,4], artist_bounced: [5,5,5,0,5,5],
+    artist_borrowed_owner_leaves: [5,4,4,0,4,4], artist_controller_leaves: [5,3,3,0,3,3],
+    artist_retarget_accepted: [5,4,4,0,4,4], artist_target_leaves: [5,5,4,4,0,0],
+    simultaneous_forward: [10,10,10,0,10,10], simultaneous_reverse: [10,10,10,0,10,10],
+    commander_return: [5,5,5,0,5,5], commander_decline: [5,5,5,0,5,5],
+    nonactive_activation: [5,5,5,0,5,5], researcher_empty_draw: [5,5,5,0,5,5],
+    trigger_eliminates_active: [10,10,6,4,2,2],
+  };
+  assert.deepEqual(reports.map((r: any) => r.policy), Object.keys(expected));
+  assert.equal(reports.reduce((sum: number,r: any) => sum+r.checkpoints,0),2960);
+  const by = Object.fromEntries(reports.map((r: any) => [r.policy,r])) as Record<string,any>;
+  const events = (r: any, kind: string) => r.events.filter((e: any) => e.event === kind);
+  const actuals = (r: any, kind: string) => r.events.filter((e: any) => e.actual?.outcome === kind).map((e: any) => e.actual);
+  const completedSubjects = (r: any) => {
+    const collected = new Map(events(r,"trigger_collected").map((e: any) => [e.trigger_id,e]));
+    const placed = new Map(events(r,"trigger_placed").map((e: any) => [e.stack_id,collected.get(e.trigger_id)]));
+    return events(r,"triggered_ability_completed").map((e: any) => {
+      const trigger = placed.get(e.stack_id) as any;
+      return [trigger.source.card,trigger.subject.card];
+    });
+  };
+  for (const r of reports) {
+    const collected = events(r,"trigger_collected");
+    const placed = events(r,"trigger_placed");
+    const completed = events(r,"triggered_ability_completed");
+    assert.deepEqual([collected.length,placed.length,completed.length,completed.filter((e: any) => !e.resolved).length,
+      actuals(r,"life_lost").length,actuals(r,"life_gained").length],expected[r.policy],r.policy);
+    for (const e of collected) {
+      assert.deepEqual(e.source_facts.object,e.source);
+      assert.deepEqual(e.source_facts.zone,{zone:"battlefield"});
+      assert.equal(e.source_facts.controller,e.player);
+      if ([3,4,17,29].includes(e.source.card)) assert.deepEqual(e.subject,{card:4,incarnation:2});
+      else assert.equal(e.subject.incarnation,0);
+    }
+    for (const kind of ["life_lost","life_gained"]) for (const a of actuals(r,kind)) {
+      assert.equal(a.amount,"1");
+      assert.equal(BigInt(a.current)-BigInt(a.previous),kind === "life_lost" ? -1n : 1n);
+    }
+    assert.deepEqual(r.commander_ledger.records["0"].combat_damage,{});
+  }
+  for (const [policy,source,gains,losses] of [
+    ["visionary_stifled",4,3,0], ["warden_stifled",3,2,0], ["artist_stifled",34,4,4],
+  ] as const) {
+    const r=by[policy];const counters=actuals(r,"stack_object_countered");
+    assert.equal(counters.length,1);
+    assert.equal(counters[0].source.card,source);
+    assert.equal(counters[0].spell,false);assert.equal(counters[0].movement,null);
+    assert.equal(events(r,"triggered_ability_completed").some((e: any) => e.stack_id===counters[0].target),false);
+    assert.equal(actuals(r,"life_gained").length,gains);assert.equal(actuals(r,"life_lost").length,losses);
+  }
+  for (const name of ["simultaneous_forward","simultaneous_reverse"]) {
+    const r=by[name];const c=events(r,"trigger_collected");
+    for (const card of [1,2]) {
+      assert.equal(c.filter((e: any) => e.source.card===card).length,2);
+      assert.equal(c.filter((e: any) => e.subject.card===card).length,5);
+    }
+    assert.deepEqual(events(r,"trigger_placed").map((e: any) => e.player),[0,0,0,0,1,1,2,2,3,3]);
+    assert.deepEqual(events(r,"triggered_ability_completed").map((e: any) => e.stack_id),events(r,"trigger_placed").map((e: any) => e.stack_id).reverse());
+  }
+  assert.deepEqual(completedSubjects(by.simultaneous_forward),[[34,2],[34,1],[28,2],[28,1],[16,2],[16,1],[2,2],[1,2],[2,1],[1,1]]);
+  assert.deepEqual(completedSubjects(by.simultaneous_reverse),[[34,1],[34,2],[28,1],[28,2],[16,1],[16,2],[1,1],[2,1],[1,2],[2,2]]);
+  // The chosen own trigger order determines whether the gain finishes before
+  // the failed draw's SBA removes the controller and its remaining invocation.
+  assert.deepEqual(completedSubjects(by.empty_draw_gain_first),[[29,4],[17,4],[3,4],[4,4]]);
+  assert.deepEqual(completedSubjects(by.empty_draw_draw_first),[[29,4],[17,4],[4,4]]);
+  for (const [name,life] of [["empty_draw_gain_first","41"],["empty_draw_draw_first","40"]] as const) {
+    const r=by[name];const failed=r.events.findIndex((e: any) => e.actual?.outcome==="draw_failed");
+    const complete=r.events.findIndex((e: any,index: number) => index>failed && e.event==="triggered_ability_completed");
+    const lost=r.events.findIndex((e: any) => e.event==="players_lost");
+    assert.ok(failed>=0 && complete>failed && lost>complete);
+    assert.equal(r.final_observations[3].view.players[0].life,life);
+    assert.equal(r.final_observations[3].view.players[0].status,"left");
+  }
+  const borrowed=events(by.artist_borrowed_owner_leaves,"trigger_collected").find((e: any) => e.source.card===1);
+  assert.equal(borrowed.source_facts.owner,2);assert.equal(borrowed.source_facts.controller,0);
+  assert.equal(by.artist_borrowed_owner_leaves.final_observations[3].view.players[0].life,"42");
+  assert.equal(by.artist_borrowed_owner_leaves.final_observations[3].view.players[2].status,"left");
+  for (const name of ["commander_return","commander_decline"]) {
+    const choices=by[name].choices;
+    const owner=choices.findIndex((o: any) => o.decision.request==="commander_return");
+    const order=choices.findIndex((o: any) => o.decision.request==="order_triggers");
+    assert.ok(owner>=0 && order>owner);
+    assert.equal(choices[owner].view.stack.some((s: any) => s.triggered),false);
+  }
+  const nonactive=by.nonactive_activation.choices.find((o: any) => o.decision.request==="priority");
+  assert.equal(nonactive.view.turn_owner,0);assert.equal(nonactive.view.priority,1);
+  assert.equal(nonactive.view.stack.filter((s: any) => s.triggered).length,5);
+  const privateFields=new Set(["incarnation","trigger_id","pending_triggers","source_handles","source_facts","state","state_sha256","frame","trace","journal","source_json"]);
+  function checkProjection(value: any) {
+    if (Array.isArray(value)) value.forEach(checkProjection);
+    else if (value !== null && typeof value === "object") for (const [key,child] of Object.entries(value)) {
+      assert.equal(privateFields.has(key),false,key);checkProjection(child);
+    }
+  }
+  for (const r of reports) for (const o of [...r.choices,...r.final_observations]) {
+    checkProjection(o);assert.equal(o.observation_version,12);
+    assert.equal(o.view.objects.some((x: any) => x.zone.zone==="library"),false);
+    assert.equal(o.view.objects.filter((x: any) => x.zone.zone==="hand").every((x: any) => x.owner===o.view.viewer),true);
+    if (o.decision?.request==="order_triggers") {
+      assert.equal(o.view.priority,null);
+      assert.equal(new Set(o.decision.candidates.map((t: any) => t.handle)).size,o.decision.candidates.length);
+      for (const t of o.decision.candidates) assert.match(t.handle,new RegExp(`^v${o.view.viewer}-t\\d+$`));
+    }
+    if (o.decision?.request==="player_targets") {
+      assert.equal(o.view.priority,null);
+      assert.equal(o.decision.candidates.includes(o.view.viewer),true);
+      assert.equal(o.decision.occurrences[0].domain,"any_player");
+      assert.equal(o.view.stack.at(-1).cast_complete,false);
+    }
+    for (const s of o.view.stack.filter((s: any) => s.triggered)) {
+      assert.equal(s.spell,null);assert.equal(s.triggered.handle,s.handle);
+      assert.match(s.handle,new RegExp(`^v${o.view.viewer}-s\\d+$`));
+    }
+  }
+  const historical=by.artist_self_death.choices.find((o: any) => o.decision.request==="player_targets");
+  assert.equal(historical.view.stack.at(-1).triggered.source.current,null);
+});
+
 test("damage and life witnesses retain ordered effects, mixed targets and historical sources", () => {
   const reports = demo().damage_life;
-  assert.deepEqual(reports, JSON.parse(read("expected-damage-life-scenario.json")));
+  assert.deepEqual(reports, currentProjectionVersions(JSON.parse(read("expected-damage-life-scenario.json"))));
   assert.equal(reports.length, 28);
   const by = Object.fromEntries(reports.map((r: any) => [r.policy, r])) as Record<string,any>;
   const actuals = (r: any, kind: string) => r.events.filter((e: any) => e.actual?.outcome === kind).map((e: any) => e.actual);
@@ -513,7 +706,7 @@ test("stack and cost witnesses preserve instance targets, paid costs and nested 
   const lost = failed.findIndex((e: any) => e.event === "players_lost");
   assert.ok(discarded >= 0 && discarded < completed && completed < lost);
   for (const report of reports) for (const o of [...report.choices,...report.final_observations]) {
-    assert.equal(o.observation_version,11);
+    assert.equal(o.observation_version,12);
     assert.equal(o.view.objects.some((x: any) => x.zone.zone === "library"),false);
     assert.equal(o.view.objects.filter((x: any) => x.zone.zone === "hand").every((x: any) => x.owner === o.view.viewer),true);
     for (const forbidden of ["incarnation","stack_id","source_handles","mana_activations","rule_steps"]) assert.equal(JSON.stringify(o).includes(`"${forbidden}"`),false);
@@ -559,7 +752,7 @@ test("action witnesses preserve explicit spending, player sacrifice and noncard 
   const lost = failed.findIndex((e: any) => e.event === "players_lost");
   assert.ok(completed >= 0 && lost > completed);
   for (const report of reports) for (const o of [...report.choices,...report.final_observations]) {
-    assert.equal(o.observation_version, 11);
+    assert.equal(o.observation_version, 12);
     assert.equal(o.view.objects.some((x: any) => x.zone.zone === "library"), false);
     assert.equal(o.view.objects.filter((x: any) => x.zone.zone === "hand").every((x: any) => x.owner === o.view.viewer), true);
     for (const forbidden of ["incarnation","stack_id","source_handles","mana_activations","rule_steps"]) assert.equal(JSON.stringify(o).includes(`"${forbidden}"`),false);
@@ -570,7 +763,7 @@ test("response observations expose stack order without reviving historical targe
   const response = demo().response;
   const before = response.stacked_observation;
   const after = response.after_top_observation;
-  assert.equal(before.observation_version, 11);
+  assert.equal(before.observation_version, 12);
   assert.deepEqual(before.view.stack.map((s: any) => s.controller), [0, 2]);
   assert.equal(before.view.stack.every((s: any) => s.cast_complete), true);
   assert.equal(after.view.stack.length, 1);
@@ -588,7 +781,7 @@ test("response observations expose stack order without reviving historical targe
 test("casting mana witnesses expose the caster request and preserve keep/undo outcomes", () => {
   const report = demo();
   const casting = report.mana_casting;
-  assert.equal(casting.mana_observation.observation_version, 11);
+  assert.equal(casting.mana_observation.observation_version, 12);
   assert.equal(casting.mana_observation.decision.request, "mana");
   assert.deepEqual(casting.mana_observation.decision.cost, { generic: "0", colored: ["U"] });
   assert.equal(casting.mana_observation.view.priority, null);
@@ -618,7 +811,7 @@ test("turn progression and permanent casting expose only permitted public state"
   assert.equal(turns.status, "turns_permanents_verified");
   assert.deepEqual(turns.turn, { number: 5, step: "precombat_main", lands_played: 1 });
   const own = turns.final_observations[0];
-  assert.equal(own.observation_version, 11);
+  assert.equal(own.observation_version, 12);
   assert.deepEqual(own.view.turn, turns.turn);
   assert.equal(own.view.priority, 0);
   assert.equal(own.view.stack.length, 0);
@@ -648,7 +841,7 @@ test("complete scenario games retain rules outcomes and private combat projectio
     assert.equal(run.journal.concessions.length, 0);
     assert.ok(run.checkpoints > 0);
     for (const observation of run.final_observations) {
-      assert.equal(observation.observation_version, 11);
+      assert.equal(observation.observation_version, 12);
       assert.equal(observation.view.objects.some((o: any) => o.zone.zone === "library"), false);
       assert.equal(observation.view.objects.filter((o: any) => o.zone.zone === "hand").every((o: any) => o.owner === observation.view.viewer), true);
       for (const forbidden of ["incarnation", "damage_choices", "libraries", "frame", "rule_steps"]) {
@@ -690,7 +883,7 @@ test("Commander witnesses preserve tax, actual return destinations and private p
     assert.equal(choices.length, 1);
     assert.equal(choices[0].player, 0);
     for (const observation of run.final_observations) {
-      assert.equal(observation.observation_version, 11);
+      assert.equal(observation.observation_version, 12);
       assert.equal(observation.view.objects.filter((o: any) => o.zone.zone === "hand").every((o: any) => o.owner === observation.view.viewer), true);
       for (const key of ["incarnation", "frame", "commander_returns", "total_cost", "continuation", "rule_steps"]) {
         assert.equal(JSON.stringify(observation).includes(`"${key}"`), false, key);
@@ -745,7 +938,7 @@ test("Commander damage and library witnesses expose actual results without hidde
   }
   for (const run of runs) {
     for (const observation of [...run.final_observations, ...run.choices]) {
-      assert.equal(observation.observation_version, 11);
+      assert.equal(observation.observation_version, 12);
       assert.equal(observation.view.objects.some((o: any) => o.zone.zone === "library"), false);
       assert.equal(observation.view.objects.filter((o: any) => o.zone.zone === "hand").every((o: any) => o.owner === observation.view.viewer), true);
       for (const key of ["incarnation", "frame", "commander_returns", "libraries", "continuation", "rule_steps", "previous_top"]) {

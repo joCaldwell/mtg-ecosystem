@@ -120,9 +120,9 @@ hashes and copies its complete bytes without creating a single Node JSON string.
 unimplemented bulk pipeline.
 
 The test profile is optimized at level 2 with debug assertions and overflow checks
-enabled. Bundle v14 records the effective optimization/check settings for its build
-identity and offline rebuild, all seven exact source catalogs, and all 258 trace-mode
-runs. Snapshots are v13, player projections v11 and query sidecars v10.
+enabled. Bundle v15 records the effective optimization/check settings for its build
+identity and offline rebuild, all eight exact source catalogs, and all 327 trace-mode
+runs. Snapshots are v14, player projections v12 and query sidecars v11.
 `SnapshotVerifier` verifies ordered checkpoint sequences using
 one independent forward replay while applying the complete standalone restore
 checks at every boundary. Histories share immutable chunks across native forks;
@@ -136,7 +136,7 @@ emits its eleven-definition IR v5 catalog. `actions-payments-games --recover`
 verifies fourteen source-backed policies and all 1,120 new recovery boundaries.
 Together the five catalogs cover seventeen exact configurations, 5,741
 combat/Commander/action recovery boundaries, and the historical checkpoints.
-Blood Artist remains the paired unsupported source for the action catalog;
+Blood Artist now lowers completely but remains unadmitted by the action catalog;
 Cruel Edict now lowers completely but remains unadmitted by historical catalogs.
 These remain closed scenarios, not arbitrary decks or legal Commander matches.
 
@@ -157,7 +157,20 @@ IR v7 catalog; `damage-life-games --recover` verifies twenty-eight player-facing
 policies and 1,198 new recovery boundaries. Mixed target selections distinguish creature handles from player seats;
 targeted tap abilities retain independent source identity after departure. Ordered
 life programs defer SBAs until completion, including self-targeted loss/gain and
-nested Commander draw replacement. Flame Rift and Blood Artist remain paired
-unsupported sources. The seven catalogs cover 26 exact configurations, 258
+nested Commander draw replacement. Flame Rift remains unsupported; Blood Artist now lowers but remains unadmitted
+by this historical catalog. The seven catalogs cover 26 exact configurations, 258
 trace-mode executions and 8,646 recovery boundaries, plus legacy checkpoints.
-Trigger scheduling/APNAP remains the next bounded chunk.
+
+The [ordinary-trigger slice](../../docs/game-engine-triggers.md) adds five exact
+profiles with Blood Artist, Elvish Visionary and Essence Warden. `compile-triggers`
+emits its twenty-four-definition IR v8 catalog; `trigger-games --recover` verifies
+23 player-facing policies and 2,960 new recovery boundaries. Actual typed events
+capture simultaneous death lookback and ETB source incarnations. Pending triggers
+wait through SBAs and Commander returns, then use APNAP/controller ordering and
+mandatory targets. Detached sources, accepted-choice invalidation, departed targets,
+Stifle and active-player elimination retain their distinct outcomes. Deathgreeter's
+optional effect and Flame Rift's aggregate scope remain explicit unsupported sources.
+Together all eight catalogs cover 31 exact configurations, 327 trace-mode executions
+and 11,606 recovery boundaries, plus legacy checkpoints. Replacement/prevention
+and temporary modifiers remain the next bounded P4 family. These profiles remain
+closed rules scenarios.

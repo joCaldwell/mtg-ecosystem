@@ -86,6 +86,7 @@ enum Task {
         header_checked: bool,
         converted: Vec<ObjectId>,
         converted_entities: Vec<TargetEntity>,
+        converted_triggers: Vec<TriggerId>,
         value: Option<Response>,
     },
     Search {
@@ -196,6 +197,7 @@ impl Game {
                 header_checked: false,
                 converted: vec![],
                 converted_entities: vec![],
+                converted_triggers: vec![],
                 value: None,
             },
             Query::Search { .. } => Task::Search {
@@ -281,17 +283,33 @@ impl Game {
                 }
                 b.view.objects.push(visible);
             }
-        } else {
+        } else if cursor < 4 + self.state.objects.len() + self.state.stack.len() {
             b.view.stack.push(
                 self.visible_stack(viewer, cursor - 4 - self.state.objects.len())
                     .map_err(|_| QueryRejection::Invariant)?,
             );
         }
+        if let Some(PlayerRequest::OrderTriggers { candidates, .. }) = &mut b.decision {
+            let offset = 4 + self.state.objects.len() + self.state.stack.len();
+            if cursor >= offset
+                && let Some(id) = self.trigger_order_ids().get(cursor - offset)
+            {
+                candidates.push(
+                    self.visible_pending_trigger(viewer, *id)
+                        .map_err(|_| QueryRejection::Invariant)?,
+                );
+            }
+        }
         b.cursor = b.cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-        if b.cursor as usize >= 4 + self.state.objects.len() + self.state.stack.len() {
+        let extra = if matches!(b.decision, Some(PlayerRequest::OrderTriggers { .. })) {
+            self.trigger_order_ids().len()
+        } else {
+            0
+        };
+        if b.cursor as usize >= 4 + self.state.objects.len() + self.state.stack.len() + extra {
             b.view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
             return Ok(Some(Observation {
-                observation_version: 11,
+                observation_version: 12,
                 view: b.view.clone(),
                 decision: b.decision.clone(),
             }));
@@ -305,6 +323,18 @@ impl Game {
                 Ok(self.observation_unit(builder)?.map(QueryValue::Observation))
             }
             (Query::Decision { viewer }, Task::Decision { cursor, request }) => {
+                if let Some(PlayerRequest::OrderTriggers { candidates, .. }) = request {
+                    let ids = self.trigger_order_ids();
+                    if let Some(id) = ids.get(*cursor as usize) {
+                        candidates.push(
+                            self.visible_pending_trigger(*viewer, *id)
+                                .map_err(|_| QueryRejection::Invariant)?,
+                        );
+                    }
+                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
+                    return Ok((*cursor as usize >= ids.len())
+                        .then(|| QueryValue::Decision(request.clone())));
+                }
                 if let Some(PlayerRequest::EntityTargets { candidates, .. }) = request {
                     let cursor_index = *cursor as usize;
                     let target = if cursor_index < 4 {
@@ -357,6 +387,7 @@ impl Game {
                     header_checked,
                     converted,
                     converted_entities,
+                    converted_triggers,
                     value,
                 },
             ) => {
@@ -368,6 +399,13 @@ impl Game {
                             Frame::EntityTargets { .. },
                             PlayerResponse::EntityTargets { entities },
                         ) => entities.len() == self.program().map_err(invalid)?.targets.len(),
+                        (Frame::TriggerOrder { .. }, PlayerResponse::OrderTriggers { order }) => {
+                            order.len() == self.trigger_order_ids().len()
+                        }
+                        (
+                            Frame::TriggerTargets { .. },
+                            PlayerResponse::PlayerTargets { players },
+                        ) => players.len() == self.program().map_err(invalid)?.targets.len(),
                         (Frame::StackTargets { .. }, PlayerResponse::StackTargets { .. })
                         | (Frame::PlayerTargets { .. }, PlayerResponse::PlayerTargets { .. })
                         | (
@@ -428,6 +466,15 @@ impl Game {
                     converted_entities.push(target);
                     return Ok(None);
                 }
+                if let PlayerResponse::OrderTriggers { order } = response
+                    && converted_triggers.len() < order.len()
+                {
+                    converted_triggers.push(
+                        self.resolve_trigger_handle(*viewer, &order[converted_triggers.len()])
+                            .map_err(invalid)?,
+                    );
+                    return Ok(None);
+                }
                 if value.is_none() {
                     *value = Some(if matches!(response, PlayerResponse::Targets { .. }) {
                         Response::Targets {
@@ -436,6 +483,10 @@ impl Game {
                     } else if matches!(response, PlayerResponse::EntityTargets { .. }) {
                         Response::EntityTargets {
                             entities: converted_entities.clone(),
+                        }
+                    } else if matches!(response, PlayerResponse::OrderTriggers { .. }) {
+                        Response::OrderTriggers {
+                            order: converted_triggers.clone(),
                         }
                     } else {
                         self.convert_response(*viewer, response).map_err(invalid)?
@@ -492,7 +543,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 11,
+                    context_version: 12,
                     observation: *observation.clone().ok_or(QueryRejection::Invariant)?,
                     permitted_history: history.clone(),
                     open_decklists: decks.clone(),
@@ -511,7 +562,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: 10,
+            work_version: 11,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -520,7 +571,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != 10
+        if saved.work_version != 11
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?

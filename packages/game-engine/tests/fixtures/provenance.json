@@ -33,6 +33,27 @@
       "ast_sha256": "6ed597e9deae79bc975ef443eb5264b2e9d6ea18d7f4359c248c305c77fff513"
     },
     {
+      "file": "deathgreeter.json",
+      "oracle_id": "b7ad11dc-c962-4034-b15a-a080c6fff75f",
+      "record_sha256": "903ef9fc0727b4c98ce9e7d6b36408291cf6433ad437651dc713758eadcca01d",
+      "source_sha256": "16d63c5fc326de874035c39bd32960030d022636482d816e51778430a60490de",
+      "ast_sha256": "e1c68a9ac0879e6f8f316369f884d14c4a278158063813501ff774782fcc6cfe"
+    },
+    {
+      "file": "elvish-visionary.json",
+      "oracle_id": "c6a3a882-a127-4590-93d7-679ef4313efe",
+      "record_sha256": "55c4ba511575399ea23bcda388c460fda2f578e146818a240fb98d27aa6d0471",
+      "source_sha256": "26f75484b163d8f6a482e1d15719623f7e87729fb5dbf0f57f89d67373e8c74f",
+      "ast_sha256": "71671b1e730c094094bf6ef196a9b2da68ba78dc38c3c616c3d19d9072627a37"
+    },
+    {
+      "file": "essence-warden.json",
+      "oracle_id": "6ca2a89e-7032-4864-b4e9-66f3178f90ab",
+      "record_sha256": "eebedc961887a7f7b6cc9a998485b4615dfc485401843a5aede8da053e61e220",
+      "source_sha256": "6c4225ff3a8e52c25e1e1f79eaf5a355f6b1d6ff24884503e010a10a7a91eef8",
+      "ast_sha256": "ba3053af6c381b36ab26e6ddf231cbd269c8800d8a9b70fed78d255e6a7290ec"
+    },
+    {
       "file": "flame-rift.json",
       "oracle_id": "28479aa8-d1cd-421a-8bbb-0594bb4dd410",
       "record_sha256": "d7513ded742781ea970531b0e77718985b61553e1955f3e6b1d4e0d49723d53f",

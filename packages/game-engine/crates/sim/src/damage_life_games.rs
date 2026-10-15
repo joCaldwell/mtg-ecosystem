@@ -347,6 +347,9 @@ impl Strategy {
                     PlayerResponse::Pass
                 }
             }
+            PlayerRequest::OrderTriggers { .. } => {
+                return Err("ordinary trigger ordering outside historical profile".into());
+            }
             PlayerRequest::EntityTargets { candidates, .. } => {
                 let target = if self.policy == Policy::PingerSourceKilled && v.viewer == PlayerId(1)
                 {

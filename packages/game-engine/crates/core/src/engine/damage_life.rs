@@ -79,6 +79,11 @@ impl Game {
             return Ok(());
         }
         let fact = self.object_before(object)?;
+        for trigger in &mut self.state.pending_triggers {
+            if trigger.source == object {
+                trigger.source_facts = fact.clone();
+            }
+        }
         for entry in &mut self.state.stack {
             update_entry(entry, &fact);
         }

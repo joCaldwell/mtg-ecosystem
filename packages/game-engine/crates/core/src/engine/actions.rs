@@ -5,6 +5,13 @@ use super::*;
 pub(super) enum StackKind {
     #[default]
     Spell,
+    Triggered {
+        ability: u32,
+        source_handles: Vec<ObjectHandle>,
+        trigger_id: TriggerId,
+        event: OccurrenceId,
+        subject: ObjectId,
+    },
     Activated {
         ability: u32,
         source_handles: Vec<ObjectHandle>,
@@ -114,7 +121,7 @@ impl Game {
         object: ObjectId,
         ability: u32,
     ) -> Result<(), String> {
-        if !self.prepared.config.actions_profile() || self.state.stack.len() >= 4 {
+        if !self.prepared.config.actions_profile() || self.state.stack.len() >= self.stack_limit() {
             return Err("unsupported activated ability profile/stack bound".into());
         }
         let source = self.current(object)?;
@@ -184,6 +191,9 @@ impl Game {
         player: PlayerId,
         response: &Response,
     ) -> Option<Result<(), String>> {
+        if let Some(result) = self.validate_trigger_response(player, response) {
+            return Some(result);
+        }
         match (&self.state.frame, response) {
             (Frame::EntityTargets { .. }, Response::EntityTargets { entities }) => {
                 Some(self.validate_entity_targets(player, entities))
@@ -196,7 +206,10 @@ impl Game {
             {
                 Some(self.validate_activation(player, *object, *ability))
             }
-            (Frame::PlayerTargets { .. }, Response::PlayerTargets { players }) => Some((|| {
+            (
+                Frame::PlayerTargets { .. } | Frame::TriggerTargets { .. },
+                Response::PlayerTargets { players },
+            ) => Some((|| {
                 let top = self.top()?;
                 let caster = top.controller;
                 if player != caster
@@ -209,8 +222,7 @@ impl Game {
                     return Err("invalid player targets".into());
                 }
                 Ok(())
-            })(
-            )),
+            })()),
             (
                 Frame::ResolutionChoice {
                     choice:
@@ -547,7 +559,11 @@ impl Game {
             _ => Err("unexpected action instruction".into()),
         }
     }
-    pub(super) fn finish_ability(&mut self, entry: &StackInstance) -> Result<(), String> {
+    pub(super) fn finish_ability(
+        &mut self,
+        entry: &StackInstance,
+        resolved: bool,
+    ) -> Result<(), String> {
         if self
             .state
             .stack
@@ -560,7 +576,14 @@ impl Game {
         {
             return Err("ability completion binding invariant".into());
         }
-        self.record_event(Event::AbilityCompleted { stack_id: entry.id })?;
+        if matches!(entry.kind, StackKind::Triggered { .. }) {
+            self.record_event(Event::TriggeredAbilityCompleted {
+                stack_id: entry.id,
+                resolved,
+            })?;
+        } else {
+            self.record_event(Event::AbilityCompleted { stack_id: entry.id })?;
+        }
         self.state.frame = Frame::Priority;
         self.state.priority = self
             .state

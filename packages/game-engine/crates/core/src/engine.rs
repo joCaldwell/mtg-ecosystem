@@ -111,10 +111,32 @@ const DAMAGE_LIFE_EXTRA: [(&str, &str); 6] = [
         "bcbf6d64c8467946e262fd55cbdc47a2cfbdaf1084a3a8dab833b591aef05a77",
     ),
 ];
+const BLOOD_ARTIST: &str = "310f141c-7f37-4729-aed6-dd9c09db448d";
+const VISIONARY: &str = "c6a3a882-a127-4590-93d7-679ef4313efe";
+const WARDEN: &str = "6ca2a89e-7032-4864-b4e9-66f3178f90ab";
+const TRIGGER_EXTRA: [(&str, &str); 3] = [
+    (
+        BLOOD_ARTIST,
+        "e1f020572802bac63e03b592c6f3aaa019786980e698613e98b86524b79afdfb",
+    ),
+    (
+        VISIONARY,
+        "6870ff3e6406a42c3896da21c56d121bf5abd8c37bb09df462fbff2bf7162333",
+    ),
+    (
+        WARDEN,
+        "3b1c640edf5130e97a5d8784c0e201d7bb5172d7d254295bbe82744b6c89fcb2",
+    ),
+];
 mod damage_life;
 #[cfg(test)]
 mod damage_life_tests;
 pub use damage_life::{NoncombatDamageOccurrence, TargetEntity};
+#[cfg(test)]
+mod trigger_tests;
+mod triggers;
+pub use triggers::TriggerId;
+use triggers::{PendingTrigger, TriggerPlacement};
 mod history;
 pub use history::History;
 mod recovery;
@@ -359,6 +381,11 @@ impl Prepared {
             && config != ScenarioConfig::actions_borrowed()
             && config != ScenarioConfig::actions_empty_library()
             && config != ScenarioConfig::mixed_mana()
+            && config != ScenarioConfig::triggers()
+            && config != ScenarioConfig::triggers_low()
+            && config != ScenarioConfig::triggers_borrowed()
+            && config != ScenarioConfig::triggers_empty_library()
+            && config != ScenarioConfig::triggers_nonactive()
             && config != ScenarioConfig::damage_life()
             && config != ScenarioConfig::damage_life_low()
             && config != ScenarioConfig::damage_life_borrowed()
@@ -375,7 +402,9 @@ impl Prepared {
             );
         }
         if catalog.schema_version
-            != if config.damage_life_profile() {
+            != if config.triggers_profile() {
+                8
+            } else if config.damage_life_profile() {
                 7
             } else if config.stack_costs_profile() {
                 6
@@ -407,6 +436,9 @@ impl Prepared {
         }
         if config.damage_life_profile() {
             allowed.extend(DAMAGE_LIFE_EXTRA);
+        }
+        if config.triggers_profile() {
+            allowed.extend(TRIGGER_EXTRA);
         }
         if catalog.definitions.len() != allowed.len() {
             return Err("definition pool is not the closed reviewed scenario pool".into());
@@ -526,6 +558,13 @@ struct Resolving {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 enum Frame {
+    TriggerOrder {
+        placement: TriggerPlacement,
+    },
+    TriggerTargets {
+        placement: TriggerPlacement,
+        stack_id: StackId,
+    },
     EntityTargets {
         cast: Casting,
     },
@@ -591,6 +630,9 @@ enum Frame {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    OrderTriggers {
+        order: Vec<TriggerId>,
+    },
     EntityTargets {
         entities: Vec<TargetEntity>,
     },
@@ -655,6 +697,11 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    OrderTriggers {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<TriggerId>,
+    },
     EntityTargets {
         decision_id: u64,
         player: PlayerId,
@@ -740,7 +787,8 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::EntityTargets { decision_id, .. }
+            Self::OrderTriggers { decision_id, .. }
+            | Self::EntityTargets { decision_id, .. }
             | Self::StackTargets { decision_id, .. }
             | Self::PlayerTargets { decision_id, .. }
             | Self::Sacrifice { decision_id, .. }
@@ -758,7 +806,8 @@ impl Request {
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::EntityTargets { player, .. }
+            Self::OrderTriggers { player, .. }
+            | Self::EntityTargets { player, .. }
             | Self::StackTargets { player, .. }
             | Self::PlayerTargets { player, .. }
             | Self::Sacrifice { player, .. }
@@ -1044,6 +1093,28 @@ enum InstructionOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Event {
+    TriggerCollected {
+        trigger_id: TriggerId,
+        source: ObjectId,
+        player: PlayerId,
+        ability: u32,
+        occurrence: OccurrenceId,
+        subject: ObjectId,
+        source_facts: Box<ObjectBefore>,
+    },
+    TriggersOrdered {
+        player: PlayerId,
+        order: Vec<TriggerId>,
+    },
+    TriggerPlaced {
+        trigger_id: TriggerId,
+        stack_id: StackId,
+        player: PlayerId,
+    },
+    TriggeredAbilityCompleted {
+        stack_id: StackId,
+        resolved: bool,
+    },
     AbilityActivated {
         stack_id: StackId,
         source: ObjectId,
@@ -1105,6 +1176,10 @@ pub enum Event {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct State {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pending_triggers: Vec<PendingTrigger>,
+    #[serde(default, skip_serializing_if = "triggers::is_zero")]
+    next_trigger_id: u64,
     libraries: BTreeMap<PlayerId, Vec<CardId>>,
     combat: Vec<Attacker>,
     combat_declared: bool,
@@ -1220,6 +1295,8 @@ impl Game {
             })
             .collect();
         let state = State {
+            pending_triggers: vec![],
+            next_trigger_id: 0,
             libraries: prepared.config.initial_libraries(),
             combat: vec![],
             combat_declared: false,
@@ -1375,6 +1452,11 @@ impl Game {
                 .spell
                 .as_ref()
                 .ok_or_else(|| "missing spell program".into()),
+            StackKind::Triggered { ability, .. } => definition
+                .triggered
+                .get(*ability as usize)
+                .map(|a| &a.program)
+                .ok_or_else(|| "missing triggered program".into()),
             StackKind::Activated { ability, .. } => definition
                 .activated
                 .get(*ability as usize)
@@ -1385,6 +1467,9 @@ impl Game {
     pub fn decision_for(&self, viewer: PlayerId) -> Result<Option<Request>, String> {
         if self.state.pending.is_some() || !self.state.pending_concessions.is_empty() {
             return Ok(None);
+        }
+        if let Some(req) = self.trigger_request()? {
+            return Ok((req.player() == viewer).then_some(req));
         }
         if let Some(req) = self.actions_request()? {
             return Ok((req.player() == viewer).then_some(req));
@@ -1408,7 +1493,7 @@ impl Game {
                     Some(self.top()?.id),
                 ),
             },
-            Frame::PlayerTargets { .. } => Request::PlayerTargets {
+            Frame::PlayerTargets { .. } | Frame::TriggerTargets { .. } => Request::PlayerTargets {
                 decision_id: self.state.revision,
                 player: self.top()?.controller,
                 occurrences: self.program()?.targets.clone(),
@@ -1501,7 +1586,7 @@ impl Game {
                         && self.state.commanders.history(*card).is_some()))
                     || self.state.cards[card].owner != player
                     || self.definition(*card)?.spell.is_none()
-                    || self.state.stack.len() >= 4
+                    || self.state.stack.len() >= self.stack_limit()
                 {
                     return Err("invalid or unsupported cast".into());
                 }
@@ -1807,6 +1892,7 @@ impl Game {
             }
             Frame::Payment { cast } => self.payment_step(cast)?,
             Frame::SpendMana { cast } => self.spend_mana_step(cast)?,
+            Frame::TriggerOrder { .. } | Frame::TriggerTargets { .. } => self.trigger_step()?,
             Frame::EntityTargets { .. }
             | Frame::PlayerTargets { .. }
             | Frame::StackTargets { .. }
@@ -1906,7 +1992,7 @@ impl Game {
     }
     fn finish_spell(&mut self, stack: &StackInstance, resolved: bool) -> Result<(), String> {
         if !stack.kind.is_spell() {
-            return self.finish_ability(stack);
+            return self.finish_ability(stack, resolved);
         }
         let owner = self.state.cards[&stack.source.card].owner;
         if self.current(stack.source).is_ok() {
@@ -2020,7 +2106,7 @@ impl Game {
     pub fn snapshot_with_digest(&self) -> Result<(String, String), String> {
         let state_sha256 = self.state_digest()?;
         let json = canonical(&SnapshotRef {
-            snapshot_version: 13,
+            snapshot_version: 14,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -2032,7 +2118,7 @@ impl Game {
     }
     fn read_snapshot(prepared: Prepared, json: &str) -> Result<(Self, String), String> {
         let s: Snapshot = strict_read(json)?;
-        if s.snapshot_version != 13
+        if s.snapshot_version != 14
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -2078,7 +2164,7 @@ impl Game {
             || s.passes.iter().collect::<BTreeSet<_>>().len() != s.passes.len()
             || s.cards.len() != self.prepared.config.cards.len()
             || s.objects.len() > s.cards.len()
-            || s.stack.len() > 4
+            || s.stack.len() > self.stack_limit()
         {
             return Err("snapshot seating/table invariant".into());
         }
@@ -2110,6 +2196,7 @@ impl Game {
                 return Err("snapshot zone-owner invariant".into());
             }
         }
+        self.validate_trigger_state()?;
         self.validate_commander_state()?;
         self.validate_actions_state()?;
         for p in &s.players {
@@ -2157,7 +2244,8 @@ impl Game {
             let incomplete_top = index + 1 == s.stack.len()
                 && (matches!(
                     s.frame,
-                    Frame::EntityTargets { .. }
+                    Frame::TriggerTargets { .. }
+                        | Frame::EntityTargets { .. }
                         | Frame::Targets { .. }
                         | Frame::StackTargets { .. }
                         | Frame::PlayerTargets { .. }

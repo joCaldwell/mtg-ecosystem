@@ -166,6 +166,43 @@ pub mod fixtures {
             include_str!("../../../tests/fixtures/flame-rift.json"),
         ),
     ];
+    pub const TRIGGER_RECORDS: [(&str, &str); 26] = [
+        DAMAGE_LIFE_RECORDS[0],
+        DAMAGE_LIFE_RECORDS[1],
+        DAMAGE_LIFE_RECORDS[2],
+        DAMAGE_LIFE_RECORDS[3],
+        DAMAGE_LIFE_RECORDS[4],
+        DAMAGE_LIFE_RECORDS[5],
+        DAMAGE_LIFE_RECORDS[6],
+        DAMAGE_LIFE_RECORDS[7],
+        DAMAGE_LIFE_RECORDS[8],
+        DAMAGE_LIFE_RECORDS[9],
+        DAMAGE_LIFE_RECORDS[10],
+        DAMAGE_LIFE_RECORDS[11],
+        DAMAGE_LIFE_RECORDS[12],
+        DAMAGE_LIFE_RECORDS[13],
+        DAMAGE_LIFE_RECORDS[14],
+        DAMAGE_LIFE_RECORDS[15],
+        DAMAGE_LIFE_RECORDS[16],
+        DAMAGE_LIFE_RECORDS[17],
+        DAMAGE_LIFE_RECORDS[18],
+        DAMAGE_LIFE_RECORDS[19],
+        DAMAGE_LIFE_RECORDS[20],
+        DAMAGE_LIFE_RECORDS[21],
+        DAMAGE_LIFE_RECORDS[22],
+        (
+            "elvish-visionary",
+            include_str!("../../../tests/fixtures/elvish-visionary.json"),
+        ),
+        (
+            "essence-warden",
+            include_str!("../../../tests/fixtures/essence-warden.json"),
+        ),
+        (
+            "deathgreeter",
+            include_str!("../../../tests/fixtures/deathgreeter.json"),
+        ),
+    ];
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -260,6 +297,10 @@ struct Source {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Ability {
+    Triggered {
+        trigger: SourceTrigger,
+        effects: Vec<Sentence>,
+    },
     Spell {
         effects: Vec<Sentence>,
     },
@@ -267,6 +308,25 @@ enum Ability {
         costs: Vec<SourceCost>,
         effects: Vec<Sentence>,
     },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "trigger", rename_all = "kebab-case", deny_unknown_fields)]
+enum SourceTrigger {
+    Enters { what: TriggerObject },
+    Dies { what: TriggerObject },
+    AnyOf { events: Vec<SourceTrigger> },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "ref", rename_all = "kebab-case", deny_unknown_fields)]
+enum TriggerObject {
+    This { noun: String },
+    Filter { filter: TriggerFilter, count: Count },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TriggerFilter {
+    other: bool,
+    types: Vec<String>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -653,6 +713,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         },
         spell: None,
         activated: vec![],
+        triggered: vec![],
         capabilities: BTreeSet::new(),
         provenance: SourceProvenance {
             printing_id: source.id,
@@ -693,15 +754,20 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     instructions: vec![],
                 });
                 for (block, ability) in abilities.iter().enumerate() {
-                    let Ability::Activated { costs, effects } = ability else {
-                        return Err(unsupported(
-                            "abilities.kind",
-                            "only supported complete activated creature abilities can lower",
-                        ));
-                    };
-                    definition
-                        .activated
-                        .push(lower_activation(costs, effects, block)?);
+                    match ability {
+                        Ability::Activated { costs, effects } => definition
+                            .activated
+                            .push(lower_activation(costs, effects, block)?),
+                        Ability::Triggered { trigger, effects } => definition
+                            .triggered
+                            .push(lower_trigger(trigger, effects, block)?),
+                        _ => {
+                            return Err(unsupported(
+                                "abilities.kind",
+                                "unsupported complete creature ability kind",
+                            ));
+                        }
+                    }
                 }
             }
         }
@@ -953,6 +1019,48 @@ fn bind_creature_target(
         TargetDomain::BattlefieldCreature,
     )
 }
+fn is_source_creature(subject: &TriggerObject) -> bool {
+    matches!(subject,TriggerObject::This {noun} if noun=="creature")
+}
+fn is_other_creature(subject: &TriggerObject) -> bool {
+    matches!(subject,TriggerObject::Filter {filter,count} if filter.other && filter.types==["creature"] && fixed_one(count))
+}
+fn lower_trigger(
+    trigger: &SourceTrigger,
+    effects: &[Sentence],
+    block: usize,
+) -> Result<TriggeredAbility, Failure> {
+    // The archive reference-binding object is diagnostic/nonexecutable. This
+    // Rust semantic binder consumes the complete typed AST instead: "other"
+    // excludes this exact source incarnation (CR 201.5), and the exact disjoint
+    // union [this creature dies OR another creature dies] is every creature
+    // death, once per actual move. It does not bind an unused event pronoun.
+    // ETB checks the resulting battlefield; dies checks the prior battlefield
+    // (CR 603.6a/603.10/700.4). Runtime captures those event/source facts.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    let condition=match trigger {
+        SourceTrigger::Enters {what} if is_source_creature(what)=>TriggerCondition::SelfEntersBattlefield,
+        SourceTrigger::Enters {what} if is_other_creature(what)=>TriggerCondition::OtherCreatureEntersBattlefield,
+        SourceTrigger::AnyOf {events} if events.len()==2
+            && events.iter().filter(|event|matches!(event,SourceTrigger::Dies {what} if is_source_creature(what))).count()==1
+            && events.iter().filter(|event|matches!(event,SourceTrigger::Dies {what} if is_other_creature(what))).count()==1 =>TriggerCondition::AnyCreatureDies,
+        _=>return Err(unsupported("abilities.trigger","unsupported complete event/source/other/alternative trigger binding")),
+    };
+    let mut program = SpellProgram {
+        timing: SpellTiming::Instant,
+        resolution: SpellResolution::Instructions,
+        functioning_zone: FunctioningZone::Stack,
+        targets: vec![],
+        instructions: vec![],
+    };
+    append_spell_effects(&mut program, effects, block, &mut BTreeMap::new())?;
+    Ok(TriggeredAbility {
+        functioning_zone: FunctioningZone::Battlefield,
+        condition,
+        program,
+    })
+}
+
 fn lower_activation(
     costs: &[SourceCost],
     effects: &[Sentence],
@@ -1135,6 +1243,16 @@ pub fn damage_life_fixture_catalog() -> Result<Catalog, String> {
     catalog_from_records(&records, 7)
 }
 
+/// Exact IR-v8 pool; historical selected definitions stay byte-equivalent.
+pub fn trigger_fixture_catalog() -> Result<Catalog, String> {
+    let records = fixtures::TRIGGER_RECORDS
+        .iter()
+        .filter(|(name, _)| !matches!(*name, "flame-rift" | "deathgreeter"))
+        .copied()
+        .collect::<Vec<_>>();
+    catalog_from_records(&records, 8)
+}
+
 fn catalog_from_records(records: &[(&str, &str)], schema_version: u32) -> Result<Catalog, String> {
     let mut definitions = vec![];
     for (_, r) in records {
@@ -1169,6 +1287,365 @@ mod tests {
         r["astSha256"] = sha256(canonical(&abilities).unwrap().as_bytes()).into();
         canonical(&r).unwrap()
     }
+    #[test]
+    fn complete_trigger_pool_binds_exact_source_roles_and_preserves_historical_catalogs() {
+        let catalog = trigger_fixture_catalog().unwrap();
+        assert_eq!(catalog.schema_version, 8);
+        assert_eq!(catalog.definitions.len(), 24);
+        assert_eq!(
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/expected-trigger-ir.json"
+            ))
+            .unwrap(),
+            catalog
+        );
+        for (old, expected) in [
+            (
+                fixture_catalog().unwrap(),
+                include_str!("../../../tests/fixtures/expected-ir.json"),
+            ),
+            (
+                commander_fixture_catalog().unwrap(),
+                include_str!("../../../tests/fixtures/expected-commander-ir.json"),
+            ),
+            (
+                damage_fixture_catalog().unwrap(),
+                include_str!("../../../tests/fixtures/expected-damage-ir.json"),
+            ),
+            (
+                library_fixture_catalog().unwrap(),
+                include_str!("../../../tests/fixtures/expected-library-ir.json"),
+            ),
+            (
+                action_fixture_catalog().unwrap(),
+                include_str!("../../../tests/fixtures/expected-action-ir.json"),
+            ),
+            (
+                stack_fixture_catalog().unwrap(),
+                include_str!("../../../tests/fixtures/expected-stack-ir.json"),
+            ),
+            (
+                damage_life_fixture_catalog().unwrap(),
+                include_str!("../../../tests/fixtures/expected-damage-life-ir.json"),
+            ),
+        ] {
+            assert_eq!(
+                canonical(&old).unwrap(),
+                canonical(&Catalog::read(expected).unwrap()).unwrap()
+            );
+            for d in old.definitions {
+                assert!(d.triggered.is_empty());
+                assert_eq!(
+                    catalog
+                        .definitions
+                        .iter()
+                        .find(|new| new.oracle_id == d.oracle_id),
+                    Some(&d)
+                );
+            }
+        }
+        let get = |name: &str| catalog.definitions.iter().find(|d| d.name == name).unwrap();
+        let visionary = get("Elvish Visionary");
+        assert_eq!(
+            visionary.characteristics.mana_cost,
+            ManaCost {
+                generic: 1.into(),
+                colored: vec![Color::G]
+            }
+        );
+        assert_eq!(visionary.characteristics.power, Some(1.into()));
+        assert_eq!(visionary.characteristics.toughness, Some(1.into()));
+        assert_eq!(
+            visionary.triggered,
+            [TriggeredAbility {
+                functioning_zone: FunctioningZone::Battlefield,
+                condition: TriggerCondition::SelfEntersBattlefield,
+                program: SpellProgram {
+                    functioning_zone: FunctioningZone::Stack,
+                    timing: SpellTiming::Instant,
+                    resolution: SpellResolution::Instructions,
+                    targets: vec![],
+                    instructions: vec![Instruction::DrawCards {
+                        count: 1.into(),
+                        source_block: 0
+                    }]
+                }
+            }]
+        );
+        let warden = get("Essence Warden");
+        assert_eq!(
+            warden.characteristics.mana_cost,
+            ManaCost {
+                generic: 0.into(),
+                colored: vec![Color::G]
+            }
+        );
+        assert_eq!(
+            warden.triggered[0].condition,
+            TriggerCondition::OtherCreatureEntersBattlefield
+        );
+        assert_eq!(
+            warden.triggered[0].program.instructions,
+            [Instruction::GainLife {
+                recipient: LifeRecipient::Controller,
+                amount: 1.into(),
+                source_block: 0
+            }]
+        );
+        let artist = get("Blood Artist");
+        assert_eq!(
+            artist.characteristics.mana_cost,
+            ManaCost {
+                generic: 1.into(),
+                colored: vec![Color::B]
+            }
+        );
+        assert_eq!(artist.characteristics.power, Some(0.into()));
+        assert_eq!(artist.characteristics.toughness, Some(1.into()));
+        assert_eq!(
+            artist.triggered[0].condition,
+            TriggerCondition::AnyCreatureDies
+        );
+        assert_eq!(
+            artist.triggered[0].program.targets,
+            [TargetSpec {
+                slot: 0,
+                selection_id: "line:0:8".into(),
+                chooser: Chooser::Controller,
+                stage: EvaluationStage::Announcement,
+                domain: TargetDomain::AnyPlayer
+            }]
+        );
+        assert_eq!(
+            artist.triggered[0].program.instructions,
+            [
+                Instruction::LoseLife {
+                    recipient: LifeRecipient::Target { target_slot: 0 },
+                    amount: 1.into(),
+                    source_block: 0
+                },
+                Instruction::GainLife {
+                    recipient: LifeRecipient::Controller,
+                    amount: 1.into(),
+                    source_block: 0
+                }
+            ]
+        );
+        for d in [artist, warden] {
+            let raw = fixtures::TRIGGER_RECORDS
+                .iter()
+                .find(|(_, raw)| {
+                    serde_json::from_str::<serde_json::Value>(raw).unwrap()["oracleIdentity"]
+                        == d.oracle_id
+                })
+                .unwrap()
+                .1;
+            let record: serde_json::Value = serde_json::from_str(raw).unwrap();
+            assert_eq!(record["binding"]["fullyBound"], false);
+        }
+        for index in [22, 25] {
+            assert!(matches!(
+                compile(fixtures::MANIFEST, fixtures::TRIGGER_RECORDS[index].1),
+                CompileResult::Unsupported { .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn trigger_binder_canonicalizes_only_the_exact_disjoint_dies_partition() {
+        let reversed = changed_source(fixtures::TRIGGER_RECORDS[11].1, |r| {
+            r["faces"][0]["result"]["abilities"][0]["trigger"]["events"]
+                .as_array_mut()
+                .unwrap()
+                .reverse();
+            r["faces"][0]["result"]["lines"][0]["ability"] =
+                r["faces"][0]["result"]["abilities"][0].clone();
+        });
+        let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, &reversed) else {
+            panic!("order of disjoint event alternatives must not change their meaning")
+        };
+        assert_eq!(
+            definition.triggered[0].condition,
+            TriggerCondition::AnyCreatureDies
+        );
+        let diagnostic = changed_source(fixtures::TRIGGER_RECORDS[23].1, |r| {
+            r["binding"]["fullyBound"] = false.into()
+        });
+        assert!(matches!(
+            compile(fixtures::MANIFEST, &diagnostic),
+            CompileResult::Lowered { .. }
+        ));
+        let renamed = changed_source(fixtures::TRIGGER_RECORDS[24].1, |r| {
+            r["source"]["name"] = "Renamed complete event source".into();
+            r["faces"][0]["result"]["name"] = "Renamed complete event source".into();
+        });
+        assert!(matches!(
+            compile(fixtures::MANIFEST, &renamed),
+            CompileResult::Lowered { .. }
+        ));
+    }
+
+    #[test]
+    fn trigger_lowering_rejects_unbound_alternatives_optional_state_mana_and_deferred_scopes() {
+        type Mutation = (&'static str, usize, fn(&mut serde_json::Value));
+        let mutations: Vec<Mutation> = vec![
+            ("missing self alternative", 11, |r| {
+                r["faces"][0]["result"]["abilities"][0]["trigger"]["events"]
+                    .as_array_mut()
+                    .unwrap()
+                    .remove(0);
+            }),
+            ("duplicate self alternative", 11, |r| {
+                r["faces"][0]["result"]["abilities"][0]["trigger"]["events"][1] =
+                    r["faces"][0]["result"]["abilities"][0]["trigger"]["events"][0].clone()
+            }),
+            ("different event", 11, |r| {
+                r["faces"][0]["result"]["abilities"][0]["trigger"]["events"][1]["trigger"] =
+                    "enters".into()
+            }),
+            ("unknown event argument", 23, |r| {
+                r["faces"][0]["result"]["abilities"][0]["trigger"]["from"] = "graveyard".into()
+            }),
+            ("unbound other subject", 24, |r| {
+                r["faces"][0]["result"]["abilities"][0]["trigger"]["what"]["filter"]["other"] =
+                    false.into()
+            }),
+            ("narrowed controller", 24, |r| {
+                r["faces"][0]["result"]["abilities"][0]["trigger"]["what"]["filter"]["control"] =
+                    "you".into()
+            }),
+            ("different subject type", 24, |r| {
+                r["faces"][0]["result"]["abilities"][0]["trigger"]["what"]["filter"]["types"] =
+                    serde_json::json!(["artifact"])
+            }),
+            ("nonunit event cardinality", 24, |r| {
+                r["faces"][0]["result"]["abilities"][0]["trigger"]["what"]["count"]["value"] =
+                    2.into()
+            }),
+            ("unbound effect pronoun", 11, |r| {
+                r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["who"]["player"] =
+                    "that-player".into()
+            }),
+            ("optional instruction", 23, |r| {
+                r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["optional"] =
+                    true.into()
+            }),
+            ("optional trigger", 23, |r| {
+                r["faces"][0]["result"]["abilities"][0]["optional"] = true.into()
+            }),
+            ("state trigger", 23, |r| {
+                r["faces"][0]["result"]["abilities"][0]["trigger"] = serde_json::json!({"trigger":"state","condition":{"condition":"life-total","value":0}})
+            }),
+            ("mana trigger", 23, |r| {
+                r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0] = serde_json::json!({"effect":"add-mana","who":{"player":"you"},"mana":{"mana":"fixed","symbols":["G"]}})
+            }),
+            ("intervening if", 23, |r| {
+                r["faces"][0]["result"]["abilities"][0]["interveningIf"] =
+                    serde_json::json!({"condition":"life-total","value":0})
+            }),
+            ("conditional effect", 23, |r| {
+                r["faces"][0]["result"]["abilities"][0]["effects"][0]["conditionKind"] = "if".into()
+            }),
+            ("delayed trigger", 23, |r| {
+                r["faces"][0]["result"]["abilities"][0]["kind"] = "delayed-triggered".into()
+            }),
+            ("reflexive trigger", 23, |r| {
+                r["faces"][0]["result"]["abilities"][0]["kind"] = "reflexive-triggered".into()
+            }),
+        ];
+        for (label, index, change) in mutations {
+            let raw = changed_source(fixtures::TRIGGER_RECORDS[index].1, |r| {
+                change(r);
+                r["binding"]["fullyBound"] = true.into();
+                r["faces"][0]["result"]["lines"][0]["ability"] =
+                    r["faces"][0]["result"]["abilities"][0].clone();
+            });
+            let result = compile(fixtures::MANIFEST, &raw);
+            assert!(
+                matches!(result, CompileResult::Unsupported { .. }),
+                "{label}: {result:?}"
+            );
+        }
+        let extra = changed_source(fixtures::TRIGGER_RECORDS[23].1, |r| {
+            let original = r["source"]["oracle_text"].as_str().unwrap();
+            r["source"]["oracle_text"] = format!("{original}\nFlying").into();
+            let ability = serde_json::json!({"kind":"keywords","keywords":[{"keyword":"flying"}]});
+            r["faces"][0]["result"]["abilities"]
+                .as_array_mut()
+                .unwrap()
+                .push(ability.clone());
+            r["faces"][0]["result"]["lines"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({"text":"Flying","ok":true,"ability":ability}));
+        });
+        assert!(matches!(
+            compile(fixtures::MANIFEST, &extra),
+            CompileResult::Unsupported { .. }
+        ));
+    }
+
+    #[test]
+    fn triggered_ir_requires_v8_exact_capability_closure_and_mandatory_stack_programs() {
+        let c = trigger_fixture_catalog().unwrap();
+        for name in ["Elvish Visionary", "Essence Warden", "Blood Artist"] {
+            for version in 3..=7 {
+                let mut old = c.clone();
+                old.schema_version = version;
+                old.definitions.retain(|d| d.name == name);
+                assert!(
+                    Catalog::read(&canonical(&old).unwrap()).is_err(),
+                    "{name} v{version}"
+                );
+            }
+        }
+        for change in [
+            (|d: &mut Definition| d.triggered[0].functioning_zone = FunctioningZone::Stack)
+                as fn(&mut Definition),
+            |d| d.triggered[0].program.functioning_zone = FunctioningZone::Battlefield,
+            |d| d.triggered[0].program.timing = SpellTiming::MainPhase,
+            |d| d.triggered[0].program.resolution = SpellResolution::Permanent,
+            |d| d.triggered[0].program.targets[0].domain = TargetDomain::OpponentPlayer,
+            |d| {
+                d.triggered[0].program.instructions[0] = Instruction::LoseLife {
+                    recipient: LifeRecipient::Target { target_slot: 1 },
+                    amount: 1.into(),
+                    source_block: 0,
+                }
+            },
+            |d| {
+                d.capabilities.remove(&Capability::CreatureDiesV1);
+            },
+        ] {
+            let mut bad = c.clone();
+            change(
+                bad.definitions
+                    .iter_mut()
+                    .find(|d| d.name == "Blood Artist")
+                    .unwrap(),
+            );
+            assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
+        }
+        let raw = canonical(&c).unwrap();
+        for bad in [
+            raw.replace("any_creature_dies", "other_creature_dies"),
+            raw.replace(
+                "\"condition\":\"any_creature_dies\"",
+                "\"condition\":{\"any_creature_dies\":{\"extra\":true}}",
+            ),
+            raw.replace(
+                "\"condition\":\"any_creature_dies\"",
+                "\"optional\":true,\"condition\":\"any_creature_dies\"",
+            ),
+        ] {
+            assert_ne!(bad, raw);
+            assert!(Catalog::read(&bad).is_err());
+        }
+        let mut bad = c;
+        bad.schema_version = 9;
+        assert!(bad.validate().is_err());
+    }
+
     #[test]
     fn damage_life_pool_retains_all_source_blocks_targets_quantities_and_printed_costs() {
         let c = damage_life_fixture_catalog().unwrap();
@@ -1303,12 +1780,10 @@ mod tests {
         assert_eq!(mountain.characteristics.subtypes, ["Mountain"]);
         assert_eq!(mountain.characteristics.color_identity, [Color::R]);
         assert_eq!(basic_land_color("Mountain"), Some(Color::R));
-        for index in [11, 22] {
-            assert!(matches!(
-                compile(fixtures::MANIFEST, fixtures::DAMAGE_LIFE_RECORDS[index].1),
-                CompileResult::Unsupported { .. }
-            ));
-        }
+        assert!(matches!(
+            compile(fixtures::MANIFEST, fixtures::DAMAGE_LIFE_RECORDS[22].1),
+            CompileResult::Unsupported { .. }
+        ));
     }
 
     #[test]
@@ -1431,7 +1906,7 @@ mod tests {
             }
         }
         let mut bad = catalog.clone();
-        bad.schema_version = 8;
+        bad.schema_version = 9;
         assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
         for change in [
             (|d: &mut Definition| {
@@ -1739,7 +2214,7 @@ mod tests {
     #[test]
     fn stack_vocabulary_requires_ir6_and_rejects_bad_binding_and_capability_closure() {
         let catalog = stack_fixture_catalog().unwrap();
-        for version in [3, 4, 5, 8] {
+        for version in [3, 4, 5, 9] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -2395,18 +2870,10 @@ mod tests {
             catalog
         );
         for (_, raw) in fixtures::ACTION_RECORDS {
-            let source: serde_json::Value = serde_json::from_str(raw).unwrap();
-            if source["source"]["name"] == "Blood Artist" {
-                assert!(matches!(
-                    compile(fixtures::MANIFEST, raw),
-                    CompileResult::Unsupported { .. }
-                ));
-            } else {
-                assert!(matches!(
-                    compile(fixtures::MANIFEST, raw),
-                    CompileResult::Lowered { .. }
-                ));
-            }
+            assert!(matches!(
+                compile(fixtures::MANIFEST, raw),
+                CompileResult::Lowered { .. }
+            ));
         }
         for capability in &researcher.capabilities {
             let mut bad = researcher.clone();
@@ -2487,7 +2954,7 @@ mod tests {
     #[test]
     fn action_ir_version_shapes_and_target_domains_are_strict() {
         let catalog = action_fixture_catalog().unwrap();
-        for version in [3, 4, 8] {
+        for version in [3, 4, 9] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -2611,7 +3078,7 @@ mod tests {
         assert!(old.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":4", "\"schema_version\":8"),
+            raw.replace("\"schema_version\":4", "\"schema_version\":9"),
             raw.replace(
                 "\"op\":\"put_on_top_owner_library\"",
                 "\"op\":\"put_on_bottom_owner_library\"",
@@ -2763,7 +3230,7 @@ mod tests {
         }
         assert!(matches!(
             compile(fixtures::MANIFEST, fixtures::ACTION_RECORDS[11].1),
-            CompileResult::Unsupported { .. }
+            CompileResult::Lowered { .. }
         ));
     }
 

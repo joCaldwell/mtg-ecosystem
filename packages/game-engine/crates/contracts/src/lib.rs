@@ -138,6 +138,10 @@ pub enum Capability {
     NoncombatDamageV1,
     LifeGainV1,
     LifeLossV1,
+    TriggeredAbilityV1,
+    SelfEntersBattlefieldV1,
+    OtherCreatureEntersBattlefieldV1,
+    CreatureDiesV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -270,6 +274,28 @@ pub struct ActivatedAbility {
     pub cost: ActivationCost,
     pub program: SpellProgram,
 }
+/// Mandatory ordinary event patterns. ETB patterns inspect the event's
+/// resulting battlefield, including the entering source itself (CR 603.6a).
+/// Dies inspects the battlefield immediately before the actual graveyard move
+/// (CR 603.10/700.4), including a source that dies simultaneously.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TriggerCondition {
+    SelfEntersBattlefield,
+    /// Excludes the exact source incarnation, never every copy of its card.
+    OtherCreatureEntersBattlefield,
+    /// The disjoint union of this creature and all other creatures dying.
+    AnyCreatureDies,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TriggeredAbility {
+    pub functioning_zone: FunctioningZone,
+    pub condition: TriggerCondition,
+    /// This mandatory stack program is placed by the rules, never cast or
+    /// activated. Its existing Instant shape carries no timing permission.
+    pub program: SpellProgram,
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SourceProvenance {
@@ -294,6 +320,8 @@ pub struct Definition {
     pub spell: Option<SpellProgram>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub activated: Vec<ActivatedAbility>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub triggered: Vec<TriggeredAbility>,
     pub capabilities: BTreeSet<Capability>,
     pub provenance: SourceProvenance,
 }
@@ -327,6 +355,17 @@ impl Definition {
                 ActivationCost::SacrificeSource => Capability::SacrificeSourceCostV1,
                 ActivationCost::TapSource => Capability::TapSourceCostV1,
                 ActivationCost::Mana { .. } => Capability::ManaActivationCostV1,
+            });
+            add_program_requirements(&mut set, &ability.program);
+        }
+        for ability in &self.triggered {
+            set.insert(Capability::TriggeredAbilityV1);
+            set.insert(match ability.condition {
+                TriggerCondition::SelfEntersBattlefield => Capability::SelfEntersBattlefieldV1,
+                TriggerCondition::OtherCreatureEntersBattlefield => {
+                    Capability::OtherCreatureEntersBattlefieldV1
+                }
+                TriggerCondition::AnyCreatureDies => Capability::CreatureDiesV1,
             });
             add_program_requirements(&mut set, &ability.program);
         }
@@ -375,6 +414,32 @@ impl Definition {
                 }
             {
                 return Err("unsupported activated cost/program shape".into());
+            }
+            validate_instruction_program(p)?;
+        }
+        if !self.triggered.is_empty() && c.kind != CardKind::Creature {
+            return Err("trigger programs require supported creature characteristics".into());
+        }
+        for ability in &self.triggered {
+            let p = &ability.program;
+            if ability.functioning_zone != FunctioningZone::Battlefield
+                || p.functioning_zone != FunctioningZone::Stack
+                || p.timing != SpellTiming::Instant
+                || p.resolution != SpellResolution::Instructions
+                || p.instructions.is_empty()
+                || p.targets
+                    .iter()
+                    .any(|target| target.domain != TargetDomain::AnyPlayer)
+                || p.instructions.iter().any(|instruction| {
+                    !matches!(
+                        instruction,
+                        Instruction::DrawCards { .. }
+                            | Instruction::GainLife { .. }
+                            | Instruction::LoseLife { .. }
+                    )
+                })
+            {
+                return Err("unsupported mandatory triggered program shape".into());
             }
             validate_instruction_program(p)?;
         }
@@ -571,7 +636,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 3, max = 7))]
+    #[schemars(range(min = 3, max = 8))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -579,7 +644,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.schema_version, 3..=7)
+        if !matches!(self.schema_version, 3..=8)
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -588,6 +653,9 @@ impl Catalog {
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
             d.validate()?;
+            if self.schema_version < 8 && !d.triggered.is_empty() {
+                return Err("IR v8 is required for ordinary triggered abilities".into());
+            }
             if self.schema_version < 7
                 && (d.capabilities.iter().any(|cap| {
                     matches!(
@@ -688,7 +756,7 @@ impl Catalog {
 pub fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
-/// IR v3/v4/v5/v6/v7 canonicalization (same algorithm as v1/v2): UTF-8 compact serde_json Value (sorted object keys),
+/// IR v3/v4/v5/v6/v7/v8 canonicalization (same algorithm as v1/v2): UTF-8 compact serde_json Value (sorted object keys),
 /// ordered arrays, exact quantities as strings. Separate from JS archive hashes.
 pub fn canonical<T: Serialize>(value: &T) -> Result<String, String> {
     serde_json::to_value(value)
@@ -754,6 +822,12 @@ pub fn catalog_schema() -> serde_json::Value {
             "allOf":[{"if":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}}}},
                 "then":{"properties":{"spell":{"properties":{"targets":{"minItems":1}}}}}}]
         }}}}
+    }, {
+        "if":{"required":["schema_version"],"properties":{"schema_version":{"enum":[3,4,5,6,7]}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "triggered":{"maxItems":0},
+            "capabilities":{"items":{"not":{"enum":[Capability::TriggeredAbilityV1,Capability::SelfEntersBattlefieldV1,Capability::OtherCreatureEntersBattlefieldV1,Capability::CreatureDiesV1]}}}
+        }}}}}
     }]);
     schema
 }

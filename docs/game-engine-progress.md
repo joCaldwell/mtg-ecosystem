@@ -1214,3 +1214,95 @@ ordering, including target choices, simultaneous events, source departure and
 countering triggered invocations. General replacement/prevention ordering,
 continuous effects, shuffle/mulligan setup, arbitrary decks and full legal
 Commander admission remain later work. These are closed rules scenarios.
+
+## Ordinary triggers and APNAP — October 15, 2026
+
+The [frozen ordinary-trigger contract](game-engine-triggers.md) extends the
+verified damage/life base `168a53b` in `/home/josh/Code/mtg-engine-plan` on
+`feat/engine-plan`. The migration restored the task's two tracked and three
+untracked paths from the handoff archive, verified all five SHA-256 values, and
+cleaned only those exact original paths after checking them. Unrelated parser
+edits in the main checkout remain separate.
+
+Five exact configurations share a new twenty-four-definition IR v8 catalog.
+Blood Artist, Elvish Visionary and Essence Warden compile from complete archived
+source/AST records. Deathgreeter's optional trigger and Flame Rift's aggregate
+scope remain unsupported complete sources. The historical catalogs retain their
+exact definitions; Blood Artist now lowers completely but is unadmitted in the
+older action, stack/cost and damage/life pools. No parser changes are included.
+
+Ordinary triggers match actual typed movement occurrences. Simultaneous deaths
+share the pre-event observer view, including dying Artists; entries use the
+post-event view and the entering successor incarnation. Ordered event groups
+advance their observer view. Pending identities and source/controller facts are
+separate from stack entries. Stabilization drains SBAs and Commander return
+choices before APNAP placement. Controllers choose bottom-to-top order and
+mandatory targets without gaining priority. Stifle counters triggered entries
+without moving source cards; Counterspell remains spell-only. Departures
+revalidate accepted mandatory choices, preserve a living controller's detached
+invocations, and remove a departing controller's entries. Already placed targets
+that leave cause full invocation failure rather than retargeting.
+
+Twenty-three policies cover entry/draw/gain order, countering and bouncing,
+failed draws, self-death and sacrifice, simultaneous deaths, controller/source-
+owner/target departure, accepted-target invalidation, Commander return/decline,
+nonactive activation and trigger-driven active-player elimination. Exact typed
+evidence contains 118 collections, 114 placements and 105 completions. Three
+Stifled invocations never execute; four surviving opponent invocations fizzle
+after the active player is eliminated. Independently checked life changes,
+chosen placement order, LIFO completion, source/subject pairs, actual occurrence
+bindings and visibility agree. Two dying Artists produce ten unique observer/
+subject pairs from one simultaneous death wave.
+
+The new suite adds **2,960 recovery boundaries**, bringing combined evidence to
+**11,606 boundaries**, **31 exact configurations**, and **327 trace-mode
+executions**, plus legacy checkpoints. Snapshot v14, bundle v15,
+projection/context v12 and query-sidecar v11 retain the additions. Historical
+reference comparisons normalize only outer projection versions. The 23-policy
+report was captured twice with identical bytes and recaptured unchanged after
+including the reviewed golden fixture (SHA-256
+`e091b08b8cc58858a79a5afb422e94e8a5884b181e7204210ab4313998adb4ea`).
+
+Independent review found and corrected two setup/evidence defects before
+freezing: the natural combat table needed actual Bears at IDs 18/30, and entry
+subjects needed the entering successor rather than the old zone incarnation.
+Eight independent adversarial tests and seven focused private runtime tests
+cover simultaneous versus ordered observers, nondeath boundaries, atomic failure,
+query purity/authorization, departure-invalidated choices, pending/placed
+restores, stale handles, and structurally valid rehashed provenance forgeries.
+The current main-checkout parser still produces the exact abilities of all
+26 source fixtures. Its 199-file TypeScript source closure is
+`08e415d3ff55b794b7e549067f18b8efef8dfcfb389ccd07ff3e3298873b0d2a`;
+this read-only compatibility check preserves its unrelated binding edits.
+
+Final `npm run check:engine` passed formatting, warnings-denied Clippy,
+**278 Rust tests** with debug assertions/overflow checks, and **19 Node integration
+tests**. Separate release verification passed all **278 Rust tests**. The
+independent final audit checked **112 native source files** totaling
+**12,422,469 bytes**, all eight catalogs, 31 configurations, 327 trace executions,
+439 snapshot envelope/state-hash checks and every retained recovery boundary.
+
+Retained identities:
+
+- Build: `91d072044a8c77a729625ac76296cb55f2929a655d073603fc4604b52e836324`.
+- Bundle: `bbf30191baf6b31c5ea7bd5c61150224deabd59270ba17060d2118a90b10c24e`.
+- Rebuilt executable: `da461ae0cb62c61b18f094e8fdbdd34b63d793a8ba5643f2436f21f6f82a4e08`.
+- Dependency manifest: `387384711d404f44993e8ab583e269c5105d1cc8b583307e3035f14e03d7474f`.
+- Pinned rules: `8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca`.
+- Historical baseline state: `58a0a241c4662d403dec8944430c1fe402c7fd15d22a2ce242c9a0b01d54f657`.
+
+The exact closure lives at
+`/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-bbf30191baf6b31c-rX7NoT/`.
+It rebuilt with 1,581 retained dependency files from 31 locked packages, an
+initially empty Cargo home, a fresh target directory and frozen offline mode,
+then independently replayed the complete bundle. Generated/store manifest bytes,
+actual executable hashes, source closure and final replay all agree; no review
+findings remain unresolved. Logs and audit reports are under ignored
+`generated/triggers-verification/`; large bundles, rules and build outputs stay
+outside the commit.
+
+The next frozen P4 slice is [temporary characteristics and damage interactions](game-engine-effects.md):
+Giant Growth, Disfigure, Fog, Samite Healer, Furnace of Rath and Yoked Ox. Its
+compiler/runtime and independent tests are being prepared separately from this
+verified trigger checkpoint. Full legal Commander setup/admission and named
+playable-profile evidence remain later gates.
