@@ -5,6 +5,20 @@ use super::*;
 pub struct ObjectHandle(pub String);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
+pub struct StackHandle(pub String);
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VisibleAbility {
+    pub handle: StackHandle,
+    pub source: VisibleTarget,
+    pub oracle_id: String,
+    pub ability: u32,
+}
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct DecisionToken(pub String);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -44,7 +58,11 @@ pub struct VisibleTarget {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleStackEntry {
-    pub spell: ObjectHandle,
+    pub spell: Option<ObjectHandle>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ability: Option<VisibleAbility>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub player_targets: Vec<PlayerId>,
     pub controller: PlayerId,
     pub cast_complete: bool,
     pub targets: Vec<VisibleTarget>,
@@ -75,6 +93,29 @@ pub struct PermittedView {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerRequest {
+    PlayerTargets {
+        token: DecisionToken,
+        player: PlayerId,
+        occurrences: Vec<TargetSpec>,
+        candidates: Vec<PlayerId>,
+    },
+    Sacrifice {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+    },
+    ResolveDiscard {
+        token: DecisionToken,
+        player: PlayerId,
+        count: usize,
+        candidates: Vec<ObjectHandle>,
+    },
+    SpendMana {
+        token: DecisionToken,
+        player: PlayerId,
+        cost: ManaCost,
+        available: BTreeMap<Color, Quantity>,
+    },
     CommanderReturn {
         token: DecisionToken,
         player: PlayerId,
@@ -126,7 +167,11 @@ pub enum PlayerRequest {
 impl PlayerRequest {
     pub fn token(&self) -> &DecisionToken {
         match self {
-            Self::CommanderReturn { token, .. }
+            Self::PlayerTargets { token, .. }
+            | Self::Sacrifice { token, .. }
+            | Self::ResolveDiscard { token, .. }
+            | Self::SpendMana { token, .. }
+            | Self::CommanderReturn { token, .. }
             | Self::Attackers { token, .. }
             | Self::Blockers { token, .. }
             | Self::Damage { token, .. }
@@ -147,6 +192,22 @@ pub struct Observation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerResponse {
+    ActivateAbility {
+        object: ObjectHandle,
+        ability: u32,
+    },
+    PlayerTargets {
+        players: Vec<PlayerId>,
+    },
+    Sacrifice {
+        object: ObjectHandle,
+    },
+    ResolveDiscard {
+        objects: Vec<ObjectHandle>,
+    },
+    SpendMana {
+        spending: BTreeMap<Color, Quantity>,
+    },
     CommanderReturn {
         to_command: bool,
     },
@@ -200,6 +261,10 @@ pub struct SearchContext {
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Knowledge {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    ability_handles: BTreeMap<StackId, StackHandle>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    next_ability_handle: u64,
     handles: BTreeMap<String, ObjectId>,
     next_handle: u64,
     decision_key: Option<(u64, u8)>,
@@ -306,8 +371,41 @@ impl Game {
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
+        let (spell, ability) = match &instance.kind {
+            StackKind::Spell => (Some(self.handle_for(viewer, instance.source)?), None),
+            StackKind::Activated {
+                ability,
+                source_handles,
+            } => (
+                None,
+                Some(VisibleAbility {
+                    handle: self.state.visibility[viewer.0 as usize]
+                        .ability_handles
+                        .get(&instance.id)
+                        .ok_or("missing ability stack handle")?
+                        .clone(),
+                    source: VisibleTarget {
+                        announced: source_handles
+                            .get(viewer.0 as usize)
+                            .ok_or("missing announced ability source")?
+                            .clone(),
+                        current: self.handle_for(viewer, instance.source).ok(),
+                    },
+                    oracle_id: self
+                        .state
+                        .cards
+                        .get(&instance.source.card)
+                        .ok_or("missing ability physical source")?
+                        .oracle_id
+                        .clone(),
+                    ability: *ability,
+                }),
+            ),
+        };
         Ok(VisibleStackEntry {
-            spell: self.handle_for(viewer, instance.source)?,
+            spell,
+            ability,
+            player_targets: instance.player_targets.clone(),
             controller: instance.controller,
             cast_complete: instance.paid.is_some(),
             targets,
@@ -371,6 +469,32 @@ impl Game {
         let Some(token) = token else {
             return Ok(None);
         };
+        if let Some(request) = self.actions_request()?
+            && request.player() == viewer
+        {
+            let handles = |objects: Vec<ObjectId>| {
+                objects
+                    .into_iter()
+                    .map(|object| self.handle_for(viewer, object))
+                    .collect::<Result<Vec<_>, _>>()
+            };
+            return Ok(Some(match request {
+                Request::Sacrifice { candidates, .. } => PlayerRequest::Sacrifice {
+                    token,
+                    player: viewer,
+                    candidates: handles(candidates)?,
+                },
+                Request::ResolveDiscard {
+                    count, candidates, ..
+                } => PlayerRequest::ResolveDiscard {
+                    token,
+                    player: viewer,
+                    count,
+                    candidates: handles(candidates)?,
+                },
+                _ => return Err("resolution request invariant".into()),
+            }));
+        }
         if self.combat_decision_player() == Some(viewer) {
             let handles = |v: Vec<ObjectId>| {
                 v.into_iter()
@@ -424,6 +548,28 @@ impl Game {
             ));
         }
         match &self.state.frame {
+            Frame::PlayerTargets { .. } if self.top()?.controller == viewer => {
+                Ok(Some(PlayerRequest::PlayerTargets {
+                    token,
+                    player: viewer,
+                    occurrences: self.program()?.targets.clone(),
+                    candidates: self.opponents(viewer),
+                }))
+            }
+            Frame::SpendMana { .. } if self.top()?.controller == viewer => {
+                let Request::SpendMana {
+                    cost, available, ..
+                } = self.spend_mana_request()?
+                else {
+                    return Err("spending request invariant".into());
+                };
+                Ok(Some(PlayerRequest::SpendMana {
+                    token,
+                    player: viewer,
+                    cost,
+                    available,
+                }))
+            }
             Frame::CommanderReturn {
                 object,
                 destination,
@@ -487,6 +633,26 @@ impl Game {
                 .collect::<Vec<_>>();
             let mut k = self.state.visibility[v as usize].clone();
             k.handles.retain(|_, id| current.contains(id));
+            let abilities = self
+                .state
+                .stack
+                .iter()
+                .filter(|entry| !entry.kind.is_spell())
+                .map(|entry| entry.id)
+                .collect::<Vec<_>>();
+            k.ability_handles.retain(|id, _| abilities.contains(id));
+            for id in abilities {
+                if let std::collections::btree_map::Entry::Vacant(entry) =
+                    k.ability_handles.entry(id)
+                {
+                    let handle = StackHandle(format!("v{v}-a{}", k.next_ability_handle));
+                    k.next_ability_handle = k
+                        .next_ability_handle
+                        .checked_add(1)
+                        .ok_or("ability handle resource limit")?;
+                    entry.insert(handle);
+                }
+            }
             // Allocate from visible rows only; hidden IDs never enter a handle.
             // Initial/global card order is internal, but hidden rows do not
             // consume viewer counters. Equal permitted histories retain equal
@@ -504,10 +670,21 @@ impl Game {
             let key = if self.state.pending.is_some() || !self.state.pending_concessions.is_empty()
             {
                 None
+            } else if self
+                .actions_request()?
+                .is_some_and(|request| request.player() == viewer)
+            {
+                Some((self.state.revision, 6))
             } else if self.combat_decision_player() == Some(viewer) {
                 Some((self.state.revision, 3))
             } else {
                 match self.state.frame {
+                    Frame::PlayerTargets { .. } if self.top()?.controller == viewer => {
+                        Some((self.state.revision, 7))
+                    }
+                    Frame::SpendMana { .. } if self.top()?.controller == viewer => {
+                        Some((self.state.revision, 8))
+                    }
                     Frame::CommanderReturn { object, .. }
                         if self.state.cards[&object.card].owner == viewer =>
                     {
@@ -573,13 +750,35 @@ impl Game {
             PlayerResponse::Attackers { attacks } => attacks.len(),
             PlayerResponse::Blockers { blocks } => blocks.len(),
             PlayerResponse::Damage { assignments } => assignments.len(),
-            PlayerResponse::Discard { objects } => objects.len(),
+            PlayerResponse::Discard { objects } | PlayerResponse::ResolveDiscard { objects } => {
+                objects.len()
+            }
+            PlayerResponse::PlayerTargets { players } => players.len(),
             _ => 0,
         };
         if size > self.state.objects.len() {
             return Err("oversized player declaration".into());
         }
         match response {
+            PlayerResponse::ActivateAbility { object, ability } => Ok(Response::ActivateAbility {
+                object: self.resolve_handle(viewer, object)?,
+                ability: *ability,
+            }),
+            PlayerResponse::PlayerTargets { players } => Ok(Response::PlayerTargets {
+                players: players.clone(),
+            }),
+            PlayerResponse::Sacrifice { object } => Ok(Response::Sacrifice {
+                object: self.resolve_handle(viewer, object)?,
+            }),
+            PlayerResponse::ResolveDiscard { objects } => Ok(Response::ResolveDiscard {
+                objects: objects
+                    .iter()
+                    .map(|object| self.resolve_handle(viewer, object))
+                    .collect::<Result<Vec<_>, _>>()?,
+            }),
+            PlayerResponse::SpendMana { spending } => Ok(Response::SpendMana {
+                spending: spending.clone(),
+            }),
             PlayerResponse::CommanderReturn { to_command } => Ok(Response::CommanderReturn {
                 to_command: *to_command,
             }),

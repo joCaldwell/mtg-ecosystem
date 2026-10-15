@@ -129,6 +129,14 @@ impl Strategy {
             .as_ref()
             .ok_or("missing lifecycle decision")?;
         Ok(match request {
+            PlayerRequest::PlayerTargets { .. }
+            | PlayerRequest::Sacrifice { .. }
+            | PlayerRequest::ResolveDiscard { .. }
+            | PlayerRequest::SpendMana { .. } => {
+                return Err(
+                    "action/payment request outside the frozen damage/library policy".into(),
+                );
+            }
             PlayerRequest::Priority { .. } => {
                 if !self.policy.is_damage()
                     && view.stack.is_empty()

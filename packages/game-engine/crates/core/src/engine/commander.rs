@@ -3,9 +3,21 @@ use super::*;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "continuation", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum CommanderContinuation {
-    SpellMove { frame: Resolving, source_block: u32 },
-    Draw { player: PlayerId },
-    StateBased { resume: Frame },
+    SpellMove {
+        frame: Resolving,
+        source_block: u32,
+    },
+    ResolutionDraw {
+        frame: Resolving,
+        player: PlayerId,
+        source_block: u32,
+    },
+    Draw {
+        player: PlayerId,
+    },
+    StateBased {
+        resume: Frame,
+    },
 }
 
 impl Game {
@@ -13,7 +25,9 @@ impl Game {
         self.prepared.config.commander_profile()
     }
     pub(super) fn commander_damage_enabled(&self) -> bool {
-        self.prepared.config.damage_profile() || self.prepared.config.library_profile()
+        self.prepared.config.damage_profile()
+            || self.prepared.config.library_profile()
+            || self.prepared.config.actions_profile()
     }
     pub(super) fn commander_designation(
         &self,
@@ -47,13 +61,17 @@ impl Game {
         Ok(cost)
     }
     // CR 903.9a / 704.3: consume a fresh graveyard/exile incarnation's next
-    // SBA opportunity even if declined. Exact admission permits one commander.
+    // SBA opportunity even if declined. Reviewed pools permit at most one
+    // fresh opportunity per check; fail closed if that boundary is widened.
     pub(super) fn offer_commander_sba(&mut self, resume: Frame) -> Result<bool, String> {
         let eligible = self.state.commander_returns.iter().copied().find(|id| {
             self.current(*id)
                 .is_ok_and(|o| matches!(o.zone, Zone::Graveyard { .. } | Zone::Exile))
                 && self.is_live(self.state.cards[&id.card].owner)
         });
+        if self.state.commander_returns.len() > 1 {
+            return Err("unsupported simultaneous multiple Commander return opportunities".into());
+        }
         self.state.commander_returns.clear();
         if let Some(object) = eligible {
             self.state.frame = Frame::CommanderReturn {
@@ -151,6 +169,39 @@ impl Game {
                     .ok_or("instruction cursor resource limit")?;
                 self.state.frame = Frame::Resolve { frame };
             }
+            CommanderContinuation::ResolutionDraw {
+                frame,
+                player,
+                source_block,
+            } => {
+                let movement = if present {
+                    Some(self.move_object_for(
+                        object,
+                        actual_destination,
+                        BatchCause::Instruction {
+                            stack_id: frame.spell.id,
+                            player,
+                            source: frame.spell.source,
+                            cursor: frame.cursor,
+                            source_block,
+                        },
+                    )?)
+                } else {
+                    None
+                };
+                self.finish_instruction(
+                    frame,
+                    if present {
+                        InstructionOutcome::Drawn {
+                            player,
+                            movement,
+                            failed: false,
+                        }
+                    } else {
+                        InstructionOutcome::PlayerActionSkipped { player }
+                    },
+                )?;
+            }
             CommanderContinuation::Draw { player } => {
                 if present {
                     self.move_object_for(
@@ -243,7 +294,9 @@ impl Game {
                             Some(Instruction::PutOnTopOwnerLibrary {
                                 target_slot,
                                 source_block,
-                            }) if self.prepared.config.library_profile() => {
+                            }) if self.prepared.config.library_profile()
+                                || self.prepared.config.actions_profile() =>
+                            {
                                 (*target_slot, Zone::Library { owner }, *source_block)
                             }
                             _ => {
@@ -266,23 +319,37 @@ impl Game {
                     {
                         return Err("snapshot commander spell continuation invariant".into());
                     }
-                    if self.current(frame.spell.source).is_ok() {
-                        if self.top()? != &frame.spell {
-                            return Err("snapshot commander resolving top binding".into());
-                        }
-                    } else if self.is_live(
-                        self.state
-                            .cards
-                            .get(&frame.spell.source.card)
-                            .ok_or("snapshot missing resolving physical card")?
-                            .owner,
-                    ) || self
-                        .state
-                        .stack
-                        .iter()
-                        .any(|entry| entry.id == frame.spell.id)
+                    self.validate_resolving(frame)?;
+                }
+                CommanderContinuation::ResolutionDraw {
+                    frame,
+                    player,
+                    source_block,
+                } => {
+                    self.validate_resolving(frame)?;
+                    if !self.prepared.config.actions_profile()
+                        || *player != owner
+                        || *player != frame.spell.controller
+                        || current.zone != (Zone::Library { owner })
+                        || *destination != (Zone::Hand { owner })
+                        || self
+                            .state
+                            .libraries
+                            .get(player)
+                            .and_then(|cards| cards.first())
+                            != Some(&object.card)
+                        || self
+                            .program_for(&frame.spell)?
+                            .instructions
+                            .get(frame.cursor as usize)
+                            != Some(&Instruction::DrawCards {
+                                count: Quantity::from(1),
+                                source_block: *source_block,
+                            })
                     {
-                        return Err("snapshot commander detached invocation invariant".into());
+                        return Err(
+                            "snapshot commander resolution draw continuation invariant".into()
+                        );
                     }
                 }
                 CommanderContinuation::Draw { player } => {

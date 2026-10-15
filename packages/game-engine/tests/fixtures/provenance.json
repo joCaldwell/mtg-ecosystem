@@ -5,6 +5,13 @@
   "rules_sha256": "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca",
   "records": [
     {
+      "file": "blood-artist.json",
+      "oracle_id": "310f141c-7f37-4729-aed6-dd9c09db448d",
+      "record_sha256": "16472af1ca8bba34a89df28bbbcdd313b0aa2e4aa5a1594d32f1666e1435b358",
+      "source_sha256": "888f992471e8dbd626d5a2935bef8df11507ad382b077a4674deac2610a9e8ac",
+      "ast_sha256": "35a1ed12283b1aceae63b4c1cd214fd83d82f0839ade64e4d989271d990620c9"
+    },
+    {
       "file": "cruel-edict.json",
       "oracle_id": "10c585c4-bf5b-4d8f-94a9-e9a5036a688f",
       "record_sha256": "16659c771b7443c23b9193a364891410aa1efd1d0e308f3094499fe60b843fef",
@@ -26,6 +33,13 @@
       "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
     },
     {
+      "file": "hapless-researcher.json",
+      "oracle_id": "240a349a-79f8-4e11-9a05-a78148e70a62",
+      "record_sha256": "d047cc02d838a248585a596d13b60185911082a2897a1a0211310c2fe57591fd",
+      "source_sha256": "9b7c1f4bbd45e5a5b2d96856a028d25eb23035c87c42866874fb74d8d20c2610",
+      "ast_sha256": "b2f0f066f520788c04676d044fd7cfb0b7c2ed81d8e43101031aeee9cd569cc0"
+    },
+    {
       "file": "isamaru.json",
       "oracle_id": "cfb756dd-6fe1-430a-8f04-8b10cac62a86",
       "record_sha256": "22bb848cea7e1d2f638966f9ca19aa9f096f1910ec9fd01f4d918bfdabce8e40",
@@ -44,6 +58,13 @@
       "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99",
       "record_sha256": "6b23cdb80b5897603e4bf4afc0d07c59e7b49c25672fc6c7fd6ba02855e5e6c0",
       "source_sha256": "2d754c3d2e6a5f780dac19f38fbe26e8631cfecdbe8a4372f095dbdfa308a1d5",
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
+    },
+    {
+      "file": "swamp.json",
+      "oracle_id": "56719f6a-1a6c-4c0a-8d21-18f7d7350b68",
+      "record_sha256": "bcbe2c30e38a590cbd441c564586532e3d0e6dc1fc4cedcdb363a95d96983dd7",
+      "source_sha256": "51c17e4939aa3f3fcce238d3a1d6f7d4646c218d8bb124c07d66b5e1ce4736d1",
       "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
     },
     {

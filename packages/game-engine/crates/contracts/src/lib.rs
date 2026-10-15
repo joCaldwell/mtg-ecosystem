@@ -122,6 +122,12 @@ pub enum Capability {
     OwnerHandMoveV1,
     CastSorceryV1,
     OwnerLibraryTopMoveV1,
+    ActivatedAbilityV1,
+    SacrificeSourceCostV1,
+    ControllerDrawV1,
+    ControllerDiscardV1,
+    OpponentTargetV1,
+    TargetPlayerSacrificeCreatureV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -143,6 +149,7 @@ pub enum EvaluationStage {
 #[serde(rename_all = "snake_case")]
 pub enum TargetDomain {
     BattlefieldCreature,
+    OpponentPlayer,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -160,6 +167,9 @@ pub struct TargetSpec {
 pub enum Instruction {
     ReturnToOwnerHand { target_slot: u32, source_block: u32 },
     PutOnTopOwnerLibrary { target_slot: u32, source_block: u32 },
+    TargetPlayerSacrificeCreature { target_slot: u32, source_block: u32 },
+    DrawCards { count: Quantity, source_block: u32 },
+    DiscardCards { count: Quantity, source_block: u32 },
 }
 /// Supported announcement timing; permissions are checked by the runtime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -184,6 +194,18 @@ pub struct SpellProgram {
     pub targets: Vec<TargetSpec>,
     pub instructions: Vec<Instruction>,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivationCost {
+    SacrificeSource,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ActivatedAbility {
+    pub functioning_zone: FunctioningZone,
+    pub cost: ActivationCost,
+    pub program: SpellProgram,
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SourceProvenance {
@@ -206,6 +228,8 @@ pub struct Definition {
     pub characteristics: Characteristics,
     pub intrinsic_zone: Option<FunctioningZone>,
     pub spell: Option<SpellProgram>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub activated: Vec<ActivatedAbility>,
     pub capabilities: BTreeSet<Capability>,
     pub provenance: SourceProvenance,
 }
@@ -228,18 +252,17 @@ impl Definition {
                 } else {
                     Capability::CastSorceryV1
                 });
-                set.insert(Capability::CreatureTargetV1);
-                if let Some(program) = &self.spell {
-                    for instruction in &program.instructions {
-                        set.insert(match instruction {
-                            Instruction::ReturnToOwnerHand { .. } => Capability::OwnerHandMoveV1,
-                            Instruction::PutOnTopOwnerLibrary { .. } => {
-                                Capability::OwnerLibraryTopMoveV1
-                            }
-                        });
-                    }
-                }
             }
+        }
+        if let Some(program) = &self.spell {
+            add_program_requirements(&mut set, program);
+        }
+        for ability in &self.activated {
+            set.extend([
+                Capability::ActivatedAbilityV1,
+                Capability::SacrificeSourceCostV1,
+            ]);
+            add_program_requirements(&mut set, &ability.program);
         }
         set
     }
@@ -261,6 +284,26 @@ impl Definition {
                 != self.provenance.ast_sha256
         {
             return Err("invalid source/AST provenance".into());
+        }
+        if !self.activated.is_empty() && c.kind != CardKind::Creature {
+            return Err("activated programs require supported creature characteristics".into());
+        }
+        for ability in &self.activated {
+            let p = &ability.program;
+            if ability.functioning_zone != FunctioningZone::Battlefield
+                || p.functioning_zone != FunctioningZone::Stack
+                || p.timing != SpellTiming::Instant
+                || p.resolution != SpellResolution::Instructions
+                || !p.targets.is_empty()
+                || p.instructions.is_empty()
+                || p.instructions.iter().any(|instruction| {
+                    !matches!(instruction,
+                    Instruction::DrawCards { count, .. } | Instruction::DiscardCards { count, .. }
+                    if *count == Quantity::from(1))
+                })
+            {
+                return Err("unsupported activated cost/program shape".into());
+            }
         }
         match c.kind {
             CardKind::Land => {
@@ -330,14 +373,35 @@ impl Definition {
                         return Err("unbound, duplicate, or noncontiguous target occurrence".into());
                     }
                 }
+                if p.targets
+                    .windows(2)
+                    .any(|targets| targets[0].domain != targets[1].domain)
+                {
+                    return Err("mixed creature/player target programs are unsupported".into());
+                }
                 let mut used = BTreeSet::new();
                 for instruction in &p.instructions {
-                    let (Instruction::ReturnToOwnerHand { target_slot, .. }
-                    | Instruction::PutOnTopOwnerLibrary { target_slot, .. }) = instruction;
-                    if (*target_slot as usize) >= p.targets.len() {
+                    let (target_slot, domain) = match instruction {
+                        Instruction::ReturnToOwnerHand { target_slot, .. }
+                        | Instruction::PutOnTopOwnerLibrary { target_slot, .. } => {
+                            (*target_slot, TargetDomain::BattlefieldCreature)
+                        }
+                        Instruction::TargetPlayerSacrificeCreature { target_slot, .. } => {
+                            (*target_slot, TargetDomain::OpponentPlayer)
+                        }
+                        _ => {
+                            return Err(
+                                "untargeted draw/discard spell programs are unsupported".into()
+                            );
+                        }
+                    };
+                    if p.targets
+                        .get(target_slot as usize)
+                        .is_none_or(|target| target.domain != domain)
+                    {
                         return Err("unbound target slot".into());
                     }
-                    used.insert(*target_slot);
+                    used.insert(target_slot);
                 }
                 if used.len() != p.targets.len() {
                     return Err("unused target occurrence".into());
@@ -345,6 +409,25 @@ impl Definition {
             }
         }
         Ok(())
+    }
+}
+fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgram) {
+    for target in &program.targets {
+        set.insert(match target.domain {
+            TargetDomain::BattlefieldCreature => Capability::CreatureTargetV1,
+            TargetDomain::OpponentPlayer => Capability::OpponentTargetV1,
+        });
+    }
+    for instruction in &program.instructions {
+        set.insert(match instruction {
+            Instruction::ReturnToOwnerHand { .. } => Capability::OwnerHandMoveV1,
+            Instruction::PutOnTopOwnerLibrary { .. } => Capability::OwnerLibraryTopMoveV1,
+            Instruction::TargetPlayerSacrificeCreature { .. } => {
+                Capability::TargetPlayerSacrificeCreatureV1
+            }
+            Instruction::DrawCards { .. } => Capability::ControllerDrawV1,
+            Instruction::DiscardCards { .. } => Capability::ControllerDiscardV1,
+        });
     }
 }
 pub fn basic_land_color(subtype: &str) -> Option<Color> {
@@ -360,7 +443,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 3, max = 4))]
+    #[schemars(range(min = 3, max = 5))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -368,7 +451,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.schema_version, 3 | 4)
+        if !matches!(self.schema_version, 3..=5)
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -377,6 +460,25 @@ impl Catalog {
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
             d.validate()?;
+            if self.schema_version < 5
+                && (!d.activated.is_empty()
+                    || d.spell.as_ref().is_some_and(|program| {
+                        program
+                            .targets
+                            .iter()
+                            .any(|target| target.domain == TargetDomain::OpponentPlayer)
+                            || program.instructions.iter().any(|instruction| {
+                                matches!(
+                                    instruction,
+                                    Instruction::TargetPlayerSacrificeCreature { .. }
+                                        | Instruction::DrawCards { .. }
+                                        | Instruction::DiscardCards { .. }
+                                )
+                            })
+                    }))
+            {
+                return Err("IR v5 is required for activated or opponent-choice programs".into());
+            }
             if self.schema_version == 3
                 && (d.characteristics.kind == CardKind::Sorcery
                     || d.spell.as_ref().is_some_and(|program| {
@@ -409,7 +511,7 @@ impl Catalog {
 pub fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
-/// IR v3/v4 canonicalization (same algorithm as v1/v2): UTF-8 compact serde_json Value (sorted object keys),
+/// IR v3/v4/v5 canonicalization (same algorithm as v1/v2): UTF-8 compact serde_json Value (sorted object keys),
 /// ordered arrays, exact quantities as strings. Separate from JS archive hashes.
 pub fn canonical<T: Serialize>(value: &T) -> Result<String, String> {
     serde_json::to_value(value)
@@ -422,7 +524,7 @@ pub fn digest<T: Serialize>(value: &T) -> Result<String, String> {
 pub fn catalog_schema() -> serde_json::Value {
     let mut schema = serde_json::to_value(schemars::schema_for!(Catalog)).expect("schema is JSON");
     // Catalog versions share unchanged definition shapes. Restrict the v3
-    // vocabulary explicitly so schema validation cannot downgrade v4 programs.
+    // vocabularies explicitly so schema validation cannot downgrade programs.
     // https://json-schema.org/understanding-json-schema/reference/conditionals
     schema["allOf"] = serde_json::json!([{
         "if": {"required": ["schema_version"], "properties": {"schema_version": {"const": 3}}},
@@ -434,6 +536,19 @@ pub fn catalog_schema() -> serde_json::Value {
                 Capability::OwnerHandMoveV1]}},
             "spell": {"anyOf": [{"type": "null"}, {"type": "object", "properties": {
                 "instructions": {"items": {"properties": {"op": {"enum": ["return_to_owner_hand"]}}}}
+            }}]}
+        }}}}}
+    }, {
+        "if": {"required": ["schema_version"], "properties": {"schema_version": {"enum": [3,4]}}},
+        "then": {"properties": {"definitions": {"items": {"properties": {
+            "activated": {"maxItems": 0},
+            "capabilities": {"items": {"enum": [Capability::NormalLayoutV1, Capability::BasicLandManaV1,
+                Capability::LandPlayV1, Capability::BaseCreatureV1, Capability::CommanderIdentityV1,
+                Capability::CastInstantV1, Capability::CastCreatureV1, Capability::CreatureTargetV1,
+                Capability::OwnerHandMoveV1, Capability::CastSorceryV1, Capability::OwnerLibraryTopMoveV1]}},
+            "spell": {"anyOf": [{"type":"null"}, {"type":"object", "properties": {
+                "targets": {"items": {"properties": {"domain": {"const":"battlefield_creature"}}}},
+                "instructions": {"items": {"properties": {"op": {"enum":["return_to_owner_hand","put_on_top_owner_library"]}}}}
             }}]}
         }}}}}
     }]);

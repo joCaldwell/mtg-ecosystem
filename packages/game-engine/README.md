@@ -112,14 +112,30 @@ retains the official pinned rules bytes from `.scryfall-cache/rules-20260925.txt
 (or `MTG_ENGINE_RULES_PATH`), requiring the SHA-256 recorded in the first scenario
 brief. Download the linked official September 25 rules before a fresh retention
 capture; runtime and replay never fetch rules.
+`bundle-metadata <file>` streams the build/source metadata needed by retention,
+skipping large replay fields. Metadata extraction does not verify a bundle;
+`verify-bundle` still checks the entire retained artifact. The retention wrapper
+hashes and copies its complete bytes without creating a single Node JSON string.
 `npm run build-ir` still rejects the
 unimplemented bulk pipeline.
 
 The test profile is optimized at level 2 with debug assertions and overflow checks
-enabled. Bundle v11 records the effective optimization/check settings for its build
-identity and offline rebuild, all four exact source catalogs, and all 78 trace-mode
-runs. Snapshots are v10, player projections v8 and query sidecars v7.
+enabled. Bundle v12 records the effective optimization/check settings for its build
+identity and offline rebuild, all five exact source catalogs, and all 120 trace-mode
+runs. Snapshots are v11, player projections v9 and query sidecars v8.
 `SnapshotVerifier` verifies ordered checkpoint sequences using
 one independent forward replay while applying the complete standalone restore
 checks at every boundary. Histories share immutable chunks across native forks;
 branch mutations remain independent.
+
+The [action/payment slice](../../docs/game-engine-actions-payments.md) adds four
+exact configurations, explicit mixed-color spending and real taxed Yargle
+recasting, Cruel Edict opponent/sacrifice decisions, and Hapless Researcher
+source-sacrifice activation with draw/discard continuation. `compile-action`
+emits its eleven-definition IR v5 catalog. `actions-payments-games --recover`
+verifies fourteen source-backed policies and all 1,120 new recovery boundaries.
+Together the five catalogs cover seventeen exact configurations, 5,741
+combat/Commander/action recovery boundaries, and the historical checkpoints.
+Blood Artist remains the paired unsupported source for the action catalog;
+Cruel Edict now lowers completely but remains unadmitted by historical catalogs.
+These remain closed scenarios, not arbitrary decks or legal Commander matches.

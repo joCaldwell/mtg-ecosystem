@@ -65,6 +65,12 @@ impl Policy {
                 .find(|o| o.zone == (Zone::Hand { owner: v.viewer }) && o.oracle_id == id)
         };
         Ok(match request {
+            PlayerRequest::PlayerTargets { .. }
+            | PlayerRequest::Sacrifice { .. }
+            | PlayerRequest::ResolveDiscard { .. }
+            | PlayerRequest::SpendMana { .. } => {
+                return Err("action/payment request outside the frozen combat policy".into());
+            }
             PlayerRequest::Priority { .. } => {
                 if self == Self::Integrated {
                     let initial_cast_turn = (v.turn.number == 1 && v.viewer == PlayerId(0))

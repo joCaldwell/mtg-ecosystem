@@ -33,6 +33,14 @@ another seven-definition IR v4 catalog with sorcery timing and explicit top
 placement. Snapshot v10, bundle v11, projection/context v8 and query-sidecar v7
 retain damage facts and mandatory library-to-hand draw replacement choices.
 
+`docs/game-engine-actions-payments.md` adds four exact action profiles and a
+separate eleven-definition IR v5 catalog. These profiles require explicit mana
+spending, admit Cruel Edict opponent targets and resolution sacrifice choices,
+and Hapless Researcher source-sacrifice activation with detached draw/discard
+resolution. Snapshot v11, bundle v12, projection/context v9 and query-sidecar v8
+retain all nested choices and noncard stack identities. Historical catalogs,
+profiles and gameplay references remain separate.
+
 Run from repository root, using pinned Rust 1.99.0:
 
 - `npm run check:engine`: toolchain check, formatting, Clippy, Rust tests, and
@@ -78,14 +86,14 @@ process them before ordinary work and expose no query while they are pending.
 Keep original seating, departed-player facts, and physical Commander history.
 Default control is separate from ownership and explicit control grants.
 Command-zone casting/tax and hand/graveyard/exile return choices are supported
-only in the three exact Commander profiles. A failed cast restores its original
+in the exact Commander, damage/library and action profiles. A failed cast restores its original
 zone/incarnation; completing a command-origin cast alone advances physical,
-per-caster tax history. The three newer damage/library profiles accumulate
+per-caster tax history. The damage/library and action profiles accumulate
 actual Commander combat damage and apply the 21-damage SBA loss rule. Earlier
 Commander profiles retain their explicit damage fault. Library replacement is
-enabled only for the reviewed Time Ebb and subsequent draw paths. General
+enabled only for the reviewed Time Ebb and subsequent ordinary/ability draw paths. General
 replacement ordering and legal Commander matches remain later work. Ordinary
-combat is enabled in the reviewed combat and Commander profiles.
+combat is enabled in the reviewed combat, Commander and action profiles.
 
 Batch mutation is private and atomic. Capture consumed pre-event facts and use
 actual typed outcome slots. Simultaneous groups admit independent read/write
@@ -122,9 +130,9 @@ losers are absent before departure cleanup and outcome adjudication. Zero
 toughness and all-player loss/draw remain private domain fixtures: neither is
 reachable from this positive-life, positive-toughness admitted pool.
 
-Each new player's reachable mana is monochromatic; exact admission enforces
-that restriction. Do not widen to mixed-color generic payment without an explicit
-spending decision. The simulator's combat policies consume only player-facing
+Historical profiles enforce monochromatic reachable mana. The four action
+profiles allow mixed colors only through an explicit exact spending decision;
+never choose generic payment colors implicitly in those profiles. The simulator's policies consume only player-facing
 observations/requests; host checkpoint/replay verification is separate. Budget
 truncation and faults never substitute for rules-defined outcomes.
 
@@ -146,3 +154,11 @@ conflicting order write. Commander damage belongs to the physical source and
 recipient, survives zone/controller changes, and never derives from life changes.
 Validate the entire simultaneous damage group before writing life/history; freeze
 all simultaneous loss candidates before departures and outcome adjudication.
+
+Activated abilities have their own stack identity and historical source handle;
+their source card never moves to the stack. Sacrifice costs happen before
+priority and use the ordinary post-activation SBA check. Sacrifice/discard during
+resolution defer SBAs until the complete invocation finishes. The invocation's
+controller remains the meaning of "you" after source or player departure; a
+departed controller's personal draw/discard is skipped, never redirected. A
+borrowed source's owner leaving does not remove a surviving activator's ability.

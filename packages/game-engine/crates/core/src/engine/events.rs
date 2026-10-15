@@ -3,6 +3,13 @@ use super::*;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "cause", rename_all = "snake_case", deny_unknown_fields)]
 pub enum BatchCause {
+    AbilityActivation {
+        stack_id: StackId,
+        player: PlayerId,
+        source: ObjectId,
+        decision_id: u64,
+        ability: u32,
+    },
     CommanderReturn,
     Combat,
     Cleanup,
@@ -55,6 +62,7 @@ pub enum BatchCause {
 impl BatchCause {
     fn rules(&self) -> Vec<String> {
         let rules: &[&str] = match self {
+            Self::AbilityActivation { .. } => &["602.2", "701.17", "113.7a"],
             Self::CommanderReturn => &["903.9a", "903.9b"],
             Self::Combat => &["508", "509", "510"],
             Self::Cleanup => &["514.1", "514.2"],
@@ -229,6 +237,11 @@ fn access(event: &ProposedEvent) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
             (keys.clone(), keys)
         }
+        ProposedEvent::Sacrifice { object, player }
+        | ProposedEvent::DiscardCard { object, player } => {
+            let keys = BTreeSet::from([FactKey::Object(object.card), FactKey::Life(*player)]);
+            (keys.clone(), keys)
+        }
         ProposedEvent::PutOnTopOwnerLibrary { object } => {
             let keys = BTreeSet::from([FactKey::Object(object.card), FactKey::Libraries]);
             (keys.clone(), keys)
@@ -255,7 +268,9 @@ fn access(event: &ProposedEvent) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
             BTreeSet::from([FactKey::Object(source.card), FactKey::Mana(*player)]),
             BTreeSet::from([FactKey::Mana(*player)]),
         ),
-        ProposedEvent::ClearMana { player } | ProposedEvent::PayMana { player, .. } => {
+        ProposedEvent::ClearMana { player }
+        | ProposedEvent::PayMana { player, .. }
+        | ProposedEvent::PayManaSelected { player, .. } => {
             let keys = BTreeSet::from([FactKey::Mana(*player)]);
             (keys.clone(), keys)
         }
@@ -344,6 +359,11 @@ impl Game {
                         );
                     }
                 }
+                ProposedEvent::Sacrifice { object, player }
+                | ProposedEvent::DiscardCard { object, player } => {
+                    objects.insert(*object);
+                    players.insert(*player);
+                }
                 ProposedEvent::PutOnTopOwnerLibrary { object } => {
                     objects.insert(*object);
                     libraries.insert(
@@ -417,7 +437,9 @@ impl Game {
                     objects.insert(*source);
                     players.insert(*player);
                 }
-                ProposedEvent::ClearMana { player } | ProposedEvent::PayMana { player, .. } => {
+                ProposedEvent::ClearMana { player }
+                | ProposedEvent::PayMana { player, .. }
+                | ProposedEvent::PayManaSelected { player, .. } => {
                     players.insert(*player);
                 }
                 ProposedEvent::LandPlayed { .. } | ProposedEvent::TurnTransition { .. } => {
@@ -677,8 +699,68 @@ impl Game {
 impl Game {
     fn apply_occurrence(&mut self, proposed: &ProposedEvent) -> Result<EventOutcome, String> {
         let actual = match proposed {
+            ProposedEvent::PayManaSelected {
+                player,
+                cost,
+                spending,
+            } => {
+                let pool = self.selected_payment_pool(*player, cost, spending)?;
+                self.state.players[player.0 as usize].mana = pool;
+                EventOutcome::ManaPaidSelected {
+                    player: *player,
+                    cost: cost.clone(),
+                    spending: spending.clone(),
+                }
+            }
+            ProposedEvent::Sacrifice { object, player } => {
+                if !self.is_live(*player)
+                    || !self.target_legal(*object)
+                    || self.current(*object)?.controller != *player
+                {
+                    return Err("invalid sacrifice event".into());
+                }
+                let owner = self
+                    .state
+                    .cards
+                    .get(&object.card)
+                    .ok_or("missing sacrificed card")?
+                    .owner;
+                let EventOutcome::Moved { movement } =
+                    self.apply_occurrence(&ProposedEvent::Move {
+                        object: *object,
+                        destination: Zone::Graveyard { owner },
+                    })?
+                else {
+                    return Err("missing sacrifice movement".into());
+                };
+                EventOutcome::Sacrificed {
+                    player: *player,
+                    movement,
+                }
+            }
+            ProposedEvent::DiscardCard { object, player } => {
+                if !self.is_live(*player)
+                    || self.current(*object)?.zone != (Zone::Hand { owner: *player })
+                {
+                    return Err("invalid discard event".into());
+                }
+                let EventOutcome::Moved { movement } =
+                    self.apply_occurrence(&ProposedEvent::Move {
+                        object: *object,
+                        destination: Zone::Graveyard { owner: *player },
+                    })?
+                else {
+                    return Err("missing discard movement".into());
+                };
+                EventOutcome::CardDiscarded {
+                    player: *player,
+                    movement,
+                }
+            }
             ProposedEvent::PutOnTopOwnerLibrary { object } => {
-                if !self.prepared.config.library_profile() {
+                if !self.prepared.config.library_profile()
+                    && !self.prepared.config.actions_profile()
+                {
                     return Err("unsupported top-library movement profile".into());
                 }
                 let owner = self

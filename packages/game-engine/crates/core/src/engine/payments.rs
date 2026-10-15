@@ -1,0 +1,145 @@
+use super::*;
+
+impl Game {
+    pub(super) fn explicit_payment_enabled(&self) -> bool {
+        self.prepared.config.actions_profile()
+    }
+
+    pub(super) fn finish_mana_frame(&self, cast: Casting) -> Result<Frame, String> {
+        let stack = self.top()?;
+        Ok(
+            if self.explicit_payment_enabled()
+                && self
+                    .payment_pool(stack.controller, &stack.total_cost)
+                    .is_ok()
+            {
+                Frame::SpendMana { cast }
+            } else {
+                Frame::Payment { cast }
+            },
+        )
+    }
+
+    pub(super) fn spend_mana_request(&self) -> Result<Request, String> {
+        let stack = self.top()?;
+        Ok(Request::SpendMana {
+            decision_id: self.state.revision,
+            player: stack.controller,
+            cost: stack.total_cost.clone(),
+            available: self.state.players[stack.controller.0 as usize].mana.clone(),
+        })
+    }
+
+    pub(super) fn validate_spending(
+        &self,
+        player: PlayerId,
+        spending: &BTreeMap<Color, Quantity>,
+    ) -> Result<(), String> {
+        let stack = self.top()?;
+        if !self.explicit_payment_enabled() || stack.controller != player {
+            return Err("mana spending controller/profile invariant".into());
+        }
+        self.selected_payment_pool(player, &stack.total_cost, spending)?;
+        Ok(())
+    }
+
+    // CR 601.2h / 118.3: the payer chooses which available mana pays generic
+    // costs. A complete selection must satisfy every colored symbol and pay
+    // exactly the total cost. Never silently spend a different color.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    pub(super) fn selected_payment_pool(
+        &self,
+        player: PlayerId,
+        cost: &ManaCost,
+        spending: &BTreeMap<Color, Quantity>,
+    ) -> Result<BTreeMap<Color, Quantity>, String> {
+        if !self.is_live(player) || cost.generic.is_negative() {
+            return Err("invalid mana payer/cost".into());
+        }
+        let mut remaining = self
+            .state
+            .players
+            .get(player.0 as usize)
+            .ok_or("missing paying player")?
+            .mana
+            .clone();
+        let mut total = Quantity::zero();
+        for (color, amount) in spending {
+            if *amount <= Quantity::zero() {
+                return Err("mana spending entries must be positive".into());
+            }
+            let available = remaining.get_mut(color).ok_or("unavailable mana color")?;
+            if *available < *amount {
+                return Err("selected mana exceeds available pool".into());
+            }
+            available.subtract(amount);
+            total.add(amount);
+        }
+        let mut required = BTreeMap::<Color, Quantity>::new();
+        let mut exact_total = cost.generic.clone();
+        for color in &cost.colored {
+            required.entry(*color).or_default().add(&Quantity::from(1));
+            exact_total.add(&Quantity::from(1));
+        }
+        if total != exact_total
+            || required
+                .iter()
+                .any(|(color, count)| spending.get(color).cloned().unwrap_or_default() < *count)
+        {
+            return Err("selected mana does not satisfy exact cost".into());
+        }
+        Ok(remaining)
+    }
+
+    pub(super) fn spend_mana_step(&mut self, mut cast: Casting) -> Result<(), String> {
+        let input = self.state.pending.take().ok_or("missing spending input")?;
+        let Response::SpendMana { spending } = input.response else {
+            return Err("mana spending response/frame invariant".into());
+        };
+        self.validate_spending(input.player, &spending)?;
+        cast.spending = Some(spending);
+        self.payment_step(cast)
+    }
+
+    pub(super) fn payment_step(&mut self, cast: Casting) -> Result<(), String> {
+        let stack = self.top()?.clone();
+        let cost = stack.total_cost.clone();
+        if self.payment_pool(stack.controller, &cost).is_err() {
+            let undo = cast.undo_mana;
+            self.reverse_cast(cast, "insufficient mana", undo)?;
+            self.stabilize()?;
+            return Ok(());
+        }
+        let proposed = if self.explicit_payment_enabled() {
+            let spending = cast.spending.ok_or("missing explicit mana spending")?;
+            self.selected_payment_pool(stack.controller, &cost, &spending)?;
+            ProposedEvent::PayManaSelected {
+                player: stack.controller,
+                cost: cost.clone(),
+                spending,
+            }
+        } else {
+            ProposedEvent::PayMana {
+                player: stack.controller,
+                cost: cost.clone(),
+            }
+        };
+        self.commit(
+            proposed,
+            BatchCause::Payment {
+                stack_id: cast.stack_id,
+                player: stack.controller,
+            },
+        )?;
+        self.state.stack.last_mut().ok_or("missing stack")?.paid = Some(cost);
+        self.record_event(Event::SpellCast {
+            stack_id: cast.stack_id,
+        })?;
+        self.state
+            .commanders
+            .record_cast(stack.source.card, stack.controller, stack.cast_from)?;
+        self.state.priority = stack.controller;
+        self.state.frame = Frame::Priority;
+        self.stabilize()
+    }
+}

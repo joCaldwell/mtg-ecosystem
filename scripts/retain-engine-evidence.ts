@@ -22,13 +22,23 @@ const rulesPath = process.env.MTG_ENGINE_RULES_PATH ?? path.join(root, ".scryfal
 const rulesBytes = fs.readFileSync(rulesPath);
 const rulesSha256 = "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca";
 if (sha(rulesBytes) !== rulesSha256) throw new Error("Pinned official rules digest mismatch.");
-const bundleDir = path.join(root, "generated/p2-bundles");
+const bundleRoot = path.join(root, "generated/p2-bundles");
+fs.mkdirSync(bundleRoot, { recursive: true });
+// Inspect only this capture: historical bundles keep their original versions
+// and source identities and must not enter this run's strict metadata reader.
+const bundleDir = fs.mkdtempSync(path.join(bundleRoot, "capture-"));
 const report = JSON.parse(run("cargo", ["run", "--quiet", "--locked", "--release", "-p", "mtg-sim", "--", "demo", "--bundle", bundleDir]));
+// Rust skips unneeded snapshot strings through serde_json::from_reader. Keep
+// the complete retained artifact as bytes: it can exceed V8's string limit.
+function metadata(file: string) {
+  return JSON.parse(run("cargo", ["run", "--quiet", "--locked", "--release", "-p", "mtg-sim", "--", "bundle-metadata", file]));
+}
 const matching = fs.readdirSync(bundleDir).filter(name => name.endsWith(".json")).map(name => path.join(bundleDir, name))
-  .filter(file => JSON.parse(fs.readFileSync(file, "utf8")).build_id === report.build_id);
+  .map(file => ({ file, metadata: metadata(file) }))
+  .filter(candidate => candidate.metadata.build_id === report.build_id);
 if (matching.length !== 1) throw new Error("Expected one exact retained release bundle.");
-const bundleBytes = fs.readFileSync(matching[0]);
-const bundle = JSON.parse(bundleBytes.toString("utf8"));
+const bundleBytes = fs.readFileSync(matching[0].file);
+const bundle = matching[0].metadata;
 const storeRoot = process.argv[2] ? path.resolve(process.argv[2]) : path.join(os.homedir(), ".local/share/mtg-ecosystem/engine-evidence");
 fs.mkdirSync(storeRoot, { recursive: true });
 const store = fs.mkdtempSync(path.join(storeRoot, `p2-${sha(bundleBytes).slice(0, 16)}-`));

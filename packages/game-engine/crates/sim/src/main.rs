@@ -1,6 +1,6 @@
 use mtg_compiler::{
-    CompileResult, commander_fixture_catalog, compile, damage_fixture_catalog, fixture_catalog,
-    fixtures, library_fixture_catalog,
+    CompileResult, action_fixture_catalog, commander_fixture_catalog, compile,
+    damage_fixture_catalog, fixture_catalog, fixtures, library_fixture_catalog,
 };
 use mtg_contracts::{Catalog, canonical, sha256, strict_read};
 use mtg_core::{
@@ -10,8 +10,14 @@ use mtg_core::{
     SearchContext, SnapshotVerifier, TraceMode, TurnStep, Zone,
 };
 use serde::{Deserialize, Serialize};
-use std::{fs, path::Path, time::Instant};
+use std::{
+    fs,
+    io::{BufReader, Read},
+    path::Path,
+    time::Instant,
+};
 
+mod actions_payments_games;
 mod combat_games;
 mod commander_games;
 mod damage_library_games;
@@ -44,6 +50,9 @@ struct Bundle {
     library_catalog: Catalog,
     library_records: Vec<String>,
     damage_library: Vec<damage_library_games::Evidence>,
+    action_catalog: Catalog,
+    action_records: Vec<String>,
+    actions_payments: Vec<actions_payments_games::Evidence>,
     build_id: String,
     catalog: Catalog,
     config: ScenarioConfig,
@@ -63,6 +72,30 @@ struct Bundle {
     target: String,
     rustflags: String,
     query_sidecar: String,
+}
+/// Retention orchestration needs only the small source/configuration closure.
+/// Unknown bundle fields intentionally deserialize as IgnoredAny, so serde_json
+/// skips large snapshot strings instead of materializing the entire bundle.
+/// Full verify-bundle remains the authority for identity and replay validation.
+#[derive(Serialize, Deserialize)]
+struct BundleMetadata {
+    bundle_version: u32,
+    build_id: String,
+    source_files: Vec<SourceFile>,
+    rustflags: String,
+    opt_level: String,
+    debug: String,
+    debug_assertions: String,
+    target: String,
+    catalog: Catalog,
+}
+fn read_bundle_metadata(reader: impl Read) -> Result<BundleMetadata, String> {
+    let metadata: BundleMetadata =
+        serde_json::from_reader(reader).map_err(|error| error.to_string())?;
+    if metadata.bundle_version != 12 {
+        return Err("unsupported metadata bundle version".into());
+    }
+    Ok(metadata)
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -818,6 +851,12 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
                 .cloned(),
         );
     }
+    let action_catalog = action_fixture_catalog()?;
+    let (actions_payments, action_games, action_report) =
+        actions_payments_games::suite(&action_catalog, false)?;
+    let action_refs = action_games.iter().collect::<Vec<_>>();
+    let (action_traces, action_trace_report) = crate::trace_runs(&action_catalog, &action_refs)?;
+    trace_runs.extend(action_traces);
     let bundle = Bundle {
         trace_runs,
         departure,
@@ -845,7 +884,13 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
             .map(|(_, record)| (*record).into())
             .collect(),
         damage_library,
-        bundle_version: 11,
+        action_catalog,
+        action_records: fixtures::ACTION_RECORDS
+            .iter()
+            .map(|(_, record)| (*record).into())
+            .collect(),
+        actions_payments,
+        bundle_version: 12,
         build_id: BUILD_ID.into(),
         catalog,
         config: prepared.config().clone(),
@@ -866,7 +911,7 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         rustflags: BUILD_RUSTFLAGS.into(),
         query_sidecar,
     };
-    let report = serde_json::json!({"status":"scenario_verified","damage_library":lifecycle_report,"damage_library_trace_equivalence":lifecycle_trace_report,"commander":commander_report,"commander_trace_equivalence":commander_trace_report,"combat":combat_report,"turns":turns_report,"departure":departure_report,"response":response_report,"detached_response":detached_report,"mana_casting":mana_casting_report,"mana_undo":mana_undo_report,"mana_keep":mana_keep_report,"trace_equivalence":trace_report,"build_id":BUILD_ID,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
+    let report = serde_json::json!({"status":"scenario_verified","actions_payments":action_report,"actions_payments_trace_equivalence":action_trace_report,"damage_library":lifecycle_report,"damage_library_trace_equivalence":lifecycle_trace_report,"commander":commander_report,"commander_trace_equivalence":commander_trace_report,"combat":combat_report,"turns":turns_report,"departure":departure_report,"response":response_report,"detached_response":detached_report,"mana_casting":mana_casting_report,"mana_undo":mana_undo_report,"mana_keep":mana_keep_report,"trace_equivalence":trace_report,"build_id":BUILD_ID,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
         "state_sha256":game.state_digest()?,"accepted_inputs":game.journal().len(),"events":game.events(),"restore_fork_replay_equal":true,
         "player_observations": (0..4).map(|v|observation(&game,PlayerId(v))).collect::<Result<Vec<_>,_>>()?,
         "search_context":search_context(&game,PlayerId(0),"separate-sampling-seed".into())?,
@@ -874,9 +919,63 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         "timing_observations":{"four_equivalent_runs_ns":elapsed,"priority_query_mean_ns":query_ns.to_string(),"clone_and_dispose_mean_ns":fork_ns.to_string(),"representative_commander_benchmark":false}});
     Ok((bundle, report))
 }
+/// Complete-card lowering and exact runtime admission are separate proofs.
+/// Cruel Edict is now fully represented, while historical catalogs intentionally
+/// retain their earlier pools. Blood Artist supplies the action pool's complete
+/// but unsupported triggered source; exact bytes are bound before this check.
+fn verify_source_catalog(
+    manifest: &str,
+    catalog: &Catalog,
+    records: &[String],
+    historical: bool,
+) -> Result<(), String> {
+    const CRUEL_EDICT: &str = "10c585c4-bf5b-4d8f-94a9-e9a5036a688f";
+    const BLOOD_ARTIST: &str = "310f141c-7f37-4729-aed6-dd9c09db448d";
+    catalog.validate()?;
+    let mut definitions = vec![];
+    let mut lowered_unadmitted = vec![];
+    let mut unsupported = vec![];
+    for record in records {
+        match compile(manifest, record) {
+            CompileResult::Lowered { definition } => {
+                if catalog
+                    .definitions
+                    .iter()
+                    .any(|d| d.oracle_id == definition.oracle_id)
+                {
+                    definitions.push(*definition);
+                } else if historical && definition.oracle_id == CRUEL_EDICT {
+                    lowered_unadmitted.push(definition.oracle_id);
+                } else {
+                    return Err("unexpected lowered-but-unadmitted retained source".into());
+                }
+            }
+            CompileResult::Unsupported { .. } => {
+                let record: serde_json::Value = strict_read(record)?;
+                let identity = record["oracleIdentity"]
+                    .as_str()
+                    .ok_or("missing unsupported source identity")?;
+                if historical || identity != BLOOD_ARTIST {
+                    return Err("unexpected unsupported retained source".into());
+                }
+                unsupported.push(identity.to_string());
+            }
+            CompileResult::Invalid { .. } => return Err("invalid retained source".into()),
+        }
+    }
+    definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    if definitions != catalog.definitions
+        || (historical && (lowered_unadmitted != [CRUEL_EDICT] || !unsupported.is_empty()))
+        || (!historical && (!lowered_unadmitted.is_empty() || unsupported != [BLOOD_ARTIST]))
+    {
+        return Err("retained source compilation/admission coverage mismatch".into());
+    }
+    Ok(())
+}
+
 fn verify_bundle(json: &str) -> Result<String, String> {
     let b: Bundle = strict_read(json)?;
-    if b.bundle_version != 11 || b.build_id != BUILD_ID {
+    if b.bundle_version != 12 || b.build_id != BUILD_ID {
         return Err("unsupported bundle version/build".into());
     }
     if b.archive_manifest != fixtures::MANIFEST
@@ -902,6 +1001,11 @@ fn verify_bundle(json: &str) -> Result<String, String> {
             .iter()
             .map(String::as_str)
             .eq(fixtures::LIBRARY_RECORDS.iter().map(|(_, record)| *record))
+        || !b
+            .action_records
+            .iter()
+            .map(String::as_str)
+            .eq(fixtures::ACTION_RECORDS.iter().map(|(_, record)| *record))
     {
         return Err("retained exact source fixtures differ from this build".into());
     }
@@ -935,60 +1039,24 @@ fn verify_bundle(json: &str) -> Result<String, String> {
             "retained source/toolchain closure does not reproduce the build identity".into(),
         );
     }
-    let mut definitions = vec![];
-    let mut unsupported = 0;
-    for record in &b.records {
-        match compile(&b.archive_manifest, record) {
-            CompileResult::Lowered { definition } => definitions.push(*definition),
-            CompileResult::Unsupported { .. } => unsupported += 1,
-            CompileResult::Invalid { .. } => return Err("retained record is invalid".into()),
-        }
-    }
-    if unsupported != 1 {
-        return Err("missing paired unsupported source fixture".into());
-    }
-    definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    if definitions != b.catalog.definitions {
-        return Err("retained source-to-IR mismatch".into());
-    }
-    let mut commander_definitions = vec![];
-    let mut commander_unsupported = 0;
-    for record in &b.commander_records {
-        match compile(&b.archive_manifest, record) {
-            CompileResult::Lowered { definition } => commander_definitions.push(*definition),
-            CompileResult::Unsupported { .. } => commander_unsupported += 1,
-            CompileResult::Invalid { .. } => return Err("invalid retained commander source".into()),
-        }
-    }
-    commander_definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    if commander_unsupported != 1 || commander_definitions != b.commander_catalog.definitions {
-        return Err("retained commander source-to-IR mismatch".into());
-    }
     for (catalog, records) in [
+        (&b.catalog, &b.records),
+        (&b.commander_catalog, &b.commander_records),
         (&b.damage_catalog, &b.damage_records),
         (&b.library_catalog, &b.library_records),
     ] {
-        catalog.validate()?;
-        let mut definitions = vec![];
-        let mut unsupported = 0;
-        for record in records {
-            match compile(&b.archive_manifest, record) {
-                CompileResult::Lowered { definition } => definitions.push(*definition),
-                CompileResult::Unsupported { .. } => unsupported += 1,
-                CompileResult::Invalid { .. } => {
-                    return Err("invalid retained damage/library record".into());
-                }
-            }
-        }
-        definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-        if unsupported != 1 || definitions != catalog.definitions {
-            return Err("retained damage/library source-to-IR mismatch".into());
-        }
+        verify_source_catalog(&b.archive_manifest, catalog, records, true)?;
     }
-    if b.trace_runs.len() != 78 {
+    verify_source_catalog(
+        &b.archive_manifest,
+        &b.action_catalog,
+        &b.action_records,
+        false,
+    )?;
+    if b.trace_runs.len() != 120 {
         return Err("missing trace-mode evidence".into());
     }
-    eprintln!("verifying 78 retained trace-mode executions");
+    eprintln!("verifying 120 retained trace-mode executions");
     let mut reference_cache: Option<Game> = None;
     for (index, run) in b.trace_runs.iter().enumerate() {
         let required_mode = [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed][index % 3];
@@ -1047,6 +1115,13 @@ fn verify_bundle(json: &str) -> Result<String, String> {
                     .ok_or("missing damage/library trace group")?;
                 (&entry.config, &entry.journal, &entry.final_snapshot)
             }
+            n @ 26..=39 => {
+                let entry = b
+                    .actions_payments
+                    .get(n - 26)
+                    .ok_or("missing actions/payment trace group")?;
+                (&entry.config, &entry.journal, &entry.final_snapshot)
+            }
             _ => return Err("unexpected trace-mode group".into()),
         };
         if run.mode != required_mode
@@ -1059,7 +1134,8 @@ fn verify_bundle(json: &str) -> Result<String, String> {
             0..=11 => &b.catalog,
             12..=18 => &b.commander_catalog,
             19..=21 => &b.damage_catalog,
-            _ => &b.library_catalog,
+            22..=25 => &b.library_catalog,
+            _ => &b.action_catalog,
         };
         let p = Prepared::admit(catalog.clone(), run.config.clone())?;
         let expected = Game::restore(p.clone(), &run.final_snapshot)?;
@@ -1105,6 +1181,7 @@ fn verify_bundle(json: &str) -> Result<String, String> {
     combat_games::verify(&b.catalog, &b.combat)?;
     commander_games::verify(&b.commander_catalog, &b.commander)?;
     damage_library_games::verify(&b.damage_catalog, &b.library_catalog, &b.damage_library)?;
+    actions_payments_games::verify(&b.action_catalog, &b.actions_payments)?;
     let departure_prepared = Prepared::admit(b.catalog.clone(), b.departure.config)?;
     let mut departure_verifier =
         SnapshotVerifier::new(departure_prepared.clone(), TraceMode::Detailed);
@@ -1151,6 +1228,20 @@ fn verify_bundle(json: &str) -> Result<String, String> {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
+        Some("bundle-metadata") if args.len() == 2 => {
+            let metadata = read_bundle_metadata(BufReader::new(fs::File::open(&args[1])?))?;
+            println!("{}", canonical(&metadata)?);
+        }
+        Some("actions-payments-games")
+            if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") =>
+        {
+            let (_, _, report) =
+                actions_payments_games::suite(&action_fixture_catalog()?, args.len() == 2)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Some("compile-action") if args.len() == 1 => {
+            println!("{}", canonical(&action_fixture_catalog()?)?)
+        }
         Some("damage-library-games")
             if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") =>
         {
@@ -1234,7 +1325,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {
             return Err(
-                "usage: mtg-sim combat-games [--recover]|commander-games [--recover]|damage-library-games [--recover]|schema|compile|compile-commander|compile-library|compile-damage|report|observe PLAYER|context PLAYER SEED|demo [--bundle DIR]|verify-bundle FILE"
+                "usage: mtg-sim bundle-metadata FILE|actions-payments-games [--recover]|compile-action|combat-games [--recover]|commander-games [--recover]|damage-library-games [--recover]|schema|compile|compile-commander|compile-library|compile-damage|report|observe PLAYER|context PLAYER SEED|demo [--bundle DIR]|verify-bundle FILE"
                     .into(),
             );
         }
@@ -1244,6 +1335,80 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn metadata_reader_skips_unknown_nested_strings_and_requires_typed_closure() {
+        let metadata = serde_json::json!({
+            "bundle_version":12,"build_id":"historical-build",
+            "source_files":[{"path":"Cargo.toml","sha256":"source-digest","contents":"[workspace]\n"}],
+            "rustflags":"","opt_level":"3","debug":"false","debug_assertions":"false",
+            "target":"x86_64-unknown-linux-gnu","catalog":fixture_catalog().unwrap(),
+        });
+        let raw = canonical(&metadata).unwrap();
+        let unknown = canonical(&serde_json::json!([{"nested":["escaped quote: \" and slash: \\","\nUnicode: λ",{"fake":"}],\"build_id\":\"forged\""}]}])).unwrap();
+        let wrapped = format!(
+            "{{\"before\":{unknown},{},\"after\":{unknown}}}",
+            &raw[1..raw.len() - 1]
+        );
+        let read = read_bundle_metadata(std::io::Cursor::new(wrapped.as_bytes())).unwrap();
+        assert_eq!(serde_json::to_value(read).unwrap(), metadata);
+        for key in metadata.as_object().unwrap().keys() {
+            let mut missing = metadata.clone();
+            missing.as_object_mut().unwrap().remove(key);
+            assert!(
+                read_bundle_metadata(std::io::Cursor::new(canonical(&missing).unwrap())).is_err(),
+                "missing {key}"
+            );
+        }
+        let mut bad = metadata.clone();
+        bad["bundle_version"] = 11.into();
+        assert!(read_bundle_metadata(std::io::Cursor::new(canonical(&bad).unwrap())).is_err());
+        let mut bad = metadata.clone();
+        bad["source_files"][0]["contents"] = 17.into();
+        assert!(read_bundle_metadata(std::io::Cursor::new(canonical(&bad).unwrap())).is_err());
+        // Parsing must also consume and validate unknown fields after the known
+        // metadata; a truncated later snapshot cannot be accepted as metadata.
+        let truncated = format!("{},\"after\":[\"unterminated", &raw[..raw.len() - 1]);
+        assert!(read_bundle_metadata(std::io::Cursor::new(truncated)).is_err());
+    }
+    #[test]
+    fn source_coverage_distinguishes_complete_lowering_from_catalog_admission() {
+        fn records(values: &[(&str, &str)]) -> Vec<String> {
+            values.iter().map(|(_, value)| (*value).into()).collect()
+        }
+        assert!(matches!(
+            compile(fixtures::MANIFEST, fixtures::RECORDS[5].1),
+            CompileResult::Lowered { .. }
+        ));
+        for (catalog, source) in [
+            (fixture_catalog().unwrap(), records(&fixtures::RECORDS)),
+            (
+                commander_fixture_catalog().unwrap(),
+                records(&fixtures::COMMANDER_RECORDS),
+            ),
+            (
+                damage_fixture_catalog().unwrap(),
+                records(&fixtures::DAMAGE_RECORDS),
+            ),
+            (
+                library_fixture_catalog().unwrap(),
+                records(&fixtures::LIBRARY_RECORDS),
+            ),
+        ] {
+            verify_source_catalog(fixtures::MANIFEST, &catalog, &source, true).unwrap();
+            assert!(verify_source_catalog(fixtures::MANIFEST, &catalog, &source, false).is_err());
+            let mut wrong_negative = source.clone();
+            wrong_negative[5] = fixtures::ACTION_RECORDS[11].1.into();
+            assert!(
+                verify_source_catalog(fixtures::MANIFEST, &catalog, &wrong_negative, true).is_err()
+            );
+        }
+        let catalog = action_fixture_catalog().unwrap();
+        let mut source = records(&fixtures::ACTION_RECORDS);
+        verify_source_catalog(fixtures::MANIFEST, &catalog, &source, false).unwrap();
+        assert!(verify_source_catalog(fixtures::MANIFEST, &catalog, &source, true).is_err());
+        source.pop();
+        assert!(verify_source_catalog(fixtures::MANIFEST, &catalog, &source, false).is_err());
+    }
     fn current_projection_versions(value: &mut serde_json::Value) {
         match value {
             serde_json::Value::Array(values) => {
@@ -1252,7 +1417,7 @@ mod tests {
             serde_json::Value::Object(values) => {
                 for (key, value) in values.iter_mut() {
                     if key == "observation_version" || key == "context_version" {
-                        *value = serde_json::json!(8);
+                        *value = serde_json::json!(9);
                     } else {
                         current_projection_versions(value);
                     }
@@ -1282,7 +1447,7 @@ mod tests {
         );
         let final_snapshot: serde_json::Value =
             serde_json::from_str(&bundle.final_snapshot).unwrap();
-        assert_eq!(final_snapshot["snapshot_version"], 10);
+        assert_eq!(final_snapshot["snapshot_version"], 11);
         assert_eq!(final_snapshot["state"]["rule_steps"], p2["rule_steps"]);
         assert_eq!(
             serde_json::to_value(&bundle.journal.decisions).unwrap(),
@@ -1295,7 +1460,7 @@ mod tests {
         assert_eq!(report["departure"]["events"], prior["departure_events"]);
         // Input IDs and boundaries now include the explicit mana-window decline.
 
-        assert_eq!(bundle.trace_runs.len(), 78);
+        assert_eq!(bundle.trace_runs.len(), 120);
         let normalized:Vec<_>=report["trace_equivalence"].as_array().unwrap().iter().map(|x|serde_json::json!({"profile":x["profile"],"mode":x["mode"],"state_sha256":x["state_sha256"],"verification":x["verification"]})).collect();
         assert_eq!(
             serde_json::to_value(normalized).unwrap(),
@@ -1324,11 +1489,17 @@ mod tests {
         .unwrap();
         current_projection_versions(&mut commander);
         assert_eq!(report["commander"], commander);
-        let lifecycle: serde_json::Value = serde_json::from_str(include_str!(
+        let mut lifecycle: serde_json::Value = serde_json::from_str(include_str!(
             "../../../tests/fixtures/expected-damage-library-scenario.json"
         ))
         .unwrap();
+        current_projection_versions(&mut lifecycle);
         assert_eq!(report["damage_library"], lifecycle);
+        let actions: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/expected-actions-payments-scenario.json"
+        ))
+        .unwrap();
+        assert_eq!(report["actions_payments"], actions);
         let historical: serde_json::Value = serde_json::from_str(include_str!(
             "../../../tests/fixtures/expected-turns-scenario.json"
         ))
@@ -1350,7 +1521,7 @@ mod tests {
             report["state_sha256"].as_str().unwrap()
         );
         assert!(
-            verify_bundle(&json.replace("\"bundle_version\":11", "\"bundle_version\":12")).is_err()
+            verify_bundle(&json.replace("\"bundle_version\":12", "\"bundle_version\":13")).is_err()
         );
         // A complete but changed unsupported record still reports Unsupported;
         // counting lowered/unsupported outcomes cannot bind retained evidence.
@@ -1359,17 +1530,23 @@ mod tests {
             "records",
             "library_records",
             "damage_records",
+            "action_records",
         ] {
             let mut corrupt: serde_json::Value = serde_json::from_str(&json).unwrap();
-            let mut record: serde_json::Value =
-                serde_json::from_str(corrupt[key][5].as_str().unwrap()).unwrap();
+            let mut record: serde_json::Value = serde_json::from_str(
+                corrupt[key][if key == "action_records" { 11 } else { 5 }]
+                    .as_str()
+                    .unwrap(),
+            )
+            .unwrap();
             record["status"] = serde_json::json!("unsupported");
             let changed_record = canonical(&record).unwrap();
             assert!(matches!(
                 compile(fixtures::MANIFEST, &changed_record),
                 CompileResult::Unsupported { .. }
             ));
-            corrupt[key][5] = serde_json::json!(changed_record);
+            corrupt[key][if key == "action_records" { 11 } else { 5 }] =
+                serde_json::json!(changed_record);
             assert!(verify_bundle(&canonical(&corrupt).unwrap()).is_err());
         }
         let mut corrupt: serde_json::Value = serde_json::from_str(&json).unwrap();

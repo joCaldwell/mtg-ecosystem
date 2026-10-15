@@ -4,6 +4,114 @@
 use super::*;
 
 impl ScenarioConfig {
+    pub fn actions() -> Self {
+        let cards = (0..23)
+            .map(|id| {
+                let owner = PlayerId(match id {
+                    0 | 1 | 5 | 10 | 11 | 14 | 17 | 18 => 1,
+                    12 | 19 | 20 => 2,
+                    13 | 21 | 22 => 3,
+                    _ => 0,
+                });
+                CardSetup {
+                    id: CardId(id),
+                    owner,
+                    controller: owner,
+                    oracle_id: match id {
+                        0 => ISAMARU,
+                        1 => BEARS,
+                        2 => SWAMP,
+                        3 => FOREST,
+                        4 => EDICT,
+                        5 => HAPLESS,
+                        6 => TIME_EBB,
+                        10 | 17 | 18 => PLAINS,
+                        14 => SPELL,
+                        _ => ISLAND,
+                    }
+                    .into(),
+                    zone: match id {
+                        4 | 6 | 14 => Zone::Hand { owner },
+                        15..=22 => Zone::Library { owner },
+                        _ => Zone::Battlefield,
+                    },
+                }
+            })
+            .collect();
+        Self {
+            mode: Mode::Scenario,
+            players: 4,
+            profile: "four-seat-actions-v1".into(),
+            commanders: vec![CardId(0)],
+            cards,
+        }
+    }
+    pub fn actions_borrowed() -> Self {
+        let mut config = Self::actions();
+        config.profile = "four-seat-actions-borrowed-v1".into();
+        config.cards[5].owner = PlayerId(2);
+        config
+    }
+    pub fn actions_empty_library() -> Self {
+        let mut config = Self::actions();
+        config.profile = "four-seat-actions-empty-library-v1".into();
+        config
+            .cards
+            .retain(|card| !matches!(card.id, CardId(17) | CardId(18)));
+        config
+    }
+    pub fn mixed_mana() -> Self {
+        let cards = (0..26)
+            .map(|id| {
+                let owner = PlayerId(match id {
+                    0..=10 | 18 | 19 => 0,
+                    11..=15 | 20 | 21 => 1,
+                    16 | 22 | 23 => 2,
+                    _ => 3,
+                });
+                CardSetup {
+                    id: CardId(id),
+                    owner,
+                    controller: owner,
+                    oracle_id: match id {
+                        0 => YARGLE,
+                        1..=4 | 18 => SWAMP,
+                        5..=9 | 19 => FOREST,
+                        10 => EDICT,
+                        11 => ISAMARU,
+                        12 => BEARS,
+                        13 => HAPLESS,
+                        15 => SPELL,
+                        _ => ISLAND,
+                    }
+                    .into(),
+                    zone: match id {
+                        0 => Zone::Command { owner },
+                        10 | 15 => Zone::Hand { owner },
+                        18..=25 => Zone::Library { owner },
+                        _ => Zone::Battlefield,
+                    },
+                }
+            })
+            .collect();
+        Self {
+            mode: Mode::Scenario,
+            players: 4,
+            profile: "four-seat-mixed-mana-v1".into(),
+            commanders: vec![CardId(0), CardId(11)],
+            cards,
+        }
+    }
+    pub(super) fn actions_profile(&self) -> bool {
+        matches!(
+            self.profile.as_str(),
+            "four-seat-actions-v1"
+                | "four-seat-actions-borrowed-v1"
+                | "four-seat-actions-empty-library-v1"
+                | "four-seat-mixed-mana-v1"
+        )
+    }
+
     pub fn commander_damage() -> Self {
         let cards = (0..14)
             .map(|id| {
@@ -150,7 +258,8 @@ impl ScenarioConfig {
         config
     }
     pub(super) fn commander_profile(&self) -> bool {
-        self.damage_profile()
+        self.actions_profile()
+            || self.damage_profile()
             || self.library_profile()
             || matches!(
                 self.profile.as_str(),

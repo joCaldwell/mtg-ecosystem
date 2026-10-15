@@ -89,6 +89,12 @@ impl Strategy {
             .as_ref()
             .ok_or("missing commander request")?;
         Ok(match request {
+            PlayerRequest::PlayerTargets { .. }
+            | PlayerRequest::Sacrifice { .. }
+            | PlayerRequest::ResolveDiscard { .. }
+            | PlayerRequest::SpendMana { .. } => {
+                return Err("action/payment request outside the frozen Commander policy".into());
+            }
             PlayerRequest::Priority { .. } => {
                 if v.viewer == PlayerId(0)
                     && v.active == Some(v.viewer)

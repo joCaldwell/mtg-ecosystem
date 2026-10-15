@@ -896,3 +896,123 @@ P3/P4 scenario evidence; arbitrary decks, general replacement/prevention orderin
 triggers/APNAP, continuous effects, mixed-color spending choices, shuffle/mulligan
 setup and full legal Commander match admission remain later work. Source-backed
 small scenarios are not P5 match-support evidence or a performance guarantee.
+
+## Action choices and mixed-color payment — October 15, 2026
+
+The [frozen action/payment contract](game-engine-actions-payments.md) adds three
+connected mechanic families on `feat/engine-actions-payments`, stacked on the
+completed damage/library slice. All work is isolated in
+`/home/josh/Code/mtg-engine-actions-payments`.
+
+Four exact configurations use a separate eleven-definition IR v5 catalog:
+the ordinary action scenario, borrowed Hapless Researcher, empty P1 library,
+and mixed-mana Yargle command casting. The twelve exact source records include
+authentic Hapless Researcher, Swamp and paired unsupported Blood Artist. Cruel
+Edict now lowers completely; historical five/six/seven-definition catalogs
+explicitly classify it as lowered but unadmitted. Their definitions, gameplay
+journals/events and semantic hashes remain the regression references.
+
+An affordable spell in these four profiles requires an explicit spending map
+after the mana window. It pays the exact total and all colored requirements,
+rejects nonpositive entries, and cannot overdraw the available pool. Two legal
+payments for Yargle leave different colors and change whether Cruel Edict can
+be paid afterward. The connected recast witness completes a real command cast,
+returns Yargle via Unsummon, reverses an insufficient taxed attempt without
+incrementing history, then pays the eight-mana taxed cost on P0's next turn.
+Failed casts retain the existing keep/undo receipt semantics and original zone.
+
+Cruel Edict targets a live opponent at announcement, including an opponent with
+no creatures. Its target chooses a controlled creature during resolution;
+ownership determines the graveyard. The effect sacrifices rather than destroys.
+Departure before resolution makes the sole target illegal; departure during a
+started choice produces no sacrifice without redirecting the subject. Accepted
+choices invalidated by departure requery the remaining legal domain. A sacrificed
+commander enters its owner's graveyard, the spell completes, and only then does
+the fresh Commander return SBA offer a choice.
+
+Hapless Researcher creates a noncard stack entry with a distinct stack identity,
+an opaque viewer-scoped ability handle, and historical source references. Its
+source is sacrificed as a cost and never becomes the stack object. Its activator
+remains the meaning of "you" while draw and mandatory discard resolve. Borrowed
+source-owner departure preserves a surviving activator's ability; activator
+departure before resolution removes it. A started invocation retains its frozen
+controller and skips impossible personal actions after that controller leaves.
+Commander draw replacement resumes the pending discard, and Commander discard
+return waits until the complete ability finishes. Failed draw still completes
+discard before the post-resolution loss SBA. A source-driven regression also
+bounces, recasts and immediately activates Hapless while it cannot attack.
+
+Fourteen deterministic player-facing policies retain **1,120 new recovery
+boundaries**, with identical accepted choices and states under one-unit/unlimited
+execution, resumed query budgets, and off/compact/detailed tracing. Together with
+the prior families, the demo covers **120 trace-mode executions**, **17 exact
+configurations**, and **5,741 combat/Commander/action recovery boundaries**, plus
+the legacy checkpoints. Bundle v12, snapshot v11, observation/context v9 and
+query-sidecar v8 retain these nested choices. Queries mint no handles, reveal no
+library rows, and cannot use historical source references as current authority.
+
+Independent review covered the new compiler/IR/source closure, runtime event and
+continuation paths, ownership/departure behavior, projections/query work, and all
+fourteen static policy outcomes. Eight independent adversarial integration tests
+and seven payment tests cover invalid selections, keep/undo, accepted-spend
+departures, forged snapshots, stale/foreign recovery work and receipts, nested
+replacement/discard, and newly cast activation. No unresolved review findings
+remain within the admitted closure.
+
+Two additional independent external Cargo probes verify both mixed stack orders:
+Hapless activation above a completed Edict, and Unsummon above a completed Hapless
+ability. Draw/discard, sacrifice domains and completion order follow the top
+entry; the source stays in its graveyard. Both restore every one-unit boundary
+and match final replay. Their ignored harness/log are in
+`generated/actions-verification/stack-probe/` and `stack-probe.log`; the frozen
+native source and retained build identity remain unchanged by these probes.
+
+The expanded retained bundle also exposed a tooling limit: its 555 MB JSON file
+exceeded Node's maximum string length. The retention wrapper now reads a typed
+metadata projection through Rust's streaming reader and hashes/copies the full
+bundle as bytes. An actual 555,476,320-byte bundle produced 4,449,219 bytes of
+metadata with all 80 embedded source hashes checked. Required-field/type,
+escaped nested unknown-field and truncated-input tests cover extraction;
+metadata never replaces full bundle identity/replay verification. Each capture
+uses a fresh directory, preserving and excluding historical bundle versions.
+
+Verification of the final native source:
+
+- `npm run check:engine` passes the complete toolchain/format/Clippy gate,
+  **211 Rust tests** and **13 Node cross-language tests**, including exact
+  source/parser hashes, all five schemas/catalogs and the combined CLI demo.
+- Formatting and workspace/all-target Clippy with warnings denied pass.
+- `cargo test --workspace --locked` and the separate optimized release run each
+  pass **211 Rust tests**, including the historical gameplay references.
+- `npm run retain:engine` captures **80 native source/fixture files** and all
+  **1,581 dependency files**, rebuilds with frozen/offline Cargo from an initially
+  empty Cargo home and fresh target, and verifies the full replay with that rebuilt
+  executable. All 120 trace runs and 5,741 recovery boundaries pass.
+- Independent final audit recomputes the source/build closure, every embedded,
+  worktree and retained source hash, all five catalog/profile/schema bindings,
+  exact source arrays, trace/state bindings, query sidecar, pinned rules, vendor
+  file and manifest hashes, executable and complete bundle checksums. The store
+  manifest and worktree summary match; offline flags and replay results agree.
+  No review findings remain unresolved.
+
+Retained release identities:
+
+- Build: `7f74bcc9cda8e51f16d93b13340e871761694040f880da335bebe648b966dcc5`.
+- Replay bundle: `a3e32662e7a0f4720e49f9909b081c33204bf7ca2c801738a878c4e61eb7a1cf`.
+- Rebuilt executable: `c307fc800a4bf4d42184a69f63806a007d1f6212d653e9722bcfee1c362b9f33`.
+- Dependency manifest: `387384711d404f44993e8ab583e269c5105d1cc8b583307e3035f14e03d7474f`.
+- Historical baseline state: `58a0a241c4662d403dec8944430c1fe402c7fd15d22a2ce242c9a0b01d54f657`.
+
+Retained closure:
+`/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-a3e32662e7a0f472-aAX8eV/`.
+Its `evidence.json` records the offline verification; ignored
+`generated/p2-retention.json` and `generated/actions-verification/` retain the
+worktree summary, gate logs and final independent audit. Downloaded rules,
+dependency/source closures, executables and replay bundles remain uncommitted.
+
+The next engine chunk can add source-backed stack targeting/countering and
+mana/tap activation costs, with complete announcement, departure and replay
+evidence. Trigger scheduling/APNAP, general replacement/prevention ordering,
+continuous effects, shuffle/mulligan setup, arbitrary decks and full legal
+Commander admission remain later work. This delivery advances bounded P3/P4
+evidence; it does not claim complete match support.

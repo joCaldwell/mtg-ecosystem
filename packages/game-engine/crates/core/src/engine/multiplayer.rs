@@ -193,11 +193,7 @@ impl Game {
             return Ok(());
         }
         let stack = self.top()?.clone();
-        let legal_targets = stack
-            .targets
-            .iter()
-            .map(|t| self.target_legal(*t))
-            .collect();
+        let legal_targets = self.announced_target_legality(&stack);
         self.state.frame = Frame::Resolve {
             frame: Resolving {
                 stack_id: stack.id,
@@ -363,7 +359,13 @@ impl Game {
             .state
             .stack
             .iter()
-            .filter(|s| self.current(s.source).is_err())
+            .filter(|s| {
+                if s.kind.is_spell() {
+                    self.current(s.source).is_err()
+                } else {
+                    !self.is_live(s.controller)
+                }
+            })
             .map(|s| s.id)
             .collect::<Vec<_>>();
         self.state.stack.retain(|s| !lost_stack.contains(&s.id));
@@ -399,8 +401,11 @@ impl Game {
         // CR 608.2m: a started invocation owns its frozen instance and keeps
         // resolving after its source leaves. Only an unfinished casting frame
         // whose own source left is discarded; lower departures cannot replace it.
-        if let Frame::Targets { cast } | Frame::Mana { cast } | Frame::Payment { cast } =
-            self.state.frame.clone()
+        if let Frame::Targets { cast }
+        | Frame::PlayerTargets { cast }
+        | Frame::Mana { cast }
+        | Frame::SpendMana { cast }
+        | Frame::Payment { cast } = self.state.frame.clone()
             && lost_stack.contains(&cast.stack_id)
         {
             self.state.pending = None;
@@ -417,15 +422,31 @@ impl Game {
                 vec![]
             };
         }
-        if let Frame::Targets { cast } | Frame::Mana { cast } | Frame::Payment { cast } =
-            self.state.frame.clone()
+        if let Frame::Targets { cast }
+        | Frame::PlayerTargets { cast }
+        | Frame::Mana { cast }
+        | Frame::SpendMana { cast }
+        | Frame::Payment { cast } = self.state.frame.clone()
         {
             let targets_bad = self.state.stack.last().is_some_and(|s| {
-                !s.targets.is_empty() && s.targets.iter().any(|t| !self.target_legal(*t))
+                self.bound_target_count(s) != 0
+                    && self
+                        .announced_target_legality(s)
+                        .iter()
+                        .any(|legal| !*legal)
             });
-            let pending_bad=self.state.pending.as_ref().is_some_and(|p|matches!(&p.response,Response::Targets{objects} if objects.iter().any(|t|!self.target_legal(*t))));
-            let no_domain = !self.program()?.targets.is_empty()
-                && !self.state.objects.values().any(|o| self.target_legal(o.id));
+            let pending_bad = self
+                .state
+                .pending
+                .as_ref()
+                .is_some_and(|p| match &p.response {
+                    Response::Targets { objects } => objects.iter().any(|t| !self.target_legal(*t)),
+                    Response::PlayerTargets { players } => players
+                        .iter()
+                        .any(|target| !self.is_live(*target) || *target == p.player),
+                    _ => false,
+                });
+            let no_domain = !self.has_target_domain(self.program()?, self.top()?.controller);
             if targets_bad || pending_bad || no_domain {
                 self.reverse_departure_cast(cast)?;
             }
@@ -433,12 +454,14 @@ impl Game {
         // A departure can invalidate an accepted priority cast or mana
         // activation before its rule step. Keep the input journal, discard
         // only the stale proposal, and leave valid pending actions intact.
-        if matches!(self.state.frame, Frame::Priority | Frame::Mana { .. })
-            && self
-                .state
-                .pending
-                .as_ref()
-                .is_some_and(|p| self.validate_response(p.player, &p.response).is_err())
+        if matches!(
+            self.state.frame,
+            Frame::Priority | Frame::Mana { .. } | Frame::SpendMana { .. }
+        ) && self
+            .state
+            .pending
+            .as_ref()
+            .is_some_and(|p| self.validate_response(p.player, &p.response).is_err())
         {
             self.state.pending = None;
         }
@@ -452,6 +475,7 @@ impl Game {
             self.begin_resolution()?;
         }
         self.revalidate_commander_departure()?;
+        self.revalidate_actions_departure()?;
         if self.combat_enabled() && !self.state.simultaneous_losses {
             self.revalidate_combat_departure()?;
         }

@@ -70,6 +70,26 @@ pub mod fixtures {
             include_str!("../../../tests/fixtures/yargle-and-multani.json"),
         ),
     ];
+    pub const ACTION_RECORDS: [(&str, &str); 12] = [
+        COMMANDER_RECORDS[0],
+        COMMANDER_RECORDS[1],
+        COMMANDER_RECORDS[2],
+        COMMANDER_RECORDS[3],
+        COMMANDER_RECORDS[4],
+        COMMANDER_RECORDS[5],
+        COMMANDER_RECORDS[6],
+        DAMAGE_RECORDS[7],
+        LIBRARY_RECORDS[7],
+        (
+            "hapless-researcher",
+            include_str!("../../../tests/fixtures/hapless-researcher.json"),
+        ),
+        ("swamp", include_str!("../../../tests/fixtures/swamp.json")),
+        (
+            "blood-artist",
+            include_str!("../../../tests/fixtures/blood-artist.json"),
+        ),
+    ];
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -162,9 +182,15 @@ struct Source {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Ability {
-    kind: String,
-    effects: Vec<Sentence>,
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum Ability {
+    Spell {
+        effects: Vec<Sentence>,
+    },
+    Activated {
+        costs: Vec<SourceCost>,
+        effects: Vec<Sentence>,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -173,16 +199,68 @@ struct Sentence {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Step {
-    effect: String,
-    what: Target,
-    to: Destination,
+#[serde(tag = "effect", rename_all = "kebab-case")]
+enum Step {
+    ReturnToHand {
+        what: Target,
+        to: String,
+    },
+    MoveZone {
+        what: Target,
+        to: ZoneDestination,
+    },
+    Sacrifice {
+        who: PlayerSelector,
+        what: FilterObject,
+        #[serde(rename = "chosenBy")]
+        chosen_by: PlayerSelector,
+    },
+    Draw {
+        who: PlayerSelector,
+        amount: Count,
+    },
+    Discard {
+        who: PlayerSelector,
+        what: FilterObject,
+    },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceCost {
+    cost: String,
+    what: ThisObject,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ThisObject {
+    #[serde(rename = "ref")]
+    reference: String,
+    noun: String,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PlayerSelector {
+    player: String,
+    selection_id: Option<String>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FilterObject {
+    #[serde(rename = "ref")]
+    reference: String,
+    filter: ObjectFilter,
+    count: Count,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
-enum Destination {
-    Owner(String),
-    Zone(ZoneDestination),
+enum ObjectFilter {
+    Types(Filter),
+    Class(CardFilter),
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CardFilter {
+    cls: String,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -425,6 +503,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             None
         },
         spell: None,
+        activated: vec![],
         capabilities: BTreeSet::new(),
         provenance: SourceProvenance {
             printing_id: source.id,
@@ -440,23 +519,22 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     };
     match kind {
         CardKind::Land | CardKind::Creature => {
-            if !abilities.is_empty() {
+            if kind == CardKind::Land && !abilities.is_empty() {
                 return Err(unsupported(
                     "abilities",
-                    "nonempty permanent abilities are not supported",
+                    "nonempty land abilities are not supported",
                 ));
             }
-            // Empty creature text and basic-land reminder-only text are reviewed
-            // through the pinned parser contract; no text is interpreted here.
-            if kind == CardKind::Creature && !source.oracle_text.is_empty() {
+            if kind == CardKind::Creature && abilities.is_empty() && !source.oracle_text.is_empty()
+            {
                 return Err(invalid(
                     "source.oracle_text",
                     "empty AST for nonempty creature behavior",
                 ));
             }
             if kind == CardKind::Creature {
-                // CR 302.1–2 and 608.3a: ordinary creature timing and permanent
-                // resolution apply even when the card has no printed abilities.
+                // CR 302.1–2 / 608.3a: casting a creature and activating one of
+                // its battlefield abilities are distinct executable programs.
                 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
                 definition.spell = Some(SpellProgram {
                     timing: SpellTiming::MainPhase,
@@ -465,6 +543,17 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     targets: vec![],
                     instructions: vec![],
                 });
+                for (block, ability) in abilities.iter().enumerate() {
+                    let Ability::Activated { costs, effects } = ability else {
+                        return Err(unsupported(
+                            "abilities.kind",
+                            "only supported complete activated creature abilities can lower",
+                        ));
+                    };
+                    definition
+                        .activated
+                        .push(lower_activation(costs, effects, block)?);
+                }
             }
         }
         CardKind::Instant | CardKind::Sorcery => {
@@ -472,8 +561,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                 return Err(invalid("source.oracle_text", "spell has no source text"));
             }
             let mut program = SpellProgram {
-                // CR 304.1 / 307.1 distinguish ordinary instant and sorcery
-                // casting timing; neither is inferred from a display name.
+                // CR 304.1 / 307.1: ordinary spell timing follows card type.
                 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
                 timing: if kind == CardKind::Instant {
                     SpellTiming::Instant
@@ -487,69 +575,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             };
             let mut slots = BTreeMap::new();
             for (block, ability) in abilities.iter().enumerate() {
-                if ability.kind != "spell" || ability.effects.is_empty() {
+                let Ability::Spell { effects } = ability else {
                     return Err(unsupported(
                         "abilities.kind",
-                        "only complete spell blocks are supported",
+                        "nonspell ability on instant/sorcery",
                     ));
-                }
-                for sentence in &ability.effects {
-                    if sentence.steps.is_empty() {
-                        return Err(invalid("effects.steps", "empty instruction group"));
-                    }
-                    for step in &sentence.steps {
-                        let target = &step.what;
-                        let hand = step.effect == "return-to-hand"
-                            && step.to == Destination::Owner("owner".into());
-                        let library = step.effect == "move-zone"
-                            && step.to
-                                == Destination::Zone(ZoneDestination {
-                                    zone: "library".into(),
-                                    owner: "its-owner".into(),
-                                    position: "top".into(),
-                                });
-                        if !(hand || library)
-                            || target.reference != "target"
-                            || target.filter.types != ["creature"]
-                            || target.count.amount != "fixed"
-                            || target.count.value != 1
-                            || target.selection_id.is_empty()
-                        {
-                            return Err(unsupported(
-                                "effects.steps",
-                                "unsupported operator, scope, cardinality, or unbound target occurrence",
-                            ));
-                        }
-                        let slot = if let Some(slot) = slots.get(&target.selection_id) {
-                            *slot
-                        } else {
-                            let slot = u32::try_from(program.targets.len())
-                                .map_err(|_| invalid("targets", "structural slot limit"))?;
-                            program.targets.push(TargetSpec {
-                                slot,
-                                selection_id: target.selection_id.clone(),
-                                chooser: Chooser::Controller,
-                                stage: EvaluationStage::Announcement,
-                                domain: TargetDomain::BattlefieldCreature,
-                            });
-                            slots.insert(target.selection_id.clone(), slot);
-                            slot
-                        };
-                        let source_block = u32::try_from(block)
-                            .map_err(|_| invalid("abilities", "structural block limit"))?;
-                        program.instructions.push(if hand {
-                            Instruction::ReturnToOwnerHand {
-                                target_slot: slot,
-                                source_block,
-                            }
-                        } else {
-                            Instruction::PutOnTopOwnerLibrary {
-                                target_slot: slot,
-                                source_block,
-                            }
-                        });
-                    }
-                }
+                };
+                append_spell_effects(&mut program, effects, block, &mut slots)?;
             }
             definition.spell = Some(program);
         }
@@ -559,6 +591,212 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         .validate()
         .map_err(|e| unsupported("definition", e))?;
     Ok(definition)
+}
+
+fn fixed_one(count: &Count) -> bool {
+    count.amount == "fixed" && count.value == 1
+}
+fn source_block(block: usize) -> Result<u32, Failure> {
+    u32::try_from(block).map_err(|_| invalid("abilities", "structural block limit"))
+}
+fn bind_target(
+    program: &mut SpellProgram,
+    slots: &mut BTreeMap<String, u32>,
+    id: &str,
+    domain: TargetDomain,
+) -> Result<u32, Failure> {
+    if id.is_empty() || program.targets.iter().any(|target| target.domain != domain) {
+        return Err(unsupported(
+            "targets",
+            "empty selection or mixed creature/player target domains",
+        ));
+    }
+    if let Some(slot) = slots.get(id) {
+        return Ok(*slot);
+    }
+    let slot = u32::try_from(program.targets.len())
+        .map_err(|_| invalid("targets", "structural slot limit"))?;
+    program.targets.push(TargetSpec {
+        slot,
+        selection_id: id.into(),
+        chooser: Chooser::Controller,
+        stage: EvaluationStage::Announcement,
+        domain,
+    });
+    slots.insert(id.into(), slot);
+    Ok(slot)
+}
+fn append_spell_effects(
+    program: &mut SpellProgram,
+    effects: &[Sentence],
+    block: usize,
+    slots: &mut BTreeMap<String, u32>,
+) -> Result<(), Failure> {
+    if effects.is_empty() {
+        return Err(unsupported("abilities.effects", "empty spell effects"));
+    }
+    let source_block = source_block(block)?;
+    for sentence in effects {
+        if sentence.steps.is_empty() {
+            return Err(invalid("effects.steps", "empty instruction group"));
+        }
+        for step in &sentence.steps {
+            let instruction = match step {
+                Step::ReturnToHand { what, to } if to == "owner" => {
+                    let target_slot = bind_creature_target(program, slots, what)?;
+                    Instruction::ReturnToOwnerHand {
+                        target_slot,
+                        source_block,
+                    }
+                }
+                Step::MoveZone { what, to }
+                    if to.zone == "library" && to.owner == "its-owner" && to.position == "top" =>
+                {
+                    let target_slot = bind_creature_target(program, slots, what)?;
+                    Instruction::PutOnTopOwnerLibrary {
+                        target_slot,
+                        source_block,
+                    }
+                }
+                Step::Sacrifice {
+                    who,
+                    what,
+                    chosen_by,
+                } if who.player == "target-opponent"
+                    && who == chosen_by
+                    && what.reference == "filter"
+                    && fixed_one(&what.count)
+                    && what.filter
+                        == ObjectFilter::Types(Filter {
+                            types: vec!["creature".into()],
+                        }) =>
+                {
+                    // CR 601.2c / 608.2d / 701.21: opponent target is bound at
+                    // announcement; that player selects a controlled creature
+                    // only when the sacrifice instruction resolves.
+                    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+                    let target_slot = bind_target(
+                        program,
+                        slots,
+                        who.selection_id.as_deref().unwrap_or(""),
+                        TargetDomain::OpponentPlayer,
+                    )?;
+                    Instruction::TargetPlayerSacrificeCreature {
+                        target_slot,
+                        source_block,
+                    }
+                }
+                _ => {
+                    return Err(unsupported(
+                        "effects.steps",
+                        "unsupported complete spell operator, destination, chooser or cardinality",
+                    ));
+                }
+            };
+            program.instructions.push(instruction);
+        }
+    }
+    Ok(())
+}
+fn bind_creature_target(
+    program: &mut SpellProgram,
+    slots: &mut BTreeMap<String, u32>,
+    target: &Target,
+) -> Result<u32, Failure> {
+    if target.reference != "target"
+        || target.filter.types != ["creature"]
+        || !fixed_one(&target.count)
+    {
+        return Err(unsupported(
+            "targets",
+            "unsupported creature target scope/cardinality",
+        ));
+    }
+    bind_target(
+        program,
+        slots,
+        &target.selection_id,
+        TargetDomain::BattlefieldCreature,
+    )
+}
+fn lower_activation(
+    costs: &[SourceCost],
+    effects: &[Sentence],
+    block: usize,
+) -> Result<ActivatedAbility, Failure> {
+    if costs
+        != [SourceCost {
+            cost: "sacrifice".into(),
+            what: ThisObject {
+                reference: "this".into(),
+                noun: "creature".into(),
+            },
+        }]
+    {
+        return Err(unsupported(
+            "abilities.costs",
+            "only exact source-creature sacrifice costs are supported",
+        ));
+    }
+    let source_block = source_block(block)?;
+    let mut instructions = vec![];
+    for sentence in effects {
+        if sentence.steps.is_empty() {
+            return Err(invalid(
+                "effects.steps",
+                "empty activated instruction group",
+            ));
+        }
+        for step in &sentence.steps {
+            let you = PlayerSelector {
+                player: "you".into(),
+                selection_id: None,
+            };
+            instructions.push(match step {
+                Step::Draw { who, amount } if *who == you && fixed_one(amount) => {
+                    Instruction::DrawCards {
+                        count: Quantity::from(1),
+                        source_block,
+                    }
+                }
+                Step::Discard { who, what }
+                    if *who == you
+                        && what.reference == "filter"
+                        && fixed_one(&what.count)
+                        && what.filter
+                            == ObjectFilter::Class(CardFilter { cls: "card".into() }) =>
+                {
+                    Instruction::DiscardCards {
+                        count: Quantity::from(1),
+                        source_block,
+                    }
+                }
+                _ => {
+                    return Err(unsupported(
+                        "effects.steps",
+                        "unsupported activated operator, controller or cardinality",
+                    ));
+                }
+            });
+        }
+    }
+    if instructions.is_empty() {
+        return Err(unsupported("abilities.effects", "empty activated effects"));
+    }
+    // CR 602.1–2 / 608.2c: the cost is paid while activating; the ordered
+    // program resolves on the stack independently of its sacrificed source.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    Ok(ActivatedAbility {
+        functioning_zone: FunctioningZone::Battlefield,
+        cost: ActivationCost::SacrificeSource,
+        program: SpellProgram {
+            timing: SpellTiming::Instant,
+            resolution: SpellResolution::Instructions,
+            functioning_zone: FunctioningZone::Stack,
+            targets: vec![],
+            instructions,
+        },
+    })
 }
 
 pub fn fixture_catalog() -> Result<Catalog, String> {
@@ -594,6 +832,16 @@ pub fn damage_fixture_catalog() -> Result<Catalog, String> {
         .copied()
         .collect::<Vec<_>>();
     catalog_from_records(&records, 3)
+}
+
+/// Exact complete-card action pool; prior pools still select their own definitions.
+pub fn action_fixture_catalog() -> Result<Catalog, String> {
+    let records = fixtures::ACTION_RECORDS
+        .iter()
+        .filter(|(name, _)| *name != "blood-artist")
+        .copied()
+        .collect::<Vec<_>>();
+    catalog_from_records(&records, 5)
 }
 
 fn catalog_from_records(records: &[(&str, &str)], schema_version: u32) -> Result<Catalog, String> {
@@ -713,11 +961,46 @@ mod tests {
         assert_eq!(Catalog::read(&canonical(&c).unwrap()).unwrap(), c);
     }
     #[test]
-    fn cross_player_choice_remains_unsupported() {
-        assert!(matches!(
-            compile(fixtures::MANIFEST, fixtures::RECORDS[5].1),
-            CompileResult::Unsupported { .. }
-        ));
+    fn opponent_sacrifice_lowers_as_resolution_choice_without_widening_prior_catalogs() {
+        let CompileResult::Lowered { definition } =
+            compile(fixtures::MANIFEST, fixtures::RECORDS[5].1)
+        else {
+            panic!("complete opponent sacrifice source must lower")
+        };
+        let program = definition.spell.as_ref().unwrap();
+        assert_eq!(definition.characteristics.kind, CardKind::Sorcery);
+        assert_eq!(program.timing, SpellTiming::MainPhase);
+        assert_eq!(
+            program.targets,
+            [TargetSpec {
+                slot: 0,
+                selection_id: "line:0:0".into(),
+                chooser: Chooser::Controller,
+                stage: EvaluationStage::Announcement,
+                domain: TargetDomain::OpponentPlayer
+            }]
+        );
+        assert_eq!(
+            program.instructions,
+            [Instruction::TargetPlayerSacrificeCreature {
+                target_slot: 0,
+                source_block: 0
+            }]
+        );
+        assert!(definition.activated.is_empty());
+        for catalog in [
+            fixture_catalog().unwrap(),
+            commander_fixture_catalog().unwrap(),
+            damage_fixture_catalog().unwrap(),
+            library_fixture_catalog().unwrap(),
+        ] {
+            assert!(
+                !catalog
+                    .definitions
+                    .iter()
+                    .any(|d| d.oracle_id == definition.oracle_id)
+            );
+        }
     }
     #[test]
     fn rejects_hash_version_unknown_field_and_incomplete_face() {
@@ -1090,6 +1373,281 @@ mod tests {
     }
 
     #[test]
+    fn action_pool_retains_printed_costs_and_complete_distinct_activation_program() {
+        let catalog = action_fixture_catalog().unwrap();
+        assert_eq!(catalog.schema_version, 5);
+        assert_eq!(catalog.definitions.len(), 11);
+        for prior in [
+            fixture_catalog().unwrap(),
+            commander_fixture_catalog().unwrap(),
+            damage_fixture_catalog().unwrap(),
+            library_fixture_catalog().unwrap(),
+        ] {
+            for definition in prior.definitions {
+                assert!(catalog.definitions.contains(&definition));
+            }
+        }
+        let researcher = catalog
+            .definitions
+            .iter()
+            .find(|d| d.name == "Hapless Researcher")
+            .unwrap();
+        assert_eq!(researcher.provenance.source_index, 5423);
+        assert_eq!(
+            researcher.characteristics.mana_cost,
+            ManaCost {
+                generic: Quantity::zero(),
+                colored: vec![Color::U]
+            }
+        );
+        assert_eq!(researcher.characteristics.power, Some(Quantity::from(1)));
+        assert_eq!(
+            researcher.characteristics.toughness,
+            Some(Quantity::from(1))
+        );
+        assert_eq!(
+            researcher.activated,
+            [ActivatedAbility {
+                functioning_zone: FunctioningZone::Battlefield,
+                cost: ActivationCost::SacrificeSource,
+                program: SpellProgram {
+                    timing: SpellTiming::Instant,
+                    resolution: SpellResolution::Instructions,
+                    functioning_zone: FunctioningZone::Stack,
+                    targets: vec![],
+                    instructions: vec![
+                        Instruction::DrawCards {
+                            count: Quantity::from(1),
+                            source_block: 0
+                        },
+                        Instruction::DiscardCards {
+                            count: Quantity::from(1),
+                            source_block: 0
+                        }
+                    ]
+                }
+            }]
+        );
+        let creature_spell = researcher.spell.as_ref().unwrap();
+        assert_eq!(creature_spell.resolution, SpellResolution::Permanent);
+        assert!(creature_spell.instructions.is_empty());
+        assert_eq!(
+            researcher.capabilities,
+            BTreeSet::from([
+                Capability::NormalLayoutV1,
+                Capability::BaseCreatureV1,
+                Capability::CastCreatureV1,
+                Capability::ActivatedAbilityV1,
+                Capability::SacrificeSourceCostV1,
+                Capability::ControllerDrawV1,
+                Capability::ControllerDiscardV1
+            ])
+        );
+        let edict = catalog
+            .definitions
+            .iter()
+            .find(|d| d.name == "Cruel Edict")
+            .unwrap();
+        assert_eq!(
+            edict.characteristics.mana_cost,
+            ManaCost {
+                generic: Quantity::from(1),
+                colored: vec![Color::B]
+            }
+        );
+        assert!(edict.capabilities.contains(&Capability::OpponentTargetV1));
+        assert!(!edict.capabilities.contains(&Capability::CreatureTargetV1));
+        let swamp = catalog
+            .definitions
+            .iter()
+            .find(|d| d.name == "Swamp")
+            .unwrap();
+        assert_eq!(swamp.characteristics.subtypes, ["Swamp"]);
+        assert_eq!(
+            basic_land_color(&swamp.characteristics.subtypes[0]),
+            Some(Color::B)
+        );
+        assert_eq!(swamp.provenance.source_index, 12962);
+        assert_eq!(
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/expected-action-ir.json"
+            ))
+            .unwrap(),
+            catalog
+        );
+        assert_eq!(
+            Catalog::read(&canonical(&catalog).unwrap()).unwrap(),
+            catalog
+        );
+        for (_, raw) in fixtures::ACTION_RECORDS {
+            let source: serde_json::Value = serde_json::from_str(raw).unwrap();
+            if source["source"]["name"] == "Blood Artist" {
+                assert!(matches!(
+                    compile(fixtures::MANIFEST, raw),
+                    CompileResult::Unsupported { .. }
+                ));
+            } else {
+                assert!(matches!(
+                    compile(fixtures::MANIFEST, raw),
+                    CompileResult::Lowered { .. }
+                ));
+            }
+        }
+        for capability in &researcher.capabilities {
+            let mut bad = researcher.clone();
+            bad.capabilities.remove(capability);
+            assert!(bad.validate().is_err());
+        }
+    }
+
+    #[test]
+    fn complete_action_lowering_rejects_wrong_costs_choosers_cardinality_and_extra_clauses() {
+        type Mutation = fn(&mut serde_json::Value);
+        let activation_mutations: Vec<Mutation> = vec![
+            |a| a["costs"][0]["cost"] = "tap".into(),
+            |a| a["costs"][0]["what"]["ref"] = "target".into(),
+            |a| a["costs"][0]["what"]["noun"] = "artifact".into(),
+            |a| a["costs"] = serde_json::json!([]),
+            |a| {
+                let cost = a["costs"][0].clone();
+                a["costs"].as_array_mut().unwrap().push(cost);
+            },
+            |a| a["effects"][0]["steps"][0]["who"]["player"] = "opponent".into(),
+            |a| a["effects"][0]["steps"][0]["amount"]["value"] = 2.into(),
+            |a| a["effects"][0]["steps"][0]["optional"] = true.into(),
+            |a| a["effects"][0]["steps"][1]["what"]["filter"]["cls"] = "creature".into(),
+            |a| a["effects"][0]["steps"][1]["what"]["count"]["value"] = 2.into(),
+            |a| a["effects"][0]["steps"][1]["who"]["selectionId"] = "line:0:0".into(),
+            |a| a["restrictions"] = serde_json::json!(["sorcery-speed"]),
+        ];
+        let edict_mutations: Vec<Mutation> = vec![
+            |a| a["effects"][0]["steps"][0]["chosenBy"]["player"] = "you".into(),
+            |a| {
+                a["effects"][0]["steps"][0]["chosenBy"]["selectionId"] = "different-opponent".into()
+            },
+            |a| a["effects"][0]["steps"][0]["who"]["player"] = "target-player".into(),
+            |a| a["effects"][0]["steps"][0]["what"]["count"]["value"] = 2.into(),
+            |a| {
+                a["effects"][0]["steps"][0]["what"]["filter"]["types"] =
+                    serde_json::json!(["artifact"])
+            },
+            |a| a["effects"][0]["steps"][0]["optional"] = true.into(),
+        ];
+        for (raw, mutations) in [
+            (fixtures::ACTION_RECORDS[9].1, activation_mutations),
+            (fixtures::RECORDS[5].1, edict_mutations),
+        ] {
+            for mutate in mutations {
+                let bad = changed_source(raw, |r| {
+                    let ability = &mut r["faces"][0]["result"]["abilities"][0];
+                    mutate(ability);
+                    let changed = ability.clone();
+                    r["faces"][0]["result"]["lines"][0]["ability"] = changed;
+                });
+                let result = compile(fixtures::MANIFEST, &bad);
+                assert!(
+                    matches!(result, CompileResult::Unsupported { .. }),
+                    "{result:?}"
+                );
+            }
+        }
+        let bad = changed_source(fixtures::ACTION_RECORDS[9].1, |r| {
+            r["source"]["oracle_text"] =
+                "Sacrifice this creature: Draw a card, then discard a card. You gain 1 life.".into()
+        });
+        assert!(matches!(
+            compile(fixtures::MANIFEST, &bad),
+            CompileResult::Invalid { .. }
+        ));
+        let renamed = changed_source(fixtures::ACTION_RECORDS[9].1, |r| {
+            r["source"]["name"] = "Renamed source-sacrifice looter".into();
+            r["faces"][0]["result"]["name"] = "Renamed source-sacrifice looter".into();
+        });
+        assert!(matches!(
+            compile(fixtures::MANIFEST, &renamed),
+            CompileResult::Lowered { .. }
+        ));
+    }
+
+    #[test]
+    fn action_ir_version_shapes_and_target_domains_are_strict() {
+        let catalog = action_fixture_catalog().unwrap();
+        for version in [3, 4, 6] {
+            let mut bad = catalog.clone();
+            bad.schema_version = version;
+            assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
+        }
+        let researcher = catalog
+            .definitions
+            .iter()
+            .find(|d| !d.activated.is_empty())
+            .unwrap();
+        for mutate in [
+            (|d: &mut Definition| d.activated[0].functioning_zone = FunctioningZone::Stack)
+                as fn(&mut Definition),
+            |d| d.activated[0].program.functioning_zone = FunctioningZone::Battlefield,
+            |d| d.activated[0].program.timing = SpellTiming::MainPhase,
+            |d| {
+                d.activated[0].program.instructions = vec![Instruction::DrawCards {
+                    count: Quantity::from(2),
+                    source_block: 0,
+                }]
+            },
+            |d| {
+                d.activated[0].program.targets = vec![TargetSpec {
+                    slot: 0,
+                    selection_id: "unexpected".into(),
+                    chooser: Chooser::Controller,
+                    stage: EvaluationStage::Announcement,
+                    domain: TargetDomain::BattlefieldCreature,
+                }]
+            },
+            |d| {
+                d.activated[0].program.instructions = vec![Instruction::ReturnToOwnerHand {
+                    target_slot: 0,
+                    source_block: 0,
+                }]
+            },
+        ] {
+            let mut bad = researcher.clone();
+            mutate(&mut bad);
+            bad.capabilities = bad.requirements();
+            assert!(bad.validate().is_err());
+        }
+        let mut mixed = catalog
+            .definitions
+            .iter()
+            .find(|d| d.name == "Cruel Edict")
+            .unwrap()
+            .clone();
+        let p = mixed.spell.as_mut().unwrap();
+        p.targets.push(TargetSpec {
+            slot: 1,
+            selection_id: "creature-slot".into(),
+            chooser: Chooser::Controller,
+            stage: EvaluationStage::Announcement,
+            domain: TargetDomain::BattlefieldCreature,
+        });
+        p.instructions.push(Instruction::ReturnToOwnerHand {
+            target_slot: 1,
+            source_block: 0,
+        });
+        mixed.capabilities = mixed.requirements();
+        assert!(mixed.validate().is_err());
+        let raw = canonical(&catalog).unwrap();
+        for bad in [
+            raw.replace("\"cost\":\"sacrifice_source\"", "\"cost\":\"tap_source\""),
+            raw.replace("\"count\":\"1\"", "\"count\":\"01\""),
+            raw.replace(
+                "\"op\":\"draw_cards\"",
+                "\"optional\":true,\"op\":\"draw_cards\"",
+            ),
+        ] {
+            assert!(Catalog::read(&bad).is_err());
+        }
+    }
+
+    #[test]
     fn complete_library_lowering_rejects_other_positions_owners_and_abilities() {
         type Mutation = fn(&mut serde_json::Value);
         let mutations: Vec<Mutation> = vec![
@@ -1138,7 +1696,7 @@ mod tests {
         assert!(old.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":4", "\"schema_version\":5"),
+            raw.replace("\"schema_version\":4", "\"schema_version\":6"),
             raw.replace(
                 "\"op\":\"put_on_top_owner_library\"",
                 "\"op\":\"put_on_bottom_owner_library\"",
@@ -1289,7 +1847,7 @@ mod tests {
             ));
         }
         assert!(matches!(
-            compile(fixtures::MANIFEST, fixtures::RECORDS[5].1),
+            compile(fixtures::MANIFEST, fixtures::ACTION_RECORDS[11].1),
             CompileResult::Unsupported { .. }
         ));
     }
