@@ -33,6 +33,11 @@ the rules behind it.
 
 Mana colours (`--mana-*`) are used only inside mana symbols and the pip chart.
 
+Deck lifecycle labels use green for Paper, blue for Theorycrafted, and amber
+for Legacy through the `--lifecycle-*` aliases. Sidebar labels and All decks
+pills share these colors; sidebar labels appear only for Theorycrafted and
+Legacy decks.
+
 ## Tokens
 
 All in `src/design/tokens.css`: surfaces, text, the five meanings (each with

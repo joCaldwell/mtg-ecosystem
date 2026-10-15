@@ -50,6 +50,14 @@
   --sel-bg: rgba(106, 163, 255, 0.14);
   --sel-line: rgba(106, 163, 255, 0.45);
 
+  /* Deck lifecycle uses the same palette in sidebar labels and roster pills. */
+  --lifecycle-paper: var(--add);
+  --lifecycle-paper-bg: var(--add-bg);
+  --lifecycle-theorycrafted: var(--sel);
+  --lifecycle-theorycrafted-bg: var(--sel-bg);
+  --lifecycle-legacy: var(--warn);
+  --lifecycle-legacy-bg: var(--warn-bg);
+
   /* Mana. Black is a dark disc with a pale ring so it cannot be mistaken for
      the grey generic pip. */
   --mana-w: #efe6c2;

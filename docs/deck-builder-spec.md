@@ -270,6 +270,10 @@ decks. New decks and forks default to Theorycrafted. Schema 9 preserves
 existing categories and removes the Draft/Active column; it does not infer a
 lifecycle from the former flag. The internal field remains `category`.
 
+The sidebar labels Theorycrafted decks in blue and Legacy decks in amber;
+Paper decks have no extra sidebar label. All decks lifecycle pills use the
+same colors, with green for Paper.
+
 Only Paper decks contribute to All decks statistics and `player_stats`.
 Changing lifecycle immediately updates statistics. Fork-family ancestry is
 preserved through Theorycrafted and Legacy ancestors, whose cards and totals

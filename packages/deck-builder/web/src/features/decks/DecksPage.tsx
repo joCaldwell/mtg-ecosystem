@@ -61,7 +61,7 @@ export function DecksPage() {
       header={
         <PageHeader
           title="All decks"
-          subtitle="Drafts are open to agents. Active decks change only through your rulings."
+          subtitle="Theorycrafted cards are open to agents. Paper cards need your approval. Legacy decks are read-only."
           actions={
             <Button onClick={() => setCreating(true)} aria-haspopup="dialog">
               New deck
@@ -116,7 +116,11 @@ export function DecksPage() {
                         <td>
                           <ColorIdentity colors={deck.color_identity} />
                         </td>
-                        <td><Chip>{DECK_CATEGORY_LABELS[deck.category]}</Chip></td>
+                        <td>
+                          <Chip className={styles.lifecycle} data-lifecycle={deck.category}>
+                            {DECK_CATEGORY_LABELS[deck.category]}
+                          </Chip>
+                        </td>
                         <td>
                           <Text mono tone={deck.card_count === 100 ? "muted" : "warn"}>
                             {deck.card_count}/100

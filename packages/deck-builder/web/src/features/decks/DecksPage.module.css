@@ -14,6 +14,24 @@
   text-align: right;
 }
 
+.lifecycle[data-lifecycle="paper"] {
+  color: var(--lifecycle-paper);
+  background: var(--lifecycle-paper-bg);
+  border-color: transparent;
+}
+
+.lifecycle[data-lifecycle="theorycrafted"] {
+  color: var(--lifecycle-theorycrafted);
+  background: var(--lifecycle-theorycrafted-bg);
+  border-color: transparent;
+}
+
+.lifecycle[data-lifecycle="legacy"] {
+  color: var(--lifecycle-legacy);
+  background: var(--lifecycle-legacy-bg);
+  border-color: transparent;
+}
+
 /* Wide enough for eight columns, not so wide the eye loses the row. */
 .body {
   display: grid;

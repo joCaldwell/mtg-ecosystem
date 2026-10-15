@@ -4,6 +4,7 @@
 
 import { api, type DeckSummary } from "../api/client.ts";
 import { useQuery } from "../api/useQuery.ts";
+import { DECK_CATEGORY_LABELS } from "../domain/deckCategory.ts";
 import { ago } from "../domain/time.ts";
 import { Badge, Dot, Eyebrow, Icon } from "../ui/index.ts";
 import { useFocus } from "./Focus.tsx";
@@ -80,7 +81,11 @@ export function Sidebar({ route }: { route: Route }) {
             >
               <Dot tone={pending ? "agent" : "neutral"} />
               <span className={styles.name}>{deck.name}</span>
-              {deck.category === "legacy" && <span className={styles.draft}>legacy</span>}
+              {deck.category !== "paper" && (
+                <span className={styles.lifecycle} data-lifecycle={deck.category} title={DECK_CATEGORY_LABELS[deck.category]}>
+                  {deck.category === "theorycrafted" ? "Theory" : DECK_CATEGORY_LABELS[deck.category]}
+                </span>
+              )}
             </a>
           );
         })}
