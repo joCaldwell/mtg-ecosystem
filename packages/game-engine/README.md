@@ -119,9 +119,9 @@ hashes and copies its complete bytes without creating a single Node JSON string.
 unimplemented bulk pipeline.
 
 The test profile is optimized at level 2 with debug assertions and overflow checks
-enabled. Bundle v15 records the effective optimization/check settings for its build
-identity and offline rebuild, all nine exact source catalogs, and all 450 trace-mode
-runs. Snapshots are v14, player projections v12 and query sidecars v11.
+enabled. Bundle v17 records the effective optimization/check settings for its build
+identity and offline rebuild, all ten exact source catalogs, and all 540 trace-mode
+runs. Snapshots are v16, player projections/context v14 and query sidecars v13.
 `SnapshotVerifier` verifies ordered checkpoint sequences using
 one independent forward replay while applying the complete standalone restore
 checks at every boundary. Histories share immutable chunks across native forks;
@@ -176,6 +176,14 @@ checks 41 policies across temporary characteristics, cleanup, finite prevention,
 affected-recipient ordering and applied damage prefixes. Final damage remains
 simultaneous, and distinct Furnace identities apply once per original occurrence.
 Together all nine catalogs cover 36 exact configurations, 450 trace-mode executions
-and 15,100 recovery boundaries, plus legacy checkpoints. Modal/multiple-target
-casting and intervening-if conditions are the next bounded P3/P4 work. These profiles remain
-closed rules scenarios.
+and 15,100 recovery boundaries, plus legacy checkpoints.
+
+The [choices slice](../../docs/game-engine-choices.md) adds six exact profiles
+with complete Healing Salve modes, three Seeds of Strength target occurrences
+and Slaughterhouse Bouncer intervening conditions. `compile-choices` emits
+33 definitions from 39 source records in IR v10; `choices-games --recover`
+checks 30 player-facing policies and 2,527 new recovery boundaries, including
+complete three-point prevention allocations. Together all ten catalogs cover
+42 exact configurations, 540 trace-mode executions and 17,627 recovery boundaries,
+plus legacy checkpoints. These remain closed scenarios. The next gate is legal
+deck/pod admission, shuffle/mulligan setup and complete-game release evidence.
