@@ -1,15 +1,16 @@
 // Rules-defined actions that change an object's or the game's status:
 // manifest / cloak / manifest dread, turning face up or down, detain,
-// suspect, flip, day/night, and exerting as an attack cost. Each is a closed
+// suspect, prepare, flip, day/night, and exerting as an attack cost. Each is a closed
 // keyword action with typed parameters, never a raw-text escape.
 // CR 701.35 (detain), 701.40 (manifest), 701.43 (exert), 701.58 (cloak),
 // 701.60 (suspect), 701.62 (manifest dread), 708 (face-down), 710 (flip),
-// 731 (day and night):
+// 722 (preparation cards), 731 (day and night):
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 import type { Ability, Amount, Effect, FaceDownCharacteristics, ObjectRef, PlayerRef, Sentence, StaticEffect } from "../ast.ts";
 import { CARD_TYPES, canonicalSubtypeName, singularize } from "../vocab.ts";
 import type { Cursor } from "./cursor.ts";
 import { parseAmount, parseEqualTo, parseObjectRef, parseZoneRef } from "./refs.ts";
+import { parseBecomeStatusAction } from "./become-status.ts";
 
 export interface StatusActionDeps {
   /** Shared actor grammar: bare imperative = you; a conjugated verb keeps its
@@ -122,6 +123,16 @@ function parseUnsuspectAction(c: Cursor): Effect | null {
   });
 }
 
+/** "[X] becomes prepared / unprepared" (CR 722.3a-b). */
+function parsePrepareAction(c: Cursor): Effect | null {
+  return c.attempt((c): Effect | null => {
+    const what = parseObjectRef(c);
+    if (!what || c.word("becomes", "become") === null) return null;
+    const to = c.word("prepared", "unprepared");
+    return to ? { effect: to === "prepared" ? "prepare" : "unprepare", what } : null;
+  });
+}
+
 function parseDetainAction(c: Cursor): Effect | null {
   return c.attempt((c): Effect | null => {
     if (c.word("detain") === null) return null;
@@ -149,9 +160,23 @@ function parseFlipAction(c: Cursor): Effect | null {
   });
 }
 
+// CR 701.24a: "shuffle that pile" randomizes the face-down pile just exiled.
+function parseShufflePile(c: Cursor, deps: StatusActionDeps): Effect | null {
+  return c.attempt((c): Effect | null => {
+    const who = deps.actor(c, "shuffle", "shuffles");
+    if (!who || !c.words("that", "pile")) return null;
+    // Only the "..., then manifest/cloak those cards" continuation is
+    // represented; "shuffle that pile and put it back ..." is not.
+    const afterShuffle = c.pos;
+    const then = c.punct(",") && c.words("then");
+    c.pos = afterShuffle;
+    return then ? { effect: "shuffle-pile", who } : null;
+  });
+}
+
 export function parseStatusAction(c: Cursor, deps: StatusActionDeps): Effect[] | null {
   const effect = parseManifestAction(c, deps) ?? parseTurnFaceAction(c, deps) ?? parseSuspectAction(c) ??
-    parseUnsuspectAction(c) ?? parseDetainAction(c) ?? parseDayNightAction(c) ?? parseFlipAction(c);
+    parseUnsuspectAction(c) ?? parsePrepareAction(c) ?? parseBecomeStatusAction(c) ?? parseDetainAction(c) ?? parseDayNightAction(c) ?? parseFlipAction(c) ?? parseShufflePile(c, deps);
   return effect ? [effect] : null;
 }
 
@@ -283,5 +308,20 @@ export function parseAsTurnedFaceUp(c: Cursor, parseBody: (c: Cursor) => Sentenc
     if (!c.words("is", "turned", "face", "up") || !c.punct(",")) return null;
     const effects = parseBody(c);
     return effects && c.done() ? { static: "as-turned-face-up", what, effects, ...(alsoEnters ? { alsoEnters: true as const } : {}) } : null;
+  });
+}
+
+/** "As this creature transforms into ~, …" (CR 701.27e): `~` is the face
+ * that carries the text, as in the matching trigger event. */
+export function parseAsTransforms(c: Cursor, parseBody: (c: Cursor) => Sentence[] | null): StaticEffect | null {
+  return c.attempt((c): StaticEffect | null => {
+    if (c.word("as") === null) return null;
+    const what = parseObjectRef(c);
+    if (!what || (what.ref !== "self" && what.ref !== "this")) return null;
+    if (c.word("transforms") === null || c.word("into") === null || c.peek()?.kind !== "selfref") return null;
+    c.pos++;
+    if (!c.punct(",")) return null;
+    const effects = parseBody(c);
+    return effects && c.done() ? { static: "as-transforms", what, into: { face: "source-face" }, effects } : null;
   });
 }

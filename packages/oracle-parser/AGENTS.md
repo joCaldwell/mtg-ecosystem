@@ -57,7 +57,8 @@ From the repo root:
 *   `npm run ingest` — cache Scryfall bulk data to `.scryfall-cache/`.
 *   `npm run validate` — acceptance scoreboard for the cached corpus. Reports
     corpus/source hashes, Git revision, a versioned scope and exclusions,
-    card/block acceptance, and failure-location groups with complete examples.
+    card/block acceptance (also for the Commander-legal subset, the current
+    coverage target), and failure-location groups with complete examples.
     `npm run validate -- --json` includes per-card AST hashes for comparison.
     Empty text is valid; missing face text fails. The historical 33% cards /
     53% lines baseline used a different denominator and is not a target.

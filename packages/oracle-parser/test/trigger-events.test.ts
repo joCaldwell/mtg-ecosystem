@@ -91,8 +91,9 @@ describe("player action events", () => {
       trigger: "taps-for-mana", what: { ref: "this", noun: "land" }, who: you,
     });
     assert.deepEqual(trigger("Whenever a land is tapped for mana"), { trigger: "taps-for-mana", what: a({ types: ["land"] }) });
-    unsupported("Whenever you tap a land");
-    unsupported("Whenever you tap a land for {C}");
+    // "Whenever you tap a land" (no "for mana") is the separate `taps` event (trigger-combat-and-origins.test.ts).
+    // Tapping for a specified type of mana (CR 106.12a) is the same event with that type.
+    assert.deepEqual(trigger("Whenever you tap a land for {C}"), { trigger: "taps-for-mana", what: a({ types: ["land"] }), who: you, producing: "C" });
   });
 
   it("accepts an identified or collective sacrificed object", () => {
@@ -111,7 +112,10 @@ describe("player action events", () => {
       trigger: "player-dealt-damage", who: { player: "an-opponent" }, combat: false,
     });
     unsupported("Whenever an opponent is dealt damage by a red spell");
-    unsupported("Whenever you're dealt 3 or more damage");
+    // Now represented: the amount threshold (trigger-players-and-damage.test.ts covers the single-source form).
+    assert.deepEqual(trigger("Whenever you're dealt 3 or more damage"), {
+      trigger: "player-dealt-damage", who: you, amount: { op: "ge", value: { amount: "fixed", value: 3 } },
+    });
   });
 });
 
@@ -142,7 +146,7 @@ describe("object event qualifiers", () => {
     assert.deepEqual(trigger("Whenever a creature you control is put into the command zone"), {
       trigger: "put-into-zone", what: a({ types: ["creature"], control: "you" }), to: { zone: "command" },
     });
-    unsupported("When this land enters tapped");
+    assert.deepEqual(trigger("When this land enters tapped"), { trigger: "enters", what: { ref: "this", noun: "land" }, tapped: true });
     unsupported("When this creature leaves your graveyard without dying");
     unsupported("When ~ is put into exile from anywhere other than the battlefield");
     unsupported("When ~ is put on top of your library");
@@ -303,7 +307,10 @@ describe("spell and ability descriptions used by cast and activate triggers", ()
     unsupported("Whenever you cast a spell with {X} in its text");
     unsupported("Whenever you cast a kicked");
     unsupported("Whenever you activate a flying ability");
-    unsupported("Whenever you cast a spell that has an Adventure");
+    // The Adventure test is the filter field `adventure`.
+    assert.deepEqual(trigger("Whenever you cast a spell that has an Adventure"), {
+      trigger: "cast", who: { player: "you" }, what: { cls: "spell", adventure: true },
+    });
     // The relative "that has" keyword test is limited to spell descriptions.
     assert.equal(parseOracleText("Put a time counter on each of those cards that has suspend.", "Fixture", { typeLine: "Sorcery" }).ok, false);
   });

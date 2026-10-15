@@ -19,7 +19,21 @@ export function parseTurnLinkedTrigger(c: Cursor): Trigger | null {
     if (c.word("that") !== null) turn = { turn: "that", scope: "contextual" };
     else if (c.words("the", "next")) turn = { turn: "next" };
     else if (c.words("your", "next")) turn = { turn: "next", whose: { player: "you" } };
-    else return null;
+    else if (!c.pregame) return null;
+    else {
+      // Pregame delayed abilities (CR 103.6b): "the first upkeep" is the upkeep
+      // of the game's first turn, "your first upkeep" that of your first turn.
+      const first = c.attempt((c): Trigger | null => {
+        const whose = c.words("the", "first") ? undefined : c.words("your", "first") ? { player: "you" as const } : null;
+        if (whose === null) return null;
+        const firstTurn: TurnRef = whose ? { turn: "first", whose } : { turn: "first" };
+        if (c.word("upkeep") !== null) return { trigger: "phase-in-turn", phase: "upkeep", turn: firstTurn };
+        // CR 505.1a: the first main phase of a turn is the precombat one.
+        return whose && c.words("main", "phase", "of", "the", "game")
+          ? { trigger: "phase-in-turn", phase: "precombat-main", turn: firstTurn } : null;
+      });
+      return first;
+    }
     if (c.possessive("turn") === null) return null;
     const phase = c.word("upkeep") !== null ? "upkeep"
       : c.words("end", "step") ? "end-step"
@@ -134,8 +148,9 @@ function parseAdditionalPhase(c: Cursor, g: Grammar): ExtraPhases["sequence"][nu
   return c.attempt(c => {
     const count = g.amount(c);
     if (!count || count.amount === "fixed" && count.value < 0 || c.word("additional") === null) return null;
-    const kind = c.word("main", "combat");
-    if ((kind !== "main" && kind !== "combat") || c.word("phase", "phases") === null) return null;
+    // CR 501.1: an added beginning phase has untap, upkeep and draw steps.
+    const kind = c.word("beginning", "main", "combat");
+    if ((kind !== "beginning" && kind !== "main" && kind !== "combat") || c.word("phase", "phases") === null) return null;
     return { phase: kind, count };
   });
 }

@@ -1,10 +1,41 @@
-# Oracle parser checkpoint — 2026-10-10
+# Oracle parser checkpoints
+
+## 2026-10-15 — 92% of Commander-legal cards
+
+Coverage work resumed on 2026-10-11. The target was later set to 92% of the
+in-scope cards that are legal in Commander (Scryfall `legalities.commander ===
+"legal"`); cards that are not legal in Commander were left out of the target.
+The target is met. As before, acceptance is not semantic correctness.
+
+| Measure | Result |
+| --- | --- |
+| Commander-legal cards accepted | 29,634 / 32,115 (92.27%) |
+| All in-scope cards accepted | 30,347 / 33,590 (90.35%) |
+| Accepted ability blocks | 56,905 / 60,600 (93.90%) |
+| Package checks | Typecheck and 2,828 tests passed; none skipped |
+| Reference analysis | 5,298 cards fully bound; 61,889 of 153,354 obligations unresolved |
+| Change from the 2026-10-11 assessment on this corpus | 22,656 → 30,347 cards; 2 deliberately rejected (Boss Uramon, Glorious Dragon-Kin: a leading modifier whose reach over the second noun is not stated) |
+
+Every new accepted line shape was reviewed independently against its card
+text, and a deleted-word probe checked that no meaning-bearing word was
+consumed without being represented. Defects found were fixed or the cards were
+made to fail; conventions kept after review are documented on the AST nodes.
+
+| Input | SHA-256 |
+| --- | --- |
+| Parser and reporting sources | `fc3b4ec3b8b3ea27e8363225266379c0aebefdf1d5bc243e6e0d141084462c21` |
+| Oracle corpus (203,323,272 bytes) | `f8cb9da28e34b01dbd72504f059e012bda62db7d332acd2e3b43e75570e92738` |
+| Paper-printing evidence (8,216,961 bytes) | `d3a68c4ae14b1349a9d7b9972a19ca8176db06133020b690eb7348d0d972c699` |
+
+`npm run validate` reports the Commander-legal line alongside the full scope.
+
+## 2026-10-10 — checkpoint 11
 
 Work stopped at the user's request after checkpoint 11. The original goal of
 98% complete, correct card support is **not achieved**. Further grammar work
 has not started beyond this checkpoint.
 
-## Verified result
+### Verified result
 
 | Measure | Result |
 | --- | --- |
@@ -23,7 +54,7 @@ corpus, 37,522 of 103,064 binding obligations remain unresolved. Even complete
 binding is not a substitute for engine validation.
 `npm run build-ir` intentionally fails until executable IR can be validated.
 
-## What this work preserves
+### What this work preserves
 
 The parser now represents substantially more costs, keywords, choices, triggers,
 conditions, filters, replacement effects, permissions, characteristic changes,
@@ -51,7 +82,7 @@ printing as proof that the Oracle identity is digital-only. This correction
 added 1,067 identities and removed none; the denominator was not reduced to
 improve coverage. Earlier v1 percentages are not directly comparable.
 
-## Reproduce and resume
+### Reproduce and resume
 
 Use Node 26 and the frozen local inputs; do not refresh ingestion between
 comparisons. From the repository root:

@@ -24,7 +24,7 @@ describe("lex", () => {
     const tokens = lex("its owner's hand can't");
     assert.deepEqual(tokens, [
       { kind: "word", value: "its", raw: "its", possessive: false },
-      { kind: "word", value: "owner", raw: "owner", possessive: true },
+      { kind: "word", value: "owner", raw: "owner", possessive: true, possessiveSuffix: "'s" },
       { kind: "word", value: "hand", raw: "hand", possessive: false },
       { kind: "word", value: "can't", raw: "can't", possessive: false },
     ]);
@@ -33,7 +33,7 @@ describe("lex", () => {
   it("handles plural possessives (owners')", () => {
     assert.deepEqual(lex("their owners' hands"), [
       { kind: "word", value: "their", raw: "their", possessive: false },
-      { kind: "word", value: "owners", raw: "owners", possessive: true },
+      { kind: "word", value: "owners", raw: "owners", possessive: true, possessiveSuffix: "'" },
       { kind: "word", value: "hands", raw: "hands", possessive: false },
     ]);
   });

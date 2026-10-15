@@ -6,6 +6,7 @@ import type { Amount, Color, Effect, GainedAbility, ObjectRef, ResolvingCharacte
 import { CARD_TYPES, COLORS, SUPERTYPES, canonicalSubtypeName, singularize } from '../vocab.ts';
 import { Cursor } from './cursor.ts';
 import { characteristicSubtypeFamily, parseCharacteristicModifiers, parseStaticBasePt } from './characteristics.ts';
+import { parseValueChoice } from './choices.ts';
 import { parseAmount, parseDuration, parseEqualTo, parseObjectRef, parsePossessiveObject } from './refs.ts';
 
 type AbilityParser = (c: Cursor) => GainedAbility[] | null;
@@ -43,6 +44,30 @@ function retainedTypes(c: Cursor, plural: boolean): boolean {
   });
 }
 
+/** "…becomes an X/X Elemental creature until end of turn, where X is ….
+ * It's still a land.": the retention sentence follows the binding clause of
+ * the instruction it completes. It turns that instruction's type setting
+ * into an addition exactly as the adjacent form does (CR 205.1b). */
+export function foldRetainedTypeSentence(c: Cursor, previous: { steps: Effect[]; bindings?: unknown }): boolean {
+  const effect = previous.steps.at(-1);
+  if (previous.steps.length !== 1 || !previous.bindings || effect?.effect !== 'modify-characteristics' || effect.statedAs) return false;
+  const types = effect.modifiers.find(modifier => modifier.modifier === 'types');
+  if (!types || types.modifier !== 'types') return false;
+  const start = c.pos;
+  const plural = pluralSubject(effect.what);
+  const stated = (plural ? c.word("they're") !== null || c.words('they', 'are') : c.word("it's") !== null || c.words('it', 'is'))
+    && c.word('still') !== null;
+  c.word('a', 'an');
+  const noun = stated ? c.anyWord() : null;
+  if (!noun || !(CARD_TYPES.has(singularize(noun.value)) || SUPERTYPES.has(noun.value) || canonicalSubtypeName(noun.raw))
+    || !(c.punct('.') || c.done())) { c.pos = start; return false; }
+  const change = types.change;
+  if (change.cardTypes?.operation === 'set') change.cardTypes = { ...change.cardTypes, operation: 'add' };
+  if (change.subtypes) change.subtypes = change.subtypes.map(entry => entry.operation === 'set' ? { ...entry, operation: 'add' as const } : entry);
+  if (change.chosenSubtype?.operation === 'set') change.chosenSubtype = { ...change.chosenSubtype, operation: 'add' };
+  return true;
+}
+
 /** The preceding complete sentence of this same body instructs choosing a
  * subtype, so "that type" has exactly one antecedent (CR 205.3e, 608.2c).
  * A lexical proof only: the choice sentence must itself still parse. */
@@ -57,8 +82,10 @@ function precedingTypeChoice(c: Cursor): 'creature' | 'land' | null {
   let start = end - 1;
   while (start >= 0 && !punct(start, '.', ':', '—', ',')) start--;
   const sentence = new Cursor(c.tokens.slice(start + 1, end));
-  if (!sentence.words('choose', 'a')) return null;
-  const kind = sentence.words('creature', 'type') ? 'creature' : sentence.words('basic', 'land', 'type') ? 'land' : null;
+  if (sentence.word('choose') === null) return null;
+  // Includes an excluded value: "choose a creature type other than Wall".
+  const choice = parseValueChoice(sentence);
+  const kind = choice?.category === 'creature-type' ? 'creature' : choice?.category === 'basic-land-type' ? 'land' : null;
   return kind && sentence.done() ? kind : null;
 }
 
@@ -149,8 +176,16 @@ function parseBasePtChange(c: Cursor, previous: ObjectRef | undefined): Modify |
   };
   return c.attempt((c): Modify | null => {
     const changed = c.attempt((c): Modify | null => {
-      const what = parsePossessiveObject(c);
-      const stat = what && stats(c);
+      // "the base power and toughness of <object> become": the same change
+      // as "<object>'s base power and toughness become".
+      const ofForm = c.attempt((c): { what: ObjectRef; stat: 'both' | 'power' | 'toughness' } | null => {
+        if (c.word('the') === null) return null;
+        const stat = stats(c);
+        const what = stat && c.word('of') !== null ? parseObjectRef(c) : null;
+        return stat && what ? { what, stat } : null;
+      });
+      const what = ofForm?.what ?? parsePossessiveObject(c);
+      const stat = ofForm?.stat ?? (what && stats(c));
       if (!what || !stat || c.word('becomes', 'become') === null) return null;
       if (stat !== 'both') {
         const modifier = single(c, stat);
@@ -168,6 +203,10 @@ function parseBasePtChange(c: Cursor, previous: ObjectRef | undefined): Modify |
         if (!power || !c.punct('/')) return null;
         const toughness = parseAmount(c);
         return toughness && scoped({ power, toughness });
+      }) ?? c.attempt((c): BasePt | null => {
+        // "become equal to ~'s power": one value for both.
+        const value = parseEqualTo(c);
+        return value && scoped({ power: value, toughness: structuredClone(value) });
       });
       return pair && finish(what, pair);
     });
@@ -193,7 +232,7 @@ function parseBasePtChange(c: Cursor, previous: ObjectRef | undefined): Modify |
  * "becomes", but applies simultaneously with that object's entry when this
  * resolution also puts it onto the battlefield. The subject is explicit;
  * a pronoun may carry the verb ("it's", "they're"). */
-function parseStatedCharacteristics(c: Cursor, parseAbilities: AbilityParser): Extract<Effect, { effect: 'modify-characteristics' }> | null {
+function parseStatedCharacteristics(c: Cursor, parseAbilities: AbilityParser, previous?: ObjectRef): Extract<Effect, { effect: 'modify-characteristics' }> | null {
   return c.attempt(c => {
     // After "return it ... at the beginning of the next end step." the stated
     // characteristic belongs to that delayed return (Grave Betrayal), not to
@@ -202,9 +241,16 @@ function parseStatedCharacteristics(c: Cursor, parseAbilities: AbilityParser): E
       const token = c.tokens[i];
       if (token.kind === 'punct' && token.value === '.') break;
       const word = (index: number, value: string) => { const t = c.tokens[index]; return t.kind === 'word' && t.value === value; };
-      if (word(i, 'beginning') && word(i - 1, 'the') && word(i - 2, 'at')) return c.fail('stated characteristic outside a delayed instruction');
+      // A line-initial "At the beginning of your upkeep," is this triggered
+      // ability's own trigger, not a delayed instruction.
+      const ownTrigger = i === 2 && !(word(i + 1, 'of') && word(i + 2, 'the') && word(i + 3, 'next'));
+      if (word(i, 'beginning') && word(i - 1, 'the') && word(i - 2, 'at') && !ownTrigger) return c.fail('stated characteristic outside a delayed instruction');
     }
-    const what: ObjectRef | null = c.isWord("it's") ? { ref: 'it' } : c.isWord("they're") ? { ref: 'them' } : parseObjectRef(c);
+    // "It has flying and is an Angel …": a coordinated verb shares the
+    // subject of the preceding step.
+    const before = c.tokens[c.pos - 1];
+    const coordinated = previous && before?.kind === 'word' && before.value === 'and' && c.isWord('is', 'are') ? previous : null;
+    const what: ObjectRef | null = coordinated ?? (c.isWord("it's") ? { ref: 'it' } : c.isWord("they're") ? { ref: 'them' } : parseObjectRef(c));
     if (!what) return null;
     const stated = parseCharacteristicModifiers(c, what, parseAbilities);
     if (!stated) return null;
@@ -239,7 +285,7 @@ function parseStatedCharacteristics(c: Cursor, parseAbilities: AbilityParser): E
  * keep their existing AST; no grammar text is rewritten to obtain a parse. */
 export function parseResolvingCharacteristics(c: Cursor, previous: ObjectRef | undefined,
   parseAbilities: AbilityParser): Extract<Effect, { effect: 'modify-characteristics' }> | null {
-  const stated = parseStatedCharacteristics(c, parseAbilities) ?? parseBasePtChange(c, previous);
+  const stated = parseStatedCharacteristics(c, parseAbilities, previous) ?? parseBasePtChange(c, previous);
   if (stated) return stated;
   return c.attempt(c => {
     const what = parseObjectRef(c) ?? previous;

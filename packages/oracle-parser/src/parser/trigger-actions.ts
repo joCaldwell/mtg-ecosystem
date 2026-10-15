@@ -5,6 +5,7 @@
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 import type { Condition, ObjectFilter, ObjectRef, PlayerRef, Trigger } from "../ast.ts";
 import { Cursor } from "./cursor.ts";
+import { parseDamageAmount } from "./trigger-events.ts";
 import { parseCondition, parseFilter, parseObjectRef, parsePlayerRef } from "./refs.ts";
 
 function hasTarget(value: unknown): boolean {
@@ -52,6 +53,13 @@ export function parsePlayerActionEvent(c: Cursor, who: PlayerRef): Trigger | nul
       const amount = c.number();
       return amount !== null && Number.isSafeInteger(amount) && amount >= 1 ? { trigger: "expends", who, amount } : null;
     }
+    if (c.word("fully") !== null) {
+      if (c.word("unlock", "unlocks") === null || c.word("a") === null) return null;
+      const room = parseFilter(c);
+      // CR 709.5i: only a permanent with a shared type line (a Room) can be fully unlocked.
+      return room && room.subtypes?.length === 1 && room.subtypes[0] === "Room" && Object.keys(room).length === 1
+        ? { trigger: "fully-unlocks", who, what: room } : null;
+    }
     if (c.word("unlock", "unlocks") !== null)
       return c.words("this", "door") ? { trigger: "unlocks-door", who, door: "this" } : null;
     if (c.word("crank", "cranks") !== null) {
@@ -76,6 +84,8 @@ export function parsePlayerActionEvent(c: Cursor, who: PlayerRef): Trigger | nul
       const sacrificed = parseEventObject(c);
       // The single indefinite form keeps its established production.
       if (!sacrificed || (!sacrificed.grouping && !("ref" in sacrificed.what))) return null;
+      // "sacrifice ~ or another creature" is the keyword-event production's alternative.
+      if ("ref" in sacrificed.what && c.isWord("or")) return null;
       return { trigger: "sacrifices", who, what: sacrificed.what, ...(sacrificed.grouping ? { grouping: sacrificed.grouping } : {}) };
     }
     if (c.word("tap", "taps") !== null) {
@@ -87,26 +97,47 @@ export function parsePlayerActionEvent(c: Cursor, who: PlayerRef): Trigger | nul
         return filter && { ref: "filter", filter, count: { amount: "fixed", value: 1 } };
       });
       // Tapping a permanent by other means is a different event (CR 106.12).
-      return tapped && c.words("for", "mana") ? { trigger: "taps-for-mana", what: tapped, who } : null;
+      if (!tapped) return null;
+      if (c.words("for", "mana")) return { trigger: "taps-for-mana", what: tapped, who };
+      // "tap a land for {C}": tapped for mana that includes that type (CR 106.12a).
+      const producing = c.attempt(c => c.word("for") !== null ? c.symbol() : null);
+      return producing && /^[WUBRGC]$/.test(producing)
+        ? { trigger: "taps-for-mana", what: tapped, who, producing: producing as "W" | "U" | "B" | "R" | "G" | "C" } : null;
     }
     return null;
   });
 }
 
-/** "you're dealt damage", "an opponent is dealt noncombat damage". A stated
- * source or amount is a further restriction and is left to fail. */
+/** "you're dealt damage", "an opponent is dealt noncombat damage", "an
+ * opponent is dealt 3 or more damage by a single source", "one or more
+ * opponents are dealt combat damage". A further stated source is a
+ * restriction and is left to fail. */
 export function parsePlayerDamagedEvent(c: Cursor): Trigger | null {
   return c.attempt((c): Trigger | null => {
     let who: PlayerRef | null = null;
+    let grouping: "one-or-more" | undefined;
     if (c.word("you're") !== null) who = { player: "you" };
     else {
-      who = parsePlayerRef(c);
-      if (!who || c.word("is") === null) return null;
+      // CR 603.2c: all the opponents dealt damage by one event are one occurrence.
+      const collective = c.attempt((c): PlayerRef | null => {
+        const one = c.words("one", "or", "more");
+        const opponents = c.words("of", "your", "opponents") || (!one && c.words("your", "opponents")) || c.words("opponents");
+        return opponents && c.word("are") !== null ? { player: "each-opponent" } : null;
+      });
+      if (collective) { who = collective; grouping = "one-or-more"; }
+      else {
+        who = parsePlayerRef(c);
+        if (!who || c.word("is") === null) return null;
+      }
     }
     if (c.word("dealt") === null) return null;
     const kind = c.word("combat", "noncombat");
+    const amount = kind ? null : parseDamageAmount(c);
     if (c.word("damage") === null) return null;
-    return { trigger: "player-dealt-damage", who, ...(kind ? { combat: kind === "combat" } : {}) };
+    const single = amount && c.attempt(c => c.words("by", "a", "single", "source") ? true : null);
+    if (grouping && (amount || single)) return null;
+    return { trigger: "player-dealt-damage", who, ...(kind ? { combat: kind === "combat" } : {}),
+      ...(amount ? { amount } : {}), ...(single ? { singleSource: true as const } : {}), ...(grouping ? { grouping } : {}) };
   });
 }
 

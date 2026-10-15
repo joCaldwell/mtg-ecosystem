@@ -13,9 +13,10 @@ type Exception = { changes?: CopyCharacteristicChange[]; entryExceptions?: Entry
 
 function self(ref: ObjectRef | null): boolean { return ref?.ref === 'self' || ref?.ref === 'this'; }
 
-function parseCharacteristics(c: Cursor): CopyCharacteristicChange[] | null {
+function parseCharacteristics(c: Cursor, stack = false): CopyCharacteristicChange[] | null {
   return c.attempt(c => {
-    if (!c.words("it's") && !c.words('it', 'is') && c.word('is') === null) return null;
+    // On a spell the subject is always stated as "the copy"; a bare "it" would not say which spell.
+    if (stack ? !c.words('the', 'copy', 'is') : !c.words("it's") && !c.words('it', 'is') && c.word('is') === null) return null;
     c.word('a', 'an');
     const changes: CopyCharacteristicChange[] = [];
     const stats = c.attempt(c => {
@@ -84,12 +85,20 @@ function parseCharacteristics(c: Cursor): CopyCharacteristicChange[] | null {
   });
 }
 
-function parseException(c: Cursor, abilities: Abilities): Exception | null {
+function parseException(c: Cursor, abilities: Abilities, stack = false): Exception | null {
   return c.attempt(c => {
-    if (c.words('it', "isn't", 'legendary') || c.words("it's", 'not', 'legendary'))
+    if (stack ? c.words('the', 'copy', "isn't", 'legendary') : c.words('it', "isn't", 'legendary') || c.words("it's", 'not', 'legendary'))
       return { changes: [{ change: 'types', types: { supertypes: { operation: 'remove', types: ['legendary'] } } }] };
+    if (stack) {
+      const characteristics = parseCharacteristics(c, true);
+      return characteristics ? { changes: characteristics } : null;
+    }
+    // After normalization the printed name of this ability's card is "~".
+    if (c.attempt(c => (c.word('its') !== null || c.selfrefPossessive()) && c.words('name', 'is') && c.selfref() ? true : null))
+      return { changes: [{ change: 'name', name: 'source-printed-name' }] };
     const gained = c.attempt(c => {
       if (!c.words('it', 'has') && c.word('has') === null) return null;
+      if (c.words('this', 'ability')) return [{ gained: 'this-ability' as const }];
       const parsed = abilities(c);
       return parsed && !hasFreshProtectionChoice(parsed) ? parsed : null;
     });
@@ -104,8 +113,50 @@ function parseException(c: Cursor, abilities: Abilities): Exception | null {
       return { exception: 'counters' as const, count, counter, ...(additional ? { additional: true as const } : {}) };
     });
     if (counters) return { entryExceptions: [counters] };
-    const changes = parseCharacteristics(c);
+    const changes = parseCharacteristics(c, stack);
     return changes ? { changes } : null;
+  });
+}
+
+/** ", except <exception> [[,] and <exception>]…" after a resolving "becomes a
+ * copy of" clause (CR 707.9a–d). Entry-only exceptions (counters the object
+ * enters with) do not apply to an object already on the battlefield. */
+export function parseBecomeCopyExceptions(c: Cursor, abilities: Abilities): CopyCharacteristicChange[] | null {
+  return c.attempt(c => {
+    if (!c.punct(',') || c.word('except') === null) return null;
+    const changes: CopyCharacteristicChange[] = [];
+    for (;;) {
+      const exception = parseException(c, abilities);
+      if (!exception?.changes || exception.entryExceptions) return null;
+      changes.push(...exception.changes);
+      const connector = c.pos;
+      if (c.punct(',')) c.word('and');
+      else if (c.word('and') === null) break;
+      // Another exception continues the clause; anything else ends it.
+      if (!c.isWord('it', "it's", 'has', 'is')) { c.pos = connector; break; }
+    }
+    return changes;
+  });
+}
+
+/** ", except the copy isn't legendary" after "copy it" (CR 707.9a–d, 707.10):
+ * the same characteristic exceptions as a copy effect's "it", worded about "the
+ * copy". An ability the copy gains is not accepted, and the clause must end
+ * the sentence. */
+export function parseStackCopyExceptions(c: Cursor): CopyCharacteristicChange[] | null {
+  return c.attempt(c => {
+    if (!c.punct(',') || c.word('except') === null) return null;
+    const changes: CopyCharacteristicChange[] = [];
+    for (;;) {
+      const exception = parseException(c, () => null, true);
+      if (!exception?.changes) return null;
+      changes.push(...exception.changes);
+      const connector = c.pos;
+      if (c.punct(',')) c.word('and');
+      else if (c.word('and') === null) break;
+      if (!c.isWord('the')) { c.pos = connector; break; }
+    }
+    return c.done() || c.isPunct('.') ? changes : null;
   });
 }
 

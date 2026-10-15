@@ -70,9 +70,13 @@ describe("aggregate values retain the measured set and characteristic", () => {
     assert.equal(parseAggregateCount(c, { parseObjectRef }, { singular: true }), null);
     assert.equal(c.pos, 0);
     for (const text of ["Draw a card for each color among permanents you control for each card type among cards in your graveyard.",
-      "For each color among permanents you control, add one mana of that color.",
       "Target creature gains flying for each basic land type among lands you control."])
       assert.equal(parseOracleText(text).ok, false, text);
+    // Now a complete production: one mana of each color among them (CR 106.5).
+    const eachColor = parseOracleText("For each color among permanents you control, add one mana of that color.");
+    assert.ok(eachColor.ok);
+    assert.deepEqual(JSON.parse(JSON.stringify(eachColor.abilities)), [{ kind: "spell", effects: [{ steps: [{ effect: "add-mana", who: { player: "you" },
+      mana: { mana: "each-color-among", among: { ref: "each", filter: { cls: "permanent", control: "you" } } } }] }] }]);
   });
 });
 

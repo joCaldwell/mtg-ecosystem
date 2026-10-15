@@ -35,7 +35,7 @@ function powerToughness(text: string | undefined): LevelBand['basePT'] | null {
 
 function isPermanentAbility(ability: Ability): boolean {
   if (ability.kind === 'spell' || ability.kind === 'additional-cost' || ability.kind === 'chapter') return false;
-  if (ability.kind === 'max-speed') return isPermanentAbility(ability.ability);
+  if (ability.kind === 'max-speed' || ability.kind === 'infinity') return isPermanentAbility(ability.ability);
   return true;
 }
 

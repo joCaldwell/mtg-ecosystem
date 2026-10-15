@@ -8,7 +8,7 @@ import type { Ability, Sentence } from "../ast.ts";
 import type { Token } from "../lexer.ts";
 import { Cursor } from "./cursor.ts";
 import { isKeywordName } from "./keywords.ts";
-import { parseSelfReplacement } from "./self-replacement.ts";
+import { parseSelfReplacement, withSelfReplacement } from "./self-replacement.ts";
 
 type BodyParser = (c: Cursor) => Sentence[] | null;
 
@@ -40,5 +40,5 @@ export function mergeReplacementParagraph(first: Ability, paragraph: Token[], pa
   const replacement = parseSelfReplacement(c, first.effects[0], parseBody);
   if (!replacement || replacement.effect !== "self-replacement" || !c.done()) return null;
   if (split.abilityWord) replacement.abilityWord = split.abilityWord;
-  return { ...first, effects: [{ ...first.effects[0], steps: [replacement] }] };
+  return { ...first, effects: [withSelfReplacement(first.effects[0], replacement)] };
 }

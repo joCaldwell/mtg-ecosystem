@@ -133,6 +133,8 @@ AST; no compatibility adapters are provided.
 | Main-phase ordinal | `second-main` is ordinal two in the current turn; `postcombat-main` includes every main phase after the first |
 | Damage prevention | Cumulative budgets versus recurring/next-event prevention; source/recipient event grouping; shared versus individual shields; incoming versus actually prevented damage |
 | Prevention variables | Resolving effects snapshot X when created; static prevention evaluates X when it applies to an event |
+| Continuation after a conditional sentence | `afterConditional: "scope-unresolved"` on a sentence that refers back to what the preceding conditional sentence acted on; the parser does not decide whether the condition governs it |
+| Bare "them" as a damage recipient | `to: "them"`: unresolved between a player and a set of objects, like `{ recipient: "they" }` |
 
 Filter fields and ordinary array entries are conjunctive; only `anyOf` is
 disjunctive. `allOf` combines nested clauses. The existing `orPlayer` field

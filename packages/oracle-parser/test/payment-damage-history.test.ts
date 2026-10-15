@@ -95,11 +95,14 @@ describe("actual damage history", () => {
 
   it("rejects unrepresented periods, collective totals, and event-result scopes", () => {
     for (const clause of [
-      "it was dealt damage", "it was dealt damage since your last turn", "it was dealt excess damage this turn",
+      "it was dealt damage", "it was dealt damage since your last turn",
       "each opponent was dealt 7 or more damage this turn", "all opponents were dealt combat damage this turn",
       "you were dealt damage by two or more creatures this turn",
       "red sources you controlled dealt 4 or more damage this turn", "it deals damage to you this way",
     ]) assert.equal(parseOracleText(`If ${clause}, draw a card.`).ok, false, clause);
+    // Excess damage (CR 120.10) is now represented on the history itself.
+    assert.deepEqual(condition("it was dealt excess damage this turn"), { condition: "damage-history", comparison: comparison("gt", 0),
+      quantity: "positive-event", excess: true, to: itself, during: "this-turn" });
   });
 });
 
@@ -292,12 +295,19 @@ describe("attack groups and implied battlefield departures", () => {
     assert.deepEqual(abilities("Whenever a card is put into a graveyard from anywhere, draw a card."), withDraw({
       trigger: "put-into-graveyard", what: card, from: "anywhere", to: { zone: "graveyard", owner: "any" },
     }));
+    // The total power of the declared attackers is a property of the declaration.
+    assert.deepEqual(abilities("Whenever you attack with creatures with total power 6 or greater, draw a card."), withDraw({
+      trigger: "player-attacks", who: you, per: "declaration", with: { types: ["creature"] }, totalPower: { op: "ge", value: fixed(6) },
+    }));
+    // Each attacked player or planeswalker is its own occurrence (Rigo, Streetwise Mentor).
+    assert.deepEqual(abilities("Whenever you attack a player or planeswalker, draw a card."), withDraw({
+      trigger: "player-attacks", who: you, per: "declaration", whom: { player: "a-player" },
+      whomPermanents: { ref: "filter", filter: { types: ["planeswalker"] }, count: fixed(1) },
+    }));
     for (const text of [
       "Whenever a card is put into a graveyard, draw a card.",
       "Whenever a creature card is put into a graveyard, draw a card.",
       "Whenever you attack with two creatures and a planeswalker, draw a card.",
-      "Whenever you attack with creatures with total power 6 or greater, draw a card.",
-      "Whenever you attack a player or planeswalker, draw a card.",
     ]) assert.equal(parseOracleText(text).ok, false, text);
   });
 });

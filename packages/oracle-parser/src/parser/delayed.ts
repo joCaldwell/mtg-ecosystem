@@ -4,12 +4,14 @@
 // the associated action that happened earlier in the same resolution.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 
-import type { Duration, Effect, Sentence, Trigger } from "../ast.ts";
+import type { Duration, Effect, ObjectRef, Sentence, Trigger } from "../ast.ts";
+import { isCardCopyCast } from "./card-copy.ts";
 import { Cursor } from "./cursor.ts";
 import type { EffectContext } from "./effects.ts";
 import { parseTrigger, parseTriggerLimit } from "./triggers.ts";
 import { parseActivationRules } from "./restrictions.ts";
-import { parseCondition } from "./refs.ts";
+import { parseComparison, parseCondition, parseFilter, parseObjectRef, parsePlayerRef } from "./refs.ts";
+import { parseReflexiveOutcome } from "./event-outcomes.ts";
 import { parseTurnLinkedTrigger } from "./temporal.ts";
 import { isCopyRetargetContinuation, prepareStackCopyInput, type StackCopyInputProof } from "./stack-copy.ts";
 
@@ -21,18 +23,31 @@ type BodyParser = (c: Cursor, ctx: EffectContext) => Sentence[] | null;
  * happens immediately, not after the chosen creature dies (CR 603.7a).
  * These productions also cover Teach by Example, Spinal Embrace, The Last
  * Ronin, Consuming Rage, and Waltz of Rage, checked in the Oracle corpus. */
-function hasSupportedContinuations(sentences: Sentence[]): boolean {
+function hasSupportedContinuations(sentences: Sentence[], reflexive = false): boolean {
   for (let i = 1; i < sentences.length; i++) {
     const previous = sentences[i - 1];
     const next = sentences[i];
     if (next.condition?.condition === "you-do" || next.condition?.condition === "you-dont") continue;
+    if (reflexive && continuesReflexiveBody(previous, next)) continue;
+    // "..., then exile … and copy them. You may cast the copies": the cast
+    // refers to the copies the sentence's final step made.
+    if (!next.condition && !next.otherwise && !previous.otherwise && previous.steps.length > 1 && next.steps.length === 1
+      && isCardCopyCast(previous.steps[previous.steps.length - 1], next.steps[0])) continue;
     if (next.condition || next.otherwise || previous.otherwise || previous.steps.length !== 1 || next.steps.length !== 1) return false;
     const before = previous.steps[0];
     const after = next.steps[0];
     if (isCopyRetargetContinuation(before, after)) continue;
+    if (isCardCopyCast(before, after)) continue;
     if (before.effect === "exile" && after.effect === "grant-play-permission") {
       const what = after.permission.what;
       if (what.ref === "it" || (what.ref === "that" && what.filter.cls === "card")) continue;
+    }
+    // "You may cast X. If that spell would be put into a graveyard, exile it
+    // instead.": the replacement watches the spell the cast instruction makes.
+    if (before.effect === "play-card" && before.instruction.action === "cast" && after.effect === "create-replacement"
+      && after.replacement.event.event === "move-zone") {
+      const what = after.replacement.event.what;
+      if (what.ref === "that" && !what.plural && what.filter.cls === "spell" && Object.keys(what.filter).length === 1) continue;
     }
     if (before.effect === "put-counters" && before.on.ref === "it"
       && after.effect === "gain-abilities" && "ref" in after.what && after.what.ref === "it") continue;
@@ -50,6 +65,32 @@ function hasSupportedContinuations(sentences: Sentence[]): boolean {
   return true;
 }
 
+function hasNode(value: unknown, test: (node: Record<string, unknown>) => boolean): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) return value.some(item => hasNode(item, test));
+  const node = value as Record<string, unknown>;
+  return test(node) || Object.values(node).some(item => hasNode(item, test));
+}
+
+/** CR 603.12: a reflexive ability's targets are chosen, and its tokens and
+ * choices made, only after the enclosing ability has finished resolving. A
+ * plain following sentence that names one of them by pronoun or "that …"
+ * can therefore only continue the reflexive ability (Inti, Seneschal of the
+ * Sun: "… put a +1/+1 counter on target attacking creature. It gains trample
+ * until end of turn."). A sentence with a fresh target or a condition, or one
+ * after a body sentence that introduced nothing, proves no such dependency. */
+function continuesReflexiveBody(previous: Sentence, next: Sentence): boolean {
+  if (next.condition || next.otherwise || next.bindings || previous.otherwise) return false;
+  // "When you do, if …, A. B.": the leading "if" is the reflexive ability's
+  // intervening condition (603.4) and would govern B too; a sentence
+  // condition on A alone cannot say that.
+  if (previous.condition) return false;
+  const introduces = hasTarget(previous.steps) ||
+    hasNode(previous.steps, node => node.effect === "create-token" || node.effect === "choose-object");
+  const anaphor = hasNode(next.steps, node => node.ref === "it" || node.ref === "them" || node.ref === "that");
+  return introduces && anaphor && !hasTarget(next.steps);
+}
+
 function hasTarget(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
   if (Array.isArray(value)) return value.some(hasTarget);
@@ -58,12 +99,12 @@ function hasTarget(value: unknown): boolean {
   return Object.values(node).some(hasTarget);
 }
 
-function parseBodyBeforeActivationRules(c: Cursor, ctx: EffectContext, parseBody: BodyParser, stackCopyInput?: StackCopyInputProof): Sentence[] | null {
+function parseBodyBeforeActivationRules(c: Cursor, ctx: EffectContext, parseBody: BodyParser, stackCopyInput?: StackCopyInputProof, reflexive = false): Sentence[] | null {
   // An enclosing proof is never inherited: a delayed header may establish a
   // fresh local occurrence, while a reflexive body has no such event input.
   const effects = parseBody(c, { modalOptions: ctx.modalOptions, stackCopyInput });
   if (!effects) return null;
-  if (!hasSupportedContinuations(effects)) return c.fail("explicit dependency between delayed-body sentences");
+  if (!hasSupportedContinuations(effects, reflexive)) return c.fail("explicit dependency between delayed-body sentences");
   if (c.done()) return effects;
   const tailStart = c.pos;
   const rules = parseActivationRules(c) ?? parseTriggerLimit(c);
@@ -96,7 +137,8 @@ function parseDelayedTrigger(c: Cursor): DelayedHeader | null {
     let nextIndex = -1;
     if (word(0, "at") && word(1, "the") && word(2, "beginning") && word(3, "of")) {
       if (word(4, "next")) nextIndex = 4;
-      else if ((word(4, "the") || word(4, "your")) && word(5, "next")) nextIndex = 5;
+      // "their next upkeep": that player's (symbolic "they") next one.
+      else if ((word(4, "the") || word(4, "your") || word(4, "their")) && word(5, "next")) nextIndex = 5;
     }
     if (word(0, "when") || word(0, "whenever")) {
       // Explicit "next" qualifies the represented event, never the object's
@@ -140,10 +182,39 @@ export function parseDelayedPrefix(c: Cursor, ctx: EffectContext, parseBody: Bod
       : c.words("when", "you", "don't") ? false : null;
     if (reflexive !== null) {
       if (!c.punct(",")) return null;
-      const effects = parseBodyBeforeActivationRules(c, ctx, parseBody);
+      const effects = parseBodyBeforeActivationRules(c, ctx, parseBody, undefined, true);
       if (!effects) return null;
       return [{ effect: "create-reflexive-trigger",
         event: { event: "preceding-action", who: { player: "you" }, performed: reflexive }, effects }];
+    }
+
+    // CR 603.12: the repeated payment of the preceding instruction was made.
+    if (c.words("when", "you", "pay", "this", "cost", "one", "or", "more", "times")) {
+      if (!c.punct(",")) return null;
+      const effects = parseBodyBeforeActivationRules(c, ctx, parseBody, undefined, true);
+      return effects && [{ effect: "create-reflexive-trigger", event: { event: "repeated-payment", who: { player: "you" } }, effects }];
+    }
+
+    const outcome = c.attempt(c => c.word("when") !== null
+      ? parseReflexiveOutcome(c, { parseComparison, parseFilter, parseObjectRef, parsePlayerRef }) : null);
+    if (outcome) {
+      if (!c.punct(",")) return null;
+      const effects = parseBodyBeforeActivationRules(c, ctx, parseBody);
+      return effects && [{ effect: "create-reflexive-trigger", event: { event: "event-result", ...outcome }, effects }];
+    }
+
+    const connived = c.attempt((c): { event: "connived" | "regenerated"; what: ObjectRef } | null => {
+      if (c.word("when") === null) return null;
+      const what = parseObjectRef(c);
+      const single = what && (what.ref === "it" || what.ref === "this" || what.ref === "self" || (what.ref === "that" && !what.plural));
+      // CR 701.19a, 603.12: the regeneration shield this ability created is applied.
+      const verb = single && c.word("connives", "regenerates");
+      return verb && c.words("this", "way") ? { event: verb === "connives" ? "connived" : "regenerated", what } : null;
+    });
+    if (connived) {
+      if (!c.punct(",")) return null;
+      const effects = parseBodyBeforeActivationRules(c, ctx, parseBody);
+      return effects && [{ effect: "create-reflexive-trigger", event: connived, effects }];
     }
 
     const header = parseDelayedTrigger(c);
@@ -170,14 +241,19 @@ export function parseDelayedPrefix(c: Cursor, ctx: EffectContext, parseBody: Bod
 
 /** A line beginning with When/Whenever may itself be a spell instruction
  * creating a bounded delayed ability (e.g. Ondu Rising). An explicitly
- * stated lifetime or a specified turn/phase occurrence permits this fallback;
- * malformed ordinary trigger clauses cannot silently become spell effects. */
+ * stated lifetime, a specified turn/phase occurrence, or an explicit "next"
+ * (Pact of Negation: one trigger at the next such upkeep, CR 603.7b) permits
+ * this fallback; malformed ordinary trigger clauses cannot silently become
+ * spell effects. */
 export function parseDelayedSpellPrefix(c: Cursor, ctx: EffectContext, parseBody: BodyParser): Effect[] | null {
   return c.attempt(c => {
     const effects = parseDelayedPrefix(c, ctx, parseBody);
     if (!effects || effects.length !== 1 || effects[0].effect !== "create-delayed-trigger") return null;
     const effect = effects[0];
-    if (!effect.duration && effect.trigger.trigger !== "phase-in-turn" && effect.trigger.trigger !== "phase-instance") return null;
+    // A bare "next turn" header stays unsupported: turn-scoped occurrences
+    // use the explicit TurnRef forms of parseTurnLinkedTrigger.
+    const explicitNext = effect.nextOnly && !(effect.trigger.trigger === "phase" && effect.trigger.phase === "turn");
+    if (!effect.duration && !explicitNext && effect.trigger.trigger !== "phase-in-turn" && effect.trigger.trigger !== "phase-instance") return null;
     return effects;
   });
 }
@@ -198,7 +274,22 @@ export function parseDelayedSuffix(c: Cursor, effects: Effect[]): Effect[] | nul
       return c.fail("unqualified delayed trigger");
     if (!c.done() && !c.isPunct(".")) return c.fail("end of delayed instruction");
     const following = c.peek(1);
-    if (c.isPunct(".") && following?.kind === "word" && ["if", "when", "then", "otherwise"].includes(following.value))
+    // "If X would …, … instead." is a replacement effect of its own (CR
+    // 614.1a); it cannot be a condition or continuation of this instruction.
+    const clause = c.tokens.slice(c.pos + 2);
+    const comma = clause.findIndex(token => token.kind === "punct" && (token.value === "," || token.value === "."));
+    const prospective = following?.kind === "word" && following.value === "if"
+      && clause.slice(0, comma < 0 ? 0 : comma).some(token => token.kind === "word" && !token.possessive && token.value === "would");
+    // "Flip a coin at the beginning of the next end step. If you lose the
+    // flip, ...": the flip is made when the delayed ability resolves, so its
+    // outcome clauses belong to that flip (CR 705.2, 603.7); the sentence
+    // parser folds them into the delayed body.
+    const startsWith = (...words: string[]): boolean =>
+      words.every((word, k) => clause[k]?.kind === "word" && clause[k].value === word);
+    const flipOutcome = effects.at(-1)?.effect === "flip-coin" && (startsWith("you", "win", "the", "flip")
+      || startsWith("you", "lose", "the", "flip") || startsWith("it", "comes", "up"));
+    if (c.isPunct(".") && following?.kind === "word" && ["if", "when", "then", "otherwise"].includes(following.value) && !prospective
+        && !(following.value === "if" && flipOutcome))
       return c.fail("unambiguous delayed instruction scope");
     return [{ effect: "create-delayed-trigger", ...header,
       ...(hasTarget(header.trigger) ? { triggerTargets: "enclosing-ability" as const } : {}),

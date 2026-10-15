@@ -3,7 +3,7 @@
 // in the same instruction sequence, so every reference is validated by
 // `voteReferencesResolved` (called from parseSentences).
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-import type { Amount, Condition, Effect, ObjectFilter, ObjectRef, PlayerRef, Sentence, VoteChoices } from "../ast.ts";
+import type { Amount, Condition, Effect, ObjectFilter, ObjectRef, PlayerFilter, PlayerRef, Sentence, VoteChoices } from "../ast.ts";
 import type { Token } from "../lexer.ts";
 import { Cursor } from "./cursor.ts";
 import { parseFilter, parsePlayerRef } from "./refs.ts";
@@ -67,6 +67,19 @@ export function parseVoteStep(c: Cursor): Effect[] | null {
     if (!choices) return null;
     if (secret && !(c.punct(",") && c.words("then", "those", "votes", "are", "revealed"))) return null;
     return [{ effect: "vote", ...(starting ? { starting } : {}), ...(secret ? { secret: true as const } : {}), choices }];
+  });
+}
+
+/** "who voted for a choice you voted for / you didn't vote for": the voting
+ * records of two players in the vote that just finished (CR 701.38a). The
+ * reference player must be a single known player. */
+export function parseVotedForQualifier(c: Cursor, g: { parsePlayerRef: (c: Cursor) => PlayerRef | null }): PlayerFilter | null {
+  return c.attempt((c): PlayerFilter | null => {
+    if (!c.words("who", "voted", "for", "a", "choice")) return null;
+    const as = g.parsePlayerRef(c);
+    if (!as || as.player !== "you") return null;
+    if (c.words("voted", "for")) return { votedFor: { as, same: true } };
+    return c.words("didn't", "vote", "for") ? { votedFor: { as, same: false } } : null;
   });
 }
 

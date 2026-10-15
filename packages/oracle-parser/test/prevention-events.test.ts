@@ -169,7 +169,6 @@ describe("prospective damage prevention", () => {
       "If a source would deal damage to creatures you control, prevent 1 of that damage.",
       "If damage would be dealt to one or more creatures you control, prevent that damage and put a +1/+1 counter on it.",
       "If damage would be dealt to one or more players, prevent that damage and that player draws a card.",
-      "If damage would be dealt to this creature, prevent that damage. When damage is prevented this way, this creature deals that much damage to any other target.",
       "If a creature would deal damage to a creature, prevent that damage and put a +1/+1 counter on it.",
       "If damage would be dealt to this creature, prevent that damage and create a 1/1 white Soldier creature token, then put a +1/+1 counter on it.",
       "If damage would be dealt to this creature, prevent that damage and remove a +1/+1 counter from it, then create that many 1/1 white Soldier creature tokens.",
@@ -181,6 +180,13 @@ describe("prospective damage prevention", () => {
       assert.equal(parsePreventionSentence(c, { modalOptions: [] }, parseSentences), null, text);
       assert.equal(c.pos, 0, text);
     }
+    // The triggered ability each prevention creates is
+    // now represented (CR 615.5, 603.12; formerly asserted to fail).
+    assert.deepEqual(one("If damage would be dealt to this creature, prevent that damage. When damage is prevented this way, this creature deals that much damage to any other target."),
+      staticAbility({ shield: { shield: "events", occurrence: "each", prevent: { prevent: "all" } }, kind: "all", eventScope: scope("simultaneous", "each"),
+        to: [{ ref: "this", noun: "creature" }], after: [{ steps: [{ effect: "create-reflexive-trigger", event: { event: "damage-prevented" }, effects: [{ steps: [{
+          effect: "damage", source: { ref: "this", noun: "creature" }, amount: { amount: "prevention-event-quantity", quantity: "prevented" },
+          to: { to: "object", ref: { ref: "any-target", other: true } } }] }] }] }] }));
   });
   it("does not certify future event references or source choice scopes as bound", () => {
     const name = "Prevention fixture";

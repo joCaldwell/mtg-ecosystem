@@ -65,13 +65,23 @@ describe("conditional battlefield entry replacements", () => {
   it("rejects incomplete or unrepresented entry clauses without leaking cursor state", () => {
     for (const text of ["This land enters tapped unless.",
       "This land enters tapped unless you control a Plains or an Island and a Swamp.",
-      "This land enters tapped unless you revealed a Dragon card this way.",
-      "This creature enters tapped and with three +1/+1 counters on it."]) {
+      "This land enters tapped unless you revealed a Dragon card this way."]) {
       const c = new Cursor(lex(text));
       assert.equal(parseStatic(c), null, text);
       assert.equal(c.pos, 0, text);
       assert.equal(parseOracleText(text).ok, false, text);
     }
+    // "tapped and with" is the same entry group as "tapped with"
+    // (Noble's Purse, Sphere of the Suns; CR 614.1c-d, 614.12).
+    const what = { ref: "this", noun: "creature" };
+    const group = { static: "group", effects: [{ static: "enters-tapped", what },
+      { static: "enters-with-counters", what, counter: { type: "+1/+1" }, count: { amount: "fixed", value: 3 } }] };
+    assert.deepEqual(one("This creature enters tapped and with three +1/+1 counters on it."), group);
+    assert.deepEqual(one("This creature enters tapped with three +1/+1 counters on it."), group);
+    // A dangling conjunction, or one that hides a third clause, still fails.
+    for (const text of ["This creature enters tapped and.", "This creature enters tapped and with flying.",
+      "This creature enters tapped and with three +1/+1 counters on it and doesn't untap during your untap step."])
+      assert.equal(parseOracleText(text, undefined, { typeLine: "Creature — Elf" }).ok, false, text);
   });
 });
 

@@ -2,7 +2,7 @@
 // "two targets", "any other target", "the other", a floating distributive
 // "each" after a plural subject. CR 115.1/3/4, 601.2c, 608.2c.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-import type { Amount, ObjectFilter, ObjectRef } from "../ast.ts";
+import type { Amount, DamageTarget, Effect, ObjectFilter, ObjectRef } from "../ast.ts";
 import { wordNumber } from "../vocab.ts";
 import type { Cursor } from "./cursor.ts";
 import { validSelectionCount } from "./selection-constraints.ts";
@@ -108,5 +108,53 @@ export function parseTheOther(c: Cursor): Extract<ObjectRef, { ref: "rest" }> | 
     if (next?.kind === "word" && !["into", "onto", "on", "in", "to", "from"].includes(next.value)) return null;
     if (next && next.kind !== "word" && next.kind !== "punct") return null;
     return { ref: "rest" };
+  });
+}
+
+export interface DistributiveDamageGrammar {
+  parseObjectRef(c: Cursor): ObjectRef | null;
+  parseDamageTarget(c: Cursor): DamageTarget | null;
+}
+
+/** "<sources> each deal damage equal to their power to <recipient>": every
+ * source deals its own damage in one simultaneous instruction (CR 608.2c,
+ * 120.3). The floating "each" makes "their power" each source's own power,
+ * exactly as "its power" in "Each of <sources> deals damage equal to its
+ * power" (608.2h), so the amount keeps the member pronoun. A counted
+ * selection stays that selection; "they" is every member of the established
+ * group; several printed subjects are separate sources of the same deal.
+ * The recipient is one shared reference (one target declaration, 601.2c). */
+export function parseDistributiveDamage(c: Cursor, g: DistributiveDamageGrammar): Effect[] | null {
+  return c.attempt((c): Effect[] | null => {
+    const sources: ObjectRef[] = [];
+    for (;;) {
+      const pronoun = sources.length === 0 && c.word("they") !== null;
+      const source = pronoun ? { ref: "them" as const } : g.parseObjectRef(c);
+      if (!source) return null;
+      sources.push(source);
+      if (pronoun || c.word("and") === null) break;
+    }
+    if (sources.length === 1 && !isPluralObjectRef(sources[0])) return null;
+    if (!c.words("each", "deal")) return null;
+    // A creature named by two subjects would deal its damage twice; every
+    // later subject must be printed as "other" than the ones before it.
+    if (sources.slice(1).some(source => !("filter" in source) || source.filter.other !== true))
+      return c.fail("damage sources that cannot overlap");
+    const members: ObjectRef[] = [];
+    for (const source of sources) {
+      switch (source.ref) {
+        case "them": members.push({ ref: "each", filter: { fromAmong: source } }); break;
+        case "target": case "any-target": case "filter": case "self": case "this": case "enchanted": case "equipped": members.push(source); break;
+        default: return c.fail("identified sources of distributed damage");
+      }
+    }
+    // Only the per-source amount is read here: a fixed "each deal 2 damage"
+    // does not say by itself how it relates to the existing plural-source form.
+    if (!c.words("damage", "equal", "to", "their")) return null;
+    const attribute = c.word("power", "toughness") as "power" | "toughness" | null;
+    if (!attribute || c.word("to") === null) return null;
+    const amount: Amount = { amount: "attribute", of: { ref: "it" }, attribute };
+    const to = g.parseDamageTarget(c);
+    return to && members.map((source): Effect => ({ effect: "damage", source, amount, to }));
   });
 }

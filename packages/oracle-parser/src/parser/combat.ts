@@ -2,9 +2,11 @@
 // CR 508.1c–d and 509.1a–c distinguish these three concepts; notably an
 // evasion restriction never requires the defending player to block.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-import type { Amount, CantAction, CombatDefender, CombatRule, Comparison, DamageTarget, Duration, Effect, ObjectFilter, ObjectRef, StaticEffect } from "../ast.ts";
+import type { Amount, CantAction, CombatDefender, CombatRule, Comparison, DamageTarget, Duration, Effect, ObjectFilter, ObjectRef, PlayerCombatRule, PlayerRef, StaticEffect } from "../ast.ts";
 import { Cursor } from "./cursor.ts";
-import { parseComparison, parseCondition, parseCount, parseDuration, parseObjectRef, parsePlayerRef } from "./refs.ts";
+import { parseDeclarationCost } from "./declaration-costs.ts";
+import { parseComparison, parseCondition, parseCount, parseDuration, parseFilter, parseNextPeriodOf, parseObjectRef, parsePlayerRef } from "./refs.ts";
+import { parseAsThoughRule, parseAssignmentValueRule, parseUnblockedAssignmentClause } from "./combat-as-though.ts";
 
 function parseDefender(c: Cursor): CombatDefender | null {
   return c.attempt(c => {
@@ -116,7 +118,7 @@ interface ParsedRule { rule: CombatRule; duration?: Duration }
 function parseRequirementPeriod(c: Cursor): Duration | null {
   if (c.words("this", "turn")) return { duration: "this-turn" };
   if (c.words("this", "combat")) return { duration: "this-combat" };
-  return null;
+  return parseNextPeriodOf(c);
 }
 
 /** CR 508.1d / 509.1c: requirements are obeyed as far as restrictions allow;
@@ -187,10 +189,37 @@ function parseAloneRestriction(c: Cursor): CombatRule | null {
   });
 }
 
+/** "can't attack unless a black or green creature also attacks", "can't
+ * block unless at least two other creatures block". "Also" or "other" makes
+ * the companions distinct from the affected creature. */
+function parseCompanionRestriction(c: Cursor): CombatRule | null {
+  return c.attempt((c): CombatRule | null => {
+    if (c.word("can't") === null) return null;
+    const action = c.word("attack", "block") as "attack" | "block" | null;
+    if (!action || c.word("unless") === null) return null;
+    let minimum: Amount;
+    if (c.words("at", "least")) {
+      const count = parseCount(c);
+      if (!count) return null;
+      minimum = count;
+    } else if (c.word("a", "an") !== null) minimum = { amount: "fixed", value: 1 };
+    else return null;
+    const other = c.word("other") !== null;
+    const others = parseFilter(c);
+    if (!others || others.other) return null;
+    const also = c.word("also") !== null;
+    if (!other && !also) return null;
+    if (c.word(action, action === "attack" ? "attacks" : "blocks") === null) return null;
+    return { rule: "declared-with", action, others: { ...others, other: true }, minimum };
+  });
+}
+
 function parseRuleBase(c: Cursor): CombatRule | null {
   return c.attempt(c => {
     const alone = parseAloneRestriction(c);
     if (alone) return alone;
+    const companions = parseCompanionRestriction(c);
+    if (companions) return companions;
     if (c.word("can't") !== null) {
       if (c.words("block", "or", "be", "blocked", "by")) {
         const other = parseCombatObjects(c);
@@ -242,16 +271,42 @@ function parseRuleBase(c: Cursor): CombatRule | null {
   });
 }
 
-function parseRule(c: Cursor): ParsedRule | null {
+/** "assigns no combat damage this turn": a continuous effect on the creature
+ * (CR 510.1, 611.2a). Only the printed "this turn"/"this combat" periods are
+ * supported; an unstated period would silently last for the rest of the game. */
+function parseNoDamageAssignment(c: Cursor): ParsedRule | null {
   return c.attempt((c): ParsedRule | null => {
-    const base = parseRuleBase(c);
-    const parsed = base ? { rule: base } : parseRequirement(c);
+    if (c.word("assign", "assigns") === null || !c.words("no", "combat", "damage")) return null;
+    const duration = parseRequirementPeriod(c);
+    return duration && { rule: { rule: "assigns-no-combat-damage" }, duration };
+  });
+}
+
+function parseRule(c: Cursor, subject: ObjectRef): ParsedRule | null {
+  return c.attempt((c): ParsedRule | null => {
+    const noDamage = parseNoDamageAssignment(c);
+    if (noDamage) return noDamage;
+    // "can't be blocked this turn except by Walls": the same rule and period
+    // as "can't be blocked except by Walls this turn" (CR 509.1b, 611.2a).
+    const periodFirst = c.attempt((c): ParsedRule | null => {
+      if (!c.words("can't", "be", "blocked")) return null;
+      const duration = parseRequirementPeriod(c);
+      if (!duration || !c.words("except", "by")) return null;
+      const rule = parseBlockers(c, "only");
+      return rule && { rule, duration };
+    });
+    if (periodFirst) return periodFirst;
+    const base = parseRuleBase(c) ?? parseAssignmentValueRule(c);
+    const parsed = base ? { rule: base } : parseAsThoughRule(c, { defender: parseDefender, objects: parseCombatObjects, subject }) ?? parseRequirement(c);
     if (!parsed) return null;
     const rule = parsed.rule;
     const conditionKind = c.word("if", "unless") as "if" | "unless" | null;
     if (conditionKind) {
       const condition = parseCondition(c);
       if (!condition) return null;
+      // A payment after "unless" is a declaration cost (CR 508.1h, 509.1d),
+      // represented by declaration-costs.ts or not at all.
+      if (conditionKind === "unless" && condition.condition === "pays") return c.fail("cost to attack or block");
       return { ...parsed, rule: { ...rule, condition, conditionKind } };
     }
     const duration = c.attempt(c => {
@@ -285,16 +340,18 @@ function parseLure(c: Cursor): ParsedClause | null {
 
 function parseClause(c: Cursor, previousSubject?: ObjectRef): ParsedClause | null {
   return c.attempt((c): ParsedClause | null => {
-    const lure = parseLure(c);
+    const lure = parseLure(c) ?? parseUnblockedAssignmentClause(c);
     if (lure) return lure;
+    const taxed = parseDeclarationCost(c, { subject: parseGenericCombatRef, defender: parseDefender, objects: parseCombatObjects }, previousSubject);
+    if (taxed) return taxed;
     const what = parseGenericCombatRef(c) ?? previousSubject;
     if (!what) return null;
-    const first = parseRule(c);
+    const first = parseRule(c, what);
     if (!first) return null;
     const rules = [first];
     while (c.attempt(c => {
       if (c.word("and") === null) return null;
-      const next = parseRule(c);
+      const next = parseRule(c, what);
       if (!next) return null;
       rules.push(next);
       return true;
@@ -318,10 +375,113 @@ function targetedFilter(filter: ObjectFilter): boolean {
   return hasTarget(filter);
 }
 
+/** Rules about a player's whole declaration (CR 508.1c–d, 509.1b–c):
+ * "[player] can't attack you or permanents you control", "[player] must
+ * attack with at least one creature each combat if able", "[player] can't
+ * block with more than one creature". A resolving effect needs a printed
+ * period; a static rule has none. */
+function parsePlayerCombatRule(c: Cursor): { who: PlayerRef; rule: PlayerCombatRule; duration?: Duration } | null {
+  return c.attempt((c): { who: PlayerRef; rule: PlayerCombatRule; duration?: Duration } | null => {
+    const who = parsePlayerRef(c);
+    if (!who) return null;
+    const defenders = (): CombatDefender[] | null => {
+      const first = parseDefender(c);
+      if (!first) return null;
+      const list = [first];
+      while (c.attempt(c => {
+        if (c.word("or") === null) return null;
+        const next = parseDefender(c);
+        if (!next) return null;
+        list.push(next);
+        return true;
+      })) { /* every forbidden or required defender is kept */ }
+      return list;
+    };
+    let rule: PlayerCombatRule;
+    if (c.words("can't", "attack")) {
+      const list = defenders();
+      if (!list) return null;
+      rule = { rule: "attack-restriction", defenders: list };
+    } else if (c.words("must", "attack")) {
+      const list = c.isWord("with") ? undefined : defenders();
+      if (list === null || !c.words("with", "at", "least", "one", "creature")) return null;
+      c.words("each", "combat");
+      rule = { rule: "attack-requirement", minimum: 1, ...(list ? { defenders: list } : {}) };
+    } else if (c.words("can't", "block", "with", "more", "than")) {
+      const maximum = parseCount(c);
+      if (!maximum || c.word("creature", "creatures") === null) return null;
+      rule = { rule: "block-limit", maximum };
+    } else return null;
+    let duration: Duration | undefined;
+    // The player's own "their next turn" keeps the rule's subject as the player.
+    if (c.words("during", "their", "next", "turn")) duration = { duration: "during-next-turn-of", who };
+    else {
+      const period = parseRequirementPeriod(c);
+      if (period) duration = period;
+    }
+    if (rule.rule === "attack-requirement") {
+      if (!c.words("if", "able")) return null;
+    }
+    return { who, rule, ...(duration ? { duration } : {}) };
+  });
+}
+
+/** "If [creature] attacks, [creatures] attack if able" (CR 508.1d): an
+ * attack requirement that applies only to declarations including that
+ * attacker. "Also" only restates that the affected creatures join it. */
+function parseJoinedAttackRequirement(c: Cursor): StaticEffect | null {
+  return c.attempt((c): StaticEffect | null => {
+    if (c.word("if") === null) return null;
+    const trigger = parseGenericCombatRef(c);
+    if (!trigger || c.word("attacks", "attack") === null || !c.punct(",")) return null;
+    const what = parseGenericCombatRef(c);
+    if (!what) return null;
+    c.word("also");
+    const parsed = parseRequirement(c);
+    if (!parsed || parsed.duration || parsed.rule.rule !== "attack-requirement" || parsed.rule.defender) return null;
+    c.punct(".");
+    if (!c.done()) return null;
+    return { static: "combat-rule", what, rule: { ...parsed.rule, whenAttacking: trigger } };
+  });
+}
+
+/** "No more than two creatures can attack [you] each combat": a limit on
+ * every player's whole declaration (CR 508.1c, 509.1b), not a restriction
+ * on particular creatures. Each defending player's blocks are judged
+ * separately (802.4b), and only creatures attacking the stated defender count
+ * (802.3a), so the limit is the same for each player's declaration. */
+function parseDeclarationLimit(c: Cursor): StaticEffect | null {
+  return c.attempt((c): StaticEffect | null => {
+    if (!c.words("no", "more", "than")) return null;
+    const maximum = parseCount(c);
+    if (!maximum || c.word("creature", "creatures") === null || c.word("can") === null) return null;
+    const action = c.word("attack", "block");
+    if (!action) return null;
+    const defender = action === "attack" && !c.isWord("each") ? parseDefender(c) : null;
+    if (!c.words("each", "combat")) return null;
+    const rule: PlayerCombatRule = action === "block" ? { rule: "block-limit", maximum }
+      : { rule: "attack-limit", maximum, ...(defender ? { defenders: [defender] } : {}) };
+    return { static: "player-combat-rule", who: { player: "each-player" }, rule };
+  });
+}
+
 /** Parse a complete recurring static clause. Detailed temporary clauses are
  * left to the resolving-effect parser, whose caller owns their duration. */
 export function parseCombatStatic(c: Cursor): StaticEffect | null {
   return c.attempt(c => {
+    const limit = parseDeclarationLimit(c);
+    if (limit) {
+      c.punct(".");
+      return c.done() ? limit : null;
+    }
+    const player = parsePlayerCombatRule(c);
+    if (player) {
+      c.punct(".");
+      if (player.duration || !c.done()) return null;
+      return { static: "player-combat-rule", who: player.who, rule: player.rule };
+    }
+    const joined = parseJoinedAttackRequirement(c);
+    if (joined) return joined;
     if (c.words("as", "long", "as")) {
       const condition = parseCondition(c);
       if (!condition || !c.punct(",")) return null;
@@ -388,6 +548,8 @@ export function parseAttackedRecipient(c: Cursor): Extract<DamageTarget, { to: "
  * to the outer effect grammar. Condition fields on the rule remain dynamic. */
 export function parseCombatEffect(c: Cursor, previousSubject?: ObjectRef): Effect[] | null {
   return c.attempt(c => {
+    const player = parsePlayerCombatRule(c);
+    if (player) return player.duration ? [{ effect: "player-combat-rule", who: player.who, rule: player.rule, duration: player.duration }] : null;
     const clause = parseClause(c, previousSubject);
     if (clause) return [{ effect: "combat-rule", what: clause.what, rule: clause.rule, ...(clause.duration ? { duration: clause.duration } : {}) }];
     const oneShot = parseCombatAction(c);

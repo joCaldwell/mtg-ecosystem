@@ -62,12 +62,20 @@ describe("lossless nonexecutable parser archives", () => {
     const attraction = card("attraction", "Visit — Draw a card.", { type_line: "Artifact — Attraction" });
     const cards = [dungeon, faceMetadata, attraction];
     await writeFile(cacheFile, JSON.stringify(cards));
-    assert.equal(evaluateCorpus(cards).cardsOk, 0);
+    // The Attraction's visit ability is represented (CR 702.159a),
+    // so only the two dungeon fixtures remain unsupported.
+    assert.equal(evaluateCorpus(cards).cardsOk, 1);
     const archive = buildArchive({ cacheFile, fingerprint });
     assert.equal(archive.manifest.cardsChecked, 3);
-    assert.equal(archive.manifest.cardsOk, 0);
+    assert.equal(archive.manifest.cardsOk, 1);
     assert.deepEqual(archive.manifest.excluded, {});
-    for (const record of archive.records) assert.equal(record.status, "unsupported");
+    assert.deepEqual(archive.records.map(record => record.status), ["unsupported", "unsupported", "parsed"]);
+    const visited = archive.records[2];
+    if (visited.status === "parsed" && visited.faces[0].status === "attempted" && visited.faces[0].result.ok) {
+      assert.deepEqual(JSON.parse(JSON.stringify(visited.faces[0].result.abilities)), [{
+        kind: "visit", effects: [{ steps: [{ effect: "draw", who: { player: "you" }, amount: { amount: "fixed", value: 1 } }] }],
+      }]);
+    } else assert.fail("The Attraction's visit ability must be archived as parsed");
     const first = archive.records[0];
     if (first.status === "unsupported" && first.faces[0].status === "attempted") {
       assert.ok(first.faces[0].result.lines.every(line => !line.ok && /dungeon room structure/.test(line.error)));

@@ -62,7 +62,14 @@ describe('replacement printed as its own paragraph', () => {
   it('does not merge when the replaced part of the first paragraph is ambiguous', () => {
     // Two sentences, a conditional original, and a non-spell first paragraph.
     fails('Draw a card. You gain 1 life.\nMorbid — Draw two cards instead if a creature died this turn.');
-    fails('Destroy target creature if it has mana value 2 or less.\nRevolt — Destroy that creature if it has mana value 4 or less instead if a creature died this turn.');
+    // A conditional original is now replaced as a whole by a sentence that
+    // restates its own condition (Fatal Push), instead of being rejected.
+    const manaValue = (value: number) => ({ condition: 'is-filter', what: { ref: 'it' }, filter: { properties: [{ property: 'mana-value', comparison: { op: 'le', value: n(value) } }] } });
+    assert.deepEqual(card('Destroy target creature if it has mana value 2 or less.\nRevolt — Destroy that creature if it has mana value 4 or less instead if a creature died this turn.').abilities, [{
+      kind: 'spell', effects: [{ steps: [{ effect: 'self-replacement',
+        original: { sequence: [{ steps: [{ effect: 'destroy', what: target }], condition: manaValue(2), conditionKind: 'if' }] }, condition: morbid,
+        instead: { sequence: [{ steps: [{ effect: 'destroy', what: { ref: 'that', filter: creature } }], condition: manaValue(4), conditionKind: 'if' }] },
+        targetPolicy: 'retain-original', abilityWord: 'Revolt' }] }] }]);
     fails('Flying\nMorbid — Draw two cards instead if a creature died this turn.', 'Creature — Bird');
     fails('Draw a card.\nMorbid — Draw two cards instead if a creature died this turn. You gain 1 life.');
   });
@@ -104,7 +111,13 @@ describe('destination of a spell countered this way', () => {
       counter({ to: { zone: 'battlefield' }, controller: 'you', only: { allOf: [{ anyOf: [{ types: ['artifact'] }, { types: ['creature'] }] }], cls: 'spell' } }));
   });
   it('rejects near misses that state a different or incomplete destination', () => {
-    fails('Counter target spell. If that spell is countered this way, exile it.');
+    // Without "instead of" this is a later conditional instruction on the
+    // countered card, never a destination of the counter event itself.
+    assert.deepEqual(card('Counter target spell. If that spell is countered this way, exile it.').abilities, [{ kind: 'spell', effects: [
+      { steps: [{ effect: 'counter', what: spell }] },
+      { steps: [{ effect: 'exile', what: { ref: 'it' } }], conditionKind: 'if', condition: { condition: 'is-filter', what: { ref: 'that', filter: { cls: 'spell' } },
+        filter: { relation: { relation: 'event-result', event: 'counter', scope: 'this-way' } } } },
+    ] }]);
     fails("Counter target spell. If that spell is countered this way, put it onto the battlefield instead of into its owner's graveyard.");
     fails("Counter target spell. If that spell is countered this way, put that card on your choice of the top or bottom of its owner's library instead of into that player's graveyard.");
     fails("Counter target spell. If that spell is countered this way, exile it instead of putting it into your graveyard.");

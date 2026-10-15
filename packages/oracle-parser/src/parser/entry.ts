@@ -9,6 +9,9 @@ import { parseStaticUntapSuppression } from "./untap.ts";
 import { bindOtherExclusion } from "./other-exclusion.ts";
 import { parseEligibleCardRef } from "./permissions.ts";
 import { parseAggregateCount } from "./aggregates.ts";
+import { parseOpponentUnit } from "./player-counts.ts";
+import { parsePartySize } from "./quantities.ts";
+import { parseCommanderCastUnit } from "./history-amounts.ts";
 
 type EntryDetails = Pick<Extract<Effect, { effect: "move-zone" }>, "tapped" | "controller" | "from" | "entry">;
 type EntryCounter = NonNullable<BattlefieldEntryModifiers["counters"]>[number];
@@ -21,7 +24,7 @@ export function hasExplicitSourceZone(ref: ObjectRef): boolean {
   const filterHasZone = (filter: ObjectFilter): boolean => Boolean(filter.zone ||
     filter.allOf?.some(filterHasZone) || filter.anyOf?.some(filterHasZone));
   if ("filter" in ref && filterHasZone(ref.filter)) return true;
-  if (ref.ref === "library-cards" || ref.ref === "zone-cards") return true;
+  if (ref.ref === "library-cards" || ref.ref === "graveyard-cards" || ref.ref === "zone-cards") return true;
   return ref.ref === "from-pool" && hasExplicitSourceZone(ref.pool);
 }
 
@@ -71,7 +74,7 @@ export function parseBattlefieldEntryDetails(c: Cursor): EntryDetails | null {
     const details: EntryDetails = {};
     const entry: BattlefieldEntryModifiers = {};
     for (;;) {
-      const joined = c.attempt(c => c.word("and") !== null && c.isWord("tapped", "attacking", "attached", "with", "transformed", "converted", "face") ? true : null);
+      const joined = c.attempt(c => c.word("and") !== null && c.isWord("tapped", "attacking", "blocking", "attached", "with", "transformed", "converted", "face") ? true : null);
       if (c.isWord("transformed", "converted")) {
         // CR 712.14a: enters with its back face up.
         if (entry.face) return null;
@@ -111,6 +114,12 @@ export function parseBattlefieldEntryDetails(c: Cursor): EntryDetails | null {
         const defender = parsePlayerRef(c) ?? parseObjectRef(c);
         if (defender && !singular(defender)) return null;
         entry.attacking = defender ? { defender } : { choice: "entering-controller" };
+      } else if (c.word("blocking") !== null) {
+        // CR 509.4: only a named attacking creature (the controller otherwise chooses).
+        if (entry.blocking) return null;
+        const blocked = parseObjectRef(c);
+        if (!blocked || !singular(blocked)) return null;
+        entry.blocking = blocked;
       } else {
         if (joined) return null;
         break;
@@ -132,7 +141,7 @@ export function parseEntryChoice(c: Cursor): StaticEffect | null {
     c.words("the", "battlefield");
     if (!c.punct(",") || !c.words("you", "may")) return null;
     const costs = parseCostList(c);
-    if (!costs || !costs.every(cost => cost.cost === "pay-life" || cost.cost === "reveal") || !c.punct(".")) return null;
+    if (!costs || !costs.every(cost => cost.cost === "pay-life" || cost.cost === "reveal" || cost.cost === "behold") || !c.punct(".")) return null;
     if (!c.words("if", "you", "don't") || !c.punct(",")) return null;
     const repeated = parseObjectRef(c);
     if (!repeated || !(repeated.ref === "it" || JSON.stringify(repeated) === JSON.stringify(what))) return null;
@@ -161,8 +170,10 @@ function multiplier(c: Cursor, subject: ObjectRef): Amount | null {
       const on = parseObjectRef(c);
       return on ? { amount: "counter-count", counter, on } : null;
     });
+    const players = aggregate || kicks || counterCount ? null : c.attempt(c => c.word("each") !== null
+      ? parseOpponentUnit(c, { parsePlayerRef, isPluralPlayerRef }) ?? parsePartySize(c, "singular") ?? parseCommanderCastUnit(c) : null);
     let result: Amount;
-    if (aggregate || kicks || counterCount) result = (aggregate ?? kicks ?? counterCount)!;
+    if (aggregate || kicks || counterCount || players) result = (aggregate ?? kicks ?? counterCount ?? players)!;
     else {
       const ref = parseEligibleCardRef(c, { distributive: true });
       if (ref?.ref !== "each") return null;
@@ -190,6 +201,19 @@ export function parseStaticEntryCounters(c: Cursor, parseAbilities?: AbilityList
   });
 }
 
+/** CR 702.138c: "[This permanent] escapes with [counters]" means "If this
+ * permanent escaped, it enters with [those counters]". Only the plain
+ * counter form; its own trailing condition or added abilities are rejected. */
+export function parseStaticEscapeCounters(c: Cursor): StaticEffect | null {
+  return c.attempt(c => {
+    const what = parseObjectRef(c);
+    if (!what || (what.ref !== "self" && what.ref !== "this") || c.word("escapes") === null) return null;
+    const entry = parseEntryWith(c, what);
+    if (entry?.static !== "enters-with-counters" || entry.condition || entry.multiplier || entry.bindings) return null;
+    return { ...entry, condition: { condition: "keyword-choice", keyword: "escape", what }, conditionKind: "if" };
+  });
+}
+
 type AbilityListParser = (c: Cursor) => GainedAbility[] | null;
 
 /** "with <counters> on it[, where X is …][ and with <abilities>]", after the
@@ -198,10 +222,27 @@ type AbilityListParser = (c: Cursor) => GainedAbility[] | null;
 function parseEntryWith(c: Cursor, what: ObjectRef, parseAbilities?: AbilityListParser): StaticEffect | null {
   return c.attempt((c): StaticEffect | null => {
     if (c.word("with") === null) return null;
-    const dynamic = c.words("a", "number", "of");
-    let count = dynamic ? null : parseCount(c);
+    let dynamic = c.words("a", "number", "of");
+    if (!dynamic) {
+      // "with +1/+1 counters on it equal to N" is the same as "a number of
+      // +1/+1 counters on it equal to N": the plural count is the amount.
+      const start = c.pos;
+      c.word("additional");
+      dynamic = parseCounterSpec(c) !== null && c.word("counters") !== null
+        && c.word("on") !== null && c.word("it", "him", "her", "them") !== null && c.isWord("equal");
+      c.pos = start;
+    }
+    // "with twice X +1/+1 counters" (the doubled value of X) and "with an
+    // additional X +1/+1 counters" (X more than it would otherwise get).
+    const lead = dynamic ? null : c.attempt((c): { count: Amount; additional: boolean } | null => {
+      const twice = c.word("twice") !== null;
+      const additional = !twice && c.words("an", "additional");
+      return (twice || additional) && c.word("x") !== null
+        ? { count: twice ? { amount: "twice", of: { amount: "x" } } : { amount: "x" }, additional } : null;
+    });
+    let count = dynamic ? null : lead ? lead.count : parseCount(c);
     if (!dynamic && !count) return null;
-    const additional = c.word("additional") !== null;
+    const additional = lead ? lead.additional : c.word("additional") !== null;
     const counter = parseCounterSpec(c);
     if (!counter || c.word("counter", "counters") === null) return null;
     // "two +1/+1 counters and a lifelink counter on it" (Dust Animus)
@@ -248,16 +289,16 @@ function parseEntryWith(c: Cursor, what: ObjectRef, parseAbilities?: AbilityList
 
 /** "~ enters tapped with …" / "… tapped and doesn't untap during your untap
  * step": independent rules about the same permanent. Tapped and counters
- * modify one entry event (CR 614.1c–d, 614.12). The "tapped and with …"
- * spelling stays rejected: test/statics-expansion.test.ts pins it as an
- * unrepresented clause. */
+ * modify one entry event (CR 614.1c–d, 614.12). "Tapped and with …" is the
+ * same pair of entry modifications as "tapped with …". */
 export function parseStaticEntryTappedCompound(c: Cursor, parseAbilities?: AbilityListParser): StaticEffect | null {
   return c.attempt((c): StaticEffect | null => {
     const what = parseObjectRef(c);
     if (!what || (what.ref !== "self" && what.ref !== "this") || c.word("enters") === null) return null;
     c.words("the", "battlefield");
     if (c.word("tapped") === null) return null;
-    const and = c.word("and") !== null;
+    const and = c.attempt(c => c.word("and") !== null && !c.isWord("with") ? true : null) === true;
+    if (!and) c.attempt(c => c.word("and") !== null && c.isWord("with") ? true : null);
     const second = and ? parseStaticUntapSuppression(c, what) : parseEntryWith(c, what, parseAbilities);
     // A trailing condition after the conjunction could govern either clause.
     if (!second || !c.done() || (and && second.static !== "untap-step-suppression")) return null;

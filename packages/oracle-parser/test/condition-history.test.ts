@@ -234,16 +234,40 @@ describe("zone-change history", () => {
 describe("historical limits and binding honesty", () => {
   it("rejects unsupported quantities, lookback windows, and paid-cost methods", () => {
     for (const text of [
-      "you attacked with two or more creatures this turn", "you attacked with creatures with total power 6 or greater this combat",
-      "it attacked during its controller's last turn", "it attacked or blocked since your last upkeep",
+      "it attacked or blocked since your last upkeep",
       "it blocked or was blocked by a blue creature this turn", "it didn't attack and block this turn",
-      "a creature died", "a creature died last turn", "it entered the graveyard this turn",
-      "this spell was cast using teamwork", "this spell was cast during an unknown phase",
+      "a creature died", "it entered the graveyard this turn",
+      "this spell was cast during an unknown phase",
       "you cast a spell from your hand and from your graveyard this turn",
       "you cast a spell from your hand and in your graveyard this turn",
       "you cast a spell in your hand this turn",
       "you cast it from your hand under an opponent's control", "a permanent left the battlefield under your influence this turn",
     ]) assert.equal(parseOracleText(`If ${text}, draw a card.`).ok, false, text);
+    // The declared intention to pay the teamwork cost
+    // is now represented (CR 702.194b; formerly asserted to fail).
+    assert.deepEqual(condition("this spell was cast using teamwork"),
+      { condition: "keyword-choice", keyword: "teamwork", what: { ref: "this", noun: "spell" } });
+    // Pack tactics' total over the creatures
+    // attacked with is now represented (formerly asserted to fail).
+    assert.deepEqual(condition("you attacked with creatures with total power 6 or greater this combat"), {
+      condition: "attacked", who: you, during: "this-combat", with: { types: ["creature"] },
+      groupConstraints: [{ constraint: "attribute-sum", attribute: "power", comparison: atLeast(6) }] });
+    // A count of the creatures attacked with is now
+    // represented (formerly asserted to fail).
+    assert.deepEqual(condition("you attacked with two or more creatures this turn"), {
+      condition: "attacked", who: you, during: "this-turn", with: { types: ["creature"] }, count: atLeast(2) });
+    // A named player's own last turn is now represented
+    // for declared combat actions (formerly asserted to fail).
+    assert.deepEqual(condition("it attacked during its controller's last turn"), {
+      condition: "combat-action-history", what: { ref: "it" }, action: "attacked",
+      during: { lastTurnOf: { player: "controller", of: { ref: "it" } } },
+    });
+    // The previous turn is now a represented lookback window.
+    assert.deepEqual(condition("a creature died last turn"), {
+      condition: "zone-change-history", event: "dies",
+      subject: { match: "filter", filter: { types: ["creature"] }, comparison: { op: "ge", value: { amount: "fixed", value: 1 } } },
+      from: { zone: "battlefield" }, to: { zone: "graveyard" }, during: "last-turn",
+    });
     for (const text of ["you cast it from", "this spell was cast during your", "a creature was put into"]) {
       const c = new Cursor(lex(text));
       assert.equal(parseCondition(c), null, text);

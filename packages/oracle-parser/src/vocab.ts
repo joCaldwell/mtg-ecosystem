@@ -29,6 +29,8 @@ export const STATUS_WORDS = new Set([
   "modified", "goaded", "suspected",
   // CR 712: a double-faced permanent with its back face up.
   "transformed",
+  // CR 712.1: a card (or permanent) with a face on each side.
+  "double-faced",
 ]);
 
 const WORD_NUMBERS: Record<string, number> = {
@@ -38,8 +40,15 @@ const WORD_NUMBERS: Record<string, number> = {
   twenty: 20, fifty: 50,
 };
 
+const TENS: Record<string, number> = { twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
+
+/** "twenty-five": a tens word and a units word joined by a hyphen. */
 export function wordNumber(word: string): number | undefined {
-  return WORD_NUMBERS[word];
+  const direct = WORD_NUMBERS[word];
+  if (direct !== undefined) return direct;
+  const [tens, units, extra] = word.split("-");
+  const unit = units === undefined ? undefined : WORD_NUMBERS[units];
+  return extra === undefined && TENS[tens] !== undefined && unit !== undefined && unit < 10 ? TENS[tens] + unit : undefined;
 }
 
 // CR 205.3g–m,p,q enumerates the nonplanar subtypes. Capitalization alone

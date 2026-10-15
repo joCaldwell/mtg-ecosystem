@@ -11,9 +11,12 @@ import { lex } from "../lexer.ts";
 import type { Cursor } from "./cursor.ts";
 import { parseCostList, parseSymbolCosts } from "./costs.ts";
 import { parseChosenValueRef } from "./choices.ts";
-import { parseActivationCostModifications } from "./cost-modifiers.ts";
+import { parseCraft } from "./craft.ts";
+import { parseCompanion } from "./companion.ts";
+import { parseActivationCostModifications, parseKeywordCastCostModifications } from "./cost-modifiers.ts";
 import { parseActivationRules } from "./restrictions.ts";
-import { parseFilter, parseObjectRef, parsePlayerRef, parsePossessivePlayer } from "./refs.ts";
+import { mentionsX, parseVariableConstraints } from "./variable-constraints.ts";
+import { parseAmount, parseComparison, parseFilter, parseObjectRef, parsePlayerRef, parsePossessiveObject, parsePossessivePlayer } from "./refs.ts";
 
 type Shape =
   | "bare"           // Flying
@@ -80,6 +83,9 @@ const KEYWORDS: Record<string, Shape> = {
   "mobilize": "number", "firebending": "number",
   "teamwork": "number", "station": "bare", "increment": "bare",
   "paradigm": "bare", "storied": "bare",
+  // CR 702.106a/f: the secret card-name choice(s) a conspiracy makes as it is
+  // put into the command zone; "the chosen name" abilities are linked (702.106d).
+  "hidden agenda": "bare", "double agenda": "bare",
   "gift": "gift",
   // number-parameterized
   "crew": "number", "fading": "number", "bloodthirst": "number",
@@ -129,6 +135,17 @@ const LAND_WALKS: Record<string, string> = {
   desertwalk: "Desert",
 };
 
+/** CR 702.14a: a specific landwalk named by its one printed word
+ * ("islandwalk"), with the keyword instance that word stands for. */
+export function parseLandwalkName(c: Cursor): { name: string; keyword: KeywordInstance } | null {
+  return c.attempt((c) => {
+    const word = c.anyWord();
+    const land = word && Object.hasOwn(LAND_WALKS, word.value) ? LAND_WALKS[word.value] : undefined;
+    if (!word || !land) return null;
+    return { name: word.value, keyword: { keyword: "landwalk", filter: { types: ["land"], subtypes: [land] } } };
+  });
+}
+
 export function parseKeywordName(c: Cursor): string | null {
   const first = c.peek();
   const candidates = first?.kind === "word" ? KEYWORDS_BY_START.get(first.value) ?? [] : [];
@@ -148,7 +165,7 @@ export function parseKeywordName(c: Cursor): string | null {
   return c.fail("keyword");
 }
 
-function parseProtectionScopes(c: Cursor, fromConsumed = false, allowFreshChoices = false): ProtectionScope[] | null {
+export function parseProtectionScopes(c: Cursor, fromConsumed = false, allowFreshChoices = false): ProtectionScope[] | null {
   return c.attempt((c): ProtectionScope[] | null => {
     const scopes: ProtectionScope[] = [];
     if (!fromConsumed && c.word("from") === null) return null;
@@ -173,6 +190,19 @@ function parseProtectionScopes(c: Cursor, fromConsumed = false, allowFreshChoice
           return what ? { scope: "colors-of", what } : null;
         });
         if (colorsOf) return colorsOf;
+        // CR 702.11g/702.16i: "each of its colors", "each color among permanents you control":
+        // the same color set, named by its possessor or by the objects.
+        const eachColorOf = c.attempt((c): ProtectionScope | null => {
+          if (c.word("each") === null) return null;
+          if (c.words("color", "among")) {
+            const what = parseObjectRef(c);
+            return what && (what.ref === "each" || what.ref === "all") ? { scope: "colors-of", what } : null;
+          }
+          if (c.word("of") === null) return null;
+          const what = parsePossessiveObject(c);
+          return what && c.word("colors") !== null ? { scope: "colors-of", what } : null;
+        });
+        if (eachColorOf) return eachColorOf;
         if (c.words("everything")) return { scope: "everything" };
         if (c.words("all", "colors") || c.words("each", "color")) return { scope: "all-colors" };
         if (c.words("colorless")) return { scope: "colorless" };
@@ -185,6 +215,14 @@ function parseProtectionScopes(c: Cursor, fromConsumed = false, allowFreshChoice
         if (color) return { scope: "color", color: color as Color };
         const player = parsePlayerRef(c);
         if (player) return { scope: "player", player };
+        // CR 702.16a: the quality can be any characteristic value, e.g.
+        // "protection from mana value 3 or greater" (sources whose mana value is).
+        const manaValue = c.attempt((c): ProtectionScope | null => {
+          if (!c.words("mana", "value")) return null;
+          const comparison = parseComparison(c);
+          return comparison?.value.amount === "fixed" ? { scope: "filter", filter: { properties: [{ property: "mana-value", comparison }] } } : null;
+        });
+        if (manaValue) return manaValue;
         const filter = parseFilter(c);
         if (filter) return { scope: "filter", filter };
         return null;
@@ -227,7 +265,10 @@ function parseKeywordCost(c: Cursor): Cost[] | null {
     if (c.punct("—")) {
       const cost = parseCostList(c);
       if (!cost) return null;
-      c.punct(".");
+      // A period that ends the keyword line is part of it; one that is followed by
+      // another sentence ("Equip—Pay 3 life. Activate only once each turn.") ends
+      // the keyword's sentence for the caller.
+      if (c.isPunct(".") && c.peek(1) === undefined) c.punct(".");
       return cost;
     }
     const start = c.pos;
@@ -266,6 +307,9 @@ export function parseKeyword(c: Cursor, options: { allowFreshProtectionChoices?:
       const land = LAND_WALKS[w.value];
       if (land === undefined) return null;
       if (land) filter.subtypes = [land];
+      // "landwalk of the chosen type": the linked land type choice is the
+      // walked quality, as in "lands of the chosen type" (CR 702.14a, 607.2d).
+      else if (c.words("of", "the", "chosen", "type")) filter.chosenType = { choice: "chosen-type" };
       return filter;
     });
     if (walk !== null) {
@@ -313,6 +357,20 @@ export function parseKeyword(c: Cursor, options: { allowFreshProtectionChoices?:
       return filter && cost ? { keyword: "splice", filter, cost } : null;
     });
     if (splice) return splice;
+
+    // CR 702.22b-c: "bands with other [quality]" names the quality that the
+    // creatures of its bands must have; it is not banding.
+    const bandsWith = c.attempt((c): KeywordInstance | null => {
+      if (!c.words("bands", "with", "other")) return null;
+      const filter = parseFilter(c);
+      return filter && { keyword: "bands with other", filter };
+    });
+    if (bandsWith) return bandsWith;
+
+    const craft = parseCraft(c, parseKeywordCost);
+    if (craft) return craft;
+    const companion = parseCompanion(c);
+    if (companion) return companion;
 
     const name = parseKeywordName(c);
     if (!name) return null;
@@ -443,6 +501,11 @@ export function parseKeywordLine(c: Cursor): KeywordInstance[] | null {
     for (;;) {
       const kw = parseKeyword(c);
       if (!kw) return null;
+      // "Firebending X, where X is ~'s power": the definition of the keyword's X.
+      if (kw.amount === "x" && keywords.length === 0 && !kw.cost) {
+        const value = c.attempt(c => (c.punct(",") && c.words("where", "x", "is") ? parseAmount(c) : null));
+        if (value) kw.bindings = [{ variable: "x", value }];
+      }
       keywords.push(kw);
       if (c.isPunct(",") || c.isPunct(";")) {
         c.next();
@@ -459,6 +522,19 @@ export function parseKeywordLine(c: Cursor): KeywordInstance[] | null {
     if (sentenceEnd && !c.done()) {
       // CR 602.1b and 702.6: Plate Armor's second sentence modifies this
       // equip ability's payment. A list has no single unambiguous antecedent.
+      // CR 107.3a/d: "Suspend X—{X}{R}. X can't be 0." limits that keyword's X.
+      const constraints = keywords.length === 1 && mentionsX([keywords[0].amount, keywords[0].cost]) ? parseVariableConstraints(c) : null;
+      if (constraints) {
+        if (!c.done()) return null;
+        keywords[0].variableConstraints = constraints;
+        return keywords;
+      }
+      if (keywords.length === 1 && keywords[0].keyword === "flashback") {
+        const modifications = parseKeywordCastCostModifications(c);
+        if (!modifications || !c.done()) return null;
+        keywords[0].costModifications = modifications;
+        return keywords;
+      }
       if (keywords.length !== 1 || !["equip", "crew"].includes(keywords[0].keyword)) return null;
       const costModifications = keywords[0].keyword === "equip" ? parseActivationCostModifications(c) : null;
       if (costModifications) keywords[0].costModifications = costModifications;

@@ -5,7 +5,7 @@
 import type { Amount, Comparison, Condition, DamagePrevention, DamageSourceChoice, Duration, Effect, ObjectFilter, ObjectRef, PlayerRef, PreventionQuantity, Sentence, StaticEffect } from "../ast.ts";
 import { Cursor } from "./cursor.ts";
 import type { EffectContext } from "./effects.ts";
-import { isPluralPlayerRef, parseAmount, parseCondition, parseDuration, parseObjectRef, parsePlayerRef } from "./refs.ts";
+import { isPluralPlayerRef, parseAmount, parseCondition, parseDuration, parseFilter, parseObjectRef, parsePlayerRef } from "./refs.ts";
 import { parseKeywordName } from "./keywords.ts";
 
 type BodyParser = (c: Cursor, ctx: EffectContext) => Sentence[] | null;
@@ -30,7 +30,7 @@ function sourceChoice(c: Cursor): DamageSourceChoice | null {
   });
 }
 
-function pluralObject(ref: ObjectRef): boolean {
+export function pluralObject(ref: ObjectRef): boolean {
   return ["all", "each", "them", "zone-cards", "rest"].includes(ref.ref) || ref.ref === "that" && !!ref.plural
     || "number" in ref && ref.number === "plural" || "count" in ref && !!ref.count
       && (ref.count.amount !== "fixed" || ref.count.value !== 1 || "upTo" in ref && !!ref.upTo);
@@ -64,8 +64,8 @@ function recipients(c: Cursor): { refs: (ObjectRef | PlayerRef)[]; collective: b
   });
 }
 
-type Match = Pick<DamagePrevention, "by" | "to" | "kind" | "incomingAmount" | "condition" | "eventScope"> & { duration?: Duration; unmarkedPluralRecipients?: true };
-function damageHeader(c: Cursor): Match | null {
+export type Match = Pick<DamagePrevention, "by" | "to" | "kind" | "incomingAmount" | "condition" | "eventScope"> & { duration?: Duration; unmarkedPluralRecipients?: true };
+export function damageHeader(c: Cursor): Match | null {
   return c.attempt(c => {
     const result: Match = { kind: "all", eventScope: { sources: "simultaneous", recipients: "each" } };
     if (c.isWord("damage", "combat", "noncombat")) {
@@ -228,7 +228,9 @@ function eventBindings(prevention: DamagePrevention) {
   return { object, player, amount, condition };
 }
 
-function bindBody(body: Sentence[], prevention: DamagePrevention): Sentence[] | null {
+/** `reflexive`: the body of a "when damage is prevented this way" trigger,
+ * where every "that much" is the prevented amount (CR 615.5, 603.12). */
+function bindBody(body: Sentence[], prevention: DamagePrevention, reflexive = false): Sentence[] | null {
   const bind = eventBindings(prevention), output: Sentence[] = [];
   // A later anaphor must not jump over a new result (drawn cards, tokens,
   // exiled cards, or a new damage event) and silently bind to incoming damage.
@@ -241,7 +243,7 @@ function bindBody(body: Sentence[], prevention: DamagePrevention): Sentence[] | 
     const steps: Effect[] = [];
     for (const step of sentence.steps) {
       if (priorResults) return null;
-      const anaphor = sentence.condition ? prevented : anaphorAvailable ? incoming : null;
+      const anaphor = sentence.condition || reflexive ? prevented : anaphorAvailable ? incoming : null;
       if (step.duration || step.forEach) return null;
       switch (step.effect) {
         case "draw": case "gain-life": case "mill": {
@@ -266,9 +268,13 @@ function bindBody(body: Sentence[], prevention: DamagePrevention): Sentence[] | 
           steps.push({ ...step, count, ...(who && { who }) }); break;
         }
         case "exile": {
-          // Quantified top-library cards are one move of the printed count.
+          // Quantified top-library cards are one move of the printed count;
+          // "a card from your graveyard for each 1 damage" is one choice of
+          // that many cards from the acting player's own graveyard.
           if (step.what.ref !== "library-cards" && !(step.what.ref === "filter" && step.what.filter.cls === "card"
-            && step.what.filter.zone?.zone === "library" && step.what.filter.zone.position === "top")) return null;
+            && (step.what.filter.zone?.zone === "library" && step.what.filter.zone.position === "top"
+              || step.what.filter.zone?.zone === "graveyard" && step.what.filter.zone.owner === "your" && !step.who
+                && step.what.count.amount === "prevention-event-quantity"))) return null;
           const count = bind.amount(step.what.count, anaphor), who = step.who && bind.player(step.who);
           if (!count || step.who && !who) return null;
           steps.push({ ...step, what: { ...step.what, count }, ...(who && { who }) }); break;
@@ -318,13 +324,39 @@ function hasPreventionLink(c: Cursor): boolean {
   });
 }
 
-function parseRider(c: Cursor, ctx: EffectContext, parseBody: BodyParser, prevention: DamagePrevention): Sentence[] | null {
+/** "damage [from a red source] is prevented this way": the prevention
+ * event of this same effect, optionally limited to the prevented damage's
+ * source (CR 615.5). */
+function preventedEvent(c: Cursor): { source?: ObjectFilter } | null {
+  return c.attempt(c => {
+    if (c.word("damage") === null) return null;
+    let source: ObjectFilter | undefined;
+    if (c.word("from") !== null) {
+      if (c.word("a", "an") === null) return null;
+      source = parseFilter(c) ?? undefined;
+      if (!source) return null;
+    }
+    return c.words("is", "prevented", "this", "way") ? (source ? { source } : {}) : null;
+  });
+}
+
+function parseRider(c: Cursor, ctx: EffectContext, parseBody: BodyParser, prevention: DamagePrevention, duration?: Duration): Sentence[] | null {
   return c.attempt(c => {
     const end = sentenceEnd(c), body = new Cursor(c.tokens.slice(c.pos, end));
     let condition: Condition | undefined;
-    if (body.word("if") !== null) {
-      if (!body.words("damage", "is", "prevented", "this", "way") || !body.punct(",")) return null;
-      condition = { condition: "damage-prevented" };
+    let reflexive: { source?: ObjectFilter } | undefined;
+    const lead = body.word("if", "when", "whenever");
+    if (lead !== null) {
+      const event = preventedEvent(body);
+      if (!event) return null;
+      // CR 603.12: "When damage is prevented this way" is a triggered ability
+      // created by each prevention; its own "this turn" can only restate a
+      // shield that ends this turn.
+      if (lead !== "if" && body.isWord("this") && !(duration && ["end-of-turn", "this-turn"].includes(duration.duration)
+        && body.words("this", "turn"))) return null;
+      if (!body.punct(",")) return null;
+      if (lead === "if") condition = { condition: "damage-prevented", ...event };
+      else reflexive = event;
     }
     let multiplier = body.attempt(c => c.words("for", "each") && c.number() === 1
       && c.words("damage", "prevented", "this", "way") && c.punct(",") ? prevented : null);
@@ -344,15 +376,19 @@ function parseRider(c: Cursor, ctx: EffectContext, parseBody: BodyParser, preven
       if (parsed.length !== 1 || parsed[0].condition || parsed[0].steps.length !== 1) return null;
       const step = parsed[0].steps[0];
       // These wordings specify a simultaneous quantity, not repeated actions.
-      if (step.optional || step.duration || step.forEach || step.effect !== "put-counters" && step.effect !== "create-token"
+      if (step.optional || step.duration || step.forEach) return null;
+      if (step.effect === "exile" && step.what.ref === "filter" && !step.what.upTo
+        && step.what.count.amount === "fixed" && step.what.count.value === 1) step.what = { ...step.what, count: multiplier };
+      else if ((step.effect !== "put-counters" && step.effect !== "create-token")
         || step.count.amount !== "fixed" || step.count.value !== 1) return null;
-      step.count = multiplier;
+      else step.count = multiplier;
     }
     if (condition) parsed[0] = { ...parsed[0], condition, conditionKind: "if" };
-    const bound = bindBody(parsed, prevention);
+    if (reflexive && (multiplier || parsed.some(sentence => sentence.condition))) return null;
+    const bound = bindBody(parsed, prevention, reflexive !== undefined);
     if (!bound) return null;
     c.pos = end; c.punct(".");
-    return bound;
+    return reflexive ? [{ steps: [{ effect: "create-reflexive-trigger", event: { event: "damage-prevented", ...reflexive }, effects: bound }] }] : bound;
   });
 }
 
@@ -403,14 +439,14 @@ function parseCore(c: Cursor, ctx: EffectContext, parseBody: BodyParser, options
     const coordinated = c.attempt(c => {
       if (!c.punct(",") && c.word("and") === null) return null;
       c.word("and");
-      return parseRider(c, ctx, parseBody, prevention);
+      return parseRider(c, ctx, parseBody, prevention, duration);
     });
     if (coordinated) prevention.after = coordinated;
     else if (!c.punct(".") && !c.done()) return null;
     while (!c.done()) {
       const linked = hasPreventionLink(c);
       if (!staticMode && !linked) break;
-      const after = parseRider(c, ctx, parseBody, prevention);
+      const after = parseRider(c, ctx, parseBody, prevention, duration);
       if (!after) return null;
       (prevention.after ??= []).push(...after);
     }
@@ -431,6 +467,26 @@ export function parsePreventionSentence(c: Cursor, ctx: EffectContext, parseBody
 export function parsePrevention(c: Cursor): Effect[] | null {
   return c.attempt(c => {
     if (c.word("prevent") === null) return null;
+    const clause = parseDamageClause(c);
+    if (!clause) return null;
+    // CR 601.2d: "divided as you choose" among the targets is announced with
+    // them; each target gets a shield of its share (615.7), at least 1.
+    const divided = c.attempt(c => c.punct(",") && c.words("divided", "as", "you", "choose") ? true : null);
+    if (divided) {
+      const shield = clause.prevention.shield, to = clause.prevention.to;
+      if (shield.shield !== "damage-budget" || shield.allocation || to?.length !== 1 || !("ref" in to[0])
+        || (to[0].ref !== "any-target" && to[0].ref !== "target")) return null;
+      shield.allocation = "divided";
+      clause.prevention.eventScope.recipients = "each";
+    }
+    return [{ effect: "prevent-damage", prevention: clause.prevention, ...(clause.duration ? { duration: clause.duration } : {}) }];
+  });
+}
+
+/** "all / the next N [combat] damage that would be dealt …": the damage a
+ * shield (615.7) or a redirection (614.9) applies to, with its expiry. */
+export function parseDamageClause(c: Cursor): { prevention: DamagePrevention; duration?: Duration } | null {
+  return c.attempt(c => {
     const amount = c.word("all") !== null ? "all" as const : c.words("the", "next") ? parseAmount(c) : null;
     if (!amount) return null;
     const kind = c.word("combat", "noncombat") as "combat" | "noncombat" | null;
@@ -478,7 +534,7 @@ export function parsePrevention(c: Cursor): Effect[] | null {
       }
       break;
     }
-    return [{ effect: "prevent-damage", prevention, ...(duration ? { duration } : {}) }];
+    return { prevention, ...(duration ? { duration } : {}) };
   });
 }
 
@@ -486,11 +542,31 @@ function hasTarget(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
   if (Array.isArray(value)) return value.some(hasTarget);
   const object = value as Record<string, unknown>;
-  if (object.ref === "target" || object.ref === "any-target" || object.player === "target-player" || object.player === "target-opponent") return true;
+  // A reflexive ability announces its own targets (CR 603.12, 603.3d).
+  if (object.effect === "create-reflexive-trigger") return false;
+  if (object.to === "any-target" || object.ref === "target" || object.ref === "any-target" || object.player === "target-player" || object.player === "target-opponent") return true;
   return Object.values(object).some(hasTarget);
 }
 
 export function parseStaticPrevention(c: Cursor, parseBody: BodyParser): StaticEffect | null {
+  // "Prevent all damage that would be dealt to ~ during your turn" states the
+  // same continuously checked condition as a leading "During your turn,".
+  const turnScoped = c.attempt((c): StaticEffect | null => {
+    let end = c.tokens.length;
+    const last = c.tokens[end - 1];
+    if (last?.kind === "punct" && last.value === ".") end--;
+    const tail = new Cursor(c.tokens.slice(end - 3, end));
+    if (end - 3 <= c.pos || !tail.words("during", "your", "turn")) return null;
+    const inner = new Cursor(c.tokens.slice(c.pos, end - 3));
+    const effect = parseStaticPreventionClause(inner, parseBody);
+    if (!effect || effect.static !== "prevent-damage" || !inner.done()) return null;
+    c.pos = c.tokens.length;
+    return { static: "conditional", condition: { condition: "your-turn" }, effect };
+  });
+  return turnScoped ?? parseStaticPreventionClause(c, parseBody);
+}
+
+function parseStaticPreventionClause(c: Cursor, parseBody: BodyParser): StaticEffect | null {
   return c.attempt(c => {
     const effect = parseCore(c, { modalOptions: [] }, parseBody, {}, true);
     if (!effect || effect.effect !== "prevent-damage" || (effect.duration && effect.duration.duration !== "as-long-as")

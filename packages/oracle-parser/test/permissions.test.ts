@@ -158,6 +158,8 @@ describe("cast/play instruction and permission identity", () => {
   it("retains the actor, even when an owner receives the permission", () => {
     assert.deepEqual(effect("Its owner may cast it without paying its mana cost."), {
       effect: "play-card", instruction: { who: { player: "owner", of: { ref: "it" } }, action: "cast", what: { ref: "it" }, alternativeCost: waived }, optional: true,
+      // The owner, not you, decides whether their optional cast happens.
+      decidedBy: { player: "owner", of: { ref: "it" } },
     });
     assert.deepEqual(effect("That player may play that card this turn."), {
       effect: "grant-play-permission", permission: { who: { player: "that-player" }, action: "play", what: thatCard }, duration: { duration: "this-turn" },
@@ -422,7 +424,6 @@ describe("casting grammar refuses unsupported detail", () => {
     for (const text of [
       "You may cast this card from your graveyard, but not from anywhere else.",
       "You may cast this spell as though it had flash if you pay {2} more to cast it for each opponent.",
-      "You may cast this card from your graveyard. If you do, it enters with a finality counter on it.",
       "You may cast this card from your graveyard as long as you control a Zombie and if.",
       "You may play an additional land on each of your turns.",
       "Once each turn, you may play lands and cast spells from your graveyard.",
@@ -431,6 +432,14 @@ describe("casting grammar refuses unsupported detail", () => {
       assert.equal(parsePlayPermissionStatic(c), null, text);
       assert.equal(c.pos, 0, text);
     }
+    // Formerly in the list above only because nothing could represent the
+    // rider. "If you do, it enters with …" after a permission for this one
+    // card is now the permission's entry rider (CR 614.1c, 614.12), so the
+    // complete wording is asserted structurally (Hundred-Battle Veteran).
+    assert.deepEqual(staticPermission("You may cast this card from your graveyard. If you do, it enters with a finality counter on it."), {
+      static: "play-permission", permission: { who: you, action: "cast", what: card, from: graveyard,
+        riders: [{ rider: "entry", counters: [{ count: { amount: "fixed", value: 1 }, counter: { type: "finality" } }] }] },
+    });
   });
 
   it("prevents unsupported static riders from falling through as immediate actions", () => {

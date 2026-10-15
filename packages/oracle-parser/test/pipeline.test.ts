@@ -158,6 +158,16 @@ describe("reproducible acceptance reporting", () => {
     assert.equal(report.cardsChecked, 2); assert.equal(report.cardsOk, 2);
     assert.deepEqual(report.excluded, { duplicate: 1, "no-eligible-paper-printing": 1, "silver-or-acorn": 2, "layout:token": 1 });
   });
+  it("counts the Commander-legal subset separately", () => {
+    const report = evaluateCorpus([
+      card("legal", "Flying", { legalities: { commander: "legal" } }),
+      card("legal-failing", "{T}: draw a banana.", { legalities: { commander: "legal" } }),
+      card("banned", "Flying", { legalities: { commander: "banned" } }),
+      card("unknown", "Flying"),
+    ]);
+    assert.equal(report.cardsChecked, 4);
+    assert.deepEqual(report.commanderLegal, { cardsChecked: 2, cardsOk: 1 });
+  });
   it("includes empty-text cards but fails a missing face's text", () => {
     const report = evaluateCorpus([
       card("vanilla", ""),

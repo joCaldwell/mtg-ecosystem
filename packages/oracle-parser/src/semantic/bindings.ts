@@ -36,11 +36,11 @@ function cardCount(amount: Amount | undefined): BindingCardinality {
 }
 function objectCardinality(ref: ObjectRef): BindingCardinality {
   switch (ref.ref) {
-    case "self": case "this": case "it": case "enchanted": case "equipped": case "trigger-event-object": return "one";
-    case "them": case "each": case "all": case "zone-cards": case "rest": case "vote-leaders": return "many";
+    case "self": case "this": case "it": case "enchanted": case "equipped": case "fortified": case "haunted-creature": case "targeted-by": case "trigger-event-object": case "amassed-army": return "one";
+    case "them": case "each": case "all": case "zone-cards": case "rest": case "vote-leaders": case "soulbond-pair": case "pile": return "many";
     case "related": case "copy-result": case "choice-result": return ref.number === "singular" ? "one" : "many";
     case "that": return ref.plural ? "many" : "one";
-    case "target": case "filter": case "commander": case "library-cards": case "from-pool": return cardCount(ref.count);
+    case "target": case "filter": case "commander": case "library-cards": case "graveyard-cards": case "from-pool": return cardCount(ref.count);
     case "any-target": return ref.count ? cardCount(ref.count) : "one";
     case "replacement-event-object": case "prevention-event-object": case "card-extraction-group": return "unknown";
   }
@@ -62,7 +62,7 @@ function domain(expression: ReferenceExpression): Candidate["domain"] {
   return expression.ref === "any-target" || ("filter" in expression && (expression.filter.orPlayer || expression.filter.orOpponent)) ? "object-or-player" : "object";
 }
 function referenceCardinality(expression: ReferenceExpression): BindingCardinality {
-  return "ref" in expression ? expression.ref === "affected-object" ? "one" : objectCardinality(expression)
+  return "ref" in expression ? expression.ref === "affected-object" ? "one" : expression.ref === "those-counters" ? "many" : objectCardinality(expression)
     : "player" in expression && isPluralPlayerRef(expression) ? "many" : "one";
 }
 /** This is an antecedent-description check, not a current-characteristics
@@ -103,7 +103,7 @@ class Analyzer {
   bound(expression: ReferenceExpression, path: string, target: string, rules: string[]): Candidate {
     this.result.references.push({ path, expression, binding: "bound", target, rules });
     return { id: target, cardinality: referenceCardinality(expression), domain: domain(expression),
-      ...("ref" in expression && expression.ref !== "affected-object" ? { description: description(expression) } : {}) };
+      ...("ref" in expression && expression.ref !== "affected-object" && expression.ref !== "those-counters" ? { description: description(expression) } : {}) };
   }
   antecedent(expression: ReferenceExpression, path: string, candidates: Candidate[], desired: BindingCardinality,
     rules: string[]): Candidate | undefined {
@@ -141,6 +141,11 @@ class Analyzer {
     }
     if (value.ref === "affected-object") {
       this.unresolved({ ref: "affected-object" }, path, "unsupported-reference", "This exclusion requires a bound per-affected-object scope.", ["611.3"]);
+      return;
+    }
+    if (value.ref === "those-counters") {
+      // Counters are not objects (CR 122.1); the counters an earlier clause named need that clause's binding.
+      this.unresolved({ ref: "those-counters" }, path, "missing-antecedent", "These counters need the earlier clause of the same ability that named them.", ["122.1", "608.2c"]);
       return;
     }
     if (typeof value.ref === "string") { this.object(value as ObjectRef, path, context); return; }
@@ -197,9 +202,21 @@ class Analyzer {
       this.walkChildren(value, path, { ...context, barrier });
       return;
     }
+    if (value.static === "station-band") {
+      const barrier = "A station symbol needs the source's charge-counter threshold, battlefield evaluation, printed power/toughness box, and granted-ability scopes bound.";
+      this.diagnostic("unsupported-scope", path, barrier, ["721.2", "721.2b", "721.4"]);
+      this.walkChildren(value, path, { ...context, barrier });
+      return;
+    }
     if (value.effect === "scan-library") {
       const barrier = "A sequential library scan needs its actor, complete processed pool, matching subset, and per-card iteration scope bound.";
       this.diagnostic("unsupported-scope", path, barrier, ["609.3", "701.13", "701.20"]);
+      this.walkChildren(value, path, { ...context, barrier });
+      return;
+    }
+    if (value.static === "redirect-damage" || value.effect === "redirect-damage") {
+      const barrier = "Redirection needs exact future damage events, source-choice eligibility, budget consumption, and the new recipient's legality bound.";
+      this.diagnostic("unsupported-scope", path, barrier, ["609.7", "614.9", "615.7", "615.8"]);
       this.walkChildren(value, path, { ...context, barrier });
       return;
     }
@@ -211,7 +228,8 @@ class Analyzer {
       return;
     }
     if (value.static === "look-permission" || value.effect === "grant-look-permission"
-      || value.static === "commander-eligibility" || value.static === "optional-untap") {
+      || value.static === "commander-eligibility" || value.static === "optional-untap"
+      || value.static === "untap-during-step" || value.static === "untap-step-limit") {
       const barrier = "Persistent information queries, pregame commander eligibility, and turn-based untap choices require their own rule-specific binding scopes.";
       this.diagnostic("unsupported-scope", path, barrier, ["401.5", "502.3", "708.5", "903.3a", "113.6n"]);
       this.walkChildren(value, path, { ...context, barrier });
@@ -301,9 +319,28 @@ class Analyzer {
       this.walkChildren(value, path, { ...context, barrier });
       return;
     }
-    if (["attacked", "combat-action-history", "was-cast", "zone-change-history", "damage-history", "mana-spent-to-cast"].includes(String(value.condition))) {
+    if (["attacked", "combat-action-history", "was-cast", "zone-change-history", "damage-history", "mana-spent-to-cast", "entered-from"].includes(String(value.condition))) {
       const barrier = "Historical event, phase, and source-incarnation associations have not been bound.";
       this.diagnostic("unsupported-scope", path, barrier, ["608.2i", "400.7d"]);
+      this.walkChildren(value, path, { ...context, barrier });
+      return;
+    }
+    // Conditions that look back at what happened, or at this ability's or
+    // spell's own linked decisions: the queried events are not bound here.
+    if (["player-action-history", "life-change", "was-attacked", "ability-resolution-ordinal", "ability-activation-count",
+      "alternative-cost-paid", "additional-cost-paid", "keyword-choice", "vote-result", "clash-result", "preceding-action"].includes(String(value.condition))) {
+      const barrier = "This condition queries earlier events or a linked decision; the exact events, period, actor and source incarnation have not been bound.";
+      this.diagnostic("unsupported-scope", path, barrier, ["603.4", "607.2", "608.2i"]);
+      this.walkChildren(value, path, { ...context, barrier });
+      return;
+    }
+    // State of the game or of players as a whole. Their player operands are
+    // still walked, but the quantified comparison itself has no binding rule.
+    if (["designation", "day-night", "completed-dungeon", "full-party", "turn-of", "player-comparison", "opponent-count"].includes(String(value.condition)))
+      this.diagnostic("unsupported-scope", path, "Game and player designations, turn ownership and per-player comparisons need the participating player set and its quantifier bound.", ["102.1", "102.2", "102.3", "608.2h"]);
+    if (value.rule === "declaration-cost") {
+      const barrier = "A cost to attack or block needs the declaring player, each affected creature's controller, and the per-declaration cost unit bound; its payer is not the ability's controller by default.";
+      this.diagnostic("unsupported-scope", path, barrier, ["508.1h", "509.1d"]);
       this.walkChildren(value, path, { ...context, barrier });
       return;
     }
@@ -341,7 +378,7 @@ class Analyzer {
       this.diagnostic("unsupported-reference", child(path, "other"), "The excluded antecedent of other/another is unresolved.", ["201.5"]);
     if (value.relation === "event-result" || value.relation === "linked-exile" || value.condition === "kicked")
       this.diagnostic("unsupported-reference", path, "This reference requires a specific event/payment or linked-ability association.", ["607"]);
-    if (["alternative-cost", "as-enters", "replacement", "play-permission"].includes(String(value.static))) {
+    if (["alternative-cost", "as-enters", "replacement", "play-permission", "play-permission-choice"].includes(String(value.static))) {
       const barrier = "This pre-entry or alternative-payment scope needs a would-be controller/caster binding.";
       this.diagnostic("unsupported-scope", path, barrier, ["109.5", "614.12"]);
       this.walkChildren(value, path, { ...context, barrier });
@@ -437,14 +474,23 @@ class Analyzer {
       case "copy-result":
         this.unresolved(expression, path, "unsupported-reference", "This printed copy reference needs a specific copy-result binding; it is not the most recent object.", ["707.10"]);
         return undefined;
+      case "amassed-army":
+        this.unresolved(expression, path, "unsupported-reference", "The amassed Army needs the Army creature chosen by the preceding amass.", ["701.47c"]);
+        return undefined;
       case "vote-leaders":
         this.unresolved(expression, path, "unsupported-reference", "The objects with the most votes need the preceding vote's tally.", ["701.38"]);
         return undefined;
-      case "equipped": case "enchanted": case "related": case "rest": case "replacement-event-object": case "prevention-event-object":
+      case "soulbond-pair":
+        this.unresolved(expression, path, "unsupported-reference", "Both members of a soulbond pair need the pairing relation of the referenced creature.", ["702.95b"]);
+        return undefined;
+      case "pile":
+        this.unresolved(expression, path, "unsupported-reference", "The objects of a pile need the preceding separation and the pile choice.", ["700.3"]);
+        return undefined;
+      case "equipped": case "enchanted": case "fortified": case "haunted-creature": case "targeted-by": case "related": case "rest": case "replacement-event-object": case "prevention-event-object":
         this.unresolved(expression, path, "unsupported-reference", "This relation needs an attachment, event, pool, or linked-ability binding.", ["303.4", "301.5", "607"]);
         return undefined;
       case "target": case "any-target": return this.selection(expression, path, context, true);
-      case "filter": case "each": case "all": case "library-cards": case "zone-cards": case "commander": case "from-pool":
+      case "filter": case "each": case "all": case "library-cards": case "graveyard-cards": case "zone-cards": case "commander": case "from-pool":
         return this.selection(expression, path, context, false);
       default: {
         const unreachable: never = expression;
@@ -535,7 +581,7 @@ class Analyzer {
       : referenceCardinality(binding.expression);
     const established = node?.node === "event-result" ? node.description
       : node?.node === "selection" && "ref" in node.expression ? description(node.expression)
-      : "ref" in binding.expression && binding.expression.ref !== "affected-object" ? description(binding.expression) : undefined;
+      : "ref" in binding.expression && binding.expression.ref !== "affected-object" && binding.expression.ref !== "those-counters" ? description(binding.expression) : undefined;
     return { id: binding.target, cardinality, domain: domain(binding.expression), description: established };
   }
   event(path: string, context: Context, operation: string, inputs: Candidate[]): string {
@@ -615,7 +661,7 @@ class Analyzer {
       context.objects = []; context.players = []; context.quantities = [];
       return;
     }
-    if (["optional-group", "choice", "simultaneous", "modal", "create-delayed-trigger", "create-reflexive-trigger", "create-replacement", "self-replacement", "shuffle-into-library", "pay-cost", "roll-dice", "roll-again", "flip-coin"].includes(effect.effect) || effect.optional || effect.forEach || effect.forEachVote) {
+    if (["optional-group", "choice", "villainous-choice", "simultaneous", "modal", "create-delayed-trigger", "create-reflexive-trigger", "create-replacement", "self-replacement", "shuffle-into-library", "pay-cost", "roll-dice", "roll-again", "flip-coin"].includes(effect.effect) || effect.optional || effect.forEach || effect.forEachVote) {
       const barrier = "Nested, optional, simultaneous, or delayed instruction scopes need explicit capture and merge rules.";
       this.diagnostic("unsupported-scope", path, barrier, ["603.7", "608.2c"]);
       this.walk(effect, path, { ...context, barrier });
@@ -631,6 +677,7 @@ class Analyzer {
     switch (effect.effect) {
       case "search": objectPaths.push(child(path, "for")); playerPaths.push(child(path, "who")); break;
       case "choose-object": objectPaths.push(child(path, "what")); playerPaths.push(child(path, "who")); break;
+      case "separate-piles": objectPaths.push(child(path, "what")); playerPaths.push(child(path, "who")); break;
       case "exile": case "move-zone": case "return-to-hand":
         objectPaths.push(child(path, "what"));
         if (effect.who) playerPaths.push(child(path, "who"));
@@ -653,9 +700,11 @@ class Analyzer {
         if (effect.to.to === "object" || effect.to.to === "player") objectPaths.push(child(child(path, "to"), "ref"));
         else if (effect.to.to === "any-target") objectPaths.push(child(path, "to"));
         else if (effect.to.to === "divided") objectPaths.push(child(child(path, "to"), "among"));
+        else if (effect.to.to === "them") this.diagnostic("unsupported-scope", child(path, "to"), "A bare \"them\" damage recipient needs its player-or-object antecedent bound.", ["109.1", "608.2c"]);
         else if (effect.to.to === "each") effect.to.refs.forEach((_ref, index) => objectPaths.push(child(child(child(path, "to"), "refs"), index)));
         break;
       case "fight": objectPaths.push(child(path, "a"), child(path, "b")); break;
+      case "fight-each-other": objectPaths.push(child(path, "what")); break;
       case "reveal": case "look-at": case "discard": case "sacrifice": case "gain-control":
         objectPaths.push(child(path, "what")); playerPaths.push(child(path, "who")); break;
       case "tap": case "untap":
@@ -664,7 +713,7 @@ class Analyzer {
         break;
       case "destroy": case "counter": case "pump": case "set-pt":
       case "transform": case "convert": case "phase-out": case "phase-in":
-      case "flip": case "detain": case "suspect": case "unsuspect":
+      case "flip": case "detain": case "suspect": case "unsuspect": case "prepare": case "unprepare": case "become-status":
       case "gain-abilities": case "lose-abilities": case "cant-have-abilities": case "untap-step-suppression":
       case "become": case "cant": case "remove-from-combat": case "become-blocked": case "combat-rule":
         objectPaths.push(child(path, "what")); break;
@@ -675,25 +724,35 @@ class Analyzer {
       case "attach": objectPaths.push(child(path, "what"), child(path, "to")); playerPaths.push(child(path, "who")); break;
       case "unattach": objectPaths.push(child(path, "what"), child(path, "from")); playerPaths.push(child(path, "who")); break;
       case "put-counters": objectPaths.push(child(path, "on")); break;
+      case "put-sticker": objectPaths.push(child(path, "on")); playerPaths.push(child(path, "who")); break;
       case "remove-counters": objectPaths.push(child(path, "from")); break;
-      case "add-mana": case "get-counters": case "get-emblem": case "pay-cost": case "choose-value": case "player-gain-abilities":
-      case "shuffle": case "win-game": case "lose-game": playerPaths.push(child(path, "who")); break;
+      case "add-mana": case "get-counters": case "lose-counters": case "get-emblem": case "pay-cost": case "choose-value": case "player-gain-abilities":
+      case "shuffle": case "shuffle-pile": case "choose-pile": case "win-game": case "lose-game": case "lose-unspent-mana": playerPaths.push(child(path, "who")); break;
       case "declare-target": objectPaths.push(child(path, "what")); break;
-      case "prohibit": case "cast-limit": case "cost-modification":
+      case "set-life-total":
+      case "prohibit": case "cast-limit": case "loyalty-activation-limit": case "player-rule": case "control-player": case "repeat-process": case "end-effect-action": case "legend-rule-exemption": case "cost-modification": case "modify-spells-cast": case "player-combat-rule": case "targeting-as-though":
       case "skip-time": case "add-turns": case "add-phases": case "end-turn": case "end-combat": case "set-day-night":
-      case "double-counters": case "move-counters": case "distribute-counters": case "multiply-pt": case "switch-pt":
+      case "double-counters": case "move-counters": case "put-counters-of": case "distribute-counters": case "multiply-pt": case "switch-pt":
       case "double-life-total": case "double-mana-pool": case "exchange-control": case "exchange-life-totals":
-      case "exchange-values": case "exchange-zones": case "choose-random":
-      case "exile-until": case "scan-library": case "play-card": case "grant-play-permission": case "grant-look-permission": case "additional-land-plays": case "prevent-damage": case "shuffle-into-library": case "self-replacement":
+      case "exchange-values": case "exchange-zones": case "choose-random": case "choose-friend-or-foe":
+      case "exile-until": case "scan-library": case "play-card": case "grant-play-permission": case "grant-look-permission": case "additional-land-plays": case "prevent-damage": case "redirect-damage": case "shuffle-into-library": case "self-replacement":
         this.diagnostic("unsupported-scope", path, "This instruction's event/result associations are not yet established.", ["608.2c"]);
         context.objects = []; context.players = []; context.quantities = [];
         return;
-      case "copy-stack-object": case "choose-new-targets":
+      case "copy-stack-object": case "copy-card": case "choose-new-targets":
         this.diagnostic("unsupported-scope", path, "Stack-copy results and copy target-selection timing require their own binding scope.", ["707.10", "115.7"]);
         context.objects = []; context.players = []; context.quantities = [];
         return;
-      case "become-monarch": case "take-initiative": case "ring-tempts": case "learn": case "forage": case "time-travel": case "open-attraction":
-      case "venture": case "incubate": case "earthbend": case "airbend": case "goad": case "endure": case "empower-jace": case "clash": case "vote": case "create-role":
+      case "change-text":
+        this.diagnostic("unsupported-scope", path, "Chosen words of a text-changing effect require their own binding scope.", ["612"]);
+        context.objects = []; context.players = []; context.quantities = [];
+        return;
+      case "change-targets":
+        this.diagnostic("unsupported-scope", path, "Changed targets of another spell or ability require their own binding scope.", ["115.7"]);
+        context.objects = []; context.players = []; context.quantities = [];
+        return;
+      case "become-monarch": case "take-initiative": case "ring-tempts": case "learn": case "forage": case "time-travel": case "open-attraction": case "planeswalk": case "chaos-ensues": case "assemble-contraption":
+      case "behold": case "collect-evidence": case "fateseal": case "venture": case "incubate": case "earthbend": case "airbend": case "goad": case "endure": case "unlock-door": case "lock-or-unlock-door": case "empower-jace": case "clash": case "vote": case "create-role":
       case "amass": case "adapt": case "monstrosity": case "bolster": case "support": case "scry": case "surveil":
       case "keyword-action": case "blight": case "discover": case "explore": case "connive": case "regenerate":
       case "manifest": case "cloak": case "manifest-dread":
@@ -702,7 +761,7 @@ class Analyzer {
         this.diagnostic("unsupported-scope", path, "This action's implicit runtime selections need a rule-specific binding model.", ["701"]);
         context.objects = []; context.players = []; context.quantities = [];
         return;
-      case "optional-group": case "choice": case "simultaneous": case "modal": case "create-delayed-trigger": case "create-reflexive-trigger": case "create-replacement": case "roll-dice": case "roll-again": case "flip-coin":
+      case "optional-group": case "choice": case "villainous-choice": case "simultaneous": case "modal": case "create-delayed-trigger": case "create-reflexive-trigger": case "create-replacement": case "roll-dice": case "roll-again": case "flip-coin":
         return; // Handled above; retained for exhaustiveness.
       default: {
         const unreachable: never = effect;
@@ -816,7 +875,7 @@ class Analyzer {
     const id = this.id(path, "ability");
     const you = this.id(path, "you");
     const role = ability.kind === "activated" || ability.kind === "loyalty" ? "activator"
-      : ability.kind === "triggered" || ability.kind === "chapter" || ability.kind === "case-solve" ? "trigger-controller"
+      : ability.kind === "triggered" || ability.kind === "chapter" || ability.kind === "visit" || ability.kind === "case-solve" ? "trigger-controller"
       : ability.kind === "spell" ? "spell-controller" : ability.kind === "additional-cost" ? "prospective-caster" : "static-source-controller";
     this.node({ id, path, node: "ability", source, face, abilityKind: ability.kind, you, rules: ["113", "109.5"] });
     this.node({ id: you, path, node: "runtime-player", scope: id, role, rules: ["109.5"] });
@@ -863,8 +922,28 @@ class Analyzer {
         this.sentences(ability.reflexive ?? [], child(path, "reflexive"), { ...context, barrier });
         break;
       }
+      case "linked-triggers": {
+        const barrier = "Linked triggered abilities need the static ability's reveal events bound as their \"this way\".";
+        this.diagnostic("unsupported-scope", path, barrier, ["603.11", "607.2a"]);
+        this.walk(ability.static, child(path, "static"), { ...context, barrier });
+        this.walk(ability.triggers, child(path, "triggers"), { ...context, barrier });
+        break;
+      }
+      case "visit":
+        this.diagnostic("unsupported-scope", path, "A visit ability needs its roll-to-visit event and the printing's lit-up numbers bound; neither is in the Oracle text.", ["701.52", "702.159a", "717.1"]);
+        this.sentences(ability.effects, child(path, "effects"), context);
+        break;
+      case "sticker":
+        this.diagnostic("unsupported-scope", path, "A sticker's ability belongs to the object it is put on; that object and the ticket payment are not bound.", ["123.3c", "123.7"]);
+        if (ability.sticker.sticker === "ability")
+          this.walk(ability.sticker.ability, child(path, "sticker/ability"), { ...context, barrier: "Sticker ability scope is unsupported." });
+        break;
       case "max-speed":
         this.diagnostic("unsupported-scope", path, "The nested ability's source and controller scope have not been bound.", ["702.179"]);
+        this.walk(ability.ability, child(path, "ability"), { ...context, barrier: "Nested ability scope is unsupported." });
+        break;
+      case "infinity":
+        this.diagnostic("unsupported-scope", path, "The nested ability applies only while the permanent is harnessed; that designation history is not bound.", ["702.186b", "701.64b"]);
         this.walk(ability.ability, child(path, "ability"), { ...context, barrier: "Nested ability scope is unsupported." });
         break;
       case "class-level-bar": {
@@ -872,6 +951,12 @@ class Analyzer {
         this.diagnostic("unsupported-scope", path, barrier, ["716.2", "716.3"]);
         this.walk(ability.costs, child(path, "costs"), { ...context, phase: "payment", barrier });
         this.walk(ability.abilities, child(path, "abilities"), { ...context, barrier });
+        break;
+      }
+      case "anchor-words": {
+        const barrier = "Anchor-word abilities need the linked as-enters choice and their own ability scopes bound.";
+        this.diagnostic("unsupported-scope", path, barrier, ["614.12c", "607.2m"]);
+        this.walk(ability.options, child(path, "options"), { ...context, barrier });
         break;
       }
       case "case-solve": case "case-solved": {

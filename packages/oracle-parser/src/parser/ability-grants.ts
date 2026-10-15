@@ -2,12 +2,12 @@
 // among keywords, the abilities of other objects, keyword costs stated in a
 // following sentence, and "can't have" prohibitions (CR 113.10–113.11).
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-import type { Effect, GainedAbility, GrantedKeywordCost, KeywordInstance, ObjectRef } from "../ast.ts";
+import type { AbilityRemoval, CounterSpec, Effect, GainedAbility, GrantedKeywordCost, KeywordInstance, ObjectRef, Sentence } from "../ast.ts";
 import { isManaSymbol } from "../symbols.ts";
 import type { Cursor } from "./cursor.ts";
 import { parseCostList } from "./costs.ts";
-import { isCostKeyword, parseKeyword, parseKeywordName } from "./keywords.ts";
-import { parseObjectRef } from "./refs.ts";
+import { isCostKeyword, parseKeyword, parseKeywordName, parseProtectionScopes } from "./keywords.ts";
+import { parseCounterSpec, parseObjectRef } from "./refs.ts";
 
 type KeywordGrant = Extract<GainedAbility, { gained: "keyword" }>;
 
@@ -32,25 +32,57 @@ export function parseKeywordChoiceGrant(c: Cursor): Extract<GainedAbility, { gai
   });
 }
 
+/** "protection from colorless or from the color of your choice": one
+ * protection ability whose quality the granting player chooses among the
+ * printed alternatives while the instruction is applied (CR 702.16a, 608.2d). */
+export function parseProtectionChoiceGrant(c: Cursor): Extract<GainedAbility, { gained: "keyword-choice" }> | null {
+  return c.attempt(c => {
+    if (c.word("protection") === null) return null;
+    const options: KeywordInstance[] = [];
+    for (;;) {
+      const from = parseProtectionScopes(c, false, true);
+      if (!from || from.length !== 1) return null;
+      options.push({ keyword: "protection", from });
+      const next = c.peek(1);
+      if (!c.isWord("or") || next?.kind !== "word" || next.possessive || next.value !== "from") break;
+      c.next();
+    }
+    if (options.length < 2) return null;
+    // The fresh color choice is the granting player's own; a choice by
+    // another player would be a second chooser this node cannot carry.
+    if (options.some(option => option.from?.some(scope => scope.scope === "fresh-choice" && scope.who.player !== "you"))) return null;
+    return { gained: "keyword-choice", who: { player: "you" }, count: { amount: "fixed", value: 1 }, options, when: "granting-effect-applies" };
+  });
+}
+
 /** CR 702.62a: a card given suspend while in exile gets the bare keyword;
  * its hand-payment parameters are not part of what the effect grants. The
- * grant is rejected after "exile … with N time counters on it": that entry
- * modifier has no representation yet and must not pass as a card filter. */
+ * time counters of a preceding "exile … with N time counters on it" belong
+ * to that exile instruction (`exile.counters`). */
 export function parseBareSuspendGrant(c: Cursor): KeywordGrant | null {
   return c.attempt(c => {
     if (c.word("suspend") === null || c.peek()?.kind === "number" || c.isWord("x")) return null;
-    const word = (index: number, ...values: string[]) => {
-      const token = c.tokens[index];
-      return token?.kind === "word" && !token.possessive && values.includes(token.value);
-    };
-    for (let index = 0; index < c.pos; index++) {
-      if (!word(index, "with")) continue;
-      for (let next = index + 1; next <= index + 3; next++)
-        if (word(next, "time") && word(next + 1, "counter", "counters") && word(next + 2, "on") && word(next + 3, "it", "them"))
-          return c.fail("represented exile-with-counters instruction");
-    }
     return { gained: "keyword", keyword: { keyword: "suspend" } };
   });
+}
+
+function contains(value: unknown, test: (node: Record<string, unknown>) => boolean): boolean {
+  if (Array.isArray(value)) return value.some(item => contains(item, test));
+  if (!value || typeof value !== "object") return false;
+  return test(value as Record<string, unknown>) || Object.values(value).some(item => contains(item, test));
+}
+
+/** "Exile X with N time counters on it. … it gains suspend." Where the exiled
+ * object kept "with N time counters" as a requirement on itself, the
+ * sentence that sets up the suspended card was not understood, so the bare
+ * suspend grant must not pass. */
+export function grantsSuspendAfterCounterFilter(sentences: Sentence[]): boolean {
+  const filtered = sentences.findIndex(sentence => contains(sentence.steps, node => node.effect === "exile" &&
+    contains(node.what, inner => Array.isArray(inner.counterConstraints) &&
+      contains(inner.counterConstraints, constraint => (constraint.counter as { type?: string } | undefined)?.type === "time"))));
+  if (filtered < 0) return false;
+  return contains(sentences.slice(filtered), node => node.gained === "keyword" &&
+    (node.keyword as KeywordInstance).keyword === "suspend" && !(node.keyword as KeywordInstance).cost);
 }
 
 const ABILITY_KINDS = ["activated", "triggered", "loyalty"] as const;
@@ -201,6 +233,18 @@ export function parseAbilityProhibition(c: Cursor): KeywordInstance[] | null {
   });
 }
 
+/** CR 113.6i: "can't have [kind] counters put on it/them". Nothing can put
+ * such a counter on the object, by cost or effect, including as it enters;
+ * counters already on it stay. */
+export function parseCounterProhibition(c: Cursor): CounterSpec | "any" | null {
+  return c.attempt((c): CounterSpec | "any" | null => {
+    if (!c.words("can't", "have")) return null;
+    const counter = c.isWord("counters") ? "any" : parseCounterSpec(c);
+    if (!counter || c.word("counters") === null || !c.words("put", "on") || c.word("it", "them") === null) return null;
+    return counter;
+  });
+}
+
 /** The resolving form shares the grammatical subject of the preceding
  * coordinated modifier ("…lose hexproof and can't have hexproof"). */
 export function parseAbilityProhibitionEffect(c: Cursor, previous: ObjectRef | undefined): Extract<Effect, { effect: "cant-have-abilities" }> | null {
@@ -209,5 +253,19 @@ export function parseAbilityProhibitionEffect(c: Cursor, previous: ObjectRef | u
     if (!what) return null;
     const abilities = parseAbilityProhibition(c);
     return abilities && { effect: "cant-have-abilities", what, abilities };
+  });
+}
+
+/** "all landwalk abilities", "all "bands with other" abilities": every
+ * ability of a parameterized keyword family, written as the keyword without
+ * its parameter (CR 702.14a; 702.22b). */
+export function parseKeywordFamilyRemoval(c: Cursor): Extract<AbilityRemoval, { removal: "listed" }> | null {
+  return c.attempt(c => {
+    if (c.word("all") === null) return null;
+    let keyword: string | null = null;
+    if (c.word("landwalk") !== null) keyword = "landwalk";
+    else if (c.punct("\"") && c.words("bands", "with", "other") && c.punct("\"")) keyword = "bands with other";
+    if (!keyword || c.word("abilities") === null) return null;
+    return { removal: "listed", abilities: [{ gained: "keyword", keyword: { keyword } }] };
   });
 }

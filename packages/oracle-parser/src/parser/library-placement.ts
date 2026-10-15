@@ -52,7 +52,10 @@ function lookedLibraryBefore(c: Cursor, verbAt: number): ZoneRef | null {
     const count = parseAmount(look);
     if (!count || look.word("cards") === null || look.word("of") === null) return null;
     const library = parseZoneRef(look);
-    return library && look.done() && library.zone === "library" && library.owner && !library.position ? library : null;
+    // "…top X cards of your library, where X is …, then put them back": the
+    // definition of X follows the library and does not change which one it is.
+    const definesX = !look.done() && look.punct(",") && look.words("where", "x", "is");
+    return library && (look.done() || definesX) && library.zone === "library" && library.owner && !library.position ? library : null;
   }
   return null;
 }

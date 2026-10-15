@@ -6,6 +6,7 @@ import type { Amount, Effect, ObjectFilter, ObjectRef, PlayerRef, Trigger } from
 import { Cursor } from "./cursor.ts";
 import type { Token } from "../lexer.ts";
 import { parseAmount, parseObjectRef, parsePlayerRef } from "./refs.ts";
+import { parseStackCopyExceptions } from "./entry-copy.ts";
 
 type CopyEffect = Extract<Effect, { effect: "copy-stack-object" }>;
 type RetargetEffect = Extract<Effect, { effect: "choose-new-targets" }>;
@@ -77,7 +78,7 @@ function stackReference(ref: ObjectRef): boolean {
     || ("filter" in ref && stackFilter(ref.filter));
 }
 
-function actor(c: Cursor, previous: PlayerRef | undefined, imperative: string, conjugated: string): { who: PlayerRef; optional?: true; explicitOptional: boolean } | null {
+function actor(c: Cursor, previous: PlayerRef | undefined, imperative: string, conjugated: string): { who: PlayerRef; optional?: true; decidedBy?: PlayerRef; explicitOptional: boolean } | null {
   return c.attempt(c => {
     const stated = parsePlayerRef(c);
     const optional = !!stated && c.word("may") !== null;
@@ -85,7 +86,18 @@ function actor(c: Cursor, previous: PlayerRef | undefined, imperative: string, c
     if (!verb || (optional && verb !== imperative)) return null;
     const who = stated ?? (verb === imperative && previous?.player !== "they" ? { player: "you" as const } : previous);
     if (!who) return null;
-    return { who, ...(optional ? { optional: true as const } : {}), explicitOptional: optional };
+    // Another player's "may" is that player's decision (EffectBase.decidedBy).
+    const decidedBy = optional && stated && stated.player !== "you" ? stated : undefined;
+    return { who, ...(optional ? { optional: true as const } : {}), ...(decidedBy ? { decidedBy } : {}), explicitOptional: optional };
+  });
+}
+
+/** "the copy", "that copy", "the copies", "those copies", "each copy". */
+function copyResult(c: Cursor): Extract<ObjectRef, { ref: "copy-result" }> | null {
+  return c.attempt(c => {
+    if (c.words("the", "copy") || c.words("that", "copy")) return { ref: "copy-result" as const, number: "singular" as const };
+    if (c.words("the", "copies") || c.words("those", "copies") || c.words("each", "copy")) return { ref: "copy-result" as const, number: "plural" as const };
+    return null;
   });
 }
 
@@ -115,8 +127,22 @@ export function parseStackCopy(c: Cursor, previousActor?: PlayerRef, proof?: Sta
       if (repetitions) count = repetitions;
     }
     if (count.amount === "fixed" && (!Number.isInteger(count.value) || count.value < 0)) return null;
+    // ", except the copy isn't legendary": the exceptions end the instruction.
+    const copyExceptions = c.attempt(parseStackCopyExceptions);
+    const copied: CopyEffect = { effect: "copy-stack-object", what, who: by.who, count,
+      ...(copyExceptions ? { copyExceptions } : {}),
+      ...(by.optional ? { optional: true } : {}), ...(by.decidedBy ? { decidedBy: by.decidedBy } : {}) };
+    // "… and may choose new targets for the copy": the copying player's own
+    // option for each copy as it is created (CR 707.10c).
+    const retarget = c.attempt(c => {
+      if (!c.words("and", "may", "choose") || !(c.words("new", "targets", "for") || c.words("a", "new", "target", "for"))) return null;
+      const what = copyResult(c);
+      const after: Effect = { effect: "choose-new-targets", what: what ?? { ref: "it" }, who: by.who, timing: "copy-creation", optional: true };
+      return what && foldCopyRetarget(copied, after);
+    });
+    if (retarget) return retarget;
     if (ambiguousOptionalTail(c, by.explicitOptional)) return null;
-    return { effect: "copy-stack-object", what, who: by.who, count, ...(by.optional ? { optional: true } : {}) };
+    return copied;
   });
 }
 

@@ -107,10 +107,13 @@ describe("selection grammar scopes and diagnostics", () => {
       "Destroy each creature with total power 3 or less.", "Exile all cards with different names.",
       "Creatures with different powers get +1/+1.", "If you control three creatures with different powers, draw a card.",
       "Whenever three creatures with different powers attack, draw a card.",
-      "Whenever this creature attacks, if you attacked with creatures with total power 6 or greater this combat, draw a card.",
       "Destroy target creature with total power and toughness 5 or less.",
       "Sacrifice two target creatures with total power 3 or greater: Draw a card.",
     ]) assert.equal(parseOracleText(text).ok, false, text);
+    // A dedicated total over the creatures attacked
+    // with, not a collective choice in a history (formerly asserted to fail).
+    assert.deepEqual(parsed("Whenever this creature attacks, if you attacked with creatures with total power 6 or greater this combat, draw a card.")[0].condition, {
+      condition: "attacked", who: { player: "you" }, during: "this-combat", with: { types: ["creature"] }, groupConstraints: [total("power", n(6), "ge")] });
   });
   it("rejects malformed clauses and invalid fixed cardinalities without swallowing text", () => {
     for (const text of ["with total mana value", "with total loyalty 4 or less", "with different colors", "with different name"]) {

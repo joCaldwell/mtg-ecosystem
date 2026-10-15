@@ -20,7 +20,7 @@ export interface CardBindingInput {
 export type BindingPhase = "payment" | "resolution" | "continuous" | "trigger-match";
 export type BindingCardinality = "one" | "many" | "unknown";
 export type SymbolicAmount = Extract<Amount, { amount: "x" | "that-number" | "that-much" | "replacement-event-quantity" }>;
-export type ReferenceExpression = ObjectRef | { ref: "affected-object" } | { recipient: "they" } | PlayerRef | SymbolicAmount;
+export type ReferenceExpression = ObjectRef | { ref: "affected-object" } | { ref: "those-counters" } | { recipient: "they" } | PlayerRef | SymbolicAmount;
 
 interface NodeBase { id: string; path: string; rules: string[] }
 export type BindingNode = NodeBase & (

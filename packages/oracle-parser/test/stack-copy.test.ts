@@ -71,14 +71,25 @@ describe("copying spells and abilities on the stack", () => {
     assert.deepEqual(effects("Copy target permanent spell you control."), [{ effect: "copy-stack-object", who: you, count: one,
       what: { ref: "target", filter: { cls: "spell", permanent: true, control: "you" }, count: one, selectionId: "line:0:1" },
     }]);
-    for (const text of ["Copy target permanent.", "Copy target creature.", "Copy that card.", "Copy target spell in your graveyard.", "Copy target spell or permanent.", "Copy target activated or static ability.", "Copy target static ability."])
+    for (const text of ["Copy target permanent.", "Copy target creature.", "Copy target spell in your graveyard.", "Copy target spell or permanent.", "Copy target activated or static ability.", "Copy target static ability."])
       assert.equal(parseOracleText(text).ok, false, text);
+    // CR 707.12: a card is copied where it is, never as a stack copy.
+    assert.deepEqual(effects("Copy that card."), [{ effect: "copy-card", who: you, count: one, what: { ref: "that", filter: { cls: "card" } } }]);
   });
   it("refuses to guess that an untyped copied object is on the stack", () => {
     // A card can also be copied in exile before that copy is cast (707.12).
     // Even a nearby spell mention is insufficient for a local parser to bind it.
-    for (const text of ["Copy it.", "Copy them.", "Exile target instant or sorcery card from a graveyard and copy it.", "Exile target instant or sorcery card. Copy it. You may cast the copy.", "Counter target spell. Copy it."])
+    for (const text of ["Copy it.", "Copy them.", "Exile target instant or sorcery card from a graveyard and copy it.", "Counter target spell. Copy it."])
       assert.equal(parseOracleText(text).ok, false, text);
+    // Casting the copy proves a card copy (707.12); nothing is taken to be on the stack.
+    assert.deepEqual(parsed("Exile target instant or sorcery card. Copy it. You may cast the copy.").abilities, [{
+      kind: "spell", abilityWord: undefined, effects: [
+        { steps: [{ effect: "exile", what: { ref: "target", count: one, selectionId: "line:0:1",
+          filter: { allOf: [{ anyOf: [{ types: ["instant"] }, { types: ["sorcery"] }] }], cls: "card" } } }] },
+        { steps: [{ effect: "copy-card", who: you, count: one, what: { ref: "it" } }] },
+        { steps: [{ effect: "play-card", optional: true, instruction: { who: you, action: "cast", what: copy } }] },
+      ],
+    }]);
     assert.deepEqual(complete(parseStackCopy, "copy this spell"), { effect: "copy-stack-object", who: you, count: one, what: { ref: "this", noun: "spell" } });
     assert.deepEqual(complete(parseStackCopy, "copy that spell or ability"), { effect: "copy-stack-object", who: you, count: one,
       what: { ref: "that", filter: { allOf: [{ anyOf: [{ cls: "spell" }, { cls: "ability" }] }] } },

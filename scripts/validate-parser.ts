@@ -57,6 +57,8 @@ export function evaluateCorpus(cards: ScryfallCard[], options: { parser?: typeof
     unique.set(key, card);
   }
   let cardsOk = 0, linesChecked = 0, linesOk = 0;
+  // The current coverage target counts only cards legal in Commander.
+  const commanderLegal = { cardsChecked: 0, cardsOk: 0 };
   const bindingSummary = emptyBindingSummary();
   const failures = new Map<string, { count: number; examples: { name: string; text: string; error: string }[] }>();
   const outcomes: Record<string, { name: string; ok: boolean; astSha256?: string; referencesFullyBound: boolean; bindingSha256: string }> = {};
@@ -97,6 +99,7 @@ export function evaluateCorpus(cards: ScryfallCard[], options: { parser?: typeof
       }
     }
     if (ok) cardsOk++;
+    if (card.legalities?.commander === "legal") { commanderLegal.cardsChecked++; if (ok) commanderLegal.cardsOk++; }
     const binding = analyzeCardBindings({ identity: id, source: card, faces: bindingFaces });
     addBindingSummary(bindingSummary, binding);
     outcomes[id] = { name: card.name, ok, ...(ok ? { astSha256: sha256(JSON.stringify(ast)) } : {}),
@@ -104,7 +107,7 @@ export function evaluateCorpus(cards: ScryfallCard[], options: { parser?: typeof
   }
   return {
     scope: SCOPE, paperEvidence: evidence.fingerprint, inputRecords: cards.length, excluded,
-    cardsChecked: unique.size, cardsOk, linesChecked, linesOk, bindingSummary,
+    cardsChecked: unique.size, cardsOk, commanderLegal, linesChecked, linesOk, bindingSummary,
     failures: [...failures].map(([key, group]) => ({ key, ...group }))
       .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key)),
     outcomes,
@@ -147,6 +150,7 @@ function main() {
   console.log(`Source SHA-256 (includes working changes): ${report.parser.sourceSha256}`);
   console.log(`Scope: ${report.scope}; excluded records: ${JSON.stringify(report.excluded)}`);
   console.log(`Cards accepted: ${report.cardsOk}/${report.cardsChecked} (${percent(report.cardsOk, report.cardsChecked)})`);
+  console.log(`Commander-legal cards accepted: ${report.commanderLegal.cardsOk}/${report.commanderLegal.cardsChecked} (${percent(report.commanderLegal.cardsOk, report.commanderLegal.cardsChecked)})`);
   console.log(`Ability blocks accepted: ${report.linesOk}/${report.linesChecked} (${percent(report.linesOk, report.linesChecked)})`);
   console.log(`Reference analysis fully bound: ${report.bindingSummary.cardsFullyBound}/${report.cardsChecked}; unresolved obligations: ${report.bindingSummary.unresolved}`);
   console.log("Acceptance is not semantic correctness; run npm run check in oracle-parser.");

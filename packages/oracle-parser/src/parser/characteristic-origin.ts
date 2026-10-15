@@ -65,7 +65,7 @@ export function finalizeCharacteristicDefinitions(ability: Ability): Ability {
       // any abilities they themselves grant are ordinary grants again.
       const childOrigin = typeof value.kind === 'string' ? 'granted' : origin;
       result[key] = visit(child, value.effect === 'create-token' && key === 'token'
-        || value.static === 'entry-copy' && key === 'changes' ? 'intrinsic' : childOrigin);
+        || value.static === 'entry-copy' && key === 'changes' || key === 'copyExceptions' ? 'intrinsic' : childOrigin);
     }
     if (value.kind === 'static' && origin === 'granted' && record(value.effect)) {
       result.effect = ordinaryCharacteristicDefinition(result.effect as StaticEffect);

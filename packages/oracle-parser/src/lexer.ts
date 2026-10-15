@@ -9,14 +9,16 @@
 
 import type { CardNameCatalog } from "./card-names.ts";
 
-export type Punct = "." | "," | ":" | ";" | "—" | "•" | '"' | "+" | "-" | "/" | "!" | "|";
+export type Punct = "." | "," | ":" | ";" | "—" | "•" | '"' | "'" | "+" | "-" | "/" | "!" | "|" | "[" | "]";
 
 /** Location within one normalized source line, retained when parsers slice or
  * clone tokens. The index counts tokens, including punctuation and symbols. */
 export interface TokenProvenance { sourceId: string; index: number }
 
 export type Token = { provenance?: TokenProvenance } & (
-  | { kind: "word"; value: string; raw: string; possessive: boolean }
+  /** possessiveSuffix is the printed ending of a possessive ("'s" or the bare
+   * apostrophe of "owners'"), kept so labels can be reproduced exactly. */
+  | { kind: "word"; value: string; raw: string; possessive: boolean; possessiveSuffix?: "'s" | "'" }
   | { kind: "number"; value: number; raw: string }
   | { kind: "symbol"; value: string } // "{2}" → "2", "{G/P}" → "G/P", "{T}" → "T"
   | { kind: "selfref"; possessive: boolean }
@@ -33,7 +35,7 @@ export class LexError extends Error {
   }
 }
 
-const PUNCT_CHARS = new Set([".", ",", ":", ";", "—", "•", '"', "+", "-", "/", "!", "|"]);
+const PUNCT_CHARS = new Set([".", ",", ":", ";", "—", "•", '"', "+", "-", "/", "!", "|", "[", "]"]);
 
 /** Contractions kept whole as a single word token (value includes the apostrophe). */
 const CONTRACTIONS = new Set([
@@ -44,7 +46,7 @@ const CONTRACTIONS = new Set([
 ]);
 
 function isLetter(c: string): boolean {
-  return /[a-zA-Zàáâäèéêëìíîïòóôöùúûü]/.test(c);
+  return /\p{L}/u.test(c);
 }
 
 export function lex(line: string, sourceId?: string, catalog?: CardNameCatalog): Token[] {
@@ -127,6 +129,7 @@ export function lex(line: string, sourceId?: string, catalog?: CardNameCatalog):
       let raw = line.slice(i, j);
       i = j;
       let possessive = false;
+      let possessiveSuffix: "'s" | "'" | undefined;
       let value = raw.toLowerCase();
 
       if (CONTRACTIONS.has(value)) {
@@ -135,17 +138,37 @@ export function lex(line: string, sourceId?: string, catalog?: CardNameCatalog):
         value = value.slice(0, -2);
         raw = raw.slice(0, -2);
         possessive = true;
+        possessiveSuffix = "'s";
       } else if (i < line.length && line[i] === "'" && value.endsWith("s")) {
         // plural possessive: owners'
         i++;
         possessive = true;
+        possessiveSuffix = "'";
       }
-      tokens.push({ kind: "word", value, raw, possessive });
+      tokens.push({ kind: "word", value, raw, possessive, ...(possessiveSuffix ? { possessiveSuffix } : {}) });
       continue;
     }
 
     if (PUNCT_CHARS.has(c)) {
       tokens.push({ kind: "punct", value: c as Punct });
+      i++;
+      continue;
+    }
+
+    // CR 702.186: the infinity symbol opens an Infinity permanent's "∞ —"
+    // ability label; it is a word of that label, not a number.
+    if (c === "∞" && tokens.length === 0) {
+      tokens.push({ kind: "word", value: "∞", raw: "∞", possessive: false });
+      i++;
+      continue;
+    }
+
+    // An ability quoted inside a quoted ability uses single quotation marks
+    // ("Mountains you control have '{T}: ...'"). Apostrophes inside words and
+    // plural possessives were consumed with their word above, so a free mark
+    // is a quotation mark, and only within an open double-quoted ability.
+    if (c === "'" && tokens.filter(token => token.kind === "punct" && token.value === '"').length % 2 === 1) {
+      tokens.push({ kind: "punct", value: "'" });
       i++;
       continue;
     }
@@ -179,6 +202,14 @@ function settleQuotedPunctuation(tokens: Token[]): void {
     if (open && previous?.kind === "punct" && (previous.value === "," || (previous.value === "." && !continues))) {
       tokens[index - 1] = token;
       tokens[index] = previous;
+    }
+    // The same mark typeset inside a nested closing quotation: ...target.'"
+    const inner = tokens[index - 2];
+    if (open && previous?.kind === "punct" && previous.value === "'" && inner?.kind === "punct" &&
+        (inner.value === "," || (inner.value === "." && !continues))) {
+      tokens[index - 2] = previous;
+      tokens[index - 1] = token;
+      tokens[index] = inner;
     }
     open = !open;
   }

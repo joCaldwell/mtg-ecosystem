@@ -31,7 +31,12 @@ describe("turn-scoped continuous modifiers", () => {
     });
   });
   it("does not extend the prefix to prevention or other static families", () => {
-    fails("During your turn, prevent all damage that would be dealt to you.", "Enchantment");
+    // A static prevention is checked when each damage event would occur, so
+    // the turn prefix is the same continuous condition (CR 615.1, 611.3a).
+    assert.deepEqual(one("During your turn, prevent all damage that would be dealt to you.", "Enchantment"), {
+      kind: "static", effect: { static: "conditional", condition: { condition: "your-turn" }, effect: { static: "prevent-damage",
+        prevention: { eventScope: { sources: "simultaneous", recipients: "simultaneous" },
+          shield: { shield: "events", occurrence: "each", prevent: { prevent: "all" } }, kind: "all", to: [{ player: "you" }] } } } });
     fails("During each turn, this creature has first strike.", "Creature — Cat");
   });
   it("ends a condition's noun phrase at a comma that has no conjunction", () => {

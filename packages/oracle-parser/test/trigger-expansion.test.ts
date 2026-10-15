@@ -60,7 +60,17 @@ describe("trigger semantic preservation", () => {
 
   it("does not erase delayed-event or first-occurrence qualifiers", () => {
     unsupported("At the beginning of next turn");
-    unsupported("At the beginning of your next upkeep");
+    // No longer rejected. The "next" qualifier is kept as a delayed
+    // trigger for that one occurrence created by a spell instruction (CR
+    // 603.7b; Pact of Negation), never an ordinary recurring upkeep trigger.
+    const next = parseOracleText("At the beginning of your next upkeep, draw a card.");
+    assert.equal(next.ok, true);
+    assert.deepEqual(JSON.parse(JSON.stringify(next.ok ? next.abilities : null)), [{ kind: "spell", effects: [{ steps: [{
+      effect: "create-delayed-trigger", trigger: { trigger: "phase", phase: "upkeep", whose: "your" },
+      occurrence: "next", nextOnly: true, targets: "delayed-ability",
+      effects: [{ steps: [{ effect: "draw", who: { player: "you" }, amount: fixedOne }] }],
+    }] }] }]);
+    assert.equal(parseOracleText("At the beginning of your next upkeep, draw a card.", undefined, { typeLine: "Creature — Elf" }).ok, false);
     unsupported("At the beginning of your first upkeep");
   });
 
@@ -127,7 +137,10 @@ describe("structured trigger alternatives", () => {
         } },
       ],
     });
-    unsupported("Whenever this creature attacks and isn't blocked");
+    // CR 509.3g: now its own declare-blockers event (see trigger-combat-and-origins.test.ts).
+    assert.deepEqual(trigger("Whenever this creature attacks and isn't blocked"), {
+      trigger: "attacks-and-isnt-blocked", what: thisCreature,
+    });
     unsupported("Whenever this creature dies or");
     unsupported("Whenever this creature or one or more creatures die");
   });

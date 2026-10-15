@@ -14,6 +14,7 @@ function parseBefore(c: Cursor): TimingRestriction["before"] | null {
   return c.attempt(c => {
     if (c.word("before") === null) return null;
     if (c.words("attackers", "are", "declared")) return "declare-attackers";
+    if (c.words("blockers", "are", "declared")) return "declare-blockers";
     if (c.words("the", "end", "step")) return "end-step";
     if (c.words("the", "end", "of", "combat", "step")) return "end-of-combat";
     return null;
@@ -60,7 +61,10 @@ function parseTiming(c: Cursor, hasPermission: boolean): ActivationRestriction |
       c.punct(",");
       return parseBefore(c);
     });
-    return { restriction: "timing", ...(turn ? { turn } : {}), ...(phase ? { phase } : {}), ...(before ? { before } : {}) };
+    // "during combat after blockers are declared": the combat phase from the
+    // declaration of blockers onward (CR 509.1).
+    const after = !before && phase === "combat" && c.attempt(c => c.words("after", "blockers", "are", "declared") ? true : null) ? "declare-blockers" as const : undefined;
+    return { restriction: "timing", ...(turn ? { turn } : {}), ...(phase ? { phase } : {}), ...(before ? { before } : {}), ...(after ? { after } : {}) };
   });
 }
 

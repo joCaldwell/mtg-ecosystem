@@ -80,10 +80,13 @@ describe("branch-local filter restrictions", () => {
   });
 
   it("rejects ambiguous shared scope and malformed alternatives with full rewind", () => {
+    // A closing card-zone phrase covers every card alternative before it.
+    assert.deepEqual(parseFilter(new Cursor(lex("creature card or artifact card in your graveyard"))), { anyOf: [
+      { types: ["creature"], cls: "card", zone: { zone: "graveyard", owner: "your" } },
+      { types: ["artifact"], cls: "card", zone: { zone: "graveyard", owner: "your" } }] });
     for (const text of [
       "legendary creature or creature with mana value one you control",
       "nonlegendary creature or artifact creature you control",
-      "creature card or artifact card in your graveyard",
       "artifact or enchantment creature",
       "Elf or Goblin Warrior creature",
       "legendary creature or a",

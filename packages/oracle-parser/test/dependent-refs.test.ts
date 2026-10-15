@@ -112,7 +112,9 @@ describe("relative characteristic predicates and prior type choices", () => {
     assert.deepEqual(complete(parseFilter, "creature or planeswalker that's white or blue"), { allOf: [ { anyOf: [{ types: ["creature"] }, { types: ["planeswalker"] }] }, { allOf: [{ anyOf: [{ colors: ["white"] }, { colors: ["blue"] }] }] } ] });
     assert.deepEqual(complete(parseFilter, "creatures that are tapped and attacking"), { types: ["creature"], status: ["tapped", "attacking"] });
     assert.deepEqual(complete(parseFilter, "creatures that are enchanted or equipped"), { types: ["creature"], allOf: [{ anyOf: [{ status: ["enchanted"] }, { status: ["equipped"] }] }] });
-    for (const text of ["white or blue", "creature that's mysterious", "creature that's a Food or a Golem you control", "creatures that are tapped and attacking or blocking", "creature that's a Food or", "creatures that aren't Foods"]) incomplete(parseFilter, text);
+    for (const text of ["white or blue", "creature that's mysterious", "creature that's a Food or a Golem you control", "creatures that are tapped and attacking or blocking", "creature that's a Food or"]) incomplete(parseFilter, text);
+    // A negated subtype predicate is now represented exactly (nonSubtypes), so this former rejection is positive.
+    assert.deepEqual(complete(parseFilter, "creatures that aren't Foods"), { types: ["creature"], nonSubtypes: ["Food"] });
   });
   it("keeps mixed adjective-or-noun alternatives inside the relative predicate", () => {
     assert.deepEqual(complete(parseFilter, "card that's red or a Goblin"), { cls: "card", anyOf: [{ colors: ["red"] }, { subtypes: ["Goblin"] }] });
