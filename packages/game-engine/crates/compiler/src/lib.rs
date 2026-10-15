@@ -120,6 +120,52 @@ pub mod fixtures {
             include_str!("../../../tests/fixtures/azure-mage.json"),
         ),
     ];
+    pub const DAMAGE_LIFE_RECORDS: [(&str, &str); 23] = [
+        STACK_RECORDS[0],
+        STACK_RECORDS[1],
+        STACK_RECORDS[2],
+        STACK_RECORDS[3],
+        STACK_RECORDS[4],
+        STACK_RECORDS[5],
+        STACK_RECORDS[6],
+        STACK_RECORDS[7],
+        STACK_RECORDS[8],
+        STACK_RECORDS[9],
+        STACK_RECORDS[10],
+        STACK_RECORDS[11],
+        STACK_RECORDS[12],
+        STACK_RECORDS[13],
+        STACK_RECORDS[14],
+        STACK_RECORDS[15],
+        (
+            "lightning-bolt",
+            include_str!("../../../tests/fixtures/lightning-bolt.json"),
+        ),
+        (
+            "prodigal-sorcerer",
+            include_str!("../../../tests/fixtures/prodigal-sorcerer.json"),
+        ),
+        (
+            "soul-feast",
+            include_str!("../../../tests/fixtures/soul-feast.json"),
+        ),
+        (
+            "healing-hands",
+            include_str!("../../../tests/fixtures/healing-hands.json"),
+        ),
+        (
+            "sacred-nectar",
+            include_str!("../../../tests/fixtures/sacred-nectar.json"),
+        ),
+        (
+            "mountain",
+            include_str!("../../../tests/fixtures/mountain.json"),
+        ),
+        (
+            "flame-rift",
+            include_str!("../../../tests/fixtures/flame-rift.json"),
+        ),
+    ];
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -234,6 +280,19 @@ enum Step {
     Counter {
         what: CounterTarget,
     },
+    Damage {
+        source: DamageSource,
+        amount: Count,
+        to: DamageDestination,
+    },
+    GainLife {
+        who: PlayerSelector,
+        amount: Count,
+    },
+    LoseLife {
+        who: PlayerSelector,
+        amount: Count,
+    },
     ReturnToHand {
         what: Target,
         to: String,
@@ -263,6 +322,23 @@ enum SourceCost {
     Sacrifice { what: ThisObject },
     TapSelf {},
     Mana { symbols: Vec<String> },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "ref", rename_all = "kebab-case", deny_unknown_fields)]
+enum DamageSource {
+    #[serde(rename = "self")]
+    SelfReference {},
+    This {
+        noun: String,
+    },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "to", rename_all = "kebab-case", deny_unknown_fields)]
+enum DamageDestination {
+    AnyTarget {
+        #[serde(rename = "selectionId")]
+        selection_id: String,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -381,7 +457,7 @@ fn mana_cost(text: &str) -> Result<ManaCost, Failure> {
     Ok(cost)
 }
 
-fn source_lines(text: &str) -> Result<Vec<String>, Failure> {
+fn source_lines(text: &str, name: &str) -> Result<Vec<String>, Failure> {
     // Only the first subset's ASCII text/reminder normalization is consumed.
     // This checks source block association; it does not interpret rule bodies.
     // CR 207.2a, same pinned rules URL as the parser's normalize.ts.
@@ -415,7 +491,23 @@ fn source_lines(text: &str) -> Result<Vec<String>, Failure> {
     }
     Ok(normalized
         .lines()
-        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+        .map(|line| {
+            let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
+            // The reviewed archive normalizes a complete source name at the
+            // start of a block to ~ (CR 201.5). Keep ASCII word boundaries;
+            // literal-name and legendary-short-name grammar is not interpreted.
+            match line.strip_prefix(name) {
+                Some(rest)
+                    if rest
+                        .chars()
+                        .next()
+                        .is_some_and(|c| !c.is_ascii_alphanumeric() && c != '_') =>
+                {
+                    format!("~{rest}")
+                }
+                _ => line,
+            }
+        })
         .filter(|line| !line.is_empty())
         .collect())
 }
@@ -483,7 +575,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     if !result.ok || result.name != source.name || result.lines.iter().any(|l| !l.ok) {
         return Err(invalid("faces[0].result", "incomplete or mismatched parse"));
     }
-    if source_lines(&source.oracle_text)?
+    if source_lines(&source.oracle_text, &source.name)?
         != result
             .lines
             .iter()
@@ -699,6 +791,41 @@ fn append_spell_effects(
         }
         for step in &sentence.steps {
             let instruction = match step {
+                Step::Damage {
+                    source: DamageSource::SelfReference {},
+                    amount,
+                    to,
+                } => {
+                    let DamageDestination::AnyTarget { selection_id } = to;
+                    Instruction::DealDamage {
+                        target_slot: bind_target(
+                            program,
+                            slots,
+                            selection_id,
+                            TargetDomain::AnyDamageTarget,
+                        )?,
+                        amount: fixed_positive(amount)?,
+                        source_block,
+                    }
+                }
+                Step::GainLife { who, amount } => Instruction::GainLife {
+                    recipient: life_recipient(program, slots, who)?,
+                    amount: fixed_positive(amount)?,
+                    source_block,
+                },
+                Step::LoseLife { who, amount } => Instruction::LoseLife {
+                    recipient: life_recipient(program, slots, who)?,
+                    amount: fixed_positive(amount)?,
+                    source_block,
+                },
+                Step::Draw { who, amount }
+                    if who.player == "you" && who.selection_id.is_none() && fixed_one(amount) =>
+                {
+                    Instruction::DrawCards {
+                        count: Quantity::from(1),
+                        source_block,
+                    }
+                }
                 Step::Counter { what } if what.reference == "target" && fixed_one(&what.count) => {
                     let domain = match &what.filter {
                         CounterFilter::Spell {} => TargetDomain::StackSpell,
@@ -780,6 +907,31 @@ fn append_spell_effects(
     }
     Ok(())
 }
+fn fixed_positive(count: &Count) -> Result<Quantity, Failure> {
+    if count.amount != "fixed" || count.value == 0 {
+        return Err(unsupported(
+            "amount",
+            "only positive fixed quantities are supported",
+        ));
+    }
+    Ok(Quantity::from(i64::from(count.value)))
+}
+fn life_recipient(
+    program: &mut SpellProgram,
+    slots: &mut BTreeMap<String, u32>,
+    who: &PlayerSelector,
+) -> Result<LifeRecipient, Failure> {
+    match (who.player.as_str(), who.selection_id.as_deref()) {
+        ("you", None) => Ok(LifeRecipient::Controller),
+        ("target-player", Some(id)) => Ok(LifeRecipient::Target {
+            target_slot: bind_target(program, slots, id, TargetDomain::AnyPlayer)?,
+        }),
+        _ => Err(unsupported(
+            "who",
+            "unsupported life recipient or unbound target",
+        )),
+    }
+}
 fn bind_creature_target(
     program: &mut SpellProgram,
     slots: &mut BTreeMap<String, u32>,
@@ -839,7 +991,14 @@ fn lower_activation(
         }
     };
     let source_block = source_block(block)?;
-    let mut instructions = vec![];
+    let mut program = SpellProgram {
+        timing: SpellTiming::Instant,
+        resolution: SpellResolution::Instructions,
+        functioning_zone: FunctioningZone::Stack,
+        targets: vec![],
+        instructions: vec![],
+    };
+    let mut slots = BTreeMap::new();
     for sentence in effects {
         if sentence.steps.is_empty() {
             return Err(invalid(
@@ -852,7 +1011,24 @@ fn lower_activation(
                 player: "you".into(),
                 selection_id: None,
             };
-            instructions.push(match step {
+            let instruction = match step {
+                Step::Damage {
+                    source: DamageSource::This { noun },
+                    amount,
+                    to,
+                } if noun == "creature" => {
+                    let DamageDestination::AnyTarget { selection_id } = to;
+                    Instruction::DealDamage {
+                        target_slot: bind_target(
+                            &mut program,
+                            &mut slots,
+                            selection_id,
+                            TargetDomain::AnyDamageTarget,
+                        )?,
+                        amount: fixed_positive(amount)?,
+                        source_block,
+                    }
+                }
                 Step::Draw { who, amount } if *who == you && fixed_one(amount) => {
                     Instruction::DrawCards {
                         count: Quantity::from(1),
@@ -877,10 +1053,11 @@ fn lower_activation(
                         "unsupported activated operator, controller or cardinality",
                     ));
                 }
-            });
+            };
+            program.instructions.push(instruction);
         }
     }
-    if instructions.is_empty() {
+    if program.instructions.is_empty() {
         return Err(unsupported("abilities.effects", "empty activated effects"));
     }
     // CR 602.1–2 / 608.2c: the cost is paid while activating; the ordered
@@ -889,13 +1066,7 @@ fn lower_activation(
     Ok(ActivatedAbility {
         functioning_zone: FunctioningZone::Battlefield,
         cost,
-        program: SpellProgram {
-            timing: SpellTiming::Instant,
-            resolution: SpellResolution::Instructions,
-            functioning_zone: FunctioningZone::Stack,
-            targets: vec![],
-            instructions,
-        },
+        program,
     })
 }
 
@@ -954,6 +1125,16 @@ pub fn stack_fixture_catalog() -> Result<Catalog, String> {
     catalog_from_records(&records, 6)
 }
 
+/// Exact IR-v7 source pool with paired triggered and aggregate negatives.
+pub fn damage_life_fixture_catalog() -> Result<Catalog, String> {
+    let records = fixtures::DAMAGE_LIFE_RECORDS
+        .iter()
+        .filter(|(name, _)| !matches!(*name, "blood-artist" | "flame-rift"))
+        .copied()
+        .collect::<Vec<_>>();
+    catalog_from_records(&records, 7)
+}
+
 fn catalog_from_records(records: &[(&str, &str)], schema_version: u32) -> Result<Catalog, String> {
     let mut definitions = vec![];
     for (_, r) in records {
@@ -988,6 +1169,387 @@ mod tests {
         r["astSha256"] = sha256(canonical(&abilities).unwrap().as_bytes()).into();
         canonical(&r).unwrap()
     }
+    #[test]
+    fn damage_life_pool_retains_all_source_blocks_targets_quantities_and_printed_costs() {
+        let c = damage_life_fixture_catalog().unwrap();
+        assert_eq!(c.schema_version, 7);
+        assert_eq!(c.definitions.len(), 21);
+        assert_eq!(
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/expected-damage-life-ir.json"
+            ))
+            .unwrap(),
+            c
+        );
+        for prior in stack_fixture_catalog().unwrap().definitions {
+            assert_eq!(
+                c.definitions
+                    .iter()
+                    .find(|d| d.oracle_id == prior.oracle_id),
+                Some(&prior)
+            );
+        }
+        let get = |name: &str| c.definitions.iter().find(|d| d.name == name).unwrap();
+        let bolt = get("Lightning Bolt");
+        let p = bolt.spell.as_ref().unwrap();
+        assert_eq!(
+            bolt.characteristics.mana_cost,
+            ManaCost {
+                generic: 0.into(),
+                colored: vec![Color::R]
+            }
+        );
+        assert_eq!(p.targets[0].domain, TargetDomain::AnyDamageTarget);
+        assert_eq!(p.targets[0].selection_id, "line:0:6");
+        assert_eq!(
+            p.instructions,
+            [Instruction::DealDamage {
+                target_slot: 0,
+                amount: 3.into(),
+                source_block: 0
+            }]
+        );
+        let sorcerer = get("Prodigal Sorcerer");
+        let a = &sorcerer.activated[0];
+        assert_eq!(
+            sorcerer.characteristics.mana_cost,
+            ManaCost {
+                generic: 2.into(),
+                colored: vec![Color::U]
+            }
+        );
+        assert_eq!(sorcerer.characteristics.power, Some(1.into()));
+        assert_eq!(sorcerer.characteristics.toughness, Some(1.into()));
+        assert_eq!(a.cost, ActivationCost::TapSource);
+        assert_eq!(a.program.timing, SpellTiming::Instant);
+        assert_eq!(a.program.targets[0].domain, TargetDomain::AnyDamageTarget);
+        assert_eq!(a.program.targets[0].selection_id, "line:0:9");
+        assert_eq!(
+            a.program.instructions,
+            [Instruction::DealDamage {
+                target_slot: 0,
+                amount: 1.into(),
+                source_block: 0
+            }]
+        );
+        let soul = get("Soul Feast");
+        let p = soul.spell.as_ref().unwrap();
+        assert_eq!(
+            soul.characteristics.mana_cost,
+            ManaCost {
+                generic: 3.into(),
+                colored: vec![Color::B, Color::B]
+            }
+        );
+        assert_eq!(p.targets[0].domain, TargetDomain::AnyPlayer);
+        assert_eq!(
+            p.instructions,
+            [
+                Instruction::LoseLife {
+                    recipient: LifeRecipient::Target { target_slot: 0 },
+                    amount: 4.into(),
+                    source_block: 0
+                },
+                Instruction::GainLife {
+                    recipient: LifeRecipient::Controller,
+                    amount: 4.into(),
+                    source_block: 0
+                }
+            ]
+        );
+        let hands = get("Healing Hands");
+        let p = hands.spell.as_ref().unwrap();
+        assert_eq!(
+            hands.characteristics.mana_cost,
+            ManaCost {
+                generic: 2.into(),
+                colored: vec![Color::W]
+            }
+        );
+        assert_eq!(
+            p.instructions,
+            [
+                Instruction::GainLife {
+                    recipient: LifeRecipient::Target { target_slot: 0 },
+                    amount: 4.into(),
+                    source_block: 0
+                },
+                Instruction::DrawCards {
+                    count: 1.into(),
+                    source_block: 1
+                }
+            ]
+        );
+        let nectar = get("Sacred Nectar");
+        let p = nectar.spell.as_ref().unwrap();
+        assert_eq!(
+            nectar.characteristics.mana_cost,
+            ManaCost {
+                generic: 1.into(),
+                colored: vec![Color::W]
+            }
+        );
+        assert!(p.targets.is_empty());
+        assert_eq!(p.timing, SpellTiming::MainPhase);
+        assert_eq!(
+            p.instructions,
+            [Instruction::GainLife {
+                recipient: LifeRecipient::Controller,
+                amount: 4.into(),
+                source_block: 0
+            }]
+        );
+        let mountain = get("Mountain");
+        assert_eq!(mountain.characteristics.subtypes, ["Mountain"]);
+        assert_eq!(mountain.characteristics.color_identity, [Color::R]);
+        assert_eq!(basic_land_color("Mountain"), Some(Color::R));
+        for index in [11, 22] {
+            assert!(matches!(
+                compile(fixtures::MANIFEST, fixtures::DAMAGE_LIFE_RECORDS[index].1),
+                CompileResult::Unsupported { .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn complete_damage_life_sources_reject_unknown_scopes_sources_amounts_and_missing_blocks() {
+        type Mutation = (usize, fn(&mut serde_json::Value));
+        let mutations: Vec<Mutation> = vec![
+            (16, |r| {
+                r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["source"] =
+                    serde_json::json!({"ref":"this","noun":"creature"})
+            }),
+            (16, |r| {
+                r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["source"]["extra"] =
+                    true.into()
+            }),
+            (16, |r| {
+                r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["to"]["controller"] =
+                    "you".into()
+            }),
+            (16, |r| {
+                r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["amount"]["amount"] =
+                    "x".into()
+            }),
+            (16, |r| {
+                r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["amount"]["value"] =
+                    0.into()
+            }),
+            (16, |r| {
+                r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["to"]["selectionId"] =
+                    "".into()
+            }),
+            (17, |r| {
+                r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["source"] =
+                    serde_json::json!({"ref":"self"})
+            }),
+            (17, |r| {
+                r["faces"][0]["result"]["abilities"][0]["costs"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(serde_json::json!({"cost":"mana","symbols":["U"]}))
+            }),
+            (18, |r| {
+                r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["who"]["player"] =
+                    "target-opponent".into()
+            }),
+            (18, |r| {
+                r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][1]["who"]["selectionId"] =
+                    "fake-controller-target".into()
+            }),
+            (19, |r| {
+                r["faces"][0]["result"]["abilities"][1]["effects"][0]["steps"][0]["amount"]["value"] =
+                    2.into()
+            }),
+            (20, |r| {
+                r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["who"]["player"] =
+                    "each-player".into()
+            }),
+        ];
+        for (index, change) in mutations {
+            let raw = changed_source(fixtures::DAMAGE_LIFE_RECORDS[index].1, |r| {
+                change(r);
+                for block in 0..r["faces"][0]["result"]["abilities"]
+                    .as_array()
+                    .unwrap()
+                    .len()
+                {
+                    r["faces"][0]["result"]["lines"][block]["ability"] =
+                        r["faces"][0]["result"]["abilities"][block].clone();
+                }
+            });
+            let result = compile(fixtures::MANIFEST, &raw);
+            assert!(
+                matches!(result, CompileResult::Unsupported { .. }),
+                "index {index}: {result:?}"
+            );
+        }
+        let raw = changed_source(fixtures::DAMAGE_LIFE_RECORDS[19].1, |r| {
+            r["faces"][0]["result"]["abilities"]
+                .as_array_mut()
+                .unwrap()
+                .pop();
+            r["faces"][0]["result"]["lines"]
+                .as_array_mut()
+                .unwrap()
+                .pop();
+        });
+        assert!(matches!(
+            compile(fixtures::MANIFEST, &raw),
+            CompileResult::Invalid { .. }
+        ));
+        let raw = changed_source(fixtures::DAMAGE_LIFE_RECORDS[16].1, |r| {
+            r["source"]["name"] = "Renamed damage source".into();
+            r["faces"][0]["result"]["name"] = "Renamed damage source".into();
+            r["source"]["oracle_text"] =
+                "Renamed damage source deals 3 damage to any target.".into();
+        });
+        assert!(matches!(
+            compile(fixtures::MANIFEST, &raw),
+            CompileResult::Lowered { .. }
+        ));
+    }
+
+    #[test]
+    fn damage_life_programs_require_ir7_and_strict_target_recipient_quantity_closure() {
+        let catalog = damage_life_fixture_catalog().unwrap();
+        for name in [
+            "Lightning Bolt",
+            "Prodigal Sorcerer",
+            "Soul Feast",
+            "Healing Hands",
+            "Sacred Nectar",
+        ] {
+            for version in 3..=6 {
+                let mut bad = catalog.clone();
+                bad.definitions.retain(|d| d.name == name);
+                bad.schema_version = version;
+                assert!(
+                    Catalog::read(&canonical(&bad).unwrap()).is_err(),
+                    "{name} v{version}"
+                );
+            }
+        }
+        let mut bad = catalog.clone();
+        bad.schema_version = 8;
+        assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
+        for change in [
+            (|d: &mut Definition| {
+                d.spell.as_mut().unwrap().targets[0].domain = TargetDomain::BattlefieldCreature
+            }) as fn(&mut Definition),
+            |d| {
+                d.spell.as_mut().unwrap().instructions[0] = Instruction::DealDamage {
+                    target_slot: 1,
+                    amount: 3.into(),
+                    source_block: 0,
+                }
+            },
+            |d| {
+                d.spell.as_mut().unwrap().instructions[0] = Instruction::DealDamage {
+                    target_slot: 0,
+                    amount: Quantity::zero(),
+                    source_block: 0,
+                }
+            },
+            |d| {
+                d.capabilities.remove(&Capability::NoncombatDamageV1);
+            },
+        ] {
+            let mut bad = catalog.clone();
+            change(
+                bad.definitions
+                    .iter_mut()
+                    .find(|d| d.name == "Lightning Bolt")
+                    .unwrap(),
+            );
+            assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
+        }
+        for change in [
+            (|d: &mut Definition| {
+                d.spell.as_mut().unwrap().instructions[0] = Instruction::LoseLife {
+                    recipient: LifeRecipient::Controller,
+                    amount: 4.into(),
+                    source_block: 0,
+                }
+            }) as fn(&mut Definition),
+            |d| {
+                d.spell.as_mut().unwrap().instructions[0] = Instruction::LoseLife {
+                    recipient: LifeRecipient::Target { target_slot: 99 },
+                    amount: 4.into(),
+                    source_block: 0,
+                }
+            },
+            |d| {
+                d.spell.as_mut().unwrap().instructions[0] = Instruction::LoseLife {
+                    recipient: LifeRecipient::Target { target_slot: 0 },
+                    amount: Quantity::from(-4),
+                    source_block: 0,
+                }
+            },
+        ] {
+            let mut bad = catalog.clone();
+            let d = bad
+                .definitions
+                .iter_mut()
+                .find(|d| d.name == "Soul Feast")
+                .unwrap();
+            change(d);
+            d.capabilities = d.requirements();
+            assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
+        }
+        let raw = canonical(&catalog).unwrap();
+        for (from, to) in [
+            ("any_damage_target", "creature_or_player"),
+            ("any_player", "opponent_only"),
+            (
+                "\"recipient\":\"controller\"",
+                "\"recipient\":{\"controller\":{\"extra\":true}}",
+            ),
+        ] {
+            let bad = raw.replace(from, to);
+            assert_ne!(bad, raw);
+            assert!(Catalog::read(&bad).is_err());
+        }
+    }
+
+    #[test]
+    fn legacy_spell_and_activation_shapes_cannot_hide_ir7_relaxations() {
+        let mut c = fixture_catalog().unwrap();
+        c.schema_version = 7;
+        let d = c
+            .definitions
+            .iter_mut()
+            .find(|d| d.name == "Unsummon")
+            .unwrap();
+        d.spell
+            .as_mut()
+            .unwrap()
+            .instructions
+            .push(Instruction::DrawCards {
+                count: 1.into(),
+                source_block: 1,
+            });
+        d.capabilities = d.requirements();
+        c.validate().unwrap();
+        for v in 3..=6 {
+            let mut old = c.clone();
+            old.schema_version = v;
+            assert!(old.validate().is_err());
+        }
+        let mut c = damage_life_fixture_catalog().unwrap();
+        let d = c
+            .definitions
+            .iter_mut()
+            .find(|d| d.name == "Prodigal Sorcerer")
+            .unwrap();
+        d.activated[0].program.instructions = vec![Instruction::DrawCards {
+            count: 1.into(),
+            source_block: 0,
+        }];
+        d.capabilities = d.requirements();
+        assert!(c.validate().is_err());
+    }
+
     #[test]
     fn stack_pool_retains_complete_counter_domains_costs_and_prior_definitions() {
         let catalog = stack_fixture_catalog().unwrap();
@@ -1177,7 +1739,7 @@ mod tests {
     #[test]
     fn stack_vocabulary_requires_ir6_and_rejects_bad_binding_and_capability_closure() {
         let catalog = stack_fixture_catalog().unwrap();
-        for version in [3, 4, 5, 7] {
+        for version in [3, 4, 5, 8] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -1925,7 +2487,7 @@ mod tests {
     #[test]
     fn action_ir_version_shapes_and_target_domains_are_strict() {
         let catalog = action_fixture_catalog().unwrap();
-        for version in [3, 4, 7] {
+        for version in [3, 4, 8] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -2049,7 +2611,7 @@ mod tests {
         assert!(old.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":4", "\"schema_version\":7"),
+            raw.replace("\"schema_version\":4", "\"schema_version\":8"),
             raw.replace(
                 "\"op\":\"put_on_top_owner_library\"",
                 "\"op\":\"put_on_bottom_owner_library\"",

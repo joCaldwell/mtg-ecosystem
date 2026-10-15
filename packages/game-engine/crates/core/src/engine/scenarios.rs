@@ -4,6 +4,95 @@
 use super::*;
 
 impl ScenarioConfig {
+    pub fn damage_life() -> Self {
+        let cards = (0..35)
+            .map(|id| {
+                let owner = PlayerId(match id {
+                    0..=13 | 34 => 0,
+                    14..=25 => 1,
+                    26..=30 => 2,
+                    _ => 3,
+                });
+                CardSetup {
+                    id: CardId(id),
+                    owner,
+                    controller: owner,
+                    oracle_id: match id {
+                        0 | 26 => PRODIGAL,
+                        1 | 2 => SWAMP,
+                        3 | 7 | 17 | 27 => MOUNTAIN,
+                        4 | 8 => PLAINS,
+                        9 => SOUL_FEAST,
+                        10 => HEALING_HANDS,
+                        11 | 20 | 28 => BOLT,
+                        14 => ISAMARU,
+                        15 => BEARS,
+                        16 => HAPLESS,
+                        21 => SPELL,
+                        22 => COUNTERSPELL,
+                        23 => STIFLE,
+                        34 => NECTAR,
+                        _ => ISLAND,
+                    }
+                    .into(),
+                    zone: match id {
+                        9..=11 | 20..=23 | 28 | 34 => Zone::Hand { owner },
+                        12 | 13 | 24 | 25 | 29 | 30 | 32 | 33 => Zone::Library { owner },
+                        _ => Zone::Battlefield,
+                    },
+                }
+            })
+            .collect();
+        Self {
+            mode: Mode::Scenario,
+            players: 4,
+            profile: "four-seat-damage-life-v1".into(),
+            commanders: vec![CardId(14)],
+            cards,
+        }
+    }
+    pub fn damage_life_low() -> Self {
+        let mut c = Self::damage_life();
+        c.profile = "four-seat-damage-life-low-v1".into();
+        c
+    }
+    pub fn damage_life_borrowed() -> Self {
+        let mut c = Self::damage_life();
+        c.profile = "four-seat-damage-life-borrowed-v1".into();
+        c.cards[0].owner = PlayerId(2);
+        c
+    }
+    pub fn damage_life_empty_library() -> Self {
+        let mut c = Self::damage_life();
+        c.profile = "four-seat-damage-life-empty-library-v1".into();
+        c.cards.retain(|c| !matches!(c.id, CardId(12) | CardId(13)));
+        c
+    }
+    pub fn damage_life_library() -> Self {
+        let mut c = Self::damage_life();
+        c.profile = "four-seat-damage-life-library-v1".into();
+        c.cards[14].owner = PlayerId(0);
+        c.cards[14].controller = PlayerId(0);
+        c.cards.retain(|c| c.id != CardId(34));
+        c.cards.push(CardSetup {
+            id: CardId(35),
+            owner: PlayerId(0),
+            controller: PlayerId(0),
+            oracle_id: TIME_EBB.into(),
+            zone: Zone::Hand { owner: PlayerId(0) },
+        });
+        c
+    }
+    pub(super) fn damage_life_profile(&self) -> bool {
+        matches!(
+            self.profile.as_str(),
+            "four-seat-damage-life-v1"
+                | "four-seat-damage-life-low-v1"
+                | "four-seat-damage-life-borrowed-v1"
+                | "four-seat-damage-life-empty-library-v1"
+                | "four-seat-damage-life-library-v1"
+        )
+    }
     pub fn stack_costs() -> Self {
         let cards = (0..33)
             .map(|id| {
@@ -74,13 +163,14 @@ impl ScenarioConfig {
         config
     }
     pub(super) fn stack_costs_profile(&self) -> bool {
-        matches!(
-            self.profile.as_str(),
-            "four-seat-stack-costs-v1"
-                | "four-seat-stack-costs-borrowed-v1"
-                | "four-seat-stack-costs-empty-library-v1"
-                | "four-seat-stack-costs-library-v1"
-        )
+        self.damage_life_profile()
+            || matches!(
+                self.profile.as_str(),
+                "four-seat-stack-costs-v1"
+                    | "four-seat-stack-costs-borrowed-v1"
+                    | "four-seat-stack-costs-empty-library-v1"
+                    | "four-seat-stack-costs-library-v1"
+            )
     }
 
     pub fn actions() -> Self {
@@ -436,7 +526,9 @@ impl ScenarioConfig {
     }
 
     pub(super) fn initial_life(&self, player: PlayerId) -> Quantity {
-        Quantity::from(if self.combat_profile() && !self.commander_profile() {
+        Quantity::from(if self.profile == "four-seat-damage-life-low-v1" {
+            4
+        } else if self.combat_profile() && !self.commander_profile() {
             if player == PlayerId(0) { 6 } else { 2 }
         } else {
             40

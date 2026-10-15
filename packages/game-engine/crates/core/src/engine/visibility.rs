@@ -62,8 +62,22 @@ pub struct VisibleStackTarget {
     pub current: Option<StackHandle>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "entity", rename_all = "snake_case", deny_unknown_fields)]
+pub enum PlayerTargetEntity {
+    Player { player: PlayerId },
+    Object { object: ObjectHandle },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "entity", rename_all = "snake_case", deny_unknown_fields)]
+pub enum VisibleEntityTarget {
+    Player { player: PlayerId },
+    Object { object: VisibleTarget },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleStackEntry {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub entity_targets: Vec<VisibleEntityTarget>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handle: Option<StackHandle>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -103,6 +117,12 @@ pub struct PermittedView {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerRequest {
+    EntityTargets {
+        token: DecisionToken,
+        player: PlayerId,
+        occurrences: Vec<TargetSpec>,
+        candidates: Vec<PlayerTargetEntity>,
+    },
     StackTargets {
         token: DecisionToken,
         player: PlayerId,
@@ -183,7 +203,8 @@ pub enum PlayerRequest {
 impl PlayerRequest {
     pub fn token(&self) -> &DecisionToken {
         match self {
-            Self::StackTargets { token, .. }
+            Self::EntityTargets { token, .. }
+            | Self::StackTargets { token, .. }
             | Self::PlayerTargets { token, .. }
             | Self::Sacrifice { token, .. }
             | Self::ResolveDiscard { token, .. }
@@ -209,6 +230,9 @@ pub struct Observation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerResponse {
+    EntityTargets {
+        entities: Vec<PlayerTargetEntity>,
+    },
     StackTargets {
         entries: Vec<StackHandle>,
     },
@@ -293,6 +317,31 @@ pub(super) struct Knowledge {
     pub(super) history: History<PermittedView>,
 }
 impl Game {
+    pub(super) fn player_entity(
+        &self,
+        viewer: PlayerId,
+        target: TargetEntity,
+    ) -> Result<PlayerTargetEntity, String> {
+        match target {
+            TargetEntity::Player { player } => Ok(PlayerTargetEntity::Player { player }),
+            TargetEntity::Object { object } => Ok(PlayerTargetEntity::Object {
+                object: self.handle_for(viewer, object)?,
+            }),
+        }
+    }
+    pub(super) fn resolve_entity(
+        &self,
+        viewer: PlayerId,
+        target: &PlayerTargetEntity,
+    ) -> Result<TargetEntity, String> {
+        match target {
+            PlayerTargetEntity::Player { player } => Ok(TargetEntity::Player { player: *player }),
+            PlayerTargetEntity::Object { object } => Ok(TargetEntity::Object {
+                object: self.resolve_handle(viewer, object)?,
+            }),
+        }
+    }
+
     // CR 400.2, 401.2, 402.3: own hand is visible; all libraries and other
     // hands remain hidden. https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     fn visible_to(&self, viewer: PlayerId, object: &Object) -> bool {
@@ -471,7 +520,29 @@ impl Game {
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
+        let entity_targets = instance
+            .entity_targets
+            .iter()
+            .enumerate()
+            .map(|(slot, target)| match target {
+                TargetEntity::Player { player } => {
+                    Ok(VisibleEntityTarget::Player { player: *player })
+                }
+                TargetEntity::Object { object } => Ok(VisibleEntityTarget::Object {
+                    object: VisibleTarget {
+                        announced: instance
+                            .announced_entity_targets
+                            .get(viewer.0 as usize)
+                            .and_then(|row| row.get(slot))
+                            .and_then(Clone::clone)
+                            .ok_or("missing entity announcement")?,
+                        current: self.handle_for(viewer, *object).ok(),
+                    },
+                }),
+            })
+            .collect::<Result<Vec<_>, String>>()?;
         Ok(VisibleStackEntry {
+            entity_targets,
             handle: if self.prepared.config.stack_costs_profile() {
                 Some(self.stack_handle_for(viewer, instance.id)?)
             } else {
@@ -623,6 +694,14 @@ impl Game {
             ));
         }
         match &self.state.frame {
+            Frame::EntityTargets { .. } if self.top()?.controller == viewer => {
+                Ok(Some(PlayerRequest::EntityTargets {
+                    token,
+                    player: viewer,
+                    occurrences: self.program()?.targets.clone(),
+                    candidates: vec![],
+                }))
+            }
             Frame::StackTargets { .. } if self.top()?.controller == viewer => {
                 Ok(Some(PlayerRequest::StackTargets {
                     token,
@@ -643,7 +722,7 @@ impl Game {
                     token,
                     player: viewer,
                     occurrences: self.program()?.targets.clone(),
-                    candidates: self.opponents(viewer),
+                    candidates: self.eligible_players(self.program()?.targets[0].domain, viewer),
                 }))
             }
             Frame::SpendMana { .. } if self.top()?.controller == viewer => {
@@ -779,6 +858,9 @@ impl Game {
                 Some((self.state.revision, 3))
             } else {
                 match self.state.frame {
+                    Frame::EntityTargets { .. } if self.top()?.controller == viewer => {
+                        Some((self.state.revision, 10))
+                    }
                     Frame::StackTargets { .. } if self.top()?.controller == viewer => {
                         Some((self.state.revision, 9))
                     }
@@ -857,6 +939,7 @@ impl Game {
                 objects.len()
             }
             PlayerResponse::PlayerTargets { players } => players.len(),
+            PlayerResponse::EntityTargets { entities } => entities.len(),
             PlayerResponse::StackTargets { entries } => entries.len(),
             _ => 0,
         };
@@ -864,6 +947,12 @@ impl Game {
             return Err("oversized player declaration".into());
         }
         match response {
+            PlayerResponse::EntityTargets { entities } => Ok(Response::EntityTargets {
+                entities: entities
+                    .iter()
+                    .map(|target| self.resolve_entity(viewer, target))
+                    .collect::<Result<Vec<_>, _>>()?,
+            }),
             PlayerResponse::StackTargets { entries } => Ok(Response::StackTargets {
                 entries: entries
                     .iter()

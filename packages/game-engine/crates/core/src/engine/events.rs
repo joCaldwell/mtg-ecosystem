@@ -115,6 +115,8 @@ pub struct PlayerBefore {
 #[serde(deny_unknown_fields)]
 pub struct PreEventFacts {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub damage_sources: Vec<ObjectBefore>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stack: Vec<StackBefore>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub commander_damage: Vec<CommanderDamageBefore>,
@@ -201,6 +203,18 @@ enum FactKey {
 }
 fn access(event: &ProposedEvent) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
     match event {
+        ProposedEvent::GainLife { player, .. } | ProposedEvent::LoseLife { player, .. } => {
+            let keys = BTreeSet::from([FactKey::Life(*player)]);
+            (keys.clone(), keys)
+        }
+        ProposedEvent::NoncombatDamage { damage } => {
+            let read = BTreeSet::from([FactKey::Object(damage.source.object.card)]);
+            let write = BTreeSet::from([match damage.recipient {
+                DamageRecipient::Player { player } => FactKey::Life(player),
+                DamageRecipient::Creature { object } => FactKey::Object(object.card),
+            }]);
+            (read.union(&write).copied().collect(), write)
+        }
         ProposedEvent::CounterStackObject { target, .. } => {
             let keys = BTreeSet::from([FactKey::Stack(*target)]);
             (keys.clone(), keys)
@@ -357,6 +371,7 @@ fn collect<'a>(
 }
 impl Game {
     fn facts(&self, events: &[&ProposedEvent]) -> Result<PreEventFacts, String> {
+        let mut damage_sources = vec![];
         let mut objects = BTreeSet::new();
         let mut players = BTreeSet::new();
         let mut turn = None;
@@ -365,6 +380,20 @@ impl Game {
         let mut stack = BTreeSet::new();
         for event in events {
             match event {
+                ProposedEvent::GainLife { player, .. } | ProposedEvent::LoseLife { player, .. } => {
+                    players.insert(*player);
+                }
+                ProposedEvent::NoncombatDamage { damage } => {
+                    damage_sources.push(damage.source.clone());
+                    match damage.recipient {
+                        DamageRecipient::Player { player } => {
+                            players.insert(player);
+                        }
+                        DamageRecipient::Creature { object } => {
+                            objects.insert(object);
+                        }
+                    }
+                }
                 ProposedEvent::CounterStackObject { target, .. } => {
                     let entry = self
                         .state
@@ -582,6 +611,7 @@ impl Game {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(PreEventFacts {
+            damage_sources,
             stack,
             commander_damage,
             libraries,
@@ -749,6 +779,35 @@ impl Game {
 impl Game {
     fn apply_occurrence(&mut self, proposed: &ProposedEvent) -> Result<EventOutcome, String> {
         let actual = match proposed {
+            ProposedEvent::NoncombatDamage { damage } => self.apply_noncombat_damage(damage)?,
+            ProposedEvent::GainLife { player, amount }
+            | ProposedEvent::LoseLife { player, amount } => {
+                if !self.prepared.config.damage_life_profile()
+                    || !self.is_live(*player)
+                    || *amount <= Quantity::zero()
+                {
+                    return Err("invalid life change".into());
+                }
+                let life = &mut self.state.players[player.0 as usize].life;
+                let previous = life.clone();
+                if matches!(proposed, ProposedEvent::GainLife { .. }) {
+                    life.add(amount);
+                    EventOutcome::LifeGained {
+                        player: *player,
+                        amount: amount.clone(),
+                        previous,
+                        current: life.clone(),
+                    }
+                } else {
+                    life.subtract(amount);
+                    EventOutcome::LifeLost {
+                        player: *player,
+                        amount: amount.clone(),
+                        previous,
+                        current: life.clone(),
+                    }
+                }
+            }
             ProposedEvent::CounterStackObject {
                 target,
                 countering,
@@ -1188,6 +1247,7 @@ impl Game {
                 departing_owner,
             } => {
                 self.current(*object)?;
+                self.retain_source_lki(*object)?;
                 if self.state.cards[&object.card].owner != *departing_owner
                     || self.is_live(*departing_owner)
                 {
@@ -1211,6 +1271,7 @@ impl Game {
                 destination,
             } => {
                 let o = self.current(*object)?.clone();
+                self.retain_source_lki(*object)?;
                 let owner = self
                     .state
                     .cards

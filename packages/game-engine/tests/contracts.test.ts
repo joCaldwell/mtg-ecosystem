@@ -84,7 +84,7 @@ test("Rust lowering matches reviewed IR and its generated JSON Schema", () => {
   assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
   for (const mutate of [
     (c: any) => { c.unknownSemanticField = true; },
-    (c: any) => { c.schema_version = 7; },
+    (c: any) => { c.schema_version = 8; },
     (c: any) => { c.schema_version = 2; },
     (c: any) => { delete c.definitions.find((d: any) => d.spell).spell.timing; },
     (c: any) => { delete c.definitions.find((d: any) => d.spell).spell.resolution; },
@@ -172,7 +172,7 @@ test("library and damage catalogs retain exact source semantics and explicit IR 
   for (const catalog of [previous, library, damage]) assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
   for (const mutate of [
     (c: any) => { c.schema_version = 3; },
-    (c: any) => { c.schema_version = 7; },
+    (c: any) => { c.schema_version = 8; },
     (c: any) => { c.definitions.find((d: any) => d.characteristics.kind === "sorcery").spell.instructions[0].op = "put_on_bottom_owner_library"; },
     (c: any) => { c.definitions.find((d: any) => d.characteristics.kind === "sorcery").spell.instructions[0].position = "top"; },
   ]) {
@@ -223,7 +223,7 @@ test("action catalog preserves complete activated costs, opponent choice and sch
   for (const mutate of [
     (c: any) => { c.schema_version = 3; },
     (c: any) => { c.schema_version = 4; },
-    (c: any) => { c.schema_version = 7; },
+    (c: any) => { c.schema_version = 8; },
     (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].cost = "tap_source"; },
     (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].program.instructions[0].count = "01"; },
     (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].program.instructions[1].optional = true; },
@@ -278,7 +278,7 @@ test("stack catalog preserves complete counter domains and distinct tap and mana
     (c: any) => { c.schema_version = 3; },
     (c: any) => { c.schema_version = 4; },
     (c: any) => { c.schema_version = 5; },
-    (c: any) => { c.schema_version = 7; },
+    (c: any) => { c.schema_version = 8; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Stifle").spell.targets[0].domain = "stack_activated_ability"; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Counterspell").spell.instructions[0].destination = "graveyard"; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Azure Mage").activated[0].cost.mana.cost.extra = true; },
@@ -297,11 +297,78 @@ test("stack catalog preserves complete counter domains and distinct tap and mana
   }
 });
 
+test("damage and life catalog preserves complete sources and explicit IR7 target domains", () => {
+  const catalog = run("compile-damage-life");
+  assert.deepEqual(catalog, JSON.parse(read("expected-damage-life-ir.json")));
+  assert.equal(catalog.schema_version,7);
+  assert.equal(catalog.definitions.length,21);
+  for (const old of run("compile-stack").definitions) assert.deepEqual(catalog.definitions.find((d: any) => d.oracle_id === old.oracle_id),old);
+  for (const name of ["lightning-bolt","prodigal-sorcerer","soul-feast","healing-hands","sacred-nectar","mountain"]) {
+    const source=JSON.parse(read(`${name}.json`));
+    const d=catalog.definitions.find((d: any) => d.oracle_id===source.oracleIdentity);
+    assert.equal(d.provenance.source_json,JSON.stringify(source.source));
+    assert.equal(d.provenance.source_sha256,source.sourceSha256);
+    assert.equal(source.binding.fullyBound,true);
+  }
+  const get=(name: string) => catalog.definitions.find((d: any) => d.name===name);
+  const bolt=get("Lightning Bolt");
+  assert.deepEqual(bolt.characteristics.mana_cost,{generic:"0",colored:["R"]});
+  assert.deepEqual(bolt.spell.targets,[{slot:0,selection_id:"line:0:6",chooser:"controller",stage:"announcement",domain:"any_damage_target"}]);
+  assert.deepEqual(bolt.spell.instructions,[{op:"deal_damage",target_slot:0,amount:"3",source_block:0}]);
+  const sorcerer=get("Prodigal Sorcerer");
+  assert.deepEqual(sorcerer.characteristics.mana_cost,{generic:"2",colored:["U"]});
+  assert.equal(sorcerer.characteristics.power,"1"); assert.equal(sorcerer.characteristics.toughness,"1");
+  assert.deepEqual(sorcerer.activated,[{functioning_zone:"battlefield",cost:"tap_source",program:{functioning_zone:"stack",timing:"instant",resolution:"instructions",targets:[{slot:0,selection_id:"line:0:9",chooser:"controller",stage:"announcement",domain:"any_damage_target"}],instructions:[{op:"deal_damage",target_slot:0,amount:"1",source_block:0}]}}]);
+  const soul=get("Soul Feast");
+  assert.deepEqual(soul.characteristics.mana_cost,{generic:"3",colored:["B","B"]});
+  assert.equal(soul.spell.targets[0].domain,"any_player");
+  assert.deepEqual(soul.spell.instructions,[{op:"lose_life",recipient:{target:{target_slot:0}},amount:"4",source_block:0},{op:"gain_life",recipient:"controller",amount:"4",source_block:0}]);
+  const hands=get("Healing Hands");
+  assert.deepEqual(hands.characteristics.mana_cost,{generic:"2",colored:["W"]});
+  assert.equal(hands.spell.targets[0].domain,"any_player");
+  assert.deepEqual(hands.spell.instructions,[{op:"gain_life",recipient:{target:{target_slot:0}},amount:"4",source_block:0},{op:"draw_cards",count:"1",source_block:1}]);
+  const nectar=get("Sacred Nectar");
+  assert.deepEqual(nectar.characteristics.mana_cost,{generic:"1",colored:["W"]});
+  assert.deepEqual(nectar.spell.targets,[]);
+  assert.deepEqual(nectar.spell.instructions,[{op:"gain_life",recipient:"controller",amount:"4",source_block:0}]);
+  assert.deepEqual(get("Mountain").characteristics.color_identity,["R"]);
+  const flame=JSON.parse(read("flame-rift.json"));
+  assert.equal(flame.binding.fullyBound,false);
+  assert.equal(catalog.definitions.some((d: any) => d.oracle_id===flame.oracleIdentity),false);
+  const validate = new Ajv2020({ strict: false, formats: {
+    uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },
+  } }).compile(run("schema"));
+  assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
+  for (const name of ["Lightning Bolt","Prodigal Sorcerer","Soul Feast","Healing Hands","Sacred Nectar"]) {
+    for (const version of [3,4,5,6]) {
+      const bad=structuredClone(catalog);bad.schema_version=version;bad.definitions=bad.definitions.filter((d: any) => d.name===name);
+      assert.equal(validate(bad),false,`${name} IR${version}`);
+    }
+  }
+  for (const mutate of [
+    (c: any) => {c.schema_version=8;},
+    (c: any) => {c.definitions.find((d: any) => d.name==="Lightning Bolt").spell.targets[0].domain="creature_or_player";},
+    (c: any) => {c.definitions.find((d: any) => d.name==="Soul Feast").spell.instructions[0].recipient={opponent:{target_slot:0}};},
+    (c: any) => {c.definitions.find((d: any) => d.name==="Sacred Nectar").spell.instructions[0].recipient={controller:{extra:true}};},
+    (c: any) => {c.definitions.find((d: any) => d.name==="Healing Hands").spell.instructions[1].count="01";},
+    (c: any) => {c.definitions.find((d: any) => d.name==="Lightning Bolt").spell.instructions[0].amount=3;},
+    (c: any) => {c.definitions.find((d: any) => d.name==="Lightning Bolt").spell.instructions[0].amount="0";},
+    (c: any) => {c.definitions.find((d: any) => d.name==="Soul Feast").spell.instructions[0].amount="-4";},
+  ]) {const bad=structuredClone(catalog);mutate(bad);assert.equal(validate(bad),false,JSON.stringify(validate.errors));}
+  // Old vocabulary with a newly allowed spell-side draw also requires v7;
+  // rejecting new capability names alone would miss this attempted downgrade.
+  const legacy=run("compile");legacy.schema_version=6;
+  const bounce=legacy.definitions.find((d: any) => d.name==="Unsummon");
+  bounce.spell.instructions.push({op:"draw_cards",count:"1",source_block:1});
+  bounce.capabilities.push("controller_draw_v1");
+  assert.equal(validate(legacy),false);
+});
+
 function currentProjectionVersions(value: any): any {
   if (Array.isArray(value)) return value.map(currentProjectionVersions);
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(Object.entries(value).map(([key, child]) =>
-      [key, key === "observation_version" || key === "context_version" ? 10 : currentProjectionVersions(child)]));
+      [key, key === "observation_version" || key === "context_version" ? 11 : currentProjectionVersions(child)]));
   }
   return value;
 }
@@ -311,9 +378,82 @@ function currentProjectionVersions(value: any): any {
 let demoResult: any;
 function demo() { return demoResult ??= run("demo"); }
 
+test("damage and life witnesses retain ordered effects, mixed targets and historical sources", () => {
+  const reports = demo().damage_life;
+  assert.deepEqual(reports, JSON.parse(read("expected-damage-life-scenario.json")));
+  assert.equal(reports.length, 28);
+  const by = Object.fromEntries(reports.map((r: any) => [r.policy, r])) as Record<string,any>;
+  const actuals = (r: any, kind: string) => r.events.filter((e: any) => e.actual?.outcome === kind).map((e: any) => e.actual);
+  const life = (r: any, player: number) => r.final_observations[3].view.players[player].life;
+  assert.equal(life(by.bolt_player, 1), "37");
+  assert.equal(life(by.bolt_self, 0), "37");
+  assert.equal(life(by.pinger_player, 1), "39");
+  assert.equal(life(by.soul_opponent, 0), "8");
+  assert.equal(life(by.soul_self, 0), "4");
+  assert.equal(life(by.healing_other, 1), "44");
+  assert.equal(life(by.healing_failed_draw, 0), "44");
+  assert.deepEqual(actuals(by.soul_self, "life_lost").map((e: any) => [e.player,e.previous,e.current]), [[0,"4","0"]]);
+  assert.deepEqual(actuals(by.soul_self, "life_gained").map((e: any) => [e.player,e.previous,e.current]), [[0,"0","4"]]);
+  for (const name of ["bolt_target_bounce","bolt_target_departure","bolt_countered","pinger_target_departure","pinger_stifled"]) {
+    assert.deepEqual(actuals(by[name], "noncombat_damage_dealt"), [], name);
+  }
+  for (const name of ["soul_departed_target","soul_countered","healing_departed_target"]) {
+    assert.deepEqual(actuals(by[name], "life_gained"), [], name);
+    assert.deepEqual(actuals(by[name], "life_lost"), [], name);
+  }
+  for (const name of ["pinger_source_bounce","pinger_source_killed","pinger_borrowed_departure"]) {
+    const hit = actuals(by[name], "noncombat_damage_dealt").find((e: any) => e.damage.source.object.card === 0);
+    assert.equal(hit.damage.source.object.incarnation, 0);
+    assert.deepEqual(hit.damage.source.zone, {zone:"battlefield"});
+    assert.equal(hit.damage.source.tapped, true);
+    assert.equal(hit.damage.controller, 0);
+    assert.deepEqual(hit.damage.recipient, { recipient: "player", player: 1 });
+    assert.equal(hit.damage.source.owner, name === "pinger_borrowed_departure" ? 2 : 0);
+  }
+  assert.equal(actuals(by.pinger_source_killed,"noncombat_damage_dealt").find((e: any) => e.damage.source.object.card === 0).damage.source.marked_damage,"3");
+  assert.equal(actuals(by.pinger_stifled,"stack_object_countered")[0].spell,false);
+  assert.equal(actuals(by.healing_failed_draw,"draw_failed")[0].player,0);
+  assert.equal(actuals(by.healing_failed_draw,"lost")[0].reason,"failed_draw");
+  const complete = by.healing_failed_draw.events.findIndex((e: any) => e.event === "spell_completed");
+  const lost = by.healing_failed_draw.events.findIndex((e: any) => e.event === "players_lost");
+  assert.ok(lost > complete);
+  for (const name of ["healing_commander_return","healing_commander_decline"]) {
+    const choices = by[name].choices.filter((o: any) => o.decision?.request === "commander_return");
+    const draw = choices.find((o: any) => o.decision.destination.zone === "hand");
+    assert.ok(draw, name);
+    assert.equal(draw.decision.object,null);
+    assert.equal(draw.view.objects.some((o: any) => o.zone.zone === "library"),false);
+  }
+  const privateFields = new Set(["incarnation","state_sha256","state","source_facts","pending","frame","trace","journal","source_json","next_stack_id"]);
+  function checkProjection(value: any) {
+    if (Array.isArray(value)) value.forEach(checkProjection);
+    else if (value !== null && typeof value === "object") {
+      for (const [key,child] of Object.entries(value)) {
+        assert.equal(privateFields.has(key),false,key);
+        checkProjection(child);
+      }
+    }
+  }
+  for (const r of reports) {
+    r.choices.forEach(checkProjection);
+    r.final_observations.forEach(checkProjection);
+    assert.deepEqual(r.commander_ledger.records["14"].combat_damage,{});
+    for (const o of r.choices) {
+      if (o.decision?.request !== "entity_targets") continue;
+      assert.equal(o.decision.candidates.some((t: any) => t.entity === "player" && t.player === o.view.viewer),true);
+      for (const t of o.decision.candidates) {
+        if (t.entity === "object") {
+          assert.equal(typeof t.object,"string");
+          assert.ok(o.view.objects.some((x: any) => x.handle === t.object && x.zone.zone === "battlefield"));
+        } else assert.equal(t.entity,"player");
+      }
+    }
+  }
+});
+
 test("stack and cost witnesses preserve instance targets, paid costs and nested choices", () => {
   const reports = demo().stack_costs;
-  assert.deepEqual(reports, JSON.parse(read("expected-stack-costs-scenario.json")));
+  assert.deepEqual(reports, currentProjectionVersions(JSON.parse(read("expected-stack-costs-scenario.json"))));
   assert.equal(reports.length, 18);
   const by = Object.fromEntries(reports.map((r: any) => [r.policy,r])) as Record<string,any>;
   const countered = (r: any) => r.events.filter((e: any) => e.actual?.outcome === "stack_object_countered").map((e: any) => e.actual);
@@ -373,7 +513,7 @@ test("stack and cost witnesses preserve instance targets, paid costs and nested 
   const lost = failed.findIndex((e: any) => e.event === "players_lost");
   assert.ok(discarded >= 0 && discarded < completed && completed < lost);
   for (const report of reports) for (const o of [...report.choices,...report.final_observations]) {
-    assert.equal(o.observation_version,10);
+    assert.equal(o.observation_version,11);
     assert.equal(o.view.objects.some((x: any) => x.zone.zone === "library"),false);
     assert.equal(o.view.objects.filter((x: any) => x.zone.zone === "hand").every((x: any) => x.owner === o.view.viewer),true);
     for (const forbidden of ["incarnation","stack_id","source_handles","mana_activations","rule_steps"]) assert.equal(JSON.stringify(o).includes(`"${forbidden}"`),false);
@@ -419,7 +559,7 @@ test("action witnesses preserve explicit spending, player sacrifice and noncard 
   const lost = failed.findIndex((e: any) => e.event === "players_lost");
   assert.ok(completed >= 0 && lost > completed);
   for (const report of reports) for (const o of [...report.choices,...report.final_observations]) {
-    assert.equal(o.observation_version, 10);
+    assert.equal(o.observation_version, 11);
     assert.equal(o.view.objects.some((x: any) => x.zone.zone === "library"), false);
     assert.equal(o.view.objects.filter((x: any) => x.zone.zone === "hand").every((x: any) => x.owner === o.view.viewer), true);
     for (const forbidden of ["incarnation","stack_id","source_handles","mana_activations","rule_steps"]) assert.equal(JSON.stringify(o).includes(`"${forbidden}"`),false);
@@ -430,7 +570,7 @@ test("response observations expose stack order without reviving historical targe
   const response = demo().response;
   const before = response.stacked_observation;
   const after = response.after_top_observation;
-  assert.equal(before.observation_version, 10);
+  assert.equal(before.observation_version, 11);
   assert.deepEqual(before.view.stack.map((s: any) => s.controller), [0, 2]);
   assert.equal(before.view.stack.every((s: any) => s.cast_complete), true);
   assert.equal(after.view.stack.length, 1);
@@ -448,7 +588,7 @@ test("response observations expose stack order without reviving historical targe
 test("casting mana witnesses expose the caster request and preserve keep/undo outcomes", () => {
   const report = demo();
   const casting = report.mana_casting;
-  assert.equal(casting.mana_observation.observation_version, 10);
+  assert.equal(casting.mana_observation.observation_version, 11);
   assert.equal(casting.mana_observation.decision.request, "mana");
   assert.deepEqual(casting.mana_observation.decision.cost, { generic: "0", colored: ["U"] });
   assert.equal(casting.mana_observation.view.priority, null);
@@ -478,7 +618,7 @@ test("turn progression and permanent casting expose only permitted public state"
   assert.equal(turns.status, "turns_permanents_verified");
   assert.deepEqual(turns.turn, { number: 5, step: "precombat_main", lands_played: 1 });
   const own = turns.final_observations[0];
-  assert.equal(own.observation_version, 10);
+  assert.equal(own.observation_version, 11);
   assert.deepEqual(own.view.turn, turns.turn);
   assert.equal(own.view.priority, 0);
   assert.equal(own.view.stack.length, 0);
@@ -508,7 +648,7 @@ test("complete scenario games retain rules outcomes and private combat projectio
     assert.equal(run.journal.concessions.length, 0);
     assert.ok(run.checkpoints > 0);
     for (const observation of run.final_observations) {
-      assert.equal(observation.observation_version, 10);
+      assert.equal(observation.observation_version, 11);
       assert.equal(observation.view.objects.some((o: any) => o.zone.zone === "library"), false);
       assert.equal(observation.view.objects.filter((o: any) => o.zone.zone === "hand").every((o: any) => o.owner === observation.view.viewer), true);
       for (const forbidden of ["incarnation", "damage_choices", "libraries", "frame", "rule_steps"]) {
@@ -550,7 +690,7 @@ test("Commander witnesses preserve tax, actual return destinations and private p
     assert.equal(choices.length, 1);
     assert.equal(choices[0].player, 0);
     for (const observation of run.final_observations) {
-      assert.equal(observation.observation_version, 10);
+      assert.equal(observation.observation_version, 11);
       assert.equal(observation.view.objects.filter((o: any) => o.zone.zone === "hand").every((o: any) => o.owner === observation.view.viewer), true);
       for (const key of ["incarnation", "frame", "commander_returns", "total_cost", "continuation", "rule_steps"]) {
         assert.equal(JSON.stringify(observation).includes(`"${key}"`), false, key);
@@ -605,7 +745,7 @@ test("Commander damage and library witnesses expose actual results without hidde
   }
   for (const run of runs) {
     for (const observation of [...run.final_observations, ...run.choices]) {
-      assert.equal(observation.observation_version, 10);
+      assert.equal(observation.observation_version, 11);
       assert.equal(observation.view.objects.some((o: any) => o.zone.zone === "library"), false);
       assert.equal(observation.view.objects.filter((o: any) => o.zone.zone === "hand").every((o: any) => o.owner === observation.view.viewer), true);
       for (const key of ["incarnation", "frame", "commander_returns", "libraries", "continuation", "rule_steps", "previous_top"]) {

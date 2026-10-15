@@ -36,11 +36,17 @@ impl Game {
             .collect()
     }
     pub(super) fn bound_target_count(&self, entry: &StackInstance) -> usize {
-        entry.targets.len() + entry.player_targets.len() + entry.stack_targets.len()
+        entry.targets.len()
+            + entry.player_targets.len()
+            + entry.stack_targets.len()
+            + entry.entity_targets.len()
     }
     pub(super) fn has_target_domain(&self, program: &SpellProgram, player: PlayerId) -> bool {
         match program.targets.first().map(|target| target.domain) {
             None => true,
+            Some(TargetDomain::AnyDamageTarget | TargetDomain::AnyPlayer) => {
+                !self.live_players().is_empty()
+            }
             Some(TargetDomain::OpponentPlayer) => !self.opponents(player).is_empty(),
             Some(
                 domain
@@ -52,7 +58,13 @@ impl Game {
         }
     }
     pub(super) fn announced_target_legality(&self, entry: &StackInstance) -> Vec<bool> {
-        if !entry.stack_targets.is_empty() {
+        if !entry.entity_targets.is_empty() {
+            entry
+                .entity_targets
+                .iter()
+                .map(|t| self.entity_legal(*t))
+                .collect()
+        } else if !entry.stack_targets.is_empty() {
             entry
                 .stack_targets
                 .iter()
@@ -69,7 +81,8 @@ impl Game {
             entry
                 .player_targets
                 .iter()
-                .map(|p| *p != entry.controller && self.is_live(*p))
+                .enumerate()
+                .map(|(slot, p)| self.player_target_legal(entry, slot, *p))
                 .collect()
         } else {
             entry
@@ -122,6 +135,9 @@ impl Game {
         if ability.cost == ActivationCost::TapSource && (source.tapped || !source.attack_ready) {
             return Err("tap ability requires an untapped continuously controlled creature".into());
         }
+        if !self.has_target_domain(&ability.program, player) {
+            return Err("no eligible ability targets".into());
+        }
         Ok(())
     }
     // CR 602.2, 113.7a/113.8: a nonmana ability is its own stack object;
@@ -169,6 +185,9 @@ impl Game {
         response: &Response,
     ) -> Option<Result<(), String>> {
         match (&self.state.frame, response) {
+            (Frame::EntityTargets { .. }, Response::EntityTargets { entities }) => {
+                Some(self.validate_entity_targets(player, entities))
+            }
             (Frame::StackTargets { .. }, Response::StackTargets { entries }) => {
                 Some(self.validate_stack_targets(player, entries))
             }
@@ -178,12 +197,16 @@ impl Game {
                 Some(self.validate_activation(player, *object, *ability))
             }
             (Frame::PlayerTargets { .. }, Response::PlayerTargets { players }) => Some((|| {
-                let caster = self.top()?.controller;
+                let top = self.top()?;
+                let caster = top.controller;
                 if player != caster
                     || players.len() != self.program()?.targets.len()
-                    || players.iter().any(|p| *p == caster || !self.is_live(*p))
+                    || players
+                        .iter()
+                        .enumerate()
+                        .any(|(slot, p)| !self.player_target_legal(top, slot, *p))
                 {
-                    return Err("invalid opponent targets".into());
+                    return Err("invalid player targets".into());
                 }
                 Ok(())
             })(
@@ -235,6 +258,7 @@ impl Game {
     }
     pub(super) fn actions_step(&mut self) -> Result<(), String> {
         match self.state.frame.clone() {
+            Frame::EntityTargets { cast } => self.bind_entity_targets(cast)?,
             Frame::StackTargets { cast } => self.bind_stack_targets(cast)?,
             Frame::PlayerTargets { cast } => {
                 let input = self.state.pending.take().ok_or("missing player targets")?;
@@ -369,6 +393,9 @@ impl Game {
         }
         let player = frame.spell.controller;
         match instruction {
+            op @ (Instruction::DealDamage { .. }
+            | Instruction::GainLife { .. }
+            | Instruction::LoseLife { .. }) => self.execute_damage_life_instruction(frame, op),
             Instruction::TargetPlayerSacrificeCreature {
                 target_slot,
                 source_block,
@@ -555,6 +582,7 @@ impl Game {
     pub(super) fn validate_resolving(&self, frame: &Resolving) -> Result<(), String> {
         let entry = &frame.spell;
         let program = self.program_for(entry)?;
+        self.validate_damage_bindings(entry)?;
         if entry.id != frame.stack_id
             || entry.id.0 >= self.state.next_stack_id
             || self.bound_target_count(entry) != program.targets.len()

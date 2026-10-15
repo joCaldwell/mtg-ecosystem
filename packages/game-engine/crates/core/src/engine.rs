@@ -79,6 +79,42 @@ const ALLOWED: [(&str, &str); 5] = [
         "572ff55cf5fedc97884e3a801b7e2c8f6de5c13e93c24bebce95f4d16432b4c8",
     ),
 ];
+const BOLT: &str = "4457ed35-7c10-48c8-9776-456485fdf070";
+const PRODIGAL: &str = "5e961d15-5972-4e4b-9385-1cd7cd7c6bbe";
+const SOUL_FEAST: &str = "8186fd80-015f-470c-9e1c-cbf45764a057";
+const HEALING_HANDS: &str = "3cc48835-3ac0-4774-b380-f9b21d2dc974";
+const NECTAR: &str = "30870ee5-6ad7-48a9-983e-d3b018f2344f";
+const MOUNTAIN: &str = "a3fb7228-e76b-4e96-a40e-20b5fed75685";
+const DAMAGE_LIFE_EXTRA: [(&str, &str); 6] = [
+    (
+        BOLT,
+        "a72bfc445d20cebb02e6022c944e73912477ee06d654660257fc95a6c1feee86",
+    ),
+    (
+        PRODIGAL,
+        "f8f6c6248f5f2d4075a6ec5352f4004c241f551391ffea9db2b1701d6eb3f838",
+    ),
+    (
+        SOUL_FEAST,
+        "ed3a6f08c3c12042b36bf7d87cfcc8718e52f9a84e7b257bc4b3ae6727aabb08",
+    ),
+    (
+        HEALING_HANDS,
+        "3b25896a67ab51b7ff118bf6c35155229934fb276d6a10939df942f90f42ed27",
+    ),
+    (
+        NECTAR,
+        "9a4e61aaecdb646f4d570b6c6108d2819d5b5fa9b5745c03744424bdbcf92d2f",
+    ),
+    (
+        MOUNTAIN,
+        "bcbf6d64c8467946e262fd55cbdc47a2cfbdaf1084a3a8dab833b591aef05a77",
+    ),
+];
+mod damage_life;
+#[cfg(test)]
+mod damage_life_tests;
+pub use damage_life::{NoncombatDamageOccurrence, TargetEntity};
 mod history;
 pub use history::History;
 mod recovery;
@@ -323,6 +359,11 @@ impl Prepared {
             && config != ScenarioConfig::actions_borrowed()
             && config != ScenarioConfig::actions_empty_library()
             && config != ScenarioConfig::mixed_mana()
+            && config != ScenarioConfig::damage_life()
+            && config != ScenarioConfig::damage_life_low()
+            && config != ScenarioConfig::damage_life_borrowed()
+            && config != ScenarioConfig::damage_life_empty_library()
+            && config != ScenarioConfig::damage_life_library()
             && config != ScenarioConfig::stack_costs()
             && config != ScenarioConfig::stack_costs_borrowed()
             && config != ScenarioConfig::stack_costs_empty_library()
@@ -334,7 +375,9 @@ impl Prepared {
             );
         }
         if catalog.schema_version
-            != if config.stack_costs_profile() {
+            != if config.damage_life_profile() {
+                7
+            } else if config.stack_costs_profile() {
                 6
             } else if config.actions_profile() {
                 5
@@ -361,6 +404,9 @@ impl Prepared {
         }
         if config.stack_costs_profile() {
             allowed.extend(STACK_EXTRA);
+        }
+        if config.damage_life_profile() {
+            allowed.extend(DAMAGE_LIFE_EXTRA);
         }
         if catalog.definitions.len() != allowed.len() {
             return Err("definition pool is not the closed reviewed scenario pool".into());
@@ -423,6 +469,12 @@ struct Object {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StackInstance {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_facts: Option<ObjectBefore>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    entity_targets: Vec<TargetEntity>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    announced_entity_targets: Vec<Vec<Option<ObjectHandle>>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     stack_targets: Vec<StackId>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -474,6 +526,9 @@ struct Resolving {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 enum Frame {
+    EntityTargets {
+        cast: Casting,
+    },
     StackTargets {
         cast: Casting,
     },
@@ -536,6 +591,9 @@ enum Frame {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    EntityTargets {
+        entities: Vec<TargetEntity>,
+    },
     StackTargets {
         entries: Vec<StackId>,
     },
@@ -597,6 +655,12 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    EntityTargets {
+        decision_id: u64,
+        player: PlayerId,
+        occurrences: Vec<TargetSpec>,
+        candidates: Vec<TargetEntity>,
+    },
     StackTargets {
         decision_id: u64,
         player: PlayerId,
@@ -676,7 +740,8 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::StackTargets { decision_id, .. }
+            Self::EntityTargets { decision_id, .. }
+            | Self::StackTargets { decision_id, .. }
             | Self::PlayerTargets { decision_id, .. }
             | Self::Sacrifice { decision_id, .. }
             | Self::ResolveDiscard { decision_id, .. }
@@ -693,7 +758,8 @@ impl Request {
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::StackTargets { player, .. }
+            Self::EntityTargets { player, .. }
+            | Self::StackTargets { player, .. }
             | Self::PlayerTargets { player, .. }
             | Self::Sacrifice { player, .. }
             | Self::ResolveDiscard { player, .. }
@@ -712,6 +778,17 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    NoncombatDamage {
+        damage: Box<NoncombatDamageOccurrence>,
+    },
+    GainLife {
+        player: PlayerId,
+        amount: Quantity,
+    },
+    LoseLife {
+        player: PlayerId,
+        amount: Quantity,
+    },
     CounterStackObject {
         target: StackId,
         countering: StackId,
@@ -808,6 +885,22 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    NoncombatDamageDealt {
+        damage: Box<NoncombatDamageOccurrence>,
+        result: DamageResult,
+    },
+    LifeGained {
+        player: PlayerId,
+        amount: Quantity,
+        previous: Quantity,
+        current: Quantity,
+    },
+    LifeLost {
+        player: PlayerId,
+        amount: Quantity,
+        previous: Quantity,
+        current: Quantity,
+    },
     StackObjectCountered {
         target: StackId,
         source: ObjectId,
@@ -906,6 +999,12 @@ pub enum EventOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 enum InstructionOutcome {
+    Damage {
+        actual: Option<EventOutcome>,
+    },
+    Life {
+        actual: Option<EventOutcome>,
+    },
     StackTargetIllegal {
         target: StackId,
     },
@@ -1294,6 +1393,12 @@ impl Game {
             return Ok((req.player() == viewer).then_some(req));
         }
         let req = match &self.state.frame {
+            Frame::EntityTargets { .. } => Request::EntityTargets {
+                decision_id: self.state.revision,
+                player: self.top()?.controller,
+                occurrences: self.program()?.targets.clone(),
+                candidates: self.eligible_entities(),
+            },
             Frame::StackTargets { .. } => Request::StackTargets {
                 decision_id: self.state.revision,
                 player: self.top()?.controller,
@@ -1307,7 +1412,8 @@ impl Game {
                 decision_id: self.state.revision,
                 player: self.top()?.controller,
                 occurrences: self.program()?.targets.clone(),
-                candidates: self.opponents(self.top()?.controller),
+                candidates: self
+                    .eligible_players(self.program()?.targets[0].domain, self.top()?.controller),
             },
             Frame::SpendMana { .. } => self.spend_mana_request()?,
             Frame::CommanderReturn {
@@ -1590,6 +1696,13 @@ impl Game {
                             )?
                             .successor;
                         self.state.stack.push(StackInstance {
+                            source_facts: if self.prepared.config.damage_life_profile() {
+                                Some(self.object_before(source)?)
+                            } else {
+                                None
+                            },
+                            entity_targets: vec![],
+                            announced_entity_targets: vec![],
                             stack_targets: vec![],
                             announced_stack_targets: vec![],
                             kind: StackKind::Spell,
@@ -1620,8 +1733,13 @@ impl Game {
                                 | TargetDomain::StackActivatedOrTriggeredAbility
                         ) {
                             Frame::StackTargets { cast }
-                        } else if self.program()?.targets[0].domain == TargetDomain::OpponentPlayer
+                        } else if self.program()?.targets[0].domain == TargetDomain::AnyDamageTarget
                         {
+                            Frame::EntityTargets { cast }
+                        } else if matches!(
+                            self.program()?.targets[0].domain,
+                            TargetDomain::OpponentPlayer | TargetDomain::AnyPlayer
+                        ) {
                             Frame::PlayerTargets { cast }
                         } else {
                             Frame::Targets { cast }
@@ -1689,7 +1807,8 @@ impl Game {
             }
             Frame::Payment { cast } => self.payment_step(cast)?,
             Frame::SpendMana { cast } => self.spend_mana_step(cast)?,
-            Frame::PlayerTargets { .. }
+            Frame::EntityTargets { .. }
+            | Frame::PlayerTargets { .. }
             | Frame::StackTargets { .. }
             | Frame::ResolutionChoice { .. } => self.actions_step()?,
             Frame::Resolve { mut frame } => {
@@ -1901,7 +2020,7 @@ impl Game {
     pub fn snapshot_with_digest(&self) -> Result<(String, String), String> {
         let state_sha256 = self.state_digest()?;
         let json = canonical(&SnapshotRef {
-            snapshot_version: 12,
+            snapshot_version: 13,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -1913,7 +2032,7 @@ impl Game {
     }
     fn read_snapshot(prepared: Prepared, json: &str) -> Result<(Self, String), String> {
         let s: Snapshot = strict_read(json)?;
-        if s.snapshot_version != 12
+        if s.snapshot_version != 13
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -2038,7 +2157,8 @@ impl Game {
             let incomplete_top = index + 1 == s.stack.len()
                 && (matches!(
                     s.frame,
-                    Frame::Targets { .. }
+                    Frame::EntityTargets { .. }
+                        | Frame::Targets { .. }
                         | Frame::StackTargets { .. }
                         | Frame::PlayerTargets { .. }
                         | Frame::Mana { .. }
@@ -2066,7 +2186,8 @@ impl Game {
             return Err("snapshot stack/zone invariant".into());
         }
         match &s.frame {
-            Frame::Targets { cast }
+            Frame::EntityTargets { cast }
+            | Frame::Targets { cast }
             | Frame::StackTargets { cast }
             | Frame::PlayerTargets { cast }
             | Frame::Mana { cast }
@@ -2095,7 +2216,8 @@ impl Game {
                         .any(|a| a.player != top.controller || a.amount != Quantity::from(1))
                     || (matches!(
                         s.frame,
-                        Frame::Targets { .. }
+                        Frame::EntityTargets { .. }
+                            | Frame::Targets { .. }
                             | Frame::PlayerTargets { .. }
                             | Frame::StackTargets { .. }
                     ) && (!cast.mana_activations.is_empty() || cast.undo_mana))
@@ -2105,7 +2227,8 @@ impl Game {
                 }
                 if matches!(
                     s.frame,
-                    Frame::Targets { .. }
+                    Frame::EntityTargets { .. }
+                        | Frame::Targets { .. }
                         | Frame::PlayerTargets { .. }
                         | Frame::StackTargets { .. }
                 ) && self.bound_target_count(top) != 0

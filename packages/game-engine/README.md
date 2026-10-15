@@ -120,9 +120,9 @@ hashes and copies its complete bytes without creating a single Node JSON string.
 unimplemented bulk pipeline.
 
 The test profile is optimized at level 2 with debug assertions and overflow checks
-enabled. Bundle v13 records the effective optimization/check settings for its build
-identity and offline rebuild, all six exact source catalogs, and all 174 trace-mode
-runs. Snapshots are v12, player projections v10 and query sidecars v9.
+enabled. Bundle v14 records the effective optimization/check settings for its build
+identity and offline rebuild, all seven exact source catalogs, and all 258 trace-mode
+runs. Snapshots are v13, player projections v11 and query sidecars v10.
 `SnapshotVerifier` verifies ordered checkpoint sequences using
 one independent forward replay while applying the complete standalone restore
 checks at every boundary. Histories share immutable chunks across native forks;
@@ -149,3 +149,15 @@ from the same source. Tap costs enforce continuous control; mana-cost abilities
 retain payment/reversal, source departure and nested Commander draw choices.
 Together all six catalogs cover 21 exact configurations, 174 trace-mode executions
 and 7,448 combat/Commander/action/stack recovery boundaries, plus legacy checkpoints.
+
+The [damage/life slice](../../docs/game-engine-damage-life.md) adds five exact
+configurations with Lightning Bolt, Prodigal Sorcerer, Soul Feast, Healing Hands,
+Sacred Nectar and Mountain. `compile-damage-life` emits its twenty-one-definition
+IR v7 catalog; `damage-life-games --recover` verifies twenty-eight player-facing
+policies and 1,198 new recovery boundaries. Mixed target selections distinguish creature handles from player seats;
+targeted tap abilities retain independent source identity after departure. Ordered
+life programs defer SBAs until completion, including self-targeted loss/gain and
+nested Commander draw replacement. Flame Rift and Blood Artist remain paired
+unsupported sources. The seven catalogs cover 26 exact configurations, 258
+trace-mode executions and 8,646 recovery boundaries, plus legacy checkpoints.
+Trigger scheduling/APNAP remains the next bounded chunk.

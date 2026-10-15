@@ -401,7 +401,8 @@ impl Game {
         // CR 608.2m: a started invocation owns its frozen instance and keeps
         // resolving after its source leaves. Only an unfinished casting frame
         // whose own source left is discarded; lower departures cannot replace it.
-        if let Frame::Targets { cast }
+        if let Frame::EntityTargets { cast }
+        | Frame::Targets { cast }
         | Frame::StackTargets { cast }
         | Frame::PlayerTargets { cast }
         | Frame::Mana { cast }
@@ -423,7 +424,8 @@ impl Game {
                 vec![]
             };
         }
-        if let Frame::Targets { cast }
+        if let Frame::EntityTargets { cast }
+        | Frame::Targets { cast }
         | Frame::StackTargets { cast }
         | Frame::PlayerTargets { cast }
         | Frame::Mana { cast }
@@ -442,17 +444,25 @@ impl Game {
                 .pending
                 .as_ref()
                 .is_some_and(|p| match &p.response {
+                    Response::EntityTargets { entities } => {
+                        self.validate_entity_targets(p.player, entities).is_err()
+                    }
                     Response::Targets { objects } => objects.iter().any(|t| !self.target_legal(*t)),
                     Response::StackTargets { entries } => {
                         self.validate_stack_targets(p.player, entries).is_err()
                     }
-                    Response::PlayerTargets { players } => players
-                        .iter()
-                        .any(|target| !self.is_live(*target) || *target == p.player),
+                    Response::PlayerTargets { players } => {
+                        players.iter().enumerate().any(|(slot, target)| {
+                            !self.player_target_legal(self.top().unwrap(), slot, *target)
+                        })
+                    }
                     _ => false,
                 });
             let no_domain = !self.has_target_domain(self.program()?, self.top()?.controller);
-            if targets_bad || pending_bad || no_domain {
+            let source_bad = cast.origin == AnnouncementOrigin::Activated
+                && matches!(self.state.frame, Frame::EntityTargets { .. })
+                && self.current(self.top()?.source).is_err();
+            if targets_bad || pending_bad || no_domain || source_bad {
                 self.reverse_departure_cast(cast)?;
             }
         }

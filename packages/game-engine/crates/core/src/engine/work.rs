@@ -85,6 +85,7 @@ enum Task {
     Check {
         header_checked: bool,
         converted: Vec<ObjectId>,
+        converted_entities: Vec<TargetEntity>,
         value: Option<Response>,
     },
     Search {
@@ -194,6 +195,7 @@ impl Game {
             Query::Check { .. } => Task::Check {
                 header_checked: false,
                 converted: vec![],
+                converted_entities: vec![],
                 value: None,
             },
             Query::Search { .. } => Task::Search {
@@ -248,6 +250,13 @@ impl Game {
         let cursor = b.cursor as usize;
         let viewer = b.view.viewer;
         if cursor < 4 {
+            if let Some(PlayerRequest::EntityTargets { candidates, .. }) = &mut b.decision
+                && self.is_live(PlayerId(cursor as u8))
+            {
+                candidates.push(PlayerTargetEntity::Player {
+                    player: PlayerId(cursor as u8),
+                });
+            }
             b.view.players.push(
                 self.visible_player(PlayerId(cursor as u8))
                     .map_err(|_| QueryRejection::Invariant)?,
@@ -263,6 +272,13 @@ impl Game {
                 {
                     candidates.push(visible.handle.clone());
                 }
+                if let Some(PlayerRequest::EntityTargets { candidates, .. }) = &mut b.decision
+                    && self.target_legal(object.id)
+                {
+                    candidates.push(PlayerTargetEntity::Object {
+                        object: visible.handle.clone(),
+                    });
+                }
                 b.view.objects.push(visible);
             }
         } else {
@@ -275,7 +291,7 @@ impl Game {
         if b.cursor as usize >= 4 + self.state.objects.len() + self.state.stack.len() {
             b.view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
             return Ok(Some(Observation {
-                observation_version: 10,
+                observation_version: 11,
                 view: b.view.clone(),
                 decision: b.decision.clone(),
             }));
@@ -289,6 +305,31 @@ impl Game {
                 Ok(self.observation_unit(builder)?.map(QueryValue::Observation))
             }
             (Query::Decision { viewer }, Task::Decision { cursor, request }) => {
+                if let Some(PlayerRequest::EntityTargets { candidates, .. }) = request {
+                    let cursor_index = *cursor as usize;
+                    let target = if cursor_index < 4 {
+                        self.is_live(PlayerId(cursor_index as u8))
+                            .then_some(TargetEntity::Player {
+                                player: PlayerId(cursor_index as u8),
+                            })
+                    } else {
+                        self.state
+                            .objects
+                            .values()
+                            .nth(cursor_index - 4)
+                            .filter(|o| self.target_legal(o.id))
+                            .map(|o| TargetEntity::Object { object: o.id })
+                    };
+                    if let Some(target) = target {
+                        candidates.push(
+                            self.player_entity(*viewer, target)
+                                .map_err(|_| QueryRejection::Invariant)?,
+                        );
+                    }
+                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
+                    return Ok((*cursor as usize >= 4 + self.state.objects.len())
+                        .then(|| QueryValue::Decision(request.clone())));
+                }
                 if !matches!(request, Some(PlayerRequest::Targets { .. })) {
                     return Ok(Some(QueryValue::Decision(request.clone())));
                 }
@@ -315,6 +356,7 @@ impl Game {
                 Task::Check {
                     header_checked,
                     converted,
+                    converted_entities,
                     value,
                 },
             ) => {
@@ -322,6 +364,10 @@ impl Game {
                     self.validate_player_token(*viewer, token)
                         .map_err(invalid)?;
                     let timing_valid = match (&self.state.frame, response) {
+                        (
+                            Frame::EntityTargets { .. },
+                            PlayerResponse::EntityTargets { entities },
+                        ) => entities.len() == self.program().map_err(invalid)?.targets.len(),
                         (Frame::StackTargets { .. }, PlayerResponse::StackTargets { .. })
                         | (Frame::PlayerTargets { .. }, PlayerResponse::PlayerTargets { .. })
                         | (
@@ -370,10 +416,26 @@ impl Game {
                     converted.push(id);
                     return Ok(None);
                 }
+                if let PlayerResponse::EntityTargets { entities } = response
+                    && converted_entities.len() < entities.len()
+                {
+                    let target = self
+                        .resolve_entity(*viewer, &entities[converted_entities.len()])
+                        .map_err(invalid)?;
+                    if !self.entity_legal(target) {
+                        return Err(QueryRejection::InvalidResponse);
+                    }
+                    converted_entities.push(target);
+                    return Ok(None);
+                }
                 if value.is_none() {
                     *value = Some(if matches!(response, PlayerResponse::Targets { .. }) {
                         Response::Targets {
                             objects: converted.clone(),
+                        }
+                    } else if matches!(response, PlayerResponse::EntityTargets { .. }) {
+                        Response::EntityTargets {
+                            entities: converted_entities.clone(),
                         }
                     } else {
                         self.convert_response(*viewer, response).map_err(invalid)?
@@ -430,7 +492,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 10,
+                    context_version: 11,
                     observation: *observation.clone().ok_or(QueryRejection::Invariant)?,
                     permitted_history: history.clone(),
                     open_decklists: decks.clone(),
@@ -449,7 +511,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: 9,
+            work_version: 10,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -458,7 +520,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != 9
+        if saved.work_version != 10
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?

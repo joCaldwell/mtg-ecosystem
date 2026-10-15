@@ -89,6 +89,9 @@ impl Strategy {
             .as_ref()
             .ok_or("missing commander request")?;
         Ok(match request {
+            PlayerRequest::EntityTargets { .. } => {
+                return Err("mixed targets outside damage/life profile".into());
+            }
             PlayerRequest::StackTargets { .. }
             | PlayerRequest::PlayerTargets { .. }
             | PlayerRequest::Sacrifice { .. }

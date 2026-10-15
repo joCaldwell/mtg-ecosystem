@@ -264,6 +264,9 @@ impl Strategy {
                     PlayerResponse::Pass
                 }
             }
+            PlayerRequest::EntityTargets { .. } => {
+                return Err("mixed targets outside damage/life profile".into());
+            }
             PlayerRequest::StackTargets { .. } => {
                 return Err("unexpected stack target in historical action profile".into());
             }

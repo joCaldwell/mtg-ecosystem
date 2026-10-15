@@ -343,6 +343,9 @@ impl Strategy {
                     PlayerResponse::Pass
                 }
             }
+            PlayerRequest::EntityTargets { .. } => {
+                return Err("mixed targets outside damage/life profile".into());
+            }
             PlayerRequest::StackTargets { candidates, .. } => {
                 let wanted = if self.policy.stifle() {
                     None

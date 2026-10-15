@@ -48,6 +48,14 @@ cost. Snapshot v12, bundle v13, projection/context v10 and query-sidecar v9 reta
 announcements, current/historical stack handles and counter outcomes. The five
 historical catalogs and all historical gameplay hashes remain separate references.
 
+`docs/game-engine-damage-life.md` adds five exact damage/life profiles and a
+twenty-one-definition IR v7 catalog. Lightning Bolt and Prodigal Sorcerer use
+the complete any-target domain with only creature/player inhabitants admitted.
+Soul Feast, Healing Hands and Sacred Nectar retain ordered life/draw programs.
+Snapshot v13, bundle v14, projection/context v11 and query-sidecar v10 retain
+mixed target identities, targeted tap announcements and historical damage sources.
+The six earlier catalogs and their gameplay references remain separate.
+
 Run from repository root, using pinned Rust 1.99.0:
 
 - `npm run check:engine`: toolchain check, formatting, Clippy, Rust tests, and
@@ -187,3 +195,16 @@ mana window and exact spending choice. Source movement or source-owner departure
 after announcement preserves a surviving activator's frozen invocation with a mana cost.
 Failed payment removes that proposal and optionally undoes only its recorded mana
 activations, preserving source state, prior combat taps and preexisting mana.
+
+Damage/life profiles use `EntityTargets` for player/creature damage targets and
+`PlayerTargets` for any-player life targets, including self. Historical Edict
+targets remain opponent-only. Targeted tap abilities choose targets before paying
+their cost and expose no mana window. Noncombat damage retains its historical
+source incarnation and frozen controller after source movement or owner departure;
+it never updates Commander combat history. Direct life changes are separate
+typed events. Run SBAs after the complete program, allowing Soul Feast's self
+loss/gain to recover from zero and Healing Hands' gain/draw to finish before loss.
+If every target is illegal at resolution start, skip the complete program.
+Creature damage accumulates until cleanup; lethal damage uses the ordinary SBA
+destruction and Commander-return paths. Trigger scheduling and damage prevention
+remain unsupported.

@@ -33,6 +33,13 @@
       "ast_sha256": "6ed597e9deae79bc975ef443eb5264b2e9d6ea18d7f4359c248c305c77fff513"
     },
     {
+      "file": "flame-rift.json",
+      "oracle_id": "28479aa8-d1cd-421a-8bbb-0594bb4dd410",
+      "record_sha256": "d7513ded742781ea970531b0e77718985b61553e1955f3e6b1d4e0d49723d53f",
+      "source_sha256": "c3f4f56bd5ad286b6d0ce69c41ca7dc14742db1e9ba5d08fa783f699db35a864",
+      "ast_sha256": "0fdfa7aac1dfcd12fdd58e6cfd96963c85878e6079e182ee7ae413f0bdb7417c"
+    },
+    {
       "file": "forest.json",
       "oracle_id": "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6",
       "record_sha256": "88cc92acedaa06983e21abada4ce21abe4bf177bc30c269bea55c994e44c78e3",
@@ -54,6 +61,13 @@
       "ast_sha256": "b2f0f066f520788c04676d044fd7cfb0b7c2ed81d8e43101031aeee9cd569cc0"
     },
     {
+      "file": "healing-hands.json",
+      "oracle_id": "3cc48835-3ac0-4774-b380-f9b21d2dc974",
+      "record_sha256": "fe1712c45689f77b1464694316a3bd525aa678469f1a85e5c65bb1504df30200",
+      "source_sha256": "5da894433f37708bc58ae017caa6c499a8c4b8299d90a675081962f4eb9642b7",
+      "ast_sha256": "c72a402f9e4016a69fe718792f31955352242e8f45a6c2b7357aafc9ae0d21a8"
+    },
+    {
       "file": "isamaru.json",
       "oracle_id": "cfb756dd-6fe1-430a-8f04-8b10cac62a86",
       "record_sha256": "22bb848cea7e1d2f638966f9ca19aa9f096f1910ec9fd01f4d918bfdabce8e40",
@@ -68,6 +82,13 @@
       "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
     },
     {
+      "file": "lightning-bolt.json",
+      "oracle_id": "4457ed35-7c10-48c8-9776-456485fdf070",
+      "record_sha256": "a64006dde28cd47a2d242147837475921e4c56a059f6e671715f9d4bb6dac460",
+      "source_sha256": "20ccb4e02f26dd5fd99c4a9d3616b7f9ef4b96442484808cc324a52d0735f18f",
+      "ast_sha256": "ce15469a6da1d09e5416beac9b87d0c449ccaa9c1fdc58ab0303c3f962feba91"
+    },
+    {
       "file": "merfolk-looter.json",
       "oracle_id": "67362406-b1ca-49e2-800d-9050bfe8742a",
       "record_sha256": "7aa11f7f6acb6bd235123f70b319943d55fe8277c34214375bbc75d0b7830fb0",
@@ -75,11 +96,39 @@
       "ast_sha256": "4d8264216d2b613c00056c0574dac7a0289743c579ced4ff68808d6f409ec59c"
     },
     {
+      "file": "mountain.json",
+      "oracle_id": "a3fb7228-e76b-4e96-a40e-20b5fed75685",
+      "record_sha256": "de669ff74341c7bb16ab55b67e814ac0615ecb5096581ea03066b6bddf989d8a",
+      "source_sha256": "a36be15fb1c2c6f31dc840854997ae1867516db5dd49d311de6669cf4d2de3df",
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
+    },
+    {
       "file": "plains.json",
       "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99",
       "record_sha256": "6b23cdb80b5897603e4bf4afc0d07c59e7b49c25672fc6c7fd6ba02855e5e6c0",
       "source_sha256": "2d754c3d2e6a5f780dac19f38fbe26e8631cfecdbe8a4372f095dbdfa308a1d5",
       "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
+    },
+    {
+      "file": "prodigal-sorcerer.json",
+      "oracle_id": "5e961d15-5972-4e4b-9385-1cd7cd7c6bbe",
+      "record_sha256": "287ac71a4e1e39aea298a4040a85457e7bef8972766bed5a0f1c029da67a8a41",
+      "source_sha256": "18b86676187cd9d65e57f740d33eb4a2269f597798b3d01d3c1c0327ed49295b",
+      "ast_sha256": "3455807b0e87d423eb54c4d983f1ddbc3bdaf05017135f6fdb2e47793eef7165"
+    },
+    {
+      "file": "sacred-nectar.json",
+      "oracle_id": "30870ee5-6ad7-48a9-983e-d3b018f2344f",
+      "record_sha256": "397d9656cb65b76cd0c71e7b108b8b9cd32a9403b933fa7fee43585c5db11c18",
+      "source_sha256": "c93432aa9fe8536aadb22fb18a0af83365545b13428c3c1d99eb367b34956c07",
+      "ast_sha256": "b4d55f3ca27f04128fbd115d53149ccc3dec439427fb679a39b3d4dda5d0c743"
+    },
+    {
+      "file": "soul-feast.json",
+      "oracle_id": "8186fd80-015f-470c-9e1c-cbf45764a057",
+      "record_sha256": "0a80eab34091227948d0331a3c79a12f5cdd9d7d0f4b2e7c40326ff65bc26ef6",
+      "source_sha256": "d2a826aa1a024ab009b2dddbab58f06563025d1ec6bdd5f91449cf0584bc9286",
+      "ast_sha256": "a19b19d765e8d91cb533bbd98930b294f8913f8893c45b97b49c1222f6b41a1a"
     },
     {
       "file": "stifle.json",

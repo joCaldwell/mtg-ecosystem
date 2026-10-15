@@ -133,6 +133,11 @@ pub enum Capability {
     CounterStackObjectV1,
     TapSourceCostV1,
     ManaActivationCostV1,
+    AnyDamageTargetV1,
+    AnyPlayerTargetV1,
+    NoncombatDamageV1,
+    LifeGainV1,
+    LifeLossV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -157,6 +162,10 @@ pub enum TargetDomain {
     OpponentPlayer,
     StackSpell,
     StackActivatedOrTriggeredAbility,
+    /// CR 115.4: creatures, players, planeswalkers and battles. The closed
+    /// scenario admits only creature/player inhabitants, not a narrower domain.
+    AnyDamageTarget,
+    AnyPlayer,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -167,17 +176,62 @@ pub struct TargetSpec {
     pub stage: EvaluationStage,
     pub domain: TargetDomain,
 }
+/// Controller means the frozen invocation controller (CR 109.5), not the
+/// current controller of its physical source. Target refers to AnyPlayer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum LifeRecipient {
+    Controller,
+    Target { target_slot: u32 },
+}
 // Tagged operations are deliberate; unknown variants and fields reject.
 // https://serde.rs/enum-representations.html
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
-    ReturnToOwnerHand { target_slot: u32, source_block: u32 },
-    PutOnTopOwnerLibrary { target_slot: u32, source_block: u32 },
-    TargetPlayerSacrificeCreature { target_slot: u32, source_block: u32 },
-    DrawCards { count: Quantity, source_block: u32 },
-    DiscardCards { count: Quantity, source_block: u32 },
-    CounterStackObject { target_slot: u32, source_block: u32 },
+    ReturnToOwnerHand {
+        target_slot: u32,
+        source_block: u32,
+    },
+    PutOnTopOwnerLibrary {
+        target_slot: u32,
+        source_block: u32,
+    },
+    TargetPlayerSacrificeCreature {
+        target_slot: u32,
+        source_block: u32,
+    },
+    DrawCards {
+        count: Quantity,
+        source_block: u32,
+    },
+    DiscardCards {
+        count: Quantity,
+        source_block: u32,
+    },
+    CounterStackObject {
+        target_slot: u32,
+        source_block: u32,
+    },
+    /// Noncombat damage from this invocation's physical source (CR 120.2b).
+    DealDamage {
+        target_slot: u32,
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
+        amount: Quantity,
+        source_block: u32,
+    },
+    GainLife {
+        recipient: LifeRecipient,
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
+        amount: Quantity,
+        source_block: u32,
+    },
+    LoseLife {
+        recipient: LifeRecipient,
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
+        amount: Quantity,
+        source_block: u32,
+    },
 }
 /// Supported announcement timing; permissions are checked by the runtime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -307,16 +361,22 @@ impl Definition {
                 || p.functioning_zone != FunctioningZone::Stack
                 || p.timing != SpellTiming::Instant
                 || p.resolution != SpellResolution::Instructions
-                || !p.targets.is_empty()
                 || p.instructions.is_empty()
-                || p.instructions.iter().any(|instruction| {
-                    !matches!(instruction,
-                    Instruction::DrawCards { count, .. } | Instruction::DiscardCards { count, .. }
-                    if *count == Quantity::from(1))
-                })
+                || if p.targets.is_empty() {
+                    p.instructions.iter().any(|instruction| !matches!(instruction,
+                        Instruction::DrawCards {count,..}|Instruction::DiscardCards {count,..} if *count==Quantity::from(1)))
+                } else {
+                    p.targets
+                        .iter()
+                        .any(|target| target.domain != TargetDomain::AnyDamageTarget)
+                        || p.instructions.iter().any(|instruction| {
+                            !matches!(instruction, Instruction::DealDamage { .. })
+                        })
+                }
             {
                 return Err("unsupported activated cost/program shape".into());
             }
+            validate_instruction_program(p)?;
         }
         match c.kind {
             CardKind::Land => {
@@ -372,72 +432,104 @@ impl Definition {
                             SpellTiming::MainPhase
                         }
                     || p.resolution != SpellResolution::Instructions
-                    || p.targets.is_empty()
                     || p.instructions.is_empty()
                 {
                     return Err("invalid spell functioning zone or empty program".into());
                 }
-                let mut ids = BTreeSet::new();
-                for (i, t) in p.targets.iter().enumerate() {
-                    if usize::try_from(t.slot).ok() != Some(i)
-                        || t.selection_id.is_empty()
-                        || !ids.insert(&t.selection_id)
-                    {
-                        return Err("unbound, duplicate, or noncontiguous target occurrence".into());
-                    }
-                }
-                if p.targets
-                    .windows(2)
-                    .any(|targets| targets[0].domain != targets[1].domain)
-                {
-                    return Err("mixed creature/player target programs are unsupported".into());
-                }
-                let mut used = BTreeSet::new();
-                for instruction in &p.instructions {
-                    let (target_slot, domain) = match instruction {
-                        Instruction::ReturnToOwnerHand { target_slot, .. }
-                        | Instruction::PutOnTopOwnerLibrary { target_slot, .. } => {
-                            (*target_slot, TargetDomain::BattlefieldCreature)
-                        }
-                        Instruction::TargetPlayerSacrificeCreature { target_slot, .. } => {
-                            (*target_slot, TargetDomain::OpponentPlayer)
-                        }
-                        Instruction::CounterStackObject { target_slot, .. } => {
-                            let domain = p
-                                .targets
-                                .get(*target_slot as usize)
-                                .map(|target| target.domain)
-                                .filter(|domain| {
-                                    matches!(
-                                        domain,
-                                        TargetDomain::StackSpell
-                                            | TargetDomain::StackActivatedOrTriggeredAbility
-                                    )
-                                })
-                                .ok_or("counter requires a stack target domain")?;
-                            (*target_slot, domain)
-                        }
-                        _ => {
-                            return Err(
-                                "untargeted draw/discard spell programs are unsupported".into()
-                            );
-                        }
-                    };
-                    if p.targets
-                        .get(target_slot as usize)
-                        .is_none_or(|target| target.domain != domain)
-                    {
-                        return Err("unbound target slot".into());
-                    }
-                    used.insert(target_slot);
-                }
-                if used.len() != p.targets.len() {
-                    return Err("unused target occurrence".into());
-                }
+                validate_instruction_program(p)?;
             }
         }
         Ok(())
     }
+}
+fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
+    let mut ids = BTreeSet::new();
+    for (index, target) in p.targets.iter().enumerate() {
+        if usize::try_from(target.slot).ok() != Some(index)
+            || target.selection_id.is_empty()
+            || !ids.insert(&target.selection_id)
+        {
+            return Err("unbound, duplicate, or noncontiguous target occurrence".into());
+        }
+    }
+    if p.targets
+        .windows(2)
+        .any(|targets| targets[0].domain != targets[1].domain)
+    {
+        return Err("mixed target domains are unsupported".into());
+    }
+    let mut used = BTreeSet::new();
+    for instruction in &p.instructions {
+        let binding = match instruction {
+            Instruction::ReturnToOwnerHand { target_slot, .. }
+            | Instruction::PutOnTopOwnerLibrary { target_slot, .. } => {
+                Some((*target_slot, TargetDomain::BattlefieldCreature))
+            }
+            Instruction::TargetPlayerSacrificeCreature { target_slot, .. } => {
+                Some((*target_slot, TargetDomain::OpponentPlayer))
+            }
+            Instruction::CounterStackObject { target_slot, .. } => {
+                let domain = p
+                    .targets
+                    .get(*target_slot as usize)
+                    .map(|target| target.domain)
+                    .filter(|domain| {
+                        matches!(
+                            domain,
+                            TargetDomain::StackSpell
+                                | TargetDomain::StackActivatedOrTriggeredAbility
+                        )
+                    })
+                    .ok_or("counter requires a stack target domain")?;
+                Some((*target_slot, domain))
+            }
+            Instruction::DealDamage {
+                target_slot,
+                amount,
+                ..
+            } => {
+                if *amount <= Quantity::zero() {
+                    return Err("damage quantity must be positive".into());
+                }
+                Some((*target_slot, TargetDomain::AnyDamageTarget))
+            }
+            Instruction::GainLife {
+                recipient, amount, ..
+            }
+            | Instruction::LoseLife {
+                recipient, amount, ..
+            } => {
+                if *amount <= Quantity::zero() {
+                    return Err("life quantity must be positive".into());
+                }
+                match recipient {
+                    LifeRecipient::Controller => None,
+                    LifeRecipient::Target { target_slot } => {
+                        Some((*target_slot, TargetDomain::AnyPlayer))
+                    }
+                }
+            }
+            Instruction::DrawCards { count, .. } | Instruction::DiscardCards { count, .. } => {
+                if *count != Quantity::from(1) {
+                    return Err("unsupported draw/discard cardinality".into());
+                }
+                None
+            }
+        };
+        if let Some((slot, domain)) = binding {
+            if p.targets
+                .get(slot as usize)
+                .is_none_or(|target| target.domain != domain)
+            {
+                return Err("unbound target slot/domain".into());
+            }
+            used.insert(slot);
+        }
+    }
+    if used.len() != p.targets.len() {
+        return Err("unused target occurrence".into());
+    }
+    Ok(())
 }
 fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgram) {
     for target in &program.targets {
@@ -446,6 +538,8 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             TargetDomain::OpponentPlayer => Capability::OpponentTargetV1,
             TargetDomain::StackSpell => Capability::StackSpellTargetV1,
             TargetDomain::StackActivatedOrTriggeredAbility => Capability::StackAbilityTargetV1,
+            TargetDomain::AnyDamageTarget => Capability::AnyDamageTargetV1,
+            TargetDomain::AnyPlayer => Capability::AnyPlayerTargetV1,
         });
     }
     for instruction in &program.instructions {
@@ -458,6 +552,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::DrawCards { .. } => Capability::ControllerDrawV1,
             Instruction::DiscardCards { .. } => Capability::ControllerDiscardV1,
             Instruction::CounterStackObject { .. } => Capability::CounterStackObjectV1,
+            Instruction::DealDamage { .. } => Capability::NoncombatDamageV1,
+            Instruction::GainLife { .. } => Capability::LifeGainV1,
+            Instruction::LoseLife { .. } => Capability::LifeLossV1,
         });
     }
 }
@@ -474,7 +571,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 3, max = 6))]
+    #[schemars(range(min = 3, max = 7))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -482,7 +579,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.schema_version, 3..=6)
+        if !matches!(self.schema_version, 3..=7)
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -491,6 +588,34 @@ impl Catalog {
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
             d.validate()?;
+            if self.schema_version < 7
+                && (d.capabilities.iter().any(|cap| {
+                    matches!(
+                        cap,
+                        Capability::AnyDamageTargetV1
+                            | Capability::AnyPlayerTargetV1
+                            | Capability::NoncombatDamageV1
+                            | Capability::LifeGainV1
+                            | Capability::LifeLossV1
+                    )
+                }) || d
+                    .activated
+                    .iter()
+                    .any(|ability| !ability.program.targets.is_empty())
+                    || d.spell.as_ref().is_some_and(|program| {
+                        program.resolution == SpellResolution::Instructions
+                            && (program.targets.is_empty()
+                                || program.instructions.iter().any(|instruction| {
+                                    matches!(
+                                        instruction,
+                                        Instruction::DrawCards { .. }
+                                            | Instruction::DiscardCards { .. }
+                                    )
+                                }))
+                    }))
+            {
+                return Err("IR v7 is required for damage/life, targeted activations or untargeted spell instructions".into());
+            }
             if self.schema_version < 6
                 && (d
                     .activated
@@ -563,7 +688,7 @@ impl Catalog {
 pub fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
-/// IR v3/v4/v5/v6 canonicalization (same algorithm as v1/v2): UTF-8 compact serde_json Value (sorted object keys),
+/// IR v3/v4/v5/v6/v7 canonicalization (same algorithm as v1/v2): UTF-8 compact serde_json Value (sorted object keys),
 /// ordered arrays, exact quantities as strings. Separate from JS archive hashes.
 pub fn canonical<T: Serialize>(value: &T) -> Result<String, String> {
     serde_json::to_value(value)
@@ -615,6 +740,20 @@ pub fn catalog_schema() -> serde_json::Value {
                 "instructions": {"items": {"properties": {"op": {"not": {"const": "counter_stack_object"}}}}}
             }}]}
         }}}}}
+    }, {
+        "if":{"required":["schema_version"],"properties":{"schema_version":{"enum":[3,4,5,6]}}},
+        "then":{"properties":{"definitions":{"items":{
+            "properties":{
+                "capabilities":{"items":{"not":{"enum":[Capability::AnyDamageTargetV1,Capability::AnyPlayerTargetV1,Capability::NoncombatDamageV1,Capability::LifeGainV1,Capability::LifeLossV1]}}},
+                "activated":{"items":{"properties":{"program":{"properties":{"targets":{"maxItems":0},"instructions":{"items":{"properties":{"op":{"enum":["draw_cards","discard_cards"]}}}}}}}}},
+                "spell":{"anyOf":[{"type":"null"},{"type":"object","properties":{
+                    "targets":{"items":{"properties":{"domain":{"enum":["battlefield_creature","opponent_player","stack_spell","stack_activated_or_triggered_ability"]}}}},
+                    "instructions":{"items":{"properties":{"op":{"enum":["return_to_owner_hand","put_on_top_owner_library","target_player_sacrifice_creature","counter_stack_object"]}}}}
+                }}]}
+            },
+            "allOf":[{"if":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}}}},
+                "then":{"properties":{"spell":{"properties":{"targets":{"minItems":1}}}}}}]
+        }}}}
     }]);
     schema
 }

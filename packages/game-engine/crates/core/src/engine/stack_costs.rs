@@ -45,7 +45,18 @@ impl Game {
             },
         };
         let mana = matches!(cost, ActivationCost::Mana { .. });
+        let targeted = !self.definition(object.card)?.activated[ability as usize]
+            .program
+            .targets
+            .is_empty();
         self.state.stack.push(StackInstance {
+            source_facts: if self.prepared.config.damage_life_profile() {
+                Some(self.object_before(object)?)
+            } else {
+                None
+            },
+            entity_targets: vec![],
+            announced_entity_targets: vec![],
             kind: StackKind::Activated {
                 ability,
                 source_handles,
@@ -58,11 +69,26 @@ impl Game {
             controller: player,
             targets: vec![],
             announced_targets: vec![vec![]; 4],
-            paid: (!mana).then_some(total_cost.clone()),
+            paid: (!mana && !targeted).then_some(total_cost.clone()),
             total_cost,
             cast_from: Zone::Battlefield,
         });
-        if mana {
+        if targeted {
+            if cost != ActivationCost::TapSource {
+                return Err("unsupported targeted activation cost".into());
+            }
+            self.state.frame = Frame::EntityTargets {
+                cast: Casting {
+                    origin: AnnouncementOrigin::Activated,
+                    spending: None,
+                    stack_id: id,
+                    original_object: object,
+                    prior_passes: self.state.passes.clone(),
+                    mana_activations: vec![],
+                    undo_mana: false,
+                },
+            };
+        } else if mana {
             self.state.frame = Frame::Mana {
                 cast: Casting {
                     origin: AnnouncementOrigin::Activated,
@@ -121,7 +147,10 @@ impl Game {
             },
         };
         let announcing = match &self.state.frame {
-            Frame::Mana { cast } | Frame::SpendMana { cast } | Frame::Payment { cast } => {
+            Frame::EntityTargets { cast }
+            | Frame::Mana { cast }
+            | Frame::SpendMana { cast }
+            | Frame::Payment { cast } => {
                 cast.stack_id == entry.id && cast.origin == AnnouncementOrigin::Activated
             }
             _ => matches!(
@@ -138,7 +167,12 @@ impl Game {
             || entry.cast_from != Zone::Battlefield
             || match &entry.paid {
                 Some(paid) => *paid != expected,
-                None => !announcing || !matches!(activated.cost, ActivationCost::Mana { .. }),
+                None => {
+                    !announcing
+                        || !(matches!(activated.cost, ActivationCost::Mana { .. })
+                            || (!activated.program.targets.is_empty()
+                                && self.prepared.config.damage_life_profile()))
+                }
             }
         {
             return Err("snapshot activated invocation invariant".into());
@@ -146,6 +180,7 @@ impl Game {
         Ok(())
     }
     pub(super) fn validate_stack_bindings(&self, entry: &StackInstance) -> Result<(), String> {
+        self.validate_damage_bindings(entry)?;
         let program = self.program_for(entry)?;
         let stack_domain = program.targets.first().is_some_and(|target| {
             matches!(

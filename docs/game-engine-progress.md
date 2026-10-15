@@ -1117,3 +1117,100 @@ trigger scheduling/APNAP. General replacement/prevention ordering, continuous
 effects, shuffle/mulligan setup, arbitrary decks and full legal Commander
 admission remain later work. These remain closed scenarios rather than a
 match-support or performance claim.
+
+## Noncombat damage and direct life changes — October 15, 2026
+
+The [frozen damage/life contract](game-engine-damage-life.md) adds complete
+source-backed damage and life programs on `feat/engine-damage-life`, stacked on
+`19eaca7`. Work is isolated in `/home/josh/Code/mtg-engine-damage-life`.
+
+Five exact configurations share a separate twenty-one-definition IR v7 catalog:
+ordinary forty-life play, four-life loss/order tests, a borrowed activated source,
+an empty P0 library, and a tucked-Commander draw profile. Twenty-three authentic
+source records add Lightning Bolt, Prodigal Sorcerer, Soul Feast, Healing Hands,
+Sacred Nectar and Mountain. Flame Rift's aggregate each-player scope and Blood
+Artist's triggered program remain paired unsupported sources. The six historical
+catalogs and all fifteen preceding definitions remain separate exact references.
+
+Mixed target requests preserve player seats and viewer-scoped creature handles
+as distinct kinds. The complete any-target domain retains planeswalkers and
+battles abstractly; neither has an inhabitant in these admitted configurations.
+Any-player life targets include self, while Cruel Edict stays opponent-only.
+Prodigal Sorcerer chooses targets before paying its tap cost, uses no mana
+window, and requires continuous-control eligibility. Paid invocations remain
+independent after bounce, death or source-owner departure; their typed damage
+retains the actual current/last-known source incarnation, controller, tap state,
+marked damage and characteristics. Noncombat damage marks creatures or lowers
+player life, without advancing Commander combat history. Lethal damage uses
+ordinary SBAs and the existing Commander graveyard-return continuation.
+
+Direct life gain/loss has separate typed outcomes with exact before/after totals.
+No SBA interrupts a complete resolving program: Soul Feast self-targeting at four
+life reaches zero and returns to four before checking losses. Another target at
+four loses only after the controller's gain and spell completion. A sole illegal
+target cancels the entire program, including later gain or draw. Sacred Nectar
+resolves without targets. Healing Hands gains life before its ordered draw,
+defers failed-draw loss until completion, and preserves the mandatory owner
+replacement while drawing a tucked Commander without exposing a library handle.
+
+Twenty-eight player-facing policies cover player/creature/self damage, lethal
+Commander return/decline, bounce/departure target failure, Counterspell and Stifle,
+Sorcerer self-destruction and detached source provenance, source-owner departure,
+combined damage sources causing loss, ordered self/opponent life changes,
+targetless gain, failed draws, and both nested Commander-draw outcomes. All agree
+across off/compact/detailed tracing and one-unit/unlimited/seven-unit execution
+and query budgets. The new suite adds **1,198 recovery boundaries**, bringing
+combined evidence to **8,646 boundaries**, **26 exact configurations**, and
+**258 trace-mode executions**, plus legacy checkpoints. Snapshot v13, bundle v14,
+projection/context v11 and query-sidecar v10 retain these additions. Historical
+reference comparisons normalize only outer projection versions.
+
+Independent review identified and fixed three announcement/departure gaps:
+accepted mixed targets invalidated by departure, self-targeted player choices
+incorrectly treated as opponent-only during unrelated concessions, and borrowed
+sources leaving before their targeted tap cost was paid. Thirteen independent
+adversarial tests cover these regressions, query purity and authorization,
+source reincarnation/tap readiness, marks accumulation/cleanup, transient zero
+life, started-resolution departures, hidden Commander draws and stale receipts,
+and rehashed source/target forgeries. Compiler/schema tests retain complete-card
+semantics, source-block ordering, exact quantities, capability closure and
+version gating. No parser edits or generated bulk artifacts are included.
+
+The reviewed twenty-eight-policy report was captured twice with identical bytes
+(SHA-256 `82d3bde1ebc34094db4d70e87a4c395313c145c1f4fd98f8d589b6aa4d84cfb3`).
+Final `npm run check:engine` passed the pinned toolchain, formatting, Clippy,
+**258 Rust tests** with debug assertions/overflow checks, and **17 Node integration
+tests**. Separate release verification passed the same **258 Rust tests**. The independent
+capture audit verified **103 native source files** totaling **8,399,776 bytes**,
+**1,581 dependency files** from **31 locked packages**, all seven catalogs,
+26 configurations, 258 trace executions, and the snapshot envelopes/state hashes.
+All 23 source ASTs also match the main checkout parser; the audit binds its
+199 TypeScript source files at closure SHA-256
+`f8fa76be25830c61fdbb45fb82661201df7a74d64abbedeed795d9973ff65a3d`.
+
+Retained identities:
+
+- Build: `e82ce4cc8450c149d67c15c34aa508f7f4e187900b344d59b4f414b625e206d5`.
+- Bundle: `dc6b881da771a85f884cefe9b0847fca6381aa62c39e3b8fdef15342c76a6ee2`.
+- Rebuilt executable: `5a3efb8861d5a11e1face39efd8e4f38fb4060b4b8ce8f9ea9f62608707f0702`.
+- Dependency manifest: `387384711d404f44993e8ab583e269c5105d1cc8b583307e3035f14e03d7474f`.
+- Pinned rules: `8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca`.
+- Historical baseline state: `58a0a241c4662d403dec8944430c1fe402c7fd15d22a2ce242c9a0b01d54f657`.
+
+The retained closure lives at
+`/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-dc6b881da771a85f-un91zr/`.
+It rebuilt with frozen offline dependencies, an initially empty Cargo home and a
+fresh target directory, then independently replayed the complete retained bundle.
+The final independent audit found no discrepancies: ignored
+`generated/p2-retention.json` matches the store's `evidence.json` byte for byte,
+offline-build flags and replay results agree, and the rebuilt executable's actual
+hash matches its manifest. No review findings remain unresolved.
+Logs and independent audit outputs remain under ignored
+`generated/damage-life-verification/`; downloaded rules, vendor/source closures,
+executables and replay bundles remain outside the commit.
+
+The next bounded chunk is source-backed trigger collection, scheduling and APNAP
+ordering, including target choices, simultaneous events, source departure and
+countering triggered invocations. General replacement/prevention ordering,
+continuous effects, shuffle/mulligan setup, arbitrary decks and full legal
+Commander admission remain later work. These are closed rules scenarios.
