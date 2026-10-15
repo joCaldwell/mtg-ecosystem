@@ -193,9 +193,11 @@ impl Game {
             return Ok(());
         }
         let stack = self.top()?.clone();
+        let condition_check = self.check_resolution_condition(&stack)?;
         let legal_targets = self.announced_target_legality(&stack);
         self.state.frame = Frame::Resolve {
             frame: Resolving {
+                condition_check,
                 stack_id: stack.id,
                 spell: stack,
                 cursor: 0,
@@ -403,7 +405,8 @@ impl Game {
         // CR 608.2m: a started invocation owns its frozen instance and keeps
         // resolving after its source leaves. Only an unfinished casting frame
         // whose own source left is discarded; lower departures cannot replace it.
-        if let Frame::EntityTargets { cast }
+        if let Frame::Modes { cast }
+        | Frame::EntityTargets { cast }
         | Frame::Targets { cast }
         | Frame::StackTargets { cast }
         | Frame::PlayerTargets { cast }
@@ -426,7 +429,8 @@ impl Game {
                 vec![]
             };
         }
-        if let Frame::EntityTargets { cast }
+        if let Frame::Modes { cast }
+        | Frame::EntityTargets { cast }
         | Frame::Targets { cast }
         | Frame::StackTargets { cast }
         | Frame::PlayerTargets { cast }

@@ -27,7 +27,8 @@ graph BT
 
 **Current applications → deck-builder and initial engine scenario.** The standalone
 deck-builder is active. The Layer-0 parser is a limited supported subset, and the
-Rust compiler/kernel now execute a reviewed four-seat scenario. Full Commander
+Rust compiler/kernel now execute 42 reviewed four-seat scenario configurations,
+including modal casting, trigger conditions and temporary effects. Full Commander
 games, search, server, and bulk Card IR emission remain future work. Read the
 relevant package’s `AGENTS.md` before development.
 

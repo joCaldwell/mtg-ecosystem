@@ -87,6 +87,8 @@ enum Task {
         converted: Vec<ObjectId>,
         converted_entities: Vec<TargetEntity>,
         converted_triggers: Vec<TriggerId>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        converted_allocations: Vec<(DamageId, Quantity)>,
         value: Option<Response>,
     },
     Search {
@@ -198,6 +200,7 @@ impl Game {
                 converted: vec![],
                 converted_entities: vec![],
                 converted_triggers: vec![],
+                converted_allocations: vec![],
                 value: None,
             },
             Query::Search { .. } => Task::Search {
@@ -324,8 +327,53 @@ impl Game {
                     .map_err(|_| QueryRejection::Invariant)?,
             );
         }
+        if let Some(PlayerRequest::Modes { candidates, .. }) = &mut b.decision
+            && cursor >= base + effect_count
+            && let Some(Request::Modes {
+                candidates: ids, ..
+            }) = self
+                .modes_request()
+                .map_err(|_| QueryRejection::Invariant)?
+            && let Some(id) = ids.get(cursor - base - effect_count)
+        {
+            candidates.push(*id);
+        }
+        if let Some(PlayerRequest::DamageAllocation { candidates, .. }) = &mut b.decision
+            && cursor >= base + effect_count
+            && let Some(Request::DamageAllocation {
+                candidates: ids, ..
+            }) = self
+                .damage_allocation_request()
+                .map_err(|_| QueryRejection::Invariant)?
+            && let Some(c) = ids.get(cursor - base - effect_count)
+        {
+            candidates.push(
+                self.visible_allocation_candidate(viewer, c)
+                    .map_err(|_| QueryRejection::Invariant)?,
+            );
+        }
         let extra = effect_count
-            + if matches!(b.decision, Some(PlayerRequest::DamageEffect { .. })) {
+            + if matches!(b.decision, Some(PlayerRequest::DamageAllocation { .. })) {
+                self.damage_allocation_request()
+                    .map_err(|_| QueryRejection::Invariant)?
+                    .map_or(0, |r| {
+                        if let Request::DamageAllocation { candidates, .. } = r {
+                            candidates.len()
+                        } else {
+                            0
+                        }
+                    })
+            } else if matches!(b.decision, Some(PlayerRequest::Modes { .. })) {
+                self.modes_request()
+                    .map_err(|_| QueryRejection::Invariant)?
+                    .map_or(0, |r| {
+                        if let Request::Modes { candidates, .. } = r {
+                            candidates.len()
+                        } else {
+                            0
+                        }
+                    })
+            } else if matches!(b.decision, Some(PlayerRequest::DamageEffect { .. })) {
                 self.damage_effect_group()
                     .map_err(|_| QueryRejection::Invariant)?
                     .map_or(0, |(_, _, p)| p.len())
@@ -337,7 +385,7 @@ impl Game {
         if b.cursor as usize >= 4 + self.state.objects.len() + self.state.stack.len() + extra {
             b.view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
             return Ok(Some(Observation {
-                observation_version: 13,
+                observation_version: 14,
                 view: b.view.clone(),
                 decision: b.decision.clone(),
             }));
@@ -358,6 +406,41 @@ impl Game {
                             self.visible_pending_trigger(*viewer, *id)
                                 .map_err(|_| QueryRejection::Invariant)?,
                         );
+                    }
+                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
+                    return Ok((*cursor as usize >= ids.len())
+                        .then(|| QueryValue::Decision(request.clone())));
+                }
+                if let Some(PlayerRequest::DamageAllocation { candidates, .. }) = request {
+                    let Some(Request::DamageAllocation {
+                        candidates: ids, ..
+                    }) = self
+                        .damage_allocation_request()
+                        .map_err(|_| QueryRejection::Invariant)?
+                    else {
+                        return Err(QueryRejection::Invariant);
+                    };
+                    if let Some(candidate) = ids.get(*cursor as usize) {
+                        candidates.push(
+                            self.visible_allocation_candidate(*viewer, candidate)
+                                .map_err(|_| QueryRejection::Invariant)?,
+                        )
+                    }
+                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
+                    return Ok((*cursor as usize >= ids.len())
+                        .then(|| QueryValue::Decision(request.clone())));
+                }
+                if let Some(PlayerRequest::Modes { candidates, .. }) = request {
+                    let Some(Request::Modes {
+                        candidates: ids, ..
+                    }) = self
+                        .modes_request()
+                        .map_err(|_| QueryRejection::Invariant)?
+                    else {
+                        return Err(QueryRejection::Invariant);
+                    };
+                    if let Some(id) = ids.get(*cursor as usize) {
+                        candidates.push(*id);
                     }
                     *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
                     return Ok((*cursor as usize >= ids.len())
@@ -431,6 +514,7 @@ impl Game {
                     converted,
                     converted_entities,
                     converted_triggers,
+                    converted_allocations,
                     value,
                 },
             ) => {
@@ -442,6 +526,14 @@ impl Game {
                             Frame::EntityTargets { .. },
                             PlayerResponse::EntityTargets { entities },
                         ) => entities.len() == self.program().map_err(invalid)?.targets.len(),
+                        (
+                            Frame::DamageAllocation { .. },
+                            PlayerResponse::DamageAllocation { allocations },
+                        ) => allocations.len() <= 24,
+                        (Frame::Modes { .. }, PlayerResponse::Modes { .. }) => true,
+                        (Frame::TriggerTargets { .. }, PlayerResponse::Targets { objects }) => {
+                            objects.len() == self.program().map_err(invalid)?.targets.len()
+                        }
                         (Frame::TriggerOrder { .. }, PlayerResponse::OrderTriggers { order }) => {
                             order.len() == self.trigger_order_ids().len()
                         }
@@ -519,22 +611,38 @@ impl Game {
                     );
                     return Ok(None);
                 }
+                if let PlayerResponse::DamageAllocation { allocations } = response
+                    && converted_allocations.len() < allocations.len()
+                {
+                    let (handle, amount) = &allocations[converted_allocations.len()];
+                    let id = self
+                        .resolve_damage_handle(*viewer, handle)
+                        .map_err(invalid)?;
+                    converted_allocations.push((id, amount.clone()));
+                    return Ok(None);
+                }
                 if value.is_none() {
-                    *value = Some(if matches!(response, PlayerResponse::Targets { .. }) {
-                        Response::Targets {
-                            objects: converted.clone(),
-                        }
-                    } else if matches!(response, PlayerResponse::EntityTargets { .. }) {
-                        Response::EntityTargets {
-                            entities: converted_entities.clone(),
-                        }
-                    } else if matches!(response, PlayerResponse::OrderTriggers { .. }) {
-                        Response::OrderTriggers {
-                            order: converted_triggers.clone(),
-                        }
-                    } else {
-                        self.convert_response(*viewer, response).map_err(invalid)?
-                    });
+                    *value = Some(
+                        if matches!(response, PlayerResponse::DamageAllocation { .. }) {
+                            Response::DamageAllocation {
+                                allocations: converted_allocations.clone(),
+                            }
+                        } else if matches!(response, PlayerResponse::Targets { .. }) {
+                            Response::Targets {
+                                objects: converted.clone(),
+                            }
+                        } else if matches!(response, PlayerResponse::EntityTargets { .. }) {
+                            Response::EntityTargets {
+                                entities: converted_entities.clone(),
+                            }
+                        } else if matches!(response, PlayerResponse::OrderTriggers { .. }) {
+                            Response::OrderTriggers {
+                                order: converted_triggers.clone(),
+                            }
+                        } else {
+                            self.convert_response(*viewer, response).map_err(invalid)?
+                        },
+                    );
                     return Ok(None);
                 }
                 let receipt = self
@@ -587,7 +695,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 13,
+                    context_version: 14,
                     observation: *observation.clone().ok_or(QueryRejection::Invariant)?,
                     permitted_history: history.clone(),
                     open_decklists: decks.clone(),
@@ -606,7 +714,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: 12,
+            work_version: 13,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -615,7 +723,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != 12
+        if saved.work_version != 13
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?
@@ -625,25 +733,8 @@ impl Game {
         let mut work = self
             .start_work(saved.data.query.clone())
             .map_err(|_| "unsupported recovered query")?;
-        let max_units = 16_u64
-            .checked_add(
-                u64::try_from(self.state.stack.len())
-                    .map_err(|_| "stack work bound resource limit")?,
-            )
-            .ok_or("stack work bound resource limit")?
-            .checked_add(self.state.objects.len() as u64)
-            .and_then(|n| {
-                n.checked_add(
-                    self.state
-                        .visibility
-                        .iter()
-                        .map(|v| v.history.len() as u64)
-                        .max()
-                        .unwrap_or(0),
-                )
-            })
-            .ok_or("work size limit")?;
-        if saved.data.units_done > max_units {
+        let total_units = self.query_work_units(&saved.data.query)?;
+        if saved.data.units_done >= total_units {
             return Err("invalid recovered query cursor".into());
         }
         for _ in 0..saved.data.units_done {
@@ -660,5 +751,85 @@ impl Game {
             return Err("saved scratch does not match recomputed query prefix".into());
         }
         Ok(work)
+    }
+}
+
+impl Game {
+    fn request_extra_units(&self, viewer: PlayerId) -> Result<u64, String> {
+        Ok(match self.request_header(viewer)? {
+            Some(PlayerRequest::OrderTriggers { .. }) => self.trigger_order_ids().len() as u64,
+            Some(PlayerRequest::Modes { .. }) => {
+                if let Some(Request::Modes { candidates, .. }) = self.modes_request()? {
+                    candidates.len() as u64
+                } else {
+                    0
+                }
+            }
+            Some(PlayerRequest::DamageEffect { .. }) => self
+                .damage_effect_group()?
+                .map_or(0, |(_, _, p)| p.len() as u64),
+            Some(PlayerRequest::DamageAllocation { .. }) => {
+                if let Some(Request::DamageAllocation { candidates, .. }) =
+                    self.damage_allocation_request()?
+                {
+                    candidates.len() as u64
+                } else {
+                    0
+                }
+            }
+            _ => 0,
+        })
+    }
+    fn observation_work_units(&self, viewer: PlayerId) -> Result<u64, String> {
+        4u64.checked_add(self.state.objects.len() as u64)
+            .and_then(|n| n.checked_add(self.state.stack.len() as u64))
+            .and_then(|n| n.checked_add(self.live_effect_keys().len() as u64))
+            .and_then(|n| n.checked_add(self.request_extra_units(viewer).ok()?))
+            .ok_or_else(|| "observation work resource limit".into())
+    }
+    // A saved prefix must fit this exact task's row/conversion count. History
+    // cannot stand in for effect, decision-candidate or response-entry work.
+    fn query_work_units(&self, query: &Query) -> Result<u64, String> {
+        match query {
+            Query::Observe { viewer } => self.observation_work_units(*viewer),
+            Query::Decision { viewer } => Ok(match self.request_header(*viewer)? {
+                Some(PlayerRequest::Targets { .. }) => {
+                    std::cmp::max(1, self.state.objects.len() as u64)
+                }
+                Some(PlayerRequest::EntityTargets { .. }) => 4u64
+                    .checked_add(self.state.objects.len() as u64)
+                    .ok_or("decision work resource limit")?,
+                Some(
+                    PlayerRequest::OrderTriggers { .. }
+                    | PlayerRequest::Modes { .. }
+                    | PlayerRequest::DamageEffect { .. }
+                    | PlayerRequest::DamageAllocation { .. },
+                ) => std::cmp::max(1, self.request_extra_units(*viewer)?),
+                _ => 1,
+            }),
+            Query::Check { response, .. } => {
+                let entries = match response {
+                    PlayerResponse::Targets { objects } => objects.len(),
+                    PlayerResponse::EntityTargets { entities } => entities.len(),
+                    PlayerResponse::OrderTriggers { order } => order.len(),
+                    PlayerResponse::DamageAllocation { allocations } => allocations.len(),
+                    _ => 0,
+                };
+                3u64.checked_add(entries as u64)
+                    .ok_or_else(|| "response work resource limit".into())
+            }
+            Query::Search { viewer, .. } => self
+                .observation_work_units(*viewer)?
+                .checked_add(
+                    self.state
+                        .visibility
+                        .get(viewer.0 as usize)
+                        .ok_or("invalid context viewer")?
+                        .history
+                        .len() as u64,
+                )
+                .and_then(|n| n.checked_add(5))
+                .ok_or_else(|| "context work resource limit".into()),
+        }
     }
 }

@@ -264,6 +264,59 @@ pub mod fixtures {
             include_str!("../../../tests/fixtures/gratuitous-violence.json"),
         ),
     ];
+    pub const CHOICE_RECORDS: [(&str, &str); 39] = [
+        EFFECT_RECORDS[0],
+        EFFECT_RECORDS[1],
+        EFFECT_RECORDS[2],
+        EFFECT_RECORDS[3],
+        EFFECT_RECORDS[4],
+        EFFECT_RECORDS[5],
+        EFFECT_RECORDS[6],
+        EFFECT_RECORDS[7],
+        EFFECT_RECORDS[8],
+        EFFECT_RECORDS[9],
+        EFFECT_RECORDS[10],
+        EFFECT_RECORDS[11],
+        EFFECT_RECORDS[12],
+        EFFECT_RECORDS[13],
+        EFFECT_RECORDS[14],
+        EFFECT_RECORDS[15],
+        EFFECT_RECORDS[16],
+        EFFECT_RECORDS[17],
+        EFFECT_RECORDS[18],
+        EFFECT_RECORDS[19],
+        EFFECT_RECORDS[20],
+        EFFECT_RECORDS[21],
+        EFFECT_RECORDS[22],
+        EFFECT_RECORDS[23],
+        EFFECT_RECORDS[24],
+        EFFECT_RECORDS[25],
+        EFFECT_RECORDS[26],
+        EFFECT_RECORDS[27],
+        EFFECT_RECORDS[28],
+        EFFECT_RECORDS[29],
+        EFFECT_RECORDS[30],
+        EFFECT_RECORDS[31],
+        EFFECT_RECORDS[32],
+        EFFECT_RECORDS[33],
+        EFFECT_RECORDS[34],
+        (
+            "seeds-of-strength",
+            include_str!("../../../tests/fixtures/seeds-of-strength.json"),
+        ),
+        (
+            "slaughterhouse-bouncer",
+            include_str!("../../../tests/fixtures/slaughterhouse-bouncer.json"),
+        ),
+        (
+            "boros-charm",
+            include_str!("../../../tests/fixtures/boros-charm.json"),
+        ),
+        (
+            "lavaborn-muse",
+            include_str!("../../../tests/fixtures/lavaborn-muse.json"),
+        ),
+    ];
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -362,6 +415,9 @@ enum Ability {
         effect: SourceStaticEffect,
     },
     Triggered {
+        #[serde(rename = "abilityWord")]
+        ability_word: Option<String>,
+        condition: Option<SourceCondition>,
         trigger: SourceTrigger,
         effects: Vec<Sentence>,
     },
@@ -372,6 +428,29 @@ enum Ability {
         costs: Vec<SourceCost>,
         effects: Vec<Sentence>,
     },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ModeCount {
+    exactly: u32,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ModeOption {
+    effects: Vec<Sentence>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceCondition {
+    condition: String,
+    who: PlayerSelector,
+    comparison: SourceComparison,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceComparison {
+    op: String,
+    value: Count,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "trigger", rename_all = "kebab-case", deny_unknown_fields)]
@@ -401,6 +480,10 @@ struct Sentence {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "effect", rename_all = "kebab-case")]
 enum Step {
+    Modal {
+        count: ModeCount,
+        options: Vec<ModeOption>,
+    },
     Pump {
         what: Target,
         power: SignedAmount,
@@ -694,7 +777,10 @@ fn source_lines(text: &str, name: &str) -> Result<Vec<String>, Failure> {
     // Only the first subset's ASCII text/reminder normalization is consumed.
     // This checks source block association; it does not interpret rule bodies.
     // CR 207.2a, same pinned rules URL as the parser's normalize.ts.
-    if !text.is_ascii() {
+    if text
+        .chars()
+        .any(|c| !c.is_ascii() && !matches!(c, '—' | '•'))
+    {
         return Err(unsupported(
             "source.oracle_text",
             "normalization outside the first source adapter subset",
@@ -722,27 +808,46 @@ fn source_lines(text: &str, name: &str) -> Result<Vec<String>, Failure> {
     if depth != 0 {
         return Err(invalid("source.oracle_text", "unbalanced reminder text"));
     }
-    Ok(normalized
+    let lines: Vec<String> = normalized
         .lines()
         .map(|line| {
             let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
             // The reviewed archive normalizes a complete source name at the
             // start of a block to ~ (CR 201.5). Keep ASCII word boundaries;
             // literal-name and legendary-short-name grammar is not interpreted.
-            match line.strip_prefix(name) {
+            let (prefix, body) = line
+                .strip_prefix("• ")
+                .map_or(("", line.as_str()), |body| ("• ", body));
+            match body.strip_prefix(name) {
                 Some(rest)
                     if rest
                         .chars()
                         .next()
                         .is_some_and(|c| !c.is_ascii_alphanumeric() && c != '_') =>
                 {
-                    format!("~{rest}")
+                    format!("{prefix}~{rest}")
                 }
                 _ => line,
             }
         })
         .filter(|line| !line.is_empty())
-        .collect())
+        .collect();
+    // The parser groups a complete choose/bullet source block into one line
+    // entry. Preserve its newlines and account for every bullet, never discard
+    // unknown alternatives. CR700.2: selection semantics are bound from AST.
+    let mut blocks: Vec<String> = vec![];
+    for line in lines {
+        if line.starts_with("• ") {
+            let Some(previous) = blocks.last_mut().filter(|b| b.starts_with("Choose ")) else {
+                return Err(invalid("lines", "orphan modal source option"));
+            };
+            previous.push('\n');
+            previous.push_str(&line);
+        } else {
+            blocks.push(line);
+        }
+    }
+    Ok(blocks)
 }
 
 pub fn compile(manifest: &str, record: &str) -> CompileResult {
@@ -913,6 +1018,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                 functioning_zone: FunctioningZone::Stack,
                 targets: vec![],
                 instructions: vec![],
+                modes: vec![],
             });
             for ability in &abilities {
                 let Ability::Static { effect } = ability else {
@@ -948,15 +1054,35 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     functioning_zone: FunctioningZone::Stack,
                     targets: vec![],
                     instructions: vec![],
+                    modes: vec![],
                 });
                 for (block, ability) in abilities.iter().enumerate() {
                     match ability {
                         Ability::Activated { costs, effects } => definition
                             .activated
                             .push(lower_activation(costs, effects, block)?),
-                        Ability::Triggered { trigger, effects } => definition
-                            .triggered
-                            .push(lower_trigger(trigger, effects, block)?),
+                        Ability::Triggered {
+                            trigger,
+                            effects,
+                            condition,
+                            ability_word,
+                        } => {
+                            if ability_word.as_ref().is_some_and(|word| {
+                                word.is_empty()
+                                    || !word.chars().all(|c| c.is_ascii_alphabetic() || c == ' ')
+                            }) {
+                                return Err(unsupported(
+                                    "abilities.abilityWord",
+                                    "unsupported annotation",
+                                ));
+                            }
+                            definition.triggered.push(lower_trigger(
+                                trigger,
+                                effects,
+                                condition.as_ref(),
+                                block,
+                            )?);
+                        }
                         _ => {
                             return Err(unsupported(
                                 "abilities.kind",
@@ -983,6 +1109,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                 functioning_zone: FunctioningZone::Stack,
                 targets: vec![],
                 instructions: vec![],
+                modes: vec![],
             };
             let mut slots = BTreeMap::new();
             for (block, ability) in abilities.iter().enumerate() {
@@ -992,6 +1119,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         "nonspell ability on instant/sorcery",
                     ));
                 };
+                // Separate source blocks introduce independent occurrences (CR115.3).
+                // Reusing a selection ID across blocks must not alias targets.
+                slots.clear();
                 append_spell_effects(&mut program, effects, block, &mut slots)?;
             }
             definition.spell = Some(program);
@@ -1043,6 +1173,43 @@ fn append_spell_effects(
     block: usize,
     slots: &mut BTreeMap<String, u32>,
 ) -> Result<(), Failure> {
+    if let [Sentence { steps }] = effects
+        && let [Step::Modal { count, options }] = steps.as_slice()
+    {
+        if count.exactly != 1
+            || options.len() < 2
+            || !program.modes.is_empty()
+            || !program.targets.is_empty()
+            || !program.instructions.is_empty()
+        {
+            return Err(unsupported(
+                "effects.modal",
+                "only a complete standalone choose-one program is supported",
+            ));
+        }
+        for option in options {
+            let mut child = SpellProgram {
+                timing: program.timing,
+                resolution: program.resolution,
+                functioning_zone: program.functioning_zone,
+                targets: vec![],
+                instructions: vec![],
+                modes: vec![],
+            };
+            append_spell_effects(&mut child, &option.effects, block, &mut BTreeMap::new())?;
+            if !child.modes.is_empty() {
+                return Err(unsupported("effects.modal", "nested modes unsupported"));
+            }
+            program.modes.push(SpellMode { program: child });
+        }
+        return Ok(());
+    }
+    if !program.modes.is_empty() {
+        return Err(unsupported(
+            "effects.modal",
+            "mixed modal and ordinary root instructions",
+        ));
+    }
     if effects.is_empty() {
         return Err(unsupported("abilities.effects", "empty spell effects"));
     }
@@ -1347,6 +1514,7 @@ fn is_other_creature(subject: &TriggerObject) -> bool {
 fn lower_trigger(
     trigger: &SourceTrigger,
     effects: &[Sentence],
+    intervening: Option<&SourceCondition>,
     block: usize,
 ) -> Result<TriggeredAbility, Failure> {
     // The archive reference-binding object is diagnostic/nonexecutable. This
@@ -1358,6 +1526,7 @@ fn lower_trigger(
     // (CR 603.6a/603.10/700.4). Runtime captures those event/source facts.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     let condition=match trigger {
+        SourceTrigger::Dies {what} if is_source_creature(what)=>TriggerCondition::SelfDies,
         SourceTrigger::Enters {what} if is_source_creature(what)=>TriggerCondition::SelfEntersBattlefield,
         SourceTrigger::Enters {what} if is_other_creature(what)=>TriggerCondition::OtherCreatureEntersBattlefield,
         SourceTrigger::AnyOf {events} if events.len()==2
@@ -1371,9 +1540,31 @@ fn lower_trigger(
         functioning_zone: FunctioningZone::Stack,
         targets: vec![],
         instructions: vec![],
+        modes: vec![],
     };
     append_spell_effects(&mut program, effects, block, &mut BTreeMap::new())?;
+    let intervening_if = match intervening {
+        None => None,
+        Some(c)
+            if condition == TriggerCondition::SelfDies
+                && c.condition == "cards-in-hand"
+                && c.who.player == "you"
+                && c.who.selection_id.is_none()
+                && c.comparison.op == "eq"
+                && c.comparison.value.amount == "fixed"
+                && c.comparison.value.value == 0 =>
+        {
+            Some(InterveningCondition::ControllerHandEmpty)
+        }
+        _ => {
+            return Err(unsupported(
+                "abilities.condition",
+                "unsupported complete intervening-if condition",
+            ));
+        }
+    };
     Ok(TriggeredAbility {
+        intervening_if,
         functioning_zone: FunctioningZone::Battlefield,
         condition,
         program,
@@ -1424,6 +1615,7 @@ fn lower_activation(
         functioning_zone: FunctioningZone::Stack,
         targets: vec![],
         instructions: vec![],
+        modes: vec![],
     };
     let mut slots = BTreeMap::new();
     for sentence in effects {
@@ -1596,6 +1788,25 @@ pub fn effects_fixture_catalog() -> Result<Catalog, String> {
     catalog_from_records(&records, 9)
 }
 
+pub fn choices_fixture_catalog() -> Result<Catalog, String> {
+    let records = fixtures::CHOICE_RECORDS
+        .iter()
+        .filter(|(name, _)| {
+            !matches!(
+                *name,
+                "flame-rift"
+                    | "deathgreeter"
+                    | "righteousness"
+                    | "gratuitous-violence"
+                    | "boros-charm"
+                    | "lavaborn-muse"
+            )
+        })
+        .copied()
+        .collect::<Vec<_>>();
+    catalog_from_records(&records, 10)
+}
+
 fn catalog_from_records(records: &[(&str, &str)], schema_version: u32) -> Result<Catalog, String> {
     let mut definitions = vec![];
     for (_, r) in records {
@@ -1629,6 +1840,264 @@ mod tests {
         let abilities = serde_json::json!([r["faces"][0]["result"]["abilities"]]);
         r["astSha256"] = sha256(canonical(&abilities).unwrap().as_bytes()).into();
         canonical(&r).unwrap()
+    }
+    fn choice_record(name: &str) -> &'static str {
+        fixtures::CHOICE_RECORDS
+            .iter()
+            .find(|(n, _)| *n == name)
+            .unwrap()
+            .1
+    }
+    #[test]
+    fn complete_choices_sources_preserve_occurrences_modes_conditions_and_old_catalogs() {
+        let c = choices_fixture_catalog().unwrap();
+        assert_eq!(
+            c,
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/expected-choices-ir.json"
+            ))
+            .unwrap()
+        );
+        assert_eq!(
+            (
+                c.schema_version,
+                c.definitions.len(),
+                fixtures::CHOICE_RECORDS.len()
+            ),
+            (10, 33, 39)
+        );
+        for d in effects_fixture_catalog().unwrap().definitions {
+            assert_eq!(
+                c.definitions.iter().find(|n| n.oracle_id == d.oracle_id),
+                Some(&d)
+            );
+        }
+        let seeds = c
+            .definitions
+            .iter()
+            .find(|d| d.name == "Seeds of Strength")
+            .unwrap();
+        let p = seeds.spell.as_ref().unwrap();
+        assert_eq!(
+            p.targets
+                .iter()
+                .map(|t| (&*t.selection_id, t.slot))
+                .collect::<Vec<_>>(),
+            [("line:0:0", 0), ("line:1:0", 1), ("line:2:0", 2)]
+        );
+        for (i, op) in p.instructions.iter().enumerate() {
+            assert!(
+                matches!(op,Instruction::ModifyPowerToughness{target_slot,power,toughness,duration:Duration::UntilEndOfTurn,source_block}
+                if *target_slot==i as u32 && *source_block==i as u32 && *power==Quantity::from(1) && *toughness==Quantity::from(1))
+            );
+        }
+        let salve = c
+            .definitions
+            .iter()
+            .find(|d| d.name == "Healing Salve")
+            .unwrap();
+        assert_eq!(
+            salve.characteristics.mana_cost,
+            ManaCost {
+                generic: 0.into(),
+                colored: vec![Color::W]
+            }
+        );
+        let p = salve.spell.as_ref().unwrap();
+        assert!(p.instructions.is_empty() && p.targets.is_empty());
+        assert_eq!(p.modes.len(), 2);
+        assert!(
+            matches!(p.modes[0].program.instructions.as_slice(),[Instruction::GainLife{recipient:LifeRecipient::Target{target_slot:0},amount,source_block:0}] if *amount==Quantity::from(3))
+        );
+        assert_eq!(
+            p.modes[0].program.targets[0].domain,
+            TargetDomain::AnyPlayer
+        );
+        assert!(
+            matches!(p.modes[1].program.instructions.as_slice(),[Instruction::PreventNextDamage{target_slot:0,amount,duration:Duration::UntilEndOfTurn,source_block:0}] if *amount==Quantity::from(3))
+        );
+        assert_eq!(
+            p.modes[1].program.targets[0].domain,
+            TargetDomain::AnyDamageTarget
+        );
+        for cap in [
+            Capability::ModalChoiceV1,
+            Capability::LifeGainV1,
+            Capability::DamageBudgetPreventionV1,
+            Capability::AnyPlayerTargetV1,
+            Capability::AnyDamageTargetV1,
+        ] {
+            assert!(salve.capabilities.contains(&cap));
+        }
+        let b = c
+            .definitions
+            .iter()
+            .find(|d| d.name == "Slaughterhouse Bouncer")
+            .unwrap();
+        assert_eq!(
+            b.characteristics.mana_cost,
+            ManaCost {
+                generic: 4.into(),
+                colored: vec![Color::B]
+            }
+        );
+        assert_eq!(b.triggered[0].condition, TriggerCondition::SelfDies);
+        assert_eq!(
+            b.triggered[0].intervening_if,
+            Some(InterveningCondition::ControllerHandEmpty)
+        );
+        assert!(
+            matches!(b.triggered[0].program.instructions.as_slice(),[Instruction::ModifyPowerToughness{target_slot:0,power,toughness,duration:Duration::UntilEndOfTurn,source_block:0}] if *power==Quantity::from(-3) && *toughness==Quantity::from(-3))
+        );
+        assert_eq!(Catalog::read(&canonical(&c).unwrap()).unwrap(), c);
+        for name in ["boros-charm", "lavaborn-muse"] {
+            assert!(
+                matches!(
+                    compile(fixtures::MANIFEST, choice_record(name)),
+                    CompileResult::Unsupported { .. }
+                ),
+                "{name}"
+            );
+        }
+        assert!(
+            effects_fixture_catalog()
+                .unwrap()
+                .definitions
+                .iter()
+                .all(|d| d.name != "Healing Salve")
+        );
+    }
+    #[test]
+    fn choices_rehashed_source_mutations_cannot_drop_modes_conditions_or_target_occurrences() {
+        type Mutation = (&'static str, fn(&mut serde_json::Value));
+        let cases: Vec<Mutation> = vec![
+            ("healing-salve", |a| {
+                a["effects"][0]["steps"][0]["count"]["exactly"] = 2.into()
+            }),
+            ("healing-salve", |a| {
+                a["effects"][0]["steps"][0]["options"][1]["effects"][0]["steps"][0]["prevention"]
+                    ["kind"] = "combat".into()
+            }),
+            ("healing-salve", |a| {
+                a["effects"][0]["steps"][0]["options"][1]["effects"][0]["steps"][0]["prevention"]
+                    ["shield"]["amount"]["value"] = 0.into()
+            }),
+            ("healing-salve", |a| {
+                a["effects"][0]["steps"][0]["options"]
+                    .as_array_mut()
+                    .unwrap()
+                    .truncate(1)
+            }),
+            ("healing-salve", |a| {
+                a["effects"][0]["steps"][0]["options"][1]["extra"] = true.into()
+            }),
+            ("slaughterhouse-bouncer", |a| {
+                a["condition"]["comparison"]["op"] = "le".into()
+            }),
+            ("slaughterhouse-bouncer", |a| {
+                a["condition"]["comparison"]["value"]["value"] = 1.into()
+            }),
+            ("slaughterhouse-bouncer", |a| {
+                a["condition"]["who"]["player"] = "owner".into()
+            }),
+            ("slaughterhouse-bouncer", |a| {
+                a["condition"]["comparison"]["value"]["amount"] = "X".into()
+            }),
+            ("slaughterhouse-bouncer", |a| {
+                a["condition"]["hidden"] = "lost".into()
+            }),
+            ("slaughterhouse-bouncer", |a| {
+                a["trigger"]["what"]["ref"] = "other".into()
+            }),
+        ];
+        for (name, mutate) in cases {
+            let raw = changed_source(choice_record(name), |r| {
+                mutate(&mut r["faces"][0]["result"]["abilities"][0]);
+                r["faces"][0]["result"]["lines"][0]["ability"] =
+                    r["faces"][0]["result"]["abilities"][0].clone();
+            });
+            assert!(
+                !matches!(
+                    compile(fixtures::MANIFEST, &raw),
+                    CompileResult::Lowered { .. }
+                ),
+                "{name}"
+            );
+        }
+        let alias = changed_source(choice_record("seeds-of-strength"), |r| {
+            r["faces"][0]["result"]["abilities"][1]["effects"][0]["steps"][0]["what"]["selectionId"] =
+                "line:0:0".into();
+            r["faces"][0]["result"]["lines"][1]["ability"] =
+                r["faces"][0]["result"]["abilities"][1].clone();
+        });
+        assert!(!matches!(
+            compile(fixtures::MANIFEST, &alias),
+            CompileResult::Lowered { .. }
+        ));
+        for name in ["healing-salve", "slaughterhouse-bouncer"] {
+            let renamed = changed_source(choice_record(name), |r| {
+                r["source"]["name"] = "Independent shape witness".into();
+                r["faces"][0]["result"]["name"] = "Independent shape witness".into();
+            });
+            assert!(matches!(
+                compile(fixtures::MANIFEST, &renamed),
+                CompileResult::Lowered { .. }
+            ));
+        }
+    }
+    #[test]
+    fn choices_ir_rejects_downgrades_nested_modes_and_inconsistent_children() {
+        let c = choices_fixture_catalog().unwrap();
+        for name in ["Healing Salve", "Slaughterhouse Bouncer"] {
+            let d = c.definitions.iter().find(|d| d.name == name).unwrap();
+            for v in 3..10 {
+                let mut bad = c.clone();
+                bad.schema_version = v;
+                bad.definitions = vec![d.clone()];
+                assert!(bad.validate().is_err());
+                bad.definitions[0].capabilities.clear();
+                assert!(bad.validate().is_err());
+            }
+        }
+        let salve = c
+            .definitions
+            .iter()
+            .find(|d| d.name == "Healing Salve")
+            .unwrap();
+        let mut cases = vec![];
+        let mut d = salve.clone();
+        d.spell
+            .as_mut()
+            .unwrap()
+            .instructions
+            .push(Instruction::DrawCards {
+                count: 1.into(),
+                source_block: 0,
+            });
+        cases.push(d);
+        let mut d = salve.clone();
+        d.spell.as_mut().unwrap().modes.truncate(1);
+        cases.push(d);
+        let mut d = salve.clone();
+        d.spell.as_mut().unwrap().modes[0].program.timing = SpellTiming::MainPhase;
+        cases.push(d);
+        let mut d = salve.clone();
+        let root = d.spell.as_ref().unwrap().clone();
+        d.spell.as_mut().unwrap().modes[0].program = root;
+        cases.push(d);
+        let mut d = salve.clone();
+        d.spell.as_mut().unwrap().modes[0]
+            .program
+            .instructions
+            .clear();
+        cases.push(d);
+        for mut d in cases {
+            d.capabilities = d.requirements();
+            assert!(d.validate().is_err());
+        }
+        let mut raw = serde_json::to_value(salve).unwrap();
+        raw["spell"]["modes"][0]["unexpected"] = true.into();
+        assert!(strict_read::<Definition>(&canonical(&raw).unwrap()).is_err());
     }
     fn effect_record(name: &str) -> &'static str {
         fixtures::EFFECT_RECORDS
@@ -1759,7 +2228,6 @@ mod tests {
     fn complete_effects_sources_reject_filtered_modal_and_optional_near_misses() {
         for name in [
             "righteousness",
-            "healing-salve",
             "gratuitous-violence",
             "flame-rift",
             "deathgreeter",
@@ -2104,7 +2572,7 @@ mod tests {
             );
         }
         let mut future = c;
-        future.schema_version = 10;
+        future.schema_version = 11;
         assert!(future.validate().is_err());
     }
     #[test]
@@ -2178,9 +2646,11 @@ mod tests {
         assert_eq!(
             visionary.triggered,
             [TriggeredAbility {
+                intervening_if: None,
                 functioning_zone: FunctioningZone::Battlefield,
                 condition: TriggerCondition::SelfEntersBattlefield,
                 program: SpellProgram {
+                    modes: vec![],
                     functioning_zone: FunctioningZone::Stack,
                     timing: SpellTiming::Instant,
                     resolution: SpellResolution::Instructions,
@@ -2462,7 +2932,7 @@ mod tests {
             assert!(Catalog::read(&bad).is_err());
         }
         let mut bad = c;
-        bad.schema_version = 10;
+        bad.schema_version = 11;
         assert!(bad.validate().is_err());
     }
 
@@ -2726,7 +3196,7 @@ mod tests {
             }
         }
         let mut bad = catalog.clone();
-        bad.schema_version = 10;
+        bad.schema_version = 11;
         assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
         for change in [
             (|d: &mut Definition| {
@@ -3034,7 +3504,7 @@ mod tests {
     #[test]
     fn stack_vocabulary_requires_ir6_and_rejects_bad_binding_and_capability_closure() {
         let catalog = stack_fixture_catalog().unwrap();
-        for version in [3, 4, 5, 10] {
+        for version in [3, 4, 5, 11] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -3238,7 +3708,7 @@ mod tests {
         let c = fixture_catalog().unwrap();
         let raw = canonical(&c).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":3", "\"schema_version\":10"),
+            raw.replace("\"schema_version\":3", "\"schema_version\":11"),
             raw.replace("\"op\":\"return_to_owner_hand\"", "\"op\":\"execute_text\""),
             raw.replace("\"target_slot\":0", "\"target_slot\":99"),
             raw.replace("\"source_block\":0", "\"unknown\":true,\"source_block\":0"),
@@ -3438,6 +3908,7 @@ mod tests {
         assert_eq!(
             ebb.spell,
             Some(SpellProgram {
+                modes: vec![],
                 timing: SpellTiming::MainPhase,
                 resolution: SpellResolution::Instructions,
                 functioning_zone: FunctioningZone::Stack,
@@ -3623,6 +4094,7 @@ mod tests {
                 functioning_zone: FunctioningZone::Battlefield,
                 cost: ActivationCost::SacrificeSource,
                 program: SpellProgram {
+                    modes: vec![],
                     timing: SpellTiming::Instant,
                     resolution: SpellResolution::Instructions,
                     functioning_zone: FunctioningZone::Stack,
@@ -3776,7 +4248,7 @@ mod tests {
     #[test]
     fn action_ir_version_shapes_and_target_domains_are_strict() {
         let catalog = action_fixture_catalog().unwrap();
-        for version in [3, 4, 10] {
+        for version in [3, 4, 11] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -3900,7 +4372,7 @@ mod tests {
         assert!(old.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":4", "\"schema_version\":10"),
+            raw.replace("\"schema_version\":4", "\"schema_version\":11"),
             raw.replace(
                 "\"op\":\"put_on_top_owner_library\"",
                 "\"op\":\"put_on_bottom_owner_library\"",

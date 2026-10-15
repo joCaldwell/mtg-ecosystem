@@ -9,6 +9,8 @@ pub(super) fn is_zero(value: &u64) -> bool {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct PendingTrigger {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) match_condition: Option<InterveningCheck>,
     pub(super) id: TriggerId,
     pub(super) source: ObjectId,
     pub(super) controller: PlayerId,
@@ -93,6 +95,7 @@ impl Game {
                     .enumerate()
                 {
                     let matches = match definition.condition {
+                        TriggerCondition::SelfDies => dies && object.id == movement.previous,
                         TriggerCondition::AnyCreatureDies => dies,
                         TriggerCondition::SelfEntersBattlefield => {
                             enters && object.id == movement.successor
@@ -108,11 +111,32 @@ impl Game {
                         matched.push((
                             observers.object_before(object.id)?,
                             u32::try_from(ability).map_err(|_| "trigger ability index limit")?,
+                            definition
+                                .intervening_if
+                                .as_ref()
+                                .map(|condition| {
+                                    observers.check_intervening(condition, object.controller)
+                                })
+                                .transpose()?,
                         ));
                     }
                 }
             }
-            for (source_facts, ability) in matched {
+            for (source_facts, ability, match_condition) in matched {
+                if let Some(check) = &match_condition {
+                    self.record_event(Event::TriggerConditionChecked {
+                        source: source_facts.object,
+                        controller: source_facts.controller,
+                        ability,
+                        stage: InterveningStage::Match {
+                            occurrence: occurrence.id.clone(),
+                        },
+                        check: check.clone(),
+                    })?;
+                    if !check.passed {
+                        continue;
+                    }
+                }
                 // Reachable bound: 14 creatures * 5 Artists = 70 death
                 // triggers in a nonempty-stack episode, <=4 ETB triggers and
                 // <=7 ordinary entries. Recasting a creature/commander needs
@@ -133,6 +157,7 @@ impl Game {
                 let consumed = source_facts.clone();
                 let source_handles = self.capture_trigger_source_handles(source)?;
                 self.state.pending_triggers.push(PendingTrigger {
+                    match_condition,
                     id,
                     source,
                     controller,
@@ -286,6 +311,12 @@ impl Game {
                         .position(|t| t.id == id)
                         .ok_or("missing ordered trigger")?;
                     let trigger = self.state.pending_triggers.remove(index);
+                    self.validate_match_condition(
+                        trigger.source,
+                        trigger.ability,
+                        trigger.controller,
+                        trigger.match_condition.as_ref(),
+                    )?;
                     if !self.is_live(trigger.controller) {
                         self.state.frame = Frame::TriggerOrder { placement };
                         return Ok(());
@@ -309,6 +340,7 @@ impl Game {
                         colored: vec![],
                     };
                     self.state.stack.push(StackInstance {
+                        mode: None,
                         effect_source_handles: vec![],
                         source_facts: Some(trigger.source_facts),
                         entity_targets: vec![],
@@ -316,6 +348,7 @@ impl Game {
                         stack_targets: vec![],
                         announced_stack_targets: vec![],
                         kind: StackKind::Triggered {
+                            match_condition: trigger.match_condition,
                             ability: trigger.ability,
                             source_handles: trigger.source_handles,
                             trigger_id: id,
@@ -384,6 +417,32 @@ impl Game {
                 placement,
                 stack_id,
             } => {
+                if !self.has_target_domain(self.program()?, self.top()?.controller) {
+                    self.state.pending = None;
+                    let top = self
+                        .state
+                        .stack
+                        .pop()
+                        .ok_or("missing impossible targeted trigger")?;
+                    let StackKind::Triggered { trigger_id, .. } = top.kind else {
+                        return Err("impossible trigger kind".into());
+                    };
+                    self.record_event(Event::TriggeredAbilityNotPlaced {
+                        trigger_id,
+                        stack_id,
+                        reason: TriggerPlacementFailure::NoLegalTargets,
+                    })?;
+                    self.state.frame = Frame::TriggerOrder { placement };
+                    return Ok(());
+                }
+                if self
+                    .program()?
+                    .targets
+                    .first()
+                    .is_some_and(|t| t.domain == TargetDomain::BattlefieldCreature)
+                {
+                    return self.bind_trigger_object_targets(placement, stack_id);
+                }
                 let input = self
                     .state
                     .pending
@@ -545,6 +604,12 @@ impl Game {
                 &trigger.source_facts,
                 &trigger.source_handles,
             )?;
+            self.validate_match_condition(
+                trigger.source,
+                trigger.ability,
+                trigger.controller,
+                trigger.match_condition.as_ref(),
+            )?;
             if !self.is_live(trigger.controller)
                 || trigger.id.0 >= self.state.next_trigger_id
                 || !ids.insert(trigger.id)
@@ -558,6 +623,11 @@ impl Game {
             let condition =
                 self.definition(trigger.source.card)?.triggered[trigger.ability as usize].condition;
             let valid = match condition {
+                TriggerCondition::SelfDies => {
+                    trigger.movement.from == Zone::Battlefield
+                        && matches!(trigger.movement.destination, Zone::Graveyard { .. })
+                        && trigger.movement.previous == trigger.source
+                }
                 TriggerCondition::AnyCreatureDies => {
                     trigger.movement.from == Zone::Battlefield
                         && matches!(trigger.movement.destination, Zone::Graveyard { .. })
@@ -590,6 +660,7 @@ impl Game {
                 trigger_id,
                 event,
                 subject,
+                match_condition,
             } = &entry.kind
             else {
                 continue;
@@ -604,12 +675,23 @@ impl Game {
                     .ok_or("snapshot missing triggered source facts")?,
                 source_handles,
             )?;
+            self.validate_match_condition(
+                entry.source,
+                *ability,
+                entry.controller,
+                match_condition.as_ref(),
+            )?;
             if trigger_id.0 >= self.state.next_trigger_id
                 || !ids.insert(*trigger_id)
                 || event.batch >= self.state.next_batch_id
                 || !self.state.cards.contains_key(&subject.card)
                 || entry.cast_from != Zone::Battlefield
-                || !entry.targets.is_empty()
+                || (!entry.targets.is_empty()
+                    && self
+                        .program_for(entry)?
+                        .targets
+                        .first()
+                        .is_none_or(|t| t.domain != TargetDomain::BattlefieldCreature))
                 || !entry.entity_targets.is_empty()
                 || !entry.stack_targets.is_empty()
                 || entry.total_cost
@@ -650,6 +732,54 @@ impl Game {
                 }
             }
         }
+        Ok(())
+    }
+}
+
+impl Game {
+    fn bind_trigger_object_targets(
+        &mut self,
+        placement: TriggerPlacement,
+        stack_id: StackId,
+    ) -> Result<(), String> {
+        let input = self
+            .state
+            .pending
+            .take()
+            .ok_or("missing creature-trigger targets")?;
+        self.validate_response(input.player, &input.response)?;
+        let Response::Targets { objects } = input.response else {
+            return Err("creature-trigger response invariant".into());
+        };
+        let announced = (0..4)
+            .map(|v| {
+                objects
+                    .iter()
+                    .map(|o| self.handle_for(PlayerId(v), *o))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let top = self
+            .state
+            .stack
+            .last_mut()
+            .ok_or("missing targeted creature trigger")?;
+        if top.id != stack_id {
+            return Err("wrong targeted creature trigger".into());
+        }
+        let StackKind::Triggered { trigger_id, .. } = top.kind else {
+            return Err("wrong creature trigger kind".into());
+        };
+        top.targets = objects;
+        top.announced_targets = announced;
+        top.paid = Some(top.total_cost.clone());
+        let player = top.controller;
+        self.record_event(Event::TriggerPlaced {
+            trigger_id,
+            stack_id,
+            player,
+        })?;
+        self.state.frame = Frame::TriggerOrder { placement };
         Ok(())
     }
 }

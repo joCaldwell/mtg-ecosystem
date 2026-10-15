@@ -39,20 +39,18 @@ activated abilities, noncombat damage and life programs. The ordinary-trigger
 slice adds actual-event matching, simultaneous death lookback, APNAP ordering,
 mandatory targets and countering detached triggered invocations. The effects
 slice adds additive temporary characteristics, atomic cleanup, finite prevention,
-static damage doubling and affected-recipient ordering. It brings the reviewed
-tables to 36 exact configurations across nine historical/current catalogs, with
-30 definitions in the newest catalog. This remains scenario
+static damage doubling and affected-recipient ordering. The choices slice adds
+complete modal programs, separate target occurrences and intervening-if checks.
+The reviewed tables now contain 42 exact configurations across ten separate
+catalogs, with 33 definitions in the newest catalog. This remains scenario
 support; no legal Commander profile has been released. See the
 [progress ledger](game-engine-progress.md) for completed checks and artifact
 identities rather than treating this roadmap as gate evidence.
 `build-ir` intentionally fails. `game-server` contains a README only.
 
-The next finite vertical slice is modal/multiple-target casting and supported
-intervening-if conditions, reviewed against actual source ASTs. Those complete
-remaining P3/P4 path obligations alongside the effects slice's reviewed
-replacement ordering/reapplication, temporary expiration and characteristic
-interactions. Then P5 supplies full deck/pod admission, shuffle/mulligan setup,
-seeded complete legal games and a named finite release. P6 is an ongoing series
+The next gate is P5: full deck/pod admission, shuffle/mulligan setup,
+seeded complete legal games and a named finite release. The reviewed choices
+and effects slices complete the finite P3/P4 path obligations. P6 is an ongoing series
 of separately scoped expansions, not an instruction to implement all Magic.
 P7 uses the delegated product budgets below and freezes its measured workload
 before optimization; P8 targets

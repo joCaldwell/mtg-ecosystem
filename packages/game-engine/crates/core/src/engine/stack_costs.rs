@@ -50,6 +50,7 @@ impl Game {
             .targets
             .is_empty();
         self.state.stack.push(StackInstance {
+            mode: None,
             effect_source_handles: vec![],
             source_facts: if self.prepared.config.damage_life_profile() {
                 Some(self.object_before(object)?)

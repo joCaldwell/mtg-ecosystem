@@ -98,6 +98,8 @@ pub enum VisibleEntityTarget {
 #[serde(deny_unknown_fields)]
 pub struct VisibleStackEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub triggered: Option<VisibleTriggered>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub entity_targets: Vec<VisibleEntityTarget>,
@@ -142,6 +144,20 @@ pub struct PermittedView {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerRequest {
+    DamageAllocation {
+        token: DecisionToken,
+        player: PlayerId,
+        recipient: PlayerTargetEntity,
+        effect: EffectHandle,
+        remaining: Quantity,
+        required: Quantity,
+        candidates: Vec<VisibleDamageAllocationCandidate>,
+    },
+    Modes {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<u32>,
+    },
     DamageEffect {
         token: DecisionToken,
         player: PlayerId,
@@ -239,7 +255,9 @@ pub enum PlayerRequest {
 impl PlayerRequest {
     pub fn token(&self) -> &DecisionToken {
         match self {
-            Self::DamageEffect { token, .. }
+            Self::DamageAllocation { token, .. }
+            | Self::Modes { token, .. }
+            | Self::DamageEffect { token, .. }
             | Self::OrderTriggers { token, .. }
             | Self::EntityTargets { token, .. }
             | Self::StackTargets { token, .. }
@@ -268,6 +286,12 @@ pub struct Observation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerResponse {
+    DamageAllocation {
+        allocations: Vec<(DamageHandle, Quantity)>,
+    },
+    Modes {
+        mode: u32,
+    },
     DamageEffect {
         effect: EffectHandle,
         damage: DamageHandle,
@@ -708,6 +732,7 @@ impl Game {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(VisibleStackEntry {
+            mode: instance.mode,
             triggered,
             entity_targets,
             handle: if self.prepared.config.stack_costs_profile() {
@@ -783,6 +808,35 @@ impl Game {
         let Some(token) = token else {
             return Ok(None);
         };
+        if let Some(Request::DamageAllocation {
+            player,
+            recipient,
+            effect,
+            remaining,
+            required,
+            ..
+        }) = self.damage_allocation_request()?
+        {
+            if player != viewer {
+                return Ok(None);
+            }
+            return Ok(Some(PlayerRequest::DamageAllocation {
+                token: token.clone(),
+                player,
+                recipient: self.player_entity(viewer, recipient)?,
+                effect: self.effect_handle(viewer, &effect)?,
+                remaining,
+                required,
+                candidates: vec![],
+            }));
+        }
+        if let Some(Request::Modes { player, .. }) = self.modes_request()? {
+            return Ok((player == viewer).then_some(PlayerRequest::Modes {
+                token,
+                player,
+                candidates: vec![],
+            }));
+        }
         if let Some(Request::DamageEffect {
             player, recipient, ..
         }) = self.damage_effect_request()?
@@ -902,6 +956,24 @@ impl Game {
                         .into_iter()
                         .map(|id| self.stack_handle_for(viewer, id))
                         .collect::<Result<Vec<_>, _>>()?,
+                }))
+            }
+            Frame::TriggerTargets { .. }
+                if self.top()?.controller == viewer
+                    && self
+                        .program()?
+                        .targets
+                        .first()
+                        .is_some_and(|t| t.domain == TargetDomain::BattlefieldCreature) =>
+            {
+                if !self.has_target_domain(self.program()?, viewer) {
+                    return Ok(None);
+                }
+                Ok(Some(PlayerRequest::Targets {
+                    token,
+                    player: viewer,
+                    occurrences: self.program()?.targets.clone(),
+                    candidates: vec![],
                 }))
             }
             Frame::PlayerTargets { .. } | Frame::TriggerTargets { .. }
@@ -1060,6 +1132,13 @@ impl Game {
             {
                 None
             } else if self
+                .damage_allocation_request()?
+                .is_some_and(|r| r.player() == viewer)
+            {
+                Some((self.state.revision, 14))
+            } else if self.modes_request()?.is_some_and(|r| r.player() == viewer) {
+                Some((self.state.revision, 13))
+            } else if self
                 .damage_effect_request()?
                 .is_some_and(|r| r.player() == viewer)
             {
@@ -1083,6 +1162,12 @@ impl Game {
                     }
                     Frame::StackTargets { .. } if self.top()?.controller == viewer => {
                         Some((self.state.revision, 9))
+                    }
+                    Frame::TriggerTargets { .. }
+                        if self.top()?.controller == viewer
+                            && !self.has_target_domain(self.program()?, viewer) =>
+                    {
+                        None
                     }
                     Frame::PlayerTargets { .. } | Frame::TriggerTargets { .. }
                         if self.top()?.controller == viewer =>
@@ -1160,6 +1245,7 @@ impl Game {
             PlayerResponse::Discard { objects } | PlayerResponse::ResolveDiscard { objects } => {
                 objects.len()
             }
+            PlayerResponse::DamageAllocation { allocations } => allocations.len(),
             PlayerResponse::OrderTriggers { order } => order.len(),
             PlayerResponse::PlayerTargets { players } => players.len(),
             PlayerResponse::EntityTargets { entities } => entities.len(),
@@ -1179,6 +1265,10 @@ impl Game {
             return Err("oversized player declaration".into());
         }
         match response {
+            PlayerResponse::DamageAllocation { allocations } => Ok(Response::DamageAllocation {
+                allocations: self.resolve_allocation_response(viewer, allocations)?,
+            }),
+            PlayerResponse::Modes { mode } => Ok(Response::Modes { mode: *mode }),
             PlayerResponse::DamageEffect { effect, damage } => {
                 let (effect, damage) = self.resolve_damage_effect_pair(viewer, effect, damage)?;
                 Ok(Response::DamageEffect { effect, damage })

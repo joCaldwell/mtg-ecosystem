@@ -208,7 +208,8 @@ enum FactKey {
 }
 fn access(event: &ProposedEvent) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
     match event {
-        ProposedEvent::CreateEffect { .. }
+        ProposedEvent::AllocateDamageEffect { .. }
+        | ProposedEvent::CreateEffect { .. }
         | ProposedEvent::ApplyDamageEffect { .. }
         | ProposedEvent::CommitDamage { .. }
         | ProposedEvent::CleanupEffects => {
@@ -360,7 +361,8 @@ fn collect<'a>(
                 && occurrences.iter().any(|e| {
                     matches!(
                         e,
-                        ProposedEvent::CreateEffect { .. }
+                        ProposedEvent::AllocateDamageEffect { .. }
+                            | ProposedEvent::CreateEffect { .. }
                             | ProposedEvent::ApplyDamageEffect { .. }
                             | ProposedEvent::CommitDamage { .. }
                             | ProposedEvent::CleanupEffects
@@ -396,7 +398,8 @@ impl Game {
         let effects_event = events.iter().any(|e| {
             matches!(
                 e,
-                ProposedEvent::CreateEffect { .. }
+                ProposedEvent::AllocateDamageEffect { .. }
+                    | ProposedEvent::CreateEffect { .. }
                     | ProposedEvent::ApplyDamageEffect { .. }
                     | ProposedEvent::CommitDamage { .. }
                     | ProposedEvent::CleanupEffects
@@ -461,7 +464,8 @@ impl Game {
                         _ => {}
                     }
                 }
-                ProposedEvent::ApplyDamageEffect { .. }
+                ProposedEvent::AllocateDamageEffect { .. }
+                | ProposedEvent::ApplyDamageEffect { .. }
                 | ProposedEvent::CommitDamage { .. }
                 | ProposedEvent::CleanupEffects => {
                     if let Ok(tx) = self.damage_transaction() {
@@ -904,7 +908,8 @@ impl Game {
 impl Game {
     fn apply_occurrence(&mut self, proposed: &ProposedEvent) -> Result<EventOutcome, String> {
         let actual = match proposed {
-            event @ (ProposedEvent::CreateEffect { .. }
+            event @ (ProposedEvent::AllocateDamageEffect { .. }
+            | ProposedEvent::CreateEffect { .. }
             | ProposedEvent::ApplyDamageEffect { .. }
             | ProposedEvent::CommitDamage { .. }
             | ProposedEvent::CleanupEffects) => self.apply_effect_event(event)?,

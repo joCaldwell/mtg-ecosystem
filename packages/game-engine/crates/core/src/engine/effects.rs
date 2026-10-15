@@ -33,6 +33,8 @@ pub enum DamageKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EffectOrigin {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<u32>,
     pub stack_id: StackId,
     pub source: ObjectId,
     pub controller: PlayerId,
@@ -98,6 +100,8 @@ pub struct ActualDamage {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct DamageTransaction {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allocation_groups: Vec<DamageAllocationRecord>,
     pub id: DamageTransactionId,
     pub kind: DamageKind,
     pub entries: Vec<PreparedDamage>,
@@ -266,6 +270,7 @@ impl Game {
             target_handles,
             id: EffectId(self.state.next_effect_id),
             origin: EffectOrigin {
+                mode: frame.spell.mode,
                 stack_id: frame.spell.id,
                 source: frame.spell.source,
                 controller: frame.spell.controller,
@@ -381,6 +386,7 @@ impl Game {
             .ok_or("damage transaction limit")?;
         self.state.frame = Frame::DamageEffects {
             transaction: DamageTransaction {
+                allocation_groups: vec![],
                 id,
                 kind,
                 entries,
@@ -392,13 +398,15 @@ impl Game {
         Ok(())
     }
     pub(super) fn damage_transaction(&self) -> Result<&DamageTransaction, String> {
-        if let Frame::DamageEffects { transaction } = &self.state.frame {
+        if let Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } =
+            &self.state.frame
+        {
             Ok(transaction)
         } else {
             Err("missing damage transaction".into())
         }
     }
-    fn recipient_chooser(&self, recipient: &DamageRecipient) -> Option<PlayerId> {
+    pub(super) fn recipient_chooser(&self, recipient: &DamageRecipient) -> Option<PlayerId> {
         match recipient {
             DamageRecipient::Player { player } => self.is_live(*player).then_some(*player),
             DamageRecipient::Creature { object } => self
@@ -519,8 +527,19 @@ impl Game {
                 })
                 .filter(|p| self.application(tx, p).is_ok())
                 .collect::<Vec<_>>();
-            if !pairs.is_empty() {
-                return Ok(Some((player, recipient.entity(), pairs)));
+            let mut canonical = vec![];
+            for pair in pairs {
+                if self.needs_allocation(tx, &pair.effect)
+                    && canonical
+                        .iter()
+                        .any(|p: &DamageEffectCandidate| p.effect == pair.effect)
+                {
+                    continue;
+                }
+                canonical.push(pair);
+            }
+            if !canonical.is_empty() {
+                return Ok(Some((player, recipient.entity(), canonical)));
             }
         }
         Ok(None)
@@ -586,6 +605,13 @@ impl Game {
                 DamageEffectCandidate { effect, damage }
             };
             let tx = self.damage_transaction()?.clone();
+            if self.needs_allocation(&tx, &pair.effect) {
+                self.state.frame = Frame::DamageAllocation {
+                    transaction: tx,
+                    effect: pair.effect,
+                };
+                return Ok(());
+            }
             self.commit(
                 ProposedEvent::ApplyDamageEffect {
                     transaction: tx.id,
@@ -611,10 +637,13 @@ impl Game {
         Ok(())
     }
     pub(super) fn revalidate_damage_departure(&mut self) -> Result<(), String> {
-        if let Frame::DamageEffects { .. } = self.state.frame
+        if let Frame::DamageEffects { .. } | Frame::DamageAllocation { .. } = self.state.frame
             && let Some(input) = &self.state.pending
         {
             let valid = match &input.response {
+                Response::DamageAllocation { allocations } => self
+                    .validate_damage_allocation(input.player, allocations)
+                    .is_ok(),
                 Response::DamageEffect { effect, damage } => self
                     .validate_damage_effect(input.player, effect, *damage)
                     .is_ok(),
@@ -646,7 +675,8 @@ impl Game {
                 let Frame::Resolve { frame } = &self.state.frame else {
                     return Err("effect outside resolving instruction".into());
                 };
-                if frame.spell.source != effect.origin.source
+                if frame.spell.mode != effect.origin.mode
+                    || frame.spell.source != effect.origin.source
                     || frame.spell.id != effect.origin.stack_id
                     || frame.spell.controller != effect.origin.controller
                     || frame.cursor != effect.origin.cursor
@@ -763,6 +793,9 @@ impl Game {
                 if !pairs.contains(&pair) {
                     return Err("wrong affected recipient/application".into());
                 }
+                if self.needs_allocation(tx, effect) {
+                    return Err("multi-source shield requires complete allocation vector".into());
+                }
                 let a = self.application(tx, &pair)?;
                 if let EffectKey::Resolved { id } = effect
                     && let Some(after) = &a.budget_after
@@ -794,6 +827,11 @@ impl Game {
                     application: Box::new(a),
                 })
             }
+            ProposedEvent::AllocateDamageEffect {
+                transaction,
+                effect,
+                allocations,
+            } => self.apply_damage_allocation(*transaction, effect, allocations),
             ProposedEvent::CommitDamage { transaction } => self.commit_actual_damage(*transaction),
             ProposedEvent::CleanupEffects => {
                 let expired = self.state.effects.iter().map(|e| e.id).collect();
@@ -814,6 +852,9 @@ impl Game {
         }
     }
     fn commit_actual_damage(&mut self, id: DamageTransactionId) -> Result<EventOutcome, String> {
+        if !matches!(self.state.frame, Frame::DamageEffects { .. }) {
+            return Err("damage commit while allocation incomplete".into());
+        }
         let tx = self.damage_transaction()?.clone();
         self.validate_damage_transaction(&tx)?;
         if tx.id != id || self.damage_effect_group()?.is_some() {
@@ -925,7 +966,10 @@ impl Game {
             if !self.state.effects.is_empty()
                 || self.state.next_effect_id != 0
                 || self.state.next_damage_transaction_id != 0
-                || matches!(self.state.frame, Frame::DamageEffects { .. })
+                || matches!(
+                    self.state.frame,
+                    Frame::DamageEffects { .. } | Frame::DamageAllocation { .. }
+                )
             {
                 return Err("effects outside admitted profile".into());
             }
@@ -948,12 +992,9 @@ impl Game {
             if e.origin.stack_id.0 >= self.state.next_stack_id {
                 return Err("effect origin stack identity invariant".into());
             }
-            let definition = self.definition(e.origin.source.card)?;
-            let instructions = definition
-                .spell
+            let programs = self.origin_programs(&e.origin)?;
+            let instructions = programs
                 .iter()
-                .chain(definition.activated.iter().map(|a| &a.program))
-                .chain(definition.triggered.iter().map(|a| &a.program))
                 .filter_map(|p| p.instructions.get(e.origin.cursor as usize));
             let mut bound = false;
             for instruction in instructions {
@@ -1013,7 +1054,36 @@ impl Game {
                 return Err("effect definition/provenance invariant".into());
             }
         }
-        if let Frame::DamageEffects { transaction: tx } = &self.state.frame {
+        if let Frame::DamageAllocation {
+            transaction,
+            effect,
+        } = &self.state.frame
+        {
+            let EffectKey::Resolved { id } = effect else {
+                return Err("allocation requires finite effect identity".into());
+            };
+            let Some(ResolvedEffect {
+                kind: ResolvedEffectKind::PreventNextDamage { remaining, .. },
+                ..
+            }) = self.state.effects.iter().find(|e| e.id == *id)
+            else {
+                return Err("allocation requires live shield".into());
+            };
+            if !self.prepared.config.choices_profile()
+                || remaining <= &Quantity::from(1)
+                || transaction
+                    .entries
+                    .iter()
+                    .any(|d| d.applied.contains(effect))
+            {
+                return Err("allocation selection/prefix invariant".into());
+            }
+        }
+        if let Frame::DamageEffects { transaction: tx }
+        | Frame::DamageAllocation {
+            transaction: tx, ..
+        } = &self.state.frame
+        {
             self.validate_damage_transaction(tx)?;
             if tx.id.0 >= self.state.next_damage_transaction_id
                 || tx.entries.is_empty()
@@ -1043,6 +1113,8 @@ impl Game {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DamageTransactionBefore {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allocation_groups: Vec<DamageAllocationRecord>,
     pub id: DamageTransactionId,
     pub kind: DamageKind,
     pub entries: Vec<PreparedDamage>,
@@ -1051,6 +1123,7 @@ pub struct DamageTransactionBefore {
 impl From<&DamageTransaction> for DamageTransactionBefore {
     fn from(tx: &DamageTransaction) -> Self {
         Self {
+            allocation_groups: tx.allocation_groups.clone(),
             id: tx.id,
             kind: tx.kind,
             entries: tx.entries.clone(),
@@ -1075,6 +1148,8 @@ pub enum DamageEffectKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleDamageEffectCandidate {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub allocation_required: bool,
     pub effect: EffectHandle,
     pub damage: DamageHandle,
     pub kind: DamageEffectKind,
@@ -1157,7 +1232,11 @@ impl Game {
         }
         Ok(())
     }
-    fn effect_handle(&self, viewer: PlayerId, key: &EffectKey) -> Result<EffectHandle, String> {
+    pub(super) fn effect_handle(
+        &self,
+        viewer: PlayerId,
+        key: &EffectKey,
+    ) -> Result<EffectHandle, String> {
         self.state
             .visibility
             .get(viewer.0 as usize)
@@ -1309,7 +1388,9 @@ impl Game {
                 _ => return Err("non-damage effect in choice".into()),
             },
         };
+        let allocation_required = self.needs_allocation(tx, &pair.effect);
         Ok(VisibleDamageEffectCandidate {
+            allocation_required,
             effect: self.effect_handle(viewer, &pair.effect)?,
             damage: self
                 .state
@@ -1341,8 +1422,12 @@ impl Game {
                 .ok_or("missing physical damage source")?
                 .oracle_id
                 .clone(),
-            amount_before: a.before,
-            amount_after: a.after,
+            amount_before: a.before.clone(),
+            amount_after: if allocation_required {
+                a.before.clone()
+            } else {
+                a.after
+            },
             budget_remaining: a.budget_before,
         })
     }
@@ -1396,10 +1481,11 @@ impl Game {
         }
         Ok(())
     }
-    fn validate_damage_transaction(&self, tx: &DamageTransaction) -> Result<(), String> {
+    pub(super) fn validate_damage_transaction(&self, tx: &DamageTransaction) -> Result<(), String> {
         if tx.entries.is_empty()
             || tx.entries.len() > 24
             || tx.applications.len() > 24 * 18
+            || tx.allocation_groups.len() > 16
             || tx.id.0 >= self.state.next_damage_transaction_id
         {
             return Err("damage transaction resource/identity invariant".into());
@@ -1507,7 +1593,30 @@ impl Game {
             .collect::<BTreeMap<_, _>>();
         let mut used: BTreeMap<DamageId, Vec<EffectKey>> = BTreeMap::new();
         let mut budgets: BTreeMap<EffectId, Quantity> = BTreeMap::new();
-        for a in &tx.applications {
+        let mut end = 0usize;
+        for group in &tx.allocation_groups {
+            let start = group.application_start as usize;
+            let next = start
+                .checked_add(group.application_count as usize)
+                .ok_or("allocation prefix range overflow")?;
+            if group.application_count == 0 || start < end || next > tx.applications.len() {
+                return Err("allocation prefix range invariant".into());
+            }
+            end = next;
+        }
+        for (index, a) in tx.applications.iter().enumerate() {
+            if let Some(group) = tx
+                .allocation_groups
+                .iter()
+                .find(|g| g.application_start as usize == index)
+            {
+                self.validate_allocation_prefix_group(tx, group, &amounts, &used)?;
+            }
+            let allocated = tx.allocation_groups.iter().find(|g| {
+                (g.application_start as usize
+                    ..g.application_start as usize + g.application_count as usize)
+                    .contains(&index)
+            });
             let d = tx
                 .entries
                 .iter()
@@ -1564,12 +1673,25 @@ impl Game {
                                 .as_ref()
                                 .ok_or("missing next shield budget")?;
                             if b <= &Quantity::zero()
-                                || b > &Quantity::from(1)
+                                || b > &self.shield_limit(e)?
                                 || budgets.get(id).is_some_and(|prior| prior != b)
                             {
                                 return Err("invalid shield allocation budget".into());
                             }
-                            let prevented = std::cmp::min(b.clone(), a.before.clone());
+                            let prevented = if let Some(group) = allocated {
+                                if group.effect != a.effect {
+                                    return Err("allocation effect range mismatch".into());
+                                }
+                                group
+                                    .allocations
+                                    .iter()
+                                    .find(|(id, _)| *id == a.damage)
+                                    .ok_or("missing allocated prevention amount")?
+                                    .1
+                                    .clone()
+                            } else {
+                                std::cmp::min(b.clone(), a.before.clone())
+                            };
                             let mut next = b.clone();
                             next.subtract(&prevented);
                             if next != *after_budget {

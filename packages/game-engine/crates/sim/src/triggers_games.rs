@@ -263,7 +263,9 @@ impl Strategy {
             .as_ref()
             .ok_or("missing trigger policy request")?;
         Ok(match request {
-            PlayerRequest::DamageEffect { .. } => {
+            PlayerRequest::Modes { .. }
+            | PlayerRequest::DamageAllocation { .. }
+            | PlayerRequest::DamageEffect { .. } => {
                 return Err("damage effects outside historical trigger profile".into());
             }
             PlayerRequest::Priority { .. } => {

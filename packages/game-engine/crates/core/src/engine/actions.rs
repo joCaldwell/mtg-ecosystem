@@ -6,6 +6,8 @@ pub(super) enum StackKind {
     #[default]
     Spell,
     Triggered {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        match_condition: Option<InterveningCheck>,
         ability: u32,
         source_handles: Vec<ObjectHandle>,
         trigger_id: TriggerId,
@@ -49,6 +51,12 @@ impl Game {
             + entry.entity_targets.len()
     }
     pub(super) fn has_target_domain(&self, program: &SpellProgram, player: PlayerId) -> bool {
+        if !program.modes.is_empty() {
+            return program
+                .modes
+                .iter()
+                .any(|mode| self.has_target_domain(&mode.program, player));
+        }
         match program.targets.first().map(|target| target.domain) {
             None => true,
             Some(TargetDomain::AnyDamageTarget | TargetDomain::AnyPlayer) => {
@@ -606,6 +614,8 @@ impl Game {
         }
     }
     pub(super) fn validate_resolving(&self, frame: &Resolving) -> Result<(), String> {
+        self.validate_mode_binding(&frame.spell)?;
+        self.validate_condition_cache(frame)?;
         let entry = &frame.spell;
         let program = self.program_for(entry)?;
         self.validate_damage_bindings(entry)?;

@@ -30,6 +30,12 @@ const EFFECT_EXTRA: [(&str, &str); 6] = [
         "162847c12e95065221e53c1fe1f4352276d06ae8dbf0d89ded65dfaee0ea1da6",
     ),
 ];
+mod allocation;
+pub use allocation::*;
+mod choices;
+#[cfg(test)]
+mod choices_tests;
+pub use choices::*;
 mod effects;
 #[cfg(test)]
 mod effects_tests;
@@ -417,6 +423,12 @@ impl Prepared {
             && config != ScenarioConfig::actions_borrowed()
             && config != ScenarioConfig::actions_empty_library()
             && config != ScenarioConfig::mixed_mana()
+            && config != ScenarioConfig::choices()
+            && config != ScenarioConfig::choices_furnace()
+            && config != ScenarioConfig::conditions()
+            && config != ScenarioConfig::conditions_nonempty()
+            && config != ScenarioConfig::conditions_borrowed()
+            && config != ScenarioConfig::conditions_no_targets()
             && config != ScenarioConfig::effects()
             && config != ScenarioConfig::effects_furnace()
             && config != ScenarioConfig::effects_two_furnaces()
@@ -443,7 +455,9 @@ impl Prepared {
             );
         }
         if catalog.schema_version
-            != if config.effects_profile() {
+            != if config.choices_profile() {
+                10
+            } else if config.effects_profile() {
                 9
             } else if config.triggers_profile() {
                 8
@@ -485,6 +499,9 @@ impl Prepared {
         }
         if config.effects_profile() {
             allowed.extend(EFFECT_EXTRA);
+        }
+        if config.choices_profile() {
+            allowed.extend(CHOICE_EXTRA);
         }
         if catalog.definitions.len() != allowed.len() {
             return Err("definition pool is not the closed reviewed scenario pool".into());
@@ -547,6 +564,8 @@ struct Object {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StackInstance {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mode: Option<u32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     effect_source_handles: Vec<ObjectHandle>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -597,6 +616,8 @@ struct ManaActivationUndo {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Resolving {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    condition_check: Option<InterveningCheck>,
     stack_id: StackId,
     spell: StackInstance,
     cursor: u32,
@@ -606,6 +627,13 @@ struct Resolving {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 enum Frame {
+    DamageAllocation {
+        transaction: DamageTransaction,
+        effect: EffectKey,
+    },
+    Modes {
+        cast: Casting,
+    },
     DamageEffects {
         transaction: DamageTransaction,
     },
@@ -681,6 +709,12 @@ enum Frame {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    DamageAllocation {
+        allocations: Vec<(DamageId, Quantity)>,
+    },
+    Modes {
+        mode: u32,
+    },
     DamageEffect {
         effect: EffectKey,
         damage: DamageId,
@@ -752,6 +786,20 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    DamageAllocation {
+        decision_id: u64,
+        player: PlayerId,
+        recipient: TargetEntity,
+        effect: EffectKey,
+        remaining: Quantity,
+        required: Quantity,
+        candidates: Vec<DamageAllocationCandidate>,
+    },
+    Modes {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<u32>,
+    },
     DamageEffect {
         decision_id: u64,
         player: PlayerId,
@@ -848,7 +896,9 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::DamageEffect { decision_id, .. }
+            Self::DamageAllocation { decision_id, .. }
+            | Self::Modes { decision_id, .. }
+            | Self::DamageEffect { decision_id, .. }
             | Self::OrderTriggers { decision_id, .. }
             | Self::EntityTargets { decision_id, .. }
             | Self::StackTargets { decision_id, .. }
@@ -868,7 +918,9 @@ impl Request {
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::DamageEffect { player, .. }
+            Self::DamageAllocation { player, .. }
+            | Self::Modes { player, .. }
+            | Self::DamageEffect { player, .. }
             | Self::OrderTriggers { player, .. }
             | Self::EntityTargets { player, .. }
             | Self::StackTargets { player, .. }
@@ -890,6 +942,11 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    AllocateDamageEffect {
+        transaction: DamageTransactionId,
+        effect: EffectKey,
+        allocations: Vec<(DamageId, Quantity)>,
+    },
     CreateEffect {
         effect: Box<ResolvedEffect>,
     },
@@ -1009,6 +1066,12 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    DamageEffectAllocated {
+        transaction: DamageTransactionId,
+        effect: EffectKey,
+        allocations: Vec<(DamageId, Quantity)>,
+        applications: Vec<DamageApplication>,
+    },
     EffectCreated {
         effect: Box<ResolvedEffect>,
     },
@@ -1188,6 +1251,23 @@ enum InstructionOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Event {
+    ModeSelected {
+        stack_id: StackId,
+        player: PlayerId,
+        mode: u32,
+    },
+    TriggerConditionChecked {
+        source: ObjectId,
+        controller: PlayerId,
+        ability: u32,
+        stage: InterveningStage,
+        check: InterveningCheck,
+    },
+    TriggeredAbilityNotPlaced {
+        trigger_id: TriggerId,
+        stack_id: StackId,
+        reason: TriggerPlacementFailure,
+    },
     TriggerCollected {
         trigger_id: TriggerId,
         source: ObjectId,
@@ -1551,26 +1631,33 @@ impl Game {
     }
     fn program_for(&self, stack: &StackInstance) -> Result<&SpellProgram, String> {
         let definition = self.definition(stack.source.card)?;
-        match &stack.kind {
+        let root = match &stack.kind {
             StackKind::Spell => definition
                 .spell
                 .as_ref()
-                .ok_or_else(|| "missing spell program".into()),
+                .ok_or_else(|| "missing spell program".to_string()),
             StackKind::Triggered { ability, .. } => definition
                 .triggered
                 .get(*ability as usize)
                 .map(|a| &a.program)
-                .ok_or_else(|| "missing triggered program".into()),
+                .ok_or_else(|| "missing triggered program".to_string()),
             StackKind::Activated { ability, .. } => definition
                 .activated
                 .get(*ability as usize)
                 .map(|ability| &ability.program)
-                .ok_or_else(|| "missing activated program".into()),
-        }
+                .ok_or_else(|| "missing activated program".to_string()),
+        }?;
+        self.selected_program(root, stack.mode)
     }
     pub fn decision_for(&self, viewer: PlayerId) -> Result<Option<Request>, String> {
         if self.state.pending.is_some() || !self.state.pending_concessions.is_empty() {
             return Ok(None);
+        }
+        if let Some(req) = self.damage_allocation_request()? {
+            return Ok((req.player() == viewer).then_some(req));
+        }
+        if let Some(req) = self.modes_request()? {
+            return Ok((req.player() == viewer).then_some(req));
         }
         if let Some(req) = self.damage_effect_request()? {
             return Ok((req.player() == viewer).then_some(req));
@@ -1600,6 +1687,29 @@ impl Game {
                     Some(self.top()?.id),
                 ),
             },
+            Frame::TriggerTargets { .. }
+                if self
+                    .program()?
+                    .targets
+                    .first()
+                    .is_some_and(|t| t.domain == TargetDomain::BattlefieldCreature) =>
+            {
+                if !self.has_target_domain(self.program()?, self.top()?.controller) {
+                    return Ok(None);
+                }
+                Request::Targets {
+                    decision_id: self.state.revision,
+                    player: self.top()?.controller,
+                    occurrences: self.program()?.targets.clone(),
+                    candidates: self
+                        .state
+                        .objects
+                        .values()
+                        .filter(|o| self.target_legal(o.id))
+                        .map(|o| o.id)
+                        .collect(),
+                }
+            }
             Frame::PlayerTargets { .. } | Frame::TriggerTargets { .. } => Request::PlayerTargets {
                 decision_id: self.state.revision,
                 player: self.top()?.controller,
@@ -1653,6 +1763,14 @@ impl Game {
             (&self.state.frame, response)
         {
             return self.validate_damage_effect(player, effect, *damage);
+        }
+        if let (Frame::DamageAllocation { .. }, Response::DamageAllocation { allocations }) =
+            (&self.state.frame, response)
+        {
+            return self.validate_damage_allocation(player, allocations);
+        }
+        if let (Frame::Modes { .. }, Response::Modes { mode }) = (&self.state.frame, response) {
+            return self.validate_mode(player, *mode);
         }
         if let Some(result) = self.validate_actions_response(player, response) {
             return result;
@@ -1719,10 +1837,16 @@ impl Game {
                 }
                 Ok(())
             }
-            (Frame::Targets { .. }, Response::Targets { objects })
-                if self.top()?.controller == player =>
-            {
-                if objects.len() != self.program()?.targets.len()
+            (
+                Frame::Targets { .. } | Frame::TriggerTargets { .. },
+                Response::Targets { objects },
+            ) if self.top()?.controller == player => {
+                if self
+                    .program()?
+                    .targets
+                    .iter()
+                    .any(|t| t.domain != TargetDomain::BattlefieldCreature)
+                    || objects.len() != self.program()?.targets.len()
                     || objects.iter().any(|o| !self.target_legal(*o))
                 {
                     return Err("invalid targets".into());
@@ -1842,6 +1966,8 @@ impl Game {
             return self.apply_departure(player);
         }
         match self.state.frame.clone() {
+            Frame::DamageAllocation { .. } => self.damage_allocation_step()?,
+            Frame::Modes { cast } => self.bind_mode(cast)?,
             Frame::DamageEffects { .. } => self.damage_effect_step()?,
             Frame::Priority => {
                 let input = self
@@ -1899,6 +2025,7 @@ impl Game {
                             vec![]
                         };
                         self.state.stack.push(StackInstance {
+                            mode: None,
                             effect_source_handles,
                             source_facts: if self.prepared.config.damage_life_profile() {
                                 Some(self.object_before(source)?)
@@ -1929,7 +2056,16 @@ impl Game {
                             mana_activations: vec![],
                             undo_mana: false,
                         };
-                        self.state.frame = if self.program()?.targets.is_empty() {
+                        self.state.frame = if !self
+                            .definition(card)?
+                            .spell
+                            .as_ref()
+                            .ok_or("missing spell")?
+                            .modes
+                            .is_empty()
+                        {
+                            Frame::Modes { cast }
+                        } else if self.program()?.targets.is_empty() {
                             Frame::Mana { cast }
                         } else if matches!(
                             self.program()?.targets[0].domain,
@@ -2022,7 +2158,12 @@ impl Game {
                 // One spell-wide legality check before any block resolves.
                 // CR 608.2b: if all targets are illegal, the entire spell does
                 // not resolve, including its otherwise untargeted blocks.
-                if !frame.legal_targets.is_empty() && !frame.legal_targets.iter().any(|l| *l) {
+                if frame
+                    .condition_check
+                    .as_ref()
+                    .is_some_and(|check| !check.passed)
+                    || (!frame.legal_targets.is_empty() && !frame.legal_targets.iter().any(|l| *l))
+                {
                     self.finish_spell(&stack, false)?;
                 } else if let Some(instruction) = program.instructions.get(frame.cursor as usize) {
                     match instruction {
@@ -2225,7 +2366,7 @@ impl Game {
     pub fn snapshot_with_digest(&self) -> Result<(String, String), String> {
         let state_sha256 = self.state_digest()?;
         let json = canonical(&SnapshotRef {
-            snapshot_version: 15,
+            snapshot_version: 16,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -2237,7 +2378,7 @@ impl Game {
     }
     fn read_snapshot(prepared: Prepared, json: &str) -> Result<(Self, String), String> {
         let s: Snapshot = strict_read(json)?;
-        if s.snapshot_version != 15
+        if s.snapshot_version != 16
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -2317,6 +2458,7 @@ impl Game {
         }
         self.validate_trigger_state()?;
         self.validate_effect_state()?;
+        self.validate_choices_state()?;
         self.validate_commander_state()?;
         self.validate_actions_state()?;
         for p in &s.players {
@@ -2365,6 +2507,7 @@ impl Game {
                 && (matches!(
                     s.frame,
                     Frame::TriggerTargets { .. }
+                        | Frame::Modes { .. }
                         | Frame::EntityTargets { .. }
                         | Frame::Targets { .. }
                         | Frame::StackTargets { .. }
@@ -2394,7 +2537,8 @@ impl Game {
             return Err("snapshot stack/zone invariant".into());
         }
         match &s.frame {
-            Frame::EntityTargets { cast }
+            Frame::Modes { cast }
+            | Frame::EntityTargets { cast }
             | Frame::Targets { cast }
             | Frame::StackTargets { cast }
             | Frame::PlayerTargets { cast }
@@ -2424,7 +2568,8 @@ impl Game {
                         .any(|a| a.player != top.controller || a.amount != Quantity::from(1))
                     || (matches!(
                         s.frame,
-                        Frame::EntityTargets { .. }
+                        Frame::Modes { .. }
+                            | Frame::EntityTargets { .. }
                             | Frame::Targets { .. }
                             | Frame::PlayerTargets { .. }
                             | Frame::StackTargets { .. }
@@ -2435,7 +2580,8 @@ impl Game {
                 }
                 if matches!(
                     s.frame,
-                    Frame::EntityTargets { .. }
+                    Frame::Modes { .. }
+                        | Frame::EntityTargets { .. }
                         | Frame::Targets { .. }
                         | Frame::PlayerTargets { .. }
                         | Frame::StackTargets { .. }

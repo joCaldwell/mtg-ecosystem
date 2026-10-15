@@ -148,6 +148,9 @@ pub enum Capability {
     SelfEntersBattlefieldV1,
     OtherCreatureEntersBattlefieldV1,
     CreatureDiesV1,
+    SelfDiesV1,
+    InterveningIfV1,
+    ModalChoiceV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -300,6 +303,13 @@ pub struct SpellProgram {
     pub functioning_zone: FunctioningZone,
     pub targets: Vec<TargetSpec>,
     pub instructions: Vec<Instruction>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modes: Vec<SpellMode>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SpellMode {
+    pub program: SpellProgram,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
@@ -327,12 +337,20 @@ pub enum TriggerCondition {
     OtherCreatureEntersBattlefield,
     /// The disjoint union of this creature and all other creatures dying.
     AnyCreatureDies,
+    SelfDies,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum InterveningCondition {
+    ControllerHandEmpty,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TriggeredAbility {
     pub functioning_zone: FunctioningZone,
     pub condition: TriggerCondition,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intervening_if: Option<InterveningCondition>,
     /// This mandatory stack program is placed by the rules, never cast or
     /// activated. Its existing Instant shape carries no timing permission.
     pub program: SpellProgram,
@@ -412,7 +430,11 @@ impl Definition {
                     Capability::OtherCreatureEntersBattlefieldV1
                 }
                 TriggerCondition::AnyCreatureDies => Capability::CreatureDiesV1,
+                TriggerCondition::SelfDies => Capability::SelfDiesV1,
             });
+            if ability.intervening_if.is_some() {
+                set.insert(Capability::InterveningIfV1);
+            }
             add_program_requirements(&mut set, &ability.program);
         }
         if !self.static_abilities.is_empty() {
@@ -450,6 +472,7 @@ impl Definition {
                 || p.timing != SpellTiming::Instant
                 || p.resolution != SpellResolution::Instructions
                 || p.instructions.is_empty()
+                || !p.modes.is_empty()
                 || if p.targets.is_empty() {
                     p.instructions.iter().any(|instruction| !matches!(instruction,
                         Instruction::DrawCards {count,..}|Instruction::DiscardCards {count,..} if *count==Quantity::from(1)))
@@ -480,13 +503,20 @@ impl Definition {
                 || p.timing != SpellTiming::Instant
                 || p.resolution != SpellResolution::Instructions
                 || p.instructions.is_empty()
-                || p.targets
-                    .iter()
-                    .any(|target| target.domain != TargetDomain::AnyPlayer)
+                || !p.modes.is_empty()
+                || (ability.intervening_if.is_some()
+                    && ability.condition != TriggerCondition::SelfDies)
+                || p.targets.iter().any(|target| {
+                    !matches!(
+                        target.domain,
+                        TargetDomain::AnyPlayer | TargetDomain::BattlefieldCreature
+                    )
+                })
                 || p.instructions.iter().any(|instruction| {
                     !matches!(
                         instruction,
                         Instruction::DrawCards { .. }
+                            | Instruction::ModifyPowerToughness { .. }
                             | Instruction::GainLife { .. }
                             | Instruction::LoseLife { .. }
                     )
@@ -520,6 +550,7 @@ impl Definition {
                     || p.resolution != SpellResolution::Permanent
                     || !p.targets.is_empty()
                     || !p.instructions.is_empty()
+                    || !p.modes.is_empty()
                 {
                     return Err("unsupported enchantment characteristics or spell".into());
                 }
@@ -554,6 +585,7 @@ impl Definition {
                     || p.resolution != SpellResolution::Permanent
                     || !p.targets.is_empty()
                     || !p.instructions.is_empty()
+                    || !p.modes.is_empty()
                 {
                     return Err("unsupported creature spell semantics".into());
                 }
@@ -577,7 +609,7 @@ impl Definition {
                             SpellTiming::MainPhase
                         }
                     || p.resolution != SpellResolution::Instructions
-                    || p.instructions.is_empty()
+                    || (p.instructions.is_empty() && p.modes.is_empty())
                 {
                     return Err("invalid spell functioning zone or empty program".into());
                 }
@@ -588,6 +620,28 @@ impl Definition {
     }
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
+    if !p.modes.is_empty() {
+        if p.modes.len() < 2
+            || !p.targets.is_empty()
+            || !p.instructions.is_empty()
+            || p.resolution != SpellResolution::Instructions
+        {
+            return Err("modal root must choose exactly one of multiple complete programs".into());
+        }
+        for mode in &p.modes {
+            let child = &mode.program;
+            if !child.modes.is_empty()
+                || child.timing != p.timing
+                || child.functioning_zone != p.functioning_zone
+                || child.resolution != p.resolution
+                || child.instructions.is_empty()
+            {
+                return Err("nested, empty, or inconsistent modal program".into());
+            }
+            validate_instruction_program(child)?;
+        }
+        return Ok(());
+    }
     let mut ids = BTreeSet::new();
     for (index, target) in p.targets.iter().enumerate() {
         if usize::try_from(target.slot).ok() != Some(index)
@@ -691,6 +745,12 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     Ok(())
 }
 fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgram) {
+    if !program.modes.is_empty() {
+        set.insert(Capability::ModalChoiceV1);
+        for mode in &program.modes {
+            add_program_requirements(set, &mode.program);
+        }
+    }
     for target in &program.targets {
         set.insert(match target.domain {
             TargetDomain::BattlefieldCreature => Capability::CreatureTargetV1,
@@ -733,7 +793,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 3, max = 9))]
+    #[schemars(range(min = 3, max = 10))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -741,7 +801,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.schema_version, 3..=9)
+        if !matches!(self.schema_version, 3..=10)
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -750,6 +810,27 @@ impl Catalog {
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
             d.validate()?;
+            if self.schema_version < 10
+                && d.capabilities.iter().any(|c| {
+                    matches!(
+                        c,
+                        Capability::ModalChoiceV1
+                            | Capability::SelfDiesV1
+                            | Capability::InterveningIfV1
+                    )
+                })
+                || self.schema_version < 10
+                    && d.triggered.iter().any(|a| {
+                        a.program
+                            .targets
+                            .iter()
+                            .any(|t| t.domain == TargetDomain::BattlefieldCreature)
+                    })
+            {
+                return Err(
+                    "IR v10 is required for modal choices and intervening-if dies triggers".into(),
+                );
+            }
             if self.schema_version < 9
                 && d.capabilities.iter().any(|c| {
                     matches!(
@@ -951,6 +1032,28 @@ pub fn catalog_schema() -> serde_json::Value {
             "activated":{"items":{"properties":{"program":{"properties":{"instructions":{"items":{"properties":{"op":{"not":{"enum":["modify_power_toughness","prevent_combat_damage","prevent_next_damage"]}}}}}}}}}},
             "triggered":{"items":{"properties":{"program":{"properties":{"instructions":{"items":{"properties":{"op":{"not":{"enum":["modify_power_toughness","prevent_combat_damage","prevent_next_damage"]}}}}}}}}}}
         }}}}}
+    }, {
+        "if":{"required":["schema_version"],"properties":{"schema_version":{"enum":[3,4,5,6,7,8,9]}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "capabilities":{"items":{"not":{"enum":[Capability::ModalChoiceV1,Capability::SelfDiesV1,Capability::InterveningIfV1]}}},
+            "spell":{"anyOf":[{"type":"null"},{"type":"object","properties":{"modes":{"maxItems":0}}}]},
+            "activated":{"items":{"properties":{"program":{"properties":{"modes":{"maxItems":0}}}}}},
+            "triggered":{"items":{"properties":{
+                "condition":{"not":{"const":"self_dies"}},"intervening_if":{"type":"null"},
+                "program":{"properties":{"modes":{"maxItems":0},"targets":{"items":{"properties":{"domain":{"const":"any_player"}}}}}}
+            }}}
+        }}}}}
+    }]);
+    schema["$defs"]["SpellProgram"]["allOf"] = serde_json::json!([{
+        "if":{"required":["modes"],"properties":{"modes":{"minItems":1}}},
+        "then":{"properties":{
+            "targets":{"maxItems":0},"instructions":{"maxItems":0},
+            "resolution":{"const":"instructions"},
+            "modes":{"minItems":2,"items":{"properties":{"program":{"properties":{
+                "modes":{"maxItems":0},"instructions":{"minItems":1},
+                "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"}
+            }}}}}
+        }}
     }]);
     schema
 }

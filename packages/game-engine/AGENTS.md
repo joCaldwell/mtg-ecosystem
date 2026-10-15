@@ -73,7 +73,15 @@ allocation. Applied transformations persist across later provider departures;
 final damage remains simultaneous. Cleanup removes marks and expires effects
 atomically. Snapshot v15, bundle v16, projection/context v13 and query-sidecar v12
 retain these continuations. Historical catalogs and gameplay references remain
-separate. Modal casting and intervening-if trigger conditions are subsequent work.
+separate.
+
+`docs/game-engine-choices.md` adds six exact profiles with a separate
+thirty-three-definition IR v10 catalog. Healing Salve selects a complete mode;
+Seeds of Strength retains three target occurrences; Slaughterhouse Bouncer
+checks its intervening condition at matching and resolution. Three-point
+prevention uses complete simultaneous allocation vectors. Snapshot v16, bundle
+v17, projection/context v14 and query-sidecar v13 retain these continuations.
+Legal Commander setup and admission remain subsequent work.
 
 Run from repository root, using pinned Rust 1.99.0:
 

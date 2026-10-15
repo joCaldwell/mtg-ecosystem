@@ -24,10 +24,12 @@ fn update_entry(entry: &mut StackInstance, fact: &ObjectBefore) {
 fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
     match frame {
         Frame::Resolve { frame } | Frame::ResolutionChoice { frame, .. } => Some(&frame.spell),
-        Frame::DamageEffects { transaction } => match transaction.continuation.as_ref() {
-            DamageContinuation::Instruction { frame } => Some(&frame.spell),
-            DamageContinuation::Combat => None,
-        },
+        Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
+            match transaction.continuation.as_ref() {
+                DamageContinuation::Instruction { frame } => Some(&frame.spell),
+                DamageContinuation::Combat => None,
+            }
+        }
         Frame::Stabilize { resume, .. } => resolving_entry(resume),
         Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
             CommanderContinuation::SpellMove { frame, .. }
@@ -43,7 +45,7 @@ fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
         Frame::Resolve { frame } | Frame::ResolutionChoice { frame, .. } => {
             update_entry(&mut frame.spell, fact)
         }
-        Frame::DamageEffects { transaction } => {
+        Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
             if let DamageContinuation::Instruction { frame } = transaction.continuation.as_mut() {
                 update_entry(&mut frame.spell, fact);
             }

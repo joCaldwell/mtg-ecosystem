@@ -1,7 +1,8 @@
 use mtg_compiler::{
-    CompileResult, action_fixture_catalog, commander_fixture_catalog, compile,
-    damage_fixture_catalog, damage_life_fixture_catalog, effects_fixture_catalog, fixture_catalog,
-    fixtures, library_fixture_catalog, stack_fixture_catalog, trigger_fixture_catalog,
+    CompileResult, action_fixture_catalog, choices_fixture_catalog, commander_fixture_catalog,
+    compile, damage_fixture_catalog, damage_life_fixture_catalog, effects_fixture_catalog,
+    fixture_catalog, fixtures, library_fixture_catalog, stack_fixture_catalog,
+    trigger_fixture_catalog,
 };
 use mtg_contracts::{Catalog, canonical, sha256, strict_read};
 use mtg_core::{
@@ -19,6 +20,7 @@ use std::{
 };
 
 mod actions_payments_games;
+mod choices_games;
 mod combat_games;
 mod commander_games;
 mod damage_library_games;
@@ -70,6 +72,9 @@ struct Bundle {
     effect_catalog: Catalog,
     effect_records: Vec<String>,
     effects: Vec<effects_games::Evidence>,
+    choice_catalog: Catalog,
+    choice_records: Vec<String>,
+    choices: Vec<choices_games::Evidence>,
     build_id: String,
     catalog: Catalog,
     config: ScenarioConfig,
@@ -109,7 +114,7 @@ struct BundleMetadata {
 fn read_bundle_metadata(reader: impl Read) -> Result<BundleMetadata, String> {
     let metadata: BundleMetadata =
         serde_json::from_reader(reader).map_err(|error| error.to_string())?;
-    if metadata.bundle_version != 16 {
+    if metadata.bundle_version != 17 {
         return Err("unsupported metadata bundle version".into());
     }
     Ok(metadata)
@@ -897,6 +902,11 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
     let effect_refs = effect_games.iter().collect::<Vec<_>>();
     let (effect_traces, effect_trace_report) = crate::trace_runs(&effect_catalog, &effect_refs)?;
     trace_runs.extend(effect_traces);
+    let choice_catalog = choices_fixture_catalog()?;
+    let (choices, choice_games, choice_report) = choices_games::suite(&choice_catalog, false)?;
+    let choice_refs = choice_games.iter().collect::<Vec<_>>();
+    let (choice_traces, choice_trace_report) = crate::trace_runs(&choice_catalog, &choice_refs)?;
+    trace_runs.extend(choice_traces);
     let bundle = Bundle {
         trace_runs,
         departure,
@@ -954,7 +964,13 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
             .map(|(_, r)| (*r).into())
             .collect(),
         effects,
-        bundle_version: 16,
+        choice_catalog,
+        choice_records: fixtures::CHOICE_RECORDS
+            .iter()
+            .map(|(_, r)| (*r).into())
+            .collect(),
+        choices,
+        bundle_version: 17,
         build_id: BUILD_ID.into(),
         catalog,
         config: prepared.config().clone(),
@@ -975,7 +991,7 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         rustflags: BUILD_RUSTFLAGS.into(),
         query_sidecar,
     };
-    let report = serde_json::json!({"status":"scenario_verified","effects":effect_report,"effects_trace_equivalence":effect_trace_report,"triggers":trigger_report,"triggers_trace_equivalence":trigger_trace_report,"damage_life":damage_life_report,"damage_life_trace_equivalence":damage_life_trace_report,"stack_costs":stack_report,"stack_costs_trace_equivalence":stack_trace_report,"actions_payments":action_report,"actions_payments_trace_equivalence":action_trace_report,"damage_library":lifecycle_report,"damage_library_trace_equivalence":lifecycle_trace_report,"commander":commander_report,"commander_trace_equivalence":commander_trace_report,"combat":combat_report,"turns":turns_report,"departure":departure_report,"response":response_report,"detached_response":detached_report,"mana_casting":mana_casting_report,"mana_undo":mana_undo_report,"mana_keep":mana_keep_report,"trace_equivalence":trace_report,"build_id":BUILD_ID,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
+    let report = serde_json::json!({"status":"scenario_verified","choices":choice_report,"choices_trace_equivalence":choice_trace_report,"effects":effect_report,"effects_trace_equivalence":effect_trace_report,"triggers":trigger_report,"triggers_trace_equivalence":trigger_trace_report,"damage_life":damage_life_report,"damage_life_trace_equivalence":damage_life_trace_report,"stack_costs":stack_report,"stack_costs_trace_equivalence":stack_trace_report,"actions_payments":action_report,"actions_payments_trace_equivalence":action_trace_report,"damage_library":lifecycle_report,"damage_library_trace_equivalence":lifecycle_trace_report,"commander":commander_report,"commander_trace_equivalence":commander_trace_report,"combat":combat_report,"turns":turns_report,"departure":departure_report,"response":response_report,"detached_response":detached_report,"mana_casting":mana_casting_report,"mana_undo":mana_undo_report,"mana_keep":mana_keep_report,"trace_equivalence":trace_report,"build_id":BUILD_ID,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
         "state_sha256":game.state_digest()?,"accepted_inputs":game.journal().len(),"events":game.events(),"restore_fork_replay_equal":true,
         "player_observations": (0..4).map(|v|observation(&game,PlayerId(v))).collect::<Result<Vec<_>,_>>()?,
         "search_context":search_context(&game,PlayerId(0),"separate-sampling-seed".into())?,
@@ -1004,7 +1020,18 @@ fn verify_source_catalog(
         5 | 6 => (&[BLOOD], &[]),
         7 => (&[BLOOD], &[FLAME]),
         8 => (&[], &[FLAME, DEATHGREETER]),
-        9 => (&[], &[FLAME, DEATHGREETER, RIGHTEOUSNESS, SALVE, VIOLENCE]),
+        9 => (&[SALVE], &[FLAME, DEATHGREETER, RIGHTEOUSNESS, VIOLENCE]),
+        10 => (
+            &[],
+            &[
+                FLAME,
+                DEATHGREETER,
+                RIGHTEOUSNESS,
+                VIOLENCE,
+                "2679d0dd-ba30-4a1c-b6a0-b3ac6c790496", // Boros Charm: unsupported complete modes
+                "2825ff5a-5340-4494-bfde-80f6f5bce5a2", // Lavaborn Muse: upkeep/other-player condition
+            ],
+        ),
         _ => return Err("unsupported source coverage version".into()),
     };
     let (mut definitions, mut lowered_unadmitted, mut unsupported) = (vec![], vec![], vec![]);
@@ -1054,7 +1081,7 @@ fn verify_source_catalog(
 
 fn verify_bundle(json: &str) -> Result<String, String> {
     let b: Bundle = strict_read(json)?;
-    if b.bundle_version != 16 || b.build_id != BUILD_ID {
+    if b.bundle_version != 17 || b.build_id != BUILD_ID {
         return Err("unsupported bundle version/build".into());
     }
     if b.archive_manifest != fixtures::MANIFEST
@@ -1107,6 +1134,11 @@ fn verify_bundle(json: &str) -> Result<String, String> {
             .iter()
             .map(String::as_str)
             .eq(fixtures::EFFECT_RECORDS.iter().map(|(_, r)| *r))
+        || !b
+            .choice_records
+            .iter()
+            .map(String::as_str)
+            .eq(fixtures::CHOICE_RECORDS.iter().map(|(_, r)| *r))
     {
         return Err("retained exact source fixtures differ from this build".into());
     }
@@ -1157,7 +1189,10 @@ fn verify_bundle(json: &str) -> Result<String, String> {
     )?;
     verify_source_catalog(&b.archive_manifest, &b.trigger_catalog, &b.trigger_records)?;
     verify_source_catalog(&b.archive_manifest, &b.effect_catalog, &b.effect_records)?;
-    if b.trace_runs.len() != (109 + effects_games::POLICIES.len()) * 3 {
+    verify_source_catalog(&b.archive_manifest, &b.choice_catalog, &b.choice_records)?;
+    if b.trace_runs.len()
+        != (109 + effects_games::POLICIES.len() + choices_games::POLICIES.len()) * 3
+    {
         return Err("missing trace-mode evidence".into());
     }
     eprintln!(
@@ -1250,11 +1285,18 @@ fn verify_bundle(json: &str) -> Result<String, String> {
                     .ok_or("missing ordinary trigger trace group")?;
                 (&entry.config, &entry.journal, &entry.final_snapshot)
             }
-            n if n >= 109 => {
+            n @ 109..=149 => {
                 let entry = b
                     .effects
                     .get(n - 109)
                     .ok_or("missing effects trace group")?;
+                (&entry.config, &entry.journal, &entry.final_snapshot)
+            }
+            n if n >= 150 => {
+                let entry = b
+                    .choices
+                    .get(n - 150)
+                    .ok_or("missing choice/condition trace group")?;
                 (&entry.config, &entry.journal, &entry.final_snapshot)
             }
             _ => return Err("unexpected trace-mode group".into()),
@@ -1274,7 +1316,8 @@ fn verify_bundle(json: &str) -> Result<String, String> {
             40..=57 => &b.stack_catalog,
             58..=85 => &b.damage_life_catalog,
             86..=108 => &b.trigger_catalog,
-            _ => &b.effect_catalog,
+            109..=149 => &b.effect_catalog,
+            _ => &b.choice_catalog,
         };
         let p = Prepared::admit(catalog.clone(), run.config.clone())?;
         let expected = Game::restore(p.clone(), &run.final_snapshot)?;
@@ -1325,6 +1368,7 @@ fn verify_bundle(json: &str) -> Result<String, String> {
     damage_life_games::verify(&b.damage_life_catalog, &b.damage_life)?;
     triggers_games::verify(&b.trigger_catalog, &b.triggers)?;
     effects_games::verify(&b.effect_catalog, &b.effects)?;
+    choices_games::verify(&b.choice_catalog, &b.choices)?;
     let departure_prepared = Prepared::admit(b.catalog.clone(), b.departure.config)?;
     let mut departure_verifier =
         SnapshotVerifier::new(departure_prepared.clone(), TraceMode::Detailed);
@@ -1395,6 +1439,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let (_, _, report) =
                 damage_life_games::suite(&damage_life_fixture_catalog()?, args.len() == 2)?;
             println!("{}", canonical(&report)?)
+        }
+        Some("choices-games") if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") => {
+            let (_, _, report) =
+                choices_games::suite(&choices_fixture_catalog()?, args.len() == 2)?;
+            println!("{}", canonical(&report)?);
+        }
+        Some("compile-choices") if args.len() == 1 => {
+            println!("{}", canonical(&choices_fixture_catalog()?)?);
         }
         Some("effects-games") if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") => {
             let (_, _, report) =
@@ -1504,7 +1556,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {
             return Err(
-                "usage: mtg-sim effects-games [--recover]|compile-effects|trigger-games [--recover]|compile-triggers|damage-life-games [--recover]|compile-damage-life|stack-costs-games [--recover]|compile-stack|bundle-metadata FILE|actions-payments-games [--recover]|compile-action|combat-games [--recover]|commander-games [--recover]|damage-library-games [--recover]|schema|compile|compile-commander|compile-library|compile-damage|report|observe PLAYER|context PLAYER SEED|demo [--bundle DIR]|verify-bundle FILE"
+                "usage: mtg-sim choices-games [--recover]|compile-choices|effects-games [--recover]|compile-effects|trigger-games [--recover]|compile-triggers|damage-life-games [--recover]|compile-damage-life|stack-costs-games [--recover]|compile-stack|bundle-metadata FILE|actions-payments-games [--recover]|compile-action|combat-games [--recover]|commander-games [--recover]|damage-library-games [--recover]|schema|compile|compile-commander|compile-library|compile-damage|report|observe PLAYER|context PLAYER SEED|demo [--bundle DIR]|verify-bundle FILE"
                     .into(),
             );
         }
@@ -1517,7 +1569,7 @@ mod tests {
     #[test]
     fn metadata_reader_skips_unknown_nested_strings_and_requires_typed_closure() {
         let metadata = serde_json::json!({
-            "bundle_version":16,"build_id":"historical-build",
+            "bundle_version":17,"build_id":"historical-build",
             "source_files":[{"path":"Cargo.toml","sha256":"source-digest","contents":"[workspace]\n"}],
             "rustflags":"","opt_level":"3","debug":"false","debug_assertions":"false",
             "target":"x86_64-unknown-linux-gnu","catalog":fixture_catalog().unwrap(),
@@ -1539,7 +1591,7 @@ mod tests {
             );
         }
         let mut bad = metadata.clone();
-        bad["bundle_version"] = 15.into();
+        bad["bundle_version"] = 16.into();
         assert!(read_bundle_metadata(std::io::Cursor::new(canonical(&bad).unwrap())).is_err());
         let mut bad = metadata.clone();
         bad["source_files"][0]["contents"] = 17.into();
@@ -1596,6 +1648,10 @@ mod tests {
                 effects_fixture_catalog().unwrap(),
                 records(&fixtures::EFFECT_RECORDS),
             ),
+            (
+                choices_fixture_catalog().unwrap(),
+                records(&fixtures::CHOICE_RECORDS),
+            ),
         ] {
             verify_source_catalog(fixtures::MANIFEST, &catalog, &source).unwrap();
             let mut missing = source.clone();
@@ -1614,7 +1670,7 @@ mod tests {
             serde_json::Value::Object(values) => {
                 for (key, value) in values.iter_mut() {
                     if key == "observation_version" || key == "context_version" {
-                        *value = serde_json::json!(13);
+                        *value = serde_json::json!(14);
                     } else {
                         current_projection_versions(value);
                     }
@@ -1644,7 +1700,7 @@ mod tests {
         );
         let final_snapshot: serde_json::Value =
             serde_json::from_str(&bundle.final_snapshot).unwrap();
-        assert_eq!(final_snapshot["snapshot_version"], 15);
+        assert_eq!(final_snapshot["snapshot_version"], 16);
         assert_eq!(final_snapshot["state"]["rule_steps"], p2["rule_steps"]);
         assert_eq!(
             serde_json::to_value(&bundle.journal.decisions).unwrap(),
@@ -1659,7 +1715,7 @@ mod tests {
 
         assert_eq!(
             bundle.trace_runs.len(),
-            (109 + effects_games::POLICIES.len()) * 3
+            (109 + effects_games::POLICIES.len() + choices_games::POLICIES.len()) * 3
         );
         let normalized:Vec<_>=report["trace_equivalence"].as_array().unwrap().iter().map(|x|serde_json::json!({"profile":x["profile"],"mode":x["mode"],"state_sha256":x["state_sha256"],"verification":x["verification"]})).collect();
         assert_eq!(
@@ -1719,11 +1775,17 @@ mod tests {
         .unwrap();
         current_projection_versions(&mut triggers);
         assert_eq!(report["triggers"], triggers);
-        let effects: serde_json::Value = serde_json::from_str(include_str!(
+        let mut effects: serde_json::Value = serde_json::from_str(include_str!(
             "../../../tests/fixtures/expected-effects-scenario.json"
         ))
         .unwrap();
+        current_projection_versions(&mut effects);
         assert_eq!(report["effects"], effects);
+        let choices: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/expected-choices-scenario.json"
+        ))
+        .unwrap();
+        assert_eq!(report["choices"], choices);
         let historical: serde_json::Value = serde_json::from_str(include_str!(
             "../../../tests/fixtures/expected-turns-scenario.json"
         ))
@@ -1745,7 +1807,7 @@ mod tests {
             report["state_sha256"].as_str().unwrap()
         );
         assert!(
-            verify_bundle(&json.replace("\"bundle_version\":16", "\"bundle_version\":17")).is_err()
+            verify_bundle(&json.replace("\"bundle_version\":17", "\"bundle_version\":18")).is_err()
         );
         // Mutating unconsumed metadata preserves lowering/admission class; only
         // exact source-byte binding can reject an unadmitted source mutation.
@@ -1759,9 +1821,12 @@ mod tests {
             "damage_life_records",
             "trigger_records",
             "effect_records",
+            "choice_records",
         ] {
             let mut corrupt: serde_json::Value = serde_json::from_str(&json).unwrap();
-            let index = if key == "effect_records" {
+            let index = if key == "choice_records" {
+                38
+            } else if key == "effect_records" {
                 34
             } else if key == "trigger_records" {
                 25

@@ -129,7 +129,10 @@ impl Strategy {
             .as_ref()
             .ok_or("missing lifecycle decision")?;
         Ok(match request {
-            PlayerRequest::DamageEffect { .. } | PlayerRequest::OrderTriggers { .. } => {
+            PlayerRequest::Modes { .. }
+            | PlayerRequest::DamageAllocation { .. }
+            | PlayerRequest::DamageEffect { .. }
+            | PlayerRequest::OrderTriggers { .. } => {
                 return Err("ordinary trigger ordering outside historical profile".into());
             }
             PlayerRequest::EntityTargets { .. } => {

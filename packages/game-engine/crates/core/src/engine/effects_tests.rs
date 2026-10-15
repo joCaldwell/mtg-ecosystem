@@ -15,6 +15,7 @@ fn object(g: &Game, id: u32) -> ObjectId {
 fn origin(g: &mut Game, source: u32) -> EffectOrigin {
     let source = object(g, source);
     EffectOrigin {
+        mode: None,
         stack_id: StackId(0),
         source,
         controller: g.current(source).unwrap().controller,

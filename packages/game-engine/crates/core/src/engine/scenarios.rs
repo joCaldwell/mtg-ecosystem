@@ -80,14 +80,15 @@ impl ScenarioConfig {
         c
     }
     pub(super) fn effects_profile(&self) -> bool {
-        matches!(
-            self.profile.as_str(),
-            "four-seat-effects-v1"
-                | "four-seat-effects-furnace-v1"
-                | "four-seat-effects-two-furnaces-v1"
-                | "four-seat-effects-borrowed-v1"
-                | "four-seat-effects-low-v1"
-        )
+        self.choices_profile()
+            || matches!(
+                self.profile.as_str(),
+                "four-seat-effects-v1"
+                    | "four-seat-effects-furnace-v1"
+                    | "four-seat-effects-two-furnaces-v1"
+                    | "four-seat-effects-borrowed-v1"
+                    | "four-seat-effects-low-v1"
+            )
     }
 
     pub fn triggers() -> Self {

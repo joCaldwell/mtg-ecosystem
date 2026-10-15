@@ -415,7 +415,7 @@ fn order_handles_permutations_query_work_and_validation_receipts_are_executor_sc
     };
     let saved = game.save_work(&work).unwrap();
     let json: serde_json::Value = serde_json::from_str(&saved).unwrap();
-    assert_eq!(json["work_version"], 12);
+    assert_eq!(json["work_version"], 13);
     let mut forged = json;
     forged["data"]["units_done"] = serde_json::json!(1);
     assert!(

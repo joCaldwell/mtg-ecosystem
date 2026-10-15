@@ -1359,3 +1359,52 @@ then independently replayed the complete bundle. No review findings remain
 unresolved. Generated reports, large bundles and build outputs remain ignored.
 The following slice adds modal casting, separate target occurrences and
 intervening-if trigger checks before legal Commander setup and admission.
+
+
+### Modes, target occurrences and intervening conditions verified
+
+Completed Healing Salve's source-ordered modal program, Seeds of Strength's
+three independent target occurrences, and Slaughterhouse Bouncer's intervening
+condition at event matching and resolution. Three-point prevention admits
+complete integral allocation vectors, including split prevention across
+simultaneous occurrences. Boros Charm and Lavaborn Muse remain complete-card
+negative boundaries. Historical catalogs and gameplay references remain separate.
+
+The newest catalog contains 33 definitions and 39 exact source records. Six new
+configurations bring the retained total to ten catalogs, 42 configurations,
+540 trace executions and 17,627 recovery boundaries. Thirty player-view policies
+add 2,527 boundaries. Independently reviewed proofs include 32 effect creations,
+60 typed proofs, seven pair applications, two full allocations, 18 damage commits
+and cleanup. Snapshot v16, bundle v17, projection/context v14 and query-sidecar
+v13 bind the new continuations. The compact report reproduced byte-for-byte in
+the working checkout: SHA-256
+`bed59e69e22de194d43159be809ebbacee4731a4a5d6a52260bd161e8fcd85ed`.
+
+Formatting, warnings-denied Clippy, **330 Rust tests in debug and release**, and
+**24 Node integration tests** passed. Fifteen independent adversarial tests cover
+modes, target occurrences, condition timing, shared prevention budgets, atomic
+allocation, departures and forged recovery. The full gate exposed a stale
+snapshot-version assertion; it was corrected before all native gates reran.
+The isolated Node stage initially lacked its parser dependency; copying the
+201 committed dependency files allowed all Node checks to pass. No unrelated
+main-checkout parser edits were changed.
+
+Independent offline audit passed with zero findings: **138 native source files,
+50,788,074 bytes**, 723 snapshot envelope/hash checks, all ten catalogs and all
+recovery boundaries. The closure rebuilt using 1,581 retained dependency files
+from 31 locked packages, an empty Cargo home, a fresh target directory and frozen
+offline mode, then replayed the complete bundle.
+
+Retained identities:
+
+- Build: `c4cea8c9f06d0f925e345db4ee3a99d55616e2b09286779d9e72e2c6305d0c77`.
+- Bundle: `3caacd0056f164b278faea6227b66162dea594a657fa31d1270bf29f70a9c247`.
+- Rebuilt executable: `b484ed20a2552a2b2fe45347cf2713058a5c070726078bbc4c159f17a16a4eb7`.
+- Dependency manifest: `387384711d404f44993e8ab583e269c5105d1cc8b583307e3035f14e03d7474f`.
+- Pinned rules: `8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca`.
+
+The closure lives at
+`/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-3caacd0056f164b2-krpOXC/`.
+Logs and audits are under ignored `generated/choices-staging/generated/choices-verification/`.
+The next gate is full legal deck/pod admission, deterministic shuffle and
+mulligans, and seeded completion evidence for one named finite Commander profile.

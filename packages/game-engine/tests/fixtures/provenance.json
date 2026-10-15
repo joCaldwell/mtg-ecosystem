@@ -19,6 +19,13 @@
       "ast_sha256": "35a1ed12283b1aceae63b4c1cd214fd83d82f0839ade64e4d989271d990620c9"
     },
     {
+      "file": "boros-charm.json",
+      "oracle_id": "2679d0dd-ba30-4a1c-b6a0-b3ac6c790496",
+      "record_sha256": "c3731aa6b46a35bd021c25b3225ab3af6ec5d01fa2d0cde0022c7ada8a77a18d",
+      "source_sha256": "5098290c876b26c15e132683e589ccd929bdcfc5d6a6fa9755001863547a0eae",
+      "ast_sha256": "b168fab657bec34f7199844c277c1c98a7e2147e30c6cec2c430f15a1b416658"
+    },
+    {
       "file": "counterspell.json",
       "oracle_id": "cc187110-1148-4090-bbb8-e205694a39f5",
       "record_sha256": "1870e08a76c871aaa537cb0061edd894ce88b98af62c6c5db8c2745a85275656",
@@ -145,6 +152,13 @@
       "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
     },
     {
+      "file": "lavaborn-muse.json",
+      "oracle_id": "2825ff5a-5340-4494-bfde-80f6f5bce5a2",
+      "record_sha256": "7d120772ee60dffae43a4d5cf0f3a43618d7df94568df5b2da14d0a345d6552e",
+      "source_sha256": "b2d9c2c4f76beb152074064bcfd8132e895923dcf70fe6a3d8966098d9cc3db4",
+      "ast_sha256": "2a21032cef18a513246c2847fe5780a7a7553a9a9b676a2d92693abc402b70bd"
+    },
+    {
       "file": "lightning-bolt.json",
       "oracle_id": "4457ed35-7c10-48c8-9776-456485fdf070",
       "record_sha256": "a64006dde28cd47a2d242147837475921e4c56a059f6e671715f9d4bb6dac460",
@@ -199,6 +213,20 @@
       "record_sha256": "31c5c50e36d77c73c31f888644102e9f20a505697f96fd2749a198316a898cc5",
       "source_sha256": "27d9bf0d40404ffc25215c54808c6342bd36bc40c851115a40be64bf98ee1834",
       "ast_sha256": "50db81cfd6330c9c3e609a76221d2866d1f866f2d6044e7e1c5014d13a0a6fe6"
+    },
+    {
+      "file": "seeds-of-strength.json",
+      "oracle_id": "dd3d4d96-1e88-49e1-8276-7f62c22ad91a",
+      "record_sha256": "e39b96e7c3958730e7a1db765cd46322cfd14d55089486b107d625469ad650d3",
+      "source_sha256": "19c6385e83d2239e4ba64050d0f7a8e4610a431183c31830dd56eb4b907f732f",
+      "ast_sha256": "2d5ccc70b91158cb25febb039807a769af60fc51446add2cea0f245c4359b7dc"
+    },
+    {
+      "file": "slaughterhouse-bouncer.json",
+      "oracle_id": "82076865-7917-4d3b-8fe8-c21bfcd64d29",
+      "record_sha256": "026bb9cb637a53c6e4780026c4d9c01dd23d624fcf2f9095ec2678c18397eb85",
+      "source_sha256": "0f1ab8131190d307ec7082fa9b7ab924fc2213766a91fbaea129b335c5e96384",
+      "ast_sha256": "e6f9862ddd6af85140ae6caa2ad89048e036973cae29ef3ef640d93d3a0aec7c"
     },
     {
       "file": "soul-feast.json",
