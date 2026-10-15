@@ -115,6 +115,10 @@ pub struct PlayerBefore {
 #[serde(deny_unknown_fields)]
 pub struct PreEventFacts {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<ResolvedEffect>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub damage_transaction: Option<DamageTransactionBefore>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub damage_sources: Vec<ObjectBefore>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stack: Vec<StackBefore>,
@@ -200,9 +204,22 @@ enum FactKey {
     CommanderDamage(PlayerId),
     Libraries,
     AllDamage,
+    Effects,
 }
 fn access(event: &ProposedEvent) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
     match event {
+        ProposedEvent::CreateEffect { .. }
+        | ProposedEvent::ApplyDamageEffect { .. }
+        | ProposedEvent::CommitDamage { .. }
+        | ProposedEvent::CleanupEffects => {
+            let keys = BTreeSet::from([
+                FactKey::Effects,
+                FactKey::AllDamage,
+                FactKey::Turn,
+                FactKey::Libraries,
+            ]);
+            (keys.clone(), keys)
+        }
         ProposedEvent::GainLife { player, .. } | ProposedEvent::LoseLife { player, .. } => {
             let keys = BTreeSet::from([FactKey::Life(*player)]);
             (keys.clone(), keys)
@@ -343,7 +360,11 @@ fn collect<'a>(
                 && occurrences.iter().any(|e| {
                     matches!(
                         e,
-                        ProposedEvent::CounterStackObject { .. }
+                        ProposedEvent::CreateEffect { .. }
+                            | ProposedEvent::ApplyDamageEffect { .. }
+                            | ProposedEvent::CommitDamage { .. }
+                            | ProposedEvent::CleanupEffects
+                            | ProposedEvent::CounterStackObject { .. }
                             | ProposedEvent::ClearDamage
                             | ProposedEvent::TurnTransition { .. }
                             | ProposedEvent::DeclareAttackers { .. }
@@ -372,14 +393,108 @@ fn collect<'a>(
 impl Game {
     fn facts(&self, events: &[&ProposedEvent]) -> Result<PreEventFacts, String> {
         let mut damage_sources = vec![];
+        let effects_event = events.iter().any(|e| {
+            matches!(
+                e,
+                ProposedEvent::CreateEffect { .. }
+                    | ProposedEvent::ApplyDamageEffect { .. }
+                    | ProposedEvent::CommitDamage { .. }
+                    | ProposedEvent::CleanupEffects
+            )
+        });
+        let effects = if effects_event {
+            self.state.effects.clone()
+        } else {
+            vec![]
+        };
+        let damage_transaction = if effects_event {
+            self.damage_transaction()
+                .ok()
+                .map(DamageTransactionBefore::from)
+        } else {
+            None
+        };
         let mut objects = BTreeSet::new();
         let mut players = BTreeSet::new();
-        let mut turn = None;
+        let mut turn = effects_event.then(|| TurnBefore {
+            turn: self.state.turn.clone(),
+            owner: self.state.turn_owner,
+            active: self.state.active,
+            priority: matches!(self.state.frame, Frame::Priority).then_some(self.state.priority),
+            live_turn_order: self.live_players(),
+            stack_empty: self.state.stack.is_empty(),
+        });
         let mut commander_damage = BTreeSet::new();
         let mut libraries = BTreeSet::new();
         let mut stack = BTreeSet::new();
         for event in events {
             match event {
+                ProposedEvent::CreateEffect { effect } => {
+                    if self.current(effect.origin.source).is_ok() {
+                        objects.insert(effect.origin.source);
+                    }
+                    players.insert(effect.origin.controller);
+                    if self
+                        .state
+                        .stack
+                        .iter()
+                        .any(|s| s.id == effect.origin.stack_id)
+                    {
+                        stack.insert(effect.origin.stack_id);
+                    }
+                    match &effect.kind {
+                        ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
+                            objects.insert(*target);
+                        }
+                        ResolvedEffectKind::PreventNextDamage {
+                            target: TargetEntity::Object { object },
+                            ..
+                        } => {
+                            objects.insert(*object);
+                        }
+                        ResolvedEffectKind::PreventNextDamage {
+                            target: TargetEntity::Player { player },
+                            ..
+                        } => {
+                            players.insert(*player);
+                        }
+                        _ => {}
+                    }
+                }
+                ProposedEvent::ApplyDamageEffect { .. }
+                | ProposedEvent::CommitDamage { .. }
+                | ProposedEvent::CleanupEffects => {
+                    if let Ok(tx) = self.damage_transaction() {
+                        for d in &tx.entries {
+                            damage_sources.push(d.source.clone());
+                            match d.recipient {
+                                DamageRecipient::Player { player } => {
+                                    players.insert(player);
+                                    if self
+                                        .state
+                                        .commanders
+                                        .history(d.source.object.card)
+                                        .is_some()
+                                    {
+                                        commander_damage.insert((d.source.object.card, player));
+                                    }
+                                }
+                                DamageRecipient::Creature { object } => {
+                                    if self.current(object).is_ok() {
+                                        objects.insert(object);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    objects.extend(
+                        self.state
+                            .objects
+                            .values()
+                            .filter(|o| o.zone == Zone::Battlefield)
+                            .map(|o| o.id),
+                    );
+                }
                 ProposedEvent::GainLife { player, .. } | ProposedEvent::LoseLife { player, .. } => {
                     players.insert(*player);
                 }
@@ -611,6 +726,8 @@ impl Game {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(PreEventFacts {
+            effects,
+            damage_transaction,
             damage_sources,
             stack,
             commander_damage,
@@ -787,6 +904,10 @@ impl Game {
 impl Game {
     fn apply_occurrence(&mut self, proposed: &ProposedEvent) -> Result<EventOutcome, String> {
         let actual = match proposed {
+            event @ (ProposedEvent::CreateEffect { .. }
+            | ProposedEvent::ApplyDamageEffect { .. }
+            | ProposedEvent::CommitDamage { .. }
+            | ProposedEvent::CleanupEffects) => self.apply_effect_event(event)?,
             ProposedEvent::NoncombatDamage { damage } => self.apply_noncombat_damage(damage)?,
             ProposedEvent::GainLife { player, amount }
             | ProposedEvent::LoseLife { player, amount } => {

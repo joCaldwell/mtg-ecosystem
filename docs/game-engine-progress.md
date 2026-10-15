@@ -1306,3 +1306,56 @@ Giant Growth, Disfigure, Fog, Samite Healer, Furnace of Rath and Yoked Ox. Its
 compiler/runtime and independent tests are being prepared separately from this
 verified trigger checkpoint. Full legal Commander setup/admission and named
 playable-profile evidence remain later gates.
+
+
+### Temporary characteristics and damage interactions verified
+
+Implemented the complete source-backed Giant Growth, Disfigure, Fog, Samite
+Healer, Furnace of Rath and Yoked Ox slice. Thirty definitions and 35 exact
+source records retain nine separate catalogs and 36 exact configurations.
+Temporary signed P/T modifications bind zone incarnations; cleanup removes
+marks and expires effects atomically. Prevention, finite shared shield budgets
+and battlefield damage doubling preserve chosen application order, original
+occurrences, source departures and simultaneous final damage. Actual damage
+alone changes Commander history and drives ordinary death-trigger collection.
+Righteousness, modal Healing Salve and Gratuitous Violence remain complete-card
+negative boundaries in this historical profile.
+
+Forty-one player-view policies add 3,494 recovery boundaries, bringing the
+combined evidence to 15,100 boundaries and 450 trace executions. Independently
+reviewed typed proofs contain 36 effect creations, 27 applications and 34 damage
+commits. The report was reproduced byte-for-byte after the reviewed golden
+fixture (SHA-256
+`82b66f5c8d0f04ab4557263511ca31ea9e473f1ff6404831dd56b86bd730b17a`).
+Snapshot v15, bundle v16, projection/context v13 and query-sidecar v12 retain
+these continuations. Historical semantic references remain unchanged.
+
+Final `npm run check:engine` passed formatting, warnings-denied Clippy,
+**303 Rust tests** and **22 Node integration tests**. Separate release verification
+passed all **303 Rust tests**. Twelve independent adversarial tests and focused
+runtime tests cover atomic rollback, stale identities, effect ordering, shared
+budgets, simultaneous damage, cleanup, departure and forged recovery metadata.
+The full gate caught one stale trigger-test sidecar-version assertion; it was
+corrected, independently reviewed and all gates rerun on the final bytes.
+
+The independent final audit checked all **127 native source files**, totaling
+**33,739,979 bytes**, 603 snapshot envelope/state hashes, all configurations and
+all recovery boundaries. All 35 source abilities matched the main checkout's
+parser in a read-only compatibility audit; unrelated parser work was preserved.
+
+Retained identities:
+
+- Build: `ca7ad1f890b27860961d774ef20ba6f1190698f9466e6dac17b70728a0b75c6e`.
+- Bundle: `9debc71c69aa531018001dec947260fd3b7e799f61c7e83352b927ced8bd8bbd`.
+- Rebuilt executable: `5c055bfc14ce855993090bee2443019b949e72693b8a4c48f9dadbf04dc8eddf`.
+- Dependency manifest: `387384711d404f44993e8ab583e269c5105d1cc8b583307e3035f14e03d7474f`.
+- Pinned rules: `8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca`.
+
+The closure is retained at
+`/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-9debc71c69aa5310-1Ju2o8/`.
+It rebuilt with 1,581 retained dependency files from 31 locked packages, an
+initially empty Cargo home and fresh target directory in frozen offline mode,
+then independently replayed the complete bundle. No review findings remain
+unresolved. Generated reports, large bundles and build outputs remain ignored.
+The following slice adds modal casting, separate target occurrences and
+intervening-if trigger checks before legal Commander setup and admission.

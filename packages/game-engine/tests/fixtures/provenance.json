@@ -40,6 +40,13 @@
       "ast_sha256": "e1c68a9ac0879e6f8f316369f884d14c4a278158063813501ff774782fcc6cfe"
     },
     {
+      "file": "disfigure.json",
+      "oracle_id": "77eafe49-b9c5-461d-89c5-cec217dd2974",
+      "record_sha256": "8ab15e07cdfa236e5a59e471ab88d92cae593254cba4e3ba7b809ae22552c7fa",
+      "source_sha256": "c48a5295c40e24aa708efbbb08a5d737c375942c5d1161fe622eca7a4e555d10",
+      "ast_sha256": "786a1c604c21105b741f86e704da03e0fb75aae4ba91d9dd18f4f2afd60b7edf"
+    },
+    {
       "file": "elvish-visionary.json",
       "oracle_id": "c6a3a882-a127-4590-93d7-679ef4313efe",
       "record_sha256": "55c4ba511575399ea23bcda388c460fda2f578e146818a240fb98d27aa6d0471",
@@ -61,11 +68,39 @@
       "ast_sha256": "0fdfa7aac1dfcd12fdd58e6cfd96963c85878e6079e182ee7ae413f0bdb7417c"
     },
     {
+      "file": "fog.json",
+      "oracle_id": "27e9db49-7af7-4bef-ad4c-bf5dfb92030d",
+      "record_sha256": "8319fb76e7091ae121e9d5393dea0e45cd2454519ae7f6197c4859d975c1f132",
+      "source_sha256": "429a99f6401f0c807cd153650297d19fa0458d2851d62ea0c1587c2618134d7e",
+      "ast_sha256": "28420ebb0c166765af80123d6592db44683f3924be35354abfd883a78d035c5f"
+    },
+    {
       "file": "forest.json",
       "oracle_id": "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6",
       "record_sha256": "88cc92acedaa06983e21abada4ce21abe4bf177bc30c269bea55c994e44c78e3",
       "source_sha256": "50f2a53e3ed1ca1148b4e97a9e50a6923744944fca6306f3f1eb67231140c2ca",
       "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
+    },
+    {
+      "file": "furnace-of-rath.json",
+      "oracle_id": "68715465-6cf9-4006-87e9-31f227fe9ed3",
+      "record_sha256": "ebd8181fc5bb82cb6fe4dd406e4ffcb3ce40df82a552704d2381466b1d0de6bb",
+      "source_sha256": "c25586ad2af602cc8f2ee5753ab7a3f1055e8ad31ea442d237ff8d80762db7f2",
+      "ast_sha256": "18159467108132b3b2995bddbd45509bfecc3dee4d31eef326014cfa987705df"
+    },
+    {
+      "file": "giant-growth.json",
+      "oracle_id": "5748ebf1-24e3-499d-ab7c-c2cebd462a24",
+      "record_sha256": "43b11869ae533f65176a3ed8422c4b1049866c66e106aae4c216971e3a0be51a",
+      "source_sha256": "39f0e631d644137618c46213840c570637bc446f50e072c0aea567322c6b0656",
+      "ast_sha256": "97497091ffdc8617a4c0870ec9df938d8edae87b4cced3905d136bcf193090bc"
+    },
+    {
+      "file": "gratuitous-violence.json",
+      "oracle_id": "7c340a39-4ee0-4ba1-bb66-6674f8020fda",
+      "record_sha256": "3b8a48dc731d2ce8ac8d443ab56474b8f95578900196b512b22107c701c84457",
+      "source_sha256": "81f6aeae09379a1a2a140e3de8de31d667735641625eb646bea95825f11cda50",
+      "ast_sha256": "1d2cfbf71360a37b4116a5b85129568efd976e11b0dbaada2f5020c2663e62a4"
     },
     {
       "file": "grizzly-bears.json",
@@ -87,6 +122,13 @@
       "record_sha256": "fe1712c45689f77b1464694316a3bd525aa678469f1a85e5c65bb1504df30200",
       "source_sha256": "5da894433f37708bc58ae017caa6c499a8c4b8299d90a675081962f4eb9642b7",
       "ast_sha256": "c72a402f9e4016a69fe718792f31955352242e8f45a6c2b7357aafc9ae0d21a8"
+    },
+    {
+      "file": "healing-salve.json",
+      "oracle_id": "8da8644c-75a1-4fe9-8e94-900d948d631c",
+      "record_sha256": "e291d7f06d81683580274c35e523e37bccd78b24f04aaf9db9b2c32d9ea80c6b",
+      "source_sha256": "5c1fcd490046e7503cb066f742517400dfef4e40614e1d64bfcd471278d5241b",
+      "ast_sha256": "0dd55f5e8abd330c6c9452ec6c1338cea15ff78c1ba45e01da7e1fa0c6293513"
     },
     {
       "file": "isamaru.json",
@@ -138,11 +180,25 @@
       "ast_sha256": "3455807b0e87d423eb54c4d983f1ddbc3bdaf05017135f6fdb2e47793eef7165"
     },
     {
+      "file": "righteousness.json",
+      "oracle_id": "3f6b2f76-0364-415e-a6a2-e9e5bf31b745",
+      "record_sha256": "7f93ff4781abe286d05e5835771b711f964771fedddbf6e580d90c89074f62e0",
+      "source_sha256": "f9af121b8a7525a90421c871f441e59b9449d1509a571e54b59656aca48f8177",
+      "ast_sha256": "39040712bbdeb4100fbbe67e4010a216db8a3cb431bd754c078285ab3167932f"
+    },
+    {
       "file": "sacred-nectar.json",
       "oracle_id": "30870ee5-6ad7-48a9-983e-d3b018f2344f",
       "record_sha256": "397d9656cb65b76cd0c71e7b108b8b9cd32a9403b933fa7fee43585c5db11c18",
       "source_sha256": "c93432aa9fe8536aadb22fb18a0af83365545b13428c3c1d99eb367b34956c07",
       "ast_sha256": "b4d55f3ca27f04128fbd115d53149ccc3dec439427fb679a39b3d4dda5d0c743"
+    },
+    {
+      "file": "samite-healer.json",
+      "oracle_id": "95a0ca48-d924-47f4-86ed-42c673ee778c",
+      "record_sha256": "31c5c50e36d77c73c31f888644102e9f20a505697f96fd2749a198316a898cc5",
+      "source_sha256": "27d9bf0d40404ffc25215c54808c6342bd36bc40c851115a40be64bf98ee1834",
+      "ast_sha256": "50db81cfd6330c9c3e609a76221d2866d1f866f2d6044e7e1c5014d13a0a6fe6"
     },
     {
       "file": "soul-feast.json",
@@ -184,6 +240,13 @@
       "oracle_id": "980e1721-3717-4425-95a4-938dbf2ac661",
       "record_sha256": "dd2878582513bae556e31852560ea21cd694abad63d3756ea6b2296d0f124e13",
       "source_sha256": "23a1eb822133fa8f171c83c85987f9685a28e00b39722c85f261e562572b73e9",
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
+    },
+    {
+      "file": "yoked-ox.json",
+      "oracle_id": "19b4cf0b-e1e4-4e50-80bc-673bc6ef8bb8",
+      "record_sha256": "0f3f4906ebcf4789b5d54b87518a486e92207e9e3a6ff366c1076445aacb73ef",
+      "source_sha256": "e2cbc722e77cbf6545235079ca7e1e4cd26fc02a8c03be382e240d7f848dc2b7",
       "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
     }
   ]

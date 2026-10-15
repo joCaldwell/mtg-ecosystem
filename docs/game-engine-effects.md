@@ -3,8 +3,8 @@
 Frozen contract for the next bounded P4 slice, prepared October 15, 2026.
 The parent, runtime and independent rules review approve the six source-backed
 positives, three paired negatives, exact five configurations, data/decision
-interfaces and format versions below. This contract establishes the next bounded slice; it does not claim that the
-next slice has been implemented.
+interfaces and format versions below. Implementation follows this frozen contract. Final checks and retained artifact
+identities are recorded in [the progress ledger](game-engine-progress.md).
 
 ## Source, vocabulary and admission
 

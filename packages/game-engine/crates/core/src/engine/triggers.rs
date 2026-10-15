@@ -309,6 +309,7 @@ impl Game {
                         colored: vec![],
                     };
                     self.state.stack.push(StackInstance {
+                        effect_source_handles: vec![],
                         source_facts: Some(trigger.source_facts),
                         entity_targets: vec![],
                         announced_entity_targets: vec![],
@@ -502,11 +503,15 @@ impl Game {
             || fact.controller.0 >= 4
             || fact.default_controller.0 >= 4
             || fact.zone != Zone::Battlefield
-            || fact.characteristics != self.definition(source.card)?.characteristics
+            || (!self.prepared.config.effects_profile()
+                && fact.characteristics != self.definition(source.card)?.characteristics)
             || handles.len() != 4
             || definition.functioning_zone != FunctioningZone::Battlefield
         {
             return Err("snapshot trigger source invariant".into());
+        }
+        if self.prepared.config.effects_profile() {
+            self.validate_characteristic_identity(source, &fact.characteristics)?;
         }
         Ok(())
     }

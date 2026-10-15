@@ -4,6 +4,92 @@
 use super::*;
 
 impl ScenarioConfig {
+    pub fn effects() -> Self {
+        let cards = (0..46)
+            .map(|id| {
+                let owner = PlayerId(match id {
+                    0..=15 => 0,
+                    16..=30 => 1,
+                    31..=41 => 2,
+                    _ => 3,
+                });
+                CardSetup {
+                    id: CardId(id),
+                    owner,
+                    controller: owner,
+                    oracle_id: match id {
+                        0 => ISAMARU,
+                        1 => OX,
+                        2 | 18 => HEALER,
+                        3 => PRODIGAL,
+                        4 | 19 | 39 | 42 => BLOOD_ARTIST,
+                        5 | 24 => GROWTH,
+                        6 => FOG,
+                        7 => DISFIGURE,
+                        8 | 23 => BOLT,
+                        9 | 10 | 14 | 27 | 30 | 37 => FOREST,
+                        11 | 15 => PLAINS,
+                        12 => SWAMP,
+                        13 | 28 | 33..=36 | 40 | 41 | 43..=45 => MOUNTAIN,
+                        16 | 17 | 38 => BEARS,
+                        20 => SPELL,
+                        21 => STIFLE,
+                        22 => COUNTERSPELL,
+                        31 | 32 => FURNACE,
+                        _ => ISLAND,
+                    }
+                    .into(),
+                    zone: match id {
+                        5..=8 | 20..=24 | 31 | 32 => Zone::Hand { owner },
+                        14 | 15 | 29 | 30 | 40 | 41 | 44 | 45 => Zone::Library { owner },
+                        _ => Zone::Battlefield,
+                    },
+                }
+            })
+            .collect();
+        Self {
+            mode: Mode::Scenario,
+            players: 4,
+            profile: "four-seat-effects-v1".into(),
+            commanders: vec![CardId(0)],
+            cards,
+        }
+    }
+    pub fn effects_furnace() -> Self {
+        let mut c = Self::effects();
+        c.profile = "four-seat-effects-furnace-v1".into();
+        c.cards[32].zone = Zone::Battlefield;
+        c
+    }
+    pub fn effects_two_furnaces() -> Self {
+        let mut c = Self::effects_furnace();
+        c.profile = "four-seat-effects-two-furnaces-v1".into();
+        c.cards[31].zone = Zone::Battlefield;
+        c
+    }
+    pub fn effects_borrowed() -> Self {
+        let mut c = Self::effects();
+        c.profile = "four-seat-effects-borrowed-v1".into();
+        c.cards[2].owner = PlayerId(2);
+        c.cards[3].owner = PlayerId(2);
+        c
+    }
+    pub fn effects_low() -> Self {
+        let mut c = Self::effects_furnace();
+        c.profile = "four-seat-effects-low-v1".into();
+        c
+    }
+    pub(super) fn effects_profile(&self) -> bool {
+        matches!(
+            self.profile.as_str(),
+            "four-seat-effects-v1"
+                | "four-seat-effects-furnace-v1"
+                | "four-seat-effects-two-furnaces-v1"
+                | "four-seat-effects-borrowed-v1"
+                | "four-seat-effects-low-v1"
+        )
+    }
+
     pub fn triggers() -> Self {
         let cards = (0..38)
             .map(|id| {
@@ -77,14 +163,15 @@ impl ScenarioConfig {
         c
     }
     pub(super) fn triggers_profile(&self) -> bool {
-        matches!(
-            self.profile.as_str(),
-            "four-seat-triggers-v1"
-                | "four-seat-triggers-low-v1"
-                | "four-seat-triggers-borrowed-v1"
-                | "four-seat-triggers-empty-library-v1"
-                | "four-seat-triggers-nonactive-v1"
-        )
+        self.effects_profile()
+            || matches!(
+                self.profile.as_str(),
+                "four-seat-triggers-v1"
+                    | "four-seat-triggers-low-v1"
+                    | "four-seat-triggers-borrowed-v1"
+                    | "four-seat-triggers-empty-library-v1"
+                    | "four-seat-triggers-nonactive-v1"
+            )
     }
     pub fn damage_life() -> Self {
         let cards = (0..35)
@@ -611,7 +698,9 @@ impl ScenarioConfig {
     pub(super) fn initial_life(&self, player: PlayerId) -> Quantity {
         Quantity::from(if self.profile == "four-seat-triggers-low-v1" {
             2
-        } else if self.profile == "four-seat-damage-life-low-v1" {
+        } else if self.profile == "four-seat-damage-life-low-v1"
+            || self.profile == "four-seat-effects-low-v1"
+        {
             4
         } else if self.combat_profile() && !self.commander_profile() {
             if player == PlayerId(0) { 6 } else { 2 }

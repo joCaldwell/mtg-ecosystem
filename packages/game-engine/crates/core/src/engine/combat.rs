@@ -323,7 +323,14 @@ impl Game {
                 self.state.frame = Frame::CleanupClear;
             }
             Frame::CleanupClear => {
-                self.commit(ProposedEvent::ClearDamage, BatchCause::Cleanup)?;
+                self.commit(
+                    if self.prepared.config.effects_profile() {
+                        ProposedEvent::CleanupEffects
+                    } else {
+                        ProposedEvent::ClearDamage
+                    },
+                    BatchCause::Cleanup,
+                )?;
                 self.schedule_stabilization(Frame::Transition, true);
             }
             Frame::Stabilize {
@@ -389,6 +396,9 @@ impl Game {
                     });
                 }
             }
+        }
+        if self.prepared.config.effects_profile() && !damage.is_empty() {
+            return self.prepare_combat_damage(damage);
         }
         if !damage.is_empty() {
             self.commit(ProposedEvent::CombatDamage { damage }, BatchCause::Combat)?;

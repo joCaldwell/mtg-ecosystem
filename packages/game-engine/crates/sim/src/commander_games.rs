@@ -89,7 +89,7 @@ impl Strategy {
             .as_ref()
             .ok_or("missing commander request")?;
         Ok(match request {
-            PlayerRequest::OrderTriggers { .. } => {
+            PlayerRequest::DamageEffect { .. } | PlayerRequest::OrderTriggers { .. } => {
                 return Err("ordinary trigger ordering outside historical profile".into());
             }
             PlayerRequest::EntityTargets { .. } => {

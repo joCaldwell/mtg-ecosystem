@@ -1,4 +1,40 @@
+const GROWTH: &str = "5748ebf1-24e3-499d-ab7c-c2cebd462a24";
+const DISFIGURE: &str = "77eafe49-b9c5-461d-89c5-cec217dd2974";
+const FOG: &str = "27e9db49-7af7-4bef-ad4c-bf5dfb92030d";
+const HEALER: &str = "95a0ca48-d924-47f4-86ed-42c673ee778c";
+const FURNACE: &str = "68715465-6cf9-4006-87e9-31f227fe9ed3";
+const OX: &str = "19b4cf0b-e1e4-4e50-80bc-673bc6ef8bb8";
+const EFFECT_EXTRA: [(&str, &str); 6] = [
+    (
+        GROWTH,
+        "6bbea845e4e380c0703085223bdb5fb9eea19ea4649dc6d07f3fd6a414219c3e",
+    ),
+    (
+        DISFIGURE,
+        "516f503391926f85c1a7a732e582fa49ed29f9a3f2c167497e030daff7bdb030",
+    ),
+    (
+        FOG,
+        "59c499cf85a89ef7db83c176584ea0b9fa579f035a725c2e4ebd60b80027def5",
+    ),
+    (
+        HEALER,
+        "bd103f545e9c1ffdbf5e2334b01b755aab3861a1b638d98ba1f8f702624ffc71",
+    ),
+    (
+        FURNACE,
+        "cbd6c7a82dc08a7555163343133d72d61e4b03b4ba6fc72b8436037ffbc72d09",
+    ),
+    (
+        OX,
+        "162847c12e95065221e53c1fe1f4352276d06ae8dbf0d89ded65dfaee0ea1da6",
+    ),
+];
+mod effects;
+#[cfg(test)]
+mod effects_tests;
 use crate::BUILD_ID;
+pub use effects::*;
 use mtg_contracts::*;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -381,6 +417,11 @@ impl Prepared {
             && config != ScenarioConfig::actions_borrowed()
             && config != ScenarioConfig::actions_empty_library()
             && config != ScenarioConfig::mixed_mana()
+            && config != ScenarioConfig::effects()
+            && config != ScenarioConfig::effects_furnace()
+            && config != ScenarioConfig::effects_two_furnaces()
+            && config != ScenarioConfig::effects_borrowed()
+            && config != ScenarioConfig::effects_low()
             && config != ScenarioConfig::triggers()
             && config != ScenarioConfig::triggers_low()
             && config != ScenarioConfig::triggers_borrowed()
@@ -402,7 +443,9 @@ impl Prepared {
             );
         }
         if catalog.schema_version
-            != if config.triggers_profile() {
+            != if config.effects_profile() {
+                9
+            } else if config.triggers_profile() {
                 8
             } else if config.damage_life_profile() {
                 7
@@ -439,6 +482,9 @@ impl Prepared {
         }
         if config.triggers_profile() {
             allowed.extend(TRIGGER_EXTRA);
+        }
+        if config.effects_profile() {
+            allowed.extend(EFFECT_EXTRA);
         }
         if catalog.definitions.len() != allowed.len() {
             return Err("definition pool is not the closed reviewed scenario pool".into());
@@ -501,6 +547,8 @@ struct Object {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StackInstance {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    effect_source_handles: Vec<ObjectHandle>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     source_facts: Option<ObjectBefore>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -558,6 +606,9 @@ struct Resolving {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 enum Frame {
+    DamageEffects {
+        transaction: DamageTransaction,
+    },
     TriggerOrder {
         placement: TriggerPlacement,
     },
@@ -630,6 +681,10 @@ enum Frame {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    DamageEffect {
+        effect: EffectKey,
+        damage: DamageId,
+    },
     OrderTriggers {
         order: Vec<TriggerId>,
     },
@@ -697,6 +752,12 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    DamageEffect {
+        decision_id: u64,
+        player: PlayerId,
+        recipient: TargetEntity,
+        candidates: Vec<DamageEffectCandidate>,
+    },
     OrderTriggers {
         decision_id: u64,
         player: PlayerId,
@@ -787,7 +848,8 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::OrderTriggers { decision_id, .. }
+            Self::DamageEffect { decision_id, .. }
+            | Self::OrderTriggers { decision_id, .. }
             | Self::EntityTargets { decision_id, .. }
             | Self::StackTargets { decision_id, .. }
             | Self::PlayerTargets { decision_id, .. }
@@ -806,7 +868,8 @@ impl Request {
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::OrderTriggers { player, .. }
+            Self::DamageEffect { player, .. }
+            | Self::OrderTriggers { player, .. }
             | Self::EntityTargets { player, .. }
             | Self::StackTargets { player, .. }
             | Self::PlayerTargets { player, .. }
@@ -827,6 +890,18 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    CreateEffect {
+        effect: Box<ResolvedEffect>,
+    },
+    ApplyDamageEffect {
+        transaction: DamageTransactionId,
+        damage: DamageId,
+        effect: EffectKey,
+    },
+    CommitDamage {
+        transaction: DamageTransactionId,
+    },
+    CleanupEffects,
     NoncombatDamage {
         damage: Box<NoncombatDamageOccurrence>,
     },
@@ -934,6 +1009,23 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    EffectCreated {
+        effect: Box<ResolvedEffect>,
+    },
+    DamageEffectApplied {
+        application: Box<DamageApplication>,
+    },
+    DamageCommitted {
+        transaction: DamageTransactionId,
+        actual: Vec<ActualDamage>,
+        results: Vec<DamageResult>,
+        commander_damage: Vec<CommanderDamageResult>,
+        cancelled: Vec<DamageId>,
+    },
+    EffectsCleaned {
+        expired: Vec<EffectId>,
+        previous: Vec<(ObjectId, Quantity)>,
+    },
     NoncombatDamageDealt {
         damage: Box<NoncombatDamageOccurrence>,
         result: DamageResult,
@@ -1048,6 +1140,9 @@ pub enum EventOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 enum InstructionOutcome {
+    Effect {
+        actual: Option<EventOutcome>,
+    },
     Damage {
         actual: Option<EventOutcome>,
     },
@@ -1177,6 +1272,12 @@ pub enum Event {
 #[serde(deny_unknown_fields)]
 struct State {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    effects: Vec<ResolvedEffect>,
+    #[serde(default, skip_serializing_if = "triggers::is_zero")]
+    next_effect_id: u64,
+    #[serde(default, skip_serializing_if = "triggers::is_zero")]
+    next_damage_transaction_id: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pending_triggers: Vec<PendingTrigger>,
     #[serde(default, skip_serializing_if = "triggers::is_zero")]
     next_trigger_id: u64,
@@ -1295,6 +1396,9 @@ impl Game {
             })
             .collect();
         let state = State {
+            effects: vec![],
+            next_effect_id: 0,
+            next_damage_transaction_id: 0,
             pending_triggers: vec![],
             next_trigger_id: 0,
             libraries: prepared.config.initial_libraries(),
@@ -1393,7 +1497,7 @@ impl Game {
     }
     pub fn characteristics(&self, object: ObjectId) -> Result<Characteristics, String> {
         self.current(object)?;
-        Ok(self.definition(object.card)?.characteristics.clone())
+        self.derived_characteristics(object)
     }
     // Characteristics supply intrinsic behavior; reminder text never supplies
     // runtime code. CR 305.6 / 113.6 / 605.3b, pinned official rules:
@@ -1468,6 +1572,9 @@ impl Game {
         if self.state.pending.is_some() || !self.state.pending_concessions.is_empty() {
             return Ok(None);
         }
+        if let Some(req) = self.damage_effect_request()? {
+            return Ok((req.player() == viewer).then_some(req));
+        }
         if let Some(req) = self.trigger_request()? {
             return Ok((req.player() == viewer).then_some(req));
         }
@@ -1541,6 +1648,11 @@ impl Game {
             let mut validation = self.fork();
             validation.state.frame = *resume.clone();
             return validation.validate_response(player, response);
+        }
+        if let (Frame::DamageEffects { .. }, Response::DamageEffect { effect, damage }) =
+            (&self.state.frame, response)
+        {
+            return self.validate_damage_effect(player, effect, *damage);
         }
         if let Some(result) = self.validate_actions_response(player, response) {
             return result;
@@ -1730,6 +1842,7 @@ impl Game {
             return self.apply_departure(player);
         }
         match self.state.frame.clone() {
+            Frame::DamageEffects { .. } => self.damage_effect_step()?,
             Frame::Priority => {
                 let input = self
                     .state
@@ -1780,7 +1893,13 @@ impl Game {
                                 },
                             )?
                             .successor;
+                        let effect_source_handles = if self.prepared.config.effects_profile() {
+                            self.capture_trigger_source_handles(source)?
+                        } else {
+                            vec![]
+                        };
                         self.state.stack.push(StackInstance {
+                            effect_source_handles,
                             source_facts: if self.prepared.config.damage_life_profile() {
                                 Some(self.object_before(source)?)
                             } else {
@@ -2106,7 +2225,7 @@ impl Game {
     pub fn snapshot_with_digest(&self) -> Result<(String, String), String> {
         let state_sha256 = self.state_digest()?;
         let json = canonical(&SnapshotRef {
-            snapshot_version: 14,
+            snapshot_version: 15,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -2118,7 +2237,7 @@ impl Game {
     }
     fn read_snapshot(prepared: Prepared, json: &str) -> Result<(Self, String), String> {
         let s: Snapshot = strict_read(json)?;
-        if s.snapshot_version != 14
+        if s.snapshot_version != 15
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -2197,6 +2316,7 @@ impl Game {
             }
         }
         self.validate_trigger_state()?;
+        self.validate_effect_state()?;
         self.validate_commander_state()?;
         self.validate_actions_state()?;
         for p in &s.players {

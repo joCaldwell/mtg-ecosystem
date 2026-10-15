@@ -263,6 +263,9 @@ impl Strategy {
             .as_ref()
             .ok_or("missing trigger policy request")?;
         Ok(match request {
+            PlayerRequest::DamageEffect { .. } => {
+                return Err("damage effects outside historical trigger profile".into());
+            }
             PlayerRequest::Priority { .. } => {
                 let has_triggers = v.stack.iter().any(|s| s.triggered.is_some());
                 if has_triggers {

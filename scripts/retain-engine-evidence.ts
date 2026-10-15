@@ -3,6 +3,7 @@
 // https://doc.rust-lang.org/cargo/commands/cargo-vendor.html
 // https://doc.rust-lang.org/cargo/reference/source-replacement.html
 import { spawnSync } from "node:child_process";
+import { captureJsonOutput } from "./capture-json-output.ts";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -17,6 +18,9 @@ function run(command: string, args: string[], cwd = root, env = process.env) {
   if (result.status !== 0) throw new Error(`${command} failed: ${result.status}\n${result.stdout}`);
   return result.stdout;
 }
+function runJson(command: string, args: string[], cwd = root, env = process.env) {
+  return captureJsonOutput<any>(command, args, { cwd, env });
+}
 // Retain the exact official rules alongside sources; never refresh rules during replay.
 const rulesPath = process.env.MTG_ENGINE_RULES_PATH ?? path.join(root, ".scryfall-cache/rules-20260925.txt");
 const rulesBytes = fs.readFileSync(rulesPath);
@@ -27,11 +31,11 @@ fs.mkdirSync(bundleRoot, { recursive: true });
 // Inspect only this capture: historical bundles keep their original versions
 // and source identities and must not enter this run's strict metadata reader.
 const bundleDir = fs.mkdtempSync(path.join(bundleRoot, "capture-"));
-const report = JSON.parse(run("cargo", ["run", "--quiet", "--locked", "--release", "-p", "mtg-sim", "--", "demo", "--bundle", bundleDir]));
+const report = runJson("cargo", ["run", "--quiet", "--locked", "--release", "-p", "mtg-sim", "--", "demo", "--bundle", bundleDir]);
 // Rust skips unneeded snapshot strings through serde_json::from_reader. Keep
 // the complete retained artifact as bytes: it can exceed V8's string limit.
 function metadata(file: string) {
-  return JSON.parse(run("cargo", ["run", "--quiet", "--locked", "--release", "-p", "mtg-sim", "--", "bundle-metadata", file]));
+  return runJson("cargo", ["run", "--quiet", "--locked", "--release", "-p", "mtg-sim", "--", "bundle-metadata", file]);
 }
 const matching = fs.readdirSync(bundleDir).filter(name => name.endsWith(".json")).map(name => path.join(bundleDir, name))
   .map(file => ({ file, metadata: metadata(file) }))
@@ -80,7 +84,7 @@ const env = { ...process.env, CARGO_HOME: cargoHomePath, CARGO_TARGET_DIR: targe
 const initialCargoHomeEmpty = fs.readdirSync(cargoHomePath).length === 0;
 run("cargo", ["build", "--frozen", "--release", "--target", bundle.target, "-p", "mtg-sim"], sourceRoot, env);
 const rebuilt = path.join(targetPath, bundle.target, "release/mtg-sim");
-const verification = JSON.parse(run(rebuilt, ["verify-bundle", bundlePath], store, env));
+const verification = runJson(rebuilt, ["verify-bundle", bundlePath], store, env);
 if (verification.state_sha256 !== report.state_sha256) throw new Error("Offline rebuilt replay differs.");
 if (sha(fs.readFileSync(retainedRulesPath)) !== bundle.catalog.rules_sha256) throw new Error("Retained rules/catalog mismatch.");
 const evidence = { rules_path: retainedRulesPath, rules_sha256: rulesSha256, build_id: report.build_id, catalog_digest: report.catalog_digest, profile_digest: report.profile_digest,

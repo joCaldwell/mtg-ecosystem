@@ -203,6 +203,67 @@ pub mod fixtures {
             include_str!("../../../tests/fixtures/deathgreeter.json"),
         ),
     ];
+    pub const EFFECT_RECORDS: [(&str, &str); 35] = [
+        TRIGGER_RECORDS[0],
+        TRIGGER_RECORDS[1],
+        TRIGGER_RECORDS[2],
+        TRIGGER_RECORDS[3],
+        TRIGGER_RECORDS[4],
+        TRIGGER_RECORDS[5],
+        TRIGGER_RECORDS[6],
+        TRIGGER_RECORDS[7],
+        TRIGGER_RECORDS[8],
+        TRIGGER_RECORDS[9],
+        TRIGGER_RECORDS[10],
+        TRIGGER_RECORDS[11],
+        TRIGGER_RECORDS[12],
+        TRIGGER_RECORDS[13],
+        TRIGGER_RECORDS[14],
+        TRIGGER_RECORDS[15],
+        TRIGGER_RECORDS[16],
+        TRIGGER_RECORDS[17],
+        TRIGGER_RECORDS[18],
+        TRIGGER_RECORDS[19],
+        TRIGGER_RECORDS[20],
+        TRIGGER_RECORDS[21],
+        TRIGGER_RECORDS[22],
+        TRIGGER_RECORDS[23],
+        TRIGGER_RECORDS[24],
+        TRIGGER_RECORDS[25],
+        (
+            "giant-growth",
+            include_str!("../../../tests/fixtures/giant-growth.json"),
+        ),
+        (
+            "disfigure",
+            include_str!("../../../tests/fixtures/disfigure.json"),
+        ),
+        ("fog", include_str!("../../../tests/fixtures/fog.json")),
+        (
+            "samite-healer",
+            include_str!("../../../tests/fixtures/samite-healer.json"),
+        ),
+        (
+            "furnace-of-rath",
+            include_str!("../../../tests/fixtures/furnace-of-rath.json"),
+        ),
+        (
+            "yoked-ox",
+            include_str!("../../../tests/fixtures/yoked-ox.json"),
+        ),
+        (
+            "righteousness",
+            include_str!("../../../tests/fixtures/righteousness.json"),
+        ),
+        (
+            "healing-salve",
+            include_str!("../../../tests/fixtures/healing-salve.json"),
+        ),
+        (
+            "gratuitous-violence",
+            include_str!("../../../tests/fixtures/gratuitous-violence.json"),
+        ),
+    ];
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -297,6 +358,9 @@ struct Source {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Ability {
+    Static {
+        effect: SourceStaticEffect,
+    },
     Triggered {
         trigger: SourceTrigger,
         effects: Vec<Sentence>,
@@ -337,6 +401,16 @@ struct Sentence {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "effect", rename_all = "kebab-case")]
 enum Step {
+    Pump {
+        what: Target,
+        power: SignedAmount,
+        toughness: SignedAmount,
+        duration: SourceDuration,
+    },
+    PreventDamage {
+        prevention: SourcePrevention,
+        duration: SourceDuration,
+    },
     Counter {
         what: CounterTarget,
     },
@@ -481,6 +555,105 @@ struct Filter {
 struct Count {
     amount: String,
     value: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceDuration {
+    duration: String,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SignedAmount {
+    sign: i8,
+    amount: Count,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SourcePrevention {
+    event_scope: SourceEventScope,
+    shield: SourceShield,
+    kind: String,
+    to: Option<Vec<AnyTargetReference>>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceEventScope {
+    sources: String,
+    recipients: String,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "shield", rename_all = "kebab-case", deny_unknown_fields)]
+enum SourceShield {
+    Events {
+        occurrence: String,
+        prevent: SourcePrevent,
+    },
+    DamageBudget {
+        amount: Count,
+    },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "prevent", rename_all = "kebab-case", deny_unknown_fields)]
+enum SourcePrevent {
+    All {},
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "ref", rename_all = "kebab-case", deny_unknown_fields)]
+enum AnyTargetReference {
+    AnyTarget {
+        #[serde(rename = "selectionId")]
+        selection_id: String,
+    },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "static", rename_all = "kebab-case", deny_unknown_fields)]
+enum SourceStaticEffect {
+    Replacement { replacement: SourceReplacement },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceReplacement {
+    event: SourceDamageEvent,
+    occurrence: String,
+    replace: SourceReplacementAction,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "event", rename_all = "kebab-case", deny_unknown_fields)]
+enum SourceDamageEvent {
+    Damage {
+        kind: String,
+        source: AnyDamageSource,
+        to: Vec<ReplacementRecipient>,
+    },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EmptyFilter {}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AnyDamageSource {
+    #[serde(rename = "ref")]
+    reference: String,
+    filter: EmptyFilter,
+    count: Count,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+enum ReplacementRecipient {
+    Permanent(FilterObject),
+    Player(PlayerSelector),
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "replacement", rename_all = "kebab-case", deny_unknown_fields)]
+enum SourceReplacementAction {
+    ModifyQuantity { change: SourceQuantityChange },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceQuantityChange {
+    operation: String,
+    factor: u32,
 }
 
 fn mana_cost(text: &str) -> Result<ManaCost, Failure> {
@@ -675,6 +848,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         "Legendary Creature" => (CardKind::Creature, false),
         "Instant" => (CardKind::Instant, false),
         "Sorcery" => (CardKind::Sorcery, false),
+        "Enchantment" => (CardKind::Enchantment, false),
         _ => {
             return Err(unsupported(
                 "source.type_line",
@@ -714,6 +888,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         spell: None,
         activated: vec![],
         triggered: vec![],
+        static_abilities: vec![],
         capabilities: BTreeSet::new(),
         provenance: SourceProvenance {
             printing_id: source.id,
@@ -728,6 +903,27 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         },
     };
     match kind {
+        CardKind::Enchantment => {
+            if source.oracle_text.is_empty() || abilities.is_empty() {
+                return Err(unsupported("abilities", "empty enchantment behavior"));
+            }
+            definition.spell = Some(SpellProgram {
+                timing: SpellTiming::MainPhase,
+                resolution: SpellResolution::Permanent,
+                functioning_zone: FunctioningZone::Stack,
+                targets: vec![],
+                instructions: vec![],
+            });
+            for ability in &abilities {
+                let Ability::Static { effect } = ability else {
+                    return Err(unsupported(
+                        "abilities.kind",
+                        "unsupported enchantment ability",
+                    ));
+                };
+                definition.static_abilities.push(lower_static(effect)?);
+            }
+        }
         CardKind::Land | CardKind::Creature => {
             if kind == CardKind::Land && !abilities.is_empty() {
                 return Err(unsupported(
@@ -857,6 +1053,22 @@ fn append_spell_effects(
         }
         for step in &sentence.steps {
             let instruction = match step {
+                Step::Pump {
+                    what,
+                    power,
+                    toughness,
+                    duration,
+                } if duration.duration == "end-of-turn" => Instruction::ModifyPowerToughness {
+                    target_slot: bind_creature_target(program, slots, what)?,
+                    power: signed_fixed(power)?,
+                    toughness: signed_fixed(toughness)?,
+                    duration: Duration::UntilEndOfTurn,
+                    source_block,
+                },
+                Step::PreventDamage {
+                    prevention,
+                    duration,
+                } => lower_prevention(program, slots, prevention, duration, source_block)?,
                 Step::Damage {
                     source: DamageSource::SelfReference {},
                     amount,
@@ -973,6 +1185,113 @@ fn append_spell_effects(
     }
     Ok(())
 }
+fn signed_fixed(value: &SignedAmount) -> Result<Quantity, Failure> {
+    if value.amount.amount != "fixed" || !matches!(value.sign, -1 | 1) {
+        return Err(unsupported(
+            "effects.pump",
+            "unsupported signed fixed amount",
+        ));
+    }
+    Ok(Quantity::from(
+        i64::from(value.amount.value) * i64::from(value.sign),
+    ))
+}
+fn lower_prevention(
+    program: &mut SpellProgram,
+    slots: &mut BTreeMap<String, u32>,
+    prevention: &SourcePrevention,
+    duration: &SourceDuration,
+    source_block: u32,
+) -> Result<Instruction, Failure> {
+    // CR 615.7: the finite shield budget is shared across simultaneous sources.
+    // The IR retains its target and duration; allocation is a runtime choice.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    if duration.duration != "this-turn"
+        || prevention.event_scope.sources != "simultaneous"
+        || prevention.event_scope.recipients != "simultaneous"
+    {
+        return Err(unsupported(
+            "effects.prevention",
+            "unsupported event scope or duration",
+        ));
+    }
+    match &prevention.shield {
+        SourceShield::Events {
+            occurrence,
+            prevent: SourcePrevent::All {},
+        } if occurrence == "each" && prevention.kind == "combat" && prevention.to.is_none() => {
+            Ok(Instruction::PreventCombatDamage {
+                duration: Duration::UntilEndOfTurn,
+                source_block,
+            })
+        }
+        SourceShield::DamageBudget { amount } if prevention.kind == "all" => {
+            let Some(targets) = &prevention.to else {
+                return Err(unsupported(
+                    "effects.prevention.to",
+                    "missing complete any-target scope",
+                ));
+            };
+            let [AnyTargetReference::AnyTarget { selection_id }] = targets.as_slice() else {
+                return Err(unsupported(
+                    "effects.prevention.to",
+                    "unsupported recipient scope",
+                ));
+            };
+            Ok(Instruction::PreventNextDamage {
+                target_slot: bind_target(
+                    program,
+                    slots,
+                    selection_id,
+                    TargetDomain::AnyDamageTarget,
+                )?,
+                amount: fixed_positive(amount)?,
+                duration: Duration::UntilEndOfTurn,
+                source_block,
+            })
+        }
+        _ => Err(unsupported(
+            "effects.prevention",
+            "unsupported complete prevention family",
+        )),
+    }
+}
+fn lower_static(effect: &SourceStaticEffect) -> Result<StaticAbility, Failure> {
+    let SourceStaticEffect::Replacement { replacement } = effect;
+    let SourceDamageEvent::Damage { kind, source, to } = &replacement.event;
+    let SourceReplacementAction::ModifyQuantity { change } = &replacement.replace;
+    let permanent = |recipient: &ReplacementRecipient| {
+        matches!(recipient,
+        ReplacementRecipient::Permanent(FilterObject { reference, filter: ObjectFilter::Class(CardFilter { cls }), count })
+        if reference == "filter" && cls == "permanent" && fixed_one(count))
+    };
+    let player = |recipient: &ReplacementRecipient| {
+        matches!(recipient,
+        ReplacementRecipient::Player(p) if p.player == "a-player" && p.selection_id.is_none())
+    };
+    if kind != "all"
+        || source.reference != "filter"
+        || !fixed_one(&source.count)
+        || replacement.occurrence != "each"
+        || change.operation != "multiply"
+        || change.factor != 2
+        || to.len() != 2
+        || to.iter().filter(|r| permanent(r)).count() != 1
+        || to.iter().filter(|r| player(r)).count() != 1
+    {
+        return Err(unsupported(
+            "abilities.static",
+            "unsupported complete damage replacement scope",
+        ));
+    }
+    // CR 611.3b/614.5: battlefield-only static rule, once per damage lineage.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    Ok(StaticAbility {
+        functioning_zone: FunctioningZone::Battlefield,
+        effect: StaticEffect::DoubleDamageToPermanentOrPlayer,
+    })
+}
+
 fn fixed_positive(count: &Count) -> Result<Quantity, Failure> {
     if count.amount != "fixed" || count.value == 0 {
         return Err(unsupported(
@@ -1120,6 +1439,12 @@ fn lower_activation(
                 selection_id: None,
             };
             let instruction = match step {
+                Step::PreventDamage {
+                    prevention,
+                    duration,
+                } => {
+                    lower_prevention(&mut program, &mut slots, prevention, duration, source_block)?
+                }
                 Step::Damage {
                     source: DamageSource::This { noun },
                     amount,
@@ -1253,6 +1578,24 @@ pub fn trigger_fixture_catalog() -> Result<Catalog, String> {
     catalog_from_records(&records, 8)
 }
 
+pub fn effects_fixture_catalog() -> Result<Catalog, String> {
+    let records = fixtures::EFFECT_RECORDS
+        .iter()
+        .filter(|(name, _)| {
+            !matches!(
+                *name,
+                "flame-rift"
+                    | "deathgreeter"
+                    | "righteousness"
+                    | "healing-salve"
+                    | "gratuitous-violence"
+            )
+        })
+        .copied()
+        .collect::<Vec<_>>();
+    catalog_from_records(&records, 9)
+}
+
 fn catalog_from_records(records: &[(&str, &str)], schema_version: u32) -> Result<Catalog, String> {
     let mut definitions = vec![];
     for (_, r) in records {
@@ -1286,6 +1629,483 @@ mod tests {
         let abilities = serde_json::json!([r["faces"][0]["result"]["abilities"]]);
         r["astSha256"] = sha256(canonical(&abilities).unwrap().as_bytes()).into();
         canonical(&r).unwrap()
+    }
+    fn effect_record(name: &str) -> &'static str {
+        fixtures::EFFECT_RECORDS
+            .iter()
+            .find(|(n, _)| *n == name)
+            .unwrap()
+            .1
+    }
+    fn effect_mutant(name: &str, change: impl FnOnce(&mut serde_json::Value)) -> String {
+        changed_source(effect_record(name), |r| {
+            change(&mut r["faces"][0]["result"]["abilities"][0]);
+            r["faces"][0]["result"]["lines"][0]["ability"] =
+                r["faces"][0]["result"]["abilities"][0].clone();
+        })
+    }
+    #[test]
+    fn complete_effects_catalog_binds_all_six_sources_and_preserves_historical_definitions() {
+        let c = effects_fixture_catalog().unwrap();
+        assert_eq!(
+            (
+                c.schema_version,
+                c.definitions.len(),
+                fixtures::EFFECT_RECORDS.len()
+            ),
+            (9, 30, 35)
+        );
+        for (name, power, toughness) in [("Giant Growth", 3, 3), ("Disfigure", -2, -2)] {
+            let d = c.definitions.iter().find(|d| d.name == name).unwrap();
+            assert!(matches!(d.spell.as_ref().unwrap().instructions.as_slice(),
+                [Instruction::ModifyPowerToughness { power:p,toughness:t,duration:Duration::UntilEndOfTurn,target_slot:0,source_block:0 }]
+                if *p == Quantity::from(power) && *t == Quantity::from(toughness)));
+            assert_eq!(
+                d.spell.as_ref().unwrap().targets[0].domain,
+                TargetDomain::BattlefieldCreature
+            );
+        }
+        let fog = c.definitions.iter().find(|d| d.name == "Fog").unwrap();
+        assert!(fog.spell.as_ref().unwrap().targets.is_empty());
+        assert!(matches!(
+            fog.spell.as_ref().unwrap().instructions.as_slice(),
+            [Instruction::PreventCombatDamage {
+                duration: Duration::UntilEndOfTurn,
+                source_block: 0
+            }]
+        ));
+        let healer = c
+            .definitions
+            .iter()
+            .find(|d| d.name == "Samite Healer")
+            .unwrap();
+        assert_eq!(healer.activated[0].cost, ActivationCost::TapSource);
+        assert_eq!(
+            healer.activated[0].program.targets[0].domain,
+            TargetDomain::AnyDamageTarget
+        );
+        assert!(
+            matches!(healer.activated[0].program.instructions.as_slice(),[Instruction::PreventNextDamage { target_slot:0,amount,duration:Duration::UntilEndOfTurn,source_block:0 }] if *amount==Quantity::from(1))
+        );
+        let furnace = c
+            .definitions
+            .iter()
+            .find(|d| d.name == "Furnace of Rath")
+            .unwrap();
+        assert_eq!(furnace.characteristics.kind, CardKind::Enchantment);
+        assert_eq!(
+            furnace.characteristics.mana_cost,
+            ManaCost {
+                generic: Quantity::from(1),
+                colored: vec![Color::R; 3]
+            }
+        );
+        assert_eq!(
+            furnace.static_abilities,
+            vec![StaticAbility {
+                functioning_zone: FunctioningZone::Battlefield,
+                effect: StaticEffect::DoubleDamageToPermanentOrPlayer
+            }]
+        );
+        assert_eq!(
+            furnace.spell.as_ref().unwrap().resolution,
+            SpellResolution::Permanent
+        );
+        let ox = c.definitions.iter().find(|d| d.name == "Yoked Ox").unwrap();
+        assert_eq!(
+            (
+                ox.characteristics.power.clone(),
+                ox.characteristics.toughness.clone()
+            ),
+            (Some(Quantity::from(0)), Some(Quantity::from(4)))
+        );
+        let old = trigger_fixture_catalog().unwrap();
+        for d in old.definitions {
+            assert_eq!(
+                c.definitions.iter().find(|n| n.oracle_id == d.oracle_id),
+                Some(&d)
+            );
+        }
+        assert_eq!(Catalog::read(&canonical(&c).unwrap()).unwrap(), c);
+        assert_eq!(
+            c,
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/expected-effects-ir.json"
+            ))
+            .unwrap()
+        );
+        for (name, generic, colored) in [
+            ("Giant Growth", 0, vec![Color::G]),
+            ("Disfigure", 0, vec![Color::B]),
+            ("Fog", 0, vec![Color::G]),
+            ("Samite Healer", 1, vec![Color::W]),
+            ("Yoked Ox", 0, vec![Color::W]),
+        ] {
+            assert_eq!(
+                c.definitions
+                    .iter()
+                    .find(|d| d.name == name)
+                    .unwrap()
+                    .characteristics
+                    .mana_cost,
+                ManaCost {
+                    generic: generic.into(),
+                    colored
+                }
+            );
+        }
+    }
+    #[test]
+    fn complete_effects_sources_reject_filtered_modal_and_optional_near_misses() {
+        for name in [
+            "righteousness",
+            "healing-salve",
+            "gratuitous-violence",
+            "flame-rift",
+            "deathgreeter",
+        ] {
+            assert!(
+                matches!(
+                    compile(fixtures::MANIFEST, effect_record(name)),
+                    CompileResult::Unsupported { .. }
+                ),
+                "{name}"
+            );
+        }
+        for name in ["fog", "samite-healer", "furnace-of-rath"] {
+            let raw = changed_source(effect_record(name), |r| {
+                r["binding"]["fullyBound"] = true.into();
+                r["source"]["name"] = "Name independent source witness".into();
+                r["faces"][0]["result"]["name"] = "Name independent source witness".into();
+            });
+            assert!(
+                matches!(
+                    compile(fixtures::MANIFEST, &raw),
+                    CompileResult::Lowered { .. }
+                ),
+                "{name}"
+            );
+        }
+    }
+    #[test]
+    fn effects_vocabulary_and_capabilities_cannot_downgrade_into_historical_ir() {
+        let c = effects_fixture_catalog().unwrap();
+        for d in c.definitions.iter().filter(|d| {
+            d.capabilities.iter().any(|c| {
+                matches!(
+                    c,
+                    Capability::CastEnchantmentV1
+                        | Capability::TemporaryPowerToughnessV1
+                        | Capability::CombatDamagePreventionV1
+                        | Capability::DamageBudgetPreventionV1
+                        | Capability::StaticDamageReplacementV1
+                )
+            })
+        }) {
+            for version in 3..9 {
+                let mut old = c.clone();
+                old.schema_version = version;
+                old.definitions = vec![d.clone()];
+                assert!(old.validate().is_err());
+                old.definitions[0].capabilities.clear();
+                assert!(old.validate().is_err());
+            }
+            for cap in &d.capabilities {
+                let mut bad = d.clone();
+                bad.capabilities.remove(cap);
+                assert!(bad.validate().is_err());
+            }
+        }
+    }
+    #[test]
+    fn rehashed_effect_scope_duration_and_allocation_mutants_fail_complete_lowering() {
+        let cases: [(&str, &str, serde_json::Value); 16] = [
+            (
+                "giant-growth",
+                "/effects/0/steps/0/power/sign",
+                serde_json::json!(2),
+            ),
+            (
+                "disfigure",
+                "/effects/0/steps/0/duration/duration",
+                serde_json::json!("permanent"),
+            ),
+            (
+                "fog",
+                "/effects/0/steps/0/prevention/kind",
+                serde_json::json!("all"),
+            ),
+            (
+                "fog",
+                "/effects/0/steps/0/prevention/eventScope/sources",
+                serde_json::json!("separate"),
+            ),
+            (
+                "fog",
+                "/effects/0/steps/0/prevention/eventScope/recipients",
+                serde_json::json!("separate"),
+            ),
+            (
+                "fog",
+                "/effects/0/steps/0/prevention/shield/occurrence",
+                serde_json::json!("next"),
+            ),
+            (
+                "samite-healer",
+                "/effects/0/steps/0/prevention/kind",
+                serde_json::json!("combat"),
+            ),
+            (
+                "samite-healer",
+                "/effects/0/steps/0/prevention/shield/amount/value",
+                serde_json::json!(0),
+            ),
+            (
+                "samite-healer",
+                "/effects/0/steps/0/prevention/to",
+                serde_json::json!([]),
+            ),
+            (
+                "samite-healer",
+                "/effects/0/steps/0/duration/duration",
+                serde_json::json!("end-of-turn"),
+            ),
+            (
+                "furnace-of-rath",
+                "/effect/replacement/event/kind",
+                serde_json::json!("combat"),
+            ),
+            (
+                "furnace-of-rath",
+                "/effect/replacement/event/source/filter",
+                serde_json::json!({"types":["creature"]}),
+            ),
+            (
+                "furnace-of-rath",
+                "/effect/replacement/event/to",
+                serde_json::json!([{"player":"a-player"},{"player":"a-player"}]),
+            ),
+            (
+                "furnace-of-rath",
+                "/effect/replacement/occurrence",
+                serde_json::json!("next"),
+            ),
+            (
+                "furnace-of-rath",
+                "/effect/replacement/replace/change/operation",
+                serde_json::json!("add"),
+            ),
+            (
+                "furnace-of-rath",
+                "/effect/replacement/replace/change/factor",
+                serde_json::json!(3),
+            ),
+        ];
+        for (name, path, value) in cases {
+            let raw = effect_mutant(name, |ability| {
+                *ability.pointer_mut(path).expect(path) = value
+            });
+            assert!(
+                matches!(
+                    compile(fixtures::MANIFEST, &raw),
+                    CompileResult::Unsupported { .. }
+                ),
+                "{name} {path}"
+            );
+        }
+        let extra = effect_mutant("samite-healer", |a| {
+            a["effects"][0]["steps"][0]["prevention"]["after"] =
+                serde_json::json!({"effect":"draw"})
+        });
+        assert!(matches!(
+            compile(fixtures::MANIFEST, &extra),
+            CompileResult::Unsupported { .. }
+        ));
+    }
+    #[test]
+    fn effect_binder_consumes_complete_scope_fields_without_diagnostic_or_name_dispatch() {
+        type Mutation = (&'static str, fn(&mut serde_json::Value));
+        let cases: Vec<Mutation> = vec![
+            ("giant-growth", |a| {
+                a["effects"][0]["steps"][0]["what"]["filter"]["control"] = serde_json::json!("you")
+            }),
+            ("giant-growth", |a| {
+                a["effects"][0]["steps"][0]["power"]["sign"] = serde_json::json!(0)
+            }),
+            ("giant-growth", |a| {
+                a["effects"][0]["steps"][0]["power"]["amount"]["amount"] =
+                    serde_json::json!("variable")
+            }),
+            ("giant-growth", |a| {
+                a["effects"][0]["steps"][0]["duration"]["unknown"] = true.into()
+            }),
+            ("disfigure", |a| {
+                a["effects"][0]["steps"][0]["toughness"]["amount"]["value"] = (-2).into()
+            }),
+            ("fog", |a| {
+                a["effects"][0]["steps"][0]["prevention"]["to"] = serde_json::json!([])
+            }),
+            ("fog", |a| {
+                a["effects"][0]["steps"][0]["prevention"]["by"] =
+                    serde_json::json!({"player":"you"})
+            }),
+            ("fog", |a| {
+                a["effects"][0]["steps"][0]["prevention"]["shield"]["prevent"]["optional"] =
+                    true.into()
+            }),
+            ("samite-healer", |a| {
+                a["costs"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(serde_json::json!({"cost":"mana","symbols":["W"]}))
+            }),
+            ("samite-healer", |a| {
+                a["effects"][0]["steps"][0]["prevention"]["eventScope"]["recipients"] =
+                    "each".into()
+            }),
+            ("samite-healer", |a| {
+                a["effects"][0]["steps"][0]["prevention"]["to"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(serde_json::json!({"ref":"any-target","selectionId":"extra"}))
+            }),
+            ("samite-healer", |a| {
+                a["effects"][0]["steps"][0]["prevention"]["to"][0]["ref"] = "it".into()
+            }),
+            ("samite-healer", |a| {
+                a["effects"][0]["steps"][0]["optional"] = true.into()
+            }),
+            ("furnace-of-rath", |a| {
+                a["effect"]["replacement"]["event"]["source"]["count"]["value"] = 2.into()
+            }),
+            ("furnace-of-rath", |a| {
+                a["effect"]["replacement"]["event"]["to"][0]["filter"]["control"] = "you".into()
+            }),
+            ("furnace-of-rath", |a| {
+                a["effect"]["replacement"]["event"]["to"][1]["player"] = "you".into()
+            }),
+            ("furnace-of-rath", |a| {
+                a["effect"]["replacement"]["replace"]["change"]["extra"] = true.into()
+            }),
+        ];
+        for (name, mutate) in cases {
+            let raw = changed_source(effect_record(name), |r| {
+                r["binding"]["fullyBound"] = true.into();
+                mutate(&mut r["faces"][0]["result"]["abilities"][0]);
+                r["faces"][0]["result"]["lines"][0]["ability"] =
+                    r["faces"][0]["result"]["abilities"][0].clone();
+            });
+            assert!(
+                matches!(
+                    compile(fixtures::MANIFEST, &raw),
+                    CompileResult::Unsupported { .. }
+                ),
+                "{name}"
+            );
+        }
+        let reversed = effect_mutant("furnace-of-rath", |a| {
+            a["effect"]["replacement"]["event"]["to"]
+                .as_array_mut()
+                .unwrap()
+                .reverse()
+        });
+        let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, &reversed) else {
+            panic!("equivalent recipient union rejected")
+        };
+        assert_eq!(
+            definition.static_abilities,
+            [StaticAbility {
+                functioning_zone: FunctioningZone::Battlefield,
+                effect: StaticEffect::DoubleDamageToPermanentOrPlayer
+            }]
+        );
+        for name in ["furnace-of-rath", "samite-healer"] {
+            let extra = changed_source(effect_record(name), |r| {
+                let unknown =
+                    serde_json::json!({"kind":"keywords","keywords":[{"keyword":"flying"}]});
+                r["faces"][0]["result"]["abilities"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(unknown.clone());
+                r["faces"][0]["result"]["lines"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(serde_json::json!({"text":"Flying","ok":true,"ability":unknown}));
+                r["source"]["oracle_text"] =
+                    format!("{}\nFlying", r["source"]["oracle_text"].as_str().unwrap()).into();
+            });
+            assert!(
+                matches!(
+                    compile(fixtures::MANIFEST, &extra),
+                    CompileResult::Unsupported { .. }
+                ),
+                "whole {name}"
+            );
+        }
+    }
+    #[test]
+    fn effects_ir_rejects_unbound_targets_invalid_budgets_and_static_zones() {
+        let c = effects_fixture_catalog().unwrap();
+        type Mutation = (&'static str, fn(&mut serde_json::Value));
+        let mutations: Vec<Mutation> = vec![
+            ("Giant Growth", |d| {
+                d["spell"]["instructions"][0]["target_slot"] = 1.into()
+            }),
+            ("Disfigure", |d| {
+                d["spell"]["targets"][0]["domain"] = "any_damage_target".into()
+            }),
+            ("Disfigure", |d| {
+                d["spell"]["instructions"][0]["power"] = "-0".into()
+            }),
+            ("Fog", |d| {
+                d["spell"]["instructions"][0]["duration"] = "permanent".into()
+            }),
+            ("Fog", |d| {
+                d["spell"]["instructions"][0]["target_slot"] = 0.into()
+            }),
+            ("Samite Healer", |d| {
+                d["activated"][0]["program"]["instructions"][0]["amount"] = "0".into()
+            }),
+            ("Samite Healer", |d| {
+                d["activated"][0]["program"]["instructions"][0]["amount"] = "-1".into()
+            }),
+            ("Samite Healer", |d| {
+                d["activated"][0]["program"]["instructions"][0]["amount"] = "01".into()
+            }),
+            ("Samite Healer", |d| {
+                d["activated"][0]["program"]["targets"][0]["domain"] = "battlefield_creature".into()
+            }),
+            ("Furnace of Rath", |d| {
+                d["static_abilities"][0]["functioning_zone"] = "stack".into()
+            }),
+            ("Furnace of Rath", |d| {
+                d["static_abilities"][0]["effect"] = "double_only_your_damage".into()
+            }),
+            ("Furnace of Rath", |d| {
+                d["characteristics"]["subtypes"] = serde_json::json!(["Aura"])
+            }),
+            ("Furnace of Rath", |d| {
+                d["spell"]["timing"] = "instant".into()
+            }),
+        ];
+        for (name, mutate) in mutations {
+            let mut value = serde_json::to_value(&c).unwrap();
+            mutate(
+                value["definitions"]
+                    .as_array_mut()
+                    .unwrap()
+                    .iter_mut()
+                    .find(|d| d["name"] == name)
+                    .unwrap(),
+            );
+            assert!(
+                Catalog::read(&canonical(&value).unwrap()).is_err(),
+                "{name}"
+            );
+        }
+        let mut future = c;
+        future.schema_version = 10;
+        assert!(future.validate().is_err());
     }
     #[test]
     fn complete_trigger_pool_binds_exact_source_roles_and_preserves_historical_catalogs() {
@@ -1642,7 +2462,7 @@ mod tests {
             assert!(Catalog::read(&bad).is_err());
         }
         let mut bad = c;
-        bad.schema_version = 9;
+        bad.schema_version = 10;
         assert!(bad.validate().is_err());
     }
 
@@ -1906,7 +2726,7 @@ mod tests {
             }
         }
         let mut bad = catalog.clone();
-        bad.schema_version = 9;
+        bad.schema_version = 10;
         assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
         for change in [
             (|d: &mut Definition| {
@@ -2214,7 +3034,7 @@ mod tests {
     #[test]
     fn stack_vocabulary_requires_ir6_and_rejects_bad_binding_and_capability_closure() {
         let catalog = stack_fixture_catalog().unwrap();
-        for version in [3, 4, 5, 9] {
+        for version in [3, 4, 5, 10] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -2418,7 +3238,7 @@ mod tests {
         let c = fixture_catalog().unwrap();
         let raw = canonical(&c).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":3", "\"schema_version\":9"),
+            raw.replace("\"schema_version\":3", "\"schema_version\":10"),
             raw.replace("\"op\":\"return_to_owner_hand\"", "\"op\":\"execute_text\""),
             raw.replace("\"target_slot\":0", "\"target_slot\":99"),
             raw.replace("\"source_block\":0", "\"unknown\":true,\"source_block\":0"),
@@ -2466,7 +3286,9 @@ mod tests {
                     assert_eq!(spell.resolution, SpellResolution::Instructions);
                     assert!(!spell.instructions.is_empty());
                 }
-                CardKind::Sorcery => panic!("legacy catalog cannot contain sorceries"),
+                CardKind::Sorcery | CardKind::Enchantment => {
+                    panic!("legacy catalog cannot contain sorceries/enchantments")
+                }
             }
             for capability in &d.capabilities {
                 let mut missing = d.clone();
@@ -2954,7 +3776,7 @@ mod tests {
     #[test]
     fn action_ir_version_shapes_and_target_domains_are_strict() {
         let catalog = action_fixture_catalog().unwrap();
-        for version in [3, 4, 9] {
+        for version in [3, 4, 10] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -3078,7 +3900,7 @@ mod tests {
         assert!(old.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":4", "\"schema_version\":9"),
+            raw.replace("\"schema_version\":4", "\"schema_version\":10"),
             raw.replace(
                 "\"op\":\"put_on_top_owner_library\"",
                 "\"op\":\"put_on_bottom_owner_library\"",

@@ -1,7 +1,7 @@
 use mtg_compiler::{
     CompileResult, action_fixture_catalog, commander_fixture_catalog, compile,
-    damage_fixture_catalog, damage_life_fixture_catalog, fixture_catalog, fixtures,
-    library_fixture_catalog, stack_fixture_catalog, trigger_fixture_catalog,
+    damage_fixture_catalog, damage_life_fixture_catalog, effects_fixture_catalog, fixture_catalog,
+    fixtures, library_fixture_catalog, stack_fixture_catalog, trigger_fixture_catalog,
 };
 use mtg_contracts::{Catalog, canonical, sha256, strict_read};
 use mtg_core::{
@@ -23,6 +23,7 @@ mod combat_games;
 mod commander_games;
 mod damage_library_games;
 mod damage_life_games;
+mod effects_games;
 mod stack_costs_games;
 mod triggers_games;
 
@@ -66,6 +67,9 @@ struct Bundle {
     trigger_catalog: Catalog,
     trigger_records: Vec<String>,
     triggers: Vec<triggers_games::Evidence>,
+    effect_catalog: Catalog,
+    effect_records: Vec<String>,
+    effects: Vec<effects_games::Evidence>,
     build_id: String,
     catalog: Catalog,
     config: ScenarioConfig,
@@ -105,7 +109,7 @@ struct BundleMetadata {
 fn read_bundle_metadata(reader: impl Read) -> Result<BundleMetadata, String> {
     let metadata: BundleMetadata =
         serde_json::from_reader(reader).map_err(|error| error.to_string())?;
-    if metadata.bundle_version != 15 {
+    if metadata.bundle_version != 16 {
         return Err("unsupported metadata bundle version".into());
     }
     Ok(metadata)
@@ -888,6 +892,11 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
     let (trigger_traces, trigger_trace_report) =
         crate::trace_runs(&trigger_catalog, &trigger_refs)?;
     trace_runs.extend(trigger_traces);
+    let effect_catalog = effects_fixture_catalog()?;
+    let (effects, effect_games, effect_report) = effects_games::suite(&effect_catalog, false)?;
+    let effect_refs = effect_games.iter().collect::<Vec<_>>();
+    let (effect_traces, effect_trace_report) = crate::trace_runs(&effect_catalog, &effect_refs)?;
+    trace_runs.extend(effect_traces);
     let bundle = Bundle {
         trace_runs,
         departure,
@@ -939,7 +948,13 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
             .map(|(_, record)| (*record).into())
             .collect(),
         triggers,
-        bundle_version: 15,
+        effect_catalog,
+        effect_records: fixtures::EFFECT_RECORDS
+            .iter()
+            .map(|(_, r)| (*r).into())
+            .collect(),
+        effects,
+        bundle_version: 16,
         build_id: BUILD_ID.into(),
         catalog,
         config: prepared.config().clone(),
@@ -960,7 +975,7 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         rustflags: BUILD_RUSTFLAGS.into(),
         query_sidecar,
     };
-    let report = serde_json::json!({"status":"scenario_verified","triggers":trigger_report,"triggers_trace_equivalence":trigger_trace_report,"damage_life":damage_life_report,"damage_life_trace_equivalence":damage_life_trace_report,"stack_costs":stack_report,"stack_costs_trace_equivalence":stack_trace_report,"actions_payments":action_report,"actions_payments_trace_equivalence":action_trace_report,"damage_library":lifecycle_report,"damage_library_trace_equivalence":lifecycle_trace_report,"commander":commander_report,"commander_trace_equivalence":commander_trace_report,"combat":combat_report,"turns":turns_report,"departure":departure_report,"response":response_report,"detached_response":detached_report,"mana_casting":mana_casting_report,"mana_undo":mana_undo_report,"mana_keep":mana_keep_report,"trace_equivalence":trace_report,"build_id":BUILD_ID,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
+    let report = serde_json::json!({"status":"scenario_verified","effects":effect_report,"effects_trace_equivalence":effect_trace_report,"triggers":trigger_report,"triggers_trace_equivalence":trigger_trace_report,"damage_life":damage_life_report,"damage_life_trace_equivalence":damage_life_trace_report,"stack_costs":stack_report,"stack_costs_trace_equivalence":stack_trace_report,"actions_payments":action_report,"actions_payments_trace_equivalence":action_trace_report,"damage_library":lifecycle_report,"damage_library_trace_equivalence":lifecycle_trace_report,"commander":commander_report,"commander_trace_equivalence":commander_trace_report,"combat":combat_report,"turns":turns_report,"departure":departure_report,"response":response_report,"detached_response":detached_report,"mana_casting":mana_casting_report,"mana_undo":mana_undo_report,"mana_keep":mana_keep_report,"trace_equivalence":trace_report,"build_id":BUILD_ID,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
         "state_sha256":game.state_digest()?,"accepted_inputs":game.journal().len(),"events":game.events(),"restore_fork_replay_equal":true,
         "player_observations": (0..4).map(|v|observation(&game,PlayerId(v))).collect::<Result<Vec<_>,_>>()?,
         "search_context":search_context(&game,PlayerId(0),"separate-sampling-seed".into())?,
@@ -980,12 +995,16 @@ fn verify_source_catalog(
     const BLOOD: &str = "310f141c-7f37-4729-aed6-dd9c09db448d";
     const FLAME: &str = "28479aa8-d1cd-421a-8bbb-0594bb4dd410";
     const DEATHGREETER: &str = "b7ad11dc-c962-4034-b15a-a080c6fff75f";
+    const RIGHTEOUSNESS: &str = "3f6b2f76-0364-415e-a6a2-e9e5bf31b745";
+    const SALVE: &str = "8da8644c-75a1-4fe9-8e94-900d948d631c";
+    const VIOLENCE: &str = "7c340a39-4ee0-4ba1-bb66-6674f8020fda";
     catalog.validate()?;
     let (unadmitted, negative): (&[&str], &[&str]) = match catalog.schema_version {
         3 | 4 => (&[CRUEL], &[]),
         5 | 6 => (&[BLOOD], &[]),
         7 => (&[BLOOD], &[FLAME]),
         8 => (&[], &[FLAME, DEATHGREETER]),
+        9 => (&[], &[FLAME, DEATHGREETER, RIGHTEOUSNESS, SALVE, VIOLENCE]),
         _ => return Err("unsupported source coverage version".into()),
     };
     let (mut definitions, mut lowered_unadmitted, mut unsupported) = (vec![], vec![], vec![]);
@@ -1035,7 +1054,7 @@ fn verify_source_catalog(
 
 fn verify_bundle(json: &str) -> Result<String, String> {
     let b: Bundle = strict_read(json)?;
-    if b.bundle_version != 15 || b.build_id != BUILD_ID {
+    if b.bundle_version != 16 || b.build_id != BUILD_ID {
         return Err("unsupported bundle version/build".into());
     }
     if b.archive_manifest != fixtures::MANIFEST
@@ -1083,6 +1102,11 @@ fn verify_bundle(json: &str) -> Result<String, String> {
             .iter()
             .map(String::as_str)
             .eq(fixtures::TRIGGER_RECORDS.iter().map(|(_, record)| *record))
+        || !b
+            .effect_records
+            .iter()
+            .map(String::as_str)
+            .eq(fixtures::EFFECT_RECORDS.iter().map(|(_, r)| *r))
     {
         return Err("retained exact source fixtures differ from this build".into());
     }
@@ -1132,10 +1156,14 @@ fn verify_bundle(json: &str) -> Result<String, String> {
         &b.damage_life_records,
     )?;
     verify_source_catalog(&b.archive_manifest, &b.trigger_catalog, &b.trigger_records)?;
-    if b.trace_runs.len() != 327 {
+    verify_source_catalog(&b.archive_manifest, &b.effect_catalog, &b.effect_records)?;
+    if b.trace_runs.len() != (109 + effects_games::POLICIES.len()) * 3 {
         return Err("missing trace-mode evidence".into());
     }
-    eprintln!("verifying 327 retained trace-mode executions");
+    eprintln!(
+        "verifying {} retained trace-mode executions",
+        b.trace_runs.len()
+    );
     let mut reference_cache: Option<Game> = None;
     for (index, run) in b.trace_runs.iter().enumerate() {
         let required_mode = [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed][index % 3];
@@ -1222,6 +1250,13 @@ fn verify_bundle(json: &str) -> Result<String, String> {
                     .ok_or("missing ordinary trigger trace group")?;
                 (&entry.config, &entry.journal, &entry.final_snapshot)
             }
+            n if n >= 109 => {
+                let entry = b
+                    .effects
+                    .get(n - 109)
+                    .ok_or("missing effects trace group")?;
+                (&entry.config, &entry.journal, &entry.final_snapshot)
+            }
             _ => return Err("unexpected trace-mode group".into()),
         };
         if run.mode != required_mode
@@ -1238,7 +1273,8 @@ fn verify_bundle(json: &str) -> Result<String, String> {
             26..=39 => &b.action_catalog,
             40..=57 => &b.stack_catalog,
             58..=85 => &b.damage_life_catalog,
-            _ => &b.trigger_catalog,
+            86..=108 => &b.trigger_catalog,
+            _ => &b.effect_catalog,
         };
         let p = Prepared::admit(catalog.clone(), run.config.clone())?;
         let expected = Game::restore(p.clone(), &run.final_snapshot)?;
@@ -1288,6 +1324,7 @@ fn verify_bundle(json: &str) -> Result<String, String> {
     stack_costs_games::verify(&b.stack_catalog, &b.stack_costs)?;
     damage_life_games::verify(&b.damage_life_catalog, &b.damage_life)?;
     triggers_games::verify(&b.trigger_catalog, &b.triggers)?;
+    effects_games::verify(&b.effect_catalog, &b.effects)?;
     let departure_prepared = Prepared::admit(b.catalog.clone(), b.departure.config)?;
     let mut departure_verifier =
         SnapshotVerifier::new(departure_prepared.clone(), TraceMode::Detailed);
@@ -1358,6 +1395,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let (_, _, report) =
                 damage_life_games::suite(&damage_life_fixture_catalog()?, args.len() == 2)?;
             println!("{}", canonical(&report)?)
+        }
+        Some("effects-games") if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") => {
+            let (_, _, report) =
+                effects_games::suite(&effects_fixture_catalog()?, args.len() == 2)?;
+            println!("{}", canonical(&report)?)
+        }
+        Some("compile-effects") if args.len() == 1 => {
+            println!("{}", canonical(&effects_fixture_catalog()?)?)
         }
         Some("trigger-games") if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") => {
             let (_, _, report) =
@@ -1459,7 +1504,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {
             return Err(
-                "usage: mtg-sim trigger-games [--recover]|compile-triggers|damage-life-games [--recover]|compile-damage-life|stack-costs-games [--recover]|compile-stack|bundle-metadata FILE|actions-payments-games [--recover]|compile-action|combat-games [--recover]|commander-games [--recover]|damage-library-games [--recover]|schema|compile|compile-commander|compile-library|compile-damage|report|observe PLAYER|context PLAYER SEED|demo [--bundle DIR]|verify-bundle FILE"
+                "usage: mtg-sim effects-games [--recover]|compile-effects|trigger-games [--recover]|compile-triggers|damage-life-games [--recover]|compile-damage-life|stack-costs-games [--recover]|compile-stack|bundle-metadata FILE|actions-payments-games [--recover]|compile-action|combat-games [--recover]|commander-games [--recover]|damage-library-games [--recover]|schema|compile|compile-commander|compile-library|compile-damage|report|observe PLAYER|context PLAYER SEED|demo [--bundle DIR]|verify-bundle FILE"
                     .into(),
             );
         }
@@ -1472,7 +1517,7 @@ mod tests {
     #[test]
     fn metadata_reader_skips_unknown_nested_strings_and_requires_typed_closure() {
         let metadata = serde_json::json!({
-            "bundle_version":15,"build_id":"historical-build",
+            "bundle_version":16,"build_id":"historical-build",
             "source_files":[{"path":"Cargo.toml","sha256":"source-digest","contents":"[workspace]\n"}],
             "rustflags":"","opt_level":"3","debug":"false","debug_assertions":"false",
             "target":"x86_64-unknown-linux-gnu","catalog":fixture_catalog().unwrap(),
@@ -1494,7 +1539,7 @@ mod tests {
             );
         }
         let mut bad = metadata.clone();
-        bad["bundle_version"] = 14.into();
+        bad["bundle_version"] = 15.into();
         assert!(read_bundle_metadata(std::io::Cursor::new(canonical(&bad).unwrap())).is_err());
         let mut bad = metadata.clone();
         bad["source_files"][0]["contents"] = 17.into();
@@ -1547,6 +1592,10 @@ mod tests {
                 trigger_fixture_catalog().unwrap(),
                 records(&fixtures::TRIGGER_RECORDS),
             ),
+            (
+                effects_fixture_catalog().unwrap(),
+                records(&fixtures::EFFECT_RECORDS),
+            ),
         ] {
             verify_source_catalog(fixtures::MANIFEST, &catalog, &source).unwrap();
             let mut missing = source.clone();
@@ -1565,7 +1614,7 @@ mod tests {
             serde_json::Value::Object(values) => {
                 for (key, value) in values.iter_mut() {
                     if key == "observation_version" || key == "context_version" {
-                        *value = serde_json::json!(12);
+                        *value = serde_json::json!(13);
                     } else {
                         current_projection_versions(value);
                     }
@@ -1595,7 +1644,7 @@ mod tests {
         );
         let final_snapshot: serde_json::Value =
             serde_json::from_str(&bundle.final_snapshot).unwrap();
-        assert_eq!(final_snapshot["snapshot_version"], 14);
+        assert_eq!(final_snapshot["snapshot_version"], 15);
         assert_eq!(final_snapshot["state"]["rule_steps"], p2["rule_steps"]);
         assert_eq!(
             serde_json::to_value(&bundle.journal.decisions).unwrap(),
@@ -1608,7 +1657,10 @@ mod tests {
         assert_eq!(report["departure"]["events"], prior["departure_events"]);
         // Input IDs and boundaries now include the explicit mana-window decline.
 
-        assert_eq!(bundle.trace_runs.len(), 327);
+        assert_eq!(
+            bundle.trace_runs.len(),
+            (109 + effects_games::POLICIES.len()) * 3
+        );
         let normalized:Vec<_>=report["trace_equivalence"].as_array().unwrap().iter().map(|x|serde_json::json!({"profile":x["profile"],"mode":x["mode"],"state_sha256":x["state_sha256"],"verification":x["verification"]})).collect();
         assert_eq!(
             serde_json::to_value(normalized).unwrap(),
@@ -1661,11 +1713,17 @@ mod tests {
         .unwrap();
         current_projection_versions(&mut damage_life);
         assert_eq!(report["damage_life"], damage_life);
-        let triggers: serde_json::Value = serde_json::from_str(include_str!(
+        let mut triggers: serde_json::Value = serde_json::from_str(include_str!(
             "../../../tests/fixtures/expected-trigger-scenario.json"
         ))
         .unwrap();
+        current_projection_versions(&mut triggers);
         assert_eq!(report["triggers"], triggers);
+        let effects: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/expected-effects-scenario.json"
+        ))
+        .unwrap();
+        assert_eq!(report["effects"], effects);
         let historical: serde_json::Value = serde_json::from_str(include_str!(
             "../../../tests/fixtures/expected-turns-scenario.json"
         ))
@@ -1687,7 +1745,7 @@ mod tests {
             report["state_sha256"].as_str().unwrap()
         );
         assert!(
-            verify_bundle(&json.replace("\"bundle_version\":15", "\"bundle_version\":16")).is_err()
+            verify_bundle(&json.replace("\"bundle_version\":16", "\"bundle_version\":17")).is_err()
         );
         // Mutating unconsumed metadata preserves lowering/admission class; only
         // exact source-byte binding can reject an unadmitted source mutation.
@@ -1700,9 +1758,12 @@ mod tests {
             "stack_records",
             "damage_life_records",
             "trigger_records",
+            "effect_records",
         ] {
             let mut corrupt: serde_json::Value = serde_json::from_str(&json).unwrap();
-            let index = if key == "trigger_records" {
+            let index = if key == "effect_records" {
+                34
+            } else if key == "trigger_records" {
                 25
             } else if matches!(
                 key,

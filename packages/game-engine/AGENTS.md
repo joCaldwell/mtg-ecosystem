@@ -64,6 +64,17 @@ triggered invocations. Snapshot v14, bundle v15, projection/context v12 and
 query-sidecar v11 retain these choices. Historical catalogs remain separate;
 complete compiler lowering is distinct from their admission exclusions.
 
+`docs/game-engine-effects.md` adds five exact temporary-characteristic and damage
+interaction profiles with a separate thirty-definition IR v9 catalog. Giant
+Growth/Disfigure use incarnation-bound additive P/T; Fog and Samite Healer create
+turn-scoped prevention; Furnace of Rath supplies a battlefield static damage
+doubler. Affected players/controllers choose replacement order and finite shield
+allocation. Applied transformations persist across later provider departures;
+final damage remains simultaneous. Cleanup removes marks and expires effects
+atomically. Snapshot v15, bundle v16, projection/context v13 and query-sidecar v12
+retain these continuations. Historical catalogs and gameplay references remain
+separate. Modal casting and intervening-if trigger conditions are subsequent work.
+
 Run from repository root, using pinned Rust 1.99.0:
 
 - `npm run check:engine`: toolchain check, formatting, Clippy, Rust tests, and
@@ -114,8 +125,8 @@ zone/incarnation; completing a command-origin cast alone advances physical,
 per-caster tax history. The damage/library and action profiles accumulate
 actual Commander combat damage and apply the 21-damage SBA loss rule. Earlier
 Commander profiles retain their explicit damage fault. Library replacement is
-enabled only for the reviewed Time Ebb and subsequent ordinary/ability draw paths. General
-replacement ordering and legal Commander matches remain later work. Ordinary
+enabled only for the reviewed Time Ebb and subsequent ordinary/ability draw paths. Replacement ordering is limited to the exact effects profiles; legal Commander
+matches remain later work. Ordinary
 combat is enabled in the reviewed combat, Commander and action profiles.
 
 Batch mutation is private and atomic. Capture consumed pre-event facts and use
@@ -190,7 +201,8 @@ Stack target inputs use current viewer-scoped `StackHandle`s bound to a distinct
 `StackId`; physical source handles cannot authorize stack targets. Exclude the
 announcing invocation itself and all incomplete entries. Counterspell targets
 spells; Stifle's complete activated-or-triggered domain contains only nonmana
-activated entries in this admitted pool. Trigger scheduling remains unsupported.
+activated entries in the older stack/cost pool; the trigger and effects pools
+also admit ordinary triggered invocations.
 Countering a spell moves its card to its owner's graveyard; countering an ability
 removes only the noncard entry. Never refund paid costs or resolve its program.
 Commander grave return waits until the complete counter invocation finishes.
@@ -214,5 +226,6 @@ typed events. Run SBAs after the complete program, allowing Soul Feast's self
 loss/gain to recover from zero and Healing Hands' gain/draw to finish before loss.
 If every target is illegal at resolution start, skip the complete program.
 Creature damage accumulates until cleanup; lethal damage uses the ordinary SBA
-destruction and Commander-return paths. Trigger scheduling and damage prevention
-remain unsupported.
+destruction and Commander-return paths. Trigger scheduling and damage prevention remain unsupported in those historical
+damage/life profiles; the later trigger/effects profiles enable their reviewed
+finite families.

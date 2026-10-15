@@ -52,9 +52,8 @@ Hidden draw choices expose a public designation and no library object handle.
 Seven more policies demonstrate natural damage losses, borrowed-source departure,
 replacement/draw/recasting branches, and ordinary creature tuck/draw.
 
-Legal Commander matches, keywords,
-triggers, general replacements/prevention, continuous effects, shuffling and arbitrary
-deck admission remain later work:
+Legal Commander matches, combat keywords, additional trigger/effect families,
+shuffling and arbitrary deck admission remain later work:
 
 - [Implementation plan](../../docs/game-engine-plan.md): milestones, exit evidence, tests, search benchmarks, and open decisions.
 - [Engine specification](../../docs/game-engine-spec.md): compiler/IR boundary, state, decisions, rule execution, observations, replay, and branching.
@@ -121,7 +120,7 @@ unimplemented bulk pipeline.
 
 The test profile is optimized at level 2 with debug assertions and overflow checks
 enabled. Bundle v15 records the effective optimization/check settings for its build
-identity and offline rebuild, all eight exact source catalogs, and all 327 trace-mode
+identity and offline rebuild, all nine exact source catalogs, and all 450 trace-mode
 runs. Snapshots are v14, player projections v12 and query sidecars v11.
 `SnapshotVerifier` verifies ordered checkpoint sequences using
 one independent forward replay while applying the complete standalone restore
@@ -170,7 +169,13 @@ wait through SBAs and Commander returns, then use APNAP/controller ordering and
 mandatory targets. Detached sources, accepted-choice invalidation, departed targets,
 Stifle and active-player elimination retain their distinct outcomes. Deathgreeter's
 optional effect and Flame Rift's aggregate scope remain explicit unsupported sources.
-Together all eight catalogs cover 31 exact configurations, 327 trace-mode executions
-and 11,606 recovery boundaries, plus legacy checkpoints. Replacement/prevention
-and temporary modifiers remain the next bounded P4 family. These profiles remain
+The [effects slice](../../docs/game-engine-effects.md) adds five exact profiles
+with Giant Growth, Disfigure, Fog, Samite Healer, Furnace of Rath and Yoked Ox.
+`compile-effects` emits thirty definitions in IR v9; `effects-games --recover`
+checks 41 policies across temporary characteristics, cleanup, finite prevention,
+affected-recipient ordering and applied damage prefixes. Final damage remains
+simultaneous, and distinct Furnace identities apply once per original occurrence.
+Together all nine catalogs cover 36 exact configurations, 450 trace-mode executions
+and 15,100 recovery boundaries, plus legacy checkpoints. Modal/multiple-target
+casting and intervening-if conditions are the next bounded P3/P4 work. These profiles remain
 closed rules scenarios.

@@ -24,6 +24,10 @@ fn update_entry(entry: &mut StackInstance, fact: &ObjectBefore) {
 fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
     match frame {
         Frame::Resolve { frame } | Frame::ResolutionChoice { frame, .. } => Some(&frame.spell),
+        Frame::DamageEffects { transaction } => match transaction.continuation.as_ref() {
+            DamageContinuation::Instruction { frame } => Some(&frame.spell),
+            DamageContinuation::Combat => None,
+        },
         Frame::Stabilize { resume, .. } => resolving_entry(resume),
         Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
             CommanderContinuation::SpellMove { frame, .. }
@@ -38,6 +42,12 @@ fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
     match frame {
         Frame::Resolve { frame } | Frame::ResolutionChoice { frame, .. } => {
             update_entry(&mut frame.spell, fact)
+        }
+        Frame::DamageEffects { transaction } => {
+            if let DamageContinuation::Instruction { frame } = transaction.continuation.as_mut() {
+                update_entry(&mut frame.spell, fact);
+            }
+            // Assigned damage retains its frozen assignment source facts.
         }
         Frame::Stabilize { resume, .. } => update_frame(resume, fact),
         Frame::CommanderReturn { continuation, .. } => match continuation.as_mut() {
@@ -248,6 +258,18 @@ impl Game {
         self.stabilize()
     }
     pub(super) fn validate_damage_bindings(&self, entry: &StackInstance) -> Result<(), String> {
+        if self.prepared.config.effects_profile()
+            && let Some(fact) = &entry.source_facts
+        {
+            self.validate_characteristic_identity(entry.source, &fact.characteristics)?;
+        }
+        if self.prepared.config.effects_profile() && entry.kind.is_spell() {
+            if entry.effect_source_handles.len() != 4 {
+                return Err("missing public spell source references".into());
+            }
+        } else if !entry.effect_source_handles.is_empty() {
+            return Err("unexpected spell effect source references".into());
+        }
         let program = self.program_for(entry)?;
         let damage = program
             .targets
@@ -267,7 +289,8 @@ impl Game {
                 || fact.owner != card.owner
                 || fact.controller.0 >= 4
                 || fact.default_controller.0 >= 4
-                || fact.characteristics != self.definition(entry.source.card)?.characteristics
+                || (!self.prepared.config.effects_profile()
+                    && fact.characteristics != self.definition(entry.source.card)?.characteristics)
             {
                 return Err("snapshot damage source facts invariant".into());
             }
@@ -402,6 +425,11 @@ impl Game {
             }
             _ => return Err("unexpected damage/life instruction".into()),
         };
+        if self.prepared.config.effects_profile()
+            && let ProposedEvent::NoncombatDamage { damage } = proposed
+        {
+            return self.prepare_noncombat_damage(frame, *damage, block);
+        }
         let actual = self.commit(
             proposed,
             BatchCause::Instruction {
@@ -446,8 +474,9 @@ impl Game {
             .get(&damage.source.object.card)
             .ok_or("unknown damage source card")?;
         if source_card.owner != damage.source.owner
-            || self.definition(damage.source.object.card)?.characteristics
-                != damage.source.characteristics
+            || (!self.prepared.config.effects_profile()
+                && self.definition(damage.source.object.card)?.characteristics
+                    != damage.source.characteristics)
         {
             return Err("invalid noncombat source identity".into());
         }

@@ -405,6 +405,9 @@ impl Game {
         }
         let player = frame.spell.controller;
         match instruction {
+            op @ (Instruction::ModifyPowerToughness { .. }
+            | Instruction::PreventCombatDamage { .. }
+            | Instruction::PreventNextDamage { .. }) => self.execute_effect_instruction(frame, op),
             op @ (Instruction::DealDamage { .. }
             | Instruction::GainLife { .. }
             | Instruction::LoseLife { .. }) => self.execute_damage_life_instruction(frame, op),

@@ -290,7 +290,10 @@ impl Game {
             );
         }
         if let Some(PlayerRequest::OrderTriggers { candidates, .. }) = &mut b.decision {
-            let offset = 4 + self.state.objects.len() + self.state.stack.len();
+            let offset = 4
+                + self.state.objects.len()
+                + self.state.stack.len()
+                + self.live_effect_keys().len();
             if cursor >= offset
                 && let Some(id) = self.trigger_order_ids().get(cursor - offset)
             {
@@ -301,15 +304,40 @@ impl Game {
             }
         }
         b.cursor = b.cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-        let extra = if matches!(b.decision, Some(PlayerRequest::OrderTriggers { .. })) {
-            self.trigger_order_ids().len()
-        } else {
-            0
-        };
+        let base = 4 + self.state.objects.len() + self.state.stack.len();
+        let effect_count = self.live_effect_keys().len();
+        if cursor >= base && cursor < base + effect_count {
+            b.view.effects.push(
+                self.visible_effect(viewer, &self.live_effect_keys()[cursor - base])
+                    .map_err(|_| QueryRejection::Invariant)?,
+            );
+        }
+        if let Some(PlayerRequest::DamageEffect { candidates, .. }) = &mut b.decision
+            && cursor >= base + effect_count
+            && let Some((_, _, pairs)) = self
+                .damage_effect_group()
+                .map_err(|_| QueryRejection::Invariant)?
+            && let Some(pair) = pairs.get(cursor - base - effect_count)
+        {
+            candidates.push(
+                self.visible_damage_effect_candidate(viewer, pair)
+                    .map_err(|_| QueryRejection::Invariant)?,
+            );
+        }
+        let extra = effect_count
+            + if matches!(b.decision, Some(PlayerRequest::DamageEffect { .. })) {
+                self.damage_effect_group()
+                    .map_err(|_| QueryRejection::Invariant)?
+                    .map_or(0, |(_, _, p)| p.len())
+            } else if matches!(b.decision, Some(PlayerRequest::OrderTriggers { .. })) {
+                self.trigger_order_ids().len()
+            } else {
+                0
+            };
         if b.cursor as usize >= 4 + self.state.objects.len() + self.state.stack.len() + extra {
             b.view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
             return Ok(Some(Observation {
-                observation_version: 12,
+                observation_version: 13,
                 view: b.view.clone(),
                 decision: b.decision.clone(),
             }));
@@ -333,6 +361,21 @@ impl Game {
                     }
                     *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
                     return Ok((*cursor as usize >= ids.len())
+                        .then(|| QueryValue::Decision(request.clone())));
+                }
+                if let Some(PlayerRequest::DamageEffect { candidates, .. }) = request {
+                    let pairs = self
+                        .damage_effect_group()
+                        .map_err(|_| QueryRejection::Invariant)?
+                        .map_or(vec![], |(_, _, p)| p);
+                    if let Some(pair) = pairs.get(*cursor as usize) {
+                        candidates.push(
+                            self.visible_damage_effect_candidate(*viewer, pair)
+                                .map_err(|_| QueryRejection::Invariant)?,
+                        );
+                    }
+                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
+                    return Ok((*cursor as usize >= pairs.len())
                         .then(|| QueryValue::Decision(request.clone())));
                 }
                 if let Some(PlayerRequest::EntityTargets { candidates, .. }) = request {
@@ -413,6 +456,7 @@ impl Game {
                             PlayerResponse::Sacrifice { .. }
                             | PlayerResponse::ResolveDiscard { .. },
                         )
+                        | (Frame::DamageEffects { .. }, PlayerResponse::DamageEffect { .. })
                         | (Frame::SpendMana { .. }, PlayerResponse::SpendMana { .. })
                         | (Frame::CommanderReturn { .. }, PlayerResponse::CommanderReturn { .. })
                         | (Frame::Attackers, PlayerResponse::Attackers { .. })
@@ -543,7 +587,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 12,
+                    context_version: 13,
                     observation: *observation.clone().ok_or(QueryRejection::Invariant)?,
                     permitted_history: history.clone(),
                     open_decklists: decks.clone(),
@@ -562,7 +606,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: 11,
+            work_version: 12,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -571,7 +615,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != 11
+        if saved.work_version != 12
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?

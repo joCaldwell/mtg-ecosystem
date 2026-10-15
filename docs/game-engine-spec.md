@@ -900,7 +900,7 @@ The remaining choices concern implementation within this stack:
 | PRNG and shuffle algorithms | Fixed, versioned, cross-target reproducible; select before the first random operation | P1b/P2 |
 | Branch representation | Clone baseline, optimize from measurements | P2/P7 |
 | Initial card/profile pool | Small scenario allowlist first; complete pod admission and closed reachable mechanics | P1a/P5 |
-| Simulator resource limits | Resumable budgets and explicit truncation | P2/P7 |
+| Simulator resource limits | Resumable budgets and explicit truncation; delegated P7 baseline: 5 s hard / 3 s p95, 2 GiB RSS, four physical-core workers, eight useful trials/candidate; see plan | P2/P7 |
 | Search information policy | Open lists, private zones, separate SearchContext/sample builder; priority-boundary sampling first | P0/P2/P7 |
 | Artifact retention | Local content-addressed bundles, pinned dependency closure, offline restore test | P1b/P2 |
 | Server framework and protocol | Rust server calling the core directly; select libraries and transport for the actual consumer | P8 |

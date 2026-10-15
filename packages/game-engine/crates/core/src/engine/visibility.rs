@@ -52,6 +52,8 @@ pub struct VisiblePlayer {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleObject {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub characteristics: Option<Characteristics>,
     pub marked_damage: Quantity,
     pub attack_ready: bool,
     pub handle: ObjectHandle,
@@ -123,6 +125,8 @@ pub struct VisibleAttacker {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PermittedView {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<VisibleEffect>,
     pub combat: Vec<VisibleAttacker>,
     pub viewer: PlayerId,
     pub active: Option<PlayerId>,
@@ -138,6 +142,12 @@ pub struct PermittedView {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerRequest {
+    DamageEffect {
+        token: DecisionToken,
+        player: PlayerId,
+        recipient: PlayerTargetEntity,
+        candidates: Vec<VisibleDamageEffectCandidate>,
+    },
     OrderTriggers {
         token: DecisionToken,
         player: PlayerId,
@@ -229,7 +239,8 @@ pub enum PlayerRequest {
 impl PlayerRequest {
     pub fn token(&self) -> &DecisionToken {
         match self {
-            Self::OrderTriggers { token, .. }
+            Self::DamageEffect { token, .. }
+            | Self::OrderTriggers { token, .. }
             | Self::EntityTargets { token, .. }
             | Self::StackTargets { token, .. }
             | Self::PlayerTargets { token, .. }
@@ -257,6 +268,10 @@ pub struct Observation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerResponse {
+    DamageEffect {
+        effect: EffectHandle,
+        damage: DamageHandle,
+    },
     OrderTriggers {
         order: Vec<TriggerHandle>,
     },
@@ -335,6 +350,14 @@ pub struct SearchContext {
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Knowledge {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) effect_handles: Vec<(EffectKey, EffectHandle)>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub(super) next_effect_handle: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) damage_handles: Vec<((DamageTransactionId, DamageId), DamageHandle)>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub(super) next_damage_handle: u64,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     trigger_handles: BTreeMap<TriggerId, TriggerHandle>,
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -546,6 +569,11 @@ impl Game {
             .get(&object.id.card)
             .ok_or("missing object definition")?;
         Ok(Some(VisibleObject {
+            characteristics: if self.prepared.config.effects_profile() {
+                Some(self.characteristics(object.id)?)
+            } else {
+                None
+            },
             marked_damage: object.marked_damage.clone(),
             attack_ready: object.attack_ready,
             handle: self.handle_for(viewer, object.id)?,
@@ -701,6 +729,7 @@ impl Game {
             return Err("invalid viewer".into());
         }
         Ok(PermittedView {
+            effects: vec![],
             combat: self
                 .state
                 .combat
@@ -754,6 +783,18 @@ impl Game {
         let Some(token) = token else {
             return Ok(None);
         };
+        if let Some(Request::DamageEffect {
+            player, recipient, ..
+        }) = self.damage_effect_request()?
+            && player == viewer
+        {
+            return Ok(Some(PlayerRequest::DamageEffect {
+                token,
+                player,
+                recipient: self.player_entity(viewer, recipient)?,
+                candidates: vec![],
+            }));
+        }
         if let Some(request) = self.actions_request()?
             && request.player() == viewer
         {
@@ -924,6 +965,7 @@ impl Game {
     }
     fn permitted_view(&self, viewer: PlayerId) -> Result<PermittedView, String> {
         let mut view = self.blank_view(viewer)?;
+        view.effects = self.visible_effects(viewer)?;
         for player in 0..4 {
             view.players.push(self.visible_player(PlayerId(player))?);
         }
@@ -939,6 +981,7 @@ impl Game {
         Ok(view)
     }
     pub(super) fn refresh_visibility(&mut self) -> Result<(), String> {
+        self.refresh_effect_handles()?;
         for v in 0..4 {
             let viewer = PlayerId(v);
             let current = self
@@ -1016,6 +1059,11 @@ impl Game {
             let key = if self.state.pending.is_some() || !self.state.pending_concessions.is_empty()
             {
                 None
+            } else if self
+                .damage_effect_request()?
+                .is_some_and(|r| r.player() == viewer)
+            {
+                Some((self.state.revision, 12))
             } else if self
                 .trigger_request()?
                 .is_some_and(|r| r.player() == viewer)
@@ -1131,6 +1179,10 @@ impl Game {
             return Err("oversized player declaration".into());
         }
         match response {
+            PlayerResponse::DamageEffect { effect, damage } => {
+                let (effect, damage) = self.resolve_damage_effect_pair(viewer, effect, damage)?;
+                Ok(Response::DamageEffect { effect, damage })
+            }
             PlayerResponse::OrderTriggers { order } => Ok(Response::OrderTriggers {
                 order: order
                     .iter()

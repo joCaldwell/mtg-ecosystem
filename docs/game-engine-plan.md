@@ -37,22 +37,25 @@ compiler and kernel have progressed through exact scenario slices for priority,
 explicit mana costs, combat, Commander casting/returns/damage, ordered libraries,
 activated abilities, noncombat damage and life programs. The ordinary-trigger
 slice adds actual-event matching, simultaneous death lookback, APNAP ordering,
-mandatory targets and countering detached triggered invocations. It brings the
-reviewed tables to 31 exact configurations across eight historical/current
-catalogs, with 24 definitions in the newest catalog. This remains scenario
+mandatory targets and countering detached triggered invocations. The effects
+slice adds additive temporary characteristics, atomic cleanup, finite prevention,
+static damage doubling and affected-recipient ordering. It brings the reviewed
+tables to 36 exact configurations across nine historical/current catalogs, with
+30 definitions in the newest catalog. This remains scenario
 support; no legal Commander profile has been released. See the
 [progress ledger](game-engine-progress.md) for completed checks and artifact
 identities rather than treating this roadmap as gate evidence.
 `build-ir` intentionally fails. `game-server` contains a README only.
 
-The next finite vertical slice is replacement/prevention and temporary
-characteristic modifiers, reviewed against actual source ASTs. Remaining P3/P4
-gate items include supported modal/multiple-target paths, intervening conditions,
-replacement ordering and reapplication, temporary expiration and characteristic
+The next finite vertical slice is modal/multiple-target casting and supported
+intervening-if conditions, reviewed against actual source ASTs. Those complete
+remaining P3/P4 path obligations alongside the effects slice's reviewed
+replacement ordering/reapplication, temporary expiration and characteristic
 interactions. Then P5 supplies full deck/pod admission, shuffle/mulligan setup,
 seeded complete legal games and a named finite release. P6 is an ongoing series
 of separately scoped expansions, not an instruction to implement all Magic.
-P7 needs the consumer's measured workload/budgets before optimization; P8 targets
+P7 uses the delegated product budgets below and freezes its measured workload
+before optimization; P8 targets
 one released profile and does not wait for arbitrary future expansions.
 
 Use separate measures throughout development:
@@ -563,12 +566,42 @@ separately. No performance denominator may hide failed or discarded sampling
 work. Also measure observation-based candidates against the same strategy's
 labeled omniscient benchmark only as a diagnostic comparison.
 
-Before P7 work starts, fill in the consumer's maximum elapsed search time per
-root, p95 latency, peak RSS, worker count, and minimum useful trial count in the
-workload brief. These product budgets must be chosen from the consumer's needs;
-they cannot be inferred from the microbenchmark numbers below. Candidate-query
-or sampling bottlenecks count against the same end-to-end budget. Revisions
-retain the previous results and explain the consumer tradeoff.
+Josh delegated these product choices on October 15, 2026. The first
+`commander-open-search-v1` acceptance budget is frozen below for the local scripted
+agent. These limits prioritize useful local decisions while leaving the desktop
+and independent simulations capacity. They are product requirements, not measured
+performance or values inferred from the calibration hypotheses below.
+
+| Limit | Frozen requirement |
+| --- | --- |
+| Reference machine | AMD Ryzen 9 9950X, 16 physical cores / 32 logical CPUs, 30 GiB RAM, Linux x86_64; Rust 1.99.0 release build |
+| Maximum elapsed time | 5,000 ms per root, including the complete search lifecycle |
+| p95 end-to-end latency | At most 3,000 ms over the frozen supported-root suite |
+| Peak memory | At most 2 GiB total process RSS, including all four workers, catalogs, samples, branches and retained results |
+| Workers | Four workers on four distinct physical cores; one shared process/catalog; do not substitute SMT siblings or extra workers to pass this baseline |
+| Minimum useful trials | At least eight distinct sampled-world rollouts per valid generated root candidate; 256 trials for 32 candidates, or `8 * candidate_count` when fewer legal candidates exist |
+| Desired complete work shape | All 32 sampled worlds per candidate: up to 1,024 useful trials for 32 candidates, each with the existing 256-decision-boundary horizon |
+
+Evaluate every generated candidate across the first eight distinct valid sampled
+worlds before spending extra trials on favored candidates; this establishes a
+comparable minimum without claiming playing strength. A useful trial either
+reaches a rules-defined terminal result or reaches its declared horizon with a
+valid strategy evaluation. It contains no engine fault, unsupported operation or
+resource truncation. Horizon evaluation is not a completed game. Record infeasible
+world/candidate hypotheses separately; never count them as successful rollouts or
+silently remove them from the sampling denominator. Report any root/candidate
+that misses the minimum, including deadline/memory stops; do not extend the
+5-second deadline or relabel the workload to obtain a pass.
+
+Sampling, candidate queries/validation, root mapping, fork/apply, all rollout
+choices, aggregation, language crossings and disposal count against the same
+wall-clock and RSS budgets. Report useful trials, terminal games, horizon trials,
+truncations, faults, unsupported roots, and latency/memory misses separately.
+Capture exact CPU allocation, measurement conditions and workload manifest before
+P7 optimization; the current concurrent development/gate runs are not a valid
+benchmark. The separate batch-throughput measurements remain required. Any later
+budget revision retains these requirements/results and explains the product
+tradeoff.
 
 ### Initial calibration hypotheses
 

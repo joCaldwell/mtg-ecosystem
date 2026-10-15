@@ -347,7 +347,7 @@ impl Strategy {
                     PlayerResponse::Pass
                 }
             }
-            PlayerRequest::OrderTriggers { .. } => {
+            PlayerRequest::DamageEffect { .. } | PlayerRequest::OrderTriggers { .. } => {
                 return Err("ordinary trigger ordering outside historical profile".into());
             }
             PlayerRequest::EntityTargets { candidates, .. } => {

@@ -92,6 +92,7 @@ pub enum CardKind {
     Creature,
     Instant,
     Sorcery,
+    Enchantment,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -111,6 +112,11 @@ pub struct Characteristics {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+    CastEnchantmentV1,
+    TemporaryPowerToughnessV1,
+    CombatDamagePreventionV1,
+    DamageBudgetPreventionV1,
+    StaticDamageReplacementV1,
     NormalLayoutV1,
     BasicLandManaV1,
     LandPlayV1,
@@ -193,6 +199,24 @@ pub enum LifeRecipient {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    ModifyPowerToughness {
+        target_slot: u32,
+        power: Quantity,
+        toughness: Quantity,
+        duration: Duration,
+        source_block: u32,
+    },
+    PreventCombatDamage {
+        duration: Duration,
+        source_block: u32,
+    },
+    PreventNextDamage {
+        target_slot: u32,
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
+        amount: Quantity,
+        duration: Duration,
+        source_block: u32,
+    },
     ReturnToOwnerHand {
         target_slot: u32,
         source_block: u32,
@@ -236,6 +260,23 @@ pub enum Instruction {
         amount: Quantity,
         source_block: u32,
     },
+}
+/// Fixed-turn effects expire in the atomic cleanup action (CR 514.2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Duration {
+    UntilEndOfTurn,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum StaticEffect {
+    DoubleDamageToPermanentOrPlayer,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StaticAbility {
+    pub functioning_zone: FunctioningZone,
+    pub effect: StaticEffect,
 }
 /// Supported announcement timing; permissions are checked by the runtime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -322,6 +363,8 @@ pub struct Definition {
     pub activated: Vec<ActivatedAbility>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub triggered: Vec<TriggeredAbility>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub static_abilities: Vec<StaticAbility>,
     pub capabilities: BTreeSet<Capability>,
     pub provenance: SourceProvenance,
 }
@@ -337,6 +380,9 @@ impl Definition {
                 if self.characteristics.legendary {
                     set.insert(Capability::CommanderIdentityV1);
                 }
+            }
+            CardKind::Enchantment => {
+                set.insert(Capability::CastEnchantmentV1);
             }
             CardKind::Instant | CardKind::Sorcery => {
                 set.insert(if self.characteristics.kind == CardKind::Instant {
@@ -368,6 +414,9 @@ impl Definition {
                 TriggerCondition::AnyCreatureDies => Capability::CreatureDiesV1,
             });
             add_program_requirements(&mut set, &ability.program);
+        }
+        if !self.static_abilities.is_empty() {
+            set.insert(Capability::StaticDamageReplacementV1);
         }
         set
     }
@@ -409,7 +458,11 @@ impl Definition {
                         .iter()
                         .any(|target| target.domain != TargetDomain::AnyDamageTarget)
                         || p.instructions.iter().any(|instruction| {
-                            !matches!(instruction, Instruction::DealDamage { .. })
+                            !matches!(
+                                instruction,
+                                Instruction::DealDamage { .. }
+                                    | Instruction::PreventNextDamage { .. }
+                            )
                         })
                 }
             {
@@ -443,7 +496,34 @@ impl Definition {
             }
             validate_instruction_program(p)?;
         }
+        if !self.static_abilities.is_empty() && c.kind != CardKind::Enchantment {
+            return Err("static damage replacement requires a supported enchantment".into());
+        }
+        if self
+            .static_abilities
+            .iter()
+            .any(|a| a.functioning_zone != FunctioningZone::Battlefield)
+        {
+            return Err("static damage replacement must function on battlefield".into());
+        }
         match c.kind {
+            CardKind::Enchantment => {
+                let p = self.spell.as_ref().ok_or("missing enchantment spell")?;
+                if c.basic
+                    || c.legendary
+                    || !c.subtypes.is_empty()
+                    || c.power.is_some()
+                    || c.toughness.is_some()
+                    || self.intrinsic_zone.is_some()
+                    || p.functioning_zone != FunctioningZone::Stack
+                    || p.timing != SpellTiming::MainPhase
+                    || p.resolution != SpellResolution::Permanent
+                    || !p.targets.is_empty()
+                    || !p.instructions.is_empty()
+                {
+                    return Err("unsupported enchantment characteristics or spell".into());
+                }
+            }
             CardKind::Land => {
                 if c.legendary
                     || !c.basic
@@ -526,6 +606,20 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     let mut used = BTreeSet::new();
     for instruction in &p.instructions {
         let binding = match instruction {
+            Instruction::ModifyPowerToughness { target_slot, .. } => {
+                Some((*target_slot, TargetDomain::BattlefieldCreature))
+            }
+            Instruction::PreventNextDamage {
+                target_slot,
+                amount,
+                ..
+            } => {
+                if *amount <= Quantity::zero() {
+                    return Err("prevention budget must be positive".into());
+                }
+                Some((*target_slot, TargetDomain::AnyDamageTarget))
+            }
+            Instruction::PreventCombatDamage { .. } => None,
             Instruction::ReturnToOwnerHand { target_slot, .. }
             | Instruction::PutOnTopOwnerLibrary { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::BattlefieldCreature))
@@ -609,6 +703,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
     }
     for instruction in &program.instructions {
         set.insert(match instruction {
+            Instruction::ModifyPowerToughness { .. } => Capability::TemporaryPowerToughnessV1,
+            Instruction::PreventCombatDamage { .. } => Capability::CombatDamagePreventionV1,
+            Instruction::PreventNextDamage { .. } => Capability::DamageBudgetPreventionV1,
             Instruction::ReturnToOwnerHand { .. } => Capability::OwnerHandMoveV1,
             Instruction::PutOnTopOwnerLibrary { .. } => Capability::OwnerLibraryTopMoveV1,
             Instruction::TargetPlayerSacrificeCreature { .. } => {
@@ -636,7 +733,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 3, max = 8))]
+    #[schemars(range(min = 3, max = 9))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -644,7 +741,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.schema_version, 3..=8)
+        if !matches!(self.schema_version, 3..=9)
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -653,6 +750,22 @@ impl Catalog {
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
             d.validate()?;
+            if self.schema_version < 9
+                && d.capabilities.iter().any(|c| {
+                    matches!(
+                        c,
+                        Capability::CastEnchantmentV1
+                            | Capability::TemporaryPowerToughnessV1
+                            | Capability::CombatDamagePreventionV1
+                            | Capability::DamageBudgetPreventionV1
+                            | Capability::StaticDamageReplacementV1
+                    )
+                })
+            {
+                return Err(
+                    "IR v9 is required for temporary effects, prevention and replacements".into(),
+                );
+            }
             if self.schema_version < 8 && !d.triggered.is_empty() {
                 return Err("IR v8 is required for ordinary triggered abilities".into());
             }
@@ -756,7 +869,7 @@ impl Catalog {
 pub fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
-/// IR v3/v4/v5/v6/v7/v8 canonicalization (same algorithm as v1/v2): UTF-8 compact serde_json Value (sorted object keys),
+/// IR v3/v4/v5/v6/v7/v8/v9 canonicalization (same algorithm as v1/v2): UTF-8 compact serde_json Value (sorted object keys),
 /// ordered arrays, exact quantities as strings. Separate from JS archive hashes.
 pub fn canonical<T: Serialize>(value: &T) -> Result<String, String> {
     serde_json::to_value(value)
@@ -827,6 +940,16 @@ pub fn catalog_schema() -> serde_json::Value {
         "then":{"properties":{"definitions":{"items":{"properties":{
             "triggered":{"maxItems":0},
             "capabilities":{"items":{"not":{"enum":[Capability::TriggeredAbilityV1,Capability::SelfEntersBattlefieldV1,Capability::OtherCreatureEntersBattlefieldV1,Capability::CreatureDiesV1]}}}
+        }}}}}
+    }, {
+        "if":{"required":["schema_version"],"properties":{"schema_version":{"enum":[3,4,5,6,7,8]}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "characteristics":{"properties":{"kind":{"not":{"const":"enchantment"}}}},
+            "static_abilities":{"maxItems":0},
+            "capabilities":{"items":{"not":{"enum":[Capability::CastEnchantmentV1,Capability::TemporaryPowerToughnessV1,Capability::CombatDamagePreventionV1,Capability::DamageBudgetPreventionV1,Capability::StaticDamageReplacementV1]}}},
+            "spell":{"anyOf":[{"type":"null"},{"type":"object","properties":{"instructions":{"items":{"properties":{"op":{"not":{"enum":["modify_power_toughness","prevent_combat_damage","prevent_next_damage"]}}}}}}}]},
+            "activated":{"items":{"properties":{"program":{"properties":{"instructions":{"items":{"properties":{"op":{"not":{"enum":["modify_power_toughness","prevent_combat_damage","prevent_next_damage"]}}}}}}}}}},
+            "triggered":{"items":{"properties":{"program":{"properties":{"instructions":{"items":{"properties":{"op":{"not":{"enum":["modify_power_toughness","prevent_combat_damage","prevent_next_damage"]}}}}}}}}}}
         }}}}}
     }]);
     schema
