@@ -402,6 +402,7 @@ impl Game {
         // resolving after its source leaves. Only an unfinished casting frame
         // whose own source left is discarded; lower departures cannot replace it.
         if let Frame::Targets { cast }
+        | Frame::StackTargets { cast }
         | Frame::PlayerTargets { cast }
         | Frame::Mana { cast }
         | Frame::SpendMana { cast }
@@ -423,6 +424,7 @@ impl Game {
             };
         }
         if let Frame::Targets { cast }
+        | Frame::StackTargets { cast }
         | Frame::PlayerTargets { cast }
         | Frame::Mana { cast }
         | Frame::SpendMana { cast }
@@ -441,6 +443,9 @@ impl Game {
                 .as_ref()
                 .is_some_and(|p| match &p.response {
                     Response::Targets { objects } => objects.iter().any(|t| !self.target_legal(*t)),
+                    Response::StackTargets { entries } => {
+                        self.validate_stack_targets(p.player, entries).is_err()
+                    }
                     Response::PlayerTargets { players } => players
                         .iter()
                         .any(|target| !self.is_live(*target) || *target == p.player),

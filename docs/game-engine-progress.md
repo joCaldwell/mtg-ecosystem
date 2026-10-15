@@ -1016,3 +1016,104 @@ evidence. Trigger scheduling/APNAP, general replacement/prevention ordering,
 continuous effects, shuffle/mulligan setup, arbitrary decks and full legal
 Commander admission remain later work. This delivery advances bounded P3/P4
 evidence; it does not claim complete match support.
+
+## Stack targeting, counters and activation costs — October 15, 2026
+
+The [frozen stack/cost contract](game-engine-stack-costs.md) adds spell/ability
+countering and tap/mana activation costs on `feat/engine-stack-costs`, stacked on
+the completed action/payment delivery. Work is isolated in
+`/home/josh/Code/mtg-engine-stack-costs`.
+
+Four exact configurations share a separate fifteen-definition IR v6 catalog:
+the stack/cost scenario, borrowed activated sources, empty P0 library, and
+initial battlefield commander for library replacement. The sixteen exact source
+records add authentic Counterspell, Stifle, Merfolk Looter and Azure Mage to the
+preceding action pool, retaining Blood Artist as paired unsupported input. All
+eleven earlier definitions and all five historical catalogs remain unchanged.
+The compiler lowers complete source programs and costs; additional/narrowing
+fields on otherwise empty source filters or tap costs reject rather than vanish.
+
+New player-facing stack handles bind distinct invocations independently of their
+physical source. Counterspell targets completed other spells, including the
+caster's own other spell. Stifle retains its complete activated-or-triggered
+domain; only nonmana activated entries are reachable in the admitted pool.
+Candidates exclude the announcing invocation itself, wrong kinds and incomplete
+entries. Saved references remain historical after an entry leaves and cannot
+rebind to another ability from the same source or a recast card.
+
+Countering a spell removes its stack entry and moves its physical card to its
+owner's graveyard. Countering a noncard ability removes only that invocation,
+leaving its source and paid costs unchanged. Typed outcomes retain consumed
+stack facts and actual movement; aggregate stack writes reject simultaneous
+composition. Commander cast history records successful casting even when the
+spell is later countered. Fresh commander grave return waits for the complete
+counterspell to finish. A connected witness returns the countered commander,
+reverses an unpayable taxed recast, then completes the taxed cast after untapping.
+
+Merfolk Looter requires an untapped source and continuous-control eligibility to
+pay its tap cost. A source-driven regression bounces, recasts and checks its new
+incarnation cannot activate until the next own turn. Azure Mage uses an explicit
+mana announcement and spending decision; it can activate while tapped or
+attacking and can produce two independent paid invocations from the same source.
+Failed payment removes only the proposal and applies the chosen keep/undo policy
+to its receipt-recorded mana activations, preserving preexisting mana and combat
+taps. Source-owner departure during payment preserves a surviving activator's
+frozen invocation without restoring the source. Countering a completed ability
+never refunds its costs, draws, discards or emits successful ability completion.
+
+Eighteen player-facing policies cover a counter war, own-spell countering,
+countered commander return/decline/recast, departed targets, Stifle against a
+sacrificed source and paid abilities, exact selection between two abilities from
+one source, repeated mana activation, failed keep/undo, borrowed-source departure,
+tap-source bounce, nested commander draws with/without discard, and failed draw
+followed by discard before loss. All agree across detailed/compact/off tracing,
+one-unit/unlimited execution and resumed query budgets. Two captures of the
+reviewed report match exactly.
+
+The new suite adds **1,707 recovery boundaries**. Combined evidence covers
+**174 trace-mode executions**, **21 exact configurations**, and **7,448
+combat/Commander/action/stack recovery boundaries**, plus legacy checkpoints.
+Bundle v13, snapshot v12, projection/context v10 and query-sidecar v9 retain the
+new handles, announcements, target references and outcomes. Historical references
+normalize only the outer projection versions; their gameplay journals, events,
+semantic hashes and trace verification remain exact regression assertions.
+
+Independent review and focused verification cover complete source/IR/schema
+binding, counter event atomicity and provenance, precise target instances,
+costs, source/activator/target departure, tap readiness and source reincarnation,
+recovered query work/foreign receipts, and rehashed unreachable snapshots. Eight
+focused core tests and nine independent adversarial tests pass. Existing core
+tests, compiler/contracts tests, source-parser/catalog/schema checks and scoped
+Clippy also pass. No unresolved review findings remain within the admitted pool.
+
+Final `npm run check:engine` passed toolchain, formatting, Clippy, **232 Rust
+tests** with debug assertions/overflow checks, and **15 Node integration tests**.
+Separate release verification passed the same **232 Rust tests**. The retained closure
+rebuilt with `--frozen` and offline dependencies, an initially empty Cargo home,
+and a fresh target directory; its executable independently replayed the complete
+bundle. The final audit found no discrepancies across **90 source files**,
+**1,581 dependency files** from **31 locked packages**, six catalogs, 21
+configurations, 174 trace executions, and 235 snapshot envelopes/state hashes.
+All sixteen source records also agree with the parser in the main checkout.
+
+Retained identities:
+
+- Build: `cfd5f2095714d0aa4cb144a156be72151abc1b04450bfbba165344776948c039`.
+- Bundle: `aa759095c89065ca33e7fb60b2b47b915c2c9b6e83e29a695bfee0ecb084795c`.
+- Rebuilt executable: `febc932cdd59fc0bbefd503e8603b5d4ab3657caab677c8d236ae5932d53dffb`.
+- Dependency manifest: `387384711d404f44993e8ab583e269c5105d1cc8b583307e3035f14e03d7474f`.
+- Pinned rules: `8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca`.
+- Historical baseline state: `58a0a241c4662d403dec8944430c1fe402c7fd15d22a2ce242c9a0b01d54f657`.
+
+The retained closure lives at
+`/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-aa759095c89065ca-y1YAkk/`.
+Its `evidence.json` is byte-identical to ignored `generated/p2-retention.json`.
+Gate logs and the final independent audit remain under ignored
+`generated/stack-costs-verification/`. Source/dependency closures, downloaded
+rules, executables and replay bundles remain outside the commit.
+
+The next bounded engine work can add source-backed damage/life instructions and
+trigger scheduling/APNAP. General replacement/prevention ordering, continuous
+effects, shuffle/mulligan setup, arbitrary decks and full legal Commander
+admission remain later work. These remain closed scenarios rather than a
+match-support or performance claim.

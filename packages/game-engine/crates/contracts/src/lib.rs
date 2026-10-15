@@ -128,6 +128,11 @@ pub enum Capability {
     ControllerDiscardV1,
     OpponentTargetV1,
     TargetPlayerSacrificeCreatureV1,
+    StackSpellTargetV1,
+    StackAbilityTargetV1,
+    CounterStackObjectV1,
+    TapSourceCostV1,
+    ManaActivationCostV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -150,6 +155,8 @@ pub enum EvaluationStage {
 pub enum TargetDomain {
     BattlefieldCreature,
     OpponentPlayer,
+    StackSpell,
+    StackActivatedOrTriggeredAbility,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -170,6 +177,7 @@ pub enum Instruction {
     TargetPlayerSacrificeCreature { target_slot: u32, source_block: u32 },
     DrawCards { count: Quantity, source_block: u32 },
     DiscardCards { count: Quantity, source_block: u32 },
+    CounterStackObject { target_slot: u32, source_block: u32 },
 }
 /// Supported announcement timing; permissions are checked by the runtime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -194,10 +202,12 @@ pub struct SpellProgram {
     pub targets: Vec<TargetSpec>,
     pub instructions: Vec<Instruction>,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum ActivationCost {
     SacrificeSource,
+    TapSource,
+    Mana { cost: ManaCost },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -258,10 +268,12 @@ impl Definition {
             add_program_requirements(&mut set, program);
         }
         for ability in &self.activated {
-            set.extend([
-                Capability::ActivatedAbilityV1,
-                Capability::SacrificeSourceCostV1,
-            ]);
+            set.insert(Capability::ActivatedAbilityV1);
+            set.insert(match ability.cost {
+                ActivationCost::SacrificeSource => Capability::SacrificeSourceCostV1,
+                ActivationCost::TapSource => Capability::TapSourceCostV1,
+                ActivationCost::Mana { .. } => Capability::ManaActivationCostV1,
+            });
             add_program_requirements(&mut set, &ability.program);
         }
         set
@@ -290,7 +302,8 @@ impl Definition {
         }
         for ability in &self.activated {
             let p = &ability.program;
-            if ability.functioning_zone != FunctioningZone::Battlefield
+            if matches!(&ability.cost, ActivationCost::Mana { cost } if cost.generic.is_negative())
+                || ability.functioning_zone != FunctioningZone::Battlefield
                 || p.functioning_zone != FunctioningZone::Stack
                 || p.timing != SpellTiming::Instant
                 || p.resolution != SpellResolution::Instructions
@@ -389,6 +402,21 @@ impl Definition {
                         Instruction::TargetPlayerSacrificeCreature { target_slot, .. } => {
                             (*target_slot, TargetDomain::OpponentPlayer)
                         }
+                        Instruction::CounterStackObject { target_slot, .. } => {
+                            let domain = p
+                                .targets
+                                .get(*target_slot as usize)
+                                .map(|target| target.domain)
+                                .filter(|domain| {
+                                    matches!(
+                                        domain,
+                                        TargetDomain::StackSpell
+                                            | TargetDomain::StackActivatedOrTriggeredAbility
+                                    )
+                                })
+                                .ok_or("counter requires a stack target domain")?;
+                            (*target_slot, domain)
+                        }
                         _ => {
                             return Err(
                                 "untargeted draw/discard spell programs are unsupported".into()
@@ -416,6 +444,8 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         set.insert(match target.domain {
             TargetDomain::BattlefieldCreature => Capability::CreatureTargetV1,
             TargetDomain::OpponentPlayer => Capability::OpponentTargetV1,
+            TargetDomain::StackSpell => Capability::StackSpellTargetV1,
+            TargetDomain::StackActivatedOrTriggeredAbility => Capability::StackAbilityTargetV1,
         });
     }
     for instruction in &program.instructions {
@@ -427,6 +457,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             }
             Instruction::DrawCards { .. } => Capability::ControllerDrawV1,
             Instruction::DiscardCards { .. } => Capability::ControllerDiscardV1,
+            Instruction::CounterStackObject { .. } => Capability::CounterStackObjectV1,
         });
     }
 }
@@ -443,7 +474,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 3, max = 5))]
+    #[schemars(range(min = 3, max = 6))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -451,7 +482,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.schema_version, 3..=5)
+        if !matches!(self.schema_version, 3..=6)
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -460,6 +491,27 @@ impl Catalog {
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
             d.validate()?;
+            if self.schema_version < 6
+                && (d
+                    .activated
+                    .iter()
+                    .any(|ability| ability.cost != ActivationCost::SacrificeSource)
+                    || d.spell.as_ref().is_some_and(|program| {
+                        program.targets.iter().any(|target| {
+                            matches!(
+                                target.domain,
+                                TargetDomain::StackSpell
+                                    | TargetDomain::StackActivatedOrTriggeredAbility
+                            )
+                        }) || program.instructions.iter().any(|instruction| {
+                            matches!(instruction, Instruction::CounterStackObject { .. })
+                        })
+                    }))
+            {
+                return Err(
+                    "IR v6 is required for stack targets or tap/mana activation costs".into(),
+                );
+            }
             if self.schema_version < 5
                 && (!d.activated.is_empty()
                     || d.spell.as_ref().is_some_and(|program| {
@@ -511,7 +563,7 @@ impl Catalog {
 pub fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
-/// IR v3/v4/v5 canonicalization (same algorithm as v1/v2): UTF-8 compact serde_json Value (sorted object keys),
+/// IR v3/v4/v5/v6 canonicalization (same algorithm as v1/v2): UTF-8 compact serde_json Value (sorted object keys),
 /// ordered arrays, exact quantities as strings. Separate from JS archive hashes.
 pub fn canonical<T: Serialize>(value: &T) -> Result<String, String> {
     serde_json::to_value(value)
@@ -549,6 +601,18 @@ pub fn catalog_schema() -> serde_json::Value {
             "spell": {"anyOf": [{"type":"null"}, {"type":"object", "properties": {
                 "targets": {"items": {"properties": {"domain": {"const":"battlefield_creature"}}}},
                 "instructions": {"items": {"properties": {"op": {"enum":["return_to_owner_hand","put_on_top_owner_library"]}}}}
+            }}]}
+        }}}}}
+    }, {
+        "if": {"required": ["schema_version"], "properties": {"schema_version": {"enum": [3,4,5]}}},
+        "then": {"properties": {"definitions": {"items": {"properties": {
+            "activated": {"items": {"properties": {"cost": {"const": "sacrifice_source"}}}},
+            "capabilities": {"items": {"not": {"enum": [Capability::StackSpellTargetV1,
+                Capability::StackAbilityTargetV1, Capability::CounterStackObjectV1,
+                Capability::TapSourceCostV1, Capability::ManaActivationCostV1]}}},
+            "spell": {"anyOf": [{"type":"null"}, {"type":"object", "properties": {
+                "targets": {"items": {"properties": {"domain": {"enum": ["battlefield_creature", "opponent_player"]}}}},
+                "instructions": {"items": {"properties": {"op": {"not": {"const": "counter_stack_object"}}}}}
             }}]}
         }}}}}
     }]);

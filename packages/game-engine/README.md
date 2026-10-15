@@ -120,9 +120,9 @@ hashes and copies its complete bytes without creating a single Node JSON string.
 unimplemented bulk pipeline.
 
 The test profile is optimized at level 2 with debug assertions and overflow checks
-enabled. Bundle v12 records the effective optimization/check settings for its build
-identity and offline rebuild, all five exact source catalogs, and all 120 trace-mode
-runs. Snapshots are v11, player projections v9 and query sidecars v8.
+enabled. Bundle v13 records the effective optimization/check settings for its build
+identity and offline rebuild, all six exact source catalogs, and all 174 trace-mode
+runs. Snapshots are v12, player projections v10 and query sidecars v9.
 `SnapshotVerifier` verifies ordered checkpoint sequences using
 one independent forward replay while applying the complete standalone restore
 checks at every boundary. Histories share immutable chunks across native forks;
@@ -139,3 +139,13 @@ combat/Commander/action recovery boundaries, and the historical checkpoints.
 Blood Artist remains the paired unsupported source for the action catalog;
 Cruel Edict now lowers completely but remains unadmitted by historical catalogs.
 These remain closed scenarios, not arbitrary decks or legal Commander matches.
+
+The [stack/cost slice](../../docs/game-engine-stack-costs.md) adds four exact
+configurations with Counterspell, Stifle, Merfolk Looter and Azure Mage.
+`compile-stack` emits its fifteen-definition IR v6 catalog;
+`stack-costs-games --recover` verifies eighteen player-facing policies and all
+1,707 new recovery boundaries. Its stack handles distinguish different abilities
+from the same source. Tap costs enforce continuous control; mana-cost abilities
+retain payment/reversal, source departure and nested Commander draw choices.
+Together all six catalogs cover 21 exact configurations, 174 trace-mode executions
+and 7,448 combat/Commander/action/stack recovery boundaries, plus legacy checkpoints.

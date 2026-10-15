@@ -36,19 +36,36 @@ impl Game {
             .collect()
     }
     pub(super) fn bound_target_count(&self, entry: &StackInstance) -> usize {
-        entry.targets.len() + entry.player_targets.len()
+        entry.targets.len() + entry.player_targets.len() + entry.stack_targets.len()
     }
     pub(super) fn has_target_domain(&self, program: &SpellProgram, player: PlayerId) -> bool {
         match program.targets.first().map(|target| target.domain) {
             None => true,
             Some(TargetDomain::OpponentPlayer) => !self.opponents(player).is_empty(),
+            Some(
+                domain
+                @ (TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility),
+            ) => !self.eligible_stack_targets(domain, None).is_empty(),
             Some(TargetDomain::BattlefieldCreature) => {
                 self.state.objects.values().any(|o| self.target_legal(o.id))
             }
         }
     }
     pub(super) fn announced_target_legality(&self, entry: &StackInstance) -> Vec<bool> {
-        if !entry.player_targets.is_empty() {
+        if !entry.stack_targets.is_empty() {
+            entry
+                .stack_targets
+                .iter()
+                .enumerate()
+                .map(|(slot, target)| {
+                    self.program_for(entry).is_ok_and(|program| {
+                        program.targets.get(slot).is_some_and(|spec| {
+                            self.stack_target_legal(*target, entry.id, spec.domain)
+                        })
+                    })
+                })
+                .collect()
+        } else if !entry.player_targets.is_empty() {
             entry
                 .player_targets
                 .iter()
@@ -97,9 +114,13 @@ impl Game {
             || source.controller != player
             || !self.is_live(player)
             || ability.functioning_zone != FunctioningZone::Battlefield
-            || ability.cost != ActivationCost::SacrificeSource
+            || (!self.prepared.config.stack_costs_profile()
+                && ability.cost != ActivationCost::SacrificeSource)
         {
             return Err("invalid activated ability source/permission".into());
+        }
+        if ability.cost == ActivationCost::TapSource && (source.tapped || !source.attack_ready) {
+            return Err("tap ability requires an untapped continuously controlled creature".into());
         }
         Ok(())
     }
@@ -114,55 +135,7 @@ impl Game {
         ability: u32,
     ) -> Result<(), String> {
         self.validate_activation(player, object, ability)?;
-        let source_handles = (0..4)
-            .map(|viewer| self.handle_for(PlayerId(viewer), object))
-            .collect::<Result<Vec<_>, _>>()?;
-        let id = StackId(self.state.next_stack_id);
-        self.state.next_stack_id = self
-            .state
-            .next_stack_id
-            .checked_add(1)
-            .ok_or("stack ID resource limit")?;
-        self.state.stack.push(StackInstance {
-            kind: StackKind::Activated {
-                ability,
-                source_handles,
-            },
-            player_targets: vec![],
-            id,
-            source: object,
-            controller: player,
-            targets: vec![],
-            announced_targets: vec![vec![]; 4],
-            paid: Some(ManaCost {
-                generic: Quantity::zero(),
-                colored: vec![],
-            }),
-            total_cost: ManaCost {
-                generic: Quantity::zero(),
-                colored: vec![],
-            },
-            cast_from: Zone::Battlefield,
-        });
-        self.commit(
-            ProposedEvent::Sacrifice { object, player },
-            BatchCause::AbilityActivation {
-                stack_id: id,
-                player,
-                source: object,
-                decision_id,
-                ability,
-            },
-        )?;
-        self.record_event(Event::AbilityActivated {
-            stack_id: id,
-            source: object,
-            player,
-            ability,
-        })?;
-        self.state.passes.clear();
-        self.state.priority = player;
-        self.stabilize()
+        self.announce_ability(player, decision_id, object, ability)
     }
     pub(super) fn actions_request(&self) -> Result<Option<Request>, String> {
         let Frame::ResolutionChoice { choice, .. } = &self.state.frame else {
@@ -196,6 +169,9 @@ impl Game {
         response: &Response,
     ) -> Option<Result<(), String>> {
         match (&self.state.frame, response) {
+            (Frame::StackTargets { .. }, Response::StackTargets { entries }) => {
+                Some(self.validate_stack_targets(player, entries))
+            }
             (Frame::Priority, Response::ActivateAbility { object, ability })
                 if self.state.priority == player =>
             {
@@ -259,6 +235,7 @@ impl Game {
     }
     pub(super) fn actions_step(&mut self) -> Result<(), String> {
         match self.state.frame.clone() {
+            Frame::StackTargets { cast } => self.bind_stack_targets(cast)?,
             Frame::PlayerTargets { cast } => {
                 let input = self.state.pending.take().ok_or("missing player targets")?;
                 let Response::PlayerTargets { players } = input.response else {
@@ -536,6 +513,10 @@ impl Game {
                     Ok(())
                 }
             }
+            Instruction::CounterStackObject {
+                target_slot,
+                source_block,
+            } => self.resolve_counter_instruction(frame, target_slot, source_block),
             _ => Err("unexpected action instruction".into()),
         }
     }
@@ -613,29 +594,7 @@ impl Game {
             else {
                 continue;
             };
-            if !self.prepared.config.actions_profile()
-                || source_handles.len() != 4
-                || self
-                    .definition(entry.source.card)?
-                    .activated
-                    .get(*ability as usize)
-                    .is_none()
-                || !entry.targets.is_empty()
-                || !entry.player_targets.is_empty()
-                || entry.paid
-                    != Some(ManaCost {
-                        generic: Quantity::zero(),
-                        colored: vec![],
-                    })
-                || entry.total_cost
-                    != (ManaCost {
-                        generic: Quantity::zero(),
-                        colored: vec![],
-                    })
-                || entry.cast_from != Zone::Battlefield
-            {
-                return Err("snapshot activated invocation invariant".into());
-            }
+            self.validate_activated_entry(entry, *ability, source_handles)?;
         }
         if let Frame::ResolutionChoice { frame, choice } = &self.state.frame {
             if !self.prepared.config.actions_profile() {

@@ -41,6 +41,13 @@ resolution. Snapshot v11, bundle v12, projection/context v9 and query-sidecar v8
 retain all nested choices and noncard stack identities. Historical catalogs,
 profiles and gameplay references remain separate.
 
+`docs/game-engine-stack-costs.md` adds four exact stack/cost profiles and a
+fifteen-definition IR v6 catalog. Counterspell/Stifle bind distinct stack
+instances; Merfolk Looter pays a tap cost and Azure Mage pays an explicit mana
+cost. Snapshot v12, bundle v13, projection/context v10 and query-sidecar v9 retain
+announcements, current/historical stack handles and counter outcomes. The five
+historical catalogs and all historical gameplay hashes remain separate references.
+
 Run from repository root, using pinned Rust 1.99.0:
 
 - `npm run check:engine`: toolchain check, formatting, Clippy, Rust tests, and
@@ -162,3 +169,21 @@ resolution defer SBAs until the complete invocation finishes. The invocation's
 controller remains the meaning of "you" after source or player departure; a
 departed controller's personal draw/discard is skipped, never redirected. A
 borrowed source's owner leaving does not remove a surviving activator's ability.
+
+Stack target inputs use current viewer-scoped `StackHandle`s bound to a distinct
+`StackId`; physical source handles cannot authorize stack targets. Exclude the
+announcing invocation itself and all incomplete entries. Counterspell targets
+spells; Stifle's complete activated-or-triggered domain contains only nonmana
+activated entries in this admitted pool. Trigger scheduling remains unsupported.
+Countering a spell moves its card to its owner's graveyard; countering an ability
+removes only the noncard entry. Never refund paid costs or resolve its program.
+Commander grave return waits until the complete counter invocation finishes.
+The counter event owns aggregate stack membership/control-flow writes and cannot
+compose with another simultaneous occurrence.
+
+Tap activation costs require an untapped source and continuous-control eligibility;
+no haste effects are admitted. Mana-cost activations have their own announcement,
+mana window and exact spending choice. Source movement or source-owner departure
+after announcement preserves a surviving activator's frozen invocation with a mana cost.
+Failed payment removes that proposal and optionally undoes only its recorded mana
+activations, preserving source state, prior combat taps and preexisting mana.

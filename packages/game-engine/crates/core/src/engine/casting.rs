@@ -101,16 +101,18 @@ impl Game {
             )?;
         }
         self.state.stack.pop();
-        let o = self
-            .state
-            .objects
-            .get_mut(&cast.original_object.card)
-            .ok_or("missing reversal object")?;
-        o.id = cast.original_object;
-        o.zone = stack.cast_from;
-        o.controller = stack.controller;
-        o.default_controller = stack.controller;
-        o.tapped = false;
+        if cast.origin.is_spell() {
+            let o = self
+                .state
+                .objects
+                .get_mut(&cast.original_object.card)
+                .ok_or("missing reversal object")?;
+            o.id = cast.original_object;
+            o.zone = stack.cast_from;
+            o.controller = stack.controller;
+            o.default_controller = stack.controller;
+            o.tapped = false;
+        }
         self.state.pending = None;
         self.state.priority = stack.controller;
         // CR 117.4: keeping a legal mana activation interrupts the old pass

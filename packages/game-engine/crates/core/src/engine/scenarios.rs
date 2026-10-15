@@ -4,6 +4,85 @@
 use super::*;
 
 impl ScenarioConfig {
+    pub fn stack_costs() -> Self {
+        let cards = (0..33)
+            .map(|id| {
+                let owner = PlayerId(match id {
+                    0..=10 | 23 | 24 | 31 | 32 => 0,
+                    11..=18 | 25 | 26 => 1,
+                    19..=21 | 27 | 28 => 2,
+                    _ => 3,
+                });
+                CardSetup {
+                    id: CardId(id),
+                    owner,
+                    controller: owner,
+                    oracle_id: match id {
+                        0 => ISAMARU,
+                        5 => PLAINS,
+                        6 | 24 => FOREST,
+                        7 => LOOTER,
+                        8 => AZURE,
+                        9 => HAPLESS,
+                        10 => BEARS,
+                        11 | 19 => COUNTERSPELL,
+                        12 => STIFLE,
+                        13 => SPELL,
+                        14 => TIME_EBB,
+                        _ => ISLAND,
+                    }
+                    .into(),
+                    zone: match id {
+                        0 => Zone::Command { owner },
+                        10..=14 | 19 => Zone::Hand { owner },
+                        23..=30 => Zone::Library { owner },
+                        _ => Zone::Battlefield,
+                    },
+                }
+            })
+            .collect();
+        Self {
+            mode: Mode::Scenario,
+            players: 4,
+            profile: "four-seat-stack-costs-v1".into(),
+            commanders: vec![CardId(0)],
+            cards,
+        }
+    }
+    pub fn stack_costs_borrowed() -> Self {
+        let mut config = Self::stack_costs();
+        config.profile = "four-seat-stack-costs-borrowed-v1".into();
+        for card in &mut config.cards {
+            if matches!(card.id, CardId(7) | CardId(8) | CardId(9)) {
+                card.owner = PlayerId(2);
+            }
+        }
+        config
+    }
+    pub fn stack_costs_empty_library() -> Self {
+        let mut config = Self::stack_costs();
+        config.profile = "four-seat-stack-costs-empty-library-v1".into();
+        config
+            .cards
+            .retain(|card| !matches!(card.id, CardId(23) | CardId(24)));
+        config
+    }
+    pub fn stack_costs_library() -> Self {
+        let mut config = Self::stack_costs();
+        config.profile = "four-seat-stack-costs-library-v1".into();
+        config.cards[0].zone = Zone::Battlefield;
+        config
+    }
+    pub(super) fn stack_costs_profile(&self) -> bool {
+        matches!(
+            self.profile.as_str(),
+            "four-seat-stack-costs-v1"
+                | "four-seat-stack-costs-borrowed-v1"
+                | "four-seat-stack-costs-empty-library-v1"
+                | "four-seat-stack-costs-library-v1"
+        )
+    }
+
     pub fn actions() -> Self {
         let cards = (0..23)
             .map(|id| {
@@ -103,13 +182,14 @@ impl ScenarioConfig {
         }
     }
     pub(super) fn actions_profile(&self) -> bool {
-        matches!(
-            self.profile.as_str(),
-            "four-seat-actions-v1"
-                | "four-seat-actions-borrowed-v1"
-                | "four-seat-actions-empty-library-v1"
-                | "four-seat-mixed-mana-v1"
-        )
+        self.stack_costs_profile()
+            || matches!(
+                self.profile.as_str(),
+                "four-seat-actions-v1"
+                    | "four-seat-actions-borrowed-v1"
+                    | "four-seat-actions-empty-library-v1"
+                    | "four-seat-mixed-mana-v1"
+            )
     }
 
     pub fn commander_damage() -> Self {

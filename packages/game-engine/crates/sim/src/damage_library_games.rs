@@ -129,7 +129,8 @@ impl Strategy {
             .as_ref()
             .ok_or("missing lifecycle decision")?;
         Ok(match request {
-            PlayerRequest::PlayerTargets { .. }
+            PlayerRequest::StackTargets { .. }
+            | PlayerRequest::PlayerTargets { .. }
             | PlayerRequest::Sacrifice { .. }
             | PlayerRequest::ResolveDiscard { .. }
             | PlayerRequest::SpendMana { .. } => {

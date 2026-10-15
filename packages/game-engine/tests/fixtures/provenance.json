@@ -5,11 +5,25 @@
   "rules_sha256": "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca",
   "records": [
     {
+      "file": "azure-mage.json",
+      "oracle_id": "bbf9fd47-10e1-4749-b06f-4fe72200afc7",
+      "record_sha256": "8f352d11379d036fc16c2b4786055f137bab170a218d59866706f40b5aa03a83",
+      "source_sha256": "fc5671620b35d5f63698b8994b730641fe5e2d9824ee9d31fe5270cdf7a03791",
+      "ast_sha256": "059433c7906888d46bd837fa2fdb5a143df73dde8931ebb6f2f538a355f5f051"
+    },
+    {
       "file": "blood-artist.json",
       "oracle_id": "310f141c-7f37-4729-aed6-dd9c09db448d",
       "record_sha256": "16472af1ca8bba34a89df28bbbcdd313b0aa2e4aa5a1594d32f1666e1435b358",
       "source_sha256": "888f992471e8dbd626d5a2935bef8df11507ad382b077a4674deac2610a9e8ac",
       "ast_sha256": "35a1ed12283b1aceae63b4c1cd214fd83d82f0839ade64e4d989271d990620c9"
+    },
+    {
+      "file": "counterspell.json",
+      "oracle_id": "cc187110-1148-4090-bbb8-e205694a39f5",
+      "record_sha256": "1870e08a76c871aaa537cb0061edd894ce88b98af62c6c5db8c2745a85275656",
+      "source_sha256": "d4bd6c5d1470721752426189b105655dc650c11e9277bcdf81ac519c397d2ea2",
+      "ast_sha256": "8369b05d2e6bba06abdb738be5eb1d3dd1853350725b6e2ad5e8739b12409ab0"
     },
     {
       "file": "cruel-edict.json",
@@ -54,11 +68,25 @@
       "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
     },
     {
+      "file": "merfolk-looter.json",
+      "oracle_id": "67362406-b1ca-49e2-800d-9050bfe8742a",
+      "record_sha256": "7aa11f7f6acb6bd235123f70b319943d55fe8277c34214375bbc75d0b7830fb0",
+      "source_sha256": "e5cc9faa5c2cad2e4800a6931a54506f90820d7b4c4a668162dfb13b0c11c4a9",
+      "ast_sha256": "4d8264216d2b613c00056c0574dac7a0289743c579ced4ff68808d6f409ec59c"
+    },
+    {
       "file": "plains.json",
       "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99",
       "record_sha256": "6b23cdb80b5897603e4bf4afc0d07c59e7b49c25672fc6c7fd6ba02855e5e6c0",
       "source_sha256": "2d754c3d2e6a5f780dac19f38fbe26e8631cfecdbe8a4372f095dbdfa308a1d5",
       "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
+    },
+    {
+      "file": "stifle.json",
+      "oracle_id": "b3b00911-ece7-4484-bc36-f211ce72b6cc",
+      "record_sha256": "2cd78366919e27100154fdff2b7537a49d13e48f3d234196ed5a006558b405bf",
+      "source_sha256": "ff9b29de13defa88690e55d6cfee7e7686062731c0a8dde954ac9c9f28f62665",
+      "ast_sha256": "c0828a3ba76f867d98971cc7d6f4ce5beefafc0c3adecaa36ab4753f35d46f12"
     },
     {
       "file": "swamp.json",

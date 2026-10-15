@@ -57,7 +57,17 @@ pub struct VisibleTarget {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct VisibleStackTarget {
+    pub announced: StackHandle,
+    pub current: Option<StackHandle>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VisibleStackEntry {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handle: Option<StackHandle>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stack_targets: Vec<VisibleStackTarget>,
     pub spell: Option<ObjectHandle>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ability: Option<VisibleAbility>,
@@ -93,6 +103,12 @@ pub struct PermittedView {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerRequest {
+    StackTargets {
+        token: DecisionToken,
+        player: PlayerId,
+        occurrences: Vec<TargetSpec>,
+        candidates: Vec<StackHandle>,
+    },
     PlayerTargets {
         token: DecisionToken,
         player: PlayerId,
@@ -167,7 +183,8 @@ pub enum PlayerRequest {
 impl PlayerRequest {
     pub fn token(&self) -> &DecisionToken {
         match self {
-            Self::PlayerTargets { token, .. }
+            Self::StackTargets { token, .. }
+            | Self::PlayerTargets { token, .. }
             | Self::Sacrifice { token, .. }
             | Self::ResolveDiscard { token, .. }
             | Self::SpendMana { token, .. }
@@ -192,6 +209,9 @@ pub struct Observation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerResponse {
+    StackTargets {
+        entries: Vec<StackHandle>,
+    },
     ActivateAbility {
         object: ObjectHandle,
         ability: u32,
@@ -281,6 +301,39 @@ impl Game {
             Zone::Library { .. } => false,
             _ => true,
         }
+    }
+    pub(super) fn stack_handle_for(
+        &self,
+        viewer: PlayerId,
+        id: StackId,
+    ) -> Result<StackHandle, String> {
+        if !self.state.stack.iter().any(|entry| entry.id == id) {
+            return Err("stale stack identity".into());
+        }
+        self.state
+            .visibility
+            .get(viewer.0 as usize)
+            .and_then(|knowledge| knowledge.ability_handles.get(&id))
+            .cloned()
+            .ok_or_else(|| "stack object is not visible".into())
+    }
+    fn resolve_stack_handle(
+        &self,
+        viewer: PlayerId,
+        handle: &StackHandle,
+    ) -> Result<StackId, String> {
+        self.state
+            .visibility
+            .get(viewer.0 as usize)
+            .and_then(|knowledge| {
+                knowledge
+                    .ability_handles
+                    .iter()
+                    .find(|(_, value)| *value == handle)
+            })
+            .map(|(id, _)| *id)
+            .filter(|id| self.state.stack.iter().any(|entry| entry.id == *id))
+            .ok_or_else(|| "stale or foreign stack handle".into())
     }
     pub(super) fn visible_player(&self, player: PlayerId) -> Result<VisiblePlayer, String> {
         let p = self
@@ -402,7 +455,29 @@ impl Game {
                 }),
             ),
         };
+        let stack_targets = instance
+            .stack_targets
+            .iter()
+            .enumerate()
+            .map(|(slot, target)| {
+                Ok(VisibleStackTarget {
+                    announced: instance
+                        .announced_stack_targets
+                        .get(viewer.0 as usize)
+                        .and_then(|entries| entries.get(slot))
+                        .ok_or("missing announced stack target")?
+                        .clone(),
+                    current: self.stack_handle_for(viewer, *target).ok(),
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
         Ok(VisibleStackEntry {
+            handle: if self.prepared.config.stack_costs_profile() {
+                Some(self.stack_handle_for(viewer, instance.id)?)
+            } else {
+                None
+            },
+            stack_targets,
             spell,
             ability,
             player_targets: instance.player_targets.clone(),
@@ -548,6 +623,21 @@ impl Game {
             ));
         }
         match &self.state.frame {
+            Frame::StackTargets { .. } if self.top()?.controller == viewer => {
+                Ok(Some(PlayerRequest::StackTargets {
+                    token,
+                    player: viewer,
+                    occurrences: self.program()?.targets.clone(),
+                    candidates: self
+                        .eligible_stack_targets(
+                            self.program()?.targets[0].domain,
+                            Some(self.top()?.id),
+                        )
+                        .into_iter()
+                        .map(|id| self.stack_handle_for(viewer, id))
+                        .collect::<Result<Vec<_>, _>>()?,
+                }))
+            }
             Frame::PlayerTargets { .. } if self.top()?.controller == viewer => {
                 Ok(Some(PlayerRequest::PlayerTargets {
                     token,
@@ -637,7 +727,9 @@ impl Game {
                 .state
                 .stack
                 .iter()
-                .filter(|entry| !entry.kind.is_spell())
+                .filter(|entry| {
+                    !entry.kind.is_spell() || self.prepared.config.stack_costs_profile()
+                })
                 .map(|entry| entry.id)
                 .collect::<Vec<_>>();
             k.ability_handles.retain(|id, _| abilities.contains(id));
@@ -645,7 +737,15 @@ impl Game {
                 if let std::collections::btree_map::Entry::Vacant(entry) =
                     k.ability_handles.entry(id)
                 {
-                    let handle = StackHandle(format!("v{v}-a{}", k.next_ability_handle));
+                    let handle = StackHandle(format!(
+                        "v{v}-{}{}",
+                        if self.prepared.config.stack_costs_profile() {
+                            "s"
+                        } else {
+                            "a"
+                        },
+                        k.next_ability_handle
+                    ));
                     k.next_ability_handle = k
                         .next_ability_handle
                         .checked_add(1)
@@ -679,6 +779,9 @@ impl Game {
                 Some((self.state.revision, 3))
             } else {
                 match self.state.frame {
+                    Frame::StackTargets { .. } if self.top()?.controller == viewer => {
+                        Some((self.state.revision, 9))
+                    }
                     Frame::PlayerTargets { .. } if self.top()?.controller == viewer => {
                         Some((self.state.revision, 7))
                     }
@@ -754,12 +857,19 @@ impl Game {
                 objects.len()
             }
             PlayerResponse::PlayerTargets { players } => players.len(),
+            PlayerResponse::StackTargets { entries } => entries.len(),
             _ => 0,
         };
         if size > self.state.objects.len() {
             return Err("oversized player declaration".into());
         }
         match response {
+            PlayerResponse::StackTargets { entries } => Ok(Response::StackTargets {
+                entries: entries
+                    .iter()
+                    .map(|handle| self.resolve_stack_handle(viewer, handle))
+                    .collect::<Result<Vec<_>, _>>()?,
+            }),
             PlayerResponse::ActivateAbility { object, ability } => Ok(Response::ActivateAbility {
                 object: self.resolve_handle(viewer, object)?,
                 ability: *ability,

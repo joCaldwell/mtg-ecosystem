@@ -115,12 +115,23 @@ pub struct PlayerBefore {
 #[serde(deny_unknown_fields)]
 pub struct PreEventFacts {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stack: Vec<StackBefore>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub commander_damage: Vec<CommanderDamageBefore>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub libraries: Vec<LibraryBefore>,
     pub turn: Option<TurnBefore>,
     pub objects: Vec<ObjectBefore>,
     pub players: Vec<PlayerBefore>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StackBefore {
+    pub id: StackId,
+    pub source: ObjectId,
+    pub controller: PlayerId,
+    pub spell: bool,
+    pub paid: Option<ManaCost>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -179,6 +190,7 @@ impl CommittedBatch {
 }
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum FactKey {
+    Stack(StackId),
     Turn,
     Object(CardId),
     Mana(PlayerId),
@@ -189,6 +201,10 @@ enum FactKey {
 }
 fn access(event: &ProposedEvent) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
     match event {
+        ProposedEvent::CounterStackObject { target, .. } => {
+            let keys = BTreeSet::from([FactKey::Stack(*target)]);
+            (keys.clone(), keys)
+        }
         ProposedEvent::Lose { player, reason } => {
             let mut keys = BTreeSet::from([FactKey::Life(*player)]);
             if *reason == PlayerLossReason::CommanderDamage {
@@ -313,7 +329,8 @@ fn collect<'a>(
                 && occurrences.iter().any(|e| {
                     matches!(
                         e,
-                        ProposedEvent::ClearDamage
+                        ProposedEvent::CounterStackObject { .. }
+                            | ProposedEvent::ClearDamage
                             | ProposedEvent::TurnTransition { .. }
                             | ProposedEvent::DeclareAttackers { .. }
                             | ProposedEvent::DeclareBlockers { .. }
@@ -345,8 +362,22 @@ impl Game {
         let mut turn = None;
         let mut commander_damage = BTreeSet::new();
         let mut libraries = BTreeSet::new();
+        let mut stack = BTreeSet::new();
         for event in events {
             match event {
+                ProposedEvent::CounterStackObject { target, .. } => {
+                    let entry = self
+                        .state
+                        .stack
+                        .iter()
+                        .find(|entry| entry.id == *target)
+                        .ok_or("missing counter stack facts")?;
+                    stack.insert(*target);
+                    players.insert(entry.controller);
+                    if entry.kind.is_spell() {
+                        objects.insert(entry.source);
+                    }
+                }
                 ProposedEvent::Lose { player, reason } => {
                     players.insert(*player);
                     if *reason == PlayerLossReason::CommanderDamage {
@@ -532,7 +563,26 @@ impl Game {
                     .unwrap_or_default(),
             })
             .collect();
+        let stack = stack
+            .into_iter()
+            .map(|id| {
+                let entry = self
+                    .state
+                    .stack
+                    .iter()
+                    .find(|entry| entry.id == id)
+                    .ok_or("missing consumed stack entry")?;
+                Ok(StackBefore {
+                    id,
+                    source: entry.source,
+                    controller: entry.controller,
+                    spell: entry.kind.is_spell(),
+                    paid: entry.paid.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
         Ok(PreEventFacts {
+            stack,
             commander_damage,
             libraries,
             turn,
@@ -699,6 +749,52 @@ impl Game {
 impl Game {
     fn apply_occurrence(&mut self, proposed: &ProposedEvent) -> Result<EventOutcome, String> {
         let actual = match proposed {
+            ProposedEvent::CounterStackObject {
+                target,
+                countering,
+                domain,
+            } => {
+                if !self.prepared.config.stack_costs_profile()
+                    || countering.0 >= self.state.next_stack_id
+                    || !self.stack_target_legal(*target, *countering, *domain)
+                {
+                    return Err("invalid countered stack object".into());
+                }
+                let index = self
+                    .state
+                    .stack
+                    .iter()
+                    .position(|entry| entry.id == *target)
+                    .ok_or("missing counter target")?;
+                let entry = self.state.stack[index].clone();
+                let spell = entry.kind.is_spell();
+                let movement = if spell {
+                    let owner = self
+                        .state
+                        .cards
+                        .get(&entry.source.card)
+                        .ok_or("missing countered spell physical card")?
+                        .owner;
+                    let EventOutcome::Moved { movement } =
+                        self.apply_occurrence(&ProposedEvent::Move {
+                            object: entry.source,
+                            destination: Zone::Graveyard { owner },
+                        })?
+                    else {
+                        return Err("missing countered spell movement".into());
+                    };
+                    Some(movement)
+                } else {
+                    None
+                };
+                self.state.stack.remove(index);
+                EventOutcome::StackObjectCountered {
+                    target: *target,
+                    source: entry.source,
+                    spell,
+                    movement,
+                }
+            }
             ProposedEvent::PayManaSelected {
                 player,
                 cost,

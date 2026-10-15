@@ -89,7 +89,8 @@ impl Strategy {
             .as_ref()
             .ok_or("missing commander request")?;
         Ok(match request {
-            PlayerRequest::PlayerTargets { .. }
+            PlayerRequest::StackTargets { .. }
+            | PlayerRequest::PlayerTargets { .. }
             | PlayerRequest::Sacrifice { .. }
             | PlayerRequest::ResolveDiscard { .. }
             | PlayerRequest::SpendMana { .. } => {

@@ -90,6 +90,36 @@ pub mod fixtures {
             include_str!("../../../tests/fixtures/blood-artist.json"),
         ),
     ];
+    pub const STACK_RECORDS: [(&str, &str); 16] = [
+        ACTION_RECORDS[0],
+        ACTION_RECORDS[1],
+        ACTION_RECORDS[2],
+        ACTION_RECORDS[3],
+        ACTION_RECORDS[4],
+        ACTION_RECORDS[5],
+        ACTION_RECORDS[6],
+        ACTION_RECORDS[7],
+        ACTION_RECORDS[8],
+        ACTION_RECORDS[9],
+        ACTION_RECORDS[10],
+        ACTION_RECORDS[11],
+        (
+            "counterspell",
+            include_str!("../../../tests/fixtures/counterspell.json"),
+        ),
+        (
+            "stifle",
+            include_str!("../../../tests/fixtures/stifle.json"),
+        ),
+        (
+            "merfolk-looter",
+            include_str!("../../../tests/fixtures/merfolk-looter.json"),
+        ),
+        (
+            "azure-mage",
+            include_str!("../../../tests/fixtures/azure-mage.json"),
+        ),
+    ];
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -201,6 +231,9 @@ struct Sentence {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "effect", rename_all = "kebab-case")]
 enum Step {
+    Counter {
+        what: CounterTarget,
+    },
     ReturnToHand {
         what: Target,
         to: String,
@@ -225,10 +258,11 @@ enum Step {
     },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SourceCost {
-    cost: String,
-    what: ThisObject,
+#[serde(deny_unknown_fields, tag = "cost", rename_all = "kebab-case")]
+enum SourceCost {
+    Sacrifice { what: ThisObject },
+    TapSelf {},
+    Mana { symbols: Vec<String> },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -277,6 +311,29 @@ struct Target {
     filter: Filter,
     count: Count,
     selection_id: String,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CounterTarget {
+    #[serde(rename = "ref")]
+    reference: String,
+    filter: CounterFilter,
+    count: Count,
+    selection_id: String,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "cls", rename_all = "snake_case", deny_unknown_fields)]
+enum CounterFilter {
+    Spell {},
+    Ability {
+        #[serde(rename = "anyOf")]
+        any_of: Vec<AbilityKindFilter>,
+    },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AbilityKindFilter {
+    ability_kind: String,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -642,6 +699,31 @@ fn append_spell_effects(
         }
         for step in &sentence.steps {
             let instruction = match step {
+                Step::Counter { what } if what.reference == "target" && fixed_one(&what.count) => {
+                    let domain = match &what.filter {
+                        CounterFilter::Spell {} => TargetDomain::StackSpell,
+                        CounterFilter::Ability { any_of }
+                            if any_of.len() == 2
+                                && any_of
+                                    .iter()
+                                    .map(|filter| filter.ability_kind.as_str())
+                                    .collect::<BTreeSet<_>>()
+                                    == BTreeSet::from(["activated", "triggered"]) =>
+                        {
+                            TargetDomain::StackActivatedOrTriggeredAbility
+                        }
+                        _ => {
+                            return Err(unsupported(
+                                "targets",
+                                "counter requires the complete spell or activated-or-triggered domain",
+                            ));
+                        }
+                    };
+                    Instruction::CounterStackObject {
+                        target_slot: bind_target(program, slots, &what.selection_id, domain)?,
+                        source_block,
+                    }
+                }
                 Step::ReturnToHand { what, to } if to == "owner" => {
                     let target_slot = bind_creature_target(program, slots, what)?;
                     Instruction::ReturnToOwnerHand {
@@ -724,20 +806,38 @@ fn lower_activation(
     effects: &[Sentence],
     block: usize,
 ) -> Result<ActivatedAbility, Failure> {
-    if costs
-        != [SourceCost {
-            cost: "sacrifice".into(),
-            what: ThisObject {
-                reference: "this".into(),
-                noun: "creature".into(),
-            },
-        }]
-    {
-        return Err(unsupported(
-            "abilities.costs",
-            "only exact source-creature sacrifice costs are supported",
-        ));
-    }
+    let cost = match costs {
+        [SourceCost::Sacrifice { what }] if what.reference == "this" && what.noun == "creature" => {
+            ActivationCost::SacrificeSource
+        }
+        [SourceCost::TapSelf {}] => ActivationCost::TapSource,
+        [SourceCost::Mana { symbols }] if !symbols.is_empty() => {
+            // Each parser symbol is one complete Scryfall mana symbol. Reject
+            // injected braces rather than interpreting extra unparsed symbols.
+            if symbols
+                .iter()
+                .any(|symbol| symbol.is_empty() || symbol.contains(['{', '}']))
+            {
+                return Err(unsupported(
+                    "abilities.costs",
+                    "invalid complete mana-cost symbol",
+                ));
+            }
+            let text = symbols
+                .iter()
+                .map(|symbol| format!("{{{symbol}}}"))
+                .collect::<String>();
+            ActivationCost::Mana {
+                cost: mana_cost(&text)?,
+            }
+        }
+        _ => {
+            return Err(unsupported(
+                "abilities.costs",
+                "unsupported complete activation cost or combined costs",
+            ));
+        }
+    };
     let source_block = source_block(block)?;
     let mut instructions = vec![];
     for sentence in effects {
@@ -788,7 +888,7 @@ fn lower_activation(
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     Ok(ActivatedAbility {
         functioning_zone: FunctioningZone::Battlefield,
-        cost: ActivationCost::SacrificeSource,
+        cost,
         program: SpellProgram {
             timing: SpellTiming::Instant,
             resolution: SpellResolution::Instructions,
@@ -844,6 +944,16 @@ pub fn action_fixture_catalog() -> Result<Catalog, String> {
     catalog_from_records(&records, 5)
 }
 
+/// Exact IR-v6 stack targeting and activation-cost pool.
+pub fn stack_fixture_catalog() -> Result<Catalog, String> {
+    let records = fixtures::STACK_RECORDS
+        .iter()
+        .filter(|(name, _)| *name != "blood-artist")
+        .copied()
+        .collect::<Vec<_>>();
+    catalog_from_records(&records, 6)
+}
+
 fn catalog_from_records(records: &[(&str, &str)], schema_version: u32) -> Result<Catalog, String> {
     let mut definitions = vec![];
     for (_, r) in records {
@@ -878,6 +988,249 @@ mod tests {
         r["astSha256"] = sha256(canonical(&abilities).unwrap().as_bytes()).into();
         canonical(&r).unwrap()
     }
+    #[test]
+    fn stack_pool_retains_complete_counter_domains_costs_and_prior_definitions() {
+        let catalog = stack_fixture_catalog().unwrap();
+        assert_eq!(catalog.schema_version, 6);
+        assert_eq!(catalog.definitions.len(), 15);
+        assert_eq!(
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/expected-stack-ir.json"
+            ))
+            .unwrap(),
+            catalog
+        );
+        for previous in action_fixture_catalog().unwrap().definitions {
+            assert_eq!(
+                catalog
+                    .definitions
+                    .iter()
+                    .find(|d| d.oracle_id == previous.oracle_id),
+                Some(&previous)
+            );
+        }
+        for (name, domain, colored) in [
+            (
+                "Counterspell",
+                TargetDomain::StackSpell,
+                vec![Color::U, Color::U],
+            ),
+            (
+                "Stifle",
+                TargetDomain::StackActivatedOrTriggeredAbility,
+                vec![Color::U],
+            ),
+        ] {
+            let d = catalog.definitions.iter().find(|d| d.name == name).unwrap();
+            assert_eq!(
+                d.characteristics.mana_cost,
+                ManaCost {
+                    generic: Quantity::zero(),
+                    colored
+                }
+            );
+            let p = d.spell.as_ref().unwrap();
+            assert_eq!(p.targets.len(), 1);
+            assert_eq!(p.targets[0].domain, domain);
+            assert_eq!(
+                p.instructions,
+                [Instruction::CounterStackObject {
+                    target_slot: 0,
+                    source_block: 0
+                }]
+            );
+        }
+        let looter = catalog
+            .definitions
+            .iter()
+            .find(|d| d.name == "Merfolk Looter")
+            .unwrap();
+        assert_eq!(looter.activated[0].cost, ActivationCost::TapSource);
+        assert_eq!(
+            looter.activated[0].program.instructions,
+            [
+                Instruction::DrawCards {
+                    count: Quantity::from(1),
+                    source_block: 0
+                },
+                Instruction::DiscardCards {
+                    count: Quantity::from(1),
+                    source_block: 0
+                },
+            ]
+        );
+        let mage = catalog
+            .definitions
+            .iter()
+            .find(|d| d.name == "Azure Mage")
+            .unwrap();
+        assert_eq!(
+            mage.activated[0].cost,
+            ActivationCost::Mana {
+                cost: ManaCost {
+                    generic: Quantity::from(3),
+                    colored: vec![Color::U]
+                }
+            }
+        );
+        assert_eq!(
+            mage.activated[0].program.instructions,
+            [Instruction::DrawCards {
+                count: Quantity::from(1),
+                source_block: 0
+            }]
+        );
+        for d in [looter, mage] {
+            assert_eq!(
+                d.characteristics.mana_cost,
+                ManaCost {
+                    generic: Quantity::from(1),
+                    colored: vec![Color::U]
+                }
+            );
+            assert_eq!(d.activated.len(), 1);
+        }
+    }
+
+    #[test]
+    fn complete_stack_sources_reject_narrowed_filters_combined_costs_and_extra_effects() {
+        type Mutation = (usize, fn(&mut serde_json::Value));
+        let mutations: Vec<Mutation> = vec![
+            (12, |r| {
+                r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["what"]["filter"]
+                    ["controller"] = "you".into()
+            }),
+            (12, |r| {
+                r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["what"]["count"]
+                    ["value"] = 2.into()
+            }),
+            (13, |r| {
+                r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["what"]["filter"]
+                    ["anyOf"] = serde_json::json!([{"abilityKind":"activated"}])
+            }),
+            (13, |r| {
+                r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["what"]["filter"]
+                    ["anyOf"][1]["abilityKind"] = "mana".into()
+            }),
+            (13, |r| {
+                r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["what"]["selectionId"] =
+                    "".into()
+            }),
+            (14, |r| {
+                r["faces"][0]["result"]["abilities"][0]["costs"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(serde_json::json!({"cost":"mana","symbols":["U"]}))
+            }),
+            (14, |r| {
+                r["faces"][0]["result"]["abilities"][0]["costs"][0]["what"] =
+                    serde_json::json!({"ref":"another","noun":"creature"})
+            }),
+            (15, |r| {
+                r["faces"][0]["result"]["abilities"][0]["costs"][0]["symbols"] =
+                    serde_json::json!(["X", "U"])
+            }),
+            (15, |r| {
+                r["faces"][0]["result"]["abilities"][0]["costs"][0]["symbols"] =
+                    serde_json::json!(["3}{U"])
+            }),
+            (15, |r| {
+                r["faces"][0]["result"]["abilities"][0]["costs"][0]["symbols"] =
+                    serde_json::json!([])
+            }),
+            (15, |r| {
+                r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"].as_array_mut().unwrap().push(serde_json::json!({"effect":"gain-life","amount":{"amount":"fixed","value":1},"who":{"player":"you"}}))
+            }),
+        ];
+        for (index, change) in mutations {
+            let raw = changed_source(fixtures::STACK_RECORDS[index].1, |r| {
+                change(r);
+                r["faces"][0]["result"]["lines"][0]["ability"] =
+                    r["faces"][0]["result"]["abilities"][0].clone();
+            });
+            let result = compile(fixtures::MANIFEST, &raw);
+            assert!(
+                matches!(result, CompileResult::Unsupported { .. }),
+                "index {index}: {result:?}"
+            );
+        }
+        for (_, source) in &fixtures::STACK_RECORDS[12..] {
+            let raw = changed_source(source, |r| {
+                r["source"]["name"] = "Renamed complete source".into();
+                r["faces"][0]["result"]["name"] = "Renamed complete source".into();
+            });
+            assert!(matches!(
+                compile(fixtures::MANIFEST, &raw),
+                CompileResult::Lowered { .. }
+            ));
+            let raw = changed_source(source, |r| {
+                let original = r["source"]["oracle_text"].as_str().unwrap();
+                r["source"]["oracle_text"] = format!("{original}\nFlying").into();
+            });
+            assert!(matches!(
+                compile(fixtures::MANIFEST, &raw),
+                CompileResult::Invalid { .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn stack_vocabulary_requires_ir6_and_rejects_bad_binding_and_capability_closure() {
+        let catalog = stack_fixture_catalog().unwrap();
+        for version in [3, 4, 5, 7] {
+            let mut bad = catalog.clone();
+            bad.schema_version = version;
+            assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
+        }
+        for change in [
+            (|d: &mut Definition| {
+                d.spell.as_mut().unwrap().targets[0].domain = TargetDomain::BattlefieldCreature
+            }) as fn(&mut Definition),
+            |d| {
+                d.spell.as_mut().unwrap().instructions[0] = Instruction::CounterStackObject {
+                    target_slot: 1,
+                    source_block: 0,
+                }
+            },
+            |d| {
+                d.capabilities.remove(&Capability::CounterStackObjectV1);
+            },
+        ] {
+            let mut bad = catalog.clone();
+            let d = bad
+                .definitions
+                .iter_mut()
+                .find(|d| d.name == "Counterspell")
+                .unwrap();
+            change(d);
+            assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
+        }
+        let mut bad = catalog.clone();
+        let d = bad
+            .definitions
+            .iter_mut()
+            .find(|d| d.name == "Azure Mage")
+            .unwrap();
+        d.activated[0].cost = ActivationCost::Mana {
+            cost: ManaCost {
+                generic: Quantity::from(-1),
+                colored: vec![],
+            },
+        };
+        assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
+        let raw = canonical(&catalog).unwrap();
+        for bad in [
+            raw.replace(
+                "stack_activated_or_triggered_ability",
+                "stack_activated_ability",
+            ),
+            raw.replace("\"cost\":{\"mana\":", "\"cost\":{\"unknown\":"),
+            raw.replace("\"tap_source\"", "{\"tap_source\":{\"extra\":true}}"),
+        ] {
+            assert!(Catalog::read(&bad).is_err());
+        }
+    }
+
     #[test]
     fn rehashed_unsupported_semantics_are_not_hidden_by_hash_rejection() {
         type Mutation = (usize, fn(&mut serde_json::Value));
@@ -1572,7 +1925,7 @@ mod tests {
     #[test]
     fn action_ir_version_shapes_and_target_domains_are_strict() {
         let catalog = action_fixture_catalog().unwrap();
-        for version in [3, 4, 6] {
+        for version in [3, 4, 7] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -1696,7 +2049,7 @@ mod tests {
         assert!(old.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":4", "\"schema_version\":6"),
+            raw.replace("\"schema_version\":4", "\"schema_version\":7"),
             raw.replace(
                 "\"op\":\"put_on_top_owner_library\"",
                 "\"op\":\"put_on_bottom_owner_library\"",

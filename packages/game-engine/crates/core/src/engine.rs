@@ -33,6 +33,28 @@ const ACTION_EXTRA: [(&str, &str); 3] = [
         "083e4e186b3c2885ba9617f83afd3c1cda3f380d076512764c2855b0d1694942",
     ),
 ];
+const LOOTER: &str = "67362406-b1ca-49e2-800d-9050bfe8742a";
+const STIFLE: &str = "b3b00911-ece7-4484-bc36-f211ce72b6cc";
+const AZURE: &str = "bbf9fd47-10e1-4749-b06f-4fe72200afc7";
+const COUNTERSPELL: &str = "cc187110-1148-4090-bbb8-e205694a39f5";
+const STACK_EXTRA: [(&str, &str); 4] = [
+    (
+        LOOTER,
+        "ff9886c1d4cdeb3c8a229c4212a6fa4194f96a36c76de16fd0caa9eccb792733",
+    ),
+    (
+        STIFLE,
+        "a50b3d38b292e933dd53a2a4480387d81ff55371ae1bf922edcf530b7d3d2062",
+    ),
+    (
+        AZURE,
+        "aa6c9379bdfc6611cd0f59d895fde22611b834dcc2d00f699c3b47b15bd5d370",
+    ),
+    (
+        COUNTERSPELL,
+        "6f411a166df92427d9c9f48bc4d76c08b311ce28cdab1171a62d12980e39fde7",
+    ),
+];
 const ISAMARU: &str = "cfb756dd-6fe1-430a-8f04-8b10cac62a86";
 // Reviewed canonical definition digests, independent of compiler success.
 const ALLOWED: [(&str, &str); 5] = [
@@ -63,6 +85,10 @@ mod recovery;
 pub use recovery::SnapshotVerifier;
 mod actions;
 mod casting;
+mod stack_costs;
+use stack_costs::AnnouncementOrigin;
+#[cfg(test)]
+mod stack_costs_tests;
 use actions::{ResolutionChoice, StackKind};
 #[cfg(test)]
 mod actions_tests;
@@ -297,6 +323,10 @@ impl Prepared {
             && config != ScenarioConfig::actions_borrowed()
             && config != ScenarioConfig::actions_empty_library()
             && config != ScenarioConfig::mixed_mana()
+            && config != ScenarioConfig::stack_costs()
+            && config != ScenarioConfig::stack_costs_borrowed()
+            && config != ScenarioConfig::stack_costs_empty_library()
+            && config != ScenarioConfig::stack_costs_library()
         {
             return Err(
                 "configuration is outside the reviewed four-seat scenario; no match admission"
@@ -304,7 +334,9 @@ impl Prepared {
             );
         }
         if catalog.schema_version
-            != if config.actions_profile() {
+            != if config.stack_costs_profile() {
+                6
+            } else if config.actions_profile() {
                 5
             } else if config.library_profile() {
                 4
@@ -326,6 +358,9 @@ impl Prepared {
         }
         if config.actions_profile() {
             allowed.extend(ACTION_EXTRA);
+        }
+        if config.stack_costs_profile() {
+            allowed.extend(STACK_EXTRA);
         }
         if catalog.definitions.len() != allowed.len() {
             return Err("definition pool is not the closed reviewed scenario pool".into());
@@ -388,6 +423,10 @@ struct Object {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StackInstance {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    stack_targets: Vec<StackId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    announced_stack_targets: Vec<Vec<StackHandle>>,
     #[serde(default, skip_serializing_if = "StackKind::is_spell")]
     kind: StackKind,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -404,6 +443,8 @@ struct StackInstance {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Casting {
+    #[serde(default, skip_serializing_if = "AnnouncementOrigin::is_spell")]
+    origin: AnnouncementOrigin,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     spending: Option<BTreeMap<Color, Quantity>>,
     stack_id: StackId,
@@ -433,6 +474,9 @@ struct Resolving {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 enum Frame {
+    StackTargets {
+        cast: Casting,
+    },
     PlayerTargets {
         cast: Casting,
     },
@@ -492,6 +536,9 @@ enum Frame {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    StackTargets {
+        entries: Vec<StackId>,
+    },
     ActivateAbility {
         object: ObjectId,
         ability: u32,
@@ -550,6 +597,12 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    StackTargets {
+        decision_id: u64,
+        player: PlayerId,
+        occurrences: Vec<TargetSpec>,
+        candidates: Vec<StackId>,
+    },
     PlayerTargets {
         decision_id: u64,
         player: PlayerId,
@@ -623,7 +676,8 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::PlayerTargets { decision_id, .. }
+            Self::StackTargets { decision_id, .. }
+            | Self::PlayerTargets { decision_id, .. }
             | Self::Sacrifice { decision_id, .. }
             | Self::ResolveDiscard { decision_id, .. }
             | Self::SpendMana { decision_id, .. }
@@ -639,7 +693,8 @@ impl Request {
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::PlayerTargets { player, .. }
+            Self::StackTargets { player, .. }
+            | Self::PlayerTargets { player, .. }
             | Self::Sacrifice { player, .. }
             | Self::ResolveDiscard { player, .. }
             | Self::SpendMana { player, .. }
@@ -657,6 +712,11 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    CounterStackObject {
+        target: StackId,
+        countering: StackId,
+        domain: TargetDomain,
+    },
     Sacrifice {
         object: ObjectId,
         player: PlayerId,
@@ -748,6 +808,12 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    StackObjectCountered {
+        target: StackId,
+        source: ObjectId,
+        spell: bool,
+        movement: Option<MoveOutcome>,
+    },
     Sacrificed {
         player: PlayerId,
         movement: MoveOutcome,
@@ -840,6 +906,16 @@ pub enum EventOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 enum InstructionOutcome {
+    StackTargetIllegal {
+        target: StackId,
+    },
+    StackObjectNoLongerPresent {
+        target: StackId,
+    },
+    Countered {
+        target: StackId,
+        movement: Option<MoveOutcome>,
+    },
     PlayerActionSkipped {
         player: PlayerId,
     },
@@ -1218,6 +1294,15 @@ impl Game {
             return Ok((req.player() == viewer).then_some(req));
         }
         let req = match &self.state.frame {
+            Frame::StackTargets { .. } => Request::StackTargets {
+                decision_id: self.state.revision,
+                player: self.top()?.controller,
+                occurrences: self.program()?.targets.clone(),
+                candidates: self.eligible_stack_targets(
+                    self.program()?.targets[0].domain,
+                    Some(self.top()?.id),
+                ),
+            },
             Frame::PlayerTargets { .. } => Request::PlayerTargets {
                 decision_id: self.state.revision,
                 player: self.top()?.controller,
@@ -1505,6 +1590,8 @@ impl Game {
                             )?
                             .successor;
                         self.state.stack.push(StackInstance {
+                            stack_targets: vec![],
+                            announced_stack_targets: vec![],
                             kind: StackKind::Spell,
                             player_targets: vec![],
                             id,
@@ -1517,6 +1604,7 @@ impl Game {
                             cast_from,
                         });
                         let cast = Casting {
+                            origin: AnnouncementOrigin::Spell,
                             spending: None,
                             stack_id: id,
                             original_object,
@@ -1526,6 +1614,12 @@ impl Game {
                         };
                         self.state.frame = if self.program()?.targets.is_empty() {
                             Frame::Mana { cast }
+                        } else if matches!(
+                            self.program()?.targets[0].domain,
+                            TargetDomain::StackSpell
+                                | TargetDomain::StackActivatedOrTriggeredAbility
+                        ) {
+                            Frame::StackTargets { cast }
                         } else if self.program()?.targets[0].domain == TargetDomain::OpponentPlayer
                         {
                             Frame::PlayerTargets { cast }
@@ -1595,7 +1689,9 @@ impl Game {
             }
             Frame::Payment { cast } => self.payment_step(cast)?,
             Frame::SpendMana { cast } => self.spend_mana_step(cast)?,
-            Frame::PlayerTargets { .. } | Frame::ResolutionChoice { .. } => self.actions_step()?,
+            Frame::PlayerTargets { .. }
+            | Frame::StackTargets { .. }
+            | Frame::ResolutionChoice { .. } => self.actions_step()?,
             Frame::Resolve { mut frame } => {
                 let stack = frame.spell.clone();
                 let program = self.program_for(&stack)?.clone();
@@ -1805,7 +1901,7 @@ impl Game {
     pub fn snapshot_with_digest(&self) -> Result<(String, String), String> {
         let state_sha256 = self.state_digest()?;
         let json = canonical(&SnapshotRef {
-            snapshot_version: 11,
+            snapshot_version: 12,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -1817,7 +1913,7 @@ impl Game {
     }
     fn read_snapshot(prepared: Prepared, json: &str) -> Result<(Self, String), String> {
         let s: Snapshot = strict_read(json)?;
-        if s.snapshot_version != 11
+        if s.snapshot_version != 12
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -1929,6 +2025,7 @@ impl Game {
             {
                 return Err("snapshot stack identity invariant".into());
             }
+            self.validate_stack_bindings(stack)?;
             let n = self.program_for(stack)?.targets.len();
             if stack.announced_targets.len() != 4
                 || stack
@@ -1942,6 +2039,7 @@ impl Game {
                 && (matches!(
                     s.frame,
                     Frame::Targets { .. }
+                        | Frame::StackTargets { .. }
                         | Frame::PlayerTargets { .. }
                         | Frame::Mana { .. }
                         | Frame::SpendMana { .. }
@@ -1969,15 +2067,21 @@ impl Game {
         }
         match &s.frame {
             Frame::Targets { cast }
+            | Frame::StackTargets { cast }
             | Frame::PlayerTargets { cast }
             | Frame::Mana { cast }
             | Frame::SpendMana { cast }
             | Frame::Payment { cast } => {
                 let top = self.top()?;
-                if cast.stack_id != top.id
+                if cast.origin.is_spell() != top.kind.is_spell()
+                    || cast.stack_id != top.id
                     || cast.original_object.card != top.source.card
-                    || cast.original_object.incarnation.checked_add(1)
-                        != Some(top.source.incarnation)
+                    || if cast.origin.is_spell() {
+                        cast.original_object.incarnation.checked_add(1)
+                            != Some(top.source.incarnation)
+                    } else {
+                        cast.original_object != top.source
+                    }
                     || top.paid.is_some()
                 {
                     return Err("snapshot casting frame invariant".into());
@@ -1989,14 +2093,22 @@ impl Game {
                         .mana_activations
                         .iter()
                         .any(|a| a.player != top.controller || a.amount != Quantity::from(1))
-                    || (matches!(s.frame, Frame::Targets { .. } | Frame::PlayerTargets { .. })
-                        && (!cast.mana_activations.is_empty() || cast.undo_mana))
+                    || (matches!(
+                        s.frame,
+                        Frame::Targets { .. }
+                            | Frame::PlayerTargets { .. }
+                            | Frame::StackTargets { .. }
+                    ) && (!cast.mana_activations.is_empty() || cast.undo_mana))
                     || (matches!(s.frame, Frame::Mana { .. }) && cast.undo_mana)
                 {
                     return Err("snapshot casting mana receipt invariant".into());
                 }
-                if matches!(s.frame, Frame::Targets { .. } | Frame::PlayerTargets { .. })
-                    && self.bound_target_count(top) != 0
+                if matches!(
+                    s.frame,
+                    Frame::Targets { .. }
+                        | Frame::PlayerTargets { .. }
+                        | Frame::StackTargets { .. }
+                ) && self.bound_target_count(top) != 0
                 {
                     return Err("snapshot announcement target invariant".into());
                 }

@@ -65,7 +65,8 @@ impl Policy {
                 .find(|o| o.zone == (Zone::Hand { owner: v.viewer }) && o.oracle_id == id)
         };
         Ok(match request {
-            PlayerRequest::PlayerTargets { .. }
+            PlayerRequest::StackTargets { .. }
+            | PlayerRequest::PlayerTargets { .. }
             | PlayerRequest::Sacrifice { .. }
             | PlayerRequest::ResolveDiscard { .. }
             | PlayerRequest::SpendMana { .. } => {

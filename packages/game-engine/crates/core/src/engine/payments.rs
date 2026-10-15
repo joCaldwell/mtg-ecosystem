@@ -132,12 +132,23 @@ impl Game {
             },
         )?;
         self.state.stack.last_mut().ok_or("missing stack")?.paid = Some(cost);
-        self.record_event(Event::SpellCast {
-            stack_id: cast.stack_id,
-        })?;
-        self.state
-            .commanders
-            .record_cast(stack.source.card, stack.controller, stack.cast_from)?;
+        if stack.kind.is_spell() {
+            self.record_event(Event::SpellCast {
+                stack_id: cast.stack_id,
+            })?;
+            self.state.commanders.record_cast(
+                stack.source.card,
+                stack.controller,
+                stack.cast_from,
+            )?;
+        } else if let StackKind::Activated { ability, .. } = &stack.kind {
+            self.record_event(Event::AbilityActivated {
+                stack_id: stack.id,
+                source: stack.source,
+                player: stack.controller,
+                ability: *ability,
+            })?;
+        }
         self.state.priority = stack.controller;
         self.state.frame = Frame::Priority;
         self.stabilize()

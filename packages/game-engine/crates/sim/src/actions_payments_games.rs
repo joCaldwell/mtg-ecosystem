@@ -264,6 +264,9 @@ impl Strategy {
                     PlayerResponse::Pass
                 }
             }
+            PlayerRequest::StackTargets { .. } => {
+                return Err("unexpected stack target in historical action profile".into());
+            }
             PlayerRequest::PlayerTargets { .. } => PlayerResponse::PlayerTargets {
                 players: vec![if self.policy == Policy::EdictEmpty {
                     PlayerId(3)
