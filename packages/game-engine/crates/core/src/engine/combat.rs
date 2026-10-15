@@ -430,6 +430,16 @@ impl Game {
                 }
             })
             .collect::<Vec<_>>();
+        if occurrences.is_empty()
+            && losses.is_empty()
+            && self.offer_commander_sba(Frame::Stabilize {
+                resume: Box::new(resume.clone()),
+                cleanup,
+                changed,
+            })?
+        {
+            return Ok(());
+        }
         if occurrences.is_empty() && losses.is_empty() {
             self.state.frame = if cleanup && changed {
                 self.state.cleanup_repeat = true;

@@ -107,9 +107,7 @@ impl Game {
             .get_mut(&cast.original_object.card)
             .ok_or("missing reversal object")?;
         o.id = cast.original_object;
-        o.zone = Zone::Hand {
-            owner: stack.controller,
-        };
+        o.zone = stack.cast_from;
         o.controller = stack.controller;
         o.default_controller = stack.controller;
         o.tapped = false;

@@ -6,7 +6,7 @@ support, search, and the bulk Card IR pipeline remain later work.
 The current P2 slice adds budget suspension, resumable query work, private
 observations with scoped handles, permitted SearchContext, and recovery during
 payment/resolution. See the [P2 slice contract](../../docs/game-engine-p2-slice.md).
-The next [bounded departure slice](../../docs/game-engine-departure-slice.md)
+The [bounded departure slice](../../docs/game-engine-departure-slice.md)
 adds physical Commander history, surviving turn/priority state, and ordered
 concessions with recovery through casting and resolution.
 The [event slice](../../docs/game-engine-event-slice.md) adds atomic ordered and
@@ -29,13 +29,22 @@ four-seat rotation, explicit phase/step entry, basic-land plays, and targetless
 creature casting through the existing mana/payment/stack paths. The
 [combat games slice](../../docs/game-engine-combat-games.md) adds ordinary
 multiplayer combat, simultaneous damage and required SBAs, ordered draws, cleanup
-discard, and rules-defined elimination. Seven exact configurations are admitted.
+discard, and rules-defined elimination. These slices admit seven historical exact configurations.
 Two deterministic small games finish under player-facing policies: an eight-turn
 combat/response game and a four-turn failed-draw game. Additional witnesses cover
 multiple blockers and simultaneous losses.
 
-Legal Commander matches, command-zone casting/return/tax/damage, keywords,
-triggers, replacements/prevention, continuous effects, shuffling and arbitrary
+The [Commander casting slice](../../docs/game-engine-commander-casting.md) adds
+three exact configurations and a separate six-definition catalog with archived
+Plains. Command-zone casting applies per-physical-card/per-caster tax; failed
+payment restores the original zone. Resumable owner choices handle hand-return
+replacement and fresh graveyard/exile SBA return, followed by recasting. Seven
+player-facing policy witnesses cover keep/undo, hand recast, lethal combat, and
+default-controller departure. The original profiles keep their five-definition
+catalog and gameplay references.
+
+Legal Commander matches, Commander combat damage, library-return replacement, keywords,
+triggers, general replacements/prevention, continuous effects, shuffling and arbitrary
 deck admission remain later work:
 
 - [Implementation plan](../../docs/game-engine-plan.md): milestones, exit evidence, tests, search benchmarks, and open decisions.
@@ -53,17 +62,22 @@ npm run check:engine
 cargo test --workspace --locked --release
 cargo run --locked -p mtg-sim -- demo
 cargo run --locked --release -p mtg-sim -- combat-games
+cargo run --locked --release -p mtg-sim -- commander-games --recover
 cargo run --locked --release -p mtg-sim -- demo --bundle generated/p2-bundles
 ```
 
-`mtg-sim compile` emits the fixture catalog; `schema` exports its generated
+`mtg-sim compile` emits the historical fixture catalog; `compile-commander` emits
+the extended catalog. `schema` exports their generated
 JSON Schema; `report` includes the paired unsupported source definition;
 `verify-bundle <file>` recompiles retained records and checks recovery/replay
 against their pinned build. The demo bundle includes recovery checkpoints for the original and departure
 scenarios, ordinary/detached response runs, and casting-time
 mana success/keep/undo runs, and the eight-card turns witness in all three trace
 modes, plus four combat policy witnesses (thirty-six mode executions across
-seven configurations). `combat-games --recover` additionally restores every
+seven historical configurations), plus seven Commander witnesses and twenty-one
+additional trace-mode runs in three new configurations. `commander-games --recover`
+restores all 451 Commander checkpoints, including queued/pending input boundaries.
+`combat-games --recover` additionally restores every
 accepted-input and automatic execution boundary. Combat recovery records retain
 complete journals plus boundary/digest witnesses; offline verification reconstructs
 and restores every exact semantic boundary with diagnostics off, then restores
@@ -87,9 +101,10 @@ capture; runtime and replay never fetch rules.
 unimplemented bulk pipeline.
 
 The test profile is optimized at level 2 with debug assertions and overflow checks
-enabled. Bundle v9 records the effective optimization/check settings for its build
-identity and offline rebuild. Snapshots remain v8 with the same ordered history
-and trace arrays. `SnapshotVerifier` verifies ordered checkpoint sequences using
+enabled. Bundle v10 records the effective optimization/check settings for its build
+identity and offline rebuild, both exact source catalogs, and all 57 trace-mode
+runs. Snapshots are v9, player projections v7 and query sidecars v6.
+`SnapshotVerifier` verifies ordered checkpoint sequences using
 one independent forward replay while applying the complete standalone restore
 checks at every boundary. Histories share immutable chunks across native forks;
 branch mutations remain independent.

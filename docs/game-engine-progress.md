@@ -597,10 +597,12 @@ or edited by this delivery.
 Remaining P2 foundations include broader functioning-zone/ability discovery,
 interaction-specific event compositions, and wider recovery invariants.
 Atomic batches and the three trace modes are implemented for the closed profiles;
-replacement/trigger consumers and additional SBA families still need their own
+general replacement/trigger consumers and additional SBA families still need their own
 source/runtime slices. Commander designation/history and departure
-foundations are implemented in the bounded follow-up described above; production
-command-zone casts and Commander combat-damage accounting remain later mechanics;
+foundations are implemented in the bounded follow-up described above. Command-zone
+casting/tax and hand/graveyard/exile owner return choices are now implemented in
+the three exact [Commander profiles](game-engine-commander-casting.md);
+Commander combat-damage accounting and library-return replacement remain later mechanics;
 ordinary creature combat is implemented in the reviewed combat configurations.
 Recovery still replays the small scenario to prove reachability. Rules work units
 are not wall-clock or process-memory guarantees; larger profiles require measured
@@ -617,8 +619,9 @@ P3 still expands general cost families, broader permanent and turn behavior,
 and resolution-time choices. Ordinary supported instant responses, casting-time
 intrinsic mana, and the bounded turns/land/targetless-creature loop, ordinary combat, damage/SBAs,
 ordered draws, cleanup and complete small scenario games are now implemented for
-exact configurations; broader stack/cost families remain. P4 adds the Commander lifecycle and
-event interactions. P5 validates full legal decks/pods, a closed reachable pool,
+exact configurations, now including command casting/tax and connected return/recast
+choices; broader stack/cost families remain. P4 still needs Commander damage,
+library replacement and broader event interactions. P5 validates full legal decks/pods, a closed reachable pool,
 and seeded complete games. Unsupported runtime paths currently fault or reject;
 legal-match mode is rejected. Random operations, search, server, and UI remain
 outside this first slice. No product decision currently blocks P2 work.
@@ -683,3 +686,94 @@ Retained release identities:
 Retained closure: `/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-30d40cec61470317-4kajxw/`. Generated bundles,
 component timing logs and the retention summary remain ignored or outside the
 worktree.
+
+
+## Command-zone casting and owner return choices — October 15, 2026
+
+The [frozen Commander contract](game-engine-commander-casting.md) is implemented
+for three new exact four-seat configurations. The compiler adds the exact
+historical Plains source to a separate six-definition catalog; the original five
+definitions, catalog and reviewed gameplay references remain unchanged. IR stays
+v3. No parser source was changed.
+
+Command-zone casting uses ordinary creature timing, the existing casting-time
+mana/payment interpreter, and exact per-physical-commander/per-caster tax.
+Announcement freezes total cost; only completed command-origin casts advance
+history. Failed payment restores the original zone/incarnation and preserves the
+reviewed keep-all/undo-all mana behavior. A hand recast pays the printed cost
+without incrementing command history.
+
+Owner choices now suspend and resume ordinary execution. Hand return is replaced
+before its move; lethal combat and default-controller departure actually move
+the commander into graveyard/exile before a fresh-incarnation SBA return choice.
+Declining consumes that opportunity. A started resolving invocation survives its
+caster's departure, while owner departure invalidates the choice without
+resurrecting owned objects. Player-facing policies consume only permitted
+observations/requests and use budgeted response validation.
+
+Seven reviewed policy journals cover both tax-payment reversal choices, hand
+recasting, lethal simultaneous creature deaths, and exile after a default
+controller leaves:
+
+| Policy | Decisions | Events | Recovery checkpoints |
+| --- | ---: | ---: | ---: |
+| `tax_keep` | 28 | 45 | 82 |
+| `tax_undo` | 29 | 48 | 84 |
+| `hand_recast` | 24 | 38 | 72 |
+| `grave_return` | 34 | 72 | 115 |
+| `grave_decline` | 19 | 41 | 66 |
+| `exile_return` | 7 | 18 | 25 |
+| `exile_decline` | 1 | 6 | 7 |
+
+The new witnesses retain **451 exact recovery checkpoints**. Their complete
+journals, events, final observations and physical history expectations are in
+`packages/game-engine/tests/fixtures/expected-commander-scenario.json`.
+All previous semantic final hashes, accepted journals and flat gameplay traces
+were checked against their unchanged fixtures. Historical projections are
+compared after the explicit observation-format version change.
+Snapshot v9, bundle v10, projection/search v7 and query-sidecar v6 preserve the
+new choices, frozen casting cost and fresh-return eligibility.
+
+Completed verification:
+
+- `npm run check:engine`: formatting, Clippy with warnings denied, **162 Rust
+  tests**, and **9 Node cross-language/CLI checks** passed.
+- `cargo test --workspace --locked --release`: all **162 Rust tests** passed.
+- Independent reviewers added **13 black-box admission/adversarial tests**;
+  tests cover owner/caster departures before and after accepted return input,
+  stale tokens/receipts, restored query work, fork isolation, forged histories,
+  costs, origins, fresh eligibility and nested resolution continuations.
+- All seven policies agree across one-unit/unlimited execution, resumed query
+  budgets and off/compact/detailed traces. Every new checkpoint restores via an
+  independent replay, and complete final traces match journal replay.
+- `npm run retain:engine`: retained **60 native source/fixture files** and
+  **1,581 vendored dependency files**, rebuilt with frozen/offline Cargo in an
+  initially empty Cargo home and fresh target, and replayed with that independent
+  executable. It verified **57 trace-mode executions**, **1,421 historical combat
+  boundaries**, all **451 Commander checkpoints**, historical legacy checkpoints,
+  both exact source-to-IR catalogs and the retained query sidecar.
+- Independent artifact audit matched the retained source closure to the worktree,
+  both exact record arrays and catalogs, rules, trace bindings and vendored
+  package checksums. No review findings remain unresolved. Review fixes reject
+  malformed commander snapshots without panicking and bind every retained source
+  record, including unsupported witnesses, to the build's exact fixture bytes.
+
+Retained release identities:
+
+- Build: `4ca15964f31c6d04243fe0aaadc372c8ee1ada126658161a8de93fffbffb3cad`.
+- Replay bundle: `cc4b238906ea45d48230bdbbb3def5ee95f9d5bbac99770d0c9f365a0eb72aae`.
+- Rebuilt executable: `0ec446ed6da703e9803a8ae0e8037cd7d86130eae6b5cadc0177e428998faeab`.
+- Dependency manifest: `387384711d404f44993e8ab583e269c5105d1cc8b583307e3035f14e03d7474f`.
+- Historical baseline final state: `58a0a241c4662d403dec8944430c1fe402c7fd15d22a2ce242c9a0b01d54f657`.
+
+Retained closure: `/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-cc4b238906ea45d4-8CtGsj/`.
+Its `evidence.json` records file hashes, offline flags and replay verification;
+`generated/p2-retention.json` and `generated/commander-verification/` are ignored
+worktree summaries and gate logs. Downloaded rules, dependencies, executables and
+replay bundles remain outside version control.
+
+This delivery is local on `feat/engine-commander-casting` and is not merged.
+Commander-to-player combat damage faults before committing damage; library-return
+replacement, general replacement ordering/triggers, arbitrary decks and full
+legal Commander matches remain unsupported. This advances connected P3/P4
+scenario evidence and does not claim either broad milestone complete.

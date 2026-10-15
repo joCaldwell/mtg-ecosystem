@@ -495,7 +495,7 @@ fn absent_active_turn_finishes_before_next_live_turn_and_queued_winner_precedes_
 fn public_land_queries_recover_and_handles_tokens_and_receipts_expire() {
     let mut game = Game::new(prepared());
     let own = observe(&game, PlayerId(0));
-    assert_eq!(own.observation_version, 6);
+    assert_eq!(own.observation_version, 7);
     let token = own.decision.unwrap().token().clone();
     let hand = game
         .handle_for(PlayerId(0), game.object_id(CardId(1)).unwrap())
@@ -513,7 +513,7 @@ fn public_land_queries_recover_and_handles_tokens_and_receipts_expire() {
     let saved = game.save_work(&work).unwrap();
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(&saved).unwrap()["work_version"],
-        5
+        6
     );
     let restored = Game::restore(prepared(), &game.snapshot().unwrap()).unwrap();
     let recovered_work = restored.restore_work(&saved).unwrap();

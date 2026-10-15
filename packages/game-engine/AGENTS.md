@@ -20,6 +20,12 @@ records effective optimization/debug settings; ordered snapshot verification
 shares a proved independent replay prefix without weakening standalone restore. This package is scenario-only; do not advertise playable
 Commander matches.
 
+`docs/game-engine-commander-casting.md` adds three exact Commander profiles,
+a separate six-definition catalog with source-backed Plains, command casting/tax,
+owner hand-replacement and fresh graveyard/exile SBA return choices, and recasting.
+Snapshot v9, bundle v10, projection v7 and query-sidecar v6 retain these choices.
+Historical profiles retain their separate five-definition catalog.
+
 Run from repository root, using pinned Rust 1.99.0:
 
 - `npm run check:engine`: toolchain check, formatting, Clippy, Rust tests, and
@@ -64,9 +70,13 @@ Concessions are trusted host external inputs queued at recorded rule boundaries;
 process them before ordinary work and expose no query while they are pending.
 Keep original seating, departed-player facts, and physical Commander history.
 Default control is separate from ownership and explicit control grants.
-Command-zone casting and Commander damage remain unsupported. Ordinary creature
-combat is enabled only in the two reviewed combat profiles; ledger domain tests
-do not constitute production Commander lifecycle support.
+Command-zone casting/tax and hand/graveyard/exile return choices are supported
+only in the three exact Commander profiles. A failed cast restores its original
+zone/incarnation; completing a command-origin cast alone advances physical,
+per-caster tax history. Commander-to-player combat damage remains unsupported
+and faults atomically. Library-return replacements and general Commander match
+support remain later work. Ordinary combat is enabled in the reviewed combat
+and Commander profiles.
 
 Batch mutation is private and atomic. Capture consumed pre-event facts and use
 actual typed outcome slots. Simultaneous groups admit independent read/write
@@ -108,3 +118,11 @@ that restriction. Do not widen to mixed-color generic payment without an explici
 spending decision. The simulator's combat policies consume only player-facing
 observations/requests; host checkpoint/replay verification is separate. Budget
 truncation and faults never substitute for rules-defined outcomes.
+
+Owner return decisions are resumable continuations, never priority windows.
+Hand return replaces the movement before it happens; graveyard/exile return
+requires actual entry and the next SBA check. Decline consumes that incarnation's
+opportunity. Drain concessions and revalidate pending choices before exposing
+queries. Source departure preserves a started resolution; owner departure never
+resurrects an object. Queries and recovered validation work retain executor/state
+scoping at these choices.

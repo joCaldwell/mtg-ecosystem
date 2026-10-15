@@ -275,7 +275,7 @@ impl Game {
         if b.cursor as usize >= 4 + self.state.objects.len() + self.state.stack.len() {
             b.view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
             return Ok(Some(Observation {
-                observation_version: 6,
+                observation_version: 7,
                 view: b.view.clone(),
                 decision: b.decision.clone(),
             }));
@@ -322,7 +322,8 @@ impl Game {
                     self.validate_player_token(*viewer, token)
                         .map_err(invalid)?;
                     let timing_valid = match (&self.state.frame, response) {
-                        (Frame::Attackers, PlayerResponse::Attackers { .. })
+                        (Frame::CommanderReturn { .. }, PlayerResponse::CommanderReturn { .. })
+                        | (Frame::Attackers, PlayerResponse::Attackers { .. })
                         | (Frame::Blockers { .. }, PlayerResponse::Blockers { .. })
                         | (Frame::DamageChoice { .. }, PlayerResponse::Damage { .. })
                         | (Frame::Discard { .. }, PlayerResponse::Discard { .. }) => true,
@@ -420,7 +421,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 6,
+                    context_version: 7,
                     observation: *observation.clone().ok_or(QueryRejection::Invariant)?,
                     permitted_history: history.clone(),
                     open_decklists: decks.clone(),
@@ -439,7 +440,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: 5,
+            work_version: 6,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -448,7 +449,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != 5
+        if saved.work_version != 6
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?

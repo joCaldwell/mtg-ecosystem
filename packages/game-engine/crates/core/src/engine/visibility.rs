@@ -75,6 +75,12 @@ pub struct PermittedView {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerRequest {
+    CommanderReturn {
+        token: DecisionToken,
+        player: PlayerId,
+        object: ObjectHandle,
+        destination: Zone,
+    },
     Attackers {
         token: DecisionToken,
         player: PlayerId,
@@ -119,7 +125,8 @@ pub enum PlayerRequest {
 impl PlayerRequest {
     pub fn token(&self) -> &DecisionToken {
         match self {
-            Self::Attackers { token, .. }
+            Self::CommanderReturn { token, .. }
+            | Self::Attackers { token, .. }
             | Self::Blockers { token, .. }
             | Self::Damage { token, .. }
             | Self::Discard { token, .. }
@@ -139,6 +146,9 @@ pub struct Observation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerResponse {
+    CommanderReturn {
+        to_command: bool,
+    },
     Attackers {
         attacks: Vec<(ObjectHandle, PlayerId)>,
     },
@@ -413,6 +423,18 @@ impl Game {
             ));
         }
         match &self.state.frame {
+            Frame::CommanderReturn {
+                object,
+                destination,
+                ..
+            } if self.state.cards[&object.card].owner == viewer => {
+                Ok(Some(PlayerRequest::CommanderReturn {
+                    token,
+                    player: viewer,
+                    object: self.handle_for(viewer, *object)?,
+                    destination: *destination,
+                }))
+            }
             Frame::Priority if self.state.priority == viewer => Ok(Some(PlayerRequest::Priority {
                 token,
                 player: viewer,
@@ -429,11 +451,7 @@ impl Game {
                 Ok(Some(PlayerRequest::Mana {
                     token,
                     player: viewer,
-                    cost: self
-                        .definition(self.top()?.source.card)?
-                        .characteristics
-                        .mana_cost
-                        .clone(),
+                    cost: self.top()?.total_cost.clone(),
                 }))
             }
             _ => Ok(None),
@@ -488,6 +506,11 @@ impl Game {
                 Some((self.state.revision, 3))
             } else {
                 match self.state.frame {
+                    Frame::CommanderReturn { object, .. }
+                        if self.state.cards[&object.card].owner == viewer =>
+                    {
+                        Some((self.state.revision, 4))
+                    }
                     Frame::Priority if self.state.priority == viewer => {
                         Some((self.state.revision, 0))
                     }
@@ -555,6 +578,9 @@ impl Game {
             return Err("oversized player declaration".into());
         }
         match response {
+            PlayerResponse::CommanderReturn { to_command } => Ok(Response::CommanderReturn {
+                to_command: *to_command,
+            }),
             PlayerResponse::Attackers { attacks } => Ok(Response::Attackers {
                 attacks: attacks
                     .iter()

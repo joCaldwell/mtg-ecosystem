@@ -40,6 +40,13 @@
       "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
     },
     {
+      "file": "plains.json",
+      "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99",
+      "record_sha256": "6b23cdb80b5897603e4bf4afc0d07c59e7b49c25672fc6c7fd6ba02855e5e6c0",
+      "source_sha256": "2d754c3d2e6a5f780dac19f38fbe26e8631cfecdbe8a4372f095dbdfa308a1d5",
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
+    },
+    {
       "file": "unsummon.json",
       "oracle_id": "837182db-1bf3-4a2c-bd01-1af9d9873561",
       "record_sha256": "2ccc2cfc21e2ceb0594280ab8d1c8c2decb63dcbdfcc55524c5667cc057b3d38",

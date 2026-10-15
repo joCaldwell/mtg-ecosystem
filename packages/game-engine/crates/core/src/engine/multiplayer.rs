@@ -73,8 +73,7 @@ impl CommanderLedger {
         amount.add(&prior);
         Ok(amount)
     }
-    // Only completed casting calls this hook. The first admitted spell is not
-    // a commander; command-zone casting remains outside the reviewed profile.
+    // Only completed casting calls this hook; reversal never advances tax.
     pub(super) fn record_cast(
         &mut self,
         card: CardId,
@@ -96,7 +95,7 @@ impl CommanderLedger {
         Ok(())
     }
     #[cfg(test)]
-    // Domain contract only until a production combat/damage slice exists.
+    // Domain ledger contract only; Commander combat damage remains unsupported.
     pub(super) fn record_damage(
         &mut self,
         card: CardId,
@@ -449,6 +448,7 @@ impl Game {
         {
             self.begin_resolution()?;
         }
+        self.revalidate_commander_departure()?;
         if self.combat_enabled() && !self.state.simultaneous_losses {
             self.revalidate_combat_departure()?;
         }

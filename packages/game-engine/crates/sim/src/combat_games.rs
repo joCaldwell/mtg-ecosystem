@@ -224,6 +224,9 @@ impl Policy {
             } => PlayerResponse::Discard {
                 objects: candidates.iter().take(*count).cloned().collect(),
             },
+            PlayerRequest::CommanderReturn { .. } => {
+                return Err("historical combat policy reached a Commander return".into());
+            }
         })
     }
 }

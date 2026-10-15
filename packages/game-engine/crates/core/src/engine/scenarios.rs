@@ -4,6 +4,71 @@
 use super::*;
 
 impl ScenarioConfig {
+    pub fn command_casting() -> Self {
+        let cards = (0..14)
+            .map(|id| {
+                let owner = PlayerId(match id {
+                    0..=5 | 13 => 0,
+                    6 | 7 | 10 => 1,
+                    8 | 11 => 2,
+                    _ => 3,
+                });
+                CardSetup {
+                    id: CardId(id),
+                    owner,
+                    controller: owner,
+                    oracle_id: match id {
+                        0 => ISAMARU,
+                        1..=5 | 13 => PLAINS,
+                        7 => SPELL,
+                        _ => ISLAND,
+                    }
+                    .into(),
+                    zone: match id {
+                        0 => Zone::Command { owner },
+                        7 => Zone::Hand { owner },
+                        10..=13 => Zone::Library { owner },
+                        _ => Zone::Battlefield,
+                    },
+                }
+            })
+            .collect();
+        Self {
+            mode: Mode::Scenario,
+            players: 4,
+            profile: "four-seat-commander-casting-v1".into(),
+            commanders: vec![CardId(0)],
+            cards,
+        }
+    }
+    pub fn commander_lifecycle() -> Self {
+        let mut config = Self::command_casting();
+        config.profile = "four-seat-commander-lifecycle-v1".into();
+        config.cards[0].zone = Zone::Battlefield;
+        config.cards.push(CardSetup {
+            id: CardId(14),
+            oracle_id: BEARS.into(),
+            owner: PlayerId(1),
+            controller: PlayerId(1),
+            zone: Zone::Battlefield,
+        });
+        config
+    }
+    pub fn commander_exile() -> Self {
+        let mut config = Self::commander_lifecycle();
+        config.profile = "four-seat-commander-exile-v1".into();
+        config.cards[0].controller = PlayerId(1);
+        config
+    }
+    pub(super) fn commander_profile(&self) -> bool {
+        matches!(
+            self.profile.as_str(),
+            "four-seat-commander-casting-v1"
+                | "four-seat-commander-lifecycle-v1"
+                | "four-seat-commander-exile-v1"
+        )
+    }
+
     pub fn combat_game() -> Self {
         let cards = (0..27)
             .map(|id| {
@@ -81,12 +146,16 @@ impl ScenarioConfig {
     pub(super) fn combat_profile(&self) -> bool {
         matches!(
             self.profile.as_str(),
-            "four-seat-combat-game-v1" | "four-seat-combat-interactions-v1"
+            "four-seat-combat-game-v1"
+                | "four-seat-combat-interactions-v1"
+                | "four-seat-commander-casting-v1"
+                | "four-seat-commander-lifecycle-v1"
+                | "four-seat-commander-exile-v1"
         )
     }
 
     pub(super) fn initial_life(&self, player: PlayerId) -> Quantity {
-        Quantity::from(if self.combat_profile() {
+        Quantity::from(if self.combat_profile() && !self.commander_profile() {
             if player == PlayerId(0) { 6 } else { 2 }
         } else {
             40

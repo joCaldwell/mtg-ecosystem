@@ -14,7 +14,9 @@ const read = (name: string) => fs.readFileSync(new URL(name, fixtureDir), "utf8"
 function run(command: string, ...args: string[]) {
   // The package gate already runs all Rust tests in debug; use the optimized CLI
   // for these profile-independent contracts and the full recovery demonstration.
-  const result = spawnSync("cargo", ["run", "--quiet", "--locked", "--release", "-p", "mtg-sim", "--", command, ...args], { cwd: root, encoding: "utf8" });
+  const result = spawnSync("cargo", ["run", "--quiet", "--locked", "--release", "-p", "mtg-sim", "--", command, ...args], {
+    cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024,
+  });
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout);
 }
@@ -98,6 +100,36 @@ test("Rust lowering matches reviewed IR and its generated JSON Schema", () => {
   }
 });
 
+test("Commander catalog adds exact archived Plains without changing card costs", () => {
+  const original = run("compile");
+  const catalog = run("compile-commander");
+  assert.deepEqual(catalog, JSON.parse(read("expected-commander-ir.json")));
+  assert.equal(catalog.schema_version, original.schema_version);
+  assert.equal(catalog.definitions.length, original.definitions.length + 1);
+  for (const definition of original.definitions) {
+    assert.deepEqual(catalog.definitions.find((d: any) => d.oracle_id === definition.oracle_id), definition);
+  }
+  const plains = catalog.definitions.find((d: any) => d.oracle_id === "bc71ebf6-2056-41f7-be35-b2e5c34afa99");
+  const source = JSON.parse(read("plains.json"));
+  assert.equal(plains.provenance.source_json, JSON.stringify(source.source));
+  assert.equal(plains.provenance.source_sha256, source.sourceSha256);
+  assert.equal(plains.provenance.source_index, 28278);
+  assert.equal(plains.characteristics.kind, "land");
+  assert.equal(plains.characteristics.basic, true);
+  assert.deepEqual(plains.characteristics.subtypes, ["Plains"]);
+  assert.deepEqual(plains.characteristics.colors, []);
+  assert.deepEqual(plains.characteristics.color_identity, ["W"]);
+  assert.equal(plains.intrinsic_zone, "battlefield");
+  assert.equal(plains.spell, null);
+  assert.deepEqual(plains.capabilities, ["normal_layout_v1", "basic_land_mana_v1", "land_play_v1"]);
+  const commander = catalog.definitions.find((d: any) => d.oracle_id === "cfb756dd-6fe1-430a-8f04-8b10cac62a86");
+  assert.deepEqual(commander.characteristics.mana_cost, { generic: "0", colored: ["W"] });
+  const validate = new Ajv2020({ strict: false, formats: {
+    uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },
+  } }).compile(run("schema"));
+  assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
+});
+
 // The deterministic CLI demo verifies all retained families; share that expensive
 // execution across projection assertions in this process.
 let demoResult: any;
@@ -107,7 +139,7 @@ test("response observations expose stack order without reviving historical targe
   const response = demo().response;
   const before = response.stacked_observation;
   const after = response.after_top_observation;
-  assert.equal(before.observation_version, 6);
+  assert.equal(before.observation_version, 7);
   assert.deepEqual(before.view.stack.map((s: any) => s.controller), [0, 2]);
   assert.equal(before.view.stack.every((s: any) => s.cast_complete), true);
   assert.equal(after.view.stack.length, 1);
@@ -125,7 +157,7 @@ test("response observations expose stack order without reviving historical targe
 test("casting mana witnesses expose the caster request and preserve keep/undo outcomes", () => {
   const report = demo();
   const casting = report.mana_casting;
-  assert.equal(casting.mana_observation.observation_version, 6);
+  assert.equal(casting.mana_observation.observation_version, 7);
   assert.equal(casting.mana_observation.decision.request, "mana");
   assert.deepEqual(casting.mana_observation.decision.cost, { generic: "0", colored: ["U"] });
   assert.equal(casting.mana_observation.view.priority, null);
@@ -155,7 +187,7 @@ test("turn progression and permanent casting expose only permitted public state"
   assert.equal(turns.status, "turns_permanents_verified");
   assert.deepEqual(turns.turn, { number: 5, step: "precombat_main", lands_played: 1 });
   const own = turns.final_observations[0];
-  assert.equal(own.observation_version, 6);
+  assert.equal(own.observation_version, 7);
   assert.deepEqual(own.view.turn, turns.turn);
   assert.equal(own.view.priority, 0);
   assert.equal(own.view.stack.length, 0);
@@ -185,7 +217,7 @@ test("complete scenario games retain rules outcomes and private combat projectio
     assert.equal(run.journal.concessions.length, 0);
     assert.ok(run.checkpoints > 0);
     for (const observation of run.final_observations) {
-      assert.equal(observation.observation_version, 6);
+      assert.equal(observation.observation_version, 7);
       assert.equal(observation.view.objects.some((o: any) => o.zone.zone === "library"), false);
       assert.equal(observation.view.objects.filter((o: any) => o.zone.zone === "hand").every((o: any) => o.owner === observation.view.viewer), true);
       for (const forbidden of ["incarnation", "damage_choices", "libraries", "frame", "rule_steps"]) {
@@ -198,5 +230,41 @@ test("complete scenario games retain rules outcomes and private combat projectio
     assert.deepEqual(combat[n].journal, expected.combat[n].journal);
     assert.deepEqual(combat[n].result, expected.combat[n].result);
     assert.equal(combat[n].state_sha256, expected.combat[n].state_sha256);
+  }
+});
+
+test("Commander witnesses preserve tax, actual return destinations and private projections", () => {
+  const runs = demo().commander;
+  assert.deepEqual(runs.map((r: any) => r.policy), [
+    "tax_keep", "tax_undo", "hand_recast", "grave_return", "grave_decline", "exile_return", "exile_decline",
+  ]);
+  assert.deepEqual(runs, JSON.parse(read("expected-commander-scenario.json")));
+  for (const run of runs) {
+    const payments = run.events.filter((e: any) => e.actual?.outcome === "mana_paid" && e.actual.player === 0)
+      .map((e: any) => e.actual.cost);
+    const taxed = run.policy === "tax_keep" || run.policy === "tax_undo";
+    const expectedGeneric = taxed ? ["0", "2"] : run.policy === "hand_recast" ? ["0", "0"]
+      : run.policy.endsWith("decline") ? [] : ["0"];
+    assert.deepEqual(payments, expectedGeneric.map((generic: string) => ({ generic, colored: ["W"] })));
+    assert.equal(run.events.filter((e: any) => e.event === "cast_reversed").length, taxed ? 1 : 0);
+    const moves = run.events.map((e: any) => e.actual?.movement).filter((m: any) => m?.previous.card === 0);
+    const zones = moves.map((m: any) => m.destination.zone);
+    if (taxed) assert.deepEqual(zones, ["stack", "battlefield", "command", "stack", "stack", "battlefield"]);
+    if (run.policy === "hand_recast") assert.deepEqual(zones, ["stack", "battlefield", "hand", "stack", "battlefield"]);
+    if (run.policy === "grave_return") assert.deepEqual(zones, ["graveyard", "command", "stack", "battlefield"]);
+    if (run.policy === "grave_decline") assert.deepEqual(zones, ["graveyard"]);
+    if (run.policy === "exile_return") assert.deepEqual(zones, ["exile", "command", "stack", "battlefield"]);
+    if (run.policy === "exile_decline") assert.deepEqual(zones, ["exile"]);
+    const choices = run.journal.decisions.filter((d: any) => d.response.response === "commander_return");
+    assert.equal(choices.length, 1);
+    assert.equal(choices[0].player, 0);
+    for (const observation of run.final_observations) {
+      assert.equal(observation.observation_version, 7);
+      assert.equal(observation.view.objects.filter((o: any) => o.zone.zone === "hand").every((o: any) => o.owner === observation.view.viewer), true);
+      for (const key of ["incarnation", "frame", "commander_returns", "total_cost", "continuation", "rule_steps"]) {
+        assert.equal(JSON.stringify(observation).includes(`"${key}"`), false, key);
+      }
+      assert.equal(observation.view.commanders.length, 1);
+    }
   }
 });

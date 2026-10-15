@@ -32,6 +32,18 @@ pub mod fixtures {
             include_str!("../../../tests/fixtures/cruel-edict.json"),
         ),
     ];
+    pub const COMMANDER_RECORDS: [(&str, &str); 7] = [
+        RECORDS[0],
+        RECORDS[1],
+        RECORDS[2],
+        RECORDS[3],
+        RECORDS[4],
+        RECORDS[5],
+        (
+            "plains",
+            include_str!("../../../tests/fixtures/plains.json"),
+        ),
+    ];
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -487,8 +499,23 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
 }
 
 pub fn fixture_catalog() -> Result<Catalog, String> {
+    catalog_from_records(&fixtures::RECORDS[..5])
+}
+
+/// Exact extended source pool for the Commander casting/lifecycle scenarios.
+/// Existing profiles retain their original catalog and its provenance digest.
+pub fn commander_fixture_catalog() -> Result<Catalog, String> {
+    let records = fixtures::COMMANDER_RECORDS
+        .iter()
+        .filter(|(name, _)| *name != "cruel-edict")
+        .copied()
+        .collect::<Vec<_>>();
+    catalog_from_records(&records)
+}
+
+fn catalog_from_records(records: &[(&str, &str)]) -> Result<Catalog, String> {
     let mut definitions = vec![];
-    for (_, r) in &fixtures::RECORDS[..5] {
+    for (_, r) in records {
         match compile(fixtures::MANIFEST, r) {
             CompileResult::Lowered { definition } => definitions.push(*definition),
             result => return Err(format!("unexpected fixture compile result: {result:?}")),
@@ -509,7 +536,8 @@ pub fn fixture_catalog() -> Result<Catalog, String> {
 mod tests {
     use super::*;
     fn changed_record(index: usize, change: impl FnOnce(&mut serde_json::Value)) -> String {
-        let mut r: serde_json::Value = serde_json::from_str(fixtures::RECORDS[index].1).unwrap();
+        let mut r: serde_json::Value =
+            serde_json::from_str(fixtures::COMMANDER_RECORDS[index].1).unwrap();
         change(&mut r);
         r["sourceSha256"] = sha256(canonical(&r["source"]).unwrap().as_bytes()).into();
         r["bindingSha256"] = sha256(canonical(&r["binding"]).unwrap().as_bytes()).into();
@@ -697,6 +725,107 @@ mod tests {
             compile(fixtures::MANIFEST, &renamed),
             CompileResult::Lowered { .. }
         ));
+    }
+
+    #[test]
+    fn commander_pool_adds_only_exact_source_backed_white_mana() {
+        let original = fixture_catalog().unwrap();
+        let catalog = commander_fixture_catalog().unwrap();
+        assert_eq!(catalog.schema_version, 3);
+        assert_eq!(catalog.definitions.len(), original.definitions.len() + 1);
+        for definition in &original.definitions {
+            assert!(catalog.definitions.contains(definition));
+        }
+        let plains = catalog
+            .definitions
+            .iter()
+            .find(|definition| definition.oracle_id == "bc71ebf6-2056-41f7-be35-b2e5c34afa99")
+            .unwrap();
+        assert_eq!(plains.name, "Plains");
+        assert_eq!(plains.provenance.source_index, 28278);
+        assert_eq!(
+            digest(plains).unwrap(),
+            "a72923bdb28920f11bacc3fb63f30f2eef3b26dbd08b61946c4f781edc0236e6"
+        );
+        assert_eq!(plains.characteristics.kind, CardKind::Land);
+        assert_eq!(plains.characteristics.subtypes, ["Plains"]);
+        assert!(plains.characteristics.basic);
+        assert_eq!(plains.characteristics.colors, []);
+        assert_eq!(plains.characteristics.color_identity, [Color::W]);
+        assert_eq!(plains.characteristics.mana_cost.generic, Quantity::zero());
+        assert!(plains.characteristics.mana_cost.colored.is_empty());
+        assert_eq!(
+            basic_land_color(&plains.characteristics.subtypes[0]),
+            Some(Color::W)
+        );
+        assert_eq!(plains.intrinsic_zone, Some(FunctioningZone::Battlefield));
+        assert!(plains.spell.is_none());
+        assert_eq!(plains.provenance.abilities_json, "[]");
+
+        let commander = catalog
+            .definitions
+            .iter()
+            .find(|definition| definition.oracle_id == "cfb756dd-6fe1-430a-8f04-8b10cac62a86")
+            .unwrap();
+        assert!(commander.characteristics.legendary);
+        assert_eq!(
+            commander.characteristics.mana_cost.generic,
+            Quantity::zero()
+        );
+        assert_eq!(commander.characteristics.mana_cost.colored, [Color::W]);
+        assert_eq!(commander.characteristics.color_identity, [Color::W]);
+        assert!(
+            commander
+                .capabilities
+                .contains(&Capability::CommanderIdentityV1)
+        );
+        // Command-zone permission and the additional cost belong to game rules:
+        // they do not rewrite source mana cost or the card's complete program.
+        assert_eq!(
+            commander.spell.as_ref().unwrap().timing,
+            SpellTiming::MainPhase
+        );
+        assert_eq!(
+            catalog,
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/expected-commander-ir.json"
+            ))
+            .unwrap()
+        );
+        assert_eq!(
+            Catalog::read(&canonical(&catalog).unwrap()).unwrap(),
+            catalog
+        );
+    }
+
+    #[test]
+    fn white_mana_fixture_does_not_admit_additional_land_semantics() {
+        type Mutation = fn(&mut serde_json::Value);
+        let mutations: Vec<Mutation> = vec![
+            |record| record["source"]["type_line"] = "Land — Plains Island".into(),
+            |record| record["source"]["type_line"] = "Legendary Land — Plains".into(),
+            |record| record["source"]["oracle_text"] = "{T}: Add {W}.".into(),
+            |record| record["source"]["oracle_text"] = "When this land enters, draw a card.".into(),
+            |record| record["source"]["card_faces"] = serde_json::json!([{}]),
+        ];
+        for mutation in mutations {
+            let result = compile(fixtures::MANIFEST, &changed_record(6, mutation));
+            assert!(
+                !matches!(result, CompileResult::Lowered { .. }),
+                "unsupported land semantics disappeared: {result:?}"
+            );
+        }
+        let renamed = changed_record(6, |record| {
+            record["source"]["name"] = "Renamed white basic source".into();
+            record["faces"][0]["result"]["name"] = "Renamed white basic source".into();
+        });
+        let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, &renamed) else {
+            panic!("intrinsic mana must follow basic subtype rather than card name");
+        };
+        assert_eq!(
+            basic_land_color(&definition.characteristics.subtypes[0]),
+            Some(Color::W)
+        );
     }
 
     #[test]

@@ -3,6 +3,7 @@ use super::*;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "cause", rename_all = "snake_case", deny_unknown_fields)]
 pub enum BatchCause {
+    CommanderReturn,
     Combat,
     Cleanup,
     StateBased,
@@ -54,6 +55,7 @@ pub enum BatchCause {
 impl BatchCause {
     fn rules(&self) -> Vec<String> {
         let rules: &[&str] = match self {
+            Self::CommanderReturn => &["903.9a", "903.9b"],
             Self::Combat => &["508", "509", "510"],
             Self::Cleanup => &["514.1", "514.2"],
             Self::StateBased => &["704.3", "704.5a", "704.5b", "704.5f", "704.5g"],
@@ -862,6 +864,9 @@ impl Game {
                 {
                     return Err("invalid leave-game ownership/status".into());
                 }
+                self.state
+                    .commander_returns
+                    .retain(|id| id.card != object.card);
                 self.remove_from_combat(*object);
                 for library in self.state.libraries.values_mut() {
                     library.retain(|c| *c != object.card);
@@ -900,6 +905,15 @@ impl Game {
                         .checked_add(1)
                         .ok_or("incarnation resource limit")?,
                 };
+                self.state
+                    .commander_returns
+                    .retain(|id| id.card != object.card);
+                if self.commander_enabled()
+                    && self.state.commanders.history(object.card).is_some()
+                    && matches!(destination, Zone::Graveyard { .. } | Zone::Exile)
+                {
+                    self.state.commander_returns.insert(successor);
+                }
                 let controller = if *destination == Zone::Battlefield {
                     o.controller
                 } else {
@@ -958,6 +972,9 @@ impl Game {
             }
             let key = match d.recipient {
                 DamageRecipient::Player { player } => {
+                    if self.state.commanders.history(d.source.card).is_some() {
+                        return Err("unsupported commander combat damage to player".into());
+                    }
                     if !self.is_live(player) {
                         return Err("departed damage recipient".into());
                     }

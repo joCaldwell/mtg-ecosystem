@@ -10,6 +10,8 @@ const ISLAND: &str = "b2c6aa39-2d2a-459c-a555-fb48ba993373";
 const FOREST: &str = "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6";
 const SPELL: &str = "837182db-1bf3-4a2c-bd01-1af9d9873561";
 const BEARS: &str = "14c8f55d-d177-4c25-a931-ebeb9e6062a0";
+const PLAINS: &str = "bc71ebf6-2056-41f7-be35-b2e5c34afa99";
+const PLAINS_DIGEST: &str = "a72923bdb28920f11bacc3fb63f30f2eef3b26dbd08b61946c4f781edc0236e6";
 const ISAMARU: &str = "cfb756dd-6fe1-430a-8f04-8b10cac62a86";
 // Reviewed canonical definition digests, independent of compiler success.
 const ALLOWED: [(&str, &str); 5] = [
@@ -39,9 +41,13 @@ pub use history::History;
 mod recovery;
 pub use recovery::SnapshotVerifier;
 mod casting;
+mod commander;
+use commander::CommanderContinuation;
 mod combat;
 #[cfg(test)]
 mod combat_tests;
+#[cfg(test)]
+mod commander_tests;
 mod scenarios;
 pub use combat::*;
 mod turns;
@@ -251,17 +257,24 @@ impl Prepared {
             && config != ScenarioConfig::turns_permanents()
             && config != ScenarioConfig::combat_game()
             && config != ScenarioConfig::combat_interactions()
+            && config != ScenarioConfig::command_casting()
+            && config != ScenarioConfig::commander_lifecycle()
+            && config != ScenarioConfig::commander_exile()
         {
             return Err(
                 "configuration is outside the reviewed four-seat scenario; no match admission"
                     .into(),
             );
         }
-        if catalog.definitions.len() != ALLOWED.len() {
+        let mut allowed = ALLOWED.to_vec();
+        if config.commander_profile() {
+            allowed.push((PLAINS, PLAINS_DIGEST));
+        }
+        if catalog.definitions.len() != allowed.len() {
             return Err("definition pool is not the closed reviewed scenario pool".into());
         }
         for d in &catalog.definitions {
-            let expected = ALLOWED
+            let expected = allowed
                 .iter()
                 .find(|(id, _)| *id == d.oracle_id)
                 .ok_or("definition is not admitted")?
@@ -271,7 +284,7 @@ impl Prepared {
             }
         }
         let catalog_digest = digest(&catalog)?;
-        let profile_digest = digest(&(SCENARIO_PROFILE, ALLOWED, &config))?;
+        let profile_digest = digest(&(SCENARIO_PROFILE, &allowed, &config))?;
         Ok(Self {
             catalog: Arc::new(catalog),
             catalog_digest,
@@ -324,6 +337,7 @@ struct StackInstance {
     targets: Vec<ObjectId>,
     announced_targets: Vec<Vec<ObjectHandle>>,
     paid: Option<ManaCost>,
+    total_cost: ManaCost,
     cast_from: Zone,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -356,6 +370,11 @@ struct Resolving {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 enum Frame {
+    CommanderReturn {
+        object: ObjectId,
+        destination: Zone,
+        continuation: Box<CommanderContinuation>,
+    },
     Attackers,
     Blockers {
         remaining: Vec<PlayerId>,
@@ -400,6 +419,9 @@ enum Frame {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    CommanderReturn {
+        to_command: bool,
+    },
     Attackers {
         attacks: Vec<(ObjectId, PlayerId)>,
     },
@@ -439,6 +461,12 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    CommanderReturn {
+        decision_id: u64,
+        player: PlayerId,
+        object: ObjectId,
+        destination: Zone,
+    },
     Attackers {
         decision_id: u64,
         player: PlayerId,
@@ -483,7 +511,8 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::Attackers { decision_id, .. }
+            Self::CommanderReturn { decision_id, .. }
+            | Self::Attackers { decision_id, .. }
             | Self::Blockers { decision_id, .. }
             | Self::Damage { decision_id, .. }
             | Self::Discard { decision_id, .. }
@@ -494,7 +523,8 @@ impl Request {
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::Attackers { player, .. }
+            Self::CommanderReturn { player, .. }
+            | Self::Attackers { player, .. }
             | Self::Blockers { player, .. }
             | Self::Damage { player, .. }
             | Self::Discard { player, .. }
@@ -732,6 +762,8 @@ struct State {
     turn: TurnState,
     original_seating: Vec<PlayerId>,
     commanders: CommanderLedger,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    commander_returns: BTreeSet<ObjectId>,
     control_effects: Vec<ControlEffect>,
     external_inputs: Vec<ExternalInput>,
     pending_concessions: Vec<PlayerId>,
@@ -857,6 +889,7 @@ impl Game {
             },
             original_seating: (0..4).map(PlayerId).collect(),
             commanders: CommanderLedger::new(),
+            commander_returns: BTreeSet::new(),
             control_effects: vec![],
             external_inputs: vec![],
             pending_concessions: vec![],
@@ -988,6 +1021,16 @@ impl Game {
             return Ok((req.player() == viewer).then_some(req));
         }
         let req = match &self.state.frame {
+            Frame::CommanderReturn {
+                object,
+                destination,
+                ..
+            } => Request::CommanderReturn {
+                decision_id: self.state.revision,
+                player: self.state.cards[&object.card].owner,
+                object: *object,
+                destination: *destination,
+            },
             Frame::Priority => Request::Priority {
                 decision_id: self.state.revision,
                 player: self.state.priority,
@@ -995,11 +1038,7 @@ impl Game {
             Frame::Mana { .. } => Request::Mana {
                 decision_id: self.state.revision,
                 player: self.top()?.controller,
-                cost: self
-                    .definition(self.top()?.source.card)?
-                    .characteristics
-                    .mana_cost
-                    .clone(),
+                cost: self.top()?.total_cost.clone(),
             },
             Frame::Targets { .. } => Request::Targets {
                 decision_id: self.state.revision,
@@ -1027,6 +1066,11 @@ impl Game {
             return self.validate_combat_response(player, response);
         }
         match (&self.state.frame, response) {
+            (Frame::CommanderReturn { object, .. }, Response::CommanderReturn { .. })
+                if self.state.cards[&object.card].owner == player && self.is_live(player) =>
+            {
+                Ok(())
+            }
             (Frame::Priority, Response::PlayLand { card }) if self.state.priority == player => {
                 self.validate_land_play(player, *card)
             }
@@ -1048,7 +1092,10 @@ impl Game {
             }
             (Frame::Priority, Response::Cast { card }) if self.state.priority == player => {
                 let o = self.state.objects.get(card).ok_or("invalid cast")?;
-                if o.zone != (Zone::Hand { owner: player })
+                if !(o.zone == (Zone::Hand { owner: player })
+                    || (self.commander_enabled()
+                        && o.zone == (Zone::Command { owner: player })
+                        && self.state.commanders.history(*card).is_some()))
                     || self.state.cards[card].owner != player
                     || self.definition(*card)?.spell.is_none()
                     || self.state.stack.len() >= 4
@@ -1213,6 +1260,13 @@ impl Game {
                         self.stabilize()?;
                     }
                     Response::Cast { card } => {
+                        let cast_from = self
+                            .state
+                            .objects
+                            .get(&card)
+                            .ok_or("missing cast source")?
+                            .zone;
+                        let total_cost = self.casting_cost(card, input.player, cast_from)?;
                         let original_object = self
                             .state
                             .objects
@@ -1244,9 +1298,8 @@ impl Game {
                             targets: vec![],
                             announced_targets: vec![vec![]; 4],
                             paid: None,
-                            cast_from: Zone::Hand {
-                                owner: input.player,
-                            },
+                            total_cost,
+                            cast_from,
                         });
                         let cast = Casting {
                             stack_id: id,
@@ -1323,11 +1376,7 @@ impl Game {
             }
             Frame::Payment { cast } => {
                 let stack = self.top()?.clone();
-                let cost = self
-                    .definition(stack.source.card)?
-                    .characteristics
-                    .mana_cost
-                    .clone();
+                let cost = stack.total_cost.clone();
                 if self.payment_pool(stack.controller, &cost).is_err() {
                     let undo = cast.undo_mana;
                     self.reverse_cast(cast, "insufficient mana", undo)?;
@@ -1378,6 +1427,19 @@ impl Game {
                                 InstructionOutcome::ObjectNoLongerPresent { target }
                             } else {
                                 let owner = self.state.cards[&target.card].owner;
+                                if self.commander_enabled()
+                                    && self.state.commanders.history(target.card).is_some()
+                                {
+                                    self.state.frame = Frame::CommanderReturn {
+                                        object: target,
+                                        destination: Zone::Hand { owner },
+                                        continuation: Box::new(CommanderContinuation::Hand {
+                                            frame,
+                                            source_block: *source_block,
+                                        }),
+                                    };
+                                    return Ok(());
+                                }
                                 InstructionOutcome::Moved {
                                     movement: self.move_object_for(
                                         target,
@@ -1404,6 +1466,11 @@ impl Game {
                     self.finish_spell(&stack, true)?;
                 }
             }
+            Frame::CommanderReturn {
+                object,
+                destination,
+                continuation,
+            } => self.answer_commander_return(object, destination, *continuation)?,
             Frame::Attackers
             | Frame::Blockers { .. }
             | Frame::Damage
@@ -1532,7 +1599,7 @@ impl Game {
     pub fn snapshot_with_digest(&self) -> Result<(String, String), String> {
         let state_sha256 = self.state_digest()?;
         let json = canonical(&SnapshotRef {
-            snapshot_version: 8,
+            snapshot_version: 9,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -1544,7 +1611,7 @@ impl Game {
     }
     fn read_snapshot(prepared: Prepared, json: &str) -> Result<(Self, String), String> {
         let s: Snapshot = strict_read(json)?;
-        if s.snapshot_version != 8
+        if s.snapshot_version != 9
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -1622,6 +1689,7 @@ impl Game {
                 return Err("snapshot zone-owner invariant".into());
             }
         }
+        self.validate_commander_state()?;
         for p in &s.players {
             if (p.status == PlayerStatus::Left) != p.last_known.is_some()
                 || p.last_known
@@ -1665,14 +1733,7 @@ impl Game {
                 ) || (matches!(s.frame, Frame::Finished { .. } | Frame::Fault { .. })
                     && stack.paid.is_none()));
             if !incomplete_top
-                && (stack.targets.len() != n
-                    || stack.paid.as_ref()
-                        != Some(
-                            &self
-                                .definition(stack.source.card)?
-                                .characteristics
-                                .mana_cost,
-                        ))
+                && (stack.targets.len() != n || stack.paid.as_ref() != Some(&stack.total_cost))
             {
                 return Err("snapshot completed lower/top cast invariant".into());
             }
@@ -1723,13 +1784,7 @@ impl Game {
                 if spell.id != frame.stack_id
                     || spell.id.0 >= s.next_stack_id
                     || spell.targets.len() != program.targets.len()
-                    || spell.paid.as_ref()
-                        != Some(
-                            &self
-                                .definition(spell.source.card)?
-                                .characteristics
-                                .mana_cost,
-                        )
+                    || spell.paid.as_ref() != Some(&spell.total_cost)
                     || frame.cursor as usize > program.instructions.len()
                     || frame.outcomes.len() != frame.cursor as usize
                     || frame.legal_targets.len() != program.targets.len()
