@@ -636,7 +636,7 @@ fn damage_choice_handles_queries_sidecars_and_receipts_do_not_grant_foreign_auth
     };
     let saved = g.save_work(&work).unwrap();
     let mut forgery: Value = serde_json::from_str(&saved).unwrap();
-    assert_eq!(forgery["work_version"], 14);
+    assert_eq!(forgery["work_version"], 15);
     forgery["data"]["units_done"] = json!(999);
     assert!(
         g.restore_work(&serde_json::to_string(&forgery).unwrap())

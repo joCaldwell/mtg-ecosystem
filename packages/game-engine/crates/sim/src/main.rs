@@ -27,6 +27,12 @@ mod damage_library_games;
 mod damage_life_games;
 mod effects_games;
 mod match_games;
+mod search_candidates;
+mod search_cli;
+mod search_jobs;
+mod search_policy;
+mod search_roots;
+mod search_sampler;
 mod stack_costs_games;
 mod triggers_games;
 
@@ -119,7 +125,7 @@ struct BundleMetadata {
 fn read_bundle_metadata(reader: impl Read) -> Result<BundleMetadata, String> {
     let metadata: BundleMetadata =
         serde_json::from_reader(reader).map_err(|error| error.to_string())?;
-    if metadata.bundle_version != 18 {
+    if metadata.bundle_version != 19 {
         return Err("unsupported metadata bundle version".into());
     }
     Ok(metadata)
@@ -706,6 +712,33 @@ fn source_files() -> Result<Vec<SourceFile>, String> {
         .map_err(|e| e.to_string())?;
     source_files_from(&root)
 }
+fn verified_current_source_files() -> Result<Vec<SourceFile>, String> {
+    let files = source_files()?;
+    let rustc = format!("{BUILD_RUSTC}\n");
+    verify_native_source_bytes(
+        &files,
+        BUILD_ID,
+        [
+            rustc.as_str(),
+            BUILD_PROFILE,
+            BUILD_TARGET,
+            BUILD_RUSTFLAGS,
+            BUILD_OPT_LEVEL,
+            BUILD_DEBUG,
+            BUILD_DEBUG_ASSERTIONS,
+        ],
+    )?;
+    Ok(files)
+}
+fn current_source_manifest() -> Result<serde_json::Value, String> {
+    let files = verified_current_source_files()?;
+    Ok(serde_json::json!({
+        "status":"compiled-source-closure-verified", "build_id":BUILD_ID,
+        "files":files.iter().map(|file|serde_json::json!({
+            "path":file.path,"sha256":file.sha256,"bytes":file.contents.len()
+        })).collect::<Vec<_>>()
+    }))
+}
 fn source_files_from(root: &Path) -> Result<Vec<SourceFile>, String> {
     fn walk(root: &Path, path: &Path, files: &mut Vec<SourceFile>) -> Result<(), String> {
         for entry in fs::read_dir(path).map_err(|e| e.to_string())? {
@@ -997,7 +1030,7 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
             .collect(),
         matches,
         draw_failure,
-        bundle_version: 18,
+        bundle_version: 19,
         build_id: BUILD_ID.into(),
         catalog,
         config: prepared.config().clone(),
@@ -1222,7 +1255,7 @@ fn verify_native_source_bytes(
 
 fn verify_bundle(json: &str) -> Result<String, String> {
     let b: Bundle = strict_read(json)?;
-    if b.bundle_version != 18 || b.build_id != BUILD_ID {
+    if b.bundle_version != 19 || b.build_id != BUILD_ID {
         return Err("unsupported bundle version/build".into());
     }
     if b.archive_manifest != fixtures::MANIFEST {
@@ -1478,6 +1511,66 @@ fn verify_bundle(json: &str) -> Result<String, String> {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
+        Some("native-source-manifest") if args.len() == 1 => {
+            println!("{}", canonical(&current_source_manifest()?)?);
+        }
+        Some("search-benchmark") if args.len() == 3 && args[2] == "--quiescent" => {
+            let catalog = mtg_compiler::match_fixture_catalog()?;
+            println!(
+                "{}",
+                canonical(&search_cli::benchmark(&catalog, Path::new(&args[1]))?)?
+            );
+        }
+        Some("search-diagnostic" | "search-cancel-diagnostic") if args.len() == 2 => {
+            let catalog = mtg_compiler::match_fixture_catalog()?;
+            println!(
+                "{}",
+                canonical(&search_cli::diagnostic(
+                    &catalog,
+                    args[1].parse()?,
+                    args[0] == "search-cancel-diagnostic"
+                )?)?
+            );
+        }
+        Some("search-replay") if args.len() == 2 => {
+            let catalog = mtg_compiler::match_fixture_catalog()?;
+            println!(
+                "{}",
+                canonical(&search_cli::replay(
+                    &catalog,
+                    &fs::read_to_string(&args[1])?
+                )?)?
+            );
+        }
+        Some("search-roots") if args.len() == 1 => {
+            let catalog = mtg_compiler::match_fixture_catalog()?;
+            let mut reports = vec![];
+            for index in 0..search_roots::ROOT_COUNT {
+                let fixture = search_roots::prepare(&catalog, index)?;
+                let observation = observation(&fixture.game, fixture.case.viewer)?;
+                let capture = search_roots::capture(&fixture.game, fixture.case.viewer)?;
+                reports.push(serde_json::json!({
+                    "case": fixture.case,
+                    "land_played_at_capture": fixture.land_played_at_capture,
+                    "observation": observation,
+                    "capture_id": capture.context_id(),
+                    "known_bottom": capture.data().known_bottom,
+                    "known_hands": capture.data().known_hands,
+                    "permitted_history_views": capture.data().context.permitted_history.len(),
+                    "journal_sha256": mtg_contracts::digest(&fixture.game.replay_journal())?,
+                    "state_sha256": fixture.game.state_digest()?,
+                }));
+            }
+            println!(
+                "{}",
+                canonical(&serde_json::json!({
+                    "status": "trusted_fixture_report",
+                    "workload": search_roots::WORKLOAD,
+                    "build_id": BUILD_ID,
+                    "roots": reports,
+                }))?
+            );
+        }
         Some("match-draw-failure") if args.len() == 1 => {
             println!(
                 "{}",
@@ -1686,7 +1779,7 @@ mod tests {
     #[test]
     fn metadata_reader_skips_unknown_nested_strings_and_requires_typed_closure() {
         let metadata = serde_json::json!({
-            "bundle_version":18,"build_id":"historical-build",
+            "bundle_version":19,"build_id":"historical-build",
             "source_files":[{"path":"Cargo.toml","sha256":"source-digest","contents":"[workspace]\n"}],
             "rustflags":"","opt_level":"3","debug":"false","debug_assertions":"false",
             "target":"x86_64-unknown-linux-gnu","catalog":fixture_catalog().unwrap(),
@@ -1708,7 +1801,7 @@ mod tests {
             );
         }
         let mut bad = metadata.clone();
-        bad["bundle_version"] = 17.into();
+        bad["bundle_version"] = 18.into();
         assert!(read_bundle_metadata(std::io::Cursor::new(canonical(&bad).unwrap())).is_err());
         let mut bad = metadata.clone();
         bad["source_files"][0]["contents"] = 17.into();
@@ -1791,7 +1884,7 @@ mod tests {
             serde_json::Value::Object(values) => {
                 for (key, value) in values.iter_mut() {
                     if key == "observation_version" || key == "context_version" {
-                        *value = serde_json::json!(15);
+                        *value = serde_json::json!(16);
                     } else {
                         current_projection_versions(value);
                     }
@@ -1935,7 +2028,7 @@ mod tests {
         );
         let final_snapshot: serde_json::Value =
             serde_json::from_str(&bundle.final_snapshot).unwrap();
-        assert_eq!(final_snapshot["snapshot_version"], 17);
+        assert_eq!(final_snapshot["snapshot_version"], 18);
         assert_eq!(final_snapshot["state"]["rule_steps"], p2["rule_steps"]);
         assert_eq!(
             serde_json::to_value(&bundle.journal.decisions).unwrap(),
@@ -2045,7 +2138,7 @@ mod tests {
             report["state_sha256"].as_str().unwrap()
         );
         assert!(
-            verify_bundle(&json.replace("\"bundle_version\":18", "\"bundle_version\":19")).is_err()
+            verify_bundle(&json.replace("\"bundle_version\":19", "\"bundle_version\":20")).is_err()
         );
         // Mutating unconsumed metadata preserves lowering/admission class; only
         // exact source-byte binding can reject an unadmitted source mutation.

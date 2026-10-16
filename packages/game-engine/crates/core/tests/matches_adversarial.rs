@@ -454,7 +454,7 @@ fn seed_shuffle_budget_partition_and_private_setup_views_are_deterministic() {
     assert_replay(&a, &p);
     for seat in 0..4 {
         let view = observation(&a, PlayerId(seat));
-        assert_eq!(view.observation_version, 15);
+        assert_eq!(view.observation_version, 16);
         assert!(view.view.priority.is_none());
         assert_eq!(view.view.commanders.len(), 4);
         assert!(
@@ -752,7 +752,7 @@ fn bottom_query_recovery_receipts_and_handles_remain_executor_and_state_scoped()
     let saved = g.save_work(&work).unwrap();
     assert_eq!(
         serde_json::from_str::<Value>(&saved).unwrap()["work_version"],
-        14
+        15
     );
     let mut restored = Game::restore(p.clone(), &before).unwrap();
     let work = restored.restore_work(&saved).unwrap();

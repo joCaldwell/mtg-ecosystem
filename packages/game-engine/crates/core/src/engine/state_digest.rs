@@ -4,7 +4,10 @@
 //! order. Keep a Value for the history-free skeleton and for just one original
 //! history entry at a time; never drop or summarize a remembered observation.
 use super::*;
-use std::io::Write;
+use std::io::{BufWriter, Write};
+
+const HASH_BUFFER_BYTES: usize = 64 * 1024;
+type ObjectBytes = BTreeMap<String, (visibility::VisibleObject, Vec<u8>)>;
 
 fn json<W: Write, T: Serialize>(writer: &mut W, value: &T) -> Result<(), String> {
     serde_json::to_writer(writer, value).map_err(|e| e.to_string())
@@ -20,6 +23,64 @@ fn object_entries(value: &serde_json::Value) -> Result<Vec<(&String, &serde_json
         .collect::<Vec<_>>();
     entries.sort_unstable_by(|a, b| a.0.cmp(b.0));
     Ok(entries)
+}
+fn write_view<W: Write>(
+    writer: &mut W,
+    view: &visibility::PermittedView,
+    previous: &mut ObjectBytes,
+) -> Result<(), String> {
+    // Keep every serialized field dynamically. Only object rows get a local
+    // accelerator, whose full typed equality witness includes all row fields.
+    let mut skeleton = view.clone();
+    skeleton.objects.clear();
+    let value = serde_json::to_value(&skeleton).map_err(|e| e.to_string())?;
+    drop(skeleton);
+    let mut objects_seen = false;
+    let mut next = ObjectBytes::new();
+    raw(writer, b"{")?;
+    for (index, (key, value)) in object_entries(&value)?.into_iter().enumerate() {
+        if index != 0 {
+            raw(writer, b",")?;
+        }
+        json(writer, key)?;
+        raw(writer, b":")?;
+        if key != "objects" {
+            json(writer, value)?;
+            continue;
+        }
+        if !value.as_array().is_some_and(Vec::is_empty) {
+            return Err("canonical view skeleton still contains objects".into());
+        }
+        objects_seen = true;
+        raw(writer, b"[")?;
+        // Preserve the original row order, including malformed duplicate
+        // handles in an untrusted envelope. Removing a cache entry permits at
+        // most one reuse per key; every duplicate is still emitted separately.
+        for (index, object) in view.objects.iter().enumerate() {
+            if index != 0 {
+                raw(writer, b",")?;
+            }
+            let cached = match previous.remove(&object.handle.0) {
+                Some(cached) if cached.0 == *object => cached,
+                _ => {
+                    let value = serde_json::to_value(object).map_err(|e| e.to_string())?;
+                    let bytes = serde_json::to_vec(&value).map_err(|e| e.to_string())?;
+                    (object.clone(), bytes)
+                }
+            };
+            raw(writer, &cached.1)?;
+            next.insert(object.handle.0.clone(), cached);
+        }
+        raw(writer, b"]")?;
+    }
+    raw(writer, b"}")?;
+    if !objects_seen {
+        return Err("canonical view objects field missing".into());
+    }
+    // Only the current view's rows survive: removed handles/incarnations never
+    // accumulate with history length, and caches never cross viewers/digests.
+    *previous = next;
+    Ok(())
 }
 fn write_knowledge<W: Write>(
     writer: &mut W,
@@ -40,14 +101,12 @@ fn write_knowledge<W: Write>(
             }
             history_seen = true;
             raw(writer, b"[")?;
+            let mut objects = ObjectBytes::new();
             for (index, view) in knowledge.history.iter().enumerate() {
                 if index != 0 {
                     raw(writer, b",")?;
                 }
-                // Value canonicalizes every nested object, including maps whose
-                // numeric source keys must sort lexically in their JSON form.
-                let value = serde_json::to_value(view).map_err(|e| e.to_string())?;
-                json(writer, &value)?;
+                write_view(writer, view, &mut objects)?;
             }
             raw(writer, b"]")?;
         } else {
@@ -103,11 +162,22 @@ pub(super) fn write_state<W: Write>(state: &State, writer: &mut W) -> Result<(),
     }
     Ok(())
 }
+fn write_buffered_state<W: Write>(state: &State, sink: &mut W) -> Result<(), String> {
+    // Serializer fragments are often single bytes. Buffer only the byte
+    // sink, preserving every canonical byte while batching SHA updates.
+    let mut writer = BufWriter::with_capacity(HASH_BUFFER_BYTES, sink);
+    write_state(state, &mut writer)?;
+    writer.flush().map_err(|e| e.to_string())
+}
 pub(super) fn state_digest(state: &State) -> Result<String, String> {
     let mut sink = Sha256Sink::new();
-    write_state(state, &mut sink)?;
+    write_buffered_state(state, &mut sink)?;
     Ok(sink.finalize_hex())
 }
+
+#[cfg(test)]
+#[path = "state_digest_cache_tests.rs"]
+mod cache_tests;
 
 #[cfg(test)]
 mod tests {

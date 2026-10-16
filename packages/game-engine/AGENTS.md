@@ -91,6 +91,18 @@ are the admitted commanders. Snapshot v17, bundle v18, projection/context v15
 and query-sidecar v14 retain setup and simultaneous owner-return continuations.
 Do not generalize this named profile to arbitrary Commander decks or strategies.
 
+`docs/game-engine-search.md` releases finite P7 search for that same
+pool. Sealed captures contain only permitted facts/history; complete hypothetical
+hands/libraries and independent future randomness construct sampled games.
+Supported roots are fresh active PrecombatMain priority with four, three or two
+living seats and no unresolved continuation. Own mulligan/bottom knowledge and
+remembered announced cards constrain hypotheses. Sample restore proves its origin
+and future replay; real restore never accepts a sample origin. Snapshot v18,
+bundle v19, projection/context v16 and query-sidecar v15 remain separate from P5.
+The frozen build passed all sixty primary search jobs, independent semantic
+replay, workspace checks, fresh offline rebuild/replay and the retained-bundle audit. Performance
+claims must identify their exact source/executable, not merely the profile name.
+
 Run from repository root, using pinned Rust 1.99.0:
 
 - `npm run check:engine`: toolchain check, formatting, Clippy, Rust tests, and
@@ -101,6 +113,12 @@ Run from repository root, using pinned Rust 1.99.0:
 - `cargo run --locked -p mtg-sim -- schema`: export the executable JSON Schema.
 - `npm run retain:engine`: retain source/dependency closure and verify an offline
   rebuild/replay with a fresh Cargo home and target directory.
+
+Search also exposes `search-roots`, `search-diagnostic INDEX`,
+`search-benchmark OUTPUT --quiescent` and `search-replay REPORT` through the
+release `mtg-sim` CLI. The primary benchmark requires a quiet reference machine;
+semantic replay verifies recorded work without remeasuring its timing. Keep
+fixture/evidence adapters separate from the permitted-data sampler and policies.
 
 Contracts' Rust types are the IR authority; schema output is generated and
 ignored. Source archive/AST, IR, and internal snapshots have separate versions.

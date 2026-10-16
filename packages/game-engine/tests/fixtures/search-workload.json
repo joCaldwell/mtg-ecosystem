@@ -1,0 +1,204 @@
+{
+  "workload_version": 2,
+  "workload_id": "commander-open-search-v1",
+  "profile": "commander-foundations-v1",
+  "catalog_sha256": "fc4bd3390e63ea352e129ac370fa848dbee11cf0700e7e6781d449fd49244a7f",
+  "policy_sha256": "cfe83bd72e477756a7b4f778e22c6ec8e901489671d84d122574ecdc7b90caad",
+  "rules_sha256": "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca",
+  "information_policy": "foundations-open-decklists-v1",
+  "root_generator": "foundations-land-only-roots-v1",
+  "root_seed_domain": "commander-open-search-v1/root/",
+  "job_seed_domain": "commander-open-search-v1/job/",
+  "seed_derivation": "SHA-256 of UTF-8 domain followed by unpadded decimal root index",
+  "decks": "default-white-blackgreen-white-blackgreen",
+  "mulligans": "(root_index / 4 floor + original_seat) % 4; take until target count, then keep",
+  "bottom_and_discard": "reverse offered candidate order, take required count, preserving that response order",
+  "other_choices": {
+    "attackers": "empty",
+    "blockers": "empty",
+    "commander_return": "to_command",
+    "unlisted_request": "fail named root; do not substitute another seed"
+  },
+  "priority_policy": "play first visible own-hand basic land on own precombat main when lands_played is zero; otherwise pass",
+  "caps": {
+    "fixture_host_iterations": 100000,
+    "fixture_advance_quantum": 1024,
+    "maximum_candidates": 32,
+    "desired_distinct_worlds": 32,
+    "minimum_useful_distinct_worlds_per_candidate": 8,
+    "rollout_decision_boundary_horizon": 256,
+    "workers": 4,
+    "hard_elapsed_ms": 5000,
+    "p95_elapsed_ms": 3000,
+    "maximum_total_process_rss_bytes": 2147483648,
+    "extra_trial_admission_cutoff_ms": 2500,
+    "capture_query_quantum": 64,
+    "search_query_build_advance_quantum": 64,
+    "per_trial_core_call_limit": 100000
+  },
+  "measurement": {
+    "reference_cpu": "AMD Ryzen 9 9950X",
+    "physical_cores": 16,
+    "logical_cpus": 32,
+    "ram": "30 GiB",
+    "platform": "Linux x86_64",
+    "rust": "1.99.0 release",
+    "worker_cpu_ids": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "verify_distinct_physical_cores": true,
+    "clock_starts": "before core capture query",
+    "clock_ends": "after result aggregation and trial/sample/worker disposal",
+    "fixture_preparation": "outside elapsed timer; live authoritative root included in process RSS",
+    "rss": "whole process kernel high-water mark, not per-worker average",
+    "quiescent_required": true,
+    "classification": "targets, not measured acceptance results",
+    "repetitions_per_root": 5,
+    "total_measured_jobs": 60,
+    "latency_percentile": "nearest rank: sorted elapsed microseconds at ceil(0.95 * 60), including all named supported-root attempts",
+    "repetition_seed_policy": "same public job seed per root across all five repetitions; compare fixed-first-eight selection and per-trial values across repetitions, timing metrics and optional extras separate",
+    "consumer": "Rust native in-process SearchRequest/SearchReport; no JSON/HTTP crossing in measured lifecycle. Trusted artifact encoding and independent replay are separate verification work."
+  },
+  "roots": [
+    {
+      "index": 0,
+      "starting_seat": 0,
+      "viewer": 0,
+      "expected_living_seats": 4,
+      "departures_before_setup": [],
+      "viewer_precombat_main": 2,
+      "capture": "before land"
+    },
+    {
+      "index": 1,
+      "starting_seat": 1,
+      "viewer": 1,
+      "expected_living_seats": 4,
+      "departures_before_setup": [],
+      "viewer_precombat_main": 2,
+      "capture": "before land"
+    },
+    {
+      "index": 2,
+      "starting_seat": 2,
+      "viewer": 2,
+      "expected_living_seats": 4,
+      "departures_before_setup": [],
+      "viewer_precombat_main": 2,
+      "capture": "before land"
+    },
+    {
+      "index": 3,
+      "starting_seat": 3,
+      "viewer": 3,
+      "expected_living_seats": 4,
+      "departures_before_setup": [],
+      "viewer_precombat_main": 2,
+      "capture": "before land"
+    },
+    {
+      "index": 4,
+      "starting_seat": 0,
+      "viewer": 0,
+      "expected_living_seats": 3,
+      "departures_before_setup": [
+        2
+      ],
+      "viewer_precombat_main": 6,
+      "capture": "after available land attempt"
+    },
+    {
+      "index": 5,
+      "starting_seat": 1,
+      "viewer": 1,
+      "expected_living_seats": 3,
+      "departures_before_setup": [
+        3
+      ],
+      "viewer_precombat_main": 6,
+      "capture": "after available land attempt"
+    },
+    {
+      "index": 6,
+      "starting_seat": 2,
+      "viewer": 2,
+      "expected_living_seats": 3,
+      "departures_before_setup": [
+        0
+      ],
+      "viewer_precombat_main": 6,
+      "capture": "after available land attempt"
+    },
+    {
+      "index": 7,
+      "starting_seat": 3,
+      "viewer": 3,
+      "expected_living_seats": 3,
+      "departures_before_setup": [
+        1
+      ],
+      "viewer_precombat_main": 6,
+      "capture": "after available land attempt"
+    },
+    {
+      "index": 8,
+      "starting_seat": 0,
+      "viewer": 0,
+      "expected_living_seats": 2,
+      "departures_before_setup": [
+        1,
+        3
+      ],
+      "viewer_precombat_main": 2,
+      "capture": "before land"
+    },
+    {
+      "index": 9,
+      "starting_seat": 1,
+      "viewer": 1,
+      "expected_living_seats": 2,
+      "departures_before_setup": [
+        2,
+        0
+      ],
+      "viewer_precombat_main": 2,
+      "capture": "before land"
+    },
+    {
+      "index": 10,
+      "starting_seat": 2,
+      "viewer": 2,
+      "expected_living_seats": 2,
+      "departures_before_setup": [
+        3,
+        1
+      ],
+      "viewer_precombat_main": 2,
+      "capture": "before land"
+    },
+    {
+      "index": 11,
+      "starting_seat": 3,
+      "viewer": 3,
+      "expected_living_seats": 2,
+      "departures_before_setup": [
+        0,
+        2
+      ],
+      "viewer_precombat_main": 2,
+      "capture": "before land"
+    }
+  ],
+  "sampler": "foundations-uniform-v1",
+  "assignment_rng": "sha256-counter-le32-rejection-fisher-yates-v1",
+  "candidate_policy": "foundations-public-plans-v1",
+  "rollout_policy": "foundations-current-view-development-v1",
+  "pre_measurement_review": "The initial root preflight showed viewer=index%4 with (index+seat)%4 exercised only0/2 viewer mulligans. Before any search/performance measurement, the declaration policy changed to floor(index/4)+seat so every survivor family exercises0/1/2/3 viewer mulligans, including ordered two-card bottoms. Initial manifest and report retained as diagnostic preflight, not acceptance results.",
+  "selection_policy": "fixed-first-eight-only-v1",
+  "sampler_version": "foundations-uniform-v2",
+  "sampler_entropy_identity": "all sealed permitted capture fields and complete ordered history hash, excluding only engine_build_id; proposals still bind complete current context_id",
+  "revision_reason": "v1 development diagnostic retained; remove executable identity from strategy entropy before identical-worklist optimization comparisons; roots, budgets, candidates, horizon and worker count unchanged"
+}

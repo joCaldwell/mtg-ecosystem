@@ -1,4 +1,4 @@
-//! Append-only histories share immutable chunks across atomic staging and forks.
+//! Append-only histories share immutable entries and chunks across staging/forks.
 //! Their wire format remains an ordinary ordered JSON array.
 use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeSeq};
 use std::{
@@ -10,8 +10,8 @@ use std::{
 const CHUNK: usize = 32;
 
 pub struct History<T> {
-    chunks: Vec<Arc<Vec<T>>>,
-    tail: Vec<T>,
+    chunks: Vec<Arc<Vec<Arc<T>>>>,
+    tail: Vec<Arc<T>>,
     len: usize,
     flat: OnceLock<Vec<T>>,
 }
@@ -44,7 +44,7 @@ impl<T> History<T> {
     }
     pub fn push(&mut self, value: T) {
         self.flat.take();
-        self.tail.push(value);
+        self.tail.push(Arc::new(value));
         self.len = self
             .len
             .checked_add(1)
@@ -94,9 +94,9 @@ impl<T: Clone> IndexMut<usize> for History<T> {
         self.flat.take();
         let chunk = index / CHUNK;
         if chunk < self.chunks.len() {
-            &mut Arc::make_mut(&mut self.chunks[chunk])[index % CHUNK]
+            Arc::make_mut(&mut Arc::make_mut(&mut self.chunks[chunk])[index % CHUNK])
         } else {
-            &mut self.tail[index % CHUNK]
+            Arc::make_mut(&mut self.tail[index % CHUNK])
         }
     }
 }
@@ -132,36 +132,5 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for History<T> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn chunks_preserve_array_format_and_branch_mutation_is_independent() {
-        let mut original = History::default();
-        for n in 0..130 {
-            original.push(n);
-        }
-        let wire = serde_json::to_string(&(0..130).collect::<Vec<_>>()).unwrap();
-        assert_eq!(serde_json::to_string(&original).unwrap(), wire);
-        let restored: History<i32> = serde_json::from_str(&wire).unwrap();
-        assert_eq!(original, restored);
-        assert_eq!(
-            original.iter().rev().copied().collect::<Vec<_>>(),
-            (0..130).rev().collect::<Vec<_>>()
-        );
-        original.as_slice();
-        let mut branch = original.clone();
-        assert!(Arc::ptr_eq(&original.chunks[0], &branch.chunks[0]));
-        assert!(branch.flat.get().is_none());
-        branch.push(130);
-        assert!(Arc::ptr_eq(&original.chunks[0], &branch.chunks[0]));
-        branch.as_slice();
-        branch[31] = -1;
-        assert!(!Arc::ptr_eq(&original.chunks[0], &branch.chunks[0]));
-        assert!(Arc::ptr_eq(&original.chunks[1], &branch.chunks[1]));
-        assert_eq!(original.as_slice()[31], 31);
-        assert_eq!(branch.as_slice()[31], -1);
-        branch.clear();
-        assert!(branch.is_empty());
-        assert_eq!(original.len(), 130);
-    }
-}
+#[path = "history_tests.rs"]
+mod tests;

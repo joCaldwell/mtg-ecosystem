@@ -1489,3 +1489,98 @@ Logs and independent audits remain under ignored
 149 native and nine host files were copied to the release checkout and verified
 byte-for-byte; all native bytes also equal the retained rebuild inputs. Search
 and hosting are the next finite gates, with P6 expansions scoped separately.
+
+
+### P7: verified sampled-world search for the finite foundations profile
+
+Implemented finite sampled-world search for the released
+`commander-foundations-v1` pool without admitting another card or Magic mechanic.
+The reconstruction schema supports stable active PrecombatMain priority with
+four, three or two living seats. Sealed captures retain permitted history, own
+mulligan/bottom knowledge and remembered announced cards; complete hypotheses
+supply hidden hands/libraries and independent future randomness. Sample origins,
+handle mapping, forks and recovery remain separate from actual match authority.
+The contract is [game-engine-search.md](game-engine-search.md).
+
+The frozen revision-2 workload uses twelve named roots, five repetitions each,
+up to 32 visible-information candidates and 32 distinct hypothetical assignments,
+with at least eight useful distinct worlds per generated candidate. Its trial
+horizon is 256 accepted inputs, including nested choices; rule steps are counted separately. The measured native lifecycle includes
+capture, sampling, validation/mapping, rollout choices, aggregation and disposal;
+fixture construction and trusted artifact encoding are outside the decision
+stopwatch. Whole-process memory includes those additional allocations too.
+
+All **60 primary attempts** passed on the reference Ryzen 9 9950X with four
+workers pinned to distinct physical cores. Nearest-rank p95 (57th of 60) was
+**2,719,864 microseconds** against the 3-second requirement; the slowest was
+**2,990,379 microseconds** against the 5-second hard limit. The stronger
+whole-process high-water bound was **311,537,664 bytes**, below 2 GiB. Every
+candidate met its eight-world minimum. No engine, policy or job fault occurred;
+quiescence, source hashes and executable identity were checked.
+
+Independent native replay verified **all 60 reports and 3,859 useful trials**:
+3,834 horizon evaluations and 25 terminal results retained exact counts, outcomes
+and full State hashes. All **3,341 NotStarted** diagnostics remained non-useful
+and were not represented as verified rollouts. All twelve fixed-first-eight
+sets and selections matched across repetitions, as did 3,022 overlapping useful
+trial comparisons, including optional coverage. These are finite workload
+results, not evidence of strategic strength or arbitrary-root support.
+
+Original frozen identities:
+
+- Build: `255fbcd727ef3b22a613a23c717b2c363402bdb0c64663cb817f9d2cc829cb17`.
+- Executable: `1d1e7e56d972b9e29d57f0836bb031459356d3ef001585e6041be37580e08732`.
+- Primary report: `2c347162a553b8797204db2e08ccd6f367bf614524da154c6aac5706d9fb56dd`.
+- Independent all-sixty audit/replay: `ddd656560e2dae3b024859fdec0879ce1d74bb8ed1417c9846566882997545cc`.
+
+The **166 native files / 52,121,033 bytes** and nine host inputs remained frozen
+through measurement and independent replay. Formatting, warnings-denied Clippy,
+**417 Rust debug tests and 31 Node checks** passed; the separate release suite
+also passed all **417 Rust tests**. Fresh retained-source offline rebuild/replay
+and the independent retained-bundle audit passed. P7 is released for this frozen
+workload. No later server or engine build inherits this exact performance
+result by profile name alone.
+
+Evidence remains under ignored
+`generated/search-staging/generated/search-verification/`, including
+`primary-60-run-1`, its external wrapper report and
+`independent-primary-review.json`. Historical P5 artifacts and unsuccessful
+development measurements remain separate and preserved.
+
+
+The P7 final gates used the unchanged 166 native files / 52,121,033 bytes and nine
+host inputs. Development checks took 1,756.302 seconds, the separate release
+suite 912.376 seconds, and fresh offline retention 1,404.952 seconds. These are
+verification durations, separate from the decision latency above.
+
+Retained release identities:
+
+- Store: `/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-a70d95584dbb10cc-hgUTKX`.
+- Native bundle: `a70d95584dbb10cc8e13eaf1e6caca80e3862757096edb79be2109903bd27bb0` (2,087,128,814 bytes).
+- Offline executable: `a9894e427db72e1b4c319d5c845b9cf21f3c171434d3a90580a2684f928ba572`.
+- Dependency manifest: `9b3e439c94ceaf07c828ebf37a4bcd513a345248345c0f84ad0893a8536e7989` (43 external packages / 5,596 files).
+- Independent bundle audit: `095837621170a5b1996b9ccca28c425418a28799b2de767618e03c78ac4f6a77`.
+
+The audit independently checked all eleven catalogs, 41 source records, 42
+historical configurations, 540 trace executions, 727 snapshot/hash checks,
+17,627 recovery boundaries and all nineteen complete legal-match journals.
+The historical initial-scenario State hash remains
+`58a0a241c4662d403dec8944430c1fe402c7fd15d22a2ce242c9a0b01d54f657`.
+The parser compatibility capture remains the separately identified historical
+199-file parser capture; no current-main parser result is inferred from it.
+
+The offline executable and measured executable have different file hashes while
+binding the exact same release Build and native source closure. Performance
+claims remain attached to the measured executable above. The original process
+inventory matched exact tool names; the later current-build wrapper additionally
+recognizes Node26's `node-MainThread` name. Original raw measurements remain
+unchanged.
+
+
+The exact measured executable, all sixty raw reports, every independent replay
+output, the reviewed drivers and host inputs are retained outside the worktree
+under the store's `search-acceptance/` directory. Its 211-file / 25,056,417-byte
+manifest SHA256 is
+`baea4998acdcc7d3f034cbe8a4b5f67562a6d7f8b3a9c2f9cf733c1cfeaa034c`.
+All archived bytes were verified against the reviewed evidence before and after
+copying; the parent store retains the native source/vendor/offline replay closure.

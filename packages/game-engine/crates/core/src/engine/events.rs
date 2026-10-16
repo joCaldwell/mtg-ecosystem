@@ -1493,6 +1493,18 @@ impl Game {
                 {
                     return Err("zone owner invariant".into());
                 }
+                if self.prepared.config.match_profile()
+                    && self
+                        .state
+                        .match_state
+                        .as_ref()
+                        .is_some_and(|m| m.setup.is_none())
+                    && o.zone == (Zone::Library { owner })
+                    && *destination == (Zone::Hand { owner })
+                {
+                    let oracle_id = self.state.cards[&object.card].oracle_id.clone();
+                    self.remember_draw(owner, oracle_id);
+                }
                 // CR 400.7: a zone move creates a new incarnation, and an actual
                 // outcome explicitly provides its successor. No stale lookup.
                 let successor = ObjectId {

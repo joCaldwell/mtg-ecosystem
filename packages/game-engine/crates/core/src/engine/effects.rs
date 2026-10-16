@@ -1211,7 +1211,7 @@ impl Game {
             k.damage_handles.retain(|(key, _)| damages.contains(key));
             for key in &keys {
                 if !k.effect_handles.iter().any(|(id, _)| id == key) {
-                    let handle = EffectHandle(format!("v{v}-e{}", k.next_effect_handle));
+                    let handle = EffectHandle(k.scoped(format!("v{v}-e{}", k.next_effect_handle)));
                     k.next_effect_handle = k
                         .next_effect_handle
                         .checked_add(1)
@@ -1221,7 +1221,7 @@ impl Game {
             }
             for key in &damages {
                 if !k.damage_handles.iter().any(|(id, _)| id == key) {
-                    let handle = DamageHandle(format!("v{v}-d{}", k.next_damage_handle));
+                    let handle = DamageHandle(k.scoped(format!("v{v}-d{}", k.next_damage_handle)));
                     k.next_damage_handle = k
                         .next_damage_handle
                         .checked_add(1)

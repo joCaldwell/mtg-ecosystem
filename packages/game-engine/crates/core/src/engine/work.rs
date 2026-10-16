@@ -45,6 +45,82 @@ pub struct Work {
     executor: Arc<()>,
     state_token: Arc<()>,
     data: WorkData,
+    cache: Box<WorkCache>,
+}
+
+// Pure derived accelerators live only in opaque, source/state-scoped Work.
+// They never enter SavedWork or semantic State. Initialization remains lazy:
+// Budget0 does not enumerate anything. The first existing unit computes each
+// domain exactly as before; later units reuse it without changing row counts.
+#[derive(Default)]
+struct WorkCache {
+    last_object: Option<CardId>,
+    effects: Option<Vec<EffectKey>>,
+    triggers: Option<Vec<TriggerId>>,
+    modes: Option<Option<Vec<u32>>>,
+    damage: Option<Vec<DamageEffectCandidate>>,
+    allocation: Option<Option<Vec<DamageAllocationCandidate>>>,
+}
+impl WorkCache {
+    fn next_object<'a>(&mut self, game: &'a Game) -> Option<&'a Object> {
+        use std::ops::Bound::{Excluded, Unbounded};
+        let next = match self.last_object {
+            None => game.state.objects.first_key_value(),
+            Some(last) => game.state.objects.range((Excluded(last), Unbounded)).next(),
+        };
+        if let Some((key, _)) = next {
+            self.last_object = Some(*key);
+        }
+        next.map(|(_, object)| object)
+    }
+    fn effects(&mut self, game: &Game) -> &[EffectKey] {
+        self.effects.get_or_insert_with(|| game.live_effect_keys())
+    }
+    fn triggers(&mut self, game: &Game) -> &[TriggerId] {
+        self.triggers
+            .get_or_insert_with(|| game.trigger_order_ids())
+    }
+    fn modes(&mut self, game: &Game) -> Result<Option<&[u32]>, QueryRejection> {
+        if self.modes.is_none() {
+            self.modes = Some(
+                match game
+                    .modes_request()
+                    .map_err(|_| QueryRejection::Invariant)?
+                {
+                    Some(Request::Modes { candidates, .. }) => Some(candidates),
+                    _ => None,
+                },
+            );
+        }
+        Ok(self.modes.as_ref().and_then(|ids| ids.as_deref()))
+    }
+    fn damage(&mut self, game: &Game) -> Result<&[DamageEffectCandidate], QueryRejection> {
+        if self.damage.is_none() {
+            self.damage = Some(
+                game.damage_effect_group()
+                    .map_err(|_| QueryRejection::Invariant)?
+                    .map_or(vec![], |(_, _, pairs)| pairs),
+            );
+        }
+        Ok(self.damage.as_deref().unwrap_or_default())
+    }
+    fn allocation(
+        &mut self,
+        game: &Game,
+    ) -> Result<Option<&[DamageAllocationCandidate]>, QueryRejection> {
+        if self.allocation.is_none() {
+            self.allocation = Some(
+                match game
+                    .damage_allocation_request()
+                    .map_err(|_| QueryRejection::Invariant)?
+                {
+                    Some(Request::DamageAllocation { candidates, .. }) => Some(candidates),
+                    _ => None,
+                },
+            );
+        }
+        Ok(self.allocation.as_ref().and_then(|ids| ids.as_deref()))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -222,6 +298,7 @@ impl Game {
                 task,
                 units_done: 0,
             },
+            cache: Box::default(),
         })
     }
     fn begin_query(&self, query: Query, budget: Budget) -> QueryResult {
@@ -241,7 +318,7 @@ impl Game {
                 return QueryResult::Rejected(QueryRejection::Invariant);
             };
             work.data.units_done = units;
-            match self.query_unit(&mut work.data) {
+            match self.query_unit(&mut work.data, &mut work.cache) {
                 Ok(Some(value)) => return QueryResult::Complete(value),
                 Ok(None) => {}
                 Err(e) => return QueryResult::Rejected(e),
@@ -255,6 +332,7 @@ impl Game {
     fn observation_unit(
         &self,
         b: &mut ObservationWork,
+        cache: &mut WorkCache,
     ) -> Result<Option<Observation>, QueryRejection> {
         let cursor = b.cursor as usize;
         let viewer = b.view.viewer;
@@ -271,7 +349,7 @@ impl Game {
                     .map_err(|_| QueryRejection::Invariant)?,
             );
         } else if cursor < 4 + self.state.objects.len() {
-            if let Some(object) = self.state.objects.values().nth(cursor - 4)
+            if let Some(object) = cache.next_object(self)
                 && let Some(visible) = self
                     .visible_object(viewer, object)
                     .map_err(|_| QueryRejection::Invariant)?
@@ -302,12 +380,10 @@ impl Game {
             );
         }
         if let Some(PlayerRequest::OrderTriggers { candidates, .. }) = &mut b.decision {
-            let offset = 4
-                + self.state.objects.len()
-                + self.state.stack.len()
-                + self.live_effect_keys().len();
+            let offset =
+                4 + self.state.objects.len() + self.state.stack.len() + cache.effects(self).len();
             if cursor >= offset
-                && let Some(id) = self.trigger_order_ids().get(cursor - offset)
+                && let Some(id) = cache.triggers(self).get(cursor - offset)
             {
                 candidates.push(
                     self.visible_pending_trigger(viewer, *id)
@@ -317,19 +393,16 @@ impl Game {
         }
         b.cursor = b.cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
         let base = 4 + self.state.objects.len() + self.state.stack.len();
-        let effect_count = self.live_effect_keys().len();
+        let effect_count = cache.effects(self).len();
         if cursor >= base && cursor < base + effect_count {
             b.view.effects.push(
-                self.visible_effect(viewer, &self.live_effect_keys()[cursor - base])
+                self.visible_effect(viewer, &cache.effects(self)[cursor - base])
                     .map_err(|_| QueryRejection::Invariant)?,
             );
         }
         if let Some(PlayerRequest::DamageEffect { candidates, .. }) = &mut b.decision
             && cursor >= base + effect_count
-            && let Some((_, _, pairs)) = self
-                .damage_effect_group()
-                .map_err(|_| QueryRejection::Invariant)?
-            && let Some(pair) = pairs.get(cursor - base - effect_count)
+            && let Some(pair) = cache.damage(self)?.get(cursor - base - effect_count)
         {
             candidates.push(
                 self.visible_damage_effect_candidate(viewer, pair)
@@ -338,22 +411,14 @@ impl Game {
         }
         if let Some(PlayerRequest::Modes { candidates, .. }) = &mut b.decision
             && cursor >= base + effect_count
-            && let Some(Request::Modes {
-                candidates: ids, ..
-            }) = self
-                .modes_request()
-                .map_err(|_| QueryRejection::Invariant)?
+            && let Some(ids) = cache.modes(self)?
             && let Some(id) = ids.get(cursor - base - effect_count)
         {
             candidates.push(*id);
         }
         if let Some(PlayerRequest::DamageAllocation { candidates, .. }) = &mut b.decision
             && cursor >= base + effect_count
-            && let Some(Request::DamageAllocation {
-                candidates: ids, ..
-            }) = self
-                .damage_allocation_request()
-                .map_err(|_| QueryRejection::Invariant)?
+            && let Some(ids) = cache.allocation(self)?
             && let Some(c) = ids.get(cursor - base - effect_count)
         {
             candidates.push(
@@ -363,53 +428,39 @@ impl Game {
         }
         let extra = effect_count
             + if matches!(b.decision, Some(PlayerRequest::DamageAllocation { .. })) {
-                self.damage_allocation_request()
-                    .map_err(|_| QueryRejection::Invariant)?
-                    .map_or(0, |r| {
-                        if let Request::DamageAllocation { candidates, .. } = r {
-                            candidates.len()
-                        } else {
-                            0
-                        }
-                    })
+                cache.allocation(self)?.map_or(0, |ids| ids.len())
             } else if matches!(b.decision, Some(PlayerRequest::Modes { .. })) {
-                self.modes_request()
-                    .map_err(|_| QueryRejection::Invariant)?
-                    .map_or(0, |r| {
-                        if let Request::Modes { candidates, .. } = r {
-                            candidates.len()
-                        } else {
-                            0
-                        }
-                    })
+                cache.modes(self)?.map_or(0, |ids| ids.len())
             } else if matches!(b.decision, Some(PlayerRequest::DamageEffect { .. })) {
-                self.damage_effect_group()
-                    .map_err(|_| QueryRejection::Invariant)?
-                    .map_or(0, |(_, _, p)| p.len())
+                cache.damage(self)?.len()
             } else if matches!(b.decision, Some(PlayerRequest::OrderTriggers { .. })) {
-                self.trigger_order_ids().len()
+                cache.triggers(self).len()
             } else {
                 0
             };
         if b.cursor as usize >= 4 + self.state.objects.len() + self.state.stack.len() + extra {
             b.view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
             return Ok(Some(Observation {
-                observation_version: 15,
+                observation_version: 16,
                 view: b.view.clone(),
                 decision: b.decision.clone(),
             }));
         }
         Ok(None)
     }
-    fn query_unit(&self, data: &mut WorkData) -> Result<Option<QueryValue>, QueryRejection> {
+    fn query_unit(
+        &self,
+        data: &mut WorkData,
+        cache: &mut WorkCache,
+    ) -> Result<Option<QueryValue>, QueryRejection> {
         let invalid = |_: String| QueryRejection::InvalidResponse;
         match (&data.query, &mut data.task) {
-            (Query::Observe { .. }, Task::Observe { builder }) => {
-                Ok(self.observation_unit(builder)?.map(QueryValue::Observation))
-            }
+            (Query::Observe { .. }, Task::Observe { builder }) => Ok(self
+                .observation_unit(builder, cache)?
+                .map(QueryValue::Observation)),
             (Query::Decision { viewer }, Task::Decision { cursor, request }) => {
                 if let Some(PlayerRequest::OrderTriggers { candidates, .. }) = request {
-                    let ids = self.trigger_order_ids();
+                    let ids = cache.triggers(self);
                     if let Some(id) = ids.get(*cursor as usize) {
                         candidates.push(
                             self.visible_pending_trigger(*viewer, *id)
@@ -421,12 +472,7 @@ impl Game {
                         .then(|| QueryValue::Decision(request.clone())));
                 }
                 if let Some(PlayerRequest::DamageAllocation { candidates, .. }) = request {
-                    let Some(Request::DamageAllocation {
-                        candidates: ids, ..
-                    }) = self
-                        .damage_allocation_request()
-                        .map_err(|_| QueryRejection::Invariant)?
-                    else {
+                    let Some(ids) = cache.allocation(self)? else {
                         return Err(QueryRejection::Invariant);
                     };
                     if let Some(candidate) = ids.get(*cursor as usize) {
@@ -440,12 +486,7 @@ impl Game {
                         .then(|| QueryValue::Decision(request.clone())));
                 }
                 if let Some(PlayerRequest::Modes { candidates, .. }) = request {
-                    let Some(Request::Modes {
-                        candidates: ids, ..
-                    }) = self
-                        .modes_request()
-                        .map_err(|_| QueryRejection::Invariant)?
-                    else {
+                    let Some(ids) = cache.modes(self)? else {
                         return Err(QueryRejection::Invariant);
                     };
                     if let Some(id) = ids.get(*cursor as usize) {
@@ -456,10 +497,7 @@ impl Game {
                         .then(|| QueryValue::Decision(request.clone())));
                 }
                 if let Some(PlayerRequest::DamageEffect { candidates, .. }) = request {
-                    let pairs = self
-                        .damage_effect_group()
-                        .map_err(|_| QueryRejection::Invariant)?
-                        .map_or(vec![], |(_, _, p)| p);
+                    let pairs = cache.damage(self)?;
                     if let Some(pair) = pairs.get(*cursor as usize) {
                         candidates.push(
                             self.visible_damage_effect_candidate(*viewer, pair)
@@ -478,10 +516,8 @@ impl Game {
                                 player: PlayerId(cursor_index as u8),
                             })
                     } else {
-                        self.state
-                            .objects
-                            .values()
-                            .nth(cursor_index - 4)
+                        cache
+                            .next_object(self)
                             .filter(|o| self.target_legal(o.id))
                             .map(|o| TargetEntity::Object { object: o.id })
                     };
@@ -496,7 +532,7 @@ impl Game {
                         .then(|| QueryValue::Decision(request.clone())));
                 }
                 if let Some(PlayerRequest::BottomOpening { candidates, .. }) = request {
-                    if let Some(o) = self.state.objects.values().nth(*cursor as usize)
+                    if let Some(o) = cache.next_object(self)
                         && o.zone == (Zone::Hand { owner: *viewer })
                     {
                         candidates.push(
@@ -511,7 +547,7 @@ impl Game {
                 if !matches!(request, Some(PlayerRequest::Targets { .. })) {
                     return Ok(Some(QueryValue::Decision(request.clone())));
                 }
-                if let Some(object) = self.state.objects.values().nth(*cursor as usize)
+                if let Some(object) = cache.next_object(self)
                     && self.target_legal(object.id)
                 {
                     let handle = self
@@ -711,7 +747,7 @@ impl Game {
                 },
             ) => {
                 if observation.is_none() {
-                    *observation = self.observation_unit(builder)?.map(Box::new);
+                    *observation = self.observation_unit(builder, cache)?.map(Box::new);
                     return Ok(None);
                 }
                 let permitted = &self.state.visibility[viewer.0 as usize].history;
@@ -739,7 +775,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 15,
+                    context_version: 16,
                     observation: *observation.clone().ok_or(QueryRejection::Invariant)?,
                     permitted_history: history.clone(),
                     open_decklists: decks.clone(),
@@ -758,7 +794,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: 14,
+            work_version: 15,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -767,7 +803,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != 14
+        if saved.work_version != 15
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?
@@ -784,7 +820,7 @@ impl Game {
         for _ in 0..saved.data.units_done {
             work.data.units_done += 1;
             if self
-                .query_unit(&mut work.data)
+                .query_unit(&mut work.data, &mut work.cache)
                 .map_err(|_| "invalid query prefix")?
                 .is_some()
             {
@@ -878,3 +914,7 @@ impl Game {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "work_optimization_tests.rs"]
+mod optimization_tests;

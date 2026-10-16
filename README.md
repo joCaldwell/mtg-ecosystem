@@ -30,8 +30,10 @@ deck-builder is active. The Layer-0 parser is a limited supported subset, and th
 Rust compiler/kernel execute 42 reviewed four-seat scenario configurations and
 the verified [`commander-foundations-v1`](docs/game-engine-matches.md) profile:
 legal four-player setup, seeded shuffle/mulligans, and complete games from a
-21-card construction pool within a 34-definition catalog. Search, server, and
-bulk Card IR emission remain future work. Read the
+21-card construction pool within a 34-definition catalog. Its finite sampled-world
+search passed the frozen primary performance, semantic replay, workspace and
+offline rebuild/replay gates, followed by an independent retained-bundle audit. Server hosting and bulk Card IR
+emission remain future work. Read the
 relevant package’s `AGENTS.md` before development.
 
 ## 📂 Project Structure

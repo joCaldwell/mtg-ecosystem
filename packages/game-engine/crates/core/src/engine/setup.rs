@@ -587,6 +587,7 @@ impl Game {
                 if hand.len() > 7 {
                     return Err("opening hand range".into());
                 }
+                self.remember_opening_redraw(*player);
                 let mut moves = vec![];
                 for object in hand {
                     let EventOutcome::Moved { movement } =
@@ -633,6 +634,7 @@ impl Game {
                         objects: objects.clone(),
                     },
                 )?;
+                self.remember_opening_bottom(*player, objects)?;
                 let mut moves = vec![];
                 for object in objects {
                     let EventOutcome::Moved { movement } =

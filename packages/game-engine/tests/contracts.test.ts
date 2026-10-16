@@ -573,7 +573,7 @@ function currentProjectionVersions(value: any): any {
   if (Array.isArray(value)) return value.map(currentProjectionVersions);
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(Object.entries(value).map(([key, child]) =>
-      [key, key === "observation_version" || key === "context_version" ? 15 : currentProjectionVersions(child)]));
+      [key, key === "observation_version" || key === "context_version" ? 16 : currentProjectionVersions(child)]));
   }
   return value;
 }
@@ -690,7 +690,7 @@ test("choice witnesses retain independent targets, selected modes and twice-chec
       assert.deepEqual(p.actual.commander_damage,[]);
       for(const e of t.entries){let amount=BigInt(e.original_amount);for(const a of t.applications.filter((a: any)=>a.damage===e.id)){assert.equal(BigInt(a.before),amount);assert.ok(BigInt(a.after)===amount-BigInt(a.prevented)||BigInt(a.after)===amount*2n);amount=BigInt(a.after);}assert.equal(amount,BigInt(e.amount));}
     }
-    for(const o of [...r.choices,...r.final_observations]){privacy(o);assert.equal(o.observation_version,15);for(const card of o.view.objects){assert.notEqual(card.zone.zone,"library");if(card.zone.zone==="hand")assert.equal(card.owner,o.view.viewer);}}
+    for(const o of [...r.choices,...r.final_observations]){privacy(o);assert.equal(o.observation_version,16);for(const card of o.view.objects){assert.notEqual(card.zone.zone,"library");if(card.zone.zone==="hand")assert.equal(card.owner,o.view.viewer);}}
     for(const history of Object.values(r.commander_ledger.records) as any[])assert.deepEqual(history.combat_damage,{});
   }
 });
@@ -846,7 +846,7 @@ test("effects witnesses retain signed characteristics, actual damage and affecte
     }
     if (r.policy!=="commander_amplified") assert.deepEqual(r.commander_ledger.records["0"].combat_damage,{});
     for (const o of [...r.choices,...r.final_observations]) {
-      privacy(o);assert.equal(o.observation_version,15);
+      privacy(o);assert.equal(o.observation_version,16);
       assert.equal(o.view.objects.some((obj: any)=>obj.zone.zone==="library"),false);
       assert.equal(o.view.objects.filter((obj: any)=>obj.zone.zone==="hand").every((obj: any)=>obj.owner===o.view.viewer),true);
       for (const e of o.view.effects??[]) assert.match(e.handle,new RegExp(`^v${o.view.viewer}-e\\d+$`));
@@ -974,7 +974,7 @@ test("ordinary trigger witnesses retain APNAP order, countered programs and hist
     }
   }
   for (const r of reports) for (const o of [...r.choices,...r.final_observations]) {
-    checkProjection(o);assert.equal(o.observation_version,15);
+    checkProjection(o);assert.equal(o.observation_version,16);
     assert.equal(o.view.objects.some((x: any) => x.zone.zone==="library"),false);
     assert.equal(o.view.objects.filter((x: any) => x.zone.zone==="hand").every((x: any) => x.owner===o.view.viewer),true);
     if (o.decision?.request==="order_triggers") {
@@ -1132,7 +1132,7 @@ test("stack and cost witnesses preserve instance targets, paid costs and nested 
   const lost = failed.findIndex((e: any) => e.event === "players_lost");
   assert.ok(discarded >= 0 && discarded < completed && completed < lost);
   for (const report of reports) for (const o of [...report.choices,...report.final_observations]) {
-    assert.equal(o.observation_version,15);
+    assert.equal(o.observation_version,16);
     assert.equal(o.view.objects.some((x: any) => x.zone.zone === "library"),false);
     assert.equal(o.view.objects.filter((x: any) => x.zone.zone === "hand").every((x: any) => x.owner === o.view.viewer),true);
     for (const forbidden of ["incarnation","stack_id","source_handles","mana_activations","rule_steps"]) assert.equal(JSON.stringify(o).includes(`"${forbidden}"`),false);
@@ -1178,7 +1178,7 @@ test("action witnesses preserve explicit spending, player sacrifice and noncard 
   const lost = failed.findIndex((e: any) => e.event === "players_lost");
   assert.ok(completed >= 0 && lost > completed);
   for (const report of reports) for (const o of [...report.choices,...report.final_observations]) {
-    assert.equal(o.observation_version, 15);
+    assert.equal(o.observation_version, 16);
     assert.equal(o.view.objects.some((x: any) => x.zone.zone === "library"), false);
     assert.equal(o.view.objects.filter((x: any) => x.zone.zone === "hand").every((x: any) => x.owner === o.view.viewer), true);
     for (const forbidden of ["incarnation","stack_id","source_handles","mana_activations","rule_steps"]) assert.equal(JSON.stringify(o).includes(`"${forbidden}"`),false);
@@ -1189,7 +1189,7 @@ test("response observations expose stack order without reviving historical targe
   const response = demo().response;
   const before = response.stacked_observation;
   const after = response.after_top_observation;
-  assert.equal(before.observation_version, 15);
+  assert.equal(before.observation_version, 16);
   assert.deepEqual(before.view.stack.map((s: any) => s.controller), [0, 2]);
   assert.equal(before.view.stack.every((s: any) => s.cast_complete), true);
   assert.equal(after.view.stack.length, 1);
@@ -1207,7 +1207,7 @@ test("response observations expose stack order without reviving historical targe
 test("casting mana witnesses expose the caster request and preserve keep/undo outcomes", () => {
   const report = demo();
   const casting = report.mana_casting;
-  assert.equal(casting.mana_observation.observation_version, 15);
+  assert.equal(casting.mana_observation.observation_version, 16);
   assert.equal(casting.mana_observation.decision.request, "mana");
   assert.deepEqual(casting.mana_observation.decision.cost, { generic: "0", colored: ["U"] });
   assert.equal(casting.mana_observation.view.priority, null);
@@ -1237,7 +1237,7 @@ test("turn progression and permanent casting expose only permitted public state"
   assert.equal(turns.status, "turns_permanents_verified");
   assert.deepEqual(turns.turn, { number: 5, step: "precombat_main", lands_played: 1 });
   const own = turns.final_observations[0];
-  assert.equal(own.observation_version, 15);
+  assert.equal(own.observation_version, 16);
   assert.deepEqual(own.view.turn, turns.turn);
   assert.equal(own.view.priority, 0);
   assert.equal(own.view.stack.length, 0);
@@ -1267,7 +1267,7 @@ test("complete scenario games retain rules outcomes and private combat projectio
     assert.equal(run.journal.concessions.length, 0);
     assert.ok(run.checkpoints > 0);
     for (const observation of run.final_observations) {
-      assert.equal(observation.observation_version, 15);
+      assert.equal(observation.observation_version, 16);
       assert.equal(observation.view.objects.some((o: any) => o.zone.zone === "library"), false);
       assert.equal(observation.view.objects.filter((o: any) => o.zone.zone === "hand").every((o: any) => o.owner === observation.view.viewer), true);
       for (const forbidden of ["incarnation", "damage_choices", "libraries", "frame", "rule_steps"]) {
@@ -1309,7 +1309,7 @@ test("Commander witnesses preserve tax, actual return destinations and private p
     assert.equal(choices.length, 1);
     assert.equal(choices[0].player, 0);
     for (const observation of run.final_observations) {
-      assert.equal(observation.observation_version, 15);
+      assert.equal(observation.observation_version, 16);
       assert.equal(observation.view.objects.filter((o: any) => o.zone.zone === "hand").every((o: any) => o.owner === observation.view.viewer), true);
       for (const key of ["incarnation", "frame", "commander_returns", "total_cost", "continuation", "rule_steps"]) {
         assert.equal(JSON.stringify(observation).includes(`"${key}"`), false, key);
@@ -1364,7 +1364,7 @@ test("Commander damage and library witnesses expose actual results without hidde
   }
   for (const run of runs) {
     for (const observation of [...run.final_observations, ...run.choices]) {
-      assert.equal(observation.observation_version, 15);
+      assert.equal(observation.observation_version, 16);
       assert.equal(observation.view.objects.some((o: any) => o.zone.zone === "library"), false);
       assert.equal(observation.view.objects.filter((o: any) => o.zone.zone === "hand").every((o: any) => o.owner === observation.view.viewer), true);
       for (const key of ["incarnation", "frame", "commander_returns", "libraries", "continuation", "rule_steps", "previous_top"]) {

@@ -1,7 +1,8 @@
 # Layer 1 implementation plan
 
-Status: **P5 verified for the finite `commander-foundations-v1` profile; P7 search
-and P8 hosting are the next consumer gates**. The
+Status: **P5 and P7 verified for the finite `commander-foundations-v1` profile
+and its frozen sampled-search workload**.
+P8 hosting is a separate consumer gate. The
 [first implementation brief](game-engine-first-scenario.md) preserves the initial
 bounded scenario, and [match contract](game-engine-matches.md) defines the release.
 Actual checks and retained artifact identities are in the
@@ -53,7 +54,9 @@ identities rather than treating this roadmap as gate evidence.
 
 P5 passed its debug/release, fixed-game, source, offline rebuild and replay gates.
 The reviewed choices and effects slices complete the finite P3/P4 path obligations.
-P7 search and P8 hosting remain pending acceptance. P6 is an ongoing series
+The finite P7 implementation passed its frozen twelve-root, sixty-job primary
+measurement, independent replay of all completed work, full debug/release checks,
+fresh offline rebuild/replay and independent retained-bundle audit. P8 hosting remains pending acceptance. P6 is an ongoing series
 of separately scoped expansions, not an instruction to implement all Magic.
 P7 uses the delegated product budgets below and freezes its measured workload
 before optimization; P8 targets
@@ -538,7 +541,8 @@ workload versions rather than replacing the baseline invisibly.
 
 The default shape is 32 sampled worlds from one permitted SearchContext and
 up to 32 valid root-action candidates, followed by one rollout per available
-world/candidate pair. Cap each trial at 256 decision-boundary transitions and
+world/candidate pair. Bound each trial to 256 accepted inputs, including nested
+choices, with evaluation at the next exposed decision or earlier terminal. Keep
 an independently declared work/memory budget. These are test-work dimensions,
 not restrictions on legal game actions. The candidate generator reports its
 pruning/sampling policy; fewer than 32 legal candidates do not justify inventing
@@ -581,7 +585,7 @@ performance or values inferred from the calibration hypotheses below.
 | Peak memory | At most 2 GiB total process RSS, including all four workers, catalogs, samples, branches and retained results |
 | Workers | Four workers on four distinct physical cores; one shared process/catalog; do not substitute SMT siblings or extra workers to pass this baseline |
 | Minimum useful trials | At least eight distinct sampled-world rollouts per valid generated root candidate; 256 trials for 32 candidates, or `8 * candidate_count` when fewer legal candidates exist |
-| Desired complete work shape | All 32 sampled worlds per candidate: up to 1,024 useful trials for 32 candidates, each with the existing 256-decision-boundary horizon |
+| Desired complete work shape | All 32 sampled worlds per candidate: up to 1,024 useful trials for 32 candidates, each with the existing 256-accepted-input horizon (including nested choices) |
 
 Evaluate every generated candidate across the first eight distinct valid sampled
 worlds before spending extra trials on favored candidates; this establishes a
@@ -599,7 +603,7 @@ choices, aggregation, language crossings and disposal count against the same
 wall-clock and RSS budgets. Report useful trials, terminal games, horizon trials,
 truncations, faults, unsupported roots, and latency/memory misses separately.
 Capture exact CPU allocation, measurement conditions and workload manifest before
-P7 optimization; the current concurrent development/gate runs are not a valid
+P7 optimization. Concurrent development/gate runs do not qualify as the primary
 benchmark. The separate batch-throughput measurements remain required. Any later
 budget revision retains these requirements/results and explains the product
 tradeoff.

@@ -407,6 +407,10 @@ pub struct SearchContext {
 #[serde(deny_unknown_fields)]
 pub(super) struct Knowledge {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) own_knowledge: Vec<OwnKnowledgeAction>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) namespace: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(super) effect_handles: Vec<(EffectKey, EffectHandle)>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub(super) next_effect_handle: u64,
@@ -429,6 +433,20 @@ pub(super) struct Knowledge {
     next_decision: u64,
     pub(super) history: History<PermittedView>,
 }
+fn scoped(namespace: &Option<String>, handle: String) -> String {
+    namespace.as_ref().map_or_else(
+        || handle.clone(),
+        |namespace| format!("{namespace}:{handle}"),
+    )
+}
+impl Knowledge {
+    pub(super) fn scoped(&self, handle: String) -> String {
+        self.namespace.as_ref().map_or_else(
+            || handle.clone(),
+            |namespace| format!("{namespace}:{handle}"),
+        )
+    }
+}
 impl Game {
     pub(super) fn capture_trigger_source_handles(
         &mut self,
@@ -441,7 +459,7 @@ impl Game {
             {
                 ObjectHandle(handle.clone())
             } else {
-                let handle = ObjectHandle(format!("v{viewer}-o{}", k.next_handle));
+                let handle = ObjectHandle(k.scoped(format!("v{viewer}-o{}", k.next_handle)));
                 k.next_handle = k
                     .next_handle
                     .checked_add(1)
@@ -1148,7 +1166,10 @@ impl Game {
                 if let std::collections::btree_map::Entry::Vacant(entry) =
                     k.trigger_handles.entry(id)
                 {
-                    let handle = TriggerHandle(format!("v{v}-t{}", k.next_trigger_handle));
+                    let handle = TriggerHandle(scoped(
+                        &k.namespace,
+                        format!("v{v}-t{}", k.next_trigger_handle),
+                    ));
                     k.next_trigger_handle = k
                         .next_trigger_handle
                         .checked_add(1)
@@ -1161,14 +1182,17 @@ impl Game {
                 if let std::collections::btree_map::Entry::Vacant(entry) =
                     k.ability_handles.entry(id)
                 {
-                    let handle = StackHandle(format!(
-                        "v{v}-{}{}",
-                        if self.prepared.config.stack_costs_profile() {
-                            "s"
-                        } else {
-                            "a"
-                        },
-                        k.next_ability_handle
+                    let handle = StackHandle(scoped(
+                        &k.namespace,
+                        format!(
+                            "v{v}-{}{}",
+                            if self.prepared.config.stack_costs_profile() {
+                                "s"
+                            } else {
+                                "a"
+                            },
+                            k.next_ability_handle
+                        ),
                     ));
                     k.next_ability_handle = k
                         .next_ability_handle
@@ -1183,7 +1207,7 @@ impl Game {
             // counters even when hidden cards/IDs differ.
             for id in current {
                 if !k.handles.values().any(|existing| *existing == id) {
-                    let handle = format!("v{v}-o{}", k.next_handle);
+                    let handle = k.scoped(format!("v{v}-o{}", k.next_handle));
                     k.next_handle = k
                         .next_handle
                         .checked_add(1)
@@ -1262,7 +1286,7 @@ impl Game {
             };
             if key != k.decision_key {
                 k.decision_token = if key.is_some() {
-                    let token = DecisionToken(format!("v{v}-d{}", k.next_decision));
+                    let token = DecisionToken(k.scoped(format!("v{v}-d{}", k.next_decision)));
                     k.next_decision = k
                         .next_decision
                         .checked_add(1)
