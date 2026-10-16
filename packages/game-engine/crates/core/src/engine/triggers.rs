@@ -42,7 +42,9 @@ fn movement(outcome: &EventOutcome) -> Option<&MoveOutcome> {
 }
 impl Game {
     pub(super) fn stack_limit(&self) -> usize {
-        if self.prepared.config.triggers_profile() {
+        if self.prepared.config.match_profile() {
+            256
+        } else if self.prepared.config.triggers_profile() {
             128
         } else {
             4

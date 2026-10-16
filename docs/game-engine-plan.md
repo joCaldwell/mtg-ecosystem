@@ -1,8 +1,9 @@
 # Layer 1 implementation plan
 
-Status: **implementation plan; P0 frozen and initial compiler/runtime scenario implemented**.
-The broader gates below remain future work; see the
-[first implementation brief](game-engine-first-scenario.md) for the bounded slice.
+Status: **P5 verified for the finite `commander-foundations-v1` profile; P7 search
+and P8 hosting are the next consumer gates**. The
+[first implementation brief](game-engine-first-scenario.md) preserves the initial
+bounded scenario, and [match contract](game-engine-matches.md) defines the release.
 Actual checks and retained artifact identities are in the
 [implementation progress](game-engine-progress.md).
 Prepared 2026-10-11. Josh selected **high-volume headless simulation and agent
@@ -42,15 +43,17 @@ slice adds additive temporary characteristics, atomic cleanup, finite prevention
 static damage doubling and affected-recipient ordering. The choices slice adds
 complete modal programs, separate target occurrences and intervening-if checks.
 The reviewed tables now contain 42 exact configurations across ten separate
-catalogs, with 33 definitions in the newest catalog. This remains scenario
-support; no legal Commander profile has been released. See the
+catalogs. A separate 34-definition catalog and 21-card construction pool now
+support the verified finite `commander-foundations-v1` release: legal deck/pod
+admission, seeded shuffle, multiplayer mulligans and natural complete games.
+See the
 [progress ledger](game-engine-progress.md) for completed checks and artifact
 identities rather than treating this roadmap as gate evidence.
 `build-ir` intentionally fails. `game-server` contains a README only.
 
-The next gate is P5: full deck/pod admission, shuffle/mulligan setup,
-seeded complete legal games and a named finite release. The reviewed choices
-and effects slices complete the finite P3/P4 path obligations. P6 is an ongoing series
+P5 passed its debug/release, fixed-game, source, offline rebuild and replay gates.
+The reviewed choices and effects slices complete the finite P3/P4 path obligations.
+P7 search and P8 hosting remain pending acceptance. P6 is an ongoing series
 of separately scoped expansions, not an instruction to implement all Magic.
 P7 uses the delegated product budgets below and freezes its measured workload
 before optimization; P8 targets

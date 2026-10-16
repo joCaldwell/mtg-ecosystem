@@ -18,9 +18,43 @@ pub(super) enum CommanderContinuation {
     StateBased {
         resume: Frame,
     },
+    StateBasedBatch {
+        remaining: Vec<ObjectId>,
+        choices: Vec<(ObjectId, bool)>,
+        resume: Frame,
+    },
 }
 
 impl Game {
+    pub(super) fn previous_commander_choices(&self) -> Vec<(ObjectId, bool)> {
+        match &self.state.frame {
+            Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
+                CommanderContinuation::StateBasedBatch { choices, .. } => choices.clone(),
+                _ => vec![],
+            },
+            _ => vec![],
+        }
+    }
+    pub(super) fn visible_commander_choices(
+        &self,
+        viewer: PlayerId,
+    ) -> Result<Vec<VisibleCommanderReturnChoice>, String> {
+        self.previous_commander_choices()
+            .into_iter()
+            .map(|(id, to_command)| {
+                Ok(VisibleCommanderReturnChoice {
+                    designation: self.commander_designation(viewer, id.card)?,
+                    owner: self
+                        .state
+                        .cards
+                        .get(&id.card)
+                        .ok_or("missing commander choice card")?
+                        .owner,
+                    to_command,
+                })
+            })
+            .collect()
+    }
     pub(super) fn commander_enabled(&self) -> bool {
         self.prepared.config.commander_profile()
     }
@@ -61,16 +95,51 @@ impl Game {
         Ok(cost)
     }
     // CR 903.9a / 704.3: consume a fresh graveyard/exile incarnation's next
-    // SBA opportunity even if declined. Reviewed pools permit at most one
-    // fresh opportunity per check; fail closed if that boundary is widened.
+    // SBA opportunity even if declined. Historical pools permit at most one.
+    // Match pods preserve every simultaneous fresh opportunity and process
+    // owner choices APNAP before one simultaneous move wave and trigger placement.
     pub(super) fn offer_commander_sba(&mut self, resume: Frame) -> Result<bool, String> {
         let eligible = self.state.commander_returns.iter().copied().find(|id| {
             self.current(*id)
                 .is_ok_and(|o| matches!(o.zone, Zone::Graveyard { .. } | Zone::Exile))
                 && self.is_live(self.state.cards[&id.card].owner)
         });
-        if self.state.commander_returns.len() > 1 {
+        if self.state.commander_returns.len() > 1 && !self.prepared.config.match_profile() {
             return Err("unsupported simultaneous multiple Commander return opportunities".into());
+        }
+        if self.prepared.config.match_profile() && self.state.commander_returns.len() > 1 {
+            let mut objects = self
+                .state
+                .commander_returns
+                .iter()
+                .copied()
+                .filter(|id| {
+                    self.current(*id)
+                        .is_ok_and(|o| matches!(o.zone, Zone::Graveyard { .. } | Zone::Exile))
+                        && self.is_live(self.state.cards[&id.card].owner)
+                })
+                .collect::<Vec<_>>();
+            objects.sort_by_key(|id| {
+                (
+                    (self.state.cards[&id.card].owner.0 + 4 - self.state.turn_owner.0) % 4,
+                    *id,
+                )
+            });
+            self.state.commander_returns.clear();
+            if !objects.is_empty() {
+                let object = objects.remove(0);
+                self.state.frame = Frame::CommanderReturn {
+                    object,
+                    destination: self.current(object)?.zone,
+                    continuation: Box::new(CommanderContinuation::StateBasedBatch {
+                        remaining: objects,
+                        choices: vec![],
+                        resume,
+                    }),
+                };
+                return Ok(true);
+            }
+            return Ok(false);
         }
         self.state.commander_returns.clear();
         if let Some(object) = eligible {
@@ -211,6 +280,58 @@ impl Game {
                     )?;
                 }
                 self.grant_turn_priority()?;
+            }
+            CommanderContinuation::StateBasedBatch {
+                mut remaining,
+                mut choices,
+                mut resume,
+            } => {
+                // CR101.4/101.4b and704.3: APNAP choices are public in sequence,
+                // but no commander moves until every applicable owner chose.
+                if present {
+                    choices.push((object, to_command));
+                }
+                remaining.retain(|id| {
+                    self.current(*id)
+                        .is_ok_and(|o| matches!(o.zone, Zone::Graveyard { .. } | Zone::Exile))
+                        && self.is_live(self.state.cards[&id.card].owner)
+                });
+                if !remaining.is_empty() {
+                    let object = remaining.remove(0);
+                    self.state.frame = Frame::CommanderReturn {
+                        object,
+                        destination: self.current(object)?.zone,
+                        continuation: Box::new(CommanderContinuation::StateBasedBatch {
+                            remaining,
+                            choices,
+                            resume,
+                        }),
+                    };
+                } else {
+                    let occurrences = choices
+                        .iter()
+                        .filter(|(id, yes)| {
+                            *yes && self.current(*id).is_ok()
+                                && self.is_live(self.state.cards[&id.card].owner)
+                        })
+                        .map(|(id, _)| ProposedEvent::Move {
+                            object: *id,
+                            destination: Zone::Command {
+                                owner: self.state.cards[&id.card].owner,
+                            },
+                        })
+                        .collect::<Vec<_>>();
+                    if !occurrences.is_empty() {
+                        self.commit_batch(
+                            BatchCause::CommanderReturn,
+                            EventGroup::Simultaneous { occurrences },
+                        )?;
+                        if let Frame::Stabilize { changed, .. } = &mut resume {
+                            *changed = true;
+                        }
+                    }
+                    self.state.frame = resume;
+                }
             }
             CommanderContinuation::StateBased { mut resume } => {
                 if present && to_command {
@@ -366,6 +487,50 @@ impl Game {
                             != Some(&object.card)
                     {
                         return Err("snapshot commander draw continuation invariant".into());
+                    }
+                }
+                CommanderContinuation::StateBasedBatch {
+                    remaining,
+                    choices,
+                    resume,
+                } => {
+                    let ids = choices
+                        .iter()
+                        .map(|(id, _)| *id)
+                        .chain(std::iter::once(*object))
+                        .chain(remaining.iter().copied())
+                        .collect::<Vec<_>>();
+                    if !self.prepared.config.match_profile()
+                        || ids.len() > 4
+                        || ids.iter().collect::<BTreeSet<_>>().len() != ids.len()
+                        || !matches!(resume, Frame::Stabilize { .. })
+                        || current.zone != *destination
+                        || !matches!(destination, Zone::Graveyard { .. } | Zone::Exile)
+                    {
+                        return Err("snapshot commander SBA group invariant".into());
+                    }
+                    let mut keys = vec![];
+                    for id in ids {
+                        let owner = self
+                            .state
+                            .cards
+                            .get(&id.card)
+                            .ok_or("snapshot commander group card")?
+                            .owner;
+                        if self.state.commanders.history(id.card).is_none() {
+                            return Err("snapshot commander group designation".into());
+                        }
+                        if self.is_live(owner)
+                            && !self.current(id).is_ok_and(|o| {
+                                matches!(o.zone, Zone::Graveyard { .. } | Zone::Exile)
+                            })
+                        {
+                            return Err("snapshot commander group incarnation".into());
+                        }
+                        keys.push(((owner.0 + 4 - self.state.turn_owner.0) % 4, id));
+                    }
+                    if !keys.windows(2).all(|w| w[0] < w[1]) {
+                        return Err("snapshot commander group APNAP order".into());
                     }
                 }
                 CommanderContinuation::StateBased { resume } => {

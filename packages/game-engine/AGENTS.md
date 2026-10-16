@@ -17,8 +17,8 @@ query-sidecar v4. `docs/game-engine-combat-games.md` adds two exact combat
 configurations, ordered libraries, cleanup, damage/SBAs, and complete scenario
 games; snapshot v8, bundle v9, projection v6 and query-sidecar v5. Bundle v9
 records effective optimization/debug settings; ordered snapshot verification
-shares a proved independent replay prefix without weakening standalone restore. This package is scenario-only; do not advertise playable
-Commander matches.
+shares a proved independent replay prefix without weakening standalone restore.
+These historical profiles are scenarios, not legal Commander matches.
 
 `docs/game-engine-commander-casting.md` adds three exact Commander profiles,
 a separate six-definition catalog with source-backed Plains, command casting/tax,
@@ -81,7 +81,15 @@ Seeds of Strength retains three target occurrences; Slaughterhouse Bouncer
 checks its intervening condition at matching and resolution. Three-point
 prevention uses complete simultaneous allocation vectors. Snapshot v16, bundle
 v17, projection/context v14 and query-sidecar v13 retain these continuations.
-Legal Commander setup and admission remain subsequent work.
+Historical catalogs remain separate from the legal-match catalog below.
+
+`docs/game-engine-matches.md` releases the finite `commander-foundations-v1`
+profile: a separate 34-definition IR v11 catalog, a source-backed 21-card
+construction pool, full four-seat deck/pod admission, explicit seeded shuffle,
+multiplayer mulligans and natural complete games. Isamaru and Yargle and Multani
+are the admitted commanders. Snapshot v17, bundle v18, projection/context v15
+and query-sidecar v14 retain setup and simultaneous owner-return continuations.
+Do not generalize this named profile to arbitrary Commander decks or strategies.
 
 Run from repository root, using pinned Rust 1.99.0:
 
@@ -133,8 +141,9 @@ zone/incarnation; completing a command-origin cast alone advances physical,
 per-caster tax history. The damage/library and action profiles accumulate
 actual Commander combat damage and apply the 21-damage SBA loss rule. Earlier
 Commander profiles retain their explicit damage fault. Library replacement is
-enabled only for the reviewed Time Ebb and subsequent ordinary/ability draw paths. Replacement ordering is limited to the exact effects profiles; legal Commander
-matches remain later work. Ordinary
+enabled only for the reviewed Time Ebb and subsequent ordinary/ability draw paths.
+Replacement ordering is limited to the reviewed effects and subsequent profiles.
+Legal match setup is available only through the named foundations profile. Ordinary
 combat is enabled in the reviewed combat, Commander and action profiles.
 
 Batch mutation is private and atomic. Capture consumed pre-event facts and use

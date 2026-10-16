@@ -10,6 +10,9 @@ mtg-contracts.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+rand_chacha = { version = "=0.10.0", default-features = false }
+rand_core = { version = "=0.10.0", default-features = false }
+
 [build-dependencies]
 sha2.workspace = true
 

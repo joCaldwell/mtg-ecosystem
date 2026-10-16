@@ -200,6 +200,9 @@ impl Strategy {
         let v = &o.view;
         let r = o.decision.as_ref().ok_or("missing action decision")?;
         Ok(match r {
+            PlayerRequest::Mulligan { .. } | PlayerRequest::BottomOpening { .. } => {
+                return Err("opening setup is not admitted by this historical scenario".into());
+            }
             PlayerRequest::Priority { .. } => {
                 let main = v.stack.is_empty()
                     && v.active == Some(v.viewer)

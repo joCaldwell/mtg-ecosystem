@@ -1408,3 +1408,84 @@ The closure lives at
 Logs and audits are under ignored `generated/choices-staging/generated/choices-verification/`.
 The next gate is full legal deck/pod admission, deterministic shuffle and
 mulligans, and seeded completion evidence for one named finite Commander profile.
+
+
+### P5: finite legal Commander games verified
+
+Released [`commander-foundations-v1`](game-engine-matches.md), with a separate
+34-definition IR v11 catalog, 41 semantic source records, and a 21-card
+construction pool. Four-player admission validates complete 100-card decks,
+singletons, full color identity, supported commander eligibility and pinned
+construction policy before allocating the pod. The policy binds 42 named bans
+and seven offensive-card exclusions to exact archived source objects and retained
+official HTML. Isamaru and Yargle and Multani are the admitted commanders;
+this release makes no claim about arbitrary Commander decks or strategic strength.
+
+Setup uses explicit host-seeded ChaCha20, budgeted unbiased shuffling, the free
+multiplayer mulligan, paid bottom choices and ordinary first-turn draws. Initial
+and redraw rounds expose no intermediate private queries. Defender is lowered
+as a complete ability; Reach remains a whole-card rejection. Multiple fresh
+commander return choices collect APNAP answers before one simultaneous movement.
+Snapshot v17, bundle v18, projection/context v15 and query-sidecar v14 bind these
+continuations and randomness. Historical catalogs and scenario hashes are preserved.
+
+All **18 frozen seeded games** completed naturally with zero faults or host
+truncations: **25,286 accepted decisions** and
+**80,564 rule steps**, with 27 life losses and 27 physical
+Commander-damage losses. The separate no-action all-white witness completed at
+turn 371 after 12,560 decisions and 32,949 steps, with failed-draw losses in
+seat order 2, 3, 0. Its final State SHA-256 is
+`43b08ffe50d7844d399f229cd76b825ff1b5ba1d091a9e3484c1db41c213bffb`.
+Neither completion policy uses host concessions to substitute for an outcome.
+
+Resource diagnostics for the pre-release candidate
+`ff3c8304a716fda5e0659b4e5f56407a68b8d37b8390c1aa36f034813d9a93ae`
+are retained separately from the final rebuild: the second fixed 18-game batch
+took 217.867 seconds including replay, with a 113.567-second native-game sum,
+709.4 native rule steps/second and maximum RSS 4,083,908 KiB. Those measurements
+ran alongside development checks. The separate completed long draw witness, on
+build `0c4ba4b350b1de7dba59aa1d89bb3de045c3bdc31461d778779d1942f7600940`,
+took 457.678 seconds and peaked at 10,410,884 KiB. Its earlier full-Value attempt
+was resource-stopped and preserved; the released digest writer streams the exact
+canonical history instead. These are correctness-workload diagnostics, not P7
+search acceptance or current-build memory promises. All 18 final-capture semantic
+results match the measured candidate.
+
+Final formatting, warnings-denied Clippy, **379 Rust debug tests and 31 Node
+checks** passed; separate release verification passed all **379 Rust tests**.
+Sixteen independent adversarial cases and focused interaction tests cover deck
+admission, setup privacy, random continuation/exhaustion, paid mulligans,
+simultaneous commander choices, departures and forged snapshots.
+
+The fresh retained-source rebuild passed with an empty Cargo home, a fresh target
+and frozen offline mode, then verified all complete match journals and the
+historical **540 trace executions / 17,627 recovery boundaries**. Independent
+final audit passed with zero findings: **149 native files / 51,802,366 bytes**,
+**727 snapshot envelope/state-hash checks**, all eleven catalogs, 42 historical
+configurations and 19 complete legal-match journals. The retained vendor closure
+contains **2,318 files from 37 external locked packages**. A read-only compatibility
+capture checked all 41 semantic records against its frozen 199-file parser closure;
+it does not describe later unrelated main-checkout parser edits.
+
+The final audit initially assumed that a policy's card name always equals the
+full archived name. Independent review of all 49 excluded records found one
+exact front-face name (Erayo). The audit now accepts an exact full name or exact
+face name while retaining every source, record, Oracle identity and policy hash
+check. Engine source and policy fixtures were unchanged by this audit correction.
+
+Retained identities:
+
+- Build: `e1f94d6a454a78b2fd0fad28cf1073a62626a3beb15268f195ffe55a49214c69`.
+- Match catalog: `fc4bd3390e63ea352e129ac370fa848dbee11cf0700e7e6781d449fd49244a7f`.
+- Construction policy: `cfe83bd72e477756a7b4f778e22c6ec8e901489671d84d122574ecdc7b90caad`.
+- Bundle: `88d0764e9fd2dab3bef522413a32852b8d0b75bcce4efb2e0abe0718965582f2`.
+- Rebuilt executable: `fe82aa246c09a605127fe62d804fd4cd36acd9f40bd558e3eb859e5102c03247`.
+- Dependency manifest: `b1d3532ff112c3ff3e5bc499289d24a6556ec16f3e401306e96a6aecc217bdcf`.
+- Pinned rules: `8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca`.
+
+The closure lives at `/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-88d0764e9fd2dab3-gTlAwl/`.
+Logs and independent audits remain under ignored
+`generated/matches-staging/generated/matches-verification/`. The final frozen
+149 native and nine host files were copied to the release checkout and verified
+byte-for-byte; all native bytes also equal the retained rebuild inputs. Search
+and hosting are the next finite gates, with P6 expansions scoped separately.

@@ -414,7 +414,7 @@ fn allocation_rejects_non_total_duplicate_missing_over_source_and_foreign_inputs
     let saved = g.save_work(&work).unwrap();
     assert_eq!(
         serde_json::from_str::<Value>(&saved).unwrap()["work_version"],
-        13
+        14
     );
     let mut b = Game::restore(p.clone(), &before).unwrap();
     let work = b.restore_work(&saved).unwrap();

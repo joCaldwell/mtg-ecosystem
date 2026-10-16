@@ -26,6 +26,7 @@ mod commander_games;
 mod damage_library_games;
 mod damage_life_games;
 mod effects_games;
+mod match_games;
 mod stack_costs_games;
 mod triggers_games;
 
@@ -75,6 +76,10 @@ struct Bundle {
     choice_catalog: Catalog,
     choice_records: Vec<String>,
     choices: Vec<choices_games::Evidence>,
+    match_catalog: Catalog,
+    match_records: Vec<String>,
+    matches: Vec<match_games::Evidence>,
+    draw_failure: match_games::Evidence,
     build_id: String,
     catalog: Catalog,
     config: ScenarioConfig,
@@ -114,7 +119,7 @@ struct BundleMetadata {
 fn read_bundle_metadata(reader: impl Read) -> Result<BundleMetadata, String> {
     let metadata: BundleMetadata =
         serde_json::from_reader(reader).map_err(|error| error.to_string())?;
-    if metadata.bundle_version != 17 {
+    if metadata.bundle_version != 18 {
         return Err("unsupported metadata bundle version".into());
     }
     Ok(metadata)
@@ -695,10 +700,25 @@ fn finish(game: &mut Game) -> Result<(), String> {
     }
 }
 fn source_files() -> Result<Vec<SourceFile>, String> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../..")
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    source_files_from(&root)
+}
+fn source_files_from(root: &Path) -> Result<Vec<SourceFile>, String> {
     fn walk(root: &Path, path: &Path, files: &mut Vec<SourceFile>) -> Result<(), String> {
         for entry in fs::read_dir(path).map_err(|e| e.to_string())? {
             let p = entry.map_err(|e| e.to_string())?.path();
             if p.is_dir() {
+                if p.file_name().is_some_and(|name| {
+                    name == "generated"
+                        || name == "target"
+                        || name == "node_modules"
+                        || name == ".git"
+                }) {
+                    continue;
+                }
                 walk(root, &p, files)?;
             } else if p.extension().is_some_and(|x| x == "rs" || x == "json")
                 || p.file_name().is_some_and(|x| x == "Cargo.toml")
@@ -717,14 +737,10 @@ fn source_files() -> Result<Vec<SourceFile>, String> {
         }
         Ok(())
     }
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../..")
-        .canonicalize()
-        .map_err(|e| e.to_string())?;
     let mut files = vec![];
-    walk(&root, &root.join("packages/game-engine/crates"), &mut files)?;
+    walk(root, &root.join("packages/game-engine/crates"), &mut files)?;
     walk(
-        &root,
+        root,
         &root.join("packages/game-engine/tests/fixtures"),
         &mut files,
     )?;
@@ -907,6 +923,10 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
     let choice_refs = choice_games.iter().collect::<Vec<_>>();
     let (choice_traces, choice_trace_report) = crate::trace_runs(&choice_catalog, &choice_refs)?;
     trace_runs.extend(choice_traces);
+    let match_catalog = mtg_compiler::match_fixture_catalog()?;
+    let (matches, match_report) = match_games::suite(&match_catalog)?;
+    let draw_failure = match_games::draw_failure(&match_catalog)?;
+    let draw_report = serde_json::json!({"outcome":draw_failure.outcome,"winner":draw_failure.winner,"losses":draw_failure.losses,"turns":draw_failure.turns,"decisions":draw_failure.decisions,"rule_steps":draw_failure.rule_steps,"survivor_counts":draw_failure.survivor_counts,"state_sha256":draw_failure.final_state_sha256,"elapsed_millis":draw_failure.elapsed_millis});
     let bundle = Bundle {
         trace_runs,
         departure,
@@ -970,7 +990,14 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
             .map(|(_, r)| (*r).into())
             .collect(),
         choices,
-        bundle_version: 17,
+        match_catalog,
+        match_records: fixtures::MATCH_RECORDS
+            .iter()
+            .map(|(_, r)| (*r).into())
+            .collect(),
+        matches,
+        draw_failure,
+        bundle_version: 18,
         build_id: BUILD_ID.into(),
         catalog,
         config: prepared.config().clone(),
@@ -991,12 +1018,14 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         rustflags: BUILD_RUSTFLAGS.into(),
         query_sidecar,
     };
-    let report = serde_json::json!({"status":"scenario_verified","choices":choice_report,"choices_trace_equivalence":choice_trace_report,"effects":effect_report,"effects_trace_equivalence":effect_trace_report,"triggers":trigger_report,"triggers_trace_equivalence":trigger_trace_report,"damage_life":damage_life_report,"damage_life_trace_equivalence":damage_life_trace_report,"stack_costs":stack_report,"stack_costs_trace_equivalence":stack_trace_report,"actions_payments":action_report,"actions_payments_trace_equivalence":action_trace_report,"damage_library":lifecycle_report,"damage_library_trace_equivalence":lifecycle_trace_report,"commander":commander_report,"commander_trace_equivalence":commander_trace_report,"combat":combat_report,"turns":turns_report,"departure":departure_report,"response":response_report,"detached_response":detached_report,"mana_casting":mana_casting_report,"mana_undo":mana_undo_report,"mana_keep":mana_keep_report,"trace_equivalence":trace_report,"build_id":BUILD_ID,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
+    let mut report = serde_json::json!({"status":"scenario_verified","choices":choice_report,"choices_trace_equivalence":choice_trace_report,"effects":effect_report,"effects_trace_equivalence":effect_trace_report,"triggers":trigger_report,"triggers_trace_equivalence":trigger_trace_report,"damage_life":damage_life_report,"damage_life_trace_equivalence":damage_life_trace_report,"stack_costs":stack_report,"stack_costs_trace_equivalence":stack_trace_report,"actions_payments":action_report,"actions_payments_trace_equivalence":action_trace_report,"damage_library":lifecycle_report,"damage_library_trace_equivalence":lifecycle_trace_report,"commander":commander_report,"commander_trace_equivalence":commander_trace_report,"combat":combat_report,"turns":turns_report,"departure":departure_report,"response":response_report,"detached_response":detached_report,"mana_casting":mana_casting_report,"mana_undo":mana_undo_report,"mana_keep":mana_keep_report,"trace_equivalence":trace_report,"build_id":BUILD_ID,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
         "state_sha256":game.state_digest()?,"accepted_inputs":game.journal().len(),"events":game.events(),"restore_fork_replay_equal":true,
         "player_observations": (0..4).map(|v|observation(&game,PlayerId(v))).collect::<Result<Vec<_>,_>>()?,
         "search_context":search_context(&game,PlayerId(0),"separate-sampling-seed".into())?,
         "retained_branch_observations":retained_branch_observations,
         "timing_observations":{"four_equivalent_runs_ns":elapsed,"priority_query_mean_ns":query_ns.to_string(),"clone_and_dispose_mean_ns":fork_ns.to_string(),"representative_commander_benchmark":false}});
+    report["matches"] = match_report;
+    report["draw_failure"] = draw_report;
     Ok((bundle, report))
 }
 /// Source compilation and runtime admission remain separate proofs. Frozen
@@ -1030,6 +1059,18 @@ fn verify_source_catalog(
                 VIOLENCE,
                 "2679d0dd-ba30-4a1c-b6a0-b3ac6c790496", // Boros Charm: unsupported complete modes
                 "2825ff5a-5340-4494-bfde-80f6f5bce5a2", // Lavaborn Muse: upkeep/other-player condition
+            ],
+        ),
+        11 => (
+            &[],
+            &[
+                FLAME,
+                DEATHGREETER,
+                RIGHTEOUSNESS,
+                VIOLENCE,
+                "2679d0dd-ba30-4a1c-b6a0-b3ac6c790496",
+                "2825ff5a-5340-4494-bfde-80f6f5bce5a2",
+                "51ce0158-c9a5-4fa5-9704-46ab02f01b86", // Wall of Vines: complete Defender+Reach rejected
             ],
         ),
         _ => return Err("unsupported source coverage version".into()),
@@ -1079,74 +1120,84 @@ fn verify_source_catalog(
     Ok(())
 }
 
-fn verify_bundle(json: &str) -> Result<String, String> {
-    let b: Bundle = strict_read(json)?;
-    if b.bundle_version != 17 || b.build_id != BUILD_ID {
-        return Err("unsupported bundle version/build".into());
-    }
-    if b.archive_manifest != fixtures::MANIFEST
-        || !b
-            .records
-            .iter()
-            .map(String::as_str)
-            .eq(fixtures::RECORDS.iter().map(|(_, record)| *record))
-        || !b
-            .commander_records
-            .iter()
-            .map(String::as_str)
-            .eq(fixtures::COMMANDER_RECORDS
-                .iter()
-                .map(|(_, record)| *record))
-        || !b
-            .damage_records
-            .iter()
-            .map(String::as_str)
-            .eq(fixtures::DAMAGE_RECORDS.iter().map(|(_, record)| *record))
-        || !b
-            .library_records
-            .iter()
-            .map(String::as_str)
-            .eq(fixtures::LIBRARY_RECORDS.iter().map(|(_, record)| *record))
-        || !b
-            .action_records
-            .iter()
-            .map(String::as_str)
-            .eq(fixtures::ACTION_RECORDS.iter().map(|(_, record)| *record))
-        || !b
-            .stack_records
-            .iter()
-            .map(String::as_str)
-            .eq(fixtures::STACK_RECORDS.iter().map(|(_, record)| *record))
-        || !b
-            .damage_life_records
-            .iter()
-            .map(String::as_str)
-            .eq(fixtures::DAMAGE_LIFE_RECORDS
-                .iter()
-                .map(|(_, record)| *record))
-        || !b
-            .trigger_records
-            .iter()
-            .map(String::as_str)
-            .eq(fixtures::TRIGGER_RECORDS.iter().map(|(_, record)| *record))
-        || !b
-            .effect_records
-            .iter()
-            .map(String::as_str)
-            .eq(fixtures::EFFECT_RECORDS.iter().map(|(_, r)| *r))
-        || !b
-            .choice_records
-            .iter()
-            .map(String::as_str)
-            .eq(fixtures::CHOICE_RECORDS.iter().map(|(_, r)| *r))
+type RecordSet<'a> = (&'a [String], &'static [(&'static str, &'static str)]);
+fn bundle_record_sets(b: &Bundle) -> [RecordSet<'_>; 11] {
+    [
+        (&b.records, &fixtures::RECORDS),
+        (&b.commander_records, &fixtures::COMMANDER_RECORDS),
+        (&b.damage_records, &fixtures::DAMAGE_RECORDS),
+        (&b.library_records, &fixtures::LIBRARY_RECORDS),
+        (&b.action_records, &fixtures::ACTION_RECORDS),
+        (&b.stack_records, &fixtures::STACK_RECORDS),
+        (&b.damage_life_records, &fixtures::DAMAGE_LIFE_RECORDS),
+        (&b.trigger_records, &fixtures::TRIGGER_RECORDS),
+        (&b.effect_records, &fixtures::EFFECT_RECORDS),
+        (&b.choice_records, &fixtures::CHOICE_RECORDS),
+        (&b.match_records, &fixtures::MATCH_RECORDS),
+    ]
+}
+fn exact_source_records(actual: &[String], expected: &[(&str, &str)]) -> Result<(), String> {
+    if !actual
+        .iter()
+        .map(String::as_str)
+        .eq(expected.iter().map(|(_, r)| *r))
     {
         return Err("retained exact source fixtures differ from this build".into());
     }
-    if !b.source_files.windows(2).all(|w| w[0].path < w[1].path) {
+    Ok(())
+}
+fn verify_native_source_closure(b: &Bundle) -> Result<(), String> {
+    verify_native_source_bytes(
+        &b.source_files,
+        &b.build_id,
+        [
+            &b.rustc,
+            &b.build_profile,
+            &b.target,
+            &b.rustflags,
+            &b.opt_level,
+            &b.debug,
+            &b.debug_assertions,
+        ],
+    )
+}
+fn verify_native_source_bytes(
+    files: &[SourceFile],
+    build_id: &str,
+    metadata: [&str; 7],
+) -> Result<(), String> {
+    let rustc = format!("{BUILD_RUSTC}\n");
+    if metadata
+        != [
+            rustc.as_str(),
+            BUILD_PROFILE,
+            BUILD_TARGET,
+            BUILD_RUSTFLAGS,
+            BUILD_OPT_LEVEL,
+            BUILD_DEBUG,
+            BUILD_DEBUG_ASSERTIONS,
+        ]
+    {
+        return Err("retained toolchain metadata differs from this executable".into());
+    }
+    for file in files {
+        // The build identity uses NUL separators. Disallow embedded separators
+        // and noncanonical paths before interpreting this retained file table.
+        if file.path.contains(['\0', '\\', ':'])
+            || file.contents.contains('\0')
+            || file
+                .path
+                .split('/')
+                .any(|part| part.is_empty() || part == "." || part == "..")
+        {
+            return Err("unsafe native source path or embedded identity separator".into());
+        }
+    }
+    if !files.windows(2).all(|w| w[0].path < w[1].path) {
         return Err("retained source paths must be unique and ordered".into());
     }
     let mut source_bytes = Vec::new();
-    for file in &b.source_files {
+    for file in files {
         if sha256(file.contents.as_bytes()) != file.sha256 {
             return Err("retained source hash mismatch".into());
         }
@@ -1155,23 +1206,32 @@ fn verify_bundle(json: &str) -> Result<String, String> {
         source_bytes.extend_from_slice(file.contents.as_bytes());
         source_bytes.push(0);
     }
-    source_bytes.extend_from_slice(b.rustc.as_bytes());
-    for value in [
-        &b.build_profile,
-        &b.target,
-        &b.rustflags,
-        &b.opt_level,
-        &b.debug,
-        &b.debug_assertions,
-    ] {
-        source_bytes.push(0);
+    for (index, value) in metadata.iter().enumerate() {
+        if index > 0 {
+            source_bytes.push(0);
+        }
         source_bytes.extend_from_slice(value.as_bytes());
     }
-    if sha256(&source_bytes) != b.build_id {
+    if sha256(&source_bytes) != build_id {
         return Err(
             "retained source/toolchain closure does not reproduce the build identity".into(),
         );
     }
+    Ok(())
+}
+
+fn verify_bundle(json: &str) -> Result<String, String> {
+    let b: Bundle = strict_read(json)?;
+    if b.bundle_version != 18 || b.build_id != BUILD_ID {
+        return Err("unsupported bundle version/build".into());
+    }
+    if b.archive_manifest != fixtures::MANIFEST {
+        return Err("archive manifest differs from this build".into());
+    }
+    for (actual, expected) in bundle_record_sets(&b) {
+        exact_source_records(actual, expected)?;
+    }
+    verify_native_source_closure(&b)?;
     for (catalog, records) in [
         (&b.catalog, &b.records),
         (&b.commander_catalog, &b.commander_records),
@@ -1190,6 +1250,7 @@ fn verify_bundle(json: &str) -> Result<String, String> {
     verify_source_catalog(&b.archive_manifest, &b.trigger_catalog, &b.trigger_records)?;
     verify_source_catalog(&b.archive_manifest, &b.effect_catalog, &b.effect_records)?;
     verify_source_catalog(&b.archive_manifest, &b.choice_catalog, &b.choice_records)?;
+    verify_source_catalog(&b.archive_manifest, &b.match_catalog, &b.match_records)?;
     if b.trace_runs.len()
         != (109 + effects_games::POLICIES.len() + choices_games::POLICIES.len()) * 3
     {
@@ -1369,6 +1430,8 @@ fn verify_bundle(json: &str) -> Result<String, String> {
     triggers_games::verify(&b.trigger_catalog, &b.triggers)?;
     effects_games::verify(&b.effect_catalog, &b.effects)?;
     choices_games::verify(&b.choice_catalog, &b.choices)?;
+    match_games::verify_suite(&b.match_catalog, &b.matches)?;
+    match_games::verify_draw_failure(&b.match_catalog, &b.draw_failure)?;
     let departure_prepared = Prepared::admit(b.catalog.clone(), b.departure.config)?;
     let mut departure_verifier =
         SnapshotVerifier::new(departure_prepared.clone(), TraceMode::Detailed);
@@ -1415,6 +1478,57 @@ fn verify_bundle(json: &str) -> Result<String, String> {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
+        Some("match-draw-failure") if args.len() == 1 => {
+            println!(
+                "{}",
+                canonical(&match_games::draw_failure(
+                    &mtg_compiler::match_fixture_catalog()?
+                )?)?
+            );
+        }
+        Some("match-batch") if args.len() == 2 => {
+            println!(
+                "{}",
+                canonical(&match_games::batch(
+                    &mtg_compiler::match_fixture_catalog()?,
+                    Path::new(&args[1])
+                )?)?
+            );
+        }
+        Some("match-replay-live") if args.len() == 2 => {
+            println!(
+                "{}",
+                canonical(&match_games::replay_live(
+                    &mtg_compiler::match_fixture_catalog()?,
+                    Path::new(&args[1])
+                )?)?
+            );
+        }
+        Some("match-replay") if args.len() == 2 => {
+            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
+            match_games::verify(&mtg_compiler::match_fixture_catalog()?, &e)?;
+            println!(
+                "{}",
+                canonical(
+                    &serde_json::json!({"status":"match_replay_verified","state_sha256":e.final_state_sha256})
+                )?
+            );
+        }
+        Some("match-game") if args.len() == 2 => {
+            let index: u32 = args[1].parse()?;
+            let config = mtg_core::MatchConfig::foundations(
+                match_games::seed(index),
+                PlayerId((index % 4) as u8),
+            );
+            let evidence = match_games::run(
+                &mtg_compiler::match_fixture_catalog()?,
+                config,
+                match_games::Policy::Develop,
+                std::array::from_fn(|p| ((index as usize + p) % 3) as u8),
+                1024,
+            )?;
+            println!("{}", canonical(&evidence)?);
+        }
         Some("bundle-metadata") if args.len() == 2 => {
             let metadata = read_bundle_metadata(BufReader::new(fs::File::open(&args[1])?))?;
             println!("{}", canonical(&metadata)?);
@@ -1444,6 +1558,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let (_, _, report) =
                 choices_games::suite(&choices_fixture_catalog()?, args.len() == 2)?;
             println!("{}", canonical(&report)?);
+        }
+        Some("compile-match") if args.len() == 1 => {
+            println!("{}", canonical(&mtg_compiler::match_fixture_catalog()?)?)
         }
         Some("compile-choices") if args.len() == 1 => {
             println!("{}", canonical(&choices_fixture_catalog()?)?);
@@ -1569,7 +1686,7 @@ mod tests {
     #[test]
     fn metadata_reader_skips_unknown_nested_strings_and_requires_typed_closure() {
         let metadata = serde_json::json!({
-            "bundle_version":17,"build_id":"historical-build",
+            "bundle_version":18,"build_id":"historical-build",
             "source_files":[{"path":"Cargo.toml","sha256":"source-digest","contents":"[workspace]\n"}],
             "rustflags":"","opt_level":"3","debug":"false","debug_assertions":"false",
             "target":"x86_64-unknown-linux-gnu","catalog":fixture_catalog().unwrap(),
@@ -1591,7 +1708,7 @@ mod tests {
             );
         }
         let mut bad = metadata.clone();
-        bad["bundle_version"] = 16.into();
+        bad["bundle_version"] = 17.into();
         assert!(read_bundle_metadata(std::io::Cursor::new(canonical(&bad).unwrap())).is_err());
         let mut bad = metadata.clone();
         bad["source_files"][0]["contents"] = 17.into();
@@ -1652,6 +1769,10 @@ mod tests {
                 choices_fixture_catalog().unwrap(),
                 records(&fixtures::CHOICE_RECORDS),
             ),
+            (
+                mtg_compiler::match_fixture_catalog().unwrap(),
+                records(&fixtures::MATCH_RECORDS),
+            ),
         ] {
             verify_source_catalog(fixtures::MANIFEST, &catalog, &source).unwrap();
             let mut missing = source.clone();
@@ -1670,7 +1791,7 @@ mod tests {
             serde_json::Value::Object(values) => {
                 for (key, value) in values.iter_mut() {
                     if key == "observation_version" || key == "context_version" {
-                        *value = serde_json::json!(14);
+                        *value = serde_json::json!(15);
                     } else {
                         current_projection_versions(value);
                     }
@@ -1678,6 +1799,120 @@ mod tests {
             }
             _ => {}
         }
+    }
+    #[test]
+    fn native_source_collection_excludes_nested_generated_and_build_artifacts() {
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("mtg-native-source-{}-{nonce}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        let _cleanup = Cleanup(root.clone());
+        let real = [
+            "Cargo.toml",
+            "Cargo.lock",
+            "rust-toolchain.toml",
+            "packages/game-engine/crates/example/Cargo.toml",
+            "packages/game-engine/crates/example/src/logic.rs",
+            "packages/game-engine/tests/fixtures/positive.json",
+        ];
+        for path in real {
+            let path = root.join(path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, "retained source").unwrap();
+        }
+        for path in [
+            "packages/game-engine/crates/example/generated/capture/game.json",
+            "packages/game-engine/crates/example/target/deps/test.rs",
+            "packages/game-engine/crates/example/node_modules/pkg/Cargo.toml",
+            "packages/game-engine/crates/example/.git/hidden.rs",
+            "packages/game-engine/tests/fixtures/generated/ignored.json",
+        ] {
+            let path = root.join(path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, [0xff]).unwrap();
+        }
+        let files = source_files_from(&root).unwrap();
+        let mut expected = real.to_vec();
+        expected.sort_unstable();
+        assert_eq!(
+            files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(),
+            expected
+        );
+        assert!(
+            files
+                .iter()
+                .all(|f| f.sha256 == sha256(f.contents.as_bytes()))
+        );
+    }
+    #[test]
+    fn retained_native_identity_rejects_separator_absorption_and_unsafe_paths() {
+        fn metadata(rustc: &str) -> [&str; 7] {
+            [
+                rustc,
+                BUILD_PROFILE,
+                BUILD_TARGET,
+                BUILD_RUSTFLAGS,
+                BUILD_OPT_LEVEL,
+                BUILD_DEBUG,
+                BUILD_DEBUG_ASSERTIONS,
+            ]
+        }
+        let mut files = source_files().unwrap();
+        let mut rustc = format!("{BUILD_RUSTC}\n");
+        verify_native_source_bytes(&files, BUILD_ID, metadata(&rustc)).unwrap();
+        let original_path = files[0].path.clone();
+        for unsafe_path in [
+            "/escape",
+            "a/../escape",
+            "a//b",
+            "a/./b",
+            "C:/escape",
+            "a\\b",
+            "a\0b",
+        ] {
+            files[0].path = unsafe_path.into();
+            assert!(
+                verify_native_source_bytes(&files, BUILD_ID, metadata(&rustc))
+                    .unwrap_err()
+                    .contains("unsafe native source path")
+            );
+        }
+        files[0].path = original_path;
+        verify_native_source_bytes(&files, BUILD_ID, metadata(&rustc)).unwrap();
+        // A final file can otherwise be absorbed into rustc while preserving
+        // the same separator stream. Metadata must match compiled constants.
+        let last = files.pop().unwrap();
+        let original_rustc = std::mem::take(&mut rustc);
+        rustc = format!("{}\0{}\0{}", last.path, last.contents, original_rustc);
+        assert!(
+            verify_native_source_bytes(&files, BUILD_ID, metadata(&rustc))
+                .unwrap_err()
+                .contains("toolchain metadata")
+        );
+        rustc = original_rustc;
+        files.push(last);
+        verify_native_source_bytes(&files, BUILD_ID, metadata(&rustc)).unwrap();
+        // Merging adjacent records preserves the old delimiter byte stream.
+        // Explicit separator guards must reject the now-ambiguous file table.
+        let second = files.remove(1);
+        let first = &mut files[0];
+        first.contents.push('\0');
+        first.contents.push_str(&second.path);
+        first.contents.push('\0');
+        first.contents.push_str(&second.contents);
+        first.sha256 = sha256(first.contents.as_bytes());
+        assert!(verify_native_source_bytes(&files, BUILD_ID, metadata(&rustc)).is_err());
+        files.clear();
+        assert!(verify_native_source_bytes(&files, BUILD_ID, metadata(&rustc)).is_err());
     }
     #[test]
     fn bundle_contains_replayable_source_to_runtime_evidence() {
@@ -1700,7 +1935,7 @@ mod tests {
         );
         let final_snapshot: serde_json::Value =
             serde_json::from_str(&bundle.final_snapshot).unwrap();
-        assert_eq!(final_snapshot["snapshot_version"], 16);
+        assert_eq!(final_snapshot["snapshot_version"], 17);
         assert_eq!(final_snapshot["state"]["rule_steps"], p2["rule_steps"]);
         assert_eq!(
             serde_json::to_value(&bundle.journal.decisions).unwrap(),
@@ -1781,11 +2016,14 @@ mod tests {
         .unwrap();
         current_projection_versions(&mut effects);
         assert_eq!(report["effects"], effects);
-        let choices: serde_json::Value = serde_json::from_str(include_str!(
+        let mut choices: serde_json::Value = serde_json::from_str(include_str!(
             "../../../tests/fixtures/expected-choices-scenario.json"
         ))
         .unwrap();
+        current_projection_versions(&mut choices);
         assert_eq!(report["choices"], choices);
+        assert_eq!(report["matches"]["passed"], true);
+        assert_eq!(report["matches"]["games"].as_array().unwrap().len(), 18);
         let historical: serde_json::Value = serde_json::from_str(include_str!(
             "../../../tests/fixtures/expected-turns-scenario.json"
         ))
@@ -1807,38 +2045,16 @@ mod tests {
             report["state_sha256"].as_str().unwrap()
         );
         assert!(
-            verify_bundle(&json.replace("\"bundle_version\":17", "\"bundle_version\":18")).is_err()
+            verify_bundle(&json.replace("\"bundle_version\":18", "\"bundle_version\":19")).is_err()
         );
         // Mutating unconsumed metadata preserves lowering/admission class; only
         // exact source-byte binding can reject an unadmitted source mutation.
-        for key in [
-            "records",
-            "commander_records",
-            "damage_records",
-            "library_records",
-            "action_records",
-            "stack_records",
-            "damage_life_records",
-            "trigger_records",
-            "effect_records",
-            "choice_records",
-        ] {
-            let mut corrupt: serde_json::Value = serde_json::from_str(&json).unwrap();
-            let index = if key == "choice_records" {
-                38
-            } else if key == "effect_records" {
-                34
-            } else if key == "trigger_records" {
-                25
-            } else if matches!(
-                key,
-                "action_records" | "stack_records" | "damage_life_records"
-            ) {
-                11
-            } else {
-                5
-            };
-            let raw = corrupt[key][index].as_str().unwrap();
+        for ((actual, expected), index) in bundle_record_sets(&bundle)
+            .into_iter()
+            .zip([5, 5, 5, 5, 11, 11, 11, 25, 34, 38, 40])
+        {
+            exact_source_records(actual, expected).unwrap();
+            let raw = &actual[index];
             let was_lowered = matches!(
                 compile(fixtures::MANIFEST, raw),
                 CompileResult::Lowered { .. }
@@ -1869,11 +2085,9 @@ mod tests {
                 compile(fixtures::MANIFEST, &changed),
                 CompileResult::Lowered { .. } | CompileResult::Unsupported { .. }
             ));
-            corrupt[key][index] = changed.into();
-            assert!(verify_bundle(&canonical(&corrupt).unwrap()).is_err());
+            let mut corrupt = actual.to_vec();
+            corrupt[index] = changed;
+            assert!(exact_source_records(&corrupt, expected).is_err());
         }
-        let mut corrupt: serde_json::Value = serde_json::from_str(&json).unwrap();
-        corrupt["source_files"] = serde_json::json!([]);
-        assert!(verify_bundle(&canonical(&corrupt).unwrap()).is_err());
     }
 }

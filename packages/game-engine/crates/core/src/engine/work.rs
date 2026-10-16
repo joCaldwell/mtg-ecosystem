@@ -28,6 +28,7 @@ pub enum QueryValue {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum QueryRejection {
+    UnavailableDuringSetup,
     InvalidViewer,
     InvalidResponse,
     UnsupportedBoundary,
@@ -159,6 +160,9 @@ impl Game {
             | Query::Check { viewer, .. }
             | Query::Search { viewer, .. } => *viewer,
         };
+        if self.setup_automatic() {
+            return Err(QueryRejection::UnavailableDuringSetup);
+        }
         if viewer.0 >= 4 {
             return Err(QueryRejection::InvalidViewer);
         }
@@ -272,6 +276,11 @@ impl Game {
                     .visible_object(viewer, object)
                     .map_err(|_| QueryRejection::Invariant)?
             {
+                if let Some(PlayerRequest::BottomOpening { candidates, .. }) = &mut b.decision
+                    && object.zone == (Zone::Hand { owner: viewer })
+                {
+                    candidates.push(visible.handle.clone());
+                }
                 if let Some(PlayerRequest::Targets { candidates, .. }) = &mut b.decision
                     && self.target_legal(object.id)
                 {
@@ -385,7 +394,7 @@ impl Game {
         if b.cursor as usize >= 4 + self.state.objects.len() + self.state.stack.len() + extra {
             b.view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
             return Ok(Some(Observation {
-                observation_version: 14,
+                observation_version: 15,
                 view: b.view.clone(),
                 decision: b.decision.clone(),
             }));
@@ -486,6 +495,19 @@ impl Game {
                     return Ok((*cursor as usize >= 4 + self.state.objects.len())
                         .then(|| QueryValue::Decision(request.clone())));
                 }
+                if let Some(PlayerRequest::BottomOpening { candidates, .. }) = request {
+                    if let Some(o) = self.state.objects.values().nth(*cursor as usize)
+                        && o.zone == (Zone::Hand { owner: *viewer })
+                    {
+                        candidates.push(
+                            self.handle_for(*viewer, o.id)
+                                .map_err(|_| QueryRejection::Invariant)?,
+                        );
+                    }
+                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
+                    return Ok((*cursor as usize >= self.state.objects.len())
+                        .then(|| QueryValue::Decision(request.clone())));
+                }
                 if !matches!(request, Some(PlayerRequest::Targets { .. })) {
                     return Ok(Some(QueryValue::Decision(request.clone())));
                 }
@@ -522,6 +544,10 @@ impl Game {
                     self.validate_player_token(*viewer, token)
                         .map_err(invalid)?;
                     let timing_valid = match (&self.state.frame, response) {
+                        (Frame::Setup, PlayerResponse::Mulligan { .. }) => true,
+                        (Frame::Setup, PlayerResponse::BottomOpening { objects }) => {
+                            objects.len() <= 7
+                        }
                         (
                             Frame::EntityTargets { .. },
                             PlayerResponse::EntityTargets { entities },
@@ -529,7 +555,7 @@ impl Game {
                         (
                             Frame::DamageAllocation { .. },
                             PlayerResponse::DamageAllocation { allocations },
-                        ) => allocations.len() <= 24,
+                        ) => allocations.len() <= self.damage_limit(),
                         (Frame::Modes { .. }, PlayerResponse::Modes { .. }) => true,
                         (Frame::TriggerTargets { .. }, PlayerResponse::Targets { objects }) => {
                             objects.len() == self.program().map_err(invalid)?.targets.len()
@@ -576,6 +602,20 @@ impl Game {
                         return Err(QueryRejection::InvalidResponse);
                     }
                     *header_checked = true;
+                    return Ok(None);
+                }
+                if let PlayerResponse::BottomOpening { objects } = response
+                    && converted.len() < objects.len()
+                {
+                    let object = self
+                        .resolve_handle(*viewer, &objects[converted.len()])
+                        .map_err(invalid)?;
+                    if self.current(object).map_err(invalid)?.zone
+                        != (Zone::Hand { owner: *viewer })
+                    {
+                        return Err(QueryRejection::InvalidResponse);
+                    }
+                    converted.push(object);
                     return Ok(None);
                 }
                 if let PlayerResponse::Targets { objects } = response
@@ -626,6 +666,10 @@ impl Game {
                         if matches!(response, PlayerResponse::DamageAllocation { .. }) {
                             Response::DamageAllocation {
                                 allocations: converted_allocations.clone(),
+                            }
+                        } else if matches!(response, PlayerResponse::BottomOpening { .. }) {
+                            Response::BottomOpening {
+                                objects: converted.clone(),
                             }
                         } else if matches!(response, PlayerResponse::Targets { .. }) {
                             Response::Targets {
@@ -695,7 +739,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 14,
+                    context_version: 15,
                     observation: *observation.clone().ok_or(QueryRejection::Invariant)?,
                     permitted_history: history.clone(),
                     open_decklists: decks.clone(),
@@ -714,7 +758,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: 13,
+            work_version: 14,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -723,7 +767,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != 13
+        if saved.work_version != 14
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?
@@ -793,7 +837,7 @@ impl Game {
         match query {
             Query::Observe { viewer } => self.observation_work_units(*viewer),
             Query::Decision { viewer } => Ok(match self.request_header(*viewer)? {
-                Some(PlayerRequest::Targets { .. }) => {
+                Some(PlayerRequest::Targets { .. } | PlayerRequest::BottomOpening { .. }) => {
                     std::cmp::max(1, self.state.objects.len() as u64)
                 }
                 Some(PlayerRequest::EntityTargets { .. }) => 4u64
@@ -809,7 +853,8 @@ impl Game {
             }),
             Query::Check { response, .. } => {
                 let entries = match response {
-                    PlayerResponse::Targets { objects } => objects.len(),
+                    PlayerResponse::Targets { objects }
+                    | PlayerResponse::BottomOpening { objects } => objects.len(),
                     PlayerResponse::EntityTargets { entities } => entities.len(),
                     PlayerResponse::OrderTriggers { order } => order.len(),
                     PlayerResponse::DamageAllocation { allocations } => allocations.len(),

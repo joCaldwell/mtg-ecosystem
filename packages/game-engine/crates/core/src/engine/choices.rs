@@ -149,6 +149,9 @@ impl ScenarioConfig {
         c
     }
     pub(super) fn choices_profile(&self) -> bool {
+        if self.match_profile() {
+            return true;
+        }
         matches!(
             self.profile.as_str(),
             "four-seat-choices-v1"
@@ -373,7 +376,7 @@ impl Game {
             (Some(condition), Some(check))
                 if condition == &check.condition
                     && check.controller == frame.spell.controller
-                    && check.hand_count <= 16
+                    && check.hand_count <= self.prepared.config.owned_limit() as u32
                     && check.passed == (check.hand_count == 0) =>
             {
                 Ok(())

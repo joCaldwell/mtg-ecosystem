@@ -8,6 +8,11 @@ fn collect(path: &Path, out: &mut Vec<PathBuf>) {
     for entry in fs::read_dir(path).expect("engine source directory") {
         let p = entry.expect("source entry").path();
         if p.is_dir() {
+            if p.file_name().is_some_and(|name| {
+                name == "generated" || name == "target" || name == "node_modules" || name == ".git"
+            }) {
+                continue;
+            }
             collect(&p, out);
         } else if p.extension().is_some_and(|x| x == "rs" || x == "json")
             || p.file_name().is_some_and(|x| x == "Cargo.toml")

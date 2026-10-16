@@ -74,7 +74,11 @@ impl Game {
                 o.controller == player
                     && !o.tapped
                     && self.target_legal(o.id)
-                    && (!attacking || o.attack_ready)
+                    && (!attacking
+                        || (o.attack_ready
+                            && self
+                                .definition(o.id.card)
+                                .is_ok_and(|d| !d.keywords.contains(&KeywordAbility::Defender))))
             })
             .map(|o| o.id)
             .collect()

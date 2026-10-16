@@ -375,7 +375,7 @@ impl Game {
         let ResolvedEffectKind::PreventNextDamage { target, .. } = &effect.kind else {
             return Err("wrong allocated effect kind".into());
         };
-        if group.allocations.len() > 24
+        if group.allocations.len() > self.damage_limit()
             || group.budget_before <= Quantity::from(1)
             || group.budget_before > self.shield_limit(effect)?
             || group.allocations.windows(2).any(|w| w[0].0 >= w[1].0)

@@ -397,6 +397,9 @@ impl Game {
         {
             self.state.pending = None;
         }
+        if matches!(self.state.frame, Frame::Setup) {
+            self.revalidate_setup_departure()?;
+        }
         let live = self.live_players();
         self.state.passes.retain(|p| live.contains(p));
         if !self.state.simultaneous_losses && self.finish_if_ended()? {

@@ -3,6 +3,7 @@ use super::*;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "cause", rename_all = "snake_case", deny_unknown_fields)]
 pub enum BatchCause {
+    Setup,
     AbilityActivation {
         stack_id: StackId,
         player: PlayerId,
@@ -62,6 +63,7 @@ pub enum BatchCause {
 impl BatchCause {
     fn rules(&self) -> Vec<String> {
         let rules: &[&str] = match self {
+            Self::Setup => &["103.5", "103.5c", "103.8c", "903.6", "903.7"],
             Self::AbilityActivation { .. } => &["602.2", "701.17", "113.7a"],
             Self::CommanderReturn => &["903.9a", "903.9b"],
             Self::Combat => &["508", "509", "510"],
@@ -114,6 +116,8 @@ pub struct PlayerBefore {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PreEventFacts {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub match_state: Option<MatchState>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<ResolvedEffect>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -208,6 +212,10 @@ enum FactKey {
 }
 fn access(event: &ProposedEvent) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
     match event {
+        ProposedEvent::Setup { .. } => {
+            let keys = BTreeSet::from([FactKey::Libraries, FactKey::Turn]);
+            (keys.clone(), keys)
+        }
         ProposedEvent::AllocateDamageEffect { .. }
         | ProposedEvent::CreateEffect { .. }
         | ProposedEvent::ApplyDamageEffect { .. }
@@ -338,6 +346,7 @@ fn access(event: &ProposedEvent) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
 fn collect<'a>(
     group: &'a EventGroup,
     depth: u32,
+    limit: usize,
     out: &mut Vec<&'a ProposedEvent>,
 ) -> Result<(), String> {
     if depth > 4 {
@@ -346,22 +355,23 @@ fn collect<'a>(
     match group {
         EventGroup::Occurrence { proposed } => out.push(proposed),
         EventGroup::Ordered { children } => {
-            if children.is_empty() || children.len() > 16 {
+            if children.is_empty() || children.len() > limit {
                 return Err("empty or oversized ordered group".into());
             }
             for child in children {
-                collect(child, depth + 1, out)?;
+                collect(child, depth + 1, limit, out)?;
             }
         }
         EventGroup::Simultaneous { occurrences } => {
-            if occurrences.is_empty() || occurrences.len() > 16 {
+            if occurrences.is_empty() || occurrences.len() > limit {
                 return Err("empty or oversized simultaneous group".into());
             }
             if occurrences.len() > 1
                 && occurrences.iter().any(|e| {
                     matches!(
                         e,
-                        ProposedEvent::AllocateDamageEffect { .. }
+                        ProposedEvent::Setup { .. }
+                            | ProposedEvent::AllocateDamageEffect { .. }
                             | ProposedEvent::CreateEffect { .. }
                             | ProposedEvent::ApplyDamageEffect { .. }
                             | ProposedEvent::CommitDamage { .. }
@@ -387,7 +397,7 @@ fn collect<'a>(
             }
         }
     }
-    if out.len() > 16 {
+    if out.len() > limit {
         return Err("event occurrence resource limit".into());
     }
     Ok(())
@@ -419,7 +429,11 @@ impl Game {
         };
         let mut objects = BTreeSet::new();
         let mut players = BTreeSet::new();
-        let mut turn = effects_event.then(|| TurnBefore {
+        let mut turn = (effects_event
+            || events
+                .iter()
+                .any(|e| matches!(e, ProposedEvent::Setup { .. })))
+        .then(|| TurnBefore {
             turn: self.state.turn.clone(),
             owner: self.state.turn_owner,
             active: self.state.active,
@@ -432,6 +446,42 @@ impl Game {
         let mut stack = BTreeSet::new();
         for event in events {
             match event {
+                ProposedEvent::Setup { action } => {
+                    players.extend(self.live_players());
+                    match action {
+                        SetupAction::ShuffleWord { player, .. } => {
+                            libraries.insert(*player);
+                        }
+                        SetupAction::Draw { player } => {
+                            libraries.insert(*player);
+                            if let Some(card) =
+                                self.state.libraries.get(player).and_then(|l| l.first())
+                            {
+                                objects.insert(
+                                    self.object_id(*card).ok_or("missing opening draw object")?,
+                                );
+                            }
+                        }
+                        SetupAction::Return { player } => {
+                            libraries.insert(*player);
+                            objects.extend(
+                                self.state
+                                    .objects
+                                    .values()
+                                    .filter(|o| o.zone == (Zone::Hand { owner: *player }))
+                                    .map(|o| o.id),
+                            );
+                        }
+                        SetupAction::Bottom {
+                            player,
+                            objects: bottom,
+                        } => {
+                            libraries.insert(*player);
+                            objects.extend(bottom);
+                        }
+                        SetupAction::Declare { .. } | SetupAction::Finish => {}
+                    }
+                }
                 ProposedEvent::CreateEffect { effect } => {
                     if self.current(effect.origin.source).is_ok() {
                         objects.insert(effect.origin.source);
@@ -730,6 +780,14 @@ impl Game {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(PreEventFacts {
+            match_state: if events
+                .iter()
+                .any(|e| matches!(e, ProposedEvent::Setup { .. }))
+            {
+                self.state.match_state.clone()
+            } else {
+                None
+            },
             effects,
             damage_transaction,
             damage_sources,
@@ -751,7 +809,16 @@ impl Game {
         group: EventGroup,
     ) -> Result<CommittedBatch, String> {
         let mut events = vec![];
-        collect(&group, 0, &mut events)?;
+        collect(
+            &group,
+            0,
+            if self.prepared.config.match_profile() {
+                400
+            } else {
+                16
+            },
+            &mut events,
+        )?;
         let before = self.facts(&events)?;
         let batch_id = self.state.next_batch_id;
         let next_batch = batch_id.checked_add(1).ok_or("batch ID resource limit")?;
@@ -906,8 +973,14 @@ impl Game {
 }
 
 impl Game {
-    fn apply_occurrence(&mut self, proposed: &ProposedEvent) -> Result<EventOutcome, String> {
+    pub(super) fn apply_occurrence(
+        &mut self,
+        proposed: &ProposedEvent,
+    ) -> Result<EventOutcome, String> {
         let actual = match proposed {
+            ProposedEvent::Setup { action } => EventOutcome::Setup {
+                actual: self.apply_setup_action(action)?,
+            },
             event @ (ProposedEvent::AllocateDamageEffect { .. }
             | ProposedEvent::CreateEffect { .. }
             | ProposedEvent::ApplyDamageEffect { .. }

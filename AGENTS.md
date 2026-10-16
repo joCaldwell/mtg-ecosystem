@@ -31,7 +31,7 @@ needed.
 | **[deck-builder](packages/deck-builder/AGENTS.md)** | 3 (built early) | ⭐ **Active** | [AGENTS.md](packages/deck-builder/AGENTS.md) |
 | [oracle-parser](packages/oracle-parser/AGENTS.md) | 0 | ⏸️ Paused | [AGENTS.md](packages/oracle-parser/AGENTS.md) |
 | [card-data](packages/card-data) | 0 | Output artifact — compiled Card IR, not hand-edited | — |
-| [game-engine](packages/game-engine) | 1 | Initial compiler/runtime scenario; match support pending | [AGENTS.md](packages/game-engine/AGENTS.md) |
+| [game-engine](packages/game-engine) | 1 | Verified finite Commander profile; search and hosting next | [AGENTS.md](packages/game-engine/AGENTS.md) |
 | [game-server](packages/game-server) | 2 | 🕳️ Not started (README only) | — |
 
 ---

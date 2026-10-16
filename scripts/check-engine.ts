@@ -11,7 +11,7 @@ for (const [command, args] of [
   ["cargo", ["fmt", "--all", "--", "--check"]],
   ["cargo", ["clippy", "--workspace", "--all-targets", "--locked", "--", "-D", "warnings"]],
   ["cargo", ["test", "--workspace", "--locked"]],
-  ["node", ["--test", "scripts/capture-json-output.test.ts", "packages/game-engine/tests/contracts.test.ts"]],
+  ["node", ["--test", "scripts/capture-json-output.test.ts", "scripts/retain-policy-sources.test.ts", "packages/game-engine/tests/contracts.test.ts"]],
 ] as const) {
   const result = spawnSync(command, [...args], { cwd: root, stdio: "inherit" });
   if (result.status !== 0) process.exit(result.status ?? 1);

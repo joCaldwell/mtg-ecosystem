@@ -89,6 +89,9 @@ impl Strategy {
             .as_ref()
             .ok_or("missing commander request")?;
         Ok(match request {
+            PlayerRequest::Mulligan { .. } | PlayerRequest::BottomOpening { .. } => {
+                return Err("opening setup is not admitted by this historical scenario".into());
+            }
             PlayerRequest::Modes { .. }
             | PlayerRequest::DamageAllocation { .. }
             | PlayerRequest::DamageEffect { .. }

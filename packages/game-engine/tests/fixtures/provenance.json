@@ -264,6 +264,20 @@
       "ast_sha256": "56e025ce420e42b19e06c0fa535f1840e48c22ca56e26e36b60442ce791b277c"
     },
     {
+      "file": "wall-of-vines.json",
+      "oracle_id": "51ce0158-c9a5-4fa5-9704-46ab02f01b86",
+      "record_sha256": "1f2a2d47cd52488455caea1018b4ab609fea789165c8d18f54eb40d35e045d9f",
+      "source_sha256": "82b319d3435950882e3b4c5db25094c92ebb7dac7c9fababe95bb7314f888b64",
+      "ast_sha256": "0c54fdc31aea424a142d72a4b55dab86da3e9c81dbd762930cb6dffba5f502c0"
+    },
+    {
+      "file": "wall-of-wood.json",
+      "oracle_id": "aa5e6894-8c97-46f8-a0fd-07c6db51e9a7",
+      "record_sha256": "16121c60168862c6d622b862353666171a786d2d137420b2fcb248e0255d3026",
+      "source_sha256": "dc212dc9d8f268c89e43243cdc6464577359ed8a4004ee2bfc6d36f5a91135a7",
+      "ast_sha256": "f9fbb33293b75070b31f98580784c74beed6c9dd5c9fe673247040366513fe10"
+    },
+    {
       "file": "yargle-and-multani.json",
       "oracle_id": "980e1721-3717-4425-95a4-938dbf2ac661",
       "record_sha256": "dd2878582513bae556e31852560ea21cd694abad63d3756ea6b2296d0f124e13",

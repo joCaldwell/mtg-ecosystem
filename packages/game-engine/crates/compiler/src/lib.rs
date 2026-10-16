@@ -317,6 +317,55 @@ pub mod fixtures {
             include_str!("../../../tests/fixtures/lavaborn-muse.json"),
         ),
     ];
+    pub const MATCH_RECORDS: [(&str, &str); 41] = [
+        CHOICE_RECORDS[0],
+        CHOICE_RECORDS[1],
+        CHOICE_RECORDS[2],
+        CHOICE_RECORDS[3],
+        CHOICE_RECORDS[4],
+        CHOICE_RECORDS[5],
+        CHOICE_RECORDS[6],
+        CHOICE_RECORDS[7],
+        CHOICE_RECORDS[8],
+        CHOICE_RECORDS[9],
+        CHOICE_RECORDS[10],
+        CHOICE_RECORDS[11],
+        CHOICE_RECORDS[12],
+        CHOICE_RECORDS[13],
+        CHOICE_RECORDS[14],
+        CHOICE_RECORDS[15],
+        CHOICE_RECORDS[16],
+        CHOICE_RECORDS[17],
+        CHOICE_RECORDS[18],
+        CHOICE_RECORDS[19],
+        CHOICE_RECORDS[20],
+        CHOICE_RECORDS[21],
+        CHOICE_RECORDS[22],
+        CHOICE_RECORDS[23],
+        CHOICE_RECORDS[24],
+        CHOICE_RECORDS[25],
+        CHOICE_RECORDS[26],
+        CHOICE_RECORDS[27],
+        CHOICE_RECORDS[28],
+        CHOICE_RECORDS[29],
+        CHOICE_RECORDS[30],
+        CHOICE_RECORDS[31],
+        CHOICE_RECORDS[32],
+        CHOICE_RECORDS[33],
+        CHOICE_RECORDS[34],
+        CHOICE_RECORDS[35],
+        CHOICE_RECORDS[36],
+        CHOICE_RECORDS[37],
+        CHOICE_RECORDS[38],
+        (
+            "wall-of-wood",
+            include_str!("../../../tests/fixtures/wall-of-wood.json"),
+        ),
+        (
+            "wall-of-vines",
+            include_str!("../../../tests/fixtures/wall-of-vines.json"),
+        ),
+    ];
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -411,6 +460,9 @@ struct Source {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Ability {
+    Keywords {
+        keywords: Vec<SourceKeyword>,
+    },
     Static {
         effect: SourceStaticEffect,
     },
@@ -428,6 +480,11 @@ enum Ability {
         costs: Vec<SourceCost>,
         effects: Vec<Sentence>,
     },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceKeyword {
+    keyword: String,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -994,6 +1051,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         activated: vec![],
         triggered: vec![],
         static_abilities: vec![],
+        keywords: vec![],
         capabilities: BTreeSet::new(),
         provenance: SourceProvenance {
             printing_id: source.id,
@@ -1058,6 +1116,27 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                 });
                 for (block, ability) in abilities.iter().enumerate() {
                     match ability {
+                        Ability::Keywords { keywords } => {
+                            if keywords.is_empty() {
+                                return Err(unsupported(
+                                    "abilities.keywords",
+                                    "empty keyword block",
+                                ));
+                            }
+                            for keyword in keywords {
+                                match keyword.keyword.as_str() {
+                                    "defender" => {
+                                        definition.keywords.push(KeywordAbility::Defender)
+                                    }
+                                    _ => {
+                                        return Err(unsupported(
+                                            "abilities.keywords",
+                                            "unsupported whole-card keyword family",
+                                        ));
+                                    }
+                                }
+                            }
+                        }
                         Ability::Activated { costs, effects } => definition
                             .activated
                             .push(lower_activation(costs, effects, block)?),
@@ -1807,6 +1886,26 @@ pub fn choices_fixture_catalog() -> Result<Catalog, String> {
     catalog_from_records(&records, 10)
 }
 
+pub fn match_fixture_catalog() -> Result<Catalog, String> {
+    let records = fixtures::MATCH_RECORDS
+        .iter()
+        .filter(|(name, _)| {
+            !matches!(
+                *name,
+                "flame-rift"
+                    | "deathgreeter"
+                    | "righteousness"
+                    | "gratuitous-violence"
+                    | "boros-charm"
+                    | "lavaborn-muse"
+                    | "wall-of-vines"
+            )
+        })
+        .copied()
+        .collect::<Vec<_>>();
+    catalog_from_records(&records, 11)
+}
+
 fn catalog_from_records(records: &[(&str, &str)], schema_version: u32) -> Result<Catalog, String> {
     let mut definitions = vec![];
     for (_, r) in records {
@@ -1840,6 +1939,130 @@ mod tests {
         let abilities = serde_json::json!([r["faces"][0]["result"]["abilities"]]);
         r["astSha256"] = sha256(canonical(&abilities).unwrap().as_bytes()).into();
         canonical(&r).unwrap()
+    }
+    fn match_record(name: &str) -> &'static str {
+        fixtures::MATCH_RECORDS
+            .iter()
+            .find(|(n, _)| *n == name)
+            .unwrap()
+            .1
+    }
+    #[test]
+    fn defender_lowers_complete_keyword_without_widening_previous_catalog() {
+        let c = match_fixture_catalog().unwrap();
+        assert_eq!(
+            (
+                c.schema_version,
+                c.definitions.len(),
+                fixtures::MATCH_RECORDS.len()
+            ),
+            (11, 34, 41)
+        );
+        assert_eq!(
+            c,
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/expected-match-ir.json"
+            ))
+            .unwrap()
+        );
+        for previous in choices_fixture_catalog().unwrap().definitions {
+            assert_eq!(
+                c.definitions
+                    .iter()
+                    .find(|d| d.oracle_id == previous.oracle_id),
+                Some(&previous)
+            );
+        }
+        let d = c
+            .definitions
+            .iter()
+            .find(|d| d.name == "Wall of Wood")
+            .unwrap();
+        assert_eq!(d.keywords, vec![KeywordAbility::Defender]);
+        assert!(d.capabilities.contains(&Capability::DefenderV1));
+        assert_eq!(
+            (
+                d.characteristics.power.clone(),
+                d.characteristics.toughness.clone()
+            ),
+            (Some(0.into()), Some(3.into()))
+        );
+        assert_eq!(
+            d.characteristics.mana_cost,
+            ManaCost {
+                generic: 0.into(),
+                colored: vec![Color::G]
+            }
+        );
+        assert_eq!(d.characteristics.subtypes, ["Wall"]);
+        assert!(d.activated.is_empty() && d.triggered.is_empty() && d.static_abilities.is_empty());
+        assert_eq!(
+            d.spell.as_ref().unwrap().resolution,
+            SpellResolution::Permanent
+        );
+        assert!(matches!(
+            compile(fixtures::MANIFEST, match_record("wall-of-vines")),
+            CompileResult::Unsupported { .. }
+        ));
+        let raw = changed_source(match_record("wall-of-wood"), |r| {
+            r["source"]["name"] = "Source shape independent".into();
+            r["faces"][0]["result"]["name"] = "Source shape independent".into();
+        });
+        assert!(matches!(
+            compile(fixtures::MANIFEST, &raw),
+            CompileResult::Lowered { .. }
+        ));
+    }
+    #[test]
+    fn defender_whole_source_and_ir_fields_reject_unknown_keyword_semantics() {
+        type Mutation = fn(&mut serde_json::Value);
+        for mutate in [
+            (|a: &mut serde_json::Value| a["keywords"][0]["keyword"] = "reach".into()) as Mutation,
+            |a| a["keywords"][0]["condition"] = true.into(),
+            |a| a["keywords"].as_array_mut().unwrap().clear(),
+            |a| {
+                a["keywords"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(serde_json::json!({"keyword":"flying"}))
+            },
+        ] {
+            let raw = changed_source(match_record("wall-of-wood"), |r| {
+                mutate(&mut r["faces"][0]["result"]["abilities"][0]);
+                r["faces"][0]["result"]["lines"][0]["ability"] =
+                    r["faces"][0]["result"]["abilities"][0].clone();
+            });
+            assert!(!matches!(
+                compile(fixtures::MANIFEST, &raw),
+                CompileResult::Lowered { .. }
+            ));
+        }
+        let c = match_fixture_catalog().unwrap();
+        let wall = c
+            .definitions
+            .iter()
+            .find(|d| !d.keywords.is_empty())
+            .unwrap();
+        for v in 3..11 {
+            let mut bad = c.clone();
+            bad.schema_version = v;
+            bad.definitions = vec![wall.clone()];
+            assert!(bad.validate().is_err());
+            bad.definitions[0].capabilities.clear();
+            assert!(bad.validate().is_err());
+        }
+        let mut bad = wall.clone();
+        bad.keywords.clear();
+        assert!(bad.validate().is_err());
+        let mut bad = wall.clone();
+        bad.characteristics.kind = CardKind::Instant;
+        bad.capabilities = bad.requirements();
+        assert!(bad.validate().is_err());
+        let mut raw = serde_json::to_value(wall).unwrap();
+        raw["keywords"] = serde_json::json!(["reach"]);
+        assert!(strict_read::<Definition>(&canonical(&raw).unwrap()).is_err());
+        raw["keywords"] = serde_json::json!([{"defender":null}]);
+        assert!(strict_read::<Definition>(&canonical(&raw).unwrap()).is_err());
     }
     fn choice_record(name: &str) -> &'static str {
         fixtures::CHOICE_RECORDS
@@ -2572,7 +2795,7 @@ mod tests {
             );
         }
         let mut future = c;
-        future.schema_version = 11;
+        future.schema_version = 12;
         assert!(future.validate().is_err());
     }
     #[test]
@@ -2932,7 +3155,7 @@ mod tests {
             assert!(Catalog::read(&bad).is_err());
         }
         let mut bad = c;
-        bad.schema_version = 11;
+        bad.schema_version = 12;
         assert!(bad.validate().is_err());
     }
 
@@ -3196,7 +3419,7 @@ mod tests {
             }
         }
         let mut bad = catalog.clone();
-        bad.schema_version = 11;
+        bad.schema_version = 12;
         assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
         for change in [
             (|d: &mut Definition| {
@@ -3504,7 +3727,7 @@ mod tests {
     #[test]
     fn stack_vocabulary_requires_ir6_and_rejects_bad_binding_and_capability_closure() {
         let catalog = stack_fixture_catalog().unwrap();
-        for version in [3, 4, 5, 11] {
+        for version in [3, 4, 5, 12] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -3708,7 +3931,7 @@ mod tests {
         let c = fixture_catalog().unwrap();
         let raw = canonical(&c).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":3", "\"schema_version\":11"),
+            raw.replace("\"schema_version\":3", "\"schema_version\":12"),
             raw.replace("\"op\":\"return_to_owner_hand\"", "\"op\":\"execute_text\""),
             raw.replace("\"target_slot\":0", "\"target_slot\":99"),
             raw.replace("\"source_block\":0", "\"unknown\":true,\"source_block\":0"),
@@ -4248,7 +4471,7 @@ mod tests {
     #[test]
     fn action_ir_version_shapes_and_target_domains_are_strict() {
         let catalog = action_fixture_catalog().unwrap();
-        for version in [3, 4, 11] {
+        for version in [3, 4, 12] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -4372,7 +4595,7 @@ mod tests {
         assert!(old.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":4", "\"schema_version\":11"),
+            raw.replace("\"schema_version\":4", "\"schema_version\":12"),
             raw.replace(
                 "\"op\":\"put_on_top_owner_library\"",
                 "\"op\":\"put_on_bottom_owner_library\"",

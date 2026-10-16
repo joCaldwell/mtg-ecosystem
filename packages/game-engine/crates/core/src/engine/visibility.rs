@@ -1,3 +1,10 @@
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VisibleCommanderReturnChoice {
+    pub designation: String,
+    pub owner: PlayerId,
+    pub to_command: bool,
+}
 use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -127,6 +134,8 @@ pub struct VisibleAttacker {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PermittedView {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup: Option<VisibleSetup>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<VisibleEffect>,
     pub combat: Vec<VisibleAttacker>,
@@ -144,6 +153,19 @@ pub struct PermittedView {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerRequest {
+    Mulligan {
+        token: DecisionToken,
+        player: PlayerId,
+        mulligans_taken: u8,
+        bottom_if_mulligan: u8,
+        can_mulligan: bool,
+    },
+    BottomOpening {
+        token: DecisionToken,
+        player: PlayerId,
+        count: usize,
+        candidates: Vec<ObjectHandle>,
+    },
     DamageAllocation {
         token: DecisionToken,
         player: PlayerId,
@@ -205,6 +227,8 @@ pub enum PlayerRequest {
         available: BTreeMap<Color, Quantity>,
     },
     CommanderReturn {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        previous_choices: Vec<VisibleCommanderReturnChoice>,
         token: DecisionToken,
         player: PlayerId,
         object: Option<ObjectHandle>,
@@ -255,7 +279,9 @@ pub enum PlayerRequest {
 impl PlayerRequest {
     pub fn token(&self) -> &DecisionToken {
         match self {
-            Self::DamageAllocation { token, .. }
+            Self::Mulligan { token, .. }
+            | Self::BottomOpening { token, .. }
+            | Self::DamageAllocation { token, .. }
             | Self::Modes { token, .. }
             | Self::DamageEffect { token, .. }
             | Self::OrderTriggers { token, .. }
@@ -286,6 +312,12 @@ pub struct Observation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerResponse {
+    Mulligan {
+        take: bool,
+    },
+    BottomOpening {
+        objects: Vec<ObjectHandle>,
+    },
     DamageAllocation {
         allocations: Vec<(DamageHandle, Quantity)>,
     },
@@ -754,6 +786,7 @@ impl Game {
             return Err("invalid viewer".into());
         }
         Ok(PermittedView {
+            setup: self.visible_setup(),
             effects: vec![],
             combat: self
                 .state
@@ -808,6 +841,32 @@ impl Game {
         let Some(token) = token else {
             return Ok(None);
         };
+        if matches!(self.state.frame, Frame::Setup) {
+            return Ok(match self.setup_request()? {
+                Some(Request::Mulligan {
+                    player,
+                    mulligans_taken,
+                    bottom_if_mulligan,
+                    can_mulligan,
+                    ..
+                }) if player == viewer => Some(PlayerRequest::Mulligan {
+                    token,
+                    player,
+                    mulligans_taken,
+                    bottom_if_mulligan,
+                    can_mulligan,
+                }),
+                Some(Request::BottomOpening { player, count, .. }) if player == viewer => {
+                    Some(PlayerRequest::BottomOpening {
+                        token,
+                        player,
+                        count,
+                        candidates: vec![],
+                    })
+                }
+                _ => None,
+            });
+        }
         if let Some(Request::DamageAllocation {
             player,
             recipient,
@@ -1006,6 +1065,7 @@ impl Game {
                 ..
             } if self.state.cards[&object.card].owner == viewer => {
                 Ok(Some(PlayerRequest::CommanderReturn {
+                    previous_choices: self.visible_commander_choices(viewer)?,
                     token,
                     player: viewer,
                     object: self.handle_for(viewer, *object).ok(),
@@ -1053,6 +1113,9 @@ impl Game {
         Ok(view)
     }
     pub(super) fn refresh_visibility(&mut self) -> Result<(), String> {
+        if self.setup_automatic() {
+            return Ok(());
+        }
         self.refresh_effect_handles()?;
         for v in 0..4 {
             let viewer = PlayerId(v);
@@ -1157,6 +1220,9 @@ impl Game {
                 Some((self.state.revision, 3))
             } else {
                 match self.state.frame {
+                    Frame::Setup if self.setup_request()?.is_some_and(|r| r.player() == viewer) => {
+                        Some((self.state.revision, 15))
+                    }
                     Frame::EntityTargets { .. } if self.top()?.controller == viewer => {
                         Some((self.state.revision, 10))
                     }
@@ -1242,9 +1308,9 @@ impl Game {
             PlayerResponse::Attackers { attacks } => attacks.len(),
             PlayerResponse::Blockers { blocks } => blocks.len(),
             PlayerResponse::Damage { assignments } => assignments.len(),
-            PlayerResponse::Discard { objects } | PlayerResponse::ResolveDiscard { objects } => {
-                objects.len()
-            }
+            PlayerResponse::BottomOpening { objects }
+            | PlayerResponse::Discard { objects }
+            | PlayerResponse::ResolveDiscard { objects } => objects.len(),
             PlayerResponse::DamageAllocation { allocations } => allocations.len(),
             PlayerResponse::OrderTriggers { order } => order.len(),
             PlayerResponse::PlayerTargets { players } => players.len(),
@@ -1256,7 +1322,7 @@ impl Game {
             > std::cmp::max(
                 self.state.objects.len(),
                 if self.prepared.config.triggers_profile() {
-                    128
+                    self.stack_limit()
                 } else {
                     0
                 },
@@ -1335,6 +1401,13 @@ impl Game {
                     .iter()
                     .map(|(o, n)| Ok((self.resolve_handle(viewer, o)?, n.clone())))
                     .collect::<Result<_, String>>()?,
+            }),
+            PlayerResponse::Mulligan { take } => Ok(Response::Mulligan { take: *take }),
+            PlayerResponse::BottomOpening { objects } => Ok(Response::BottomOpening {
+                objects: objects
+                    .iter()
+                    .map(|h| self.resolve_handle(viewer, h))
+                    .collect::<Result<_, _>>()?,
             }),
             PlayerResponse::Discard { objects } => Ok(Response::Discard {
                 objects: objects

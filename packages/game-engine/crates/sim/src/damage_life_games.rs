@@ -277,6 +277,9 @@ impl Strategy {
         let v = &o.view;
         let r = o.decision.as_ref().ok_or("missing damage/life request")?;
         Ok(match r {
+            PlayerRequest::Mulligan { .. } | PlayerRequest::BottomOpening { .. } => {
+                return Err("opening setup is not admitted by this historical scenario".into());
+            }
             PlayerRequest::Priority { .. } => {
                 if v.viewer == PlayerId(0)
                     && v.stack.is_empty()

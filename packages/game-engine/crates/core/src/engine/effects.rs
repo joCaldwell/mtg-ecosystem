@@ -373,7 +373,7 @@ impl Game {
         continuation: DamageContinuation,
     ) -> Result<(), String> {
         if entries.is_empty()
-            || entries.len() > 24
+            || entries.len() > self.damage_limit()
             || entries.iter().any(|e| e.amount <= Quantity::zero())
         {
             return Err("invalid prepared damage group".into());
@@ -665,7 +665,7 @@ impl Game {
         match event {
             ProposedEvent::CreateEffect { effect } => {
                 if effect.id != EffectId(self.state.next_effect_id)
-                    || self.state.effects.len() >= 16
+                    || self.state.effects.len() >= self.effect_limit()
                     || effect.expires_in_cleanup_of_turn != self.state.turn.number
                     || effect.origin.controller.0 >= 4
                     || effect.origin.source_handles.len() != 4
@@ -976,7 +976,7 @@ impl Game {
             return Ok(());
         }
         let mut ids = BTreeSet::new();
-        if self.state.effects.len() > 16 {
+        if self.state.effects.len() > self.effect_limit() {
             return Err("effect capacity".into());
         }
         for e in &self.state.effects {
@@ -1087,8 +1087,8 @@ impl Game {
             self.validate_damage_transaction(tx)?;
             if tx.id.0 >= self.state.next_damage_transaction_id
                 || tx.entries.is_empty()
-                || tx.entries.len() > 24
-                || tx.applications.len() > 24 * 18
+                || tx.entries.len() > self.damage_limit()
+                || tx.applications.len() > self.damage_limit() * (self.effect_limit() + 2)
             {
                 return Err("damage transaction capacity invariant".into());
             }
@@ -1483,9 +1483,9 @@ impl Game {
     }
     pub(super) fn validate_damage_transaction(&self, tx: &DamageTransaction) -> Result<(), String> {
         if tx.entries.is_empty()
-            || tx.entries.len() > 24
-            || tx.applications.len() > 24 * 18
-            || tx.allocation_groups.len() > 16
+            || tx.entries.len() > self.damage_limit()
+            || tx.applications.len() > self.damage_limit() * (self.effect_limit() + 2)
+            || tx.allocation_groups.len() > self.effect_limit()
             || tx.id.0 >= self.state.next_damage_transaction_id
         {
             return Err("damage transaction resource/identity invariant".into());

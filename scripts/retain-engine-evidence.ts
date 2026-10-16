@@ -4,6 +4,7 @@
 // https://doc.rust-lang.org/cargo/reference/source-replacement.html
 import { spawnSync } from "node:child_process";
 import { captureJsonOutput } from "./capture-json-output.ts";
+import { retainPolicySources, verifyRetainedPolicySources } from "./retain-policy-sources.ts";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -57,6 +58,7 @@ for (const file of bundle.source_files) {
   const target = path.join(sourceRoot, file.path);
   fs.mkdirSync(path.dirname(target), { recursive: true });fs.writeFileSync(target, file.contents);
 }
+const retainedPolicySources = retainPolicySources(bundle.source_files, root, store);
 const bundlePath = path.join(store, `${sha(bundleBytes)}.json`);
 fs.writeFileSync(bundlePath, bundleBytes);
 const vendorPath = path.join(store, "vendor");
@@ -87,7 +89,8 @@ const rebuilt = path.join(targetPath, bundle.target, "release/mtg-sim");
 const verification = runJson(rebuilt, ["verify-bundle", bundlePath], store, env);
 if (verification.state_sha256 !== report.state_sha256) throw new Error("Offline rebuilt replay differs.");
 if (sha(fs.readFileSync(retainedRulesPath)) !== bundle.catalog.rules_sha256) throw new Error("Retained rules/catalog mismatch.");
-const evidence = { rules_path: retainedRulesPath, rules_sha256: rulesSha256, build_id: report.build_id, catalog_digest: report.catalog_digest, profile_digest: report.profile_digest,
+verifyRetainedPolicySources(bundle.source_files, retainedPolicySources, store);
+const evidence = { ...(retainedPolicySources.length ? { policy_sources: retainedPolicySources } : {}), rules_path: retainedRulesPath, rules_sha256: rulesSha256, build_id: report.build_id, catalog_digest: report.catalog_digest, profile_digest: report.profile_digest,
   state_sha256: report.state_sha256, bundle: bundlePath, bundle_sha256: sha(bundleBytes), rebuilt_executable: rebuilt,
   executable_sha256: sha(fs.readFileSync(rebuilt)), dependency_files: dependencyFiles, dependency_manifest_sha256: sha(JSON.stringify(dependencyFiles)),
   empty_cargo_home_before_build: initialCargoHomeEmpty, cargo_frozen_offline: true, verification,

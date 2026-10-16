@@ -711,7 +711,9 @@ impl ScenarioConfig {
     }
 
     pub(super) fn initial_turn_step(&self) -> TurnStep {
-        if self.combat_profile() {
+        if self.match_profile() {
+            TurnStep::Untap
+        } else if self.combat_profile() {
             TurnStep::PrecombatMain
         } else {
             TurnStep::PostcombatMain

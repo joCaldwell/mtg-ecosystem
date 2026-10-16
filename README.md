@@ -25,11 +25,13 @@ graph BT
     L2 --> L3
 ```
 
-**Current applications → deck-builder and initial engine scenario.** The standalone
+**Current applications → deck-builder and finite Commander engine.** The standalone
 deck-builder is active. The Layer-0 parser is a limited supported subset, and the
-Rust compiler/kernel now execute 42 reviewed four-seat scenario configurations,
-including modal casting, trigger conditions and temporary effects. Full Commander
-games, search, server, and bulk Card IR emission remain future work. Read the
+Rust compiler/kernel execute 42 reviewed four-seat scenario configurations and
+the verified [`commander-foundations-v1`](docs/game-engine-matches.md) profile:
+legal four-player setup, seeded shuffle/mulligans, and complete games from a
+21-card construction pool within a 34-definition catalog. Search, server, and
+bulk Card IR emission remain future work. Read the
 relevant package’s `AGENTS.md` before development.
 
 ## 📂 Project Structure
@@ -62,7 +64,7 @@ mtg-ecosystem/
     ├── oracle-parser/                  # Layer 0: hand-written TypeScript parser
     ├── deck-builder/                   # Active standalone deck application
     ├── card-data/                      # Generated Card IR from the Rust compiler
-    ├── game-engine/                    # Rust compiler/kernel and bounded scenario-game CLI
+    ├── game-engine/                    # Rust compiler/kernel and finite Commander CLI
     └── game-server/                    # Rust game server & API (future)
 ```
 

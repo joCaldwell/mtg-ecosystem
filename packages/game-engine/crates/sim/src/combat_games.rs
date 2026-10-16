@@ -65,6 +65,9 @@ impl Policy {
                 .find(|o| o.zone == (Zone::Hand { owner: v.viewer }) && o.oracle_id == id)
         };
         Ok(match request {
+            PlayerRequest::Mulligan { .. } | PlayerRequest::BottomOpening { .. } => {
+                return Err("opening setup is not admitted by this historical scenario".into());
+            }
             PlayerRequest::Modes { .. }
             | PlayerRequest::DamageAllocation { .. }
             | PlayerRequest::DamageEffect { .. }

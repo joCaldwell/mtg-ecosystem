@@ -80,7 +80,7 @@ test("Rust lowering matches reviewed IR and its generated JSON Schema", () => {
   assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
   for (const mutate of [
     (c: any) => { c.unknownSemanticField = true; },
-    (c: any) => { c.schema_version = 11; },
+    (c: any) => { c.schema_version = 12; },
     (c: any) => { c.schema_version = 2; },
     (c: any) => { delete c.definitions.find((d: any) => d.spell).spell.timing; },
     (c: any) => { delete c.definitions.find((d: any) => d.spell).spell.resolution; },
@@ -168,7 +168,7 @@ test("library and damage catalogs retain exact source semantics and explicit IR 
   for (const catalog of [previous, library, damage]) assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
   for (const mutate of [
     (c: any) => { c.schema_version = 3; },
-    (c: any) => { c.schema_version = 11; },
+    (c: any) => { c.schema_version = 12; },
     (c: any) => { c.definitions.find((d: any) => d.characteristics.kind === "sorcery").spell.instructions[0].op = "put_on_bottom_owner_library"; },
     (c: any) => { c.definitions.find((d: any) => d.characteristics.kind === "sorcery").spell.instructions[0].position = "top"; },
   ]) {
@@ -219,7 +219,7 @@ test("action catalog preserves complete activated costs, opponent choice and sch
   for (const mutate of [
     (c: any) => { c.schema_version = 3; },
     (c: any) => { c.schema_version = 4; },
-    (c: any) => { c.schema_version = 11; },
+    (c: any) => { c.schema_version = 12; },
     (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].cost = "tap_source"; },
     (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].program.instructions[0].count = "01"; },
     (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].program.instructions[1].optional = true; },
@@ -274,7 +274,7 @@ test("stack catalog preserves complete counter domains and distinct tap and mana
     (c: any) => { c.schema_version = 3; },
     (c: any) => { c.schema_version = 4; },
     (c: any) => { c.schema_version = 5; },
-    (c: any) => { c.schema_version = 11; },
+    (c: any) => { c.schema_version = 12; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Stifle").spell.targets[0].domain = "stack_activated_ability"; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Counterspell").spell.instructions[0].destination = "graveyard"; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Azure Mage").activated[0].cost.mana.cost.extra = true; },
@@ -342,7 +342,7 @@ test("damage and life catalog preserves complete sources and explicit IR7 target
     }
   }
   for (const mutate of [
-    (c: any) => {c.schema_version=11;},
+    (c: any) => {c.schema_version=12;},
     (c: any) => {c.definitions.find((d: any) => d.name==="Lightning Bolt").spell.targets[0].domain="creature_or_player";},
     (c: any) => {c.definitions.find((d: any) => d.name==="Soul Feast").spell.instructions[0].recipient={opponent:{target_slot:0}};},
     (c: any) => {c.definitions.find((d: any) => d.name==="Sacred Nectar").spell.instructions[0].recipient={controller:{extra:true}};},
@@ -411,7 +411,7 @@ test("trigger catalog binds mandatory self and other events without trusting arc
     assert.equal(validate(bad),false,`${name} IR${version}`);
   }
   for (const mutate of [
-    (c: any) => {c.schema_version=11;},
+    (c: any) => {c.schema_version=12;},
     (c: any) => {c.definitions.find((d: any) => d.name==="Blood Artist").triggered[0].optional=true;},
     (c: any) => {c.definitions.find((d: any) => d.name==="Blood Artist").triggered[0].cost="tap_source";},
     (c: any) => {c.definitions.find((d: any) => d.name==="Blood Artist").triggered[0].condition="other_creature_dies";},
@@ -484,7 +484,7 @@ test("effects catalog preserves signed modifiers and complete prevention/replace
     assert.equal(validate(bad),false,`stripped ${name} IR${version}`);
   }
   for (const mutate of [
-    (c: any)=>{c.schema_version=11;},
+    (c: any)=>{c.schema_version=12;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Giant Growth").spell.instructions[0].power="-0";},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Disfigure").spell.instructions[0].toughness=-2;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Fog").spell.instructions[0].duration="this_turn";},
@@ -533,7 +533,7 @@ test("choices catalog preserves separate occurrences, complete modal programs an
     bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,`stripped ${name} IR${version}`);
   }
   for(const mutate of [
-    (c: any)=>{c.schema_version=11;},
+    (c: any)=>{c.schema_version=12;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Healing Salve").spell.modes[0].hidden=true;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Healing Salve").spell.modes.pop();},
     (c: any)=>{const p=c.definitions.find((d: any)=>d.name==="Healing Salve").spell;p.instructions=[{op:"draw_cards",count:"1",source_block:0}];},
@@ -543,11 +543,37 @@ test("choices catalog preserves separate occurrences, complete modal programs an
   ]){const bad=structuredClone(catalog);mutate(bad);assert.equal(validate(bad),false,JSON.stringify(validate.errors));}
 });
 
+test("match catalog binds sole defender and the current finite Commander policy", () => {
+  const catalog=run("compile-match");
+  assert.deepEqual(catalog,JSON.parse(read("expected-match-ir.json")));
+  assert.equal(catalog.schema_version,11);assert.equal(catalog.definitions.length,34);
+  for(const d of run("compile-choices").definitions){assert.equal(d.keywords,undefined);assert.deepEqual(catalog.definitions.find((n: any)=>n.oracle_id===d.oracle_id),d);}
+  const wall=catalog.definitions.find((d: any)=>d.name==="Wall of Wood");assert.deepEqual(wall.keywords,["defender"]);assert.ok(wall.capabilities.includes("defender_v1"));
+  assert.deepEqual(wall.characteristics.mana_cost,{generic:"0",colored:["G"]});assert.deepEqual([wall.characteristics.power,wall.characteristics.toughness],["0","3"]);assert.deepEqual(wall.characteristics.subtypes,["Wall"]);
+  const wood=JSON.parse(read("wall-of-wood.json"));assert.equal(wall.provenance.source_json,JSON.stringify(wood.source));assert.equal(wall.provenance.abilities_json,JSON.stringify(wood.faces[0].result.abilities));assert.deepEqual(wood.faces[0].result.abilities,[{kind:"keywords",keywords:[{keyword:"defender"}]}]);
+  const vines=JSON.parse(read("wall-of-vines.json"));assert.deepEqual(vines.faces[0].result.abilities.map((a: any)=>a.keywords[0].keyword),["defender","reach"]);assert.equal(catalog.definitions.some((d: any)=>d.name==="Wall of Vines"),false);
+  const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
+  for(const file of ["expected-ir.json","expected-commander-ir.json","expected-damage-ir.json","expected-library-ir.json","expected-action-ir.json","expected-stack-ir.json","expected-damage-life-ir.json","expected-trigger-ir.json","expected-effects-ir.json","expected-choices-ir.json","expected-match-ir.json"])assert.equal(validate(JSON.parse(read(file))),true,file+JSON.stringify(validate.errors));
+  for(let version=3;version<=10;version++){const bad=structuredClone(catalog);bad.schema_version=version;bad.definitions=[structuredClone(wall)];assert.equal(validate(bad),false);bad.definitions[0].capabilities=[];assert.equal(validate(bad),false);}
+  for(const mutate of [(c:any)=>{c.schema_version=12;},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=["reach"];},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{keyword:"defender"}];},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{defender:null}];}]){const bad=structuredClone(catalog);mutate(bad);assert.equal(validate(bad),false);}
+  const policy=JSON.parse(read("commander-policy.json"));assert.equal(policy.policy_version,1);assert.equal(policy.profile,"commander-foundations-v1");assert.equal(policy.retrieved_date,"2026-10-15");assert.equal(policy.html_sha256,"def38a80a72f7da25d7a0c13ba82bfa2e0b4139f2954f9cf02d1d7cbf134d938");assert.equal(policy.named_bans.length,42);
+  assert.equal(policy.offensive_policy.html_sha256,"91f536b644fc278d62c840865a499bc883c2fd086831ddddcdc83adf316322fa");assert.equal(policy.offensive_policy.records.length,7);assert.equal(policy.categories.lutri,"companion_only");
+  const banned=new Set<string>();
+  for(const item of [...policy.named_bans,...policy.offensive_policy.records]){
+    assert.equal(banned.has(item.oracle_id),false);banned.add(item.oracle_id);
+    assert.equal(sha(item.record_json),item.record_sha256);const r=JSON.parse(item.record_json);
+    assert.equal(r.oracleIdentity,item.oracle_id);assert.equal(r.sourceIndex,item.source_index);assert.equal(sha(JSON.stringify(r.source)),item.source_sha256);assert.equal(r.sourceSha256,item.source_sha256);
+    assert.ok(r.source.name===item.name||r.source.card_faces?.some((f:any)=>f.name===item.name));
+  }
+  assert.equal(banned.size,49);assert.equal(policy.admitted_pool_review.length,34);
+  for(const d of catalog.definitions){assert.equal(banned.has(d.oracle_id),false);const source=JSON.parse(d.provenance.source_json);assert.equal(source.type_line.includes("Conspiracy"),false);assert.equal(/\bante\b/i.test(source.oracle_text),false);assert.equal(policy.offensive_policy.names.includes(source.name),false);const review=policy.admitted_pool_review.find((r:any)=>r.oracle_id===d.oracle_id);assert.deepEqual(review,{oracle_id:d.oracle_id,name:d.name,source_sha256:d.provenance.source_sha256,conspiracy_type:false,ante_reference:false,offensive_named_ban:false});}
+});
+
 function currentProjectionVersions(value: any): any {
   if (Array.isArray(value)) return value.map(currentProjectionVersions);
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(Object.entries(value).map(([key, child]) =>
-      [key, key === "observation_version" || key === "context_version" ? 14 : currentProjectionVersions(child)]));
+      [key, key === "observation_version" || key === "context_version" ? 15 : currentProjectionVersions(child)]));
   }
   return value;
 }
@@ -559,7 +585,7 @@ function demo() { return demoResult ??= run("demo"); }
 
 test("choice witnesses retain independent targets, selected modes and twice-checked conditions", () => {
   const reports=demo().choices;
-  assert.deepEqual(reports,JSON.parse(read("expected-choices-scenario.json")));
+  assert.deepEqual(reports,currentProjectionVersions(JSON.parse(read("expected-choices-scenario.json"))));
   const policies="seeds_same seeds_distinct seeds_one_illegal seeds_two_illegal seeds_all_illegal seeds_reincarnation seeds_countered seeds_caster_leaves seeds_cleanup salve_gain_self salve_gain_opponent salve_shield_player salve_shield_creature salve_residual_budget salve_split_first salve_split_last salve_countered salve_fizzle salve_double_first salve_prevent_first bouncer_empty bouncer_nonempty bouncer_draw_false bouncer_draw_cast_true bouncer_stifled bouncer_target_gone bouncer_borrowed_owner_leaves bouncer_controller_leaves bouncer_no_targets bouncer_cast".split(" ");
   assert.deepEqual(reports.map((r: any)=>r.policy),policies);
   const by=Object.fromEntries(reports.map((r: any)=>[r.policy,r]));
@@ -664,7 +690,7 @@ test("choice witnesses retain independent targets, selected modes and twice-chec
       assert.deepEqual(p.actual.commander_damage,[]);
       for(const e of t.entries){let amount=BigInt(e.original_amount);for(const a of t.applications.filter((a: any)=>a.damage===e.id)){assert.equal(BigInt(a.before),amount);assert.ok(BigInt(a.after)===amount-BigInt(a.prevented)||BigInt(a.after)===amount*2n);amount=BigInt(a.after);}assert.equal(amount,BigInt(e.amount));}
     }
-    for(const o of [...r.choices,...r.final_observations]){privacy(o);assert.equal(o.observation_version,14);for(const card of o.view.objects){assert.notEqual(card.zone.zone,"library");if(card.zone.zone==="hand")assert.equal(card.owner,o.view.viewer);}}
+    for(const o of [...r.choices,...r.final_observations]){privacy(o);assert.equal(o.observation_version,15);for(const card of o.view.objects){assert.notEqual(card.zone.zone,"library");if(card.zone.zone==="hand")assert.equal(card.owner,o.view.viewer);}}
     for(const history of Object.values(r.commander_ledger.records) as any[])assert.deepEqual(history.combat_damage,{});
   }
 });
@@ -820,7 +846,7 @@ test("effects witnesses retain signed characteristics, actual damage and affecte
     }
     if (r.policy!=="commander_amplified") assert.deepEqual(r.commander_ledger.records["0"].combat_damage,{});
     for (const o of [...r.choices,...r.final_observations]) {
-      privacy(o);assert.equal(o.observation_version,14);
+      privacy(o);assert.equal(o.observation_version,15);
       assert.equal(o.view.objects.some((obj: any)=>obj.zone.zone==="library"),false);
       assert.equal(o.view.objects.filter((obj: any)=>obj.zone.zone==="hand").every((obj: any)=>obj.owner===o.view.viewer),true);
       for (const e of o.view.effects??[]) assert.match(e.handle,new RegExp(`^v${o.view.viewer}-e\\d+$`));
@@ -948,7 +974,7 @@ test("ordinary trigger witnesses retain APNAP order, countered programs and hist
     }
   }
   for (const r of reports) for (const o of [...r.choices,...r.final_observations]) {
-    checkProjection(o);assert.equal(o.observation_version,14);
+    checkProjection(o);assert.equal(o.observation_version,15);
     assert.equal(o.view.objects.some((x: any) => x.zone.zone==="library"),false);
     assert.equal(o.view.objects.filter((x: any) => x.zone.zone==="hand").every((x: any) => x.owner===o.view.viewer),true);
     if (o.decision?.request==="order_triggers") {
@@ -1106,7 +1132,7 @@ test("stack and cost witnesses preserve instance targets, paid costs and nested 
   const lost = failed.findIndex((e: any) => e.event === "players_lost");
   assert.ok(discarded >= 0 && discarded < completed && completed < lost);
   for (const report of reports) for (const o of [...report.choices,...report.final_observations]) {
-    assert.equal(o.observation_version,14);
+    assert.equal(o.observation_version,15);
     assert.equal(o.view.objects.some((x: any) => x.zone.zone === "library"),false);
     assert.equal(o.view.objects.filter((x: any) => x.zone.zone === "hand").every((x: any) => x.owner === o.view.viewer),true);
     for (const forbidden of ["incarnation","stack_id","source_handles","mana_activations","rule_steps"]) assert.equal(JSON.stringify(o).includes(`"${forbidden}"`),false);
@@ -1152,7 +1178,7 @@ test("action witnesses preserve explicit spending, player sacrifice and noncard 
   const lost = failed.findIndex((e: any) => e.event === "players_lost");
   assert.ok(completed >= 0 && lost > completed);
   for (const report of reports) for (const o of [...report.choices,...report.final_observations]) {
-    assert.equal(o.observation_version, 14);
+    assert.equal(o.observation_version, 15);
     assert.equal(o.view.objects.some((x: any) => x.zone.zone === "library"), false);
     assert.equal(o.view.objects.filter((x: any) => x.zone.zone === "hand").every((x: any) => x.owner === o.view.viewer), true);
     for (const forbidden of ["incarnation","stack_id","source_handles","mana_activations","rule_steps"]) assert.equal(JSON.stringify(o).includes(`"${forbidden}"`),false);
@@ -1163,7 +1189,7 @@ test("response observations expose stack order without reviving historical targe
   const response = demo().response;
   const before = response.stacked_observation;
   const after = response.after_top_observation;
-  assert.equal(before.observation_version, 14);
+  assert.equal(before.observation_version, 15);
   assert.deepEqual(before.view.stack.map((s: any) => s.controller), [0, 2]);
   assert.equal(before.view.stack.every((s: any) => s.cast_complete), true);
   assert.equal(after.view.stack.length, 1);
@@ -1181,7 +1207,7 @@ test("response observations expose stack order without reviving historical targe
 test("casting mana witnesses expose the caster request and preserve keep/undo outcomes", () => {
   const report = demo();
   const casting = report.mana_casting;
-  assert.equal(casting.mana_observation.observation_version, 14);
+  assert.equal(casting.mana_observation.observation_version, 15);
   assert.equal(casting.mana_observation.decision.request, "mana");
   assert.deepEqual(casting.mana_observation.decision.cost, { generic: "0", colored: ["U"] });
   assert.equal(casting.mana_observation.view.priority, null);
@@ -1211,7 +1237,7 @@ test("turn progression and permanent casting expose only permitted public state"
   assert.equal(turns.status, "turns_permanents_verified");
   assert.deepEqual(turns.turn, { number: 5, step: "precombat_main", lands_played: 1 });
   const own = turns.final_observations[0];
-  assert.equal(own.observation_version, 14);
+  assert.equal(own.observation_version, 15);
   assert.deepEqual(own.view.turn, turns.turn);
   assert.equal(own.view.priority, 0);
   assert.equal(own.view.stack.length, 0);
@@ -1241,7 +1267,7 @@ test("complete scenario games retain rules outcomes and private combat projectio
     assert.equal(run.journal.concessions.length, 0);
     assert.ok(run.checkpoints > 0);
     for (const observation of run.final_observations) {
-      assert.equal(observation.observation_version, 14);
+      assert.equal(observation.observation_version, 15);
       assert.equal(observation.view.objects.some((o: any) => o.zone.zone === "library"), false);
       assert.equal(observation.view.objects.filter((o: any) => o.zone.zone === "hand").every((o: any) => o.owner === observation.view.viewer), true);
       for (const forbidden of ["incarnation", "damage_choices", "libraries", "frame", "rule_steps"]) {
@@ -1283,7 +1309,7 @@ test("Commander witnesses preserve tax, actual return destinations and private p
     assert.equal(choices.length, 1);
     assert.equal(choices[0].player, 0);
     for (const observation of run.final_observations) {
-      assert.equal(observation.observation_version, 14);
+      assert.equal(observation.observation_version, 15);
       assert.equal(observation.view.objects.filter((o: any) => o.zone.zone === "hand").every((o: any) => o.owner === observation.view.viewer), true);
       for (const key of ["incarnation", "frame", "commander_returns", "total_cost", "continuation", "rule_steps"]) {
         assert.equal(JSON.stringify(observation).includes(`"${key}"`), false, key);
@@ -1338,7 +1364,7 @@ test("Commander damage and library witnesses expose actual results without hidde
   }
   for (const run of runs) {
     for (const observation of [...run.final_observations, ...run.choices]) {
-      assert.equal(observation.observation_version, 14);
+      assert.equal(observation.observation_version, 15);
       assert.equal(observation.view.objects.some((o: any) => o.zone.zone === "library"), false);
       assert.equal(observation.view.objects.filter((o: any) => o.zone.zone === "hand").every((o: any) => o.owner === observation.view.viewer), true);
       for (const key of ["incarnation", "frame", "commander_returns", "libraries", "continuation", "rule_steps", "previous_top"]) {

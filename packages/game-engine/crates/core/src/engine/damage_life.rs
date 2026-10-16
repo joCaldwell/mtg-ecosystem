@@ -34,7 +34,8 @@ fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
         Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
             CommanderContinuation::SpellMove { frame, .. }
             | CommanderContinuation::ResolutionDraw { frame, .. } => Some(&frame.spell),
-            CommanderContinuation::StateBased { resume } => resolving_entry(resume),
+            CommanderContinuation::StateBased { resume }
+            | CommanderContinuation::StateBasedBatch { resume, .. } => resolving_entry(resume),
             CommanderContinuation::Draw { .. } => None,
         },
         _ => None,
@@ -57,7 +58,8 @@ fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
             | CommanderContinuation::ResolutionDraw { frame, .. } => {
                 update_entry(&mut frame.spell, fact)
             }
-            CommanderContinuation::StateBased { resume } => update_frame(resume, fact),
+            CommanderContinuation::StateBased { resume }
+            | CommanderContinuation::StateBasedBatch { resume, .. } => update_frame(resume, fact),
             CommanderContinuation::Draw { .. } => {}
         },
         _ => {}

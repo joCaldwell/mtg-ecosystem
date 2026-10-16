@@ -151,6 +151,7 @@ pub enum Capability {
     SelfDiesV1,
     InterveningIfV1,
     ModalChoiceV1,
+    DefenderV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -369,6 +370,23 @@ pub struct SourceProvenance {
     pub source_json: String,
     pub abilities_json: String,
 }
+/// CR702.3: defender is a static prohibition on declaring this creature as
+/// an attacker. Power and continuous-control eligibility do not override it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum KeywordAbility {
+    Defender,
+}
+impl<'de> Deserialize<'de> for KeywordAbility {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        // The executable schema publishes string keywords. Do not accept serde's
+        // alternative externally-tagged unit-map spelling as an IR vocabulary.
+        match String::deserialize(d)?.as_str() {
+            "defender" => Ok(Self::Defender),
+            other => Err(de::Error::unknown_variant(other, &["defender"])),
+        }
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Definition {
@@ -383,6 +401,8 @@ pub struct Definition {
     pub triggered: Vec<TriggeredAbility>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub static_abilities: Vec<StaticAbility>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keywords: Vec<KeywordAbility>,
     pub capabilities: BTreeSet<Capability>,
     pub provenance: SourceProvenance,
 }
@@ -437,6 +457,9 @@ impl Definition {
             }
             add_program_requirements(&mut set, &ability.program);
         }
+        if !self.keywords.is_empty() {
+            set.insert(Capability::DefenderV1);
+        }
         if !self.static_abilities.is_empty() {
             set.insert(Capability::StaticDamageReplacementV1);
         }
@@ -444,6 +467,9 @@ impl Definition {
     }
     pub fn validate(&self) -> Result<(), String> {
         let c = &self.characteristics;
+        if !self.keywords.is_empty() && c.kind != CardKind::Creature {
+            return Err("defender requires creature characteristics".into());
+        }
         if self.oracle_id.is_empty()
             || self.name.is_empty()
             || c.mana_cost.generic.is_negative()
@@ -793,7 +819,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 3, max = 10))]
+    #[schemars(range(min = 3, max = 11))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -801,7 +827,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.schema_version, 3..=10)
+        if !matches!(self.schema_version, 3..=11)
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -810,6 +836,11 @@ impl Catalog {
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
             d.validate()?;
+            if self.schema_version < 11
+                && (!d.keywords.is_empty() || d.capabilities.contains(&Capability::DefenderV1))
+            {
+                return Err("IR v11 is required for defender".into());
+            }
             if self.schema_version < 10
                 && d.capabilities.iter().any(|c| {
                     matches!(
@@ -950,6 +981,35 @@ impl Catalog {
 pub fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
+/// Incremental byte hashing without retaining the input or performing OS I/O.
+/// This sink does not canonicalize JSON: callers must emit the same ordered
+/// bytes as `canonical` when they need an equivalent semantic digest.
+pub struct Sha256Sink(Sha256);
+impl Sha256Sink {
+    pub fn new() -> Self {
+        Self(Sha256::new())
+    }
+    pub fn update(&mut self, bytes: &[u8]) {
+        self.0.update(bytes);
+    }
+    pub fn finalize_hex(self) -> String {
+        format!("{:x}", self.0.finalize())
+    }
+}
+impl Default for Sha256Sink {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl std::io::Write for Sha256Sink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.update(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
 /// IR v3/v4/v5/v6/v7/v8/v9 canonicalization (same algorithm as v1/v2): UTF-8 compact serde_json Value (sorted object keys),
 /// ordered arrays, exact quantities as strings. Separate from JS archive hashes.
 pub fn canonical<T: Serialize>(value: &T) -> Result<String, String> {
@@ -1043,6 +1103,11 @@ pub fn catalog_schema() -> serde_json::Value {
                 "program":{"properties":{"modes":{"maxItems":0},"targets":{"items":{"properties":{"domain":{"const":"any_player"}}}}}}
             }}}
         }}}}}
+    }, {
+        "if":{"required":["schema_version"],"properties":{"schema_version":{"enum":[3,4,5,6,7,8,9,10]}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "keywords":{"maxItems":0},"capabilities":{"items":{"not":{"const":Capability::DefenderV1}}}
+        }}}}}
     }]);
     schema["$defs"]["SpellProgram"]["allOf"] = serde_json::json!([{
         "if":{"required":["modes"],"properties":{"modes":{"minItems":1}}},
@@ -1111,6 +1176,47 @@ impl<'de> Deserialize<'de> for UniqueJson {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn incremental_sha256_matches_reference_across_byte_fragment_boundaries() {
+        use std::io::Write;
+        let bytes = "前半🦀\n\"quoted\"\\suffix".repeat(13).into_bytes();
+        let expected = sha256(&bytes);
+        // Include splits inside UTF-8 scalars and across SHA-256 block edges.
+        for split in 0..=bytes.len() {
+            let mut sink = Sha256Sink::new();
+            sink.update(&bytes[..split]);
+            assert_eq!(sink.write(&[]).unwrap(), 0);
+            sink.write_all(&bytes[split..]).unwrap();
+            sink.flush().unwrap();
+            assert_eq!(sink.finalize_hex(), expected, "split {split}");
+        }
+        for width in [1, 3, 63, 64, 65, 127] {
+            let mut sink = Sha256Sink::default();
+            for chunk in bytes.chunks(width) {
+                sink.write_all(chunk).unwrap();
+            }
+            assert_eq!(sink.finalize_hex(), expected, "chunk width {width}");
+        }
+    }
+    #[test]
+    fn incremental_sha256_empty_and_canonical_json_match_reference() {
+        let mut empty = Sha256Sink::new();
+        empty.update(&[]);
+        assert_eq!(empty.finalize_hex(), sha256(b""));
+        let value = serde_json::json!({
+            "z": ["é\u{0301}", "🦀", "\n\t\\\"", ""],
+            "a": {"quantity": Quantity::from(-2), "none": null},
+        });
+        let reference = canonical(&value).unwrap();
+        let mut sink = Sha256Sink::new();
+        serde_json::to_writer(&mut sink, &value).unwrap();
+        assert_eq!(sink.finalize_hex(), digest(&value).unwrap());
+        let mut fragmented = Sha256Sink::new();
+        for byte in reference.as_bytes() {
+            fragmented.update(std::slice::from_ref(byte));
+        }
+        assert_eq!(fragmented.finalize_hex(), sha256(reference.as_bytes()));
+    }
     #[test]
     fn quantities_are_exact_canonical_strings() {
         let mut q: Quantity = "999999999999999999999999999999999999999".parse().unwrap();

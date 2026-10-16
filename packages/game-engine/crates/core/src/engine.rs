@@ -1,3 +1,14 @@
+mod match_admission;
+mod state_digest;
+pub use match_admission::*;
+mod commander_policy;
+pub use commander_policy::{
+    COMMANDER_POLICY_DATE, COMMANDER_POLICY_HTML_SHA256, COMMANDER_POLICY_URL, policy_digest,
+};
+mod setup;
+#[cfg(test)]
+mod setup_tests;
+pub use setup::*;
 const GROWTH: &str = "5748ebf1-24e3-499d-ab7c-c2cebd462a24";
 const DISFIGURE: &str = "77eafe49-b9c5-461d-89c5-cec217dd2974";
 const FOG: &str = "27e9db49-7af7-4bef-ad4c-bf5dfb92030d";
@@ -398,12 +409,31 @@ impl ScenarioConfig {
 }
 #[derive(Clone)]
 pub struct Prepared {
+    match_config: Option<MatchConfig>,
     catalog: Arc<Catalog>,
     catalog_digest: String,
     config: ScenarioConfig,
     profile_digest: String,
 }
 impl Prepared {
+    pub fn admit_pod(catalog: Catalog, config: MatchConfig) -> Result<Self, MatchAdmissionError> {
+        let pod = validate_pod(&catalog, &config)?;
+        let profile_digest = pod
+            .identity_digest()
+            .map_err(|detail| MatchAdmissionError::InvalidCatalog { detail })?;
+        let catalog_digest =
+            digest(&catalog).map_err(|detail| MatchAdmissionError::InvalidCatalog { detail })?;
+        Ok(Self {
+            catalog: Arc::new(catalog),
+            catalog_digest,
+            config: pod.config,
+            profile_digest,
+            match_config: Some(pod.match_config),
+        })
+    }
+    pub fn match_config(&self) -> Option<&MatchConfig> {
+        self.match_config.as_ref()
+    }
     pub fn admit(catalog: Catalog, config: ScenarioConfig) -> Result<Self, String> {
         catalog.validate()?;
         if config != ScenarioConfig::land_return()
@@ -519,6 +549,7 @@ impl Prepared {
         let catalog_digest = digest(&catalog)?;
         let profile_digest = digest(&(SCENARIO_PROFILE, &allowed, &config))?;
         Ok(Self {
+            match_config: None,
             catalog: Arc::new(catalog),
             catalog_digest,
             config,
@@ -627,6 +658,7 @@ struct Resolving {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 enum Frame {
+    Setup,
     DamageAllocation {
         transaction: DamageTransaction,
         effect: EffectKey,
@@ -709,6 +741,12 @@ enum Frame {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    Mulligan {
+        take: bool,
+    },
+    BottomOpening {
+        objects: Vec<ObjectId>,
+    },
     DamageAllocation {
         allocations: Vec<(DamageId, Quantity)>,
     },
@@ -786,6 +824,19 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    Mulligan {
+        decision_id: u64,
+        player: PlayerId,
+        mulligans_taken: u8,
+        bottom_if_mulligan: u8,
+        can_mulligan: bool,
+    },
+    BottomOpening {
+        decision_id: u64,
+        player: PlayerId,
+        count: usize,
+        candidates: Vec<ObjectId>,
+    },
     DamageAllocation {
         decision_id: u64,
         player: PlayerId,
@@ -847,6 +898,8 @@ pub enum Request {
         available: BTreeMap<Color, Quantity>,
     },
     CommanderReturn {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        previous_choices: Vec<(ObjectId, bool)>,
         decision_id: u64,
         player: PlayerId,
         object: ObjectId,
@@ -896,7 +949,9 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::DamageAllocation { decision_id, .. }
+            Self::Mulligan { decision_id, .. }
+            | Self::BottomOpening { decision_id, .. }
+            | Self::DamageAllocation { decision_id, .. }
             | Self::Modes { decision_id, .. }
             | Self::DamageEffect { decision_id, .. }
             | Self::OrderTriggers { decision_id, .. }
@@ -918,7 +973,9 @@ impl Request {
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::DamageAllocation { player, .. }
+            Self::Mulligan { player, .. }
+            | Self::BottomOpening { player, .. }
+            | Self::DamageAllocation { player, .. }
             | Self::Modes { player, .. }
             | Self::DamageEffect { player, .. }
             | Self::OrderTriggers { player, .. }
@@ -942,6 +999,9 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    Setup {
+        action: SetupAction,
+    },
     AllocateDamageEffect {
         transaction: DamageTransactionId,
         effect: EffectKey,
@@ -1066,6 +1126,9 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    Setup {
+        actual: SetupOutcome,
+    },
     DamageEffectAllocated {
         transaction: DamageTransactionId,
         effect: EffectKey,
@@ -1351,6 +1414,8 @@ pub enum Event {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct State {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    match_state: Option<MatchState>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     effects: Vec<ResolvedEffect>,
     #[serde(default, skip_serializing_if = "triggers::is_zero")]
@@ -1476,6 +1541,7 @@ impl Game {
             })
             .collect();
         let state = State {
+            match_state: prepared.match_config.as_ref().map(MatchState::new),
             effects: vec![],
             next_effect_id: 0,
             next_damage_transaction_id: 0,
@@ -1532,6 +1598,12 @@ impl Game {
             executor: Arc::new(()),
             state_token: Arc::new(()),
         };
+        if let Some(config) = game.prepared.match_config.as_ref() {
+            game.state.active = Some(config.starting_player);
+            game.state.turn_owner = config.starting_player;
+            game.state.priority = config.starting_player;
+            game.state.frame = Frame::Setup;
+        }
         game.initialize_commanders()
             .expect("admitted commander configuration");
         game.refresh_visibility()
@@ -1552,7 +1624,7 @@ impl Game {
         self.state.rule_steps
     }
     pub fn state_digest(&self) -> Result<String, String> {
-        digest(&self.state)
+        state_digest::state_digest(&self.state)
     }
     pub fn events(&self) -> &[Event] {
         self.trace.events.as_slice()
@@ -1653,6 +1725,9 @@ impl Game {
         if self.state.pending.is_some() || !self.state.pending_concessions.is_empty() {
             return Ok(None);
         }
+        if matches!(self.state.frame, Frame::Setup) {
+            return Ok(self.setup_request()?.filter(|r| r.player() == viewer));
+        }
         if let Some(req) = self.damage_allocation_request()? {
             return Ok((req.player() == viewer).then_some(req));
         }
@@ -1723,6 +1798,7 @@ impl Game {
                 destination,
                 ..
             } => Request::CommanderReturn {
+                previous_choices: self.previous_commander_choices(),
                 decision_id: self.state.revision,
                 player: self.state.cards[&object.card].owner,
                 object: *object,
@@ -1754,6 +1830,9 @@ impl Game {
         Ok((req.player() == viewer).then_some(req))
     }
     fn validate_response(&self, player: PlayerId, response: &Response) -> Result<(), String> {
+        if matches!(self.state.frame, Frame::Setup) {
+            return self.validate_setup_response(player, response);
+        }
         if let Frame::Stabilize { resume, .. } = &self.state.frame {
             let mut validation = self.fork();
             validation.state.frame = *resume.clone();
@@ -1966,6 +2045,7 @@ impl Game {
             return self.apply_departure(player);
         }
         match self.state.frame.clone() {
+            Frame::Setup => self.setup_step()?,
             Frame::DamageAllocation { .. } => self.damage_allocation_step()?,
             Frame::Modes { cast } => self.bind_mode(cast)?,
             Frame::DamageEffects { .. } => self.damage_effect_step()?,
@@ -2366,7 +2446,7 @@ impl Game {
     pub fn snapshot_with_digest(&self) -> Result<(String, String), String> {
         let state_sha256 = self.state_digest()?;
         let json = canonical(&SnapshotRef {
-            snapshot_version: 16,
+            snapshot_version: 17,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -2378,11 +2458,11 @@ impl Game {
     }
     fn read_snapshot(prepared: Prepared, json: &str) -> Result<(Self, String), String> {
         let s: Snapshot = strict_read(json)?;
-        if s.snapshot_version != 16
+        if s.snapshot_version != 17
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
-            || digest(&s.state)? != s.state_sha256
+            || state_digest::state_digest(&s.state)? != s.state_sha256
         {
             return Err("snapshot version/build/catalog/profile/hash mismatch".into());
         }
@@ -2401,6 +2481,7 @@ impl Game {
         SnapshotVerifier::new(game.prepared.clone(), game.trace.mode).verify_game(game, digest)
     }
     fn validate_state(&self) -> Result<(), String> {
+        self.validate_match_state()?;
         let s = &self.state;
         if s.players.len() != 4
             || s.visibility.len() != 4
