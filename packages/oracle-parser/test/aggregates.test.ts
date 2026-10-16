@@ -102,7 +102,7 @@ describe("aggregate quantities preserve event grouping and entry timing", () => 
     // https://magic.wizards.com/en/news/feature/modern-horizons-3-release-notes
     assert.deepEqual(parsed("Converge — Exile target nonland permanent if its mana value is less than or equal to the number of colors of mana spent to cast this spell."), [{ kind: "spell", abilityWord: "Converge", effects: [{
       steps: [{ effect: "exile", what: { ref: "target", filter: { nonTypes: ["land"], cls: "permanent" }, count: n(1) } }],
-      condition: { condition: "compare", value: { amount: "attribute", of: { ref: "it" }, attribute: "mana-value" }, comparison: { op: "le", value: converge } }, conditionKind: "if",
+      condition: { condition: "compare", value: { amount: "attribute", of: { ref: "it" }, attribute: "mana-value" }, comparison: { op: "le", value: converge } }, conditionKind: "if", conditionPosition: "after",
     }] }]);
   });
 });

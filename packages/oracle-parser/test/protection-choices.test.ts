@@ -100,14 +100,19 @@ describe("protection choices when granting effects apply", () => {
       effect: "gain-abilities", what: { ref: "each", filter: { types: ["creature"], control: "you" } }, abilities: [ability({ scope: "colors-of", what: { ref: "target", filter: { cls: "permanent", control: "you" }, count: n(1) } })], duration: eot,
     }] }] }]);
   });
-  it("does not claim new fresh-choice or derived-color scopes are fully bound", () => {
+  it("binds a granted protection's choice and derived colors in the granting scope", () => {
     for (const text of ["Target creature gains protection from the color of your choice until end of turn.",
       "This creature has protection from the colors of permanents you control."]) {
       const result = parseOracleText(text, "Protection fixture", { includeSourceProvenance: true });
       assert.ok(result.ok);
       const binding = analyzeCardBindings({ identity: "protection-fixture", source: { name: "Protection fixture", layout: "normal" }, faces: [{ sourceFaceIndex: 0, result }] });
-      assert.equal(binding.fullyBound, false);
-      assert.ok(binding.diagnostics.some(diagnostic => diagnostic.code === "unsupported-scope"));
+      assert.equal(binding.fullyBound, true, JSON.stringify(binding.diagnostics));
+      // The choice and the colors are fixed by the granting effect (CR 608.2d, 608.2h), so
+      // their "you" is the granting ability's player, not the recipient's ability's.
+      const line = binding.nodes.find(node => node.node === "ability" && node.path === "/faces/0/abilities/0");
+      assert.ok(line && line.node === "ability");
+      const player = binding.references.find(ref => /\/from\/0\/(who|what\/filter\/control)$/.test(ref.path));
+      assert.ok(player && player.binding === "bound" && player.target === line.you, JSON.stringify(player));
     }
   });
 });

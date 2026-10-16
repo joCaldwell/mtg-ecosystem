@@ -156,9 +156,18 @@ describe("same-event battlefield entry modifications", () => {
     ]) assert.equal(parseOracleText(text, "Fixture").ok, false, text);
   });
 
-  it("keeps pre-entry binding scopes explicitly unresolved", () => {
-    for (const text of ["As this land enters, you may pay 2 life. If you don't, it enters tapped.",
-      "Return this card from your graveyard to the battlefield with a +1/+1 counter on it."]) {
+  it("binds the source's own entry choices to the player it enters under (CR 110.2a, 614.12a)", () => {
+    const result = parseOracleText("As this land enters, you may pay 2 life. If you don't, it enters tapped.", "Fixture", { includeSourceProvenance: true });
+    const graph = analyzeCardBindings({ identity: "entry", source: { name: "Fixture", layout: "normal", type_line: "Land" }, faces: [{ sourceFaceIndex: 0, result }] });
+    assert.equal(graph.fullyBound, true, JSON.stringify(graph.diagnostics));
+    const payer = graph.references.find(ref => ref.path.endsWith("/costs/0/payer"));
+    assert.ok(payer && payer.binding === "bound");
+    assert.ok(graph.nodes.some(node => node.id === payer.target && node.node === "runtime-player" && node.role === "entering-controller"));
+  });
+
+  it("keeps entering attached or attacking explicitly unresolved", () => {
+    for (const text of ["Return target Aura card from your graveyard to the battlefield attached to a creature you control.",
+      "Put a creature card from your hand onto the battlefield tapped and attacking."]) {
       const result = parseOracleText(text, "Fixture", { includeSourceProvenance: true });
       assert.equal(result.ok, true);
       const graph = analyzeCardBindings({ identity: "entry", source: { name: "Fixture", layout: "normal" }, faces: [{ sourceFaceIndex: 0, result }] });

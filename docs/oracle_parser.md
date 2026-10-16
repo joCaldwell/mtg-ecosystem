@@ -153,6 +153,145 @@ and unresolved obligations. `fullyBound` refers only to this reference analysis;
 it is not semantic certification or engine execution support. Unsupported
 capture scopes and ambiguous antecedents remain diagnostics.
 
+A keyword line binds through `src/semantic/keyword-scopes.ts`. Each keyword
+the parser produces has an entry: the CR 702 rule, the kinds of ability it
+represents, and the player its printed parameters refer to. That player is
+the activator for equip, the caster for kicker, the player taking the special
+action for morph, and the controller of the targeting spell for ward. The
+keyword's intrinsic targets and choices are fixed by the rules and are not
+printed references. A keyword of another object, such as a created token,
+has nothing to bind unless its parameters contain references; those still
+need the other object's own scope. Companion's pregame deck condition is not
+modeled.
+
+Instructions nested in other instructions bind with explicit scope rules. A
+"you may" instruction binds normally; its event records that it is optional and
+which player decides (CR 608.2d), and declining it produces no results. An
+optional group ("you may A, B, and C") performs its steps in order under one
+decision. Each mode of a modal spell or ability binds in its own branch,
+because a mode's targets exist only if it is chosen (CR 700.2c); nothing a
+mode establishes is available to another mode or afterwards. A chosen
+instruction ("+2/-2 or -2/+2") binds its options the same way, and a target
+shared by the options is one selection. Simultaneous steps bind from the same
+antecedents and all their results remain available. A "for each" rider is a
+counted repetition, so how many objects it produces is not fixed. Modes that
+can be chosen more than once, modes remembered across uses, created
+replacement effects, repeated payments, and random outcomes keep their
+unsupported-scope diagnostics.
+
+Binding results have two levels. `referencesBound` means every reference on
+the card resolves with no diagnostics. Some constructs need a rules-engine
+capability that is not a binding question; they are recorded in
+`engineFeatures` and their references bind as anywhere else:
+
+- `event-history`: questions about what happened ("if you attacked this
+  turn", "if this spell was cast from a graveyard", "creatures that attacked
+  this turn", "the life you gained this turn"), asked of objects as they last
+  existed (CR 400.7d, 608.2h-i). A condition about an earlier instruction of
+  the same ability ("if you won the clash", "if [a player] did this way")
+  remains a binding obligation.
+- `damage-prevention`: prevention and redirection shields over future damage
+  events (CR 609.7, 614.9, 615).
+- `characteristic-layers`: resolving characteristic changes ("becomes a 3/3
+  creature"), applied in the layer system with the affected set fixed when
+  they begin (CR 611.2c, 613).
+
+`fullyBound` means references bound and no engine feature needed.
+
+Further scope rules, each grounded in the Comprehensive Rules:
+
+- An ability an effect gives to objects ("Equipped creature has …", a quoted
+  ability) is bound as an ability of the recipient: its "this creature" is
+  each recipient and its "you" that object's controller (CR 113.10, 201.5,
+  301.5d, 303.4e). A granted keyword's protection qualities and choices stay
+  in the granting scope (CR 608.2h). "Equipped", "enchanted" and "fortified"
+  objects are what the source is attached to (CR 301.5f, 303.4m).
+- A permanent's own entry ("enters tapped", "enters with counters", "as this
+  enters") binds "you" to the player it enters under (CR 110.2a, 614.12).
+- "An opponent controls" and "you don't control" are relative to "you".
+  "Other" in a permanent's ability means other than that permanent when no
+  other object has been named; elsewhere it stays unresolved. A bare "it"
+  means the permanent under the same condition.
+- Keyword actions bind their printed participants; their internal choices
+  are fixed by CR 701. An action that creates or reveals objects adds them
+  as candidates, so a later pronoun is never resolved past them.
+- After an object leaves its zone, references to its controller, owner,
+  characteristics, counters or past state ("if it was attacking") use its
+  last-known information (CR 608.2h, 603.10a); a damage source that left
+  uses its last-known information (CR 113.7a). Acting on it again means the
+  object it became in a public zone: a zone-change trigger can find that
+  object (CR 400.7e, 603.6c: "When this creature dies, return it to its
+  owner's hand"), as can the rest of an effect that moved it there,
+  including a discard (CR 400.7j). A card from a library or hand is known
+  by its new zone's information. The card a trigger saw move, and a
+  discarded card, are meant only when the effect names nothing else.
+- An instruction's acting player and damage source are antecedents within
+  that instruction ("Target opponent sacrifices a creature they control").
+  A bare possessive means that subject ("this creature deals damage equal
+  to its power to that creature"). The source, a definite trigger subject,
+  and objects chosen by a cost are antecedents only when nothing else could
+  be meant. An object an intervening "if" clause names as its subject (CR
+  603.4), a static ability's "as long as" condition, or a sentence's
+  condition is the antecedent of a bare pronoun it governs ("if that
+  creature has power 4 or greater, it gains first strike"), unless the
+  governed instructions introduce an object after the condition. A "this
+  way" condition governs with the objects its instruction acted on. "That
+  [noun]" means an antecedent established as that kind of object (CR 115.4
+  for "any target"; cards from a library are cards, tokens are tokens,
+  creatures and other permanent types are permanents) and never the object
+  the text calls "this". The spell or ability that targeted an object is
+  meant only by "that spell" or "that ability", never by "it".
+- "That player" means a player named outright before one named only
+  through an object ("its owner's hand", "a land an opponent controls",
+  "a card an opponent owns"); never "you". A player targeted anywhere in an
+  instruction ("search target player's library") and the player a trigger
+  names ("at the beginning of enchanted player's upkeep") are antecedents.
+  "Defending player" is the player the one attacking creature an ability
+  is about attacks (CR 508.5); for several attacking creatures it stays
+  unresolved (CR 508.5a). "You" on a card's own alternative cost is the
+  player casting it, and on its own permission to be cast its owner (CR
+  109.5). A trigger's other participant
+  ("blocks a creature") is an antecedent; with alternative trigger events
+  each binds on its own, and a shared other participant becomes "whichever
+  the event established" (CR 603.2).
+- Conditional sentences bind in their own branch; their results are not
+  antecedents afterwards, but targets they announced are (CR 601.2c), and
+  a sentence the parser marks as possibly governed by the previous
+  condition is diagnosed. A condition printed after its instruction ("if
+  its power is 2 or less", "unless its controller pays") is checked on that
+  instruction's participants, not its results (CR 608.2c). "If you do",
+  "When you do" link to the single optional instruction they follow; "If
+  you don't" sees the antecedents from before that declined instruction.
+  "Unless [player] pays" binds the payer to that player (CR 118.12a); its
+  "for each ... you control" stays in the ability's voice (CR 109.5).
+- An instant's or sorcery's paragraphs are one spell (CR 113.3a, 608.2c).
+  Coin-flip outcomes and die-result rows are exclusive branches whose
+  targets belong to the ability (CR 705, 706.3b).
+- "That many" is the quantity of the instruction it is chained to in its
+  sentence, or of the decision "if you do" refers to; an instruction whose
+  own amount is "that many" only repeats it. Triggers measure damage, life
+  paid, and how many objects a "one or more" event had; costs measure what
+  they removed, paid or moved. X is announced for a spell or ability with X
+  in a cost (CR 107.3a, 107.3k) and carried into the permanent's own entry
+  (CR 107.3m); a printed definition wins (CR 107.3c).
+- "Kicked" links to the one kicker ability on the object (CR 702.33e).
+  "Destroyed this way" links to the one earlier destroy instruction of the
+  ability visible from it; "the rest" is the pool the sentence chose from,
+  less that choice. "Its controller's untap step" and "returns under its
+  owner's control" (CR 610.3c) bind to each affected object's player.
+- In a cast or activation trigger that does not name this object, a bare
+  "it" with nothing else named is the spell or ability (CR 603.2c: "if no
+  colored mana was spent to cast it, counter that spell"). "That creature"
+  never means a card or a spell (CR 109.2). Copies and "each of that
+  creature's colors" read the object as it last existed (CR 707.2, 608.2h),
+  or as the permanent an effect put onto the battlefield.
+- Delayed and reflexive triggered abilities have the creating ability's
+  source and controller and may refer to the objects it named (CR 603.7c-e,
+  603.12). A self-replacement binds its original and replacement
+  instructions in separate branches; its condition is checked on the
+  original's participants before it acts, and a replacement's pronoun means
+  the original's participant in the same role (CR 614.15).
+
 Pass `{ includeSourceProvenance: true }` as the third argument to
 `parseOracleText` for binding inputs. Targets receive stable `selectionId`
 values derived from the normalized source line and target token. Modal option

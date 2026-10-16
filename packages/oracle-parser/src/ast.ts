@@ -728,6 +728,10 @@ export interface Sentence {
   /** "If you control a Dragon, …" / "… unless its controller pays {2}." */
   condition?: Condition;
   conditionKind?: "if" | "unless";
+  /** "Return target creature to its owner's hand if its power is 2 or less":
+   * the "if" clause follows the instruction it governs, so its references
+   * may name that instruction's objects (CR 608.2c). */
+  conditionPosition?: "after";
   /** Effects joined by "," / "then" / "and" — executed in order. */
   steps: Effect[];
   /** A following "Otherwise" can test the condition or the actual outcome

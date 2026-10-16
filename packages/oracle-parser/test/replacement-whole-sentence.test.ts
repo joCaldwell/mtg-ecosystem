@@ -53,8 +53,8 @@ describe('self-replacement of a whole preceding sentence', () => {
       instead: { sequence: [{ steps: [{ effect: 'counter', what: thatSpell }], condition: pays('4'), conditionKind: 'unless' }] }, targetPolicy: 'retain-original' }));
     const manaValue = (value: number) => ({ condition: 'compare', value: { amount: 'attribute', of: { ref: 'it' }, attribute: 'mana-value' }, comparison: { op: 'le', value: n(value) } });
     assert.deepEqual(abilities('Counter target spell if its mana value is 2 or less. If this spell was kicked, counter that spell if its mana value is 4 or less instead.'), replaced({
-      original: { sequence: [{ steps: [{ effect: 'counter', what: spellTarget }], condition: manaValue(2), conditionKind: 'if' }] }, condition: kicked,
-      instead: { sequence: [{ steps: [{ effect: 'counter', what: thatSpell }], condition: manaValue(4), conditionKind: 'if' }] }, targetPolicy: 'retain-original' }));
+      original: { sequence: [{ steps: [{ effect: 'counter', what: spellTarget }], condition: manaValue(2), conditionKind: 'if', conditionPosition: 'after' }] }, condition: kicked,
+      instead: { sequence: [{ steps: [{ effect: 'counter', what: thatSpell }], condition: manaValue(4), conditionKind: 'if', conditionPosition: 'after' }] }, targetPolicy: 'retain-original' }));
   });
   it('keeps the single-instruction shape wherever it applied before', () => {
     assert.deepEqual(abilities('Draw a card. If you control an Island, instead draw two cards, then discard a card.'), replaced({

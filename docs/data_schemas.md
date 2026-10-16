@@ -122,10 +122,15 @@ not a claim that its mechanics are executable or independently certified.
 
 Every in-scope record also stores `binding` and `bindingSha256`: the separate
 reference graph, runtime slots, resolved edges, and unresolved diagnostics.
-The manifest's `bindingSummary` counts analyzed cards, cards with all inspected
-references bound, reference obligations, and diagnostics. These metrics are
+The manifest's `bindingSummary` counts analyzed cards, cards whose references
+are all bound (`cardsReferencesBound`), cards that are fully bound
+(`cardsFullyBound`: references bound and no engine feature needed), reference
+obligations, diagnostics, and, for reference-bound cards, the engine features
+they still need (`engineFeatures`: `event-history`, `damage-prevention`,
+`characteristic-layers`). Each card's binding carries
+`referencesBound`, `engineFeatures` and `fullyBound`. These metrics are
 separate from syntax acceptance. Missing target provenance, ambiguous
-antecedents, or unsupported scopes cannot become a fully bound result.
+antecedents, or unsupported scopes cannot become a bound result.
 Reference completeness is not full semantic validation or engine support.
 
 The writer publishes complete source and evidence snapshots first and uses a unique

@@ -619,6 +619,7 @@ function parseSentence(c: Cursor, ctx: EffectContext): Sentence | null {
       } else {
         sentence.condition = condition;
         sentence.conditionKind = tailCondition as "unless" | "if";
+        if (tailCondition === "if") sentence.conditionPosition = "after";
       }
       // "... unless its controller pays {X}, where X is ...": the definition
       // follows the clause that uses it and still belongs to this instruction.

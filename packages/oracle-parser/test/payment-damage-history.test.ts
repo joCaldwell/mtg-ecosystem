@@ -238,7 +238,7 @@ describe("continuous conditional modifiers", () => {
       kind: "spell", effects: [{ steps: [{ effect: "gain-abilities", what: {
         ref: "target", filter: { types: ["creature"] }, count: fixed(1),
       }, abilities: [{ gained: "keyword", keyword: { keyword: "flying" } }], duration: { duration: "end-of-turn" } }],
-      condition: { condition: "has-keyword", what: itself, keyword: "trample" }, conditionKind: "if" }],
+      condition: { condition: "has-keyword", what: itself, keyword: "trample" }, conditionKind: "if", conditionPosition: "after" }],
     }]);
     assert.deepEqual(abilities("Equipped creature gets +1/+1."), [{ kind: "static", effect: {
       static: "modify", what: { ref: "equipped", noun: "creature" }, modifiers: [{ modifier: "pt",
@@ -324,8 +324,11 @@ describe("new historical and attack scopes remain uncertified", () => {
       assert.ok(parsed.ok);
       const result = analyzeCardBindings({ identity: "history", source: { name: "History fixture", layout: "normal" },
         faces: [{ sourceFaceIndex: 0, result: parsed }] });
+      // History needs the engine's event record; grouped attacks and
+      // per-spell conditions still need their own binding scopes.
       assert.equal(result.fullyBound, false);
-      assert.ok(result.diagnostics.some(diagnostic => diagnostic.code === "unsupported-scope"), text);
+      assert.ok(result.engineFeatures.some(need => need.feature === "event-history")
+        || result.diagnostics.some(diagnostic => diagnostic.code === "unsupported-scope"), text);
     }
   });
 });

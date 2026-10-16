@@ -20,7 +20,7 @@ describe('"the creature with the greatest X or tied for the greatest X"', () => 
   it('reads the control condition as controlling a creature with the extreme value (Triumph of Ferocity)', () => {
     assert.deepEqual(one('At the beginning of your upkeep, draw a card if you control the creature with the greatest power or tied for the greatest power.'), {
       kind: 'triggered', trigger: { trigger: 'phase', phase: 'upkeep', whose: 'your' },
-      effects: [{ steps: [{ effect: 'draw', who: { player: 'you' }, amount: fixed(1) }], condition: controlsTop('power'), conditionKind: 'if' }] });
+      effects: [{ steps: [{ effect: 'draw', who: { player: 'you' }, amount: fixed(1) }], condition: controlsTop('power'), conditionKind: 'if', conditionPosition: 'after' }] });
   });
   it('reads toughness and least the same way', () => {
     assert.deepEqual(one('Draw a card if you control the creature with the greatest toughness or tied for the greatest toughness.').effects[0].condition, controlsTop('toughness'));

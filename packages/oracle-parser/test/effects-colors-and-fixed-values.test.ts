@@ -72,7 +72,7 @@ describe("values and target qualifications fixed as the spell is cast or the abi
         power: { sign: -1, amount: { amount: "fixed", value: 3 } }, toughness: { sign: -1, amount: { amount: "fixed", value: 3 } },
         duration: { duration: "end-of-turn" } }],
       condition: { condition: "control", who: { player: "you" }, what: { ref: "filter", filter: { subtypes: ["Faerie"] }, count: one }, asOf: "casting" },
-      conditionKind: "if",
+      conditionKind: "if", conditionPosition: "after",
     }]);
     rejected("Target creature gets -3/-3 until end of turn if you controlled a Faerie.");
   });

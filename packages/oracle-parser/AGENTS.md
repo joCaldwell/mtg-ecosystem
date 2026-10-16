@@ -14,6 +14,15 @@ build step — Node ≥ 23 runs the `.ts` sources directly (imports use explicit
 mode rejects them). The previous ANTLR/antlr4ts pipeline was audited and
 replaced on 2026-08-01; see the git history if you need the archaeology.
 
+## 📍 Status
+
+Parsing is at its target (92.27% of Commander-legal cards); reference binding
+is at 23,395 cards with all references bound and 21,998 fully bound. What is
+still unfinished — an independent audit of the binding rules, the remaining
+reference gaps by group, engine features, the paused parsing tail, and Card IR
+emission — is listed in
+[docs/oracle-parser-checkpoint.md](../../docs/oracle-parser-checkpoint.md#what-remains).
+
 ## 🧠 Architecture
 
 ```

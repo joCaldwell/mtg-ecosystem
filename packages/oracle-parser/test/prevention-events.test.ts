@@ -193,7 +193,9 @@ describe("prospective damage prevention", () => {
     const result = parseOracleText("The next time a source of your choice would deal damage to any target this turn, prevent that damage.", name, { includeSourceProvenance: true });
     assert.equal(result.ok, true);
     const analysis = analyzeCardBindings({ identity: "prevention-fixture", source: { name, layout: "normal" }, faces: [{ sourceFaceIndex: 0, result }] });
+    // The chooser and target bind; the shield over future damage is the engine's.
     assert.equal(analysis.fullyBound, false);
-    assert.ok(analysis.diagnostics.some(diagnostic => diagnostic.code === "unsupported-scope"));
+    assert.equal(analysis.referencesBound, true, JSON.stringify(analysis.diagnostics));
+    assert.ok(analysis.engineFeatures.some(need => need.feature === "damage-prevention"));
   });
 });

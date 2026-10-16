@@ -138,7 +138,7 @@ describe("draw another card", () => {
   // like "draw an additional card" (CR 121.2).
   it("is an ordinary one-card draw", () => {
     assert.deepEqual(parsed("At the beginning of your end step, if you have the initiative, draw a card. Draw another card if you've completed a dungeon.", "Legendary Creature — Human Wizard")[0].effects[1], {
-      steps: [{ effect: "draw", who: { player: "you" }, amount: n(1) }], condition: { condition: "completed-dungeon", who: { player: "you" } }, conditionKind: "if",
+      steps: [{ effect: "draw", who: { player: "you" }, amount: n(1) }], condition: { condition: "completed-dungeon", who: { player: "you" } }, conditionKind: "if", conditionPosition: "after",
     });
   });
   it("does not read other 'another' phrases as one card", () => {

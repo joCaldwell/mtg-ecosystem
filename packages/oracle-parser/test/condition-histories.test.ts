@@ -97,7 +97,7 @@ describe("linked keyword decisions and ability history", () => {
     assert.deepEqual(abilities("Whenever a token you control enters, you gain 1 life if this is the first time this ability has resolved this turn. If it's the second time, draw a card.", "Creature — Halfling"), [{
       kind: "triggered", trigger: { trigger: "enters", what: { ref: "filter", filter: { cls: "token", control: "you" }, count: fixed(1) } },
       effects: [
-        { steps: [{ effect: "gain-life", who: you, amount: fixed(1) }], condition: ordinal(1), conditionKind: "if" },
+        { steps: [{ effect: "gain-life", who: you, amount: fixed(1) }], condition: ordinal(1), conditionKind: "if", conditionPosition: "after" },
         { steps: [{ effect: "draw", who: you, amount: fixed(1) }], condition: ordinal(2), conditionKind: "if" },
       ],
     }]);

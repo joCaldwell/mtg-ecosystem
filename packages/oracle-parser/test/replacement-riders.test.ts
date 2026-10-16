@@ -39,7 +39,7 @@ describe('self-replacement with its condition printed last', () => {
     // An ordinary trailing condition is not a replacement of the first draw.
     assert.deepEqual(card('Draw a card. Draw two cards if you control an Island.').abilities, [{ kind: 'spell', effects: [
       { steps: [{ effect: 'draw', who: { player: 'you' }, amount: n(1) }] },
-      { steps: [{ effect: 'draw', who: { player: 'you' }, amount: n(2) }], condition: island, conditionKind: 'if' }] }]);
+      { steps: [{ effect: 'draw', who: { player: 'you' }, amount: n(2) }], condition: island, conditionKind: 'if', conditionPosition: 'after' }] }]);
   });
 });
 
@@ -67,8 +67,8 @@ describe('replacement printed as its own paragraph', () => {
     const manaValue = (value: number) => ({ condition: 'is-filter', what: { ref: 'it' }, filter: { properties: [{ property: 'mana-value', comparison: { op: 'le', value: n(value) } }] } });
     assert.deepEqual(card('Destroy target creature if it has mana value 2 or less.\nRevolt — Destroy that creature if it has mana value 4 or less instead if a creature died this turn.').abilities, [{
       kind: 'spell', effects: [{ steps: [{ effect: 'self-replacement',
-        original: { sequence: [{ steps: [{ effect: 'destroy', what: target }], condition: manaValue(2), conditionKind: 'if' }] }, condition: morbid,
-        instead: { sequence: [{ steps: [{ effect: 'destroy', what: { ref: 'that', filter: creature } }], condition: manaValue(4), conditionKind: 'if' }] },
+        original: { sequence: [{ steps: [{ effect: 'destroy', what: target }], condition: manaValue(2), conditionKind: 'if', conditionPosition: 'after' }] }, condition: morbid,
+        instead: { sequence: [{ steps: [{ effect: 'destroy', what: { ref: 'that', filter: creature } }], condition: manaValue(4), conditionKind: 'if', conditionPosition: 'after' }] },
         targetPolicy: 'retain-original', abilityWord: 'Revolt' }] }] }]);
     fails('Flying\nMorbid — Draw two cards instead if a creature died this turn.', 'Creature — Bird');
     fails('Draw a card.\nMorbid — Draw two cards instead if a creature died this turn. You gain 1 life.');

@@ -52,8 +52,12 @@ describe("proven first-instruction stack-copy inputs", () => {
     }]);
     const binding = graph(parsed("When you cast enchanted card, copy it."));
     assert.equal(binding.fullyBound, false);
-    assert.ok(binding.references.some(ref => "ref" in ref.expression && ref.expression.ref === "enchanted" && ref.binding === "unresolved"));
-    assert.ok(binding.references.some(ref => "ref" in ref.expression && ref.expression.ref === "trigger-event-object" && ref.binding === "unresolved"));
+    // CR 303.4m: "enchanted card" is whatever this Aura is attached to.
+    const enchanted = binding.references.find(ref => "ref" in ref.expression && ref.expression.ref === "enchanted");
+    assert.ok(enchanted && enchanted.binding === "bound" && binding.nodes.some(node => node.id === enchanted.target && node.node === "derived-object"));
+    // With the enchanted card bound, "it" is the spell that cast trigger matched.
+    const copiedSpell = binding.references.find(ref => "ref" in ref.expression && ref.expression.ref === "trigger-event-object");
+    assert.ok(copiedSpell && copiedSpell.binding === "bound" && binding.nodes.some(node => node.id === copiedSpell.target && node.node === "event-result"));
     for (const [printed, what] of [
       ["this card", { ref: "this", noun: "card" }], ["that card", { ref: "that", filter: { cls: "card" } }],
       ["it", { ref: "it" }], ["equipped card", { ref: "equipped", noun: "card" }],
@@ -146,7 +150,9 @@ describe("proven first-instruction stack-copy inputs", () => {
       occurrence: "next", nextOnly: true, duration: { duration: "this-turn" }, targets: "delayed-ability", effects: [{ steps: [copied] }],
     }] }]);
     const binding = graph(nested);
-    assert.ok(binding.references.some(ref => "ref" in ref.expression && ref.expression.ref === "trigger-event-object" && ref.binding === "unresolved"));
+    // "It" is the spell the delayed trigger itself matched (CR 603.7), not the enclosing trigger's spell.
+    const copiedSpell = binding.references.find(ref => "ref" in ref.expression && ref.expression.ref === "trigger-event-object");
+    assert.ok(copiedSpell && copiedSpell.binding === "bound" && copiedSpell.target.endsWith("/effects/0/steps/0/trigger#objects"), JSON.stringify(copiedSpell));
     for (const text of [
       "Whenever you cast a spell, copy it. At the beginning of the next end step, copy it.",
       "Whenever you cast a spell, at the beginning of the next end step, copy it.",

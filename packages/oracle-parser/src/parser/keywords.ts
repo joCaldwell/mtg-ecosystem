@@ -117,6 +117,13 @@ for (const entry of KEYWORD_NAMES) {
   KEYWORDS_BY_START.set(first.value, bucket);
 }
 
+/** Every `KeywordInstance.keyword` this parser can produce: the table above
+ * ("hexproof from" is emitted as hexproof with `from`) plus names built by
+ * dedicated productions below. */
+export const PARSED_KEYWORDS: readonly string[] = [...Object.keys(KEYWORDS).filter(name => name !== "hexproof from"),
+  "typecycling", "splice", "bands with other",
+  "craft", "companion", "partner with", "partner—friends forever", "partner—character select", "partner—survivors"];
+
 /** Used by the ability classifier to avoid discarding rules-bearing prefixes. */
 export function isKeywordName(name: string): boolean {
   const canonical = name.toLowerCase();

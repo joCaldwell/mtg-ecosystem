@@ -275,7 +275,7 @@ describe("historical limits and binding honesty", () => {
     }
   });
 
-  it("does not certify unimplemented historical identity and lookback bindings", () => {
+  it("binds the references of history conditions but certifies them only with the engine's event history", () => {
     for (const text of [
       "When this creature enters, if you attacked this turn, draw a card.",
       "When this creature enters, if you cast it, draw a card.",
@@ -287,7 +287,8 @@ describe("historical limits and binding honesty", () => {
       const graph = analyzeCardBindings({ identity: "history", source: { name: "History fixture", layout: "normal" },
         faces: [{ sourceFaceIndex: 0, result: parsed }] });
       assert.equal(graph.fullyBound, false, text);
-      assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "unsupported-scope"), text);
+      assert.equal(graph.referencesBound, true, text + JSON.stringify(graph.diagnostics));
+      assert.ok(graph.engineFeatures.some(need => need.feature === "event-history"), text);
     }
   });
 });
