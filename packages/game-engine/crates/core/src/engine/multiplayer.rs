@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PlayerStatus {
     Live,
@@ -40,14 +40,54 @@ pub(super) struct ControlEffect {
     pub(super) source: ControlSource,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CommanderHistory {
     pub owner: PlayerId,
     pub color_identity: Vec<Color>,
+    #[serde(deserialize_with = "player_quantity_map")]
     pub command_casts: BTreeMap<PlayerId, Quantity>,
+    #[serde(deserialize_with = "player_quantity_map")]
     pub combat_damage: BTreeMap<PlayerId, Quantity>,
 }
+// JSON object keys are strings. Internally tagged publication/IPC enums
+// deserialize buffered Content, which cannot decode a string as the numeric
+// scalar inside PlayerId. Adapt these map KEYS only; PlayerId values remain
+// numeric. Serialization and JsonSchema still use the original field types.
+fn player_quantity_map<'de, D>(deserializer: D) -> Result<BTreeMap<PlayerId, Quantity>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct PlayerQuantities;
+    impl<'de> serde::de::Visitor<'de> for PlayerQuantities {
+        type Value = BTreeMap<PlayerId, Quantity>;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("a map with canonical decimal u8 player keys")
+        }
+        fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+        where
+            M: serde::de::MapAccess<'de>,
+        {
+            let mut result = BTreeMap::new();
+            while let Some((key, quantity)) = map.next_entry::<String, Quantity>()? {
+                let player = key
+                    .parse::<u8>()
+                    .map_err(|_| serde::de::Error::custom("invalid player history map key"))?;
+                if key != player.to_string() {
+                    return Err(serde::de::Error::custom(
+                        "noncanonical player history map key",
+                    ));
+                }
+                if result.insert(PlayerId(player), quantity).is_some() {
+                    return Err(serde::de::Error::custom("duplicate player history map key"));
+                }
+            }
+            Ok(result)
+        }
+    }
+    deserializer.deserialize_map(PlayerQuantities)
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CommanderLedger {
@@ -613,5 +653,66 @@ impl Game {
             return Err(reason);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod history_key_tests {
+    use super::*;
+    #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+    enum Tagged {
+        History { history: CommanderHistory },
+    }
+    fn history() -> CommanderHistory {
+        CommanderHistory {
+            owner: PlayerId(2),
+            color_identity: vec![Color::W],
+            command_casts: [(PlayerId(2), 1.into()), (PlayerId(255), 3.into())].into(),
+            combat_damage: [(PlayerId(0), 22.into()), (PlayerId(3), 2.into())].into(),
+        }
+    }
+    #[test]
+    fn tagged_and_value_history_keys_roundtrip_with_identical_canonical_bytes() {
+        let expected = Tagged::History { history: history() };
+        let text = mtg_contracts::canonical(&expected).unwrap();
+        assert_eq!(
+            text,
+            r#"{"history":{"color_identity":["W"],"combat_damage":{"0":"22","3":"2"},"command_casts":{"2":"1","255":"3"},"owner":2},"kind":"history"}"#
+        );
+        let direct: Tagged = serde_json::from_str(&text).unwrap();
+        let buffered: Tagged =
+            serde_json::from_value(serde_json::from_str(&text).unwrap()).unwrap();
+        assert_eq!(direct, expected);
+        assert_eq!(buffered, expected);
+        assert_eq!(mtg_contracts::canonical(&buffered).unwrap(), text);
+        assert!(serde_json::from_value::<PlayerId>(serde_json::json!("2")).is_err());
+    }
+    #[test]
+    fn history_map_keys_reject_aliases_ranges_duplicates_and_wrong_shapes() {
+        let original = mtg_contracts::canonical(&history()).unwrap();
+        for key in [
+            "", "+2", "02", "-0", "-1", "256", " 2", "2 ", "2.0", "2e0", "２",
+        ] {
+            let bad = original.replace(
+                "\"2\":\"1\"",
+                &format!("{}:\"1\"", serde_json::to_string(key).unwrap()),
+            );
+            assert!(
+                serde_json::from_str::<CommanderHistory>(&bad).is_err(),
+                "{key}"
+            );
+        }
+        let duplicate = original.replace("\"2\":\"1\"", "\"2\":\"1\",\"2\":\"2\"");
+        assert!(serde_json::from_str::<CommanderHistory>(&duplicate).is_err());
+        for value in [
+            serde_json::json!([]),
+            serde_json::json!(null),
+            serde_json::json!(2),
+        ] {
+            let mut bad = serde_json::to_value(history()).unwrap();
+            bad["combat_damage"] = value;
+            assert!(serde_json::from_value::<CommanderHistory>(bad).is_err());
+        }
     }
 }

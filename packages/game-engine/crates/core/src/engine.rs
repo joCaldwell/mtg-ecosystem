@@ -1,7 +1,9 @@
+mod advance_report;
 mod search;
 pub use search::*;
 mod match_admission;
 mod state_digest;
+pub use advance_report::*;
 pub use match_admission::*;
 mod commander_policy;
 pub use commander_policy::{
@@ -250,7 +252,18 @@ mod stack_tests;
 
 macro_rules! id {
     ($name:ident,$inner:ty) => {
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+        #[derive(
+            Clone,
+            Copy,
+            Debug,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Serialize,
+            Deserialize,
+            schemars::JsonSchema,
+        )]
         #[serde(transparent)]
         pub struct $name(pub $inner);
     };
@@ -264,7 +277,7 @@ pub struct ObjectId {
     pub card: CardId,
     pub incarnation: u32,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "zone", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Zone {
     Battlefield,
@@ -1994,7 +2007,14 @@ impl Game {
         let r = self.check_response(player, decision_id, response)?;
         self.submit(r)
     }
-    pub fn advance(&mut self, mut budget: Budget) -> Advance {
+    pub fn advance(&mut self, budget: Budget) -> Advance {
+        self.advance_internal::<false>(budget, &mut vec![])
+    }
+    fn advance_internal<const REPORT: bool>(
+        &mut self,
+        mut budget: Budget,
+        processed: &mut Vec<InputProcessingFact>,
+    ) -> Advance {
         loop {
             if let Frame::Finished { winner } = self.state.frame {
                 return Advance::Finished { winner };
@@ -2021,6 +2041,7 @@ impl Game {
             }
             // A rules step commits atomically. Resource/invariant failures retain
             // its pre-step state and become faults, never wins/losses/draws.
+            let input_report = REPORT.then(|| advance_report::StepInputCapture::capture(self));
             let mut next = self.fork();
             if let Err(reason) = next.step() {
                 self.state.frame = Frame::Fault {
@@ -2039,6 +2060,9 @@ impl Game {
             self.state = next.state;
             self.trace = next.trace;
             self.state_token = Arc::new(());
+            if let Some(report) = input_report {
+                report.committed(self, processed);
+            }
         }
     }
     fn step(&mut self) -> Result<(), String> {

@@ -32,7 +32,18 @@ needed.
 | [oracle-parser](packages/oracle-parser/AGENTS.md) | 0 | ⏸️ Paused | [AGENTS.md](packages/oracle-parser/AGENTS.md) |
 | [card-data](packages/card-data) | 0 | Output artifact — compiled Card IR, not hand-edited | — |
 | [game-engine](packages/game-engine) | 1 | Verified finite Commander profile and sampled search | [AGENTS.md](packages/game-engine/AGENTS.md) |
-| [game-server](packages/game-server) | 2 | 🕳️ Not started (README only) | — |
+| [game-server](packages/game-server) | 2 | Verified finite local host | [AGENTS.md](packages/game-server/AGENTS.md) |
+
+The finite P8 release has verified 526 Rust debug tests plus 40 Node checks,
+526 release tests, and 40 SDK tests with strict TypeScript. Those three passed
+phases were revalidated after the user-requested pause; the interrupted retention
+phase was not upgraded to a pass. Current-build search also passed all sixty
+primary jobs and independent replay: p95 2,662,119µs, maximum 2,690,433µs,
+394,698,752-byte whole-process peak, and 4,188 useful trials with 3,012 unstarted
+trials excluded. Offline reconstruction and independent native/server audits
+also passed; all private proof bytes are retained outside this worktree. The
+original phase logs remain unchanged across the pause and two host-tool fixes.
+See the package manuals for the exact build and evidence boundaries.
 
 ---
 

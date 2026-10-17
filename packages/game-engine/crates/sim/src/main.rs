@@ -772,12 +772,19 @@ fn source_files_from(root: &Path) -> Result<Vec<SourceFile>, String> {
     }
     let mut files = vec![];
     walk(root, &root.join("packages/game-engine/crates"), &mut files)?;
+    walk(root, &root.join("packages/game-server/src"), &mut files)?;
+    walk(root, &root.join("packages/game-server/tests"), &mut files)?;
     walk(
         root,
         &root.join("packages/game-engine/tests/fixtures"),
         &mut files,
     )?;
-    for file in ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml"] {
+    for file in [
+        "Cargo.toml",
+        "Cargo.lock",
+        "rust-toolchain.toml",
+        "packages/game-server/Cargo.toml",
+    ] {
         let contents = fs::read_to_string(root.join(file)).map_err(|e| e.to_string())?;
         files.push(SourceFile {
             path: file.into(),
@@ -1916,6 +1923,9 @@ mod tests {
             "packages/game-engine/crates/example/Cargo.toml",
             "packages/game-engine/crates/example/src/logic.rs",
             "packages/game-engine/tests/fixtures/positive.json",
+            "packages/game-server/Cargo.toml",
+            "packages/game-server/src/authority.rs",
+            "packages/game-server/tests/protocol.rs",
         ];
         for path in real {
             let path = root.join(path);
@@ -1928,6 +1938,9 @@ mod tests {
             "packages/game-engine/crates/example/node_modules/pkg/Cargo.toml",
             "packages/game-engine/crates/example/.git/hidden.rs",
             "packages/game-engine/tests/fixtures/generated/ignored.json",
+            "packages/game-server/sdk/should-not-be-native.json",
+            "packages/game-server/src/generated/ignored.rs",
+            "packages/game-server/tests/target/ignored.json",
         ] {
             let path = root.join(path);
             fs::create_dir_all(path.parent().unwrap()).unwrap();

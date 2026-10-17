@@ -14,7 +14,8 @@
     "ingest": "node scripts/ingest-scryfall.ts",
     "build-ir": "node scripts/build-ir.ts",
     "archive-parser": "node scripts/archive-parser.ts",
-    "validate": "node scripts/validate-parser.ts"
+    "validate": "node scripts/validate-parser.ts",
+    "retain:server": "node scripts/retain-server-evidence.ts"
   },
   "devDependencies": {
     "typescript": "^5.4.5",

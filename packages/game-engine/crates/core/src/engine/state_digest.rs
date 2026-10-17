@@ -1,8 +1,12 @@
-//! Canonical State bytes with bounded history expansion. The existing contract
-//! is serde_json::to_value followed by compact serialization (lexical object
-//! keys, ordered arrays). Serializing State directly would change struct-key
-//! order. Keep a Value for the history-free skeleton and for just one original
-//! history entry at a time; never drop or summarize a remembered observation.
+//! Canonical State bytes streamed with immutable-history entry memos. The
+//! existing contract is serde_json::to_value followed by compact serialization
+//! (lexical object keys, ordered arrays). Direct State serialization would
+//! change struct-key order. Cold initialization retains the reviewed typed-row
+//! accelerator while preserving each complete canonical View. It expands one
+//! entry at a time;
+//! its complete canonical bytes then stay shared for that live entry's lifetime.
+//! Memo memory is O(serialized remembered history), not a fixed total bound.
+//! Never drop or summarize any remembered observation or omit it from the SHA.
 use super::*;
 use std::io::{BufWriter, Write};
 
@@ -24,6 +28,8 @@ fn object_entries(value: &serde_json::Value) -> Result<Vec<(&String, &serde_json
     entries.sort_unstable_by(|a, b| a.0.cmp(b.0));
     Ok(entries)
 }
+// The P7 typed-row encoder initializes complete View memos. Generic canonical
+// serialization remains the independent exact-byte oracle in the tests.
 fn write_view<W: Write>(
     writer: &mut W,
     view: &visibility::PermittedView,
@@ -77,7 +83,7 @@ fn write_view<W: Write>(
     if !objects_seen {
         return Err("canonical view objects field missing".into());
     }
-    // Only the current view's rows survive: removed handles/incarnations never
+    // Only this cold view's rows survive: removed handles/incarnations never
     // accumulate with history length, and caches never cross viewers/digests.
     *previous = next;
     Ok(())
@@ -101,12 +107,23 @@ fn write_knowledge<W: Write>(
             }
             history_seen = true;
             raw(writer, b"[")?;
-            let mut objects = ObjectBytes::new();
-            for (index, view) in knowledge.history.iter().enumerate() {
+            // Warm entries do not run the initializer. Thus this map describes
+            // the last COLD View, possibly before several warm entries. Reuse
+            // still requires full typed row equality, never temporal adjacency.
+            // Each digest/viewer retains at most one cold View's object rows.
+            let mut previous = ObjectBytes::new();
+            for index in 0..knowledge.history.len() {
                 if index != 0 {
                     raw(writer, b",")?;
                 }
-                write_view(writer, view, &mut objects)?;
+                let bytes = knowledge
+                    .history
+                    .canonical_entry_bytes_with(index, |view| {
+                        let mut bytes = vec![];
+                        write_view(&mut bytes, view, &mut previous)?;
+                        Ok(bytes.into_boxed_slice())
+                    })?;
+                raw(writer, bytes)?;
             }
             raw(writer, b"]")?;
         } else {

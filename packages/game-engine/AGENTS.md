@@ -103,6 +103,35 @@ The frozen build passed all sixty primary search jobs, independent semantic
 replay, workspace checks, fresh offline rebuild/replay and the retained-bundle audit. Performance
 claims must identify their exact source/executable, not merely the profile name.
 
+`docs/game-engine-server.md` defines the finite local Rust host and generated
+TypeScript SDK. Hosting owns OS processes, authentication, HTTP, SQLite, clocks
+and resource groups; these dependencies never enter the deterministic core.
+The core's complete immutable history-byte memos preserve canonical State bytes,
+with full generic serialization as the independent oracle and COW invalidation
+before mutation. Field-specific Commander-history map decoding preserves the
+existing wire format through nested tagged publications. Snapshot/bundle and
+public projection versions remain those of P7. The current P8 build
+`7e77708cad1f80dfa7ad3be82d198f3ad6eae7f62b9c127879a335206bbc8da5`
+passed the sixty-job quiet primary measurement and all sixty independent semantic
+replays: p95 2,662,119µs, maximum 2,690,433µs, kernel whole-process peak
+394,698,752 bytes, 4,188 useful trials and 3,012 unstarted trials excluded.
+The independent review is
+`server-proof-archive/files/current-search-primary/run-1-independent-primary-review.json`
+in the external store named by `docs/game-engine-server.md`
+(SHA256 `4650f87e12bf94f2ec35c2427c7d5aa4db463b91320253a049c05371af1527e4`).
+These figures concern the finite search workload, not full-pod throughput or scaling.
+
+The final check-engine phase passed 526 Rust debug tests and 40 Node checks;
+release passed 526 Rust tests; SDK verification passed 40 tests and strict
+TypeScript. Fresh engine retention subsequently passed; server/SDK retention
+passed after two host-only corrections for npm 12 and repository-relative SDK
+fixtures. The final four-phase reuse preserves each original source/freeze/log
+qualification; all 192 native and 23 SDK files stayed unchanged. Fourteen focused
+host guards and independent native/server artifact audits passed. Failed and
+cancelled attempts remain immutable. The final external archive and release
+identities are in `docs/game-engine-server.md`. Dense/scaling/omniscient diagnostic
+measurements remain required broader-plan work, separate from finite acceptance.
+
 Run from repository root, using pinned Rust 1.99.0:
 
 - `npm run check:engine`: toolchain check, formatting, Clippy, Rust tests, and

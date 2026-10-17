@@ -29,6 +29,17 @@ fn main() {
         root.join("rust-toolchain.toml"),
     ];
     collect(&root.join("packages/game-engine/crates"), &mut files);
+    collect(&root.join("packages/game-server/src"), &mut files);
+    collect(&root.join("packages/game-server/tests"), &mut files);
+    files.push(root.join("packages/game-server/Cargo.toml"));
+    println!(
+        "cargo:rerun-if-changed={}",
+        root.join("packages/game-server/src").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        root.join("packages/game-server/tests").display()
+    );
     collect(
         &root.join("packages/game-engine/tests/fixtures"),
         &mut files,

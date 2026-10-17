@@ -409,3 +409,97 @@ manifest SHA256 is
 `baea4998acdcc7d3f034cbe8a4b5f67562a6d7f8b3a9c2f9cf733c1cfeaa034c`.
 All archived bytes were verified against the reviewed evidence before and after
 copying; the parent store retains the native source/vendor/offline replay closure.
+
+
+## Current hosting-build search verification
+
+The P8 hosting candidate changes shared history/hash paths and therefore has a
+separate search measurement. Build
+`7e77708cad1f80dfa7ad3be82d198f3ad6eae7f62b9c127879a335206bbc8da5`
+uses 192 native files / 52,558,543 bytes; measured executable SHA256 is
+`6d347fbeff9ceeea58883066c348b5cf2dfe5d94368c05d83fef696a076a2069`.
+The unchanged twelve-root workload ran five repetitions on four distinct
+physical cores. All sixty jobs met the useful-trial minimum and resource gates.
+
+| Measurement | Observed | Requirement |
+| --- | --- | --- |
+| p95, nearest rank 57 of 60 | 2,662,119 microseconds | At most 3,000,000 |
+| Slowest complete decision | 2,690,433 microseconds | At most 5,000,000 |
+| Whole-process kernel high-water upper bound | 394,698,752 bytes | At most 2 GiB |
+| Whole measurement harness elapsed | 166.806886 seconds | Diagnostic |
+
+The separate whole-harness batch diagnostic is 0.359697 roots/second and
+25.106877 useful trials/second (60 roots and 4,188 useful trials over
+166.806886 seconds). The process consumed 622.992141 user CPU seconds and
+1.644808 system CPU seconds. These are horizon-limited search work units, not
+complete pods or one/two/four-worker speedup evidence.
+
+The wrapper recognizes Node26's `node-MainThread` process name. Three existing
+Node processes were admitted only after at least 600 seconds of age, a zero-CPU
+two-second preflight and continued identity/status/CPU monitoring. All observed
+self and waited-child CPU counters stayed unchanged through the measurement;
+166 monitoring samples plus final endpoints were retained. This is an explicit
+measured idle-process policy, not an arbitrary process allowlist.
+
+Independent semantic replay verified all sixty reports: **4,188 useful trials**
+(4,163 horizon evaluations and 25 terminal outcomes). All 3,012 NotStarted
+entries remain excluded diagnostics. All twelve first-eight work sets and
+selection results matched across repetitions; 3,348 overlapping optional useful
+trials also matched exactly. Replay does not remeasure acceptance latency.
+
+Current wrapper report SHA256:
+`b4f6a510db4e0d988b3c912c366f3b7a6b0dbb90a9c4203363bfb5c4e252ee2c`.
+Independent all-sixty review SHA256:
+`4650f87e12bf94f2ec35c2427c7d5aa4db463b91320253a049c05371af1527e4`.
+The raw reports are under
+`generated/server-staging/generated/server-verification/current-search-primary/`.
+Their final external archive is the server release store’s `server-proof-archive/`
+directory, whose manifest SHA256 is
+`a11f203b1cff1334c57e13655a7f93549c138e77dd00c69596238085d600952a`.
+The original P7 reports above retain their original measurements and scope.
+
+Retrospective CPU/allocation profiling is separate from quiet acceptance. The
+same recorded root report passed ordinary, CPU-sampled and allocator-instrumented
+replay with identical full semantic results: 68 useful trials verified and 28
+diagnostic stops excluded. These runs profile reconstruction and replay, not the
+live sampler/scheduler. GNU memusage counts intercepted malloc/calloc/realloc/free
+calls; its heap peak is not kernel RSS or a count of every possible allocation.
+GNU gprofng provides statistical program-counter samples with limited inline and
+library attribution. Instrumented durations cannot replace the quiet numbers.
+Separate actual `search-diagnostic 0` CPU and allocator runs also finished,
+including capture, hypotheses, root mapping, candidate generation, worker jobs
+and aggregation. Each emitted worklist was independently replayed: the CPU job
+verified 68 horizon trials and excluded 28 NotStarted entries; the allocator job
+verified 20 horizon trials and excluded four resource-truncated entries. The
+allocator job hit the unchanged five-second deadline and did not meet the
+minimum useful-work gate. Instrumentation changes completed work; these reports
+are diagnostics and cannot be compared as identical work or used for acceptance.
+
+The live allocator report counted 67,396,551 malloc, 18 calloc, 1,112,649 realloc
+and 67,396,583 free calls, with no failed intercepted calls. Its intercepted heap
+peak was 200,757,364 bytes, separate from kernel RSS. The CPU experiment sampled
+10.24 CPU seconds across all four worker threads and the main thread; waited
+owned collector/target CPU accounting totaled 10.588678 seconds. Unresolved
+library frames and statistical attribution remain. The collector explicitly
+warned: “Collection interval timer period was changed (10000 -> 0); profile data
+may be unreliable.” Preserve that limitation; these samples are exploratory
+hotspot evidence, not complete CPU attribution. Independent raw/source/cleanup
+review SHA256 is
+`cb9fe2b8046e6f8303d403c7f2e403eeb30b0fe252f6c6d3aaeccf78bb7b093f`.
+Actual reports and all raw experiments are in
+`retrospective-live-search-profile-run-1` under the server verification directory.
+
+No historical preoptimization CPU/allocation profile has been recovered; these
+current-build measurements cannot establish that historical process requirement
+or a causal before/after ratio. Ordinary/dense performance coverage still needs
+its own explicit completion audit; the quiet search suite alone does not prove
+all synthetic scaling dimensions in the broader performance plan.
+
+
+The final hosting retention subsequently corrected two host-only files for
+npm 12 cache preparation and repository-relative SDK test-fixture layout.
+All 192 native sources, all 23 SDK sources, the measured executable and its
+Build remained unchanged. The current benchmark's original host endpoints
+remain recorded as measured; the final release records the exact two-file
+host delta separately. These retention-tool corrections cannot be presented
+as engine performance improvements.

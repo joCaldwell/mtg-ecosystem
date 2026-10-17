@@ -7,7 +7,7 @@ pub struct DamageAllocationCandidate {
     pub damage: DamageId,
     pub amount: Quantity,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleDamageAllocationCandidate {
     pub damage: DamageHandle,

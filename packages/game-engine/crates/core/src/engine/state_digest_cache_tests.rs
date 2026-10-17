@@ -200,6 +200,95 @@ fn all_state_history_rows_stay_ordered_complete_and_hash_equivalent_after_cache_
     );
     assert_eq!(game.state, original);
 }
+#[test]
+fn mixed_generic_warm_and_typed_cold_entries_keep_all_fields_and_stale_row_cache_exact() {
+    // Serialization-domain fixture only. Player keys10/2 and duplicate handles
+    // must preserve their complete lexical/object-array form, even though they
+    // would be rejected as a reachable match history.
+    let mut base = base_view();
+    base.commanders[0].history.command_casts =
+        [(PlayerId(2), 2.into()), (PlayerId(10), 10.into())].into();
+    base.commanders[0].history.combat_damage =
+        [(PlayerId(2), 21.into()), (PlayerId(10), 22.into())].into();
+    let mut history = history::History::default();
+    for index in 0..72 {
+        let mut view = base.clone();
+        view.turn.number = index + 1;
+        if index % 5 == 1 {
+            view.objects[0].marked_damage = (index as i64).into();
+        } else if index % 5 == 2 {
+            let mut duplicate = view.objects[0].clone();
+            duplicate.oracle_id = format!("duplicate\n雪\\{index}");
+            view.objects.push(duplicate);
+        } else if index % 5 == 3 {
+            view.objects.clear();
+        }
+        history.push(view);
+    }
+    // A warm entry deliberately leaves the typed-row map from a nonadjacent
+    // cold entry untouched. Its changed objects must not corrupt later reuse.
+    for index in (1..history.len()).step_by(3) {
+        assert_eq!(
+            history.canonical_entry_bytes(index).unwrap(),
+            canonical(&history[index]).unwrap().as_bytes()
+        );
+    }
+    let mut game = fixture();
+    game.state.visibility[0].history = history;
+    let expected = canonical(&game.state).unwrap();
+    let mut actual = vec![];
+    write_state(&game.state, &mut actual).unwrap();
+    assert_eq!(actual, expected.as_bytes());
+    let mut branch = game.fork();
+    branch.state.visibility[0].history[33].objects = base.objects.clone();
+    branch.state.visibility[0].history[33].objects[0].tapped = true;
+    branch.state.visibility[0].history.push(base.clone());
+    for state in [&game.state, &branch.state] {
+        let expected = canonical(state).unwrap();
+        let mut actual = vec![];
+        write_state(state, &mut actual).unwrap();
+        assert_eq!(actual, expected.as_bytes());
+        assert_eq!(state_digest(state).unwrap(), sha256(expected.as_bytes()));
+    }
+    assert_eq!(game.state_digest().unwrap(), sha256(expected.as_bytes()));
+}
+#[test]
+fn overlapping_cold_digest_initializers_and_warm_forks_match_complete_state_oracle() {
+    let mut game = fixture();
+    for viewer in 0..4 {
+        let base = game.state.visibility[viewer].history[0].clone();
+        for index in 0..70 {
+            let mut view = base.clone();
+            if index % 4 == 0 {
+                view.objects[0].oracle_id = format!("cold-{viewer}-{index}\n雪\u{0}");
+            }
+            game.state.visibility[viewer].history.push(view);
+        }
+        for index in (0..game.state.visibility[viewer].history.len()).step_by(7) {
+            game.state.visibility[viewer]
+                .history
+                .canonical_entry_bytes(index)
+                .unwrap();
+        }
+    }
+    let expected = canonical(&game.state).unwrap();
+    let expected_sha = sha256(expected.as_bytes());
+    let barrier = std::sync::Barrier::new(3);
+    std::thread::scope(|scope| {
+        for _ in 0..3 {
+            let branch = game.fork();
+            let (barrier, expected, expected_sha) = (&barrier, &expected, &expected_sha);
+            scope.spawn(move || {
+                barrier.wait();
+                let mut actual = vec![];
+                write_state(&branch.state, &mut actual).unwrap();
+                assert_eq!(actual, expected.as_bytes());
+                assert_eq!(branch.state_digest().unwrap(), *expected_sha);
+            });
+        }
+    });
+    assert_eq!(game.state_digest().unwrap(), expected_sha);
+}
 #[derive(Default)]
 struct PartialSink {
     bytes: Vec<u8>,
@@ -291,5 +380,96 @@ fn buffering_preserves_capacity_edges_partial_writes_interrupts_and_error_propag
         );
         assert_eq!(flush.bytes, expected.as_bytes());
         assert_eq!(game.state, before);
+    }
+}
+
+#[test]
+fn memoized_complete_views_preserve_every_field_through_fork_mutation_and_old_reference() {
+    // Serialization-domain fixtures, not admitted game histories: populate all
+    // optional fields, then mutate each root field independently after warming.
+    let mut value = serde_json::to_value(base_view()).unwrap();
+    value["setup"] = serde_json::json!({"round":2,"phase":"declare","players":[{"player":0,"kept":false,"mulligans_taken":2}]});
+    value["effects"] = serde_json::json!([{"effect":"prevent_combat_damage","handle":"雪\\e","origin":{"source":{"announced":"a","current":null},"oracle_id":"oracle\n雪","controller":0},"expires_in_cleanup_of_turn":9}]);
+    value["combat"] =
+        serde_json::json!([{"attacker":"a","defender":1,"blocked":true,"blockers":["b"]}]);
+    value["commanders"] = serde_json::json!([{"designation":"c","oracle_id":"oracle","history":{"owner":0,"color_identity":["W"],"command_casts":{"0":"2"},"combat_damage":{"1":"21"}}}]);
+    value["stack"] = serde_json::json!([{"mode":1,"handle":"s","spell":"a","ability":null,"controller":0,"cast_complete":true,"targets":[{"announced":"old","current":null}],"entity_targets":[{"entity":"player","player":2}],"stack_targets":[{"announced":"s2","current":null}],"player_targets":[3]}]);
+    value["active"] = 0.into();
+    value["priority"] = 0.into();
+    let rich: visibility::PermittedView = serde_json::from_value(value.clone()).unwrap();
+    let alternatives = [
+        ("setup", serde_json::Value::Null),
+        ("effects", serde_json::json!([])),
+        ("combat", serde_json::json!([])),
+        ("viewer", serde_json::json!(3)),
+        ("active", serde_json::Value::Null),
+        ("turn_owner", serde_json::json!(3)),
+        (
+            "turn",
+            serde_json::json!({"number":999,"step":"cleanup","lands_played":1}),
+        ),
+        ("live_turn_order", serde_json::json!([])),
+        ("commanders", serde_json::json!([])),
+        ("priority", serde_json::Value::Null),
+        ("players", serde_json::json!([])),
+        ("objects", serde_json::json!([])),
+        ("stack", serde_json::json!([])),
+    ];
+    let fields = value
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        fields,
+        alternatives
+            .iter()
+            .map(|(key, _)| key.to_string())
+            .collect(),
+        "new View fields need an explicit mutation case"
+    );
+    let mut game = fixture();
+    game.state.visibility[0].history.push(rich.clone());
+    let index = game.state.visibility[0].history.len() - 1;
+    let original_sha = game.state_digest().unwrap();
+    let original_bytes = game.state.visibility[0]
+        .history
+        .canonical_entry_bytes(index)
+        .unwrap()
+        .to_vec();
+    for (field, replacement) in alternatives {
+        let mut altered = value.clone();
+        altered[field] = replacement;
+        let changed: visibility::PermittedView = serde_json::from_value(altered).unwrap();
+        assert_ne!(rich, changed, "mutation {field} is ineffective");
+        let mut branch = game.fork();
+        branch.state.visibility[0].history[index] = changed.clone();
+        check_views(&[rich.clone(), changed]); // Frozen former typed-object encoder.
+        let expected = canonical(&branch.state).unwrap();
+        let mut actual = vec![];
+        write_state(&branch.state, &mut actual).unwrap();
+        assert_eq!(actual, expected.as_bytes(), "field {field}");
+        assert_eq!(
+            branch.state_digest().unwrap(),
+            sha256(expected.as_bytes()),
+            "field {field}"
+        );
+        assert_ne!(
+            branch.state_digest().unwrap(),
+            original_sha,
+            "field {field}"
+        );
+        assert_eq!(game.state_digest().unwrap(), original_sha);
+        assert_eq!(
+            game.state.visibility[0]
+                .history
+                .canonical_entry_bytes(index)
+                .unwrap(),
+            original_bytes
+        );
+        // Rewarm then mutate the already-unique entry again.
+        branch.state.visibility[0].history[index] = rich.clone();
+        assert_eq!(branch.state_digest().unwrap(), original_sha);
     }
 }

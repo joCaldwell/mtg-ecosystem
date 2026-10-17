@@ -1,0 +1,22 @@
+[package]
+name = "mtg-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+mtg-core.workspace = true
+mtg-contracts.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+schemars.workspace = true
+jsonschema = { version = "=0.58.6", default-features = false }
+rusqlite = { version = "=0.40.2", features = ["bundled"] }
+getrandom = "=0.4.3"
+subtle = "=2.6.1"
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio", "json", "query"] }
+tokio = { version = "=1.53.3", default-features = false, features = ["rt-multi-thread", "macros", "net", "io-util", "process", "sync", "time", "signal"] }
+
+[lints]
+workspace = true

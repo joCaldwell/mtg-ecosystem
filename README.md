@@ -32,8 +32,19 @@ the verified [`commander-foundations-v1`](docs/game-engine-matches.md) profile:
 legal four-player setup, seeded shuffle/mulligans, and complete games from a
 21-card construction pool within a 34-definition catalog. Its finite sampled-world
 search passed the frozen primary performance, semantic replay, workspace and
-offline rebuild/replay gates, followed by an independent retained-bundle audit. Server hosting and bulk Card IR
-emission remain future work. Read the
+offline rebuild/replay gates, followed by an independent retained-bundle audit. Local Rust hosting and its generated TypeScript SDK have passed an actual
+four-client game, crash/reconnect, backpressure and completed-game recovery;
+current-build search now passed all sixty primary jobs and independent replay
+(p95 2.662119s, maximum 2.690433s, whole-process peak 394,698,752 bytes;
+4,188 useful trials and 3,012 unstarted trials excluded). Verification also
+passed 526 Rust debug tests plus 40 Node checks, 526 release tests, and 40 SDK
+tests with strict TypeScript. Fresh offline native/server/SDK reconstruction and
+independent retained-artifact audits passed. A private external archive preserves
+all integration, recovery, measurement, failed-attempt and verification proofs.
+The original passed phases retain their exact pause/host-tool-fix provenance.
+Dense/scaling/omniscient diagnostic measurements remain separate engine-plan work.
+Bulk Card IR emission
+remains future work. Read the
 relevant package’s `AGENTS.md` before development.
 
 ## 📂 Project Structure
@@ -67,7 +78,7 @@ mtg-ecosystem/
     ├── deck-builder/                   # Active standalone deck application
     ├── card-data/                      # Generated Card IR from the Rust compiler
     ├── game-engine/                    # Rust compiler/kernel and finite Commander CLI
-    └── game-server/                    # Rust game server & API (future)
+    └── game-server/                    # Verified Rust local host & generated SDK
 ```
 
 For a detailed explanation of each directory and config file, see the [Project Structure Guide](docs/project-structure.md).

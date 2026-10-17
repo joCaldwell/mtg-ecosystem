@@ -594,6 +594,10 @@ or edited by this delivery.
 
 ## Remaining delivery gates
 
+This is the historical combat-checkpoint checklist. Later milestone sections
+below record the completed foundations, legal-match and sampled-search work;
+use the final section for the current hosting release status.
+
 Remaining P2 foundations include broader functioning-zone/ability discovery,
 interaction-specific event compositions, and wider recovery invariants.
 Atomic batches and the three trace modes are implemented for the closed profiles;
@@ -1451,6 +1455,28 @@ canonical history instead. These are correctness-workload diagnostics, not P7
 search acceptance or current-build memory promises. All 18 final-capture semantic
 results match the measured candidate.
 
+The separate serial eighteen-pod diagnostic therefore measured **0.082619
+completed pods/second including replay** over the whole 217.866870-second CLI
+process, versus **0.158497 pods/second** from the sum of its per-game timers.
+The batch averaged **1,404.778 decisions and 4,475.778 rule steps per pod**;
+completion was 18/18 with zero faults or truncations. The per-game timer includes
+Prepared admission, Game creation, permitted policy/query/rule execution,
+selected checkpoints, final digest, journal cloning and sync. It excludes global
+catalog compilation/startup, later evidence encoding/persistence, independent
+replay and disposal after the elapsed field. This is not a core-only transition
+benchmark. No single/two/four-worker speedup or current-build pod throughput is
+inferred from these concurrently collected historical observations.
+
+The original measurement file SHA256 is
+`d2a31acdf1853a31ddb3dd100c22698979aa881eef590a47fdc84f423811a8fe`.
+The canonical native report at `acceptance-batch-2/report.json` has SHA256
+`845186437072e5903b163ae6a9f6f2e2b3ee1e649307c277d9872e072ae020da`;
+the separately saved `batch-2-report.json` is exactly those bytes plus one LF,
+so its byte hash is intentionally different. Both reports, measurement/stdout,
+the fixed manifest, independent semantic review and exact timer source are
+copied without modifying the originals into
+`generated/server-staging/generated/server-verification/historical-batch-diagnostics/p5/`.
+
 Final formatting, warnings-denied Clippy, **379 Rust debug tests and 31 Node
 checks** passed; separate release verification passed all **379 Rust tests**.
 Sixteen independent adversarial cases and focused interaction tests cover deck
@@ -1576,6 +1602,21 @@ inventory matched exact tool names; the later current-build wrapper additionally
 recognizes Node26's `node-MainThread` name. Original raw measurements remain
 unchanged.
 
+The original sixty-root process took **167.976528 seconds** with
+**593.735269 user CPU seconds and 0.642042 system CPU seconds**. Dividing its full
+harness denominator gives **0.357193 search roots/second** and **22.973448 useful
+trials/second** for the 3,859 useful trials. These are batch diagnostics for the
+exact original executable, including trusted preparation/artifact work outside
+the consumer decision stopwatch. Horizon evaluations and terminal continuations
+are not complete pods from setup, and accumulated worker CPU time is not a
+measured parallel speedup. The original wrapper/review are retained under the
+P7 external store above and copied into the hosting evidence's
+`historical-batch-diagnostics/p7/`. The joint capture contains eight P5 and two
+P7 payload files; `historical-batch-diagnostics/capture-manifest.json` has SHA256
+`d6fc31f59b9d5f652cfdcc95bf7f66fbc546ddd87d10a010c28116ecb922b421`.
+The subsequent P8 build passed its own latency acceptance. Its separately scoped
+whole-batch totals appear in [the current-build search report](game-engine-search.md#current-hosting-build-search-verification); the P8 release evidence is below.
+
 
 The exact measured executable, all sixty raw reports, every independent replay
 output, the reviewed drivers and host inputs are retained outside the worktree
@@ -1584,3 +1625,86 @@ manifest SHA256 is
 `baea4998acdcc7d3f034cbe8a4b5f67562a6d7f8b3a9c2f9cf733c1cfeaa034c`.
 All archived bytes were verified against the reviewed evidence before and after
 copying; the parent store retains the native source/vendor/offline replay closure.
+
+
+### P8: finite local hosting verified
+
+The local Rust server and generated TypeScript SDK release
+`commander-foundations-v1` over loopback HTTP. Rust DTOs remain protocol authority;
+authenticated per-seat streams, durable idempotent commands, generation fencing,
+clocks and bounded queues remain separate from rules outcomes. No deployment,
+lobby, spectator policy, search endpoint or arbitrary-deck support is claimed.
+
+The exact native build is
+`7e77708cad1f80dfa7ad3be82d198f3ad6eae7f62b9c127879a335206bbc8da5`,
+with 192 native files / 52,558,543 bytes, eleven host inputs and 23 SDK sources.
+Measured server SHA256 is
+`0becfed3cff7cf0882c634e3a4124dd201ce914c54c6516d3f6bb2fbdf26ec28`;
+public schema file SHA256 remains
+`7b69b76a7eeb8ae6743664405ca735ca539200533295fb500c27da85cc3fb95b`.
+
+| Verification | Result |
+| --- | --- |
+| Engine development gate | 526 Rust tests, formatting, warnings-denied Clippy and 40 Node checks passed |
+| Separate release gate | 526 Rust tests passed |
+| SDK | 40 tests and strict TypeScript passed, including fresh relocated offline verification |
+| Four actual independent SDK consumers | Natural Win(P2), 65 turns, 2,389 accepted/consumed inputs, 325.489 seconds, zero retries, no CoreConcede |
+| HTTP smoke / backpressure | 107 / 55 checks passed |
+| Normal completed-game recovery | Ready in 101.712544 seconds under unchanged 120 seconds; all seven tables/head/State exact, generation alone advanced |
+| Current quiet search | All sixty jobs passed; p95 2,662,119µs, maximum 2,690,433µs, kernel whole-process upper peak 394,698,752 bytes |
+| Independent search replay | All sixty reports; 4,188 useful trials verified, 3,012 NotStarted entries excluded |
+| Fresh native retention | Empty Cargo home, frozen/offline rebuild and full replay passed in 1,199.535326 seconds |
+| Fresh server/SDK retention | Empty server Cargo home, 92 server tests, offline SDK install/40 tests/strict TypeScript passed in 198.188076 seconds |
+| Independent native audit | 151 external packages / 10,704 vendor files, eleven catalogs, 42 configurations, 540 traces, 727 snapshots, 17,627 recovery boundaries and nineteen legal-match journals checked |
+| Independent server audit | Exact SQLite/toolchain, 20 locked npm tarballs, 53 cache files, 23 SDK sources, ten fresh generated artifacts and one native test fixture checked |
+
+The completed game has full State SHA256
+`0dacaf403068c8dd452e4b253e42f902525b2a03bf6f3c6db6bb5942a3b7b728`,
+at durable sequence 4785 / core boundary 6849. Game/recovery worker peaks were
+1,049,440,256 / 914,870,272 bytes under actual 4 GiB / swap-zero / 32-task limits
+with zero OOM kills. Recovery used a byte-exact closed copy; the original registry
+was hash-checked without opening its SQLite database. Owned process groups closed.
+
+The first permission-fixture attempt, overnight cancellation, npm 12 direct-URL
+cache rejection and flat SDK test-layout failure remain preserved. The final
+companion revalidated four exact passed predecessor phases under their original
+freeze/logs; it ran only server retention under the new two-host-file freeze.
+All 192 native files and 23 SDK sources remained unchanged. Fourteen focused
+host guards and independent transition reviews passed. This qualification does
+not relabel the earlier commands as runs of the new host scripts.
+
+The two vanished `/tmp` historical reports were recovered from unchanged external
+P7 fixtures by exact canonical encoding; both reconstructed hashes match their
+pre-existing recorded authorities. No fresh engine execution is inferred.
+The fresh generated SDK has ten required files; an older eleven-file development
+directory additionally held an ancillary focused-test log. The final audit checks
+the exact ten-file set. Failed audit/driver sources and reports remain retained.
+
+Retained store:
+`/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-11fdee9d9b50bb8d-2Y0CLl/`.
+
+| Artifact | SHA256 |
+| --- | --- |
+| Native bundle, 2,087,587,224 bytes | `11fdee9d9b50bb8d2e4fb345dfc6bbc5f05a04a16dcfd919cf48e5976c7f9ce4` |
+| Offline simulator | `731d7690b3367f9eca28bf3af3620ad3caf21461d616f9fa80ea76a56de46ed8` |
+| Final native artifact audit | `d1fddb2e4e818de9252757efc63f1d25f288874fa94f8a2dc95af123f97bb4ca` |
+| Final server artifact audit | `39546b1f84c1890eaac013f136c6c355826a6d8a6f97259e0987b86bd2082fa8` |
+| Server/SDK evidence, `server-b6cUNM/evidence.json` | `87a7a5ac13d9e20d8448d6eb10c4ee84f6d18b69978afce44466abf03bb5afb0` |
+| Final five-phase status | `da1c4f116af4c7a6c2fd505f8dcbd3f5a16bebefa0391098df875b6aa3aebbc6` |
+| Final source freeze | `de9a6dd3350421cdb3a19df795fb7a246b3c5387f4e0f300ce2f93b8fa047c4a` |
+| Private `server-proof-archive/manifest.json` | `a11f203b1cff1334c57e13655a7f93549c138e77dd00c69596238085d600952a` |
+
+The final private proof archive holds 5,522 files / 3,335,347,670 bytes with exact
+source/destination hash maps verified before and after copying, private modes,
+and no active-prefix omissions. Native source/vendor/offline outputs and the
+separate server/SDK reconstruction remain alongside it in the same external store.
+Original measured binaries retain their own performance claims; rebuilt file
+hashes differ while compiled native Build identities agree.
+
+The scoped server release does not complete the broader performance program.
+Named dense interactions/history work, retained-branch stress, fixed-work worker
+scaling and the same-strategy labeled omniscient diagnostic remain required.
+Current retrospective CPU/allocation profiles and their timer-change warning are
+recorded in [the search report](game-engine-search.md). Historical preoptimization
+CPU/allocation profiling chronology remains unavailable; no causal ratio or
+playing-strength claim follows. P6 remains separately bounded releases.

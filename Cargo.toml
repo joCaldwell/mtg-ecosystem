@@ -1,5 +1,5 @@
 [workspace]
-members = ["packages/game-engine/crates/contracts", "packages/game-engine/crates/compiler", "packages/game-engine/crates/core", "packages/game-engine/crates/sim"]
+members = ["packages/game-engine/crates/contracts", "packages/game-engine/crates/compiler", "packages/game-engine/crates/core", "packages/game-engine/crates/sim", "packages/game-server"]
 resolver = "3"
 
 [workspace.package]

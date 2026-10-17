@@ -9,6 +9,7 @@ publish.workspace = true
 mtg-contracts.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+schemars.workspace = true
 
 rand_chacha = { version = "=0.10.0", default-features = false }
 rand_core = { version = "=0.10.0", default-features = false }

@@ -9,9 +9,24 @@ use std::{
 
 const CHUNK: usize = 32;
 
+// The memo is derived from an immutable entry, never part of history's wire
+// format/equality. Only the canonical State writer reads it for plain typed
+// PermittedViews; no cache is consulted by Serialize or ordinary iteration.
+struct HistoryEntry<T> {
+    value: T,
+    canonical: OnceLock<Result<Box<[u8]>, String>>,
+}
+impl<T: Clone> Clone for HistoryEntry<T> {
+    fn clone(&self) -> Self {
+        Self {
+            value: self.value.clone(),
+            canonical: OnceLock::new(),
+        }
+    }
+}
 pub struct History<T> {
-    chunks: Vec<Arc<Vec<Arc<T>>>>,
-    tail: Vec<Arc<T>>,
+    chunks: Vec<Arc<Vec<Arc<HistoryEntry<T>>>>>,
+    tail: Vec<Arc<HistoryEntry<T>>>,
     len: usize,
     flat: OnceLock<Vec<T>>,
 }
@@ -44,7 +59,10 @@ impl<T> History<T> {
     }
     pub fn push(&mut self, value: T) {
         self.flat.take();
-        self.tail.push(Arc::new(value));
+        self.tail.push(Arc::new(HistoryEntry {
+            value,
+            canonical: OnceLock::new(),
+        }));
         self.len = self
             .len
             .checked_add(1)
@@ -76,9 +94,8 @@ impl<T> History<T> {
         self.flat.get_or_init(|| self.iter().cloned().collect())
     }
 }
-impl<T> Index<usize> for History<T> {
-    type Output = T;
-    fn index(&self, index: usize) -> &T {
+impl<T> History<T> {
+    fn entry(&self, index: usize) -> &HistoryEntry<T> {
         assert!(index < self.len);
         let chunk = index / CHUNK;
         if chunk < self.chunks.len() {
@@ -87,17 +104,52 @@ impl<T> Index<usize> for History<T> {
             &self.tail[index % CHUNK]
         }
     }
+    /// Memoize complete canonical bytes for an immutable typed entry. The
+    /// private initializer must emit the generic canonical oracle's exact
+    /// bytes. A warm hit skips it entirely, including its local accelerator.
+    pub(super) fn canonical_entry_bytes_with(
+        &self,
+        index: usize,
+        initialize: impl FnOnce(&T) -> Result<Box<[u8]>, String>,
+    ) -> Result<&[u8], String> {
+        let entry = self.entry(index);
+        entry
+            .canonical
+            .get_or_init(|| initialize(&entry.value))
+            .as_deref()
+            .map_err(Clone::clone)
+    }
+    /// Independent generic oracle for initializer and invalidation tests.
+    #[cfg(test)]
+    pub(super) fn canonical_entry_bytes(&self, index: usize) -> Result<&[u8], String>
+    where
+        T: Serialize,
+    {
+        self.canonical_entry_bytes_with(index, |value| {
+            mtg_contracts::canonical(value).map(|text| text.into_bytes().into_boxed_slice())
+        })
+    }
+}
+impl<T> Index<usize> for History<T> {
+    type Output = T;
+    fn index(&self, index: usize) -> &T {
+        &self.entry(index).value
+    }
 }
 impl<T: Clone> IndexMut<usize> for History<T> {
     fn index_mut(&mut self, index: usize) -> &mut T {
         assert!(index < self.len);
         self.flat.take();
         let chunk = index / CHUNK;
-        if chunk < self.chunks.len() {
+        let entry = if chunk < self.chunks.len() {
             Arc::make_mut(&mut Arc::make_mut(&mut self.chunks[chunk])[index % CHUNK])
         } else {
             Arc::make_mut(&mut self.tail[index % CHUNK])
-        }
+        };
+        // Arc::make_mut clones a shared entry with an empty memo; unique warm
+        // entries still require explicit invalidation BEFORE exposing &mut T.
+        entry.canonical.take();
+        &mut entry.value
     }
 }
 impl<T: PartialEq> PartialEq for History<T> {

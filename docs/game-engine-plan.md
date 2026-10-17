@@ -1,8 +1,10 @@
 # Layer 1 implementation plan
 
-Status: **P5 and P7 verified for the finite `commander-foundations-v1` profile
+Status: **P5, finite P7 search and P8 hosting verified for the finite `commander-foundations-v1` profile
 and its frozen sampled-search workload**.
-P8 hosting is a separate consumer gate. The
+P8 local hosting passed actual integration and completed-game recovery; its
+current-build search passed its sixty-job measurement and independent replay;
+final offline retention and independent native/server artifact audits passed. The
 [first implementation brief](game-engine-first-scenario.md) preserves the initial
 bounded scenario, and [match contract](game-engine-matches.md) defines the release.
 Actual checks and retained artifact identities are in the
@@ -50,13 +52,17 @@ admission, seeded shuffle, multiplayer mulligans and natural complete games.
 See the
 [progress ledger](game-engine-progress.md) for completed checks and artifact
 identities rather than treating this roadmap as gate evidence.
-`build-ir` intentionally fails. `game-server` contains a README only.
+`build-ir` intentionally fails. `game-server` now implements the finite local
+host and generated SDK described in the [hosting contract](game-engine-server.md);
+its debug/release, integration, offline reconstruction and artifact audits passed.
 
 P5 passed its debug/release, fixed-game, source, offline rebuild and replay gates.
 The reviewed choices and effects slices complete the finite P3/P4 path obligations.
 The finite P7 implementation passed its frozen twelve-root, sixty-job primary
 measurement, independent replay of all completed work, full debug/release checks,
-fresh offline rebuild/replay and independent retained-bundle audit. P8 hosting remains pending acceptance. P6 is an ongoing series
+fresh offline rebuild/replay and independent retained-bundle audit. P8 local hosting passed actual four-client completion, recovery and backpressure;
+current-build search passed its sixty-job measurement and independent replay;
+final offline retention and independent native/server artifact audits passed. P6 is an ongoing series
 of separately scoped expansions, not an instruction to implement all Magic.
 P7 uses the delegated product budgets below and freezes its measured workload
 before optimization; P8 targets
@@ -78,6 +84,14 @@ pinned Commander legality policy and admitted commander/deck configurations.
 No single percentage proves general Magic correctness. Keep source/scope hashes,
 per-card results, exclusions, unsupported reasons, and interaction coverage.
 The next layer can begin on a small audited subset before 98% parser coverage.
+
+The broader measurement program still requires named dense interaction and
+history benchmarks, identical-work worker scaling, retained-branch stress, and
+the separately labeled same-strategy omniscient diagnostic. The finite search
+acceptance above does not close those requirements. Preparatory work for these
+measurements remains separate from the frozen hosting release. Historical
+preoptimization CPU/allocation profiling evidence is unavailable; current
+retrospective profiles do not establish that chronology.
 
 ## 2. Intended outcomes
 
@@ -419,6 +433,18 @@ unrelated matches; resource admission and backpressure measured. Pin engine,
 rules, and card versions for an entire match. Server deployments, rating,
 matchmaking, spectator release, and tournament policy are separate work.
 
+The finite release passed actual four-client completion, crash/retry/privacy,
+backpressure, completed-game normal startup recovery, full debug/release and SDK
+checks, fresh offline reconstruction, and independent artifact audits. Its own
+sixty-job search measurement and all-sixty independent replay passed unchanged
+product budgets; the older P7 result is retained separately. The final private
+archive preserves all raw and failed proofs outside the worktree. Four original
+passed phase objects keep their exact source/freeze/log qualification after a
+user pause and two host-only retention corrections; only server retention reran
+under the final host freeze. See the [progress ledger](game-engine-progress.md)
+for exact build/artifact identities. Broader performance measurements listed
+below remain required; scoped P8 acceptance does not silently waive them.
+
 ## 4. Work decomposition and implementation discipline
 
 Each work item should state its supported wording/rule family, source/rules
@@ -569,7 +595,11 @@ strategy input but is not a completed game; a strategy's heuristic evaluation
 is not a rules-defined win/loss. Report trials evaluated and terminal games
 separately. No performance denominator may hide failed or discarded sampling
 work. Also measure observation-based candidates against the same strategy's
-labeled omniscient benchmark only as a diagnostic comparison.
+labeled omniscient reference as a separate trusted diagnostic. This measurement
+remains required work in the broader engine plan and is outside the frozen
+foundations search acceptance workload; no omniscient quality/cost comparison
+is claimed by this release. It must never replace private-world sampling or
+contribute to useful-rollout counts.
 
 Josh delegated these product choices on October 15, 2026. The first
 `commander-open-search-v1` acceptance budget is frozen below for the local scripted
@@ -607,6 +637,16 @@ P7 optimization. Concurrent development/gate runs do not qualify as the primary
 benchmark. The separate batch-throughput measurements remain required. Any later
 budget revision retains these requirements/results and explains the product
 tradeoff.
+
+The existing separate eighteen-pod P5 batch supplies a historical, concurrently
+run diagnostic of complete-game generation and generation-plus-replay throughput,
+with its exact candidate Build, policy, seed suite and RSS. The original P7
+sixty-root wrapper separately supplies whole-harness roots/second, useful
+trials/second and CPU totals. These different denominators are recorded in the
+[progress ledger](game-engine-progress.md); neither proves current-build full-pod
+throughput, one/two/four-worker scaling, or the proposed calibration targets
+below. The current-build sixty-job run reports its own batch totals
+without relabeling horizon evaluations as complete games.
 
 ### Initial calibration hypotheses
 

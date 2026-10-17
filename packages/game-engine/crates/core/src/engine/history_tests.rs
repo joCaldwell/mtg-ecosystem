@@ -3,7 +3,7 @@ use mtg_contracts::{canonical, digest};
 use serde_json::{Value, json};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-fn entry<T>(history: &History<T>, index: usize) -> &Arc<T> {
+fn entry<T>(history: &History<T>, index: usize) -> &Arc<HistoryEntry<T>> {
     let chunk = index / CHUNK;
     if chunk < history.chunks.len() {
         &history.chunks[chunk][index % CHUNK]
@@ -176,4 +176,165 @@ fn chunk_and_entry_cow_preserves_original_branches_and_flat_views() {
     branch.clear();
     assert!(branch.is_empty());
     assert_eq!(original.len(), 130);
+}
+
+#[derive(Clone)]
+struct CountedCanonical {
+    value: usize,
+    serializations: Arc<AtomicUsize>,
+}
+impl Serialize for CountedCanonical {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.serializations.fetch_add(1, Ordering::SeqCst);
+        self.value.serialize(serializer)
+    }
+}
+#[test]
+fn canonical_entry_memos_are_shared_once_across_forks_chunks_and_threads() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut original = History::default();
+    for value in 0..97 {
+        original.push(CountedCanonical {
+            value,
+            serializations: calls.clone(),
+        });
+    }
+    let before_warming = original.clone();
+    for index in 0..original.len() {
+        assert_eq!(
+            original.canonical_entry_bytes(index).unwrap(),
+            index.to_string().as_bytes()
+        );
+        assert!(std::ptr::eq(
+            original.canonical_entry_bytes(index).unwrap(),
+            before_warming.canonical_entry_bytes(index).unwrap()
+        ));
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 97);
+    let shared = Arc::new(original);
+    std::thread::scope(|scope| {
+        for _ in 0..8 {
+            let history = shared.clone();
+            scope.spawn(move || {
+                for index in 0..history.len() {
+                    assert_eq!(
+                        history.canonical_entry_bytes(index).unwrap(),
+                        index.to_string().as_bytes()
+                    );
+                }
+            });
+        }
+    });
+    assert_eq!(calls.load(Ordering::SeqCst), 97);
+    // Cold simultaneous initialization also invokes Serialize exactly once.
+    let mut cold = History::default();
+    cold.push(CountedCanonical {
+        value: 999,
+        serializations: calls.clone(),
+    });
+    std::thread::scope(|scope| {
+        for _ in 0..8 {
+            let history = &cold;
+            scope.spawn(move || {
+                assert_eq!(history.canonical_entry_bytes(0).unwrap(), b"999");
+            });
+        }
+    });
+    assert_eq!(calls.load(Ordering::SeqCst), 98);
+}
+#[test]
+fn custom_canonical_initializer_skips_warm_entries_and_never_installs_panics() {
+    let mut history = History::default();
+    for value in 0..3usize {
+        history.push(value);
+    }
+    let calls = AtomicUsize::new(0);
+    let initialize = |value: &usize| {
+        calls.fetch_add(1, Ordering::SeqCst);
+        Ok(canonical(value).unwrap().into_bytes().into_boxed_slice())
+    };
+    assert_eq!(
+        history.canonical_entry_bytes_with(0, initialize).unwrap(),
+        b"0"
+    );
+    assert_eq!(
+        history
+            .canonical_entry_bytes_with(0, |_| panic!("warm initializer must not run"))
+            .unwrap(),
+        b"0"
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    history[0] = 100;
+    assert_eq!(
+        history.canonical_entry_bytes_with(0, initialize).unwrap(),
+        b"100"
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        history.canonical_entry_bytes_with(1, |_| Err("injected canonical error".into())),
+        Err("injected canonical error".into())
+    );
+    assert_eq!(
+        history.canonical_entry_bytes_with(1, |_| panic!("cached error must not rerun")),
+        Err("injected canonical error".into())
+    );
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = history.canonical_entry_bytes_with(2, |_| panic!("injected initializer panic"));
+    }));
+    assert!(panic.is_err());
+    assert!(entry(&history, 2).canonical.get().is_none());
+    assert_eq!(
+        history.canonical_entry_bytes_with(2, initialize).unwrap(),
+        b"2"
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+}
+#[test]
+fn canonical_memos_invalidate_on_both_shared_and_unique_mutation_without_wire_changes() {
+    let mut original = History::default();
+    for index in 0..97 {
+        original.push(value(index));
+        original.canonical_entry_bytes(index).unwrap();
+    }
+    let original_wire = canonical(&original).unwrap();
+    for index in [0, 31, 32, 63, 64, 95, 96] {
+        let mut branch = original.clone();
+        let old = original.canonical_entry_bytes(index).unwrap().to_vec();
+        assert!(entry(&branch, index).canonical.get().is_some());
+        branch[index] = value(index + 1000);
+        assert!(entry(&branch, index).canonical.get().is_none());
+        assert_ne!(branch.canonical_entry_bytes(index).unwrap(), old);
+        assert_eq!(original.canonical_entry_bytes(index).unwrap(), old);
+        // After COW this entry is unique. A second mutable borrow MUST evict
+        // the warm memo even though Arc::make_mut no longer clones anything.
+        assert_eq!(Arc::strong_count(entry(&branch, index)), 1);
+        branch[index] = value(index + 2000);
+        assert!(entry(&branch, index).canonical.get().is_none());
+        assert_eq!(
+            branch.canonical_entry_bytes(index).unwrap(),
+            canonical(&value(index + 2000)).unwrap().as_bytes()
+        );
+        let flat = branch.as_slice().to_vec();
+        assert_eq!(canonical(&branch).unwrap(), canonical(&flat).unwrap());
+        let restored: History<Value> = serde_json::from_str(&canonical(&branch).unwrap()).unwrap();
+        assert_eq!(restored, branch);
+        assert!(
+            entry(&restored, index).canonical.get().is_none(),
+            "derived bytes must never enter serde"
+        );
+        assert_eq!(
+            restored.canonical_entry_bytes(index).unwrap(),
+            branch.canonical_entry_bytes(index).unwrap()
+        );
+        assert_eq!(canonical(&original).unwrap(), original_wire);
+    }
+    let mut unique = History::default();
+    unique.push(value(0));
+    unique.canonical_entry_bytes(0).unwrap();
+    unique[0]["z"][0] = "unique 雪\u{0}\n".into();
+    assert!(entry(&unique, 0).canonical.get().is_none());
+    assert_eq!(
+        unique.canonical_entry_bytes(0).unwrap(),
+        canonical(&unique[0]).unwrap().as_bytes()
+    );
 }
