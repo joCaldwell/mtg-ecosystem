@@ -1708,3 +1708,29 @@ Current retrospective CPU/allocation profiles and their timer-change warning are
 recorded in [the search report](game-engine-search.md). Historical preoptimization
 CPU/allocation profiling chronology remains unavailable; no causal ratio or
 playing-strength claim follows. P6 remains separately bounded releases.
+
+## P8 release installation — October 17, 2026
+
+Local commit `01f098beddf6005442cd8b0f4de1f5acfae93be6` installs the verified
+hosting release: all 236 approved source/document paths were checked against the
+candidate and then against the committed Git blobs; 79 paths changed. The
+installed SDK passed 40 tests and strict TypeScript, with identical public schema
+bytes. The installation archive is `release-installation-01f098b/manifest.json`
+under the external store recorded in `game-engine-server.md`, SHA256
+`59e7c30fa51bbe2febe0aaa6d8cd626eddfdc6ac3f352436efe5048122c65e7e`
+(447 files, 148,989,525 bytes).
+
+The machine's newer Rust packaging revision initially produced a distinct build;
+that successful compilation and limited SDK check remain separately qualified.
+The original signed Rust `1:1.99.0-1` package was recovered from the local cache
+into a private directory, without changing the system compiler. A second actual
+root build reproduced every original NativeInfo field, including Build
+`7e77708cad1f80dfa7ad3be82d198f3ad6eae7f62b9c127879a335206bbc8da5`,
+and passed the same schema/40-SDK/strict-TypeScript checks. Its compiler archive,
+signature, binaries and records are retained in
+`original-toolchain-rootrebuild-01f098b/manifest.json`, SHA256
+`dac7eacf226b16ce26572baf0378d36e8545912136bd31ff60a9448c6bc9a1a5`
+(22 files, 126,024,113 bytes). Timing claims remain attached to the original
+measured executable, not these path-specific rebuilds. The original complete
+gate/proof archive remains closed and unchanged. The documented broader
+performance work is still required.
