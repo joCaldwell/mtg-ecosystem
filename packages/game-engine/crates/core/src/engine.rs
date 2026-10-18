@@ -236,9 +236,13 @@ mod work;
 pub use visibility::*;
 pub use work::*;
 #[cfg(test)]
+mod dense_kernel_tests;
+#[cfg(test)]
 mod departure_tests;
 #[cfg(test)]
 mod event_tests;
+#[cfg(test)]
+mod legal_branch_tests;
 #[cfg(test)]
 mod p2_tests;
 #[cfg(test)]

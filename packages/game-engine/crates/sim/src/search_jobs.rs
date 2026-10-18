@@ -287,8 +287,70 @@ pub(super) struct SearchReport {
     pub stop_reason: Option<String>,
 }
 
-fn complete_query(
-    game: &SampledGame,
+// One private executor vocabulary shares the exact rollout body. The real-Game
+// implementation exists only in diagnostic tests; production still instantiates
+// this code only for the opaque permitted-world SampledGame wrapper.
+trait TrialExecutor: Sized {
+    fn fork(&self) -> Self;
+    fn rule_boundary(&self) -> u64;
+    fn advance(&mut self, budget: Budget) -> Advance;
+    fn observe(&self, viewer: PlayerId, budget: Budget) -> QueryResult;
+    fn check_player_response(
+        &self,
+        viewer: PlayerId,
+        token: mtg_core::DecisionToken,
+        response: PlayerResponse,
+        budget: Budget,
+    ) -> QueryResult;
+    fn resume_work(&self, work: mtg_core::Work, budget: Budget) -> QueryResult;
+    fn submit_validated(&mut self, receipt: mtg_core::ValidatedResponse) -> Result<(), String>;
+    fn state_digest(&self) -> Result<String, String>;
+}
+macro_rules! trial_executor {
+    ($kind:ty, $submit:ident) => {
+        impl TrialExecutor for $kind {
+            fn fork(&self) -> Self {
+                <$kind>::fork(self)
+            }
+            fn rule_boundary(&self) -> u64 {
+                <$kind>::rule_boundary(self)
+            }
+            fn advance(&mut self, budget: Budget) -> Advance {
+                <$kind>::advance(self, budget)
+            }
+            fn observe(&self, viewer: PlayerId, budget: Budget) -> QueryResult {
+                <$kind>::observe(self, viewer, budget)
+            }
+            fn check_player_response(
+                &self,
+                viewer: PlayerId,
+                token: mtg_core::DecisionToken,
+                response: PlayerResponse,
+                budget: Budget,
+            ) -> QueryResult {
+                <$kind>::check_player_response(self, viewer, token, response, budget)
+            }
+            fn resume_work(&self, work: mtg_core::Work, budget: Budget) -> QueryResult {
+                <$kind>::resume_work(self, work, budget)
+            }
+            fn submit_validated(
+                &mut self,
+                receipt: mtg_core::ValidatedResponse,
+            ) -> Result<(), String> {
+                <$kind>::$submit(self, receipt)
+            }
+            fn state_digest(&self) -> Result<String, String> {
+                <$kind>::state_digest(self)
+            }
+        }
+    };
+}
+trial_executor!(SampledGame, submit_validated);
+#[cfg(test)]
+trial_executor!(mtg_core::Game, submit);
+
+fn complete_query<G: TrialExecutor>(
+    game: &G,
     control: &Control,
     counts: &mut TrialCounts,
     timings: &mut TrialTimings,
@@ -321,8 +383,8 @@ fn complete_query(
     result
 }
 
-fn observation(
-    game: &SampledGame,
+fn observation<G: TrialExecutor>(
+    game: &G,
     viewer: PlayerId,
     control: &Control,
     counts: &mut TrialCounts,
@@ -335,8 +397,8 @@ fn observation(
         _ => Err("unexpected observation query result".into()),
     }
 }
-fn respond(
-    game: &mut SampledGame,
+fn respond<G: TrialExecutor>(
+    game: &mut G,
     observation: &Observation,
     response: PlayerResponse,
     control: &Control,
@@ -415,6 +477,13 @@ fn evaluations(
         })
         .collect()
 }
+struct PlanRecipe {
+    mode: Option<u32>,
+    targets: TargetPlan,
+    mana: Vec<mtg_core::ObjectHandle>,
+    spending: std::collections::BTreeMap<mtg_contracts::Color, Quantity>,
+    invocation: bool,
+}
 struct PlanSteps {
     initial: PlayerResponse,
     initial_sent: bool,
@@ -426,7 +495,7 @@ struct PlanSteps {
     complete: bool,
 }
 impl PlanSteps {
-    fn new(candidate: &Candidate, map: &RootHandleMap) -> Result<Self, String> {
+    fn recipe(candidate: &Candidate) -> PlanRecipe {
         let (mode, targets, mana, spending, invocation) = match &candidate.plan {
             ActionPlan::Cast {
                 mode,
@@ -455,6 +524,22 @@ impl PlanSteps {
             ),
             _ => (None, TargetPlan::None, vec![], Default::default(), false),
         };
+        PlanRecipe {
+            mode,
+            targets,
+            mana,
+            spending,
+            invocation,
+        }
+    }
+    fn new(candidate: &Candidate, map: &RootHandleMap) -> Result<Self, String> {
+        let PlanRecipe {
+            mode,
+            targets,
+            mana,
+            spending,
+            invocation,
+        } = Self::recipe(candidate);
         Ok(Self {
             initial: map.response(&search_policy::initial_response(&candidate.plan))?,
             initial_sent: false,
@@ -468,6 +553,26 @@ impl PlanSteps {
             invocation,
             complete: false,
         })
+    }
+    #[cfg(test)]
+    fn identity(candidate: &Candidate) -> Self {
+        let PlanRecipe {
+            mode,
+            targets,
+            mana,
+            spending,
+            invocation,
+        } = Self::recipe(candidate);
+        Self {
+            initial: search_policy::initial_response(&candidate.plan),
+            initial_sent: false,
+            mode,
+            targets,
+            mana_sources: mana.into(),
+            spending,
+            invocation,
+            complete: false,
+        }
     }
     fn next(&mut self, observation: &Observation) -> Result<Option<PlayerResponse>, String> {
         if self.complete {
@@ -525,6 +630,21 @@ fn run_trial(
     catalog: &Catalog,
     control: &Control,
 ) -> (TrialCounts, TrialOutcome, TrialTimings) {
+    run_trial_body(
+        base,
+        || PlanSteps::new(candidate, map),
+        viewer,
+        catalog,
+        control,
+    )
+}
+fn run_trial_body<G: TrialExecutor>(
+    base: &G,
+    initialize_plan: impl FnOnce() -> Result<PlanSteps, String>,
+    viewer: PlayerId,
+    catalog: &Catalog,
+    control: &Control,
+) -> (TrialCounts, TrialOutcome, TrialTimings) {
     let inclusive_started = Instant::now();
     let mut timings = TrialTimings::default();
     let mut counts = TrialCounts::default();
@@ -534,7 +654,7 @@ fn run_trial(
     let beginning = game.rule_boundary();
     let mut root_complete = false;
     let result = (|| -> Result<TrialOutcome, String> {
-        let mut plan = PlanSteps::new(candidate, map)?;
+        let mut plan = initialize_plan()?;
         loop {
             control.check()?;
             counts.advance()?;
@@ -1397,6 +1517,9 @@ fn validate_report_manifest(
     }
     Ok(())
 }
+
+#[cfg(test)]
+pub(crate) mod fixed_work;
 
 #[cfg(test)]
 mod schedule_equivalence;

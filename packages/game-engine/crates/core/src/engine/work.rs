@@ -917,4 +917,4 @@ impl Game {
 
 #[cfg(test)]
 #[path = "work_optimization_tests.rs"]
-mod optimization_tests;
+pub(super) mod optimization_tests;

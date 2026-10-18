@@ -1734,3 +1734,98 @@ signature, binaries and records are retained in
 measured executable, not these path-specific rebuilds. The original complete
 gate/proof archive remains closed and unchanged. The documented broader
 performance work is still required.
+
+## Broader performance diagnostics — October 17, 2026
+
+The [performance report](game-engine-performance.md) records optimized native
+diagnostics for dense interactions, artifact batches, permitted versus labeled
+actual-world decisions, ordinary legal transitions, real retained branches,
+persistent worker generations and complete-pod attempts. Each result retains
+its exact source/executable identity, denominator, resource boundary and failure
+qualification. Synthetic geometry and horizon trials do not become legal games
+or independent useful-world rollouts.
+
+The current 201-file diagnostic candidate, Build
+`3118eff2f2f4abcc2df5f50bacb001c5510a7761d4edeb8d4093f2df8d4d8eee`,
+passes 37 unique focused baseline tests, a counter arithmetic guard, formatting
+and all-features Clippy. All eleven explicit host-guard scripts pass 162 tests.
+All 563 Rust debug tests passed. The original combined gate then failed because
+the staging copy lacked the parser sources required by its Node fixture check.
+After restoring 86 exact committed parser dependency files, the Node-only retry
+passed all 45 checks. The original failed log remains unchanged; this is a
+composite verification. All 563 workspace release tests now also pass. The SDK
+passes 40 checks and strict TypeScript with exact existing public schema bytes.
+The fresh offline-retention attempt stopped before its offline build because
+the staging copy lacked the two pinned policy HTML files. Both exact files have
+now been restored from the retained archive, with fixture-matching hashes, and a
+new retention-only retry is running. The original failed log is preserved; no
+offline rebuild/replay pass is claimed yet.
+The source/executable archive manifest is
+`performance-native201-3118eff2/manifest.json`, SHA-256
+`f329420c48c87711f14e571f00937a769ac849b22852927afaee3b481db6ab16`.
+
+The current ordinary 1,024-input prefixes and dense-trigger retries preserve
+complete reference State/journal/outcome semantics inside their resource
+envelopes. A separately identified test-only Rust request counter measures
+9,243,136 allocations over the unchanged ordinary core interval. Four persistent
+workers achieve a same-build median steady-execution speedup of 3.7360 times,
+with complete serial-oracle equality and independent raw-result review.
+
+Memory work is still open: the every-branch ordinary warmup creates 10,000
+handles but completes only 6,137 verified first writes before its RSS reserve;
+the outer charged-memory guard rejects that run. Natural dense setup is OOM
+killed before reaching 256 battlefield objects, and the first complete-pod
+warmup is OOM killed before a game finishes. There is no complete-game
+throughput result from that attempt. Raw failures remain immutable alongside
+successful diagnostics in `performance-third-measurements-3118eff2/manifest.json`,
+SHA-256 `f00332750de3c9fadb2a68e4a62390c712326ff473e025388887af19395a0663`.
+
+The separate admission-sharing candidate, Build
+`1f57d2e2fcedecde548abef7e5cd348b1c711269cc1d36a5a640df7051e2974d`,
+shares immutable Prepared data internally. It passes all 246 release core tests
+(including five new admission-sharing tests), 17 distinct simulation tests, a
+counter arithmetic guard and core Clippy. The focused tests are a subset of the
+246 core passes, not additional tests. Independent review verifies source and
+Cargo artifact identities; its simulation per-filter invocation association is
+qualified as parent-reported. No performance or complete-workspace acceptance
+is claimed for this component. Its external archive is
+`performance-native202-prepared-1f57d2e2/manifest.json`, SHA-256
+`8984dfbce62314b911295b589a1fd447f59663d1f63844d122dba75a09db7f74`
+(243 files, 222,793,970 bytes).
+
+The separate 209-file compact-history and streaming-snapshot candidate, Build
+`cde7cdfa57922f14b4582cd3cf2b7561239838a67ee7a00cebf5b0ac1f1ed799`,
+passes all 262 release core tests, four strict-reader contract tests and 19
+public history/search integration tests, plus formatting and affected-target
+Clippy. Its 64 focused core checks are a subset of the 262, not additional
+passes. An independent review verifies the integrated source; the actual
+production and both simulation test variants are compiled and pinned. The
+external archive is `performance-native209-memory-cde7cdfa/manifest.json`, SHA-256
+`9019167f4984a97c71de52b8b317600b04fc4e98ac4038429718a70e2fe708d9`
+(269 files, 226,733,688 bytes). A subsequent run passes 17 distinct simulation tests and a counter arithmetic
+guard with exact argv/executable/feature records. Both the prepared-only and
+compact-history counter executables pass their bounded known-vector correctness
+control. Those controls ran during concurrent functional work and provide no
+quiet timing comparison. Full workspace, schema and performance/resource
+acceptance remain pending for that component.
+
+Definition-diversity, shrinking-choice and shared permitted-history exports are
+being compiled and tested in further isolated candidates. A real diagnostic
+test rejected an invalid synthetic combat assignment; its corrected fixture
+follows pinned CR 510.1a and archived card data while retaining the failed run.
+These further changes have no complete-runtime or resource-fit claim yet. The released finite profile,
+private-information boundary, all canonical history bytes and existing search
+budgets remain unchanged.
+
+
+The separate complete permitted-history export component, Build
+`c9f5f5942ff44c6f635f1c9e4c4756a2a43907fd9323ad994fc9994f659c1d39`,
+passes all 271 release core tests and 19 public search/history integration
+tests, plus typecheck, formatting and core Clippy. The nine new tests and
+affected focused core tests are subsets of the 271. Independent application
+review passes. Its exact source, core executable and evidence are retained in
+`performance-native213-shared-c9f5f594/manifest.json`, SHA-256
+`e7ae515bdad0d8a094e4c88c15110b15b328252714602ec46dbaa7a9233c7470`
+(261 files, 77,008,568 bytes). Large query-proof Values, complete SavedWork
+Strings and internally tagged decode buffering remain separately tracked;
+no memory-fit or end-to-end acceptance is inferred.

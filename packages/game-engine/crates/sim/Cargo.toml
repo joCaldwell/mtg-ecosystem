@@ -15,3 +15,10 @@ serde_json.workspace = true
 
 [lints]
 workspace = true
+
+# Diagnostic only: no allocator is installed unless both cfg(test) and this feature.
+[features]
+diagnostic-allocations = []
+
+[dev-dependencies]
+stats_alloc = { version = "=0.1.10", default-features = false }

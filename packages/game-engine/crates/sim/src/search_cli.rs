@@ -3,6 +3,9 @@
 use super::{search_jobs, search_roots, *};
 use mtg_core::{CaptureOutcome, SearchCapture};
 
+#[cfg(test)]
+mod omniscient_diagnostic;
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct SearchEvidence {

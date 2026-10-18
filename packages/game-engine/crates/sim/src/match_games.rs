@@ -5,6 +5,11 @@ use mtg_contracts::{CardKind, Color, ManaCost, Quantity};
 use mtg_core::{MatchConfig, ObjectHandle, PlayerRequest, PlayerResponse, PlayerTargetEntity};
 use std::collections::BTreeMap;
 
+#[cfg(test)]
+mod current_pod_throughput;
+#[cfg(test)]
+mod ordinary_diagnostic;
+
 // Evidence belongs outside native crate sources regardless of Cargo's test cwd.
 fn artifact_root() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))

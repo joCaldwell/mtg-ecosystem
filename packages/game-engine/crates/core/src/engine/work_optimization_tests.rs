@@ -606,7 +606,7 @@ fn compare(game: &Game, query: Query) {
     assert_eq!(game.trace, trace);
     assert_eq!(game.state_digest().unwrap(), state_sha256);
 }
-fn compare_queries(game: &Game) {
+pub(in crate::engine) fn compare_queries(game: &Game) {
     for viewer in (0..4).map(PlayerId) {
         compare(game, Query::Observe { viewer });
         compare(game, Query::Decision { viewer });
