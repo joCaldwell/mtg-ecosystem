@@ -22,6 +22,16 @@ impl SnapshotVerifier {
         let (game, digest) = Game::read_snapshot(self.replay.prepared.as_ref().clone(), json)?;
         self.verify_game(game, digest)
     }
+    /// Same proof cursor as verify(&str); errors never install decoded state or
+    /// advance the verified replay/digest. The source is borrowed, not retained.
+    pub fn verify_reader<R: std::io::Read + std::io::Seek>(
+        &mut self,
+        source: &mut R,
+    ) -> Result<Game, String> {
+        let (game, digest) =
+            Game::read_snapshot_from_reader(self.replay.prepared.as_ref().clone(), source)?;
+        self.verify_game(game, digest)
+    }
     pub(super) fn verify_game(&mut self, game: Game, digest: String) -> Result<Game, String> {
         if game.trace.mode != self.replay.trace.mode {
             return Err("snapshot sequence changes trace mode".into());

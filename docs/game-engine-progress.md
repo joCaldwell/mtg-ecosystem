@@ -1836,3 +1836,11 @@ The Prepared-sharing component is now installed in the engine worktree. A full
 simulator and server consumers; its frozen 202 native inputs and four retained
 release executables remain unchanged. This supplements the component correctness
 results above and makes no performance or complete-release claim.
+
+
+The compact-history and streaming-snapshot component is now installed after
+its focused and complete-core correctness checks above. The complete Rust
+workspace also passes `cargo check --workspace --locked --all-targets`, including
+server and simulator consumers. All 209 frozen native inputs and four retained
+release executables remain exact. Combined performance/resource acceptance and
+final full-workspace runtime verification remain open.

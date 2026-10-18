@@ -752,7 +752,7 @@ impl Game {
                 }
                 let permitted = &self.state.visibility[viewer.0 as usize].history;
                 if history.len() < permitted.len() {
-                    history.push(permitted[history.len()].clone());
+                    history.push(permitted[history.len()].to_public());
                     return Ok(None);
                 }
                 if decks.len() < 4 {

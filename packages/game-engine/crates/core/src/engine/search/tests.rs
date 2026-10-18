@@ -357,6 +357,13 @@ fn reconstruction_budget_forks_restore_and_complete_accounting_are_strict() {
         restored.state_digest().unwrap()
     );
     assert!(Game::restore(game.prepared.as_ref().clone(), &json).is_err());
+    assert!(
+        Game::restore_from_reader(
+            game.prepared.as_ref().clone(),
+            &mut std::io::Cursor::new(json.as_bytes())
+        )
+        .is_err()
+    );
     let mut oversized_snapshot: serde_json::Value = serde_json::from_str(&json).unwrap();
     oversized_snapshot["proposal"]["seats"][1]["ordered_library"][0]["symbol"] =
         "x".repeat(129).into();
@@ -414,7 +421,7 @@ fn survivors_and_public_reversal_memories_are_owner_scoped() {
     // replaying a different owner's private hand/history. Two owners' same
     // Oracle are separate constraints, even though the public decks are equal.
     let mut game = root(0);
-    let mut view = game.state.visibility[0].history.last().unwrap().clone();
+    let mut view = game.state.visibility[0].history.last().unwrap().to_public();
     for owner in [PlayerId(1), PlayerId(3)] {
         view.objects.push(VisibleObject {
             characteristics: Some(
@@ -437,7 +444,7 @@ fn survivors_and_public_reversal_memories_are_owner_scoped() {
             tapped: false,
         });
     }
-    game.state.visibility[0].history.push(view);
+    game.state.visibility[0].history.push_public(view);
     // Synthetic permitted-history domain fixture tests inference only; no fake
     // capture can be injected through the public API or real snapshot restore.
     let c = capture(&game);

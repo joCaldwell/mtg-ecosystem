@@ -1,16 +1,14 @@
-//! Canonical State bytes streamed with immutable-history entry memos. The
-//! existing contract is serde_json::to_value followed by compact serialization
-//! (lexical object keys, ordered arrays). Direct State serialization would
-//! change struct-key order. Cold initialization retains the reviewed typed-row
-//! accelerator while preserving each complete canonical View. It expands one
-//! entry at a time;
-//! its complete canonical bytes then stay shared for that live entry's lifetime.
-//! Memo memory is O(serialized remembered history), not a fixed total bound.
-//! Never drop or summarize any remembered observation or omit it from the SHA.
+//! Canonical State bytes streamed with same-viewer shared row/metadata memos. The
+//! existing contract remains generic lexical-key canonical JSON with complete
+//! ordered arrays. Stored histories retain immutable typed rows plus per-row
+//! canonical bytes and per-View metadata segments. No whole repeated object
+//! arrays or complete View bytes are cached. Every original byte still passes
+//! through every State SHA; there is no Merkle or skipped-history shortcut.
 use super::*;
 use std::io::{BufWriter, Write};
 
 const HASH_BUFFER_BYTES: usize = 64 * 1024;
+#[cfg(test)]
 type ObjectBytes = BTreeMap<String, (visibility::VisibleObject, Vec<u8>)>;
 
 fn json<W: Write, T: Serialize>(writer: &mut W, value: &T) -> Result<(), String> {
@@ -28,8 +26,9 @@ fn object_entries(value: &serde_json::Value) -> Result<Vec<(&String, &serde_json
     entries.sort_unstable_by(|a, b| a.0.cmp(b.0));
     Ok(entries)
 }
-// The P7 typed-row encoder initializes complete View memos. Generic canonical
-// serialization remains the independent exact-byte oracle in the tests.
+// Retain the earlier typed-row encoder as a test oracle alongside generic
+// canonical serialization; production uses shared row/metadata segments.
+#[cfg(test)]
 fn write_view<W: Write>(
     writer: &mut W,
     view: &visibility::PermittedView,
@@ -107,23 +106,13 @@ fn write_knowledge<W: Write>(
             }
             history_seen = true;
             raw(writer, b"[")?;
-            // Warm entries do not run the initializer. Thus this map describes
-            // the last COLD View, possibly before several warm entries. Reuse
-            // still requires full typed row equality, never temporal adjacency.
-            // Each digest/viewer retains at most one cold View's object rows.
-            let mut previous = ObjectBytes::new();
-            for index in 0..knowledge.history.len() {
+            for (index, view) in knowledge.history.iter().enumerate() {
                 if index != 0 {
                     raw(writer, b",")?;
                 }
-                let bytes = knowledge
-                    .history
-                    .canonical_entry_bytes_with(index, |view| {
-                        let mut bytes = vec![];
-                        write_view(&mut bytes, view, &mut previous)?;
-                        Ok(bytes.into_boxed_slice())
-                    })?;
-                raw(writer, bytes)?;
+                // Metadata segments and immutable row bytes are shared; never
+                // memoize the repeated complete object array for this View.
+                view.write_canonical(writer)?;
             }
             raw(writer, b"]")?;
         } else {
@@ -333,10 +322,10 @@ mod tests {
         // Numeric keys 1,2,10,100 must follow JSON lexical ordering, not numeric
         // BTreeMap order. Non-ASCII, control/quote/backslash escaping is exact.
         for i in 0..70 {
-            let mut view = game.state.visibility[0].history.last().unwrap().clone();
+            let mut view = game.state.visibility[0].history.last().unwrap().to_public();
             view.objects[0].oracle_id = format!("\"\\\n\u{0000}é🦀/{i}");
             view.players[0].life = Quantity::from(-(i + 1));
-            game.state.visibility[0].history.push(view);
+            game.state.visibility[0].history.push_public(view);
         }
         check(&game);
         let mut bytes = vec![];

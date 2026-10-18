@@ -431,7 +431,7 @@ pub(super) struct Knowledge {
     decision_key: Option<(u64, u8)>,
     decision_token: Option<DecisionToken>,
     next_decision: u64,
-    pub(super) history: History<PermittedView>,
+    pub(super) history: super::stored_history::StoredHistory,
 }
 fn scoped(namespace: &Option<String>, handle: String) -> String {
     namespace.as_ref().map_or_else(
@@ -1300,8 +1300,11 @@ impl Game {
             self.state.visibility[v as usize] = k;
             let view = self.permitted_view(viewer)?;
             let history = &mut self.state.visibility[v as usize].history;
-            if history.last() != Some(&view) {
-                history.push(view);
+            if !history
+                .last()
+                .is_some_and(|previous| previous.matches_public(&view))
+            {
+                history.push_public(view);
             }
         }
         Ok(())

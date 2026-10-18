@@ -10,8 +10,9 @@ use std::{
 const CHUNK: usize = 32;
 
 // The memo is derived from an immutable entry, never part of history's wire
-// format/equality. Only the canonical State writer reads it for plain typed
-// PermittedViews; no cache is consulted by Serialize or ordinary iteration.
+// format/equality. Complete-entry memo helpers remain only for generic tests;
+// production retained views use row/metadata segments in StoredHistory.
+// No cache is consulted by Serialize or ordinary iteration.
 struct HistoryEntry<T> {
     value: T,
     canonical: OnceLock<Result<Box<[u8]>, String>>,
@@ -107,6 +108,7 @@ impl<T> History<T> {
     /// Memoize complete canonical bytes for an immutable typed entry. The
     /// private initializer must emit the generic canonical oracle's exact
     /// bytes. A warm hit skips it entirely, including its local accelerator.
+    #[cfg(test)]
     pub(super) fn canonical_entry_bytes_with(
         &self,
         index: usize,
@@ -174,12 +176,24 @@ impl<T: Serialize> Serialize for History<T> {
 }
 impl<'de, T: Deserialize<'de>> Deserialize<'de> for History<T> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let values = Vec::<T>::deserialize(deserializer)?;
-        let mut history = Self::default();
-        for value in values {
-            history.push(value);
+        struct Entries<T>(std::marker::PhantomData<T>);
+        impl<'de, T: Deserialize<'de>> serde::de::Visitor<'de> for Entries<T> {
+            type Value = History<T>;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("ordered history array")
+            }
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut history = History::default();
+                while let Some(value) = seq.next_element::<T>()? {
+                    history.push(value);
+                }
+                Ok(history)
+            }
         }
-        Ok(history)
+        deserializer.deserialize_seq(Entries(std::marker::PhantomData))
     }
 }
 

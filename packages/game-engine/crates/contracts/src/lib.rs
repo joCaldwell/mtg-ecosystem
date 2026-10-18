@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize, de};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, fmt, str::FromStr};
 
+mod strict_io;
+pub use strict_io::strict_read_seekable;
+
 pub const RULES_EDITION: &str = "2026-09-25";
 pub const RULES_SHA256: &str = "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca";
 pub const PARSER_SHA256: &str = "98980a967a70d57008847ce0952edf0cc277af9ad26b8cb8739a555d97082b8d";
