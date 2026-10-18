@@ -1755,11 +1755,17 @@ After restoring 86 exact committed parser dependency files, the Node-only retry
 passed all 45 checks. The original failed log remains unchanged; this is a
 composite verification. All 563 workspace release tests now also pass. The SDK
 passes 40 checks and strict TypeScript with exact existing public schema bytes.
-The fresh offline-retention attempt stopped before its offline build because
-the staging copy lacked the two pinned policy HTML files. Both exact files have
-now been restored from the retained archive, with fixture-matching hashes, and a
-new retention-only retry is running. The original failed log is preserved; no
-offline rebuild/replay pass is claimed yet.
+The first fresh retention attempt stopped before offline compilation because
+the staging copy lacked two pinned policy HTML files. After restoring the exact
+archived bytes and verifying both fixture hashes, the retention-only retry passed
+its fresh frozen offline native rebuild and complete bundle replay, retaining
+10,716 dependency files. Its original failure remains unchanged. This establishes
+retention for the 201-file Build above, not the subsequent optimized candidates.
+The successful raw log SHA-256 is
+`73af24a603d0d81d2e3acd07c688abc020a5ff93bf01f6e3826ab85a7848645d`;
+external evidence is in
+`performance-retention-201-v2/p2-90cb345b513ec31e-S8nEjr/evidence.json`
+under the private engine-evidence root.
 The source/executable archive manifest is
 `performance-native201-3118eff2/manifest.json`, SHA-256
 `f329420c48c87711f14e571f00937a769ac849b22852927afaee3b481db6ab16`.
@@ -1886,3 +1892,28 @@ functional work, not a quiet timing comparison. Its external archive manifest is
 Synthetic distinct modifier payloads are separate from eight authentic source
 programs; there is no 256-authentic-ability or expanded-pool claim. The complete
 shrinking-choice workload has not run.
+
+
+The final SIM generic-proof component is independently reviewed and archived in
+`performance-native215-sim-proof-1a47ea39/manifest.json`, SHA-256
+`580b98a7f230cfc1153a62d4e2844c2fc93abcf8650e85f7ef875e6ba7174970`.
+Its 14 focused normal tests and Clippy/format checks pass on the exact isolated
+source. It streams every generic history view and preserves all other State
+fields, array order and complete byte comparison against the bounded old
+String/Value oracle. The reviewed patch is now integrated with the earlier
+diagnostics and query proofs as 220 native inputs. The combined source passes
+workspace compilation in both debug and release plus the same 14 focused release
+tests; its full functional gates are still running. No resource-fit result is
+inferred. The integrated focused-test receipt SHA-256 is
+`3915aa4664b7a66347b308410d9346890d0dc4343e2e088f9941299d94fc63c4`.
+
+Parser coordination for the next chosen slice and eventual main integration is
+recorded from the parser agent's reported commits `e5a6761` and `5030267`. Run the
+current main parser on candidate cards and compare Rust reference binding with
+the TypeScript certificate. Record concrete parser blockers or disagreements in
+`docs/parser-requests.md`, including Oracle ID, AST path, required shape, pinned
+CR citation and whether the slice is blocked; notify Josh when entries exist.
+Keep parser fixes on main with the parser agent. When integrating main, repeat
+compatibility checks against its actual AST, including trailing-if
+`conditionPosition: "after"`; historical fixture checks do not establish that
+compatibility. No new card slice or parser request is introduced by this work.

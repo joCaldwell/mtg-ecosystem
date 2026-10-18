@@ -213,27 +213,10 @@ fn write_generic_state_value(
     Ok((hashed.hash.finalize_hex(), hashed.bytes))
 }
 
+mod generic_state_spool;
+
 fn generic_state_proof(game: &Game) -> Result<GenericStateProof, String> {
-    let snapshot = game.snapshot()?;
-    let envelope: Value = serde_json::from_str(&snapshot).map_err(|e| e.to_string())?;
-    drop(snapshot);
-    let state = envelope
-        .get("state")
-        .ok_or("generic snapshot missing State")?;
-    let mut proof = GenericStateProof::create()?;
-    {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&proof.path)
-            .map_err(|e| e.to_string())?;
-        (proof.sha256, proof.bytes) = write_generic_state_value(state, &mut file)?;
-    }
-    // Release every generic Value before a second Game/snapshot proof is built.
-    // Full files are still compared below; SHA is not a byte-equality shortcut.
-    drop(envelope);
-    Ok(proof)
+    generic_state_spool::prove(game)
 }
 
 fn read_proof_chunk(reader: &mut impl std::io::Read, bytes: &mut [u8]) -> Result<usize, String> {
@@ -569,9 +552,9 @@ fn ordinary_prefix(catalog: &Catalog, count: usize, quantum: u64) -> Result<Run,
     let final_rule_boundary = game.rule_boundary();
     let digest = game.state_digest()?;
     let clock = Instant::now();
-    // Only one generic snapshot envelope exists at a time. Drop its String and
-    // Value before constructing the Detailed replay, preserving every State byte
-    // on private temporary files until an exact streaming comparison completes.
+    // The strict generic proof streams each complete history view to a private
+    // file; no complete snapshot String or history Value is retained here.
+    // Preserve every State byte until the exact replay comparison completes.
     let original = generic_state_proof(&game)?;
     if original.sha256 != digest {
         return Err("ordinary original generic State digest mismatch".into());

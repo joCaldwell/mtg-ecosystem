@@ -489,8 +489,12 @@ The 201-file baseline passes the composite full debug/release checks (563 Rust
 tests in each mode, 45 Node checks), plus 40 SDK checks and strict TypeScript
 with identical public schema bytes. Its first fresh retention attempt stopped
 before offline compilation because the staging copy lacked pinned policy HTML.
-The exact archived files now match both fixture hashes; a retention-only retry
-is running. The original failed status and raw log remain unchanged.
+After both exact archived policy files matched their fixture hashes, the
+retention-only retry passed its fresh frozen offline rebuild and complete replay,
+retaining 10,716 dependency files. The successful raw log SHA-256 is
+`73af24a603d0d81d2e3acd07c688abc020a5ff93bf01f6e3826ab85a7848645d`.
+The original failed status and raw log remain unchanged. This retention result
+belongs to Build3118eff2, not the later combined source.
 
 
 ### Definition diversity and complete query proof storage
