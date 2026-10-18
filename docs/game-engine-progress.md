@@ -2056,3 +2056,49 @@ match. These functional gates do not establish product resource fit or timing.
 Current-build correctness references and the unchanged eight-suite diagnostic
 and primary-search metadata are prepared; their reviews, actual measurements
 and independent replay remain separate pending work.
+
+### History capacity/equality candidate — October 18 measurement checkpoint
+
+The same 220-file Build `a742650f…` now passes all sixty primary search jobs
+and all sixty independent semantic replays. Nearest-rank p95 is 2,610,138µs,
+maximum 2,633,648µs, and the kernel whole-process RSS upper bound is
+213,286,912 bytes. There are 5,218 useful trials (5,178 horizon completions
+and forty terminal completions); 1,982 unstarted trials are excluded. Every
+generated candidate meets the eight-distinct-world minimum under the unchanged
+five-second maximum, three-second p95, 2 GiB and four-worker product limits.
+The independent review is
+`generated/final-engine-verification/candidate-primary-runs-a742-v1/run-1-independent-primary-review.json`,
+SHA-256 `c6d5e84de3f0c3743b74965067f6b3220427074bee0aa0b84ece8241e269c39c`.
+The original producer wrapper retains its earlier replay-pending status; the
+separate review supplies the completed replay proof.
+
+The broader unchanged thirty-case diagnostic program has producer-verified
+completion for indices 0–16: ordinary work, artifact production, twelve kernel
+and interaction cases, and the four-seat selected/first-write and three-seat
+selected legal-branch cases. Each completed legal case includes all twenty-four
+sweeps through 10,000 genuine branches. The four-seat first-write case now
+finishes in 77.734 seconds under its original 120-second limit. Ordinary case 0
+also has an independent actual-output audit, SHA-256
+`b46c535e4a9972b65de751eb86a5e97bab8229aa03211960f7a40e42ee8cde3e`;
+this is a verified subset, not an independent pass of the entire program.
+
+Index 17, three-seat ordinary first-write, exceeded that same deadline after
+nineteen of twenty-four complete sweeps. Its original failed/truncated result,
+partial progress and raw logs remain unchanged. Charged cgroup memory peaked
+at 1,632,460,800 bytes with no OOM event; this failed host receipt does not
+provide process RSS. All eighteen attempted resource groups have been reaped
+and are absent. Indices 18–29 remain unstarted. Separate allocation and
+omniscient measurements, the remaining independent diagnostic audits and final
+measurement retention are pending. No full-program performance pass is claimed.
+
+Josh requested a night stopping point. No implementation or parser source
+changed during this checkpoint; all 220 native inputs (53,205,999 bytes) were
+checked against their frozen hashes. Resume from
+`generated/final-engine-verification/active-continuation-v36.json`. The private
+pause receipt is `generated/final-engine-verification/night-pause-20261018-v3/pause.json`,
+SHA-256 `ce23848e84322322d2cb8a3239a0e95a12b600f5eeb3f406f7b64d46bcfe541d`.
+First inspect the saved stage-cost diagnosis and profiling readiness, then
+profile the three-seat timeout before choosing the next optimization. Preserve
+the full work, resource limits, failed outputs and unrelated main parser work.
+The incoming background completion for the historical 201-file Node/release
+logs was hash-checked separately; it does not establish this Build's gates.
