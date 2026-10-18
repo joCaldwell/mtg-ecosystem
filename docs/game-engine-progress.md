@@ -2027,3 +2027,32 @@ archive audits before the unchanged full workload measurements and all sixty
 primary search jobs plus sixty independent replays. Keep the existing budgets
 and parser coordination requirements. No engine or parser source changed in
 this checkpoint.
+
+### History capacity/equality candidate — October 18 resumed retention
+
+Fresh retention now passes for the same `a742650f…` candidate, following the
+explicit goal resumption. The cancelled attempt remains unchanged. A new
+producer target and the retainer's fresh Cargo home/target rebuilt the exact
+220 source inputs offline and verified the full retained replay in 779.611
+seconds. The bundle SHA-256 is
+`26e80ebd16e1abe3317a77c45591ac65711ab844c65121a12bbbca7b039717d1`;
+the rebuilt executable SHA-256 is
+`e1943970e9020f88073ad045b703a12c35eaa74e0e0605d273e449cba7e90151`.
+The store is `candidate-offline-retention-run3-v1/run-2/p2-26e80ebd16e1abe3-ZHjw0D`
+under the existing external evidence root. Its independent audit checked all
+11,461 files, including 10,716 vendor files from 152 packages; audit SHA-256
+`0d2b624a6595b21d2f1c3f8b9df4eb170eb500b3fe5f813f5c1f414ea940253f`.
+The initial empty Cargo home remains a pinned producer observation.
+
+The separate source/functional archive contains 1,033 files totaling
+1,129,452,452 bytes, including current source, tools, executable roles, host
+code and passed/failed/cancelled evidence. Its external directory is
+`performance-candidate-source-functional-a742650f4d4cfadb-v1`; manifest SHA-256
+`8dfed18be105f92f252326d3c00c11529402d5ddac0b8e77269c18d3df8253d2`.
+The independent archive audit SHA-256 is
+`51b2be51d35ea75f5c4ac20787d6e4acc4cded59f320db46d13d6d59b8c2e3c4`.
+All original/copied bytes, namespaces, private modes and candidate anchors
+match. These functional gates do not establish product resource fit or timing.
+Current-build correctness references and the unchanged eight-suite diagnostic
+and primary-search metadata are prepared; their reviews, actual measurements
+and independent replay remain separate pending work.
