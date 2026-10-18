@@ -7,6 +7,10 @@ build/
 *.tsbuildinfo
 target/
 
+# Python host-tool bytecode
+__pycache__/
+*.py[cod]
+
 # IDE
 .vscode/
 .idea/
