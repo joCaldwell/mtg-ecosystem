@@ -112,3 +112,14 @@ workload retains all 105 attack/Edict cells, one warmup and five repetitions
 native reference and budget/replay oracle. Synthetic payloads are not authentic card definitions;
 a partial matrix produces no complete-work throughput claim. Current actual
 results and remaining resource gaps are in `docs/game-engine-performance.md`.
+
+
+`run-final-pod-series-v1.py` schedules the unchanged eighteen-pod batch once for
+warmup and ten times for measurement, stopping at the first failure.
+`run-final-search-primary-v1.py` and `review-final-search-primary-v1.py` bind a
+current compiled release and retain the original sixty-job quiet measurement
+and all sixty independent semantic replays. The original product limits and
+full-work denominators apply. See [the host contract](final-host-contract-v1.md)
+for exact authority fields, clock/resource scopes and cancellation behavior.
+Run `python3 -B scripts/engine-performance/test-final-hosts-v1.py -v` for the
+34 pure host guards. Guard success alone makes no native performance claim.
