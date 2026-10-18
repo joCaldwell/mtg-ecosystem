@@ -80,7 +80,7 @@ impl<'de> Deserialize<'de> for StoredObject {
     }
 }
 
-// Same field order, types and serde omission rules as public PermittedView;
+// Same serialized field order and serde omission rules as public PermittedView;
 // exhaustive conversions below force future public fields to be accounted for.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -95,11 +95,30 @@ pub(super) struct StoredViewData {
     pub(super) turn_owner: PlayerId,
     pub(super) turn: TurnState,
     pub(super) live_turn_order: Vec<PlayerId>,
-    pub(super) commanders: Vec<VisibleCommander>,
+    #[serde(with = "shared_vec")]
+    pub(super) commanders: Arc<Vec<VisibleCommander>>,
     pub(super) priority: Option<PlayerId>,
-    pub(super) players: Vec<VisiblePlayer>,
-    pub(super) objects: Vec<StoredObject>,
+    #[serde(with = "shared_vec")]
+    pub(super) players: Arc<Vec<VisiblePlayer>>,
+    #[serde(with = "shared_vec")]
+    pub(super) objects: Arc<Vec<StoredObject>>,
     pub(super) stack: Vec<VisibleStackEntry>,
+}
+// Private ownership only: no Arc marker/identity is added to the public array.
+// Keep serde's workspace feature set unchanged (no generic rc feature needed).
+mod shared_vec {
+    use super::*;
+    pub(super) fn serialize<T: Serialize, S: Serializer>(
+        value: &Arc<Vec<T>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        value.as_ref().serialize(serializer)
+    }
+    pub(super) fn deserialize<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Arc<Vec<T>>, D::Error> {
+        Vec::<T>::deserialize(deserializer).map(Arc::new)
+    }
 }
 struct Segments {
     before: Box<[u8]>,
@@ -184,10 +203,10 @@ impl From<PermittedView> for StoredPermittedView {
                 turn_owner,
                 turn,
                 live_turn_order,
-                commanders,
+                commanders: Arc::new(commanders),
                 priority,
-                players,
-                objects: stored_objects,
+                players: Arc::new(players),
+                objects: Arc::new(stored_objects),
                 stack,
             },
             segments: OnceLock::new(),
@@ -220,9 +239,9 @@ impl StoredPermittedView {
             turn_owner: *turn_owner,
             turn: turn.clone(),
             live_turn_order: live_turn_order.clone(),
-            commanders: commanders.clone(),
+            commanders: commanders.as_ref().clone(),
             priority: *priority,
-            players: players.clone(),
+            players: players.as_ref().clone(),
             objects: objects.iter().map(|r| r.0.value.clone()).collect(),
             stack: stack.clone(),
         }
@@ -266,9 +285,9 @@ impl StoredPermittedView {
             && o == turn_owner
             && t == turn
             && l == live_turn_order
-            && d == commanders
+            && d.as_ref() == commanders
             && p == priority
-            && u == players
+            && u.as_ref() == players
             && k == stack
             && r.len() == objects.len()
             && r.iter().zip(objects).all(|(r, o)| r.0.value == *o)
@@ -277,18 +296,31 @@ impl StoredPermittedView {
         let Some(previous) = previous.filter(|p| p.viewer == self.viewer) else {
             return;
         };
-        // Consume each previous handle at most once: malformed duplicate rows
-        // still serialize individually, in their original exact order.
-        let mut rows = previous
-            .objects
-            .iter()
-            .map(|r| (r.handle.0.clone(), r.clone()))
-            .collect::<BTreeMap<_, _>>();
-        for row in &mut self.data.objects {
-            if let Some(old) = rows.remove(&row.handle.0)
-                && old == *row
-            {
-                *row = old;
+        // Complete ordered typed equality, never a hash or handle-only test.
+        // All three element types are Eq; pointer identity cannot bypass an
+        // irreflexive PartialEq value. Sharing is ONLY this same-viewer predecessor.
+        if self.data.players.as_ref() == previous.data.players.as_ref() {
+            self.data.players = previous.data.players.clone();
+        }
+        if self.data.commanders.as_ref() == previous.data.commanders.as_ref() {
+            self.data.commanders = previous.data.commanders.clone();
+        }
+        if self.data.objects.as_ref() == previous.data.objects.as_ref() {
+            self.data.objects = previous.data.objects.clone();
+        } else {
+            // Consume each previous handle at most once: malformed duplicate
+            // rows still serialize individually, in their original exact order.
+            let mut rows = previous
+                .objects
+                .iter()
+                .map(|r| (r.handle.0.clone(), r.clone()))
+                .collect::<BTreeMap<_, _>>();
+            for row in Arc::make_mut(&mut self.data.objects) {
+                if let Some(old) = rows.remove(&row.handle.0)
+                    && old == *row
+                {
+                    *row = old;
+                }
             }
         }
     }
@@ -319,9 +351,9 @@ impl StoredPermittedView {
                     turn_owner: *turn_owner,
                     turn: turn.clone(),
                     live_turn_order: live_turn_order.clone(),
-                    commanders: commanders.clone(),
+                    commanders: commanders.as_ref().clone(),
                     priority: *priority,
-                    players: players.clone(),
+                    players: players.as_ref().clone(),
                     objects: vec![],
                     stack: stack.clone(),
                 };
@@ -393,7 +425,7 @@ impl StoredPermittedView {
     pub(super) fn mutate_object(&mut self, index: usize, edit: impl FnOnce(&mut VisibleObject)) {
         // No &mut StoredObject/StoredViewData escapes; the caller cannot warm a
         // row cache while retaining its mutable underlying VisibleObject.
-        edit(&mut self.data.objects[index]);
+        edit(&mut Arc::make_mut(&mut self.data.objects)[index]);
     }
 }
 

@@ -346,6 +346,9 @@ struct Equal<R> {
     hash: Sha256Sink,
     bytes: u64,
     poisoned: bool,
+    // Serializer fragments share this scratch; only the returned read prefix
+    // participates in comparison. Every byte/count/hash/EOF check stays intact.
+    block: [u8; BLOCK],
 }
 impl<R: Read> Equal<R> {
     fn new(reader: R) -> Self {
@@ -354,6 +357,7 @@ impl<R: Read> Equal<R> {
             hash: Sha256Sink::new(),
             bytes: 0,
             poisoned: false,
+            block: [0; BLOCK],
         }
     }
     fn finish(mut self) -> Result<(u64, String), String> {
@@ -374,14 +378,13 @@ impl<R: Read> Write for Equal<R> {
         }
         let result = (|| {
             let mut done = 0;
-            let mut block = [0; BLOCK];
             while done < buf.len() {
                 let size = (buf.len() - done).min(BLOCK);
-                let n = read_retry(&mut self.reader, &mut block[..size])?;
+                let n = read_retry(&mut self.reader, &mut self.block[..size])?;
                 if n == 0 {
                     return Err(invalid("actual contains bytes beyond reference EOF"));
                 }
-                if block[..n] != buf[done..done + n] {
+                if self.block[..n] != buf[done..done + n] {
                     return Err(invalid("complete query bytes differ"));
                 }
                 self.bytes = self

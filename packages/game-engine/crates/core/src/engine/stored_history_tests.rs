@@ -85,8 +85,8 @@ fn stored_history_shares_only_equal_previous_same_viewer_rows_and_keeps_all_orde
         !Arc::ptr_eq(&stored[0].objects[0].0, &other_history[0].objects[0].0),
         "no cross-Knowledge/global row interner"
     );
-    for a in &stored[7].objects {
-        for b in &stored[8].objects {
+    for a in stored[7].objects.iter() {
+        for b in stored[8].objects.iter() {
             assert!(
                 !Arc::ptr_eq(&a.0, &b.0),
                 "different viewer never reuses rows even for forged identical handles"
@@ -166,8 +166,8 @@ fn warmed_shared_rows_and_metadata_cow_invalidate_on_every_explicit_edit() {
     branch[33].update_public(|v| v.viewer = PlayerId(3));
     expected[33].viewer = PlayerId(3);
     assert_views(&branch, &expected);
-    for old in &branch[32].objects {
-        for new in &branch[33].objects {
+    for old in branch[32].objects.iter() {
+        for new in branch[33].objects.iter() {
             assert!(
                 !Arc::ptr_eq(&old.0, &new.0),
                 "viewer change detaches all reused rows"
@@ -203,7 +203,7 @@ fn canonical_memos_retain_unique_rows_and_metadata_not_repeated_object_arrays() 
         assert_eq!(actual, canonical(&view.to_public()).unwrap().as_bytes());
         let segments = view.metadata_segments().unwrap();
         metadata_bytes += segments.before.len() + segments.after.len();
-        for row in &view.objects {
+        for row in view.objects.iter() {
             if unique.insert(row_pointer(row)) {
                 row_bytes += row.bytes().unwrap().len();
             }
@@ -222,7 +222,7 @@ fn canonical_memos_retain_unique_rows_and_metadata_not_repeated_object_arrays() 
     // View cache can silently grow on another State hash.
     let branch = history.clone();
     for (view, old) in branch.iter().zip(history.iter()) {
-        for (row, old) in view.objects.iter().zip(&old.objects) {
+        for (row, old) in view.objects.iter().zip(old.objects.iter()) {
             assert!(Arc::ptr_eq(&row.0, &old.0));
         }
     }
@@ -776,4 +776,375 @@ fn one_with_capacity_handle(template: &VisibleObject, index: usize) -> VisibleOb
     let mut row = template.clone();
     row.handle.0 = format!("capacity-domain-{index}");
     row
+}
+
+// Serialization-domain fixtures only: no invented card admission/replay claim.
+fn collection_fixture() -> PermittedView {
+    let mut view = public_fixture();
+    assert!(!view.players.is_empty() && !view.objects.is_empty());
+    let row = view.objects[0].clone();
+    view.objects = capacity_public_rows(&row, 33, 0);
+    view.commanders = vec![VisibleCommander {
+        designation: "collection-domain-commander".into(),
+        oracle_id: row.oracle_id,
+        history: CommanderHistory {
+            owner: PlayerId(0),
+            color_identity: vec![Color::W],
+            command_casts: BTreeMap::from([(PlayerId(0), 1.into())]),
+            combat_damage: BTreeMap::from([(PlayerId(3), 2.into())]),
+        },
+    }];
+    view
+}
+#[test]
+fn stored_collections_share_complete_adjacent_arrays_and_decode_exact_original_wire() {
+    let first = collection_fixture();
+    let public = (0..65)
+        .map(|i| {
+            let mut next = first.clone();
+            next.turn.number += i;
+            next
+        })
+        .collect::<Vec<_>>();
+    let mut history = StoredHistory::default();
+    for view in &public {
+        history.push_public(view.clone());
+    }
+    // Independent whole owned generic oracle; no cache writer constructs expected bytes.
+    assert_views(&history, &public);
+    for i in 1..history.len() {
+        assert!(Arc::ptr_eq(
+            &history[0].data.objects,
+            &history[i].data.objects
+        ));
+        assert!(Arc::ptr_eq(
+            &history[0].data.players,
+            &history[i].data.players
+        ));
+        assert!(Arc::ptr_eq(
+            &history[0].data.commanders,
+            &history[i].data.commanders
+        ));
+    }
+    let json = serde_json::to_string(&public).unwrap();
+    let restored: StoredHistory = serde_json::from_str(&json).unwrap();
+    assert_views(&restored, &public);
+    assert!(!Arc::ptr_eq(
+        &history[0].data.objects,
+        &restored[0].data.objects
+    ));
+    for i in 1..restored.len() {
+        assert!(Arc::ptr_eq(
+            &restored[0].data.objects,
+            &restored[i].data.objects
+        ));
+        assert!(Arc::ptr_eq(
+            &restored[0].data.players,
+            &restored[i].data.players
+        ));
+        assert!(Arc::ptr_eq(
+            &restored[0].data.commanders,
+            &restored[i].data.commanders
+        ));
+    }
+    // Field adapters retain the old strict element/array decoder, not Arc metadata.
+    let value = serde_json::to_value(&first).unwrap();
+    for field in ["objects", "players", "commanders"] {
+        let mut bad = value.clone();
+        bad[field] = serde_json::json!({"shared_allocation":123});
+        assert!(serde_json::from_value::<StoredPermittedView>(bad).is_err());
+        let mut bad = value.clone();
+        bad[field][0]["unknown_collection_field"] = true.into();
+        assert!(serde_json::from_value::<StoredPermittedView>(bad).is_err());
+    }
+}
+#[test]
+fn stored_collections_full_fallback_keeps_late_nested_changes_and_order() {
+    let first = collection_fixture();
+    let before: StoredPermittedView = first.clone().into();
+    let mut independent: StoredPermittedView = first.clone().into();
+    assert!(!Arc::ptr_eq(
+        &before.data.objects,
+        &independent.data.objects
+    ));
+    assert!(!Arc::ptr_eq(
+        &before.data.players,
+        &independent.data.players
+    ));
+    assert!(!Arc::ptr_eq(
+        &before.data.commanders,
+        &independent.data.commanders
+    ));
+    assert_eq!(before, independent);
+    independent.reuse_previous(Some(&before));
+    assert!(Arc::ptr_eq(&before.data.objects, &independent.data.objects));
+    let edits: [fn(&mut PermittedView); 6] = [
+        |v| v.objects.last_mut().unwrap().oracle_id.push_str("-late雪"),
+        |v| v.objects.reverse(),
+        |v| v.objects.push(v.objects.last().unwrap().clone()),
+        |v| {
+            v.players
+                .last_mut()
+                .unwrap()
+                .mana
+                .insert(Color::G, 999.into());
+        },
+        |v| {
+            v.commanders
+                .last_mut()
+                .unwrap()
+                .history
+                .combat_damage
+                .insert(PlayerId(3), 999.into());
+        },
+        |v| {
+            v.commanders
+                .last_mut()
+                .unwrap()
+                .designation
+                .push_str("-late雪")
+        },
+    ];
+    for edit in edits {
+        let mut public = first.clone();
+        edit(&mut public);
+        let mut changed: StoredPermittedView = public.clone().into();
+        changed.reuse_previous(Some(&before));
+        assert_eq!(before == changed, first == public);
+        assert_ne!(before, changed);
+        assert_eq!(changed.to_public(), public);
+        assert_eq!(write_view(&changed), canonical(&public).unwrap().as_bytes());
+        if first.objects != public.objects {
+            assert!(!Arc::ptr_eq(&before.data.objects, &changed.data.objects));
+        }
+        if first.players != public.players {
+            assert!(!Arc::ptr_eq(&before.data.players, &changed.data.players));
+        }
+        if first.commanders != public.commanders {
+            assert!(!Arc::ptr_eq(
+                &before.data.commanders,
+                &changed.data.commanders
+            ));
+        }
+    }
+}
+#[test]
+fn stored_collections_viewer_and_predecessor_scope_never_become_global_interning() {
+    let first = collection_fixture();
+    let mut other = first.clone();
+    other.viewer = PlayerId(3);
+    let mut empty = first.clone();
+    empty.objects.clear();
+    empty.players.clear();
+    empty.commanders.clear();
+    let public = vec![first.clone(), other, first.clone(), empty, first.clone()];
+    let mut history = StoredHistory::default();
+    for view in &public {
+        history.push_public(view.clone());
+    }
+    assert_views(&history, &public);
+    // Equal values in another viewer/after a different predecessor do not intern.
+    for i in [1, 2, 4] {
+        assert!(!Arc::ptr_eq(
+            &history[0].data.objects,
+            &history[i].data.objects
+        ));
+        assert!(!Arc::ptr_eq(
+            &history[0].data.players,
+            &history[i].data.players
+        ));
+        assert!(!Arc::ptr_eq(
+            &history[0].data.commanders,
+            &history[i].data.commanders
+        ));
+    }
+    let mut separate = StoredHistory::default();
+    separate.push_public(first);
+    assert!(!Arc::ptr_eq(
+        &history[0].data.objects,
+        &separate[0].data.objects
+    ));
+    assert!(!Arc::ptr_eq(
+        &history[0].data.players,
+        &separate[0].data.players
+    ));
+    assert!(!Arc::ptr_eq(
+        &history[0].data.commanders,
+        &separate[0].data.commanders
+    ));
+}
+#[test]
+fn stored_collections_warm_sibling_late_mutations_preserve_full_state_bytes() {
+    let first = collection_fixture();
+    let public = vec![first.clone(); 65];
+    let mut history = StoredHistory::default();
+    for view in &public {
+        history.push_public(view.clone());
+    }
+    assert_views(&history, &public); // warm every row/metadata memo first
+    let mut branch = history.clone();
+    let mut expected = public.clone();
+    branch[33].mutate_object(32, |v| v.marked_damage = 321.into());
+    expected[33].objects[32].marked_damage = 321.into();
+    assert!(!Arc::ptr_eq(
+        &branch[33].data.objects,
+        &history[33].data.objects
+    ));
+    assert!(Arc::ptr_eq(
+        &branch[33].data.players,
+        &history[33].data.players
+    ));
+    assert!(Arc::ptr_eq(
+        &branch[33].data.commanders,
+        &history[33].data.commanders
+    ));
+    assert!(Arc::ptr_eq(
+        &branch[33].objects[0].0,
+        &history[33].objects[0].0
+    ));
+    assert_views(&branch, &expected);
+    branch[64].update_public(|v| {
+        v.players[0].life.add(&7.into());
+        v.commanders[0]
+            .history
+            .command_casts
+            .insert(PlayerId(0), 10.into());
+    });
+    expected[64].players[0].life.add(&7.into());
+    expected[64].commanders[0]
+        .history
+        .command_casts
+        .insert(PlayerId(0), 10.into());
+    assert!(!Arc::ptr_eq(
+        &branch[64].data.players,
+        &history[64].data.players
+    ));
+    assert!(!Arc::ptr_eq(
+        &branch[64].data.commanders,
+        &history[64].data.commanders
+    ));
+    assert!(Arc::ptr_eq(
+        &branch[64].data.objects,
+        &history[64].data.objects
+    ));
+    assert_views(&branch, &expected);
+    assert_views(&history, &public);
+    let mut game = Game::new(
+        Prepared::admit(
+            Catalog::read(include_str!("../../../../tests/fixtures/expected-ir.json")).unwrap(),
+            ScenarioConfig::land_return(),
+        )
+        .unwrap(),
+    );
+    // Full serialization-domain State oracle, deliberately not admitted/replayed facts.
+    game.state.visibility[0].history = history.clone();
+    let mut sibling = game.fork();
+    sibling.state.visibility[0].history = branch;
+    assert!(game.state != sibling.state);
+    for state in [&game.state, &sibling.state] {
+        let generic = canonical(state).unwrap();
+        let mut actual = vec![];
+        state_digest::write_state(state, &mut actual).unwrap();
+        assert_eq!(actual, generic.as_bytes());
+        assert_eq!(
+            state_digest::state_digest(state).unwrap(),
+            sha256(generic.as_bytes())
+        );
+    }
+    assert_views(&game.state.visibility[0].history, &public);
+}
+// Explicit allocation-capacity mechanism accounting only; no estimated RSS,
+// allocator headers, nested row/string/map payloads or process-fit claim.
+fn distinct_collection_slots<T>(vectors: &[&Arc<Vec<T>>]) -> (usize, usize) {
+    let mut seen = BTreeSet::new();
+    let mut bytes = 0usize;
+    for vector in vectors {
+        if seen.insert(Arc::as_ptr(vector) as usize) {
+            bytes = bytes
+                .checked_add(
+                    vector
+                        .capacity()
+                        .checked_mul(std::mem::size_of::<T>())
+                        .unwrap(),
+                )
+                .unwrap();
+        }
+    }
+    (seen.len(), bytes)
+}
+#[test]
+fn stored_collections_report_actual_distinct_capacity_bytes_without_rss_estimates() {
+    let mut proof = vec![];
+    for len in [0, 1, 33, 256] {
+        let mut first = collection_fixture();
+        let row = first.objects[0].clone();
+        first.objects = capacity_public_rows(&row, len, 257);
+        let public = (0..65)
+            .map(|i| {
+                let mut v = first.clone();
+                v.turn.number += i;
+                v
+            })
+            .collect::<Vec<_>>();
+        // Explicit unshared candidate representation, not a historical timed run.
+        let unshared = public
+            .iter()
+            .cloned()
+            .map(StoredPermittedView::from)
+            .collect::<Vec<_>>();
+        let mut history = StoredHistory::default();
+        for v in &public {
+            history.push_public(v.clone());
+        }
+        assert_views(&history, &public);
+        for v in &unshared {
+            assert_eq!(write_view(v), canonical(&v.to_public()).unwrap().as_bytes());
+        }
+        let old_objects = distinct_collection_slots(
+            &unshared.iter().map(|v| &v.data.objects).collect::<Vec<_>>(),
+        );
+        let new_objects =
+            distinct_collection_slots(&history.iter().map(|v| &v.data.objects).collect::<Vec<_>>());
+        let old_players = distinct_collection_slots(
+            &unshared.iter().map(|v| &v.data.players).collect::<Vec<_>>(),
+        );
+        let new_players =
+            distinct_collection_slots(&history.iter().map(|v| &v.data.players).collect::<Vec<_>>());
+        let old_commanders = distinct_collection_slots(
+            &unshared
+                .iter()
+                .map(|v| &v.data.commanders)
+                .collect::<Vec<_>>(),
+        );
+        let new_commanders = distinct_collection_slots(
+            &history
+                .iter()
+                .map(|v| &v.data.commanders)
+                .collect::<Vec<_>>(),
+        );
+        for (unshared, shared) in [
+            (old_objects, new_objects),
+            (old_players, new_players),
+            (old_commanders, new_commanders),
+        ] {
+            assert_eq!(unshared.0, 65);
+            assert_eq!(shared.0, 1);
+            assert_eq!(unshared.1, shared.1.checked_mul(65).unwrap());
+        }
+        proof.push(serde_json::json!({
+            "views":65, "objects_per_view":len,
+            "object_element_size":std::mem::size_of::<StoredObject>(),
+            "player_element_size":std::mem::size_of::<VisiblePlayer>(),
+            "commander_element_size":std::mem::size_of::<VisibleCommander>(),
+            "unshared_object_capacity_bytes":old_objects.1, "shared_object_capacity_bytes":new_objects.1,
+            "unshared_player_capacity_bytes":old_players.1, "shared_player_capacity_bytes":new_players.1,
+            "unshared_commander_capacity_bytes":old_commanders.1, "shared_commander_capacity_bytes":new_commanders.1,
+            "unshared_distinct_allocations_per_field":65, "shared_distinct_allocations_per_field":1,
+            "scope":"observed Vec capacity*element-size only; excludes Arc control allocations, view structs, nested payloads, memos, allocator metadata/RSS/cgroup; serialization-domain mechanism, not a legal root or fit result"
+        }));
+    }
+    println!(
+        "STORED_COLLECTION_CAPACITY_PROOF={}",
+        canonical(&proof).unwrap()
+    );
 }

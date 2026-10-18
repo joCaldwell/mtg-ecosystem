@@ -1,6 +1,96 @@
 //! Small whole-Value/old-Vec oracles only; no timing or resource-fit claim.
 use super::*;
 use std::{io::Cursor, os::unix::fs::PermissionsExt};
+
+#[test]
+fn search_spool_reused_scratch_keeps_fragment_boundaries_complete_bytes_and_sha() {
+    for length in [0, 1, BLOCK - 1, BLOCK, BLOCK + 1, 2 * BLOCK + 37] {
+        let expected = (0..length)
+            .map(|i| ((i % 251) * 37 % 251) as u8)
+            .collect::<Vec<_>>();
+        for fragment in [1, 13, BLOCK + 7] {
+            let mut equal = Equal::new(Cursor::new(expected.as_slice()));
+            for part in expected.chunks(fragment) {
+                equal.write_all(part).unwrap();
+            }
+            equal.flush().unwrap();
+            assert_eq!(
+                equal.finish().unwrap(),
+                (u64::try_from(length).unwrap(), sha256(&expected)),
+                "length {length}, fragment {fragment}"
+            );
+        }
+    }
+}
+
+#[test]
+fn search_spool_reused_scratch_short_reads_never_compare_stale_tails_or_recover_errors() {
+    struct Choppy {
+        data: Cursor<Vec<u8>>,
+        calls: usize,
+    }
+    impl Read for Choppy {
+        fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+            self.calls += 1;
+            if self.calls % 11 == 1 {
+                return Err(io::ErrorKind::Interrupted.into());
+            }
+            let n = out.len().min(self.calls % 17 + 1);
+            // Only the returned prefix is overwritten; all other scratch bytes
+            // deliberately retain contents from earlier fragments and reads.
+            self.data.read(&mut out[..n])
+        }
+    }
+    let expected = (0..2 * BLOCK + 37)
+        .map(|i| ((i % 251) * 37 % 251) as u8)
+        .collect::<Vec<_>>();
+    for variant in 0..6 {
+        let mut actual = expected.clone();
+        match variant {
+            0 => {}
+            1 => actual[BLOCK - 1] ^= 1,
+            2 => actual[BLOCK] ^= 1,
+            3 => *actual.last_mut().unwrap() ^= 1,
+            4 => {
+                actual.pop();
+            }
+            5 => actual.push(99),
+            _ => unreachable!(),
+        }
+        let mut equal = Equal::new(Choppy {
+            data: Cursor::new(expected.clone()),
+            calls: 0,
+        });
+        let failed_write = actual
+            .chunks(193)
+            .any(|part| equal.write_all(part).is_err());
+        if failed_write {
+            assert_ne!(variant, 0);
+            assert!(equal.write(b"").is_err());
+            assert!(equal.flush().is_err());
+            assert!(equal.finish().is_err());
+        } else if variant == 0 {
+            assert_eq!(
+                equal.finish().unwrap(),
+                (u64::try_from(expected.len()).unwrap(), sha256(&expected))
+            );
+        } else {
+            assert!(equal.finish().is_err(), "variant {variant}");
+        }
+    }
+    let mut equal = Equal::new(Short {
+        data: Cursor::new(b"abcdef".to_vec()),
+        interrupt: false,
+        fail: false,
+    });
+    equal.write_all(b"ab").unwrap();
+    equal.reader.fail = true;
+    assert!(equal.write_all(b"cd").is_err());
+    assert!(equal.write(b"").is_err());
+    assert!(equal.flush().is_err());
+    assert!(equal.finish().is_err());
+}
+
 fn bytes(write: impl FnOnce(&mut dyn Write) -> Result<(), String>) -> Vec<u8> {
     let mut out = vec![];
     write(&mut out).unwrap();
