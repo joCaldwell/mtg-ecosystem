@@ -2102,3 +2102,26 @@ profile the three-seat timeout before choosing the next optimization. Preserve
 the full work, resource limits, failed outputs and unrelated main parser work.
 The incoming background completion for the historical 201-file Node/release
 logs was hash-checked separately; it does not establish this Build's gates.
+
+### Capacity/equality a742 — completed evidence before successor verification
+
+The a742 functional result remains 630 debug / 630 release Rust tests, 45 Node
+checks and 40 SDK checks with strict TypeScript; fresh offline replay and the
+sixty-job primary plus all sixty independent semantic replays pass. The terminal independent audit `e85d599e…` verifies all seventeen completed
+cases 0–16 and preserves case 17 deadline-limited and
+case 20 deadline-limited during setup before any sweep. Case 20 is not an OOM
+or a completed ready-root proof. Eleven cases and separate omniscient remain
+unstarted; no full-program pass is claimed.
+
+The separate full 1,024-input Rust allocation phase and zero controls pass, with
+7,171,042 allocation requests and 100,869 reallocations; the independent subset
+audit is `fde4ad99…`. The separate legal17 hardware capture remains a partial
+18/24-sweep diagnostic, reviewed as `a80e1469…`. It supports investigating the
+proof comparator's repeated zero-fill, without assigning exact CPU-time savings.
+
+The old source/functional, measurement and profile archives now retain 1,033,
+600 and 167 payload files respectively. Exact manifest hashes, byte totals and
+qualifications are recorded in [game-engine-performance.md](game-engine-performance.md).
+All cancelled and failed receipts stay unchanged. The successor's collection
+sharing and comparator scratch changes require separately identified verification
+and unchanged-workload measurements; no old pass transfers to it.

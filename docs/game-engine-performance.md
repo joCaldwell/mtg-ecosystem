@@ -595,3 +595,68 @@ and failed attempts. Its manifest SHA-256 is
 the independent archive audit SHA-256 is
 `6663058ecd73eac168f7fac6b106df21119c9d4f92db634ee736e49cd6f2100b`.
 These records do not turn failed workloads into passes.
+
+### Capacity/equality Build a742: retained results
+
+Release Build `a742650f4d4cfadbec67480901732880e29095a053ff5bd07f3e2b7975df06c3`
+passes 630 Rust tests in each debug and release mode, 45 Node checks and 40 SDK
+tests with strict TypeScript. Its independent functional audit is `394de68c…`;
+fresh offline reconstruction and complete replay also pass (`0d2b624a…`).
+These are new-source proofs, separate from the earlier 0398 results above.
+
+All sixty quiet primary search jobs and sixty independent semantic replays pass:
+p95 2,610,138µs, maximum 2,633,648µs, whole-process RSS upper bound 213,286,912
+bytes, 5,218 useful trials and 1,982 unstarted trials excluded. The unchanged
+per-candidate eight-world minimum and product budgets hold. Review
+`candidate-primary-runs-a742-v1/run-1-independent-primary-review.json` has SHA-256
+`c6d5e84de3f0c3743b74965067f6b3220427074bee0aa0b84ece8241e269c39c`.
+The original wrapper's replay-pending status stays immutable; that separate
+review establishes completed replay.
+
+The broader program completes cases 0–16: ordinary 1,024-input work, all twelve
+artifact roots, twelve dense kernel/interaction cases, and three legal-branch
+cases with all twenty-four sweeps through 10,000 branches. The terminal independent audit verifies all seventeen complete cases and
+preserves both failures and eleven unstarted cases; it is not a full thirty-case
+pass. Its SHA-256 is
+`e85d599e948fdbd2743d9e3277663c35f9f7251bf7f7d5561da7e0b3170986db`. Ordinary-three/all-first-write case 17 times out after nineteen
+complete sweeps; no complete-work rate or final process RSS is available.
+Dense-four/selected case 20 times out during real setup, before any sweep or root
+proof: 8,704 accepted inputs and 19,705 histories per viewer were last observed.
+Its charged peak reaches 2 GiB with memory.max events but no OOM; native RSS is
+unavailable. The other eleven cases and the separate omniscient run remain
+unstarted. All original limits, histories and partial denominators remain.
+
+The separate instrumented Rust phase verifies the same full 1,024-input semantics
+and zero empty controls. It records 7,171,042 allocations, 100,869 reallocations
+and 6,973,743 deallocations; requested bytes are 1,068,999,650 allocated and
+1,041,127,923 deallocated, with signed realloc-byte change 169,570,950. This is
+process-global intercepted request accounting over the declared raw loop, not
+C allocation coverage, live heap or production latency. Independent subset audit
+`independent-candidate-allocation-a742-v2/audit.json` has SHA-256
+`fde4ad993838cbecb0636724c229fc46db621557daa75386169c5c60e00fcbaf`.
+
+A separate original-work legal17 hardware profile reaches eighteen of twenty-four
+complete sweeps before its 120-second deadline. The independent review maps the
+repeated 65,536-byte zero-fill call in the complete-byte comparator, motivating
+a scratch-lifetime experiment; sampled hardware events are not exact CPU-time
+percentages or a promised speedup. Profile audit SHA-256 is
+`a80e1469fb1a2b01a7d90b7cedfcd1bf2d650ac9e9867197260f7bc5ad01a5ce`.
+Neither profile nor memory-pressure evidence shortens the workload or supplies a
+resource-fit pass. A separately identified successor must earn its own source,
+functional, retention and measurement proofs.
+
+Three private archives preserve these exact a742 results under the external
+evidence root named above. Retention status verifies bytes and classifications,
+including failures; it does not convert the program into a pass.
+
+| Archive directory | Payload files / bytes | Manifest SHA-256 |
+| --- | --- | --- |
+| `performance-candidate-source-functional-a742650f4d4cfadb-v1` | 1,033 / 1,129,452,452 | `8dfed18be105f92f252326d3c00c11529402d5ddac0b8e77269c18d3df8253d2` |
+| `performance-candidate-measurements-a742-pass1-v1` | 600 / 575,089,457 | `d8301adacdac9752f506fa24866b44dc21f15a9580fdedeaba903d1abb32c720` |
+| `performance-candidate-profile-a742-v1` | 167 / 263,537,591 | `f9318c0d91135469ff79d768f5756644207da7eec7551a6ed672ef03489d2358` |
+
+The profile payload count includes its copy plan/producer; manifest and execution
+metadata are additional. Its raw experiment, partial stdout, all forensic tool
+records and source/tool authorities remain intact, linked to the old source
+archive and executable. Independent archive audits are `51b2be51…`, `090321b2…`
+and `3bc37cda…`, respectively.
