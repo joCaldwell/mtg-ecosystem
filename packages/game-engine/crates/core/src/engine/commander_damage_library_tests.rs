@@ -19,7 +19,7 @@ fn answer(g: &mut Game, response: Response) {
     g.respond(r.player(), r.decision_id(), response).unwrap();
 }
 fn recover(g: &Game) {
-    let restored = Game::restore(g.prepared.clone(), &g.snapshot().unwrap()).unwrap();
+    let restored = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
     assert_eq!(restored.state, g.state);
     assert_eq!(restored.trace, g.trace);
 }
@@ -140,7 +140,7 @@ fn natural_commander_damage_counts_actual_hits_and_loses_at_next_sba() {
         assert!(g.events().iter().any(|event|matches!(event,Event::PlayersLost {losses} if losses==&vec![(PlayerId(2),PlayerLossReason::CommanderDamage)])));
         recover(&g);
         settle(&mut g);
-        let replay = Game::replay(g.prepared.clone(), &g.replay_journal()).unwrap();
+        let replay = Game::replay(g.prepared.as_ref().clone(), &g.replay_journal()).unwrap();
         assert_eq!(replay.state_digest().unwrap(), g.state_digest().unwrap());
     }
 }

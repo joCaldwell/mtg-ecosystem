@@ -50,8 +50,13 @@ fn player_selects_generic_colors_and_both_branches_recover_exactly() {
         settle(&mut branch);
         assert_eq!(branch.mana(PlayerId(0), Color::B), Some(remaining_b.into()));
         assert_eq!(branch.mana(PlayerId(0), Color::G), Some(remaining_g.into()));
-        let restored = Game::restore(branch.prepared.clone(), &branch.snapshot().unwrap()).unwrap();
-        let replay = Game::replay(branch.prepared.clone(), &branch.replay_journal()).unwrap();
+        let restored = Game::restore(
+            branch.prepared.as_ref().clone(),
+            &branch.snapshot().unwrap(),
+        )
+        .unwrap();
+        let replay =
+            Game::replay(branch.prepared.as_ref().clone(), &branch.replay_journal()).unwrap();
         assert_eq!(
             branch.state_digest().unwrap(),
             restored.state_digest().unwrap()
@@ -194,7 +199,7 @@ fn spending_queries_are_private_pure_resumable_and_executor_scoped() {
         panic!("incomplete validation")
     };
     let saved = g.save_work(&work).unwrap();
-    let restored = Game::restore(g.prepared.clone(), &g.snapshot().unwrap()).unwrap();
+    let restored = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
     let recovered = restored.restore_work(&saved).unwrap();
     let QueryValue::Validated(foreign) =
         query(&restored, restored.resume_work(recovered, Budget::new(1)))
@@ -268,7 +273,7 @@ fn failed_mixed_cast_keeps_or_undoes_only_its_recorded_mana() {
                 .command_casts
                 .is_empty()
         );
-        Game::restore(g.prepared.clone(), &g.snapshot().unwrap()).unwrap();
+        Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
     }
 }
 
@@ -306,7 +311,7 @@ fn pending_spending_survives_unrelated_departure_but_never_resurrects_a_departed
             assert_eq!(g.state.stack.len(), 1);
             assert!(g.state.stack[0].paid.is_some());
         }
-        let restored = Game::restore(g.prepared.clone(), &g.snapshot().unwrap()).unwrap();
+        let restored = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
         assert_eq!(restored.state_digest().unwrap(), g.state_digest().unwrap());
     }
 }
@@ -352,6 +357,6 @@ fn targeted_player_leaving_at_accepted_spending_reverses_the_incomplete_cast() {
                 .tapped
         );
     }
-    let replay = Game::replay(g.prepared.clone(), &g.replay_journal()).unwrap();
+    let replay = Game::replay(g.prepared.as_ref().clone(), &g.replay_journal()).unwrap();
     assert_eq!(replay.state_digest().unwrap(), g.state_digest().unwrap());
 }

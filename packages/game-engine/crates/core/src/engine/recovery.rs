@@ -19,7 +19,7 @@ impl SnapshotVerifier {
         self.digest.as_deref()
     }
     pub fn verify(&mut self, json: &str) -> Result<Game, String> {
-        let (game, digest) = Game::read_snapshot(self.replay.prepared.clone(), json)?;
+        let (game, digest) = Game::read_snapshot(self.replay.prepared.as_ref().clone(), json)?;
         self.verify_game(game, digest)
     }
     pub(super) fn verify_game(&mut self, game: Game, digest: String) -> Result<Game, String> {

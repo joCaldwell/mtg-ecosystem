@@ -549,11 +549,11 @@ fn prove_root_and_reference(root: &Root) -> Result<Expected, String> {
     let after = oracle::state_sha(&reference);
     for current in [game, &reference] {
         let snapshot = current.snapshot()?;
-        let restored = Game::restore(current.prepared.clone(), &snapshot)?;
+        let restored = Game::restore(current.prepared.as_ref().clone(), &snapshot)?;
         assert_eq!(restored.state, current.state);
         drop(restored);
         drop(snapshot);
-        let replayed = Game::replay(current.prepared.clone(), &current.replay_journal())?;
+        let replayed = Game::replay(current.prepared.as_ref().clone(), &current.replay_journal())?;
         assert_eq!(replayed.state, current.state);
         assert_eq!(oracle::state_sha(&replayed), current.state_digest()?);
         drop(replayed);

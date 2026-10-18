@@ -39,7 +39,8 @@ fn select(game: &mut Game) {
     );
 }
 fn recover(game: &Game) {
-    let restored = Game::restore(game.prepared.clone(), &game.snapshot().unwrap()).unwrap();
+    let restored =
+        Game::restore(game.prepared.as_ref().clone(), &game.snapshot().unwrap()).unwrap();
     assert_eq!(restored.state, game.state);
     assert_eq!(restored.trace(), game.trace());
     assert_eq!(restored.fork().state, game.state);
@@ -117,9 +118,12 @@ fn departure_revalidates_pending_priority_casts_without_losing_the_journal() {
             assert_eq!(game.state, uninterrupted.state);
             assert_eq!(game.trace(), uninterrupted.trace());
             recover(&game);
-            let replay =
-                Game::replay_with_trace(game.prepared.clone(), &game.replay_journal(), mode)
-                    .unwrap();
+            let replay = Game::replay_with_trace(
+                game.prepared.as_ref().clone(),
+                &game.replay_journal(),
+                mode,
+            )
+            .unwrap();
             assert_eq!(game.state, replay.state);
             assert_eq!(game.trace(), replay.trace());
         }
@@ -170,7 +174,8 @@ fn queued_departures_finish_before_empty_stack_phase_advancement() {
         assert_eq!(game.trace(), uninterrupted.trace());
         recover(&game);
         let replay =
-            Game::replay_with_trace(game.prepared.clone(), &game.replay_journal(), mode).unwrap();
+            Game::replay_with_trace(game.prepared.as_ref().clone(), &game.replay_journal(), mode)
+                .unwrap();
         assert_eq!(game.state, replay.state);
         assert_eq!(game.trace(), replay.trace());
     }
@@ -233,7 +238,8 @@ fn queued_departures_finish_before_resolution_target_legality_is_captured() {
         }
         recover(&game);
         let replay =
-            Game::replay_with_trace(game.prepared.clone(), &game.replay_journal(), mode).unwrap();
+            Game::replay_with_trace(game.prepared.as_ref().clone(), &game.replay_journal(), mode)
+                .unwrap();
         assert_eq!(game.state, replay.state);
         assert_eq!(game.trace(), replay.trace());
     }
@@ -415,7 +421,7 @@ fn target_departure_reverses_unfinished_cast_without_spending_mana() {
                 .any(|e| matches!(e, Event::SpellCast { .. }))
         );
         assert_eq!(
-            Game::replay(game.prepared.clone(), &game.replay_journal())
+            Game::replay(game.prepared.as_ref().clone(), &game.replay_journal())
                 .unwrap()
                 .state,
             game.state
@@ -571,7 +577,7 @@ fn queued_concessions_invalidate_queries_and_receipts_and_end_at_one_survivor() 
     assert!(game.concede(PlayerId(3)).is_err());
     assert_eq!(game.live_players(), vec![PlayerId(3)]);
     assert_eq!(
-        Game::replay(game.prepared.clone(), &game.replay_journal())
+        Game::replay(game.prepared.as_ref().clone(), &game.replay_journal())
             .unwrap()
             .state,
         game.state
@@ -581,11 +587,13 @@ fn queued_concessions_invalidate_queries_and_receipts_and_end_at_one_survivor() 
     // Same boundary/input-index arrivals can be ordered differently, but cannot
     // reproduce the retained snapshot/event ordering.
     assert_ne!(
-        Game::replay(game.prepared.clone(), &journal).unwrap().state,
+        Game::replay(game.prepared.as_ref().clone(), &journal)
+            .unwrap()
+            .state,
         game.state
     );
     journal.concessions[0].boundary = 99;
-    assert!(Game::replay(game.prepared.clone(), &journal).is_err());
+    assert!(Game::replay(game.prepared.as_ref().clone(), &journal).is_err());
 }
 #[test]
 fn physical_commander_designation_and_exact_history_survive_departure() {
@@ -757,7 +765,13 @@ fn commander_and_departure_metadata_cannot_be_forged_in_rehashed_snapshots() {
             }
         };
         snapshot.state_sha256 = digest(&snapshot.state).unwrap();
-        assert!(Game::restore(game.prepared.clone(), &canonical(&snapshot).unwrap()).is_err());
+        assert!(
+            Game::restore(
+                game.prepared.as_ref().clone(),
+                &canonical(&snapshot).unwrap()
+            )
+            .is_err()
+        );
     }
     let mut ledger = Game::new(prepared(true)).commander_ledger().clone();
     ledger

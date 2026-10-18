@@ -356,7 +356,7 @@ fn reconstruction_budget_forks_restore_and_complete_accounting_are_strict() {
         sampled.state_digest().unwrap(),
         restored.state_digest().unwrap()
     );
-    assert!(Game::restore(game.prepared.clone(), &json).is_err());
+    assert!(Game::restore(game.prepared.as_ref().clone(), &json).is_err());
     let mut oversized_snapshot: serde_json::Value = serde_json::from_str(&json).unwrap();
     oversized_snapshot["proposal"]["seats"][1]["ordered_library"][0]["symbol"] =
         "x".repeat(129).into();

@@ -10,7 +10,7 @@ fn game(config: ScenarioConfig) -> Game {
     Game::new(Prepared::admit(catalog(), config).unwrap())
 }
 fn recover(g: &Game) {
-    let restored = Game::restore(g.prepared.clone(), &g.snapshot().unwrap()).unwrap();
+    let restored = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
     assert_eq!(restored.state, g.state);
     assert_eq!(restored.trace, g.trace);
 }
@@ -382,7 +382,9 @@ fn commander_metadata_and_continuations_cannot_be_forged() {
             }
         };
         snapshot.state_sha256 = digest(&snapshot.state).unwrap();
-        assert!(Game::restore(g.prepared.clone(), &canonical(&snapshot).unwrap()).is_err());
+        assert!(
+            Game::restore(g.prepared.as_ref().clone(), &canonical(&snapshot).unwrap()).is_err()
+        );
     }
 }
 
@@ -403,7 +405,7 @@ fn commander_choice_validation_sidecar_recovers_and_choice_invalidates_work() {
     };
     let saved = g.save_work(&work).unwrap();
     let before = g.snapshot().unwrap();
-    let mut restored = Game::restore(g.prepared.clone(), &before).unwrap();
+    let mut restored = Game::restore(g.prepared.as_ref().clone(), &before).unwrap();
     let recovered_work = restored.restore_work(&saved).unwrap();
     let mut result = restored.resume_work(recovered_work, Budget::new(1));
     let receipt = loop {

@@ -387,7 +387,7 @@ fn context_with_prefix_recovery(g: &Game) -> SearchContext {
     else {
         panic!()
     };
-    let restored = Game::restore(g.prepared.clone(), &g.snapshot().unwrap()).unwrap();
+    let restored = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
     let mut result = restored.search_context(PlayerId(0), "fixed-seed".into(), Budget::new(0));
     let mut steps = 0;
     loop {
@@ -446,7 +446,7 @@ fn natural_effect_context_and_modal_observation_recover_every_work_prefix() {
         Advance::AwaitingDecision(Request::Modes { .. })
     ));
     let before = g.state_digest().unwrap();
-    let restored = Game::restore(g.prepared.clone(), &g.snapshot().unwrap()).unwrap();
+    let restored = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
     let mut result = restored.observe(PlayerId(0), Budget::new(0));
     let observed = loop {
         result = match result {

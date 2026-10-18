@@ -85,8 +85,9 @@ fn counter(target: StackId, domain: TargetDomain) -> ProposedEvent {
     }
 }
 fn recover(game: &Game) {
-    let restored = Game::restore(game.prepared.clone(), &game.snapshot().unwrap()).unwrap();
-    let replayed = Game::replay(game.prepared.clone(), &game.replay_journal()).unwrap();
+    let restored =
+        Game::restore(game.prepared.as_ref().clone(), &game.snapshot().unwrap()).unwrap();
+    let replayed = Game::replay(game.prepared.as_ref().clone(), &game.replay_journal()).unwrap();
     assert_eq!(
         restored.state_digest().unwrap(),
         game.state_digest().unwrap()
@@ -395,7 +396,11 @@ fn rehashed_stack_bindings_and_activation_origin_cannot_forge_reachable_snapshot
         }
         snapshot.state_sha256 = digest(&snapshot.state).unwrap();
         assert!(
-            Game::restore(game.prepared.clone(), &canonical(&snapshot).unwrap()).is_err(),
+            Game::restore(
+                game.prepared.as_ref().clone(),
+                &canonical(&snapshot).unwrap()
+            )
+            .is_err(),
             "mutation {mutation}"
         );
     }
@@ -407,7 +412,13 @@ fn rehashed_stack_bindings_and_activation_origin_cannot_forge_reachable_snapshot
         cast.origin = stack_costs::AnnouncementOrigin::Spell;
     }
     snapshot.state_sha256 = digest(&snapshot.state).unwrap();
-    assert!(Game::restore(game.prepared.clone(), &canonical(&snapshot).unwrap()).is_err());
+    assert!(
+        Game::restore(
+            game.prepared.as_ref().clone(),
+            &canonical(&snapshot).unwrap()
+        )
+        .is_err()
+    );
 }
 
 #[test]

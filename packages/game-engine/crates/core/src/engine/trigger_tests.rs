@@ -63,8 +63,8 @@ fn visionary_placement() -> Game {
     g
 }
 fn recover(g: &Game) {
-    let restored = Game::restore(g.prepared.clone(), &g.snapshot().unwrap()).unwrap();
-    let replayed = Game::replay(g.prepared.clone(), &g.replay_journal()).unwrap();
+    let restored = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
+    let replayed = Game::replay(g.prepared.as_ref().clone(), &g.replay_journal()).unwrap();
     assert_eq!(restored.state, g.state);
     assert_eq!(replayed.state, g.state);
     assert_eq!(restored.trace(), g.trace());
@@ -259,7 +259,7 @@ fn natural_pending_trigger_snapshots_reject_rehashed_provenance_forgeries() {
         let mut saved: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
         saved.state = serde_json::from_value(value).unwrap();
         saved.state_sha256 = digest(&saved.state).unwrap();
-        assert!(Game::restore(g.prepared.clone(), &canonical(&saved).unwrap()).is_err());
+        assert!(Game::restore(g.prepared.as_ref().clone(), &canonical(&saved).unwrap()).is_err());
     }
 }
 

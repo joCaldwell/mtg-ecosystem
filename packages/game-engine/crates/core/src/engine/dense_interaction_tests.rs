@@ -444,8 +444,8 @@ fn state_oracle(g: &Game) -> String {
     state_oracle_raw(&g.state)
 }
 fn recover(g: &Game) {
-    let restored = Game::restore(g.prepared.clone(), &g.snapshot().unwrap()).unwrap();
-    let replayed = Game::replay(g.prepared.clone(), &g.replay_journal()).unwrap();
+    let restored = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
+    let replayed = Game::replay(g.prepared.as_ref().clone(), &g.replay_journal()).unwrap();
     assert_eq!(restored.state, g.state);
     assert_eq!(state_oracle(&restored), state_oracle(g));
     assert_eq!(replayed.state, g.state);
@@ -1992,7 +1992,7 @@ fn combat_row(timed: bool, quantum: u64) -> serde_json::Value {
     recover(&g);
     // The scenario group's actual16-leaf bound stays intact. Independent
     // individually-valid moves exceed it at17 and leave all State/trace bytes.
-    let mut too_many = Game::with_trace(g.prepared.clone(), TraceMode::Detailed);
+    let mut too_many = Game::with_trace(g.prepared.as_ref().clone(), TraceMode::Detailed);
     let before = too_many.state.clone();
     let trace = too_many.trace().clone();
     let group = EventGroup::Simultaneous {

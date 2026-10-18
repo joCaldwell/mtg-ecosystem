@@ -361,12 +361,13 @@ fn prove(spec: &FixtureSpec, mode: TraceMode) -> KernelProof {
     }
     for current in [&game, &reference] {
         let snapshot = current.snapshot().unwrap();
-        let restored = Game::restore(current.prepared.clone(), &snapshot).unwrap();
+        let restored = Game::restore(current.prepared.as_ref().clone(), &snapshot).unwrap();
         assert_eq!(
             restored.state, current.state,
             "normal snapshot restore from actual private fixture history"
         );
-        let replayed = Game::replay(current.prepared.clone(), &current.replay_journal()).unwrap();
+        let replayed =
+            Game::replay(current.prepared.as_ref().clone(), &current.replay_journal()).unwrap();
         assert_eq!(replayed.state, current.state, "full accepted-input replay");
     }
     KernelProof {
@@ -794,7 +795,10 @@ mod diagnostic {
             domain.state.next_effect_id = count as u64;
             // These rows deliberately have no invocation history. Even the
             // below-capacity seeded row is domain-only, never a legal restore.
-            let restore = Game::restore(domain.prepared.clone(), &domain.snapshot().unwrap());
+            let restore = Game::restore(
+                domain.prepared.as_ref().clone(),
+                &domain.snapshot().unwrap(),
+            );
             assert_eq!(restore.is_err(), count != 0);
             let mut synthetic_config = domain.prepared.config.clone();
             synthetic_config.profile = format!("synthetic-evaluator-only-{count}");

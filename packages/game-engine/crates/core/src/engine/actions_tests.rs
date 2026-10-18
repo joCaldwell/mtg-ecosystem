@@ -22,7 +22,7 @@ fn answer(g: &mut Game, response: Response) {
         .unwrap();
 }
 fn recover(g: &Game) {
-    let restored = Game::restore(g.prepared.clone(), &g.snapshot().unwrap()).unwrap();
+    let restored = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
     assert_eq!(restored.state_digest().unwrap(), g.state_digest().unwrap());
     assert_eq!(
         digest(restored.trace()).unwrap(),
@@ -316,7 +316,7 @@ fn resolution_choice_query_sidecar_recovers_and_does_not_authorize_foreign_forks
         panic!("suspended query")
     };
     let saved = g.save_work(&work).unwrap();
-    let restored = Game::restore(g.prepared.clone(), &g.snapshot().unwrap()).unwrap();
+    let restored = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
     let recovered = restored.restore_work(&saved).unwrap();
     let mut result = restored.resume_work(recovered, Budget::new(1));
     let receipt = loop {
@@ -360,7 +360,9 @@ fn rehashed_ability_and_resolution_metadata_cannot_forge_recovery() {
             }
         }
         snapshot.state_sha256 = digest(&snapshot.state).unwrap();
-        assert!(Game::restore(g.prepared.clone(), &canonical(&snapshot).unwrap()).is_err());
+        assert!(
+            Game::restore(g.prepared.as_ref().clone(), &canonical(&snapshot).unwrap()).is_err()
+        );
     }
     pass_round(&mut g);
     let mut snapshot: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
@@ -368,5 +370,5 @@ fn rehashed_ability_and_resolution_metadata_cannot_forge_recovery() {
         frame.cursor = 0;
     }
     snapshot.state_sha256 = digest(&snapshot.state).unwrap();
-    assert!(Game::restore(g.prepared.clone(), &canonical(&snapshot).unwrap()).is_err());
+    assert!(Game::restore(g.prepared.as_ref().clone(), &canonical(&snapshot).unwrap()).is_err());
 }

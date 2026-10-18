@@ -9,7 +9,8 @@ fn prepared() -> Prepared {
 }
 
 fn recover(game: &Game) {
-    let restored = Game::restore(game.prepared.clone(), &game.snapshot().unwrap()).unwrap();
+    let restored =
+        Game::restore(game.prepared.as_ref().clone(), &game.snapshot().unwrap()).unwrap();
     assert_eq!(restored.state, game.state);
     assert_eq!(restored.trace, game.trace);
 }

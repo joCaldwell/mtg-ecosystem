@@ -1829,3 +1829,10 @@ review passes. Its exact source, core executable and evidence are retained in
 (261 files, 77,008,568 bytes). Large query-proof Values, complete SavedWork
 Strings and internally tagged decode buffering remain separately tracked;
 no memory-fit or end-to-end acceptance is inferred.
+
+
+The Prepared-sharing component is now installed in the engine worktree. A full
+`cargo check --workspace --locked --all-targets` also passes, including compiler,
+simulator and server consumers; its frozen 202 native inputs and four retained
+release executables remain unchanged. This supplements the component correctness
+results above and makes no performance or complete-release claim.

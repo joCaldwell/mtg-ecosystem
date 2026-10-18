@@ -252,6 +252,8 @@ mod payment_query_tests;
 #[cfg(test)]
 mod payment_tests;
 #[cfg(test)]
+mod prepared_sharing_tests;
+#[cfg(test)]
 mod stack_tests;
 
 macro_rules! id {
@@ -1479,7 +1481,8 @@ struct State {
     next_event_sequence: u64,
 }
 pub struct Game {
-    prepared: Prepared,
+    // Admitted metadata is immutable for this executor and all staged forks.
+    prepared: Arc<Prepared>,
     state: State,
     trace: TraceEvidence,
     executor: Arc<()>,
@@ -1611,7 +1614,7 @@ impl Game {
             next_event_sequence: 0,
         };
         let mut game = Self {
-            prepared,
+            prepared: Arc::new(prepared),
             state,
             trace: Self::initial_trace(),
             executor: Arc::new(()),
@@ -2497,7 +2500,7 @@ impl Game {
             return Err("snapshot version/build/catalog/profile/hash mismatch".into());
         }
         let game = Self {
-            prepared,
+            prepared: Arc::new(prepared),
             state: s.state,
             trace: s.trace,
             executor: Arc::new(()),
@@ -2508,7 +2511,8 @@ impl Game {
     }
     pub fn restore(prepared: Prepared, json: &str) -> Result<Self, String> {
         let (game, digest) = Self::read_snapshot(prepared, json)?;
-        SnapshotVerifier::new(game.prepared.clone(), game.trace.mode).verify_game(game, digest)
+        SnapshotVerifier::new(game.prepared.as_ref().clone(), game.trace.mode)
+            .verify_game(game, digest)
     }
     fn validate_state(&self) -> Result<(), String> {
         self.validate_match_state()?;

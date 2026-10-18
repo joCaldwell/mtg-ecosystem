@@ -40,8 +40,8 @@ fn leaf(proposed: ProposedEvent) -> EventGroup {
     EventGroup::Occurrence { proposed }
 }
 fn recover(g: &Game) {
-    let restored = Game::restore(g.prepared.clone(), &g.snapshot().unwrap()).unwrap();
-    let replayed = Game::replay(g.prepared.clone(), &g.replay_journal()).unwrap();
+    let restored = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
+    let replayed = Game::replay(g.prepared.as_ref().clone(), &g.replay_journal()).unwrap();
     assert_eq!(restored.state_digest().unwrap(), g.state_digest().unwrap());
     assert_eq!(replayed.state_digest().unwrap(), g.state_digest().unwrap());
     assert_eq!(restored.trace(), g.trace());
@@ -448,7 +448,13 @@ fn detached_paid_damage_uses_exact_last_known_facts_and_rejects_rehashed_forgery
             _ => source.object.incarnation = 90,
         };
         saved.state_sha256 = digest(&saved.state).unwrap();
-        assert!(Game::restore(initial.prepared.clone(), &canonical(&saved).unwrap()).is_err());
+        assert!(
+            Game::restore(
+                initial.prepared.as_ref().clone(),
+                &canonical(&saved).unwrap()
+            )
+            .is_err()
+        );
     }
     let mut g = initial.fork();
     for _ in 0..4 {

@@ -89,7 +89,7 @@ fn empty_library_requires_attempt_and_loss_preserves_surviving_turn_order() {
 #[test]
 fn zero_toughness_and_lethal_damage_are_distinct_typed_state_based_moves() {
     let mut g = game();
-    Arc::make_mut(&mut g.prepared.catalog)
+    Arc::make_mut(&mut Arc::make_mut(&mut g.prepared).catalog)
         .definitions
         .iter_mut()
         .find(|d| d.oracle_id == BEARS)
@@ -320,7 +320,7 @@ fn zero_power_has_no_positive_damage_occurrence_and_empty_attack_skips_damage() 
         }
     )));
     let mut g = game();
-    Arc::make_mut(&mut g.prepared.catalog)
+    Arc::make_mut(&mut Arc::make_mut(&mut g.prepared).catalog)
         .definitions
         .iter_mut()
         .find(|d| d.oracle_id == BEARS)
@@ -441,7 +441,7 @@ fn last_unpassed_departure_during_stabilization_advances_without_redundant_pass(
             required_minimum: 1
         }
     );
-    let restored = Game::restore(g.prepared.clone(), &g.snapshot().unwrap()).unwrap();
+    let restored = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
     assert_eq!(restored.state, g.state);
     let Advance::AwaitingDecision(Request::Priority {
         player: PlayerId(0),
