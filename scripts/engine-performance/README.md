@@ -108,7 +108,7 @@ and independent RSS, swap-zero and one-CPU guards through audit and cleanup.
 The definition workload retains all 48 rows for synthetic payload counts
 0/8/64/256 and four source-backed interaction controls. The shrinking-choice
 workload retains all 105 attack/Edict cells, one warmup and five repetitions
-(630 measured-driver executions), plus every declared native reference and
-budget/replay oracle. Synthetic payloads are not authentic card definitions;
+(630 total cell executions: 105 warmup and 525 measured), plus every declared
+native reference and budget/replay oracle. Synthetic payloads are not authentic card definitions;
 a partial matrix produces no complete-work throughput claim. Current actual
 results and remaining resource gaps are in `docs/game-engine-performance.md`.
