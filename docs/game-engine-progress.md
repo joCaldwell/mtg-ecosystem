@@ -1985,3 +1985,45 @@ new producer/status. Then complete independent functional audit, fresh offline
 retention and archive audits before unchanged workload measurements and all
 sixty primary search jobs plus sixty independent replays. No new pool, parser
 edit, budget change or background workload is part of this checkpoint.
+
+### History capacity/equality candidate — October 18 verified pause
+
+The fresh attempt-3 verification now passes for release Build
+`a742650f4d4cfadbec67480901732880e29095a053ff5bd07f3e2b7975df06c3`:
+630 Rust debug tests plus 45 Node checks, 630 Rust release tests, and 40 SDK
+tests with strict TypeScript. Twelve ignored diagnostics remain excluded in each
+Rust mode. Formatting, Clippy, all eight new focused tests, fourteen existing
+focused simulator tests, five normal vectors and the separate allocator control
+also pass. The independent functional audit SHA-256 is
+`394de68c9df992d14f1e1e23a2f77c89dbc3c95a9bc255071688c944af66bb14`.
+All 220 native source inputs stayed exact. The normalized compiled-identity
+receipt SHA-256 is
+`3a3de2bf92012b5f711f36a177e2c16cd6089aed5c41a1fdcfd5fa4bca02f4ff`.
+
+The host toolchain changed globally during the pause. Verification used the
+original pinned Rust 1.99.0 and Node 26.11.1 binaries restored privately from
+signature-verified cached packages, without changing the global installation.
+The first independent audit rejected an expected npm compile-cache directory;
+its failure remains preserved. The corrected, independently reviewed auditor
+permits only the exact 93 hashed cache files and rejects unknown residue. The
+original functional logs and status were unchanged.
+
+Josh requested another night checkpoint during fresh offline retention. The
+reviewed supervisor received SIGTERM, reaped its child and emptied its owned
+process group; the supervisor and group were independently checked absent.
+The raw retention status remains `failed_preserved_no_retry` with cancellation,
+and its logs and partial external store remain preserved. This candidate has
+no fresh-retention or performance acceptance yet. Passed historical baseline
+measurements do not transfer to the new Build. All existing subagents are idle.
+
+The private pause receipt is
+`generated/final-engine-verification/night-pause-20261018-v2/pause.json`, SHA-256
+`9b5d97e4cce88ffc9962690d94f2a9df5e4acd767e70f67a028bd0c162bf4448`.
+Resume instructions and reviewed adapter locators are in
+`generated/final-engine-verification/active-continuation-v23.json`. Preserve
+the cancelled run; use fresh retention output and evidence directories after
+the existing guards and independent preflight. Then complete retention and
+archive audits before the unchanged full workload measurements and all sixty
+primary search jobs plus sixty independent replays. Keep the existing budgets
+and parser coordination requirements. No engine or parser source changed in
+this checkpoint.
