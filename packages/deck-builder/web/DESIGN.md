@@ -78,7 +78,7 @@ or about this app.
 | --- | --- | --- |
 | `Button` | Any action | `default` `ghost` `primary` `accept` `reject` `agent`; `sm` `md`; `kbd` hint |
 | `IconButton` | An action with only an icon; `label` is required | `sm` `md` |
-| `Icon` | The 14 line icons (inbox, decks, memories, activity, profile, settings, back, close, check, plus, chevronDown, undo, search, more) | `size` |
+| `Icon` | The 15 line icons (inbox, decks, memories, activity, profile, settings, back, close, check, plus, chevronDown, undo, redo, search, more) | `size` |
 | `Kbd` | A key cap | |
 | `Chip` | A small tag or filter; a button when given `onClick` | tone `neutral` `agent` `warn` `add` `cut`; `dashed` for unconfirmed |
 | `Badge` | A count pill | `neutral` `agent` `warn` |
@@ -122,6 +122,13 @@ The playtester deliberately uses larger rules text (`--text-rules`, 15px,
 `mtg/table` contains text cards, zone containers, player summaries and card
 inspection with host-supplied contextual tools. Full, compact, hidden, selected,
 tapped, targeted and disabled observations are shown at `#/design`.
+
+The table surface (`--table-bg`) is a step darker than the app's panels so
+cards lift off it. Battlefield cards end in one line: fact chips (token,
+counters, attachments) and a power/toughness box on the left, state and the tap
+control on the right. A manual power/toughness box is dashed and says
+"Manual". Tapped cards are dashed and quieter, never rotated; untapped cards
+carry no label.
 
 The battlefield uses three rows separated by simple rules. It has no visible
 Battlefield heading, row headings or row counts. Hand and off-table zone counts

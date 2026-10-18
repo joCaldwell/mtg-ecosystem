@@ -1,9 +1,9 @@
 import type { PlaytestAction, PlaytestView } from "../../api/client.ts";
-import { Button, Menu } from "../../ui/index.ts";
+import { Button, Dot, Icon, IconButton, Menu } from "../../ui/index.ts";
 import styles from "./SessionControls.module.css";
 
 export function SessionControls({
-  view, busy, status, onAction, onDrawSeveral, onCreateToken, onRestart, onObservation,
+  view, busy, status, onAction, onDrawSeveral, onCreateToken, onRandomNumber, onRestart, onObservation,
 }: {
   view: PlaytestView;
   busy: boolean;
@@ -11,36 +11,48 @@ export function SessionControls({
   onAction: (action: PlaytestAction) => void;
   onDrawSeveral: () => void;
   onCreateToken: () => void;
+  onRandomNumber: () => void;
   onRestart: () => void;
   onObservation: () => void;
 }) {
   const playing = view.session.frame.opening.stage === "playing";
+  const saving = busy || status === "saving";
   return (
     <section className={styles.controls} aria-label="Session controls">
-      <div className={styles.heading}>
-        <span>Session</span>
-        <span role="status">{busy || status === "saving" ? "Saving…" : status === "failed" ? "Save failed" : "Saved"}</span>
-      </div>
-      <div className={styles.primary}>
-        <Button variant="primary" kbd="D" disabled={!playing || busy || !view.computed.counts.library}
-          onClick={() => onAction({ type: "draw", count: 1 })}>Draw</Button>
-        <Button kbd="N" disabled={!playing || busy} title="Untap and advance the turn; draw separately"
-          onClick={() => onAction({ type: "next-turn" })}>Next turn</Button>
-      </div>
-      <div className={styles.secondary}>
-        <Button size="sm" variant="ghost" disabled={busy || !view.computed.can_undo}
-          title="Undo (Z)" onClick={() => onAction({ type: "undo" })}>Undo</Button>
-        <Button size="sm" variant="ghost" disabled={busy || !view.computed.can_redo}
-          title="Redo (Shift+Z)" onClick={() => onAction({ type: "redo" })}>Redo</Button>
-        <Menu label="More" size="sm" variant="ghost" align="end" items={[
+      {/* Turn actions appear once a hand is kept; until then the opening prompt leads. */}
+      {playing && (
+        <>
+          <div className={styles.group}>
+            <Button variant="primary" kbd="D" disabled={busy || !view.computed.counts.library}
+              onClick={() => onAction({ type: "draw", count: 1 })}>Draw</Button>
+            <Button kbd="N" disabled={busy} title="Untap and advance the turn; draw separately"
+              onClick={() => onAction({ type: "next-turn" })}>Next turn</Button>
+          </div>
+          <div className={styles.group}>
+            <Button variant="ghost" kbd="U" disabled={busy}
+              onClick={() => onAction({ type: "untap-all" })}>Untap all</Button>
+            <Button variant="ghost" kbd="S" disabled={busy}
+              onClick={() => onAction({ type: "shuffle" })}>Shuffle</Button>
+          </div>
+        </>
+      )}
+      <div className={styles.group}>
+        <IconButton label="Undo (Z)" disabled={busy || !view.computed.can_undo}
+          onClick={() => onAction({ type: "undo" })}><Icon name="undo" /></IconButton>
+        <IconButton label="Redo (Shift+Z)" disabled={busy || !view.computed.can_redo}
+          onClick={() => onAction({ type: "redo" })}><Icon name="redo" /></IconButton>
+        <Menu label="More" variant="ghost" align="end" items={[
           { id: "draw", label: "Draw several…", disabled: !playing || busy || !view.computed.counts.library, onSelect: onDrawSeveral },
-          { id: "shuffle", label: "Shuffle library", disabled: !playing || busy, onSelect: () => onAction({ type: "shuffle" }) },
-          { id: "untap", label: "Untap all", disabled: !playing || busy, onSelect: () => onAction({ type: "untap-all" }) },
           { id: "token", label: "Create token", disabled: !playing || busy, onSelect: onCreateToken },
+          { id: "random", label: "Random number…", onSelect: onRandomNumber },
           { id: "observation", label: "Deck observation", onSelect: onObservation },
-          { id: "restart", label: "New opening test", disabled: busy, onSelect: onRestart },
+          { id: "restart", label: "New game…", disabled: busy, onSelect: onRestart },
         ]} />
       </div>
+      <span className={styles.status} role="status" data-state={saving ? "saving" : status}>
+        <Dot tone={status === "failed" && !saving ? "cut" : "neutral"} pulse={saving} />
+        {saving ? "Saving…" : status === "failed" ? "Save failed" : "Saved"}
+      </span>
     </section>
   );
 }

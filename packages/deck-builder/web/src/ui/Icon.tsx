@@ -15,6 +15,7 @@ const PATHS = {
   plus: "M8 3v10 M3 8h10",
   chevronDown: "M4 6l4 4 4-4",
   undo: "M5.5 3.5l-3 3 3 3 M2.5 6.5H9a4 4 0 010 8H6",
+  redo: "M10.5 3.5l3 3-3 3 M13.5 6.5H7a4 4 0 000 8h3",
   search: "M7 12a5 5 0 100-10 5 5 0 000 10z M11 11l3 3",
   // Three dots: zero-length segments with round caps, drawn thicker so they read.
   more: "M3.5 8h.01 M8 8h.01 M12.5 8h.01",

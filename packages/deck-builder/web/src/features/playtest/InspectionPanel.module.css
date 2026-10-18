@@ -8,7 +8,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--s-6);
-  padding: var(--s-6);
+  padding: var(--s-6) var(--s-6) var(--s-7);
   min-height: 0;
   overflow: auto;
 }
@@ -16,11 +16,15 @@
   flex-shrink: 0;
 }
 .body h2 {
-  font-size: var(--text-xl);
+  font-size: var(--text-lg);
+  font-weight: 650;
 }
 .body h3 {
-  font-size: var(--text-md);
+  color: var(--muted);
+  font-size: var(--text-xs);
   font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 .body summary {
   color: var(--muted);
@@ -72,4 +76,26 @@
 }
 .memory small {
   color: var(--muted);
+}
+.checks {
+  margin-top: var(--s-4);
+}
+.findings {
+  display: grid;
+  gap: var(--s-4);
+  margin: var(--s-5) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+  line-height: var(--leading-prose);
+  color: var(--muted);
+}
+.findings li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-4);
+}
+.findings strong {
+  color: var(--text-soft);
+  font-weight: 600;
 }

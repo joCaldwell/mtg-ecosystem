@@ -108,7 +108,7 @@ const RADII = ["--r-sm", "--r-md", "--r-lg", "--r-xl", "--r-pill"] as const;
 
 const ICONS: IconName[] = [
   "inbox", "decks", "memories", "activity", "profile", "settings", "back",
-  "close", "check", "plus", "chevronDown", "undo", "search", "more",
+  "close", "check", "plus", "chevronDown", "undo", "redo", "search", "more",
 ];
 
 type Tone = "neutral" | "agent" | "warn" | "add" | "cut";

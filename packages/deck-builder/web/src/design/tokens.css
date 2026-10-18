@@ -130,23 +130,28 @@
 /* Approved playtester extensions: rules remain readable at desktop 100% zoom. */
 :root {
   --text-rules: 15px;
-  --text-playtest-setup: 24px;
+  --text-random-result: 32px;
+  --text-hud: 18px;
   --leading-rules: 1.6;
-  --rules-measure: 60ch;
+  /* Table surface: a touch darker than the app's panels so cards lift off it. */
+  --table-bg: #0a0b0d;
   --text-card-w: 264px;
-  --compact-card-w: 248px;
-  --compact-card-min-h: 114px;
-  --tap-control-size: 44px;
-  --tap-control-icon-size: 24px;
-  --inspection-w: 432px;
-  --battlefield-row-min: 148px;
+  --compact-card-w: 208px;
+  --compact-card-min-h: 88px;
+  --tap-control-size: 28px;
+  --tap-control-icon-size: 16px;
+  --inspection-w: 400px;
+  /* The panel never takes more than this share of a narrow window. */
+  --inspection-share: 34vw;
+  --battlefield-row-min: 104px;
   --zone-header-h: 36px;
-  --empty-row-h: 92px;
-  --playtest-table-min: 1500px;
-  --playtest-hand-min: 270px;
-  --playtest-preview-w: 410px;
-  --playtest-drawer-h: 58%;
-  --playtest-opening-board: 130px;
+  --empty-row-h: 64px;
+  --playtest-hand-min: 220px;
+  --playtest-hand-max: 46dvh;
+  --playtest-preview-w: 380px;
+  --playtest-drawer-h: 72%;
+  --playtest-number-w: 64px;
+  --hand-card-min-w: 196px;
+  --hand-card-max-w: 300px;
+  --playtest-stacked-table-h: 86dvh;
 }
-
-:root { --playtest-number-w: 56px; --playtest-drawer-top: 62px; --hand-card-min-w: 228px; --hand-card-max-w: 320px; }

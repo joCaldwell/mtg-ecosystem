@@ -17,6 +17,7 @@ import { CardInspection, RichText } from "../../mtg/index.ts";
 import {
   Button,
   CounterControl,
+  Dot,
   MultiSelect,
   Select,
   TextArea,
@@ -134,7 +135,11 @@ export function InspectionPanel({
         {card && object ? (
           <CardInspection
             observation={observeObject(c.view!, object.id)}
-            context={`${ZONE_LABELS[objectZone(c.view!, object.id)!]} · ${object.role}${object.token ? " · token copy" : ""}`}
+            context={[
+              ZONE_LABELS[objectZone(c.view!, object.id)!],
+              object.role === "card" ? null : object.role,
+              object.token ? "token copy" : null,
+            ].filter(Boolean).join(" · ")}
           >
             {card.faces.length > 1 && (
               <label>
@@ -173,26 +178,27 @@ export function InspectionPanel({
         ) : (
           <section>
             <h2>{s.deck_name}</h2>
-            <p className={styles.muted}>
-              Testing r{s.deck_revision}. Memories and tags are saved to the
-              deck; game undo affects only the table.
-            </p>
-            <details>
+            <details className={styles.checks}>
               <summary>
-                Current deck checks r{deck.deck.revision} · {deck.checks.length}{" "}
-                findings
+                Deck checks · {deck.checks.length}{" "}
+                {deck.checks.length === 1 ? "finding" : "findings"}
               </summary>
-              {deck.checks.map((finding, i) => (
-                <p key={i}>
-                  {finding.title}: {finding.detail}
-                </p>
-              ))}
-              {!deck.checks.length && (
-                <p>
-                  Deck checks are clear. Manual play is not a rules or legality
-                  check.
-                </p>
-              )}
+              <ul className={styles.findings}>
+                {deck.checks.map((finding) => (
+                  <li key={finding.key}>
+                    <Dot tone={finding.severity === "error" ? "cut" : "warn"} />
+                    <span>
+                      <strong>{finding.title}</strong> {finding.detail}
+                    </span>
+                  </li>
+                ))}
+                {!deck.checks.length && (
+                  <li>
+                    <Dot tone="add" />
+                    <span>Deck checks are clear.</span>
+                  </li>
+                )}
+              </ul>
             </details>
           </section>
         )}
@@ -241,8 +247,7 @@ export function InspectionPanel({
             ))}
             <p className={styles.muted}>
               Printed {faceOf(card, object.face).power ?? "—"}/
-              {faceOf(card, object.face).toughness ?? "—"}. Manual values do not
-              evaluate continuous effects.
+              {faceOf(card, object.face).toughness ?? "—"}
             </p>
             <div className={styles.row}>
               <TextField

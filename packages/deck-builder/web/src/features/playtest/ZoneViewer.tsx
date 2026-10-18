@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { Zone } from "../../api/client.ts";
 import { ZONE_LABELS } from "../../domain/table.ts";
 import { ManaCost } from "../../mtg/index.ts";
-import { Button, Select, TextField } from "../../ui/index.ts";
+import { Button, Icon, IconButton, Select, TextField } from "../../ui/index.ts";
 import type { PlaytestController } from "./usePlaytest.ts";
 import styles from "./ZoneViewer.module.css";
 export function ZoneViewer({
@@ -49,7 +49,7 @@ export function ZoneViewer({
     >
       <header className={styles.header}>
         <h2>
-          {ZONE_LABELS[zone]} · {order.length}
+          {ZONE_LABELS[zone]} <span className={styles.mono}>{order.length}</span>
         </h2>
         {zone === "library" && (
           <>
@@ -83,9 +83,9 @@ export function ZoneViewer({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <Button size="sm" onClick={() => c.editUi({ viewer: null })}>
-          Close
-        </Button>
+        <IconButton label="Close viewer" onClick={() => c.editUi({ viewer: null })}>
+          <Icon name="close" />
+        </IconButton>
       </header>
       <div className={styles.list}>
         {visible.map((id) => {
@@ -166,18 +166,21 @@ export function ZoneViewer({
             </div>
           );
         })}
-        {!visible.length && <p>No cards match this view.</p>}
+        {!visible.length && (
+          <p className={styles.empty}>
+            {order.length ? "No cards match this view." : `${ZONE_LABELS[zone]} is empty.`}
+          </p>
+        )}
       </div>
       <footer className={styles.footer}>
-        <span>
-          {chosen.length} selected · library order is never sorted by search
-        </span>
+        <span className={styles.selectedCount}>{chosen.length} selected</span>
         <Button size="sm" onClick={() => setSelected(visible)}>
           Select visible
         </Button>
         <Button size="sm" onClick={() => setSelected([])}>
           Clear
         </Button>
+        <span className={styles.moveLabel}>Move to</span>
         {(
           [
             "hand",

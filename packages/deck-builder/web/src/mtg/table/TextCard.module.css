@@ -1,4 +1,5 @@
 .card {
+  --sym-size: 16px;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-lg);
   background: var(--raised);
@@ -7,21 +8,35 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--s-4);
+  gap: var(--s-3);
   color: var(--text);
   cursor: pointer;
+  transition: border-color var(--fast), background var(--fast), opacity var(--fast);
 }
 .card:hover {
-  border-color: var(--muted);
+  border-color: var(--faint);
   background: var(--hover);
+}
+.card:focus-visible {
+  outline: 2px solid var(--sel);
+  outline-offset: 2px;
 }
 .card[data-selected="true"] {
   border-color: var(--sel);
   background: var(--sel-bg);
+  box-shadow: inset 0 0 0 1px var(--sel);
 }
+/* Tapped reads as set aside: a dashed edge and quieter text, never rotated. */
 .card[data-tapped="true"] {
-  border-left-width: var(--s-2);
-  border-left-style: dashed;
+  border-style: dashed;
+  background: var(--surface);
+}
+.card[data-tapped="true"] > :not(footer) {
+  opacity: 0.6;
+}
+.card[data-tapped="true"]:hover > :not(footer),
+.card[data-tapped="true"][data-selected="true"] > :not(footer) {
+  opacity: 0.85;
 }
 .card[data-drop-side]::after {
   content: "";
@@ -41,10 +56,9 @@
 }
 .head {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--s-4);
-  flex-wrap: wrap;
 }
 .head strong {
   font-size: var(--text-lg);
@@ -52,14 +66,21 @@
   line-height: var(--leading);
   overflow-wrap: anywhere;
 }
+.head > :last-child {
+  flex: none;
+  margin-top: var(--s-1);
+}
 .type {
   font-size: var(--text-sm);
   color: var(--muted);
-  line-height: var(--leading-prose);
+  line-height: var(--leading);
 }
 .rules {
   --oracle-size: var(--text-rules);
   --oracle-leading: var(--leading-rules);
+  margin-top: var(--s-2);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
   font-size: var(--text-rules);
   line-height: var(--leading-rules);
   color: var(--text-soft);
@@ -67,19 +88,75 @@
 }
 .facts {
   display: flex;
-  gap: var(--s-3);
+  align-items: center;
+  gap: var(--s-2);
   flex-wrap: wrap;
-  font: var(--text-sm) / var(--leading-prose) var(--font-mono);
+}
+.chip,
+.stat {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--h-sm);
+  padding: 0 var(--s-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--bg);
   color: var(--text-soft);
+  font: var(--text-xs) / 1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.stat {
+  margin-left: auto;
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.manual {
+  font-weight: 500;
+  border-style: dashed;
+  border-color: var(--sel-line);
 }
 .full {
   width: var(--text-card-w);
   flex: 0 0 var(--text-card-w);
 }
+.full .facts {
+  margin-top: auto;
+  padding-top: var(--s-3);
+}
+/* Compact cards end in one line: facts on the left, state and tap on the right. */
 .compact {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto 1fr;
+  column-gap: var(--s-4);
   width: var(--compact-card-w);
   min-height: var(--compact-card-min-h);
   flex: 0 0 var(--compact-card-w);
+  padding: var(--s-4) var(--s-4) var(--s-4) var(--s-5);
+}
+.compact > .head,
+.compact > .type,
+.compact > small {
+  grid-column: 1 / -1;
+}
+.compact > .facts,
+.compact > .footer {
+  grid-row: 3;
+  align-self: end;
+}
+.compact > .facts {
+  grid-column: 1;
+}
+.compact > .footer {
+  grid-column: 2;
+}
+/* Battlefield cards keep one line of type so rows stay even; hover shows it all. */
+.compact .type {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .targeted {
   outline: var(--s-1) dashed var(--sel);
@@ -92,6 +169,8 @@
   color: var(--muted);
   cursor: default;
   width: var(--compact-card-w);
+  border-style: dashed;
+  background: var(--surface);
 }
 .footer {
   display: flex;
@@ -99,21 +178,10 @@
   justify-content: space-between;
   gap: var(--s-4);
   margin-top: auto;
-  padding-top: var(--s-3);
+  min-height: var(--tap-control-size);
   color: var(--muted);
   font-size: var(--text-xs);
 }
-/* Keep the large tap target from increasing compact cards' footer height. */
-.compact .footer:has([data-tap-control]) {
-  position: relative;
-  padding-top: 0;
-  padding-right: calc(var(--tap-control-size) - var(--s-5) + var(--s-3));
-}
-.compact .footer [data-tap-control] {
-  position: absolute;
-  right: calc(-1 * var(--s-5));
-  bottom: calc(-1 * var(--s-5));
-}
-.compact:has([data-tap-control]) .facts {
-  padding-right: var(--tap-control-size);
+.footer:empty {
+  display: none;
 }

@@ -1,44 +1,44 @@
 .page {
-  min-width: var(--playtest-table-min);
+  /* The panel follows the owner's chosen width but never crowds a small window. */
+  --panel-col: max(var(--panel-w-min), min(var(--inspection-w), var(--inspection-share)));
+  min-width: 0;
   min-height: 0;
   flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: var(--table-bg);
 }
+
+/* One bar: who and what is being tested, the game state, and the turn's actions. */
 .header {
   display: flex;
   align-items: center;
-  gap: var(--s-7);
-  padding: var(--s-6) var(--s-7);
+  flex-wrap: wrap;
+  gap: var(--s-5) var(--s-7);
+  padding: var(--s-4) var(--s-6);
   border-bottom: 1px solid var(--line);
   background: var(--surface);
   flex-shrink: 0;
 }
-.header > div:first-child {
-  margin-right: auto;
-  min-width: 0;
-}
-.titleRow {
+.identity {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: var(--s-4) var(--s-6);
-  margin-bottom: var(--s-2);
+  gap: var(--s-5);
+  min-width: 0;
+  margin-right: auto;
 }
 .deckLink {
   display: inline-flex;
+  flex: none;
   align-items: center;
-  flex-shrink: 0;
-  gap: var(--s-3);
-  height: var(--h-md);
-  padding: 0 var(--s-4);
+  justify-content: center;
+  width: var(--h-lg);
+  height: var(--h-lg);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-md);
   background: var(--raised);
-  color: var(--text-soft);
-  font-size: var(--text-sm);
-  white-space: nowrap;
+  color: var(--muted);
   transition: background var(--fast), border-color var(--fast), color var(--fast);
 }
 .deckLink:hover {
@@ -46,63 +46,205 @@
   border-color: var(--faint);
   color: var(--text);
 }
-.header h1 {
-  font-size: var(--text-xl);
-  font-weight: 650;
-  margin: 0;
-}
-.header h1 span,
-.header p {
-  color: var(--muted);
-}
-.header p {
-  font-size: var(--text-sm);
-}
-.drawField {
+.title {
   display: grid;
-  gap: var(--s-4);
-  color: var(--muted);
+  gap: var(--s-1);
+  min-width: 0;
 }
+.title h1 {
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--text-lg);
+  font-weight: 650;
+  line-height: var(--leading);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.title > span {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+/* The opening decision sits between the bar and the table, like a prompt. */
+.opening {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-4) var(--s-7);
+  padding: var(--s-4) var(--s-6);
+  border-bottom: 1px solid var(--line);
+  background: var(--raised);
+  flex-shrink: 0;
+}
+.openingStatus {
+  display: grid;
+  gap: var(--s-1);
+}
+.openingStatus strong {
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+.openingStatus span {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.bottom {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: bottom;
+}
+.bottom li {
+  counter-increment: bottom;
+}
+.bottom li button::before {
+  content: counter(bottom);
+  color: var(--faint);
+  font-family: var(--font-mono);
+}
+.openingActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-4);
+  margin-left: auto;
+}
+
 .workspace {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--inspection-w);
+  grid-template-columns: minmax(0, 1fr) var(--panel-col);
   position: relative;
 }
 .table {
   display: grid;
-  grid-template-rows: auto minmax(var(--playtest-hand-min), 1fr) minmax(
-      var(--playtest-hand-min),
-      35%
-    );
+  grid-template-rows: auto minmax(var(--battlefield-row-min), 1fr) auto;
   min-width: 0;
   min-height: 0;
 }
-.table.choosing {
-  grid-template-rows: auto var(--s-6) minmax(0, 1fr);
+/* The hand takes the height its cards need, within limits; the rest is table. */
+.table > section:last-child {
+  min-height: var(--playtest-hand-min);
+  max-height: var(--playtest-hand-max);
 }
+.table.choosing {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+.table.choosing > section:last-child {
+  max-height: none;
+}
+
 .zones {
   display: flex;
-  gap: var(--s-4);
+  flex-wrap: wrap;
+  gap: var(--s-2);
   align-items: center;
-  padding: var(--s-5) var(--s-7);
+  padding: var(--s-4) var(--s-6);
   border-bottom: 1px solid var(--line);
 }
-.battlefield {
+.zone {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+  height: var(--h-md);
+  padding: 0 var(--s-3) 0 var(--s-4);
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  transition: background var(--fast), border-color var(--fast), color var(--fast);
+}
+.zone:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.zone[aria-pressed="true"] {
+  border-color: var(--sel-line);
+  background: var(--sel-bg);
+  color: var(--text);
+}
+.count {
+  min-width: var(--s-7);
+  padding: var(--s-1) var(--s-3);
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  color: var(--text-soft);
+  font: var(--text-xs) / 1.2 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.surface {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+.rail {
   display: flex;
   flex-direction: column;
-  padding: var(--s-6) var(--s-7);
+  flex: none;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-6);
+  border-right: 1px solid var(--line);
   overflow: auto;
+}
+.rail > section {
+  justify-content: flex-start;
   min-height: 0;
+  padding: var(--s-2) 0 var(--s-5);
+}
+.rail > section:last-child {
+  border-bottom: none;
+}
+.rail > section > div {
+  flex-direction: column;
+}
+.rail article {
+  flex: none;
+}
+.battlefield {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0 var(--s-6);
+  overflow: auto;
 }
 .battlefield > section {
   flex-shrink: 0;
 }
-/* Auto space anchors the rows at the bottom without hiding overflow above. */
+/* Auto space anchors the rows at the player's edge without hiding overflow above. */
 .battlefield > section:first-child {
   margin-top: auto;
 }
+.battlefield > section:last-child {
+  border-bottom: none;
+}
+/* While choosing a hand there is no battlefield; the commander sits in a strip. */
+.choosing .battlefield {
+  display: none;
+}
+.choosing .rail {
+  flex: 1;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: var(--s-7);
+  border-right: none;
+  border-bottom: 1px solid var(--line);
+}
+.choosing .rail > section {
+  border-bottom: none;
+}
+.choosing .rail > section > div {
+  flex-direction: row;
+}
+
 .panel {
   display: flex;
   flex-direction: column;
@@ -116,13 +258,9 @@
   flex: 1;
   min-height: 0;
 }
-.zones button[aria-pressed="true"] {
-  background: var(--sel-bg);
-  color: var(--text);
-}
 .preview {
   position: absolute;
-  right: calc(var(--inspection-w) + var(--s-5));
+  right: calc(var(--panel-col) + var(--s-5));
   top: var(--s-5);
   width: var(--playtest-preview-w);
   max-height: calc(100% - var(--s-7));
@@ -140,32 +278,109 @@
 .preview > article > header strong {
   font-size: var(--text-xl);
 }
-.opening {
+.drawField {
   display: grid;
   gap: var(--s-4);
-  padding: var(--s-5) var(--s-7);
-  border-bottom: 1px solid var(--line);
-  flex-shrink: 0;
-}
-.openingTitle {
-  display: flex;
-  gap: var(--s-5);
-  align-items: center;
-}
-.opening p {
   color: var(--muted);
-}
-.bottom {
-  display: flex;
-  gap: var(--s-4);
-  align-items: center;
-  flex-wrap: wrap;
 }
 .mono {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
-.battlefield > section:last-child {
-  border-bottom: none;
+/* Short windows keep the hand to one scrolling row so the battlefield keeps room. */
+@media (max-height: 1000px) {
+  .table > section:last-child > div {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+}
+
+/* Narrow windows stack the inspector under the table and let the page scroll;
+   the bar's actions stay at the top. */
+@media (max-width: 960px) {
+  .page {
+    overflow: auto;
+  }
+  .header {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-sticky);
+  }
+  .workspace {
+    display: flex;
+    flex-direction: column;
+    flex: none;
+  }
+  .table {
+    height: var(--playtest-stacked-table-h);
+  }
+  .table.choosing {
+    height: auto;
+    min-height: var(--playtest-stacked-table-h);
+  }
+  .panel {
+    border-left: none;
+    border-top: 1px solid var(--line-strong);
+  }
+  .panel > [role="separator"],
+  .preview {
+    display: none;
+  }
+  .rail {
+    padding-inline: var(--s-5);
+  }
+  .battlefield,
+  .zones,
+  .header,
+  .opening {
+    padding-inline: var(--s-5);
+  }
+}
+
+/* Phones: the commander joins a strip above the rows, two cards fit across,
+   and touch screens have no use for key caps. */
+@media (max-width: 640px) {
+  .header {
+    gap: var(--s-4);
+  }
+  .header kbd {
+    display: none;
+  }
+  .surface {
+    flex-direction: column;
+  }
+  .rail {
+    flex-direction: row;
+    gap: var(--s-6);
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+  .rail > section {
+    border-bottom: none;
+  }
+  .table,
+  .table.choosing {
+    height: auto;
+    min-height: 0;
+    grid-template-rows: auto auto auto;
+  }
+  .table > section:last-child {
+    max-height: none;
+  }
+  .battlefield {
+    overflow: visible;
+  }
+  .battlefield > section:first-child {
+    margin-top: 0;
+  }
+  .battlefield article {
+    flex: 1 1 calc(50% - var(--s-2));
+    width: auto;
+    min-width: 0;
+  }
+  .openingActions {
+    margin-left: 0;
+  }
 }

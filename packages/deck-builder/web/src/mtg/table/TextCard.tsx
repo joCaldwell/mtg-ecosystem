@@ -48,6 +48,38 @@ export function TextCard({
   const { card, object, owner, controller, attachedTo, attachments } =
       observation,
     face = faceOf(card, object?.face);
+  const manual =
+    object && (object.power != null || object.toughness != null)
+      ? `${object.power ?? face.power ?? "—"}/${object.toughness ?? face.toughness ?? "—"}`
+      : null;
+  const printed =
+    face.power != null || face.toughness != null
+      ? `${face.power ?? "—"}/${face.toughness ?? "—"}`
+      : null;
+  // Printed facts and manual game state stay distinguishable: a manual value
+  // says so in its text, not only in its outline.
+  const stat = manual ? (
+    <span className={`${styles.stat} ${styles.manual}`}
+      title={printed ? `Printed ${printed}` : undefined}>
+      Manual {manual}
+    </span>
+  ) : printed ? (
+    <span className={styles.stat} title="Printed power/toughness">{printed}</span>
+  ) : face.loyalty != null ? (
+    <span className={styles.stat} title="Printed loyalty">Loyalty {face.loyalty}</span>
+  ) : null;
+  const chips: Array<[string, string]> = [
+    ...(object?.token ? [["token", "Token"] as [string, string]] : []),
+    ...Object.entries(object?.counters ?? {}).map(
+      ([name, n]) => [`c-${name}`, `${name}: ${n}`] as [string, string],
+    ),
+    ...(object?.attached_to
+      ? [["attached", `Attached${attachedTo ? ` to ${attachedTo}` : ""}`] as [string, string]]
+      : []),
+    ...(attachments ?? []).map((name, i) => [`a-${i}`, `Attachment: ${name}`] as [string, string]),
+    ...(owner ? [["owner", `Owner: ${owner}`] as [string, string]] : []),
+    ...(controller ? [["controller", `Controller: ${controller}`] as [string, string]] : []),
+  ];
   const pick = (e: MouseEvent) => {
     if (
       disabled ||
@@ -148,35 +180,16 @@ export function TextCard({
           <OracleText text={face.oracle_text ?? ""} bare />
         </div>
       )}
-      <div className={styles.facts}>
-        {(face.power != null || face.toughness != null) && (
-          <span>
-            Printed {face.power ?? "—"}/{face.toughness ?? "—"}
-          </span>
-        )}
-        {face.loyalty != null && <span>Printed loyalty {face.loyalty}</span>}
-        {object && (object.power != null || object.toughness != null) && (
-          <span>
-            Manual {object.power ?? face.power ?? "—"}/
-            {object.toughness ?? face.toughness ?? "—"}
-          </span>
-        )}
-        {object?.token && <span>Token copy</span>}
-        {object &&
-          Object.entries(object.counters ?? {}).map(([name, n]) => (
-            <span key={name}>
-              {name}: {n}
+      {(chips.length > 0 || stat) && (
+        <div className={styles.facts}>
+          {chips.map(([key, text]) => (
+            <span key={key} className={styles.chip}>
+              {text}
             </span>
           ))}
-        {object?.attached_to && (
-          <span>Attached{attachedTo ? ` to ${attachedTo}` : ""}</span>
-        )}
-        {attachments?.map((name, i) => (
-          <span key={i}>Attachment: {name}</span>
-        ))}
-        {owner && <span>Owner: {owner}</span>}
-        {controller && <span>Controller: {controller}</span>}
-      </div>
+          {stat}
+        </div>
+      )}
       {footer && <footer className={styles.footer}>{footer}</footer>}
       {disabledReason && <small>{disabledReason}</small>}
     </article>

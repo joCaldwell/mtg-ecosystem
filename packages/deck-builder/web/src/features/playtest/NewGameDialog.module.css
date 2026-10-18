@@ -1,0 +1,94 @@
+.deck {
+  display: grid;
+  gap: var(--s-2);
+  margin-bottom: var(--s-6);
+}
+.deck strong {
+  font-size: var(--text-xl);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.identity {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-3) var(--s-6);
+  color: var(--text-soft);
+}
+.commander {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+.retry {
+  margin-left: var(--s-5);
+}
+.modes {
+  display: grid;
+  gap: var(--s-4);
+  min-width: 0;
+  margin: var(--s-6) 0 0;
+  padding: 0;
+  border: 0;
+}
+.legend {
+  padding: 0;
+  margin-bottom: var(--s-4);
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-5);
+  padding: var(--s-5) var(--s-6);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: background var(--fast), border-color var(--fast);
+}
+.option:hover {
+  background: var(--hover);
+}
+.option:has(:checked) {
+  border-color: var(--sel-line);
+  background: var(--sel-bg);
+}
+.option:has(:focus-visible) {
+  outline: 2px solid var(--sel);
+  outline-offset: 2px;
+}
+.modes:disabled .option {
+  cursor: default;
+  opacity: 0.5;
+}
+.radio {
+  flex: none;
+  width: var(--s-6);
+  height: var(--s-6);
+  margin: var(--s-1) 0 0;
+  accent-color: var(--sel);
+  color-scheme: dark;
+}
+.optionText {
+  display: grid;
+  gap: var(--s-2);
+  min-width: 0;
+}
+.optionTitle {
+  font-weight: 600;
+}
+.optionDescription {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+.consequence {
+  margin-right: auto;
+  align-self: center;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading);
+}

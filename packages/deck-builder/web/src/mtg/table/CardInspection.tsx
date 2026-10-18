@@ -13,7 +13,7 @@ export function CardInspection({
   children?: ReactNode;
 }) {
   return (
-    <section className={styles.inspection} aria-label={context}>
+    <section className={styles.inspection} aria-label={`Inspecting · ${context}`}>
       <p className={styles.context}>{context}</p>
       <TextCard observation={observation} full />
       {children}

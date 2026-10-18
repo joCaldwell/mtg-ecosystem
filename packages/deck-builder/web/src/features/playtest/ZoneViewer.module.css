@@ -1,9 +1,7 @@
 .drawer {
   position: absolute;
-  left: var(--s-7);
-  right: calc(var(--inspection-w) + var(--s-7));
-  top: var(--playtest-drawer-top);
-  max-height: var(--playtest-drawer-h);
+  inset: var(--s-4) var(--s-5) auto;
+  max-height: calc(100% - var(--s-6));
   display: flex;
   flex-direction: column;
   background: var(--overlay);
@@ -15,17 +13,19 @@
 }
 .header {
   display: flex;
-  gap: var(--s-5);
+  flex-wrap: wrap;
+  gap: var(--s-4) var(--s-5);
   align-items: center;
-  padding: var(--s-6);
+  padding: var(--s-5) var(--s-6);
   border-bottom: 1px solid var(--line-strong);
   flex-shrink: 0;
 }
 .header h2 {
+  margin-right: auto;
   font-size: var(--text-lg);
 }
 .header > input:not(.number) {
-  flex: 1;
+  flex: 0 1 var(--text-card-w);
   min-width: 0;
 }
 .number {
@@ -68,4 +68,18 @@
   align-items: center;
   gap: var(--s-4);
   flex-shrink: 0;
+}
+.selectedCount {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+.empty {
+  padding: var(--s-6) var(--s-4);
+  color: var(--faint);
+}
+.moveLabel {
+  margin-left: var(--s-5);
+  color: var(--faint);
+  font-size: var(--text-xs);
 }
