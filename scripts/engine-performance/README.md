@@ -94,3 +94,21 @@ retain their declared scope. They are not legal-pod, network, strategic-strength
 or independent-hidden-world results. See
 [the measurement report](../../docs/game-engine-performance.md) and
 [the full performance plan](../../docs/game-engine-plan.md#6-performance-and-search-plan).
+
+
+Definition diversity and shrinking-choice diagnostics use
+`run-definition-diversity-v1.py` and `run-shrinking-choices-v1.py`. Their paired
+`test-definition-diversity-v1.py` and `test-shrinking-choices-v1.py` scripts contain
+49 pure validator guards. Real runs require an explicitly supplied authority
+SHA binding the actual compiled native inventory, Cargo artifact, executable,
+all host sources and the exact workload. Preparation never starts a build or
+benchmark. Both drivers preserve the shared 120-second, 2 GiB charged-memory
+and independent RSS, swap-zero and one-CPU guards through audit and cleanup.
+
+The definition workload retains all 48 rows for synthetic payload counts
+0/8/64/256 and four source-backed interaction controls. The shrinking-choice
+workload retains all 105 attack/Edict cells, one warmup and five repetitions
+(630 measured-driver executions), plus every declared native reference and
+budget/replay oracle. Synthetic payloads are not authentic card definitions;
+a partial matrix produces no complete-work throughput claim. Current actual
+results and remaining resource gaps are in `docs/game-engine-performance.md`.

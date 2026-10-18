@@ -530,7 +530,19 @@ fn reference_resume(
     }
     Ok(None)
 }
+#[path = "search_reference_spool.rs"]
+mod search_reference_spool;
+
+// Shared test-host private-file adapter; full standalone core restore unchanged.
+pub(in crate::engine) fn restore_snapshot_from_private_file(game: &Game) -> Result<Game, String> {
+    search_reference_spool::restore_snapshot_from_private_file(game)
+}
+
 fn compare(game: &Game, query: Query) {
+    if matches!(query, Query::Search { .. }) {
+        search_reference_spool::compare(game, query);
+        return;
+    }
     let before = game.state.clone();
     let trace = game.trace.clone();
     let state_sha256 = game.state_digest().unwrap();

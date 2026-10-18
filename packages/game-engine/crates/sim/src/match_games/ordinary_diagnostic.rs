@@ -1240,3 +1240,6 @@ fn ordinary_core_allocation_diagnostic() {
     publish(&mut file, &report).unwrap();
     result.unwrap();
 }
+
+#[cfg(test)]
+mod shrinking_choice_costs;

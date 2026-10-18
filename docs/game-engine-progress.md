@@ -1852,3 +1852,37 @@ typecheck, including server and simulator consumers. Public histories retain
 their complete array values and canonical bytes while sharing immutable storage;
 no hidden State authority is included. Full release verification and resource
 measurements of the combined candidate remain pending.
+
+
+## Definition/choice diagnostics and complete query proof storage
+
+The reviewed combined 218-file candidate has all 284 normal core tests passing
+in the optimized test profile (optimization 2, assertions and overflow checks
+enabled); four explicit diagnostics remain ignored. Its release Build
+`d472788f8c8cd5c15137b3f08b29e304b7495cfe363614cbda53cc304725c903`
+is separately compiled and source-verified by the actual simulator collector.
+All 23 affected core and 21 simulator normal release checks pass, including
+the nine new query/file-proof tests and four shrinking-choice checks. These
+focused counts do not constitute a complete workspace release test result.
+Independent source/application review passes (receipt SHA-256
+`e4e950f61f5b785a55a2615fd5f9307d286c0ff034215d7d8a2733a0951eb585`).
+
+Large Search reference checks now spool one generic public view per original
+work unit and compare every original complete prefix, result and SavedWork
+envelope byte. Legal-branch standalone restore consumes a private snapshot file
+with both strict-reader passes bound to the complete write receipt. Original
+unit budgets, full State/trace/replay checks and successful cleanup remain.
+These are test-host proof-storage changes; quadratic I/O, page cache and other
+full-String consumers still need actual resource measurements.
+
+The definition-diversity and shrinking-choice native diagnostics and their
+49 reviewed Python guards are installed. The separate frozen 205-file definition
+component actually passes all 48 declared rows under the original 120-second
+and 2 GiB charged-memory/independent-RSS guards, including its in-deadline audit
+and process cleanup. This run was a correctness integration during concurrent
+functional work, not a quiet timing comparison. Its external archive manifest is
+`performance-definition-instrumentation-fca4063e-v1/manifest.json`, SHA-256
+`c2ab1c7b4ad95693adf4378624e33aaafea9c97ad4900921d15139e8501468df`.
+Synthetic distinct modifier payloads are separate from eight authentic source
+programs; there is no 256-authentic-ability or expanded-pool claim. The complete
+shrinking-choice workload has not run.

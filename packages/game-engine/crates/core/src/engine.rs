@@ -240,6 +240,8 @@ mod work;
 pub use visibility::*;
 pub use work::*;
 #[cfg(test)]
+mod definition_diversity_tests;
+#[cfg(test)]
 mod dense_kernel_tests;
 #[cfg(test)]
 mod departure_tests;

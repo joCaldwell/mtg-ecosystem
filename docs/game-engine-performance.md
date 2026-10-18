@@ -491,3 +491,31 @@ with identical public schema bytes. Its first fresh retention attempt stopped
 before offline compilation because the staging copy lacked pinned policy HTML.
 The exact archived files now match both fixture hashes; a retention-only retry
 is running. The original failed status and raw log remain unchanged.
+
+
+### Definition diversity and complete query proof storage
+
+The separate 205-file diagnostic component retains its corrected source-backed
+combat probe, all eight normal correctness checks and 49 independently reviewed
+host guards in `performance-native205-diversity-choice-fca4063e/manifest.json`,
+SHA-256 `b54c85f158629477efb667f91c7ece7e3c4f8dac642e61d4c4e4fb09d2503762`.
+The guarded definition workload subsequently completes all 48 rows: eight
+configurations, one warmup and five measured repetitions, with complete native
+and host semantic checks. No work or resource limit was reduced. The actual
+resource report records 48,443,392 bytes peak charged memory and a separate
+43,253,760-byte direct-process RSS high-water, no pressure/OOM events, and
+successful cleanup. Concurrent functional jobs make this a diagnostic
+correctness integration, not a quiet benchmark or causal comparison. The full
+raw authority/report/output archive is
+`performance-definition-instrumentation-fca4063e-v1/manifest.json`, SHA-256
+`c2ab1c7b4ad95693adf4378624e33aaafea9c97ad4900921d15139e8501468df`.
+
+The combined 218-file candidate adds complete per-prefix query proof spooling
+and standalone file snapshot restore in test-host code. All 284 normal core
+tests pass in the optimized test profile; a separately compiled release Build
+`d472788f8c8cd5c15137b3f08b29e304b7495cfe363614cbda53cc304725c903`
+passes 23 affected core and 21 simulator normal checks. Independent review
+passes. All original query units, partitions, full prefix/SavedWork/State/trace
+bytes and standalone replay checks remain. No performance/resource-fit result
+is inferred from these correctness tests. The full 105-cell/630-repetition
+shrinking-choice matrix and final-source broader measurements remain pending.
