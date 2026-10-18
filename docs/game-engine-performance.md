@@ -527,10 +527,12 @@ shrinking-choice matrix and final-source broader measurements remain pending.
 
 ### Combined-source functional verification
 
-The integrated 220-input release Build
-`0398e42f215517220e4411d73e908c52c8132220196c082dd0f7c030b67e56c8`
-passes 622 Rust tests in each of debug and release, 45 Node checks, and 40 SDK
-checks with strict TypeScript and unchanged public schema bytes. Twelve explicit
+The integrated 220-input source passes 622 Rust tests in each of debug and
+release, 45 Node checks, and 40 SDK checks with strict TypeScript and unchanged
+public schema bytes. Its debug Build is
+`d45d878d4fa8bcddc1298f73f2e104f4ba41c6c592039eedfceff20ae17d8edc`;
+its release Build is
+`0398e42f215517220e4411d73e908c52c8132220196c082dd0f7c030b67e56c8`. Twelve explicit
 diagnostics remain ignored in each normal Rust run. Format, Clippy, source guards
 and owned-process cleanup pass. The terminal functional receipt SHA-256 is
 `7c6468ec443e3d8fea1394cb052ee66b01c81a1933cc68108bacc74956401a64`.

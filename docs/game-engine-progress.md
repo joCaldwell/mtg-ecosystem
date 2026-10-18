@@ -1901,11 +1901,13 @@ Its 14 focused normal tests and Clippy/format checks pass on the exact isolated
 source. It streams every generic history view and preserves all other State
 fields, array order and complete byte comparison against the bounded old
 String/Value oracle. The reviewed patch is now integrated with the earlier
-diagnostics and query proofs as 220 native inputs. Release Build
-`0398e42f215517220e4411d73e908c52c8132220196c082dd0f7c030b67e56c8`
-passes all 622 workspace tests in both debug and release, with 12 diagnostics
-ignored in each mode, plus 45 Node checks and 40 SDK checks with strict
-TypeScript. Format and Clippy checks pass; public schema bytes remain exact.
+diagnostics and query proofs as 220 native inputs. This combined source passes
+all 622 workspace tests in each of debug and release, with 12 diagnostics ignored
+in each mode, plus 45 Node checks and 40 SDK checks with strict TypeScript. The
+debug Build is
+`d45d878d4fa8bcddc1298f73f2e104f4ba41c6c592039eedfceff20ae17d8edc`;
+the release Build is
+`0398e42f215517220e4411d73e908c52c8132220196c082dd0f7c030b67e56c8`. Format and Clippy checks pass; public schema bytes remain exact.
 All ten verification process groups are reaped and empty, and source guards
 remain equal. The terminal functional receipt SHA-256 is
 `7c6468ec443e3d8fea1394cb052ee66b01c81a1933cc68108bacc74956401a64`.
