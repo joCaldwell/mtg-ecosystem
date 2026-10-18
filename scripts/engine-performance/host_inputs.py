@@ -100,6 +100,15 @@ def fresh(path, parent):
     return p
 
 
+def controller_environment(environ):
+    """Controller user-bus locators only; native payload environment is separate."""
+    result = {'PATH': '/usr/bin:/bin', 'LANG': 'C', 'LC_ALL': 'C'}
+    for key in ('DBUS_SESSION_BUS_ADDRESS', 'XDG_RUNTIME_DIR'):
+        if key in environ:
+            result[key] = environ[key]
+    return result
+
+
 def run_owned(command, cwd, stdout, stderr, timeout, cancelled=lambda: False):
     """One attempt only. Deferred cancellation acquires Popen lease first.
 
@@ -123,7 +132,7 @@ def run_owned(command, cwd, stdout, stderr, timeout, cancelled=lambda: False):
             need(not cancelled(), 'cancelled before spawn')
             child = subprocess.Popen(command, cwd=cwd, stdin=subprocess.DEVNULL,
                 stdout=out, stderr=err, start_new_session=True,
-                env={'PATH': '/usr/bin:/bin', 'LANG': 'C', 'LC_ALL': 'C'})
+                env=controller_environment(os.environ))
             # A signal during Popen only records a flag; now we own the lease.
             while True:
                 pid, status, usage = os.wait4(child.pid, os.WNOHANG)

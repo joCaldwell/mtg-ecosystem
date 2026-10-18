@@ -338,3 +338,102 @@ fn canonical_memos_invalidate_on_both_shared_and_unique_mutation_without_wire_ch
         canonical(&unique[0]).unwrap().as_bytes()
     );
 }
+
+// Source-only candidate tests: no timings or resource-fit claim.
+#[derive(Clone, Debug)]
+struct EqualityCounted {
+    prefix: usize,
+    payload: Vec<u8>,
+    last: String,
+    comparisons: Arc<AtomicUsize>,
+}
+impl PartialEq for EqualityCounted {
+    fn eq(&self, other: &Self) -> bool {
+        self.comparisons.fetch_add(1, Ordering::Relaxed);
+        self.prefix == other.prefix && self.payload == other.payload && self.last == other.last
+    }
+}
+impl Eq for EqualityCounted {}
+fn equality_history(length: usize, comparisons: &Arc<AtomicUsize>) -> History<EqualityCounted> {
+    let mut history = History::default();
+    for index in 0..length {
+        history.push(EqualityCounted {
+            prefix: index,
+            payload: vec![u8::try_from(index % 251).unwrap(); 17],
+            last: format!("late-field-{index}:雪"),
+            comparisons: comparisons.clone(),
+        });
+    }
+    history
+}
+#[test]
+fn reflexive_history_shared_chunks_and_entries_match_old_deep_eq_without_value_calls() {
+    for length in [0, 1, 31, 32, 33, 63, 64, 65, 95, 96, 97] {
+        let comparisons = Arc::new(AtomicUsize::new(0));
+        let original = equality_history(length, &comparisons);
+        let shared = original.clone();
+        let independent = equality_history(length, &comparisons);
+        // This is the original algorithm, with no identity helper involved.
+        assert!(original.iter().eq(shared.iter()));
+        comparisons.store(0, Ordering::Relaxed);
+        assert!(original.eq_reflexive(&shared));
+        assert_eq!(comparisons.load(Ordering::Relaxed), 0, "length {length}");
+        assert!(original.eq_reflexive(&independent));
+        assert_eq!(comparisons.load(Ordering::Relaxed), length);
+        if length > 0 {
+            let mut changed = shared.clone();
+            let index = length - 1;
+            // Even a write of an equal value detaches only that entry/chunk.
+            changed[index].last = original[index].last.clone();
+            comparisons.store(0, Ordering::Relaxed);
+            assert!(original.eq_reflexive(&changed));
+            assert_eq!(comparisons.load(Ordering::Relaxed), 1);
+            changed[index].last.push('!');
+            let old_result = original.iter().eq(changed.iter());
+            comparisons.store(0, Ordering::Relaxed);
+            assert_eq!(original.eq_reflexive(&changed), old_result);
+            assert!(!old_result);
+            assert_eq!(comparisons.load(Ordering::Relaxed), 1);
+            assert!(original.eq_reflexive(&shared), "original sibling unchanged");
+        }
+    }
+}
+#[test]
+fn reflexive_history_fallback_preserves_all_wire_fields_and_mutation_positions() {
+    for length in [1, 31, 32, 33, 64, 65, 97] {
+        let reference = (0..length).map(value).collect::<Vec<_>>();
+        let wire = canonical(&reference).unwrap();
+        let original: History<Value> = serde_json::from_str(&wire).unwrap();
+        let independent: History<Value> = serde_json::from_str(&wire).unwrap();
+        assert!(original.eq_reflexive(&independent));
+        assert_eq!(canonical(&original).unwrap(), wire);
+        for index in [0, length / 2, length - 1] {
+            let mut changed = original.clone();
+            changed[index]["numericKeys"]["100"] = json!({"last": "changed雪"});
+            assert_eq!(
+                original.eq_reflexive(&changed),
+                original.iter().eq(changed.iter())
+            );
+            assert!(!original.eq_reflexive(&changed));
+            let roundtrip: History<Value> =
+                serde_json::from_str(&canonical(&changed).unwrap()).unwrap();
+            assert!(changed.eq_reflexive(&roundtrip));
+            assert_eq!(digest(&original).unwrap(), digest(&reference).unwrap());
+        }
+        let mut appended = original.clone();
+        appended.push(value(length));
+        assert!(!original.eq_reflexive(&appended));
+        appended.clear();
+        assert!(!original.eq_reflexive(&appended));
+    }
+}
+#[test]
+fn generic_partial_eq_history_keeps_nonreflexive_nan_behavior() {
+    let mut original = History::default();
+    original.push(f64::NAN);
+    let shared = original.clone();
+    assert!(!original.iter().eq(shared.iter()));
+    // Both invoke the unchanged public PartialEq-only implementation.
+    assert!(!(original == shared));
+    assert!(!(original == original.clone()));
+}

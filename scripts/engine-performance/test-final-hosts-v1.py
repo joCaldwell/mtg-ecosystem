@@ -353,6 +353,38 @@ class PodGuards(unittest.TestCase):
             self.assertIsNone(result['summaries'])
 
 
+class ControllerEnvironmentGuards(unittest.TestCase):
+    def test_controller_preserves_only_existing_user_bus_locators(self):
+        source = {'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/private/bus',
+                  'XDG_RUNTIME_DIR': '/private/runtime', 'SECRET': 'excluded',
+                  'MTG_SEED': 'excluded', 'PATH': '/untrusted', 'LD_PRELOAD': 'excluded'}
+        self.assertEqual(h.controller_environment(source), {
+            'PATH': '/usr/bin:/bin', 'LANG': 'C', 'LC_ALL': 'C',
+            'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/private/bus',
+            'XDG_RUNTIME_DIR': '/private/runtime'})
+        self.assertEqual(h.controller_environment({}), {
+            'PATH': '/usr/bin:/bin', 'LANG': 'C', 'LC_ALL': 'C'})
+        self.assertEqual(h.controller_environment({'XDG_RUNTIME_DIR': ''})['XDG_RUNTIME_DIR'], '')
+
+    def test_owned_controller_spawn_receives_bus_environment_and_keeps_cleanup(self):
+        child = SimpleNamespace(pid=999999, returncode=None)
+        usage = SimpleNamespace(ru_utime=0.1, ru_stime=0.0, ru_maxrss=123)
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.dict(os.environ, {'DBUS_SESSION_BUS_ADDRESS': 'bus',
+                        'XDG_RUNTIME_DIR': 'runtime', 'SECRET': 'excluded'}, clear=True), \
+             patch.object(h.subprocess, 'Popen', return_value=child) as spawn, \
+             patch.object(h.os, 'wait4', return_value=(child.pid, 0, usage)), \
+             patch.object(h.os, 'killpg', side_effect=ProcessLookupError):
+            root = Path(tmp)
+            result = h.run_owned(['/NOT-EXECUTED'], root, root/'out', root/'err', 150)
+        self.assertEqual(result['status'], 'passed')
+        self.assertTrue(result['direct_child_reaped'] and result['owned_group_empty'])
+        self.assertEqual(spawn.call_args.args[0], ['/NOT-EXECUTED'])
+        self.assertEqual(spawn.call_args.kwargs['env'], {
+            'PATH': '/usr/bin:/bin', 'LANG': 'C', 'LC_ALL': 'C',
+            'DBUS_SESSION_BUS_ADDRESS': 'bus', 'XDG_RUNTIME_DIR': 'runtime'})
+
+
 class PrimaryAndReplayGuards(unittest.TestCase):
     def test_native_primary_environment_is_explicit_not_ambient(self):
         with patch.dict(os.environ, {'LD_PRELOAD': '/not-loaded', 'LD_LIBRARY_PATH': '/ignored'}), \

@@ -154,6 +154,32 @@ impl<T: Clone> IndexMut<usize> for History<T> {
         &mut entry.value
     }
 }
+impl<T: Eq> History<T> {
+    /// Identity is a sufficient equality proof only for reflexive entries.
+    /// Keep the generic PartialEq implementation below unchanged: NaN and
+    /// arbitrary PartialEq-only users must still use complete value comparison.
+    /// Called only by private StoredHistory; memos never participate in Eq.
+    pub(super) fn eq_reflexive(&self, other: &Self) -> bool {
+        fn entries_equal<T: Eq>(
+            left: &[Arc<HistoryEntry<T>>],
+            right: &[Arc<HistoryEntry<T>>],
+        ) -> bool {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .zip(right)
+                    .all(|(left, right)| Arc::ptr_eq(left, right) || left.value == right.value)
+        }
+        self.len == other.len
+            && self.chunks.len() == other.chunks.len()
+            && self
+                .chunks
+                .iter()
+                .zip(&other.chunks)
+                .all(|(left, right)| Arc::ptr_eq(left, right) || entries_equal(left, right))
+            && entries_equal(&self.tail, &other.tail)
+    }
+}
 impl<T: PartialEq> PartialEq for History<T> {
     fn eq(&self, other: &Self) -> bool {
         self.len == other.len && self.iter().eq(other.iter())

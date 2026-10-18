@@ -1940,3 +1940,48 @@ Keep parser fixes on main with the parser agent. When integrating main, repeat
 compatibility checks against its actual AST, including trailing-if
 `conditionPosition: "after"`; historical fixture checks do not establish that
 compatibility. No new card slice or parser request is introduced by this work.
+
+### History capacity/equality candidate — October 17 night checkpoint
+
+The candidate keeps private immutable history equality proportional to changed
+entries when allocation identity proves equality, with complete typed comparison
+for independent rows. Generic `History<T: PartialEq>` keeps its original behavior,
+including nonreflexive NaN comparisons. A fresh narrow destination vector also
+avoids retaining the wide source allocation during observation-row conversion.
+The controller helper now preserves the existing user-bus locators needed by
+the guarded pod launcher; native payload environment restrictions are unchanged.
+
+Both debug and release workspace compilation passed for the exact 220-file,
+53,205,999-byte candidate. All eight new focused tests and fourteen existing
+focused simulator tests passed; the host guard suite passed all 36 checks.
+The capacity test measured 288-byte public rows and 8-byte stored row slots:
+256 rows without source spare capacity retained 73,728 slot bytes with the old
+conversion versus 2,048 with the fresh vector. These are vector-capacity facts,
+not whole-process memory-fit or throughput measurements. Wire equality, deep
+fallback, memo invalidation and copy-on-write isolation remain checked.
+
+Josh requested a stopping place for the night while `check:engine` was running
+its long retained-bundle test. The owner received SIGTERM through its reviewed
+cancellation path; all twenty phase leaders were reaped and their process groups
+were independently confirmed absent. The raw attempt-2 status remains `failed`
+with `InterruptedError`, recording the requested cancellation. The full
+debug/Node gate is incomplete; the full release suite, SDK/counter completion,
+fresh candidate retention and candidate performance acceptance remain pending.
+Earlier baseline Build `0398e42f…` passes do not transfer to this candidate.
+
+The private checkpoint is
+`generated/final-engine-verification/night-pause-20261018-v1/pause.json`, SHA-256
+`39b7b3bb9762935feab3a82ddc2c7eee3a873438656292ce7361d0112103b7e0`.
+It pins all 141 preserved run files, six source snapshots, source equality and
+cleanup checks. The raw cancelled status SHA-256 is
+`6fc3ae650deae1fa7f2f0f6e4e924a98a8980911fc151ef81314025c3ecee566`.
+
+On resume, preserve both earlier attempts and prepare a fresh attempt-3 output
+and reviewed producer/release. Explicit cache reuse is possible, but rerun every
+required gate and do not turn the interrupted full-suite run into a pass. The
+staged identity, retention, archive, measurement and primary-authority adapters
+are bound to attempt 2's success path and must be rebound and reviewed for the
+new producer/status. Then complete independent functional audit, fresh offline
+retention and archive audits before unchanged workload measurements and all
+sixty primary search jobs plus sixty independent replays. No new pool, parser
+edit, budget change or background workload is part of this checkpoint.

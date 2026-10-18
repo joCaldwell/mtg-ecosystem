@@ -57,7 +57,10 @@ impl DerefMut for StoredObject {
 }
 impl PartialEq for StoredObject {
     fn eq(&self, other: &Self) -> bool {
-        self.0.value == other.0.value
+        // VisibleObject derives Eq. A shared Row therefore proves reflexive
+        // value equality; separately allocated rows compare EVERY typed field.
+        // The OnceLock is derived bytes, excluded from both sides of equality.
+        Arc::ptr_eq(&self.0, &other.0) || self.0.value == other.0.value
     }
 }
 impl Eq for StoredObject {}
@@ -162,6 +165,15 @@ impl From<PermittedView> for StoredPermittedView {
             objects,
             stack,
         } = view;
+        // Deliberately allocate a fresh narrow row-slot vector. An owning
+        // Vec<VisibleObject>::into_iter().map(...).collect::<Vec<StoredObject>>()
+        // may reuse the wide source allocation as excess destination capacity
+        // (Rust alloc/src/vec/in_place_collect.rs). Row sharing below cannot
+        // release that per-view excess capacity. Preserve every value/order.
+        let mut stored_objects = Vec::with_capacity(objects.len());
+        for object in objects {
+            stored_objects.push(StoredObject::new(object));
+        }
         Self {
             data: StoredViewData {
                 setup,
@@ -175,7 +187,7 @@ impl From<PermittedView> for StoredPermittedView {
                 commanders,
                 priority,
                 players,
-                objects: objects.into_iter().map(StoredObject::new).collect(),
+                objects: stored_objects,
                 stack,
             },
             segments: OnceLock::new(),
@@ -385,8 +397,17 @@ impl StoredPermittedView {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Debug, Default)]
 pub(super) struct StoredHistory(History<StoredPermittedView>);
+impl PartialEq for StoredHistory {
+    fn eq(&self, other: &Self) -> bool {
+        // StoredPermittedView is Eq, with complete typed fallback for entries
+        // that do not share immutable allocation identity. Public History<T>
+        // PartialEq remains available, unchanged, even when T is not Eq.
+        self.0.eq_reflexive(&other.0)
+    }
+}
+impl Eq for StoredHistory {}
 impl StoredHistory {
     pub(super) fn len(&self) -> usize {
         self.0.len()
