@@ -171,7 +171,7 @@ enum Task {
     Search {
         builder: ObservationWork,
         observation: Option<Box<Observation>>,
-        history: Vec<PermittedView>,
+        history: PermittedHistory,
         decks: Vec<OpenDecklist>,
     },
 }
@@ -286,7 +286,7 @@ impl Game {
             Query::Search { .. } => Task::Search {
                 builder: observe()?,
                 observation: None,
-                history: vec![],
+                history: PermittedHistory::default(),
                 decks: vec![],
             },
         };
@@ -752,7 +752,7 @@ impl Game {
                 }
                 let permitted = &self.state.visibility[viewer.0 as usize].history;
                 if history.len() < permitted.len() {
-                    history.push(permitted[history.len()].to_public());
+                    history.push_stored(permitted[history.len()].clone());
                     return Ok(None);
                 }
                 if decks.len() < 4 {

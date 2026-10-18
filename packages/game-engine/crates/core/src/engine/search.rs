@@ -5,6 +5,8 @@ use super::*;
 mod capture;
 mod sample;
 #[cfg(test)]
+mod shared_history_tests;
+#[cfg(test)]
 mod tests;
 mod world;
 pub use capture::*;
@@ -50,7 +52,7 @@ pub struct PublicSearchProfile {
 #[serde(deny_unknown_fields)]
 pub struct CapturedSearchContext {
     pub observation: Observation,
-    pub permitted_history: Vec<PermittedView>,
+    pub permitted_history: PermittedHistory,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

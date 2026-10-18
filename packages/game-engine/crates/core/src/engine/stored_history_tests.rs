@@ -371,8 +371,9 @@ fn real_state_wire_hash_and_owned_search_export_stay_complete_after_sharing() {
         .map(StoredPermittedView::to_public)
         .collect::<Vec<_>>();
     assert_eq!(
-        context.permitted_history, public,
-        "public export still materializes EVERY full owned view; cost not hidden"
+        context.permitted_history.iter().collect::<Vec<_>>(),
+        public,
+        "explicit owned iteration still returns EVERY complete view; cost not hidden"
     );
     assert_eq!(
         canonical(&context.permitted_history).unwrap(),

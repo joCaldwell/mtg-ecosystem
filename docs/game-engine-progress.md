@@ -1844,3 +1844,11 @@ workspace also passes `cargo check --workspace --locked --all-targets`, includin
 server and simulator consumers. All 209 frozen native inputs and four retained
 release executables remain exact. Combined performance/resource acceptance and
 final full-workspace runtime verification remain open.
+
+
+The complete permitted-history export component is now installed after all 271
+core tests and 19 public integration checks above. All workspace targets also
+typecheck, including server and simulator consumers. Public histories retain
+their complete array values and canonical bytes while sharing immutable storage;
+no hidden State authority is included. Full release verification and resource
+measurements of the combined candidate remain pending.

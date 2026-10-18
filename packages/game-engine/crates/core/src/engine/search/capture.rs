@@ -169,7 +169,7 @@ impl Game {
             w.action_cursor += 1;
             return Ok(None);
         }
-        if let Some(view) = data.context.permitted_history.get(w.history_cursor) {
+        if let Some(view) = data.context.permitted_history.stored(w.history_cursor) {
             if view.viewer != w.viewer {
                 return Err(SearchRejection::UnsupportedHistory(
                     "foreign viewer history".into(),
@@ -189,8 +189,7 @@ impl Game {
                     .as_mut()
                     .ok_or_else(|| invariant("capture history hash state"))?;
                 sink.update(if w.history_cursor == 0 { b"[" } else { b"," });
-                let value = serde_json::to_value(view).map_err(|e| invariant(e.to_string()))?;
-                serde_json::to_writer(sink, &value).map_err(|e| invariant(e.to_string()))?;
+                view.write_canonical(sink).map_err(invariant)?;
                 w.history_cursor += 1;
                 w.object_cursor = 0;
             }

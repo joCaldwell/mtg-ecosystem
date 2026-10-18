@@ -469,7 +469,7 @@ impl Game {
                 }
                 let permitted = &self.state.visibility[viewer.0 as usize].history;
                 if history.len() < permitted.len() {
-                    history.push(permitted[history.len()].to_public());
+                    history.push_public(permitted[history.len()].to_public());
                     return Ok(None);
                 }
                 if decks.len() < 4 {
@@ -941,3 +941,6 @@ fn optimized_work_caches_rehydrate_and_never_cross_executor_or_state_boundaries(
     ));
     assert!(game.restore_work(&saved).is_err());
 }
+
+#[path = "shared_history_work_tests.rs"]
+mod shared_history_tests;

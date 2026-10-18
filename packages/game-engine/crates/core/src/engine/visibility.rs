@@ -396,7 +396,7 @@ pub struct OpenDecklist {
 pub struct SearchContext {
     pub context_version: u32,
     pub observation: Observation,
-    pub permitted_history: Vec<PermittedView>,
+    pub permitted_history: PermittedHistory,
     pub open_decklists: Vec<OpenDecklist>,
     pub catalog_digest: String,
     pub profile_id: String,
