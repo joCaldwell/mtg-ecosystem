@@ -541,6 +541,57 @@ inputs, 10,716 vendored files from 152 packages, and the complete retained repla
 were verified after rebuilding with a fresh Cargo home and target directory.
 The independent audit checked all 11,461 retained files; its SHA-256 is
 `ac76e36969e550a033a8e5c5b39e7527b67c501940f03486e9d4c919a1bd15b8`.
-The complete final-source workload matrix, profiles, and quiet primary search
-measurement remain pending. Functional retention uses its separate verification
-envelope and establishes no product memory or timing result.
+Functional retention uses its separate verification envelope and establishes no
+product memory or timing result. The subsequent baseline measurements below
+belong to this exact release Build.
+
+### Combined-source measurement baseline
+
+The baseline sixty-job quiet primary search run and all sixty independent semantic
+replays pass. Its p95 is 2,628,907 microseconds, maximum 2,635,936 microseconds,
+and kernel whole-process RSS high-water 358,547,456 bytes. It records 5,202 useful
+trials and excludes 1,998 unverified diagnostic stops. The original limits and
+per-candidate minimum remain unchanged. The independent review SHA-256 is
+`c551f265fdf826e800b955bc59e370eb3a037c234647332c6b7319157bf0c110`.
+
+The ordinary legal-input and artifact workloads, eight dense kernels, four dense
+interaction cases, and all 48 definition-diversity rows pass their complete
+declared work and semantic checks. Persistent fixed-work search also passes
+with 1, 2, 4 and 16 physical workers, identical trial results and full State
+proofs. Median steady-work times are respectively 10,628,021, 5,467,986,
+2,810,374 and 799,019 microseconds. These are fixed-work diagnostics with
+separate startup/shutdown costs, not product decision latency.
+
+The separately labeled omniscient diagnostic passes all twelve roots, comparing
+360 sampled trials with 360 trials repeating one actual world. Nine roots select
+the same candidate. This establishes the recorded same-policy comparison, not
+strategic quality, eight distinct actual worlds, or additional product trials.
+
+The broader gate remains open. Ordinary-four selected-detail branching completes,
+but the subsequent ordinary all-first-write and smaller-seat cases hit the
+original 120-second deadline. Dense-four legal root setup is OOM-killed before
+its ready-root proof; its last retained progress has 171 battlefield objects.
+Shrinking-choice setup likewise OOMs before any of its 630 repetitions complete.
+The remaining five dense legal cases were left unstarted after these failures.
+No shortened denominator, incomplete-work throughput, or full legal-suite pass
+is claimed. The full-pod series fails before native startup because its controller
+omits the user-bus environment; zero pods ran. Its original failed cleanup report
+is preserved alongside a separate exact-unit absence check.
+
+Baseline CPU and GNU libc allocation profiles have independently verified search
+semantics. The CPU collector warns that its profile data may be unreliable;
+reported samples do not establish precise causal percentages or historical
+preoptimization profiling. The libc profile and the separate Rust request counter
+measure different scopes and worklists. Equality and retained-vector capacity
+fixes require new compiled identities, complete correctness checks and unchanged
+workload/resource-limit measurements before any benefit is claimed.
+
+The source/functional archive remains separate from the measurement supplement
+`performance-native220-measurements-pass1-v1/manifest.json` under
+`/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-11fdee9d9b50bb8d-2Y0CLl`.
+The supplement retains 902 files / 339,147,720 bytes, including passed
+and failed attempts. Its manifest SHA-256 is
+`e5b1498ab5883c9c2d4143e14cfdce25c4b96828a5d23996a5540ab50b4d9637`;
+the independent archive audit SHA-256 is
+`6663058ecd73eac168f7fac6b106df21119c9d4f92db634ee736e49cd6f2100b`.
+These records do not turn failed workloads into passes.
