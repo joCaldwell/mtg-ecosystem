@@ -1913,8 +1913,22 @@ remain equal. The terminal functional receipt SHA-256 is
 `7c6468ec443e3d8fea1394cb052ee66b01c81a1933cc68108bacc74956401a64`.
 The 14 integrated focused release tests also pass, receipt SHA-256
 `3915aa4664b7a66347b308410d9346890d0dc4343e2e088f9941299d94fc63c4`.
-Fresh retention and all final-source performance measurements remain pending;
-these correctness results make no resource-fit or timing claim.
+Fresh retention subsequently passed for this exact release Build. The unchanged
+retainer rebuilt all 220 native inputs with a fresh Cargo home and target directory,
+using 10,716 vendored files from 152 packages, and verified the complete retained
+bundle. The new store is
+`/home/josh/.local/share/mtg-ecosystem/engine-evidence/performance-retention-220-v1/run-1/p2-151d7ee801d1e975-mGNjaB`.
+The bundle SHA-256 is
+`151d7ee801d1e975412e178b361b5220ad0fe43bacf32bfec1430e26b79d6fef`;
+the rebuilt executable SHA-256 is
+`8ae5b8438a281a5410325b8e36461d85c9656442976392ead90cd2dd048e0bd7`.
+The independently reviewed audit hashes all 11,461 retained files and recomputes
+the current Build from the retained source and actual compiler settings. Its
+SHA-256 is `ac76e36969e550a033a8e5c5b39e7527b67c501940f03486e9d4c919a1bd15b8`.
+The initial empty Cargo-home check remains the pinned producer's observation;
+the audit did not repeat the rebuild. Original functional receipts remain
+unchanged. All final-source performance measurements remain separate work;
+these correctness results make no product resource-fit or timing claim.
 
 Parser coordination for the next chosen slice and eventual main integration is
 recorded from the parser agent's reported commits `e5a6761` and `5030267`. Run the

@@ -536,5 +536,11 @@ its release Build is
 diagnostics remain ignored in each normal Rust run. Format, Clippy, source guards
 and owned-process cleanup pass. The terminal functional receipt SHA-256 is
 `7c6468ec443e3d8fea1394cb052ee66b01c81a1933cc68108bacc74956401a64`.
-These are correctness gates; fresh retention, the complete final-source workload
-matrix, profiles, and quiet primary search measurement remain pending.
+Fresh offline retention also passes for this exact release Build: all 220 native
+inputs, 10,716 vendored files from 152 packages, and the complete retained replay
+were verified after rebuilding with a fresh Cargo home and target directory.
+The independent audit checked all 11,461 retained files; its SHA-256 is
+`ac76e36969e550a033a8e5c5b39e7527b67c501940f03486e9d4c919a1bd15b8`.
+The complete final-source workload matrix, profiles, and quiet primary search
+measurement remain pending. Functional retention uses its separate verification
+envelope and establishes no product memory or timing result.
