@@ -1901,11 +1901,18 @@ Its 14 focused normal tests and Clippy/format checks pass on the exact isolated
 source. It streams every generic history view and preserves all other State
 fields, array order and complete byte comparison against the bounded old
 String/Value oracle. The reviewed patch is now integrated with the earlier
-diagnostics and query proofs as 220 native inputs. The combined source passes
-workspace compilation in both debug and release plus the same 14 focused release
-tests; its full functional gates are still running. No resource-fit result is
-inferred. The integrated focused-test receipt SHA-256 is
+diagnostics and query proofs as 220 native inputs. Release Build
+`0398e42f215517220e4411d73e908c52c8132220196c082dd0f7c030b67e56c8`
+passes all 622 workspace tests in both debug and release, with 12 diagnostics
+ignored in each mode, plus 45 Node checks and 40 SDK checks with strict
+TypeScript. Format and Clippy checks pass; public schema bytes remain exact.
+All ten verification process groups are reaped and empty, and source guards
+remain equal. The terminal functional receipt SHA-256 is
+`7c6468ec443e3d8fea1394cb052ee66b01c81a1933cc68108bacc74956401a64`.
+The 14 integrated focused release tests also pass, receipt SHA-256
 `3915aa4664b7a66347b308410d9346890d0dc4343e2e088f9941299d94fc63c4`.
+Fresh retention and all final-source performance measurements remain pending;
+these correctness results make no resource-fit or timing claim.
 
 Parser coordination for the next chosen slice and eventual main integration is
 recorded from the parser agent's reported commits `e5a6761` and `5030267`. Run the
