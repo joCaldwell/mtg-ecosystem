@@ -691,6 +691,20 @@ Its manifest SHA-256 is
 independent archive audit `d4e77633…` verifies the complete byte/mode/namespace
 closure. These source and replay proofs do not establish performance acceptance.
 
+The current sixty-job primary search measurement and all sixty independent
+semantic replays now pass the unchanged product budgets: p95 2,619,498µs,
+maximum 2,630,390µs and whole-process RSS upper bound 174,325,760 bytes on
+four distinct physical cores under the reviewed bounded-idle baseline.
+There are 5,501 useful trials (5,461 horizon evaluations and 40 terminal rollouts);
+1,699 unstarted trials are excluded. Every candidate meets the first-eight
+distinct-world minimum. The replay checks recorded semantics, not new timings.
+Independent review
+`current-search-primary-shared-collections-scratch-v1/run-1-independent-primary-review.json`
+has SHA-256
+`68f460b8458c02e6f3c52f57bd1a55b21fb12dd5f875937d1d3c2004cf00529c`.
+It binds wrapper `f37a27f2…`, source/authority endpoints and owned-process cleanup;
+the original wrapper's `measurement_passed_replay_pending` status stays unchanged.
+
 Current ordinary case 0 completes one warmup and five measured repetitions of
 the unchanged 1,024-input legal prefix. All six retain full journal, payment,
 event/trace and exact State/replay proofs. The five measured core segments report
@@ -720,8 +734,12 @@ result is `measurement-shared-collections-scratch-allocation-phase-run-1/result.
 `shared-collections-scratch-independent-allocation-v1/audit.json`, SHA-256
 `a9377d549f009a2b8ff8f34d37423b0d411306cdb96a879a172d0e03058f999e`.
 
-Current-source primary sixty jobs plus all sixty independent semantic replays,
-the remaining diagnostic cases, separate twelve-root omniscient comparison and
-final measurement evidence retention remain pending.
+The broader diagnostic program completes cases 0–17. Case 18, ordinary-two
+selected-detail branching, reaches 22 of 24 full sweeps before the unchanged
+120-second deadline; independent review `independent-ordinary2-partial-v1/audit.json`
+(`f3d1a818…`) preserves that failure without inferring missing work or a full
+rate. Cases 19–29, the separate twelve-root omniscient comparison and final
+measurement evidence retention remain pending completion and review. This is
+not a full thirty-case program pass.
 The earlier a742 measurements keep their original Build, partial-work and profile
 qualifications; no prior pass or predicted resource-fit/speedup transfers here.

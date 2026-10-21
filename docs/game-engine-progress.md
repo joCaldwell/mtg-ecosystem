@@ -2126,7 +2126,7 @@ All cancelled and failed receipts stay unchanged. The successor's collection
 sharing and comparator scratch changes require separately identified verification
 and unchanged-workload measurements; no old pass transfers to it.
 
-### Shared collections and scratch: source closure and ordinary case 0
+### Shared collections and scratch: source closure and measured search
 
 Source commit `92a7863`, release Build
 `faf9ca241b7e1bf9469a77c9d88080ef18501bc851dd107811a758c24afa7318`,
@@ -2150,7 +2150,15 @@ semantics against the current feature-OFF reference and both zero controls:
 independently audited as `a9377d54…`. These are process-global Rust request
 counts, not live-heap or production-latency evidence.
 
-Current primary 60 + 60 replays, remaining diagnostic cases, the separate
-omniscient comparison and final measurement retention remain pending. Exact
-proof locators, requested-byte counts and timing scopes are in
+The current primary sixty jobs and all sixty independent semantic replays pass
+unchanged budgets: p95 2,619,498µs, maximum 2,630,390µs and whole-process RSS
+upper bound 174,325,760 bytes. Review `68f460b8…` verifies 5,501 useful trials
+(5,461 horizon, 40 terminal) and excludes 1,699 unstarted trials, with the
+per-candidate eight-world minimum preserved. The raw wrapper remains
+replay-pending; the independent review establishes completed replay.
+
+Broader cases 0–17 complete; case 18 retains its 120-second timeout after 22/24
+full sweeps (`f3d1a818…`). Cases 19–29, separate omniscient and final measurement
+retention remain pending completion and review; no full-program pass is claimed.
+Exact proof locators, requested-byte counts and timing scopes are in
 [game-engine-performance.md](game-engine-performance.md); no a742 pass transfers.
