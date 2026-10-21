@@ -660,3 +660,68 @@ metadata are additional. Its raw experiment, partial stdout, all forensic tool
 records and source/tool authorities remain intact, linked to the old source
 archive and executable. Independent archive audits are `51b2be51…`, `090321b2…`
 and `3bc37cda…`, respectively.
+
+### Shared collections and comparator scratch: Build faf9
+
+Source commit `92a7863` has release Build
+`faf9ca241b7e1bf9469a77c9d88080ef18501bc851dd107811a758c24afa7318`.
+Its separately identified run passed 637 Rust debug tests, 45 Node checks,
+637 Rust release tests and 40 SDK tests with strict TypeScript. Independent
+functional audit `a56edc5c…` and compiled identity `6f857743…` bind this source
+and its actual executable roles. Local proof locators below are relative to
+`generated/final-engine-verification`.
+
+This change shares complete immutable object-slot, player and commander arrays
+with the immediately preceding history view for the same viewer, after full
+ordered typed equality. Public JSON retains every value and its original array
+order; public exports remain owned values, with COW isolation before mutation.
+The test-host complete-byte comparator now owns one 64 KiB scratch buffer per
+comparison and reuses it across serializer fragments. Seven new normal tests
+cover these mechanisms, full wire/State equality, sibling isolation and
+adversarial comparator I/O. They establish correctness, not a promised speedup
+or dense-root memory fit.
+
+Fresh offline reconstruction and full replay also passed, independently audited
+in `shared-collections-scratch-independent-retention-v1/audit.json`
+(`82f6d9be…`). The private source/functional archive
+`performance-shared-collections-scratch-source-functional-faf9ca241b7e1bf9-v1`
+preserves 893 files / 945,588,802 bytes under the external evidence root above.
+Its manifest SHA-256 is
+`860a6a4092765a0a44ee1b049b121e9e1ffb907ea0658d57c9120a8a3eb6093f`;
+independent archive audit `d4e77633…` verifies the complete byte/mode/namespace
+closure. These source and replay proofs do not establish performance acceptance.
+
+Current ordinary case 0 completes one warmup and five measured repetitions of
+the unchanged 1,024-input legal prefix. All six retain full journal, payment,
+event/trace and exact State/replay proofs. The five measured core segments report
+2,771–2,795 accepted inputs/second; these clocks cover check/submit/advance and
+exclude observation, policy, admission, replay, serialization and I/O. Whole-host
+elapsed time is 33.4742 seconds, target process peak RSS is 112,848,896 bytes,
+and cgroup charged peak is 508,719,104 bytes. These are separate memory metrics;
+the prefix is not a completed game or full-pod throughput measurement.
+
+The raw result is `measurement-shared-collections-scratch-ordinary-legal-run-1/result.json`
+(`c9c9a2de…`). Independent audit
+`shared-collections-scratch-independent-row0-v1/audit.json`, SHA-256
+`2d782f416367ba55bc3025c91c631e9f3bec622c5a6eee1b76562ddb4af1ec5a`,
+verifies this complete declared case with source/resource/cleanup joins. Its
+status is explicitly a verified subset, not a full thirty-case program pass.
+
+The separate instrumented Rust phase also passes all 1,024 accepted inputs with
+full semantic equality to the current feature-OFF reference and two zero empty
+controls. It records 6,944,647 allocations, 6,913,186 deallocations and 100,869
+reallocations; requested bytes are 1,049,289,836 allocated and 1,044,587,925
+deallocated, with signed realloc-byte change 169,570,950. These are process-global
+Rust allocator requests during the declared raw loop, including possible
+libtest-main interference; there is no control subtraction, thread-local proof,
+C-allocation coverage, live-heap census or production-latency claim. The raw
+result is `measurement-shared-collections-scratch-allocation-phase-run-1/result.json`
+(`65269c1c…`), independently verified by
+`shared-collections-scratch-independent-allocation-v1/audit.json`, SHA-256
+`a9377d549f009a2b8ff8f34d37423b0d411306cdb96a879a172d0e03058f999e`.
+
+Current-source primary sixty jobs plus all sixty independent semantic replays,
+the remaining diagnostic cases, separate twelve-root omniscient comparison and
+final measurement evidence retention remain pending.
+The earlier a742 measurements keep their original Build, partial-work and profile
+qualifications; no prior pass or predicted resource-fit/speedup transfers here.

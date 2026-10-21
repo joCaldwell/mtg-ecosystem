@@ -2125,3 +2125,32 @@ qualifications are recorded in [game-engine-performance.md](game-engine-performa
 All cancelled and failed receipts stay unchanged. The successor's collection
 sharing and comparator scratch changes require separately identified verification
 and unchanged-workload measurements; no old pass transfers to it.
+
+### Shared collections and scratch: source closure and ordinary case 0
+
+Source commit `92a7863`, release Build
+`faf9ca241b7e1bf9469a77c9d88080ef18501bc851dd107811a758c24afa7318`,
+passed 637 debug / 637 release Rust tests, 45 Node checks and 40 SDK tests with
+strict TypeScript. Independent functional audit `a56edc5c…`, identity
+`6f857743…`, fresh offline/full-replay audit `82f6d9be…` and source/functional
+archive audit `d4e77633…` are closed. The source archive retains 893 files /
+945,588,802 bytes (manifest `860a6a40…`).
+
+The implementation shares equal immutable predecessor-view arrays while retaining
+complete public wire values and owned exports, and reuses one 64 KiB comparator
+scratch buffer per comparison. Seven new normal tests preserve full equality,
+mutation isolation and error/EOF behavior; they do not establish a speedup.
+
+Ordinary case 0 completes the unchanged 1,024-input prefix with one warmup and
+five measured repetitions, full semantic proofs and verified resource cleanup.
+Independent audit `2d782f41…` verifies this case only; the thirty-case program
+does not yet pass. The separate allocation phase now passes the same 1,024-input
+semantics against the current feature-OFF reference and both zero controls:
+6,944,647 allocations, 6,913,186 deallocations and 100,869 reallocations,
+independently audited as `a9377d54…`. These are process-global Rust request
+counts, not live-heap or production-latency evidence.
+
+Current primary 60 + 60 replays, remaining diagnostic cases, the separate
+omniscient comparison and final measurement retention remain pending. Exact
+proof locators, requested-byte counts and timing scopes are in
+[game-engine-performance.md](game-engine-performance.md); no a742 pass transfers.
