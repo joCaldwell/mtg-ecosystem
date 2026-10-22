@@ -734,12 +734,85 @@ result is `measurement-shared-collections-scratch-allocation-phase-run-1/result.
 `shared-collections-scratch-independent-allocation-v1/audit.json`, SHA-256
 `a9377d549f009a2b8ff8f34d37423b0d411306cdb96a879a172d0e03058f999e`.
 
-The broader diagnostic program completes cases 0–17. Case 18, ordinary-two
-selected-detail branching, reaches 22 of 24 full sweeps before the unchanged
-120-second deadline; independent review `independent-ordinary2-partial-v1/audit.json`
-(`f3d1a818…`) preserves that failure without inferring missing work or a full
-rate. Cases 19–29, the separate twelve-root omniscient comparison and final
-measurement evidence retention remain pending completion and review. This is
-not a full thirty-case program pass.
+All thirty diagnostic commands now have terminal classifications: twenty complete
+(0–17, 26 and 28), eight timeouts (18–25), case 27 service disappearance with a
+supplemental OOM diagnosis, and case 29 host JSON-bound rejection. Across 43
+planned internal native processes, 33 were attempted and terminal: 23 verified
+and ten failed. Ten measured internal pod batches remain unstarted. The separate
+allocation phase above and all twelve separately labeled omniscient comparisons
+passed outside the thirty-command/43-process denominator. The final audit is
+`shared-collections-scratch-independent-final-program-v1/audit.json`, SHA-256
+`c4bf3c214bb72aa9e65cb45ad5f9e2d8a694371ab22d1190864ab2479c87fc2f`.
+It preserves failures and unstarted work; there is no all-matrix pass.
+
+Case 18, ordinary-two selected-detail branching, retains its 120-second timeout
+after 22 of 24 full sweeps (`independent-ordinary2-partial-v1/audit.json`,
+`f3d1a818…`), without inferring missing work or a full rate. In closed dense
+case 20, retained scratch and source control flow establish that the natural
+256-permanent root was reached. The missing `ROOT_PROOF` flag means the complete
+root-proof lifecycle was not verified within 120 seconds; it does not mean the
+board was unreachable. This does not establish completion for other dense cases.
+For shrinking-choice case 27, the exact unit journal establishes OOM at the
+2 GiB cap after the first public root. Construction of a complete snapshot
+`String` is a plausible contributor, without proof of dominance or the exact
+failing allocation.
+
+Full-pod case 29's native warmup completed all eighteen games and exited zero:
+31.844535506 seconds, process RSS 725,336,064 bytes and cgroup charged peak
+792,076,288 bytes. The host rejected `game-00.json` at 247,172,300 bytes against
+its 128 MiB JSON limit. There is no accepted throughput result, and all ten
+measured batches remain unstarted. These native completion and host failure
+facts retain their separate scopes.
+
+Fixed-work scaling case 28 completed at one, two, four and sixteen workers with
+the same 96 trials and verified semantics. Median steady-state times were
+10,113,092 / 5,074,917 / 2,589,752 / 756,494µs respectively, about 3.9× at four
+workers versus one. Startup is reported separately; this same-build scaling
+diagnostic establishes no causal speedup over an older build.
+
+The actual external measurement archive under the existing evidence root is
+`performance-shared-collections-scratch-measurements-faf9-pass1-v1`: 876 files /
+1,263,637,937 bytes, manifest SHA-256
+`8cc9bfdf6ee0c0471f6804a6b378a8a8a183e4096f3a3c08e00fd647fd7159d0`.
+Independent byte/mode/full-namespace before/end audit
+`shared-collections-scratch-independent-measurement-archive-v1/audit.json`
+passed, SHA-256
+`7f1c77d80b658d71b4b4dcc9c4c548a650adf802779a1dca948feb52eb0d38ff`.
+Actual copy session 49679 and audit session 56475 both closed with exit zero.
+Six anchors, three runtime proofs, all 33 scope/status joins and all sixty
+primary replay joins are retained; source archive bytes are linked, not recopied.
 The earlier a742 measurements keep their original Build, partial-work and profile
 qualifications; no prior pass or predicted resource-fit/speedup transfers here.
+
+The integrated candidate at `9f628c7` contains three independently reviewed and
+approved changes: `5e5ab05` adds a fixed 64 KiB ACTUAL-output buffer with checked
+flush; `7f31a0b` adds a private file-backed `rootSnapshot` and phase markers while
+preserving cold replay; `9f628c7` scopes `podEvidence` to 256 MiB while retaining
+128 MiB defaults and bounded reads. Child targeted tests passed, including six
+plus four new normal Rust tests. Parent `npm run check:engine` passed at this
+HEAD with pinned Rust 1.99.0 and Node 26.11.1: formatting, Clippy, 647 Rust tests
+and 45 Node checks. Its closed log SHA-256 is
+`41ad7c5863670a0f0a042deecf9b24c78cd607d17eff37bbd4ac745aab03e449`.
+Release tests also passed all 647 tests (closed stdout SHA-256
+`eee392b14cee0a384ef32011251f3b59a388fefb625e782fa895c86903c4709b`),
+and SDK verification passed 40 tests with strict TypeScript. Actual Cargo
+artifacts, the native source manifest and server native-info join Build
+`f3b9f1512a4aacd28b610df875c3181405345a3727ec289275ef82b56aa5e5b2`.
+Independent functional audit `functional-audit-run-2.json` under
+`generated/diagnostic-proof-fixes-verification-v1/audit-preparation-v1` passed,
+SHA-256 `a5cd09ef5cabc2cd3e1bdc46bdd7a264a9b88b95210c5b3e22e331c318f5237d`.
+The first failed audit is preserved: its parser compared historical ignored-test
+explanations against normalized outcomes; the reviewed correction preserves exact
+names, multiplicities and pass/ignored distinctions. No engine rerun or result
+change was needed. Fresh retention and measurements remain pending; no new Build
+performance or resource-fit result is established.
+
+The compiled identity was frozen successfully with four immutable executable
+roles; receipt SHA-256
+`b2bb3c550db7506ce62b2d1b65a02333532b3f3cede9efca825169b2a1ba3ad8`.
+Subsequent host-only commit `8f33007` updates the shared definition/shrinking
+driver's helper pin. Its 122 focused Python guards and independent review passed;
+all 220 native source files stayed byte-identical. Functional receipts retain
+their original `9f628c7` provenance. New authorities must freeze the current host
+namespace, including definition driver SHA-256
+`3100ecb8765796b2e685499159bdd699ffdf656c741806659db907ab0307bdb2`.

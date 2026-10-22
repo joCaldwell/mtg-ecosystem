@@ -2157,8 +2157,70 @@ upper bound 174,325,760 bytes. Review `68f460b8…` verifies 5,501 useful trials
 per-candidate eight-world minimum preserved. The raw wrapper remains
 replay-pending; the independent review establishes completed replay.
 
-Broader cases 0–17 complete; case 18 retains its 120-second timeout after 22/24
-full sweeps (`f3d1a818…`). Cases 19–29, separate omniscient and final measurement
-retention remain pending completion and review; no full-program pass is claimed.
-Exact proof locators, requested-byte counts and timing scopes are in
+All thirty baseline commands are terminal: twenty complete (0–17, 26 and 28),
+eight timeouts (18–25), case 27 service disappearance with supplemental OOM
+evidence, and case 29 full-pod host JSON-bound rejection. The 43 planned internal
+native processes comprise 33 attempted terminal processes (23 verified, ten
+failed) and ten unstarted measured pod batches. The separate allocation phase
+and all twelve omniscient comparisons passed outside this 30/43 denominator.
+Final audit `shared-collections-scratch-independent-final-program-v1/audit.json`
+under `generated/final-engine-verification` has SHA-256
+`c4bf3c214bb72aa9e65cb45ad5f9e2d8a694371ab22d1190864ab2479c87fc2f`;
+there is no all-matrix pass. The primary 60+60 results above are unchanged.
+
+Case 18 retains its 120-second timeout after 22/24 full sweeps (`f3d1a818…`).
+Closed case 20's scratch and control flow prove the natural 256-permanent root
+was reached; missing `ROOT_PROOF` means the full proof lifecycle was not verified
+within 120 seconds, rather than that the board was unreachable. Case 27's exact
+unit journal establishes OOM at 2 GiB after the first public root; a complete
+snapshot `String` is a plausible contributor, not a proven dominant cause.
+Case 29 completed all eighteen native warmup games with exit zero in
+31.844535506 seconds (RSS 725,336,064 bytes; charged peak 792,076,288 bytes),
+then the host rejected `game-00.json` at 247,172,300 bytes against 128 MiB.
+No throughput result was accepted; ten measured batches remain unstarted.
+Scaling case 28 completed the same 96 trials and semantics at 1/2/4/16 workers:
+median steady-state 10,113,092 / 5,074,917 / 2,589,752 / 756,494µs, about 3.9×
+for four versus one. Startup is separate; no causal older-build speedup follows.
+
+The actual archive `performance-shared-collections-scratch-measurements-faf9-pass1-v1`
+under the existing external evidence root retains 876 files / 1,263,637,937 bytes,
+manifest SHA-256
+`8cc9bfdf6ee0c0471f6804a6b378a8a8a183e4096f3a3c08e00fd647fd7159d0`.
+Independent byte/mode/full-namespace before/end audit
+`shared-collections-scratch-independent-measurement-archive-v1/audit.json`
+passed (SHA-256
+`7f1c77d80b658d71b4b4dcc9c4c548a650adf802779a1dca948feb52eb0d38ff`);
+actual copy session 49679 and audit session 56475 both closed with exit zero.
+Six anchors, three runtime proofs, all 33 scope/status joins and sixty primary
+replay joins are covered; source archive bytes are linked, not recopied.
+Exact proof locators, requested-byte counts and timing scopes remain in
 [game-engine-performance.md](game-engine-performance.md); no a742 pass transfers.
+
+Candidate `9f628c7` integrates three independently reviewed and approved
+changes: `5e5ab05` adds fixed 64 KiB ACTUAL buffering and checked flush;
+`7f31a0b` adds private file-backed `rootSnapshot` and phases preserving cold
+replay; `9f628c7` adds scoped 256 MiB `podEvidence` with 128 MiB defaults and
+bounded reads. Child targeted tests passed, including six plus four new normal
+Rust tests. Parent `npm run check:engine` passed at this HEAD with pinned Rust
+1.99.0 and Node 26.11.1: formatting, Clippy, 647 Rust tests and 45 Node checks.
+Closed log SHA-256:
+`41ad7c5863670a0f0a042deecf9b24c78cd607d17eff37bbd4ac745aab03e449`.
+Release tests passed all 647 tests; SDK verification passed 40 tests with strict
+TypeScript. Actual Cargo artifacts, native source manifest and server native-info
+join Build `f3b9f1512a4aacd28b610df875c3181405345a3727ec289275ef82b56aa5e5b2`.
+Independent functional audit `functional-audit-run-2.json` under
+`generated/diagnostic-proof-fixes-verification-v1/audit-preparation-v1` passed,
+SHA-256 `a5cd09ef5cabc2cd3e1bdc46bdd7a264a9b88b95210c5b3e22e331c318f5237d`.
+Its first failed attempt is preserved; a reviewed parser correction reconciles
+historical ignored-test explanations with normalized outcomes while preserving
+names, multiplicities and pass/ignored distinctions. No engine rerun or result
+change was needed. Fresh retention and measurements remain pending; no new Build
+performance or resource-fit result is claimed.
+
+Four executable roles and their source/Cargo evidence were frozen successfully;
+compiled identity receipt SHA-256
+`b2bb3c550db7506ce62b2d1b65a02333532b3f3cede9efca825169b2a1ba3ad8`.
+Host-only commit `8f33007` then corrects the shared definition/shrinking helper
+pin, with 122 focused Python guards and independent review passed. All 220 native
+source files remain byte-identical. The original functional receipts stay at
+`9f628c7`; fresh authorities must bind the subsequently updated host namespace.
