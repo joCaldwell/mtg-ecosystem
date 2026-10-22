@@ -1,4 +1,4 @@
-import copy,hashlib,importlib.util,json,tempfile,unittest
+import copy,hashlib,importlib.util,json,tempfile,unittest,weakref
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -36,6 +36,40 @@ def check_mutation(mutate):
   return m.validate_batch(o,h,directory,r,BUILD,(PROFILE,DECKS))
 
 class Guards(unittest.TestCase):
+ def test_evidence_override_only_and_full_game_released_before_next_read(self):
+  class Game(dict):pass
+  read=h.read_json;previous=[];calls=[]
+  def tracked(path,**kwargs):
+   self.assertTrue(all(ref()is None for ref in previous),'previous full game retained at next read')
+   calls.append((path.name,kwargs));value=Game(read(path,**kwargs));previous.append(weakref.ref(value));return value
+  self.assertEqual(m.POD_EVIDENCE_MAX_BYTES,268435456)
+  self.assertEqual(read.__defaults__,(134217728,))
+  with patch.object(h,'read_json',side_effect=tracked):
+   result=check_mutation(lambda *_:None)
+  self.assertTrue(result['all18_complete_verified']);self.assertTrue(all(ref()is None for ref in previous))
+  self.assertEqual(calls,[(f'game-{i:02}.json',{'max_bytes':268435456})for i in range(18)])
+ def test_evidence_bound_failure_identifies_game_and_does_not_skip(self):
+  with tempfile.TemporaryDirectory()as tmp:
+   directory=Path(tmp);report=create(directory)
+   with patch.object(m,'POD_EVIDENCE_MAX_BYTES',16),patch.object(h,'read_json',wraps=h.read_json)as read:
+    with self.assertRaisesRegex(ValueError,'bound 16 bytes: '+str(directory/'game-00.json')):
+     m.validate_batch(o,h,directory,report,BUILD,(PROFILE,DECKS))
+   self.assertEqual(read.call_count,1)
+ def test_batch_report_uses_default_and_evidence_override_inside_original_audit(self):
+  with tempfile.TemporaryDirectory()as tmp:
+   parent=Path(tmp);parent.chmod(0o700);out=parent/'attempt'
+   a={'test_executable':{'path':'/never/executed','sha256':'f'*64},'stage_root':str(parent),'cpu_ids':[0],'engine_build_id':BUILD}
+   fixed=SimpleNamespace(load_host=lambda _:h)
+   argv=['host','--ordinary-driver-sha256','0'*64,'--fixed-driver-sha256','0'*64,'--helper-sha256','0'*64,'--authority',str(parent/'authority'),'--authority-sha256','0'*64,'--output',str(out),'--execute']
+   def bounded(**kwargs):
+    self.assertEqual(kwargs['timeout_seconds'],120)
+    games=out/'games';games.mkdir();create(games)
+    return {'status':'passed','audit':kwargs['audit']()}
+   with patch.object(m.sys,'argv',argv),patch.object(m,'load',lambda _:o),patch.object(o,'load_fixed',return_value=fixed),patch.object(m,'auth',lambda *args:(a,(PROFILE,DECKS),{})),patch.object(h,'run_bounded',side_effect=bounded),patch.object(h,'read_json',wraps=h.read_json)as read:
+    self.assertEqual(m.main(),0)
+   self.assertEqual(read.call_args_list[0].args,(out/'games/report.json',));self.assertEqual(read.call_args_list[0].kwargs,{})
+   self.assertEqual(len(read.call_args_list),19)
+   self.assertTrue(all(call.kwargs=={'max_bytes':268435456}for call in read.call_args_list[1:]))
  def test_complete_all18_fixture_no_actual_games(self):
   r=check_mutation(lambda *_:None);self.assertTrue(r['all18_complete_verified']);self.assertEqual(len(r['rows']),18);self.assertEqual(len(r['retained_files']),37)
  def test_seed_start_mulls_and_two_extra_deck_modes(self):

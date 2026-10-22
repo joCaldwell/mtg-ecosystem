@@ -11,6 +11,8 @@ VECTORS={'advance_ns':'advances','observation_query_ns':'decisions','policy_ns':
 SCALARS=['admission_ns','journal_serialization_ns','journal_io_ns','snapshot_envelope_ns','final_state_hash_ns','disposal_ns','generation_ns']
 EVIDENCE={'config','policy','mulligans','journal','trace_mode','losses','checkpoints','outcome','winner','decisions','advances','rule_steps','query_calls','work_limit','quantum','turns','final_state_sha256','surviving_seats','survivor_counts','elapsed_millis'}
 MAX_LINE=4*1024**2
+# Full seed0 detailed trace/four checkpoints; control JSON keeps its own default.
+POD_EVIDENCE_MAX_BYTES=256*1024**2
 
 def need(ok,why):
  if not ok:raise ValueError(why)
@@ -139,7 +141,7 @@ def validate_batch(o,h,directory,report,build,source_decks_value):
    need(type(row['error'])is str and o.natural(row['attempt_wall_ns'])and row['partial_stream']==str(directory/f'game-{index:02}.jsonl'),'failed attempt retained')
    need(report['passed']is False,'missing Evidence prevents pass');hist['failed_before_evidence']+=1;generation+=row['attempt_wall_ns'];expected_failures.append(row);rows.append({'index':index,'outcome':'failed_before_evidence','counts':'unknown','attempt_wall_ns':row['attempt_wall_ns']});continue
   path=directory/f'game-{index:02}.json';need(row['evidence_file']==str(path)and sha(path)==row['evidence_sha256'],'exact private Evidence file SHA')
-  e=h.read_json(plain(path));tags=evidence(o,e,index,profile,decks)
+  e=h.read_json(plain(path),max_bytes=POD_EVIDENCE_MAX_BYTES);tags=evidence(o,e,index,profile,decks)
   for k in ['outcome','winner','survivor_counts','turns','decisions','advances','rule_steps','query_calls','final_state_sha256']:same(o,row[k],e[k],'full evidence/report '+k)
   need(row['journal_sha256']==o.digest(e['journal']),'accepted journal SHA')
   stream_proof=stream(o,h,directory/f'game-{index:02}.jsonl',e,index,profile,decks,build)
@@ -153,6 +155,7 @@ def validate_batch(o,h,directory,report,build,source_decks_value):
   hist[e['outcome']]+=1
   if e['winner']is not None:wins[e['winner']]+=1
   rows.append({'index':index,'outcome':e['outcome'],'verified':row['verified'],'decisions':e['decisions'],'rule_steps':e['rule_steps'],'turns':e['turns'],'response_histogram':dict(tags),'vector_counts':vector_counts,'full_state_sha256':e['final_state_sha256'],'evidence_sha256':row['evidence_sha256'],'journal':stream_proof})
+  del e  # Release this full game before the next read/parse, including seed0.
  need(o.hist(report['outcome_histogram'])==dict(hist)and type(report['winner_counts'])is list and all(o.natural(v)for v in report['winner_counts'])and report['winner_counts']==wins and report['completed_pods']==completed,'all raw outcomes/winners/verified completion denominator')
  need(report['generation_sum_ns']==generation and report['independent_proof_sum_ns']==proof and report['whole_batch_ns']>=generation+proof+persist,'actual clock conservation')
  need(type(report['failures'])is list and all(type(f.get('index'))is int for f in report['failures'])and [f.get('index')for f in report['failures']]==[f['index']for f in expected_failures],'every failed case retained once')

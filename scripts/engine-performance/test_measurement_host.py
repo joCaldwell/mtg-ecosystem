@@ -7,12 +7,14 @@ import subprocess
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 HERE = Path(__file__).absolute().parent
 sys.path.insert(0,str(HERE))
 import measurement_host as h
+import host_inputs as inputs
 spec = importlib.util.spec_from_file_location('fixed',HERE/'run-fixed-work.py')
 f = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(f)
@@ -185,6 +187,91 @@ class SharedHost(unittest.TestCase):
             p.write_text(raw)
             with self.assertRaises(ValueError):
                 h.read_json(p)
+
+
+class StrictJsonReads(unittest.TestCase):
+    # Exercise both readers with tiny caps; never allocate a pod-sized fixture.
+    def readers(self):
+        return [(h, h.read_json), (inputs, inputs.read)]
+
+    def test_exact_cap_unicode_and_cap_plus_one(self):
+        raw = '{"text":"雪☃é"}'.encode('utf-8')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'game-00.json'
+            for module, read in self.readers():
+                with self.subTest(reader=module.__name__):
+                    path.write_bytes(raw)
+                    self.assertEqual(read(path, max_bytes=len(raw)), {'text': '雪☃é'})
+                    path.write_bytes(raw + b' ')
+                    with self.assertRaisesRegex(ValueError, f'bound {len(raw)} bytes: {path}'):
+                        read(path, max_bytes=len(raw))
+
+    def test_single_open_descriptor_check_and_bounded_read_catches_growth_before_parse(self):
+        cap = 16
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'game-00.json'
+            path.write_bytes(b'{}' + b' '*(cap-1))  # Actual size cap+1; fstat is stale.
+            for module, read in self.readers():
+                for grew in (False, True):
+                    with self.subTest(reader=module.__name__, grew=grew):
+                        requests = []
+                        with path.open('rb') as source:
+                            class Tracked:
+                                def __enter__(self): return self
+                                def __exit__(self, *args): pass
+                                def fileno(self): return source.fileno()
+                                def read(self, size):
+                                    requests.append(size)
+                                    return source.read(size)
+                            with patch.object(Path, 'open', return_value=Tracked()) as opened, \
+                                 patch.object(module.os, 'fstat', return_value=SimpleNamespace(st_size=cap if grew else cap+1)) as sized, \
+                                 patch.object(module.json, 'loads', side_effect=AssertionError('must reject before parse')):
+                                with self.assertRaisesRegex(ValueError, f'bound {cap} bytes: {path}'):
+                                    read(path, max_bytes=cap)
+                            opened.assert_called_once_with('rb')
+                            sized.assert_called_once_with(source.fileno())
+                            self.assertEqual(requests, [cap+1] if grew else [])
+
+    def test_default_stays_128mib_readonly_sparse_oversize_rejects_before_read(self):
+        default = 128*1024**2
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'authority.json'
+            with path.open('wb') as source: source.truncate(default+1)
+            path.chmod(0o400)
+            for module, read in self.readers():
+                with self.subTest(reader=module.__name__):
+                    self.assertEqual(module.MAX_JSON_BYTES, default)
+                    self.assertEqual(read.__defaults__, (default,))
+                    with path.open('rb') as source:
+                        class ReadForbidden:
+                            def __enter__(self): return self
+                            def __exit__(self, *args): pass
+                            def fileno(self): return source.fileno()
+                            def read(self, size): raise AssertionError('oversize sparse file read')
+                        with patch.object(Path, 'open', return_value=ReadForbidden()), \
+                             patch.object(module.json, 'loads', side_effect=AssertionError('oversize parsed')):
+                            with self.assertRaisesRegex(ValueError, f'bound {default} bytes: {path}'):
+                                read(path)
+
+    def test_strict_json_rejects_malformed_duplicate_nonfinite_and_truncated(self):
+        for module, read in self.readers():
+            for raw in [b'{bad}', b'{"a":1,"a":2}', b'{"nested":{"a":1,"a":2}}',
+                        b'{"a":NaN}', b'{"a":Infinity}', b'{"a":-Infinity}', b'{"a":', b'{}{}']:
+                with self.subTest(reader=module.__name__, raw=raw), tempfile.TemporaryDirectory() as tmp:
+                    path = Path(tmp)/'bad.json'; path.write_bytes(raw)
+                    with self.assertRaises(ValueError): read(path, max_bytes=64)
+
+    def test_invalid_caps_reject_and_input_path_rules_remain(self):
+        for module, read in self.readers():
+            for cap in [-1, True, 1.5, None]:
+                with self.subTest(reader=module.__name__, cap=cap):
+                    with self.assertRaisesRegex(ValueError, 'integer JSON byte bound'):
+                        read(Path('/unused'), max_bytes=cap)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'game.json'; path.write_text('{}')
+            alias = path.with_name('alias'); alias.symlink_to(path)
+            with self.assertRaisesRegex(ValueError, 'symlink'): inputs.read(alias, max_bytes=64)
+            with self.assertRaisesRegex(ValueError, 'absolute'): inputs.read(Path('relative.json'), max_bytes=64)
 
 
 class RowProof(unittest.TestCase):

@@ -46,10 +46,17 @@ def no_duplicates(pairs):
     return result
 
 
-def read_json(path: Path):
-    if path.stat().st_size > MAX_JSON_BYTES:
-        raise ValueError('JSON exceeds bound')
-    return json.loads(path.read_text(), object_pairs_hook=no_duplicates,
+def read_json(path: Path, max_bytes=MAX_JSON_BYTES):
+    if type(max_bytes) is not int or max_bytes < 0:
+        raise ValueError('nonnegative integer JSON byte bound required')
+    exceeded = f'JSON exceeds bound {max_bytes} bytes: {path}'
+    with path.open('rb') as source:
+        if os.fstat(source.fileno()).st_size > max_bytes:
+            raise ValueError(exceeded)
+        raw = source.read(max_bytes + 1)
+    if len(raw) > max_bytes:  # Also reject growth after the descriptor size check.
+        raise ValueError(exceeded)
+    return json.loads(raw.decode('utf-8'), object_pairs_hook=no_duplicates,
                       parse_constant=lambda _: (_ for _ in ()).throw(ValueError('nonfinite JSON')))
 
 

@@ -4,7 +4,8 @@ No authority is approved here. No native workload, Cargo command, systemd unit,
 benchmark, profile, replay or real pod was launched. The tests use tiny fabricated
 JSON/source trees and mocked process leases; they establish guard behavior only.
 The original T201/303 and P8 sources are byte-preserved under `originals/`.
-The shared `run-fixed-work.py` and `measurement_host.py` remain untouched.
+The shared `run-fixed-work.py` remains untouched. The host-only pod Evidence
+read correction changes `measurement_host.py` and requires fresh host pins.
 
 This directory contains three thin executable hosts and one shared input/lease
 module. The primary's idle monitoring and the reviewer's independent raw-CPU
@@ -36,7 +37,7 @@ requires new source pins and review, not a fallback to currently existing bytes.
   `retry_policy:"fail-stop-no-retry-v1"`.
 - File pins `{path,sha256}` named `single_batch_driver`,
   `single_batch_authority`, `ordinary_driver`, `fixed_driver`; plus
-  `measurement_helper_sha256` for the unchanged helper adjacent to fixed.
+  `measurement_helper_sha256` for the authenticated helper adjacent to fixed.
 - `host_sources`: absolute script path→SHA map containing this wrapper,
   `host_inputs.py` and every dependency above. Pins are authenticated before
   imported Python executes.
@@ -62,6 +63,19 @@ batch's source/resource audit remain inside its120-second envelope. Both native
 generation and generation-plus-proof/persistence rates retain their old clocks.
 Ten raw measured totals, variance and median/quartiles remain visible.
 
+Only the single-batch and series **full pod Evidence** reads allow 256 MiB
+(268,435,456 bytes), retaining the full detailed seed0 trace and all four
+checkpoint strings. Both strict JSON readers default to 128 MiB for control,
+report and authority inputs. They open once, check descriptor size, read at most
+cap+1 bytes and reject excess bytes before parsing, including growth after the
+size check. Duplicate keys and nonfinite constants still reject. Each full game
+is released before reading the next. This is an input byte bound, not a Python
+heap bound or native RSS proof; canonical full-field comparison still omits only
+validated top-level `elapsed_millis`. Existing failed attempts and their unstarted
+batches remain unchanged. This correction creates no new authorities or native
+acceptance/performance evidence; fresh host pins and a fresh complete series
+remain required.
+
 ## Search authority
 
 `final-search-host-authority-v1` requires:
@@ -82,7 +96,7 @@ Ten raw measured totals, variance and median/quartiles remain visible.
   overflowtrue. Its original executable and archived CLI must have the same
   pinned bytes. A SIM test artifact or allocation-instrumented artifact rejects.
 - `host_sources` absolute path→SHA map containing both hosts, this input module,
-  the pinned fixed guard and unchanged measurement helper;
+  the pinned fixed guard and authenticated measurement helper;
   `measurement_helper_sha256` binds the adjacent helper before import.
 - `run_parent` and explicit `prerequisites`, including unique roles
   `functional_gates` and `independent_audit`. Each entry has `file:{path,sha256}`

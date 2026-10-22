@@ -9,6 +9,7 @@ import signal
 import tempfile
 from types import SimpleNamespace
 import unittest
+import weakref
 from unittest.mock import patch
 
 HERE = Path(__file__).absolute().parent
@@ -248,12 +249,77 @@ class PodGuards(unittest.TestCase):
             z = {**bounded, key: bad}
             with self.assertRaises(ValueError): pods.batch_result(h, v, z, 'b')
 
-    def test_semantics_omit_elapsed_only_and_retain_all_journal_fields(self):
+    def test_semantics_match_canonical_oracle_ignore_only_validated_top_level_elapsed(self):
         with tempfile.TemporaryDirectory() as tmp:
-            p = Path(tmp) / 'game.json'; base = {'elapsed_millis': 1, 'journal': [1], 'hidden': {'x': 2}}
-            write(p, base); a = pods.semantic(h, p)
-            write(p, {**base, 'elapsed_millis': 100}); self.assertEqual(a, pods.semantic(h, p))
-            write(p, {**base, 'hidden': {'x': 3}}); self.assertNotEqual(a, pods.semantic(h, p))
+            p = Path(tmp) / 'game.json'
+            # Small full-field Unicode oracle, not a real game or replay proof.
+            base = {'elapsed_millis': 1, 'config': {'seed': [0], 'decks': ['雪']},
+                'policy': 'develop', 'mulligans': [0, 1, 2, 0],
+                'journal': {'decisions': [{'response': '☃', 'elapsed_millis': 7}], 'concessions': []},
+                'trace_mode': 'detailed', 'losses': [[1, 'life']],
+                'checkpoints': [{'decisions': i, 'rule_boundary': i+1, 'snapshot': '雪é☃'} for i in range(4)],
+                'outcome': 'finished', 'winner': 0, 'decisions': 3, 'advances': 4,
+                'rule_steps': 5, 'query_calls': 6, 'work_limit': 2000000, 'quantum': 1024,
+                'turns': 1, 'final_state_sha256': 'a'*64, 'surviving_seats': [0],
+                'survivor_counts': [4, 1], 'other_field': {'hidden': 'é'}}
+            semantic = {key: value for key, value in base.items() if key != 'elapsed_millis'}
+            expected = hashlib.sha256(h.canonical(semantic)).hexdigest()
+            write(p, base); self.assertEqual(expected, pods.semantic(h, p))
+            p.write_text(json.dumps(dict(reversed(list(base.items()))), ensure_ascii=False))
+            self.assertEqual(expected, pods.semantic(h, p))
+            for elapsed in [0, 100]:
+                write(p, {**base, 'elapsed_millis': elapsed})
+                self.assertEqual(expected, pods.semantic(h, p))
+            for elapsed in [True, -1, 1.0, None, '1']:
+                write(p, {**base, 'elapsed_millis': elapsed})
+                with self.assertRaises(ValueError): pods.semantic(h, p)
+            write(p, semantic)
+            with self.assertRaises(KeyError): pods.semantic(h, p)
+            for key in semantic:
+                with self.subTest(field=key):
+                    changed = copy.deepcopy(base); changed[key] = {'changed': changed[key]}
+                    write(p, changed); self.assertNotEqual(expected, pods.semantic(h, p))
+            for point in range(4):
+                for char in range(3):
+                    changed = copy.deepcopy(base)
+                    text = changed['checkpoints'][point]['snapshot']
+                    changed['checkpoints'][point]['snapshot'] = text[:char] + '改' + text[char+1:]
+                    write(p, changed); self.assertNotEqual(expected, pods.semantic(h, p))
+            changed = copy.deepcopy(base); changed['journal']['decisions'][0]['elapsed_millis'] += 1
+            write(p, changed); self.assertNotEqual(expected, pods.semantic(h, p))
+
+    def test_series_evidence_override_control_defaults_and_one_full_game_at_a_time(self):
+        class Game(dict): pass
+        read = h.read; previous = []; calls = []
+        def tracked(path, **kwargs):
+            calls.append((path, kwargs))
+            self.assertTrue(all(ref() is None for ref in previous), 'full game retained at next read')
+            value = read(path, **kwargs)
+            if path.parent.name == 'games':
+                value = Game(value); previous.append(weakref.ref(value))
+            return value
+        self.assertEqual(pods.POD_EVIDENCE_MAX_BYTES, 268435456)
+        self.assertEqual(read.__defaults__, (134217728,))
+        with tempfile.TemporaryDirectory() as tmp, patch.object(h, 'read', side_effect=tracked):
+            result, _ = self.run_fake_series(Path(tmp))
+        self.assertEqual(result['status'], 'all11_batches_semantically_verified')
+        self.assertTrue(all(ref() is None for ref in previous))
+        evidence = [(path, kwargs) for path, kwargs in calls if path.parent.name == 'games']
+        self.assertEqual(len(evidence), 198)
+        self.assertTrue(all(kwargs == {'max_bytes': 268435456} for _, kwargs in evidence))
+        controls = [(path, kwargs) for path, kwargs in calls if path.parent.name != 'games']
+        self.assertEqual(len(controls), 22)
+        self.assertTrue(all(kwargs == {} for _, kwargs in controls))
+
+    def test_series_oversize_evidence_fails_first_batch_with_locator_and_no_retry(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(pods, 'POD_EVIDENCE_MAX_BYTES', 16):
+            parent = Path(tmp); result, calls = self.run_fake_series(parent)
+            self.assertEqual(result['status'], 'failed_or_incomplete')
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(result['unstarted_batch_indices'], list(range(1, 11)))
+            self.assertIn('bound 16 bytes: '+str(parent/'series/batch-00/games/game-00.json'), result['failure'])
+            self.assertIsNone(result['summaries'])
+            self.assertTrue((parent/'series/batch-00/games/game-00.json').exists())
 
     def test_actual_batch_resource_proof_rejects_cap_pressure_cleanup_and_exe_mismatch(self):
         actual = {'cpu_ids': [0], 'test_executable': {'sha256': '0'*64}}

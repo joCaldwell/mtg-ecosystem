@@ -12,6 +12,7 @@ import statistics
 import sys
 
 STOP = False
+POD_EVIDENCE_MAX_BYTES = 256 * 1024**2
 
 
 def stopped(_signum, _frame):
@@ -76,7 +77,7 @@ def batch_command(a, output):
 
 
 def semantic(h, path):
-    value = h.read(path)
+    value = h.read(path, max_bytes=POD_EVIDENCE_MAX_BYTES)
     elapsed = value.pop('elapsed_millis')
     h.need(type(elapsed) is int and elapsed >= 0, 'only declared elapsed field omitted')
     # One complete Evidence at a time, same full-field semantics as original.

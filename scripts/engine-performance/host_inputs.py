@@ -12,6 +12,7 @@ import time
 
 WORKLOAD_SHA = '75f1665a6c41dfc285cb4cb46b74923dd1760d753783ec0a71b1d0b2b4834d45'
 WORKLOAD_REL = 'packages/game-engine/tests/fixtures/search-workload.json'
+MAX_JSON_BYTES = 128 * 1024**2
 
 
 def need(value, why):
@@ -41,7 +42,14 @@ def sha(path):
         return hashlib.file_digest(source, 'sha256').hexdigest()
 
 
-def read(path):
+def read(path, max_bytes=MAX_JSON_BYTES):
+    need(type(max_bytes) is int and max_bytes >= 0, 'nonnegative integer JSON byte bound required')
+    path = plain(path)
+    exceeded = f'JSON exceeds bound {max_bytes} bytes: {path}'
+    with path.open('rb') as source:
+        need(os.fstat(source.fileno()).st_size <= max_bytes, exceeded)
+        raw = source.read(max_bytes + 1)
+    need(len(raw) <= max_bytes, exceeded)  # Catch growth before parsing, too.
     def pairs(values):
         out = {}
         for key, value in values:
@@ -50,7 +58,7 @@ def read(path):
         return out
     def bad(value):
         raise ValueError('nonfinite JSON ' + value)
-    return json.loads(plain(path).read_bytes(), object_pairs_hook=pairs, parse_constant=bad)
+    return json.loads(raw, object_pairs_hook=pairs, parse_constant=bad)
 
 
 def canonical(value):
