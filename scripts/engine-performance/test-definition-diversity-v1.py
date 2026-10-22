@@ -112,6 +112,45 @@ class Guards(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'compiled manifest equality'):
                 host.authority_guard(Path('/fake/a'), 'x', host.FIXED_SHA, host.HELPER_SHA, {}, source, [rel])
 
+    def test_current_reviewed_helper_pin_accepted_for_both_callers(self):
+        helper_sha = '903da48385bef512c25ee8314767d5ee369f841e1cd179e8f66fc3555949e48b'
+        self.assertEqual(host.sha(HERE / 'measurement_host.py'), helper_sha)
+        self.assertEqual(host.HELPER_SHA, helper_sha)
+        fixed = host.authenticated('definition_pin_fixed_test', HERE / 'run-fixed-work.py', host.FIXED_SHA)
+        callers = [('run-definition-diversity-v1.py', {'name': 'mtg_core', 'kind': ['lib']}),
+                   ('run-shrinking-choices-v1.py', {'name': 'mtg-sim', 'kind': ['bin']})]
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact, native = Path(tmp) / 'artifact.json', Path(tmp) / 'native.json'
+            artifact.write_bytes(host.canonical({'features': []}))
+            source_sha = host.sha(host.STAGE / host.MODULE)
+            native.write_bytes(host.canonical({'files': [{'path': host.MODULE, 'sha256': source_sha}]}))
+            for script, target in callers:
+                with self.subTest(caller=script):
+                    own = HERE / script
+                    a = {'stage_root': str(host.STAGE), 'compiler_artifact': {'path': str(artifact)},
+                         'native_manifest': {'path': str(native)}, 'timeout_seconds': 120, 'cpu_ids': [0],
+                         'test_target': target,
+                         'host_scripts': {str(p): host.sha(p) for p in [own, HERE / 'run-fixed-work.py', HERE / 'measurement_host.py']},
+                         'diagnostic_sources': {host.MODULE: source_sha}}
+                    # Only compiled authority is synthetic; helper authentication/import and
+                    # the remaining shared guard run unchanged, without launching a workload.
+                    with patch.object(host, 'authenticated', return_value=fixed) as imported, patch.object(fixed, 'authority_check', return_value=a) as checked:
+                        actual, helper, loaded = host.authority_guard(Path('/fake/a'), 'x', host.FIXED_SHA, helper_sha, target, own, [host.MODULE])
+                    imported.assert_called_once_with('finite_domain_fixed', HERE / 'run-fixed-work.py', host.FIXED_SHA)
+                    checked.assert_called_once_with(Path('/fake/a'), 'x')
+                    self.assertIs(actual, a)
+                    self.assertIs(loaded, fixed)
+                    self.assertEqual(Path(helper.__file__), HERE / 'measurement_host.py')
+
+    def test_stale_helper_pin_rejected_before_import_for_both_callers(self):
+        stale_sha = 'f426db8fe1a0d2896d309937c4bede6be5fd081b00464495bc04ee16e1001648'
+        for script, target in [('run-definition-diversity-v1.py', {'name': 'mtg_core', 'kind': ['lib']}),
+                               ('run-shrinking-choices-v1.py', {'name': 'mtg-sim', 'kind': ['bin']})]:
+            with self.subTest(caller=script), patch.object(host, 'authenticated') as imported:
+                with self.assertRaisesRegex(ValueError, 'unchanged reviewed shared guards'):
+                    host.authority_guard(Path('/fake/a'), 'x', host.FIXED_SHA, stale_sha, target, HERE / script, [])
+                imported.assert_not_called()
+
     def test_trigger_subject_float_or_bool_rehashed_all_repeats(self):
         for alias in [2.0, True]:
             with self.subTest(alias=alias):

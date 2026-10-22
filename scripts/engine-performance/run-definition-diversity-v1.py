@@ -13,7 +13,7 @@ import sys
 HERE = Path(__file__).absolute().parent
 STAGE = HERE.parents[1]
 FIXED_SHA = 'fa98a77dd48fa10e6690df18601d8c6bd5ed04179d62bf6094bd2ecbcdaab018'
-HELPER_SHA = 'f426db8fe1a0d2896d309937c4bede6be5fd081b00464495bc04ee16e1001648'
+HELPER_SHA = '903da48385bef512c25ee8314767d5ee369f841e1cd179e8f66fc3555949e48b'
 ENTRY = 'engine::definition_diversity_tests::definition_diversity_host_diagnostic'
 MODULE = 'packages/game-engine/crates/core/src/engine/definition_diversity_tests.rs'
 CHILD = 'packages/game-engine/crates/core/src/engine/definition_diversity_tests/heterogeneous.rs'
