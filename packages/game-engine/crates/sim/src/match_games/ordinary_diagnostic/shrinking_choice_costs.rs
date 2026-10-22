@@ -5,6 +5,7 @@ use super::*;
 use mtg_contracts::KeywordAbility;
 use mtg_core::Request;
 use std::collections::BTreeSet;
+use std::io::{BufWriter, Seek, SeekFrom};
 
 const CHOICE_SEED: &[u8] = b"foundations-shrinking-choices-v1/legal-BG-W-BG-W";
 const SETUP_INPUT_LIMIT: usize = 30_000;
@@ -787,7 +788,83 @@ fn effect_proof(
         json!({"typed_outcomes":outcomes,"spell_casts":spell_casts,"spell_completed":completed,"paid_stacks":paid_stacks,"resolved_stacks":resolved_stacks,"actual_payment_costs":actual_payment_costs,"sacrifices":sacrifice,"declarations":declared,"state_sha256":run.game.state_digest()?,"rule_boundary":run.game.rule_boundary(),"delta_journal":run.delta_journal,"requests":run.meter.requests,"responses":run.meter.responses}),
     )
 }
-fn checked_root(mut root: Root, live: usize) -> Result<Root, String> {
+/// Reuse the private spool directory guard for error/unwind cleanup. Close the
+/// file before checked cleanup on either normal return path. A process kill
+/// cannot run Rust destructors; the outer diagnostic host still owns that case.
+fn with_root_snapshot<T>(
+    operation: impl FnOnce(&std::path::Path, &mut fs::File) -> Result<T, String>,
+) -> Result<T, String> {
+    let owner = GenericStateProof::create()?;
+    let result = (|| {
+        let mut file = fs::OpenOptions::new()
+            .create_new(true)
+            .read(true)
+            .write(true)
+            .mode(0o600)
+            .open(&owner.path)
+            .map_err(|e| e.to_string())?;
+        if !file.metadata().map_err(|e| e.to_string())?.is_file() {
+            return Err("root snapshot must be a regular file".into());
+        }
+        operation(&owner.path, &mut file)
+    })();
+    // Unlike Drop, this reports cleanup failures on both success and error.
+    // The owner's Drop remains the fallback if cleanup fails or we unwind.
+    let cleanup = fs::remove_dir_all(&owner.directory).map_err(|e| e.to_string());
+    match (result, cleanup) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(_), Err(error)) => Err(format!("root snapshot cleanup: {error}")),
+        (Err(error), Err(cleanup)) => Err(format!("{error}; root snapshot cleanup: {cleanup}")),
+    }
+}
+
+fn write_root_snapshot(
+    game: &Game,
+    file: &mut fs::File,
+) -> Result<mtg_core::SnapshotWriteInfo, String> {
+    let receipt = {
+        let mut writer = BufWriter::with_capacity(64 * 1024, &mut *file);
+        // The canonical exporter flushes the sink before returning its receipt.
+        game.write_snapshot(&mut writer)?
+    };
+    if file.metadata().map_err(|e| e.to_string())?.len() != receipt.bytes {
+        return Err("root snapshot export length differs from receipt".into());
+    }
+    Ok(receipt)
+}
+
+fn verify_root_snapshot(
+    game: &Game,
+    prepared: Prepared,
+    progress: &mut impl FnMut(&str, Option<u64>) -> Result<(), String>,
+) -> Result<(), String> {
+    with_root_snapshot(|_, file| {
+        progress("snapshot_export_started", None)?;
+        let receipt = write_root_snapshot(game, file)?;
+        progress("snapshot_export_complete", Some(receipt.bytes))?;
+        if file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())? != 0 {
+            return Err("root snapshot rewind differs".into());
+        }
+        progress("snapshot_restore_started", None)?;
+        // This is standalone restore, including raw-byte/EOF binding, complete
+        // identity/invariant checks and the unchanged cold accepted-input proof.
+        let restored = Game::restore_from_reader(prepared, file)?;
+        if file.metadata().map_err(|e| e.to_string())?.len() != receipt.bytes {
+            return Err("root snapshot restore length differs from receipt".into());
+        }
+        progress("snapshot_verification_started", None)?;
+        state_equal(game, &restored)?;
+        drop(restored);
+        progress("snapshot_verified", None)
+    })
+}
+
+fn checked_root(
+    mut root: Root,
+    live: usize,
+    progress: &mut impl FnMut(&str, Option<u64>) -> Result<(), String>,
+) -> Result<Root, String> {
     let departures = match live {
         4 => vec![],
         3 => vec![PlayerId(2)],
@@ -812,11 +889,7 @@ fn checked_root(mut root: Root, live: usize) -> Result<Root, String> {
     }
     // All histories, RNG and command facts are preserved by ordinary recorded
     // core concessions; no player/card table is reconstructed or hand edited.
-    let snapshot = root.game.snapshot()?;
-    let restored = Game::restore(root.prepared.clone(), &snapshot)?;
-    state_equal(&root.game, &restored)?;
-    drop(snapshot);
-    drop(restored);
+    verify_root_snapshot(&root.game, root.prepared.clone(), progress)?;
     Ok(root)
 }
 fn fork_root(root: &Root) -> Root {
@@ -1147,6 +1220,187 @@ fn choice_setup_policy_initial_keep_is_public_and_does_not_mutate_game() {
     assert_eq!(before, game.state_digest().unwrap());
     assert_eq!(journal, game.replay_journal());
 }
+
+#[cfg(test)]
+mod root_snapshot_tests {
+    use super::*;
+    use std::io::Read;
+
+    fn prepared() -> Prepared {
+        Prepared::admit(
+            Catalog::read(include_str!(
+                "../../../../../tests/fixtures/expected-ir.json"
+            ))
+            .unwrap(),
+            mtg_core::ScenarioConfig::land_return(),
+        )
+        .unwrap()
+    }
+
+    fn pending_game(mode: TraceMode) -> Game {
+        let mut game = Game::with_trace(prepared(), mode);
+        // The tiny admitted source fixture reaches an actual pending target
+        // with retained accepted inputs and visibility history, without the
+        // ignored diagnostic's natural-root preparation or measurement work.
+        for response in [
+            mtg_core::Response::ActivateMana {
+                object: game.object_id(mtg_core::CardId(0)).unwrap(),
+            },
+            mtg_core::Response::Cast {
+                card: mtg_core::CardId(1),
+            },
+        ] {
+            let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
+                panic!("fixture request");
+            };
+            game.respond(request.player(), request.decision_id(), response)
+                .unwrap();
+        }
+        assert!(matches!(
+            game.advance(Budget::unlimited()),
+            Advance::AwaitingDecision(_)
+        ));
+        assert_eq!(game.journal().len(), 2);
+        game
+    }
+
+    #[test]
+    fn choice_root_snapshot_file_has_full_string_bytes_sha_and_standalone_restore() {
+        for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
+            for game in [Game::with_trace(prepared(), mode), pending_game(mode)] {
+                let expected = game.snapshot().unwrap();
+                let mut removed = None;
+                with_root_snapshot(|path, file| {
+                    removed = Some(path.parent().unwrap().to_owned());
+                    assert!(file.metadata().unwrap().is_file());
+                    assert_eq!(file.metadata().unwrap().permissions().mode() & 0o777, 0o600);
+                    assert_eq!(
+                        fs::metadata(path.parent().unwrap())
+                            .unwrap()
+                            .permissions()
+                            .mode()
+                            & 0o777,
+                        0o700
+                    );
+                    let receipt = write_root_snapshot(&game, file)?;
+                    assert_eq!(receipt.bytes, expected.len() as u64);
+                    assert_eq!(receipt.snapshot_sha256, sha256(expected.as_bytes()));
+                    assert_eq!(receipt.state_sha256, game.state_digest()?);
+                    file.rewind().unwrap();
+                    let mut actual = Vec::new();
+                    file.read_to_end(&mut actual).unwrap();
+                    assert_eq!(actual, expected.as_bytes());
+                    assert_eq!(sha256(&actual), receipt.snapshot_sha256);
+                    file.rewind().unwrap();
+                    let restored = Game::restore_from_reader(prepared(), file)?;
+                    assert_eq!(restored.snapshot()?, expected);
+                    assert_eq!(restored.replay_journal(), game.replay_journal());
+                    state_equal(&game, &restored)
+                })
+                .unwrap();
+                assert!(!removed.unwrap().exists());
+            }
+        }
+    }
+
+    #[test]
+    fn choice_root_snapshot_restore_error_and_export_length_error_clean_up() {
+        let game = pending_game(TraceMode::Off);
+        for bad_export in [false, true] {
+            let mut removed = None;
+            let result = with_root_snapshot(|path, file| {
+                removed = Some(path.parent().unwrap().to_owned());
+                if bad_export {
+                    // A stale longer file cannot acquire a successful receipt.
+                    file.set_len(1024 * 1024).unwrap();
+                    return write_root_snapshot(&game, file).map(|_| ());
+                }
+                write_root_snapshot(&game, file)?;
+                file.set_len(1).unwrap();
+                file.rewind().unwrap();
+                Game::restore_from_reader(prepared(), file).map(|_| ())
+            });
+            let error = result.unwrap_err();
+            if bad_export {
+                assert!(
+                    error.contains("export length differs from receipt"),
+                    "{error}"
+                );
+            }
+            assert!(!removed.unwrap().exists());
+        }
+    }
+
+    #[test]
+    fn choice_root_snapshot_exclusive_file_and_error_unwind_cleanup() {
+        for unwind in [false, true] {
+            let mut removed = None;
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                with_root_snapshot(|path, file| -> Result<(), String> {
+                    removed = Some(path.parent().unwrap().to_owned());
+                    file.write_all(b"private partial snapshot").unwrap();
+                    let error = fs::OpenOptions::new()
+                        .create_new(true)
+                        .write(true)
+                        .mode(0o600)
+                        .open(path)
+                        .unwrap_err();
+                    assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+                    if unwind {
+                        panic!("injected cancellation unwind");
+                    }
+                    Err("injected cancellation error".into())
+                })
+            }));
+            if unwind {
+                assert!(result.is_err());
+            } else {
+                assert_eq!(result.unwrap().unwrap_err(), "injected cancellation error");
+            }
+            assert!(!removed.unwrap().exists());
+        }
+    }
+
+    #[test]
+    fn choice_root_snapshot_phase_receipt_and_each_progress_cancellation() {
+        let game = pending_game(TraceMode::Off);
+        let expected_bytes = game.snapshot().unwrap().len() as u64;
+        let mut phases = Vec::new();
+        verify_root_snapshot(&game, prepared(), &mut |phase, bytes| {
+            phases.push((phase.to_owned(), bytes));
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(
+            phases,
+            [
+                ("snapshot_export_started", None),
+                ("snapshot_export_complete", Some(expected_bytes)),
+                ("snapshot_restore_started", None),
+                ("snapshot_verification_started", None),
+                ("snapshot_verified", None),
+            ]
+            .map(|(phase, bytes)| (phase.to_owned(), bytes))
+        );
+        let before = game.snapshot().unwrap();
+        for stop in 0..phases.len() {
+            let mut seen = Vec::new();
+            let error = verify_root_snapshot(&game, prepared(), &mut |phase, bytes| {
+                seen.push((phase.to_owned(), bytes));
+                if seen.len() == stop + 1 {
+                    Err("injected progress publication failure".into())
+                } else {
+                    Ok(())
+                }
+            })
+            .unwrap_err();
+            assert_eq!(error, "injected progress publication failure");
+            assert_eq!(seen, phases[..=stop]);
+            assert_eq!(game.snapshot().unwrap(), before);
+        }
+    }
+}
+
 #[test]
 #[ignore = "explicit fixed shrinking-pod choice diagnostic120s2GiB outerhost required"]
 fn shrinking_pod_choice_diagnostic() {
@@ -1171,7 +1425,17 @@ fn shrinking_pod_choice_diagnostic() {
         report["selected_three"] = json!(root.three);
         publish(&mut file, &report)?;
         for live in [4, 3, 2] {
-            let row_root = checked_root(fork_root(&root), live)?;
+            let row_root = checked_root(fork_root(&root), live, &mut |phase, bytes| {
+                // Keep the strict final preparation_progress shape and report
+                // keys unchanged. Only this existing transient status changes;
+                // each publish syncs it durably before the next expensive phase.
+                report["status"] = json!(match bytes {
+                    Some(bytes) => format!("checked_root_{live}_{phase}_bytes_{bytes}"),
+                    None => format!("checked_root_{live}_{phase}"),
+                });
+                publish(&mut file, &report)
+            })?;
+            report["status"] = json!("preparing");
             let mut meter = Meter::default();
             let o = own_observation(&row_root.game, P0, 64, &mut meter)?;
             let defenders = o
