@@ -3,6 +3,223 @@ use super::*;
 use std::{io::Cursor, os::unix::fs::PermissionsExt};
 
 #[test]
+fn search_spool_compare_bytes_accepts_fragmented_empty_block_edges_and_multiblock_streams() {
+    let directory = Directory::new().unwrap();
+    let path = directory.0.clone();
+    for length in [0, 1, BLOCK - 1, BLOCK, BLOCK + 1, 2 * BLOCK + 37] {
+        let expected = (0..length)
+            .map(|i| ((i % 251) * 37 % 251) as u8)
+            .collect::<Vec<_>>();
+        for fragment in [1, 13, BLOCK + 7] {
+            compare_bytes(
+                &directory,
+                |out| out.write_all(&expected).map_err(text),
+                |out| {
+                    for part in expected.chunks(fragment) {
+                        out.write_all(part).map_err(text)?;
+                    }
+                    Ok(())
+                },
+            )
+            .unwrap_or_else(|e| panic!("length {length}, fragment {fragment}: {e}"));
+        }
+    }
+    directory.cleanup().unwrap();
+    assert!(!path.exists());
+}
+
+#[test]
+fn search_spool_compare_bytes_checks_partial_final_buffer_before_complete_eof() {
+    let directory = Directory::new().unwrap();
+    let expected = vec![b'a'; 2 * BLOCK + 37];
+    for (variant, error) in [
+        (0, "complete query bytes differ"),
+        (1, "actual ended before complete reference EOF"),
+        (2, "actual contains bytes beyond reference EOF"),
+    ] {
+        let mut actual = expected.clone();
+        match variant {
+            0 => *actual.last_mut().unwrap() = b'b',
+            1 => {
+                actual.pop();
+            }
+            2 => actual.push(b'a'),
+            _ => unreachable!(),
+        }
+        let mut serialized = false;
+        let result = compare_bytes(
+            &directory,
+            |out| out.write_all(&expected).map_err(text),
+            |out| {
+                for part in actual.chunks(BLOCK) {
+                    out.write_all(part).map_err(text)?;
+                }
+                // These writes succeed: only the checked final flush/finish
+                // can expose the late mismatch or stream length difference.
+                serialized = true;
+                Ok(())
+            },
+        );
+        assert!(serialized);
+        assert_eq!(result.unwrap_err(), error);
+    }
+    for (reference, actual, error) in [
+        (
+            b"".as_slice(),
+            b"x".as_slice(),
+            "actual contains bytes beyond reference EOF",
+        ),
+        (
+            b"x".as_slice(),
+            b"".as_slice(),
+            "actual ended before complete reference EOF",
+        ),
+    ] {
+        assert_eq!(
+            compare_bytes(
+                &directory,
+                |out| out.write_all(reference).map_err(text),
+                |out| out.write_all(actual).map_err(text),
+            )
+            .unwrap_err(),
+            error
+        );
+    }
+}
+
+#[test]
+fn search_spool_compare_bytes_ignored_write_or_flush_errors_remain_poisoned() {
+    let directory = Directory::new().unwrap();
+    let expected = vec![b'a'; BLOCK + 37];
+    let wrong_block = vec![b'b'; BLOCK];
+    for explicit_flush in [false, true] {
+        for write_after_error in [false, true] {
+            let result = compare_bytes(
+                &directory,
+                |out| out.write_all(&expected).map_err(text),
+                |out| {
+                    let error = if explicit_flush {
+                        out.write_all(b"b").unwrap();
+                        out.flush().unwrap_err()
+                    } else {
+                        out.write_all(&wrong_block).unwrap_err()
+                    };
+                    assert_eq!(text(error), "complete query bytes differ");
+                    if write_after_error {
+                        // Buffer acceptance cannot clear the inner poison.
+                        out.write_all(b"a").unwrap();
+                    }
+                    Ok(()) // Deliberately ignore the failed write/flush.
+                },
+            );
+            assert_eq!(result.unwrap_err(), "poisoned byte comparison");
+        }
+    }
+}
+
+#[test]
+fn search_spool_compare_bytes_serializer_errors_take_precedence_over_deferred_flush_errors() {
+    let directory = Directory::new().unwrap();
+    for wrong_tail in [false, true] {
+        for explicit_flush in [false, true] {
+            let result = compare_bytes(
+                &directory,
+                |out| out.write_all(b"abc").map_err(text),
+                |out| {
+                    out.write_all(if wrong_tail { b"abx" } else { b"abc" })
+                        .unwrap();
+                    if explicit_flush {
+                        assert_eq!(out.flush().is_err(), wrong_tail);
+                    }
+                    Err("actual serializer failure".into())
+                },
+            );
+            assert_eq!(result.unwrap_err(), "actual serializer failure");
+        }
+    }
+    let mut actual_called = false;
+    assert_eq!(
+        compare_bytes(
+            &directory,
+            |out| {
+                out.write_all(b"abc").unwrap();
+                Err("reference serializer failure".into())
+            },
+            |_| {
+                actual_called = true;
+                Ok(())
+            },
+        )
+        .unwrap_err(),
+        "reference serializer failure"
+    );
+    assert!(!actual_called);
+}
+
+#[test]
+fn search_spool_compare_bytes_requires_original_complete_count_sha_and_reference_eof() {
+    let directory = Directory::new().unwrap();
+    for (changed_reference, actual, error) in [
+        (
+            b"xyz".as_slice(),
+            b"xyz".as_slice(),
+            "complete comparison count/SHA mismatch",
+        ),
+        (
+            b"ab".as_slice(),
+            b"ab".as_slice(),
+            "complete comparison count/SHA mismatch",
+        ),
+        (
+            b"abcx".as_slice(),
+            b"abc".as_slice(),
+            "actual ended before complete reference EOF",
+        ),
+    ] {
+        assert_eq!(
+            compare_bytes(
+                &directory,
+                |out| out.write_all(b"abc").map_err(text),
+                |out| {
+                    // Change the already-open file after its initial length
+                    // check. Equal bytes alone must not certify the receipt.
+                    fs::write(directory.0.join("reference.json"), changed_reference)
+                        .map_err(text)?;
+                    out.write_all(actual).map_err(text)
+                },
+            )
+            .unwrap_err(),
+            error
+        );
+    }
+}
+
+#[test]
+fn search_spool_compare_bytes_buffered_failures_and_unwind_cleanup_private_files() {
+    for unwind in [false, true] {
+        let mut path = None;
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let directory = Directory::new().unwrap();
+            path = Some(directory.0.clone());
+            let result = compare_bytes(
+                &directory,
+                |out| out.write_all(b"abc").map_err(text),
+                |out| {
+                    out.write_all(b"abx").unwrap();
+                    if unwind {
+                        panic!("buffered serializer unwind");
+                    }
+                    Ok(())
+                },
+            );
+            assert_eq!(result.unwrap_err(), "complete query bytes differ");
+        }));
+        assert_eq!(result.is_err(), unwind);
+        assert!(!path.unwrap().exists());
+    }
+}
+
+#[test]
 fn search_spool_reused_scratch_keeps_fragment_boundaries_complete_bytes_and_sha() {
     for length in [0, 1, BLOCK - 1, BLOCK, BLOCK + 1, 2 * BLOCK + 37] {
         let expected = (0..length)

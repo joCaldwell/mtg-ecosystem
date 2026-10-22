@@ -444,7 +444,13 @@ fn compare_bytes(
         return Err("flushed reference length mismatch".into());
     }
     let mut comparison = Equal::new(BufReader::with_capacity(BLOCK, file));
-    actual(&mut comparison)?;
+    {
+        // Coalesce ACTUAL serializer fragments only; every full prefix still
+        // reaches Equal. Check the final buffered tail before count/SHA/EOF.
+        let mut actual_writer = BufWriter::with_capacity(BLOCK, &mut comparison);
+        actual(&mut actual_writer)?;
+        actual_writer.flush().map_err(text)?;
+    }
     comparison.flush().map_err(text)?;
     if comparison.finish()? != expected {
         return Err("complete comparison count/SHA mismatch".into());
