@@ -6,6 +6,42 @@ use std::fmt;
 pub const MATCH_PROFILE: &str = "commander-foundations-v1";
 pub const MATCH_CATALOG_SHA256: &str =
     "fc4bd3390e63ea352e129ac370fa848dbee11cf0700e7e6781d449fd49244a7f";
+pub const KEYWORDS_PROFILE: &str = "commander-keywords-v1";
+pub const KEYWORDS_CATALOG_SHA256: &str =
+    "72691c17b1bc73b5735f1ced8c5217b51df4daae0f42c9c883665933cfcdf550";
+/// All reviewed legal-profile identity and construction inputs live here.
+pub struct MatchProfile {
+    pub name: &'static str,
+    pub catalog_sha256: &'static str,
+    pub ir_version: u32,
+    pub policy_json: &'static str,
+    pub commanders: &'static [&'static str],
+    pub white_deck: fn() -> Decklist,
+    pub black_green_deck: fn() -> Decklist,
+}
+pub static MATCH_PROFILES: [MatchProfile; 2] = [
+    MatchProfile {
+        name: MATCH_PROFILE,
+        catalog_sha256: MATCH_CATALOG_SHA256,
+        ir_version: 11,
+        policy_json: super::commander_policy::COMMANDER_POLICY_JSON,
+        commanders: &[ISAMARU, YARGLE],
+        white_deck,
+        black_green_deck,
+    },
+    MatchProfile {
+        name: KEYWORDS_PROFILE,
+        catalog_sha256: KEYWORDS_CATALOG_SHA256,
+        ir_version: 12,
+        policy_json: include_str!("../../../../tests/fixtures/commander-keywords-policy.json"),
+        commanders: &[ISAMARU, YARGLE],
+        white_deck: keywords_white_deck,
+        black_green_deck: keywords_black_green_deck,
+    },
+];
+pub fn match_profile(name: &str) -> Option<&'static MatchProfile> {
+    MATCH_PROFILES.iter().find(|p| p.name == name)
+}
 const WALL_OF_WOOD: &str = "aa5e6894-8c97-46f8-a0fd-07c6db51e9a7";
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -31,17 +67,28 @@ pub struct MatchConfig {
 }
 impl MatchConfig {
     pub fn foundations(seed: [u8; 32], starting_player: PlayerId) -> Self {
-        Self {
-            profile: MATCH_PROFILE.into(),
+        Self::for_profile(MATCH_PROFILE, seed, starting_player).expect("reviewed profile")
+    }
+    pub fn keywords(seed: [u8; 32], starting_player: PlayerId) -> Self {
+        Self::for_profile(KEYWORDS_PROFILE, seed, starting_player).expect("reviewed profile")
+    }
+    pub fn for_profile(
+        name: &str,
+        seed: [u8; 32],
+        starting_player: PlayerId,
+    ) -> Result<Self, MatchAdmissionError> {
+        let p = match_profile(name).ok_or(MatchAdmissionError::UnsupportedProfile)?;
+        Ok(Self {
+            profile: p.name.into(),
             decks: [
-                white_deck(),
-                black_green_deck(),
-                white_deck(),
-                black_green_deck(),
+                (p.white_deck)(),
+                (p.black_green_deck)(),
+                (p.white_deck)(),
+                (p.black_green_deck)(),
             ],
             starting_player,
             seed,
-        }
+        })
     }
 }
 fn entries(rows: &[(&str, u32)]) -> Vec<DeckEntry> {
@@ -89,6 +136,90 @@ pub fn black_green_deck() -> Decklist {
             (SWAMP, 44),
         ]),
     }
+}
+pub fn keywords_white_deck() -> Decklist {
+    let mut deck = white_deck();
+    for row in &mut deck.cards {
+        if row.count > 1 {
+            row.count = 89;
+        }
+    }
+    deck.cards.push(DeckEntry {
+        oracle_id: "4b7ac066-e5c7-43e6-9e7e-2739b24a905d".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "28a52ba1-95da-44e1-8ac5-0dc23c902394".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "31009c45-afba-45f4-a6ca-9dfdb9990e72".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "6a0419c3-4bfa-46c1-932b-fe10f2fa2ad7".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "4502b24f-604b-4e36-9168-31c1a1ab4dab".into(),
+        count: 1,
+    });
+    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    deck
+}
+pub fn keywords_black_green_deck() -> Decklist {
+    let mut deck = black_green_deck();
+    for row in &mut deck.cards {
+        if row.count > 1 {
+            row.count = if row.oracle_id == FOREST { 39 } else { 38 };
+        }
+    }
+    deck.cards.push(DeckEntry {
+        oracle_id: "feb244f8-bcb1-44cf-9940-2719221a7309".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "d6ee6cc1-902d-4f56-afa5-6fa4813bfbbc".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "63d846e2-4bef-4911-9508-273c75a4a040".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "72a53d9e-0645-4024-a90f-73b05c2284c6".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "c650a7bc-e350-44a0-a698-d4a233d66156".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "e740ce2f-2134-473c-afa1-1b6d2d1e38ef".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "37f3733e-cc4e-4d84-b29b-d474f6e254a2".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "6b941291-1802-4ced-9869-39fa43825550".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "8178c546-84f8-4563-a804-6489ec016660".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "913dbce2-6805-453f-a9c3-64f1cc658627".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "51ce0158-c9a5-4fa5-9704-46ab02f01b86".into(),
+        count: 1,
+    });
+    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    deck
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "reason", rename_all = "snake_case", deny_unknown_fields)]
@@ -158,10 +289,11 @@ impl ValidatedPod {
         &self.config
     }
     pub fn identity_digest(&self) -> Result<String, String> {
+        let p = match_profile(&self.match_config.profile).ok_or("unknown profile")?;
         digest(&(
-            MATCH_PROFILE,
-            MATCH_CATALOG_SHA256,
-            super::commander_policy::policy_digest(),
+            p.name,
+            p.catalog_sha256,
+            sha256(p.policy_json.as_bytes()),
             &self.match_config,
         ))
     }
@@ -210,21 +342,19 @@ pub fn validate_pod(
     catalog: &Catalog,
     config: &MatchConfig,
 ) -> Result<ValidatedPod, MatchAdmissionError> {
-    if config.profile != MATCH_PROFILE {
-        return Err(MatchAdmissionError::UnsupportedProfile);
-    }
+    let profile = match_profile(&config.profile).ok_or(MatchAdmissionError::UnsupportedProfile)?;
     if config.starting_player.0 >= 4 {
         return Err(MatchAdmissionError::InvalidStartingPlayer);
     }
     catalog
         .validate()
         .map_err(|detail| MatchAdmissionError::InvalidCatalog { detail })?;
-    if catalog.schema_version != 11
+    if catalog.schema_version != profile.ir_version
         || digest(catalog).map_err(|detail| MatchAdmissionError::InvalidCatalog { detail })?
-            != MATCH_CATALOG_SHA256
+            != profile.catalog_sha256
     {
         return Err(MatchAdmissionError::InvalidCatalog {
-            detail: "catalog differs from reviewed thirty-four-definition pool".into(),
+            detail: "catalog differs from reviewed profile pool".into(),
         });
     }
     let definitions = catalog
@@ -236,7 +366,7 @@ pub fn validate_pod(
     for (seat, deck) in config.decks.iter().enumerate() {
         let player = PlayerId(seat as u8);
         known_ban(player, &deck.commander)?;
-        if !matches!(deck.commander.as_str(), ISAMARU | YARGLE) {
+        if !profile.commanders.contains(&deck.commander.as_str()) {
             // A different rule-eligible commander (including some legendary
             // Vehicles under903.3) is unsupported here, not universally illegal.
             return Err(MatchAdmissionError::UnsupportedCommander {
@@ -341,7 +471,7 @@ pub fn validate_pod(
         config: ScenarioConfig {
             mode: Mode::CommanderMatch,
             players: 4,
-            profile: MATCH_PROFILE.into(),
+            profile: profile.name.into(),
             commanders,
             cards,
         },

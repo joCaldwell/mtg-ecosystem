@@ -202,7 +202,7 @@ pub enum SetupOutcome {
 }
 impl ScenarioConfig {
     pub(super) fn match_profile(&self) -> bool {
-        self.mode == Mode::CommanderMatch && self.profile == MATCH_PROFILE
+        self.mode == Mode::CommanderMatch && match_profile(&self.profile).is_some()
     }
     pub(super) fn owned_limit(&self) -> usize {
         if self.match_profile() { 100 } else { 16 }
