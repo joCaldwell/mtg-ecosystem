@@ -596,6 +596,17 @@ impl Game {
                 });
             }
         }
+        // CR 111.7/704.5d: the previous movement already collected dies
+        // triggers using lookback. Ceasing is its own next SBA wave.
+        occurrences.extend(
+            self.state
+                .objects
+                .values()
+                .filter(|o| {
+                    self.state.tokens.contains_key(&o.id.card) && o.zone != Zone::Battlefield
+                })
+                .map(|o| ProposedEvent::CeaseToken { object: o.id }),
+        );
         let losses = self
             .live_players()
             .into_iter()

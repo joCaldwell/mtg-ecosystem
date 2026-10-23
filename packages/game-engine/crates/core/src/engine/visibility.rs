@@ -67,6 +67,10 @@ pub struct VisiblePlayer {
 #[serde(deny_unknown_fields)]
 pub struct VisibleObject {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<VisibleToken>,
+    #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
+    pub plus_one_counters: Quantity,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub characteristics: Option<Characteristics>,
     pub marked_damage: Quantity,
     pub attack_ready: bool,
@@ -663,6 +667,15 @@ impl Game {
             .get(&object.id.card)
             .ok_or("missing object definition")?;
         Ok(Some(VisibleObject {
+            token: self
+                .state
+                .tokens
+                .get(&object.id.card)
+                .map(|t| VisibleToken {
+                    name: t.definition.name.clone(),
+                    keywords: t.definition.keywords.clone(),
+                }),
+            plus_one_counters: object.plus_one_counters.clone(),
             characteristics: if self.prepared.config.effects_profile() {
                 Some(self.characteristics(object.id)?)
             } else {
@@ -671,7 +684,13 @@ impl Game {
             marked_damage: object.marked_damage.clone(),
             attack_ready: object.attack_ready,
             handle: self.handle_for(viewer, object.id)?,
-            oracle_id: physical.oracle_id.clone(),
+            // Tokens have no Oracle identity. Never expose their physical IDs
+            // through a synthetic Oracle string; their public row has a handle.
+            oracle_id: if self.state.tokens.contains_key(&object.id.card) {
+                String::new()
+            } else {
+                physical.oracle_id.clone()
+            },
             owner: physical.owner,
             controller: object.controller,
             zone: object.zone,

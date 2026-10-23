@@ -416,6 +416,8 @@ impl Game {
         }
         let player = frame.spell.controller;
         match instruction {
+            op @ (Instruction::CreateCreatureTokens { .. }
+            | Instruction::PutPlusOneCounters { .. }) => self.execute_token_instruction(frame, op),
             op @ (Instruction::ModifyPowerToughness { .. }
             | Instruction::PreventCombatDamage { .. }
             | Instruction::PreventNextDamage { .. }) => self.execute_effect_instruction(frame, op),

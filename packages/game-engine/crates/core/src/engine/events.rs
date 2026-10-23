@@ -204,6 +204,7 @@ impl CommittedBatch {
 }
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum FactKey {
+    TokenAllocation,
     Stack(StackId),
     Turn,
     Object(CardId),
@@ -216,6 +217,14 @@ enum FactKey {
 }
 fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
     match event {
+        ProposedEvent::CreateCreatureTokens { .. } => {
+            let keys = BTreeSet::from([FactKey::TokenAllocation]);
+            (keys.clone(), keys)
+        }
+        ProposedEvent::PutPlusOneCounters { object, .. } | ProposedEvent::CeaseToken { object } => {
+            let keys = BTreeSet::from([FactKey::Object(object.card)]);
+            (keys.clone(), keys)
+        }
         ProposedEvent::Setup { .. } => {
             let keys = BTreeSet::from([FactKey::Libraries, FactKey::Turn]);
             (keys.clone(), keys)
@@ -388,6 +397,7 @@ fn collect<'a>(
                             | ProposedEvent::CommitDamage { .. }
                             | ProposedEvent::CleanupEffects
                             | ProposedEvent::CounterStackObject { .. }
+                            | ProposedEvent::CreateCreatureTokens { .. }
                             | ProposedEvent::ClearDamage
                             | ProposedEvent::TurnTransition { .. }
                             | ProposedEvent::DeclareAttackers { .. }
@@ -460,6 +470,16 @@ impl Game {
         let mut stack = BTreeSet::new();
         for event in events {
             match event {
+                ProposedEvent::CreateCreatureTokens {
+                    controller, source, ..
+                } => {
+                    players.insert(*controller);
+                    objects.insert(*source);
+                }
+                ProposedEvent::PutPlusOneCounters { object, .. }
+                | ProposedEvent::CeaseToken { object } => {
+                    objects.insert(*object);
+                }
                 ProposedEvent::Setup { action } => {
                     players.extend(self.live_players());
                     match action {
@@ -839,11 +859,32 @@ impl Game {
         group: EventGroup,
     ) -> Result<CommittedBatch, String> {
         let mut events = vec![];
+        if self.tokens_enabled() {
+            fn members(g: &EventGroup) -> usize {
+                match g {
+                    EventGroup::Occurrence { .. } => 1,
+                    EventGroup::Simultaneous { occurrences } => occurrences.len(),
+                    EventGroup::Ordered { children } => children
+                        .iter()
+                        .map(members)
+                        .fold(0usize, usize::saturating_add),
+                }
+            }
+            let requested = members(&group);
+            if requested > tokens::EVENT_GROUP_BOUND {
+                return Err(self.capacity_error(RuleFault::EventGroupCapacityExceeded {
+                    capacity: tokens::EVENT_GROUP_BOUND,
+                    requested,
+                }));
+            }
+        }
         collect(
             &group,
             self,
             0,
-            if self.prepared.config.match_profile() {
+            if self.tokens_enabled() {
+                tokens::EVENT_GROUP_BOUND
+            } else if self.prepared.config.match_profile() {
                 400
             } else {
                 16
@@ -856,7 +897,10 @@ impl Game {
         let mut staged = self.fork();
         staged.state.next_batch_id = next_batch;
         let mut occurrences = vec![];
-        staged.apply_group(&group, batch_id, &mut vec![], &mut occurrences)?;
+        if let Err(error) = staged.apply_group(&group, batch_id, &mut vec![], &mut occurrences) {
+            self.state.typed_fault = staged.state.typed_fault;
+            return Err(error);
+        }
         let result = CommittedBatch {
             batch_id,
             rules: cause.rules(),
@@ -1009,6 +1053,9 @@ impl Game {
         proposed: &ProposedEvent,
     ) -> Result<EventOutcome, String> {
         let actual = match proposed {
+            event @ (ProposedEvent::CreateCreatureTokens { .. }
+            | ProposedEvent::PutPlusOneCounters { .. }
+            | ProposedEvent::CeaseToken { .. }) => self.apply_token_event(event)?,
             ProposedEvent::Setup { action } => EventOutcome::Setup {
                 actual: self.apply_setup_action(action)?,
             },
@@ -1519,6 +1566,10 @@ impl Game {
                 destination,
             } => {
                 let o = self.current(*object)?.clone();
+                // CR 111.8: once a token has left the battlefield it cannot move again.
+                if self.state.tokens.contains_key(&object.card) && o.zone != Zone::Battlefield {
+                    return Err("token cannot move again after leaving battlefield".into());
+                }
                 self.retain_source_lki(*object)?;
                 let owner = self
                     .state
@@ -1583,6 +1634,7 @@ impl Game {
                 self.state.objects.insert(
                     object.card,
                     Object {
+                        plus_one_counters: Quantity::zero(),
                         marked_damage: Quantity::zero(),
                         attack_ready: false,
                         deathtouch_damage: false,

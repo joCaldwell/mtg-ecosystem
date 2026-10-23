@@ -10,7 +10,11 @@ mod commander_policy;
 pub use commander_policy::{
     COMMANDER_POLICY_DATE, COMMANDER_POLICY_HTML_SHA256, COMMANDER_POLICY_URL, policy_digest,
 };
+mod tokens;
+pub use tokens::{RuleFault, TOKEN_CAPACITY, VisibleToken};
 mod keywords;
+#[cfg(test)]
+mod tokens_tests;
 pub use keywords::LifelinkGain;
 #[cfg(test)]
 mod combat_keywords_tests;
@@ -617,6 +621,8 @@ struct Card {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Object {
+    #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
+    plus_one_counters: Quantity,
     marked_damage: Quantity,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     deathtouch_damage: bool,
@@ -1043,6 +1049,19 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    CreateCreatureTokens {
+        controller: PlayerId,
+        source: ObjectId,
+        count: u32,
+        token: Box<mtg_contracts::CreatureToken>,
+    },
+    PutPlusOneCounters {
+        object: ObjectId,
+        amount: Quantity,
+    },
+    CeaseToken {
+        object: ObjectId,
+    },
     Setup {
         action: SetupAction,
     },
@@ -1170,6 +1189,20 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    TokensCreated {
+        objects: Vec<ObjectId>,
+        controller: PlayerId,
+        token: Box<mtg_contracts::CreatureToken>,
+    },
+    PlusOneCountersPlaced {
+        object: ObjectId,
+        amount: Quantity,
+        previous: Quantity,
+        current: Quantity,
+    },
+    TokenCeased {
+        object: ObjectId,
+    },
     Setup {
         actual: SetupOutcome,
     },
@@ -1464,6 +1497,10 @@ pub enum Event {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct State {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    tokens: BTreeMap<CardId, tokens::TokenIdentity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    typed_fault: Option<RuleFault>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     match_state: Option<MatchState>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1591,6 +1628,7 @@ impl Game {
                 (
                     c.id,
                     Object {
+                        plus_one_counters: Quantity::zero(),
                         marked_damage: Quantity::zero(),
                         deathtouch_damage: false,
                         attack_ready: c.zone == Zone::Battlefield,
@@ -1607,6 +1645,8 @@ impl Game {
             })
             .collect();
         let state = State {
+            tokens: BTreeMap::new(),
+            typed_fault: None,
             match_state: prepared.match_config.as_ref().map(MatchState::new),
             effects: vec![],
             next_effect_id: 0,
@@ -1739,6 +1779,9 @@ impl Game {
         })
     }
     fn definition(&self, card: CardId) -> Result<&Definition, String> {
+        if let Some(token) = self.state.tokens.get(&card) {
+            return Ok(&token.definition);
+        }
         let physical = self.state.cards.get(&card).ok_or("unknown physical card")?;
         self.prepared
             .catalog
@@ -2097,6 +2140,7 @@ impl Game {
             let input_report = REPORT.then(|| advance_report::StepInputCapture::capture(self));
             let mut next = self.fork();
             if let Err(reason) = next.step() {
+                self.state.typed_fault = next.state.typed_fault;
                 self.state.frame = Frame::Fault {
                     reason: reason.clone(),
                 };
@@ -2622,7 +2666,7 @@ impl Game {
             || s.passes.len() > self.live_players().len()
             || s.passes.iter().any(|p| !self.is_live(*p))
             || s.passes.iter().collect::<BTreeSet<_>>().len() != s.passes.len()
-            || s.cards.len() != self.prepared.config.cards.len()
+            || s.cards.len() != self.prepared.config.cards.len() + s.tokens.len()
             || s.objects.len() > s.cards.len()
             || s.stack.len() > self.stack_limit()
         {
@@ -2658,6 +2702,7 @@ impl Game {
                 return Err("snapshot zone-owner invariant".into());
             }
         }
+        self.validate_tokens_state()?;
         self.validate_trigger_state()?;
         self.validate_effect_state()?;
         self.validate_choices_state()?;
