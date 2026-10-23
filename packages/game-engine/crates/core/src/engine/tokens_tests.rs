@@ -1056,3 +1056,53 @@ fn tokens_profile_inherits_first_and_double_strike_with_between_step_restore() {
         );
     }
 }
+
+#[test]
+fn detached_enters_token_program_survives_source_destruction() {
+    // CR113.7a/608.2m: destroying the Knight in response to its enters
+    // ability does not remove that ability or its fixed token definition.
+    let p = prepared(&[
+        ("Attended Knight", 0, true),
+        ("Disfigure", 1, true),
+        ("Plains", 0, false),
+        ("Plains", 0, false),
+        ("Plains", 0, false),
+        ("Swamp", 1, false),
+    ]);
+    traces(p, |g| {
+        announce(g, 0, vec![]);
+        let mut placed = false;
+        for _ in 0..100 {
+            let r = request(g);
+            if matches!(r, Request::Priority { .. })
+                && g.state
+                    .stack
+                    .iter()
+                    .any(|s| matches!(s.kind, StackKind::Triggered { .. }))
+            {
+                assert_eq!(r.player(), PlayerId(0));
+                placed = true;
+                break;
+            }
+            let response = automatic(&r, &[]);
+            g.respond(r.player(), r.decision_id(), response).unwrap();
+        }
+        assert!(placed);
+        let source = object(g, 0);
+        assert_eq!(g.zone(source), Some(Zone::Battlefield));
+        answer(g, Response::Pass); // player1 may respond with Disfigure.
+        cast(g, 1, target(source));
+        assert_eq!(
+            g.zone(object(g, 0)),
+            Some(Zone::Graveyard { owner: PlayerId(0) })
+        );
+        let tokens = token_objects(g);
+        assert_eq!(tokens.len(), 1);
+        let token = tokens[0];
+        assert_eq!(g.state.tokens[&token.card].source, source);
+        assert_eq!(g.definition(token.card).unwrap().name, "Soldier Token");
+        assert_eq!(g.characteristics(token).unwrap().power, Some(1.into()));
+        assert_eq!(g.state.cards[&token.card].owner, PlayerId(0));
+        assert_eq!(g.current(token).unwrap().controller, PlayerId(0));
+    });
+}

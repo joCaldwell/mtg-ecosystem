@@ -470,11 +470,10 @@ impl Game {
         let mut stack = BTreeSet::new();
         for event in events {
             match event {
-                ProposedEvent::CreateCreatureTokens {
-                    controller, source, ..
-                } => {
+                ProposedEvent::CreateCreatureTokens { controller, .. } => {
+                    // CR608.2m: the invocation owns its fixed token definition.
+                    // It reads no current source incarnation after departure.
                     players.insert(*controller);
-                    objects.insert(*source);
                 }
                 ProposedEvent::PutPlusOneCounters { object, .. }
                 | ProposedEvent::CeaseToken { object } => {
