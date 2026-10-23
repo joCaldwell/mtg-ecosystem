@@ -1023,7 +1023,7 @@ impl Game {
                         )?,
                         legal_attackers: if matches!(
                             self.prepared.config.profile.as_str(),
-                            KEYWORDS_PROFILE | COMBAT_KEYWORDS_PROFILE
+                            KEYWORDS_PROFILE | COMBAT_KEYWORDS_PROFILE | TOKENS_PROFILE
                         ) {
                             candidates
                                 .iter()

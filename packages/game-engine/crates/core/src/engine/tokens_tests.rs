@@ -784,6 +784,33 @@ fn token_flying_deathtouch_and_trample_use_existing_combat_rules() {
         let token = token_objects(g)[0];
         next_own_main(g);
         attack_token(g, token);
+        // Policies need the same public legality hints as the inherited profiles.
+        let view = observation(g, 1);
+        let Some(PlayerRequest::Blockers {
+            legal_attackers, ..
+        }) = view.decision
+        else {
+            panic!("public blockers")
+        };
+        let ground = g.handle_for(PlayerId(1), object(g, 1)).unwrap();
+        let reach_handle = g.handle_for(PlayerId(1), object(g, 2)).unwrap();
+        let attacker = g.handle_for(PlayerId(1), token).unwrap();
+        assert!(
+            legal_attackers
+                .iter()
+                .find(|h| h.blocker == ground)
+                .unwrap()
+                .attackers
+                .is_empty()
+        );
+        assert!(
+            legal_attackers
+                .iter()
+                .find(|h| h.blocker == reach_handle)
+                .unwrap()
+                .attackers
+                .contains(&attacker)
+        );
         let r = request(g);
         assert!(
             g.check_response(
@@ -983,4 +1010,49 @@ fn maximal_pool_capacity_derivation_and_earlier_limits() {
     );
     assert_eq!(foundations.damage_limit(), 64);
     assert_eq!(foundations.stack_limit(), 256);
+}
+
+#[test]
+fn tokens_profile_inherits_first_and_double_strike_with_between_step_restore() {
+    // CR702.7b/702.4b/510.4: P6.3 inherits the complete P6.2 step machine.
+    // Attended Knight kills Bears before return damage. Unblocked Fencing Ace
+    // deals one in each step, with priority and a restore checkpoint between.
+    for (name, blocked) in [("Attended Knight", true), ("Fencing Ace", false)] {
+        traces(
+            prepared(&[(name, 0, false), ("Grizzly Bears", 1, false)]),
+            |g| {
+                let source = object(g, 0);
+                attack_token(g, source);
+                let blocker = object(g, 1);
+                answer(
+                    g,
+                    Response::Blockers {
+                        blocks: if blocked {
+                            vec![(blocker, source)]
+                        } else {
+                            vec![]
+                        },
+                    },
+                );
+                reach(g, TurnStep::FirstStrikeDamage);
+                assert_eq!(g.state.first_strike_participants, BTreeSet::from([source]));
+                assert_eq!(g.current(source).unwrap().marked_damage, Quantity::zero());
+                if blocked {
+                    assert_eq!(
+                        g.zone(object(g, 1)),
+                        Some(Zone::Graveyard { owner: PlayerId(1) })
+                    );
+                    assert_eq!(g.state.players[1].life, 40.into());
+                } else {
+                    assert_eq!(g.state.players[1].life, 39.into());
+                }
+                check(g);
+                reach(g, TurnStep::CombatDamage);
+                assert_eq!(
+                    g.state.players[1].life,
+                    Quantity::from(if blocked { 40 } else { 38 })
+                );
+            },
+        );
+    }
 }

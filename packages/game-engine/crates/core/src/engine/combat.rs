@@ -755,10 +755,12 @@ impl Game {
         Ok(())
     }
     pub(super) fn validate_combat_state(&self) -> Result<(), String> {
-        if self.prepared.config.profile != COMBAT_KEYWORDS_PROFILE
-            && (self.state.turn.step == TurnStep::FirstStrikeDamage
-                || !self.state.first_strike_participants.is_empty()
-                || !self.state.player_damage_choices.is_empty())
+        if !matches!(
+            self.prepared.config.profile.as_str(),
+            COMBAT_KEYWORDS_PROFILE | TOKENS_PROFILE
+        ) && (self.state.turn.step == TurnStep::FirstStrikeDamage
+            || !self.state.first_strike_participants.is_empty()
+            || !self.state.player_damage_choices.is_empty())
         {
             return Err("combat keyword continuation outside reviewed profile".into());
         }
