@@ -2398,3 +2398,108 @@ creature (CR 506.4, 509.1h), so it still starts the first-strike damage step
 (510.4) while assigning no damage; a reviewed witness covers this. The batch
 counter formerly named `trample_damage_to_players` is now
 `player_damage_from_trample_sources`, because it includes unblocked tramplers.
+
+## P6.3 — Defined creature tokens and +1/+1 counters
+
+The [tokens contract](game-engine-tokens-counters.md) has a separate IR v14
+catalog with 72 definitions and a separate source-reviewed policy. Thirteen raw
+archive records match the pinned manifest byte-for-byte; Spore Burst is a whole-
+card negative for variable "for each" creation. The two default decks retain
+100 cards: white has 78 Plains; black/green has 31 Forest and 35 Swamp.
+
+CR 111.1–4 creates fixed, fully defined creature tokens as one simultaneous
+instruction event (603.6a). Each has an immutable physical identity in a reserved
+range, a fresh battlefield incarnation, its creator as owner/controller, and no
+continuous-control eligibility (302.6). Public rows show a token name/keyword
+marker, defined/derived characteristics and viewer-scoped handles; their Oracle
+identity is empty because they are not Oracle cards. Tokens use the same flying,
+reach, deathtouch, trample, lifelink and vigilance paths as card creatures. They
+never enter the physical Commander ledger (903.3).
+
+CR 111.7/111.8/704.5d preserves the actual departure destination until the next
+SBA. Blood Artist sees a dying token through ordinary simultaneous lookback;
+then a distinct cessation event removes the object, retaining only its immutable
+historical identity. A token outside the battlefield cannot move again. The
+private Unsummon witness observes its temporary hand destination and proves it
+never becomes a playable hand card. No public deck admission was broadened for
+that witness. CR 113.7a/608.2m also preserves the fixed token instruction after
+its enters-trigger source is destroyed in response by Disfigure; creation reads
+immutable definition identity, not a departed battlefield incarnation.
+
+CR 122.1a/122.2/122.6/613.4c adds +1/+1 counters alongside Giant Growth and
+Disfigure in layer 7c. Counters bind the current incarnation, affect ordinary
+combat/damage/SBA calculations, appear in observations and reset on movement.
+The reviewed arithmetic is 2/2 + one counter + Growth3 − Disfigure2 = 4/4; a
+separate combat witness shows two marks becoming lethal after toughness changes
+from three to one. Targeted self-enters triggers choose mandatory targets using
+the existing trigger continuation. A private source-counter program verifies
+that own-source placement binds the entering incarnation.
+
+Twelve new runtime tests cover these rules, exact source-backed token
+characteristics, summoning sickness, token keyword combat, explicit atomic
+capacity faults and snapshot/restore/replay equality across Off, Compact and
+Detailed trace modes. Intermediate checkpoints include the token's departure
+before cessation. A regression checks inherited first/double-strike steps, between-step restore
+and public blocker hints in the token profile. The capacity test computes the source pool's largest deck
+(27 creature cards, nine created tokens), checks each 100-card default deck and
+verifies earlier profile limits.
+
+The user-approved P6.3 capacity amendment reserves 64 lifetime token identities
+(versus at most 36 creations in an admitted pod). With C = 108 creature cards +
+64 tokens = 172, a damage step admits 2C = 344 occurrences. Stack/pending
+capacity is 1,892: 400 physical spell entries + four tap activations + 4C Artist
+deaths + 4C Warden entries + 108 self-enters + four self-dies triggers. Event
+groups admit 468 members (400 cards + 64 tokens + four losses). The contract
+explains the episode/no-recursion assumptions and the unchanged effect bound.
+Only the token profile uses these expanded bounds; overflow has a serializable
+typed fault and rolls back the rules step.
+
+No historical expected IR, policy or projection fixture changes. The new
+`expected-tokens-ir.json` contains the additional 13 programs; old definitions
+are equal to IR v13. Future-version rejection tests advance to v15 because v14
+is now supported. New state/projection fields omit absent values, including the
+optional token subject of a pending enters trigger. Versions remain
+18/19/16/15. Search and server hosting remain foundations-only. Noncreature,
+copy and variable-count tokens, other counter kinds, counter movement/doubling,
+proliferate, keyword grants and general continuous-effect layers remain excluded.
+
+The pinned Rust 1.99.0 release `tokens-match-batch` completed and independently
+replayed all 18 games with zero faults/truncations: 594 turns, 27,997 decisions,
+89 tokens created and 13 +1/+1 counters placed. Detailed replay also counted
+233 blocks, 38 deathtouch destructions, 92 first-strike steps, 113 lifelink gains,
+five menace blocks and 373 trample damage to players. The ignored report is
+`generated/p63-tokens-counters/batch-acceptance/report.json`
+(SHA-256 `1e0c7db3792968fc319043d38a76eb11701bec9ecfebb1f03b686bed0bf635f1`),
+with final release source/build identity
+`b90f812d316253dcaa3a2088ac366f71fe8691064738053a397a221549e7e069`.
+The release `tokens-match-replay` CLI also verified game 00.
+
+The interaction audit caught inherited profile guards that initially omitted
+first-strike steps and public blocker hints for tokens-v1. Those guards now
+include this profile, with between-step restore and public-hint regressions.
+A second witness covers source destruction before the enters program resolves.
+Preliminary batches and interrupted checks retain explicit preliminary names;
+the final acceptance above uses both corrections. A debug incremental linker
+failure was cleared by rebuilding only this worktree's core Cargo artifacts;
+no dependency, toolchain or parent-checkout file was changed.
+
+A fresh temporary export of base `2adeb56` built with the same pinned compiler.
+The final build's 18 foundations, 18 keywords-v1 and 18 combat-keywords-v1 games
+were compared against it. All 60 JSON files match after normalizing only build
+identity and measured `elapsed_millis`: manifests, complete journals/checkpoint
+snapshots, projection bytes, final hashes, outcomes and interaction counts are
+unchanged. The final comparison and independent 32-file historical fixture audit
+are under ignored `generated/p63-tokens-counters/`. Foundations retains
+645 turns/25,286 decisions; keywords retains 630/27,021; combat keywords retains
+614/27,717. No parent checkout or its generated artifacts was modified.
+
+Final verification used Rust 1.99.0, Node 26.11.1, the pinned toolchain library
+path and `CARGO_BUILD_JOBS=2`. `cargo fmt --check`, strict workspace Clippy
+(`--workspace --all-targets --locked -- -D warnings`) and workspace tests
+(`--workspace --locked`) passed on the final native source: 718 Rust tests,
+zero failures and 12 existing explicitly ignored diagnostics. `npm run
+check:engine` passed those native gates and all 48 Node checks, including archive
+hash/parser equality and IR v14 schema/catalog/policy downgrade pairs. Successful
+final logs, the release batch and replay, and historical comparisons remain
+under ignored `generated/p63-tokens-counters/`. No new verification infrastructure
+was added, and no source or expected-result change was needed outside this slice.

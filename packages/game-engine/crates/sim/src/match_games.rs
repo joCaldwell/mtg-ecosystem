@@ -185,7 +185,7 @@ impl Strategy<'_> {
                 if matches!(d.name.as_str(), "Cruel Edict" | "Disfigure") && !enemy_creature {
                     continue;
                 }
-                if d.name == "Giant Growth" && !own_creature {
+                if matches!(d.name.as_str(), "Giant Growth" | "Battlegrowth") && !own_creature {
                     continue;
                 }
                 if d.name == "Fog" {
@@ -210,7 +210,11 @@ impl Strategy<'_> {
                 if spend(&cost, &funds).is_some() {
                     self.beneficial = matches!(
                         d.name.as_str(),
-                        "Giant Growth" | "Healing Hands" | "Healing Salve" | "Sacred Nectar"
+                        "Giant Growth"
+                            | "Battlegrowth"
+                            | "Healing Hands"
+                            | "Healing Salve"
+                            | "Sacred Nectar"
                     );
                     return Ok(PlayerResponse::Cast {
                         card: x.handle.clone(),
@@ -246,7 +250,24 @@ impl Strategy<'_> {
                 ..
             } => {
                 let trigger = v.stack.last().and_then(|s| s.triggered.as_ref()).is_some();
-                let own = self.beneficial && !trigger;
+                let counter_trigger = self.catalog.schema_version == 14
+                    && v.stack
+                        .last()
+                        .and_then(|s| s.triggered.as_ref())
+                        .is_some_and(|t| {
+                            definition(self.catalog, &t.oracle_id)
+                                .ok()
+                                .and_then(|d| d.triggered.get(t.ability as usize))
+                                .is_some_and(|a| {
+                                    a.program.instructions.iter().any(|i| {
+                                        matches!(
+                                            i,
+                                            mtg_contracts::Instruction::PutPlusOneCounters { .. }
+                                        )
+                                    })
+                                })
+                        });
+                let own = counter_trigger || (self.beneficial && !trigger);
                 let h = candidates
                     .iter()
                     .find(|h| {
@@ -383,11 +404,18 @@ impl Strategy<'_> {
                             .iter()
                             .find(|o| o.handle == hint.blocker)
                             .ok_or("missing public blocker")?;
-                        let bd = definition(self.catalog, &blocker.oracle_id)?;
+                        let bd = definition(self.catalog, &blocker.oracle_id).ok();
+                        let bd_keywords = blocker
+                            .token
+                            .as_ref()
+                            .map(|t| t.keywords.as_slice())
+                            .or_else(|| bd.map(|d| d.keywords.as_slice()))
+                            .ok_or("missing public blocker keywords")?;
                         let toughness = blocker
                             .characteristics
                             .as_ref()
-                            .unwrap_or(&bd.characteristics)
+                            .or_else(|| bd.map(|d| &d.characteristics))
+                            .ok_or("missing public blocker characteristics")?
                             .toughness
                             .as_ref()
                             .ok_or("missing blocker toughness")?;
@@ -400,11 +428,18 @@ impl Strategy<'_> {
                                 .iter()
                                 .find(|o| &o.handle == attacker)
                                 .ok_or("missing public attacker")?;
-                            let ad = definition(self.catalog, &a.oracle_id)?;
+                            let ad = definition(self.catalog, &a.oracle_id).ok();
+                            let ad_keywords = a
+                                .token
+                                .as_ref()
+                                .map(|t| t.keywords.as_slice())
+                                .or_else(|| ad.map(|d| d.keywords.as_slice()))
+                                .ok_or("missing public attacker keywords")?;
                             let power = a
                                 .characteristics
                                 .as_ref()
-                                .unwrap_or(&ad.characteristics)
+                                .or_else(|| ad.map(|d| &d.characteristics))
+                                .ok_or("missing public attacker characteristics")?
                                 .power
                                 .clone()
                                 .unwrap_or_default()
@@ -413,13 +448,10 @@ impl Strategy<'_> {
                             marked.add(&power);
                             let survives = marked < *toughness
                                 && (power == Quantity::zero()
-                                    || !ad
-                                        .keywords
+                                    || !ad_keywords
                                         .contains(&mtg_contracts::KeywordAbility::Deathtouch));
                             if survives
-                                || bd
-                                    .keywords
-                                    .contains(&mtg_contracts::KeywordAbility::Deathtouch)
+                                || bd_keywords.contains(&mtg_contracts::KeywordAbility::Deathtouch)
                             {
                                 blocks.push((hint.blocker.clone(), attacker.clone()));
                                 blocked.push(attacker.clone());
@@ -885,6 +917,7 @@ fn verify_terminal_result(game: &Game, e: &Evidence) -> Result<(), String> {
 }
 pub(super) fn batch(catalog: &Catalog, directory: &Path) -> Result<serde_json::Value, String> {
     let profile = match catalog.schema_version {
+        14 => mtg_core::TOKENS_PROFILE,
         13 => mtg_core::COMBAT_KEYWORDS_PROFILE,
         12 => mtg_core::KEYWORDS_PROFILE,
         _ => mtg_core::MATCH_PROFILE,
@@ -944,7 +977,9 @@ pub(super) fn batch(catalog: &Catalog, directory: &Path) -> Result<serde_json::V
         let mut report = serde_json::json!({"index":index,"outcome":e.outcome,"winner":e.winner,"survivor_counts":e.survivor_counts,"turns":e.turns,"decisions":e.decisions,"advances":e.advances,"rule_steps":e.rule_steps,"query_calls":e.query_calls,"verified_losses":replay.as_ref().ok(),"elapsed_millis":e.elapsed_millis,"final_state_sha256":e.final_state_sha256});
         if matches!(
             profile,
-            mtg_core::KEYWORDS_PROFILE | mtg_core::COMBAT_KEYWORDS_PROFILE
+            mtg_core::KEYWORDS_PROFILE
+                | mtg_core::COMBAT_KEYWORDS_PROFILE
+                | mtg_core::TOKENS_PROFILE
         ) {
             report["keyword_interactions"] = keyword_interactions(catalog, &e)?;
         }
@@ -993,7 +1028,30 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
         &mut counts,
     );
     let mut report = serde_json::json!({"lifelink_gains":counts[0],"deathtouch_destructions":counts[1],"blocks":counts[2]});
-    if e.config.profile == mtg_core::COMBAT_KEYWORDS_PROFILE {
+    if e.config.profile == mtg_core::TOKENS_PROFILE {
+        let mut tokens_created = 0u64;
+        let mut counters_placed = Quantity::zero();
+        for event in g.events() {
+            match event {
+                mtg_core::Event::Committed {
+                    actual: mtg_core::EventOutcome::TokensCreated { objects, .. },
+                    ..
+                } => tokens_created += objects.len() as u64,
+                mtg_core::Event::Committed {
+                    actual: mtg_core::EventOutcome::PlusOneCountersPlaced { amount, .. },
+                    ..
+                } => counters_placed.add(amount),
+                _ => {}
+            }
+        }
+        report["tokens_created"] = serde_json::json!(tokens_created);
+        report["plus_one_counters_placed"] = serde_json::json!(counters_placed);
+    }
+
+    if matches!(
+        e.config.profile.as_str(),
+        mtg_core::COMBAT_KEYWORDS_PROFILE | mtg_core::TOKENS_PROFILE
+    ) {
         let mut trample = Quantity::zero();
         let mut first_steps = 0u64;
         let mut menace = 0u64;

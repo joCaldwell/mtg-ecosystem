@@ -424,6 +424,8 @@ fn survivors_and_public_reversal_memories_are_owner_scoped() {
     let mut view = game.state.visibility[0].history.last().unwrap().to_public();
     for owner in [PlayerId(1), PlayerId(3)] {
         view.objects.push(VisibleObject {
+            token: None,
+            plus_one_counters: Quantity::zero(),
             characteristics: Some(
                 game.prepared
                     .catalog

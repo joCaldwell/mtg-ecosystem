@@ -1309,6 +1309,8 @@ fn choice_defender_probe_requires_other_attack_eligibility_without_changing_root
     assert_eq!(defender.characteristics.kind, CardKind::Creature);
     // Pure public-row selection domain, not a newly admitted/root position.
     let row = mtg_core::VisibleObject {
+        token: None,
+        plus_one_counters: Quantity::zero(),
         characteristics: Some(defender.characteristics.clone()),
         marked_damage: Quantity::zero(),
         attack_ready: true,

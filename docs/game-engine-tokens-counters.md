@@ -61,8 +61,46 @@ That makes 72 definitions. Each card's oracle text and AST must be verified
 against its archive record before admission. The white deck replaces seven
 Plains with the white cards (78 Plains). The black/green deck replaces six
 Forest with the green cards (31 Forest, 35 Swamp). Commanders, admission,
-setup, capacities other than token capacity, and loss rules are those of the
-earlier profiles.
+setup and loss rules are those of the earlier profiles. The token profile alone
+has the capacity bounds below; earlier profiles retain their exact limits.
+
+## Reviewed resource bounds (P6.3 amendment)
+
+The lifetime token capacity is 64, with a reserved physical ID range starting at
+2^31 and no ID reuse. The source-backed pool creates at most nine tokens per
+seat, so even an all-white or all-black/green pod creates at most 36. No admitted
+spell returns or recurs a token-producing card, and neither commander produces
+tokens. Ceased identities remain historical records; their game objects vanish.
+
+The largest admitted creature pool per deck is 27 (black/green; white has 16),
+including its commander. Let C = 4×27 + 64 = 172 simultaneous creatures. The
+following conservative bounds deliberately include mutually exclusive deck
+choices:
+
+- Damage occurrences per step: attackers + 2×blockers ≤ 2C = **344**. Each blocker
+  blocks one attacker and deals one occurrence. Attacker assignments have at most
+  one edge per blocker plus one player edge per attacker (trample or unblocked).
+- Stack plus pending triggers: **1,892** = 400 physical spell entries + four
+  Samite Healer tap activations + 4C Blood Artist death triggers + 4C Essence
+  Warden enters triggers + 108 self-enters triggers + four Bouncer self-dies
+  triggers. Each Artist/Warden is singleton per seat. In one nonempty-stack
+  episode, each noncommander creature card can enter and die at most once and
+  total token creations are bounded by 64. Commander recasting requires an empty
+  stack, so repeated command casts cannot accumulate episodes. The self-enters
+  allowance exceeds the actual number of such abilities. This also covers a
+  maximal simultaneous four-token instruction's sixteen Warden triggers.
+- Event-group members: **468** = all 400 physical cards + 64 tokens + four player
+  losses. This covers simultaneous deaths, cessation, untaps and departures;
+  damage itself uses an aggregate event. Effect capacity remains 32: each BG
+  deck has three temporary-effect spells; each white deck has Healing Salve and
+  one once-per-turn Samite activation, and neither pool recurs/untaps them during
+  a nonempty-stack episode.
+
+Tokens, damage, stack/pending entries and event-group members have explicit
+serializable typed capacity faults (`Game::typed_fault`). A rules step rolls
+back atomically on overflow. Tests compute the maximum from the compiled pool
+and verify these bounds and the unchanged earlier-profile limits. These are
+finite admitted-pool guarantees, not bounds for arbitrary Magic cards.
 
 ## Player interface
 

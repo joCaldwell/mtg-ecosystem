@@ -18,7 +18,10 @@ pub(super) struct PendingTrigger {
     pub(super) source_facts: ObjectBefore,
     pub(super) source_handles: Vec<ObjectHandle>,
     event: OccurrenceId,
-    movement: MoveOutcome,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    movement: Option<MoveOutcome>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    token_entered: Option<ObjectId>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -42,7 +45,9 @@ fn movement(outcome: &EventOutcome) -> Option<&MoveOutcome> {
 }
 impl Game {
     pub(super) fn stack_limit(&self) -> usize {
-        if self.prepared.config.match_profile() {
+        if self.tokens_enabled() {
+            tokens::STACK_BOUND
+        } else if self.prepared.config.match_profile() {
             256
         } else if self.prepared.config.triggers_profile() {
             128
@@ -64,124 +69,139 @@ impl Game {
             return Ok(());
         }
         for occurrence in occurrences {
-            let Some(movement) = movement(&occurrence.actual) else {
-                continue;
+            let subjects = if let EventOutcome::TokensCreated { objects, .. } = &occurrence.actual {
+                objects.iter().map(|o| (None, Some(*o))).collect::<Vec<_>>()
+            } else {
+                movement(&occurrence.actual)
+                    .map(|m| vec![(Some(m.clone()), None)])
+                    .unwrap_or_default()
             };
-            if self
-                .definition(movement.previous.card)?
-                .characteristics
-                .kind
-                != CardKind::Creature
-            {
-                continue;
-            }
-            let dies = movement.from == Zone::Battlefield
-                && matches!(movement.destination, Zone::Graveyard { .. });
-            let enters =
-                movement.destination == Zone::Battlefield && movement.from != Zone::Battlefield;
-            if !dies && !enters {
-                continue;
-            }
-            let observers = if dies { before } else { &*self };
-            let mut matched = vec![];
-            for object in observers
-                .state
-                .objects
-                .values()
-                .filter(|o| o.zone == Zone::Battlefield)
-            {
-                for (ability, definition) in observers
-                    .definition(object.id.card)?
-                    .triggered
-                    .iter()
-                    .enumerate()
-                {
-                    let matches = match definition.condition {
-                        TriggerCondition::SelfDies => dies && object.id == movement.previous,
-                        TriggerCondition::AnyCreatureDies => dies,
-                        TriggerCondition::SelfEntersBattlefield => {
-                            enters && object.id == movement.successor
-                        }
-                        TriggerCondition::OtherCreatureEntersBattlefield => {
-                            enters && object.id != movement.successor
-                        }
-                    };
-                    if matches
-                        && definition.functioning_zone == FunctioningZone::Battlefield
-                        && observers.is_live(object.controller)
-                    {
-                        matched.push((
-                            observers.object_before(object.id)?,
-                            u32::try_from(ability).map_err(|_| "trigger ability index limit")?,
-                            definition
-                                .intervening_if
-                                .as_ref()
-                                .map(|condition| {
-                                    observers.check_intervening(condition, object.controller)
-                                })
-                                .transpose()?,
-                        ));
-                    }
-                }
-            }
-            for (source_facts, ability, match_condition) in matched {
-                if let Some(check) = &match_condition {
-                    self.record_event(Event::TriggerConditionChecked {
-                        source: source_facts.object,
-                        controller: source_facts.controller,
-                        ability,
-                        stage: InterveningStage::Match {
-                            occurrence: occurrence.id.clone(),
-                        },
-                        check: check.clone(),
-                    })?;
-                    if !check.passed {
-                        continue;
-                    }
-                }
-                // Reachable bound: 14 creatures * 5 Artists = 70 death
-                // triggers in a nonempty-stack episode, <=4 ETB triggers and
-                // <=7 ordinary entries. Recasting a creature/commander needs
-                // an empty stack, so repeated casts cannot accumulate episodes.
-                // No admitted trigger creates creatures or recurs a death.
-                if self.state.pending_triggers.len() + self.state.stack.len() >= self.stack_limit()
-                {
-                    return Err("trigger/stack resource limit".into());
-                }
-                let id = TriggerId(self.state.next_trigger_id);
-                self.state.next_trigger_id = self
-                    .state
-                    .next_trigger_id
-                    .checked_add(1)
-                    .ok_or("trigger ID resource limit")?;
-                let source = source_facts.object;
-                let controller = source_facts.controller;
-                let consumed = source_facts.clone();
-                let source_handles = self.capture_trigger_source_handles(source)?;
-                self.state.pending_triggers.push(PendingTrigger {
-                    match_condition,
-                    id,
-                    source,
-                    controller,
-                    ability,
-                    source_facts,
-                    source_handles,
-                    event: occurrence.id.clone(),
-                    movement: movement.clone(),
+            for (movement, token_entered) in subjects {
+                let dies = movement.as_ref().is_some_and(|m| {
+                    m.from == Zone::Battlefield && matches!(m.destination, Zone::Graveyard { .. })
                 });
-                self.record_event(Event::TriggerCollected {
-                    trigger_id: id,
-                    source,
-                    player: controller,
-                    ability,
-                    occurrence: occurrence.id.clone(),
-                    subject: if enters {
-                        movement.successor
-                    } else {
-                        movement.previous
-                    },
-                    source_facts: Box::new(consumed),
-                })?;
+                let enters = token_entered.is_some()
+                    || movement.as_ref().is_some_and(|m| {
+                        m.destination == Zone::Battlefield && m.from != Zone::Battlefield
+                    });
+                if !dies && !enters {
+                    continue;
+                }
+                let subject = token_entered
+                    .or_else(|| {
+                        movement
+                            .as_ref()
+                            .map(|m| if enters { m.successor } else { m.previous })
+                    })
+                    .ok_or("missing trigger subject")?;
+                if self.definition(subject.card)?.characteristics.kind != CardKind::Creature {
+                    continue;
+                }
+                let observers = if dies { before } else { &*self };
+                let mut matched = vec![];
+                for object in observers
+                    .state
+                    .objects
+                    .values()
+                    .filter(|o| o.zone == Zone::Battlefield)
+                {
+                    for (ability, definition) in observers
+                        .definition(object.id.card)?
+                        .triggered
+                        .iter()
+                        .enumerate()
+                    {
+                        let matches = match definition.condition {
+                            TriggerCondition::SelfDies => dies && object.id == subject,
+                            TriggerCondition::AnyCreatureDies => dies,
+                            TriggerCondition::SelfEntersBattlefield => {
+                                enters && object.id == subject
+                            }
+                            TriggerCondition::OtherCreatureEntersBattlefield => {
+                                enters && object.id != subject
+                            }
+                        };
+                        if matches
+                            && definition.functioning_zone == FunctioningZone::Battlefield
+                            && observers.is_live(object.controller)
+                        {
+                            matched.push((
+                                observers.object_before(object.id)?,
+                                u32::try_from(ability)
+                                    .map_err(|_| "trigger ability index limit")?,
+                                definition
+                                    .intervening_if
+                                    .as_ref()
+                                    .map(|condition| {
+                                        observers.check_intervening(condition, object.controller)
+                                    })
+                                    .transpose()?,
+                            ));
+                        }
+                    }
+                }
+                for (source_facts, ability, match_condition) in matched {
+                    if let Some(check) = &match_condition {
+                        self.record_event(Event::TriggerConditionChecked {
+                            source: source_facts.object,
+                            controller: source_facts.controller,
+                            ability,
+                            stage: InterveningStage::Match {
+                                occurrence: occurrence.id.clone(),
+                            },
+                            check: check.clone(),
+                        })?;
+                        if !check.passed {
+                            continue;
+                        }
+                    }
+                    // Historical scenario limits remain unchanged. The tokens
+                    // profile uses the complete source-pool bound in tokens.rs.
+                    if self.state.pending_triggers.len() + self.state.stack.len()
+                        >= self.stack_limit()
+                    {
+                        if self.tokens_enabled() {
+                            let requested =
+                                self.state.pending_triggers.len() + self.state.stack.len() + 1;
+                            return Err(self.capacity_error(RuleFault::StackCapacityExceeded {
+                                capacity: self.stack_limit(),
+                                requested,
+                            }));
+                        }
+                        return Err("trigger/stack resource limit".into());
+                    }
+                    let id = TriggerId(self.state.next_trigger_id);
+                    self.state.next_trigger_id = self
+                        .state
+                        .next_trigger_id
+                        .checked_add(1)
+                        .ok_or("trigger ID resource limit")?;
+                    let source = source_facts.object;
+                    let controller = source_facts.controller;
+                    let consumed = source_facts.clone();
+                    let source_handles = self.capture_trigger_source_handles(source)?;
+                    self.state.pending_triggers.push(PendingTrigger {
+                        match_condition,
+                        id,
+                        source,
+                        controller,
+                        ability,
+                        source_facts,
+                        source_handles,
+                        event: occurrence.id.clone(),
+                        movement: movement.clone(),
+                        token_entered,
+                    });
+                    self.record_event(Event::TriggerCollected {
+                        trigger_id: id,
+                        source,
+                        player: controller,
+                        ability,
+                        occurrence: occurrence.id.clone(),
+                        subject,
+                        source_facts: Box::new(consumed),
+                    })?;
+                }
             }
         }
         Ok(())
@@ -355,11 +375,18 @@ impl Game {
                             source_handles: trigger.source_handles,
                             trigger_id: id,
                             event: trigger.event,
-                            subject: if trigger.movement.destination == Zone::Battlefield {
-                                trigger.movement.successor
-                            } else {
-                                trigger.movement.previous
-                            },
+                            subject: trigger
+                                .token_entered
+                                .or_else(|| {
+                                    trigger.movement.as_ref().map(|m| {
+                                        if m.destination == Zone::Battlefield {
+                                            m.successor
+                                        } else {
+                                            m.previous
+                                        }
+                                    })
+                                })
+                                .ok_or("missing placed trigger subject")?,
                         },
                         player_targets: vec![],
                         id: stack_id,
@@ -616,42 +643,48 @@ impl Game {
                 || trigger.id.0 >= self.state.next_trigger_id
                 || !ids.insert(trigger.id)
                 || trigger.event.batch >= self.state.next_batch_id
-                || trigger.movement.successor.card != trigger.movement.previous.card
-                || trigger.movement.previous.incarnation.checked_add(1)
-                    != Some(trigger.movement.successor.incarnation)
+                || (trigger.movement.is_some() == trigger.token_entered.is_some())
+                || trigger.movement.as_ref().is_some_and(|m| {
+                    m.successor.card != m.previous.card
+                        || m.previous.incarnation.checked_add(1) != Some(m.successor.incarnation)
+                })
+                || trigger
+                    .token_entered
+                    .is_some_and(|o| !self.state.tokens.contains_key(&o.card) || o.incarnation != 0)
             {
                 return Err("snapshot pending trigger identity invariant".into());
             }
             let condition =
                 self.definition(trigger.source.card)?.triggered[trigger.ability as usize].condition;
-            let valid = match condition {
-                TriggerCondition::SelfDies => {
-                    trigger.movement.from == Zone::Battlefield
-                        && matches!(trigger.movement.destination, Zone::Graveyard { .. })
-                        && trigger.movement.previous == trigger.source
-                }
-                TriggerCondition::AnyCreatureDies => {
-                    trigger.movement.from == Zone::Battlefield
-                        && matches!(trigger.movement.destination, Zone::Graveyard { .. })
-                }
-                TriggerCondition::SelfEntersBattlefield => {
-                    trigger.movement.destination == Zone::Battlefield
-                        && trigger.movement.from != Zone::Battlefield
-                        && trigger.movement.successor == trigger.source
-                }
-                TriggerCondition::OtherCreatureEntersBattlefield => {
-                    trigger.movement.destination == Zone::Battlefield
-                        && trigger.movement.from != Zone::Battlefield
-                        && trigger.movement.successor != trigger.source
-                }
+            let valid = if let Some(token) = trigger.token_entered {
+                condition == TriggerCondition::OtherCreatureEntersBattlefield
+                    && token != trigger.source
+            } else if let Some(m) = &trigger.movement {
+                (match condition {
+                    TriggerCondition::SelfDies => {
+                        m.from == Zone::Battlefield
+                            && matches!(m.destination, Zone::Graveyard { .. })
+                            && m.previous == trigger.source
+                    }
+                    TriggerCondition::AnyCreatureDies => {
+                        m.from == Zone::Battlefield
+                            && matches!(m.destination, Zone::Graveyard { .. })
+                    }
+                    TriggerCondition::SelfEntersBattlefield => {
+                        m.destination == Zone::Battlefield
+                            && m.from != Zone::Battlefield
+                            && m.successor == trigger.source
+                    }
+                    TriggerCondition::OtherCreatureEntersBattlefield => {
+                        m.destination == Zone::Battlefield
+                            && m.from != Zone::Battlefield
+                            && m.successor != trigger.source
+                    }
+                }) && self.definition(m.previous.card)?.characteristics.kind == CardKind::Creature
+            } else {
+                false
             };
-            if !valid
-                || self
-                    .definition(trigger.movement.previous.card)?
-                    .characteristics
-                    .kind
-                    != CardKind::Creature
-            {
+            if !valid {
                 return Err("snapshot trigger event invariant".into());
             }
         }

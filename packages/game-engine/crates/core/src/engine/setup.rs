@@ -5,10 +5,10 @@
 use super::*;
 use rand_chacha::ChaCha20Rng;
 use rand_core::{Rng, SeedableRng};
-// Construction bounds: <=28 creatures and4 Artists yield <=112 ordinary
+// Foundations construction bounds: <=28 creatures and4 Artists yield <=112 ordinary
 // death triggers plus4 Bouncer self triggers per nonempty-stack episode. One
 // entering permanent starts <=5 ETB triggers; <=13 ordinary entries remain
-// below256. No tokens, recursion or nonempty-stack creature recasts are admitted.
+// below256 in foundations. Tokens use the separately proved tokens.rs bounds.
 // <=56 positive combat edges fit64. Four BG decks create <=16 until-EOT
 // effects; mixed/white shields remain below32. Group400 handles full-pod
 // departures/untaps without changing historical group16 limits.
@@ -210,7 +210,9 @@ impl ScenarioConfig {
 }
 impl Game {
     pub(super) fn damage_limit(&self) -> usize {
-        if self.prepared.config.match_profile() {
+        if self.tokens_enabled() {
+            tokens::DAMAGE_BOUND
+        } else if self.prepared.config.match_profile() {
             64
         } else {
             24

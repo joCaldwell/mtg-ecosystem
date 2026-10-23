@@ -136,6 +136,15 @@ impl Game {
         object: ObjectId,
     ) -> Result<Characteristics, String> {
         let mut c = self.definition(object.card)?.characteristics.clone();
+        // CR 122.1a / 613.4c: counters and additive effects share layer 7c.
+        if let Ok(o) = self.current(object) {
+            if let Some(p) = c.power.as_mut() {
+                p.add(&o.plus_one_counters);
+            }
+            if let Some(t) = c.toughness.as_mut() {
+                t.add(&o.plus_one_counters);
+            }
+        }
         for e in &self.state.effects {
             if let ResolvedEffectKind::ModifyPowerToughness {
                 target,
@@ -373,6 +382,12 @@ impl Game {
         cause: BatchCause,
         continuation: DamageContinuation,
     ) -> Result<(), String> {
+        if self.tokens_enabled() && entries.len() > self.damage_limit() {
+            return Err(self.capacity_error(RuleFault::DamageCapacityExceeded {
+                capacity: self.damage_limit(),
+                requested: entries.len(),
+            }));
+        }
         if entries.is_empty()
             || entries.len() > self.damage_limit()
             || entries.iter().any(|e| e.amount <= Quantity::zero())
