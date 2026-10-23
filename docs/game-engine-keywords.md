@@ -78,7 +78,7 @@ The keywords policy is a separate fixture with the same ban and offensive-card
 sources and its own 50-row admitted-pool review. Commanders remain Isamaru and
 Yargle and Multani. The white deck adds the five white cards to the foundations
 white nonland cards with 89 Plains. The black/green deck adds the eleven
-black/green cards to the foundations black/green nonland cards with 38 Forest
+black/green cards to the foundations black/green nonland cards with 39 Forest
 and 38 Swamp. Admission, setup, mulligans, randomness, capacities and loss
 rules are those of the foundations profile. Profile identity (name, catalog
 digest, IR version, policy, commander whitelist, default decks) comes from one
