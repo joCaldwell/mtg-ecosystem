@@ -594,6 +594,22 @@ impl Definition {
         {
             return Err("tokens/counters require spells or self-enters triggers".into());
         }
+        // A spell's own source is the spell on the stack, never a creature; a
+        // "this creature" counter recipient exists only in self-enters triggers.
+        fn source_counters(p: &SpellProgram) -> bool {
+            p.instructions.iter().any(|i| {
+                matches!(
+                    i,
+                    Instruction::PutPlusOneCounters {
+                        on: CounterRecipient::Source,
+                        ..
+                    }
+                )
+            }) || p.modes.iter().any(|m| source_counters(&m.program))
+        }
+        if self.spell.as_ref().is_some_and(source_counters) {
+            return Err("source counter recipient requires a self-enters trigger".into());
+        }
         let c = &self.characteristics;
         if !self.keywords.is_empty() && c.kind != CardKind::Creature {
             return Err("keywords require creature characteristics".into());

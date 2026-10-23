@@ -2391,15 +2391,10 @@ mod tests {
             r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["on"] =
                 serde_json::json!({"ref":"this","noun":"creature"})
         });
-        let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, &own) else {
-            panic!("source counter")
-        };
-        assert!(matches!(
-            definition.spell.unwrap().instructions[0],
-            Instruction::PutPlusOneCounters {
-                on: CounterRecipient::Source,
-                ..
-            }
+        // A spell has no creature source to receive "this creature" counters.
+        assert!(!matches!(
+            compile(fixtures::MANIFEST, &own),
+            CompileResult::Lowered { .. }
         ));
     }
     #[test]

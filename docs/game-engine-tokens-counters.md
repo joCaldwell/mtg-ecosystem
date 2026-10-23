@@ -14,7 +14,7 @@ profiles, catalogs, policies and their bytes stay unchanged.
 | Simultaneous entry | 603.6a | Tokens created by one instruction enter simultaneously as one event and are checked for enters triggers together. |
 | +1/+1 counters | 122.1a, 122.2, 122.6, 613.4c | Each +1/+1 counter adds 1/1 in layer 7c, alongside Giant Growth and Disfigure. Counters are not retained when the object changes zones. |
 | Summoning sickness | 302.6 | Tokens enter without continuous control; haste or attack-readiness rules apply as for cards. |
-| Commander | 903.3 | Tokens are never commanders and never deal Commander damage. |
+| Commander | 903.3, 903.10a, 704.6c | Tokens are never designated commanders (903.3), so their combat damage never counts toward the 21-damage Commander loss. |
 
 Tokens are physical objects with their own identity, distinct from the 400
 seat-owned cards. They are public on the battlefield. Token identity and
@@ -97,10 +97,20 @@ choices:
   a nonempty-stack episode.
 
 Tokens, damage, stack/pending entries and event-group members have explicit
-serializable typed capacity faults (`Game::typed_fault`). A rules step rolls
+serializable typed capacity faults (`Game::typed_fault`). One exception: casting a spell or activating an ability
+while the stack is at capacity is refused as an action, because response
+validation cannot change state. The bounds above prove the stack never reaches
+capacity in admitted pods. A rules step rolls
 back atomically on overflow. Tests compute the maximum from the compiled pool
 and verify these bounds and the unchanged earlier-profile limits. These are
 finite admitted-pool guarantees, not bounds for arbitrary Magic cards.
+
+A token that has already left the battlefield and would move again (111.8) is
+a guarded fault rather than a no-op. No admitted effect can reach it: such
+tokens cease at the next SBA check, before any player receives priority, and
+graveyard-recursion effects target creature *cards*, which tokens are not.
+Implementing the 111.8 no-op is required before admitting any effect that can
+move a token after it has left the battlefield.
 
 ## Player interface
 

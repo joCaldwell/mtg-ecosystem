@@ -2503,3 +2503,12 @@ hash/parser equality and IR v14 schema/catalog/policy downgrade pairs. Successfu
 final logs, the release batch and replay, and historical comparisons remain
 under ignored `generated/p63-tokens-counters/`. No new verification infrastructure
 was added, and no source or expected-result change was needed outside this slice.
+
+Independent P6.3 review found no rules defects. Follow-ups: a spell can no
+longer lower "+1/+1 counter on this creature", because a spell's source is never
+a creature, so that recipient is valid only in self-enters triggers. The
+contract now cites 903.10a/704.6c for Commander damage, and records two
+documented exceptions. First, a cast or activation at stack capacity is refused
+as an action, because the derived bound makes that state unreachable. Second,
+the CR 111.8 "token stays put" case is a guarded fault, unreachable until an
+admitted effect can move a token after it has left the battlefield.
