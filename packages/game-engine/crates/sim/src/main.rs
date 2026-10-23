@@ -1680,6 +1680,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 choices_games::suite(&choices_fixture_catalog()?, args.len() == 2)?;
             println!("{}", canonical(&report)?);
         }
+        Some("compile-combat-keywords") if args.len() == 1 => {
+            println!(
+                "{}",
+                canonical(&mtg_compiler::combat_keywords_fixture_catalog()?)?
+            )
+        }
         Some("compile-keywords") if args.len() == 1 => {
             println!("{}", canonical(&mtg_compiler::keywords_fixture_catalog()?)?)
         }

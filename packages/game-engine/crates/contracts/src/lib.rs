@@ -161,6 +161,10 @@ pub enum Capability {
     HasteV1,
     LifelinkV1,
     DeathtouchV1,
+    TrampleV1,
+    FirstStrikeV1,
+    DoubleStrikeV1,
+    MenaceV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -391,6 +395,12 @@ pub enum KeywordAbility {
     Haste,
     Lifelink,
     Deathtouch,
+    Trample,
+    #[serde(rename = "first strike")]
+    FirstStrike,
+    #[serde(rename = "double strike")]
+    DoubleStrike,
+    Menace,
 }
 impl<'de> Deserialize<'de> for KeywordAbility {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -404,6 +414,10 @@ impl<'de> Deserialize<'de> for KeywordAbility {
             "haste" => Ok(Self::Haste),
             "lifelink" => Ok(Self::Lifelink),
             "deathtouch" => Ok(Self::Deathtouch),
+            "trample" => Ok(Self::Trample),
+            "first strike" => Ok(Self::FirstStrike),
+            "double strike" => Ok(Self::DoubleStrike),
+            "menace" => Ok(Self::Menace),
 
             other => Err(de::Error::unknown_variant(
                 other,
@@ -415,6 +429,10 @@ impl<'de> Deserialize<'de> for KeywordAbility {
                     "haste",
                     "lifelink",
                     "deathtouch",
+                    "trample",
+                    "first strike",
+                    "double strike",
+                    "menace",
                 ],
             )),
         }
@@ -499,6 +517,10 @@ impl Definition {
                 KeywordAbility::Haste => Capability::HasteV1,
                 KeywordAbility::Lifelink => Capability::LifelinkV1,
                 KeywordAbility::Deathtouch => Capability::DeathtouchV1,
+                KeywordAbility::Trample => Capability::TrampleV1,
+                KeywordAbility::FirstStrike => Capability::FirstStrikeV1,
+                KeywordAbility::DoubleStrike => Capability::DoubleStrikeV1,
+                KeywordAbility::Menace => Capability::MenaceV1,
             });
         }
         if !self.static_abilities.is_empty() {
@@ -860,7 +882,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 3, max = 12))]
+    #[schemars(range(min = 3, max = 13))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -868,7 +890,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.schema_version, 3..=12)
+        if !matches!(self.schema_version, 3..=13)
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -877,6 +899,19 @@ impl Catalog {
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
             d.validate()?;
+            if self.schema_version < 13
+                && d.keywords.iter().any(|k| {
+                    matches!(
+                        k,
+                        KeywordAbility::Trample
+                            | KeywordAbility::FirstStrike
+                            | KeywordAbility::DoubleStrike
+                            | KeywordAbility::Menace
+                    )
+                })
+            {
+                return Err("IR v13 is required for combat damage keywords and menace".into());
+            }
             if self.schema_version < 12 && d.keywords.iter().any(|k| *k != KeywordAbility::Defender)
             {
                 return Err("IR v12 is required for creature keywords beyond defender".into());
@@ -1158,6 +1193,12 @@ pub fn catalog_schema() -> serde_json::Value {
         "then":{"properties":{"definitions":{"items":{"properties":{
             "keywords":{"items":{"const":"defender"}},
             "capabilities":{"items":{"not":{"enum":[Capability::FlyingV1,Capability::ReachV1,Capability::VigilanceV1,Capability::HasteV1,Capability::LifelinkV1,Capability::DeathtouchV1]}}}
+        }}}}}
+    }, {
+        "if":{"required":["schema_version"],"properties":{"schema_version":{"maximum":12}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "keywords":{"items":{"not":{"enum":["trample","first strike","double strike","menace"]}}},
+            "capabilities":{"items":{"not":{"enum":[Capability::TrampleV1,Capability::FirstStrikeV1,Capability::DoubleStrikeV1,Capability::MenaceV1]}}}
         }}}}}
     }]);
     schema["$defs"]["SpellProgram"]["allOf"] = serde_json::json!([{

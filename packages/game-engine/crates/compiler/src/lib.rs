@@ -366,6 +366,44 @@ pub mod fixtures {
             include_str!("../../../tests/fixtures/wall-of-vines.json"),
         ),
     ];
+    pub const COMBAT_KEYWORD_RECORDS: [(&str, &str); 9] = [
+        (
+            "youthful-knight",
+            include_str!("../../../tests/fixtures/youthful-knight.json"),
+        ),
+        (
+            "knight-of-meadowgrain",
+            include_str!("../../../tests/fixtures/knight-of-meadowgrain.json"),
+        ),
+        (
+            "fencing-ace",
+            include_str!("../../../tests/fixtures/fencing-ace.json"),
+        ),
+        (
+            "skyhunter-skirmisher",
+            include_str!("../../../tests/fixtures/skyhunter-skirmisher.json"),
+        ),
+        (
+            "gurmag-swiftwing",
+            include_str!("../../../tests/fixtures/gurmag-swiftwing.json"),
+        ),
+        (
+            "cursed-minotaur",
+            include_str!("../../../tests/fixtures/cursed-minotaur.json"),
+        ),
+        (
+            "alley-strangler",
+            include_str!("../../../tests/fixtures/alley-strangler.json"),
+        ),
+        (
+            "colossal-dreadmaw",
+            include_str!("../../../tests/fixtures/colossal-dreadmaw.json"),
+        ),
+        (
+            "elfhame-wurm",
+            include_str!("../../../tests/fixtures/elfhame-wurm.json"),
+        ),
+    ];
     pub const KEYWORD_RECORDS: [(&str, &str); 16] = [
         MATCH_RECORDS[40],
         (
@@ -1191,6 +1229,14 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                     "defender" => {
                                         definition.keywords.push(KeywordAbility::Defender)
                                     }
+                                    "trample" => definition.keywords.push(KeywordAbility::Trample),
+                                    "first strike" => {
+                                        definition.keywords.push(KeywordAbility::FirstStrike)
+                                    }
+                                    "double strike" => {
+                                        definition.keywords.push(KeywordAbility::DoubleStrike)
+                                    }
+                                    "menace" => definition.keywords.push(KeywordAbility::Menace),
                                     "flying" => definition.keywords.push(KeywordAbility::Flying),
                                     "reach" => definition.keywords.push(KeywordAbility::Reach),
                                     "vigilance" => {
@@ -1995,6 +2041,20 @@ pub fn keywords_fixture_catalog() -> Result<Catalog, String> {
     Ok(catalog)
 }
 
+/// Separate IR-v13 closure, preserving every earlier profile definition.
+pub fn combat_keywords_fixture_catalog() -> Result<Catalog, String> {
+    let mut catalog = keywords_fixture_catalog()?;
+    catalog.schema_version = 13;
+    catalog
+        .definitions
+        .extend(catalog_from_records(&fixtures::COMBAT_KEYWORD_RECORDS, 13)?.definitions);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate()?;
+    Ok(catalog)
+}
+
 fn catalog_from_records(records: &[(&str, &str)], schema_version: u32) -> Result<Catalog, String> {
     let mut definitions = vec![];
     for (_, r) in records {
@@ -2037,6 +2097,53 @@ mod tests {
             .1
     }
     #[test]
+    fn combat_keywords_v13_sources_and_downgrade_pairs() {
+        let catalog = combat_keywords_fixture_catalog().unwrap();
+        assert_eq!(
+            (catalog.schema_version, catalog.definitions.len()),
+            (13, 59)
+        );
+        assert_eq!(
+            catalog,
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/expected-combat-keywords-ir.json"
+            ))
+            .unwrap()
+        );
+        for old in keywords_fixture_catalog().unwrap().definitions {
+            assert_eq!(
+                catalog
+                    .definitions
+                    .iter()
+                    .find(|d| d.oracle_id == old.oracle_id),
+                Some(&old)
+            );
+        }
+        for (name, raw) in fixtures::COMBAT_KEYWORD_RECORDS {
+            let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
+                panic!("{name}")
+            };
+            let source: serde_json::Value = serde_json::from_str(raw).unwrap();
+            let expected = source["faces"][0]["result"]["abilities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .flat_map(|a| a["keywords"].as_array().unwrap())
+                .map(|k| k["keyword"].as_str().unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                serde_json::to_value(&definition.keywords).unwrap(),
+                serde_json::json!(expected)
+            );
+            for version in 3..=12 {
+                let mut bad = catalog.clone();
+                bad.schema_version = version;
+                bad.definitions = vec![*definition.clone()];
+                assert!(bad.validate().is_err(), "{name} v{version}");
+            }
+        }
+    }
+    #[test]
     fn keywords_v12_complete_sources_and_downgrade_pairs() {
         let catalog = keywords_fixture_catalog().unwrap();
         assert_eq!(catalog.schema_version, 12);
@@ -2073,7 +2180,7 @@ mod tests {
                 assert!(bad.validate().is_err(), "{name} v{version}");
             }
             for keyword in [
-                serde_json::json!({"keyword":"trample"}),
+                serde_json::json!({"keyword":"protection"}),
                 serde_json::json!({"keyword":"haste","amount":1}),
             ] {
                 let changed = changed_source(raw, |r| {
@@ -2940,7 +3047,7 @@ mod tests {
             );
         }
         let mut future = c;
-        future.schema_version = 13;
+        future.schema_version = 14;
         assert!(future.validate().is_err());
     }
     #[test]
@@ -3300,7 +3407,7 @@ mod tests {
             assert!(Catalog::read(&bad).is_err());
         }
         let mut bad = c;
-        bad.schema_version = 13;
+        bad.schema_version = 14;
         assert!(bad.validate().is_err());
     }
 
@@ -3564,7 +3671,7 @@ mod tests {
             }
         }
         let mut bad = catalog.clone();
-        bad.schema_version = 13;
+        bad.schema_version = 14;
         assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
         for change in [
             (|d: &mut Definition| {
@@ -4076,7 +4183,7 @@ mod tests {
         let c = fixture_catalog().unwrap();
         let raw = canonical(&c).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":3", "\"schema_version\":13"),
+            raw.replace("\"schema_version\":3", "\"schema_version\":14"),
             raw.replace("\"op\":\"return_to_owner_hand\"", "\"op\":\"execute_text\""),
             raw.replace("\"target_slot\":0", "\"target_slot\":99"),
             raw.replace("\"source_block\":0", "\"unknown\":true,\"source_block\":0"),
@@ -4740,7 +4847,7 @@ mod tests {
         assert!(old.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":4", "\"schema_version\":13"),
+            raw.replace("\"schema_version\":4", "\"schema_version\":14"),
             raw.replace(
                 "\"op\":\"put_on_top_owner_library\"",
                 "\"op\":\"put_on_bottom_owner_library\"",

@@ -9,6 +9,9 @@ pub const MATCH_CATALOG_SHA256: &str =
 pub const KEYWORDS_PROFILE: &str = "commander-keywords-v1";
 pub const KEYWORDS_CATALOG_SHA256: &str =
     "72691c17b1bc73b5735f1ced8c5217b51df4daae0f42c9c883665933cfcdf550";
+pub const COMBAT_KEYWORDS_PROFILE: &str = "commander-combat-keywords-v1";
+pub const COMBAT_KEYWORDS_CATALOG_SHA256: &str =
+    "ae5779a29b61fabe147a6ffd7dde6122442201a778e6b36eb9b0992a38ede55c";
 /// All reviewed legal-profile identity and construction inputs live here.
 pub struct MatchProfile {
     pub name: &'static str,
@@ -19,7 +22,7 @@ pub struct MatchProfile {
     pub white_deck: fn() -> Decklist,
     pub black_green_deck: fn() -> Decklist,
 }
-pub static MATCH_PROFILES: [MatchProfile; 2] = [
+pub static MATCH_PROFILES: [MatchProfile; 3] = [
     MatchProfile {
         name: MATCH_PROFILE,
         catalog_sha256: MATCH_CATALOG_SHA256,
@@ -37,6 +40,17 @@ pub static MATCH_PROFILES: [MatchProfile; 2] = [
         commanders: &[ISAMARU, YARGLE],
         white_deck: keywords_white_deck,
         black_green_deck: keywords_black_green_deck,
+    },
+    MatchProfile {
+        name: COMBAT_KEYWORDS_PROFILE,
+        catalog_sha256: COMBAT_KEYWORDS_CATALOG_SHA256,
+        ir_version: 13,
+        policy_json: include_str!(
+            "../../../../tests/fixtures/commander-combat-keywords-policy.json"
+        ),
+        commanders: &[ISAMARU, YARGLE],
+        white_deck: combat_keywords_white_deck,
+        black_green_deck: combat_keywords_black_green_deck,
     },
 ];
 pub fn match_profile(name: &str) -> Option<&'static MatchProfile> {
@@ -68,6 +82,9 @@ pub struct MatchConfig {
 impl MatchConfig {
     pub fn foundations(seed: [u8; 32], starting_player: PlayerId) -> Self {
         Self::for_profile(MATCH_PROFILE, seed, starting_player).expect("reviewed profile")
+    }
+    pub fn combat_keywords(seed: [u8; 32], starting_player: PlayerId) -> Self {
+        Self::for_profile(COMBAT_KEYWORDS_PROFILE, seed, starting_player).expect("reviewed profile")
     }
     pub fn keywords(seed: [u8; 32], starting_player: PlayerId) -> Self {
         Self::for_profile(KEYWORDS_PROFILE, seed, starting_player).expect("reviewed profile")
@@ -356,6 +373,8 @@ pub fn validate_pod(
         return Err(MatchAdmissionError::InvalidCatalog {
             detail: if profile.name == MATCH_PROFILE {
                 "catalog differs from reviewed thirty-four-definition pool"
+            } else if profile.name == COMBAT_KEYWORDS_PROFILE {
+                "catalog differs from reviewed fifty-nine-definition combat keywords pool"
             } else {
                 "catalog differs from reviewed fifty-definition keywords pool"
             }
@@ -743,4 +762,67 @@ mod tests {
         raw["seed"][0] = (-1).into();
         assert!(strict_read::<MatchConfig>(&canonical(&raw).unwrap()).is_err());
     }
+}
+
+pub fn combat_keywords_white_deck() -> Decklist {
+    let mut deck = keywords_white_deck();
+    deck.cards
+        .iter_mut()
+        .find(|r| r.oracle_id == "bc71ebf6-2056-41f7-be35-b2e5c34afa99")
+        .unwrap()
+        .count = 85;
+    deck.cards.push(DeckEntry {
+        oracle_id: "ef2a24f5-ce5e-4054-843a-2cae0c66318a".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "4e6c71e8-aeaf-404e-84c2-c79f2a1cbe4b".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "2f810936-2ba6-4c2b-84a0-ff4c1deb026b".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "0c07d09e-e127-4573-b827-6c50246f7a31".into(),
+        count: 1,
+    });
+    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    deck
+}
+
+pub fn combat_keywords_black_green_deck() -> Decklist {
+    let mut deck = keywords_black_green_deck();
+    deck.cards
+        .iter_mut()
+        .find(|r| r.oracle_id == "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6")
+        .unwrap()
+        .count = 37;
+    deck.cards
+        .iter_mut()
+        .find(|r| r.oracle_id == "56719f6a-1a6c-4c0a-8d21-18f7d7350b68")
+        .unwrap()
+        .count = 35;
+    deck.cards.push(DeckEntry {
+        oracle_id: "fc1256e9-eb92-43b6-abfc-ce19d910a929".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "88b50194-bc39-47a6-968b-983553d89cf9".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "fb9af562-7384-4575-93bb-34f1ada23735".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "08c7db90-c0cf-4482-b7ee-bb033e5996d2".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "9a74a1dd-c36f-4900-b835-fc39dd725bde".into(),
+        count: 1,
+    });
+    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    deck
 }

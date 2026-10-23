@@ -12,6 +12,13 @@
       "ast_sha256": "d484b59c34a074f4fa97bf248a9947c37d7ff2686c769f6d88badedfb479479d"
     },
     {
+      "file": "alley-strangler.json",
+      "oracle_id": "fb9af562-7384-4575-93bb-34f1ada23735",
+      "record_sha256": "284c18082efa4e451500587eda378810cef4281e6e4f17e6ff5d85fae63abf4d",
+      "source_sha256": "b5cb0efed770e39bce2c93b326af0963f91906f77a500e9a2ba312f8a1b61cf2",
+      "ast_sha256": "76f4ee5470f7c0a5fc6cfe9e1e7c48f5619cd5373c978c0a2609ae3134043b52"
+    },
+    {
       "file": "alpine-watchdog.json",
       "oracle_id": "6a0419c3-4bfa-46c1-932b-fe10f2fa2ad7",
       "record_sha256": "a8e62c745f052dcb6fe869934d21aa83553ae44d8b2848e7aaf44f803a2b95b4",
@@ -68,6 +75,13 @@
       "ast_sha256": "d484b59c34a074f4fa97bf248a9947c37d7ff2686c769f6d88badedfb479479d"
     },
     {
+      "file": "colossal-dreadmaw.json",
+      "oracle_id": "08c7db90-c0cf-4482-b7ee-bb033e5996d2",
+      "record_sha256": "5312b5cb91e06d61926fc9e5aad62ff33a395ed8f3fec677a34e966bba1db43b",
+      "source_sha256": "50ec265a9edbf8a5c38da2fee495302dd576e991d0f80526e94d7d8e583ff76e",
+      "ast_sha256": "853aeb6bb1ee7dbb3b9969d9dcbdc1677010f8b0436191492acde10c94b673e3"
+    },
+    {
       "file": "counterspell.json",
       "oracle_id": "cc187110-1148-4090-bbb8-e205694a39f5",
       "record_sha256": "1870e08a76c871aaa537cb0061edd894ce88b98af62c6c5db8c2745a85275656",
@@ -87,6 +101,13 @@
       "record_sha256": "16659c771b7443c23b9193a364891410aa1efd1d0e308f3094499fe60b843fef",
       "source_sha256": "20646c8a1569e733a8d1db930fc6ed4fa1d3dfa6c3030fea0bb1d2c09c9c3f0a",
       "ast_sha256": "6ed597e9deae79bc975ef443eb5264b2e9d6ea18d7f4359c248c305c77fff513"
+    },
+    {
+      "file": "cursed-minotaur.json",
+      "oracle_id": "88b50194-bc39-47a6-968b-983553d89cf9",
+      "record_sha256": "db3f94c446355107938086c4ce35f70ca753610510f394fd9f00ff5e1f005010",
+      "source_sha256": "ce3afa33e7a42b18615c902a6501f268183bdcf65e26a670bcc60c5bf704f5db",
+      "ast_sha256": "76f4ee5470f7c0a5fc6cfe9e1e7c48f5619cd5373c978c0a2609ae3134043b52"
     },
     {
       "file": "deadly-recluse.json",
@@ -117,6 +138,13 @@
       "ast_sha256": "2bca91b3cf0bdf26006dd6f4bc3975c65a57dd052b21468667b1fc9f0e939176"
     },
     {
+      "file": "elfhame-wurm.json",
+      "oracle_id": "9a74a1dd-c36f-4900-b835-fc39dd725bde",
+      "record_sha256": "2d2b7bc1259cda53f5705aab6ed1dae0cafa71fa03d3da6e22d00cb633ceec85",
+      "source_sha256": "8e2302f1bf391e8c2d6e49847e107db352aacd292e53a8d1942ea0ea78d7f5a3",
+      "ast_sha256": "9c15698781715bf35465ead03d50a9733df955e5585292dcf5af5cdd63476e57"
+    },
+    {
       "file": "elvish-visionary.json",
       "oracle_id": "c6a3a882-a127-4590-93d7-679ef4313efe",
       "record_sha256": "55c4ba511575399ea23bcda388c460fda2f578e146818a240fb98d27aa6d0471",
@@ -129,6 +157,13 @@
       "record_sha256": "eebedc961887a7f7b6cc9a998485b4615dfc485401843a5aede8da053e61e220",
       "source_sha256": "6c4225ff3a8e52c25e1e1f79eaf5a355f6b1d6ff24884503e010a10a7a91eef8",
       "ast_sha256": "ba3053af6c381b36ab26e6ddf231cbd269c8800d8a9b70fed78d255e6a7290ec"
+    },
+    {
+      "file": "fencing-ace.json",
+      "oracle_id": "2f810936-2ba6-4c2b-84a0-ff4c1deb026b",
+      "record_sha256": "17c58e39ddfd6f120d64e1f80c5ffeb5921ea7795478f9cd355bb7faf8a262e1",
+      "source_sha256": "4357f7fe5d632f97b6251128ac1154db26a1f2e66b12f88d7559fd45c1133d7b",
+      "ast_sha256": "3a80cdba803f330a808ea0c2509de68031283eab364e35e82427024a2b6f118d"
     },
     {
       "file": "flame-rift.json",
@@ -194,6 +229,13 @@
       "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
     },
     {
+      "file": "gurmag-swiftwing.json",
+      "oracle_id": "fc1256e9-eb92-43b6-abfc-ce19d910a929",
+      "record_sha256": "c7ee888015dcf58ce6e91a75853b7c37a537585372f777a276d8c2450786e3ff",
+      "source_sha256": "e7ae77c8477b0ebb821ca2706f542b6b7df32137f954298c7a216f11c4e266a3",
+      "ast_sha256": "839be490629b9a1260109fe68721bf4ff3b2256805576d2948eab9eb6e5e2a9e"
+    },
+    {
       "file": "hapless-researcher.json",
       "oracle_id": "240a349a-79f8-4e11-9a05-a78148e70a62",
       "record_sha256": "d047cc02d838a248585a596d13b60185911082a2897a1a0211310c2fe57591fd",
@@ -234,6 +276,13 @@
       "record_sha256": "2c96d0181155ee5c55da6cfb74e68c11fe8ad6489928fee23d54c12771f0df37",
       "source_sha256": "0e6758f21c30efca20f2e89ac83ce7286ccfd2a3e66c95fe5f2e8c1c25629b20",
       "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
+    },
+    {
+      "file": "knight-of-meadowgrain.json",
+      "oracle_id": "4e6c71e8-aeaf-404e-84c2-c79f2a1cbe4b",
+      "record_sha256": "4ad0dc704d81f156522e242a9e135a71ef8f093013d163e8fdd099caa129f76c",
+      "source_sha256": "c8211095359537536a6f60652f7677dec003142d9e27217344828a330c109790",
+      "ast_sha256": "1fdaf68c5d7199e13752f7c9955f9042299973daca92f713933b377a82a6a382"
     },
     {
       "file": "lavaborn-muse.json",
@@ -311,6 +360,13 @@
       "record_sha256": "091d5adece7a57411a5b22831860f8a2c076f5499e273547311c753ff02e1e9f",
       "source_sha256": "d21651ec7b91ccf5541cbb3531351cc03e2252993c9a9949047c0beb40c5678c",
       "ast_sha256": "2d3f45d3c23588f6d09df648ce64c4ab5a5355a18de86f3e4f4d200591a79784"
+    },
+    {
+      "file": "skyhunter-skirmisher.json",
+      "oracle_id": "0c07d09e-e127-4573-b827-6c50246f7a31",
+      "record_sha256": "b2ace87f1bd1e7ccf1b3d3a9cfdc68e8c2b6d630daf12242f19c1460b11e7f14",
+      "source_sha256": "b52fccd26f0ca89da750aea9c8a034ca15ebd6ce59e5a731f7701a4461d4695b",
+      "ast_sha256": "e0aade42178c8ba28e1f2514c6b5547038a4eb0a6cac148bc387a3c667dcced6"
     },
     {
       "file": "slaughterhouse-bouncer.json",
@@ -395,6 +451,13 @@
       "record_sha256": "0f3f4906ebcf4789b5d54b87518a486e92207e9e3a6ff366c1076445aacb73ef",
       "source_sha256": "e2cbc722e77cbf6545235079ca7e1e4cd26fc02a8c03be382e240d7f848dc2b7",
       "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
+    },
+    {
+      "file": "youthful-knight.json",
+      "oracle_id": "ef2a24f5-ce5e-4054-843a-2cae0c66318a",
+      "record_sha256": "c3dc4defb10720f27d6f922512dbe69281e4e870e65f5f447593aee7802e89fe",
+      "source_sha256": "90c478b3634366041756b2b2fc40c11e63ac510aa4242d64702ed0c8f0e61dca",
+      "ast_sha256": "b9f534592fe03d15f7dcdfdd43dfb5509c6fb951255893097ac95541300a259b"
     }
   ]
 }
