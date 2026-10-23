@@ -2224,3 +2224,48 @@ Host-only commit `8f33007` then corrects the shared definition/shrinking helper
 pin, with 122 focused Python guards and independent review passed. All 220 native
 source files remain byte-identical. The original functional receipts stay at
 `9f628c7`; fresh authorities must bind the subsequently updated host namespace.
+
+
+### Diagnostic proof fixes: fresh verification and measured program
+
+The current `f3b9f151…` Build completed fresh offline rebuild/replay, independent
+retained-artifact verification, and the independently audited source/functional
+archive (1,109 payload files / 729,369,509 bytes). Original functional provenance
+remains `9f628c7`; host-only integration and documentation preserve all 220 native
+files and the verified 647 debug / 647 release / 45 Node / 40 SDK-strict checks.
+Failed archive audit attempts remain preserved; only actual successful run 3 is
+accepted.
+
+The fresh full diagnostic audit passed evidence-integrity checks, SHA-256
+`fd28aa5c699a9f109d11b1a0d9b71574d904933310324a5fe9da05282c26d45a`.
+Twenty of thirty commands completed. Ten deadline failures (17–25 and 27) remain
+failures. All 43 planned native processes were attempted and terminal: 33 fully
+verified and ten failed, with no unstarted internal batches. The full program
+remains unsuccessful. Separate allocation and all twelve omniscient roots passed
+outside those denominators.
+
+The larger Evidence reader passed the full eighteen-game pod workload across one
+warmup and ten measured batches: 180 measured games, eighteen warmup games.
+Same-work scaling passed 1/2/4/16 workers. Detailed rates, request counts, exact
+pins, timing scopes and failure qualifications are in
+[game-engine-performance.md](game-engine-performance.md).
+
+Full proof deadlines remain open: ordinary-three all-first-write completed 23/24
+sweeps, ordinary-two 21/24 and 19/24, and the six dense-root cases completed none.
+File-backed shrinking verification also timed out; no completed resource-fit
+claim follows. Two separate primary attempts failed the unchanged host quiescence
+guard after background Node inventory changes; both were cleaned up, and no new
+primary latency acceptance is claimed. Closed evidence has been retained and
+independently byte-audited before the next source-backed optimization.
+Main-checkout parser work is untouched.
+
+
+The finite measurement copy is closed: 1,004 payload files / 10,507,713,409
+bytes, manifest SHA-256
+`a87a1b2e290849b555fd160460997dfd7c8ad779413ca32eb83959c6b0a5a8d0`.
+Independent copy audit passed, SHA-256
+`4725aecaf65938549201898dcad0c7996686c7cf41adf50f7e4751cdd15666c8`.
+This archive preserves all failed outcomes and original denominators.
+Next implementation work is confined
+to test-host phase profiling and the completed root snapshot lifetime; complete
+byte/SHA/EOF, standalone restore and independent replay oracles remain required.

@@ -816,3 +816,83 @@ all 220 native source files stayed byte-identical. Functional receipts retain
 their original `9f628c7` provenance. New authorities must freeze the current host
 namespace, including definition driver SHA-256
 `3100ecb8765796b2e685499159bdd699ffdf656c741806659db907ab0307bdb2`.
+
+
+### Diagnostic proof fixes: current verified results
+
+Build `f3b9f1512a4aacd28b610df875c3181405345a3727ec289275ef82b56aa5e5b2`
+retains the verified 647 debug / 647 release Rust passes, 45 Node checks and 40
+SDK checks with strict TypeScript. Fresh offline rebuild/replay completed and
+its independent retained-artifact audit passed (`6aa618a06d29407dd3ded48bb340fb4cbcdd3b0ed193216ff2d29d92728b7332`).
+The current source/functional archive contains 1,109 payload files / 729,369,509
+bytes; manifest SHA-256 `72693199f3faaa4d3bc43984b8224a1b6e0c6a70864a565b995831dd38cf21e9`.
+Independent archive audit run 3 passed with actual exit zero, SHA-256
+`4e9b268268d7cfdd8d15803fd4e417a2f3f22d5ddeab76cae32ac4eb2ded74e3`.
+Both earlier failed audit attempts remain preserved, including run 2's passed
+byte-check receipt disqualified by its actual nonzero CLI exit.
+
+The fresh thirty-command diagnostic program completed with twenty successful
+commands and ten preserved deadline failures: indices 17–25 and 27. All 43
+planned native processes were attempted and terminal: 33 have complete verified
+results; ten failed. No internal batch remains unstarted. The full audit under
+`generated/diagnostic-proof-fixes-verification-v1/measurement-audit-full-program-run-1/receipt.json`
+has SHA-256 `fd28aa5c699a9f109d11b1a0d9b71574d904933310324a5fe9da05282c26d45a`.
+It confirms unchanged source/selected output endpoints and both optional scopes,
+while retaining `full_program_passed=false`.
+
+The full-pod host correction now passed the complete one-warmup / ten-measured
+series of eighteen games per batch: eighteen warmup games and 180 measured games.
+Reported measured medians are 1.2279609301561831 generation pods/second and
+0.5775186365901881 whole-batch pods/second. These retain their distinct native
+timing scopes and concern only the fixed finite workload. Same-build scaling
+completed the same 96 trials at 1/2/4/16 workers, with median steady-state times
+10,049,773 / 5,088,598 / 2,600,388 / 736,325µs: about 3.86× for four versus one.
+Startup remains separate; this establishes no causal older-build improvement.
+
+The separate allocation diagnostic passed complete feature-off semantic equality
+for 1,024 accepted inputs, reporting 6,944,647 allocation requests. Its process-global
+request scope includes possible libtest-main interference and does not establish
+live bytes, peak heap or production latency. All twelve separately labeled
+omniscient roots passed. Both optional scopes remain outside the 30/43 counts.
+
+Ordinary-three all-first-write branching timed out with 23/24 sweeps complete;
+ordinary-two selected-detail/all-first-write timed out at 21/24 and 19/24. All six
+dense-root cases timed out with no completed sweep or completed root-proof
+record. The coarse preparation flag alone does not establish failure to construct
+the natural root. Shrinking choices reached the external deadline with clean
+recorded cleanup; the file-backed snapshot change establishes no completed
+2 GiB fit. Full-proof deadlines remain unresolved with these changes.
+
+Two fresh primary attempts were stopped by the unchanged quiescence guard after
+background Node inventory changes. Both native children were reaped and their
+owned groups were empty. Their wrapper SHA-256 values are
+`ac74d91241daa3ec5e443b57023b57b0637478c250252154ddec319dfa2f7296`
+and `0362d0d9085baae93565a8dfb003c39934fba118965b072764a992cdb5c782df`.
+Neither establishes current-Build latency acceptance; the older accepted primary
+measurements retain their original Build. The measurement copy and independent
+byte audit are complete as recorded below.
+
+
+The measurement copy contains 1,004 payload files / 10,507,713,409 bytes in
+`performance-diagnostic-proof-fixes-measurements-f3b9-pass1-v1` under the same
+external evidence root. Its manifest SHA-256 is
+`a87a1b2e290849b555fd160460997dfd7c8ad779413ca32eb83959c6b0a5a8d0`.
+It retains all 893 audited raw files / 10,362,292,493 bytes, both failed primary
+attempts, all 32 measurement-owner records, and the separate parent observation
+joining the ten failed native launches to their cleanup reports. Exact null
+sessions for synchronous owners 2, 3 and 8 remain unchanged. The source archive
+and bundle/vendor bytes are joined by their existing pins. Independent copy
+audit passed with actual owner 17821 exit zero, SHA-256
+`4725aecaf65938549201898dcad0c7996686c7cf41adf50f7e4751cdd15666c8`.
+Copy owner 46539 exited zero; copy status alone does not certify retention or
+upgrade the full-program result.
+
+Current dense cases entered the first viewer-0, quantum-1 Search reference proof
+after reaching their natural roots. All six incurred charged-memory pressure at
+2 GiB and timed out without complete ROOT_PROOF or sweeps; no OOM kill was
+recorded. Shrinking root export and standalone cold restore returned, then the
+generic State equality proof timed out before any matrix cell. Its charged peak
+was 2 GiB with 67,876 max events and zero sampled OOM events. Neither result
+establishes resource fit. The next candidate separates coarse test-host proof
+phases and removes the completed root snapshot before unchanged full equality;
+no speedup, memory saving or deadline fit is predicted.
