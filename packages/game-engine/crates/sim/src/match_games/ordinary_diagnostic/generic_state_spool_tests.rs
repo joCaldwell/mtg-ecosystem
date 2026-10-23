@@ -973,3 +973,187 @@ fn generic_state_spool_profile_private_paths_modes_collisions_and_retention() {
     assert!(plain.join("generic-proof-phase-v1/events.ndjson").is_file());
     assert_eq!(fs::read(file).unwrap(), b"private sentinel");
 }
+
+#[test]
+fn generic_state_spool_profile_terminal_write_failure_retains_only_partial_evidence() {
+    for accepted in [0, 7] {
+        let (mut p, data) = GenericProofProfile::memory(None);
+        let before = data.borrow().clone();
+        if let EventSink::Memory(sink) = &mut p.sink {
+            sink.fail_after = Some(before.len() + accepted);
+        }
+        let error = p.finish(true).unwrap_err();
+        assert_eq!(error, "injected profile write failure");
+        assert!(p.failed && p.sink_failed && !p.finished);
+        assert_eq!(p.seq, 1);
+        assert_eq!(p.bytes, before.len() as u64);
+        assert_eq!(&data.borrow()[..before.len()], before);
+        assert_eq!(data.borrow().len(), before.len() + accepted);
+        let retained = data.borrow().clone();
+        assert!(p.finish(true).is_err());
+        assert_eq!(*data.borrow(), retained);
+    }
+    // Even a syntactically complete JSON tail is partial evidence without the
+    // final newline. This deliberately does not use events(), which accepts a
+    // non-newline-terminated final JSON value and is only a test convenience.
+    let prefix = b"{\"kind\":\"header\"}\n";
+    let terminal = b"{\"kind\":\"terminal\",\"collection_outcome\":\"root_collection_complete\"}\n";
+    let sink = TestSink {
+        fail_after: Some(prefix.len() + terminal.len() - 1),
+        ..Default::default()
+    };
+    sink.data.borrow_mut().extend_from_slice(prefix);
+    let data = sink.data.clone();
+    assert!(
+        EventSink::Memory(sink)
+            .publish_terminal(terminal, prefix.len() as u64)
+            .is_err()
+    );
+    let retained = data.borrow();
+    assert_eq!(&retained[..prefix.len()], prefix);
+    assert!(serde_json::from_slice::<Value>(&retained[prefix.len()..]).is_ok());
+    let complete: Vec<_> = retained
+        .split_inclusive(|b| *b == b'\n')
+        .filter(|line| line.ends_with(b"\n"))
+        .collect();
+    assert_eq!(complete, [prefix.as_slice()]);
+}
+
+#[test]
+fn generic_state_spool_profile_terminal_full_line_flush_sync_failure_rolls_back() {
+    for complete in [false, true] {
+        for sync in [false, true] {
+            let (mut p, data) = GenericProofProfile::memory(None);
+            measured(
+                &mut Some(&mut p),
+                ProofScope::root(4).unwrap(),
+                ProofPhase::CanonicalExport,
+                |_| Ok(()),
+                |_| None,
+            )
+            .unwrap();
+            let before = data.borrow().clone();
+            let seq = p.seq;
+            if let EventSink::Memory(sink) = &mut p.sink {
+                sink.fail_flush = !sync;
+                sink.fail_sync = sync;
+            }
+            let error = p.finish(complete).unwrap_err();
+            assert_eq!(
+                error,
+                if sync {
+                    "injected profile sync failure"
+                } else {
+                    "injected profile flush failure"
+                }
+            );
+            let EventSink::Memory(sink) = &mut p.sink else {
+                unreachable!()
+            };
+            assert_eq!(&sink.failed_commit[..before.len()], before);
+            let attempted = &sink.failed_commit[before.len()..];
+            assert!(attempted.ends_with(b"\n"));
+            let terminal: Value = serde_json::from_slice(attempted).unwrap();
+            assert_eq!(terminal["kind"], "terminal");
+            assert_eq!(terminal["seq"], seq);
+            assert_eq!(
+                terminal["collection_outcome"],
+                if complete {
+                    "root_collection_complete"
+                } else {
+                    "error"
+                }
+            );
+            sink.fail_flush = false;
+            sink.fail_sync = false;
+            assert_eq!(*data.borrow(), before);
+            assert!(ended(&data, "canonical_export"));
+            assert_eq!(events(&data).len(), 3);
+            assert!(p.failed && p.sink_failed && !p.finished);
+            assert_eq!(p.seq, seq);
+            assert_eq!(p.bytes, before.len() as u64);
+            assert!(p.finish(true).unwrap_err().contains("poisoned"));
+            assert_eq!(*data.borrow(), before);
+        }
+    }
+}
+
+#[test]
+fn generic_state_spool_profile_terminal_rollback_failure_preserves_primary_and_poison() {
+    for sync in [false, true] {
+        for truncate in [false, true] {
+            let (mut p, data) = GenericProofProfile::memory(None);
+            let before = data.borrow().clone();
+            if let EventSink::Memory(sink) = &mut p.sink {
+                sink.fail_flush = !sync;
+                sink.fail_sync = sync;
+                sink.fail_rollback_truncate = truncate;
+                sink.fail_rollback_sync = !truncate;
+            }
+            let error = p.finish(true).unwrap_err();
+            let primary = if sync {
+                "injected profile sync failure"
+            } else {
+                "injected profile flush failure"
+            };
+            let rollback = if truncate {
+                "injected terminal truncate failure"
+            } else {
+                "injected terminal rollback sync failure"
+            };
+            assert_eq!(
+                error,
+                format!("{primary}; terminal rollback failed: {rollback}")
+            );
+            assert_eq!(&data.borrow()[..before.len()], before);
+            if truncate {
+                // Recovery failed: a terminal can remain, but native failure
+                // forbids accepting it alone as a successful collection.
+                assert_eq!(events(&data).last().unwrap()["kind"], "terminal");
+            } else {
+                assert_eq!(*data.borrow(), before);
+            }
+            assert!(p.failed && p.sink_failed && !p.finished);
+            assert_eq!(p.seq, 1);
+            assert_eq!(p.bytes, before.len() as u64);
+            let retained = data.borrow().clone();
+            assert!(p.finish(true).is_err());
+            assert_eq!(*data.borrow(), retained);
+        }
+    }
+}
+
+#[test]
+fn generic_state_spool_profile_terminal_owned_file_rollback_preserves_committed_records() {
+    let owner = GenericStateProof::create().unwrap();
+    let mut p = GenericProofProfile::create(&owner.directory).unwrap();
+    measured(
+        &mut Some(&mut p),
+        ProofScope::root(4).unwrap(),
+        ProofPhase::CanonicalExport,
+        |_| Ok(()),
+        |_| None,
+    )
+    .unwrap();
+    let path = owner.directory.join("generic-proof-phase-v1/events.ndjson");
+    let before = fs::read(&path).unwrap();
+    assert_eq!(before.len() as u64, p.bytes);
+    // Exercise the actual owned-file recovery on a fully accepted terminal,
+    // separately from the deterministic flush/sync fault injection above.
+    p.sink
+        .write_line(
+            b"{\"kind\":\"terminal\",\"collection_outcome\":\"root_collection_complete\"}\n",
+        )
+        .unwrap();
+    assert!(fs::metadata(&path).unwrap().len() > p.bytes);
+    p.sink.rollback_terminal(p.bytes).unwrap();
+    drop(p);
+    assert_eq!(fs::read(&path).unwrap(), before);
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o7777,
+        0o600
+    );
+    let mut read_only = EventSink::File(fs::File::open(&path).unwrap());
+    assert!(read_only.rollback_terminal(before.len() as u64).is_err());
+    assert_eq!(fs::read(&path).unwrap(), before);
+}

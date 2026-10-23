@@ -99,23 +99,63 @@ enum EventSink {
 }
 impl EventSink {
     fn publish(&mut self, line: &[u8]) -> io::Result<()> {
+        self.write_line(line)?;
+        self.flush_and_sync()
+    }
+    fn write_line(&mut self, line: &[u8]) -> io::Result<()> {
         match self {
-            Self::File(file) => {
-                file.write_all(line)?;
-                file.flush()?;
-                file.sync_all()
-            }
+            Self::File(file) => file.write_all(line),
             #[cfg(test)]
             Self::Memory(sink) => {
                 if sink.fail_record == Some(sink.records) {
                     return Err(bad("injected profile boundary cancellation"));
                 }
                 sink.records += 1;
-                sink.write_all(line)?;
+                sink.write_all(line)
+            }
+        }
+    }
+    fn flush_and_sync(&mut self) -> io::Result<()> {
+        match self {
+            Self::File(file) => {
+                file.flush()?;
+                file.sync_all()
+            }
+            #[cfg(test)]
+            Self::Memory(sink) => {
                 sink.flush()?;
                 sink.sync()
             }
         }
+    }
+    fn rollback_terminal(&mut self, committed: u64) -> io::Result<()> {
+        match self {
+            Self::File(file) => {
+                // This exclusive, unbuffered owned file is poisoned after the
+                // failure; its cursor is never used for another publication.
+                file.set_len(committed)?;
+                file.sync_all()
+            }
+            #[cfg(test)]
+            Self::Memory(sink) => sink.rollback_terminal(committed),
+        }
+    }
+    fn publish_terminal(&mut self, line: &[u8], committed: u64) -> io::Result<()> {
+        // write_all on our unbuffered File either accepts the entire line or
+        // leaves a torn tail without its final newline. Retain that partial
+        // evidence on write failure, just as for other records. Once the full
+        // line is accepted, a flush/sync error must retract the terminal.
+        self.write_line(line)?;
+        if let Err(primary) = self.flush_and_sync() {
+            return Err(match self.rollback_terminal(committed) {
+                Ok(()) => primary,
+                Err(rollback) => io::Error::new(
+                    primary.kind(),
+                    format!("{primary}; terminal rollback failed: {rollback}"),
+                ),
+            });
+        }
+        Ok(())
     }
 }
 /// Retained evidence: intentionally no directory-removing Drop implementation.
@@ -279,6 +319,9 @@ impl GenericProofProfile {
             .map_err(|_| "proof profile time overflow".into())
     }
     fn emit(&mut self, event: Value) -> Result<(), String> {
+        self.emit_record(event, false)
+    }
+    fn emit_record(&mut self, event: Value, terminal: bool) -> Result<(), String> {
         if self.sink_failed || self.finished {
             return Err("proof profile sink is poisoned or closed".into());
         }
@@ -296,7 +339,12 @@ impl GenericProofProfile {
             if next > MAX_RECORDS || line.len() > MAX_LINE || bytes > MAX_BYTES {
                 return Err("proof profile bound exceeded".into());
             }
-            self.sink.publish(&line).map_err(|e| e.to_string())?;
+            if terminal {
+                self.sink.publish_terminal(&line, self.bytes)
+            } else {
+                self.sink.publish(&line)
+            }
+            .map_err(|e| e.to_string())?;
             self.seq = next;
             self.bytes = bytes;
             Ok(())
@@ -382,8 +430,12 @@ impl GenericProofProfile {
     pub(super) fn finish(&mut self, complete: bool) -> Result<(), String> {
         let at = self.at(self.now())?;
         let complete = complete && !self.failed;
-        self.emit(serde_json::json!({"schema":PROFILE_SCHEMA,"kind":"terminal","seq":self.seq,
-            "at_ns":at,"collection_outcome":if complete {"root_collection_complete"} else {"error"}}))?;
+        // Rollback is checked recovery from a returned publication error, not
+        // atomic visibility or a crash/power-loss guarantee. A retained terminal
+        // alone never accepts an attempt: native and outer host success remain
+        // mandatory, including when rollback itself fails or execution is killed.
+        self.emit_record(serde_json::json!({"schema":PROFILE_SCHEMA,"kind":"terminal","seq":self.seq,
+            "at_ns":at,"collection_outcome":if complete {"root_collection_complete"} else {"error"}}), true)?;
         self.finished = true;
         if complete {
             Ok(())
@@ -393,6 +445,9 @@ impl GenericProofProfile {
     }
 }
 // None executes the original operation without reading any clock or collector.
+// The paired test's unused collector only observes its own activity; it cannot
+// detect arbitrary direct clocks/files elsewhere. The None path's zero new
+// activity also relies on source inspection of these optional call sites.
 pub(super) fn measured<T>(
     profile: &mut Option<&mut GenericProofProfile>,
     scope: ProofScope,
@@ -429,6 +484,9 @@ struct TestSink {
     fail_sync: bool,
     fragment: Option<usize>,
     interrupt: bool,
+    failed_commit: Vec<u8>,
+    fail_rollback_truncate: bool,
+    fail_rollback_sync: bool,
 }
 #[cfg(test)]
 impl Write for TestSink {
@@ -449,6 +507,7 @@ impl Write for TestSink {
     }
     fn flush(&mut self) -> io::Result<()> {
         if self.fail_flush {
+            self.failed_commit = self.data.borrow().clone();
             Err(bad("injected profile flush failure"))
         } else {
             Ok(())
@@ -459,10 +518,23 @@ impl Write for TestSink {
 impl TestSink {
     fn sync(&mut self) -> io::Result<()> {
         if self.fail_sync {
+            self.failed_commit = self.data.borrow().clone();
             Err(bad("injected profile sync failure"))
         } else {
             Ok(())
         }
+    }
+    fn rollback_terminal(&mut self, committed: u64) -> io::Result<()> {
+        if self.fail_rollback_truncate {
+            return Err(bad("injected terminal truncate failure"));
+        }
+        self.data
+            .borrow_mut()
+            .truncate(usize::try_from(committed).map_err(io::Error::other)?);
+        if self.fail_rollback_sync {
+            return Err(bad("injected terminal rollback sync failure"));
+        }
+        Ok(())
     }
 }
 
