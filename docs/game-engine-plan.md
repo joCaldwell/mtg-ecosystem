@@ -364,6 +364,13 @@ definition/configuration delta, exclusions, and an exit suite before work begins
 The previous profile remains reproducible; profiles already in running games
 do not change. P8 selects P5's released profile or one specific completed P6.n.
 
+P6.1 is the bounded evergreen-keyword release specified in
+[game-engine-keywords.md](game-engine-keywords.md): a separate 50-definition
+IR v12 `commander-keywords-v1` profile adds flying, reach, vigilance, haste,
+lifelink and deathtouch, with legal-block hints and its own completion batch.
+Foundations, search and server scope remain frozen; trample, first/double strike, menace
+and keyword-granting effects remain outside this release.
+
 **Deliver in bounded families:** replacement/prevention ordering and budgets;
 continuous-effect layers/sublayers/timestamps/dependencies; granted abilities;
 multiple/cost-dependent targets; counters and tokens; attachments; alternate/

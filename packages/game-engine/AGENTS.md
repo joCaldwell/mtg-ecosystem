@@ -91,6 +91,15 @@ are the admitted commanders. Snapshot v17, bundle v18, projection/context v15
 and query-sidecar v14 retain setup and simultaneous owner-return continuations.
 Do not generalize this named profile to arbitrary Commander decks or strategies.
 
+`docs/game-engine-keywords.md` adds the separate `commander-keywords-v1`
+profile: 50 definitions in IR v12, intrinsic flying, reach, vigilance, haste,
+lifelink and deathtouch, and public per-blocker legality hints. Damage gains use
+final dealt quantities atomically; deathtouch is consumed by the next SBA wave.
+The profile table binds its own policy, catalog and default decks. Foundations
+IR v11, policy, projection bytes, search and server scope remain unchanged;
+snapshot/bundle/projection/sidecar versions stay 18/19/16/15. No trample, first/double strike,
+menace, keyword grants, indestructible or regeneration is admitted.
+
 `docs/game-engine-search.md` releases finite P7 search for that same
 pool. Sealed captures contain only permitted facts/history; complete hypothetical
 hands/libraries and independent future randomness construct sampled games.
@@ -190,8 +199,8 @@ actual Commander combat damage and apply the 21-damage SBA loss rule. Earlier
 Commander profiles retain their explicit damage fault. Library replacement is
 enabled only for the reviewed Time Ebb and subsequent ordinary/ability draw paths.
 Replacement ordering is limited to the reviewed effects and subsequent profiles.
-Legal match setup is available only through the named foundations profile. Ordinary
-combat is enabled in the reviewed combat, Commander and action profiles.
+Legal match setup is available only through the named foundations and keywords
+profiles. Ordinary combat is enabled in the reviewed combat, Commander and action profiles.
 
 Batch mutation is private and atomic. Capture consumed pre-event facts and use
 actual typed outcome slots. Simultaneous groups admit independent read/write
@@ -274,7 +283,8 @@ The counter event owns aggregate stack membership/control-flow writes and cannot
 compose with another simultaneous occurrence.
 
 Tap activation costs require an untapped source and continuous-control eligibility;
-no haste effects are admitted. Mana-cost activations have their own announcement,
+the keywords profile additionally admits the intrinsic haste exception (CR702.10c).
+Mana-cost activations have their own announcement,
 mana window and exact spending choice. Source movement or source-owner departure
 after announcement preserves a surviving activator's frozen invocation with a mana cost.
 Failed payment removes that proposal and optionally undoes only its recorded mana

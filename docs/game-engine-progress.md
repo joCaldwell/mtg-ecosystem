@@ -2269,3 +2269,35 @@ This archive preserves all failed outcomes and original denominators.
 Next implementation work is confined
 to test-host phase profiling and the completed root snapshot lifetime; complete
 byte/SHA/EOF, standalone restore and independent replay oracles remain required.
+
+## P6.1 evergreen creature keywords
+
+`commander-keywords-v1` adds a separate source-backed 50-definition IR v12
+catalog and policy, with the six intrinsic keywords in
+[game-engine-keywords.md](game-engine-keywords.md). Public blocker requests
+list legal attacker handles. Lifelink uses final damage in the same atomic
+event, including source LKI; deathtouch uses nonzero actual damage and the next
+SBA wave. Completion policies use only observations and the public catalog.
+The 18-game batch uses its own frozen seed domain and the foundations seating
+and mulligan pattern. Foundations catalog/policy/expected fixtures and search/
+server scope remain unchanged. No trample, first/double strike, menace, keyword grants,
+indestructible or regeneration is supported. Haste tap-cost and noncombat
+keyword combinations absent from the real pool use explicitly private domain
+fixtures; they do not admit synthetic cards.
+
+Verification used pinned Rust 1.99.0 and `CARGO_BUILD_JOBS=2`:
+`cargo fmt --check`,
+`cargo clippy --workspace --all-targets --locked -- -D warnings`, and
+`cargo test --workspace --locked` passed (690 tests; 12 existing explicit host
+diagnostics ignored). `npm run check:engine` also passed the same Rust gates
+and all 46 Node checks, including source-parser provenance and v12 schema/IR
+contracts. The release `keywords-match-batch` completed all 18 games
+and independent replay: zero faults/truncations, 630 turns, 27,021 decisions.
+The ignored local report is `generated/p61-keywords/batch-verified/report.json`
+(SHA-256 `ab1daddca97e36ba689d0eed394f0b046d6b061ecbb267ef96e22e430965333a`);
+its source-closure-verified build is
+`8119bc4ecf4174f1a1550f11c12750515fdb1ecd43c42e3abcb00553eef9f4cc`.
+All 27 existing expected fixtures remain byte-identical. Wall of Vines now
+lowers completely but remains unadmitted in v11; unsupported-keyword and future-
+version negatives were adjusted accordingly. The approved deck-count correction
+uses 39 Forest and 38 Swamp in the keywords black/green deck.
