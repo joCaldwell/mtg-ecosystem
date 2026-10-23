@@ -5,6 +5,7 @@
 //! Private trusted-host tests; clocks and filesystem I/O remain outside production core.
 use super::*;
 use std::{hint::black_box, time::Instant};
+use work::optimization_tests::{LegalProofProfile, ProofKind, ProofPhase, proof_phase};
 
 const LEGAL_BRANCH_CONTRACT: &str = r#"{
  "schema":"legal-branch-diagnostic-v1",
@@ -514,49 +515,120 @@ struct Expected {
     after_sha: String,
 }
 fn prove_root_and_reference(root: &Root) -> Result<Expected, String> {
+    prove_root_and_reference_with_profile(root, None)
+}
+fn prove_root_and_reference_with_profile(
+    root: &Root,
+    mut profile: Option<&mut LegalProofProfile>,
+) -> Result<Expected, String> {
     let game = &root.game;
-    let before = oracle::state_sha(game);
+    if let Some(p) = profile.as_deref_mut() {
+        p.root(ProofKind::Root);
+    }
+    let before = proof_phase(
+        profile.as_deref_mut(),
+        ProofPhase::InitialGenericStateOracle,
+        |_| Ok(oracle::state_sha(game)),
+    )?;
     let journal = game.replay_journal();
     assert_eq!(journal.decisions.len(), game.journal().len());
-    work::optimization_tests::compare_queries(game);
+    work::optimization_tests::compare_queries_with_profile(game, profile.as_deref_mut());
+    if let Some(p) = profile.as_deref_mut() {
+        p.root(ProofKind::Root);
+    }
     let catalog = catalog()?;
     let mut counts = Counts::default();
-    let o = observe(game, PlayerId(0), &mut counts)?;
-    let chosen = action(&catalog, &o)?;
+    // Keep the original observation owned through the whole root proof.
+    let (_o, chosen) = proof_phase(
+        profile.as_deref_mut(),
+        ProofPhase::FirstWriteActionSelection,
+        |_| {
+            let o = observe(game, PlayerId(0), &mut counts)?;
+            let chosen = action(&catalog, &o)?;
+            Ok((o, chosen))
+        },
+    )?;
     let mut outcomes = vec![];
     for quantum in [1, u64::MAX] {
-        let mut copy = game.fork();
-        let before_inputs = copy.journal().len();
-        let mut work = Counts::default();
-        let obs = observe(&copy, PlayerId(0), &mut work)?;
-        let same = action(&catalog, &obs)?;
-        assert_eq!(canonical(&same.response)?, canonical(&chosen.response)?);
-        accept(&mut copy, &obs, same.response, &mut work)?;
-        let _ = ready(&mut copy, &mut work, quantum)?;
-        assert_eq!(copy.journal().len(), before_inputs + 1);
-        assert!(copy.state.pending.is_none());
-        assert_ne!(
-            copy.state, game.state,
-            "firstwrite mustchange actualState evenwhenPass"
-        );
-        copy.validate_state()?;
+        if let Some(p) = profile.as_deref_mut() {
+            p.budget_quantum(quantum);
+        }
+        let copy = proof_phase(profile.as_deref_mut(), ProofPhase::BudgetFirstWrite, |_| {
+            let mut copy = game.fork();
+            let before_inputs = copy.journal().len();
+            let mut work = Counts::default();
+            let obs = observe(&copy, PlayerId(0), &mut work)?;
+            let same = action(&catalog, &obs)?;
+            assert_eq!(canonical(&same.response)?, canonical(&chosen.response)?);
+            accept(&mut copy, &obs, same.response, &mut work)?;
+            let _ = ready(&mut copy, &mut work, quantum)?;
+            assert_eq!(copy.journal().len(), before_inputs + 1);
+            assert!(copy.state.pending.is_none());
+            assert_ne!(
+                copy.state, game.state,
+                "firstwrite mustchange actualState evenwhenPass"
+            );
+            copy.validate_state()?;
+            Ok(copy)
+        })?;
         outcomes.push(copy);
     }
     let reference = outcomes.pop().unwrap();
     let other = outcomes.pop().unwrap();
     assert_eq!(reference.state, other.state);
     drop(other);
-    let after = oracle::state_sha(&reference);
-    for current in [game, &reference] {
-        let restored = work::optimization_tests::restore_snapshot_from_private_file(current)?;
-        assert_eq!(restored.state, current.state);
-        drop(restored);
-        let replayed = Game::replay(current.prepared.as_ref().clone(), &current.replay_journal())?;
-        assert_eq!(replayed.state, current.state);
-        assert_eq!(oracle::state_sha(&replayed), current.state_digest()?);
-        drop(replayed);
+    if let Some(p) = profile.as_deref_mut() {
+        p.root(ProofKind::Firstwrite);
     }
-    assert_eq!(game.state_digest()?, before);
+    let after = proof_phase(
+        profile.as_deref_mut(),
+        ProofPhase::FirstWriteGenericStateOracle,
+        |_| Ok(oracle::state_sha(&reference)),
+    )?;
+    for (current, kind) in [(game, ProofKind::Root), (&reference, ProofKind::Firstwrite)] {
+        if let Some(p) = profile.as_deref_mut() {
+            p.root(kind);
+        }
+        proof_phase(
+            profile.as_deref_mut(),
+            ProofPhase::SnapshotProof,
+            |profile| {
+                let restored =
+                    work::optimization_tests::restore_snapshot_from_private_file_with_profile(
+                        current, profile,
+                    )?;
+                assert_eq!(restored.state, current.state);
+                drop(restored);
+                Ok(())
+            },
+        )?;
+        let replayed = proof_phase(
+            profile.as_deref_mut(),
+            ProofPhase::IndependentAcceptedInputReplay,
+            |_| {
+                let replayed =
+                    Game::replay(current.prepared.as_ref().clone(), &current.replay_journal())?;
+                assert_eq!(replayed.state, current.state);
+                Ok(replayed)
+            },
+        )?;
+        proof_phase(
+            profile.as_deref_mut(),
+            ProofPhase::ReplayGenericStateOracle,
+            |_| {
+                assert_eq!(oracle::state_sha(&replayed), current.state_digest()?);
+                drop(replayed);
+                Ok(())
+            },
+        )?;
+    }
+    if let Some(p) = profile.as_deref_mut() {
+        p.root(ProofKind::Root);
+    }
+    proof_phase(profile, ProofPhase::FinalRootDigest, |_| {
+        assert_eq!(game.state_digest()?, before);
+        Ok(())
+    })?;
     Ok(Expected {
         game: reference,
         action: chosen,
@@ -856,8 +928,31 @@ fn legal_branch_host_diagnostic() {
         _ => panic!("undeclared legalsweep"),
     };
     println!("LEGAL_BRANCH_ROOT_START={}",canonical(&serde_json::json!({"case":case,"build_id":BUILD_ID,"contract_sha256":sha256(LEGAL_BRANCH_CONTRACT.as_bytes()),"contract":serde_json::from_str::<serde_json::Value>(LEGAL_BRANCH_CONTRACT).unwrap(),"sweep":kind})).unwrap());
-    let root = prepare(case).unwrap();
-    let expected = prove_root_and_reference(&root).unwrap();
+    let mut profile = if LegalProofProfile::requested(
+        std::env::var_os("LEGAL_BRANCH_PROOF_PHASE_V1").as_deref(),
+        std::env::var_os("LEGAL_BRANCH_OUTER_GUARD").as_deref(),
+    )
+    .unwrap()
+    {
+        let base = std::env::var_os("TMPDIR").expect("profile requires explicit private TMPDIR");
+        let name = match (case.family, case.living) {
+            (Family::Ordinary, 4) => "ordinary_4",
+            (Family::Ordinary, 3) => "ordinary_3",
+            (Family::Ordinary, 2) => "ordinary_2",
+            (Family::Dense, 4) => "dense_4",
+            (Family::Dense, 3) => "dense_3",
+            (Family::Dense, 2) => "dense_2",
+            _ => unreachable!(),
+        };
+        Some(LegalProofProfile::open_under(std::path::Path::new(&base), name).unwrap())
+    } else {
+        None
+    };
+    let root = proof_phase(profile.as_mut(), ProofPhase::RootPrepare, |_| prepare(case)).unwrap();
+    let expected = prove_root_and_reference_with_profile(&root, profile.as_mut()).unwrap();
+    if let Some(mut profile) = profile.take() {
+        profile.finish(true).unwrap();
+    }
     println!("LEGAL_BRANCH_ROOT_PROOF={}",canonical(&serde_json::json!({"case":case,"visits":root.visits,"setup_accepted":root.accepted,"setup_work":root.setup,"physical_config_cards":root.game.prepared.config.cards.len(),"physical_card_facts":root.game.state.cards.len(),"current_objects":root.game.state.objects.len(),"battlefield":root.game.state.objects.values().filter(|o|o.zone==Zone::Battlefield).count(),"history_entries":root.game.state.visibility.iter().map(|k|k.history.len()).collect::<Vec<_>>(),"own_knowledge_action_counts":root.game.state.visibility.iter().map(|k|k.own_knowledge.len()).collect::<Vec<_>>(),"living_players":root.game.live_players(),"profile_digest":root.game.prepared.profile_digest,"raw_journal":root.game.replay_journal(),"root_state_sha256":expected.root_sha,"firstwrite_state_sha256":expected.after_sha,"actual_response":expected.action.response,"all_fullbytes_query_partition_restore_replay_checks":true})).unwrap());
     let mut rows = vec![];
     for repetition in 0..6 {
@@ -1195,4 +1290,110 @@ fn legal_ready_counts_committed_prefix_when_later_step_faults() {
     assert_eq!(work.rule_steps, 1);
     assert_eq!(work.rule_steps, game.rule_boundary() - before);
     assert!(game.state.pending.is_none());
+}
+
+#[test]
+fn legal_branch_profile_small_root_keeps_full_oracles_and_firstwrite_bytes_identical() {
+    use std::os::unix::fs::DirBuilderExt;
+    let c = catalog().unwrap();
+    let mut game = Game::new(Prepared::admit_pod(c.clone(), config(Family::Dense)).unwrap());
+    let mut counts = Counts::default();
+    for _ in 0..2000 {
+        let request = ready(&mut game, &mut counts, 64).unwrap();
+        let observed = observe(&game, request.player(), &mut counts).unwrap();
+        if observed.view.viewer == PlayerId(0)
+            && observed.view.active == Some(PlayerId(0))
+            && observed.view.turn.step == TurnStep::PrecombatMain
+            && matches!(observed.decision, Some(PlayerRequest::Priority { .. }))
+        {
+            break;
+        }
+        let response = choose(&c, &observed, [0; 4], false).unwrap();
+        accept(&mut game, &observed, response, &mut counts).unwrap();
+    }
+    let root = Root {
+        game,
+        case: RootCase {
+            family: Family::Dense,
+            living: 4,
+        },
+        setup: counts,
+        visits: 1,
+        accepted: 0,
+    };
+    let before = root.game.snapshot().unwrap();
+    let plain = prove_root_and_reference(&root).unwrap();
+    let base = std::env::temp_dir().join(format!(
+        "mtg-core-root-profile-parity-{}",
+        std::process::id()
+    ));
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&base)
+        .unwrap();
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(base.clone());
+    let mut profile = LegalProofProfile::open_under(&base, "dense_4").unwrap();
+    let observed = prove_root_and_reference_with_profile(&root, Some(&mut profile)).unwrap();
+    profile.finish(true).unwrap();
+    drop(profile);
+    assert_eq!(plain.root_sha, observed.root_sha);
+    assert_eq!(plain.after_sha, observed.after_sha);
+    assert_eq!(
+        canonical(&plain.action.response).unwrap(),
+        canonical(&observed.action.response).unwrap()
+    );
+    assert_eq!(plain.game.state, observed.game.state);
+    assert_eq!(
+        plain.game.snapshot().unwrap(),
+        observed.game.snapshot().unwrap()
+    );
+    assert_eq!(plain.game.replay_journal(), observed.game.replay_journal());
+    assert_eq!(root.game.snapshot().unwrap(), before);
+    let raw = std::fs::read_to_string(base.join("legal-proof-phase-v1/events.ndjson")).unwrap();
+    let records = raw
+        .lines()
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+        .collect::<Vec<_>>();
+    // Root/query records plus the host's extra root_prepare pair fit the
+    // reserved128 records independently of sampled Search contexts.
+    let outer_records = records
+        .iter()
+        .filter(|r| r["scope"]["prefix_ordinal"].is_null())
+        .count();
+    assert!(outer_records + 2 <= 128);
+    for kind in ["root", "firstwrite"] {
+        for phase in [
+            "export_and_receipt",
+            "standalone_restore_inclusive",
+            "read_receipt_and_state_digest_validation",
+            "independent_accepted_input_replay",
+            "replay_generic_state_oracle",
+            "checked_directory_cleanup",
+        ] {
+            assert!(
+                records.iter().any(|r| r["kind"] == "end"
+                    && r["phase"] == phase
+                    && r["outcome"] == "ok"
+                    && r["scope"]["proof_kind"] == kind),
+                "{kind}/{phase}"
+            );
+        }
+    }
+    for quantum in [1, u64::MAX] {
+        assert!(records.iter().any(|r| r["kind"] == "end"
+            && r["phase"] == "budget_first_write"
+            && r["scope"]["quantum"] == quantum
+            && r["outcome"] == "ok"));
+    }
+    assert_eq!(
+        records.last().unwrap()["collection_outcome"],
+        "root_collection_complete"
+    );
+    assert!(records.iter().all(|r| r.get("product_pass").is_none()));
 }

@@ -532,6 +532,21 @@ fn reference_resume(
 }
 #[path = "search_reference_spool.rs"]
 mod search_reference_spool;
+pub(in crate::engine) use search_reference_spool::{
+    LegalProofProfile, ProofKind, ProofPhase, QueryKind, proof_phase,
+};
+pub(in crate::engine) fn restore_snapshot_from_private_file_with_profile(
+    game: &Game,
+    profile: Option<&mut LegalProofProfile>,
+) -> Result<Game, String> {
+    match profile {
+        Some(profile) => search_reference_spool::restore_snapshot_from_private_file_with_profile(
+            game,
+            Some(profile),
+        ),
+        None => restore_snapshot_from_private_file(game),
+    }
+}
 
 // Shared test-host private-file adapter; full standalone core restore unchanged.
 pub(in crate::engine) fn restore_snapshot_from_private_file(game: &Game) -> Result<Game, String> {
@@ -539,8 +554,15 @@ pub(in crate::engine) fn restore_snapshot_from_private_file(game: &Game) -> Resu
 }
 
 fn compare(game: &Game, query: Query) {
+    compare_with_profile(game, query, None);
+}
+fn compare_with_profile(game: &Game, query: Query, profile: Option<&mut LegalProofProfile>) {
     if matches!(query, Query::Search { .. }) {
-        search_reference_spool::compare(game, query);
+        if let Some(profile) = profile {
+            search_reference_spool::compare_with_profile(game, query, Some(profile));
+        } else {
+            search_reference_spool::compare(game, query);
+        }
         return;
     }
     let before = game.state.clone();
@@ -619,17 +641,42 @@ fn compare(game: &Game, query: Query) {
     assert_eq!(game.state_digest().unwrap(), state_sha256);
 }
 pub(in crate::engine) fn compare_queries(game: &Game) {
+    compare_queries_with_profile(game, None);
+}
+pub(in crate::engine) fn compare_queries_with_profile(
+    game: &Game,
+    mut profile: Option<&mut LegalProofProfile>,
+) {
     for viewer in (0..4).map(PlayerId) {
-        compare(game, Query::Observe { viewer });
-        compare(game, Query::Decision { viewer });
+        for (kind, query) in [
+            (QueryKind::Observe, Query::Observe { viewer }),
+            (QueryKind::Decision, Query::Decision { viewer }),
+        ] {
+            if let Some(p) = profile.as_deref_mut() {
+                p.query(viewer, kind);
+            }
+            proof_phase(profile.as_deref_mut(), ProofPhase::QueryProof, |profile| {
+                compare_with_profile(game, query, profile);
+                Ok(())
+            })
+            .unwrap();
+        }
         if matches!(game.state.frame, Frame::Priority) && game.is_live(viewer) {
-            compare(
-                game,
-                Query::Search {
-                    viewer,
-                    sampling_seed: "reference-policy-seed".into(),
-                },
-            );
+            if let Some(p) = profile.as_deref_mut() {
+                p.query(viewer, QueryKind::Search);
+            }
+            proof_phase(profile.as_deref_mut(), ProofPhase::QueryProof, |profile| {
+                compare_with_profile(
+                    game,
+                    Query::Search {
+                        viewer,
+                        sampling_seed: "reference-policy-seed".into(),
+                    },
+                    profile,
+                );
+                Ok(())
+            })
+            .unwrap();
         }
     }
     for player in game.live_players() {
