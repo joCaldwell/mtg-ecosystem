@@ -10,6 +10,10 @@ mod commander_policy;
 pub use commander_policy::{
     COMMANDER_POLICY_DATE, COMMANDER_POLICY_HTML_SHA256, COMMANDER_POLICY_URL, policy_digest,
 };
+mod keywords;
+pub use keywords::LifelinkGain;
+#[cfg(test)]
+mod keywords_tests;
 mod setup;
 #[cfg(test)]
 mod setup_tests;
@@ -612,6 +616,8 @@ struct Card {
 #[serde(deny_unknown_fields)]
 struct Object {
     marked_damage: Quantity,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    deathtouch_damage: bool,
     attack_ready: bool,
     id: ObjectId,
     controller: PlayerId,
@@ -1169,6 +1175,8 @@ pub enum EventOutcome {
         application: Box<DamageApplication>,
     },
     DamageCommitted {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        life_gains: Vec<LifelinkGain>,
         transaction: DamageTransactionId,
         actual: Vec<ActualDamage>,
         results: Vec<DamageResult>,
@@ -1180,6 +1188,8 @@ pub enum EventOutcome {
         previous: Vec<(ObjectId, Quantity)>,
     },
     NoncombatDamageDealt {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        life_gains: Vec<LifelinkGain>,
         damage: Box<NoncombatDamageOccurrence>,
         result: DamageResult,
     },
@@ -1230,6 +1240,8 @@ pub enum EventOutcome {
         blocks: Vec<(ObjectId, ObjectId)>,
     },
     DamageDealt {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        life_gains: Vec<LifelinkGain>,
         damage: Vec<DamageOccurrence>,
         results: Vec<DamageResult>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1563,6 +1575,7 @@ impl Game {
                     c.id,
                     Object {
                         marked_damage: Quantity::zero(),
+                        deathtouch_damage: false,
                         attack_ready: c.zone == Zone::Battlefield,
                         id: ObjectId {
                             card: c.id,
@@ -2615,6 +2628,8 @@ impl Game {
                 || o.default_controller.0 >= 4
                 || !self.is_live(o.controller)
                 || (o.tapped && o.zone != Zone::Battlefield)
+                || (o.deathtouch_damage
+                    && (o.zone != Zone::Battlefield || self.prepared.catalog.schema_version < 12))
             {
                 return Err("snapshot object invariant".into());
             }

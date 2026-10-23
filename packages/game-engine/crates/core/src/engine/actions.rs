@@ -147,7 +147,10 @@ impl Game {
         {
             return Err("invalid activated ability source/permission".into());
         }
-        if ability.cost == ActivationCost::TapSource && (source.tapped || !source.attack_ready) {
+        if ability.cost == ActivationCost::TapSource
+            && (source.tapped
+                || (!source.attack_ready && !self.has_keyword(source.id, KeywordAbility::Haste)))
+        {
             return Err("tap ability requires an untapped continuously controlled creature".into());
         }
         if !self.has_target_domain(&ability.program, player) {

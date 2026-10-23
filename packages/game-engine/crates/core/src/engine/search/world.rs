@@ -357,6 +357,7 @@ impl SampleBuildWork {
             self.game.state.objects.insert(
                 id,
                 Object {
+                    deathtouch_damage: false,
                     id: object,
                     zone: row.zone,
                     controller,

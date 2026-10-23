@@ -69,6 +69,12 @@ impl Game {
     pub(super) fn object_before(&self, object: ObjectId) -> Result<ObjectBefore, String> {
         let o = self.current(object)?;
         Ok(ObjectBefore {
+            keywords: if self.prepared.catalog.schema_version >= 12 {
+                self.definition(object.card)?.keywords.clone()
+            } else {
+                vec![]
+            },
+            deathtouch_damage: o.deathtouch_damage,
             object,
             owner: self
                 .state
@@ -226,7 +232,7 @@ impl Game {
             source.zone == Zone::Battlefield
                 && source.controller == entry.controller
                 && !source.tapped
-                && source.attack_ready
+                && (source.attack_ready || self.has_keyword(source.id, KeywordAbility::Haste))
         });
         if !source_payable
             || self.definition(entry.source.card)?.activated[ability as usize].cost
@@ -532,7 +538,15 @@ impl Game {
                 (previous, o.marked_damage.clone())
             }
         };
+        let life_gains = self.damage_keywords(&[ActualDamage {
+            id: DamageId(0),
+            source: damage.source.clone(),
+            controller: damage.controller,
+            recipient: damage.recipient.clone(),
+            amount: damage.amount.clone(),
+        }])?;
         Ok(EventOutcome::NoncombatDamageDealt {
+            life_gains,
             damage: Box::new(damage.clone()),
             result: DamageResult {
                 recipient: damage.recipient.clone(),

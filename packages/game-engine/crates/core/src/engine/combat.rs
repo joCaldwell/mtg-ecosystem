@@ -33,6 +33,7 @@ pub struct DamageResult {
 #[serde(rename_all = "snake_case")]
 pub enum CreatureLossReason {
     LethalDamage,
+    Deathtouch,
     ZeroToughness,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,10 +76,8 @@ impl Game {
                     && !o.tapped
                     && self.target_legal(o.id)
                     && (!attacking
-                        || (o.attack_ready
-                            && self
-                                .definition(o.id.card)
-                                .is_ok_and(|d| !d.keywords.contains(&KeywordAbility::Defender))))
+                        || ((o.attack_ready || self.has_keyword(o.id, KeywordAbility::Haste))
+                            && !self.has_keyword(o.id, KeywordAbility::Defender)))
             })
             .map(|o| o.id)
             .collect()
@@ -185,6 +184,7 @@ impl Game {
                 if blocks.iter().any(|(b, a)| {
                     !seen.insert(*b)
                         || !eligible.contains(b)
+                        || !self.can_block(*b, *a)
                         || !self
                             .state
                             .combat
@@ -431,6 +431,8 @@ impl Game {
                 Some(CreatureLossReason::ZeroToughness)
             } else if o.marked_damage >= toughness {
                 Some(CreatureLossReason::LethalDamage)
+            } else if o.deathtouch_damage {
+                Some(CreatureLossReason::Deathtouch)
             } else {
                 None
             };
@@ -476,6 +478,12 @@ impl Game {
             return Ok(());
         }
         if occurrences.is_empty() && losses.is_empty() {
+            debug_assert!(
+                self.state
+                    .objects
+                    .values()
+                    .all(|o| o.zone != Zone::Battlefield || !o.deathtouch_damage)
+            );
             self.state.frame = if cleanup && changed {
                 self.state.cleanup_repeat = true;
                 Frame::Priority

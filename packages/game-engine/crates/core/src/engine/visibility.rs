@@ -10,6 +10,13 @@ use super::*;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(transparent)]
 pub struct ObjectHandle(pub String);
+/// Public declaration hints, scoped to current attacker/blocker handles.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LegalBlockers {
+    pub blocker: ObjectHandle,
+    pub attackers: Vec<ObjectHandle>,
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(transparent)]
 pub struct StackHandle(pub String);
@@ -242,6 +249,8 @@ pub enum PlayerRequest {
         defenders: Vec<PlayerId>,
     },
     Blockers {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        legal_attackers: Vec<LegalBlockers>,
         token: DecisionToken,
         player: PlayerId,
         candidates: Vec<ObjectHandle>,
@@ -975,6 +984,25 @@ impl Game {
                         attackers,
                         ..
                     } => PlayerRequest::Blockers {
+                        legal_attackers: if self.prepared.config.profile == KEYWORDS_PROFILE {
+                            candidates
+                                .iter()
+                                .map(|b| {
+                                    Ok(LegalBlockers {
+                                        blocker: self.handle_for(viewer, *b)?,
+                                        attackers: handles(
+                                            attackers
+                                                .iter()
+                                                .copied()
+                                                .filter(|a| self.can_block(*b, *a))
+                                                .collect(),
+                                        )?,
+                                    })
+                                })
+                                .collect::<Result<Vec<_>, String>>()?
+                        } else {
+                            vec![]
+                        },
                         token,
                         player: viewer,
                         candidates: handles(candidates)?,

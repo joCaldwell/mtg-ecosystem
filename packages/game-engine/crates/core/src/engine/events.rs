@@ -94,6 +94,10 @@ pub enum EventGroup {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObjectBefore {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keywords: Vec<KeywordAbility>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub deathtouch_damage: bool,
     pub object: ObjectId,
     pub owner: PlayerId,
     pub controller: PlayerId,
@@ -210,7 +214,7 @@ enum FactKey {
     AllDamage,
     Effects,
 }
-fn access(event: &ProposedEvent) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
+fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
     match event {
         ProposedEvent::Setup { .. } => {
             let keys = BTreeSet::from([FactKey::Libraries, FactKey::Turn]);
@@ -235,10 +239,13 @@ fn access(event: &ProposedEvent) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
         }
         ProposedEvent::NoncombatDamage { damage } => {
             let read = BTreeSet::from([FactKey::Object(damage.source.object.card)]);
-            let write = BTreeSet::from([match damage.recipient {
+            let mut write = BTreeSet::from([match damage.recipient {
                 DamageRecipient::Player { player } => FactKey::Life(player),
                 DamageRecipient::Creature { object } => FactKey::Object(object.card),
             }]);
+            if game.has_keyword(&damage.source, KeywordAbility::Lifelink) {
+                write.insert(FactKey::Life(damage.source.controller));
+            }
             (read.union(&write).copied().collect(), write)
         }
         ProposedEvent::CounterStackObject { target, .. } => {
@@ -269,6 +276,9 @@ fn access(event: &ProposedEvent) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
             let mut keys = BTreeSet::new();
             for d in damage {
                 keys.insert(FactKey::Object(d.source.card));
+                if game.has_keyword(d.source, KeywordAbility::Lifelink) {
+                    keys.insert(FactKey::Life(d.controller));
+                }
                 match d.recipient {
                     DamageRecipient::Player { player } => {
                         keys.insert(FactKey::Life(player));
@@ -345,6 +355,7 @@ fn access(event: &ProposedEvent) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
 }
 fn collect<'a>(
     group: &'a EventGroup,
+    game: &Game,
     depth: u32,
     limit: usize,
     out: &mut Vec<&'a ProposedEvent>,
@@ -359,7 +370,7 @@ fn collect<'a>(
                 return Err("empty or oversized ordered group".into());
             }
             for child in children {
-                collect(child, depth + 1, limit, out)?;
+                collect(child, game, depth + 1, limit, out)?;
             }
         }
         EventGroup::Simultaneous { occurrences } => {
@@ -387,7 +398,10 @@ fn collect<'a>(
                 return Err("global aggregate cannot compose simultaneously".into());
             }
             out.extend(occurrences);
-            let keys = occurrences.iter().map(access).collect::<Vec<_>>();
+            let keys = occurrences
+                .iter()
+                .map(|event| access(event, game))
+                .collect::<Vec<_>>();
             for i in 0..keys.len() {
                 for j in i + 1..keys.len() {
                     if !keys[i].1.is_disjoint(&keys[j].0) || !keys[j].1.is_disjoint(&keys[i].0) {
@@ -521,6 +535,11 @@ impl Game {
                     if let Ok(tx) = self.damage_transaction() {
                         for d in &tx.entries {
                             damage_sources.push(d.source.clone());
+                            if self.has_keyword(&d.source, KeywordAbility::Lifelink)
+                                && self.is_live(d.source.controller)
+                            {
+                                players.insert(d.source.controller);
+                            }
                             match d.recipient {
                                 DamageRecipient::Player { player } => {
                                     players.insert(player);
@@ -554,6 +573,11 @@ impl Game {
                 }
                 ProposedEvent::NoncombatDamage { damage } => {
                     damage_sources.push(damage.source.clone());
+                    if self.has_keyword(&damage.source, KeywordAbility::Lifelink)
+                        && self.is_live(damage.source.controller)
+                    {
+                        players.insert(damage.source.controller);
+                    }
                     match damage.recipient {
                         DamageRecipient::Player { player } => {
                             players.insert(player);
@@ -706,6 +730,12 @@ impl Game {
             .map(|object| {
                 let o = self.current(object)?;
                 Ok(ObjectBefore {
+                    keywords: if self.prepared.catalog.schema_version >= 12 {
+                        self.definition(object.card)?.keywords.clone()
+                    } else {
+                        vec![]
+                    },
+                    deathtouch_damage: o.deathtouch_damage,
                     object,
                     owner: self.state.cards[&object.card].owner,
                     controller: o.controller,
@@ -811,6 +841,7 @@ impl Game {
         let mut events = vec![];
         collect(
             &group,
+            self,
             0,
             if self.prepared.config.match_profile() {
                 400
@@ -1193,7 +1224,9 @@ impl Game {
                     },
                 )?;
                 for (object, _) in attacks {
-                    self.apply_occurrence(&ProposedEvent::Tap { object: *object })?;
+                    if !self.has_keyword(*object, KeywordAbility::Vigilance) {
+                        self.apply_occurrence(&ProposedEvent::Tap { object: *object })?;
+                    }
                 }
                 self.state.combat_declared = !attacks.is_empty();
                 self.state.combat = attacks
@@ -1263,6 +1296,9 @@ impl Game {
                 if !self.target_legal(*object)
                     || match reason {
                         CreatureLossReason::ZeroToughness => toughness > Quantity::zero(),
+                        CreatureLossReason::Deathtouch => {
+                            toughness <= Quantity::zero() || !o.deathtouch_damage
+                        }
                         CreatureLossReason::LethalDamage => {
                             toughness <= Quantity::zero() || o.marked_damage < toughness
                         }
@@ -1544,6 +1580,7 @@ impl Game {
                     Object {
                         marked_damage: Quantity::zero(),
                         attack_ready: false,
+                        deathtouch_damage: false,
                         id: successor,
                         controller,
                         default_controller: controller,
@@ -1607,6 +1644,19 @@ impl Game {
             };
             totals.entry(key).or_default().add(&d.amount);
         }
+        let actual = damage
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                Ok(ActualDamage {
+                    id: DamageId(i as u32),
+                    source: self.object_before(d.source)?,
+                    controller: d.controller,
+                    recipient: d.recipient.clone(),
+                    amount: d.amount.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
         let mut results = vec![];
         for ((kind, id), amount) in totals {
             let (recipient, previous, current) = if kind == 0 {
@@ -1662,7 +1712,9 @@ impl Game {
                 current,
             });
         }
+        let life_gains = self.damage_keywords(&actual)?;
         Ok(EventOutcome::DamageDealt {
+            life_gains,
             damage: damage.to_vec(),
             results,
             commander_damage,

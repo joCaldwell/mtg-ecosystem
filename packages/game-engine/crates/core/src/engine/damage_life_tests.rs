@@ -113,6 +113,7 @@ fn damage_event_captures_consumed_source_and_actual_creature_marks() {
     let Some(EventOutcome::NoncombatDamageDealt {
         damage: actual,
         result,
+        ..
     }) = receipt.result(&[])
     else {
         panic!("missing typed damage outcome")

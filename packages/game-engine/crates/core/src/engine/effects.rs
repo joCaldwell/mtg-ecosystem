@@ -953,7 +953,9 @@ impl Game {
                 current,
             });
         }
+        let life_gains = self.damage_keywords(&actual)?;
         Ok(EventOutcome::DamageCommitted {
+            life_gains,
             transaction: id,
             actual,
             results,
@@ -1509,6 +1511,14 @@ impl Game {
                 return Err("damage source identity/quantity invariant".into());
             }
             self.validate_characteristic_identity(d.source.object, &d.source.characteristics)?;
+            let expected_keywords = if self.prepared.catalog.schema_version >= 12 {
+                self.definition(d.source.object.card)?.keywords.as_slice()
+            } else {
+                &[]
+            };
+            if d.source.keywords != expected_keywords {
+                return Err("damage source keyword LKI differs from immutable definition".into());
+            }
             if let Ok(current) = self.object_before(d.source.object)
                 && current != d.source
             {
