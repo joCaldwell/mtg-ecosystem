@@ -899,7 +899,11 @@ pub(super) fn batch(catalog: &Catalog, directory: &Path) -> Result<serde_json::V
                 serde_json::json!({"index":index,"outcome":e.outcome,"replay_error":replay.as_ref().err()}),
             );
         }
-        reports.push(serde_json::json!({"index":index,"outcome":e.outcome,"winner":e.winner,"survivor_counts":e.survivor_counts,"turns":e.turns,"decisions":e.decisions,"advances":e.advances,"rule_steps":e.rule_steps,"query_calls":e.query_calls,"verified_losses":replay.as_ref().ok(),"elapsed_millis":e.elapsed_millis,"final_state_sha256":e.final_state_sha256}));
+        let mut report = serde_json::json!({"index":index,"outcome":e.outcome,"winner":e.winner,"survivor_counts":e.survivor_counts,"turns":e.turns,"decisions":e.decisions,"advances":e.advances,"rule_steps":e.rule_steps,"query_calls":e.query_calls,"verified_losses":replay.as_ref().ok(),"elapsed_millis":e.elapsed_millis,"final_state_sha256":e.final_state_sha256});
+        if profile == mtg_core::KEYWORDS_PROFILE {
+            report["keyword_interactions"] = keyword_interactions(catalog, &e)?;
+        }
+        reports.push(report);
     }
     let report = serde_json::json!({"manifest":manifest,"games":reports,"failures":failures,"passed":failures.is_empty()});
     fs::write(directory.join("report.json"), canonical(&report)?).map_err(|e| e.to_string())?;
@@ -912,6 +916,40 @@ pub(super) fn batch(catalog: &Catalog, directory: &Path) -> Result<serde_json::V
     Ok(report)
 }
 
+/// Diagnostic counts from an independent Detailed replay: evidence that the
+/// completion games exercise the keyword mechanics, not a correctness oracle.
+fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::Value, String> {
+    fn walk(v: &serde_json::Value, counts: &mut [u64; 3]) {
+        match v {
+            serde_json::Value::Object(map) => {
+                if let Some(serde_json::Value::Array(gains)) = map.get("life_gains") {
+                    counts[0] += gains.len() as u64;
+                }
+                if map.get("reason").and_then(|r| r.as_str()) == Some("deathtouch") {
+                    counts[1] += 1;
+                }
+                if map.get("outcome").and_then(|e| e.as_str()) == Some("blockers_declared")
+                    && let Some(serde_json::Value::Array(blocks)) = map.get("blocks")
+                {
+                    counts[2] += blocks.len() as u64;
+                }
+                map.values().for_each(|v| walk(v, counts));
+            }
+            serde_json::Value::Array(items) => items.iter().for_each(|v| walk(v, counts)),
+            _ => {}
+        }
+    }
+    let p = Prepared::admit_pod(catalog.clone(), e.config.clone()).map_err(|e| format!("{e:?}"))?;
+    let g = Game::replay_with_trace(p, &e.journal, TraceMode::Detailed)?;
+    let mut counts = [0; 3];
+    walk(
+        &serde_json::to_value(g.events()).map_err(|e| e.to_string())?,
+        &mut counts,
+    );
+    Ok(
+        serde_json::json!({"lifelink_gains":counts[0],"deathtouch_destructions":counts[1],"blocks":counts[2]}),
+    )
+}
 pub(super) fn suite(catalog: &Catalog) -> Result<(Vec<Evidence>, serde_json::Value), String> {
     let parent = artifact_root().join("p5-batches");
     fs::create_dir_all(&parent).map_err(|e| e.to_string())?;

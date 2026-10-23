@@ -8,7 +8,7 @@
 //! Rotation/revocation require this lock; hot rotation while serving is absent.
 use crate::auth::{CredentialHashes, IssuedCapabilities};
 use mtg_contracts::{Catalog, canonical, digest};
-use mtg_core::{MatchConfig, Prepared};
+use mtg_core::{MATCH_PROFILE, MatchConfig, Prepared};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -249,12 +249,21 @@ fn validate_credentials(credentials: &CredentialHashes, id: &str) -> Result<(), 
     }
     Ok(())
 }
+/// The host releases only the finite foundations profile (docs/game-engine-server.md);
+/// later legal profiles are core/simulator releases until hosting is reviewed for them.
+fn hosted_profile(config: &MatchConfig) -> Result<(), String> {
+    if config.profile != MATCH_PROFILE {
+        return Err("registry hosts only the commander-foundations-v1 profile".into());
+    }
+    Ok(())
+}
 fn validate_metadata(
     metadata: &RegistryMetadata,
     id: &str,
     catalog: &Catalog,
     config: &MatchConfig,
 ) -> Result<(), String> {
+    hosted_profile(config)?;
     let prepared = Prepared::admit_pod(catalog.clone(), config.clone())
         .map_err(|e| format!("registry match admission: {e:?}"))?;
     if metadata.registry_version != VERSION
@@ -527,6 +536,7 @@ impl MatchRegistry {
         if self.entries.contains_key(id) {
             return Err("match already registered".into());
         }
+        hosted_profile(config)?;
         let prepared = Prepared::admit_pod(catalog.clone(), config.clone())
             .map_err(|e| format!("registry match admission: {e:?}"))?;
         let catalog_body = canonical(catalog)?;

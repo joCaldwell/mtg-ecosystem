@@ -354,7 +354,12 @@ pub fn validate_pod(
             != profile.catalog_sha256
     {
         return Err(MatchAdmissionError::InvalidCatalog {
-            detail: "catalog differs from reviewed profile pool".into(),
+            detail: if profile.name == MATCH_PROFILE {
+                "catalog differs from reviewed thirty-four-definition pool"
+            } else {
+                "catalog differs from reviewed fifty-definition keywords pool"
+            }
+            .into(),
         });
     }
     let definitions = catalog

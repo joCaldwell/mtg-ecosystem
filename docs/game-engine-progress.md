@@ -2301,3 +2301,12 @@ All 27 existing expected fixtures remain byte-identical. Wall of Vines now
 lowers completely but remains unadmitted in v11; unsupported-keyword and future-
 version negatives were adjusted accordingly. The approved deck-count correction
 uses 39 Forest and 38 Swamp in the keywords black/green deck.
+
+Independent review found no rules defects. Follow-up fixes: the local host now
+rejects non-foundations profiles explicitly (hosting scope is unchanged), the
+foundations catalog-mismatch diagnostic keeps its original text, and the
+keywords batch report counts mechanics observed in an independent Detailed
+replay. Across the 18 completion games the develop policies made 150 blocks;
+lifelink produced 101 life gains and deathtouch destroyed 14 creatures. Search
+candidate generation still ignores haste for tap abilities; search capture
+refuses this profile, and no admitted card has both haste and a tap ability.

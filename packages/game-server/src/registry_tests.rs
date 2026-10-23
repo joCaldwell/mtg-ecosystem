@@ -423,3 +423,20 @@ fn actual_worker_closes_before_rename_and_recovers_at_final_path() {
         1
     );
 }
+#[test]
+fn later_legal_profiles_are_not_hosted() {
+    let a = Area::new();
+    let mut r = MatchRegistry::open(&a.root()).unwrap();
+    let keywords = Catalog::read(include_str!(
+        "../../game-engine/tests/fixtures/expected-keywords-ir.json"
+    ))
+    .unwrap();
+    let config = MatchConfig::keywords([17; 32], mtg_core::PlayerId(0));
+    // The core admits this pod; only hosting scope rejects it.
+    Prepared::admit_pod(keywords.clone(), config.clone()).unwrap();
+    let Err(error) = r.create("cafe", &keywords, &config, &a.out("cafe"), init) else {
+        panic!("later legal profile must not be hosted");
+    };
+    assert!(error.contains("commander-foundations-v1"), "{error}");
+    assert!(!a.out("cafe").exists());
+}
