@@ -1588,6 +1588,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )?)?
             );
         }
+        Some("combat-keywords-match-batch") if args.len() == 2 => {
+            println!(
+                "{}",
+                canonical(&match_games::batch(
+                    &mtg_compiler::combat_keywords_fixture_catalog()?,
+                    Path::new(&args[1])
+                )?)?
+            );
+        }
+        Some("combat-keywords-match-replay") if args.len() == 2 => {
+            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
+            match_games::verify(&mtg_compiler::combat_keywords_fixture_catalog()?, &e)?;
+            println!(
+                "{}",
+                canonical(
+                    &serde_json::json!({"status":"combat_keywords_match_replay_verified","state_sha256":e.final_state_sha256})
+                )?
+            );
+        }
         Some("keywords-match-batch") if args.len() == 2 => {
             println!(
                 "{}",

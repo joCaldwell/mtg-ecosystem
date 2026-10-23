@@ -370,7 +370,9 @@ impl Strategy<'_> {
                 PlayerResponse::Attackers { attacks }
             }
             PlayerRequest::Blockers {
-                legal_attackers, ..
+                legal_attackers,
+                menace_attackers,
+                ..
             } => {
                 let mut blocks = vec![];
                 let mut blocked = Vec::new();
@@ -426,7 +428,47 @@ impl Strategy<'_> {
                         }
                     }
                 }
+                // CR702.111b: complete a menace pair with a remaining legal
+                // blocker, or withdraw the singleton. Observation/catalog only.
+                for attacker in menace_attackers {
+                    if blocks.iter().filter(|(_, a)| a == attacker).count() == 1 {
+                        if let Some(hint) = legal_attackers.iter().find(|h| {
+                            h.attackers.contains(attacker)
+                                && !blocks.iter().any(|(b, _)| b == &h.blocker)
+                        }) {
+                            blocks.push((hint.blocker.clone(), attacker.clone()));
+                        } else {
+                            blocks.retain(|(_, a)| a != attacker);
+                        }
+                    }
+                }
                 PlayerResponse::Blockers { blocks }
+            }
+            PlayerRequest::Damage {
+                power,
+                recipients,
+                player_recipient: Some(player),
+                lethal_requirements,
+                ..
+            } => {
+                let mut remaining = power.clone();
+                let mut assignments = vec![];
+                for h in recipients {
+                    let lethal = lethal_requirements
+                        .iter()
+                        .find(|(o, _)| o == h)
+                        .ok_or("missing public lethal requirement")?
+                        .1
+                        .clone();
+                    let amount = lethal.min(remaining.clone());
+                    remaining.subtract(&amount);
+                    assignments.push((h.clone(), amount));
+                }
+                PlayerResponse::TrampleDamage {
+                    assignments,
+                    player: *player,
+                    amount: remaining,
+                }
             }
             PlayerRequest::Damage {
                 power, recipients, ..
@@ -842,10 +884,10 @@ fn verify_terminal_result(game: &Game, e: &Evidence) -> Result<(), String> {
     Ok(())
 }
 pub(super) fn batch(catalog: &Catalog, directory: &Path) -> Result<serde_json::Value, String> {
-    let profile = if catalog.schema_version == 12 {
-        mtg_core::KEYWORDS_PROFILE
-    } else {
-        mtg_core::MATCH_PROFILE
+    let profile = match catalog.schema_version {
+        13 => mtg_core::COMBAT_KEYWORDS_PROFILE,
+        12 => mtg_core::KEYWORDS_PROFILE,
+        _ => mtg_core::MATCH_PROFILE,
     };
     let profile_spec = mtg_core::match_profile(profile).ok_or("unknown batch profile")?;
     fs::create_dir(directory).map_err(|e| e.to_string())?;
@@ -900,7 +942,10 @@ pub(super) fn batch(catalog: &Catalog, directory: &Path) -> Result<serde_json::V
             );
         }
         let mut report = serde_json::json!({"index":index,"outcome":e.outcome,"winner":e.winner,"survivor_counts":e.survivor_counts,"turns":e.turns,"decisions":e.decisions,"advances":e.advances,"rule_steps":e.rule_steps,"query_calls":e.query_calls,"verified_losses":replay.as_ref().ok(),"elapsed_millis":e.elapsed_millis,"final_state_sha256":e.final_state_sha256});
-        if profile == mtg_core::KEYWORDS_PROFILE {
+        if matches!(
+            profile,
+            mtg_core::KEYWORDS_PROFILE | mtg_core::COMBAT_KEYWORDS_PROFILE
+        ) {
             report["keyword_interactions"] = keyword_interactions(catalog, &e)?;
         }
         reports.push(report);
@@ -940,15 +985,72 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
         }
     }
     let p = Prepared::admit_pod(catalog.clone(), e.config.clone()).map_err(|e| format!("{e:?}"))?;
+    let physical_cards = p.config().cards.clone();
     let g = Game::replay_with_trace(p, &e.journal, TraceMode::Detailed)?;
     let mut counts = [0; 3];
     walk(
         &serde_json::to_value(g.events()).map_err(|e| e.to_string())?,
         &mut counts,
     );
-    Ok(
-        serde_json::json!({"lifelink_gains":counts[0],"deathtouch_destructions":counts[1],"blocks":counts[2]}),
-    )
+    let mut report = serde_json::json!({"lifelink_gains":counts[0],"deathtouch_destructions":counts[1],"blocks":counts[2]});
+    if e.config.profile == mtg_core::COMBAT_KEYWORDS_PROFILE {
+        let mut trample = Quantity::zero();
+        let mut first_steps = 0u64;
+        let mut menace = 0u64;
+        let has = |object: mtg_core::ObjectId, keyword| {
+            // Evidence config is the deck construction; physical cards are in
+            // the admitted host configuration, never in policy inputs.
+            physical_cards
+                .iter()
+                .find(|c| c.id == object.card)
+                .and_then(|c| {
+                    catalog
+                        .definitions
+                        .iter()
+                        .find(|d| d.oracle_id == c.oracle_id)
+                })
+                .is_some_and(|d| d.keywords.contains(&keyword))
+        };
+        for event in g.events() {
+            if let mtg_core::Event::Committed { actual, .. } = event {
+                match actual {
+                    mtg_core::EventOutcome::DamageCommitted { actual, .. } => {
+                        for d in actual {
+                            if matches!(d.recipient, mtg_core::DamageRecipient::Player { .. })
+                                && d.source
+                                    .keywords
+                                    .contains(&mtg_contracts::KeywordAbility::Trample)
+                            {
+                                trample.add(&d.amount);
+                            }
+                        }
+                    }
+                    mtg_core::EventOutcome::TurnTransitioned { current, .. }
+                        if current.step == mtg_core::TurnStep::FirstStrikeDamage =>
+                    {
+                        first_steps += 1
+                    }
+                    mtg_core::EventOutcome::BlockersDeclared { blocks, .. } => {
+                        let mut attackers = Vec::new();
+                        for (_, a) in blocks {
+                            if !attackers.contains(a)
+                                && has(*a, mtg_contracts::KeywordAbility::Menace)
+                            {
+                                attackers.push(*a);
+                                menace += 1;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        report["trample_damage_to_players"] =
+            serde_json::to_value(trample).map_err(|e| e.to_string())?;
+        report["first_strike_steps"] = first_steps.into();
+        report["menace_blocks"] = menace.into();
+    }
+    Ok(report)
 }
 pub(super) fn suite(catalog: &Catalog) -> Result<(Vec<Evidence>, serde_json::Value), String> {
     let parent = artifact_root().join("p5-batches");
