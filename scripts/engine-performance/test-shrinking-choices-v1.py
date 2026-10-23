@@ -163,5 +163,194 @@ class Guards(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'BEFORE import'): host.load_common('0' * 64)
 
 
+class ProfileAdapter(unittest.TestCase):
+    """Paired normal/opt-in driver calls; SAME mocked owner, no native launch."""
+    def run_driver(self, enabled, failure=None, audit_edit=None, closed=True):
+        import json
+        import os
+        import sys
+        from unittest.mock import Mock, patch
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            base.chmod(0o700)
+            output = base / 'fresh-attempt'
+            a = {'engine_build_id': 'b' * 64, 'test_executable': {'path': '/synthetic-never-executed', 'sha256': 'c' * 64}, 'cpu_ids': [0]}
+            report, f = fixture()
+            saved, calls, order = [], [], []
+            helper = SimpleNamespace(
+                authority_guard=Mock(return_value={'synthetic': 'not an authority'}),
+                validate_attempt=Mock(side_effect=lambda *_: order.append('profile_inside_audit') or {'status': 'complete_collection_only', 'acceptance': False}),
+                inspect_failed=Mock(return_value={'scope': 'OUTSIDE_120s_NOT_PASS', 'acceptance': False}))
+            def bounded(**kwargs):
+                calls.append(kwargs)
+                execution = kwargs['directory']
+                execution.mkdir(mode=0o700)
+                (execution / 'native-report.json').write_text(json.dumps(report))
+                (execution / 'workload.stdout').write_text('running 1 test\ntest ' + host.ENTRY + ' ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 42 filtered out; finished in 0.0s\n')
+                order.append('native_and_resource_guards')
+                row = {'status': 'failed' if failure else 'passed', 'cleanup': {'unit_empty': closed, 'launcher_reaped': closed}}
+                if failure:
+                    row['failure'] = {'reason': failure}
+                else:
+                    try:
+                        if audit_edit:
+                            audit_edit(execution, helper)
+                        row['audit'] = kwargs['audit']()
+                    except ValueError as error:
+                        row.update(status='failed', failure={'reason': str(error)})
+                if not closed:
+                    row['status'] = 'failed'
+                order.append('owner_closed' if closed else 'owner_unclosed')
+                return row
+            owner = SimpleNamespace(run_bounded=bounded, real_path=Mock(), save_json=lambda path, value: saved.append(value))
+            argv = ['driver', '--authority', str(base / 'synthetic-normal-inputs'), '--output', str(output), '--execute',
+                    '--authority-sha256', '0' * 64, '--fixed-driver-sha256', '1' * 64, '--helper-sha256', '2' * 64, '--common-driver-sha256', '3' * 64]
+            if enabled:
+                argv += ['--proof-phase-profile', '--profile-authority', str(base / 'synthetic-supplement'),
+                         '--profile-authority-sha256', '4' * 64, '--profile-helper-sha256', '5' * 64]
+            old_umask = os.umask(0o077)
+            try:
+                with patch.object(sys, 'argv', argv), patch.object(host, 'load_common', return_value=c), \
+                     patch.object(host, 'source_guard', return_value=(a, owner, ORDINARY, f)), \
+                     patch.object(host, 'load_profile', return_value=helper) as loader, \
+                     patch.dict(os.environ, {'MTG_SHRINKING_PROOF_PHASE_V1': '1'}):
+                    code = host.main()
+                    self.assertEqual(loader.call_count, int(enabled))
+            finally:
+                os.umask(old_umask)
+            self.assertEqual(len(calls), 1)
+            call = calls[0]
+            self.assertEqual(call['timeout_seconds'], 120)
+            self.assertEqual(call['cpus'], [0])
+            self.assertEqual(call['expected_executable_sha256'], 'c' * 64)
+            self.assertEqual(call['cwd'], host.STAGE)
+            self.assertEqual(call['command'], ['/synthetic-never-executed', '--exact', '--ignored', '--nocapture', '--test-threads=1', host.ENTRY])
+            expected_env = {'PATH': '/usr/bin:/bin', 'LANG': 'C', 'LC_ALL': 'C', 'TMPDIR': str(output / 'tmp'), 'MTG_SHRINKING_CHOICE_OUTPUT': str(output / 'execution/native-report.json')}
+            if enabled:
+                expected_env['MTG_SHRINKING_PROOF_PHASE_V1'] = '1'
+            self.assertEqual(call['env'], expected_env)
+            return code, saved[0], helper, order
+
+    def test_paired_normal_no_helper_or_switch_and_explicit_profile_same_owner(self):
+        for enabled in (False, True):
+            code, result, helper, order = self.run_driver(enabled)
+            self.assertEqual(code, 0)
+            self.assertEqual(helper.validate_attempt.call_count, int(enabled))
+            helper.inspect_failed.assert_not_called()
+            self.assertEqual('proof_phase_profile' in result, enabled)
+            self.assertEqual(result['audit']['all_repetitions'], 630)
+            if enabled:
+                self.assertEqual(result['status'], 'instrumented_collection_complete_no_product_acceptance')
+                self.assertEqual(result['proof_phase_profile']['baseline_command_credit'], 0)
+                self.assertFalse(result['proof_phase_profile']['full_program_pass'])
+                self.assertFalse(result['proof_phase_profile']['product_performance_acceptance'])
+                self.assertLess(order.index('profile_inside_audit'), order.index('owner_closed'))
+            else:
+                self.assertEqual(result['status'], 'verified_all_declared_work')
+                helper.authority_guard.assert_not_called()
+
+    def test_terminal_never_overrides_native_resource_or_cleanup_failure(self):
+        for reason in ('native failure after terminal rollback failure', 'memory.events.max', 'oom', 'direct RSS', 'deadline'):
+            code, result, helper, _ = self.run_driver(True, failure=reason)
+            self.assertEqual(code, 1)
+            self.assertEqual(result['status'], 'failed_or_partial_no_denominator_reduction')
+            self.assertIsNone(result['audit'])
+            helper.validate_attempt.assert_not_called()
+            helper.inspect_failed.assert_called_once()
+        code, result, helper, _ = self.run_driver(True, closed=False)
+        self.assertEqual(code, 1)
+        helper.inspect_failed.assert_not_called()
+        self.assertEqual(result['proof_phase_profile']['partial']['scope'], 'not_inspected_owner_closure_unproved')
+
+    def test_unchanged_report_and_stdout_guards_win_before_profile(self):
+        def wrong_report(directory, _):
+            import json
+            path = directory / 'native-report.json'
+            r = json.loads(path.read_text())
+            r['profile_escape'] = True
+            path.write_text(json.dumps(r))
+        def wrong_stdout(directory, _):
+            with (directory / 'workload.stdout').open('a') as stream:
+                stream.write('PROFILE={}\n')
+        for edit in (wrong_report, wrong_stdout):
+            for enabled in (False, True):
+                code, result, helper, _ = self.run_driver(enabled, audit_edit=edit)
+                self.assertEqual(code, 1)
+                helper.validate_attempt.assert_not_called()
+                self.assertIsNone(result['audit'])
+
+    def test_profile_validation_and_post_audit_source_failure_win(self):
+        def reject_profile(_, helper):
+            helper.validate_attempt.side_effect = ValueError('invalid sidecar')
+        code, result, helper, _ = self.run_driver(True, audit_edit=reject_profile)
+        self.assertEqual(code, 1)
+        helper.inspect_failed.assert_called_once()
+        def change_source(_, helper):
+            # audit start passes, audit endpoint after profile validation fails;
+            # the final endpoint fails too. No collection receipt grants a pass.
+            helper.authority_guard.side_effect = [{'synthetic': 'not an authority'}, ValueError('source changed'), ValueError('source changed')]
+        code, result, helper, _ = self.run_driver(True, audit_edit=change_source)
+        self.assertEqual(code, 1)
+        helper.validate_attempt.assert_called_once()
+        self.assertIsNone(result['audit'])
+
+    def test_partial_requires_closed_owner_and_is_not_inside_success_audit(self):
+        code, result, helper, order = self.run_driver(True, failure='deadline')
+        self.assertEqual(code, 1)
+        self.assertNotIn('profile_inside_audit', order)
+        self.assertEqual(result['proof_phase_profile']['partial']['scope'], 'OUTSIDE_120s_NOT_PASS')
+        self.assertEqual(result['proof_phase_profile']['baseline_command_credit'], 0)
+
+    def test_cli_bundle_is_explicit_all_or_nothing(self):
+        from itertools import product
+        for enabled, authority, pin, helper in product((False, True), repeat=4):
+            args = SimpleNamespace(proof_phase_profile=enabled, profile_authority=Path('/synthetic') if authority else None,
+                                   profile_authority_sha256='a' * 64 if pin else None, profile_helper_sha256='b' * 64 if helper else None)
+            valid = (enabled and authority and pin and helper) or not any((enabled, authority, pin, helper))
+            if valid:
+                host.profile_options(args)
+            else:
+                with self.assertRaises(ValueError):
+                    host.profile_options(args)
+        args = SimpleNamespace(proof_phase_profile=True, profile_authority=Path('/synthetic'),
+                               profile_authority_sha256='a' * 64, profile_helper_sha256='b' * 64)
+        for raw in ('relative', '/private/./attempt', '/private/../attempt', '/private//attempt', '/private/attempt/'):
+            args.profile_raw_paths = {'output': raw}
+            with self.assertRaises(ValueError):
+                host.profile_options(args)
+
+    def test_authenticated_bytes_bypass_stale_pyc_including_transitive_host(self):
+        import os
+        import py_compile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            def poisoned(name):
+                path = root / name
+                bad, good = b'VALUE = "EVIL"\n', b'VALUE = "GOOD"\n'
+                path.write_bytes(bad)
+                stamp = path.stat().st_mtime_ns
+                py_compile.compile(str(path), doraise=True)
+                path.write_bytes(good)
+                os.utime(path, ns=(stamp, stamp))
+                return path, hashlib.sha256(good).hexdigest()
+            common = host.load_common(hashlib.sha256((HERE / 'run-definition-diversity-v1.py').read_bytes()).hexdigest())
+            direct, pin = poisoned('generic_proof_profile.py')
+            self.assertEqual(host.authenticated_source('fixture_profile', direct, pin).VALUE, 'GOOD')
+            fixed, fixed_pin = poisoned('run-fixed-work.py')
+            measurement, measurement_pin = poisoned('measurement_host.py')
+            loaded = common.authenticated('fixture_fixed', fixed, fixed_pin)
+            self.assertEqual(loaded.VALUE, 'GOOD')
+            self.assertEqual(loaded.load_host(measurement_pin).VALUE, 'GOOD')
+            self.assertEqual(loaded.host.VALUE, 'GOOD')
+            with self.assertRaises(ValueError):
+                loaded.load_host('0' * 64)
+            marker = root / 'marker'
+            direct.write_text('open(' + repr(str(marker)) + ', "w").write("bad")')
+            with self.assertRaises(ValueError):
+                host.authenticated_source('fixture_profile_wrong_pin', direct, pin)
+            self.assertFalse(marker.exists())
+
+
 if __name__ == '__main__':
     unittest.main()

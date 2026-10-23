@@ -3,11 +3,11 @@
 import argparse
 from collections import Counter
 import hashlib
-import importlib.util
 import os
 from pathlib import Path
 import re
 import sys
+from types import ModuleType
 
 HERE = Path(__file__).absolute().parent
 STAGE = HERE.parents[1]
@@ -21,15 +21,60 @@ REQUEST_FIELDS = {'priority': '', 'attackers': 'candidates defenders', 'mana': '
 RESPONSE_FIELDS = {'pass': '', 'cast': 'card', 'activate_mana': 'object', 'finish_mana': 'undo_mana', 'spend_mana': 'spending', 'player_targets': 'players', 'sacrifice': 'object', 'order_triggers': 'order', 'commander_return': 'to_command', 'attackers': 'attacks'}
 
 
+def authenticated_source(name, path, expected):
+    """Execute the authenticated bytes, never a timestamp-valid stale .pyc.
+
+    The loaded files have stdlib-only imports. The fixed driver's explicit
+    local loader is replaced below too; no unpinned local transitive import.
+    Normal authority/shape/report/stdout guard functions are untouched.
+    """
+    path = Path(path)
+    if (not path.is_absolute() or any(p.is_symlink() for p in (path, *path.parents))
+            or not path.is_file() or re.fullmatch('[0-9a-f]{64}', expected or '') is None):
+        raise ValueError('authenticated source BEFORE import')
+    raw = path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != expected:
+        raise ValueError('authenticated source BEFORE import')
+    module = ModuleType(name)
+    module.__file__ = str(path)
+    sys.modules[name] = module
+    try:
+        exec(compile(raw, str(path), 'exec'), module.__dict__)
+    except BaseException:
+        sys.modules.pop(name, None)
+        raise
+    if path.name == 'run-fixed-work.py':
+        def load_host(pin):
+            loaded = authenticated_source('shrinking_measurement', path.with_name('measurement_host.py'), pin)
+            module.host = loaded
+            return loaded
+        module.load_host = load_host
+    return module
+
+
 def load_common(expected):
-    path = HERE / 'run-definition-diversity-v1.py'
-    if path.is_symlink() or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
-        raise ValueError('authenticated common source BEFORE import')
-    spec = importlib.util.spec_from_file_location('shrinking_common', path)
-    common = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = common
-    spec.loader.exec_module(common)
+    common = authenticated_source('shrinking_common', HERE / 'run-definition-diversity-v1.py', expected)
+    common.authenticated = authenticated_source
     return common
+
+
+def profile_options(args):
+    fields = (args.profile_authority, args.profile_authority_sha256, args.profile_helper_sha256)
+    if args.proof_phase_profile:
+        if not all(fields):
+            raise ValueError('profile opt-in requires separately pinned supplement and helper')
+        for raw in getattr(args, 'profile_raw_paths', {}).values():
+            if (not raw.startswith('/') or '\0' in raw
+                    or any(part in ('', '.', '..') for part in raw.split('/')[1:])):
+                raise ValueError('profile paths require plain absolute components')
+    elif any(value is not None for value in fields):
+        raise ValueError('profile arguments require explicit --proof-phase-profile')
+
+
+def load_profile(args):
+    # Never imported or read by the normal path. Parent must independently
+    # review/repin this helper and all changed driver bytes before any launch.
+    return authenticated_source('shrinking_generic_profile', HERE / 'generic_proof_profile.py', args.profile_helper_sha256)
 
 
 def source_guard(args, c):
@@ -379,37 +424,77 @@ def validate_report(c, report, build, facts, ordinary):
 
 def main():
     parser = argparse.ArgumentParser()
+    raw_paths = {}
+    def path_argument(name):
+        def parse(raw):
+            raw_paths[name] = raw
+            return Path(raw)
+        return parse
     for name in ['authority', 'output']:
-        parser.add_argument('--' + name, type=Path, required=True)
+        parser.add_argument('--' + name, type=path_argument(name), required=True)
     for name in ['authority-sha256', 'fixed-driver-sha256', 'helper-sha256', 'common-driver-sha256']:
         parser.add_argument('--' + name, required=True)
     parser.add_argument('--execute', action='store_true')
+    parser.add_argument('--proof-phase-profile', action='store_true')
+    parser.add_argument('--profile-authority', type=path_argument('profile-authority'))
+    parser.add_argument('--profile-authority-sha256')
+    parser.add_argument('--profile-helper-sha256')
     args = parser.parse_args()
+    args.profile_raw_paths = raw_paths
+    profile_options(args)
     c = load_common(args.common_driver_sha256)
     c.need(args.execute, 'explicit root execution release required')
     os.umask(0o077)
     a, host, ordinary, facts = source_guard(args, c)
+    profile = load_profile(args) if args.proof_phase_profile else None
+    supplement = profile.authority_guard(args, a, HERE, STAGE, ENTRY) if profile else None
     host.real_path(args.output.parent, private=True)
     c.need(not args.output.exists() and not args.output.is_symlink(), 'fresh attempt')
     args.output.mkdir(mode=0o700)
     (args.output / 'tmp').mkdir(mode=0o700)
     report = args.output / 'execution/native-report.json'
+    def profile_endpoint():
+        if profile:
+            c.need(profile.authority_guard(args, a, HERE, STAGE, ENTRY, fresh=False) == supplement, 'profile source endpoint')
     def audit():
+        profile_endpoint()
         c.need(source_guard(args, c)[0] == a, 'source endpoint')
         result = validate_report(c, c.read(report), a['engine_build_id'], facts, ordinary)
         c.need(c.stdout_records(args.output / 'execution/workload.stdout', ENTRY, []) == [], 'no unexpected native stdout')
         c.need(source_guard(args, c)[0] == a, 'postsemantic source endpoint')
-        return {**result, 'raw_report_sha256': c.sha(report), 'raw_stdout_sha256': c.sha(args.output / 'execution/workload.stdout')}
+        supplementary = profile.validate_attempt(args.output, a['engine_build_id']) if profile else None
+        profile_endpoint()
+        return {**({'proof_phase_profile': supplementary} if profile else {}), **result, 'raw_report_sha256': c.sha(report), 'raw_stdout_sha256': c.sha(args.output / 'execution/workload.stdout')}
+    env = {'PATH': '/usr/bin:/bin', 'LANG': 'C', 'LC_ALL': 'C', 'TMPDIR': str(args.output / 'tmp'), 'MTG_SHRINKING_CHOICE_OUTPUT': str(report)}
+    if profile:
+        env['MTG_SHRINKING_PROOF_PHASE_V1'] = '1'
     try:
-        row = host.run_bounded(command=[a['test_executable']['path'], '--exact', '--ignored', '--nocapture', '--test-threads=1', ENTRY], cwd=STAGE, env={'PATH': '/usr/bin:/bin', 'LANG': 'C', 'LC_ALL': 'C', 'TMPDIR': str(args.output / 'tmp'), 'MTG_SHRINKING_CHOICE_OUTPUT': str(report)}, directory=args.output / 'execution', label='shrinking-choices', cpus=a['cpu_ids'], timeout_seconds=120, expected_executable_sha256=a['test_executable']['sha256'], audit=audit)
+        profile_endpoint()
+        row = host.run_bounded(command=[a['test_executable']['path'], '--exact', '--ignored', '--nocapture', '--test-threads=1', ENTRY], cwd=STAGE, env=env, directory=args.output / 'execution', label='shrinking-choices', cpus=a['cpu_ids'], timeout_seconds=120, expected_executable_sha256=a['test_executable']['sha256'], audit=audit)
     except BaseException as error:
         row = {'status': 'failed', 'failure': {'type': type(error).__name__, 'reason': str(error)[:2048]}, 'resource_report_created': False}
     try:
         c.need(source_guard(args, c)[0] == a, 'final source endpoint')
+        profile_endpoint()
     except Exception as error:
         row['status'] = 'failed'
         row['failure'] = {'type': type(error).__name__, 'reason': str(error)[:2048]}
-    host.save_json(args.output / 'result.json', {'schema': 'shrinking-choices-host-result-v1', 'status': 'verified_all_declared_work' if row['status'] == 'passed' else 'failed_or_partial_no_denominator_reduction', 'engine_build_id': a['engine_build_id'], 'authority_sha256': args.authority_sha256, 'resource_report_sha256': c.sha(args.output / 'execution/host-report.json') if (args.output / 'execution/host-report.json').exists() else None, 'audit': row.get('audit') if row['status'] == 'passed' else None, 'failure': row.get('failure'), 'partial': c.partial_diagnostic(args.output, report) if row['status'] != 'passed' else None, 'throughput_on_incomplete_or_acceptance_claim': False})
+    supplementary = None
+    if profile:
+        # A successful sidecar is audited only inside the original final-audit
+        # lease. Failed-owner inspection is explicitly supplementary/outside it.
+        supplementary = {'status': 'instrumented_collection_complete' if row['status'] == 'passed' else 'failed_or_partial',
+                         'profile_authority_sha256': args.profile_authority_sha256,
+                         'profile_helper_sha256': args.profile_helper_sha256,
+                         'baseline_command_credit': 0, 'product_performance_acceptance': False,
+                         'full_program_pass': False}
+        if row['status'] != 'passed':
+            closed = row.get('cleanup', {})
+            if closed.get('unit_empty') is True and closed.get('launcher_reaped') is True:
+                supplementary['partial'] = profile.inspect_failed(args.output, a['engine_build_id'])
+            else:
+                supplementary['partial'] = {'scope': 'not_inspected_owner_closure_unproved', 'acceptance': False}
+    host.save_json(args.output / 'result.json', {**({'proof_phase_profile': supplementary} if profile else {}), 'schema': 'shrinking-choices-host-result-v1', 'status': ('instrumented_collection_complete_no_product_acceptance' if profile else 'verified_all_declared_work') if row['status'] == 'passed' else 'failed_or_partial_no_denominator_reduction', 'engine_build_id': a['engine_build_id'], 'authority_sha256': args.authority_sha256, 'resource_report_sha256': c.sha(args.output / 'execution/host-report.json') if (args.output / 'execution/host-report.json').exists() else None, 'audit': row.get('audit') if row['status'] == 'passed' else None, 'failure': row.get('failure'), 'partial': c.partial_diagnostic(args.output, report) if row['status'] != 'passed' else None, 'throughput_on_incomplete_or_acceptance_claim': False})
     return 0 if row['status'] == 'passed' else 1
 
 
