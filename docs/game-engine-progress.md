@@ -2310,3 +2310,84 @@ replay. Across the 18 completion games the develop policies made 150 blocks;
 lifelink produced 101 life gains and deathtouch destroyed 14 creatures. Search
 candidate generation still ignores haste for tap abilities; search capture
 refuses this profile, and no admitted card has both haste and a tap ability.
+
+## P6.2 combat damage keywords
+
+`commander-combat-keywords-v1` adds the separate source-backed 59-definition
+IR v13 catalog and policy specified in
+[game-engine-combat-keywords.md](game-engine-combat-keywords.md). Nine raw archive
+records extend the unchanged 50-definition v12 catalog. The manifest line matches
+fixture SHA-256 `b20406acec7b9af4610324af8848c76a2966315f1bb4043de2b03d53aa1a6f1b`;
+the new canonical catalog digest is
+`ae5779a29b61fabe147a6ffd7dde6122442201a778e6b36eb9b0992a38ede55c`.
+The white deck uses 85 Plains; black/green uses 37 Forest and 35 Swamp.
+
+CR 510.4/702.7b/702.4b selects an extra damage step only when a combatant has
+first strike or double strike at its beginning. The atomic transition records
+that incarnation-bound participant set. The second step uses the recorded set
+and current double strike, rather than re-deriving first-step eligibility.
+CR 510.3/117.5/704.3/603.3 supplies priority, SBAs and trigger placement between
+steps. Both steps use the existing prevention/replacement path, so Fog covers
+both and final lifelink, deathtouch and physical Commander damage apply per step.
+
+CR 702.19b/702.2c checks lethal before assigning trample damage to the player:
+subtract marked damage and other assignments in that step, use one for
+deathtouch, and ignore prevention/replacement. CR 702.19d preserves damage to
+the player after all blockers leave. CR 510.1c/e imposes no assignment order
+and validates the complete distribution. CR 509.1b/702.111b checks menace over
+the defending player's complete declaration: zero or at least two blockers.
+Public optional hints expose lethal requirements, the attacked player and menace
+attackers; `TrampleDamage` responses bind object handles and explicit player
+amounts. Historical fields omit these additions when empty. Develop policies
+continue to consume only permitted observations and the public catalog.
+
+Thirteen focused runtime tests cover the reviewed witnesses and boundary cases,
+including public response validation, first-strike blocking, removal between
+steps, Blood Artist resolution before second-step damage, and restore between
+the steps. Natural witnesses replay and restore with identical semantic state in
+Off, Compact and Detailed traces. Trample/deathtouch and double-strike/lifelink
+Commander combinations use explicitly private source-backed domain fixtures;
+they do not admit synthetic cards. A separate private shared-blocker state tests
+same-step lethal arithmetic outside the admitted blocking domain.
+
+The pinned Rust 1.99.0 release `combat-keywords-match-batch` completed and
+independently replayed all 18 games: zero faults/truncations, 614 turns and
+27,717 decisions. Detailed replay counted 170 blocks, 141 lifelink gains,
+24 deathtouch destructions, 90 trample damage to players, 99 first-strike steps
+and four menace blocks. The ignored report is
+`generated/p62-combat-keywords/batch-acceptance/report.json`
+(SHA-256 `3f98dc178d191e0d637745a432dc5cd74c24168a0437eac8c2f3f5e11d40be08`),
+with source-closure build
+`0eba73304571539741e31416283e4133c2301a09b0825299c5ff3ef45c4e0e0e`.
+The system compiler's initial 1.99.1 runs were preliminary diagnostics;
+acceptance uses the retained 1.99.0 toolchain explicitly in PATH and its library
+path, with `CARGO_BUILD_JOBS=2`.
+
+No historical expected fixture or policy bytes changed. Future-version negative
+tests now reject v14, and former unsupported-keyword negatives use
+unsupported protection, hexproof or indestructible. No snapshot/bundle/projection/sidecar version changed.
+Search candidate generation/capture and server hosting remain foundations-only.
+Keyword grants/removal, protection, planeswalkers and banding remain unsupported;
+damage-assignment order remains absent under the pinned rules.
+
+The same pinned compiler built a temporary source export of `1246c4b`, outside
+all parent checkouts. Its 18 foundations games and 18 keywords-v1 games were
+compared with the final build. All manifest/report/game evidence bytes match
+after replacing only the build ID and measured `elapsed_millis`: accepted-input
+journals, complete checkpoint snapshots (including projections), final state
+hashes, outcomes, winners and all counters are unchanged. Keywords-v1 retains
+630 turns, 27,021 decisions and 150/101/14 blocks/lifelink gains/deathtouch
+destructions; foundations retains 645 turns and 25,286 decisions. The 28
+historical expected files and two policies are separately byte-identical to base.
+
+Final verification on the frozen native source used Rust 1.99.0 and
+`CARGO_BUILD_JOBS=2`. `cargo fmt --check`,
+`cargo clippy --workspace --all-targets --locked -- -D warnings`, and
+`cargo test --workspace --locked` passed: 705 Rust tests, zero failures and
+12 existing explicitly ignored diagnostics. `npm run check:engine` passed those
+same native gates and all 47 Node checks, including the nine source-parser
+provenance records and v13 schema/catalog/policy downgrade pairs. The compiler's
+43 tests also passed separately in debug and release; the new replay CLI verified
+acceptance game 00. Successful logs and the exact historical-byte comparison are
+retained locally under ignored `generated/p62-combat-keywords/`. No dependency,
+server or search source changed, and no new verification infrastructure was added.

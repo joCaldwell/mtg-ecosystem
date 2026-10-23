@@ -371,6 +371,15 @@ lifelink and deathtouch, with legal-block hints and its own completion batch.
 Foundations, search and server scope remain frozen; trample, first/double strike, menace
 and keyword-granting effects remain outside this release.
 
+P6.2 is complete under [game-engine-combat-keywords.md](game-engine-combat-keywords.md):
+a separate 59-definition IR v13 `commander-combat-keywords-v1` profile adds
+trample, first strike, double strike and menace. First-step participants persist
+through priority/SBA/trigger windows; trample requests expose the player and
+lethal requirements. Its own 18-game completion batch and reviewed replay
+witnesses preserve the historical profiles. Search and local hosting remain
+foundations-only; keyword grants/removal and general continuous layers remain
+future work.
+
 **Deliver in bounded families:** replacement/prevention ordering and budgets;
 continuous-effect layers/sublayers/timestamps/dependencies; granted abilities;
 multiple/cost-dependent targets; counters and tokens; attachments; alternate/

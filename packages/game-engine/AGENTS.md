@@ -100,6 +100,20 @@ IR v11, policy, projection bytes, search and server scope remain unchanged;
 snapshot/bundle/projection/sidecar versions stay 18/19/16/15. No trample, first/double strike,
 menace, keyword grants, indestructible or regeneration is admitted.
 
+`docs/game-engine-combat-keywords.md` adds the separate
+`commander-combat-keywords-v1` profile: 59 definitions in IR v13, intrinsic
+trample, first strike, double strike and menace. An incarnation-bound first-step
+set selects damage participants; priority, SBAs, triggers and instants separate
+the two steps. Public requests expose menace attackers and trample's player
+recipient/lethal requirements; `TrampleDamage` responses retain object-handle
+assignments plus explicit player/amount. Both steps use final damage prevention,
+lifelink, deathtouch and physical Commander history. All earlier catalogs,
+policies, expected fixtures and projection fields remain unchanged; optional
+fields omit empty values. Versions remain 18/19/16/15. Search and server hosting
+remain foundations-only. No keyword grants/removal, protection, planeswalkers,
+banding or damage-assignment order is admitted. The simulator exposes
+`combat-keywords-match-batch OUTPUT` and `combat-keywords-match-replay FILE`.
+
 `docs/game-engine-search.md` releases finite P7 search for that same
 pool. Sealed captures contain only permitted facts/history; complete hypothetical
 hands/libraries and independent future randomness construct sampled games.
@@ -199,7 +213,7 @@ actual Commander combat damage and apply the 21-damage SBA loss rule. Earlier
 Commander profiles retain their explicit damage fault. Library replacement is
 enabled only for the reviewed Time Ebb and subsequent ordinary/ability draw paths.
 Replacement ordering is limited to the reviewed effects and subsequent profiles.
-Legal match setup is available only through the named foundations and keywords
+Legal match setup is available only through the three named foundations, keywords and combat-keywords
 profiles. Ordinary combat is enabled in the reviewed combat, Commander and action profiles.
 
 Batch mutation is private and atomic. Capture consumed pre-event facts and use
