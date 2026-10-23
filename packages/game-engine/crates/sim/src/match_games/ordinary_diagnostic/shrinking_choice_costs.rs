@@ -839,7 +839,7 @@ fn verify_root_snapshot(
     prepared: Prepared,
     progress: &mut impl FnMut(&str, Option<u64>) -> Result<(), String>,
 ) -> Result<(), String> {
-    with_root_snapshot(|_, file| {
+    let restored = with_root_snapshot(|_, file| {
         progress("snapshot_export_started", None)?;
         let receipt = write_root_snapshot(game, file)?;
         progress("snapshot_export_complete", Some(receipt.bytes))?;
@@ -853,11 +853,14 @@ fn verify_root_snapshot(
         if file.metadata().map_err(|e| e.to_string())?.len() != receipt.bytes {
             return Err("root snapshot restore length differs from receipt".into());
         }
-        progress("snapshot_verification_started", None)?;
-        state_equal(game, &restored)?;
-        drop(restored);
-        progress("snapshot_verified", None)
-    })
+        Ok(restored)
+    })?;
+    // The completed standalone restore owns everything needed by equality.
+    // Release the root file with checked cleanup before either generic proof.
+    progress("snapshot_verification_started", None)?;
+    state_equal(game, &restored)?;
+    drop(restored);
+    progress("snapshot_verified", None)
 }
 
 fn checked_root(
@@ -1396,6 +1399,188 @@ mod root_snapshot_tests {
             .unwrap_err();
             assert_eq!(error, "injected progress publication failure");
             assert_eq!(seen, phases[..=stop]);
+            assert_eq!(game.snapshot().unwrap(), before);
+        }
+    }
+
+    // Give each child its own temporary parent without changing this process's
+    // environment. Other parallel proof tests cannot affect the file/FD oracle.
+    fn isolated_snapshot_test(name: &str) -> bool {
+        const CHILD: &str = "MTG_ROOT_SNAPSHOT_CLEANUP_TEST_CHILD";
+        let full_name = format!("{}::{name}", module_path!().split_once("::").unwrap().1);
+        if std::env::var(CHILD).as_deref() == Ok(full_name.as_str()) {
+            return false;
+        }
+        let parent = GenericStateProof::create().unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", &full_name, "--nocapture"])
+            .env(CHILD, &full_name)
+            .env("TMPDIR", &parent.directory)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "isolated snapshot test failed:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains("1 passed; 0 failed"),
+            "child must execute exactly the requested regression"
+        );
+        assert_eq!(fs::read_dir(&parent.directory).unwrap().count(), 0);
+        true
+    }
+
+    fn owned_snapshot_directory() -> std::path::PathBuf {
+        let entries = fs::read_dir(std::env::temp_dir())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect::<Vec<_>>();
+        assert_eq!(entries.len(), 1, "one owned root snapshot directory");
+        assert!(entries[0].join("state.json").is_file());
+        entries.into_iter().next().unwrap()
+    }
+
+    fn assert_snapshot_lifetime(directory: &std::path::Path, active: bool) {
+        assert_eq!(directory.exists(), active, "snapshot directory lifetime");
+        assert_eq!(
+            directory.join("state.json").exists(),
+            active,
+            "snapshot file lifetime"
+        );
+        // Unlinking alone is insufficient on Linux: a descriptor can retain
+        // the deleted file. read_link also sees the kernel's " (deleted)" suffix.
+        let open = fs::read_dir("/proc/self/fd").unwrap().any(|entry| {
+            fs::read_link(entry.unwrap().path()).is_ok_and(|target| target.starts_with(directory))
+        });
+        assert_eq!(open, active, "snapshot descriptor lifetime");
+    }
+
+    #[test]
+    fn choice_root_snapshot_closed_and_removed_before_verification_callback() {
+        if isolated_snapshot_test(
+            "choice_root_snapshot_closed_and_removed_before_verification_callback",
+        ) {
+            return;
+        }
+        for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
+            let game = pending_game(mode);
+            let before = game.snapshot().unwrap();
+            let mut directory = None;
+            let mut verified = false;
+            verify_root_snapshot(&game, prepared(), &mut |phase, _| {
+                if phase == "snapshot_export_started" {
+                    directory = Some(owned_snapshot_directory());
+                }
+                let active =
+                    !matches!(phase, "snapshot_verification_started" | "snapshot_verified");
+                assert_snapshot_lifetime(directory.as_ref().unwrap(), active);
+                verified |= phase == "snapshot_verified";
+                Ok(())
+            })
+            .unwrap();
+            assert!(verified);
+            assert_snapshot_lifetime(&directory.unwrap(), false);
+            assert_eq!(game.snapshot().unwrap(), before);
+        }
+    }
+
+    #[test]
+    fn choice_root_snapshot_closed_and_removed_on_each_callback_cancel_or_unwind() {
+        if isolated_snapshot_test(
+            "choice_root_snapshot_closed_and_removed_on_each_callback_cancel_or_unwind",
+        ) {
+            return;
+        }
+        let game = pending_game(TraceMode::Detailed);
+        let before = game.snapshot().unwrap();
+        for stop in [
+            "snapshot_export_started",
+            "snapshot_export_complete",
+            "snapshot_restore_started",
+            "snapshot_verification_started",
+            "snapshot_verified",
+        ] {
+            for unwind in [false, true] {
+                let mut directory = None;
+                let mut seen = Vec::new();
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    verify_root_snapshot(&game, prepared(), &mut |phase, _| {
+                        if phase == "snapshot_export_started" {
+                            directory = Some(owned_snapshot_directory());
+                        }
+                        assert_snapshot_lifetime(
+                            directory.as_ref().unwrap(),
+                            !matches!(phase, "snapshot_verification_started" | "snapshot_verified"),
+                        );
+                        seen.push(phase.to_owned());
+                        if phase == stop {
+                            assert!(!unwind, "injected callback unwind");
+                            return Err("injected callback cancellation".into());
+                        }
+                        Ok(())
+                    })
+                }));
+                if unwind {
+                    assert!(result.is_err());
+                } else {
+                    assert_eq!(
+                        result.unwrap().unwrap_err(),
+                        "injected callback cancellation"
+                    );
+                }
+                assert_eq!(seen.last().map(String::as_str), Some(stop));
+                assert_snapshot_lifetime(&directory.unwrap(), false);
+                assert_eq!(game.snapshot().unwrap(), before);
+            }
+        }
+    }
+
+    #[test]
+    fn choice_root_snapshot_restore_or_cleanup_failure_prevents_verification_callback() {
+        if isolated_snapshot_test(
+            "choice_root_snapshot_restore_or_cleanup_failure_prevents_verification_callback",
+        ) {
+            return;
+        }
+        let game = pending_game(TraceMode::Off);
+        let before = game.snapshot().unwrap();
+        for corrupt in [false, true] {
+            let mut directory = None;
+            let mut seen = Vec::new();
+            let error = verify_root_snapshot(&game, prepared(), &mut |phase, _| {
+                seen.push(phase.to_owned());
+                if phase == "snapshot_export_started" {
+                    directory = Some(owned_snapshot_directory());
+                }
+                if phase == "snapshot_restore_started" {
+                    let directory = directory.as_ref().unwrap();
+                    if corrupt {
+                        fs::write(directory.join("state.json"), b"{").unwrap();
+                    } else {
+                        // Standalone restore can still read the open file, but
+                        // checked directory removal must subsequently fail.
+                        fs::remove_dir_all(directory).unwrap();
+                    }
+                }
+                Ok(())
+            })
+            .unwrap_err();
+            assert_eq!(
+                error.contains("root snapshot cleanup:"),
+                !corrupt,
+                "{error}"
+            );
+            assert_eq!(
+                seen,
+                [
+                    "snapshot_export_started",
+                    "snapshot_export_complete",
+                    "snapshot_restore_started"
+                ]
+            );
+            assert_snapshot_lifetime(&directory.unwrap(), false);
             assert_eq!(game.snapshot().unwrap(), before);
         }
     }
