@@ -1104,7 +1104,8 @@ fn verify_source_catalog(
             ],
         ),
         11 => (
-            &[],
+            // Reach now lowers completely, but v11 admission remains frozen.
+            &["51ce0158-c9a5-4fa5-9704-46ab02f01b86"],
             &[
                 FLAME,
                 DEATHGREETER,
@@ -1112,7 +1113,6 @@ fn verify_source_catalog(
                 VIOLENCE,
                 "2679d0dd-ba30-4a1c-b6a0-b3ac6c790496",
                 "2825ff5a-5340-4494-bfde-80f6f5bce5a2",
-                "51ce0158-c9a5-4fa5-9704-46ab02f01b86", // Wall of Vines: complete Defender+Reach rejected
             ],
         ),
         _ => return Err("unsupported source coverage version".into()),
