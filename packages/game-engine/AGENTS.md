@@ -114,6 +114,21 @@ remain foundations-only. No keyword grants/removal, protection, planeswalkers,
 banding or damage-assignment order is admitted. The simulator exposes
 `combat-keywords-match-batch OUTPUT` and `combat-keywords-match-replay FILE`.
 
+`docs/game-engine-tokens-counters.md` adds the separate `commander-tokens-v1`
+profile: 72 definitions in IR v14, fixed defined creature tokens and fixed
++1/+1 counters in spells and self-enters triggers. Tokens use a reserved physical
+identity range and enter simultaneously; dies triggers see their destination
+before the next SBA removes their objects. Counters join additive layer 7c and
+reset on zone change. Public token rows expose defined characteristics, names,
+keywords and viewer handles; they have no Oracle identity. Optional token/counter
+fields omit absent values. Token-only capacities are 64 lifetime tokens, 344
+damage occurrences, 1,892 stack/pending entries and 468 event-group members;
+`Game::typed_fault` identifies overflow and the contract derives each bound.
+Earlier profile limits and bytes, versions 18/19/16/15, search and foundations-only
+server hosting remain unchanged. The simulator adds `tokens-match-batch OUTPUT`
+and `tokens-match-replay FILE`. Copy/noncreature/variable tokens, other counter
+kinds, proliferate and keyword grants remain outside this finite release.
+
 `docs/game-engine-search.md` releases finite P7 search for that same
 pool. Sealed captures contain only permitted facts/history; complete hypothetical
 hands/libraries and independent future randomness construct sampled games.
@@ -213,8 +228,8 @@ actual Commander combat damage and apply the 21-damage SBA loss rule. Earlier
 Commander profiles retain their explicit damage fault. Library replacement is
 enabled only for the reviewed Time Ebb and subsequent ordinary/ability draw paths.
 Replacement ordering is limited to the reviewed effects and subsequent profiles.
-Legal match setup is available only through the three named foundations, keywords and combat-keywords
-profiles. Ordinary combat is enabled in the reviewed combat, Commander and action profiles.
+Legal match setup is available only through the four named foundations, keywords,
+combat-keywords and tokens profiles. Ordinary combat is enabled in the reviewed combat, Commander and action profiles.
 
 Batch mutation is private and atomic. Capture consumed pre-event facts and use
 actual typed outcome slots. Simultaneous groups admit independent read/write

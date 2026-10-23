@@ -380,6 +380,16 @@ witnesses preserve the historical profiles. Search and local hosting remain
 foundations-only; keyword grants/removal and general continuous layers remain
 future work.
 
+P6.3 is complete under [game-engine-tokens-counters.md](game-engine-tokens-counters.md):
+a separate 72-definition IR v14 `commander-tokens-v1` profile adds fixed defined
+creature tokens and +1/+1 counters in spells and self-enters triggers. Physical
+token identities survive as history after SBA cessation; counters combine in
+layer 7c and reset on movement. The token-only capacity amendment proves bounds
+from the complete source pool, while earlier limits and bytes remain unchanged.
+Acceptance checks and the frozen 18-game token/counter batch are recorded in
+[game-engine-progress.md](game-engine-progress.md). Noncreature/copy/variable
+tokens, other counter kinds and general continuous layers remain future work.
+
 **Deliver in bounded families:** replacement/prevention ordering and budgets;
 continuous-effect layers/sublayers/timestamps/dependencies; granted abilities;
 multiple/cost-dependent targets; counters and tokens; attachments; alternate/
