@@ -1364,6 +1364,11 @@ impl Game {
                 {
                     return Err("invalid turn-transition event".into());
                 }
+                // CR510.4/702.7b: capture eligibility atomically as the first
+                // damage step begins, before any later departure boundary.
+                if next.step == TurnStep::FirstStrikeDamage {
+                    self.state.first_strike_participants = self.first_strikers();
+                }
                 let previous = std::mem::replace(&mut self.state.turn, next.clone());
                 let previous_owner = std::mem::replace(&mut self.state.turn_owner, *owner);
                 self.state.active = self.is_live(*owner).then_some(*owner);

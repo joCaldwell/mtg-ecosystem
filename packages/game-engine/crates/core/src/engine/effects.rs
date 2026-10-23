@@ -321,6 +321,7 @@ impl Game {
             })
             .collect::<Result<Vec<_>, String>>()?;
         self.state.damage_choices.clear();
+        self.state.player_damage_choices.clear();
         self.begin_damage(
             DamageKind::Combat,
             entries,

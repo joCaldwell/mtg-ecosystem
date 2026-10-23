@@ -250,6 +250,8 @@ pub enum PlayerRequest {
     },
     Blockers {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        menace_attackers: Vec<ObjectHandle>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
         legal_attackers: Vec<LegalBlockers>,
         token: DecisionToken,
         player: PlayerId,
@@ -262,6 +264,10 @@ pub enum PlayerRequest {
         source: ObjectHandle,
         power: Quantity,
         recipients: Vec<ObjectHandle>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        player_recipient: Option<PlayerId>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        lethal_requirements: Vec<(ObjectHandle, Quantity)>,
     },
     Discard {
         token: DecisionToken,
@@ -373,6 +379,11 @@ pub enum PlayerResponse {
     },
     Damage {
         assignments: Vec<(ObjectHandle, Quantity)>,
+    },
+    TrampleDamage {
+        assignments: Vec<(ObjectHandle, Quantity)>,
+        player: PlayerId,
+        amount: Quantity,
     },
     Discard {
         objects: Vec<ObjectHandle>,
@@ -984,7 +995,17 @@ impl Game {
                         attackers,
                         ..
                     } => PlayerRequest::Blockers {
-                        legal_attackers: if self.prepared.config.profile == KEYWORDS_PROFILE {
+                        menace_attackers: handles(
+                            attackers
+                                .iter()
+                                .copied()
+                                .filter(|a| self.has_keyword(*a, KeywordAbility::Menace))
+                                .collect(),
+                        )?,
+                        legal_attackers: if matches!(
+                            self.prepared.config.profile.as_str(),
+                            KEYWORDS_PROFILE | COMBAT_KEYWORDS_PROFILE
+                        ) {
                             candidates
                                 .iter()
                                 .map(|b| {
@@ -1012,8 +1033,15 @@ impl Game {
                         source,
                         power,
                         recipients,
+                        player_recipient,
+                        lethal_requirements,
                         ..
                     } => PlayerRequest::Damage {
+                        player_recipient,
+                        lethal_requirements: lethal_requirements
+                            .into_iter()
+                            .map(|(o, n)| Ok((self.handle_for(viewer, o)?, n)))
+                            .collect::<Result<_, String>>()?,
                         token,
                         player: viewer,
                         source: self.handle_for(viewer, source)?,
@@ -1362,7 +1390,8 @@ impl Game {
         let size = match response {
             PlayerResponse::Attackers { attacks } => attacks.len(),
             PlayerResponse::Blockers { blocks } => blocks.len(),
-            PlayerResponse::Damage { assignments } => assignments.len(),
+            PlayerResponse::Damage { assignments }
+            | PlayerResponse::TrampleDamage { assignments, .. } => assignments.len(),
             PlayerResponse::BottomOpening { objects }
             | PlayerResponse::Discard { objects }
             | PlayerResponse::ResolveDiscard { objects } => objects.len(),
@@ -1450,6 +1479,18 @@ impl Game {
                         ))
                     })
                     .collect::<Result<_, String>>()?,
+            }),
+            PlayerResponse::TrampleDamage {
+                assignments,
+                player,
+                amount,
+            } => Ok(Response::TrampleDamage {
+                assignments: assignments
+                    .iter()
+                    .map(|(o, n)| Ok((self.resolve_handle(viewer, o)?, n.clone())))
+                    .collect::<Result<_, String>>()?,
+                player: *player,
+                amount: amount.clone(),
             }),
             PlayerResponse::Damage { assignments } => Ok(Response::Damage {
                 assignments: assignments

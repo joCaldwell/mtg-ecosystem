@@ -19,6 +19,7 @@ pub enum TurnStep {
     BeginningCombat,
     DeclareAttackers,
     DeclareBlockers,
+    FirstStrikeDamage,
     CombatDamage,
     EndCombat,
     PostcombatMain,
@@ -33,6 +34,7 @@ impl TurnStep {
             Self::BeginningCombat
             | Self::DeclareAttackers
             | Self::DeclareBlockers
+            | Self::FirstStrikeDamage
             | Self::CombatDamage
             | Self::EndCombat => Phase::Combat,
             Self::PostcombatMain => Phase::PostcombatMain,
@@ -48,6 +50,7 @@ impl TurnStep {
             Self::BeginningCombat => Self::DeclareAttackers,
             Self::DeclareAttackers => Self::DeclareBlockers,
             Self::DeclareBlockers => Self::CombatDamage,
+            Self::FirstStrikeDamage => Self::CombatDamage,
             Self::CombatDamage => Self::EndCombat,
             Self::EndCombat => Self::PostcombatMain,
             Self::PostcombatMain => Self::End,
@@ -172,6 +175,11 @@ impl Game {
             && (!self.combat_enabled() || !self.state.combat_declared)
         {
             TurnStep::EndCombat
+        } else if self.state.turn.step == TurnStep::DeclareBlockers
+            && self.prepared.config.profile == COMBAT_KEYWORDS_PROFILE
+            && !self.first_strikers().is_empty()
+        {
+            TurnStep::FirstStrikeDamage
         } else if self.state.turn.step == TurnStep::Cleanup && self.state.cleanup_repeat {
             TurnStep::Cleanup
         } else {
@@ -243,7 +251,9 @@ impl Game {
             TurnStep::BeginningCombat if self.combat_enabled() => {
                 self.state.combat.clear();
                 self.state.combat_declared = false;
+                self.state.first_strike_participants.clear();
                 self.state.damage_choices.clear();
+                self.state.player_damage_choices.clear();
             }
             TurnStep::DeclareAttackers if self.combat_enabled() => {
                 if self.state.active.is_some() {
@@ -263,6 +273,12 @@ impl Game {
                     return Ok(());
                 }
             }
+            TurnStep::FirstStrikeDamage
+                if self.prepared.config.profile == COMBAT_KEYWORDS_PROFILE =>
+            {
+                self.state.frame = Frame::Damage;
+                return Ok(());
+            }
             TurnStep::CombatDamage if self.combat_enabled() => {
                 self.state.frame = Frame::Damage;
                 return Ok(());
@@ -270,7 +286,9 @@ impl Game {
             TurnStep::EndCombat if self.combat_enabled() => {}
             TurnStep::PostcombatMain if self.combat_enabled() => {
                 self.state.combat.clear();
+                self.state.first_strike_participants.clear();
                 self.state.damage_choices.clear();
+                self.state.player_damage_choices.clear();
             }
             TurnStep::Cleanup if self.combat_enabled() => {
                 self.state.frame = if let Some(player) = self.state.active {

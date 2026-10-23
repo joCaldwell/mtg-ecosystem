@@ -140,6 +140,15 @@ impl Game {
                 source: *source,
                 power: self.power(*source)?,
                 recipients: self.recipients(*source),
+                player_recipient: self.trample_player(*source),
+                lethal_requirements: if self.trample_player(*source).is_some() {
+                    self.recipients(*source)
+                        .into_iter()
+                        .map(|o| Ok((o, self.lethal_requirement(*source, o)?)))
+                        .collect::<Result<_, String>>()?
+                } else {
+                    vec![]
+                },
             },
             Frame::Discard { count, .. } => Request::Discard {
                 decision_id,
@@ -161,7 +170,9 @@ impl Game {
         let size = match response {
             Response::Attackers { attacks } => attacks.len(),
             Response::Blockers { blocks } => blocks.len(),
-            Response::Damage { assignments } => assignments.len(),
+            Response::Damage { assignments } | Response::TrampleDamage { assignments, .. } => {
+                assignments.len()
+            }
             Response::Discard { objects } => objects.len(),
             _ => 0,
         };
@@ -193,10 +204,26 @@ impl Game {
                 }) {
                     return Err("invalid complete block declaration".into());
                 }
+                // CR509.1b/702.111b: restrictions apply to the whole declaration.
+                for a in self.state.combat.iter().filter(|a| a.defender == player) {
+                    if self.has_keyword(a.attacker, KeywordAbility::Menace)
+                        && blocks.iter().filter(|(_, x)| *x == a.attacker).count() == 1
+                    {
+                        return Err("menace requires zero or at least two blockers".into());
+                    }
+                }
             }
             (Frame::DamageChoice { source }, Response::Damage { assignments }) => {
-                self.validate_split(*source, assignments)?
+                self.validate_split(*source, assignments, None)?
             }
+            (
+                Frame::DamageChoice { source },
+                Response::TrampleDamage {
+                    assignments,
+                    player,
+                    amount,
+                },
+            ) => self.validate_split(*source, assignments, Some((*player, amount)))?,
             (Frame::Discard { count, .. }, Response::Discard { objects }) => {
                 let hand = self.hand(player);
                 if objects.len() != *count
@@ -214,6 +241,7 @@ impl Game {
         &self,
         source: ObjectId,
         assignments: &[(ObjectId, Quantity)],
+        player: Option<(PlayerId, &Quantity)>,
     ) -> Result<(), String> {
         let recipients = self.recipients(source);
         let mut seen = BTreeSet::new();
@@ -224,7 +252,22 @@ impl Game {
             }
             sum.add(n);
         }
-        // CR 510.1c (2026-09-25): no assignment order, and no lethal-first rule.
+        if let Some((p, amount)) = player {
+            if self.trample_player(source) != Some(p) || amount.is_negative() {
+                return Err("invalid trample player recipient or quantity".into());
+            }
+            sum.add(amount);
+            // CR702.19b/702.2c: ignore prevention/replacement; account for
+            // marked damage and other assignments in this same step.
+            if *amount > Quantity::zero() {
+                for (o, n) in assignments {
+                    if *n < self.lethal_requirement(source, *o)? {
+                        return Err("trample player damage before lethal to every blocker".into());
+                    }
+                }
+            }
+        }
+        // CR510.1c/e: no order; validate the entire source distribution.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
         if seen.len() != recipients.len() || sum != self.power(source)? {
             return Err("incomplete damage distribution".into());
@@ -237,6 +280,7 @@ impl Game {
             a.blockers.retain(|b| *b != object);
         }
         self.state.damage_choices.remove(&object);
+        self.state.player_damage_choices.remove(&object);
     }
     pub(super) fn grant_turn_priority(&mut self) -> Result<(), String> {
         if matches!(self.state.frame, Frame::Finished { .. } | Frame::Draw) {
@@ -298,8 +342,22 @@ impl Game {
                     .take()
                     .ok_or("missing damage assignment")?;
                 self.validate_combat_response(input.player, &input.response)?;
-                let Response::Damage { assignments } = input.response else {
-                    return Err("damage response".into());
+                let assignments = match input.response {
+                    Response::Damage { assignments } => {
+                        self.state.player_damage_choices.remove(&source);
+                        assignments
+                    }
+                    Response::TrampleDamage {
+                        assignments,
+                        player,
+                        amount,
+                    } => {
+                        self.state
+                            .player_damage_choices
+                            .insert(source, (player, amount));
+                        assignments
+                    }
+                    _ => return Err("damage response".into()),
                 };
                 self.state.damage_choices.insert(source, assignments);
                 self.state.frame = Frame::Damage;
@@ -346,23 +404,112 @@ impl Game {
         }
         Ok(())
     }
+    /// CR510.4/702.7b/702.4b. Only this profile can introduce a second step.
+    pub(super) fn first_strikers(&self) -> BTreeSet<ObjectId> {
+        self.state
+            .combat
+            .iter()
+            .flat_map(|a| std::iter::once(a.attacker).chain(a.blockers.iter().copied()))
+            .filter(|o| {
+                self.has_keyword(*o, KeywordAbility::FirstStrike)
+                    || self.has_keyword(*o, KeywordAbility::DoubleStrike)
+            })
+            .collect()
+    }
+    fn assigns_in_damage_step(&self, object: ObjectId) -> bool {
+        if self.state.turn.step == TurnStep::FirstStrikeDamage {
+            self.state.first_strike_participants.contains(&object)
+        } else {
+            !self.state.first_strike_participants.contains(&object)
+                || self.has_keyword(object, KeywordAbility::DoubleStrike)
+        }
+    }
+    pub(super) fn trample_player(&self, source: ObjectId) -> Option<PlayerId> {
+        self.state
+            .combat
+            .iter()
+            .find(|a| a.attacker == source)
+            .filter(|a| {
+                self.has_keyword(source, KeywordAbility::Trample) && self.is_live(a.defender)
+            })
+            .map(|a| a.defender)
+    }
+    pub(super) fn lethal_requirement(
+        &self,
+        source: ObjectId,
+        blocker: ObjectId,
+    ) -> Result<Quantity, String> {
+        let mut remaining = self
+            .characteristics(blocker)?
+            .toughness
+            .ok_or("missing blocker toughness")?;
+        remaining.subtract(&self.current(blocker)?.marked_damage);
+        // A blocker cannot block several attackers in the admitted pool. Still
+        // account for other source assignments in the complete step (702.19b).
+        for a in self.state.combat.iter().filter(|a| {
+            a.attacker != source
+                && a.blockers.contains(&blocker)
+                && self.assigns_in_damage_step(a.attacker)
+        }) {
+            let amount = if let Some(choice) = self.state.damage_choices.get(&a.attacker) {
+                choice
+                    .iter()
+                    .find(|(o, _)| *o == blocker)
+                    .map(|(_, n)| n.clone())
+                    .unwrap_or_default()
+            } else if a.blockers.len() == 1 && self.trample_player(a.attacker).is_none() {
+                self.power(a.attacker)?
+            } else {
+                Quantity::zero()
+            };
+            if amount > Quantity::zero() && self.has_keyword(a.attacker, KeywordAbility::Deathtouch)
+            {
+                return Ok(Quantity::zero());
+            }
+            remaining.subtract(&amount);
+        }
+        remaining = remaining.max(Quantity::zero());
+        if self.has_keyword(source, KeywordAbility::Deathtouch) {
+            remaining = remaining.min(Quantity::from(1));
+        }
+        Ok(remaining)
+    }
     fn assign_damage(&mut self) -> Result<(), String> {
         let mut damage = vec![];
         for a in self.state.combat.clone() {
             let power = self.power(a.attacker)?;
             let controller = self.current(a.attacker)?.controller;
-            if power > Quantity::zero() {
-                if a.blockers.len() > 1 {
-                    let choice = self
-                        .state
-                        .damage_choices
-                        .get(&a.attacker)
-                        .filter(|v| self.validate_split(a.attacker, v).is_ok());
+            if self.assigns_in_damage_step(a.attacker) && power > Quantity::zero() {
+                if a.blockers.len() > 1
+                    || (!a.blockers.is_empty() && self.trample_player(a.attacker).is_some())
+                {
+                    let choice = self.state.damage_choices.get(&a.attacker).filter(|v| {
+                        self.validate_split(
+                            a.attacker,
+                            v,
+                            self.state
+                                .player_damage_choices
+                                .get(&a.attacker)
+                                .map(|(p, n)| (*p, n)),
+                        )
+                        .is_ok()
+                    });
                     let Some(choice) = choice else {
                         self.state.damage_choices.remove(&a.attacker);
                         self.state.frame = Frame::DamageChoice { source: a.attacker };
                         return Ok(());
                     };
+                    if let Some((player, amount)) =
+                        self.state.player_damage_choices.get(&a.attacker)
+                        && *amount > Quantity::zero()
+                    {
+                        damage.push(DamageOccurrence {
+                            source: a.attacker,
+                            controller,
+                            recipient: DamageRecipient::Player { player: *player },
+                            amount: amount.clone(),
+                        });
+                    }
                     for (object, amount) in choice {
                         if *amount > Quantity::zero() {
                             damage.push(DamageOccurrence {
@@ -380,7 +527,9 @@ impl Game {
                         recipient: DamageRecipient::Creature { object: *object },
                         amount: power,
                     });
-                } else if !a.blocked && self.is_live(a.defender) {
+                } else if (!a.blocked || self.trample_player(a.attacker).is_some())
+                    && self.is_live(a.defender)
+                {
                     damage.push(DamageOccurrence {
                         source: a.attacker,
                         controller,
@@ -390,6 +539,9 @@ impl Game {
                 }
             }
             for b in a.blockers {
+                if !self.assigns_in_damage_step(b) {
+                    continue;
+                }
                 let power = self.power(b)?;
                 if power > Quantity::zero() {
                     damage.push(DamageOccurrence {
@@ -408,6 +560,7 @@ impl Game {
             self.commit(ProposedEvent::CombatDamage { damage }, BatchCause::Combat)?;
         }
         self.state.damage_choices.clear();
+        self.state.player_damage_choices.clear();
         self.grant_turn_priority()
     }
     fn stabilization_wave(
@@ -566,7 +719,10 @@ impl Game {
                 }
             }
             Frame::DamageChoice { source }
-                if self.current(source).is_err() || self.recipients(source).len() < 2 =>
+                if self.current(source).is_err()
+                    || (self.recipients(source).len() < 2
+                        && (self.recipients(source).is_empty()
+                            || self.trample_player(source).is_none())) =>
             {
                 self.state.pending = None;
                 self.state.frame = Frame::Damage;
@@ -588,6 +744,13 @@ impl Game {
         Ok(())
     }
     pub(super) fn validate_combat_state(&self) -> Result<(), String> {
+        if self.prepared.config.profile != COMBAT_KEYWORDS_PROFILE
+            && (self.state.turn.step == TurnStep::FirstStrikeDamage
+                || !self.state.first_strike_participants.is_empty()
+                || !self.state.player_damage_choices.is_empty())
+        {
+            return Err("combat keyword continuation outside reviewed profile".into());
+        }
         for (p, library) in &self.state.libraries {
             let actual = self
                 .state

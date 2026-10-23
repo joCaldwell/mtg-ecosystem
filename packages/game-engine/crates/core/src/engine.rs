@@ -13,6 +13,8 @@ pub use commander_policy::{
 mod keywords;
 pub use keywords::LifelinkGain;
 #[cfg(test)]
+mod combat_keywords_tests;
+#[cfg(test)]
 mod keywords_tests;
 mod setup;
 #[cfg(test)]
@@ -827,6 +829,11 @@ pub enum Response {
     Damage {
         assignments: Vec<(ObjectId, Quantity)>,
     },
+    TrampleDamage {
+        assignments: Vec<(ObjectId, Quantity)>,
+        player: PlayerId,
+        amount: Quantity,
+    },
     Discard {
         objects: Vec<ObjectId>,
     },
@@ -956,6 +963,10 @@ pub enum Request {
         source: ObjectId,
         power: Quantity,
         recipients: Vec<ObjectId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        player_recipient: Option<PlayerId>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        lethal_requirements: Vec<(ObjectId, Quantity)>,
     },
     Discard {
         decision_id: u64,
@@ -1469,6 +1480,12 @@ struct State {
     combat: Vec<Attacker>,
     combat_declared: bool,
     damage_choices: BTreeMap<ObjectId, Vec<(ObjectId, Quantity)>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    player_damage_choices: BTreeMap<ObjectId, (PlayerId, Quantity)>,
+    /// CR510.4/702.7b: incarnation-bound first-step eligibility, retained even
+    /// after combat departure. Empty in every historical profile.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    first_strike_participants: BTreeSet<ObjectId>,
     cleanup_repeat: bool,
     simultaneous_losses: bool,
     losing_players: Vec<PlayerId>,
@@ -1600,6 +1617,8 @@ impl Game {
             combat: vec![],
             combat_declared: false,
             damage_choices: BTreeMap::new(),
+            player_damage_choices: BTreeMap::new(),
+            first_strike_participants: BTreeSet::new(),
             cleanup_repeat: false,
             simultaneous_losses: false,
             losing_players: vec![],

@@ -615,7 +615,10 @@ impl Game {
                         | (Frame::CommanderReturn { .. }, PlayerResponse::CommanderReturn { .. })
                         | (Frame::Attackers, PlayerResponse::Attackers { .. })
                         | (Frame::Blockers { .. }, PlayerResponse::Blockers { .. })
-                        | (Frame::DamageChoice { .. }, PlayerResponse::Damage { .. })
+                        | (
+                            Frame::DamageChoice { .. },
+                            PlayerResponse::Damage { .. } | PlayerResponse::TrampleDamage { .. },
+                        )
                         | (Frame::Discard { .. }, PlayerResponse::Discard { .. }) => true,
                         (Frame::Targets { .. }, PlayerResponse::Targets { objects }) => {
                             objects.len() == self.program().map_err(invalid)?.targets.len()
