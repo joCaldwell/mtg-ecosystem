@@ -1,6 +1,7 @@
 //! Private diagnostic child of match_games::ordinary_diagnostic.
 //! CR508.1, 601.2, 701.17, 800.4; pinned20260925 rules already used by core.
 //! Policies consume only each chooser's current Observation/public Catalog.
+use super::generic_state_spool::{GenericProofProfile, Operand, ProofPhase, ProofScope, measured};
 use super::*;
 use mtg_contracts::KeywordAbility;
 use mtg_core::Request;
@@ -642,14 +643,67 @@ fn branch(
     }
 }
 fn state_equal(a: &Game, b: &Game) -> Result<(), String> {
-    let aa = generic_state_proof(a)?;
-    let bb = generic_state_proof(b)?;
-    equal_state_proofs(&aa, &bb)?;
-    if aa.sha256 != a.state_digest()? || bb.sha256 != b.state_digest()? {
-        return Err("generic/production State SHA differs".into());
-    }
-    aa.remove()?;
-    bb.remove()?;
+    state_equal_with_profile(a, b, ProofScope::root(4)?, None)
+}
+fn state_equal_with_profile(
+    a: &Game,
+    b: &Game,
+    scope: ProofScope,
+    mut profile: Option<&mut GenericProofProfile>,
+) -> Result<(), String> {
+    let aa = super::generic_state_spool::prove_with_profile(
+        a,
+        scope.operand(Operand::A),
+        profile.as_deref_mut(),
+    )?;
+    let bb = super::generic_state_spool::prove_with_profile(
+        b,
+        scope.operand(Operand::B),
+        profile.as_deref_mut(),
+    )?;
+    finish_state_equality(a, b, aa, bb, scope, profile)
+}
+fn finish_state_equality(
+    a: &Game,
+    b: &Game,
+    aa: GenericStateProof,
+    bb: GenericStateProof,
+    scope: ProofScope,
+    mut profile: Option<&mut GenericProofProfile>,
+) -> Result<(), String> {
+    measured(
+        &mut profile,
+        scope,
+        ProofPhase::CompleteGenericByteEofEquality,
+        |_| equal_state_proofs(&aa, &bb),
+        |_| Some(aa.bytes),
+    )?;
+    measured(
+        &mut profile,
+        scope,
+        ProofPhase::ProductionStateDigestValidation,
+        |_| {
+            if aa.sha256 != a.state_digest()? || bb.sha256 != b.state_digest()? {
+                return Err("generic/production State SHA differs".into());
+            }
+            Ok(())
+        },
+        |_| None,
+    )?;
+    measured(
+        &mut profile,
+        scope,
+        ProofPhase::OperandACleanup,
+        |_| aa.remove(),
+        |_| None,
+    )?;
+    measured(
+        &mut profile,
+        scope,
+        ProofPhase::OperandBCleanup,
+        |_| bb.remove(),
+        |_| None,
+    )?;
     Ok(())
 }
 /// Independent Detailed replay supplies actual typed effects; accepted target or
@@ -794,6 +848,24 @@ fn effect_proof(
 fn with_root_snapshot<T>(
     operation: impl FnOnce(&std::path::Path, &mut fs::File) -> Result<T, String>,
 ) -> Result<T, String> {
+    with_root_snapshot_with_profile(operation, ProofScope::root(4)?, None)
+}
+fn with_root_snapshot_with_profile<T>(
+    operation: impl FnOnce(&std::path::Path, &mut fs::File) -> Result<T, String>,
+    scope: ProofScope,
+    mut profile: Option<&mut GenericProofProfile>,
+) -> Result<T, String> {
+    with_root_snapshot_profile_body(|path, file, _| operation(path, file), scope, &mut profile)
+}
+fn with_root_snapshot_profile_body<T>(
+    operation: impl FnOnce(
+        &std::path::Path,
+        &mut fs::File,
+        &mut Option<&mut GenericProofProfile>,
+    ) -> Result<T, String>,
+    scope: ProofScope,
+    profile: &mut Option<&mut GenericProofProfile>,
+) -> Result<T, String> {
     let owner = GenericStateProof::create()?;
     let result = (|| {
         let mut file = fs::OpenOptions::new()
@@ -806,17 +878,54 @@ fn with_root_snapshot<T>(
         if !file.metadata().map_err(|e| e.to_string())?.is_file() {
             return Err("root snapshot must be a regular file".into());
         }
-        operation(&owner.path, &mut file)
+        #[cfg(test)]
+        if let Some(p) = profile.as_deref_mut() {
+            p.track_directory(&owner.directory);
+            p.track_file(&file);
+        }
+        operation(&owner.path, &mut file, profile)
     })();
     // Unlike Drop, this reports cleanup failures on both success and error.
     // The owner's Drop remains the fallback if cleanup fails or we unwind.
+    // Even a failed observer must not suppress the original checked cleanup.
+    let started = profile
+        .as_deref_mut()
+        .map(|p| p.begin(scope, ProofPhase::RootSnapshotCleanup))
+        .transpose();
     let cleanup = fs::remove_dir_all(&owner.directory).map_err(|e| e.to_string());
-    match (result, cleanup) {
+    let end = profile.as_deref().map(GenericProofProfile::now);
+    let observer = match started {
+        Err(error) => Err(error),
+        Ok(start) => match (profile.as_deref_mut(), start, end) {
+            (Some(p), Some(start), Some(end)) => p.end(
+                scope,
+                ProofPhase::RootSnapshotCleanup,
+                start,
+                end,
+                cleanup.is_ok(),
+                None,
+            ),
+            _ => Ok(()),
+        },
+    };
+    let result = match (result, cleanup) {
         (Ok(value), Ok(())) => Ok(value),
         (Err(error), Ok(())) => Err(error),
         (Ok(_), Err(error)) => Err(format!("root snapshot cleanup: {error}")),
         (Err(error), Err(cleanup)) => Err(format!("{error}; root snapshot cleanup: {cleanup}")),
+    };
+    // A sidecar error is reported separately from actual checked cleanup.
+    let result = match (result, observer) {
+        (value, Ok(())) => value,
+        (Ok(_), Err(error)) => Err(error),
+        (Err(error), Err(observer)) => Err(format!("{error}; {observer}")),
+    };
+    if result.is_err()
+        && let Some(p) = profile
+    {
+        p.fail();
     }
+    result
 }
 
 fn write_root_snapshot(
@@ -839,34 +948,105 @@ fn verify_root_snapshot(
     prepared: Prepared,
     progress: &mut impl FnMut(&str, Option<u64>) -> Result<(), String>,
 ) -> Result<(), String> {
-    let restored = with_root_snapshot(|_, file| {
-        progress("snapshot_export_started", None)?;
-        let receipt = write_root_snapshot(game, file)?;
-        progress("snapshot_export_complete", Some(receipt.bytes))?;
-        if file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())? != 0 {
-            return Err("root snapshot rewind differs".into());
-        }
-        progress("snapshot_restore_started", None)?;
-        // This is standalone restore, including raw-byte/EOF binding, complete
-        // identity/invariant checks and the unchanged cold accepted-input proof.
-        let restored = Game::restore_from_reader(prepared, file)?;
-        if file.metadata().map_err(|e| e.to_string())?.len() != receipt.bytes {
-            return Err("root snapshot restore length differs from receipt".into());
-        }
-        Ok(restored)
-    })?;
-    // The completed standalone restore owns everything needed by equality.
-    // Release the root file with checked cleanup before either generic proof.
-    progress("snapshot_verification_started", None)?;
-    state_equal(game, &restored)?;
-    drop(restored);
-    progress("snapshot_verified", None)
+    verify_root_snapshot_with_profile(game, prepared, progress, ProofScope::root(4)?, None)
+}
+fn verify_root_snapshot_with_profile(
+    game: &Game,
+    prepared: Prepared,
+    progress: &mut impl FnMut(&str, Option<u64>) -> Result<(), String>,
+    scope: ProofScope,
+    mut profile: Option<&mut GenericProofProfile>,
+) -> Result<(), String> {
+    let result = (|| {
+        // The owner callback borrows the observer for export/restore; cleanup borrows
+        // it afterwards, after the original file handle has closed.
+        let restored =
+            with_root_snapshot_profile_operation(game, prepared, progress, scope, &mut profile)?;
+        progress("snapshot_verification_started", None)?;
+        measured(
+            &mut profile,
+            scope,
+            ProofPhase::StateEqual,
+            |p| state_equal_with_profile(game, &restored, scope, p.as_deref_mut()),
+            |_| None,
+        )?;
+        measured(
+            &mut profile,
+            scope,
+            ProofPhase::RestoredDisposal,
+            |_| {
+                drop(restored);
+                Ok(())
+            },
+            |_| None,
+        )?;
+        progress("snapshot_verified", None)
+    })();
+    if result.is_err()
+        && let Some(p) = profile
+    {
+        p.fail();
+    }
+    result
+}
+
+fn with_root_snapshot_profile_operation(
+    game: &Game,
+    prepared: Prepared,
+    progress: &mut impl FnMut(&str, Option<u64>) -> Result<(), String>,
+    scope: ProofScope,
+    profile: &mut Option<&mut GenericProofProfile>,
+) -> Result<Game, String> {
+    // Take the observer into the operation and return its borrow before cleanup.
+    // with_root_snapshot owns checked cleanup in the same body for None/profile.
+    with_root_snapshot_profile_body(
+        |_, file, profile| {
+            progress("snapshot_export_started", None)?;
+            let receipt = measured(
+                profile,
+                scope,
+                ProofPhase::RootSnapshotExport,
+                |_| write_root_snapshot(game, file),
+                |receipt| Some(receipt.bytes),
+            )?;
+            progress("snapshot_export_complete", Some(receipt.bytes))?;
+            if file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())? != 0 {
+                return Err("root snapshot rewind differs".into());
+            }
+            progress("snapshot_restore_started", None)?;
+            // This is standalone restore, including raw-byte/EOF binding, complete
+            // identity/invariant checks and the unchanged cold accepted-input proof.
+            measured(
+                profile,
+                scope,
+                ProofPhase::RootStandaloneRestore,
+                |_| {
+                    let restored = Game::restore_from_reader(prepared, file)?;
+                    if file.metadata().map_err(|e| e.to_string())?.len() != receipt.bytes {
+                        return Err("root snapshot restore length differs from receipt".into());
+                    }
+                    Ok(restored)
+                },
+                |_| Some(receipt.bytes),
+            )
+        },
+        scope,
+        profile,
+    )
 }
 
 fn checked_root(
+    root: Root,
+    live: usize,
+    progress: &mut impl FnMut(&str, Option<u64>) -> Result<(), String>,
+) -> Result<Root, String> {
+    checked_root_with_profile(root, live, progress, None)
+}
+fn checked_root_with_profile(
     mut root: Root,
     live: usize,
     progress: &mut impl FnMut(&str, Option<u64>) -> Result<(), String>,
+    profile: Option<&mut GenericProofProfile>,
 ) -> Result<Root, String> {
     let departures = match live {
         4 => vec![],
@@ -892,7 +1072,17 @@ fn checked_root(
     }
     // All histories, RNG and command facts are preserved by ordinary recorded
     // core concessions; no player/card table is reconstructed or hand edited.
-    verify_root_snapshot(&root.game, root.prepared.clone(), progress)?;
+    if let Some(profile) = profile {
+        verify_root_snapshot_with_profile(
+            &root.game,
+            root.prepared.clone(),
+            progress,
+            ProofScope::root(live)?,
+            Some(profile),
+        )?;
+    } else {
+        verify_root_snapshot(&root.game, root.prepared.clone(), progress)?;
+    }
     Ok(root)
 }
 fn fork_root(root: &Root) -> Root {
@@ -1584,12 +1774,322 @@ mod root_snapshot_tests {
             assert_eq!(game.snapshot().unwrap(), before);
         }
     }
+    fn profile_events(data: &std::rc::Rc<std::cell::RefCell<Vec<u8>>>) -> Vec<Value> {
+        data.borrow()
+            .split(|b| *b == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| serde_json::from_slice(line).unwrap())
+            .collect()
+    }
+    fn profile_ended(data: &std::rc::Rc<std::cell::RefCell<Vec<u8>>>, phase: &str) -> bool {
+        profile_events(data)
+            .iter()
+            .any(|e| e["kind"] == "end" && e["phase"] == phase && e["outcome"] == "ok")
+    }
+    fn tiny_query(game: &Game) -> (Value, Vec<String>) {
+        let mut next = game.observe(P0, Budget::new(1));
+        let mut prefixes = vec![];
+        loop {
+            match next {
+                QueryResult::Complete(QueryValue::Observation(value)) => {
+                    return (serde_json::to_value(value).unwrap(), prefixes);
+                }
+                QueryResult::Incomplete { work, .. } => {
+                    prefixes.push(game.save_work(&work).unwrap());
+                    next = game.resume_work(work, Budget::new(1));
+                }
+                _ => panic!("tiny observation rejected or wrong type"),
+            }
+        }
+    }
+
+    #[test]
+    fn choice_root_snapshot_profile_parity_real_pending_state_trace_journal_query_and_progress() {
+        for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
+            let game = pending_game(mode);
+            let snapshot = game.snapshot().unwrap();
+            let journal = game.replay_journal();
+            let trace = serde_json::to_vec(game.trace()).unwrap();
+            let digest = game.state_digest().unwrap();
+            let query = tiny_query(&game);
+            let mut plain = vec![];
+            verify_root_snapshot(&game, prepared(), &mut |phase, bytes| {
+                plain.push((phase.to_owned(), bytes));
+                Ok(())
+            })
+            .unwrap();
+            let (mut profile, data) = GenericProofProfile::memory(None);
+            let mut observed = vec![];
+            verify_root_snapshot_with_profile(
+                &game,
+                prepared(),
+                &mut |phase, bytes| {
+                    observed.push((phase.to_owned(), bytes));
+                    Ok(())
+                },
+                ProofScope::root(4).unwrap(),
+                Some(&mut profile),
+            )
+            .unwrap();
+            profile.finish(true).unwrap();
+            assert_eq!(observed, plain);
+            assert_eq!(game.snapshot().unwrap(), snapshot);
+            assert_eq!(game.replay_journal(), journal);
+            assert_eq!(serde_json::to_vec(game.trace()).unwrap(), trace);
+            assert_eq!(game.state_digest().unwrap(), digest);
+            assert_eq!(tiny_query(&game), query);
+            let rows = profile_events(&data);
+            assert_eq!(
+                rows.last().unwrap()["collection_outcome"],
+                "root_collection_complete"
+            );
+            for phase in [
+                "root_snapshot_export",
+                "root_standalone_restore",
+                "root_snapshot_cleanup",
+                "state_equal",
+                "restored_disposal",
+                "complete_generic_byte_eof_equality",
+                "production_state_digest_validation",
+                "operand_a_cleanup",
+                "operand_b_cleanup",
+            ] {
+                assert!(profile_ended(&data, phase), "{phase}");
+            }
+            let cleanup = rows
+                .iter()
+                .position(|e| e["phase"] == "root_snapshot_cleanup" && e["kind"] == "end")
+                .unwrap();
+            let equal = rows
+                .iter()
+                .position(|e| e["phase"] == "state_equal")
+                .unwrap();
+            assert!(cleanup < equal);
+            let operand_phases = rows
+                .iter()
+                .filter(|e| e["phase"] == "canonical_export" && e["kind"] == "begin")
+                .map(|e| e["scope"]["operand"].as_str().unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(operand_phases, ["a", "b"]);
+        }
+    }
+
+    #[test]
+    fn choice_root_snapshot_profile_cancel_each_boundary_and_progress_never_completes() {
+        let game = pending_game(TraceMode::Off);
+        let before = game.snapshot().unwrap();
+        let (mut profile, data) = GenericProofProfile::memory(None);
+        verify_root_snapshot_with_profile(
+            &game,
+            prepared(),
+            &mut |_, _| Ok(()),
+            ProofScope::root(4).unwrap(),
+            Some(&mut profile),
+        )
+        .unwrap();
+        let count = profile_events(&data).len();
+        for record in 1..count {
+            let (mut profile, data) = GenericProofProfile::memory(Some(record));
+            assert!(
+                verify_root_snapshot_with_profile(
+                    &game,
+                    prepared(),
+                    &mut |_, _| Ok(()),
+                    ProofScope::root(4).unwrap(),
+                    Some(&mut profile)
+                )
+                .is_err(),
+                "record {record}"
+            );
+            profile.assert_scratch_released();
+            assert!(profile.finish(true).is_err());
+            assert!(
+                !profile_events(&data)
+                    .iter()
+                    .any(|e| e["collection_outcome"] == "root_collection_complete")
+            );
+            assert_eq!(game.snapshot().unwrap(), before);
+        }
+        for stop in [
+            "snapshot_export_started",
+            "snapshot_export_complete",
+            "snapshot_restore_started",
+            "snapshot_verification_started",
+            "snapshot_verified",
+        ] {
+            let (mut profile, data) = GenericProofProfile::memory(None);
+            assert!(
+                verify_root_snapshot_with_profile(
+                    &game,
+                    prepared(),
+                    &mut |phase, _| {
+                        if phase == stop {
+                            Err("private cancellation payload must never be published".into())
+                        } else {
+                            Ok(())
+                        }
+                    },
+                    ProofScope::root(4).unwrap(),
+                    Some(&mut profile)
+                )
+                .is_err()
+            );
+            assert!(profile.finish(true).is_err());
+            assert_eq!(
+                profile_events(&data).last().unwrap()["collection_outcome"],
+                "error"
+            );
+            assert!(
+                !String::from_utf8(data.borrow().clone())
+                    .unwrap()
+                    .contains("private cancellation")
+            );
+            assert_eq!(game.snapshot().unwrap(), before);
+        }
+    }
+
+    #[test]
+    fn choice_root_snapshot_profile_checked_cleanup_and_combined_error_preserved() {
+        for fail_operation in [false, true] {
+            let (mut profile, data) = GenericProofProfile::memory(None);
+            let mut path = None;
+            let error = with_root_snapshot_with_profile::<()>(
+                |file_path, _| {
+                    path = Some(file_path.parent().unwrap().to_owned());
+                    fs::remove_dir_all(path.as_ref().unwrap()).unwrap();
+                    if fail_operation {
+                        Err("original operation cause".into())
+                    } else {
+                        Ok(())
+                    }
+                },
+                ProofScope::root(4).unwrap(),
+                Some(&mut profile),
+            )
+            .unwrap_err();
+            assert!(error.contains("root snapshot cleanup:"));
+            assert_eq!(error.contains("original operation cause"), fail_operation);
+            assert!(!path.unwrap().exists());
+            assert!(!profile_ended(&data, "root_snapshot_cleanup"));
+            assert!(profile.finish(true).is_err());
+        }
+        // Publication failure at the cleanup BEGIN still performs checked remove.
+        let (mut profile, _) = GenericProofProfile::memory(Some(1));
+        let mut path = None;
+        assert!(
+            with_root_snapshot_with_profile(
+                |file_path, _| {
+                    path = Some(file_path.parent().unwrap().to_owned());
+                    Ok(())
+                },
+                ProofScope::root(4).unwrap(),
+                Some(&mut profile)
+            )
+            .is_err()
+        );
+        assert!(!path.unwrap().exists());
+    }
+
+    #[test]
+    fn choice_state_equal_profile_full_bytes_both_eof_and_final_operand_cleanup_failure() {
+        let game = pending_game(TraceMode::Off);
+        for mode in 0..5 {
+            let aa = generic_state_proof(&game).unwrap();
+            let bb = generic_state_proof(&game).unwrap();
+            let a_dir = aa.directory.clone();
+            let b_dir = bb.directory.clone();
+            match mode {
+                0 => {
+                    // Keep identical SHA/count metadata and identical length;
+                    // the unchanged full byte comparison must catch corruption.
+                    let mut file = fs::OpenOptions::new().write(true).open(&bb.path).unwrap();
+                    file.write_all(b"x").unwrap();
+                }
+                1 => {
+                    fs::OpenOptions::new()
+                        .append(true)
+                        .open(&aa.path)
+                        .unwrap()
+                        .write_all(b"x")
+                        .unwrap();
+                }
+                2 => {
+                    fs::OpenOptions::new()
+                        .append(true)
+                        .open(&bb.path)
+                        .unwrap()
+                        .write_all(b"x")
+                        .unwrap();
+                }
+                _ => {}
+            }
+            let (mut profile, data) = GenericProofProfile::memory(None);
+            if mode >= 3 {
+                // Deterministically fail checked remove after equality/digest
+                // without permission assumptions: directory becomes a plain file.
+                let dir = if mode == 3 { &a_dir } else { &b_dir };
+                let moved = dir.with_extension("profile-test-held");
+                fs::rename(dir, &moved).unwrap();
+                fs::create_dir(dir).unwrap();
+                fs::hard_link(moved.join("state.json"), dir.join("state.json")).unwrap();
+                // The test-only publication callback runs after digest success.
+                // See the local sink hook; no process-wide observer is installed.
+                profile.test_after_phase(ProofPhase::ProductionStateDigestValidation, {
+                    let dir = dir.clone();
+                    move || {
+                        fs::remove_dir_all(&dir).unwrap();
+                        fs::write(&dir, b"cleanup collision").unwrap();
+                    }
+                });
+                let result = finish_state_equality(
+                    &game,
+                    &game,
+                    aa,
+                    bb,
+                    ProofScope::root(4).unwrap(),
+                    Some(&mut profile),
+                );
+                assert!(result.is_err());
+                assert!(profile_ended(&data, "complete_generic_byte_eof_equality"));
+                assert!(profile_ended(&data, "production_state_digest_validation"));
+                assert_eq!(profile_ended(&data, "operand_a_cleanup"), mode == 4);
+                assert!(!profile_ended(&data, "operand_b_cleanup"));
+                fs::remove_file(dir).unwrap();
+                fs::remove_dir_all(moved).unwrap();
+            } else {
+                assert!(
+                    finish_state_equality(
+                        &game,
+                        &game,
+                        aa,
+                        bb,
+                        ProofScope::root(4).unwrap(),
+                        Some(&mut profile)
+                    )
+                    .is_err()
+                );
+                assert!(!profile_ended(&data, "complete_generic_byte_eof_equality"));
+                assert!(!profile_ended(&data, "production_state_digest_validation"));
+            }
+            assert!(profile.finish(true).is_err());
+            assert!(!a_dir.exists());
+            assert!(!b_dir.exists());
+        }
+    }
 }
 
 #[test]
 #[ignore = "explicit fixed shrinking-pod choice diagnostic120s2GiB outerhost required"]
 fn shrinking_pod_choice_diagnostic() {
     let output = private_output("MTG_SHRINKING_CHOICE_OUTPUT").unwrap();
+    // Read only here, after the existing private report path validation.
+    let mut profile = match std::env::var_os("MTG_SHRINKING_PROOF_PHASE_V1") {
+        None => None,
+        Some(value) if value == "1" => Some(
+            GenericProofProfile::create(output.parent().expect("private output parent")).unwrap(),
+        ),
+        Some(_) => panic!("MTG_SHRINKING_PROOF_PHASE_V1 must be exactly1"),
+    };
     let mut file = fs::OpenOptions::new()
         .create_new(true)
         .write(true)
@@ -1610,7 +2110,7 @@ fn shrinking_pod_choice_diagnostic() {
         report["selected_three"] = json!(root.three);
         publish(&mut file, &report)?;
         for live in [4, 3, 2] {
-            let row_root = checked_root(fork_root(&root), live, &mut |phase, bytes| {
+            let mut progress = |phase: &str, bytes| {
                 // Keep the strict final preparation_progress shape and report
                 // keys unchanged. Only this existing transient status changes;
                 // each publish syncs it durably before the next expensive phase.
@@ -1619,7 +2119,17 @@ fn shrinking_pod_choice_diagnostic() {
                     None => format!("checked_root_{live}_{phase}"),
                 });
                 publish(&mut file, &report)
-            })?;
+            };
+            let row_root = if let Some(profile) = profile.as_mut() {
+                checked_root_with_profile(fork_root(&root), live, &mut progress, Some(profile))?
+            } else {
+                checked_root(fork_root(&root), live, &mut progress)?
+            };
+            if live == 2
+                && let Some(mut profile) = profile.take()
+            {
+                profile.finish(true)?;
+            }
             report["status"] = json!("preparing");
             let mut meter = Meter::default();
             let o = own_observation(&row_root.game, P0, 64, &mut meter)?;
@@ -1662,6 +2172,16 @@ fn shrinking_pod_choice_diagnostic() {
         }
         Ok(())
     })();
+    let result = match profile.as_mut() {
+        Some(profile) => match profile.finish(false) {
+            Ok(()) => result,
+            Err(observer) => Err(match result {
+                Ok(()) => observer,
+                Err(error) => format!("{error}; {observer}"),
+            }),
+        },
+        None => result,
+    };
     report["status"] = json!(if result.is_ok() {
         "complete105_cells630_repetitions_verified"
     } else {
