@@ -269,6 +269,103 @@ class Streams(unittest.TestCase):
         self.reject(lambda r: r.pop(next(i for i, e in enumerate(r) if e['kind'] == 'checkpoint')))
         self.reject(lambda r: r.insert(10, copy.deepcopy(r[9])))
 
+    def checkpoint_delta(self, rows, group, duration):
+        """Prefix 3 has no receipt; prefixes 2 -> 4 have 190ns elapsed."""
+        checkpoints = [e for e in rows if e['kind'] == 'checkpoint'
+                       and e['scope']['viewer'] == 0 and e['scope']['quantum'] == 1]
+        before, after = [next(e for e in checkpoints if e['last_completed_prefix'] == n)
+                         for n in (2, 4)]
+        self.assertEqual(after['at_ns'] - before['at_ns'], 190)
+        prior = next(t[2] for t in before['totals'] if t[0] == group)
+        current = next(t[2] for t in after['totals'] if t[0] == group)
+        for e in checkpoints:
+            if e['last_completed_prefix'] >= 4:
+                next(t for t in e['totals'] if t[0] == group)[2] += duration - (current - prior)
+
+    def test_checkpoint_191ns_group_work_in_190ns_rejected(self):
+        for group in range(6):
+            with self.subTest(group=group):
+                rows = copy.deepcopy(self.fixture)
+                self.checkpoint_delta(rows, group, 191)
+                with self.assertRaises(ValueError): self.check(rows)
+                result = self.check(rows, partial=True)
+                self.assertEqual(result['status'], 'failed_or_partial')
+
+    def test_checkpoint_duration_equal_to_elapsed_is_valid(self):
+        for group in range(6):
+            with self.subTest(group=group):
+                rows = copy.deepcopy(self.fixture)
+                self.checkpoint_delta(rows, group, 190)
+                self.assertEqual(self.check(rows)['status'], 'complete_collection_only')
+
+    def set_duration(self, rows, end, duration):
+        """Keep sampled group facts and cumulative receipts mutually consistent."""
+        old = end['duration_ns']
+        end['duration_ns'] = duration
+        if end['phase'] in p.GROUPS and end['scope']['query_kind'] == 'search':
+            group = p.GROUPS.index(end['phase'])
+            for e in rows[end['seq'] + 1:]:
+                if (e['kind'] == 'checkpoint'
+                        and all(e['scope'][k] == end['scope'][k] for k in ('viewer', 'quantum'))):
+                    next(t for t in e['totals'] if t[0] == group)[2] += duration - old
+
+    def test_zero_snapshot_parent_with_positive_children_rejected(self):
+        for proof in ('root', 'firstwrite'):
+            with self.subTest(proof=proof):
+                rows = copy.deepcopy(self.fixture)
+                end = next(e for e in rows if e.get('phase') == 'snapshot_proof'
+                           and e['kind'] == 'end' and e['scope']['proof_kind'] == proof)
+                end['duration_ns'] = 0
+                with self.assertRaises(ValueError): self.check(rows)
+
+    def test_all_actual_nested_parents_require_inclusive_duration(self):
+        for phase in ('query_proof', 'lazy_zero', 'completed_result', 'sparse_cold_proof',
+                      'sparse_saved_envelope_comparison', 'restored_scratch'):
+            with self.subTest(phase=phase):
+                rows = copy.deepcopy(self.fixture)
+                end = next(e for e in rows if e.get('phase') == phase and e['kind'] == 'end'
+                           and e['scope']['query_kind'] == 'search')
+                self.set_duration(rows, end, 0)
+                with self.assertRaises(ValueError): self.check(rows)
+
+    def test_inclusive_parent_exact_clock_boundary_and_one_ns_short(self):
+        # StandaloneRestoreInclusive has no instrumented children. The other
+        # snapshot phases are sequential siblings, outside that restore phase.
+        for phase in ('snapshot_proof', 'lazy_zero', 'completed_result', 'sparse_cold_proof',
+                      'sparse_saved_envelope_comparison', 'restored_scratch', 'query_proof'):
+            with self.subTest(phase=phase):
+                rows = copy.deepcopy(self.fixture)
+                begin = next(e for e in rows if e.get('phase') == phase and e['kind'] == 'begin'
+                             and (phase != 'query_proof' or e['scope']['query_kind'] == 'search'))
+                end = next(e for e in rows[begin['seq'] + 1:] if e.get('phase') == phase
+                           and e['kind'] == 'end' and e['scope'] == begin['scope'])
+                child = rows[begin['seq'] + 1]
+                self.assertEqual(child['kind'], 'begin')
+                bound = end['at_ns'] - child['at_ns']
+                self.set_duration(rows, end, bound)
+                self.assertEqual(self.check(rows)['status'], 'complete_collection_only')
+                self.set_duration(rows, end, bound - 1)
+                with self.assertRaises(ValueError): self.check(rows)
+
+    def test_zero_resolution_clocks_and_zero_duration_leaf_phases_valid(self):
+        rows = copy.deepcopy(self.fixture)
+        for e in rows:
+            if 'at_ns' in e: e['at_ns'] = 0
+            if e['kind'] == 'end': e['duration_ns'] = 0
+            if e['kind'] == 'checkpoint':
+                for t in e['totals']: t[2] = 0
+        self.assertEqual(self.check(rows)['status'], 'complete_collection_only')
+        rows = copy.deepcopy(self.fixture)
+        for e in rows:
+            if e['kind'] == 'end' and e.get('phase') == 'standalone_restore_inclusive':
+                e['duration_ns'] = 0
+        self.assertEqual(self.check(rows)['status'], 'complete_collection_only')
+
+    def test_power_of_two_final_sampling_multiple_viewers_and_quantums_valid(self):
+        histories = (103, 615, 0, 1)  # 512/1024 units: sampled finals in q1 and q64.
+        rows = events(histories=histories)
+        self.assertEqual(self.check(rows, histories=histories)['status'], 'complete_collection_only')
+
     def test_resequenced_omissions_duplicates_and_terminal_cannot_bypass_grammar(self):
         for phase in ('root_prepare', 'query_proof', 'quantum_setup', 'sparse_cold_save',
                       'budget_first_write', 'snapshot_proof', 'checked_directory_cleanup', 'final_root_digest'):

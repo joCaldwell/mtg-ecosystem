@@ -336,6 +336,7 @@ def validate_stream(stream, build, case, histories=None, partial=False):
     digest = hashlib.sha256()
     stack, sampled, prior_totals = [], [[0, 0, 0] for _ in GROUPS], [[0, 0, 0] for _ in GROUPS]
     prior_sampled = [[0, 0, 0] for _ in GROUPS]
+    prior_checkpoint_at = None
     previous, failed, receipt = 0, False, None
     try:
         while True:
@@ -392,6 +393,9 @@ def validate_stream(stream, build, case, histories=None, partial=False):
                         sampled = [[0, 0, 0] for _ in GROUPS]
                         prior_totals = [[0, 0, 0] for _ in GROUPS]
                         prior_sampled = [[0, 0, 0] for _ in GROUPS]
+                        # quantum() resets totals before QuantumSetup begins.
+                        # Every later delta starts at the preceding checkpoint.
+                        prior_checkpoint_at = at
                     if kind == 'checkpoint':
                         shape(e, 'schema kind seq scope at_ns last_completed_prefix totals')
                         need(not failed and len(stack) == 1 and stack[0][0] == 'query_proof', 'checkpoint outside prefix work')
@@ -415,6 +419,11 @@ def validate_stream(stream, build, case, histories=None, partial=False):
                         for i, total in enumerate(totals):
                             need(total[0] == counts[i], 'all-prefix completed count')
                             need(total[1] <= at, 'completed nonoverlapping group time')
+                            # Calls within ONE group are sequential. Different
+                            # groups may overlap (SparseColdProof contains other
+                            # groups), so never sum durations across groups.
+                            need(total[1] - prior_totals[i][1] <= at - prior_checkpoint_at,
+                                 'completed group time within checkpoint interval')
                             if i not in (3, 4, 5):
                                 need(total[2] == 0, 'group has no bytes')
                             for k in range(3):
@@ -426,6 +435,7 @@ def validate_stream(stream, build, case, histories=None, partial=False):
                         need(totals[3][2] == totals[4][2] == totals[5][2], 'full comparator byte equality')
                         prior_totals = totals
                         prior_sampled = [row[:] for row in sampled]
+                        prior_checkpoint_at = at
                         result['checkpoints'].append({**s, 'at_ns': at, 'totals': rows})
                     else:
                         shape(e, 'schema kind seq scope phase at_ns duration_ns outcome bytes')
@@ -434,12 +444,22 @@ def validate_stream(stream, build, case, histories=None, partial=False):
                         if kind == 'begin':
                             need(not failed and next(expected, None) == (kind, phase, s), 'phase sequence/context')
                             need(e['duration_ns'] is None and e['outcome'] is None and e['bytes'] is None, 'begin nulls')
-                            stack.append((phase, s, at))
+                            if stack and stack[-1][3] is None:
+                                stack[-1][3] = at
+                            stack.append([phase, s, at, None])
                         else:
-                            need(stack and stack[-1][:2] == (phase, s), 'paired phase scope')
-                            _, _, begin = stack.pop()
+                            need(stack and stack[-1][:2] == [phase, s], 'paired phase scope')
+                            _, _, begin, first_child_at = stack.pop()
                             duration = integer(e['duration_ns'])
                             need(duration <= at - begin, 'duration interval')
+                            # Rust begin() publishes before taking the operation
+                            # clock; end.at_ns IS the operation end clock. Thus
+                            # end-duration must precede every nested begin. This
+                            # includes sequential siblings and their gaps once,
+                            # without double counting inclusive descendants.
+                            if first_child_at is not None:
+                                need(at - duration <= first_child_at,
+                                     'inclusive parent contains nested phases')
                             need(e['outcome'] in ('ok', 'error'), 'phase outcome')
                             if e['outcome'] == 'ok':
                                 need(not failed and next(expected, None) == (kind, phase, s), 'successful phase sequence')
@@ -471,7 +491,7 @@ def validate_stream(stream, build, case, histories=None, partial=False):
             raise ValueError('invalid supplementary profile') from error
         result['validation_error'] = 'invalid_or_incomplete_profile'
     result['sha256'] = digest.hexdigest()
-    result['unclosed_begins'] = [{**s, 'phase': phase, 'begin_at_ns': at} for phase, s, at in stack]
+    result['unclosed_begins'] = [{**s, 'phase': phase, 'begin_at_ns': at} for phase, s, at, _ in stack]
     result['hash_scope'] = 'all_file_bytes' if result['status'] == 'complete_collection_only' else 'bounded_inspected_prefix_only'
     return result
 
