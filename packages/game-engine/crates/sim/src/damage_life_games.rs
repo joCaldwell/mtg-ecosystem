@@ -746,7 +746,7 @@ fn assert_outcome(run: &Run, policy: Policy) -> Result<(), String> {
             .iter()
             .filter_map(|event| match event {
                 Event::Committed {
-                    actual: mtg_core::EventOutcome::NoncombatDamageDealt { damage, result },
+                    actual: mtg_core::EventOutcome::NoncombatDamageDealt { damage, result, .. },
                     ..
                 } => Some((damage, result)),
                 _ => None,

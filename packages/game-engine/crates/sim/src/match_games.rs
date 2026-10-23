@@ -369,7 +369,65 @@ impl Strategy<'_> {
                 };
                 PlayerResponse::Attackers { attacks }
             }
-            PlayerRequest::Blockers { .. } => PlayerResponse::Blockers { blocks: vec![] },
+            PlayerRequest::Blockers {
+                legal_attackers, ..
+            } => {
+                let mut blocks = vec![];
+                let mut blocked = Vec::new();
+                if self.policy == Policy::Develop {
+                    for hint in legal_attackers {
+                        let blocker = v
+                            .objects
+                            .iter()
+                            .find(|o| o.handle == hint.blocker)
+                            .ok_or("missing public blocker")?;
+                        let bd = definition(self.catalog, &blocker.oracle_id)?;
+                        let toughness = blocker
+                            .characteristics
+                            .as_ref()
+                            .unwrap_or(&bd.characteristics)
+                            .toughness
+                            .as_ref()
+                            .ok_or("missing blocker toughness")?;
+                        for attacker in &hint.attackers {
+                            if blocked.contains(attacker) {
+                                continue;
+                            }
+                            let a = v
+                                .objects
+                                .iter()
+                                .find(|o| &o.handle == attacker)
+                                .ok_or("missing public attacker")?;
+                            let ad = definition(self.catalog, &a.oracle_id)?;
+                            let power = a
+                                .characteristics
+                                .as_ref()
+                                .unwrap_or(&ad.characteristics)
+                                .power
+                                .clone()
+                                .unwrap_or_default()
+                                .max(Quantity::zero());
+                            let mut marked = blocker.marked_damage.clone();
+                            marked.add(&power);
+                            let survives = marked < *toughness
+                                && (power == Quantity::zero()
+                                    || !ad
+                                        .keywords
+                                        .contains(&mtg_contracts::KeywordAbility::Deathtouch));
+                            if survives
+                                || bd
+                                    .keywords
+                                    .contains(&mtg_contracts::KeywordAbility::Deathtouch)
+                            {
+                                blocks.push((hint.blocker.clone(), attacker.clone()));
+                                blocked.push(attacker.clone());
+                                break;
+                            }
+                        }
+                    }
+                }
+                PlayerResponse::Blockers { blocks }
+            }
             PlayerRequest::Damage {
                 power, recipients, ..
             } => PlayerResponse::Damage {
@@ -531,7 +589,7 @@ pub(super) fn run(
     }
     let prepared =
         Prepared::admit_pod(catalog.clone(), config.clone()).map_err(|e| format!("{e:?}"))?;
-    let trace_mode = if config.seed == seed(0) || policy == Policy::DrawOnly {
+    let trace_mode = if config.seed == seed_for(&config.profile, 0) || policy == Policy::DrawOnly {
         TraceMode::Detailed
     } else {
         TraceMode::Off
@@ -544,7 +602,8 @@ pub(super) fn run(
         mulligans,
         beneficial: false,
     };
-    let selected_checkpoints = config.seed == seed(0) && policy == Policy::Develop;
+    let selected_checkpoints =
+        config.seed == seed_for(&config.profile, 0) && policy == Policy::Develop;
     let mut checkpoints = vec![];
     if selected_checkpoints {
         checkpoints.push(Checkpoint {
@@ -679,7 +738,10 @@ pub(super) fn run(
 }
 pub(super) fn seed(index: u32) -> [u8; 32] {
     // Domain and index are fixed before running the acceptance batch.
-    let hex = sha256(format!("commander-foundations-v1/completion-batch/{index}").as_bytes());
+    seed_for(mtg_core::MATCH_PROFILE, index)
+}
+pub(super) fn seed_for(profile: &str, index: u32) -> [u8; 32] {
+    let hex = sha256(format!("{profile}/completion-batch/{index}").as_bytes());
     std::array::from_fn(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).expect("SHA256 hex"))
 }
 
@@ -780,18 +842,29 @@ fn verify_terminal_result(game: &Game, e: &Evidence) -> Result<(), String> {
     Ok(())
 }
 pub(super) fn batch(catalog: &Catalog, directory: &Path) -> Result<serde_json::Value, String> {
+    let profile = if catalog.schema_version == 12 {
+        mtg_core::KEYWORDS_PROFILE
+    } else {
+        mtg_core::MATCH_PROFILE
+    };
+    let profile_spec = mtg_core::match_profile(profile).ok_or("unknown batch profile")?;
     fs::create_dir(directory).map_err(|e| e.to_string())?;
-    let manifest = serde_json::json!({"profile":"commander-foundations-v1","policy":"develop-v1","seed_domain":"commander-foundations-v1/completion-batch/","seed_indices":(0..16).collect::<Vec<u32>>(),"starting_seat":"index modulo4","mulligans":"(index+seat) modulo3","additional":"index16 all-white;index17 all-black-green","decision_limit":DECISION_LIMIT,"turn_limit":TURN_LIMIT,"shared_work_limit":WORK_LIMIT,"quantum":1024,"required_complete":18,"allowed_faults":0,"allowed_truncations":0,"build_id":BUILD_ID,"catalog_sha256":mtg_contracts::digest(catalog)?});
+    let manifest = serde_json::json!({"profile":profile,"policy":"develop-v1","seed_domain":format!("{profile}/completion-batch/"),"seed_indices":(0..16).collect::<Vec<u32>>(),"starting_seat":"index modulo4","mulligans":"(index+seat) modulo3","additional":"index16 all-white;index17 all-black-green","decision_limit":DECISION_LIMIT,"turn_limit":TURN_LIMIT,"shared_work_limit":WORK_LIMIT,"quantum":1024,"required_complete":18,"allowed_faults":0,"allowed_truncations":0,"build_id":BUILD_ID,"catalog_sha256":mtg_contracts::digest(catalog)?});
     fs::write(directory.join("manifest.json"), canonical(&manifest)?).map_err(|e| e.to_string())?;
     let mut reports = vec![];
     let mut failures = vec![];
     for index in 0..18u32 {
-        let mut config = MatchConfig::foundations(seed(index), PlayerId((index % 4) as u8));
+        let mut config = MatchConfig::for_profile(
+            profile,
+            seed_for(profile, index),
+            PlayerId((index % 4) as u8),
+        )
+        .map_err(|e| e.to_string())?;
         if index == 16 {
-            config.decks = std::array::from_fn(|_| mtg_core::white_deck());
+            config.decks = std::array::from_fn(|_| (profile_spec.white_deck)());
         }
         if index == 17 {
-            config.decks = std::array::from_fn(|_| mtg_core::black_green_deck());
+            config.decks = std::array::from_fn(|_| (profile_spec.black_green_deck)());
         }
         eprintln!("running legal Commander batch seed{index}");
         let e = match run(
@@ -819,7 +892,8 @@ pub(super) fn batch(catalog: &Catalog, directory: &Path) -> Result<serde_json::V
             canonical(&e)?,
         )
         .map_err(|e| e.to_string())?;
-        let replay = verify_replay(catalog, &e);
+        let replay =
+            verify_suite_entry(index as usize, &e).and_then(|()| verify_replay(catalog, &e));
         if !matches!(e.outcome.as_str(), "finished" | "draw") || replay.is_err() {
             failures.push(
                 serde_json::json!({"index":index,"outcome":e.outcome,"replay_error":replay.as_ref().err()}),
@@ -879,12 +953,18 @@ pub(super) fn verify_suite(catalog: &Catalog, evidence: &[Evidence]) -> Result<(
     Ok(())
 }
 fn verify_suite_entry(index: usize, e: &Evidence) -> Result<(), String> {
-    let mut config = MatchConfig::foundations(seed(index as u32), PlayerId((index % 4) as u8));
+    let profile = mtg_core::match_profile(&e.config.profile).ok_or("unknown completion profile")?;
+    let mut config = MatchConfig::for_profile(
+        profile.name,
+        seed_for(profile.name, index as u32),
+        PlayerId((index % 4) as u8),
+    )
+    .map_err(|e| e.to_string())?;
     if index == 16 {
-        config.decks = std::array::from_fn(|_| mtg_core::white_deck());
+        config.decks = std::array::from_fn(|_| (profile.white_deck)());
     }
     if index == 17 {
-        config.decks = std::array::from_fn(|_| mtg_core::black_green_deck());
+        config.decks = std::array::from_fn(|_| (profile.black_green_deck)());
     }
     let trace_mode = if index == 0 {
         TraceMode::Detailed
