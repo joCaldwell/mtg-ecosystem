@@ -366,6 +366,69 @@ pub mod fixtures {
             include_str!("../../../tests/fixtures/wall-of-vines.json"),
         ),
     ];
+    pub const KEYWORD_RECORDS: [(&str, &str); 16] = [
+        MATCH_RECORDS[40],
+        (
+            "healers-hawk",
+            include_str!("../../../tests/fixtures/healers-hawk.json"),
+        ),
+        (
+            "ajanis-sunstriker",
+            include_str!("../../../tests/fixtures/ajanis-sunstriker.json"),
+        ),
+        (
+            "canopy-spider",
+            include_str!("../../../tests/fixtures/canopy-spider.json"),
+        ),
+        (
+            "angelic-wall",
+            include_str!("../../../tests/fixtures/angelic-wall.json"),
+        ),
+        (
+            "serra-angel",
+            include_str!("../../../tests/fixtures/serra-angel.json"),
+        ),
+        (
+            "banehound",
+            include_str!("../../../tests/fixtures/banehound.json"),
+        ),
+        (
+            "alpine-watchdog",
+            include_str!("../../../tests/fixtures/alpine-watchdog.json"),
+        ),
+        (
+            "deadly-recluse",
+            include_str!("../../../tests/fixtures/deadly-recluse.json"),
+        ),
+        (
+            "crazed-skirge",
+            include_str!("../../../tests/fixtures/crazed-skirge.json"),
+        ),
+        (
+            "greenwood-sentinel",
+            include_str!("../../../tests/fixtures/greenwood-sentinel.json"),
+        ),
+        (
+            "dragon-sniper",
+            include_str!("../../../tests/fixtures/dragon-sniper.json"),
+        ),
+        (
+            "child-of-night",
+            include_str!("../../../tests/fixtures/child-of-night.json"),
+        ),
+        (
+            "typhoid-rats",
+            include_str!("../../../tests/fixtures/typhoid-rats.json"),
+        ),
+        (
+            "giant-spider",
+            include_str!("../../../tests/fixtures/giant-spider.json"),
+        ),
+        (
+            "vampire-nighthawk",
+            include_str!("../../../tests/fixtures/vampire-nighthawk.json"),
+        ),
+    ];
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -1127,6 +1190,18 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                 match keyword.keyword.as_str() {
                                     "defender" => {
                                         definition.keywords.push(KeywordAbility::Defender)
+                                    }
+                                    "flying" => definition.keywords.push(KeywordAbility::Flying),
+                                    "reach" => definition.keywords.push(KeywordAbility::Reach),
+                                    "vigilance" => {
+                                        definition.keywords.push(KeywordAbility::Vigilance)
+                                    }
+                                    "haste" => definition.keywords.push(KeywordAbility::Haste),
+                                    "lifelink" => {
+                                        definition.keywords.push(KeywordAbility::Lifelink)
+                                    }
+                                    "deathtouch" => {
+                                        definition.keywords.push(KeywordAbility::Deathtouch)
                                     }
                                     _ => {
                                         return Err(unsupported(
@@ -1906,6 +1981,20 @@ pub fn match_fixture_catalog() -> Result<Catalog, String> {
     catalog_from_records(&records, 11)
 }
 
+/// Separate IR-v12 closure; do not expand the historical v11 catalog.
+pub fn keywords_fixture_catalog() -> Result<Catalog, String> {
+    let mut catalog = match_fixture_catalog()?;
+    catalog.schema_version = 12;
+    catalog
+        .definitions
+        .extend(catalog_from_records(&fixtures::KEYWORD_RECORDS, 12)?.definitions);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate()?;
+    Ok(catalog)
+}
+
 fn catalog_from_records(records: &[(&str, &str)], schema_version: u32) -> Result<Catalog, String> {
     let mut definitions = vec![];
     for (_, r) in records {
@@ -1946,6 +2035,61 @@ mod tests {
             .find(|(n, _)| *n == name)
             .unwrap()
             .1
+    }
+    #[test]
+    fn keywords_v12_complete_sources_and_downgrade_pairs() {
+        let catalog = keywords_fixture_catalog().unwrap();
+        assert_eq!(catalog.schema_version, 12);
+        assert_eq!(catalog.definitions.len(), 50);
+        for old in match_fixture_catalog().unwrap().definitions {
+            assert_eq!(
+                catalog
+                    .definitions
+                    .iter()
+                    .find(|d| d.oracle_id == old.oracle_id),
+                Some(&old)
+            );
+        }
+        for (name, raw) in fixtures::KEYWORD_RECORDS {
+            let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
+                panic!("{name}")
+            };
+            let source: serde_json::Value = serde_json::from_str(raw).unwrap();
+            let expected = source["faces"][0]["result"]["abilities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .flat_map(|a| a["keywords"].as_array().unwrap())
+                .map(|k| k["keyword"].as_str().unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                serde_json::to_value(&definition.keywords).unwrap(),
+                serde_json::json!(expected)
+            );
+            for version in 3..=11 {
+                let mut bad = catalog.clone();
+                bad.schema_version = version;
+                bad.definitions = vec![*definition.clone()];
+                assert!(bad.validate().is_err(), "{name} v{version}");
+            }
+            for keyword in [
+                serde_json::json!({"keyword":"trample"}),
+                serde_json::json!({"keyword":"haste","amount":1}),
+            ] {
+                let changed = changed_source(raw, |r| {
+                    r["faces"][0]["result"]["abilities"][0]["keywords"][0] = keyword;
+                    r["faces"][0]["result"]["lines"][0]["ability"] =
+                        r["faces"][0]["result"]["abilities"][0].clone();
+                });
+                assert!(
+                    !matches!(
+                        compile(fixtures::MANIFEST, &changed),
+                        CompileResult::Lowered { .. }
+                    ),
+                    "{name}"
+                );
+            }
+        }
     }
     #[test]
     fn defender_lowers_complete_keyword_without_widening_previous_catalog() {
@@ -2002,7 +2146,7 @@ mod tests {
         );
         assert!(matches!(
             compile(fixtures::MANIFEST, match_record("wall-of-vines")),
-            CompileResult::Unsupported { .. }
+            CompileResult::Lowered { .. }
         ));
         let raw = changed_source(match_record("wall-of-wood"), |r| {
             r["source"]["name"] = "Source shape independent".into();
@@ -2017,14 +2161,15 @@ mod tests {
     fn defender_whole_source_and_ir_fields_reject_unknown_keyword_semantics() {
         type Mutation = fn(&mut serde_json::Value);
         for mutate in [
-            (|a: &mut serde_json::Value| a["keywords"][0]["keyword"] = "reach".into()) as Mutation,
+            (|a: &mut serde_json::Value| a["keywords"][0]["keyword"] = "trample".into())
+                as Mutation,
             |a| a["keywords"][0]["condition"] = true.into(),
             |a| a["keywords"].as_array_mut().unwrap().clear(),
             |a| {
                 a["keywords"]
                     .as_array_mut()
                     .unwrap()
-                    .push(serde_json::json!({"keyword":"flying"}))
+                    .push(serde_json::json!({"keyword":"menace"}))
             },
         ] {
             let raw = changed_source(match_record("wall-of-wood"), |r| {
@@ -2059,7 +2204,7 @@ mod tests {
         bad.capabilities = bad.requirements();
         assert!(bad.validate().is_err());
         let mut raw = serde_json::to_value(wall).unwrap();
-        raw["keywords"] = serde_json::json!(["reach"]);
+        raw["keywords"] = serde_json::json!(["menace"]);
         assert!(strict_read::<Definition>(&canonical(&raw).unwrap()).is_err());
         raw["keywords"] = serde_json::json!([{"defender":null}]);
         assert!(strict_read::<Definition>(&canonical(&raw).unwrap()).is_err());
@@ -2713,7 +2858,7 @@ mod tests {
         for name in ["furnace-of-rath", "samite-healer"] {
             let extra = changed_source(effect_record(name), |r| {
                 let unknown =
-                    serde_json::json!({"kind":"keywords","keywords":[{"keyword":"flying"}]});
+                    serde_json::json!({"kind":"keywords","keywords":[{"keyword":"menace"}]});
                 r["faces"][0]["result"]["abilities"]
                     .as_array_mut()
                     .unwrap()
@@ -2721,9 +2866,9 @@ mod tests {
                 r["faces"][0]["result"]["lines"]
                     .as_array_mut()
                     .unwrap()
-                    .push(serde_json::json!({"text":"Flying","ok":true,"ability":unknown}));
+                    .push(serde_json::json!({"text":"Menace","ok":true,"ability":unknown}));
                 r["source"]["oracle_text"] =
-                    format!("{}\nFlying", r["source"]["oracle_text"].as_str().unwrap()).into();
+                    format!("{}\nMenace", r["source"]["oracle_text"].as_str().unwrap()).into();
             });
             assert!(
                 matches!(
@@ -2795,7 +2940,7 @@ mod tests {
             );
         }
         let mut future = c;
-        future.schema_version = 12;
+        future.schema_version = 13;
         assert!(future.validate().is_err());
     }
     #[test]
@@ -3081,8 +3226,8 @@ mod tests {
         }
         let extra = changed_source(fixtures::TRIGGER_RECORDS[23].1, |r| {
             let original = r["source"]["oracle_text"].as_str().unwrap();
-            r["source"]["oracle_text"] = format!("{original}\nFlying").into();
-            let ability = serde_json::json!({"kind":"keywords","keywords":[{"keyword":"flying"}]});
+            r["source"]["oracle_text"] = format!("{original}\nMenace").into();
+            let ability = serde_json::json!({"kind":"keywords","keywords":[{"keyword":"menace"}]});
             r["faces"][0]["result"]["abilities"]
                 .as_array_mut()
                 .unwrap()
@@ -3090,7 +3235,7 @@ mod tests {
             r["faces"][0]["result"]["lines"]
                 .as_array_mut()
                 .unwrap()
-                .push(serde_json::json!({"text":"Flying","ok":true,"ability":ability}));
+                .push(serde_json::json!({"text":"Menace","ok":true,"ability":ability}));
         });
         assert!(matches!(
             compile(fixtures::MANIFEST, &extra),
@@ -3155,7 +3300,7 @@ mod tests {
             assert!(Catalog::read(&bad).is_err());
         }
         let mut bad = c;
-        bad.schema_version = 12;
+        bad.schema_version = 13;
         assert!(bad.validate().is_err());
     }
 
@@ -3419,7 +3564,7 @@ mod tests {
             }
         }
         let mut bad = catalog.clone();
-        bad.schema_version = 12;
+        bad.schema_version = 13;
         assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
         for change in [
             (|d: &mut Definition| {
@@ -3715,7 +3860,7 @@ mod tests {
             ));
             let raw = changed_source(source, |r| {
                 let original = r["source"]["oracle_text"].as_str().unwrap();
-                r["source"]["oracle_text"] = format!("{original}\nFlying").into();
+                r["source"]["oracle_text"] = format!("{original}\nMenace").into();
             });
             assert!(matches!(
                 compile(fixtures::MANIFEST, &raw),
@@ -3727,7 +3872,7 @@ mod tests {
     #[test]
     fn stack_vocabulary_requires_ir6_and_rejects_bad_binding_and_capability_closure() {
         let catalog = stack_fixture_catalog().unwrap();
-        for version in [3, 4, 5, 12] {
+        for version in [3, 4, 5, 13] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -3800,7 +3945,7 @@ mod tests {
             }),
             (3, |r| {
                 r["faces"][0]["result"]["abilities"] =
-                    serde_json::json!([{"kind":"keywords","keywords":[{"keyword":"flying"}]}]);
+                    serde_json::json!([{"kind":"keywords","keywords":[{"keyword":"menace"}]}]);
             }),
             (1, |r| {
                 r["source"]["toughness"] = "*".into();
@@ -3809,7 +3954,7 @@ mod tests {
                 r["source"].as_object_mut().unwrap().remove("power");
             }),
             (2, |r| {
-                r["source"]["oracle_text"] = "Flying".into();
+                r["source"]["oracle_text"] = "Menace".into();
             }),
             (3, |r| {
                 r["source"]["mana_cost"] = "{X}{U}".into();
@@ -3931,7 +4076,7 @@ mod tests {
         let c = fixture_catalog().unwrap();
         let raw = canonical(&c).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":3", "\"schema_version\":12"),
+            raw.replace("\"schema_version\":3", "\"schema_version\":13"),
             raw.replace("\"op\":\"return_to_owner_hand\"", "\"op\":\"execute_text\""),
             raw.replace("\"target_slot\":0", "\"target_slot\":99"),
             raw.replace("\"source_block\":0", "\"unknown\":true,\"source_block\":0"),
@@ -4471,7 +4616,7 @@ mod tests {
     #[test]
     fn action_ir_version_shapes_and_target_domains_are_strict() {
         let catalog = action_fixture_catalog().unwrap();
-        for version in [3, 4, 12] {
+        for version in [3, 4, 13] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -4595,7 +4740,7 @@ mod tests {
         assert!(old.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":4", "\"schema_version\":12"),
+            raw.replace("\"schema_version\":4", "\"schema_version\":13"),
             raw.replace(
                 "\"op\":\"put_on_top_owner_library\"",
                 "\"op\":\"put_on_bottom_owner_library\"",
@@ -4713,8 +4858,8 @@ mod tests {
         // abilities disappear during complete-card lowering.
         for (text, ability) in [
             (
-                "Flying",
-                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"flying"}]}),
+                "Menace",
+                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"menace"}]}),
             ),
             (
                 "First strike",

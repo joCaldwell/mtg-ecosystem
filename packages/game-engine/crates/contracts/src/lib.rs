@@ -155,6 +155,12 @@ pub enum Capability {
     InterveningIfV1,
     ModalChoiceV1,
     DefenderV1,
+    FlyingV1,
+    ReachV1,
+    VigilanceV1,
+    HasteV1,
+    LifelinkV1,
+    DeathtouchV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -379,6 +385,12 @@ pub struct SourceProvenance {
 #[serde(rename_all = "snake_case")]
 pub enum KeywordAbility {
     Defender,
+    Flying,
+    Reach,
+    Vigilance,
+    Haste,
+    Lifelink,
+    Deathtouch,
 }
 impl<'de> Deserialize<'de> for KeywordAbility {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -386,7 +398,25 @@ impl<'de> Deserialize<'de> for KeywordAbility {
         // alternative externally-tagged unit-map spelling as an IR vocabulary.
         match String::deserialize(d)?.as_str() {
             "defender" => Ok(Self::Defender),
-            other => Err(de::Error::unknown_variant(other, &["defender"])),
+            "flying" => Ok(Self::Flying),
+            "reach" => Ok(Self::Reach),
+            "vigilance" => Ok(Self::Vigilance),
+            "haste" => Ok(Self::Haste),
+            "lifelink" => Ok(Self::Lifelink),
+            "deathtouch" => Ok(Self::Deathtouch),
+
+            other => Err(de::Error::unknown_variant(
+                other,
+                &[
+                    "defender",
+                    "flying",
+                    "reach",
+                    "vigilance",
+                    "haste",
+                    "lifelink",
+                    "deathtouch",
+                ],
+            )),
         }
     }
 }
@@ -460,8 +490,16 @@ impl Definition {
             }
             add_program_requirements(&mut set, &ability.program);
         }
-        if !self.keywords.is_empty() {
-            set.insert(Capability::DefenderV1);
+        for keyword in &self.keywords {
+            set.insert(match keyword {
+                KeywordAbility::Defender => Capability::DefenderV1,
+                KeywordAbility::Flying => Capability::FlyingV1,
+                KeywordAbility::Reach => Capability::ReachV1,
+                KeywordAbility::Vigilance => Capability::VigilanceV1,
+                KeywordAbility::Haste => Capability::HasteV1,
+                KeywordAbility::Lifelink => Capability::LifelinkV1,
+                KeywordAbility::Deathtouch => Capability::DeathtouchV1,
+            });
         }
         if !self.static_abilities.is_empty() {
             set.insert(Capability::StaticDamageReplacementV1);
@@ -471,7 +509,7 @@ impl Definition {
     pub fn validate(&self) -> Result<(), String> {
         let c = &self.characteristics;
         if !self.keywords.is_empty() && c.kind != CardKind::Creature {
-            return Err("defender requires creature characteristics".into());
+            return Err("keywords require creature characteristics".into());
         }
         if self.oracle_id.is_empty()
             || self.name.is_empty()
@@ -822,7 +860,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 3, max = 11))]
+    #[schemars(range(min = 3, max = 12))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -830,7 +868,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.schema_version, 3..=11)
+        if !matches!(self.schema_version, 3..=12)
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -839,6 +877,10 @@ impl Catalog {
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
             d.validate()?;
+            if self.schema_version < 12 && d.keywords.iter().any(|k| *k != KeywordAbility::Defender)
+            {
+                return Err("IR v12 is required for creature keywords beyond defender".into());
+            }
             if self.schema_version < 11
                 && (!d.keywords.is_empty() || d.capabilities.contains(&Capability::DefenderV1))
             {
@@ -1110,6 +1152,12 @@ pub fn catalog_schema() -> serde_json::Value {
         "if":{"required":["schema_version"],"properties":{"schema_version":{"enum":[3,4,5,6,7,8,9,10]}}},
         "then":{"properties":{"definitions":{"items":{"properties":{
             "keywords":{"maxItems":0},"capabilities":{"items":{"not":{"const":Capability::DefenderV1}}}
+        }}}}}
+    }, {
+        "if":{"required":["schema_version"],"properties":{"schema_version":{"maximum":11}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "keywords":{"items":{"const":"defender"}},
+            "capabilities":{"items":{"not":{"enum":[Capability::FlyingV1,Capability::ReachV1,Capability::VigilanceV1,Capability::HasteV1,Capability::LifelinkV1,Capability::DeathtouchV1]}}}
         }}}}}
     }]);
     schema["$defs"]["SpellProgram"]["allOf"] = serde_json::json!([{
