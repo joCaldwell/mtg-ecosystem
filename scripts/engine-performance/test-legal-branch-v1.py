@@ -205,4 +205,149 @@ class Guards(unittest.TestCase):
    with patch.object(l,'P',p):
     with self.assertRaisesRegex(ValueError,'symlink'):l.load_support('0'*64)
 
+
+class ProfileHostGuards(unittest.TestCase):
+ def run_host(self,profile=False,failure=None,closed=True,sidecar_error=False,endpoint_error=False,full=True,fault=False):
+  import contextlib,io
+  with tempfile.TemporaryDirectory()as tmp:
+   output_path=Path(tmp)/'attempt';captured={};inside=False
+   normal={'root_proof_verified':True,'root':{'histories':[10]*4},'native_final_received':True,'completed_sweeps':24,'all_requested_sizes_full_pass':full,'has_native_firstwrite_fault':fault}
+   a={'engine_build_id':BUILD,'test_executable':{'path':'/synthetic/never-executed','sha256':'f'*64},'cpu_ids':[3],'legal_branch_contract_sha256':CSHA}
+   class Host:
+    def real_path(self,*args,**kwargs):pass
+    def save_json(self,path,value):captured['result']=value
+    def run_bounded(self,**kwargs):
+     nonlocal inside
+     captured['call']=kwargs;inside=True
+     kwargs['directory'].mkdir(mode=0o700)
+     (kwargs['directory']/'workload.stdout').write_text('synthetic')
+     result={'status':'passed','cleanup':{'unit_empty':closed,'launcher_reaped':closed}}
+     try:
+      if failure in ('nonzero','timeout','oom','max_event','rss','swap','orphan'):raise RuntimeError(failure)
+      result['audit']=kwargs['audit']()
+      if failure=='cleanup':raise RuntimeError('cleanup')
+     except BaseException as error:result.update(status='failed',failure={'type':type(error).__name__,'reason':str(error)})
+     inside=False
+     return result
+   host=Host();fixed=SimpleNamespace(load_host=lambda _:host)
+   support=SimpleNamespace(load_fixed=lambda _:fixed)
+   def authority(*args,**kwargs):
+    captured['authority_calls']=captured.get('authority_calls',0)+1
+    if endpoint_error and not inside and captured.get('call'):raise ValueError('changed endpoint')
+    return {'synthetic':'supplement'}
+   def validate(*args):
+    self.assertTrue(inside,'successful profile validation must be inside original final audit')
+    self.assertEqual(args[3],normal)
+    captured['profile_validated']=True
+    if sidecar_error:raise ValueError('invalid supplementary profile')
+    return {'status':'complete_collection_only','acceptance':False}
+   def inspect(*args):
+    self.assertFalse(inside,'only post-closure partial inspection may be outside lease')
+    captured['partial_inspected']=True
+    return {'status':'failed_or_partial','acceptance':False,'scope':'post_failure_owner_closed_OUTSIDE_120s_NOT_PASS'}
+   helper=SimpleNamespace(authority_guard=authority,validate_attempt=validate,inspect_failed=inspect,validate_prelaunch=lambda path:self.assertEqual({p.name for p in path.iterdir()},{'scratch'}))
+   args=['driver','--dense-driver-sha256','a'*64,'--fixed-driver-sha256','b'*64,'--helper-sha256','c'*64,'--authority',str(Path(tmp)/'normal'),'--authority-sha256','d'*64,'--case','ordinary_4','--sweep','all_first_write','--output',str(output_path),'--execute']
+   if profile:args+=['--proof-phase-profile','--profile-authority',str(Path(tmp)/'supplement'),'--profile-authority-sha256','e'*64,'--profile-helper-sha256','f'*64]
+   def off_forbidden(*_):raise AssertionError('normal mode read/imported profile source')
+   def parse(*args):
+    if args[-1] is True:self.assertTrue(inside)
+    else:captured['partial_stdout_parsed']=True
+    return normal
+   with patch.object(l.sys,'argv',args),patch.object(l,'load_support',return_value=support),patch.object(l,'authenticated_source',side_effect=(lambda *_:support)if profile else off_forbidden),patch.object(l,'load_profile',side_effect=(lambda _:helper)if profile else off_forbidden),patch.object(l,'auth',return_value=(a,CONTRACT)),patch.object(l,'parse_output',side_effect=parse),contextlib.redirect_stdout(io.StringIO()):
+    captured['exit']=l.main()
+   return captured
+
+ def test_paired_normal_profile_same_original_host_argv_env_and_caps(self):
+  with patch.dict(l.os.environ,{'LEGAL_BRANCH_PROOF_PHASE_V1':'1','LEGAL_BRANCH_OUTER_GUARD':'ambient-invalid'}):normal=self.run_host()
+  profile=self.run_host(True)
+  n=normal['call'];p=profile['call']
+  for key in ['command','cwd','cpus','timeout_seconds','expected_executable_sha256','label']:
+   self.assertEqual(n[key],p[key])
+  self.assertEqual(p['timeout_seconds'],120);self.assertEqual(p['cpus'],[3])
+  self.assertEqual(n['command'],['/synthetic/never-executed','--exact','--ignored','--nocapture','--test-threads=1',l.ENTRY])
+  self.assertNotIn('LEGAL_BRANCH_PROOF_PHASE_V1',n['env'])
+  self.assertEqual(p['env']['LEGAL_BRANCH_PROOF_PHASE_V1'],'1')
+  self.assertEqual(n['env']['LEGAL_BRANCH_OUTER_GUARD'],p['env']['LEGAL_BRANCH_OUTER_GUARD'])
+  for key in set(n['env'])-{'TMPDIR'}:self.assertEqual(n['env'][key],p['env'][key])
+  self.assertEqual(set(p['env'])-set(n['env']),{'LEGAL_BRANCH_PROOF_PHASE_V1'})
+  self.assertNotIn('proof_phase_profile',normal['result'])
+  self.assertEqual(normal['result']['audit'],profile['result']['audit'])
+  self.assertEqual(set(normal['result']),set(profile['result'])-{'proof_phase_profile'})
+  self.assertEqual(normal['exit'],0);self.assertEqual(profile['exit'],0)
+  self.assertTrue(profile['profile_validated']);self.assertNotIn('partial_inspected',profile)
+  self.assertEqual(profile['result']['proof_phase_profile']['baseline_command_credit'],0)
+  self.assertFalse(profile['result']['proof_phase_profile']['product_performance_acceptance'])
+
+ def test_terminal_cannot_promote_nonzero_timeout_caps_or_cleanup(self):
+  for failure in ('nonzero','timeout','oom','max_event','rss','swap','orphan','cleanup'):
+   with self.subTest(failure=failure):
+    result=self.run_host(True,failure=failure)
+    self.assertEqual(result['exit'],1)
+    self.assertFalse(result['result']['full_declared_worklist_verified'])
+    self.assertEqual(result['result']['proof_phase_profile']['status'],'failed_or_partial')
+    self.assertTrue(result['partial_inspected'])
+
+ def test_completed_root_collection_cannot_hide_normal_shortfall_or_firstwrite_fault(self):
+  for fault in (False,True):
+   result=self.run_host(True,full=False,fault=fault)
+   self.assertEqual(result['exit'],1)
+   self.assertTrue(result['profile_validated'])
+   self.assertEqual(result['result']['proof_phase_profile']['status'],'failed_or_partial')
+   self.assertTrue(result['partial_inspected'])
+   self.assertEqual(result['result']['status'],'failed_native_firstwrite'if fault else 'verified_explicit_resource_shortfall')
+
+ def test_invalid_sidecar_fails_original_final_audit(self):
+  result=self.run_host(True,sidecar_error=True)
+  self.assertEqual(result['exit'],1)
+  self.assertFalse(result['result']['all_declared_attempt_records_verified'])
+  self.assertTrue(result['partial_inspected'])
+
+ def test_unproved_owner_closure_prevents_any_failed_profile_inspection(self):
+  result=self.run_host(True,failure='timeout',closed=False)
+  self.assertNotIn('partial_inspected',result)
+  self.assertNotIn('partial_stdout_parsed',result)
+  self.assertEqual(result['result']['proof_phase_profile']['partial']['scope'],'not_inspected_owner_closure_unproved')
+
+ def test_changed_post_audit_endpoint_cannot_use_completed_collection_as_pass(self):
+  result=self.run_host(True,endpoint_error=True)
+  self.assertEqual(result['exit'],1)
+  self.assertTrue(result['partial_inspected'])
+  self.assertFalse(result['result']['all_requested_sizes_full_pass'])
+
+ def test_profile_requires_all_pins_and_explicit_switch_before_any_source_read(self):
+  fields={'proof_phase_profile':False,'profile_authority':None,'profile_authority_sha256':None,'profile_helper_sha256':None,'profile_raw_paths':{},'authority_sha256':'a'*64,'dense_driver_sha256':'b'*64,'fixed_driver_sha256':'c'*64,'helper_sha256':'d'*64}
+  for name in ['profile_authority','profile_authority_sha256','profile_helper_sha256']:
+   bad=dict(fields);bad[name]='supplied'
+   with self.assertRaises(ValueError):l.profile_options(SimpleNamespace(**bad))
+  fields.update(proof_phase_profile=True,profile_authority=Path('/private/new'),profile_authority_sha256='e'*64,profile_helper_sha256='f'*64)
+  l.profile_options(SimpleNamespace(**fields))
+  for name in ['profile_authority','profile_authority_sha256','profile_helper_sha256']:
+   bad=dict(fields);bad[name]=None
+   with self.assertRaises(ValueError):l.profile_options(SimpleNamespace(**bad))
+  for raw in ['relative','/private/./new','/private/../new','/private//new']:
+   bad=dict(fields,profile_raw_paths={'authority':raw})
+   with self.assertRaises(ValueError):l.profile_options(SimpleNamespace(**bad))
+  bad=dict(fields,profile_helper_sha256='not-a-hash')
+  with self.assertRaises(ValueError):l.profile_options(SimpleNamespace(**bad))
+
+ def test_authenticated_source_bypasses_stale_pyc_and_refuses_unpinned_bytes(self):
+  import py_compile,os
+  with tempfile.TemporaryDirectory()as tmp:
+   source=Path(tmp)/'helper.py';source.write_text('value="old"\n');stamp=source.stat().st_mtime_ns
+   py_compile.compile(str(source),doraise=True)
+   source.write_text('value="new"\n');os.utime(source,ns=(stamp,stamp))
+   self.assertEqual(l.authenticated_source('legal_stale_fixture',source,l.sha(source)).value,'new')
+   with self.assertRaisesRegex(ValueError,'before import'):l.authenticated_source('legal_unpinned_fixture',source,'0'*64)
+   alias=Path(tmp)/'alias.py';alias.symlink_to(source)
+   with self.assertRaises(ValueError):l.authenticated_source('legal_symlink_fixture',alias,l.sha(source))
+
+ def test_profile_loader_chain_never_uses_local_bytecode_import(self):
+  dense_pin=l.sha(P/'run-dense-diagnostic-v1.py');fixed_pin=l.sha(P/'run-fixed-work.py');host_pin=l.sha(P/'measurement_host.py')
+  with patch.object(l.importlib.util,'spec_from_file_location',side_effect=AssertionError('local pyc import')):
+   support=l.authenticated_source('legal_test_dense',P/'run-dense-diagnostic-v1.py',dense_pin)
+   fixed=support.load_fixed(fixed_pin);host=fixed.load_host(host_pin)
+   self.assertIs(fixed.host,host);self.assertTrue(callable(host.run_bounded))
+   helper=l.load_profile(SimpleNamespace(profile_helper_sha256=l.sha(P/'legal_proof_profile.py')))
+   self.assertEqual(helper.SCHEMA,'legal-proof-phase-events-v1')
+
 if __name__=='__main__':unittest.main()

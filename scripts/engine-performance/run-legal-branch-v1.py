@@ -2,6 +2,7 @@
 """Thin bounded host for real legal-root branching. No build/fallback root."""
 import argparse,hashlib,importlib.util,json,os,re,stat,sys
 from pathlib import Path
+from types import ModuleType
 P=Path(__file__).absolute().parent
 STAGE=P.parents[1]
 ENTRY='engine::legal_branch_tests::legal_branch_host_diagnostic'
@@ -30,6 +31,40 @@ def sha(p):
 def load_support(pin):
  path=P/'run-dense-diagnostic-v1.py';need(re.fullmatch('[0-9a-f]{64}',pin)is not None and sha(path)==pin,'dense validation support SHA before import')
  spec=importlib.util.spec_from_file_location('verified_legal_dense_support',path);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);return m
+
+def profile_options(args):
+ fields=(args.profile_authority,args.profile_authority_sha256,args.profile_helper_sha256)
+ if args.proof_phase_profile:
+  need(all(fields),'profile opt-in requires separately pinned supplement and helper')
+  for value in [args.profile_authority_sha256,args.profile_helper_sha256,args.authority_sha256,args.dense_driver_sha256,args.fixed_driver_sha256,args.helper_sha256]:
+   need(re.fullmatch('[0-9a-f]{64}',value or '')is not None,'profile SHA256 codec')
+  for raw in args.profile_raw_paths.values():
+   need(raw.startswith('/')and'\0'not in raw and all(p not in ('','.','..')for p in raw.split('/')[1:]),'profile paths require plain absolute components')
+ else:need(all(value is None for value in fields),'profile arguments require explicit --proof-phase-profile')
+
+
+def authenticated_source(name,path,pin):
+ # Compile the bytes just authenticated, bypassing stale timestamp-valid pyc.
+ # This loader chain has stdlib-only imports. Replace its explicit local loaders
+ # too, so profile mode cannot import unpinned transitive local source/bytecode.
+ path=plain(path);need(re.fullmatch('[0-9a-f]{64}',pin or '')is not None,'source SHA before import')
+ need(path.stat().st_size<=4*1024**2,'bounded helper source')
+ raw=path.read_bytes();need(len(raw)<=4*1024**2 and hashlib.sha256(raw).hexdigest()==pin,'source SHA before import')
+ m=ModuleType(name);m.__file__=str(path);sys.modules[name]=m
+ try:exec(compile(raw,str(path),'exec'),m.__dict__)
+ except BaseException:sys.modules.pop(name,None);raise
+ if path.name=='run-dense-diagnostic-v1.py':
+  m.load_fixed=lambda expected:authenticated_source('legal_profile_fixed',path.with_name('run-fixed-work.py'),expected)
+ if path.name=='run-fixed-work.py':
+  def load_host(expected):
+   h=authenticated_source('legal_profile_measurement',path.with_name('measurement_host.py'),expected);m.host=h;return h
+  m.load_host=load_host
+ return m
+
+
+def load_profile(args):
+ return authenticated_source('legal_profile_supplement',P/'legal_proof_profile.py',args.profile_helper_sha256)
+
 
 def auth(d,fixed,path,pin,case,sweep):
  a=fixed.authority_check(path,pin);fixed.require_target(a,fixed.CORE_TARGET)
@@ -248,18 +283,35 @@ def progress_after(result,read_partial):
 
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--dense-driver-sha256',required=True);p.add_argument('--fixed-driver-sha256',required=True);p.add_argument('--helper-sha256',required=True);p.add_argument('--authority',type=Path,required=True);p.add_argument('--authority-sha256',required=True);p.add_argument('--case',choices=CASES,required=True);p.add_argument('--sweep',choices=SWEEPS,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--execute',action='store_true');x=p.parse_args();need(x.execute,'prepared only until root authorizes');os.umask(0o077)
- d=load_support(x.dense_driver_sha256);fixed=d.load_fixed(x.fixed_driver_sha256);h=fixed.load_host(x.helper_sha256);a,c=auth(d,fixed,x.authority,x.authority_sha256,x.case,x.sweep)
+ p=argparse.ArgumentParser();raw_paths={}
+ def path_argument(name):
+  def parse(raw):raw_paths[name]=raw;return Path(raw)
+  return parse
+ p.add_argument('--dense-driver-sha256',required=True);p.add_argument('--fixed-driver-sha256',required=True);p.add_argument('--helper-sha256',required=True);p.add_argument('--authority',type=path_argument('authority'),required=True);p.add_argument('--authority-sha256',required=True);p.add_argument('--case',choices=CASES,required=True);p.add_argument('--sweep',choices=SWEEPS,required=True);p.add_argument('--output',type=path_argument('output'),required=True);p.add_argument('--execute',action='store_true');p.add_argument('--proof-phase-profile',action='store_true');p.add_argument('--profile-authority',type=path_argument('profile-authority'));p.add_argument('--profile-authority-sha256');p.add_argument('--profile-helper-sha256');x=p.parse_args();x.profile_raw_paths=raw_paths;profile_options(x);need(x.execute,'prepared only until root authorizes');os.umask(0o077)
+ d=authenticated_source('legal_profile_dense',P/'run-dense-diagnostic-v1.py',x.dense_driver_sha256)if x.proof_phase_profile else load_support(x.dense_driver_sha256);fixed=d.load_fixed(x.fixed_driver_sha256);h=fixed.load_host(x.helper_sha256);a,c=auth(d,fixed,x.authority,x.authority_sha256,x.case,x.sweep)
+ profile=load_profile(x)if x.proof_phase_profile else None
+ supplement=profile.authority_guard(x,a,P,STAGE,ENTRY)if profile else None
+ profile_audit=None
  h.real_path(x.output.parent,private=True);need(not x.output.exists()and not x.output.is_symlink(),'fresh exclusive attempt');x.output.mkdir(mode=0o700)
  run=x.output/'execution';stdout=run/'workload.stdout';scratch=x.output/'scratch';scratch.mkdir(mode=0o700)
  env={'PATH':'/usr/bin:/bin','LANG':'C','LC_ALL':'C','TMPDIR':str(scratch),'LEGAL_BRANCH_OUTER_GUARD':'120s-2gib-v1','LEGAL_BRANCH_CASE':x.case,'LEGAL_BRANCH_SWEEP':x.sweep}
- def check():need(auth(d,fixed,x.authority,x.authority_sha256,x.case,x.sweep)==(a,c),'source/authority endpoint')
+ if profile:env['LEGAL_BRANCH_PROOF_PHASE_V1']='1'
+ def check():
+  need(auth(d,fixed,x.authority,x.authority_sha256,x.case,x.sweep)==(a,c),'source/authority endpoint')
+  if profile:need(profile.authority_guard(x,a,P,STAGE,ENTRY,fresh=False)==supplement,'profile source endpoint')
  def audit():
-  check();return parse_output(stdout,d,x.case,x.sweep,a['engine_build_id'],c,a['legal_branch_contract_sha256'],True)
- try:r=h.run_bounded(command=[a['test_executable']['path'],'--exact','--ignored','--nocapture','--test-threads=1',ENTRY],cwd=STAGE,env=env,directory=run,label='legal-'+x.case.replace('_','-')+'-'+x.sweep.replace('_','-'),cpus=a['cpu_ids'],timeout_seconds=120,expected_executable_sha256=a['test_executable']['sha256'],audit=audit)
+  nonlocal profile_audit
+  check();normal=parse_output(stdout,d,x.case,x.sweep,a['engine_build_id'],c,a['legal_branch_contract_sha256'],True)
+  if profile:
+   profile_audit=profile.validate_attempt(x.output,a['engine_build_id'],x.case,normal);check()
+  return normal
+ try:
+  if profile:check();profile.validate_prelaunch(x.output)
+  r=h.run_bounded(command=[a['test_executable']['path'],'--exact','--ignored','--nocapture','--test-threads=1',ENTRY],cwd=STAGE,env=env,directory=run,label='legal-'+x.case.replace('_','-')+'-'+x.sweep.replace('_','-'),cpus=a['cpu_ids'],timeout_seconds=120,expected_executable_sha256=a['test_executable']['sha256'],audit=audit)
  except BaseException as error:r={'status':'failed','failure':{'type':type(error).__name__,'reason':str(error)[:2048]},'resource_report_created':False}
  partial=None;partial_scope=None
- if r.get('status')=='passed' or stdout.exists():
+ closed=r.get('cleanup',{});owner_closed=closed.get('unit_empty')is True and closed.get('launcher_reaped')is True
+ if r.get('status')=='passed' or(stdout.exists()and(not profile or owner_closed)):
   try:partial,partial_scope=progress_after(r,lambda:parse_output(stdout,d,x.case,x.sweep,a['engine_build_id'],c,a['legal_branch_contract_sha256'],False))
   except Exception as error:partial={'status':'malformed_partial_not_success','error':type(error).__name__,'raw_stdout_sha256':sha(stdout)};partial_scope='post_failure_diagnostic_outside_bounded_row'
  passed=r['status']=='passed';failure=r.get('failure')
@@ -268,5 +320,14 @@ def main():
  v=r.get('audit');fault=bool(v and v.get('has_native_firstwrite_fault'));full=bool(passed and v and v['all_requested_sizes_full_pass']and not fault)
  status='all_declared_useful_branches_verified'if full else 'failed_native_firstwrite'if passed and fault else 'verified_explicit_resource_shortfall'if passed else 'failed_or_truncated'
  result={'schema':'legal-branch-host-result-v1','status':status,'case':x.case,'sweep':x.sweep,'authority_sha256':x.authority_sha256,'source_contract_sha256':a['legal_branch_contract_sha256'],'driver_sha256':sha(Path(__file__).absolute()),'host_report_sha256':sha(run/'host-report.json')if(run/'host-report.json').exists()else None,'failure':failure,'audit':v,'partial_progress':partial,'partial_progress_scope':partial_scope,'all_declared_attempt_records_verified':bool(passed),'full_declared_worklist_verified':full,'all_requested_sizes_full_pass':full,'initial400_legal_root_proof_verified':bool(v and v['root_proof_verified']),'root_preparation_incomplete':not bool((v or partial or{}).get('root_proof_verified')),'unobserved_interruption_boundary_claim':False,'synthetic_replacement':False,'acceptance_latency_or_strategy_strength_claim':False}
- h.save_json(x.output/'result.json',result);print(json.dumps({'status':status}));return 0 if full else 1
+ if profile:
+  # Native terminal is insufficient: rollback, resource, semantics or cleanup
+  # can still fail. Partial inspection is only after proved failed-owner closure.
+  evidence={'status':'instrumented_root_collection_complete'if full else 'failed_or_partial','profile_authority_sha256':x.profile_authority_sha256,'profile_helper_sha256':x.profile_helper_sha256,'baseline_command_credit':0,'product_performance_acceptance':False,'full_program_pass':False,'collection_scope':'root_proofs_only'}
+  if full:
+   need(profile_audit is not None,'in-lease profile audit required');evidence['audit']=profile_audit
+  else:evidence['partial']=profile.inspect_failed(x.output,a['engine_build_id'],x.case)if owner_closed else {'scope':'not_inspected_owner_closure_unproved','acceptance':False}
+  result['proof_phase_profile']=evidence
+  if full:result['status']='instrumented_collection_complete_no_product_acceptance'
+ h.save_json(x.output/'result.json',result);print(json.dumps({'status':result['status']}));return 0 if full else 1
 if __name__=='__main__':sys.exit(main())
