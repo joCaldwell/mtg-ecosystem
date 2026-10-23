@@ -101,12 +101,18 @@ pub struct OpeningSetup {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MatchState {
+    #[serde(default, skip_serializing_if = "no_library_shuffles")]
+    pub library_shuffles: [u64; 4],
     pub random: MatchRandom,
     pub setup: Option<OpeningSetup>,
+}
+pub(super) fn no_library_shuffles(counts: &[u64; 4]) -> bool {
+    counts.iter().all(|n| *n == 0)
 }
 impl MatchState {
     pub(super) fn new(c: &MatchConfig) -> Self {
         Self {
+            library_shuffles: [0; 4],
             random: MatchRandom {
                 version: 1,
                 seed: c.seed,
@@ -210,7 +216,9 @@ impl ScenarioConfig {
 }
 impl Game {
     pub(super) fn damage_limit(&self) -> usize {
-        if self.tokens_enabled() {
+        if self.staples_enabled() {
+            staples::DAMAGE_BOUND
+        } else if self.tokens_enabled() {
             tokens::DAMAGE_BOUND
         } else if self.prepared.config.match_profile() {
             64
@@ -694,6 +702,9 @@ impl Game {
         match (&self.prepared.match_config, &self.state.match_state) {
             (None, None) => Ok(()),
             (Some(config), Some(s)) => {
+                if !no_library_shuffles(&s.library_shuffles) && !self.staples_enabled() {
+                    return Err("snapshot public shuffle counts invariant".into());
+                }
                 if s.random.version != 1
                     || s.random.seed != config.seed
                     || s.random.stream != 0

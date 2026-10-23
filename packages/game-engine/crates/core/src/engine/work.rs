@@ -360,12 +360,16 @@ impl Game {
                     candidates.push(visible.handle.clone());
                 }
                 if let Some(PlayerRequest::Targets { candidates, .. }) = &mut b.decision
-                    && self.target_legal(object.id)
+                    && self
+                        .top()
+                        .is_ok_and(|entry| self.object_target_legal(entry, object.id))
                 {
                     candidates.push(visible.handle.clone());
                 }
                 if let Some(PlayerRequest::EntityTargets { candidates, .. }) = &mut b.decision
-                    && self.target_legal(object.id)
+                    && self
+                        .top()
+                        .is_ok_and(|entry| self.object_target_legal(entry, object.id))
                 {
                     candidates.push(PlayerTargetEntity::Object {
                         object: visible.handle.clone(),
@@ -548,7 +552,9 @@ impl Game {
                     return Ok(Some(QueryValue::Decision(request.clone())));
                 }
                 if let Some(object) = cache.next_object(self)
-                    && self.target_legal(object.id)
+                    && self
+                        .top()
+                        .is_ok_and(|entry| self.object_target_legal(entry, object.id))
                 {
                     let handle = self
                         .handle_for(*viewer, object.id)
@@ -607,7 +613,9 @@ impl Game {
                         | (Frame::PlayerTargets { .. }, PlayerResponse::PlayerTargets { .. })
                         | (
                             Frame::ResolutionChoice { .. },
-                            PlayerResponse::Sacrifice { .. }
+                            PlayerResponse::SearchLands { .. }
+                            | PlayerResponse::OptionalRecursion { .. }
+                            | PlayerResponse::Sacrifice { .. }
                             | PlayerResponse::ResolveDiscard { .. },
                         )
                         | (Frame::DamageEffects { .. }, PlayerResponse::DamageEffect { .. })
@@ -663,7 +671,10 @@ impl Game {
                     let id = self
                         .resolve_handle(*viewer, &objects[converted.len()])
                         .map_err(invalid)?;
-                    if !self.target_legal(id) {
+                    if !self
+                        .top()
+                        .is_ok_and(|entry| self.object_target_legal(entry, id))
+                    {
                         return Err(QueryRejection::InvalidResponse);
                     }
                     converted.push(id);

@@ -121,3 +121,32 @@ highest-power creature card for recursion.
   searched and anthem-affected combat damage.
 - Earlier profiles' catalog, policy and expected IR digests and historical
   batch outputs are unchanged, and `npm run check:engine` passes.
+
+### Reviewed implementation bounds
+
+The compiled pool has at most 28 creature cards and nine newly created tokens
+per seat. Let C = 4×28 + 256 = 368. No admitted creature has flash and no
+instruction returns a creature to the battlefield. Raise Dead is a sorcery;
+Gravedigger is a main-phase permanent spell. Recursion can resolve over other
+stack entries, but its returned creature cannot be cast until that stack is
+empty. Thus each creature card enters and dies at most once per nonempty-stack
+episode, even with recursion. Temporary effects still have the previous bound:
+recursion cannot return their instant/sorcery sources, and Samite Healer belongs
+to the white deck, which cannot include black recursion.
+
+- Damage occurrences per combat step: 2C = **736**.
+- Stack plus pending triggers: **3,752** = 400 physical spell entries + four
+  tap activations + 4(C+36) Artist death triggers + 4(C+36) Warden entry
+  triggers + 112 self-enters triggers + four Bouncer self-dies triggers.
+  The extra 36 allows every token-producing instruction once during an episode,
+  in addition to 256 initially live tokens; cessation cannot erase this allowance.
+  These terms deliberately overcount mutually exclusive decks and creatures.
+- Event-group members: 400 physical cards + 256 live token objects + four player
+  losses = **660**. Effects remain **32**. Ceased token identities are history,
+  excluded from the live capacity, and never reused. Identity allocation uses
+  checked u32 arithmetic in the reserved range, beyond the 100,000-decision
+  batch host's possible allocations.
+
+Tests derive the pool maxima from the compiled definitions, verify both default
+100-card decks and the constants above, and exercise freeing live capacity while
+retaining monotonic identities. Earlier profiles retain their own exact limits.

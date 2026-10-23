@@ -225,7 +225,9 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
             (keys.clone(), keys)
         }
-        ProposedEvent::Setup { .. } => {
+        ProposedEvent::FinishLibraryShuffle { .. }
+        | ProposedEvent::ShuffleLibraryWord { .. }
+        | ProposedEvent::Setup { .. } => {
             let keys = BTreeSet::from([FactKey::Libraries, FactKey::Turn]);
             (keys.clone(), keys)
         }
@@ -308,7 +310,8 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             let keys = BTreeSet::from([FactKey::AllDamage]);
             (keys.clone(), keys)
         }
-        ProposedEvent::StateBasedGraveyard { object, .. } => {
+        ProposedEvent::DestroyCreature { object }
+        | ProposedEvent::StateBasedGraveyard { object, .. } => {
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
             (keys.clone(), keys)
         }
@@ -328,7 +331,9 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             let keys = BTreeSet::from([FactKey::Object(object.card), FactKey::Libraries]);
             (keys.clone(), keys)
         }
-        ProposedEvent::Move { object, .. } | ProposedEvent::LeaveGame { object, .. } => {
+        ProposedEvent::SearchLandEntry { object, .. }
+        | ProposedEvent::Move { object, .. }
+        | ProposedEvent::LeaveGame { object, .. } => {
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
             (
                 BTreeSet::from([FactKey::Object(object.card), FactKey::Libraries]),
@@ -454,9 +459,14 @@ impl Game {
         let mut objects = BTreeSet::new();
         let mut players = BTreeSet::new();
         let mut turn = (effects_event
-            || events
-                .iter()
-                .any(|e| matches!(e, ProposedEvent::Setup { .. })))
+            || events.iter().any(|e| {
+                matches!(
+                    e,
+                    ProposedEvent::FinishLibraryShuffle { .. }
+                        | ProposedEvent::Setup { .. }
+                        | ProposedEvent::ShuffleLibraryWord { .. }
+                )
+            }))
         .then(|| TurnBefore {
             turn: self.state.turn.clone(),
             owner: self.state.turn_owner,
@@ -478,6 +488,17 @@ impl Game {
                 ProposedEvent::PutPlusOneCounters { object, .. }
                 | ProposedEvent::CeaseToken { object } => {
                     objects.insert(*object);
+                }
+                ProposedEvent::FinishLibraryShuffle { player }
+                | ProposedEvent::ShuffleLibraryWord { player, .. } => {
+                    libraries.insert(*player);
+                }
+                ProposedEvent::DestroyCreature { object }
+                | ProposedEvent::SearchLandEntry { object, .. } => {
+                    objects.insert(*object);
+                    if let Zone::Library { owner } = self.current(*object)?.zone {
+                        libraries.insert(owner);
+                    }
                 }
                 ProposedEvent::Setup { action } => {
                     players.extend(self.live_players());
@@ -829,10 +850,14 @@ impl Game {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(PreEventFacts {
-            match_state: if events
-                .iter()
-                .any(|e| matches!(e, ProposedEvent::Setup { .. }))
-            {
+            match_state: if events.iter().any(|e| {
+                matches!(
+                    e,
+                    ProposedEvent::FinishLibraryShuffle { .. }
+                        | ProposedEvent::Setup { .. }
+                        | ProposedEvent::ShuffleLibraryWord { .. }
+                )
+            }) {
                 self.state.match_state.clone()
             } else {
                 None
@@ -870,9 +895,9 @@ impl Game {
                 }
             }
             let requested = members(&group);
-            if requested > tokens::EVENT_GROUP_BOUND {
+            if requested > self.event_group_limit() {
                 return Err(self.capacity_error(RuleFault::EventGroupCapacityExceeded {
-                    capacity: tokens::EVENT_GROUP_BOUND,
+                    capacity: self.event_group_limit(),
                     requested,
                 }));
             }
@@ -882,7 +907,7 @@ impl Game {
             self,
             0,
             if self.tokens_enabled() {
-                tokens::EVENT_GROUP_BOUND
+                self.event_group_limit()
             } else if self.prepared.config.match_profile() {
                 400
             } else {
@@ -1052,6 +1077,59 @@ impl Game {
         proposed: &ProposedEvent,
     ) -> Result<EventOutcome, String> {
         let actual = match proposed {
+            ProposedEvent::FinishLibraryShuffle { player } => {
+                if !self.staples_enabled()
+                    || !matches!(self.state.frame,Frame::ResolutionChoice {choice:ResolutionChoice::Shuffle {player:p,index:0,..},..} if p==*player)
+                {
+                    return Err("invalid shuffle completion".into());
+                }
+                let count = self
+                    .state
+                    .match_state
+                    .as_mut()
+                    .ok_or("missing match randomness")?
+                    .library_shuffles
+                    .get_mut(player.0 as usize)
+                    .ok_or("invalid shuffle player")?;
+                *count = count
+                    .checked_add(1)
+                    .ok_or("public shuffle count overflow")?;
+                EventOutcome::LibraryShuffled {
+                    player: *player,
+                    count: *count,
+                }
+            }
+            ProposedEvent::DestroyCreature { object } => {
+                if !self.staples_enabled() || !self.target_legal(*object) {
+                    return Err("invalid destroy creature event".into());
+                }
+                self.apply_occurrence(&ProposedEvent::Move {
+                    object: *object,
+                    destination: Zone::Graveyard {
+                        owner: self.state.cards[&object.card].owner,
+                    },
+                })?
+            }
+            ProposedEvent::SearchLandEntry { object, player } => {
+                if !self.staples_enabled() || !self.search_lands(*player).contains(object) {
+                    return Err("invalid searched land entry".into());
+                }
+                let moved = self.apply_occurrence(&ProposedEvent::Move {
+                    object: *object,
+                    destination: Zone::Battlefield,
+                })?;
+                let o = self
+                    .state
+                    .objects
+                    .get_mut(&object.card)
+                    .ok_or("missing searched land")?;
+                o.controller = *player;
+                o.tapped = true;
+                moved
+            }
+            ProposedEvent::ShuffleLibraryWord { player, index } => {
+                self.apply_search_shuffle_word(*player, *index)?
+            }
             event @ (ProposedEvent::CreateCreatureTokens { .. }
             | ProposedEvent::PutPlusOneCounters { .. }
             | ProposedEvent::CeaseToken { .. }) => self.apply_token_event(event)?,

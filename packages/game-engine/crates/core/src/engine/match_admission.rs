@@ -15,6 +15,9 @@ pub const COMBAT_KEYWORDS_CATALOG_SHA256: &str =
 pub const TOKENS_PROFILE: &str = "commander-tokens-v1";
 pub const TOKENS_CATALOG_SHA256: &str =
     "44ca001781d3109d713f9df037d83a74f8f854a0d179a053c34a7dcb82326120";
+pub const STAPLES_PROFILE: &str = "commander-staples-v1";
+pub const STAPLES_CATALOG_SHA256: &str =
+    "c0c9d9d238c60d00f3cad4b40e6f95b65225e67244b526f4a188b0faf33fff2a";
 /// All reviewed legal-profile identity and construction inputs live here.
 pub struct MatchProfile {
     pub name: &'static str,
@@ -25,7 +28,7 @@ pub struct MatchProfile {
     pub white_deck: fn() -> Decklist,
     pub black_green_deck: fn() -> Decklist,
 }
-pub static MATCH_PROFILES: [MatchProfile; 4] = [
+pub static MATCH_PROFILES: [MatchProfile; 5] = [
     MatchProfile {
         name: MATCH_PROFILE,
         catalog_sha256: MATCH_CATALOG_SHA256,
@@ -63,6 +66,15 @@ pub static MATCH_PROFILES: [MatchProfile; 4] = [
         commanders: &[ISAMARU, YARGLE],
         white_deck: tokens_white_deck,
         black_green_deck: tokens_black_green_deck,
+    },
+    MatchProfile {
+        name: STAPLES_PROFILE,
+        catalog_sha256: STAPLES_CATALOG_SHA256,
+        ir_version: 15,
+        policy_json: include_str!("../../../../tests/fixtures/commander-staples-policy.json"),
+        commanders: &[ISAMARU, YARGLE],
+        white_deck: staples_white_deck,
+        black_green_deck: staples_black_green_deck,
     },
 ];
 pub fn match_profile(name: &str) -> Option<&'static MatchProfile> {
@@ -253,6 +265,62 @@ pub fn keywords_black_green_deck() -> Decklist {
     deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     deck
 }
+pub fn staples_white_deck() -> Decklist {
+    let mut deck = tokens_white_deck();
+    for row in &mut deck.cards {
+        if row.count > 1 {
+            row.count = 76;
+        }
+    }
+    deck.cards.push(DeckEntry {
+        oracle_id: "d057289d-5e28-43d5-8ff3-4a1bc723477d".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "e3886fe8-9b76-4613-8891-4ec74657c087".into(),
+        count: 1,
+    });
+    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    deck
+}
+pub fn staples_black_green_deck() -> Decklist {
+    let mut deck = tokens_black_green_deck();
+    for row in &mut deck.cards {
+        if row.count > 1 {
+            row.count = if row.oracle_id == FOREST { 29 } else { 30 };
+        }
+    }
+    deck.cards.push(DeckEntry {
+        oracle_id: "938b4e2c-88d9-4637-bc00-e228920c9a78".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "cbc9c731-181a-4f00-a7b0-eb7e56eac2ea".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "1a2030cc-d7ee-4059-b2d7-fb95ea8e267b".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "7ffae8f8-3006-4969-a339-6d30678f87ea".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "c6207f6a-a624-4754-88f5-dbe700c841ff".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "8539f295-5d58-4436-a73a-b9277c4c7795".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "a0abd957-01a0-4aa9-8fc8-0e6840d21606".into(),
+        count: 1,
+    });
+    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    deck
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "reason", rename_all = "snake_case", deny_unknown_fields)]
 pub enum MatchAdmissionError {
@@ -388,6 +456,8 @@ pub fn validate_pod(
         return Err(MatchAdmissionError::InvalidCatalog {
             detail: if profile.name == MATCH_PROFILE {
                 "catalog differs from reviewed thirty-four-definition pool"
+            } else if profile.name == STAPLES_PROFILE {
+                "catalog differs from reviewed eighty-one-definition staples pool"
             } else if profile.name == TOKENS_PROFILE {
                 "catalog differs from reviewed seventy-two-definition tokens pool"
             } else if profile.name == COMBAT_KEYWORDS_PROFILE {

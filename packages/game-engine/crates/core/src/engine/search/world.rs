@@ -165,6 +165,7 @@ impl SampleBuildWork {
         game.state.priority = view.viewer;
         game.state.frame = Frame::Priority;
         game.state.match_state = Some(MatchState {
+            library_shuffles: [0; 4],
             random: MatchRandom {
                 version: 1,
                 seed: proposal.future_seed,
