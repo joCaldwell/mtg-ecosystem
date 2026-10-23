@@ -2268,7 +2268,7 @@ mod tests {
     fn defender_whole_source_and_ir_fields_reject_unknown_keyword_semantics() {
         type Mutation = fn(&mut serde_json::Value);
         for mutate in [
-            (|a: &mut serde_json::Value| a["keywords"][0]["keyword"] = "trample".into())
+            (|a: &mut serde_json::Value| a["keywords"][0]["keyword"] = "hexproof".into())
                 as Mutation,
             |a| a["keywords"][0]["condition"] = true.into(),
             |a| a["keywords"].as_array_mut().unwrap().clear(),
@@ -2276,7 +2276,7 @@ mod tests {
                 a["keywords"]
                     .as_array_mut()
                     .unwrap()
-                    .push(serde_json::json!({"keyword":"menace"}))
+                    .push(serde_json::json!({"keyword":"protection"}))
             },
         ] {
             let raw = changed_source(match_record("wall-of-wood"), |r| {
@@ -2311,7 +2311,7 @@ mod tests {
         bad.capabilities = bad.requirements();
         assert!(bad.validate().is_err());
         let mut raw = serde_json::to_value(wall).unwrap();
-        raw["keywords"] = serde_json::json!(["menace"]);
+        raw["keywords"] = serde_json::json!(["protection"]);
         assert!(strict_read::<Definition>(&canonical(&raw).unwrap()).is_err());
         raw["keywords"] = serde_json::json!([{"defender":null}]);
         assert!(strict_read::<Definition>(&canonical(&raw).unwrap()).is_err());
@@ -2965,7 +2965,7 @@ mod tests {
         for name in ["furnace-of-rath", "samite-healer"] {
             let extra = changed_source(effect_record(name), |r| {
                 let unknown =
-                    serde_json::json!({"kind":"keywords","keywords":[{"keyword":"menace"}]});
+                    serde_json::json!({"kind":"keywords","keywords":[{"keyword":"protection"}]});
                 r["faces"][0]["result"]["abilities"]
                     .as_array_mut()
                     .unwrap()
@@ -2973,9 +2973,12 @@ mod tests {
                 r["faces"][0]["result"]["lines"]
                     .as_array_mut()
                     .unwrap()
-                    .push(serde_json::json!({"text":"Menace","ok":true,"ability":unknown}));
-                r["source"]["oracle_text"] =
-                    format!("{}\nMenace", r["source"]["oracle_text"].as_str().unwrap()).into();
+                    .push(serde_json::json!({"text":"Protection from red","ok":true,"ability":unknown}));
+                r["source"]["oracle_text"] = format!(
+                    "{}\nProtection from red",
+                    r["source"]["oracle_text"].as_str().unwrap()
+                )
+                .into();
             });
             assert!(
                 matches!(
@@ -3333,8 +3336,9 @@ mod tests {
         }
         let extra = changed_source(fixtures::TRIGGER_RECORDS[23].1, |r| {
             let original = r["source"]["oracle_text"].as_str().unwrap();
-            r["source"]["oracle_text"] = format!("{original}\nMenace").into();
-            let ability = serde_json::json!({"kind":"keywords","keywords":[{"keyword":"menace"}]});
+            r["source"]["oracle_text"] = format!("{original}\nProtection from red").into();
+            let ability =
+                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"protection"}]});
             r["faces"][0]["result"]["abilities"]
                 .as_array_mut()
                 .unwrap()
@@ -3342,7 +3346,9 @@ mod tests {
             r["faces"][0]["result"]["lines"]
                 .as_array_mut()
                 .unwrap()
-                .push(serde_json::json!({"text":"Menace","ok":true,"ability":ability}));
+                .push(
+                    serde_json::json!({"text":"Protection from red","ok":true,"ability":ability}),
+                );
         });
         assert!(matches!(
             compile(fixtures::MANIFEST, &extra),
@@ -3979,7 +3985,7 @@ mod tests {
     #[test]
     fn stack_vocabulary_requires_ir6_and_rejects_bad_binding_and_capability_closure() {
         let catalog = stack_fixture_catalog().unwrap();
-        for version in [3, 4, 5, 13] {
+        for version in [3, 4, 5, 14] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -4052,7 +4058,7 @@ mod tests {
             }),
             (3, |r| {
                 r["faces"][0]["result"]["abilities"] =
-                    serde_json::json!([{"kind":"keywords","keywords":[{"keyword":"menace"}]}]);
+                    serde_json::json!([{"kind":"keywords","keywords":[{"keyword":"protection"}]}]);
             }),
             (1, |r| {
                 r["source"]["toughness"] = "*".into();
@@ -4497,8 +4503,8 @@ mod tests {
         );
         for (text, ability) in [
             (
-                "Trample",
-                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"trample"}]}),
+                "Hexproof",
+                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"hexproof"}]}),
             ),
             (
                 "When this creature attacks, draw a card.",
@@ -4723,7 +4729,7 @@ mod tests {
     #[test]
     fn action_ir_version_shapes_and_target_domains_are_strict() {
         let catalog = action_fixture_catalog().unwrap();
-        for version in [3, 4, 13] {
+        for version in [3, 4, 14] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -4965,16 +4971,16 @@ mod tests {
         // abilities disappear during complete-card lowering.
         for (text, ability) in [
             (
-                "Menace",
-                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"menace"}]}),
+                "Protection from red",
+                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"protection"}]}),
             ),
             (
-                "First strike",
-                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"first strike"}]}),
+                "Indestructible",
+                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"indestructible"}]}),
             ),
             (
-                "Trample",
-                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"trample"}]}),
+                "Hexproof",
+                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"hexproof"}]}),
             ),
             (
                 "When this creature dies, draw a card.",
