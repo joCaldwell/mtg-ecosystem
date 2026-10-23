@@ -366,6 +366,60 @@ pub mod fixtures {
             include_str!("../../../tests/fixtures/wall-of-vines.json"),
         ),
     ];
+    pub const TOKEN_RECORDS: [(&str, &str); 13] = [
+        (
+            "hornet-queen",
+            include_str!("../../../tests/fixtures/hornet-queen.json"),
+        ),
+        (
+            "satyr-grovedancer",
+            include_str!("../../../tests/fixtures/satyr-grovedancer.json"),
+        ),
+        (
+            "raise-the-alarm",
+            include_str!("../../../tests/fixtures/raise-the-alarm.json"),
+        ),
+        (
+            "queens-commission",
+            include_str!("../../../tests/fixtures/queens-commission.json"),
+        ),
+        (
+            "battlegrowth",
+            include_str!("../../../tests/fixtures/battlegrowth.json"),
+        ),
+        (
+            "crested-herdcaller",
+            include_str!("../../../tests/fixtures/crested-herdcaller.json"),
+        ),
+        (
+            "seller-of-songbirds",
+            include_str!("../../../tests/fixtures/seller-of-songbirds.json"),
+        ),
+        (
+            "spore-swarm",
+            include_str!("../../../tests/fixtures/spore-swarm.json"),
+        ),
+        (
+            "ferocious-pup",
+            include_str!("../../../tests/fixtures/ferocious-pup.json"),
+        ),
+        (
+            "midnight-haunting",
+            include_str!("../../../tests/fixtures/midnight-haunting.json"),
+        ),
+        (
+            "attended-knight",
+            include_str!("../../../tests/fixtures/attended-knight.json"),
+        ),
+        (
+            "gallant-cavalry",
+            include_str!("../../../tests/fixtures/gallant-cavalry.json"),
+        ),
+        (
+            "ironpaw-aspirant",
+            include_str!("../../../tests/fixtures/ironpaw-aspirant.json"),
+        ),
+    ];
     pub const COMBAT_KEYWORD_RECORDS: [(&str, &str); 9] = [
         (
             "youthful-knight",
@@ -638,6 +692,15 @@ struct Sentence {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "effect", rename_all = "kebab-case")]
 enum Step {
+    CreateToken {
+        count: Count,
+        token: SourceToken,
+    },
+    PutCounters {
+        on: SourceCounterRecipient,
+        counter: SourceCounter,
+        count: Count,
+    },
     Modal {
         count: ModeCount,
         options: Vec<ModeOption>,
@@ -690,6 +753,28 @@ enum Step {
         who: PlayerSelector,
         what: FilterObject,
     },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceToken {
+    colors: Vec<String>,
+    supertypes: Vec<String>,
+    types: Vec<String>,
+    subtypes: Vec<String>,
+    keywords: Vec<serde_json::Value>,
+    power: Count,
+    toughness: Count,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+enum SourceCounterRecipient {
+    Target(Target),
+    Source(ThisObject),
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceCounter {
+    r#type: String,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields, tag = "cost", rename_all = "kebab-case")]
@@ -1420,6 +1505,88 @@ fn append_spell_effects(
         }
         for step in &sentence.steps {
             let instruction = match step {
+                Step::CreateToken { count, token }
+                    if count.amount == "fixed" && count.value > 0 =>
+                {
+                    if !token.supertypes.is_empty()
+                        || token.types != ["creature"]
+                        || token.power.amount != "fixed"
+                        || token.toughness.amount != "fixed"
+                    {
+                        return Err(unsupported(
+                            "effects.token",
+                            "unsupported token characteristic shape",
+                        ));
+                    }
+                    let colors = token
+                        .colors
+                        .iter()
+                        .map(|c| match c.as_str() {
+                            "white" => Ok(Color::W),
+                            "blue" => Ok(Color::U),
+                            "black" => Ok(Color::B),
+                            "red" => Ok(Color::R),
+                            "green" => Ok(Color::G),
+                            _ => Err(unsupported("effects.token.colors", "unsupported color")),
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let keywords = token
+                        .keywords
+                        .iter()
+                        .map(|k| {
+                            let obj = k.as_object().ok_or_else(|| {
+                                unsupported("effects.token.keywords", "invalid keyword")
+                            })?;
+                            if obj.len() != 1 {
+                                return Err(unsupported(
+                                    "effects.token.keywords",
+                                    "parameterized keyword",
+                                ));
+                            }
+                            serde_json::from_value::<KeywordAbility>(k["keyword"].clone()).map_err(
+                                |_| unsupported("effects.token.keywords", "unsupported keyword"),
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let token = CreatureToken {
+                        colors,
+                        subtypes: token.subtypes.clone(),
+                        power: i64::from(token.power.value).into(),
+                        toughness: i64::from(token.toughness.value).into(),
+                        keywords,
+                    };
+                    token
+                        .validate()
+                        .map_err(|e| unsupported("effects.token", e))?;
+                    Instruction::CreateCreatureTokens {
+                        count: count.value,
+                        token,
+                        source_block,
+                    }
+                }
+                Step::PutCounters { on, counter, count } if counter.r#type == "+1/+1" => {
+                    let on = match on {
+                        SourceCounterRecipient::Target(t) => CounterRecipient::Target {
+                            target_slot: bind_creature_target(program, slots, t)?,
+                        },
+                        SourceCounterRecipient::Source(t)
+                            if t.reference == "this" && t.noun == "creature" =>
+                        {
+                            CounterRecipient::Source
+                        }
+                        _ => {
+                            return Err(unsupported(
+                                "effects.counters.on",
+                                "unsupported counter recipient",
+                            ));
+                        }
+                    };
+                    Instruction::PutPlusOneCounters {
+                        on,
+                        amount: fixed_positive(count)?,
+                        source_block,
+                    }
+                }
                 Step::Pump {
                     what,
                     power,
@@ -2055,6 +2222,20 @@ pub fn combat_keywords_fixture_catalog() -> Result<Catalog, String> {
     Ok(catalog)
 }
 
+/// Separate IR-v14 closure; earlier profile definitions remain byte-identical.
+pub fn tokens_fixture_catalog() -> Result<Catalog, String> {
+    let mut catalog = combat_keywords_fixture_catalog()?;
+    catalog.schema_version = 14;
+    catalog
+        .definitions
+        .extend(catalog_from_records(&fixtures::TOKEN_RECORDS, 14)?.definitions);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate()?;
+    Ok(catalog)
+}
+
 fn catalog_from_records(records: &[(&str, &str)], schema_version: u32) -> Result<Catalog, String> {
     let mut definitions = vec![];
     for (_, r) in records {
@@ -2095,6 +2276,131 @@ mod tests {
             .find(|(n, _)| *n == name)
             .unwrap()
             .1
+    }
+    #[test]
+    fn tokens_v14_sources_and_rejection_pairs() {
+        fn changed_token_source(raw: &str, change: impl FnOnce(&mut serde_json::Value)) -> String {
+            changed_source(raw, |r| {
+                change(r);
+                let result = &mut r["faces"][0]["result"];
+                let abilities = result["abilities"].as_array().unwrap().clone();
+                for (i, a) in abilities.into_iter().enumerate() {
+                    result["lines"][i]["ability"] = a;
+                }
+            })
+        }
+        let catalog = tokens_fixture_catalog().unwrap();
+        assert_eq!(
+            (catalog.schema_version, catalog.definitions.len()),
+            (14, 72)
+        );
+        assert_eq!(
+            catalog,
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/expected-tokens-ir.json"
+            ))
+            .unwrap()
+        );
+        for old in combat_keywords_fixture_catalog().unwrap().definitions {
+            assert_eq!(
+                catalog
+                    .definitions
+                    .iter()
+                    .find(|d| d.oracle_id == old.oracle_id),
+                Some(&old)
+            );
+        }
+        for (name, raw) in fixtures::TOKEN_RECORDS {
+            let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
+                panic!("{name}")
+            };
+            assert_eq!(
+                catalog
+                    .definitions
+                    .iter()
+                    .find(|d| d.oracle_id == definition.oracle_id),
+                Some(definition.as_ref())
+            );
+            for version in 3..=13 {
+                let mut bad = catalog.clone();
+                bad.schema_version = version;
+                bad.definitions = vec![*definition.clone()];
+                assert!(bad.validate().is_err(), "{name} v{version}");
+            }
+            // A rejected extra sentence must never disappear behind a valid prefix.
+            let bad = changed_token_source(raw, |r| {
+                let a = r["faces"][0]["result"]["abilities"].as_array_mut().unwrap();
+                let ability = a.iter_mut().find(|a| a.get("effects").is_some()).unwrap();
+                ability["effects"][0]["steps"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(serde_json::json!({"effect":"proliferate"}));
+            });
+            assert!(
+                !matches!(
+                    compile(fixtures::MANIFEST, &bad),
+                    CompileResult::Lowered { .. }
+                ),
+                "{name}"
+            );
+        }
+        let raw = include_str!("../../../tests/fixtures/spore-burst.json");
+        assert!(!matches!(
+            compile(fixtures::MANIFEST, raw),
+            CompileResult::Lowered { .. }
+        ));
+        let raw = fixtures::TOKEN_RECORDS
+            .iter()
+            .find(|(n, _)| *n == "raise-the-alarm")
+            .unwrap()
+            .1;
+        for change in [
+            |v: &mut serde_json::Value| v["count"]["amount"] = "variable".into(),
+            |v: &mut serde_json::Value| v["token"]["types"] = serde_json::json!(["artifact"]),
+            |v: &mut serde_json::Value| {
+                v["token"]["keywords"] = serde_json::json!([{"keyword":"protection"}])
+            },
+            |v: &mut serde_json::Value| {
+                v["token"]["keywords"] = serde_json::json!([{"keyword":"flying","amount":1}])
+            },
+        ] {
+            let bad = changed_token_source(raw, |r| {
+                change(&mut r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0])
+            });
+            assert!(!matches!(
+                compile(fixtures::MANIFEST, &bad),
+                CompileResult::Lowered { .. }
+            ));
+        }
+        let raw = fixtures::TOKEN_RECORDS
+            .iter()
+            .find(|(n, _)| *n == "battlegrowth")
+            .unwrap()
+            .1;
+        for counter in ["-1/-1", "flying"] {
+            let bad = changed_token_source(raw, |r| {
+                r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["counter"]["type"] =
+                    counter.into()
+            });
+            assert!(!matches!(
+                compile(fixtures::MANIFEST, &bad),
+                CompileResult::Lowered { .. }
+            ));
+        }
+        let own = changed_token_source(raw, |r| {
+            r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["on"] =
+                serde_json::json!({"ref":"this","noun":"creature"})
+        });
+        let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, &own) else {
+            panic!("source counter")
+        };
+        assert!(matches!(
+            definition.spell.unwrap().instructions[0],
+            Instruction::PutPlusOneCounters {
+                on: CounterRecipient::Source,
+                ..
+            }
+        ));
     }
     #[test]
     fn combat_keywords_v13_sources_and_downgrade_pairs() {
@@ -3050,7 +3356,7 @@ mod tests {
             );
         }
         let mut future = c;
-        future.schema_version = 14;
+        future.schema_version = 15;
         assert!(future.validate().is_err());
     }
     #[test]
@@ -3413,7 +3719,7 @@ mod tests {
             assert!(Catalog::read(&bad).is_err());
         }
         let mut bad = c;
-        bad.schema_version = 14;
+        bad.schema_version = 15;
         assert!(bad.validate().is_err());
     }
 
@@ -3677,7 +3983,7 @@ mod tests {
             }
         }
         let mut bad = catalog.clone();
-        bad.schema_version = 14;
+        bad.schema_version = 15;
         assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
         for change in [
             (|d: &mut Definition| {
@@ -3985,7 +4291,7 @@ mod tests {
     #[test]
     fn stack_vocabulary_requires_ir6_and_rejects_bad_binding_and_capability_closure() {
         let catalog = stack_fixture_catalog().unwrap();
-        for version in [3, 4, 5, 14] {
+        for version in [3, 4, 5, 15] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -4189,7 +4495,7 @@ mod tests {
         let c = fixture_catalog().unwrap();
         let raw = canonical(&c).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":3", "\"schema_version\":14"),
+            raw.replace("\"schema_version\":3", "\"schema_version\":15"),
             raw.replace("\"op\":\"return_to_owner_hand\"", "\"op\":\"execute_text\""),
             raw.replace("\"target_slot\":0", "\"target_slot\":99"),
             raw.replace("\"source_block\":0", "\"unknown\":true,\"source_block\":0"),
@@ -4729,7 +5035,7 @@ mod tests {
     #[test]
     fn action_ir_version_shapes_and_target_domains_are_strict() {
         let catalog = action_fixture_catalog().unwrap();
-        for version in [3, 4, 14] {
+        for version in [3, 4, 15] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -4853,7 +5159,7 @@ mod tests {
         assert!(old.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":4", "\"schema_version\":14"),
+            raw.replace("\"schema_version\":4", "\"schema_version\":15"),
             raw.replace(
                 "\"op\":\"put_on_top_owner_library\"",
                 "\"op\":\"put_on_bottom_owner_library\"",

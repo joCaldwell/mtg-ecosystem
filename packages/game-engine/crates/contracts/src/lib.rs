@@ -165,6 +165,8 @@ pub enum Capability {
     FirstStrikeV1,
     DoubleStrikeV1,
     MenaceV1,
+    CreatureTokensV1,
+    PlusOneCountersV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -211,11 +213,58 @@ pub enum LifeRecipient {
     Controller,
     Target { target_slot: u32 },
 }
+/// CR 111.3–4: precisely defined creature tokens, never copied card definitions.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CreatureToken {
+    pub colors: Vec<Color>,
+    pub subtypes: Vec<String>,
+    pub power: Quantity,
+    pub toughness: Quantity,
+    pub keywords: Vec<KeywordAbility>,
+}
+impl CreatureToken {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.colors.contains(&Color::C)
+            || self.colors.iter().collect::<BTreeSet<_>>().len() != self.colors.len()
+            || self.subtypes.is_empty()
+            || self
+                .subtypes
+                .iter()
+                .any(|s| s.is_empty() || !s.chars().all(|c| c.is_ascii_alphabetic() || c == '-'))
+            || self.subtypes.iter().collect::<BTreeSet<_>>().len() != self.subtypes.len()
+            || self
+                .keywords
+                .iter()
+                .enumerate()
+                .any(|(i, k)| self.keywords[..i].contains(k))
+        {
+            return Err("unsupported creature token characteristics".into());
+        }
+        Ok(())
+    }
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "recipient", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CounterRecipient {
+    Source,
+    Target { target_slot: u32 },
+}
 // Tagged operations are deliberate; unknown variants and fields reject.
 // https://serde.rs/enum-representations.html
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    CreateCreatureTokens {
+        count: u32,
+        token: CreatureToken,
+        source_block: u32,
+    },
+    PutPlusOneCounters {
+        on: CounterRecipient,
+        amount: Quantity,
+        source_block: u32,
+    },
     ModifyPowerToughness {
         target_slot: u32,
         power: Quantity,
@@ -529,6 +578,22 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
+        fn new_ops(p: &SpellProgram) -> bool {
+            p.instructions.iter().any(|i| {
+                matches!(
+                    i,
+                    Instruction::CreateCreatureTokens { .. }
+                        | Instruction::PutPlusOneCounters { .. }
+                )
+            }) || p.modes.iter().any(|m| new_ops(&m.program))
+        }
+        if self.activated.iter().any(|a| new_ops(&a.program))
+            || self.triggered.iter().any(|a| {
+                new_ops(&a.program) && a.condition != TriggerCondition::SelfEntersBattlefield
+            })
+        {
+            return Err("tokens/counters require spells or self-enters triggers".into());
+        }
         let c = &self.characteristics;
         if !self.keywords.is_empty() && c.kind != CardKind::Creature {
             return Err("keywords require creature characteristics".into());
@@ -604,7 +669,9 @@ impl Definition {
                 || p.instructions.iter().any(|instruction| {
                     !matches!(
                         instruction,
-                        Instruction::DrawCards { .. }
+                        Instruction::CreateCreatureTokens { .. }
+                            | Instruction::PutPlusOneCounters { .. }
+                            | Instruction::DrawCards { .. }
                             | Instruction::ModifyPowerToughness { .. }
                             | Instruction::GainLife { .. }
                             | Instruction::LoseLife { .. }
@@ -749,6 +816,24 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     let mut used = BTreeSet::new();
     for instruction in &p.instructions {
         let binding = match instruction {
+            Instruction::CreateCreatureTokens { count, token, .. } => {
+                if *count == 0 {
+                    return Err("token count must be positive".into());
+                }
+                token.validate()?;
+                None
+            }
+            Instruction::PutPlusOneCounters { on, amount, .. } => {
+                if *amount <= Quantity::zero() {
+                    return Err("counter amount must be positive".into());
+                }
+                match on {
+                    CounterRecipient::Source => None,
+                    CounterRecipient::Target { target_slot } => {
+                        Some((*target_slot, TargetDomain::BattlefieldCreature))
+                    }
+                }
+            }
             Instruction::ModifyPowerToughness { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::BattlefieldCreature))
             }
@@ -852,6 +937,8 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
     }
     for instruction in &program.instructions {
         set.insert(match instruction {
+            Instruction::CreateCreatureTokens { .. } => Capability::CreatureTokensV1,
+            Instruction::PutPlusOneCounters { .. } => Capability::PlusOneCountersV1,
             Instruction::ModifyPowerToughness { .. } => Capability::TemporaryPowerToughnessV1,
             Instruction::PreventCombatDamage { .. } => Capability::CombatDamagePreventionV1,
             Instruction::PreventNextDamage { .. } => Capability::DamageBudgetPreventionV1,
@@ -882,7 +969,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 3, max = 13))]
+    #[schemars(range(min = 3, max = 14))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -890,7 +977,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.schema_version, 3..=13)
+        if !matches!(self.schema_version, 3..=14)
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -899,6 +986,16 @@ impl Catalog {
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
             d.validate()?;
+            if self.schema_version < 14
+                && d.capabilities.iter().any(|c| {
+                    matches!(
+                        c,
+                        Capability::CreatureTokensV1 | Capability::PlusOneCountersV1
+                    )
+                })
+            {
+                return Err("IR v14 is required for creature tokens and counters".into());
+            }
             if self.schema_version < 13
                 && d.keywords.iter().any(|k| {
                     matches!(
@@ -1201,6 +1298,19 @@ pub fn catalog_schema() -> serde_json::Value {
             "capabilities":{"items":{"not":{"enum":[Capability::TrampleV1,Capability::FirstStrikeV1,Capability::DoubleStrikeV1,Capability::MenaceV1]}}}
         }}}}}
     }]);
+    schema["$defs"]["PreTokensProgram"] = serde_json::json!({"properties":{
+        "instructions":{"items":{"properties":{"op":{"not":{"enum":["create_creature_tokens","put_plus_one_counters"]}}}}},
+        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreTokensProgram"}}}}
+    }});
+    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["schema_version"],"properties":{"schema_version":{"maximum":13}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "capabilities":{"items":{"not":{"enum":[Capability::CreatureTokensV1,Capability::PlusOneCountersV1]}}},
+            "spell":{"$ref":"#/$defs/PreTokensProgram"},
+            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PreTokensProgram"}}}},
+            "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreTokensProgram"}}}}
+        }}}}}
+    }));
     schema["$defs"]["SpellProgram"]["allOf"] = serde_json::json!([{
         "if":{"required":["modes"],"properties":{"modes":{"minItems":1}}},
         "then":{"properties":{
