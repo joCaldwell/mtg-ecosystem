@@ -257,6 +257,9 @@ impl Strategy {
         let v = &o.view;
         let r = o.decision.as_ref().ok_or("missing stack/cost decision")?;
         Ok(match r {
+            PlayerRequest::SearchLands { .. } | PlayerRequest::OptionalRecursion { .. } => {
+                return Err("staples request outside historical policy".into());
+            }
             PlayerRequest::Mulligan { .. } | PlayerRequest::BottomOpening { .. } => {
                 return Err("opening setup is not admitted by this historical scenario".into());
             }

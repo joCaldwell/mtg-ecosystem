@@ -178,6 +178,8 @@ impl Strategy<'_> {
                 }
                 if !command
                     && d.characteristics.kind != CardKind::Creature
+                    && !(self.catalog.schema_version == 15
+                        && d.characteristics.kind == CardKind::Enchantment)
                     && v.turn.step != TurnStep::PostcombatMain
                 {
                     continue;
@@ -187,6 +189,40 @@ impl Strategy<'_> {
                 }
                 if matches!(d.name.as_str(), "Giant Growth" | "Battlegrowth") && !own_creature {
                     continue;
+                }
+                if self.catalog.schema_version == 15 {
+                    if d.name == "Murder" && !enemy_creature {
+                        continue;
+                    }
+                    if d.name == "Day of Judgment" {
+                        let mut ours = 0;
+                        let mut theirs = 0;
+                        for c in &v.objects {
+                            if c.zone == Zone::Battlefield
+                                && c.characteristics
+                                    .as_ref()
+                                    .is_some_and(|c| c.kind == CardKind::Creature)
+                            {
+                                if c.controller == v.viewer {
+                                    ours += 1;
+                                } else {
+                                    theirs += 1;
+                                }
+                            }
+                        }
+                        if theirs <= ours {
+                            continue;
+                        }
+                    }
+                    if d.name == "Raise Dead"
+                        && !v.objects.iter().any(|x| {
+                            x.zone == (Zone::Graveyard { owner: v.viewer })
+                                && definition(self.catalog, &x.oracle_id)
+                                    .is_ok_and(|d| d.characteristics.kind == CardKind::Creature)
+                        })
+                    {
+                        continue;
+                    }
                 }
                 if d.name == "Fog" {
                     continue;
@@ -228,6 +264,20 @@ impl Strategy<'_> {
         let v = &o.view;
         let request = o.decision.as_ref().ok_or("missing match request")?;
         Ok(match request {
+            PlayerRequest::SearchLands {
+                maximum,
+                candidates,
+                ..
+            } => PlayerResponse::SearchLands {
+                objects: candidates
+                    .iter()
+                    .take(*maximum as usize)
+                    .map(|c| c.handle.clone())
+                    .collect(),
+            },
+            PlayerRequest::OptionalRecursion { .. } => {
+                PlayerResponse::OptionalRecursion { perform: true }
+            }
             PlayerRequest::Mulligan {
                 mulligans_taken,
                 can_mulligan,
@@ -250,7 +300,7 @@ impl Strategy<'_> {
                 ..
             } => {
                 let trigger = v.stack.last().and_then(|s| s.triggered.as_ref()).is_some();
-                let counter_trigger = self.catalog.schema_version == 14
+                let counter_trigger = self.catalog.schema_version >= 14
                     && v.stack
                         .last()
                         .and_then(|s| s.triggered.as_ref())
@@ -268,6 +318,44 @@ impl Strategy<'_> {
                                 })
                         });
                 let own = counter_trigger || (self.beneficial && !trigger);
+                if self.catalog.schema_version == 15 {
+                    let recursion = occurrences.first().is_some_and(|t| {
+                        t.domain == mtg_contracts::TargetDomain::OwnGraveyardCreatureCard
+                    });
+                    let removal = v.stack.last().is_some_and(|top| {
+                        top.spell
+                            .as_ref()
+                            .and_then(|h| v.objects.iter().find(|o| &o.handle == h))
+                            .ok_or_else(|| "missing spell row".to_string())
+                            .and_then(|o| definition(self.catalog, &o.oracle_id))
+                            .is_ok_and(|d| d.name == "Murder")
+                    });
+                    if recursion || removal {
+                        let h = candidates
+                            .iter()
+                            .filter_map(|h| v.objects.iter().find(|o| &o.handle == h))
+                            .filter(|o| recursion || o.controller != v.viewer)
+                            .max_by_key(|o| {
+                                (
+                                    o.characteristics
+                                        .as_ref()
+                                        .and_then(|c| c.power.clone())
+                                        .or_else(|| {
+                                            definition(self.catalog, &o.oracle_id)
+                                                .ok()
+                                                .and_then(|d| d.characteristics.power.clone())
+                                        })
+                                        .unwrap_or_default(),
+                                    v.commanders.iter().any(|c| c.oracle_id == o.oracle_id),
+                                    o.handle.0.clone(),
+                                )
+                            })
+                            .ok_or("no policy target")?;
+                        return Ok(PlayerResponse::Targets {
+                            objects: vec![h.handle.clone(); occurrences.len()],
+                        });
+                    }
+                }
                 let h = candidates
                     .iter()
                     .find(|h| {
@@ -714,7 +802,13 @@ pub(super) fn run(
                 break;
             }
             Advance::Fault(e) => {
-                outcome = format!("fault: {e}");
+                outcome = if config.profile == mtg_core::STAPLES_PROFILE
+                    && game.typed_fault().is_some()
+                {
+                    format!("resource_truncation: {e}")
+                } else {
+                    format!("fault: {e}")
+                };
                 break;
             }
             Advance::AwaitingDecision(r) => {
@@ -917,6 +1011,7 @@ fn verify_terminal_result(game: &Game, e: &Evidence) -> Result<(), String> {
 }
 pub(super) fn batch(catalog: &Catalog, directory: &Path) -> Result<serde_json::Value, String> {
     let profile = match catalog.schema_version {
+        15 => mtg_core::STAPLES_PROFILE,
         14 => mtg_core::TOKENS_PROFILE,
         13 => mtg_core::COMBAT_KEYWORDS_PROFILE,
         12 => mtg_core::KEYWORDS_PROFILE,
@@ -980,6 +1075,7 @@ pub(super) fn batch(catalog: &Catalog, directory: &Path) -> Result<serde_json::V
             mtg_core::KEYWORDS_PROFILE
                 | mtg_core::COMBAT_KEYWORDS_PROFILE
                 | mtg_core::TOKENS_PROFILE
+                | mtg_core::STAPLES_PROFILE
         ) {
             report["keyword_interactions"] = keyword_interactions(catalog, &e)?;
         }
@@ -1028,7 +1124,10 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
         &mut counts,
     );
     let mut report = serde_json::json!({"lifelink_gains":counts[0],"deathtouch_destructions":counts[1],"blocks":counts[2]});
-    if e.config.profile == mtg_core::TOKENS_PROFILE {
+    if matches!(
+        e.config.profile.as_str(),
+        mtg_core::TOKENS_PROFILE | mtg_core::STAPLES_PROFILE
+    ) {
         let mut tokens_created = 0u64;
         let mut counters_placed = Quantity::zero();
         for event in g.events() {
@@ -1048,9 +1147,79 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
         report["plus_one_counters_placed"] = serde_json::json!(counters_placed);
     }
 
+    if e.config.profile == mtg_core::STAPLES_PROFILE {
+        let mut destroyed = 0u64;
+        let mut recursions = 0u64;
+        let mut searched = 0u64;
+        let mut anthem_damage = Quantity::zero();
+        let mut anthems = BTreeMap::new();
+        let anthem_ids = physical_cards
+            .iter()
+            .filter(|c| {
+                definition(catalog, &c.oracle_id).is_ok_and(|d| {
+                    d.static_abilities.iter().any(|a| {
+                        matches!(
+                            a.effect,
+                            mtg_contracts::StaticEffect::ControllerCreatureAnthem { .. }
+                        )
+                    })
+                })
+            })
+            .map(|c| (c.id, c.owner))
+            .collect::<BTreeMap<_, _>>();
+        for record in g.trace().records.iter() {
+            if let mtg_core::EvidenceRecord::Batch { batch } = &record.record {
+                for occurrence in &batch.occurrences {
+                    match &occurrence.proposed {
+                        mtg_core::ProposedEvent::DestroyCreature { .. } => destroyed += 1,
+                        mtg_core::ProposedEvent::SearchLandEntry { .. } => searched += 1,
+                        _ => {}
+                    }
+                    if let mtg_core::EventOutcome::Moved { movement } = &occurrence.actual {
+                        if matches!(movement.from, Zone::Graveyard { .. })
+                            && matches!(movement.destination, Zone::Hand { .. })
+                        {
+                            recursions += 1;
+                        }
+                        if let Some(owner) = anthem_ids.get(&movement.previous.card) {
+                            if movement.destination == Zone::Battlefield {
+                                anthems.insert(movement.successor, *owner);
+                            } else {
+                                anthems.remove(&movement.previous);
+                            }
+                        }
+                    }
+                    if let mtg_core::ProposedEvent::LeaveGame { object, .. } = &occurrence.proposed
+                    {
+                        anthems.remove(object);
+                    }
+                    if let mtg_core::EventOutcome::DamageCommitted { actual, .. } =
+                        &occurrence.actual
+                        && occurrence
+                            .before
+                            .damage_transaction
+                            .as_ref()
+                            .is_some_and(|t| t.kind == mtg_core::DamageKind::Combat)
+                    {
+                        for damage in actual {
+                            if anthems.values().any(|p| *p == damage.controller) {
+                                anthem_damage.add(&damage.amount);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        report["destroyed_creatures"] = serde_json::json!(destroyed);
+        report["recursions"] = serde_json::json!(recursions);
+        report["lands_searched"] = serde_json::json!(searched);
+        // Final combat damage from creatures controlled by an active anthem's
+        // controller, not the marginal damage attributable to its +1/+1.
+        report["anthem_affected_combat_damage"] = serde_json::json!(anthem_damage);
+    }
     if matches!(
         e.config.profile.as_str(),
-        mtg_core::COMBAT_KEYWORDS_PROFILE | mtg_core::TOKENS_PROFILE
+        mtg_core::COMBAT_KEYWORDS_PROFILE | mtg_core::TOKENS_PROFILE | mtg_core::STAPLES_PROFILE
     ) {
         let mut trample = Quantity::zero();
         let mut first_steps = 0u64;
