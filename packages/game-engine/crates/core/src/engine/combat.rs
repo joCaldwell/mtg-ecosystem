@@ -275,6 +275,19 @@ impl Game {
         Ok(())
     }
     pub(super) fn remove_from_combat(&mut self, object: ObjectId) {
+        let orphaned = self
+            .state
+            .combat
+            .iter()
+            .filter(|a| a.attacker == object)
+            .flat_map(|a| a.blockers.clone())
+            .filter(|b| {
+                self.has_keyword(*b, KeywordAbility::FirstStrike)
+                    || self.has_keyword(*b, KeywordAbility::DoubleStrike)
+            })
+            .collect::<Vec<_>>();
+        self.state.orphan_first_strike_blockers.extend(orphaned);
+        self.state.orphan_first_strike_blockers.remove(&object);
         self.state.combat.retain(|a| a.attacker != object);
         for a in &mut self.state.combat {
             a.blockers.retain(|b| *b != object);
@@ -410,6 +423,7 @@ impl Game {
             .combat
             .iter()
             .flat_map(|a| std::iter::once(a.attacker).chain(a.blockers.iter().copied()))
+            .chain(self.state.orphan_first_strike_blockers.iter().copied())
             .filter(|o| {
                 self.has_keyword(*o, KeywordAbility::FirstStrike)
                     || self.has_keyword(*o, KeywordAbility::DoubleStrike)
@@ -747,6 +761,7 @@ impl Game {
         if self.prepared.config.profile != COMBAT_KEYWORDS_PROFILE
             && (self.state.turn.step == TurnStep::FirstStrikeDamage
                 || !self.state.first_strike_participants.is_empty()
+                || !self.state.orphan_first_strike_blockers.is_empty()
                 || !self.state.player_damage_choices.is_empty())
         {
             return Err("combat keyword continuation outside reviewed profile".into());

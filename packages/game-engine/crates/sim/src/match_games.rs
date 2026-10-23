@@ -1045,7 +1045,7 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
                 }
             }
         }
-        report["trample_damage_to_players"] =
+        report["player_damage_from_trample_sources"] =
             serde_json::to_value(trample).map_err(|e| e.to_string())?;
         report["first_strike_steps"] = first_steps.into();
         report["menace_blocks"] = menace.into();

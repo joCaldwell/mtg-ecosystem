@@ -252,6 +252,7 @@ impl Game {
                 self.state.combat.clear();
                 self.state.combat_declared = false;
                 self.state.first_strike_participants.clear();
+                self.state.orphan_first_strike_blockers.clear();
                 self.state.damage_choices.clear();
                 self.state.player_damage_choices.clear();
             }
@@ -287,6 +288,7 @@ impl Game {
             TurnStep::PostcombatMain if self.combat_enabled() => {
                 self.state.combat.clear();
                 self.state.first_strike_participants.clear();
+                self.state.orphan_first_strike_blockers.clear();
                 self.state.damage_choices.clear();
                 self.state.player_damage_choices.clear();
             }

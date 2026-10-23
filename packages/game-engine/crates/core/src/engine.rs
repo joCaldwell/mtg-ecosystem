@@ -1486,6 +1486,11 @@ struct State {
     /// after combat departure. Empty in every historical profile.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     first_strike_participants: BTreeSet<ObjectId>,
+    /// CR506.4/509.1h: first/double strikers still blocking after their
+    /// attacker left combat. They assign no damage (510.1d) but still start a
+    /// first-strike damage step (510.4). Empty in every historical profile.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    orphan_first_strike_blockers: BTreeSet<ObjectId>,
     cleanup_repeat: bool,
     simultaneous_losses: bool,
     losing_players: Vec<PlayerId>,
@@ -1619,6 +1624,7 @@ impl Game {
             damage_choices: BTreeMap::new(),
             player_damage_choices: BTreeMap::new(),
             first_strike_participants: BTreeSet::new(),
+            orphan_first_strike_blockers: BTreeSet::new(),
             cleanup_repeat: false,
             simultaneous_losses: false,
             losing_players: vec![],

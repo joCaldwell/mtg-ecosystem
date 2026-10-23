@@ -2353,8 +2353,8 @@ same-step lethal arithmetic outside the admitted blocking domain.
 The pinned Rust 1.99.0 release `combat-keywords-match-batch` completed and
 independently replayed all 18 games: zero faults/truncations, 614 turns and
 27,717 decisions. Detailed replay counted 170 blocks, 141 lifelink gains,
-24 deathtouch destructions, 90 trample damage to players, 99 first-strike steps
-and four menace blocks. The ignored report is
+24 deathtouch destructions, 90 player-damage events from trample sources
+(blocked or not), 99 first-strike steps and four menace blocks. The ignored report is
 `generated/p62-combat-keywords/batch-acceptance/report.json`
 (SHA-256 `3f98dc178d191e0d637745a432dc5cd74c24168a0437eac8c2f3f5e11d40be08`),
 with source-closure build
@@ -2391,3 +2391,10 @@ provenance records and v13 schema/catalog/policy downgrade pairs. The compiler's
 acceptance game 00. Successful logs and the exact historical-byte comparison are
 retained locally under ignored `generated/p62-combat-keywords/`. No dependency,
 server or search source changed, and no new verification infrastructure was added.
+
+Independent review found no rules defects. Follow-ups: a first- or
+double-strike blocker whose attacker leaves combat still counts as a blocking
+creature (CR 506.4, 509.1h), so it still starts the first-strike damage step
+(510.4) while assigning no damage; a reviewed witness covers this. The batch
+counter formerly named `trample_damage_to_players` is now
+`player_damage_from_trample_sources`, because it includes unblocked tramplers.

@@ -709,3 +709,41 @@ fn trample_marked_damage_and_other_step_assignments_private_domain() {
         .is_err()
     );
 }
+#[test]
+fn first_strike_blocker_of_departed_attacker_still_starts_first_step() {
+    // CR506.4/509.1h: the Knight remains a blocking creature after its
+    // attacker leaves; CR510.4 then requires a first-strike damage step even
+    // though it assigns no damage (510.1d). Unblocked Bears deal damage only
+    // in the second step.
+    traces(
+        prepared(&[
+            ("Grizzly Bears", 0, false),
+            ("Grizzly Bears", 0, false),
+            ("Youthful Knight", 1, false),
+            ("Disfigure", 0, true),
+            ("Swamp", 0, false),
+        ]),
+        |g| {
+            declare(g, &[(0, 1), (1, 1)], &[(2, 0)]);
+            cast(
+                g,
+                3,
+                vec![TargetEntity::Object {
+                    object: object(g, 0),
+                }],
+            );
+            reach(g, TurnStep::FirstStrikeDamage);
+            check(g);
+            assert!(matches!(
+                g.state.objects[&CardId(0)].zone,
+                Zone::Graveyard { .. }
+            ));
+            assert_eq!(g.state.players[1].life, 40.into());
+            reach(g, TurnStep::CombatDamage);
+            assert_eq!(g.state.players[1].life, 38.into());
+            assert_eq!(g.current(object(g, 2)).unwrap().marked_damage, 0.into());
+            reach(g, TurnStep::PostcombatMain);
+            assert!(g.state.orphan_first_strike_blockers.is_empty());
+        },
+    );
+}
