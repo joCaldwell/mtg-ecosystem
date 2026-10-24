@@ -423,6 +423,12 @@ impl Game {
         if index == 0 || index as usize >= library.len() {
             return Err("shuffle range".into());
         }
+        // The setup sampler covers ranges 2..=99, the largest Commander library
+        // (100 cards less the commander). Fail loudly rather than retry forever
+        // if a future card ever lets a library grow past that bound.
+        if library.len() > 99 {
+            return Err("shuffle library exceeds the reviewed 99-card sampler range".into());
+        }
         let random = &mut self
             .state
             .match_state

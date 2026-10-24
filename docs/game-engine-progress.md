@@ -2597,3 +2597,18 @@ IR v16 as the invalid future version and three draws as an unsupported amount,
 since v15 and two draws are now supported. No positive golden result was rewritten.
 The accepted combined gate log is `/tmp/p64-accepted-check-engine.log`; earlier
 interrupted/source-invalidated attempts remain separate and are not passes.
+
+Independent P6.4 review follow-ups:
+- **Concession fix.** Another player conceding while a Raise Dead cast awaits
+  its mana no longer cancels it: departure revalidation now uses the target's
+  own graveyard-card domain. Regression test plus negative control.
+- **Shuffle guard.** A library search shuffle now fails loudly, rather than
+  retrying forever, if a library ever exceeds the 99-card sampler range.
+- **Effect bound.** The contract's temporary-effect bound now counts
+  Slaughterhouse Bouncer recurring: still within 32.
+- **SDK repair.** Strict SDK verification was broken since P6.2, because the
+  SDK's exhaustive-response gate predated `trample_damage`. It now handles that
+  variant plus `search_lands` and `optional_recursion` (27 variants); SDK
+  verification passed: 40 tests and strict TypeScript.
+- **Still dormant.** P7 search knowledge does not model mid-game shuffles; it
+  stays foundations-only.

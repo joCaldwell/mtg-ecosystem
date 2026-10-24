@@ -1293,3 +1293,37 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
     assert_eq!(seat_bounds, vec![9, 17]);
     assert_eq!(4 * seat_bounds.into_iter().max().unwrap(), 68);
 }
+#[test]
+fn concession_keeps_legal_pending_graveyard_target() {
+    // CR 800.4a: another player's departure revalidates pending targets;
+    // a creature card in the caster's own graveyard (115.1) stays legal, so the
+    // Raise Dead cast continues to its mana payment exactly as without it.
+    for concede in [false, true] {
+        let mut rows = vec![("Raise Dead", 0, true), ("Grizzly Bears", 0, false)];
+        rows.extend(lands("Swamp", 2));
+        let mut g = Game::new(graveyard(prepared(&rows), 1));
+        reach(&mut g, TurnStep::PrecombatMain);
+        let bear = object(&g, 1);
+        let raise_dead = object(&g, 0).card;
+        answer(&mut g, Response::Cast { card: raise_dead });
+        let r = request(&mut g);
+        assert!(matches!(r, Request::Targets { .. }), "{r:?}");
+        g.respond(
+            r.player(),
+            r.decision_id(),
+            Response::Targets {
+                objects: vec![bear],
+            },
+        )
+        .unwrap();
+        if concede {
+            g.concede(PlayerId(2)).unwrap();
+        }
+        let r = request(&mut g);
+        assert!(
+            matches!(r, Request::Mana { .. }),
+            "concede={concede}: {r:?}"
+        );
+        assert_eq!(g.state.stack.len(), 1);
+    }
+}

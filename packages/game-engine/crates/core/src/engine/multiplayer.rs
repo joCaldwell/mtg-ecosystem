@@ -496,7 +496,10 @@ impl Game {
                     Response::EntityTargets { entities } => {
                         self.validate_entity_targets(p.player, entities).is_err()
                     }
-                    Response::Targets { objects } => objects.iter().any(|t| !self.target_legal(*t)),
+                    // Graveyard-card targets (Raise Dead) use their own domain.
+                    Response::Targets { objects } => self.top().map_or(true, |top| {
+                        objects.iter().any(|t| !self.object_target_legal(top, *t))
+                    }),
                     Response::StackTargets { entries } => {
                         self.validate_stack_targets(p.player, entries).is_err()
                     }

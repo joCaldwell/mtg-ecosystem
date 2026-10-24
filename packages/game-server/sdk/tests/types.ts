@@ -50,6 +50,9 @@ export function exhaustive(response: PlayerResponse): string {
     case 'pass': return 'pass';
     case 'targets': return response.objects.join(',');
     case 'finish_mana': return String(response.undo_mana);
+    case 'trample_damage': return `${response.player}:${response.amount}:${response.assignments.length}`;
+    case 'search_lands': return response.objects.join(',');
+    case 'optional_recursion': return String(response.perform);
     default: { const unhandled: never = response; return unhandled; }
   }
 }

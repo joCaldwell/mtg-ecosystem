@@ -157,9 +157,14 @@ instruction returns a creature to the battlefield. Raise Dead is a sorcery;
 Gravedigger is a main-phase permanent spell. Recursion can resolve over other
 stack entries, but its returned creature cannot be cast until that stack is
 empty. Thus each creature card enters and dies at most once per nonempty-stack
-episode, even with recursion. Temporary effects still have the previous bound:
-recursion cannot return their instant/sorcery sources, and Samite Healer belongs
-to the white deck, which cannot include black recursion.
+episode, even with recursion. Temporary effects are recounted per black/green seat per turn: Fog,
+Giant Growth and Disfigure once each, plus Slaughterhouse Bouncer's dies
+trigger (-3/-3 until end of turn) up to three times, since Raise Dead and
+Gravedigger can each return it once. That makes six per seat, 24 for four
+seats, within the unchanged capacity of 32. Samite Healer belongs to the white
+deck, which cannot include black recursion. Running out of effect capacity
+remains an untyped fault, as in earlier profiles; the bound makes it
+unreachable.
 
 - Damage occurrences per combat step: 2C = **736**.
 - Stack plus pending triggers: **3,752** = 400 physical spell entries + four
