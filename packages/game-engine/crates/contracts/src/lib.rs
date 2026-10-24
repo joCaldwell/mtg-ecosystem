@@ -96,6 +96,7 @@ pub enum CardKind {
     Instant,
     Sorcery,
     Enchantment,
+    Artifact,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -115,6 +116,9 @@ pub struct Characteristics {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+    CastArtifactV1,
+    PermanentManaV1,
+    CompositeActivationCostV1,
     CastEnchantmentV1,
     TemporaryPowerToughnessV1,
     CombatDamagePreventionV1,
@@ -409,6 +413,30 @@ pub enum ActivationCost {
     SacrificeSource,
     TapSource,
     Mana { cost: ManaCost },
+    Composite { costs: PermanentActivationCosts },
+}
+/// Finite permanent costs; costs are committed only after complete payment.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PermanentActivationCosts {
+    pub tap: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mana: Option<ManaCost>,
+    pub sacrifice: bool,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "mana", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ManaProduction {
+    Fixed { symbols: Vec<Color> },
+    AnyColor,
+    CommanderColor,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ManaAbility {
+    pub costs: PermanentActivationCosts,
+    pub production: ManaProduction,
+    pub source_block: u32,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -527,6 +555,8 @@ pub struct Definition {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub activated: Vec<ActivatedAbility>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mana_abilities: Vec<ManaAbility>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub triggered: Vec<TriggeredAbility>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub static_abilities: Vec<StaticAbility>,
@@ -540,13 +570,19 @@ impl Definition {
         let mut set = BTreeSet::from([Capability::NormalLayoutV1]);
         match self.characteristics.kind {
             CardKind::Land => {
-                set.extend([Capability::BasicLandManaV1, Capability::LandPlayV1]);
+                set.insert(Capability::LandPlayV1);
+                if self.characteristics.basic {
+                    set.insert(Capability::BasicLandManaV1);
+                }
             }
             CardKind::Creature => {
                 set.extend([Capability::BaseCreatureV1, Capability::CastCreatureV1]);
                 if self.characteristics.legendary {
                     set.insert(Capability::CommanderIdentityV1);
                 }
+            }
+            CardKind::Artifact => {
+                set.insert(Capability::CastArtifactV1);
             }
             CardKind::Enchantment => {
                 set.insert(Capability::CastEnchantmentV1);
@@ -562,12 +598,16 @@ impl Definition {
         if let Some(program) = &self.spell {
             add_program_requirements(&mut set, program);
         }
+        if !self.mana_abilities.is_empty() {
+            set.insert(Capability::PermanentManaV1);
+        }
         for ability in &self.activated {
             set.insert(Capability::ActivatedAbilityV1);
             set.insert(match ability.cost {
                 ActivationCost::SacrificeSource => Capability::SacrificeSourceCostV1,
                 ActivationCost::TapSource => Capability::TapSourceCostV1,
                 ActivationCost::Mana { .. } => Capability::ManaActivationCostV1,
+                ActivationCost::Composite { .. } => Capability::CompositeActivationCostV1,
             });
             add_program_requirements(&mut set, &ability.program);
         }
@@ -665,10 +705,41 @@ impl Definition {
         {
             return Err("invalid source/AST provenance".into());
         }
-        if !self.activated.is_empty() && c.kind != CardKind::Creature {
+        if self.mana_abilities.len() > 1 {
+            return Err("finite profile supports one mana ability per source".into());
+        }
+        for a in &self.mana_abilities {
+            if !matches!(
+                c.kind,
+                CardKind::Creature | CardKind::Artifact | CardKind::Land
+            ) || !a.costs.tap
+                || matches!(&a.production, ManaProduction::Fixed { symbols } if symbols.is_empty())
+            {
+                return Err("unsupported permanent mana ability".into());
+            }
+            validate_permanent_costs(&a.costs)?;
+        }
+        if !self.activated.is_empty() && !matches!(c.kind, CardKind::Creature | CardKind::Artifact)
+        {
             return Err("activated programs require supported creature characteristics".into());
         }
         for ability in &self.activated {
+            if c.kind == CardKind::Artifact
+                && !matches!(ability.cost, ActivationCost::Composite { .. })
+            {
+                return Err("artifact nonmana abilities require sacrifice-to-draw costs".into());
+            }
+            if let ActivationCost::Composite { costs } = &ability.cost {
+                validate_permanent_costs(costs)?;
+                if !costs.sacrifice
+                    || c.kind != CardKind::Artifact
+                    || !matches!(ability.program.instructions.as_slice(), [Instruction::DrawCards {count, recipient:None, ..}] if *count == Quantity::from(1))
+                {
+                    return Err(
+                        "composite nonmana activation requires artifact sacrifice and draw".into(),
+                    );
+                }
+            }
             let p = &ability.program;
             if matches!(&ability.cost, ActivationCost::Mana { cost } if cost.generic.is_negative())
                 || ability.functioning_zone != FunctioningZone::Battlefield
@@ -753,7 +824,7 @@ impl Definition {
             }
         }
         match c.kind {
-            CardKind::Enchantment => {
+            CardKind::Enchantment | CardKind::Artifact => {
                 let p = self.spell.as_ref().ok_or("missing enchantment spell")?;
                 if c.basic
                     || c.legendary
@@ -773,9 +844,15 @@ impl Definition {
             }
             CardKind::Land => {
                 if c.legendary
-                    || !c.basic
-                    || c.subtypes.len() != 1
-                    || basic_land_color(&c.subtypes[0]).is_none()
+                    || if c.basic {
+                        c.subtypes.len() != 1
+                            || basic_land_color(&c.subtypes[0]).is_none()
+                            || !self.mana_abilities.is_empty()
+                    } else {
+                        !c.subtypes.is_empty() || self.mana_abilities.is_empty()
+                    }
+                    || c.mana_cost.generic != Quantity::zero()
+                    || !c.mana_cost.colored.is_empty()
                     || c.power.is_some()
                     || c.toughness.is_some()
                     || self.spell.is_some()
@@ -834,6 +911,15 @@ impl Definition {
         }
         Ok(())
     }
+}
+fn validate_permanent_costs(c: &PermanentActivationCosts) -> Result<(), String> {
+    if c.mana
+        .as_ref()
+        .is_some_and(|m| m.generic.is_negative() || m.colored.contains(&Color::C))
+    {
+        return Err("unsupported permanent mana cost".into());
+    }
+    Ok(())
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     if !p.modes.is_empty() {
@@ -1066,7 +1152,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 3, max = 15))]
+    #[schemars(range(min = 3, max = 16))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -1074,7 +1160,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.schema_version, 3..=15)
+        if !matches!(self.schema_version, 3..=16)
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -1083,6 +1169,18 @@ impl Catalog {
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
             d.validate()?;
+            if self.schema_version < 16
+                && d.capabilities.iter().any(|c| {
+                    matches!(
+                        c,
+                        Capability::CastArtifactV1
+                            | Capability::PermanentManaV1
+                            | Capability::CompositeActivationCostV1
+                    )
+                })
+            {
+                return Err("IR v16 is required for permanent mana and artifacts".into());
+            }
             if self.schema_version < 15
                 && d.capabilities.iter().any(|c| {
                     matches!(
@@ -1437,6 +1535,15 @@ pub fn catalog_schema() -> serde_json::Value {
             "spell":{"$ref":"#/$defs/PreStaplesProgram"},
             "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PreStaplesProgram"}}}},
             "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreStaplesProgram"}}}}
+        }}}}}
+    }));
+    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["schema_version"],"properties":{"schema_version":{"maximum":15}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "characteristics":{"properties":{"kind":{"not":{"const":"artifact"}}}},
+            "mana_abilities":{"maxItems":0},
+            "activated":{"items":{"properties":{"cost":{"not":{"type":"object","required":["composite"]}}}}},
+            "capabilities":{"items":{"not":{"enum":[Capability::CastArtifactV1,Capability::PermanentManaV1,Capability::CompositeActivationCostV1]}}}
         }}}}}
     }));
     schema["$defs"]["SpellProgram"]["allOf"] = serde_json::json!([{

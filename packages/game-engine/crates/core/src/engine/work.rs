@@ -598,6 +598,13 @@ impl Game {
                             Frame::DamageAllocation { .. },
                             PlayerResponse::DamageAllocation { allocations },
                         ) => allocations.len() <= self.damage_limit(),
+                        (
+                            Frame::ManaAbility { .. },
+                            PlayerResponse::ActivateMana { .. }
+                            | PlayerResponse::FinishMana { .. }
+                            | PlayerResponse::SpendMana { .. }
+                            | PlayerResponse::ManaColor { .. },
+                        ) => true,
                         (Frame::Modes { .. }, PlayerResponse::Modes { .. }) => true,
                         (Frame::TriggerTargets { .. }, PlayerResponse::Targets { objects }) => {
                             objects.len() == self.program().map_err(invalid)?.targets.len()

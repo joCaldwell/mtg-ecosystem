@@ -445,6 +445,7 @@ impl Game {
         if !self.state.simultaneous_losses && self.finish_if_ended()? {
             return Ok(());
         }
+        self.revalidate_mana_departure()?;
         // CR 608.2m: a started invocation owns its frozen instance and keeps
         // resolving after its source leaves. Only an unfinished casting frame
         // whose own source left is discarded; lower departures cannot replace it.
@@ -512,7 +513,8 @@ impl Game {
                 });
             let no_domain = !self.has_target_domain(self.program()?, self.top()?.controller);
             let source_bad = cast.origin == AnnouncementOrigin::Activated
-                && matches!(self.state.frame, Frame::EntityTargets { .. })
+                && (matches!(self.state.frame, Frame::EntityTargets { .. })
+                    || matches!(self.top()?.kind, StackKind::Activated {ability,..} if matches!(self.definition(self.top().unwrap().source.card).unwrap().activated[ability as usize].cost, ActivationCost::Composite {..})))
                 && self.current(self.top()?.source).is_err();
             if targets_bad || pending_bad || no_domain || source_bad {
                 self.reverse_departure_cast(cast)?;
@@ -523,7 +525,10 @@ impl Game {
         // only the stale proposal, and leave valid pending actions intact.
         if matches!(
             self.state.frame,
-            Frame::Priority | Frame::Mana { .. } | Frame::SpendMana { .. }
+            Frame::Priority
+                | Frame::Mana { .. }
+                | Frame::SpendMana { .. }
+                | Frame::ManaAbility { .. }
         ) && self
             .state
             .pending

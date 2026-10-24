@@ -107,6 +107,8 @@ fn run_profiled(
         policy,
         mulligans,
         beneficial: false,
+        mana_plan: Default::default(),
+        mana_color: None,
     };
     let selected_checkpoints = config.seed == seed(0) && policy == Policy::Develop;
     let mut checkpoints = vec![];

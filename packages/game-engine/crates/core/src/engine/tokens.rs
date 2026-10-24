@@ -81,6 +81,7 @@ fn token_definition(source: &Definition, id: CardId, token: &CreatureToken) -> D
     d.intrinsic_zone = None;
     d.spell = None;
     d.activated.clear();
+    d.mana_abilities.clear();
     d.triggered.clear();
     d.static_abilities.clear();
     d.keywords = token.keywords.clone();

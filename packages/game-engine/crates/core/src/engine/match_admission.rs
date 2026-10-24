@@ -18,6 +18,9 @@ pub const TOKENS_CATALOG_SHA256: &str =
 pub const STAPLES_PROFILE: &str = "commander-staples-v1";
 pub const STAPLES_CATALOG_SHA256: &str =
     "c0c9d9d238c60d00f3cad4b40e6f95b65225e67244b526f4a188b0faf33fff2a";
+pub const MANA_PROFILE: &str = "commander-mana-v1";
+pub const MANA_CATALOG_SHA256: &str =
+    "1df5823602dd4aacea6ab8e69766dc750e425686ba02221857b443c415b37794";
 /// All reviewed legal-profile identity and construction inputs live here.
 pub struct MatchProfile {
     pub name: &'static str,
@@ -28,7 +31,7 @@ pub struct MatchProfile {
     pub white_deck: fn() -> Decklist,
     pub black_green_deck: fn() -> Decklist,
 }
-pub static MATCH_PROFILES: [MatchProfile; 5] = [
+pub static MATCH_PROFILES: [MatchProfile; 6] = [
     MatchProfile {
         name: MATCH_PROFILE,
         catalog_sha256: MATCH_CATALOG_SHA256,
@@ -75,6 +78,15 @@ pub static MATCH_PROFILES: [MatchProfile; 5] = [
         commanders: &[ISAMARU, YARGLE],
         white_deck: staples_white_deck,
         black_green_deck: staples_black_green_deck,
+    },
+    MatchProfile {
+        name: MANA_PROFILE,
+        catalog_sha256: MANA_CATALOG_SHA256,
+        ir_version: 16,
+        policy_json: include_str!("../../../../tests/fixtures/commander-mana-policy.json"),
+        commanders: &[ISAMARU, YARGLE],
+        white_deck: mana_white_deck,
+        black_green_deck: mana_black_green_deck,
     },
 ];
 pub fn match_profile(name: &str) -> Option<&'static MatchProfile> {
@@ -721,6 +733,84 @@ pub fn tokens_black_green_deck() -> Decklist {
     });
     deck.cards.push(DeckEntry {
         oracle_id: "a1112750-8d38-49e0-ab1c-77110b2bbc4d".into(),
+        count: 1,
+    });
+    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    deck
+}
+
+pub fn mana_white_deck() -> Decklist {
+    let mut deck = staples_white_deck();
+    for row in &mut deck.cards {
+        if row.count > 1 {
+            row.count = 71;
+        }
+    }
+    deck.cards.push(DeckEntry {
+        oracle_id: "0895c9b7-ae7d-4bb3-af17-3b75deb50a25".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "0b67c4e2-f88b-4e01-85a1-9d5f5b8db13b".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "0bc7f093-bef0-4f1a-852c-4b75ebf54838".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "6ad8011d-3471-4369-9d68-b264cc027487".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "c97361b5-af16-4a7b-af85-a429dbaf4ad2".into(),
+        count: 1,
+    });
+    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    deck
+}
+
+pub fn mana_black_green_deck() -> Decklist {
+    let mut deck = staples_black_green_deck();
+    for row in &mut deck.cards {
+        if row.count > 1 {
+            row.count = if row.oracle_id == FOREST { 24 } else { 26 };
+        }
+    }
+    deck.cards.push(DeckEntry {
+        oracle_id: "0895c9b7-ae7d-4bb3-af17-3b75deb50a25".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "0b67c4e2-f88b-4e01-85a1-9d5f5b8db13b".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "0bc7f093-bef0-4f1a-852c-4b75ebf54838".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "1cf51f50-24e4-48d0-95b3-1dad3ffa4bf5".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "3f3b2c10-21f8-4e13-be83-4ef3fa36e123".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "68954295-54e3-4303-a6bc-fc4547a4e3a3".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "6ad8011d-3471-4369-9d68-b264cc027487".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "c97361b5-af16-4a7b-af85-a429dbaf4ad2".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "d3a0b660-358c-41bd-9cd2-41fbf3491b1a".into(),
         count: 1,
     });
     deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));

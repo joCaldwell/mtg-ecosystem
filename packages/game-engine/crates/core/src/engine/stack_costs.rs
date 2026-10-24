@@ -39,12 +39,16 @@ impl Game {
             .ok_or("stack ID resource limit")?;
         let total_cost = match &cost {
             ActivationCost::Mana { cost } => cost.clone(),
+            ActivationCost::Composite { costs } => {
+                costs.mana.clone().unwrap_or_else(zero_mana_cost)
+            }
             _ => ManaCost {
                 generic: Quantity::zero(),
                 colored: vec![],
             },
         };
-        let mana = matches!(cost, ActivationCost::Mana { .. });
+        let mana = matches!(cost, ActivationCost::Mana { .. })
+            || matches!(&cost, ActivationCost::Composite { costs } if costs.mana.is_some());
         let targeted = !self.definition(object.card)?.activated[ability as usize]
             .program
             .targets
@@ -103,21 +107,38 @@ impl Game {
                 },
             };
         } else {
-            let proposed = match cost {
-                ActivationCost::SacrificeSource => ProposedEvent::Sacrifice { object, player },
-                ActivationCost::TapSource => ProposedEvent::Tap { object },
-                ActivationCost::Mana { .. } => return Err("activated cost branch invariant".into()),
-            };
-            self.commit(
-                proposed,
-                BatchCause::AbilityActivation {
-                    stack_id: id,
+            if let ActivationCost::Composite { costs } = &cost {
+                self.pay_permanent_source_costs(
+                    object,
                     player,
-                    source: object,
-                    decision_id,
-                    ability,
-                },
-            )?;
+                    costs,
+                    BatchCause::AbilityActivation {
+                        stack_id: id,
+                        player,
+                        source: object,
+                        decision_id,
+                        ability,
+                    },
+                )?;
+            } else {
+                let proposed = match cost {
+                    ActivationCost::SacrificeSource => ProposedEvent::Sacrifice { object, player },
+                    ActivationCost::TapSource => ProposedEvent::Tap { object },
+                    ActivationCost::Composite { .. } | ActivationCost::Mana { .. } => {
+                        return Err("activated cost branch invariant".into());
+                    }
+                };
+                self.commit(
+                    proposed,
+                    BatchCause::AbilityActivation {
+                        stack_id: id,
+                        player,
+                        source: object,
+                        decision_id,
+                        ability,
+                    },
+                )?;
+            }
             self.record_event(Event::AbilityActivated {
                 stack_id: id,
                 source: object,
@@ -143,12 +164,15 @@ impl Game {
             .ok_or("snapshot missing activated definition")?;
         let expected = match &activated.cost {
             ActivationCost::Mana { cost } => cost.clone(),
+            ActivationCost::Composite { costs } => {
+                costs.mana.clone().unwrap_or_else(zero_mana_cost)
+            }
             _ => ManaCost {
                 generic: Quantity::zero(),
                 colored: vec![],
             },
         };
-        let announcing = match &self.state.frame {
+        let announcing = match self.underlying_mana_frame(&self.state.frame) {
             Frame::EntityTargets { cast }
             | Frame::Mana { cast }
             | Frame::SpendMana { cast }
@@ -171,9 +195,11 @@ impl Game {
                 Some(paid) => *paid != expected,
                 None => {
                     !announcing
-                        || !(matches!(activated.cost, ActivationCost::Mana { .. })
-                            || (!activated.program.targets.is_empty()
-                                && self.prepared.config.damage_life_profile()))
+                        || !(matches!(
+                            activated.cost,
+                            ActivationCost::Mana { .. } | ActivationCost::Composite { .. }
+                        ) || (!activated.program.targets.is_empty()
+                            && self.prepared.config.damage_life_profile()))
                 }
             }
         {

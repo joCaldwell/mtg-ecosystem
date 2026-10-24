@@ -42,7 +42,7 @@ const responseVariants = schemas.command.definitions.PlayerResponse.oneOf.length
 const executionVariants = schemas.execution.definitions.CommandExecutionStatus.oneOf.length;
 const logBytes = fs.readFileSync(logPath);
 const tests = Number(/^# tests (\d+)$/m.exec(logBytes.toString('utf8'))?.[1]);
-if (!Number.isInteger(tests) || tests < 1 || responseVariants !== 27 || executionVariants !== 5 || schemas.routes.length !== 5) throw new Error('Expected test/response contract counters missing');
+if (!Number.isInteger(tests) || tests < 1 || responseVariants !== 28 || executionVariants !== 5 || schemas.routes.length !== 5) throw new Error('Expected test/response contract counters missing');
 for (const file of generation.files) if (sha(fs.readFileSync(path.join(output, file.path))) !== file.sha256) throw new Error('Generated declaration hash mismatch');
 if (sha(fs.readFileSync(path.join(output, 'protocol.schema.json'))) !== generation.schema_sha256) throw new Error('Rust schema hash mismatch');
 const packages = Object.fromEntries(['ajv', 'json-schema-to-typescript', 'typescript'].map(name => [name, JSON.parse(fs.readFileSync(path.join(sdk, 'node_modules', name, 'package.json'))).version]));

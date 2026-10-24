@@ -350,6 +350,8 @@ fn prepare_root(
         policy: Policy::Develop,
         mulligans: [0; 4],
         beneficial: false,
+        mana_plan: Default::default(),
+        mana_color: None,
     };
     let mut meter = Meter::default();
     let mut loop_ordinal = 0;
@@ -461,6 +463,8 @@ fn branch(
         policy: Policy::Develop,
         mulligans: [0; 4],
         beneficial: false,
+        mana_plan: Default::default(),
+        mana_color: None,
     };
     let result = (|| -> Result<(), String> {
         let mut primary = false;
@@ -1405,6 +1409,8 @@ fn choice_setup_policy_initial_keep_is_public_and_does_not_mutate_game() {
         policy: Policy::Develop,
         mulligans: [0; 4],
         beneficial: false,
+        mana_plan: Default::default(),
+        mana_color: None,
     };
     assert!(matches!(o.decision, Some(PlayerRequest::Mulligan { .. })));
     assert!(matches!(

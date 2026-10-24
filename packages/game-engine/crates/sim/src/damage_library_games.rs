@@ -129,7 +129,9 @@ impl Strategy {
             .as_ref()
             .ok_or("missing lifecycle decision")?;
         Ok(match request {
-            PlayerRequest::SearchLands { .. } | PlayerRequest::OptionalRecursion { .. } => {
+            PlayerRequest::ManaColor { .. }
+            | PlayerRequest::SearchLands { .. }
+            | PlayerRequest::OptionalRecursion { .. } => {
                 return Err("staples request outside historical policy".into());
             }
             PlayerRequest::Mulligan { .. } | PlayerRequest::BottomOpening { .. } => {

@@ -399,6 +399,15 @@ account for recursion. Acceptance evidence is recorded in
 foundations-only search/server hosting remain separate; regeneration, restricted
 removal, reveal/split searches and general continuous effects remain excluded.
 
+P6.5 is complete under [game-engine-mana-permanents.md](game-engine-mana-permanents.md):
+a separate 90-definition IR v16 `commander-mana-v1` profile adds artifacts,
+colorless mana, mana rocks/dorks, nonbasic Command Tower, color choices and
+nested Signet payments. Sphere/Mind Stone draw abilities remain nonmana stack
+entries. Its resource proof includes the larger creature pool and sacrifice-draw
+activations. Verification and the frozen 18-game batch are recorded in
+[game-engine-progress.md](game-engine-progress.md). Earlier versions/bytes and
+foundations-only search/server hosting remain separate.
+
 **Deliver in bounded families:** replacement/prevention ordering and budgets;
 continuous-effect layers/sublayers/timestamps/dependencies; granted abilities;
 multiple/cost-dependent targets; counters and tokens; attachments; alternate/

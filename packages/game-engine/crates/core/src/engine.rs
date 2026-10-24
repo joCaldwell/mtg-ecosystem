@@ -215,6 +215,11 @@ mod recovery;
 pub use recovery::SnapshotVerifier;
 mod actions;
 mod casting;
+mod mana_permanents;
+#[cfg(test)]
+mod mana_tests;
+pub use mana_permanents::PermanentManaUndo;
+use mana_permanents::{ManaActivation, zero_mana_cost};
 mod stack_costs;
 use stack_costs::AnnouncementOrigin;
 #[cfg(test)]
@@ -688,6 +693,8 @@ struct ManaActivationUndo {
     color: Color,
     amount: Quantity,
     mana_was_absent: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    permanent: Option<Box<PermanentManaUndo>>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -703,6 +710,9 @@ struct Resolving {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 enum Frame {
+    ManaAbility {
+        activation: Box<ManaActivation>,
+    },
     Setup,
     DamageAllocation {
         transaction: DamageTransaction,
@@ -786,6 +796,9 @@ enum Frame {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    ManaColor {
+        color: Color,
+    },
     SearchLands {
         objects: Vec<ObjectId>,
     },
@@ -880,6 +893,11 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    ManaColor {
+        decision_id: u64,
+        player: PlayerId,
+        colors: Vec<Color>,
+    },
     SearchLands {
         decision_id: u64,
         player: PlayerId,
@@ -1019,7 +1037,8 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::SearchLands { decision_id, .. }
+            Self::ManaColor { decision_id, .. }
+            | Self::SearchLands { decision_id, .. }
             | Self::OptionalRecursion { decision_id, .. }
             | Self::Mulligan { decision_id, .. }
             | Self::BottomOpening { decision_id, .. }
@@ -1045,7 +1064,8 @@ impl Request {
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::SearchLands { player, .. }
+            Self::ManaColor { player, .. }
+            | Self::SearchLands { player, .. }
             | Self::OptionalRecursion { player, .. }
             | Self::Mulligan { player, .. }
             | Self::BottomOpening { player, .. }
@@ -1073,6 +1093,9 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    ReversePermanentMana {
+        receipt: Box<PermanentManaUndo>,
+    },
     FinishLibraryShuffle {
         player: PlayerId,
     },
@@ -1227,6 +1250,10 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    PermanentManaReversed {
+        player: PlayerId,
+        source: ObjectId,
+    },
     LibraryShuffled {
         player: PlayerId,
         count: u64,
@@ -1821,6 +1848,9 @@ impl Game {
     pub fn mana_abilities(&self, object: ObjectId) -> Result<Vec<Color>, String> {
         let o = self.current(object)?;
         let d = self.definition(object.card)?;
+        if self.mana_enabled() && o.zone == Zone::Battlefield && !d.mana_abilities.is_empty() {
+            return Ok(self.mana_colors(o.controller, &d.mana_abilities[0].production));
+        }
         if o.zone != Zone::Battlefield || d.intrinsic_zone != Some(FunctioningZone::Battlefield) {
             return Ok(vec![]);
         }
@@ -1960,6 +1990,7 @@ impl Game {
                 candidates: self
                     .eligible_players(self.program()?.targets[0].domain, self.top()?.controller),
             },
+            Frame::ManaAbility { activation } => self.permanent_mana_request(activation)?,
             Frame::SpendMana { .. } => self.spend_mana_request()?,
             Frame::CommanderReturn {
                 object,
@@ -2021,6 +2052,9 @@ impl Game {
         }
         if let Some(result) = self.validate_actions_response(player, response) {
             return result;
+        }
+        if let Frame::ManaAbility { activation } = &self.state.frame {
+            return self.validate_permanent_mana_response(activation, player, response);
         }
         if let (Frame::SpendMana { .. }, Response::SpendMana { spending }) =
             (&self.state.frame, response)
@@ -2245,9 +2279,13 @@ impl Game {
                         self.play_land(input.player, input.decision_id, card)?;
                     }
                     Response::ActivateMana { object } => {
-                        self.activate_intrinsic_mana(&input, object)?;
-                        self.state.passes.clear();
-                        self.stabilize()?;
+                        if self.is_permanent_mana(object) {
+                            self.begin_permanent_mana(&input, object, Frame::Priority)?;
+                        } else {
+                            self.activate_intrinsic_mana(&input, object)?;
+                            self.state.passes.clear();
+                            self.stabilize()?;
+                        }
                     }
                     Response::Cast { card } => {
                         let cast_from = self
@@ -2396,9 +2434,13 @@ impl Game {
                     .ok_or("missing accepted mana input")?;
                 match input.response {
                     Response::ActivateMana { object } => {
-                        let receipt = self.activate_intrinsic_mana(&input, object)?;
-                        cast.mana_activations.push(receipt);
-                        self.state.frame = Frame::Mana { cast };
+                        if self.is_permanent_mana(object) {
+                            self.begin_permanent_mana(&input, object, Frame::Mana { cast })?;
+                        } else {
+                            let receipt = self.activate_intrinsic_mana(&input, object)?;
+                            cast.mana_activations.push(receipt);
+                            self.state.frame = Frame::Mana { cast };
+                        }
                     }
                     Response::FinishMana { undo_mana } => {
                         cast.undo_mana = undo_mana;
@@ -2407,6 +2449,7 @@ impl Game {
                     _ => return Err("mana response/frame invariant".into()),
                 }
             }
+            Frame::ManaAbility { activation } => self.permanent_mana_step(*activation)?,
             Frame::Payment { cast } => self.payment_step(cast)?,
             Frame::SpendMana { cast } => self.spend_mana_step(cast)?,
             Frame::TriggerOrder { .. } | Frame::TriggerTargets { .. } => self.trigger_step()?,
@@ -2811,7 +2854,7 @@ impl Game {
             }
             let incomplete_top = index + 1 == s.stack.len()
                 && (matches!(
-                    s.frame,
+                    self.underlying_mana_frame(&s.frame),
                     Frame::TriggerTargets { .. }
                         | Frame::Modes { .. }
                         | Frame::EntityTargets { .. }
@@ -2821,8 +2864,10 @@ impl Game {
                         | Frame::Mana { .. }
                         | Frame::SpendMana { .. }
                         | Frame::Payment { .. }
-                ) || (matches!(s.frame, Frame::Finished { .. } | Frame::Fault { .. })
-                    && stack.paid.is_none()));
+                ) || (matches!(
+                    self.underlying_mana_frame(&s.frame),
+                    Frame::Finished { .. } | Frame::Fault { .. }
+                ) && stack.paid.is_none()));
             if !incomplete_top
                 && (self.bound_target_count(stack) != n
                     || stack.paid.as_ref() != Some(&stack.total_cost))
@@ -2842,7 +2887,8 @@ impl Game {
         {
             return Err("snapshot stack/zone invariant".into());
         }
-        match &s.frame {
+        self.validate_nested_mana_frame(&s.frame)?;
+        match self.underlying_mana_frame(&s.frame) {
             Frame::Modes { cast }
             | Frame::EntityTargets { cast }
             | Frame::Targets { cast }
@@ -2868,24 +2914,25 @@ impl Game {
                 let sources: BTreeSet<_> = cast.mana_activations.iter().map(|a| a.object).collect();
                 if sources.len() != cast.mana_activations.len()
                     || cast.mana_activations.len() > self.prepared.config.cards.len()
-                    || cast
-                        .mana_activations
-                        .iter()
-                        .any(|a| a.player != top.controller || a.amount != Quantity::from(1))
+                    || cast.mana_activations.iter().any(|a| {
+                        a.player != top.controller
+                            || (a.permanent.is_none() && a.amount != Quantity::from(1))
+                    })
                     || (matches!(
-                        s.frame,
+                        self.underlying_mana_frame(&s.frame),
                         Frame::Modes { .. }
                             | Frame::EntityTargets { .. }
                             | Frame::Targets { .. }
                             | Frame::PlayerTargets { .. }
                             | Frame::StackTargets { .. }
                     ) && (!cast.mana_activations.is_empty() || cast.undo_mana))
-                    || (matches!(s.frame, Frame::Mana { .. }) && cast.undo_mana)
+                    || (matches!(self.underlying_mana_frame(&s.frame), Frame::Mana { .. })
+                        && cast.undo_mana)
                 {
                     return Err("snapshot casting mana receipt invariant".into());
                 }
                 if matches!(
-                    s.frame,
+                    self.underlying_mana_frame(&s.frame),
                     Frame::Modes { .. }
                         | Frame::EntityTargets { .. }
                         | Frame::Targets { .. }
@@ -2896,7 +2943,7 @@ impl Game {
                     return Err("snapshot announcement target invariant".into());
                 }
                 if matches!(
-                    s.frame,
+                    self.underlying_mana_frame(&s.frame),
                     Frame::Mana { .. } | Frame::SpendMana { .. } | Frame::Payment { .. }
                 ) && self.bound_target_count(top) != self.program()?.targets.len()
                 {
