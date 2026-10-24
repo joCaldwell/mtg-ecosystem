@@ -14,6 +14,35 @@ impl Drop for Temporary {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
+/// Every publication in every seat's full stream, including those before and
+/// after the private search resolves, hides libraries, foreign hands and the
+/// search request itself.
+fn assert_streams_private(worker: &Worker) {
+    for seat in 0..4u8 {
+        let mut cursor = 0;
+        loop {
+            let page = worker.stream_page(seat, cursor, 32).unwrap();
+            for entry in &page.entries {
+                if let Publication::ViewReplaced { observation } = &entry.publication {
+                    for o in &observation.view.objects {
+                        assert!(!matches!(o.zone, Zone::Library { .. }));
+                        assert!(!matches!(o.zone, Zone::Hand { owner } if owner != PlayerId(seat)));
+                    }
+                    if seat != 1 {
+                        assert!(!matches!(
+                            observation.decision,
+                            Some(PlayerRequest::SearchLands { .. })
+                        ));
+                    }
+                }
+            }
+            if !page.has_more {
+                break;
+            }
+            cursor = page.next.get();
+        }
+    }
+}
 fn latest(worker: &Worker, seat: u8) -> Observation {
     let cursor = worker.host_state().viewer_cursors[usize::from(seat)];
     let page = worker.stream_page(seat, cursor - 1, 1).unwrap();
@@ -79,6 +108,26 @@ fn attachments_worker_recovers_private_search_without_other_seat_stream_leaks() 
                     assert!(!bytes.contains(&request.token().0));
                     for candidate in candidates {
                         assert!(!bytes.contains(&candidate.handle.0));
+                    }
+                    // Handles are viewer-prefixed, so the checks above are
+                    // structural; also compare the searched oracle identities
+                    // against what is publicly visible to the searcher.
+                    let public = |o: &mtg_core::VisibleObject| {
+                        !matches!(o.zone, Zone::Hand { .. } | Zone::Library { .. })
+                    };
+                    for candidate in candidates {
+                        let seen_public = view
+                            .objects
+                            .iter()
+                            .filter(|o| o.oracle_id == candidate.oracle_id && public(o))
+                            .count();
+                        let seen = views[usize::from(other)]
+                            .view
+                            .objects
+                            .iter()
+                            .filter(|o| o.oracle_id == candidate.oracle_id)
+                            .count();
+                        assert_eq!(seen, seen_public, "seat {other} sees a searched card");
                     }
                     if !page.has_more {
                         break;
@@ -258,6 +307,7 @@ fn attachments_worker_recovers_private_search_without_other_seat_stream_leaks() 
             drop(worker);
             let recovered = Worker::recover(&directory.0, catalog, "a2", Instant::now()).unwrap();
             assert_eq!(recovered.state_sha256().unwrap(), hash);
+            assert_streams_private(&recovered);
             break;
         }
     }
