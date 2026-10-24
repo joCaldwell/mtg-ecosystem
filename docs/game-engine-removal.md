@@ -169,8 +169,9 @@ The completion policies use only observation and the public catalog:
   - Naturalize on Glorious Anthem, with P/T updated at once;
   - Beast Within on a land and on Sol Ring (its controller gets the Beast), and
     on the caster's own permanent;
-  - Generous Gift whose target gains shroud from Lightning Greaves in response:
-    the spell does nothing, and no token is created;
+  - Generous Gift whose creature target is bounced by Unsummon in response:
+    the spell does nothing, and no token is created (608.2b). Equip is
+    sorcery-speed (702.6a), so shroud cannot be granted in response;
   - Nature's Claim life going to the artifact's controller;
   - Feed the Swarm on a token (MV 0) and on a commander (printed MV, not tax);
     it can't target the caster's own permanents;
@@ -189,6 +190,10 @@ The completion policies use only observation and the public catalog:
   - Swan Song unable to target creature or Equipment spells;
   - destroying a creature with an Aura and an Equipment attached, in one SBA
     wave.
+- If any other listed witness proves unreachable from accepted inputs in the
+  admitted pool, substitute the nearest reachable witness, cite why, and record
+  the substitution as a deviation. Do not use a private injected fixture unless
+  the substitute would lose the rule being tested.
 - Snapshot/restore/replay equality across trace modes for the witnesses,
   including a snapshot with cards in exile.
 - A frozen 18-game completion batch completes with zero engine faults or
