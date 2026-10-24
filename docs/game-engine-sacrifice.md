@@ -207,3 +207,92 @@ completion machinery, not strategy:
 - **Earlier profiles and checks.** Earlier profiles' catalog, policy and
   expected IR digests and historical batch outputs are unchanged. `npm run
   check:engine` and SDK verification pass.
+
+## Reviewed resource bounds
+
+Only sacrifice-v1 changes capacities. The reviewed color-legal creature maxima
+(including each commander) are white **17**, BG **42**, blue **11**, red **12**.
+For the P6.3 calculation we deliberately overcount all **400** physical cards
+as creatures. Capacity is on live tokens; ceased identities are never reused.
+
+The new death producers require a lifetime proof as well as an episode proof.
+There are at most 400 ordinary cards available to draw, eight tuck instructions
+(one Time Ebb per blue seat, with eight conservatively allowing both blue
+return instructions), four failed draws and four departures before a draw step.
+Thus **416 turns** is an upper bound on normal untap opportunities. Searches,
+extra draws and mulligans only reduce the number of remaining normal draws.
+No instruction replenishes a library except those bounded tucks. A physical
+mana source produces at most two mana per untap; the eight useful creature
+recursions and eight bounce/tuck returns add at most sixteen extra activations
+through haste. Lifetime spendable mana is therefore at most
+**400×2×416 + 16×2 = 332,832**. This overcounts Signet's net production and
+untaps of another player's permanents. Failed-payment reversals subtract their
+receipt-recorded production before untapping, so repeated undo cannot fund
+additional completed casts (CR 733.1–.2). There are no other untap instructions.
+
+Every command-origin cast costs at least 1+2i for its ith previous command cast.
+For four physical commanders, sum(n_i²) ≤332,832, so Cauchy–Schwarz bounds their
+combined command casts below **1,154**. Hand recasts are already among the
+sixteen returns. Neither an admitted commander nor a returned Aura produces
+mana or tokens itself. Commander recasting can feed Requiem Angel, so it must
+be included; the removal slice's 116-token lifetime proof cannot be reused.
+
+Excluding Angel's separately counted Spirit generation, each physical producer
+makes at most four tokens per entry or death. Overcounting every physical card
+as a four-token producer gives **(400+16)×4 = 1,664** seed tokens, conservatively
+treating even the existing Spirit producers' tokens as non-Spirits. This includes Siege-Gang,
+Bastion and Doomed Dissenter. Singleton construction, color identity, no control
+changes/copies, and the absence of white recursion give at most one Requiem
+Angel per controller at any instant. A non-Spirit death therefore produces at
+most one Spirit. A Spirit never produces another Spirit. All non-Spirit deaths
+are bounded by **400+16+1,154+1,664 = 3,234**. Consequently at most
+**1,664+3,234 = 4,898 lifetime tokens** are created. The deliberately conservative
+live-token capacity is **8,192**, with checked monotonic u32 identity allocation.
+Total lifetime creature deaths are at most **400+16+1,154+4,898 = 6,468**.
+
+For a nonempty-stack episode, no creature has flash, no instruction returns a
+creature directly to the battlefield, and recursion returns cards to hand.
+Thus each physical creature can enter and die at most once in that episode.
+The same is true of Butcher and Angel: they cannot be recast over a nonempty
+stack. Allow 400 physical creatures, 8,192 initially live tokens, 1,600 tokens
+from all 400 physical producers, and four extra Dissenter tokens. Every
+non-Spirit can die once, and every resulting Spirit can die once:
+**D = 2×(400+8,192+1,600+4) = 20,392 deaths**. This decreasing stock of
+non-Spirits proves Butcher cascades finite. A Butcher trigger never creates a
+creature; a forced sacrifice only consumes one from that stock. Requiem adds a
+single terminal Spirit generation. Free outlets likewise consume a creature
+per activation, including when they sacrifice themselves.
+
+The capacities are:
+
+- Live tokens: **8,192**.
+- Damage occurrences: **2×(400+8,192) = 17,184**.
+- Event members: **400+8,192+4 = 8,596**.
+- Stack plus pending triggers: **294,540** = 400 physical spell entries +
+  208 Azure Mage activations + 24 inherited activations + 12D + 400 self-enters
+  triggers + four Rancor triggers + 4×(400+1,600+4+D/2) Warden triggers.
+  The 12D term allows one cost activation per death, four Blood Artists from
+  any seats, six controller-scoped payoffs (Zulaport, Bastion, Vindictive,
+  Reaper, Butcher, Angel), and one additional self-dies payoff per death
+  (Dissenter, Arsonist or Bouncer). Warden's separate term includes the Spirit
+  births; it does not count initially live tokens as entering again. Mage's
+  inherited per-step spendable mana bound is 832: 400 sources producing two plus
+  sixteen returned sources producing two, hence at most 208 activations at
+  four mana. Equip still requires an empty stack.
+- Temporary effects: **8,192**. Bloodthrone creates at most one effect per
+  sacrificed creature, bounded even over the entire match by 6,468 deaths.
+  Adding the inherited 32-effect allowance stays below this capacity.
+
+The catalog/pool tests guard these premises and the exact constants. All five
+capacity checks retain typed faults and atomic rollback. Earlier profile
+capacities and version numbers 18/19/16/15 remain unchanged.
+
+## Reviewed witness substitutions
+
+The admitted pool has no control-changing effect and no white/BG commander.
+Requiem Angel cannot control Doomed Dissenter or its black Zombie. The reachable
+substitute uses **Seller of Songbirds, its Bird token, and a Spirit** controlled
+by Angel's white seat; Butcher forces their sacrifices. It tests a non-Spirit
+card death, a non-Spirit token death, and a Spirit death, preserving every filter
+rule. Dissenter's separate BG death produces its Zombie in that same accepted
+pod. No private injected fixture is used for this substitution.

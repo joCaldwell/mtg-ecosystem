@@ -3026,3 +3026,157 @@ protection, linked/until-leaves exile, overload, additional spell sacrifice
 costs, another player's searches, multi-target removal and planeswalkers remain
 outside this slice. Completion policies are deterministic completion evidence,
 not an optimal Commander strategy.
+
+## P6.9 sacrifice and death payoffs — implementation and acceptance evidence
+
+The tenth finite legal profile, `commander-sacrifice-v1`, has **153 definitions
+at IR v19**, with catalog SHA256
+`9ae8605e83e6538ff900227bde4f43b91d06cb6acbc8afd22fd35ef2388c0a88`.
+All eighteen positive records, including the previously retained Bone Splinters,
+match the contract's exact archive lines byte-for-byte
+(`/tmp/p69-source-lines-final.json`). Four additional whole-card negative records
+retain Ashnod's Altar, Morbid Opportunist, Young Wolf and Pitiless Plunderer;
+none is partially admitted. Provenance binds each record's source and AST.
+Costs, stats, Commander legality and color identity come from these records.
+The decks contain **57 Plains; 9 Forest/10 Swamp; 71 Island; 70 Mountain**.
+All **44** earlier expected-output/policy fixtures (**19** catalogs, **nine**
+policies and **16** scenario references) remain byte-identical to `2681c45`;
+`/tmp/p69-prior-fixtures-final.json` retains their hashes.
+
+Compiler lowering and native/schema validation add filtered sacrifice costs,
+additional spell costs, sacrificed-power event results, controller/other/token/
+subtype death filters, each-opponent effects, optional targeted dies damage,
+source can't-block, and targeted/searching self-sacrifice abilities. Every new
+card rejects at IR v18. Source-role and malformed/rehashed IR guards remain
+strict; the unsupported-future-version tests now use v20. No parser was edited.
+The excluded Grave Pact and Liliana's Triumph gaps are recorded in
+`docs/parser-requests.md`, with pinned archive errors and requested AST shapes.
+
+Costs select targets first, choose a matching controlled permanent during
+payment, commit its sacrifice before priority, and retain its battlefield facts
+on the stack invocation. Free outlets do not open a mana window. Fling retains
+Equipment/counter/pump power LKI; post-death damage uses the same ordinary
+replacement, prevention and SBA machinery. Death triggers look back across an
+entire simultaneous group. Butcher takes private APNAP requests with earlier
+choices public, then sacrifices all selected creatures in one event group.
+Conceded players are excluded from each-opponent effects. Carrion Feeder is
+excluded from blocker hints and validation. Temporary Bloodthrone effects expire
+in cleanup, and Elder reuses private search/seeded shuffle after paying its cost.
+The new `sacrifice_cost` and `forced_sacrifice` request/response variants are
+additive; new snapshot/projection facts omit serialization when empty.
+Snapshot/bundle/projection/sidecar versions remain **18/19/16/15**.
+
+All **13** new core test groups pass: one profile/catalog/policy/bounds group and
+**12** gameplay groups, constructed through **14 accepted, seeded, four-seat
+100-card pods** in Off/Compact/Detailed modes (**42** gameplay runs, plus cloned
+optional-decline branches). Preparation uses actual admission, opening draws,
+land plays and ordinary turns; it does not inject a battlefield. Every gameplay
+group checks snapshot/restore/journal replay equality. Witnesses cover:
+
+- Rites unavailable without a creature, token payment, two draws and both
+  Zulaport/Bastion payoffs; private cost requests and payment snapshots.
+- Plunder paying Sol Ring; Splinters paying its own creature and losing its
+  opposing target without recovering the cost.
+- Bonesplitter-powered Fling for three, doubled to six by Furnace; Bloodthrone's
+  separate three-power attack and cleanup; Feeder self-sacrifice and can't-block.
+- Reaper's own death and nontoken filter; Zulaport/Bastion/Vindictive effects
+  skipping a conceded opponent, with doubled damage and undoubled life loss.
+- Dissenter's Zombie and Angel's non-Spirit-card/non-Spirit-token/Spirit filters.
+- Butcher APNAP/public prior choices, empty opponents, simultaneous sacrifices,
+  nested-choice snapshots and a finite two-Butcher cascade.
+- Day's simultaneous deaths with Blood Artist, Zulaport, Bastion and Butcher,
+  including controller trigger ordering.
+- Elder answering Murder, tapped basic entry/search/shuffle and Stifle leaving
+  the paid source gone; Mogg and optional Arsonist accept/decline after death;
+  Siege-Gang's Goblin token/Raging Goblin choices and non-Goblin rejection.
+- Commander sacrifice as one Artist death before command-zone return; Swords
+  exile as no death; Bombardment token sacrifice as a death.
+- A tucked Bastion token ceasing while its attached Rancor enters the graveyard
+  in the same SBA wave, followed by Rancor's ordinary return trigger.
+
+**Contract deviation:** the listed Requiem Angel/Doomed Dissenter/Zombie line
+cannot occur under one controller: the pool has no white/BG commander, control
+change or copy effect. Under the contract's substitution clause, Seller of
+Songbirds, its Bird token and a Spirit die under the white Angel, while the BG
+Dissenter dies and makes a Zombie in the same accepted pod. This preserves the
+card/token/non-Spirit/control rules without a private injected fixture. It is
+the only witness substitution. The contract records the reachability proof.
+
+The reviewed P6.3 derivation bounds lifetime tokens by **4,898** and lifetime
+creature deaths by **6,468**, including taxed commander recasts feeding Angel.
+A Spirit cannot seed another Spirit. In one nonempty-stack episode each
+physical creature enters at most once, giving a conservative **20,392** deaths;
+Butcher and free outlets consume this finite stock. The profile-only capacities
+are **8,192 live tokens, 17,184 damage occurrences, 294,540 stack/pending entries,
+8,596 event members and 8,192 temporary effects**. Pool tests guard the premises
+and constants. Typed capacity faults and atomic rollback remain, and earlier
+profiles retain their limits. The full derivation, including Warden's separate
+Spirit-entry trigger term, is in the contract's Reviewed resource bounds section.
+
+The final frozen batch `generated/p69-sacrifice-release/report.json` passes
+**18/18 games**, including independent replay/checkpoint verification, with
+**zero faults and zero truncations**: **32,385 decisions, 717 turns and 96,004
+rule steps**. Counts walk actual Detailed replay outcomes using the internally
+tagged `outcome` key. They report **52 cost sacrifices, one forced sacrifice,
+eight each-opponent life-loss events, 11 each-opponent damage events, seven
+total Fling damage and five tokens created on death**. Collected dies triggers
+are Blood Artist **three**, Bastion **three**, Vindictive **four**, Reaper
+**three**, Angel **five**; Zulaport, Dissenter, Butcher and Arsonist are **zero**
+in this batch and are covered by the accepted-pod witnesses above. Report
+SHA256: `82fc11f3b65be83e6c2972bb00e697504d71b9a0011968c97915d9f9c22f1f31`.
+The separate `sacrifice-match-replay` command verifies game 17, ending at
+`41d3554f681327986d05f88b83fef8385c56be223a1b2a1892d5ca4e1694c6b3`
+(`/tmp/p69-sacrifice-final-replay.log`).
+The final policy uses the frozen token/lowest-power/noncommander ranking for
+both the new forced request and inherited Cruel Edict. Earlier trial batches
+and interrupted checks remain separate evidence and are not upgraded to passes.
+
+The final release build uses pinned **Rust 1.99.0 / Node 26.11.1** and verifies
+its **396-file** compiled source closure. Build identity:
+`1f11d08af19f73e9ef40c30692b84efc39393d3fe967674d39b081f35ae53dee`;
+manifest `/tmp/p69-native-source-manifest-final.json`, release log
+`/tmp/p69-release-final-policy.log`. The requested release `mtg-server` build
+and SDK verification pass **47 tests, strict TypeScript and the exhaustive
+31-response gate**. The attachments example fails closed for unreachable
+later-profile requests. Evidence is `/tmp/p69-sdk-final-policy-verification.json`
+and `/tmp/p69-sdk-final-policy-verification.log`; generated SDK files were removed.
+This SDK command proves schema/generated-types/mock-HTTP behavior, not new
+hosting acceptance. Hosting remains foundations/attachments and search remains
+foundations-only.
+
+The earlier-profile regression batches both pass **18/18**, with zero faults or
+truncations. Removal reproduces **33,894 decisions, 716 turns, 99,704 rule steps**,
+19 artifact/141 creature/two enchantment/zero land destructions, one exile,
+14 other-player tokens, two Swan Song counters and three hexproof/49 shroud
+exclusions. Attachments reproduces **28,135 decisions, 589 turns, 84,702 rule
+steps**, 106 equips, 14 Aura attachments, 26 attachment SBAs, nine hexproof/32
+shroud exclusions and one Rancor return. The original per-game reports were
+absent at the documented checkout paths; these are exact comparisons with the
+retained ledger counters, not claims of original report-byte equality. Reports:
+`generated/p69-removal-regression/report.json` SHA256
+`32edd4bd66a7d696a778dfd9e92ebe0e73a2ff3680d131ed371385442456d658`;
+`generated/p69-attachments-regression/report.json` SHA256
+`ccc30b864c279aa7d648e4fad92bdf880ae431b274938fe936c266c16b72534c`.
+These batches preceded the final sacrifice-only policy correction; the final
+binary independently verifies game 17 of each (`/tmp/p69-removal-final-replay.log`
+and `/tmp/p69-attachments-final-replay.log`). Historical strategy behavior is
+gated separately from v19.
+
+The final `npm run check:engine` passes formatting, workspace/all-targets Clippy
+with `-D warnings`, **831 Rust tests (zero failures, 12 ignored diagnostics)**
+and **54 JavaScript checks (zero failures or cancellations)**. It uses
+`RUST_TEST_THREADS=2 CARGO_BUILD_JOBS=2` on the shared host. The complete log is
+`/tmp/p69-check-engine-final-acceptance.log`, SHA256
+`365a3cf868297353c4f5cbda2101d3c8b45e8d18a37a803fbf170e77e7bae1da`.
+The historical demo verifies 540 retained trace-mode executions and recovery
+checkpoints against unchanged references. After this gate the release executable
+still verifies the same 396-file source closure and build identity as the final
+sacrifice batch. No earlier failed or superseded run is counted as a passing gate.
+
+Remaining scope is the frozen pool: no sacrifice-mana outlets, once-per-turn
+triggers, undying/persist, noncreature token generation, trigger doubling,
+“sacrifice one or more”, Grave Pact or Liliana's Triumph. The deterministic
+completion policy is evidence of completion, not optimal play. Sacrifice-v1 is
+available to native admission/batch/replay only; it is deliberately not hosted.
+Generated reports, journals, snapshots, downloaded records and build outputs
+remain ignored rather than committed.

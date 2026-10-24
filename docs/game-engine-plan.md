@@ -440,6 +440,20 @@ remain separate. The server hosts foundations and attachments (P8.2,
 [game-engine-server-attachments.md](game-engine-server-attachments.md)); search
 remains foundations-only.
 
+P6.9 is implemented under [game-engine-sacrifice.md](game-engine-sacrifice.md):
+the separate 153-definition IR v19 `commander-sacrifice-v1` pool adds filtered
+sacrifice activation and additional spell costs, sacrificed-creature power LKI,
+controller/token/subtype-filtered dies payoffs, each-opponent life and damage,
+APNAP choices followed by simultaneous forced sacrifices, and source can't-block.
+Accepted-pod witnesses exercise nested payment and forced-sacrifice snapshots,
+optional post-death damage, token generations and finite Butcher cascades. The
+contract re-derives profile-only bounds, including repeated commander casts
+feeding Requiem Angel. Verification, the frozen 18-game batch and the documented
+reachable Requiem substitution are recorded in
+[game-engine-progress.md](game-engine-progress.md). Earlier profile bytes and
+versions remain separate; hosting stays foundations and attachments only and
+search stays foundations-only.
+
 **Deliver in bounded families:** replacement/prevention ordering and budgets;
 continuous-effect layers/sublayers/timestamps/dependencies; granted abilities;
 multiple/cost-dependent targets; counters and tokens; attachments; alternate/

@@ -196,6 +196,18 @@ members and 32 temporary effects, with typed capacity faults and a conservative
 `removal-match-replay FILE`. Earlier limits/fixtures and versions 18/19/16/15
 remain unchanged; server hosting and search remain foundations-only.
 
+`docs/game-engine-sacrifice.md` defines `commander-sacrifice-v1`: a separate
+153-definition IR v19 catalog adds filtered sacrifice costs, additional spell
+costs, filtered dies payoffs, sacrificed-power LKI, each-opponent effects, APNAP
+simultaneous forced sacrifices and source can't-block. This profile alone uses
+8,192 live tokens, 17,184 damage occurrences, 294,540 stack/pending entries,
+8,596 event members and 8,192 effects, with typed faults and the contract's
+finite lifetime/episode proofs. The simulator adds `sacrifice-match-batch OUTPUT`
+and `sacrifice-match-replay FILE`. Earlier fixtures/capacities and versions
+18/19/16/15 remain unchanged; hosting remains foundations/attachments only and
+search foundations-only. See the progress ledger for acceptance evidence and
+the reachable Requiem Angel witness substitution.
+
 `docs/game-engine-search.md` releases finite P7 search for that same
 pool. Sealed captures contain only permitted facts/history; complete hypothetical
 hands/libraries and independent future randomness construct sampled games.
@@ -295,8 +307,8 @@ actual Commander combat damage and apply the 21-damage SBA loss rule. Earlier
 Commander profiles retain their explicit damage fault. Library replacement is
 enabled only for the reviewed Time Ebb and subsequent ordinary/ability draw paths.
 Replacement ordering is limited to the reviewed effects and subsequent profiles.
-Legal match setup is available only through the nine named foundations, keywords,
-combat-keywords, tokens, staples, mana, four-colors, attachments and removal profiles. Ordinary combat is enabled in the reviewed combat, Commander and action profiles.
+Legal match setup is available only through the ten named foundations, keywords,
+combat-keywords, tokens, staples, mana, four-colors, attachments, removal and sacrifice profiles. Ordinary combat is enabled in the reviewed combat, Commander and action profiles.
 
 Batch mutation is private and atomic. Capture consumed pre-event facts and use
 actual typed outcome slots. Simultaneous groups admit independent read/write
