@@ -221,8 +221,19 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             let keys = BTreeSet::from([FactKey::TokenAllocation]);
             (keys.clone(), keys)
         }
-        ProposedEvent::PutPlusOneCounters { object, .. } | ProposedEvent::CeaseToken { object } => {
+        ProposedEvent::PutPlusOneCounters { object, .. } => {
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
+            (keys.clone(), keys)
+        }
+        ProposedEvent::CeaseToken { object } => {
+            // A token put on a library (Time Ebb) ceases from that library.
+            let mut keys = BTreeSet::from([FactKey::Object(object.card)]);
+            if matches!(
+                game.current(*object).map(|o| o.zone),
+                Ok(Zone::Library { .. })
+            ) {
+                keys.insert(FactKey::Libraries);
+            }
             (keys.clone(), keys)
         }
         ProposedEvent::FinishLibraryShuffle { .. }
@@ -493,9 +504,14 @@ impl Game {
                     // It reads no current source incarnation after departure.
                     players.insert(*controller);
                 }
-                ProposedEvent::PutPlusOneCounters { object, .. }
-                | ProposedEvent::CeaseToken { object } => {
+                ProposedEvent::PutPlusOneCounters { object, .. } => {
                     objects.insert(*object);
+                }
+                ProposedEvent::CeaseToken { object } => {
+                    objects.insert(*object);
+                    if let Zone::Library { owner } = self.current(*object)?.zone {
+                        libraries.insert(owner);
+                    }
                 }
                 ProposedEvent::FinishLibraryShuffle { player }
                 | ProposedEvent::ShuffleLibraryWord { player, .. } => {

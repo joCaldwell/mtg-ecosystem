@@ -2755,3 +2755,20 @@ Earlier capacities/bytes and versions 18/19/16/15 remain separate. Search and
 server registry remain foundations-only. No IR capability, response variant,
 snapshot/bundle/projection/sidecar bump, general deck support or opponent-owned
 token creation was added.
+
+Independent P6.6 review found no rules defects. Follow-ups:
+- **Library facts.** A token that ceases from a library (after Time Ebb) now
+  declares the library facts it changes.
+- **Regression witnesses.** The reviewer's twelve probes are now regression
+  witnesses: Unsummoned blockers, orphaned first-strike blockers, Time Ebb on
+  a token answered by Unsummon, two Furnaces, a tucked commander drawn by
+  Night's Whisper, Counterspell wars, Stifle on Prodigal Sorcerer, lost
+  modifiers after bounce, Samite Healer/Furnace ordering, Fog versus Bolt,
+  last-known-information pings, and Stifle on an orphaned enters trigger.
+- **Batch counters.** These are renamed to what they count:
+  `battlefield_to_hand_moves`, `battlefield_to_library_moves` and
+  `commander_card_casts_by_color`. Moves replaced by a commander's
+  command-zone choice are not included.
+- **Policy limits.** Bolt can aim at a creature it cannot kill, and
+  Counterspell can counter an allied counter. These are completion-policy
+  quality limits, not rules issues.

@@ -243,7 +243,7 @@ pub(super) fn interactions(
         }
     }
     Ok(
-        serde_json::json!({"spells_countered":spells,"abilities_countered":abilities,"bounces":bounces,"library_tucks":tucks,"furnace_damage_occurrences_doubled":doubled,"furnace_damage_before":before,"furnace_damage_after":after,"commander_casts_by_color":casts}),
+        serde_json::json!({"spells_countered":spells,"abilities_countered":abilities,"battlefield_to_hand_moves":bounces,"battlefield_to_library_moves":tucks,"furnace_damage_occurrences_doubled":doubled,"furnace_damage_before":before,"furnace_damage_after":after,"commander_card_casts_by_color":casts}),
     )
 }
 

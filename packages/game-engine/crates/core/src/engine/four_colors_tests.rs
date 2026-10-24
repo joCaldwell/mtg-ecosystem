@@ -839,7 +839,9 @@ fn lightning_bolt_complete_any_target_and_furnace_doubling() {
                         }
                     }
                 }
-                // Noncombat damage never adds physical Commander history.
+                // Caelorna is only the victim here; Commander damage history
+                // records combat damage dealt *by* a commander (903.10a), so
+                // a commander struck by noncombat damage gains none.
                 assert!(
                     g.state
                         .commanders
@@ -1052,4 +1054,356 @@ fn furnace_trample_assigns_lethal_before_doubling_and_deathtouch_still_kills() {
             },
         );
     }
+}
+// Independent P6.6 review witnesses (CR 509.1h, 702.19d, 510.4, 608.2b, 111.7,
+// 903.9b, 616.1, 611.3b): combat removal, response chains and replacement order.
+
+// ===== review probes =====
+fn to_end_combat(g: &mut Game) {
+    for _ in 0..200 {
+        let r = request(g);
+        if g.turn().step == TurnStep::EndCombat || g.turn().step == TurnStep::PostcombatMain {
+            return;
+        }
+        answer(g, automatic(&r, &[]));
+    }
+    panic!("end combat not reached");
+}
+#[test]
+fn reviewed_unsummon_blocker_attacker_stays_blocked() {
+    for (attacker, life) in [("Grizzly Bears", 40), ("Charging Monstrosaur", 35)] {
+        let rows = vec![
+            (attacker, 0, false),
+            ("Yoked Ox", 1, false),
+            ("Unsummon", 0, true),
+            ("Island", 0, false),
+        ];
+        traces(prepared(&rows), |g| {
+            declare(g, &[(0, 1)], &[(1, 0)]);
+            priority_for(g, 0);
+            let ox = object(g, 1);
+            announce(g, 2, target(ox));
+            resolve(g, target(ox));
+            assert_eq!(
+                g.zone(object(g, 1)),
+                Some(Zone::Hand { owner: PlayerId(1) })
+            );
+            to_end_combat(g);
+            assert_eq!(g.state.players[1].life, Quantity::from(life), "{attacker}");
+        });
+    }
+}
+#[test]
+fn reviewed_orphan_first_strike_blocker_after_attacker_bounced() {
+    let rows = vec![
+        ("Grizzly Bears", 0, false),
+        ("Fencing Ace", 1, false),
+        ("Unsummon", 0, true),
+        ("Island", 0, false),
+    ];
+    traces(prepared(&rows), |g| {
+        declare(g, &[(0, 1)], &[(1, 0)]);
+        priority_for(g, 0);
+        let bears = object(g, 0);
+        announce(g, 2, target(bears));
+        resolve(g, target(bears));
+        let mut saw_first = false;
+        for _ in 0..200 {
+            let r = request(g);
+            if g.turn().step == TurnStep::FirstStrikeDamage {
+                saw_first = true;
+            }
+            if g.turn().step == TurnStep::EndCombat {
+                break;
+            }
+            answer(g, automatic(&r, &[]));
+        }
+        assert!(saw_first);
+        assert_eq!(g.state.players[1].life, Quantity::from(40));
+        assert_eq!(g.current(object(g, 1)).unwrap().marked_damage, 0.into());
+    });
+}
+#[test]
+fn reviewed_time_ebb_token_then_unsummon_response() {
+    let mut rows = vec![
+        ("Goblin Instigator", 0, true),
+        ("Time Ebb", 0, true),
+        ("Mountain", 0, false),
+        ("Mountain", 0, false),
+        ("Unsummon", 1, true),
+        ("Island", 1, false),
+    ];
+    rows.extend(lands("Island", 3));
+    traces(prepared(&rows), |g| {
+        cast(g, 0, vec![]);
+        let token = token_objects(g)[0];
+        announce(g, 1, target(token));
+        priority_for(g, 1);
+        answer(g, Response::Cast { card: CardId(4) });
+        pay_proposal(g, target(token), None);
+        check(g);
+        resolve(g, target(token));
+        assert!(g.object_id(token.card).is_none());
+        assert_eq!(
+            g.zone(object(g, 1)),
+            Some(Zone::Graveyard { owner: PlayerId(0) })
+        );
+        assert!(!matches!(g.state.frame, Frame::Fault { .. }));
+    });
+}
+#[test]
+fn reviewed_two_furnaces_bolt_player() {
+    let rows = vec![
+        ("Lightning Bolt", 0, true),
+        ("Mountain", 0, false),
+        ("Furnace of Rath", 2, false),
+        ("Furnace of Rath", 3, false),
+    ];
+    traces(prepared(&rows), |g| {
+        reach(g, TurnStep::PrecombatMain);
+        cast(
+            g,
+            0,
+            vec![TargetEntity::Player {
+                player: PlayerId(1),
+            }],
+        );
+        assert_eq!(g.state.players[1].life, Quantity::from(28));
+    });
+}
+#[test]
+fn reviewed_night_whisper_draws_tucked_commander() {
+    let mut rows = vec![
+        ("Isamaru, Hound of Konda", 0, false),
+        ("Time Ebb", 0, true),
+        ("Night's Whisper", 0, true),
+        ("Swamp", 0, false),
+        ("Swamp", 0, false),
+    ];
+    rows.extend(lands("Island", 3));
+    traces(prepared(&rows), |g| {
+        let isamaru = object(g, 0);
+        cast(g, 1, target(isamaru));
+        assert_eq!(
+            g.zone(object(g, 0)),
+            Some(Zone::Library { owner: PlayerId(0) })
+        );
+        cast(g, 2, vec![]);
+        assert_eq!(
+            g.zone(object(g, 0)),
+            Some(Zone::Hand { owner: PlayerId(0) })
+        );
+        assert_eq!(g.state.players[0].life, Quantity::from(38));
+    });
+}
+#[test]
+fn reviewed_counterspell_on_counterspell_and_stifle_sorcerer() {
+    let rows = vec![
+        ("Grizzly Bears", 0, true),
+        ("Forest", 0, false),
+        ("Forest", 0, false),
+        ("Counterspell", 1, true),
+        ("Island", 1, false),
+        ("Island", 1, false),
+        ("Counterspell", 2, true),
+        ("Island", 2, false),
+        ("Island", 2, false),
+    ];
+    traces(prepared(&rows), |g| {
+        announce(g, 0, vec![]);
+        let bears = g.state.stack[0].id;
+        priority_for(g, 1);
+        counter(g, 3, bears);
+        let first = g.state.stack[1].id;
+        priority_for(g, 2);
+        counter(g, 6, first);
+        resolve(g, vec![]);
+        assert_eq!(g.zone(object(g, 0)), Some(Zone::Battlefield));
+        assert_eq!(
+            g.zone(object(g, 3)),
+            Some(Zone::Graveyard { owner: PlayerId(1) })
+        );
+    });
+}
+#[test]
+fn reviewed_stifle_sorcerer_ping_and_gravedigger_source_bounced() {
+    let rows = vec![
+        ("Prodigal Sorcerer", 0, false),
+        ("Stifle", 1, true),
+        ("Island", 1, false),
+    ];
+    traces(prepared(&rows), |g| {
+        reach(g, TurnStep::PrecombatMain);
+        activated(
+            g,
+            0,
+            vec![TargetEntity::Player {
+                player: PlayerId(1),
+            }],
+        );
+        let id = g.state.stack[0].id;
+        priority_for(g, 1);
+        counter(g, 1, id);
+        resolve(g, vec![]);
+        assert_eq!(g.state.players[1].life, Quantity::from(40));
+        assert!(g.current(object(g, 0)).unwrap().tapped);
+    });
+}
+#[test]
+fn reviewed_giant_growth_lost_after_bounce_and_recast() {
+    let mut rows = vec![
+        ("Grizzly Bears", 0, false),
+        ("Giant Growth", 0, true),
+        ("Unsummon", 0, true),
+    ];
+    rows.extend(lands("Forest", 3));
+    rows.extend(lands("Island", 1));
+    traces(prepared(&rows), |g| {
+        let bears = object(g, 0);
+        cast(g, 1, target(bears));
+        assert_eq!(
+            g.derived_characteristics(bears).unwrap().power,
+            Some(5.into())
+        );
+        cast(g, 2, target(bears));
+        cast(g, 0, vec![]);
+        let again = object(g, 0);
+        assert_ne!(again, bears);
+        assert_eq!(
+            g.derived_characteristics(again).unwrap().power,
+            Some(2.into())
+        );
+    });
+}
+#[test]
+fn reviewed_samite_furnace_bolt_creature() {
+    let rows = vec![
+        ("Lightning Bolt", 0, true),
+        ("Mountain", 0, false),
+        ("Furnace of Rath", 2, false),
+        ("Caelorna, Coral Tyrant", 1, false),
+        ("Samite Healer", 1, false),
+    ];
+    traces(prepared(&rows), |g| {
+        reach(g, TurnStep::PrecombatMain);
+        let cael = object(g, 3);
+        announce(g, 0, target(cael));
+        priority_for(g, 1);
+        answer(
+            g,
+            Response::ActivateAbility {
+                object: object(g, 4),
+                ability: 0,
+            },
+        );
+        pay_proposal(g, target(cael), None);
+        resolve(g, target(cael));
+        let dmg = g.current(cael).unwrap().marked_damage.clone();
+        assert!(dmg == 4.into() || dmg == 5.into());
+    });
+}
+#[test]
+fn reviewed_fog_does_not_prevent_bolt() {
+    let rows = vec![
+        ("Lightning Bolt", 0, true),
+        ("Mountain", 0, false),
+        ("Fog", 1, true),
+        ("Forest", 1, false),
+    ];
+    traces(prepared(&rows), |g| {
+        reach(g, TurnStep::PrecombatMain);
+        announce(
+            g,
+            0,
+            vec![TargetEntity::Player {
+                player: PlayerId(1),
+            }],
+        );
+        priority_for(g, 1);
+        answer(g, Response::Cast { card: CardId(2) });
+        pay_proposal(g, vec![], None);
+        resolve(g, vec![]);
+        assert_eq!(g.state.players[1].life, Quantity::from(37));
+    });
+}
+#[test]
+fn reviewed_prodigal_bounced_in_response_ping_uses_lki_with_furnace() {
+    let rows = vec![
+        ("Prodigal Sorcerer", 0, false),
+        ("Furnace of Rath", 2, false),
+        ("Unsummon", 1, true),
+        ("Island", 1, false),
+    ];
+    traces(prepared(&rows), |g| {
+        reach(g, TurnStep::PrecombatMain);
+        activated(
+            g,
+            0,
+            vec![TargetEntity::Player {
+                player: PlayerId(3),
+            }],
+        );
+        let sorc = object(g, 0);
+        priority_for(g, 1);
+        answer(g, Response::Cast { card: CardId(2) });
+        pay_proposal(g, target(sorc), None);
+        resolve(g, target(sorc));
+        assert_eq!(
+            g.zone(object(g, 0)),
+            Some(Zone::Hand { owner: PlayerId(0) })
+        );
+        assert_eq!(g.state.players[3].life, Quantity::from(38));
+    });
+}
+#[test]
+fn reviewed_bolt_fizzles_after_target_bounced_and_stifle_orphan_trigger() {
+    let mut rows = vec![
+        ("Goblin Instigator", 0, true),
+        ("Mountain", 0, false),
+        ("Mountain", 0, false),
+        ("Unsummon", 1, true),
+        ("Island", 1, false),
+        ("Stifle", 2, true),
+        ("Island", 2, false),
+    ];
+    rows.push(("Lightning Bolt", 3, true));
+    rows.push(("Mountain", 3, false));
+    traces(prepared(&rows), |g| {
+        announce(g, 0, vec![]);
+        // Resolve only the creature spell; stop with its enters trigger on the stack.
+        for _ in 0..100 {
+            let r = request(g);
+            if matches!(r, Request::Priority { .. })
+                && g.state
+                    .stack
+                    .last()
+                    .is_some_and(|s| matches!(s.kind, StackKind::Triggered { .. }))
+            {
+                break;
+            }
+            answer(g, automatic(&r, &[]));
+        }
+        let trig = g.state.stack.last().unwrap().id;
+        let inst = object(g, 0);
+        priority_for(g, 1);
+        answer(g, Response::Cast { card: CardId(3) });
+        pay_proposal(g, target(inst), None);
+        priority_for(g, 3);
+        answer(g, Response::Cast { card: CardId(7) });
+        pay_proposal(g, target(inst), None);
+        // Bolt (on top) kills the Instigator, so Unsummon fizzles (608.2b) and
+        // Stifle counters the enters trigger of a departed source.
+        priority_for(g, 2);
+        counter(g, 5, trig);
+        resolve(g, vec![]);
+        assert!(token_objects(g).is_empty());
+        assert_eq!(
+            g.zone(object(g, 0)),
+            Some(Zone::Graveyard { owner: PlayerId(0) })
+        );
+        assert_eq!(
+            g.zone(object(g, 3)),
+            Some(Zone::Graveyard { owner: PlayerId(1) })
+        );
+    });
 }
