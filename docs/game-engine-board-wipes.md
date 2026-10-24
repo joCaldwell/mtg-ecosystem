@@ -311,3 +311,24 @@ remains a resource truncation, never a Magic outcome. Snapshot/bundle/projection
 sidecar versions remain **18/19/16/15**. X, death-controller LKI, set-effect
 membership, and board-return continuations serialize additively; empty fields
 are omitted.
+
+## Reviewed witness reachability
+
+Every listed runtime witness is reachable from admitted, seeded 100-card pods;
+no private injected fixture or substitution is used. The witness driver records
+ordinary draws, land plays, casts, combat, choices and concessions, then replays
+the accepted journal in off, compact and detailed trace modes. In particular,
+the Fallout draw uses two accepted concessions and ordinary combat to leave the
+last two players at two life before Fallout resolves. The later Anger deaths
+also retain living Blood Artist and Zulaport Cutthroat: Spidersilk Armor,
+Morningstar and Giant Growth protect them while a damaged Spider dies to Bolt
+and a damaged Yargle is sacrificed to Village Rites. Neither exile produces a
+dies trigger. Separate witnesses cover a fully prevented creature and cleanup.
+
+The Earthquake witness checkpoints both announcement and the public X decision,
+including query receipt/sidecar recovery, and retains X through payment and
+stack projection. An exact X of 10^77 is accepted for announcement and rejected
+by ordinary payment with complete cast reversal. Inherited first/double strike,
+blocker legality hints, sacrifice payoffs and attachment interactions are
+exercised in this profile. Acceptance counts and source identities are recorded
+in `docs/game-engine-progress.md`. There are no contract deviations.
