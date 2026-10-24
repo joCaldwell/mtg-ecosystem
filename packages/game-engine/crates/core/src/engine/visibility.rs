@@ -185,6 +185,7 @@ pub struct PermittedView {
 pub enum PlayerRequest {
     AnnounceX {
         token: DecisionToken,
+        player: PlayerId,
     },
     SacrificeCost {
         token: DecisionToken,
@@ -1136,7 +1137,10 @@ impl Game {
         }
         if let Frame::AnnounceX { .. } = self.state.frame {
             return Ok(
-                (self.top()?.controller == viewer).then_some(PlayerRequest::AnnounceX { token })
+                (self.top()?.controller == viewer).then_some(PlayerRequest::AnnounceX {
+                    token,
+                    player: self.top()?.controller,
+                }),
             );
         }
         if let Some(Request::Modes { player, .. }) = self.modes_request()? {
