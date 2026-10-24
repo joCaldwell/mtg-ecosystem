@@ -10,6 +10,9 @@ mod commander_policy;
 pub use commander_policy::{
     COMMANDER_POLICY_DATE, COMMANDER_POLICY_HTML_SHA256, COMMANDER_POLICY_URL, policy_digest,
 };
+mod four_colors;
+#[cfg(test)]
+mod four_colors_tests;
 mod staples;
 mod tokens;
 pub use staples::VisibleSearchLand;

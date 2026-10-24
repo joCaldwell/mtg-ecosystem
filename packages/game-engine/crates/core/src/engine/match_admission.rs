@@ -21,6 +21,9 @@ pub const STAPLES_CATALOG_SHA256: &str =
 pub const MANA_PROFILE: &str = "commander-mana-v1";
 pub const MANA_CATALOG_SHA256: &str =
     "1df5823602dd4aacea6ab8e69766dc750e425686ba02221857b443c415b37794";
+pub const FOUR_COLORS_PROFILE: &str = "commander-four-colors-v1";
+pub const FOUR_COLORS_CATALOG_SHA256: &str =
+    "0ca81434d87be618d60f1267783fe3d89983f397a01bed7c0640ade57a4dd93b";
 /// All reviewed legal-profile identity and construction inputs live here.
 pub struct MatchProfile {
     pub name: &'static str,
@@ -30,8 +33,9 @@ pub struct MatchProfile {
     pub commanders: &'static [&'static str],
     pub white_deck: fn() -> Decklist,
     pub black_green_deck: fn() -> Decklist,
+    pub default_pod: [fn() -> Decklist; 4],
 }
-pub static MATCH_PROFILES: [MatchProfile; 6] = [
+pub static MATCH_PROFILES: [MatchProfile; 7] = [
     MatchProfile {
         name: MATCH_PROFILE,
         catalog_sha256: MATCH_CATALOG_SHA256,
@@ -40,6 +44,7 @@ pub static MATCH_PROFILES: [MatchProfile; 6] = [
         commanders: &[ISAMARU, YARGLE],
         white_deck,
         black_green_deck,
+        default_pod: [white_deck, black_green_deck, white_deck, black_green_deck],
     },
     MatchProfile {
         name: KEYWORDS_PROFILE,
@@ -49,6 +54,12 @@ pub static MATCH_PROFILES: [MatchProfile; 6] = [
         commanders: &[ISAMARU, YARGLE],
         white_deck: keywords_white_deck,
         black_green_deck: keywords_black_green_deck,
+        default_pod: [
+            keywords_white_deck,
+            keywords_black_green_deck,
+            keywords_white_deck,
+            keywords_black_green_deck,
+        ],
     },
     MatchProfile {
         name: COMBAT_KEYWORDS_PROFILE,
@@ -60,6 +71,12 @@ pub static MATCH_PROFILES: [MatchProfile; 6] = [
         commanders: &[ISAMARU, YARGLE],
         white_deck: combat_keywords_white_deck,
         black_green_deck: combat_keywords_black_green_deck,
+        default_pod: [
+            combat_keywords_white_deck,
+            combat_keywords_black_green_deck,
+            combat_keywords_white_deck,
+            combat_keywords_black_green_deck,
+        ],
     },
     MatchProfile {
         name: TOKENS_PROFILE,
@@ -69,6 +86,12 @@ pub static MATCH_PROFILES: [MatchProfile; 6] = [
         commanders: &[ISAMARU, YARGLE],
         white_deck: tokens_white_deck,
         black_green_deck: tokens_black_green_deck,
+        default_pod: [
+            tokens_white_deck,
+            tokens_black_green_deck,
+            tokens_white_deck,
+            tokens_black_green_deck,
+        ],
     },
     MatchProfile {
         name: STAPLES_PROFILE,
@@ -78,6 +101,12 @@ pub static MATCH_PROFILES: [MatchProfile; 6] = [
         commanders: &[ISAMARU, YARGLE],
         white_deck: staples_white_deck,
         black_green_deck: staples_black_green_deck,
+        default_pod: [
+            staples_white_deck,
+            staples_black_green_deck,
+            staples_white_deck,
+            staples_black_green_deck,
+        ],
     },
     MatchProfile {
         name: MANA_PROFILE,
@@ -87,6 +116,32 @@ pub static MATCH_PROFILES: [MatchProfile; 6] = [
         commanders: &[ISAMARU, YARGLE],
         white_deck: mana_white_deck,
         black_green_deck: mana_black_green_deck,
+        default_pod: [
+            mana_white_deck,
+            mana_black_green_deck,
+            mana_white_deck,
+            mana_black_green_deck,
+        ],
+    },
+    MatchProfile {
+        name: FOUR_COLORS_PROFILE,
+        catalog_sha256: FOUR_COLORS_CATALOG_SHA256,
+        ir_version: 16,
+        policy_json: include_str!("../../../../tests/fixtures/commander-four-colors-policy.json"),
+        commanders: &[
+            ISAMARU,
+            YARGLE,
+            "4bbc5df9-60d7-46c1-8856-91c9c74abf18",
+            "48fe0f52-1676-49d5-acf6-5476081e8e1b",
+        ],
+        white_deck: mana_white_deck,
+        black_green_deck: mana_black_green_deck,
+        default_pod: [
+            mana_white_deck,
+            mana_black_green_deck,
+            four_colors_blue_deck,
+            four_colors_red_deck,
+        ],
     },
 ];
 pub fn match_profile(name: &str) -> Option<&'static MatchProfile> {
@@ -136,12 +191,7 @@ impl MatchConfig {
         let p = match_profile(name).ok_or(MatchAdmissionError::UnsupportedProfile)?;
         Ok(Self {
             profile: p.name.into(),
-            decks: [
-                (p.white_deck)(),
-                (p.black_green_deck)(),
-                (p.white_deck)(),
-                (p.black_green_deck)(),
-            ],
+            decks: p.default_pod.map(|deck| deck()),
             starting_player,
             seed,
         })
@@ -468,6 +518,8 @@ pub fn validate_pod(
         return Err(MatchAdmissionError::InvalidCatalog {
             detail: if profile.name == MATCH_PROFILE {
                 "catalog differs from reviewed thirty-four-definition pool"
+            } else if profile.name == FOUR_COLORS_PROFILE {
+                "catalog differs from reviewed 106-definition four-colors pool"
             } else if profile.name == STAPLES_PROFILE {
                 "catalog differs from reviewed eighty-one-definition staples pool"
             } else if profile.name == TOKENS_PROFILE {
@@ -815,6 +867,60 @@ pub fn mana_black_green_deck() -> Decklist {
     });
     deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     deck
+}
+
+pub fn four_colors_blue_deck() -> Decklist {
+    Decklist {
+        commander: "4bbc5df9-60d7-46c1-8856-91c9c74abf18".into(),
+        cards: entries(&[
+            ("4bbc5df9-60d7-46c1-8856-91c9c74abf18", 1), // Caelorna, Coral Tyrant
+            ("cc187110-1148-4090-bbb8-e205694a39f5", 1), // Counterspell
+            ("b3b00911-ece7-4484-bc36-f211ce72b6cc", 1), // Stifle
+            ("837182db-1bf3-4a2c-bd01-1af9d9873561", 1), // Unsummon
+            ("30cc8f7b-3c28-40f5-8f8f-157e8212280b", 1), // Time Ebb
+            ("67362406-b1ca-49e2-800d-9050bfe8742a", 1), // Merfolk Looter
+            ("bbf9fd47-10e1-4749-b06f-4fe72200afc7", 1), // Azure Mage
+            ("5e961d15-5972-4e4b-9385-1cd7cd7c6bbe", 1), // Prodigal Sorcerer
+            ("240a349a-79f8-4e11-9a05-a78148e70a62", 1), // Hapless Researcher
+            ("000d5588-5a4c-434e-988d-396632ade42c", 1), // Storm Crow
+            ("11f77158-0240-4882-94a4-6bd6b3d94bcc", 1), // Zephyr Sprite
+            ("73115500-4468-43b3-9151-13e3da9050c5", 1), // Goliath Sphinx
+            ("b2d3da40-e2f7-4480-9da9-33019d6f4071", 1), // Wall of Air
+            ("a09cce6f-c957-49d7-af99-a7b2bce786e8", 1), // Hover Barrier
+            ("f328012f-4696-47bb-ab43-247bdcb13f03", 1), // Dragoon's Wyvern
+            ("6ad8011d-3471-4369-9d68-b264cc027487", 1), // Sol Ring
+            ("0bc7f093-bef0-4f1a-852c-4b75ebf54838", 1), // Arcane Signet
+            ("0b67c4e2-f88b-4e01-85a1-9d5f5b8db13b", 1), // Commander's Sphere
+            ("c97361b5-af16-4a7b-af85-a429dbaf4ad2", 1), // Mind Stone
+            ("0895c9b7-ae7d-4bb3-af17-3b75deb50a25", 1), // Command Tower
+            ("b2c6aa39-2d2a-459c-a555-fb48ba993373", 80), // Island
+        ]),
+    }
+}
+
+pub fn four_colors_red_deck() -> Decklist {
+    Decklist {
+        commander: "48fe0f52-1676-49d5-acf6-5476081e8e1b".into(),
+        cards: entries(&[
+            ("48fe0f52-1676-49d5-acf6-5476081e8e1b", 1), // Rorix Bladewing
+            ("4457ed35-7c10-48c8-9776-456485fdf070", 1), // Lightning Bolt
+            ("68715465-6cf9-4006-87e9-31f227fe9ed3", 1), // Furnace of Rath
+            ("30997b43-fc13-41d3-8064-1ccc2cb6fd2b", 1), // Raging Goblin
+            ("38f66ef9-6afc-478b-a1d4-a9d42c31dfc9", 1), // Goblin Trailblazer
+            ("21dd60d5-76c8-469e-8c4e-112e377d2d59", 1), // Charging Monstrosaur
+            ("6fbaa853-48d4-4a3b-b22d-27415cc266d7", 1), // Quaketusk Boar
+            ("8b022754-6d16-470e-b754-4df6e4f4709e", 1), // Goblin Instigator
+            ("f5c5f64c-6911-430c-a825-b32b96d39c7d", 1), // Beetleback Chief
+            ("f6b499d5-0e39-46ce-9de9-f64a2cc2cb32", 1), // Chimney Rabble
+            ("328a0691-9453-4f2d-a9c3-5c69da252d20", 1), // Dragon Trainer
+            ("6ad8011d-3471-4369-9d68-b264cc027487", 1), // Sol Ring
+            ("0bc7f093-bef0-4f1a-852c-4b75ebf54838", 1), // Arcane Signet
+            ("0b67c4e2-f88b-4e01-85a1-9d5f5b8db13b", 1), // Commander's Sphere
+            ("c97361b5-af16-4a7b-af85-a429dbaf4ad2", 1), // Mind Stone
+            ("0895c9b7-ae7d-4bb3-af17-3b75deb50a25", 1), // Command Tower
+            ("a3fb7228-e76b-4e96-a40e-20b5fed75685", 84), // Mountain
+        ]),
+    }
 }
 
 #[cfg(test)]

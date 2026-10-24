@@ -51,7 +51,10 @@ pub struct PermanentManaUndo {
 }
 impl Game {
     pub(super) fn mana_enabled(&self) -> bool {
-        self.prepared.config.profile == MANA_PROFILE && self.prepared.catalog.schema_version == 16
+        matches!(
+            self.prepared.config.profile.as_str(),
+            MANA_PROFILE | FOUR_COLORS_PROFILE
+        ) && self.prepared.catalog.schema_version == 16
     }
     pub(super) fn is_permanent_mana(&self, object: ObjectId) -> bool {
         self.mana_enabled()
