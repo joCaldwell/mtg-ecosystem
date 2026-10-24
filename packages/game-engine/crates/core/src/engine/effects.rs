@@ -1538,6 +1538,20 @@ impl Game {
         }
         Ok(())
     }
+    // CR 104.3a/800.4a, 510.2, 608.2h: from attachments-v1 an Aura owned by
+    // another player can leave with its conceding owner while prepared damage
+    // awaits a choice. The frozen characteristics and keywords stay
+    // authoritative; departure-invariant facts must still match.
+    fn frozen_damage_source_matches(&self, frozen: &ObjectBefore, current: ObjectBefore) -> bool {
+        if !self.attachments_enabled() {
+            return current == *frozen;
+        }
+        ObjectBefore {
+            characteristics: frozen.characteristics.clone(),
+            keywords: frozen.keywords.clone(),
+            ..current
+        } == *frozen
+    }
     pub(super) fn validate_damage_transaction(&self, tx: &DamageTransaction) -> Result<(), String> {
         if tx.entries.is_empty()
             || tx.entries.len() > self.damage_limit()
@@ -1589,7 +1603,7 @@ impl Game {
                 );
             }
             if let Ok(current) = self.object_before(d.source.object)
-                && current != d.source
+                && !self.frozen_damage_source_matches(&d.source, current)
             {
                 return Err("prepared damage source changed consumed facts".into());
             }
@@ -1658,7 +1672,8 @@ impl Game {
                         != Some(&d.recipient.entity())
                     || frame.legal_targets.get(*target_slot as usize) != Some(&true)
                     || d.controller != frame.spell.controller
-                    || d.source != self.source_facts(&frame.spell)?
+                    || !self
+                        .frozen_damage_source_matches(&d.source, self.source_facts(&frame.spell)?)
                 {
                     return Err("unbound noncombat damage transaction".into());
                 }

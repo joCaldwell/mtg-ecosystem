@@ -976,3 +976,123 @@ fn pacifism_owner_concession_restores_next_declaration_eligibility() {
         assert!(g.object_id(CardId(1)).is_none());
     });
 }
+// Reviewed P6.7 regression: an opponent's Aura modifies a damage source and its
+// owner concedes while the prepared damage awaits a replacement-order choice
+// (Furnace of Rath plus a Samite Healer shield). CR 104.3a/800.4a remove the
+// Aura, but the frozen damage facts stay authoritative (510.2, 608.2h).
+fn advance_after_concession(g: &mut Game) {
+    for _ in 0..200 {
+        match g.advance(Budget::unlimited()) {
+            Advance::AwaitingDecision(r) => {
+                if matches!(r, Request::Priority { .. })
+                    && g.state.stack.is_empty()
+                    && g.state.pending_triggers.is_empty()
+                    && !matches!(g.state.frame, Frame::DamageEffects { .. })
+                {
+                    return;
+                }
+                let resp = automatic(&r, &[]);
+                g.respond(r.player(), r.decision_id(), resp).unwrap();
+            }
+            other => panic!("after concession: {other:?}"),
+        }
+    }
+}
+#[test]
+fn aura_owner_concession_during_combat_damage_effect_choice_keeps_frozen_facts() {
+    let rows = vec![
+        ("Unholy Strength", 0, true),
+        ("Swamp", 0, false),
+        ("Grizzly Bears", 1, false),
+        ("Furnace of Rath", 3, false),
+        ("Samite Healer", 2, false),
+    ];
+    let mut g = Game::with_trace(prepared(&rows), TraceMode::Detailed);
+    let g = &mut g;
+    cast(g, 0, target(object(g, 2)));
+    let mut shielded = false;
+    loop {
+        let r = request(g);
+        match &r {
+            Request::Attackers {
+                player: PlayerId(1),
+                ..
+            } => answer(
+                g,
+                Response::Attackers {
+                    attacks: vec![(object(g, 2), PlayerId(2))],
+                },
+            ),
+            Request::Attackers { .. } => answer(g, Response::Attackers { attacks: vec![] }),
+            Request::Blockers { .. } => answer(g, Response::Blockers { blocks: vec![] }),
+            Request::DamageEffect { .. } => break,
+            Request::Priority {
+                player: PlayerId(2),
+                ..
+            } if !shielded
+                && g.turn().number == 2
+                && g.turn().step == TurnStep::DeclareAttackers =>
+            {
+                shielded = true;
+                activated(
+                    g,
+                    4,
+                    vec![TargetEntity::Player {
+                        player: PlayerId(2),
+                    }],
+                );
+            }
+            _ => answer(g, automatic(&r, &[])),
+        }
+        assert!(g.turn().number <= 2, "damage effect choice not reached");
+    }
+    check(g);
+    g.concede(PlayerId(0)).unwrap();
+    advance_after_concession(g);
+    check(g);
+}
+#[test]
+fn aura_owner_concession_during_noncombat_damage_effect_choice_keeps_frozen_facts() {
+    let rows = vec![
+        ("Holy Strength", 0, true),
+        ("Plains", 0, false),
+        ("Prodigal Sorcerer", 1, false),
+        ("Furnace of Rath", 3, false),
+        ("Samite Healer", 2, false),
+    ];
+    let mut g = Game::with_trace(prepared(&rows), TraceMode::Detailed);
+    let g = &mut g;
+    cast(g, 0, target(object(g, 2)));
+    priority_for(g, 2);
+    activated(
+        g,
+        4,
+        vec![TargetEntity::Player {
+            player: PlayerId(2),
+        }],
+    );
+    resolve(g, vec![]);
+    priority_for(g, 1);
+    activated(
+        g,
+        2,
+        vec![TargetEntity::Player {
+            player: PlayerId(2),
+        }],
+    );
+    loop {
+        let r = request(g);
+        if matches!(r, Request::DamageEffect { .. }) {
+            break;
+        }
+        answer(g, automatic(&r, &[]));
+        assert!(
+            !g.state.stack.is_empty(),
+            "damage effect choice not reached"
+        );
+    }
+    check(g);
+    g.concede(PlayerId(0)).unwrap();
+    advance_after_concession(g);
+    check(g);
+}
