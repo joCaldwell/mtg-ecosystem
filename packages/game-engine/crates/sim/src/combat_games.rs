@@ -65,7 +65,9 @@ impl Policy {
                 .find(|o| o.zone == (Zone::Hand { owner: v.viewer }) && o.oracle_id == id)
         };
         Ok(match request {
-            PlayerRequest::SearchLands { .. } | PlayerRequest::OptionalRecursion { .. } => {
+            PlayerRequest::ManaColor { .. }
+            | PlayerRequest::SearchLands { .. }
+            | PlayerRequest::OptionalRecursion { .. } => {
                 return Err("staples request outside historical policy".into());
             }
             PlayerRequest::Mulligan { .. } | PlayerRequest::BottomOpening { .. } => {

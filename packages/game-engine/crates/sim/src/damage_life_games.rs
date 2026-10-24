@@ -277,7 +277,9 @@ impl Strategy {
         let v = &o.view;
         let r = o.decision.as_ref().ok_or("missing damage/life request")?;
         Ok(match r {
-            PlayerRequest::SearchLands { .. } | PlayerRequest::OptionalRecursion { .. } => {
+            PlayerRequest::ManaColor { .. }
+            | PlayerRequest::SearchLands { .. }
+            | PlayerRequest::OptionalRecursion { .. } => {
                 return Err("staples request outside historical policy".into());
             }
             PlayerRequest::Mulligan { .. } | PlayerRequest::BottomOpening { .. } => {

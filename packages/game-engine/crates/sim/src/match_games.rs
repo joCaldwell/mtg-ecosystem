@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 
 #[cfg(test)]
 mod current_pod_throughput;
+mod mana_policy;
 #[cfg(test)]
 mod ordinary_diagnostic;
 
@@ -95,6 +96,8 @@ struct Strategy<'a> {
     policy: Policy,
     mulligans: [u8; 4],
     beneficial: bool,
+    mana_plan: std::collections::VecDeque<mana_policy::PlannedMana>,
+    mana_color: Option<Color>,
 }
 impl Strategy<'_> {
     fn land_color(&self, id: &str) -> Option<Color> {
@@ -178,8 +181,11 @@ impl Strategy<'_> {
                 }
                 if !command
                     && d.characteristics.kind != CardKind::Creature
-                    && !(self.catalog.schema_version == 15
-                        && d.characteristics.kind == CardKind::Enchantment)
+                    && !(self.catalog.schema_version >= 15
+                        && matches!(
+                            d.characteristics.kind,
+                            CardKind::Enchantment | CardKind::Artifact
+                        ))
                     && v.turn.step != TurnStep::PostcombatMain
                 {
                     continue;
@@ -190,7 +196,7 @@ impl Strategy<'_> {
                 if matches!(d.name.as_str(), "Giant Growth" | "Battlegrowth") && !own_creature {
                     continue;
                 }
-                if self.catalog.schema_version == 15 {
+                if self.catalog.schema_version >= 15 {
                     if d.name == "Murder" && !enemy_creature {
                         continue;
                     }
@@ -243,7 +249,15 @@ impl Strategy<'_> {
                     cost.generic.add(&n);
                     cost.generic.add(&n);
                 }
-                if spend(&cost, &funds).is_some() {
+                let plan = (self.catalog.schema_version == 16)
+                    .then(|| mana_policy::plan(self.catalog, v, &cost, None))
+                    .flatten();
+                if plan.is_some()
+                    || (self.catalog.schema_version != 16 && spend(&cost, &funds).is_some())
+                {
+                    if let Some(plan) = plan {
+                        self.mana_plan = plan;
+                    }
                     self.beneficial = matches!(
                         d.name.as_str(),
                         "Giant Growth"
@@ -258,12 +272,58 @@ impl Strategy<'_> {
                 }
             }
         }
+        if self.catalog.schema_version == 16
+            && v.turn.step == TurnStep::PostcombatMain
+            && v.turn.number >= 20
+            && v.players
+                .iter()
+                .find(|p| p.player == v.viewer)
+                .is_some_and(|p| p.library_count > 0)
+        {
+            for o in &v.objects {
+                if o.zone != Zone::Battlefield || o.controller != v.viewer || o.token.is_some() {
+                    continue;
+                }
+                let d = definition(self.catalog, &o.oracle_id)?;
+                if d.characteristics.kind != CardKind::Artifact {
+                    continue;
+                }
+                for (i, a) in d.activated.iter().enumerate() {
+                    if let mtg_contracts::ActivationCost::Composite { costs } = &a.cost {
+                        if costs.tap && o.tapped {
+                            continue;
+                        }
+                        let cost = costs.mana.clone().unwrap_or(ManaCost {
+                            generic: Quantity::zero(),
+                            colored: vec![],
+                        });
+                        if let Some(plan) =
+                            mana_policy::plan(self.catalog, v, &cost, Some(&o.handle))
+                        {
+                            self.mana_plan = plan;
+                            return Ok(PlayerResponse::ActivateAbility {
+                                object: o.handle.clone(),
+                                ability: i as u32,
+                            });
+                        }
+                    }
+                }
+            }
+        }
         Ok(PlayerResponse::Pass)
     }
     fn choose(&mut self, o: &Observation) -> Result<PlayerResponse, String> {
         let v = &o.view;
         let request = o.decision.as_ref().ok_or("missing match request")?;
         Ok(match request {
+            PlayerRequest::ManaColor { colors, .. } => PlayerResponse::ManaColor {
+                color: self
+                    .mana_color
+                    .take()
+                    .filter(|c| colors.contains(c))
+                    .or_else(|| colors.first().copied())
+                    .ok_or("empty mana colors")?,
+            },
             PlayerRequest::SearchLands {
                 maximum,
                 candidates,
@@ -318,7 +378,7 @@ impl Strategy<'_> {
                                 })
                         });
                 let own = counter_trigger || (self.beneficial && !trigger);
-                if self.catalog.schema_version == 15 {
+                if self.catalog.schema_version >= 15 {
                     let recursion = occurrences.first().is_some_and(|t| {
                         t.domain == mtg_contracts::TargetDomain::OwnGraveyardCreatureCard
                     });
@@ -407,6 +467,24 @@ impl Strategy<'_> {
             PlayerRequest::OrderTriggers { candidates, .. } => PlayerResponse::OrderTriggers {
                 order: candidates.iter().map(|c| c.handle.clone()).collect(),
             },
+            PlayerRequest::Mana { cost, .. } if self.catalog.schema_version == 16 => {
+                let available = &v
+                    .players
+                    .iter()
+                    .find(|p| p.player == v.viewer)
+                    .ok_or("missing mana payer")?
+                    .mana;
+                if spend(cost, available).is_some() {
+                    PlayerResponse::FinishMana { undo_mana: true }
+                } else if let Some(next) = self.mana_plan.pop_front() {
+                    self.mana_color = next.color;
+                    PlayerResponse::ActivateMana {
+                        object: next.source,
+                    }
+                } else {
+                    PlayerResponse::FinishMana { undo_mana: true }
+                }
+            }
             PlayerRequest::Mana { cost, .. } => {
                 let available = &v
                     .players
@@ -763,6 +841,8 @@ pub(super) fn run(
         policy,
         mulligans,
         beneficial: false,
+        mana_plan: Default::default(),
+        mana_color: None,
     };
     let selected_checkpoints =
         config.seed == seed_for(&config.profile, 0) && policy == Policy::Develop;
@@ -802,8 +882,10 @@ pub(super) fn run(
                 break;
             }
             Advance::Fault(e) => {
-                outcome = if config.profile == mtg_core::STAPLES_PROFILE
-                    && game.typed_fault().is_some()
+                outcome = if matches!(
+                    config.profile.as_str(),
+                    mtg_core::STAPLES_PROFILE | mtg_core::MANA_PROFILE
+                ) && game.typed_fault().is_some()
                 {
                     format!("resource_truncation: {e}")
                 } else {
@@ -1011,6 +1093,7 @@ fn verify_terminal_result(game: &Game, e: &Evidence) -> Result<(), String> {
 }
 pub(super) fn batch(catalog: &Catalog, directory: &Path) -> Result<serde_json::Value, String> {
     let profile = match catalog.schema_version {
+        16 => mtg_core::MANA_PROFILE,
         15 => mtg_core::STAPLES_PROFILE,
         14 => mtg_core::TOKENS_PROFILE,
         13 => mtg_core::COMBAT_KEYWORDS_PROFILE,
@@ -1076,6 +1159,7 @@ pub(super) fn batch(catalog: &Catalog, directory: &Path) -> Result<serde_json::V
                 | mtg_core::COMBAT_KEYWORDS_PROFILE
                 | mtg_core::TOKENS_PROFILE
                 | mtg_core::STAPLES_PROFILE
+                | mtg_core::MANA_PROFILE
         ) {
             report["keyword_interactions"] = keyword_interactions(catalog, &e)?;
         }
@@ -1118,15 +1202,82 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
     let p = Prepared::admit_pod(catalog.clone(), e.config.clone()).map_err(|e| format!("{e:?}"))?;
     let physical_cards = p.config().cards.clone();
     let g = Game::replay_with_trace(p, &e.journal, TraceMode::Detailed)?;
+    let mut mana_report = None;
+    if e.config.profile == mtg_core::MANA_PROFILE {
+        let mut activations = std::collections::BTreeSet::new();
+        let mut by_type = BTreeMap::<String, u64>::from([
+            ("land".into(), 0),
+            ("artifact".into(), 0),
+            ("creature".into(), 0),
+        ]);
+        let mut first = BTreeMap::<PlayerId, u64>::new();
+        let mut turn = 1;
+        let mut proposed = BTreeMap::new();
+        for record in g.trace().records.iter() {
+            match &record.record {
+                mtg_core::EvidenceRecord::Event { event } => match event.as_ref() {
+                    mtg_core::Event::Committed {
+                        actual: mtg_core::EventOutcome::TurnTransitioned { current, .. },
+                        ..
+                    } => turn = current.number,
+                    mtg_core::Event::SpellProposed { card, stack_id } => {
+                        proposed.insert(*stack_id, *card);
+                    }
+                    mtg_core::Event::SpellCast { stack_id } => {
+                        if let Some(card) = proposed
+                            .get(stack_id)
+                            .and_then(|id| physical_cards.iter().find(|c| c.id == *id))
+                            && card.id.0 % 100 == 0
+                        {
+                            first.entry(card.owner).or_insert(turn);
+                        }
+                    }
+                    _ => {}
+                },
+                mtg_core::EvidenceRecord::Batch { batch } => {
+                    if let mtg_core::BatchCause::ManaActivation {
+                        source,
+                        decision_id,
+                        ..
+                    } = batch.cause
+                        && batch
+                            .occurrences
+                            .iter()
+                            .any(|o| matches!(o.actual, mtg_core::EventOutcome::ManaAdded { .. }))
+                        && activations.insert((source, decision_id))
+                    {
+                        let card = physical_cards
+                            .iter()
+                            .find(|c| c.id == source.card)
+                            .ok_or("missing mana source")?;
+                        let d = definition(catalog, &card.oracle_id)?;
+                        let kind = match d.characteristics.kind {
+                            CardKind::Land => "land",
+                            CardKind::Creature => "creature",
+                            CardKind::Artifact => "artifact",
+                            _ => return Err("unexpected mana source kind".into()),
+                        };
+                        *by_type.entry(kind.into()).or_default() += 1;
+                    }
+                }
+            }
+        }
+        mana_report = Some(
+            serde_json::json!({"activations_by_source_type":by_type,"first_commander_cast_turn":(0..4).map(|i|first.get(&PlayerId(i)).copied()).collect::<Vec<_>>()}),
+        );
+    }
     let mut counts = [0; 3];
     walk(
         &serde_json::to_value(g.events()).map_err(|e| e.to_string())?,
         &mut counts,
     );
     let mut report = serde_json::json!({"lifelink_gains":counts[0],"deathtouch_destructions":counts[1],"blocks":counts[2]});
+    if let Some(mana) = mana_report {
+        report["mana"] = mana;
+    }
     if matches!(
         e.config.profile.as_str(),
-        mtg_core::TOKENS_PROFILE | mtg_core::STAPLES_PROFILE
+        mtg_core::TOKENS_PROFILE | mtg_core::STAPLES_PROFILE | mtg_core::MANA_PROFILE
     ) {
         let mut tokens_created = 0u64;
         let mut counters_placed = Quantity::zero();
@@ -1147,7 +1298,10 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
         report["plus_one_counters_placed"] = serde_json::json!(counters_placed);
     }
 
-    if e.config.profile == mtg_core::STAPLES_PROFILE {
+    if matches!(
+        e.config.profile.as_str(),
+        mtg_core::STAPLES_PROFILE | mtg_core::MANA_PROFILE
+    ) {
         let mut destroyed = 0u64;
         let mut recursions = 0u64;
         let mut searched = 0u64;
@@ -1219,7 +1373,10 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
     }
     if matches!(
         e.config.profile.as_str(),
-        mtg_core::COMBAT_KEYWORDS_PROFILE | mtg_core::TOKENS_PROFILE | mtg_core::STAPLES_PROFILE
+        mtg_core::COMBAT_KEYWORDS_PROFILE
+            | mtg_core::TOKENS_PROFILE
+            | mtg_core::STAPLES_PROFILE
+            | mtg_core::MANA_PROFILE
     ) {
         let mut trample = Quantity::zero();
         let mut first_steps = 0u64;
