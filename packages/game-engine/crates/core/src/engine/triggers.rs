@@ -45,7 +45,9 @@ fn movement(outcome: &EventOutcome) -> Option<&MoveOutcome> {
 }
 impl Game {
     pub(super) fn stack_limit(&self) -> usize {
-        if self.tokens_enabled() {
+        if self.staples_enabled() {
+            staples::STACK_BOUND
+        } else if self.tokens_enabled() {
             tokens::STACK_BOUND
         } else if self.prepared.config.match_profile() {
             256
@@ -464,12 +466,12 @@ impl Game {
                     self.state.frame = Frame::TriggerOrder { placement };
                     return Ok(());
                 }
-                if self
-                    .program()?
-                    .targets
-                    .first()
-                    .is_some_and(|t| t.domain == TargetDomain::BattlefieldCreature)
-                {
+                if self.program()?.targets.first().is_some_and(|t| {
+                    matches!(
+                        t.domain,
+                        TargetDomain::BattlefieldCreature | TargetDomain::OwnGraveyardCreatureCard
+                    )
+                }) {
                     return self.bind_trigger_object_targets(placement, stack_id);
                 }
                 let input = self
@@ -722,11 +724,13 @@ impl Game {
                 || !self.state.cards.contains_key(&subject.card)
                 || entry.cast_from != Zone::Battlefield
                 || (!entry.targets.is_empty()
-                    && self
-                        .program_for(entry)?
-                        .targets
-                        .first()
-                        .is_none_or(|t| t.domain != TargetDomain::BattlefieldCreature))
+                    && self.program_for(entry)?.targets.first().is_none_or(|t| {
+                        !matches!(
+                            t.domain,
+                            TargetDomain::BattlefieldCreature
+                                | TargetDomain::OwnGraveyardCreatureCard
+                        )
+                    }))
                 || !entry.entity_targets.is_empty()
                 || !entry.stack_targets.is_empty()
                 || entry.total_cost

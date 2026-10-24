@@ -771,7 +771,7 @@ impl Game {
     pub(super) fn validate_combat_state(&self) -> Result<(), String> {
         if !matches!(
             self.prepared.config.profile.as_str(),
-            COMBAT_KEYWORDS_PROFILE | TOKENS_PROFILE
+            COMBAT_KEYWORDS_PROFILE | TOKENS_PROFILE | STAPLES_PROFILE
         ) && (self.state.turn.step == TurnStep::FirstStrikeDamage
             || !self.state.first_strike_participants.is_empty()
             || !self.state.orphan_first_strike_blockers.is_empty()

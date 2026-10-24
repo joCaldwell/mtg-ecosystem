@@ -263,6 +263,9 @@ impl Strategy {
             .as_ref()
             .ok_or("missing trigger policy request")?;
         Ok(match request {
+            PlayerRequest::SearchLands { .. } | PlayerRequest::OptionalRecursion { .. } => {
+                return Err("staples request outside historical policy".into());
+            }
             PlayerRequest::Mulligan { .. } | PlayerRequest::BottomOpening { .. } => {
                 return Err("opening setup is not admitted by this historical scenario".into());
             }

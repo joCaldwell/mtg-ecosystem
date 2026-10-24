@@ -390,6 +390,15 @@ Acceptance checks and the frozen 18-game token/counter batch are recorded in
 [game-engine-progress.md](game-engine-progress.md). Noncreature/copy/variable
 tokens, other counter kinds and general continuous layers remain future work.
 
+P6.4 is complete under [game-engine-staples.md](game-engine-staples.md): a separate
+81-definition IR v15 `commander-staples-v1` profile adds removal, a simultaneous
+wipe, graveyard recursion, private seeded land search, draw/life loss, enchantment
+casting and a continuous layer-7c anthem. Its live-token and episode capacities
+account for recursion. Acceptance evidence is recorded in
+[game-engine-progress.md](game-engine-progress.md). Earlier profiles and
+foundations-only search/server hosting remain separate; regeneration, restricted
+removal, reveal/split searches and general continuous effects remain excluded.
+
 **Deliver in bounded families:** replacement/prevention ordering and budgets;
 continuous-effect layers/sublayers/timestamps/dependencies; granted abilities;
 multiple/cost-dependent targets; counters and tokens; attachments; alternate/

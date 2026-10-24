@@ -56,6 +56,8 @@ pub struct DecisionToken(pub String);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisiblePlayer {
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub library_shuffles: u64,
     pub player: PlayerId,
     pub status: PlayerStatus,
     pub life: Quantity,
@@ -164,6 +166,16 @@ pub struct PermittedView {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerRequest {
+    SearchLands {
+        token: DecisionToken,
+        player: PlayerId,
+        maximum: u32,
+        candidates: Vec<VisibleSearchLand>,
+    },
+    OptionalRecursion {
+        token: DecisionToken,
+        player: PlayerId,
+    },
     Mulligan {
         token: DecisionToken,
         player: PlayerId,
@@ -298,7 +310,9 @@ pub enum PlayerRequest {
 impl PlayerRequest {
     pub fn token(&self) -> &DecisionToken {
         match self {
-            Self::Mulligan { token, .. }
+            Self::SearchLands { token, .. }
+            | Self::OptionalRecursion { token, .. }
+            | Self::Mulligan { token, .. }
             | Self::BottomOpening { token, .. }
             | Self::DamageAllocation { token, .. }
             | Self::Modes { token, .. }
@@ -331,6 +345,12 @@ pub struct Observation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerResponse {
+    SearchLands {
+        objects: Vec<ObjectHandle>,
+    },
+    OptionalRecursion {
+        perform: bool,
+    },
     Mulligan {
         take: bool,
     },
@@ -472,6 +492,14 @@ impl Knowledge {
     }
 }
 impl Game {
+    pub(super) fn search_decision_token(&self, player: PlayerId) -> Result<&DecisionToken, String> {
+        self.state
+            .visibility
+            .get(player.0 as usize)
+            .and_then(|k| k.decision_token.as_ref())
+            .ok_or_else(|| "missing private search token".into())
+    }
+
     pub(super) fn capture_trigger_source_handles(
         &mut self,
         object: ObjectId,
@@ -633,6 +661,13 @@ impl Game {
             .map_err(|_| "zone count resource limit".to_string())
         };
         Ok(VisiblePlayer {
+            library_shuffles: self
+                .state
+                .match_state
+                .as_ref()
+                .and_then(|m| m.library_shuffles.get(player.0 as usize))
+                .copied()
+                .unwrap_or_default(),
             player,
             status: p.status,
             life: p.life.clone(),
@@ -975,6 +1010,28 @@ impl Game {
                     .collect::<Result<Vec<_>, _>>()
             };
             return Ok(Some(match request {
+                Request::SearchLands {
+                    maximum,
+                    candidates,
+                    ..
+                } => PlayerRequest::SearchLands {
+                    token,
+                    player: viewer,
+                    maximum,
+                    candidates: candidates
+                        .into_iter()
+                        .map(|o| {
+                            Ok(VisibleSearchLand {
+                                handle: self.search_handle(viewer, o)?,
+                                oracle_id: self.definition(o.card)?.oracle_id.clone(),
+                            })
+                        })
+                        .collect::<Result<_, String>>()?,
+                },
+                Request::OptionalRecursion { .. } => PlayerRequest::OptionalRecursion {
+                    token,
+                    player: viewer,
+                },
                 Request::Sacrifice { candidates, .. } => PlayerRequest::Sacrifice {
                     token,
                     player: viewer,
@@ -1023,7 +1080,10 @@ impl Game {
                         )?,
                         legal_attackers: if matches!(
                             self.prepared.config.profile.as_str(),
-                            KEYWORDS_PROFILE | COMBAT_KEYWORDS_PROFILE | TOKENS_PROFILE
+                            KEYWORDS_PROFILE
+                                | COMBAT_KEYWORDS_PROFILE
+                                | TOKENS_PROFILE
+                                | STAPLES_PROFILE
                         ) {
                             candidates
                                 .iter()
@@ -1112,11 +1172,13 @@ impl Game {
             }
             Frame::TriggerTargets { .. }
                 if self.top()?.controller == viewer
-                    && self
-                        .program()?
-                        .targets
-                        .first()
-                        .is_some_and(|t| t.domain == TargetDomain::BattlefieldCreature) =>
+                    && self.program()?.targets.first().is_some_and(|t| {
+                        matches!(
+                            t.domain,
+                            TargetDomain::BattlefieldCreature
+                                | TargetDomain::OwnGraveyardCreatureCard
+                        )
+                    }) =>
             {
                 if !self.has_target_domain(self.program()?, viewer) {
                     return Ok(None);
@@ -1467,6 +1529,15 @@ impl Game {
             PlayerResponse::PlayerTargets { players } => Ok(Response::PlayerTargets {
                 players: players.clone(),
             }),
+            PlayerResponse::SearchLands { objects } => Ok(Response::SearchLands {
+                objects: objects
+                    .iter()
+                    .map(|h| self.resolve_search_handle(viewer, h))
+                    .collect::<Result<_, _>>()?,
+            }),
+            PlayerResponse::OptionalRecursion { perform } => {
+                Ok(Response::OptionalRecursion { perform: *perform })
+            }
             PlayerResponse::Sacrifice { object } => Ok(Response::Sacrifice {
                 object: self.resolve_handle(viewer, object)?,
             }),

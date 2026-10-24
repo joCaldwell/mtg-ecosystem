@@ -408,6 +408,13 @@ impl Game {
                     let program = self.program_for(&frame.spell)?;
                     let (slot, expected_destination, expected_block) =
                         match program.instructions.get(frame.cursor as usize) {
+                            Some(Instruction::ReturnOwnGraveyardCreatureToHand {
+                                target_slot,
+                                source_block,
+                                ..
+                            }) if self.staples_enabled() => {
+                                (*target_slot, Zone::Hand { owner }, *source_block)
+                            }
                             Some(Instruction::ReturnToOwnerHand {
                                 target_slot,
                                 source_block,
@@ -426,7 +433,7 @@ impl Game {
                                 );
                             }
                         };
-                    if current.zone != Zone::Battlefield
+                    if !self.object_target_legal(&frame.spell, *object)
                         || *destination != expected_destination
                         || *source_block != expected_block
                         || frame.stack_id != frame.spell.id
@@ -450,7 +457,9 @@ impl Game {
                     self.validate_resolving(frame)?;
                     if !self.prepared.config.actions_profile()
                         || *player != owner
-                        || *player != frame.spell.controller
+                        || !self
+                            .resolution_draw_player(frame)
+                            .is_ok_and(|p| p == *player)
                         || current.zone != (Zone::Library { owner })
                         || *destination != (Zone::Hand { owner })
                         || self
@@ -459,14 +468,7 @@ impl Game {
                             .get(player)
                             .and_then(|cards| cards.first())
                             != Some(&object.card)
-                        || self
-                            .program_for(&frame.spell)?
-                            .instructions
-                            .get(frame.cursor as usize)
-                            != Some(&Instruction::DrawCards {
-                                count: Quantity::from(1),
-                                source_block: *source_block,
-                            })
+                        || !matches!(self.program_for(&frame.spell)?.instructions.get(frame.cursor as usize), Some(Instruction::DrawCards {count,source_block:b,..}) if *count==Quantity::from(1) && b==source_block)
                     {
                         return Err(
                             "snapshot commander resolution draw continuation invariant".into()

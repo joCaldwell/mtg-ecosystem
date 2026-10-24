@@ -5,6 +5,44 @@ use serde_json::value::RawValue;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub mod fixtures {
+    pub const STAPLES_RECORDS: [(&str, &str); 9] = [
+        (
+            "day-of-judgment",
+            include_str!("../../../tests/fixtures/day-of-judgment.json"),
+        ),
+        (
+            "glorious-anthem",
+            include_str!("../../../tests/fixtures/glorious-anthem.json"),
+        ),
+        (
+            "murder",
+            include_str!("../../../tests/fixtures/murder.json"),
+        ),
+        (
+            "raise-dead",
+            include_str!("../../../tests/fixtures/raise-dead.json"),
+        ),
+        (
+            "gravedigger",
+            include_str!("../../../tests/fixtures/gravedigger.json"),
+        ),
+        (
+            "nights-whisper",
+            include_str!("../../../tests/fixtures/nights-whisper.json"),
+        ),
+        (
+            "sign-in-blood",
+            include_str!("../../../tests/fixtures/sign-in-blood.json"),
+        ),
+        (
+            "rampant-growth",
+            include_str!("../../../tests/fixtures/rampant-growth.json"),
+        ),
+        (
+            "explosive-vegetation",
+            include_str!("../../../tests/fixtures/explosive-vegetation.json"),
+        ),
+    ];
     pub const MANIFEST: &str = include_str!("../../../tests/fixtures/archive-manifest.json");
     pub const RECORDS: [(&str, &str); 6] = [
         (
@@ -692,6 +730,21 @@ struct Sentence {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "effect", rename_all = "kebab-case")]
 enum Step {
+    Destroy {
+        what: serde_json::Value,
+        #[serde(rename = "regenerationForbidden")]
+        regeneration_forbidden: Option<bool>,
+    },
+    Search {
+        who: PlayerSelector,
+        zones: serde_json::Value,
+        #[serde(rename = "for")]
+        find: serde_json::Value,
+    },
+    Shuffle {
+        who: PlayerSelector,
+        library: serde_json::Value,
+    },
     CreateToken {
         count: Count,
         token: SourceToken,
@@ -732,12 +785,14 @@ enum Step {
         amount: Count,
     },
     ReturnToHand {
-        what: Target,
+        what: serde_json::Value,
         to: String,
+        optional: Option<bool>,
     },
     MoveZone {
-        what: Target,
-        to: ZoneDestination,
+        what: serde_json::Value,
+        to: serde_json::Value,
+        tapped: Option<bool>,
     },
     Sacrifice {
         who: PlayerSelector,
@@ -831,13 +886,6 @@ enum ObjectFilter {
 #[serde(deny_unknown_fields)]
 struct CardFilter {
     cls: String,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ZoneDestination {
-    zone: String,
-    owner: String,
-    position: String,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -935,7 +983,13 @@ enum AnyTargetReference {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "static", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceStaticEffect {
-    Replacement { replacement: SourceReplacement },
+    Modify {
+        what: serde_json::Value,
+        modifiers: Vec<serde_json::Value>,
+    },
+    Replacement {
+        replacement: SourceReplacement,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1500,11 +1554,104 @@ fn append_spell_effects(
     }
     let source_block = source_block(block)?;
     for sentence in effects {
+        if let [
+            Step::Search { who, zones, find },
+            Step::MoveZone {
+                what,
+                to,
+                tapped: Some(true),
+            },
+            Step::Shuffle {
+                who: shuffler,
+                library,
+            },
+        ] = sentence.steps.as_slice()
+        {
+            let maximum = find["count"]["value"].as_u64().unwrap_or(0);
+            let up_to = maximum == 2;
+            let expected = if up_to {
+                serde_json::json!({"ref":"filter","filter":{"supertypes":["basic"],"types":["land"],"cls":"card"},"count":{"amount":"fixed","value":2},"upTo":true})
+            } else {
+                serde_json::json!({"ref":"filter","filter":{"supertypes":["basic"],"types":["land"],"cls":"card"},"count":{"amount":"fixed","value":1}})
+            };
+            if who.player != "you"
+                || who.selection_id.is_some()
+                || shuffler != who
+                || *zones
+                    != serde_json::json!({"selection":"all","of":[{"zone":"library","owner":"your"}]})
+                || *find != expected
+                || !(1..=2).contains(&maximum)
+                || *what
+                    != if up_to {
+                        serde_json::json!({"ref":"them"})
+                    } else {
+                        serde_json::json!({"ref":"that","filter":{"cls":"card"}})
+                    }
+                || *to != serde_json::json!({"zone":"battlefield"})
+                || *library != serde_json::json!({"zone":"library","owner":{"player":"you"}})
+            {
+                return Err(unsupported(
+                    "effects.search",
+                    "unsupported complete search/move/shuffle sequence",
+                ));
+            }
+            program.instructions.push(Instruction::SearchBasicLands {
+                maximum: maximum as u32,
+                source_block,
+            });
+            continue;
+        }
         if sentence.steps.is_empty() {
             return Err(invalid("effects.steps", "empty instruction group"));
         }
         for step in &sentence.steps {
             let instruction = match step {
+                Step::Destroy {
+                    regeneration_forbidden: Some(_),
+                    ..
+                } => {
+                    return Err(unsupported(
+                        "effects.destroy.regenerationForbidden",
+                        "regeneration and cannot-be-regenerated clauses are outside this slice",
+                    ));
+                }
+                Step::Destroy {
+                    what,
+                    regeneration_forbidden: None,
+                } => {
+                    if *what == serde_json::json!({"ref":"all","filter":{"types":["creature"]}}) {
+                        Instruction::DestroyAllCreatures { source_block }
+                    } else {
+                        let t: Target = serde_json::from_value(what.clone()).map_err(|_| {
+                            unsupported("effects.destroy", "unsupported destroy filter")
+                        })?;
+                        Instruction::DestroyTargetCreature {
+                            target_slot: bind_creature_target(program, slots, &t)?,
+                            source_block,
+                        }
+                    }
+                }
+                Step::ReturnToHand { what, to, optional } if to == "your" => {
+                    let id = what["selectionId"].as_str().unwrap_or("");
+                    if *what
+                        != serde_json::json!({"ref":"target","filter":{"types":["creature"],"cls":"card","zone":{"zone":"graveyard","owner":"your"}},"count":{"amount":"fixed","value":1},"selectionId":id})
+                    {
+                        return Err(unsupported(
+                            "effects.return",
+                            "unsupported graveyard target",
+                        ));
+                    }
+                    Instruction::ReturnOwnGraveyardCreatureToHand {
+                        target_slot: bind_target(
+                            program,
+                            slots,
+                            id,
+                            TargetDomain::OwnGraveyardCreatureCard,
+                        )?,
+                        optional: optional.unwrap_or(false),
+                        source_block,
+                    }
+                }
                 Step::CreateToken { count, token }
                     if count.amount == "fixed" && count.value > 0 =>
                 {
@@ -1630,10 +1777,24 @@ fn append_spell_effects(
                     amount: fixed_positive(amount)?,
                     source_block,
                 },
-                Step::Draw { who, amount }
-                    if who.player == "you" && who.selection_id.is_none() && fixed_one(amount) =>
-                {
+                Step::Draw { who, amount } => {
+                    let recipient = match life_recipient(program, slots, who)? {
+                        LifeRecipient::Controller => None,
+                        r => Some(r),
+                    };
+                    if amount.amount != "fixed" || !(1..=2).contains(&amount.value) {
+                        return Err(unsupported("effects.draw", "unsupported fixed draw count"));
+                    }
+                    // CR 121.2: multiple draws are performed one at a time.
+                    for _ in 1..amount.value {
+                        program.instructions.push(Instruction::DrawCards {
+                            recipient: recipient.clone(),
+                            count: Quantity::from(1),
+                            source_block,
+                        });
+                    }
                     Instruction::DrawCards {
+                        recipient,
                         count: Quantity::from(1),
                         source_block,
                     }
@@ -1663,19 +1824,30 @@ fn append_spell_effects(
                         source_block,
                     }
                 }
-                Step::ReturnToHand { what, to } if to == "owner" => {
-                    let target_slot = bind_creature_target(program, slots, what)?;
+                Step::ReturnToHand {
+                    what,
+                    to,
+                    optional: None,
+                } if to == "owner" => {
+                    let t: Target = serde_json::from_value(what.clone())
+                        .map_err(|_| unsupported("effects.return", "unsupported target"))?;
+                    let target_slot = bind_creature_target(program, slots, &t)?;
                     Instruction::ReturnToOwnerHand {
                         target_slot,
                         source_block,
                     }
                 }
-                Step::MoveZone { what, to }
-                    if to.zone == "library" && to.owner == "its-owner" && to.position == "top" =>
+                Step::MoveZone {
+                    what,
+                    to,
+                    tapped: None,
+                } if *to
+                    == serde_json::json!({"zone":"library","owner":"its-owner","position":"top"}) =>
                 {
-                    let target_slot = bind_creature_target(program, slots, what)?;
+                    let t: Target = serde_json::from_value(what.clone())
+                        .map_err(|_| unsupported("effects.move", "unsupported target"))?;
                     Instruction::PutOnTopOwnerLibrary {
-                        target_slot,
+                        target_slot: bind_creature_target(program, slots, &t)?,
                         source_block,
                     }
                 }
@@ -1791,7 +1963,38 @@ fn lower_prevention(
     }
 }
 fn lower_static(effect: &SourceStaticEffect) -> Result<StaticAbility, Failure> {
-    let SourceStaticEffect::Replacement { replacement } = effect;
+    if let SourceStaticEffect::Modify { what, modifiers } = effect {
+        if *what
+            != serde_json::json!({"ref":"each","filter":{"types":["creature"],"control":"you"}})
+            || modifiers.len() != 1
+        {
+            return Err(unsupported("abilities.static", "unsupported anthem scope"));
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Pt {
+            modifier: String,
+            power: SignedAmount,
+            toughness: SignedAmount,
+        }
+        let m: Pt = serde_json::from_value(modifiers[0].clone())
+            .map_err(|_| unsupported("abilities.static", "unsupported anthem modifier"))?;
+        let power = signed_fixed(&m.power)?;
+        let toughness = signed_fixed(&m.toughness)?;
+        if m.modifier != "pt" || power <= Quantity::zero() || power != toughness {
+            return Err(unsupported(
+                "abilities.static",
+                "anthem must give fixed +N/+N",
+            ));
+        }
+        return Ok(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::ControllerCreatureAnthem { power, toughness },
+        });
+    }
+    let SourceStaticEffect::Replacement { replacement } = effect else {
+        unreachable!()
+    };
     let SourceDamageEvent::Damage { kind, source, to } = &replacement.event;
     let SourceReplacementAction::ModifyQuantity { change } = &replacement.replace;
     let permanent = |recipient: &ReplacementRecipient| {
@@ -2023,6 +2226,7 @@ fn lower_activation(
                 }
                 Step::Draw { who, amount } if *who == you && fixed_one(amount) => {
                     Instruction::DrawCards {
+                        recipient: None,
                         count: Quantity::from(1),
                         source_block,
                     }
@@ -2236,6 +2440,20 @@ pub fn tokens_fixture_catalog() -> Result<Catalog, String> {
     Ok(catalog)
 }
 
+/// Separate IR-v15 closure; historical catalogs remain unchanged.
+pub fn staples_fixture_catalog() -> Result<Catalog, String> {
+    let mut catalog = tokens_fixture_catalog()?;
+    catalog.schema_version = 15;
+    catalog
+        .definitions
+        .extend(catalog_from_records(&fixtures::STAPLES_RECORDS, 15)?.definitions);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate()?;
+    Ok(catalog)
+}
+
 fn catalog_from_records(records: &[(&str, &str)], schema_version: u32) -> Result<Catalog, String> {
     let mut definitions = vec![];
     for (_, r) in records {
@@ -2258,6 +2476,111 @@ fn catalog_from_records(records: &[(&str, &str)], schema_version: u32) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn staples_v15_source_pairs_and_historical_identity() {
+        let catalog = staples_fixture_catalog().unwrap();
+        assert_eq!(
+            (catalog.schema_version, catalog.definitions.len()),
+            (15, 81)
+        );
+        assert_eq!(
+            catalog,
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/expected-staples-ir.json"
+            ))
+            .unwrap()
+        );
+        for d in tokens_fixture_catalog().unwrap().definitions {
+            assert_eq!(
+                catalog
+                    .definitions
+                    .iter()
+                    .find(|x| x.oracle_id == d.oracle_id),
+                Some(&d)
+            );
+        }
+        for (name, raw) in fixtures::STAPLES_RECORDS {
+            let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
+                panic!("{name}")
+            };
+            assert_eq!(
+                catalog
+                    .definitions
+                    .iter()
+                    .find(|d| d.oracle_id == definition.oracle_id),
+                Some(definition.as_ref())
+            );
+            if name != "nights-whisper" {
+                let mut bad = catalog.clone();
+                bad.schema_version = 14;
+                bad.definitions = vec![*definition];
+                assert!(bad.validate().is_err(), "{name}");
+            }
+            let bad = changed_source(raw, |r| {
+                let result = &mut r["faces"][0]["result"];
+                result["abilities"][0]["unsupportedStaplesClause"] = true.into();
+                result["lines"][0]["ability"] = result["abilities"][0].clone();
+            });
+            assert!(
+                !matches!(
+                    compile(fixtures::MANIFEST, &bad),
+                    CompileResult::Lowered { .. }
+                ),
+                "{name}"
+            );
+        }
+        let raw = include_str!("../../../tests/fixtures/wrath-of-god.json");
+        assert!(
+            matches!(compile(fixtures::MANIFEST,raw),CompileResult::Unsupported {reason,..} if reason.contains("regeneration"))
+        );
+        // Unsupported restrictions, missing shuffle, untapped entry, and extra
+        // anthem grants reject complete cards, even with recomputed provenance.
+        for (name, path, value) in [
+            (
+                "murder",
+                "/faces/0/result/abilities/0/effects/0/steps/0/what/filter/colors",
+                serde_json::json!(["nonblack"]),
+            ),
+            (
+                "rampant-growth",
+                "/faces/0/result/abilities/0/effects/0/steps/1/tapped",
+                serde_json::json!(false),
+            ),
+            (
+                "explosive-vegetation",
+                "/faces/0/result/abilities/0/effects/0/steps/0/for/count/value",
+                serde_json::json!(3),
+            ),
+            (
+                "glorious-anthem",
+                "/faces/0/result/abilities/0/effect/what/filter/control",
+                serde_json::json!("opponent"),
+            ),
+        ] {
+            let raw = fixtures::STAPLES_RECORDS
+                .iter()
+                .find(|(n, _)| *n == name)
+                .unwrap()
+                .1;
+            let bad = changed_source(raw, |r| {
+                if path.ends_with("/colors") {
+                    r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["what"]["filter"]
+                        ["colors"] = value;
+                } else {
+                    *r.pointer_mut(path).unwrap() = value;
+                }
+                r["faces"][0]["result"]["lines"][0]["ability"] =
+                    r["faces"][0]["result"]["abilities"][0].clone();
+            });
+            assert!(
+                !matches!(
+                    compile(fixtures::MANIFEST, &bad),
+                    CompileResult::Lowered { .. }
+                ),
+                "{name}"
+            );
+        }
+    }
     fn changed_record(index: usize, change: impl FnOnce(&mut serde_json::Value)) -> String {
         changed_source(fixtures::LIBRARY_RECORDS[index].1, change)
     }
@@ -2847,6 +3170,7 @@ mod tests {
             .unwrap()
             .instructions
             .push(Instruction::DrawCards {
+                recipient: None,
                 count: 1.into(),
                 source_block: 0,
             });
@@ -3351,7 +3675,7 @@ mod tests {
             );
         }
         let mut future = c;
-        future.schema_version = 15;
+        future.schema_version = 16;
         assert!(future.validate().is_err());
     }
     #[test]
@@ -3435,6 +3759,7 @@ mod tests {
                     resolution: SpellResolution::Instructions,
                     targets: vec![],
                     instructions: vec![Instruction::DrawCards {
+                        recipient: None,
                         count: 1.into(),
                         source_block: 0
                     }]
@@ -3714,7 +4039,7 @@ mod tests {
             assert!(Catalog::read(&bad).is_err());
         }
         let mut bad = c;
-        bad.schema_version = 15;
+        bad.schema_version = 16;
         assert!(bad.validate().is_err());
     }
 
@@ -3824,6 +4149,7 @@ mod tests {
                     source_block: 0
                 },
                 Instruction::DrawCards {
+                    recipient: None,
                     count: 1.into(),
                     source_block: 1
                 }
@@ -3906,7 +4232,7 @@ mod tests {
             }),
             (19, |r| {
                 r["faces"][0]["result"]["abilities"][1]["effects"][0]["steps"][0]["amount"]["value"] =
-                    2.into()
+                    3.into()
             }),
             (20, |r| {
                 r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["who"]["player"] =
@@ -3978,7 +4304,7 @@ mod tests {
             }
         }
         let mut bad = catalog.clone();
-        bad.schema_version = 15;
+        bad.schema_version = 16;
         assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
         for change in [
             (|d: &mut Definition| {
@@ -4073,6 +4399,7 @@ mod tests {
             .unwrap()
             .instructions
             .push(Instruction::DrawCards {
+                recipient: None,
                 count: 1.into(),
                 source_block: 1,
             });
@@ -4090,6 +4417,7 @@ mod tests {
             .find(|d| d.name == "Prodigal Sorcerer")
             .unwrap();
         d.activated[0].program.instructions = vec![Instruction::DrawCards {
+            recipient: None,
             count: 1.into(),
             source_block: 0,
         }];
@@ -4159,6 +4487,7 @@ mod tests {
             looter.activated[0].program.instructions,
             [
                 Instruction::DrawCards {
+                    recipient: None,
                     count: Quantity::from(1),
                     source_block: 0
                 },
@@ -4185,6 +4514,7 @@ mod tests {
         assert_eq!(
             mage.activated[0].program.instructions,
             [Instruction::DrawCards {
+                recipient: None,
                 count: Quantity::from(1),
                 source_block: 0
             }]
@@ -4286,7 +4616,7 @@ mod tests {
     #[test]
     fn stack_vocabulary_requires_ir6_and_rejects_bad_binding_and_capability_closure() {
         let catalog = stack_fixture_catalog().unwrap();
-        for version in [3, 4, 5, 15] {
+        for version in [3, 4, 5, 16] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -4490,7 +4820,7 @@ mod tests {
         let c = fixture_catalog().unwrap();
         let raw = canonical(&c).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":3", "\"schema_version\":15"),
+            raw.replace("\"schema_version\":3", "\"schema_version\":16"),
             raw.replace("\"op\":\"return_to_owner_hand\"", "\"op\":\"execute_text\""),
             raw.replace("\"target_slot\":0", "\"target_slot\":99"),
             raw.replace("\"source_block\":0", "\"unknown\":true,\"source_block\":0"),
@@ -4883,6 +5213,7 @@ mod tests {
                     targets: vec![],
                     instructions: vec![
                         Instruction::DrawCards {
+                            recipient: None,
                             count: Quantity::from(1),
                             source_block: 0
                         },
@@ -5030,7 +5361,7 @@ mod tests {
     #[test]
     fn action_ir_version_shapes_and_target_domains_are_strict() {
         let catalog = action_fixture_catalog().unwrap();
-        for version in [3, 4, 15] {
+        for version in [3, 4, 16] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -5047,6 +5378,7 @@ mod tests {
             |d| d.activated[0].program.timing = SpellTiming::MainPhase,
             |d| {
                 d.activated[0].program.instructions = vec![Instruction::DrawCards {
+                    recipient: None,
                     count: Quantity::from(2),
                     source_block: 0,
                 }]
@@ -5154,7 +5486,7 @@ mod tests {
         assert!(old.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":4", "\"schema_version\":15"),
+            raw.replace("\"schema_version\":4", "\"schema_version\":16"),
             raw.replace(
                 "\"op\":\"put_on_top_owner_library\"",
                 "\"op\":\"put_on_bottom_owner_library\"",

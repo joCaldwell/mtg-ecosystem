@@ -167,6 +167,11 @@ pub enum Capability {
     MenaceV1,
     CreatureTokensV1,
     PlusOneCountersV1,
+    DestroyCreatureV1,
+    GraveyardRecursionV1,
+    BasicLandSearchV1,
+    CreatureAnthemV1,
+    TargetPlayerDrawV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -188,6 +193,7 @@ pub enum EvaluationStage {
 #[serde(rename_all = "snake_case")]
 pub enum TargetDomain {
     BattlefieldCreature,
+    OwnGraveyardCreatureCard,
     OpponentPlayer,
     StackSpell,
     StackActivatedOrTriggeredAbility,
@@ -255,6 +261,23 @@ pub enum CounterRecipient {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    DestroyTargetCreature {
+        target_slot: u32,
+        source_block: u32,
+    },
+    DestroyAllCreatures {
+        source_block: u32,
+    },
+    ReturnOwnGraveyardCreatureToHand {
+        target_slot: u32,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        optional: bool,
+        source_block: u32,
+    },
+    SearchBasicLands {
+        maximum: u32,
+        source_block: u32,
+    },
     CreateCreatureTokens {
         count: u32,
         token: CreatureToken,
@@ -296,6 +319,8 @@ pub enum Instruction {
         source_block: u32,
     },
     DrawCards {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        recipient: Option<LifeRecipient>,
         count: Quantity,
         source_block: u32,
     },
@@ -333,9 +358,13 @@ pub enum Instruction {
 pub enum Duration {
     UntilEndOfTurn,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
+    ControllerCreatureAnthem {
+        power: Quantity,
+        toughness: Quantity,
+    },
     DoubleDamageToPermanentOrPlayer,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -572,8 +601,13 @@ impl Definition {
                 KeywordAbility::Menace => Capability::MenaceV1,
             });
         }
-        if !self.static_abilities.is_empty() {
-            set.insert(Capability::StaticDamageReplacementV1);
+        for a in &self.static_abilities {
+            set.insert(match a.effect {
+                StaticEffect::DoubleDamageToPermanentOrPlayer => {
+                    Capability::StaticDamageReplacementV1
+                }
+                StaticEffect::ControllerCreatureAnthem { .. } => Capability::CreatureAnthemV1,
+            });
         }
         set
     }
@@ -679,13 +713,16 @@ impl Definition {
                 || p.targets.iter().any(|target| {
                     !matches!(
                         target.domain,
-                        TargetDomain::AnyPlayer | TargetDomain::BattlefieldCreature
+                        TargetDomain::AnyPlayer
+                            | TargetDomain::BattlefieldCreature
+                            | TargetDomain::OwnGraveyardCreatureCard
                     )
                 })
                 || p.instructions.iter().any(|instruction| {
                     !matches!(
                         instruction,
-                        Instruction::CreateCreatureTokens { .. }
+                        Instruction::ReturnOwnGraveyardCreatureToHand { .. }
+                            | Instruction::CreateCreatureTokens { .. }
                             | Instruction::PutPlusOneCounters { .. }
                             | Instruction::DrawCards { .. }
                             | Instruction::ModifyPowerToughness { .. }
@@ -707,6 +744,13 @@ impl Definition {
             .any(|a| a.functioning_zone != FunctioningZone::Battlefield)
         {
             return Err("static damage replacement must function on battlefield".into());
+        }
+        for a in &self.static_abilities {
+            if let StaticEffect::ControllerCreatureAnthem { power, toughness } = &a.effect
+                && (*power <= Quantity::zero() || power != toughness)
+            {
+                return Err("anthem must give fixed positive +N/+N".into());
+            }
         }
         match c.kind {
             CardKind::Enchantment => {
@@ -832,6 +876,19 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     let mut used = BTreeSet::new();
     for instruction in &p.instructions {
         let binding = match instruction {
+            Instruction::DestroyTargetCreature { target_slot, .. } => {
+                Some((*target_slot, TargetDomain::BattlefieldCreature))
+            }
+            Instruction::DestroyAllCreatures { .. } => None,
+            Instruction::ReturnOwnGraveyardCreatureToHand { target_slot, .. } => {
+                Some((*target_slot, TargetDomain::OwnGraveyardCreatureCard))
+            }
+            Instruction::SearchBasicLands { maximum, .. } => {
+                if *maximum == 0 || *maximum > 2 {
+                    return Err("unsupported basic land search maximum".into());
+                }
+                None
+            }
             Instruction::CreateCreatureTokens { count, token, .. } => {
                 if *count == 0 {
                     return Err("token count must be positive".into());
@@ -912,7 +969,20 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     }
                 }
             }
-            Instruction::DrawCards { count, .. } | Instruction::DiscardCards { count, .. } => {
+            Instruction::DrawCards {
+                count, recipient, ..
+            } => {
+                if *count != Quantity::from(1) {
+                    return Err("unsupported draw cardinality".into());
+                }
+                match recipient {
+                    Some(LifeRecipient::Target { target_slot }) => {
+                        Some((*target_slot, TargetDomain::AnyPlayer))
+                    }
+                    _ => None,
+                }
+            }
+            Instruction::DiscardCards { count, .. } => {
                 if *count != Quantity::from(1) {
                     return Err("unsupported draw/discard cardinality".into());
                 }
@@ -944,6 +1014,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
     for target in &program.targets {
         set.insert(match target.domain {
             TargetDomain::BattlefieldCreature => Capability::CreatureTargetV1,
+            TargetDomain::OwnGraveyardCreatureCard => Capability::GraveyardRecursionV1,
             TargetDomain::OpponentPlayer => Capability::OpponentTargetV1,
             TargetDomain::StackSpell => Capability::StackSpellTargetV1,
             TargetDomain::StackActivatedOrTriggeredAbility => Capability::StackAbilityTargetV1,
@@ -953,6 +1024,16 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
     }
     for instruction in &program.instructions {
         set.insert(match instruction {
+            Instruction::DestroyTargetCreature { .. } | Instruction::DestroyAllCreatures { .. } => {
+                Capability::DestroyCreatureV1
+            }
+            Instruction::ReturnOwnGraveyardCreatureToHand { .. } => {
+                Capability::GraveyardRecursionV1
+            }
+            Instruction::SearchBasicLands { .. } => Capability::BasicLandSearchV1,
+            Instruction::DrawCards {
+                recipient: Some(_), ..
+            } => Capability::TargetPlayerDrawV1,
             Instruction::CreateCreatureTokens { .. } => Capability::CreatureTokensV1,
             Instruction::PutPlusOneCounters { .. } => Capability::PlusOneCountersV1,
             Instruction::ModifyPowerToughness { .. } => Capability::TemporaryPowerToughnessV1,
@@ -985,7 +1066,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 3, max = 14))]
+    #[schemars(range(min = 3, max = 15))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -993,7 +1074,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.schema_version, 3..=14)
+        if !matches!(self.schema_version, 3..=15)
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -1002,6 +1083,20 @@ impl Catalog {
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
             d.validate()?;
+            if self.schema_version < 15
+                && d.capabilities.iter().any(|c| {
+                    matches!(
+                        c,
+                        Capability::DestroyCreatureV1
+                            | Capability::GraveyardRecursionV1
+                            | Capability::BasicLandSearchV1
+                            | Capability::CreatureAnthemV1
+                            | Capability::TargetPlayerDrawV1
+                    )
+                })
+            {
+                return Err("IR v15 is required for Commander staples".into());
+            }
             if self.schema_version < 14
                 && d.capabilities.iter().any(|c| {
                     matches!(
@@ -1325,6 +1420,23 @@ pub fn catalog_schema() -> serde_json::Value {
             "spell":{"$ref":"#/$defs/PreTokensProgram"},
             "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PreTokensProgram"}}}},
             "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreTokensProgram"}}}}
+        }}}}}
+    }));
+    schema["$defs"]["PreStaplesProgram"] = serde_json::json!({"properties":{
+        "targets":{"items":{"properties":{"domain":{"not":{"const":"own_graveyard_creature_card"}}}}},
+        "instructions":{"items":{"properties":{
+            "op":{"not":{"enum":["destroy_target_creature","destroy_all_creatures","return_own_graveyard_creature_to_hand","search_basic_lands"]}}
+        },"allOf":[{"if":{"properties":{"op":{"const":"draw_cards"}}},"then":{"properties":{"recipient":{"type":"null"}}}}]}},
+        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreStaplesProgram"}}}}
+    }});
+    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["schema_version"],"properties":{"schema_version":{"maximum":14}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "capabilities":{"items":{"not":{"enum":[Capability::DestroyCreatureV1,Capability::GraveyardRecursionV1,Capability::BasicLandSearchV1,Capability::CreatureAnthemV1,Capability::TargetPlayerDrawV1]}}},
+            "static_abilities":{"items":{"properties":{"effect":{"const":"double_damage_to_permanent_or_player"}}}},
+            "spell":{"$ref":"#/$defs/PreStaplesProgram"},
+            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PreStaplesProgram"}}}},
+            "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreStaplesProgram"}}}}
         }}}}}
     }));
     schema["$defs"]["SpellProgram"]["allOf"] = serde_json::json!([{

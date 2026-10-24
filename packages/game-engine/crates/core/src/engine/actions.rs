@@ -27,6 +27,21 @@ impl StackKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "choice", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum ResolutionChoice {
+    Search {
+        player: PlayerId,
+        maximum: u32,
+        source_block: u32,
+    },
+    Shuffle {
+        player: PlayerId,
+        index: u32,
+        source_block: u32,
+    },
+    OptionalRecursion {
+        player: PlayerId,
+        target: ObjectId,
+        source_block: u32,
+    },
     Sacrifice {
         player: PlayerId,
         source_block: u32,
@@ -67,6 +82,9 @@ impl Game {
                 domain
                 @ (TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility),
             ) => !self.eligible_stack_targets(domain, None).is_empty(),
+            Some(TargetDomain::OwnGraveyardCreatureCard) => {
+                !self.graveyard_creatures(player).is_empty()
+            }
             Some(TargetDomain::BattlefieldCreature) => {
                 self.state.objects.values().any(|o| self.target_legal(o.id))
             }
@@ -103,7 +121,7 @@ impl Game {
             entry
                 .targets
                 .iter()
-                .map(|target| self.target_legal(*target))
+                .map(|target| self.object_target_legal(entry, *target))
                 .collect()
         }
     }
@@ -177,6 +195,20 @@ impl Game {
         };
         let decision_id = self.state.revision;
         Ok(match choice {
+            ResolutionChoice::Search {
+                player, maximum, ..
+            } if self.is_live(*player) => Some(Request::SearchLands {
+                decision_id,
+                player: *player,
+                maximum: *maximum,
+                candidates: self.search_lands(*player),
+            }),
+            ResolutionChoice::OptionalRecursion { player, .. } if self.is_live(*player) => {
+                Some(Request::OptionalRecursion {
+                    decision_id,
+                    player: *player,
+                })
+            }
             ResolutionChoice::Sacrifice { player, .. } if self.is_live(*player) => {
                 let candidates = self.controlled_creatures(*player);
                 (!candidates.is_empty()).then_some(Request::Sacrifice {
@@ -202,6 +234,9 @@ impl Game {
         player: PlayerId,
         response: &Response,
     ) -> Option<Result<(), String>> {
+        if let Some(result) = self.validate_staples_response(player, response) {
+            return Some(result);
+        }
         if let Some(result) = self.validate_trigger_response(player, response) {
             return Some(result);
         }
@@ -296,8 +331,19 @@ impl Game {
                 self.state.frame = Frame::Mana { cast };
             }
             Frame::ResolutionChoice { frame, choice } => {
+                if matches!(
+                    choice,
+                    ResolutionChoice::Search { .. }
+                        | ResolutionChoice::Shuffle { .. }
+                        | ResolutionChoice::OptionalRecursion { .. }
+                ) {
+                    return self.staples_choice_step(frame, choice);
+                }
                 let Some(request) = self.actions_request()? else {
                     let outcome = match choice {
+                        ResolutionChoice::Search { .. }
+                        | ResolutionChoice::Shuffle { .. }
+                        | ResolutionChoice::OptionalRecursion { .. } => unreachable!(),
                         ResolutionChoice::Sacrifice { player, .. } => {
                             InstructionOutcome::Sacrificed {
                                 player,
@@ -320,6 +366,9 @@ impl Game {
                     .ok_or("missing resolution choice")?;
                 self.validate_choice_input(&choice, input.player, &input.response)?;
                 let source_block = match choice {
+                    ResolutionChoice::Search { .. }
+                    | ResolutionChoice::Shuffle { .. }
+                    | ResolutionChoice::OptionalRecursion { .. } => unreachable!(),
                     ResolutionChoice::Sacrifice { source_block, .. }
                     | ResolutionChoice::Discard { source_block, .. } => source_block,
                 };
@@ -416,6 +465,10 @@ impl Game {
         }
         let player = frame.spell.controller;
         match instruction {
+            op @ (Instruction::DestroyTargetCreature { .. }
+            | Instruction::DestroyAllCreatures { .. }
+            | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
+            | Instruction::SearchBasicLands { .. }) => self.execute_staples_instruction(frame, op),
             op @ (Instruction::CreateCreatureTokens { .. }
             | Instruction::PutPlusOneCounters { .. }) => self.execute_token_instruction(frame, op),
             op @ (Instruction::ModifyPowerToughness { .. }
@@ -460,12 +513,29 @@ impl Game {
                 }
             }
             Instruction::DrawCards {
+                recipient,
                 count,
                 source_block,
             } => {
                 if count != Quantity::from(1) {
                     return Err("unsupported draw count".into());
                 }
+                let player = match recipient {
+                    None | Some(LifeRecipient::Controller) => player,
+                    Some(LifeRecipient::Target { target_slot }) => {
+                        if frame.legal_targets.get(target_slot as usize) != Some(&true) {
+                            return self.finish_instruction(
+                                frame,
+                                InstructionOutcome::Effect { actual: None },
+                            );
+                        }
+                        *frame
+                            .spell
+                            .player_targets
+                            .get(target_slot as usize)
+                            .ok_or("missing draw player target")?
+                    }
+                };
                 if !self.is_live(player) {
                     return self.finish_instruction(
                         frame,
@@ -704,7 +774,7 @@ impl Game {
                         && *expected == Quantity::from(1)
                         && *source_block == *expected_block
                 }
-                _ => false,
+                _ => self.valid_staples_choice(frame, choice, instruction),
             };
             if !valid {
                 return Err("snapshot resolution choice continuation invariant".into());

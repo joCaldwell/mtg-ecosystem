@@ -94,7 +94,9 @@ impl Game {
         self.state.typed_fault.as_ref()
     }
     pub(super) fn tokens_enabled(&self) -> bool {
-        self.prepared.config.profile == TOKENS_PROFILE && self.prepared.catalog.schema_version == 14
+        (self.prepared.config.profile == TOKENS_PROFILE
+            && self.prepared.catalog.schema_version == 14)
+            || self.staples_enabled()
     }
     pub(super) fn capacity_error(&mut self, fault: RuleFault) -> String {
         let reason = match fault {
@@ -106,16 +108,41 @@ impl Game {
         self.state.typed_fault = Some(fault);
         reason.into()
     }
+    pub(super) fn token_capacity(&self) -> u32 {
+        if self.staples_enabled() {
+            staples::LIVE_TOKEN_CAPACITY
+        } else {
+            TOKEN_CAPACITY
+        }
+    }
+    pub(super) fn allocated_capacity_count(&self) -> usize {
+        if self.staples_enabled() {
+            self.state
+                .objects
+                .keys()
+                .filter(|id| self.state.tokens.contains_key(id))
+                .count()
+        } else {
+            self.state.tokens.len()
+        }
+    }
+    pub(super) fn event_group_limit(&self) -> usize {
+        if self.staples_enabled() {
+            staples::EVENT_GROUP_BOUND
+        } else {
+            EVENT_GROUP_BOUND
+        }
+    }
     fn check_token_capacity(&mut self, requested: u32) -> Result<(), String> {
         let created =
-            u32::try_from(self.state.tokens.len()).map_err(|_| "token identity count overflow")?;
-        if requested > TOKEN_CAPACITY - created {
-            self.state.typed_fault = Some(RuleFault::TokenCapacityExceeded {
-                capacity: TOKEN_CAPACITY,
+            u32::try_from(self.allocated_capacity_count()).map_err(|_| "token count overflow")?;
+        let capacity = self.token_capacity();
+        if requested > capacity.saturating_sub(created) {
+            return Err(self.capacity_error(RuleFault::TokenCapacityExceeded {
+                capacity,
                 created,
                 requested,
-            });
-            return Err("token capacity exceeded".into());
+            }));
         }
         Ok(())
     }
@@ -220,7 +247,13 @@ impl Game {
                 let source_definition = self.definition(source.card)?.clone();
                 let mut objects = vec![];
                 for _ in 0..*count {
-                    let card = CardId(TOKEN_ID_START + self.state.tokens.len() as u32);
+                    let offset = u32::try_from(self.state.tokens.len())
+                        .map_err(|_| "token identity overflow")?;
+                    let card = CardId(
+                        TOKEN_ID_START
+                            .checked_add(offset)
+                            .ok_or("token identity overflow")?,
+                    );
                     if self.state.cards.contains_key(&card) {
                         return Err("token/card identity collision".into());
                     }
@@ -303,13 +336,16 @@ impl Game {
     pub(super) fn validate_tokens_state(&self) -> Result<(), String> {
         if (!self.tokens_enabled()
             && (!self.state.tokens.is_empty() || self.state.typed_fault.is_some()))
-            || self.state.tokens.len() > TOKEN_CAPACITY as usize
+            || self.allocated_capacity_count() > self.token_capacity() as usize
         {
             return Err("snapshot token profile/capacity invariant".into());
         }
         for (i, (id, t)) in self.state.tokens.iter().enumerate() {
             t.spec.validate()?;
-            if id.0 != TOKEN_ID_START + i as u32
+            if Some(id.0)
+                != u32::try_from(i)
+                    .ok()
+                    .and_then(|i| TOKEN_ID_START.checked_add(i))
                 || self.prepared.config.cards.iter().any(|c| c.id == *id)
                 || self.state.commanders.history(*id).is_some()
             {
@@ -367,8 +403,8 @@ impl Game {
                     capacity,
                     created,
                     requested,
-                } if *capacity == TOKEN_CAPACITY
-                    && *created == self.state.tokens.len() as u32
+                } if *capacity == self.token_capacity()
+                    && *created == self.allocated_capacity_count() as u32
                     && *requested > capacity - created =>
                 {
                     "token capacity exceeded"
@@ -376,19 +412,19 @@ impl Game {
                 RuleFault::DamageCapacityExceeded {
                     capacity,
                     requested,
-                } if *capacity == DAMAGE_BOUND && *requested > *capacity => {
+                } if *capacity == self.damage_limit() && *requested > *capacity => {
                     "damage capacity exceeded"
                 }
                 RuleFault::StackCapacityExceeded {
                     capacity,
                     requested,
-                } if *capacity == STACK_BOUND && *requested > *capacity => {
+                } if *capacity == self.stack_limit() && *requested > *capacity => {
                     "stack capacity exceeded"
                 }
                 RuleFault::EventGroupCapacityExceeded {
                     capacity,
                     requested,
-                } if *capacity == EVENT_GROUP_BOUND && *requested > *capacity => {
+                } if *capacity == self.event_group_limit() && *requested > *capacity => {
                     "event group capacity exceeded"
                 }
                 _ => return Err("snapshot typed capacity fault invariant".into()),

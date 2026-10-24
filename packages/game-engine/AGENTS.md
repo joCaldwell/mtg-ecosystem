@@ -129,6 +129,20 @@ server hosting remain unchanged. The simulator adds `tokens-match-batch OUTPUT`
 and `tokens-match-replay FILE`. Copy/noncreature/variable tokens, other counter
 kinds, proliferate and keyword grants remain outside this finite release.
 
+`docs/game-engine-staples.md` defines `commander-staples-v1`: a separate
+81-definition IR v15 catalog adds creature destruction, graveyard-to-hand
+recursion, optional Gravedigger resolution, private basic-land search with
+seeded shuffle, targeted draw/life loss, and a continuous controller-scoped
+layer-7c anthem. Enchantment permanent spells use ordinary match casting.
+Staples alone uses 256 live tokens, 736 damage occurrences, 3,752 stack/pending
+entries and 660 event members; the contract derives these bounds with recursion.
+The exact pool's separate 68-token lifetime proof is guarded by a catalog test.
+Search handles last only for that resolution choice. Earlier limits, fixtures,
+versions 18/19/16/15, and foundations-only search/server scope remain unchanged.
+The simulator adds `staples-match-batch OUTPUT` and `staples-match-replay FILE`.
+Regeneration, restricted destruction, other searches/recursion and general
+continuous effects remain excluded.
+
 `docs/game-engine-search.md` releases finite P7 search for that same
 pool. Sealed captures contain only permitted facts/history; complete hypothetical
 hands/libraries and independent future randomness construct sampled games.
@@ -228,8 +242,8 @@ actual Commander combat damage and apply the 21-damage SBA loss rule. Earlier
 Commander profiles retain their explicit damage fault. Library replacement is
 enabled only for the reviewed Time Ebb and subsequent ordinary/ability draw paths.
 Replacement ordering is limited to the reviewed effects and subsequent profiles.
-Legal match setup is available only through the four named foundations, keywords,
-combat-keywords and tokens profiles. Ordinary combat is enabled in the reviewed combat, Commander and action profiles.
+Legal match setup is available only through the five named foundations, keywords,
+combat-keywords, tokens and staples profiles. Ordinary combat is enabled in the reviewed combat, Commander and action profiles.
 
 Batch mutation is private and atomic. Capture consumed pre-event facts and use
 actual typed outcome slots. Simultaneous groups admit independent read/write

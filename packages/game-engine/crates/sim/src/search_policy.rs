@@ -70,6 +70,9 @@ pub(super) fn choose(
     let beneficial =
         selected_program(catalog, observation).is_some_and(search_candidates::beneficial);
     Ok(match request {
+        PlayerRequest::SearchLands { .. } | PlayerRequest::OptionalRecursion { .. } => {
+            return Err("staples request outside historical policy".into());
+        }
         PlayerRequest::Priority { .. } => {
             if view.active != Some(view.viewer)
                 || !view.stack.is_empty()

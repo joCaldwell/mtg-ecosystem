@@ -145,6 +145,30 @@ impl Game {
                 t.add(&o.plus_one_counters);
             }
         }
+        // CR 611.3a-c/613.4c: a static source continuously defines its affected
+        // set. Source/controller/zone changes therefore need no cached grants.
+        if self.prepared.catalog.schema_version >= 15
+            && c.kind == CardKind::Creature
+            && let Ok(o) = self.current(object)
+            && o.zone == Zone::Battlefield
+        {
+            for source in self
+                .state
+                .objects
+                .values()
+                .filter(|s| s.zone == Zone::Battlefield && s.controller == o.controller)
+            {
+                for a in &self.definition(source.id.card)?.static_abilities {
+                    if let StaticEffect::ControllerCreatureAnthem { power, toughness } = &a.effect {
+                        c.power.as_mut().ok_or("anthem creature power")?.add(power);
+                        c.toughness
+                            .as_mut()
+                            .ok_or("anthem creature toughness")?
+                            .add(toughness);
+                    }
+                }
+            }
+        }
         for e in &self.state.effects {
             if let ResolvedEffectKind::ModifyPowerToughness {
                 target,
@@ -175,6 +199,7 @@ impl Game {
                     d.static_abilities
                         .iter()
                         .enumerate()
+                        .filter(|(_, a)| a.effect == StaticEffect::DoubleDamageToPermanentOrPlayer)
                         .map(move |(i, _)| EffectKey::Static {
                             source: o.id,
                             ability: i as u32,

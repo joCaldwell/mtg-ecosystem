@@ -10,9 +10,13 @@ mod commander_policy;
 pub use commander_policy::{
     COMMANDER_POLICY_DATE, COMMANDER_POLICY_HTML_SHA256, COMMANDER_POLICY_URL, policy_digest,
 };
+mod staples;
 mod tokens;
+pub use staples::VisibleSearchLand;
 pub use tokens::{RuleFault, TOKEN_CAPACITY, VisibleToken};
 mod keywords;
+#[cfg(test)]
+mod staples_tests;
 #[cfg(test)]
 mod tokens_tests;
 pub use keywords::LifelinkGain;
@@ -782,6 +786,12 @@ enum Frame {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    SearchLands {
+        objects: Vec<ObjectId>,
+    },
+    OptionalRecursion {
+        perform: bool,
+    },
     Mulligan {
         take: bool,
     },
@@ -870,6 +880,16 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    SearchLands {
+        decision_id: u64,
+        player: PlayerId,
+        maximum: u32,
+        candidates: Vec<ObjectId>,
+    },
+    OptionalRecursion {
+        decision_id: u64,
+        player: PlayerId,
+    },
     Mulligan {
         decision_id: u64,
         player: PlayerId,
@@ -999,7 +1019,9 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::Mulligan { decision_id, .. }
+            Self::SearchLands { decision_id, .. }
+            | Self::OptionalRecursion { decision_id, .. }
+            | Self::Mulligan { decision_id, .. }
             | Self::BottomOpening { decision_id, .. }
             | Self::DamageAllocation { decision_id, .. }
             | Self::Modes { decision_id, .. }
@@ -1023,7 +1045,9 @@ impl Request {
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::Mulligan { player, .. }
+            Self::SearchLands { player, .. }
+            | Self::OptionalRecursion { player, .. }
+            | Self::Mulligan { player, .. }
             | Self::BottomOpening { player, .. }
             | Self::DamageAllocation { player, .. }
             | Self::Modes { player, .. }
@@ -1049,6 +1073,20 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    FinishLibraryShuffle {
+        player: PlayerId,
+    },
+    DestroyCreature {
+        object: ObjectId,
+    },
+    SearchLandEntry {
+        object: ObjectId,
+        player: PlayerId,
+    },
+    ShuffleLibraryWord {
+        player: PlayerId,
+        index: u32,
+    },
     CreateCreatureTokens {
         controller: PlayerId,
         source: ObjectId,
@@ -1189,6 +1227,18 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    LibraryShuffled {
+        player: PlayerId,
+        count: u64,
+    },
+    LibraryShuffledWord {
+        player: PlayerId,
+        index: u32,
+        word: u32,
+        selected: Option<u32>,
+        before: RngPosition,
+        after: RngPosition,
+    },
     TokensCreated {
         objects: Vec<ObjectId>,
         controller: PlayerId,
@@ -1880,11 +1930,12 @@ impl Game {
                 ),
             },
             Frame::TriggerTargets { .. }
-                if self
-                    .program()?
-                    .targets
-                    .first()
-                    .is_some_and(|t| t.domain == TargetDomain::BattlefieldCreature) =>
+                if self.program()?.targets.first().is_some_and(|t| {
+                    matches!(
+                        t.domain,
+                        TargetDomain::BattlefieldCreature | TargetDomain::OwnGraveyardCreatureCard
+                    )
+                }) =>
             {
                 if !self.has_target_domain(self.program()?, self.top()?.controller) {
                     return Ok(None);
@@ -1897,7 +1948,7 @@ impl Game {
                         .state
                         .objects
                         .values()
-                        .filter(|o| self.target_legal(o.id))
+                        .filter(|o| self.object_target_legal(self.top().unwrap(), o.id))
                         .map(|o| o.id)
                         .collect(),
                 }
@@ -1938,7 +1989,7 @@ impl Game {
                     .state
                     .objects
                     .values()
-                    .filter(|o| self.target_legal(o.id))
+                    .filter(|o| self.object_target_legal(self.top().unwrap(), o.id))
                     .map(|o| o.id)
                     .collect(),
             },
@@ -2037,13 +2088,15 @@ impl Game {
                 Frame::Targets { .. } | Frame::TriggerTargets { .. },
                 Response::Targets { objects },
             ) if self.top()?.controller == player => {
-                if self
-                    .program()?
-                    .targets
-                    .iter()
-                    .any(|t| t.domain != TargetDomain::BattlefieldCreature)
-                    || objects.len() != self.program()?.targets.len()
-                    || objects.iter().any(|o| !self.target_legal(*o))
+                if self.program()?.targets.iter().any(|t| {
+                    !matches!(
+                        t.domain,
+                        TargetDomain::BattlefieldCreature | TargetDomain::OwnGraveyardCreatureCard
+                    )
+                }) || objects.len() != self.program()?.targets.len()
+                    || objects
+                        .iter()
+                        .any(|o| !self.object_target_legal(self.top().unwrap(), *o))
                 {
                     return Err("invalid targets".into());
                 }
