@@ -4,6 +4,13 @@ This package implements milestone P8 for `commander-foundations-v1`. Read
 `docs/game-engine-plan.md` P8 and `docs/game-engine-spec.md` §§5–7 first.
 Protocol scaffolding does not establish a playable or durable server.
 
+P8.2 adds exactly `commander-attachments-v1` under the frozen
+`docs/game-engine-server-attachments.md` contract. Its four acceptance items
+passed; measured identities, evidence and limitations are recorded in
+`docs/game-engine-progress.md`. The historical release figures below retain
+their original foundations source/build qualification. All hosting guards and
+public foundations schema bytes remain unchanged.
+
 Release verification passed 526 Rust debug tests plus 40 Node checks,
 526 release tests, and 40 SDK tests with strict TypeScript. Current-build search
 passed sixty primary jobs and all independent replays: p95 2,662,119µs, maximum

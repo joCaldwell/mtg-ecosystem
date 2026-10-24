@@ -1,10 +1,10 @@
 # Game Server (Layer2)
 
-The verified P8 release hosts the finite `commander-foundations-v1` profile over
+The original verified P8 release hosts the finite `commander-foundations-v1` profile over
 loopback HTTP, with strict Rust schemas, a generated TypeScript SDK, a fenced
 SQLite ledger and an exact-operation durable worker. An actual four-client game,
 crash/reconnect, backpressure and completed-game startup recovery passed.
-Current build
+That P8 build
 `7e77708cad1f80dfa7ad3be82d198f3ad6eae7f62b9c127879a335206bbc8da5`
 also passed all sixty quiet primary search jobs and independent semantic replays:
 p95 2,662,119µs, maximum 2,690,433µs, kernel whole-process peak 394,698,752 bytes,
@@ -40,3 +40,12 @@ compiled engine identity and linked SQLite options, then reconstructs the SDK
 from its own pinned sources/dependency cache and runs generation, strict type
 checks and runtime tests offline. This separate client closure is not part of
 the Rust native-source hash. Retained reports are generated artifacts.
+
+P8.2 additionally hosts `commander-attachments-v1`, with an SDK completion
+consumer for the default white / black-green / blue / red pod. All four frozen
+acceptance items passed: the actual four-process game, normal completed-game
+recovery, 95 server tests, and SDK/engine checks. Foundations schema bytes and
+all hosting limits remain unchanged. See the
+[frozen P8.2 contract](../../docs/game-engine-server-attachments.md) and
+[measured results and retained proofs](../../docs/game-engine-progress.md#p82--attachments-hosting-results-2026-10-24).
+The earlier figures above remain qualified to their original P8 executable.

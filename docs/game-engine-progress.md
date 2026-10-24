@@ -2846,3 +2846,77 @@ Snapshot/bundle/projection/sidecar versions remain 18/19/16/15, and hosting/sear
 remain foundations-only. Arbitrary Auras, variable/hybrid costs, equipment
 triggers, ability suppression, protection and control-changing effects remain
 outside this finite profile.
+
+## P8.2 — attachments hosting results (2026-10-24)
+
+All four acceptance items in the frozen
+[hosting contract](game-engine-server-attachments.md) passed. The registry admits
+exactly foundations and attachments; other legal profiles remain rejected.
+The attachments SDK example uses only its seat's observations and the public
+manifest/catalog. Engine sources, earlier catalogs and fixtures, hosting limits,
+and snapshot/bundle/projection/sidecar versions are unchanged.
+
+Measured implementation source: `f67bf10fdb78f6bf8d8d9f59edf0f92bb96b310d`.
+Release Build: `53292532a8231344f3d9531b6dcbb541f69a42a5fc5a4e9ca0797cb1a6216223`.
+Server executable SHA256:
+`ded5214e7eda0575fdf4da2a84d6ebc31230c043476401d5a8fa6b16d95f2488`.
+Pinned Rust 1.99.0 / Node 26.11.1 were used throughout.
+
+- **Actual hosted game:** four independent Node SDK processes played the default
+  white / black-green / blue / red pod against the real supervisor. All four
+  reported **Win(P3)** after **44 turns**, **1,979 accepted and consumed inputs**
+  (493/430/527/529 per seat), **zero retries**, zero rejected inputs and no
+  CoreConcede. The run completed in **254.283065 seconds**, inside the unchanged
+  25-minute watchdog. Kernel worker peak was **195,194,880 bytes** under actual
+  **4 GiB / swap-zero / tasks-32** limits, with zero OOM kills. Final head was
+  sequence **3,965**, core boundary **5,383**, full State SHA256
+  `4a2376e413f85c4cfa976694e8d180d81ec63e0068ca9c2a1190e18bd9279443`.
+  Evidence: `generated/p82/hosted-run-1/aggregate.json` and its four client
+  reports, private ledger and resource samples.
+- **Completed-game recovery:** normal `serve` startup against a fresh private
+  copy reached Ready in **70.074730 seconds**, inside the unchanged 120-second
+  deadline. Kernel worker peak was **67,670,016 bytes**. All seven durable table
+  fingerprints and the complete head matched; only generation advanced **2 → 3**.
+  All four authenticated streams returned the same Win(P3). Original registry
+  and issued-file bytes stayed exact; supervisors exited and owned groups were
+  empty. Evidence: `generated/p82/recovery-run-1/report.json`.
+- **Server tests:** **95 passed**, including the exact profile allowlist,
+  attachments worker create/recover, strict new-variant decoding, and a reachable
+  private land-search choice before/after recovery with no foreign-seat leaks.
+  Foundations tests continue to pass. Evidence:
+  `generated/p82/server-tests-final.log`.
+- **Checks:** `npm run check:engine` passed **789 Rust tests**, **12 ignored
+  diagnostics**, and **52 JavaScript checks**, with formatting and Clippy.
+  The final release build and SDK verification passed **47 tests**, strict
+  TypeScript and the exhaustive **28-response** gate. All **62,089** exported
+  schema bytes equal the separately compiled base protocol export; SHA256
+  `eee4e25b7d0517c4f7d27bb295093bc878643ceb0fbffe9d78e1cb09e6d4d6bc`.
+  Evidence: `generated/p82/verification-final.json`, `check-engine-final.log`,
+  `sdk-generated-measured/`, and `foundations-schema-parity.json`. The ordinary
+  SDK `generated` directory was removed after retaining its verified outputs.
+
+The inherited draft had two host/test defects: an uninferred Rust quantity type
+prevented compilation, and its arbitrary search-witness seed exhausted the
+2,000-input test cap before reaching a search. The corrected test uses an
+admitted opening containing Rampant Growth and sufficient mana; the cap stays
+unchanged. The draft also widened the foundations consumer's default profile
+check; foundations remains the default pin, with explicit attachments opt-in.
+Failed compiler/test logs remain in `generated/p82/`, indexed by
+`preserved-test-failures.json`. No engine defect or unmet hosting performance
+target was observed; no engine optimization or guard relaxation was made.
+
+Private retained proof archive:
+`/home/josh/.local/share/mtg-ecosystem/engine-evidence/p82-53292532-a8mwvcea/`.
+Its `manifest.json` binds **121 files / 395,088,082 bytes**, including the source
+archive, implementation commit bundle, measured executable, successful proofs
+and failed attempts. Manifest SHA256:
+`554610745777de7101f9da2d46feff8432dab8616e28188dcf698af8326d8644`.
+`files/results.json` is the compact numeric summary.
+
+This is one default-pod completion and recovery proof, not an all-seed or
+strategic-strength claim. SDK schema/policy tests cover request families beyond
+those encountered in this game. Consumer process restart remains unsupported;
+its pending envelope and mana plan live in memory. Hosting remains local and
+limited to the two named profiles. Server-side search, other hosted profiles,
+deployment and fresh offline reconstruction of this P8.2 build remain outside
+this acceptance; historical foundations proofs retain their original identities.
