@@ -1756,6 +1756,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 choices_games::suite(&choices_fixture_catalog()?, args.len() == 2)?;
             println!("{}", canonical(&report)?);
         }
+        Some("compile-four-colors") if args.len() == 1 => {
+            println!(
+                "{}",
+                canonical(&mtg_compiler::four_colors_fixture_catalog()?)?
+            )
+        }
         Some("compile-mana") if args.len() == 1 => {
             println!("{}", canonical(&mtg_compiler::mana_fixture_catalog()?)?)
         }
