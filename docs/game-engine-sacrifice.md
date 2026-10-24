@@ -60,7 +60,11 @@ IR v19 adds:
 - static `cant block` on the source creature.
 - self-sacrifice abilities with a targeted damage effect or a land search.
 
-IR v18 and earlier reject all of these.
+IR v18 and earlier reject all of these. The definition-kind relaxations for
+noncreature enchantment triggers, enchantment activations and creature statics
+require the v19 `SacrificeV1` capability; historical Aura triggers keep their
+existing exception. Noncreature self-enters matching is enabled only in the
+sacrifice lineage.
 
 ## Profile
 
@@ -133,13 +137,22 @@ stay unchanged.
   and is answered with one choice.
 - **Forced sacrifice.** Each player is asked in APNAP order, and only that
   player sees the request.
-- **Blocker hints** exclude Carrion Feeder.
+- **Blocker hints** exclude Carrion Feeder. Inherited blocker legality hints
+  and first/double-strike steps use the ordered `MATCH_PROFILES` lineage, so
+  later reviewed profiles inherit them without new profile-name lists.
+- **Chooser departure.** Prior forced-sacrifice choices are projected only
+  while both their chooser and selected object remain in the game (CR 800.4a,
+  104.3a), matching the public view's choice filter.
 - **SDK.** New request and response variants are additive. The SDK's
   exhaustive gates list them. Snapshot, bundle, projection and sidecar
   versions do not change.
 
 The completion policies use only observation and the public catalog. They are
 completion machinery, not strategy:
+- **Optional effects.** Accept Goblin Arsonist's optional damage when its
+  trigger is on top of the stack. Other optional effects use the removal
+  policy, so Reclamation Sage declines to destroy its controller's Bastion
+  or Sol Ring merely because it is the only target.
 - **Sacrifice choices.** Sacrifice tokens first, then the lowest-power
   creature. Never sacrifice the commander unless it is the only creature.
 - **Cost spells.** Cast Village Rites, Costly Plunder and Bone Splinters when a
@@ -296,3 +309,59 @@ by Angel's white seat; Butcher forces their sacrifices. It tests a non-Spirit
 card death, a non-Spirit token death, and a Spirit death, preserving every filter
 rule. Dissenter's separate BG death produces its Zombie in that same accepted
 pod. No private injected fixture is used for this substitution.
+
+
+## Independent-review correction batch
+
+The corrected batch is `generated/p69-review-fixes/after/sacrifice-match/report.json`
+(SHA256 `246a99a08200b18f38ccb571221dd8849f01ac721bedb250ecc6c77eb63fe041`).
+It completes **18/18 games**, including the batch's independent replay/checkpoint
+checks, with **zero engine faults and zero truncations**. It uses the unchanged
+seed domain and pod manifest. The pre-review report remains preserved with
+SHA256 `82fc11f3b65be83e6c2972bb00e697504d71b9a0011968c97915d9f9c22f1f31`.
+
+| Recorded quantity | Pre-review | Corrected |
+| --- | ---: | ---: |
+| Decisions | 32,385 | 35,615 |
+| Turns | 717 | 775 |
+| Rule steps | 96,004 | 104,112 |
+| Blocks | 0 | 140 |
+| First-strike steps | 0 | 48 |
+| Cost sacrifices | 52 | 57 |
+| Forced sacrifices | 1 | 1 |
+| Each-opponent life-loss events | 8 | 15 |
+| Each-opponent damage events | 11 | 12 |
+| Total Fling damage | 7 | 12 |
+| Tokens created on death | 5 | 6 |
+
+Collected dies triggers change from Blood Artist **3→4**, Bastion **3→6**,
+Zulaport **0→1**, Dissenter **0→1**, and Arsonist **0→1**. Vindictive **4**,
+Reaper **3**, Angel **5** and Butcher **0** are unchanged. These remain
+completion-policy counts, not claims that every admitted interaction appears
+in the batch; the accepted-pod witnesses cover the remaining cases.
+
+The corrected release's **397-file** native source closure is verified by
+`generated/p69-review-fixes/final-source-manifest.json` (SHA256
+`ad449df01ce263f84b8d3293def3521e9a6b5b45a72ca3f74c79f96d25bf3118`),
+with build identity
+`fdbd25acb9deed7a057300dbec1c2254cd8b2398310830ac2faf36e1584ffc51`.
+The code commit is `dc021ae943cb6c8fa52e0f1d417063455a9243d8`.
+The progress ledger records the complete check and historical-comparison gates.
+
+
+Historical regression reruns pass **162/162 games** across all nine earlier
+profiles. Their canonical gameplay evidence, checkpoint state/trace bytes and
+final digests are identical; the comparison excludes only measured elapsed
+time and the explicitly recorded build-identity envelope fields. All **44**
+earlier expected-output/policy fixtures remain raw-byte identical to `2681c45`.
+The progress ledger records the exact comparison artifact, hashes and totals.
+
+
+Final checks pass with pinned Rust 1.99.0 / Node 26.11.1: `npm run check:engine`
+verifies formatting, warnings-denied Clippy, **840 Rust tests** (zero failures,
+12 ignored diagnostics) and **54 JavaScript checks** (zero failures or
+cancellations). Check log SHA256:
+`7b2d7542e2429b0c1f9032801c17eb28070d60dacbb499aef1e86a3aa13e3ebd`. The required release server build and SDK verification
+pass **47 tests, strict TypeScript and all 31 response variants**; generated SDK
+files are removed. The progress ledger qualifies the separate stale-build
+attempts and records all final log/artifact paths.
