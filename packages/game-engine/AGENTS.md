@@ -143,6 +143,22 @@ The simulator adds `staples-match-batch OUTPUT` and `staples-match-replay FILE`.
 Regeneration, restricted destruction, other searches/recursion and general
 continuous effects remain excluded.
 
+`docs/game-engine-mana-permanents.md` defines `commander-mana-v1`: a separate
+90-definition IR v16 catalog adds artifacts, colorless mana, fixed/any-color/
+commander-identity mana, rocks, dorks and nonbasic Command Tower. Mana abilities
+resolve without stack entries, with controller-only color choices and nested
+payments for Golgari Signet. Receipts undo exact production and nested spending;
+creature tap costs obey continuous control/haste. Sphere and Mind Stone's
+sacrifice-draw abilities use the existing nonmana stack path. Only mana-v1 uses
+760 damage occurrences and 3,868 stack/pending entries; 256 live tokens, 660
+event members and 32 effects retain the staples derivation. Versions remain
+18/19/16/15; optional fields omit absent values. The simulator adds
+`mana-match-batch OUTPUT` and `mana-match-replay FILE`, with source-type mana
+activation counts and per-seat first commander cast turns. Server hosting and
+search remain foundations-only. Colorless-specific costs, "could produce",
+triggered mana abilities, damage-dealing mana abilities and multiple commanders
+remain excluded.
+
 `docs/game-engine-search.md` releases finite P7 search for that same
 pool. Sealed captures contain only permitted facts/history; complete hypothetical
 hands/libraries and independent future randomness construct sampled games.
@@ -242,8 +258,8 @@ actual Commander combat damage and apply the 21-damage SBA loss rule. Earlier
 Commander profiles retain their explicit damage fault. Library replacement is
 enabled only for the reviewed Time Ebb and subsequent ordinary/ability draw paths.
 Replacement ordering is limited to the reviewed effects and subsequent profiles.
-Legal match setup is available only through the five named foundations, keywords,
-combat-keywords, tokens and staples profiles. Ordinary combat is enabled in the reviewed combat, Commander and action profiles.
+Legal match setup is available only through the six named foundations, keywords,
+combat-keywords, tokens, staples and mana profiles. Ordinary combat is enabled in the reviewed combat, Commander and action profiles.
 
 Batch mutation is private and atomic. Capture consumed pre-event facts and use
 actual typed outcome slots. Simultaneous groups admit independent read/write

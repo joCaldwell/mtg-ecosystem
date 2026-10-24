@@ -2597,3 +2597,65 @@ IR v16 as the invalid future version and three draws as an unsupported amount,
 since v15 and two draws are now supported. No positive golden result was rewritten.
 The accepted combined gate log is `/tmp/p64-accepted-check-engine.log`; earlier
 interrupted/source-invalidated attempts remain separate and are not passes.
+
+## P6.5 — Mana rocks, dorks and Command Tower
+
+The [mana contract](game-engine-mana-permanents.md) adds the separate
+90-definition IR v16 `commander-mana-v1` profile. Twelve byte-exact archive
+records cover the nine admitted cards and three whole-card negatives. The
+separate policy retains the pinned Commander bans and reviews every definition.
+Command Tower is a nonbasic land with no basic land types or color identity;
+Golgari Signet's color identity is black/green despite its generic spell cost.
+
+Mana abilities resolve without stack entries (605.1a/605.3b), including during
+casting and nested activation payments (601.2g, 605.3a). Controller-only choices
+offer five colors for Birds or exactly the game-beginning commander's identity
+for Signet/Sphere/Tower (903.4a). Creature tap costs enforce continuous control
+and haste (302.6, 602.5a, 702.10c). Receipt reversal restores produced mana,
+nested spending and surviving sources exactly (733.1–2), preserving floated
+mana, absent/zero pool entries and departed-player facts. Sphere/Mind Stone draw
+abilities pay sacrifice before response priority and resolve detached on the
+stack (602.2, 701.21a, 113.7a). Step/phase transitions empty pools (106.4).
+
+Thirteen native witness groups cover the specified interactions, all trace
+modes, nested snapshots, restore/replay, public query-work recovery, concessions,
+forged receipts and the optional sacrifice-mana cost composition. The new
+profile's reviewed bounds are 256 live tokens, 760 damage occurrences, 3,868
+stack/pending entries, 660 event members and 32 effects. The contract derives
+them from the 31-creature-card maximum and the two once-only artifact draw
+activations per seat. Earlier limits and versions 18/19/16/15 remain unchanged.
+
+The accepted release report is `generated/p65-mana-run-2/report.json`, seed
+domain `commander-mana-v1/completion-batch/`, indices 0–17 with the established
+seat/mulligan/deck pattern. All **18 finished**, with zero faults/truncations and
+all independent replay/checkpoint checks passing: **30,225 decisions, 615 turns,
+90,879 rule steps**. Detailed replays count **1,469 land, 153 artifact and 28
+creature mana activations**. Each game records the first commander-cast turn per
+original seat; 70 seats cast on global turns 1–32 and two were eliminated before
+casting. These are completion counts, not performance measurements.
+
+Release build: `eb6be73438621c57ae411d6fa9d351d3220571e1c893bdece59bf0f00cf654d9`.
+Catalog SHA256: `1df5823602dd4aacea6ab8e69766dc750e425686ba02221857b443c415b37794`.
+Report SHA256: `e1310146fd2612ea3eeefb6bfd8ea0bd3effd5f2cd7a9943d624de08e74e5301`.
+The release executable's `native-source-manifest` verifies its 300 source files.
+
+All 36 historical expected-result/policy fixtures are byte-identical to base
+`24d1787`. A fresh staples regression batch (`generated/p65-staples-regression`)
+reproduces exactly 18 finishes, 30,425 decisions, 630 turns and 92,317 rule steps,
+plus the recorded 37 destructions, ten recursions, 18 searched lands, 274
+anthem-affected combat damage, 91 tokens and 20 counters. The only historical
+negative-test maintenance moves the unsupported future IR version from 16 to 17.
+
+Final verification on pinned Rust 1.99.0 / Node 26.11.1 with
+`CARGO_BUILD_JOBS=2` passed: `cargo fmt --check`, strict workspace/all-targets
+Clippy, `cargo test --workspace --locked` (**743 passed, zero failed, 12 ignored**
+diagnostics), and `npm run check:engine` (**50 Node checks passed, zero failed**).
+The accepted combined gate log is `/tmp/p65-check-engine-final.log`.
+Earlier source-invalidated/superseded runs are not acceptance. The initial mana batch remains a failed policy diagnostic;
+its token-without-Oracle-ID bug is fixed and guarded by a focused policy test.
+Generated reports, journals and build output remain ignored.
+
+This is a finite pool with one mana ability per admitted source. Colorless-
+specific costs, triggered/targeted/damage-dealing/"could produce" mana abilities,
+multiple commanders and other permanent families remain excluded. Search and
+server hosting remain foundations-only.
