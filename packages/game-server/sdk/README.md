@@ -26,7 +26,7 @@ failed temporary output. Tests verify deterministic regeneration and failures.
 
 `json-schema-to-typescript` is pinned at16.0.0, TypeScript at5.9.3, and Ajv
 at8.20.0 in the standalone lockfile. DTOs come from the generated types; the
-compile check exhaustively consumes all24 `PlayerResponse` variants and checks
+compile check exhaustively consumes all28 `PlayerResponse` variants and checks
 fixed-arity damage/allocation/combat tuples. Runtime validation uses the exact
 Rust schemas without coercion, defaults or removing extra properties. Endpoint
 paths and methods come from the same Rust `protocol::ROUTES` export, through a
@@ -110,7 +110,7 @@ verify --workspaces=false` with the same `MTG_SERVER_BIN`. It repeats generation
 strict compilation and all test files, then writes `generated/verification.json`
 and `generated/verification.log`. The manifest hashes every SDK source and its
 lockfile, exact schema/declarations, generator version/options and complete log;
-it records actual tool versions,24 exhaustive response variants, tuple checks
+it records actual tool versions,28 exhaustive response variants, tuple checks
 and the executed test count. This evidence is scoped to the SDK checks above.
 See [AGENTS.md](AGENTS.md) for the nested workflow.
 

@@ -48,12 +48,14 @@ fn attachments_worker_recovers_private_search_without_other_seat_stream_leaks() 
                 view.view
                     .objects
                     .iter()
-                    .all(|o| !matches!(o.zone, Zone::Hand { owner } if owner != view.view.viewer))
+                    .all(|o| !matches!(o.zone, Zone::Library { .. })
+                        && !matches!(o.zone, Zone::Hand { owner } if owner != view.view.viewer))
             );
             assert!(
                 view.decision
                     .as_ref()
-                    .is_none_or(|r| serde_json::to_value(r).unwrap()["player"] == serde_json::json!(view.view.viewer))
+                    .is_none_or(|r| serde_json::to_value(r).unwrap()["player"]
+                        == serde_json::json!(view.view.viewer))
             );
         }
         let observation = views
@@ -187,7 +189,11 @@ fn attachments_worker_recovers_private_search_without_other_seat_stream_leaks() 
             PlayerRequest::SpendMana {
                 cost, available, ..
             } => {
-                let mut spending = std::collections::BTreeMap::from([(Color::G, 1.into())]);
+                let mut spending =
+                    std::collections::BTreeMap::<Color, mtg_contracts::Quantity>::from([(
+                        Color::G,
+                        1.into(),
+                    )]);
                 let mut rest = cost.generic.clone();
                 for c in [Color::B, Color::G] {
                     let mut free = available.get(&c).cloned().unwrap_or_default();

@@ -33,6 +33,7 @@ if (bootstrap !== undefined) {
   try {
     report = await runFoundationsConsumer(bootstrap, {
       signal: controller.signal,
+      expectedProfile: 'commander-attachments-v1',
       policy: attachmentsDevelopmentPolicy(),
       limits: { durationMs: Math.max(1, 25 * 60_000 - Math.ceil(performance.now() - started)) },
     });
