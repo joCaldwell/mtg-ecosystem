@@ -64,10 +64,10 @@ earlier reject all of these.
 | Lightning Greaves | Equipment {2}: haste and shroud; equip {0} |
 | Whispersilk Cloak | Equipment {3}: can't be blocked, shroud; equip {2} |
 | Holy Strength | W Aura: +1/+2 |
-| Pacifism | W Aura: can't attack or block |
+| Pacifism | White Aura, {1}{W}: can't attack or block |
 | Unholy Strength | B Aura: +2/+1 |
 | Rancor | G Aura: +2/+0 and trample; returns to hand from graveyard |
-| Spidersilk Armor | G enchantment: creatures you control get +0/+1 and have reach |
+| Spidersilk Armor | Green enchantment, {2}{G}: creatures you control get +0/+1 and have reach |
 
 That makes 118 definitions; verify each record's oracle text, AST and Commander
 legality before admission. All four decks add the seven Equipment, and each
