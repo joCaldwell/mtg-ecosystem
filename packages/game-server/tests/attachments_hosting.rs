@@ -31,7 +31,9 @@ fn attachments_worker_recovers_private_search_without_other_seat_stream_leaks() 
         "../../game-engine/tests/fixtures/expected-attachments-ir.json"
     ))
     .unwrap();
-    let config = MatchConfig::for_profile(ATTACHMENTS_PROFILE, [3; 32], PlayerId(1)).unwrap();
+    // This admitted seed opens with Rampant Growth and two lands including green;
+    // the witness reaches the private choice without relying on late library draws.
+    let config = MatchConfig::for_profile(ATTACHMENTS_PROFILE, [39; 32], PlayerId(1)).unwrap();
     let mut worker =
         Worker::create(&directory.0, catalog.clone(), config, "a2", Instant::now()).unwrap();
     let mut searched = false;
