@@ -216,7 +216,9 @@ impl ScenarioConfig {
 }
 impl Game {
     pub(super) fn damage_limit(&self) -> usize {
-        if self.staples_enabled() {
+        if self.mana_enabled() {
+            mana_permanents::DAMAGE_BOUND
+        } else if self.staples_enabled() {
             staples::DAMAGE_BOUND
         } else if self.tokens_enabled() {
             tokens::DAMAGE_BOUND

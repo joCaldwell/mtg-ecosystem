@@ -165,9 +165,13 @@ impl Game {
         {
             return Err("invalid activated ability source/permission".into());
         }
-        if ability.cost == ActivationCost::TapSource
+        let tap = ability.cost == ActivationCost::TapSource
+            || matches!(&ability.cost, ActivationCost::Composite { costs } if costs.tap);
+        if tap
             && (source.tapped
-                || (!source.attack_ready && !self.has_keyword(source.id, KeywordAbility::Haste)))
+                || (self.characteristics(object)?.kind == CardKind::Creature
+                    && !source.attack_ready
+                    && !self.has_keyword(source.id, KeywordAbility::Haste)))
         {
             return Err("tap ability requires an untapped continuously controlled creature".into());
         }

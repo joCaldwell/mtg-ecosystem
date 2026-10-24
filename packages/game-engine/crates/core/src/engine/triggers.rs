@@ -45,7 +45,9 @@ fn movement(outcome: &EventOutcome) -> Option<&MoveOutcome> {
 }
 impl Game {
     pub(super) fn stack_limit(&self) -> usize {
-        if self.staples_enabled() {
+        if self.mana_enabled() {
+            mana_permanents::STACK_BOUND
+        } else if self.staples_enabled() {
             staples::STACK_BOUND
         } else if self.tokens_enabled() {
             tokens::STACK_BOUND

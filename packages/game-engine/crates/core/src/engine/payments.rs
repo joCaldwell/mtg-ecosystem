@@ -131,6 +131,25 @@ impl Game {
                 player: stack.controller,
             },
         )?;
+        if let StackKind::Activated { ability, .. } = stack.kind
+            && let ActivationCost::Composite { costs } =
+                self.definition(stack.source.card)?.activated[ability as usize]
+                    .cost
+                    .clone()
+        {
+            self.pay_permanent_source_costs(
+                stack.source,
+                stack.controller,
+                &costs,
+                BatchCause::AbilityActivation {
+                    stack_id: stack.id,
+                    player: stack.controller,
+                    source: stack.source,
+                    decision_id: self.state.revision,
+                    ability,
+                },
+            )?;
+        }
         self.state.stack.last_mut().ok_or("missing stack")?.paid = Some(cost);
         if stack.kind.is_spell() {
             self.record_event(Event::SpellCast {

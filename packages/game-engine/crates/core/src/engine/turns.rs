@@ -178,7 +178,7 @@ impl Game {
         } else if self.state.turn.step == TurnStep::DeclareBlockers
             && matches!(
                 self.prepared.config.profile.as_str(),
-                COMBAT_KEYWORDS_PROFILE | TOKENS_PROFILE | STAPLES_PROFILE
+                COMBAT_KEYWORDS_PROFILE | TOKENS_PROFILE | STAPLES_PROFILE | MANA_PROFILE
             )
             && !self.first_strikers().is_empty()
         {
@@ -280,7 +280,7 @@ impl Game {
             TurnStep::FirstStrikeDamage
                 if matches!(
                     self.prepared.config.profile.as_str(),
-                    COMBAT_KEYWORDS_PROFILE | TOKENS_PROFILE | STAPLES_PROFILE
+                    COMBAT_KEYWORDS_PROFILE | TOKENS_PROFILE | STAPLES_PROFILE | MANA_PROFILE
                 ) =>
             {
                 self.state.frame = Frame::Damage;

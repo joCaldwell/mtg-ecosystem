@@ -166,6 +166,11 @@ pub struct PermittedView {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerRequest {
+    ManaColor {
+        token: DecisionToken,
+        player: PlayerId,
+        colors: Vec<Color>,
+    },
     SearchLands {
         token: DecisionToken,
         player: PlayerId,
@@ -310,7 +315,8 @@ pub enum PlayerRequest {
 impl PlayerRequest {
     pub fn token(&self) -> &DecisionToken {
         match self {
-            Self::SearchLands { token, .. }
+            Self::ManaColor { token, .. }
+            | Self::SearchLands { token, .. }
             | Self::OptionalRecursion { token, .. }
             | Self::Mulligan { token, .. }
             | Self::BottomOpening { token, .. }
@@ -345,6 +351,9 @@ pub struct Observation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerResponse {
+    ManaColor {
+        color: Color,
+    },
     SearchLands {
         objects: Vec<ObjectHandle>,
     },
@@ -1084,6 +1093,7 @@ impl Game {
                                 | COMBAT_KEYWORDS_PROFILE
                                 | TOKENS_PROFILE
                                 | STAPLES_PROFILE
+                                | MANA_PROFILE
                         ) {
                             candidates
                                 .iter()
@@ -1198,6 +1208,29 @@ impl Game {
                     player: viewer,
                     occurrences: self.program()?.targets.clone(),
                     candidates: self.eligible_players(self.program()?.targets[0].domain, viewer),
+                }))
+            }
+            Frame::ManaAbility { activation } if activation.player == viewer => {
+                Ok(Some(match self.permanent_mana_request(activation)? {
+                    Request::Mana { cost, .. } => PlayerRequest::Mana {
+                        token,
+                        player: viewer,
+                        cost,
+                    },
+                    Request::SpendMana {
+                        cost, available, ..
+                    } => PlayerRequest::SpendMana {
+                        token,
+                        player: viewer,
+                        cost,
+                        available,
+                    },
+                    Request::ManaColor { colors, .. } => PlayerRequest::ManaColor {
+                        token,
+                        player: viewer,
+                        colors,
+                    },
+                    _ => return Err("nested mana request invariant".into()),
                 }))
             }
             Frame::SpendMana { .. } if self.top()?.controller == viewer => {
@@ -1401,6 +1434,9 @@ impl Game {
                     {
                         Some((self.state.revision, 7))
                     }
+                    Frame::ManaAbility { ref activation } if activation.player == viewer => {
+                        Some((self.state.revision, 16))
+                    }
                     Frame::SpendMana { .. } if self.top()?.controller == viewer => {
                         Some((self.state.revision, 8))
                     }
@@ -1547,6 +1583,7 @@ impl Game {
                     .map(|object| self.resolve_handle(viewer, object))
                     .collect::<Result<Vec<_>, _>>()?,
             }),
+            PlayerResponse::ManaColor { color } => Ok(Response::ManaColor { color: *color }),
             PlayerResponse::SpendMana { spending } => Ok(Response::SpendMana {
                 spending: spending.clone(),
             }),

@@ -6,6 +6,12 @@ impl Game {
         player: PlayerId,
         object: ObjectId,
     ) -> Result<(), String> {
+        if self.is_permanent_mana(object) {
+            return self.validate_permanent_mana_activation(player, object);
+        }
+        if self.reserved_mana_source(object) {
+            return Err("mana source is already announcing".into());
+        }
         let o = self.current(object)?;
         if o.controller != player || o.tapped || self.mana_abilities(object)?.len() != 1 {
             return Err("invalid mana activation".into());
@@ -27,6 +33,7 @@ impl Game {
             .first()
             .ok_or("missing intrinsic mana ability")?;
         let receipt = ManaActivationUndo {
+            permanent: None,
             object,
             player: input.player,
             color,
@@ -76,6 +83,14 @@ impl Game {
         if undo_mana && !cast.mana_activations.is_empty() {
             let mut children = vec![];
             for receipt in cast.mana_activations.iter().rev() {
+                if let Some(permanent) = &receipt.permanent {
+                    children.push(EventGroup::Occurrence {
+                        proposed: ProposedEvent::ReversePermanentMana {
+                            receipt: permanent.clone(),
+                        },
+                    });
+                    continue;
+                }
                 let source = match self.current(receipt.object) {
                     Ok(o) if o.zone == Zone::Battlefield && o.tapped => Some(o.id),
                     Ok(_) => return Err("casting reversal source changed unexpectedly".into()),

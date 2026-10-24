@@ -103,3 +103,34 @@ and otherwise follow the existing spending order.
   the turn of first commander cast.
 - Earlier profiles' catalog, policy and expected IR digests and historical
   batch outputs are unchanged, and `npm run check:engine` passes.
+
+## Reviewed resource bounds
+
+The new pool has at most 31 creature cards per seat (28 from staples plus the
+three mana creatures). With the unchanged 256-live-token capacity, let
+C = 4×31 + 256 = 380. The nine new definitions create no tokens, recur no cards,
+and add no flash or battlefield-return route; the staples 68-token lifetime
+proof and its one-entry/death per creature card per nonempty-stack episode
+argument still apply. Sacrificed artifacts cannot be recurred by Raise Dead or
+Gravedigger, which target creature cards only.
+
+- Damage occurrences per combat step: 2C = **760**.
+- Stack plus pending triggers: **3,868** = 400 physical spell entries + four
+  Samite Healer tap activations + eight once-only Sphere/Mind Stone draw
+  activations + 4(C+36) Blood Artist death triggers + 4(C+36) Essence Warden
+  enters triggers + 124 self-enters triggers + four Bouncer self-dies triggers.
+  Mana abilities add no entries (605.3b); the 36-token episode allowance is
+  retained even when ceased tokens free live capacity. The deliberately
+  conservative terms include mutually exclusive decks and abilities.
+- Event-group members: **660** = 400 physical cards + 256 live token objects +
+  four player losses. Mana production and reversal groups are ordered and fit
+  below this bound. Effect capacity remains **32**: the new cards create no
+  temporary effects and cannot recur the old effect sources.
+
+These limits apply only to mana-v1. Earlier profile limits and the existing
+serializable typed fault/atomic rollback conventions remain unchanged. As in
+P6.3/P6.4, response validation refuses a proposed cast/stack activation at stack
+capacity; the admitted-pool bound proves that boundary unreachable in these
+pods. A nested mana proposal reserves its source while paying, so it cannot
+pay its own tap cost twice. All admitted mana sources have one mana ability;
+separate source-sacrifice draw abilities retain distinct nonmana indices.

@@ -358,6 +358,13 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             let keys = BTreeSet::from([FactKey::Turn]);
             (keys.clone(), keys)
         }
+        ProposedEvent::ReversePermanentMana { receipt } => {
+            let keys = BTreeSet::from([
+                FactKey::Mana(receipt.player),
+                FactKey::Object(receipt.source.object.card),
+            ]);
+            (keys.clone(), keys)
+        }
         ProposedEvent::ReverseMana { player, source, .. } => {
             let mut keys = BTreeSet::from([FactKey::Mana(*player)]);
             if let Some(object) = source {
@@ -401,6 +408,7 @@ fn collect<'a>(
                             | ProposedEvent::ApplyDamageEffect { .. }
                             | ProposedEvent::CommitDamage { .. }
                             | ProposedEvent::CleanupEffects
+                            | ProposedEvent::ReversePermanentMana { .. }
                             | ProposedEvent::CounterStackObject { .. }
                             | ProposedEvent::CreateCreatureTokens { .. }
                             | ProposedEvent::ClearDamage
@@ -727,7 +735,9 @@ impl Game {
                     players.insert(*departing_owner);
                 }
                 ProposedEvent::AddMana { player, source, .. } => {
-                    objects.insert(*source);
+                    if self.current(*source).is_ok() {
+                        objects.insert(*source);
+                    }
                     players.insert(*player);
                 }
                 ProposedEvent::ClearMana { player }
@@ -756,6 +766,12 @@ impl Game {
                         live_turn_order: self.live_players(),
                         stack_empty: self.state.stack.is_empty(),
                     });
+                }
+                ProposedEvent::ReversePermanentMana { receipt } => {
+                    players.insert(receipt.player);
+                    if let Some(o) = self.state.objects.get(&receipt.source.object.card) {
+                        objects.insert(o.id);
+                    }
                 }
                 ProposedEvent::ReverseMana { player, source, .. } => {
                     players.insert(*player);
@@ -1231,7 +1247,7 @@ impl Game {
             }
             ProposedEvent::Sacrifice { object, player } => {
                 if !self.is_live(*player)
-                    || !self.target_legal(*object)
+                    || self.current(*object)?.zone != Zone::Battlefield
                     || self.current(*object)?.controller != *player
                 {
                     return Err("invalid sacrifice event".into());
@@ -1528,7 +1544,16 @@ impl Game {
                 amount,
                 source,
             } => {
-                self.current(*source)?;
+                if self.current(*source).is_err()
+                    && !(self.mana_enabled()
+                        && self
+                            .state
+                            .cards
+                            .get(&source.card)
+                            .is_some_and(|c| !self.is_live(c.owner)))
+                {
+                    return Err("missing mana source".into());
+                }
                 if amount.is_negative() || !self.is_live(*player) {
                     return Err("negative mana or departed recipient".into());
                 }
@@ -1560,6 +1585,9 @@ impl Game {
                     player: *player,
                     cost: cost.clone(),
                 }
+            }
+            ProposedEvent::ReversePermanentMana { receipt } => {
+                self.reverse_permanent_mana(receipt)?
             }
             ProposedEvent::ReverseMana {
                 player,
