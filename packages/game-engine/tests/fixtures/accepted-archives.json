@@ -1,0 +1,18 @@
+[
+  {
+    "manifest_file": "archive-manifest.json",
+    "manifest_sha256": "b20406acec7b9af4610324af8848c76a2966315f1bb4043de2b03d53aa1a6f1b",
+    "file_sha256": null,
+    "parser_revision": "41863dc8a39248e37048eae7326e02b34bdb0877",
+    "parser_source_sha256": "98980a967a70d57008847ce0952edf0cc277af9ad26b8cb8739a555d97082b8d",
+    "corpus_sha256": "5e97d5c4b94e8a080ec4615bbee6cc4528333ed921e47dd1d16990a28870ff60"
+  },
+  {
+    "manifest_file": "archive-manifest-current.json",
+    "manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+    "file_sha256": "d705222b280a71cb5a5362f657d530b22402ca51687bac3227c1d6db403d0282",
+    "parser_revision": "327b3360ea8e5cffb75b136223e75a348e903cbe",
+    "parser_source_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+    "corpus_sha256": "f8cb9da28e34b01dbd72504f059e012bda62db7d332acd2e3b43e75570e92738"
+  }
+]

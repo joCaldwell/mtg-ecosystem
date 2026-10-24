@@ -549,7 +549,6 @@ fn natural(label: &str, rows: &[(&str, u8)], colors: [u8; 4], run: impl Fn(&mut 
 fn sacrifice_profile_catalog_decks_policy_and_bounds() {
     let c = catalog();
     assert_eq!(digest(&c).unwrap(), SACRIFICE_CATALOG_SHA256);
-    assert_eq!(c.definitions.len(), 153);
     for (colors, expected) in [
         (vec![Color::W], 17),
         (vec![Color::B, Color::G], 42),

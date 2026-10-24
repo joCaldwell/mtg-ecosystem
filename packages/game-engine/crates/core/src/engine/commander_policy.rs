@@ -168,7 +168,13 @@ mod tests {
             assert_eq!(record["source"]["name"], *name);
         }
         let pool = p["admitted_pool_review"].as_array().unwrap();
-        assert_eq!(pool.len(), 34);
+        assert_eq!(
+            pool.len(),
+            super::super::match_admission::reviewed_catalog_size(
+                super::super::MATCH_CATALOG_SHA256
+            )
+            .unwrap()
+        );
         for card in pool {
             assert_eq!(card["conspiracy_type"], false);
             assert_eq!(card["ante_reference"], false);

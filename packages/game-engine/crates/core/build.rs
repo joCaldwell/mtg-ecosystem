@@ -14,7 +14,9 @@ fn collect(path: &Path, out: &mut Vec<PathBuf>) {
                 continue;
             }
             collect(&p, out);
-        } else if p.extension().is_some_and(|x| x == "rs" || x == "json")
+        } else if p
+            .extension()
+            .is_some_and(|x| x == "rs" || x == "json" || x == "sha256")
             || p.file_name().is_some_and(|x| x == "Cargo.toml")
         {
             out.push(p);
@@ -23,6 +25,52 @@ fn collect(path: &Path, out: &mut Vec<PathBuf>) {
 }
 fn main() {
     let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("../../../..");
+    // Catalog digests/counts and scenario definition pins derive from reviewed
+    // expected IR. The compiler freshness test checks it against source records.
+    let data = root.join("packages/game-engine/tests/fixtures/catalogs");
+    let mut sizes = String::from(
+        "pub(super) fn reviewed_catalog_size(hash: &str) -> Option<usize> { const SIZES: &[(&str, usize)] = &[\n",
+    );
+    let mut manifests = fs::read_dir(&data)
+        .expect("catalog manifests")
+        .map(|e| e.unwrap().path())
+        .collect::<Vec<_>>();
+    manifests.sort();
+    for path in manifests {
+        if !path.extension().is_some_and(|e| e == "json") {
+            continue;
+        }
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let expected = data.join(manifest["expected_ir"].as_str().unwrap());
+        // A new manifest must be buildable by mtg-sim before its first
+        // expected IR exists. Only existing outputs supply admission metadata;
+        // named profile includes still require their own committed digest files.
+        let bytes = match fs::read(expected) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => panic!("catalog output: {e}"),
+        };
+        let catalog: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let rows = catalog["definitions"].as_array().unwrap();
+        let canonical = serde_json::to_vec(&catalog).unwrap();
+        let digest = format!("{:x}", Sha256::digest(canonical));
+        sizes += &format!("({digest:?}, {}),\n", rows.len());
+        for row in rows {
+            let id = row["oracle_id"].as_str().unwrap().to_owned();
+            let hash = format!("{:x}", Sha256::digest(serde_json::to_vec(row).unwrap()));
+            println!(
+                "cargo:rustc-env=MTG_DEFINITION_{}_{id}={hash}",
+                path.file_stem().unwrap().to_str().unwrap()
+            );
+        }
+    }
+    sizes += "]; SIZES.iter().find(|(h, _)| *h == hash).map(|(_, n)| *n) }\n";
+    fs::write(
+        PathBuf::from(env::var("OUT_DIR").unwrap()).join("catalog_sizes.rs"),
+        sizes,
+    )
+    .unwrap();
     let mut files = vec![
         root.join("Cargo.toml"),
         root.join("Cargo.lock"),

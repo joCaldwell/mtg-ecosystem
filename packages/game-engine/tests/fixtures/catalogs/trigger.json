@@ -1,0 +1,33 @@
+{
+  "schema_version": 8,
+  "provenance": "../provenance.json",
+  "records": [
+    "../cruel-edict.json",
+    "../grizzly-bears.json",
+    "../hapless-researcher.json",
+    "../sacred-nectar.json",
+    "../time-ebb.json",
+    "../blood-artist.json",
+    "../healing-hands.json",
+    "../lightning-bolt.json",
+    "../swamp.json",
+    "../prodigal-sorcerer.json",
+    "../merfolk-looter.json",
+    "../essence-warden.json",
+    "../soul-feast.json",
+    "../unsummon.json",
+    "../yargle-and-multani.json",
+    "../mountain.json",
+    "../island.json",
+    "../forest.json",
+    "../stifle.json",
+    "../azure-mage.json",
+    "../plains.json",
+    "../elvish-visionary.json",
+    "../counterspell.json",
+    "../isamaru.json"
+  ],
+  "expected_ir": "../expected-trigger-ir.json",
+  "expected_digest": "trigger.sha256",
+  "output_order": "struct"
+}

@@ -755,7 +755,9 @@ fn source_files_from(root: &Path) -> Result<Vec<SourceFile>, String> {
                     continue;
                 }
                 walk(root, &p, files)?;
-            } else if p.extension().is_some_and(|x| x == "rs" || x == "json")
+            } else if p
+                .extension()
+                .is_some_and(|x| x == "rs" || x == "json" || x == "sha256")
                 || p.file_name().is_some_and(|x| x == "Cargo.toml")
             {
                 let contents = fs::read_to_string(&p).map_err(|e| e.to_string())?;
@@ -1520,6 +1522,18 @@ fn verify_bundle(json: &str) -> Result<String, String> {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
+        Some("catalog") => {
+            let report = match args.get(1).map(String::as_str) {
+                Some("build") if args.len() == 3 || (args.len() == 4 && args[3] == "--write") => {
+                    mtg_compiler::generate_catalog(Path::new(&args[2]), args.len() == 4)?
+                }
+                Some("extract") if args.len() >= 5 => {
+                    mtg_compiler::extract_records(Path::new(&args[2]), Path::new(&args[3]), &args[4..])?
+                }
+                _ => return Err("usage: catalog build MANIFEST [--write] | catalog extract ARCHIVE PROVENANCE EXACT_NAME_OR_ORACLE_ID...".into()),
+            };
+            println!("{}", canonical(&report)?);
+        }
         Some("native-source-manifest") if args.len() == 1 => {
             println!("{}", canonical(&current_source_manifest()?)?);
         }
@@ -2157,6 +2171,7 @@ mod tests {
             "packages/game-engine/crates/example/Cargo.toml",
             "packages/game-engine/crates/example/src/logic.rs",
             "packages/game-engine/tests/fixtures/positive.json",
+            "packages/game-engine/tests/fixtures/catalogs/positive.sha256",
             "packages/game-server/Cargo.toml",
             "packages/game-server/src/authority.rs",
             "packages/game-server/tests/protocol.rs",

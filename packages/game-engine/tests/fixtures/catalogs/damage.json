@@ -1,0 +1,16 @@
+{
+  "schema_version": 3,
+  "provenance": "../provenance.json",
+  "records": [
+    "../grizzly-bears.json",
+    "../unsummon.json",
+    "../yargle-and-multani.json",
+    "../island.json",
+    "../forest.json",
+    "../plains.json",
+    "../isamaru.json"
+  ],
+  "expected_ir": "../expected-damage-ir.json",
+  "expected_digest": "damage.sha256",
+  "output_order": "struct"
+}

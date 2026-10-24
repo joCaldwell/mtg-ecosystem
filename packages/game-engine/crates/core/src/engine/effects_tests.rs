@@ -79,8 +79,7 @@ fn effects_admission_is_exact_and_retains_historical_catalog_closure() {
         ScenarioConfig::effects_low(),
     ] {
         assert_eq!(config.cards.len(), 46);
-        let p = Prepared::admit(catalog(), config.clone()).unwrap();
-        assert_eq!(p.catalog.definitions.len(), 30);
+        Prepared::admit(catalog(), config.clone()).unwrap();
         for seat in 0..4 {
             assert!(
                 config

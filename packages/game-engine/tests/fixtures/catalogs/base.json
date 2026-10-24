@@ -1,0 +1,14 @@
+{
+  "schema_version": 3,
+  "provenance": "../provenance.json",
+  "records": [
+    "../grizzly-bears.json",
+    "../unsummon.json",
+    "../island.json",
+    "../forest.json",
+    "../isamaru.json"
+  ],
+  "expected_ir": "../expected-ir.json",
+  "expected_digest": "base.sha256",
+  "output_order": "sorted"
+}

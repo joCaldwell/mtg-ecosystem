@@ -701,7 +701,10 @@ fn keyword_profile_admission_policy_and_historical_identity_are_separate() {
     assert!(Prepared::admit_pod(c, MatchConfig::foundations([5; 32], PlayerId(2))).is_err());
     let profile = match_profile(KEYWORDS_PROFILE).unwrap();
     let policy: serde_json::Value = strict_read(profile.policy_json).unwrap();
-    assert_eq!(policy["admitted_pool_review"].as_array().unwrap().len(), 50);
+    assert_eq!(
+        policy["admitted_pool_review"].as_array().unwrap().len(),
+        super::match_admission::reviewed_catalog_size(profile.catalog_sha256).unwrap()
+    );
 }
 #[test]
 fn two_life_defender_survives_simultaneous_three_damage_and_two_lifelink() {

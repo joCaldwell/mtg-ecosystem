@@ -1,0 +1,24 @@
+{
+  "schema_version": 6,
+  "provenance": "../provenance.json",
+  "records": [
+    "../cruel-edict.json",
+    "../grizzly-bears.json",
+    "../hapless-researcher.json",
+    "../time-ebb.json",
+    "../swamp.json",
+    "../merfolk-looter.json",
+    "../unsummon.json",
+    "../yargle-and-multani.json",
+    "../island.json",
+    "../forest.json",
+    "../stifle.json",
+    "../azure-mage.json",
+    "../plains.json",
+    "../counterspell.json",
+    "../isamaru.json"
+  ],
+  "expected_ir": "../expected-stack-ir.json",
+  "expected_digest": "stack.sha256",
+  "output_order": "struct"
+}

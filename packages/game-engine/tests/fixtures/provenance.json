@@ -9,1365 +9,1587 @@
       "oracle_id": "7c779721-cd1b-4696-9ae9-68ccc284ed2a",
       "record_sha256": "e4f3721b749cf15ed97651cd2f5de65ef7baecdf5fac250add26a48c1fe9a8ea",
       "source_sha256": "49394a89d70f3accf76421a4f3a6a583aa698f9779a02298797549826f9fc0fb",
-      "ast_sha256": "97f98178be0308f7eb82e87aee6b7754e3769cfd9d93ca92ff9c99463d61c98b"
+      "ast_sha256": "97f98178be0308f7eb82e87aee6b7754e3769cfd9d93ca92ff9c99463d61c98b",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "ajanis-sunstriker.json",
       "oracle_id": "31009c45-afba-45f4-a6ca-9dfdb9990e72",
       "record_sha256": "451ba926bb0f60f9f8df7888bf9259a46af8e5620d0e7c4247f19b711ba07b84",
       "source_sha256": "db09f0804c5434b6900bd154e39f620eb85d6127b235c7021a842a6a3acd49e3",
-      "ast_sha256": "d484b59c34a074f4fa97bf248a9947c37d7ff2686c769f6d88badedfb479479d"
+      "ast_sha256": "d484b59c34a074f4fa97bf248a9947c37d7ff2686c769f6d88badedfb479479d",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "alley-strangler.json",
       "oracle_id": "fb9af562-7384-4575-93bb-34f1ada23735",
       "record_sha256": "284c18082efa4e451500587eda378810cef4281e6e4f17e6ff5d85fae63abf4d",
       "source_sha256": "b5cb0efed770e39bce2c93b326af0963f91906f77a500e9a2ba312f8a1b61cf2",
-      "ast_sha256": "76f4ee5470f7c0a5fc6cfe9e1e7c48f5619cd5373c978c0a2609ae3134043b52"
+      "ast_sha256": "76f4ee5470f7c0a5fc6cfe9e1e7c48f5619cd5373c978c0a2609ae3134043b52",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "alpine-watchdog.json",
       "oracle_id": "6a0419c3-4bfa-46c1-932b-fe10f2fa2ad7",
       "record_sha256": "a8e62c745f052dcb6fe869934d21aa83553ae44d8b2848e7aaf44f803a2b95b4",
       "source_sha256": "757f196d61ccc00a22110a97c58a9b97d963c782ff64f58686a10bf5d481a0e6",
-      "ast_sha256": "8763b20dedcec48ca890bcd17bab48b8387c02de5b18f265b15488b58f182a3b"
+      "ast_sha256": "8763b20dedcec48ca890bcd17bab48b8387c02de5b18f265b15488b58f182a3b",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "angelic-wall.json",
       "oracle_id": "4502b24f-604b-4e36-9168-31c1a1ab4dab",
       "record_sha256": "3079f68ebf8fdc530ab9c8100a1e6212550d5380590945328f0a7d0cd759b155",
       "source_sha256": "333212010e0e1ffbd9187fc699cc64d123e1ce99f9406d7310febabcd494be5b",
-      "ast_sha256": "8122d758c4833e202d9d1eeedb71467d8143c020ba6423aac0521979565f7fc3"
+      "ast_sha256": "8122d758c4833e202d9d1eeedb71467d8143c020ba6423aac0521979565f7fc3",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "anger-of-the-gods.json",
       "oracle_id": "3a7fe095-8278-4b1d-bec4-19b35bdcdd1b",
       "record_sha256": "c56bbc8585ef7fcc84f84949da6c3aff51e2ada4504ceca4d62d76a5e8a1b198",
       "source_sha256": "2ae917961aa947ac1a72deb2ec8344b1a8fcde97dee8170d52a5ad44c032d5da",
-      "ast_sha256": "121caad3981ebb204da688a4f719b6053a124e974c99238ad4ad9d2bbf3d9201"
+      "ast_sha256": "121caad3981ebb204da688a4f719b6053a124e974c99238ad4ad9d2bbf3d9201",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "arcane-signet.json",
       "oracle_id": "0bc7f093-bef0-4f1a-852c-4b75ebf54838",
       "record_sha256": "3a9011f2d011c9004bda7c73494658cf2258be6fcb870f40875e4e6d19f91c4e",
       "source_sha256": "32b4ce2165e2c235795b6e1450cce37146b720a5e4c10b706c9da418a42c7904",
-      "ast_sha256": "b0b66245e1877a322174deca6502bb5bc15cdb21791f6035dc4284fd2c299ced"
+      "ast_sha256": "b0b66245e1877a322174deca6502bb5bc15cdb21791f6035dc4284fd2c299ced",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "arrest.json",
       "oracle_id": "81728b98-8cf9-4734-a318-69184bb4d15c",
       "record_sha256": "75655d5fb5fafc58d98ebe2931e68f6041cc2375f3f56eebcd90a787640f3546",
       "source_sha256": "94d06e90f81ee24d2fa9e2eefa10a5472bd13ee6c10e491d11276d9b6ab2767f",
-      "ast_sha256": "5fda6128657799933f72c0baeeb1a757b1580e222ab508b18bc28667bbbffc90"
+      "ast_sha256": "5fda6128657799933f72c0baeeb1a757b1580e222ab508b18bc28667bbbffc90",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "ashnods-altar.json",
       "oracle_id": "4d18bcba-a346-445e-a182-6cc30b7e066d",
       "record_sha256": "118ce876c61e2568094f93d082fb99c6292d1f46c51c830df3bba39d324fed73",
       "source_sha256": "b2fa5cee765d34edafe9c08fd8b328670b0f468806d3ef49d0065272f592039c",
-      "ast_sha256": "d1f742b3d35030358951a724eca2577a39cd4b5cd9089f1f84b9229712ad1c06"
+      "ast_sha256": "d1f742b3d35030358951a724eca2577a39cd4b5cd9089f1f84b9229712ad1c06",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "attended-knight.json",
       "oracle_id": "b3eb8f65-5eba-42a9-a1b4-4f37b14d03d9",
       "record_sha256": "b0374d42935db4bf148381fbc4fc1ed7cc7e052a7bdc336e962d1788d5019f09",
       "source_sha256": "3731b369dc1b633aab33f865ac60bd4506b0ccb0f29f66c7d20d36d773d4488b",
-      "ast_sha256": "9244bee2fa368142750db7c25cc0d3593cd5742ee970d093913a675517373935"
+      "ast_sha256": "9244bee2fa368142750db7c25cc0d3593cd5742ee970d093913a675517373935",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "austere-command.json",
       "oracle_id": "09cc8709-fe10-472a-b05c-e89f3523018d",
       "record_sha256": "9d3d14f94f7020dcbe646a8c13dc1a6929c4e8e1d2102af9ae5980f4c12aa8c2",
       "source_sha256": "17ebd73dacf9d851ac047dfdc718f828671ee1538c17766a65cd32e00b290824",
-      "ast_sha256": "2809ff0b3e0cd5a95801405ebf4a9c4e3d268379507ca64ba671ed7168bb01da"
+      "ast_sha256": "2809ff0b3e0cd5a95801405ebf4a9c4e3d268379507ca64ba671ed7168bb01da",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "azure-mage.json",
       "oracle_id": "bbf9fd47-10e1-4749-b06f-4fe72200afc7",
       "record_sha256": "8f352d11379d036fc16c2b4786055f137bab170a218d59866706f40b5aa03a83",
       "source_sha256": "fc5671620b35d5f63698b8994b730641fe5e2d9824ee9d31fe5270cdf7a03791",
-      "ast_sha256": "059433c7906888d46bd837fa2fdb5a143df73dde8931ebb6f2f538a355f5f051"
+      "ast_sha256": "059433c7906888d46bd837fa2fdb5a143df73dde8931ebb6f2f538a355f5f051",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "banehound.json",
       "oracle_id": "63d846e2-4bef-4911-9508-273c75a4a040",
       "record_sha256": "cdb4ac582c32a6aa915c4b865516d13eacd1c17d29b42dc351eb93a91f918bec",
       "source_sha256": "c91570ba3f6ae6f2ae2181dc67786792070b669970245a25babe6070a17bca2f",
-      "ast_sha256": "bbcf6a0691790c5513a295d4b20fdac12ec5bed49a9bac74b084281e0aeeb496"
+      "ast_sha256": "bbcf6a0691790c5513a295d4b20fdac12ec5bed49a9bac74b084281e0aeeb496",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "banishing-light.json",
       "oracle_id": "f28b21a6-f7ce-437a-8c5b-0423cb55cefb",
       "record_sha256": "d8de58299d81b7c5f4858a68e5c1888b3110c5bc2b58e240ce67a58ea093a5ee",
       "source_sha256": "66b65190283552f485faa155676087f1b208d73b236bcde932b491737350c3f1",
-      "ast_sha256": "7475ebb1bbcca3ddec6ddfcb7a889dcb0643e602e94e1b4519299c99f62a106d"
+      "ast_sha256": "7475ebb1bbcca3ddec6ddfcb7a889dcb0643e602e94e1b4519299c99f62a106d",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "bastion-of-remembrance.json",
       "oracle_id": "c7f33cea-2ec8-4081-9208-a5b1d86721b3",
       "record_sha256": "d9ee54822bf6912c0cefe5a82a7232450389778c1f835f7541a2eef7ec06f7f1",
       "source_sha256": "2cf76d374bdc85e3eb2bf3dc2ccf81f6cde79c6671506fe2246acf53d072379e",
-      "ast_sha256": "24c7c4e02bb444dab93cc58c059c60e1811d16413856240e88ec39a743ca039e"
+      "ast_sha256": "24c7c4e02bb444dab93cc58c059c60e1811d16413856240e88ec39a743ca039e",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "battlegrowth.json",
       "oracle_id": "650bf82e-7f83-470c-bf4a-34281bfe9341",
       "record_sha256": "c58b11f753e444c90398e84c352857acfa659b17deebb86b273911ac21c22668",
       "source_sha256": "303f8a02b791796d47b161e1d65a09e8f7356e6b9658464ed71b745db2cf433a",
-      "ast_sha256": "e32afa2e5979decc46a26203f6e6aeea7b6c71d6be802b3a8aad3d092ddda96d"
+      "ast_sha256": "e32afa2e5979decc46a26203f6e6aeea7b6c71d6be802b3a8aad3d092ddda96d",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "beast-within.json",
       "oracle_id": "7735eeba-693b-47e2-bd51-414379cf1016",
       "record_sha256": "ab3ba90ba9023ec59f1bed05dd1099d72f9aaeee8c242213fa59bd18d7e2ceff",
       "source_sha256": "f5d8030af333ed7b5f165bf1cbf4ad02b3ff71536bcf8ecb713d6b72fcf56571",
-      "ast_sha256": "6bd0836f5a72b4e8941ecea61f0034a895b34cf741d29526286c854f8a7bff3e"
+      "ast_sha256": "6bd0836f5a72b4e8941ecea61f0034a895b34cf741d29526286c854f8a7bff3e",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "beetleback-chief.json",
       "oracle_id": "f5c5f64c-6911-430c-a825-b32b96d39c7d",
       "record_sha256": "5310dbdb37fb21c79ca87c3952afb588bddae0bd3f82d79d4a0daa5f6ab534d3",
       "source_sha256": "54b1e317a435af17d736c31f90b078800a14c05694671798ff2646a9daa50230",
-      "ast_sha256": "7ec5ba06681f368e63ebfd0d245317291a8e9d1ce4a62b34d7cf15b118c8bfdd"
+      "ast_sha256": "7ec5ba06681f368e63ebfd0d245317291a8e9d1ce4a62b34d7cf15b118c8bfdd",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "birds-of-paradise.json",
       "oracle_id": "d3a0b660-358c-41bd-9cd2-41fbf3491b1a",
       "record_sha256": "80cac695047de70003fe4fbc7f6416c5a39c666089907e8ceaf87eb876a79a25",
       "source_sha256": "47121b8eae5440005dfac07d3a174b7282bd471aafd9997eb1e4a0dde6fca791",
-      "ast_sha256": "207df037b800de1427ff77436b682c9e36b52bd190925de5a7fe269f3fc152fd"
+      "ast_sha256": "207df037b800de1427ff77436b682c9e36b52bd190925de5a7fe269f3fc152fd",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "blanchwood-armor.json",
       "oracle_id": "80ea56ad-e741-4a85-b4e8-ce62e7d593d5",
       "record_sha256": "171a9b3013ca780d8bfc506d8083aec5f80989e1034f8350fa2ef2f0b2ab29c5",
       "source_sha256": "9b680322b28a0c9bcc58be4db9999aeadaa009ea4e483eaad9c706f4bad1e13b",
-      "ast_sha256": "73f93bacd4ab55b6dd77e64a4e36580a03102e6ecb2a2f8bbee17287c3912d2e"
+      "ast_sha256": "73f93bacd4ab55b6dd77e64a4e36580a03102e6ecb2a2f8bbee17287c3912d2e",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "blasphemous-act.json",
       "oracle_id": "7a2484a9-04fd-41a0-8224-610c1c07ed10",
       "record_sha256": "c2bae15dc74fcf3cdb8b23fdcfaeeb8f782a577fc21c82fb39e0e9758c80a86f",
       "source_sha256": "3fd1dd595a27e73d44f49f631a313ffe7a957b33b777f45d8beff41e3b597500",
-      "ast_sha256": "8a8225d19cfb89b82c778fec755f1a3fbba7c3df4024cbb896d956cc07bdaed8"
+      "ast_sha256": "8a8225d19cfb89b82c778fec755f1a3fbba7c3df4024cbb896d956cc07bdaed8",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "blood-artist.json",
       "oracle_id": "310f141c-7f37-4729-aed6-dd9c09db448d",
       "record_sha256": "16472af1ca8bba34a89df28bbbcdd313b0aa2e4aa5a1594d32f1666e1435b358",
       "source_sha256": "888f992471e8dbd626d5a2935bef8df11507ad382b077a4674deac2610a9e8ac",
-      "ast_sha256": "35a1ed12283b1aceae63b4c1cd214fd83d82f0839ade64e4d989271d990620c9"
+      "ast_sha256": "35a1ed12283b1aceae63b4c1cd214fd83d82f0839ade64e4d989271d990620c9",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "bloodthrone-vampire.json",
       "oracle_id": "aa76cc50-5be0-4844-b3a4-fb33fca3cdd3",
       "record_sha256": "34292e619aef2fd9e4390a7f405828bab71ca5b617afe496d9095c131cae448d",
       "source_sha256": "fc2a06b6688ac3ccb3dba7899597930e39d05c19e5c5996201c3566243108392",
-      "ast_sha256": "392574cbe5df1a1ad89a1a81e51ef8113b83d739086681d9aa7c8e28cafdc6b6"
+      "ast_sha256": "392574cbe5df1a1ad89a1a81e51ef8113b83d739086681d9aa7c8e28cafdc6b6",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "bone-splinters.json",
       "oracle_id": "0c936582-d4c0-4da8-bc7e-49da5a433939",
       "record_sha256": "59aef81a6a313d6ad06001030e62fe069a5669cbb344938f6d96d0683ce5ce86",
       "source_sha256": "c1d8ba64ffacfaafea2a95abe007a7363973e5586f590741aee2366f2e5f3d5e",
-      "ast_sha256": "a2f4df7126f0a0c80b599c470de7c9c0ac5cc979ab8d1eb1a7e5cdeaf58f3b46"
+      "ast_sha256": "a2f4df7126f0a0c80b599c470de7c9c0ac5cc979ab8d1eb1a7e5cdeaf58f3b46",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "bonesplitter.json",
       "oracle_id": "452e3f5f-ce17-4682-966b-5cc100210aee",
       "record_sha256": "46dc8ba036be1adcbf27922491ec231a99ecd103b6554af0e7e9b02c46e3ae3d",
       "source_sha256": "99ae30f4c62a242255b33f3b2571f6339f5a046c9e02363216a3a1ef5457235b",
-      "ast_sha256": "a0047dceecc85e585c4f25b8bc9c2450b3c28bbfd32a3bb591d55d2f32455fb0"
+      "ast_sha256": "a0047dceecc85e585c4f25b8bc9c2450b3c28bbfd32a3bb591d55d2f32455fb0",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "bontus-last-reckoning.json",
       "oracle_id": "c010d833-1873-4132-b4ff-8d78b3d7c2d7",
       "record_sha256": "f8fce2740ba666f5bf0e8ef11a40fd80300558301b0f4fbc53505a2cd78c82d2",
       "source_sha256": "96750099a0fa83df23941ec8a6372e43aca57b197a713bd6a45907b44d97981f",
-      "ast_sha256": "53a744ad52d15b5b06eb75bfe35742517680a9ee81f898a3a53cd7c0eafd5b8b"
+      "ast_sha256": "53a744ad52d15b5b06eb75bfe35742517680a9ee81f898a3a53cd7c0eafd5b8b",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "boros-charm.json",
       "oracle_id": "2679d0dd-ba30-4a1c-b6a0-b3ac6c790496",
       "record_sha256": "c3731aa6b46a35bd021c25b3225ab3af6ec5d01fa2d0cde0022c7ada8a77a18d",
       "source_sha256": "5098290c876b26c15e132683e589ccd929bdcfc5d6a6fa9755001863547a0eae",
-      "ast_sha256": "b168fab657bec34f7199844c277c1c98a7e2147e30c6cec2c430f15a1b416658"
+      "ast_sha256": "b168fab657bec34f7199844c277c1c98a7e2147e30c6cec2c430f15a1b416658",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "butcher-of-malakir.json",
       "oracle_id": "a85197ab-dc94-4b72-9716-8dbdbbe90ff8",
       "record_sha256": "e129e957520d3a81c08ff5a83d0a26b8d37d6edf2ee4fef4d568a64c2a9170a8",
       "source_sha256": "40dd492cf418e147d05a2d4d9e6d792d205662c3f291f2e39743d90d0c298068",
-      "ast_sha256": "e6ca712cd110b71d8f9986fcafe83e692fda31ff045bea0ad7a431ca94b6b523"
+      "ast_sha256": "e6ca712cd110b71d8f9986fcafe83e692fda31ff045bea0ad7a431ca94b6b523",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "caelorna-coral-tyrant.json",
       "oracle_id": "4bbc5df9-60d7-46c1-8856-91c9c74abf18",
       "record_sha256": "01f59bb4a78aed812b5feaa45415e076492c274bf0f6e9a59ebc24f66e82897a",
       "source_sha256": "aaaae3134fb3cd986e905362e7de5b3aec764ee1d442cce7fc9356b71314472c",
-      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "canopy-spider.json",
       "oracle_id": "37f3733e-cc4e-4d84-b29b-d474f6e254a2",
       "record_sha256": "2c505ead7c2edad480eb0a2267c9abecb9c82fcdc283526db600824ac14e1c63",
       "source_sha256": "face2e7da6e42c6230e5368acff711921cc5d4cc0317e57b05fbb91cd68491ca",
-      "ast_sha256": "e01460e83cb4b8cd97ec37024064512d2d31754967e5ef8277cbcbc88355db11"
+      "ast_sha256": "e01460e83cb4b8cd97ec37024064512d2d31754967e5ef8277cbcbc88355db11",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "carrion-feeder.json",
       "oracle_id": "a1cc5e37-b09a-4b7f-afd5-77c1c35aa425",
       "record_sha256": "1663c70efb165395bce203872834893feacaa9adaefb67dafadffc80eeeac7c2",
       "source_sha256": "776a21ce131a35c12fb66e376176ab7c22aaf11faf543b5257dbe661c26afbe9",
-      "ast_sha256": "6749b18a18afa9fb00e87981bb371caba0ea1c809188889c1400e55bd907e01b"
+      "ast_sha256": "6749b18a18afa9fb00e87981bb371caba0ea1c809188889c1400e55bd907e01b",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "chain-reaction.json",
       "oracle_id": "086b2564-9114-4ba2-94fd-b490f98f38a7",
       "record_sha256": "474357661496cbae6dccaadf52df8af82b812b738a0f6aeb3ff5d977c236c496",
       "source_sha256": "96cefcf24fb428253fd95422f5402e8e8ea35918bdf112c8f63881c5fe00abbd",
-      "ast_sha256": "925f677b07e5fcdf091b91296d4a68e9292ab48fedd63e474aef86278e6a1779"
+      "ast_sha256": "925f677b07e5fcdf091b91296d4a68e9292ab48fedd63e474aef86278e6a1779",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "charging-monstrosaur.json",
       "oracle_id": "21dd60d5-76c8-469e-8c4e-112e377d2d59",
       "record_sha256": "814bc2853b8bff576e8d082a73c45d99c2b4b01c872ac9367ff150761d33d992",
       "source_sha256": "19a718210430e033d96722d4ea7d5c91220987832a13d2772b93a7797ec3f9f3",
-      "ast_sha256": "f946d148505ae37e3f1c3cfc30032a0e3b68503f093706c1d3fdeaa357cc2dec"
+      "ast_sha256": "f946d148505ae37e3f1c3cfc30032a0e3b68503f093706c1d3fdeaa357cc2dec",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "child-of-night.json",
       "oracle_id": "c650a7bc-e350-44a0-a698-d4a233d66156",
       "record_sha256": "076a25c88bba018416b72967cc0628a797f1dd26ff02118fa12b311586226a00",
       "source_sha256": "817ef33679c0e0b7c0f91b9cfaa69719525af1040a471d89ad5a6f5858f1624c",
-      "ast_sha256": "d484b59c34a074f4fa97bf248a9947c37d7ff2686c769f6d88badedfb479479d"
+      "ast_sha256": "d484b59c34a074f4fa97bf248a9947c37d7ff2686c769f6d88badedfb479479d",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "chimney-rabble.json",
       "oracle_id": "f6b499d5-0e39-46ce-9de9-f64a2cc2cb32",
       "record_sha256": "7cb6dea1c670ff59fefe6a8b33e73d30245e4c5a7a3b5f78892ab8dab65568e4",
       "source_sha256": "87879ade0a28f07223483c339c42bd768d722b99e6f220f36adafbfa5e4bd043",
-      "ast_sha256": "a47aee5405c8ce72081b68622f6b055be8569d583511860c477949408dde898a"
+      "ast_sha256": "a47aee5405c8ce72081b68622f6b055be8569d583511860c477949408dde898a",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "colossal-dreadmaw.json",
       "oracle_id": "08c7db90-c0cf-4482-b7ee-bb033e5996d2",
       "record_sha256": "5312b5cb91e06d61926fc9e5aad62ff33a395ed8f3fec677a34e966bba1db43b",
       "source_sha256": "50ec265a9edbf8a5c38da2fee495302dd576e991d0f80526e94d7d8e583ff76e",
-      "ast_sha256": "853aeb6bb1ee7dbb3b9969d9dcbdc1677010f8b0436191492acde10c94b673e3"
+      "ast_sha256": "853aeb6bb1ee7dbb3b9969d9dcbdc1677010f8b0436191492acde10c94b673e3",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "command-tower.json",
       "oracle_id": "0895c9b7-ae7d-4bb3-af17-3b75deb50a25",
       "record_sha256": "a4d80247a62f47cfe63418b95a61a79762bb864e29c38a8fe922f58eaf5bdaed",
       "source_sha256": "36b21b5ed9c51c47d5c6cd31eb24cf8ee43d777eddb3b793b1263394519f8427",
-      "ast_sha256": "b0b66245e1877a322174deca6502bb5bc15cdb21791f6035dc4284fd2c299ced"
+      "ast_sha256": "b0b66245e1877a322174deca6502bb5bc15cdb21791f6035dc4284fd2c299ced",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "commanders-sphere.json",
       "oracle_id": "0b67c4e2-f88b-4e01-85a1-9d5f5b8db13b",
       "record_sha256": "2e833d34e81c6483c0b616cec3fdf6a114d207de2a5b3fb3067c29225f1cbf73",
       "source_sha256": "77d30ad0b8809737e524e95eac109030816ec8fde6fb2e9ca3b19228e6e89e5d",
-      "ast_sha256": "93c764d1b6e4e60fbdb0b2c4946f586f76fb4b754bc65a587f4dba0cb532d0b9"
+      "ast_sha256": "93c764d1b6e4e60fbdb0b2c4946f586f76fb4b754bc65a587f4dba0cb532d0b9",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "costly-plunder.json",
       "oracle_id": "8cdfd9df-4783-4138-a286-828a97f516aa",
       "record_sha256": "3e8ec41b3a90aaf5d4dfc9956a4b6c20249a25c6bde0a607c7d154dd56c29199",
       "source_sha256": "4e7041efffb3160753dc521d5afead658352c6953f8aba68d048ad48c76f6c9d",
-      "ast_sha256": "42586fe9c4d852349e81e1c5655c7dad18d4756e475f6f361216c23b2aab6122"
+      "ast_sha256": "42586fe9c4d852349e81e1c5655c7dad18d4756e475f6f361216c23b2aab6122",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "counterspell.json",
       "oracle_id": "cc187110-1148-4090-bbb8-e205694a39f5",
       "record_sha256": "1870e08a76c871aaa537cb0061edd894ce88b98af62c6c5db8c2745a85275656",
       "source_sha256": "d4bd6c5d1470721752426189b105655dc650c11e9277bcdf81ac519c397d2ea2",
-      "ast_sha256": "8369b05d2e6bba06abdb738be5eb1d3dd1853350725b6e2ad5e8739b12409ab0"
+      "ast_sha256": "8369b05d2e6bba06abdb738be5eb1d3dd1853350725b6e2ad5e8739b12409ab0",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "crazed-skirge.json",
       "oracle_id": "72a53d9e-0645-4024-a90f-73b05c2284c6",
       "record_sha256": "dada1f472669f0ac3aa8643b3971707367009aeca39340f019c87e3afe7e9947",
       "source_sha256": "47dd05a273dc833f593add9db0881b2f056014394191f1057e0337dbaa65df28",
-      "ast_sha256": "58a50948c65287165296bfd0caa3e746ceab19fd0deca4a541ded8765421b998"
+      "ast_sha256": "58a50948c65287165296bfd0caa3e746ceab19fd0deca4a541ded8765421b998",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "crested-herdcaller.json",
       "oracle_id": "86c0ddaa-6926-450d-949a-6c89f43c71c2",
       "record_sha256": "2491d3bc23fae156f2f1d5338faa9e25f21ea1644576abcea732735757232b8a",
       "source_sha256": "4e1b799b694e45023552b8da61c6d14ee88ea9fe84d775c99794ee2d03b0c779",
-      "ast_sha256": "efa9bfdc5ab487c78fa0cd5f0be568e6a178a607b8513f6cb77ee935dfcbdb45"
+      "ast_sha256": "efa9bfdc5ab487c78fa0cd5f0be568e6a178a607b8513f6cb77ee935dfcbdb45",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "cruel-edict.json",
       "oracle_id": "10c585c4-bf5b-4d8f-94a9-e9a5036a688f",
       "record_sha256": "16659c771b7443c23b9193a364891410aa1efd1d0e308f3094499fe60b843fef",
       "source_sha256": "20646c8a1569e733a8d1db930fc6ed4fa1d3dfa6c3030fea0bb1d2c09c9c3f0a",
-      "ast_sha256": "6ed597e9deae79bc975ef443eb5264b2e9d6ea18d7f4359c248c305c77fff513"
+      "ast_sha256": "6ed597e9deae79bc975ef443eb5264b2e9d6ea18d7f4359c248c305c77fff513",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "cursed-minotaur.json",
       "oracle_id": "88b50194-bc39-47a6-968b-983553d89cf9",
       "record_sha256": "db3f94c446355107938086c4ce35f70ca753610510f394fd9f00ff5e1f005010",
       "source_sha256": "ce3afa33e7a42b18615c902a6501f268183bdcf65e26a670bcc60c5bf704f5db",
-      "ast_sha256": "76f4ee5470f7c0a5fc6cfe9e1e7c48f5619cd5373c978c0a2609ae3134043b52"
+      "ast_sha256": "76f4ee5470f7c0a5fc6cfe9e1e7c48f5619cd5373c978c0a2609ae3134043b52",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "day-of-judgment.json",
       "oracle_id": "d057289d-5e28-43d5-8ff3-4a1bc723477d",
       "record_sha256": "777344a00bdab4eb32d8b73d671f892a4743537e0a47cf070a5880f3ccfdbfe6",
       "source_sha256": "4266d6eaaddb54dd34b170a87ef752827acff3a97cfd266015c29859e1a67ece",
-      "ast_sha256": "2fc6b422ea4084560b3bd501a66c6eba957cbcfb703a595e057bf8701265ea6f"
+      "ast_sha256": "2fc6b422ea4084560b3bd501a66c6eba957cbcfb703a595e057bf8701265ea6f",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "deadly-recluse.json",
       "oracle_id": "6b941291-1802-4ced-9869-39fa43825550",
       "record_sha256": "9db9c88a1f04e01bd801c7662b0a2e1d13274b4fbd8c6d21e747ba864b778bae",
       "source_sha256": "c1016cb2fd5abda3302ba2158b8367d41bc23e3657cc066b6522d2e6cefbcfd3",
-      "ast_sha256": "9045e98e3fb860e55b652b27e9a9f68faedbe976bd0e443230f4fbb0d8d0c3a0"
+      "ast_sha256": "9045e98e3fb860e55b652b27e9a9f68faedbe976bd0e443230f4fbb0d8d0c3a0",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "deathgreeter.json",
       "oracle_id": "b7ad11dc-c962-4034-b15a-a080c6fff75f",
       "record_sha256": "903ef9fc0727b4c98ce9e7d6b36408291cf6433ad437651dc713758eadcca01d",
       "source_sha256": "16d63c5fc326de874035c39bd32960030d022636482d816e51778430a60490de",
-      "ast_sha256": "e1c68a9ac0879e6f8f316369f884d14c4a278158063813501ff774782fcc6cfe"
+      "ast_sha256": "e1c68a9ac0879e6f8f316369f884d14c4a278158063813501ff774782fcc6cfe",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "disenchant.json",
       "oracle_id": "a7e97fa9-4b72-4548-b854-5be5f18a6f1a",
       "record_sha256": "06c652d090fcb4b45e21ac90e37b3f7b29d336a4483280f3700c5f2f21e89000",
       "source_sha256": "2bc0007767c904fa00b29d6204a78508cc64c6ff5d0a2afe7b62f7e708654596",
-      "ast_sha256": "a5104a0f9fbb91626d797eba9588a70e80c7045a5eeedb548f2347b8ba46f83f"
+      "ast_sha256": "a5104a0f9fbb91626d797eba9588a70e80c7045a5eeedb548f2347b8ba46f83f",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "disfigure.json",
       "oracle_id": "77eafe49-b9c5-461d-89c5-cec217dd2974",
       "record_sha256": "8ab15e07cdfa236e5a59e471ab88d92cae593254cba4e3ba7b809ae22552c7fa",
       "source_sha256": "c48a5295c40e24aa708efbbb08a5d737c375942c5d1161fe622eca7a4e555d10",
-      "ast_sha256": "786a1c604c21105b741f86e704da03e0fb75aae4ba91d9dd18f4f2afd60b7edf"
+      "ast_sha256": "786a1c604c21105b741f86e704da03e0fb75aae4ba91d9dd18f4f2afd60b7edf",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "doom-blade.json",
       "oracle_id": "59e7f2ae-4535-4191-98be-3e65b6b2befa",
       "record_sha256": "ee84dd06188add978507bbc8d0914c2ee4a39961bc08eb74725e86e6ebca7902",
       "source_sha256": "a11419b389d035fe5ef70093473df1276ad26a0f34fcfc7f20a3acada96fc98d",
-      "ast_sha256": "574c4fb1f3dc4e1260e6204a555f8463c5a7f662e6faa5e5e1ff6327c924e9ed"
+      "ast_sha256": "574c4fb1f3dc4e1260e6204a555f8463c5a7f662e6faa5e5e1ff6327c924e9ed",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "doomed-dissenter.json",
       "oracle_id": "11cb509d-21af-48f1-b355-135ebd3e4bd1",
       "record_sha256": "b621d843f3a3fb1c2e0c1289304094b3b3335b421a64561ae3a6e13b02d86dee",
       "source_sha256": "bafab9093dc5027f1bb469f92c23c86df70a25fca17ab47577b749846a3ae88b",
-      "ast_sha256": "c0dc1706f9042cb97e4c7e29e3a5461fc5cbb6565556a398205b909b815c3600"
+      "ast_sha256": "c0dc1706f9042cb97e4c7e29e3a5461fc5cbb6565556a398205b909b815c3600",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "dragon-sniper.json",
       "oracle_id": "913dbce2-6805-453f-a9c3-64f1cc658627",
       "record_sha256": "506c10e185b2b6560c98d6b463e14331bab21bf68f8883d8788febee9a81ae2b",
       "source_sha256": "b23d2eeb71ff931853b429b0ef89b99f291e895096eb0ad557c76e411601301a",
-      "ast_sha256": "2bca91b3cf0bdf26006dd6f4bc3975c65a57dd052b21468667b1fc9f0e939176"
+      "ast_sha256": "2bca91b3cf0bdf26006dd6f4bc3975c65a57dd052b21468667b1fc9f0e939176",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "dragon-trainer.json",
       "oracle_id": "328a0691-9453-4f2d-a9c3-5c69da252d20",
       "record_sha256": "a0f7a3489d1f2d7a67d93cdf43a20d3f0a2e1f5aa4e3e7b85dc730ca80a7aee9",
       "source_sha256": "7b05fdbc106daaeac2929b5a977feee7a909a8439903a8c2501fc25557471c37",
-      "ast_sha256": "036deaa82c21cdd9398e622dbf972d6b25483b89beb830d62cafcf78ca7a9a46"
+      "ast_sha256": "036deaa82c21cdd9398e622dbf972d6b25483b89beb830d62cafcf78ca7a9a46",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "dragoons-wyvern.json",
       "oracle_id": "f328012f-4696-47bb-ab43-247bdcb13f03",
       "record_sha256": "2b59647991bfdcd0f8076c7afba49008beaa615b499e62810c58a641a0d106ba",
       "source_sha256": "4baef7571026787ef1a854091c2f4595c487601c7e7c5df933fdc27e9b7b0de2",
-      "ast_sha256": "cced6587807d899ed0a2c411e5e4d21f2d860acb10e589c1da20a215186673d5"
+      "ast_sha256": "cced6587807d899ed0a2c411e5e4d21f2d860acb10e589c1da20a215186673d5",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "earthquake.json",
       "oracle_id": "9a40614b-50a3-422c-849e-53c8b7d3d204",
       "record_sha256": "3f9c9bf659cd0718b7559469cfeb6dc2a06190f13460022225c09d1451c8a11f",
       "source_sha256": "7e4882cec2a05a2a457cab52afc63eeeee1310c00ff3b0e395fcd21611969e0a",
-      "ast_sha256": "74afdfb0364719e302cd4406137745bd33f83236fcb27bcf02cf680bfbc732aa"
+      "ast_sha256": "74afdfb0364719e302cd4406137745bd33f83236fcb27bcf02cf680bfbc732aa",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "elfhame-wurm.json",
       "oracle_id": "9a74a1dd-c36f-4900-b835-fc39dd725bde",
       "record_sha256": "2d2b7bc1259cda53f5705aab6ed1dae0cafa71fa03d3da6e22d00cb633ceec85",
       "source_sha256": "8e2302f1bf391e8c2d6e49847e107db352aacd292e53a8d1942ea0ea78d7f5a3",
-      "ast_sha256": "9c15698781715bf35465ead03d50a9733df955e5585292dcf5af5cdd63476e57"
+      "ast_sha256": "9c15698781715bf35465ead03d50a9733df955e5585292dcf5af5cdd63476e57",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "elvish-mystic.json",
       "oracle_id": "3f3b2c10-21f8-4e13-be83-4ef3fa36e123",
       "record_sha256": "328da5b2f61d89be95cabffe98918dd1ef445d153626601f292370614cb3b601",
       "source_sha256": "5e13a9a3febaa3167d9fb77a3f073e4b668c0bf5189a6237c6fabeba3817529a",
-      "ast_sha256": "a2f82dac8450c4f4df02797b58e62e7c07469a08db1cd4c89e951132e58a5523"
+      "ast_sha256": "a2f82dac8450c4f4df02797b58e62e7c07469a08db1cd4c89e951132e58a5523",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "elvish-visionary.json",
       "oracle_id": "c6a3a882-a127-4590-93d7-679ef4313efe",
       "record_sha256": "55c4ba511575399ea23bcda388c460fda2f578e146818a240fb98d27aa6d0471",
       "source_sha256": "26f75484b163d8f6a482e1d15719623f7e87729fb5dbf0f57f89d67373e8c74f",
-      "ast_sha256": "71671b1e730c094094bf6ef196a9b2da68ba78dc38c3c616c3d19d9072627a37"
+      "ast_sha256": "71671b1e730c094094bf6ef196a9b2da68ba78dc38c3c616c3d19d9072627a37",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "essence-warden.json",
       "oracle_id": "6ca2a89e-7032-4864-b4e9-66f3178f90ab",
       "record_sha256": "eebedc961887a7f7b6cc9a998485b4615dfc485401843a5aede8da053e61e220",
       "source_sha256": "6c4225ff3a8e52c25e1e1f79eaf5a355f6b1d6ff24884503e010a10a7a91eef8",
-      "ast_sha256": "ba3053af6c381b36ab26e6ddf231cbd269c8800d8a9b70fed78d255e6a7290ec"
+      "ast_sha256": "ba3053af6c381b36ab26e6ddf231cbd269c8800d8a9b70fed78d255e6a7290ec",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "evacuation.json",
       "oracle_id": "fdd94383-b573-439a-8e1c-925af887c5a6",
       "record_sha256": "919a48ec8e5b33c2678d9c9555288ef839b41bdee3b5cfb28057172e16f03a26",
       "source_sha256": "4cf4d1e64af2821253a971126718f248855bf4dbd62576c3675e3bd171ae07c2",
-      "ast_sha256": "07c3eb2951e9609ff2937eb4b8d9a09ce93d034542273602b41008512498ba24"
+      "ast_sha256": "07c3eb2951e9609ff2937eb4b8d9a09ce93d034542273602b41008512498ba24",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "explosive-vegetation.json",
       "oracle_id": "a0abd957-01a0-4aa9-8fc8-0e6840d21606",
       "record_sha256": "34770446e2f4187a6aad65ca8eaf21cd8c7ec02bdb44ff2f026924584d1d5a1d",
       "source_sha256": "829f1029aff3496655d2848ce7de97a64ad43e089f66e4baf9b34c44dc5032f0",
-      "ast_sha256": "802639fd042496ef0beda379fa39de107f29fd5984dcb61e0601f8e3b904678b"
+      "ast_sha256": "802639fd042496ef0beda379fa39de107f29fd5984dcb61e0601f8e3b904678b",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "feed-the-swarm.json",
       "oracle_id": "5825997b-10d7-4a36-972c-a80ddd90b8ed",
       "record_sha256": "b7a64ec1ba670e0d0d91b034c2337a2dd04b283e570031942c71529adb38a45a",
       "source_sha256": "bd75f920c1aae04428cac13fc2e9c0b7b51eae6bd1aec29c8e1c431529099536",
-      "ast_sha256": "cf76375445e48723cee44ebc7210e33f1768797045c25747a4b0b5a33e1bc9ce"
+      "ast_sha256": "cf76375445e48723cee44ebc7210e33f1768797045c25747a4b0b5a33e1bc9ce",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "fellwar-stone.json",
       "oracle_id": "95560508-7ac9-4be9-8a3f-3c7d5b52807b",
       "record_sha256": "d3f96695988e042f232cdb0b5f3a42940c9f64777cf233b59f7c230656105396",
       "source_sha256": "60737f6f49d53ae1733c8a51786e0a49a9891416e7fe7507e969b37a176c6b3b",
-      "ast_sha256": "9589fc1e9a4a3fbeff692f3165a5a32ac24820e4dd7ad6783f95eca101bbd8d5"
+      "ast_sha256": "9589fc1e9a4a3fbeff692f3165a5a32ac24820e4dd7ad6783f95eca101bbd8d5",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "fencing-ace.json",
       "oracle_id": "2f810936-2ba6-4c2b-84a0-ff4c1deb026b",
       "record_sha256": "17c58e39ddfd6f120d64e1f80c5ffeb5921ea7795478f9cd355bb7faf8a262e1",
       "source_sha256": "4357f7fe5d632f97b6251128ac1154db26a1f2e66b12f88d7559fd45c1133d7b",
-      "ast_sha256": "3a80cdba803f330a808ea0c2509de68031283eab364e35e82427024a2b6f118d"
+      "ast_sha256": "3a80cdba803f330a808ea0c2509de68031283eab364e35e82427024a2b6f118d",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "ferocious-pup.json",
       "oracle_id": "a1112750-8d38-49e0-ab1c-77110b2bbc4d",
       "record_sha256": "bf095aa36339bc49ba5053d109b0a942d06eec7511e3c0b6c17a639e9f3be26d",
       "source_sha256": "77b049309c3ea9ed01a35f4becc301df43d1302d461e38d6b95ebb46fe195608",
-      "ast_sha256": "88001f9b0959438dac1a7da42069fc674f00ec074e6b75ecb39b2fb23b8b55fa"
+      "ast_sha256": "88001f9b0959438dac1a7da42069fc674f00ec074e6b75ecb39b2fb23b8b55fa",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "fiery-confluence.json",
       "oracle_id": "3c22e031-4804-4c31-bd3c-c3f29d456b34",
       "record_sha256": "4fb81b9a9ffb22a08f6ca00ae514d8b587d5b90c42e91dd19a5a70477b75de92",
       "source_sha256": "7b9cef7bf5f705f09e6edcf4e21b87e80a97ac074f7a247ed4fb7e570b8e0bb1",
-      "ast_sha256": "b111cf97158f0b7936a88715a7bc5b539c47fec1d7d500f237e31e8d3c84a556"
+      "ast_sha256": "b111cf97158f0b7936a88715a7bc5b539c47fec1d7d500f237e31e8d3c84a556",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "final-judgment.json",
       "oracle_id": "69ef9308-bc25-4f3c-a5fd-1ebaed6e4842",
       "record_sha256": "b3878ea06adfb223b3121e959e77399b656c09518109182dbc5ae82f7131a0a6",
       "source_sha256": "afd1073137909bf2b761f83e0cbb994d829e30674e7ab5d57187e76d75742e51",
-      "ast_sha256": "375564c5cd7f797b4e086a511b2ea2fd4568645011e98cbbff9a8da308e6cf5e"
+      "ast_sha256": "375564c5cd7f797b4e086a511b2ea2fd4568645011e98cbbff9a8da308e6cf5e",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "flame-rift.json",
       "oracle_id": "28479aa8-d1cd-421a-8bbb-0594bb4dd410",
       "record_sha256": "d7513ded742781ea970531b0e77718985b61553e1955f3e6b1d4e0d49723d53f",
       "source_sha256": "c3f4f56bd5ad286b6d0ce69c41ca7dc14742db1e9ba5d08fa783f699db35a864",
-      "ast_sha256": "0fdfa7aac1dfcd12fdd58e6cfd96963c85878e6079e182ee7ae413f0bdb7417c"
+      "ast_sha256": "0fdfa7aac1dfcd12fdd58e6cfd96963c85878e6079e182ee7ae413f0bdb7417c",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "fling.json",
       "oracle_id": "24227761-b50e-4b9e-93a2-e82d053b3e3d",
       "record_sha256": "f62b7c74d910b1b33706681b78874f4c639b58ef217c61cf7252460fd7f3f47a",
       "source_sha256": "e133b4b9e4244ef04c473b4ea6a40d164c906d443a22b691d9fe6dc74a2d8f39",
-      "ast_sha256": "0a8311ef0fe46b4052832c23683807746b1a9047303b3064e8f34437b38cf98e"
+      "ast_sha256": "0a8311ef0fe46b4052832c23683807746b1a9047303b3064e8f34437b38cf98e",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "fog.json",
       "oracle_id": "27e9db49-7af7-4bef-ad4c-bf5dfb92030d",
       "record_sha256": "8319fb76e7091ae121e9d5393dea0e45cd2454519ae7f6197c4859d975c1f132",
       "source_sha256": "429a99f6401f0c807cd153650297d19fa0458d2851d62ea0c1587c2618134d7e",
-      "ast_sha256": "28420ebb0c166765af80123d6592db44683f3924be35354abfd883a78d035c5f"
+      "ast_sha256": "28420ebb0c166765af80123d6592db44683f3924be35354abfd883a78d035c5f",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "forest.json",
       "oracle_id": "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6",
       "record_sha256": "88cc92acedaa06983e21abada4ce21abe4bf177bc30c269bea55c994e44c78e3",
       "source_sha256": "50f2a53e3ed1ca1148b4e97a9e50a6923744944fca6306f3f1eb67231140c2ca",
-      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "fumigate.json",
       "oracle_id": "b17ea905-0696-4e58-b564-557e87236e27",
       "record_sha256": "8535fd10a0dd5c4d1fea8a97da2d7061ea0704a7d30aaa1e47e6de174662ec38",
       "source_sha256": "1ec02b0c65930c759dbc67d65ae4e93683f29acd1b2be27ec7a97a9a373af213",
-      "ast_sha256": "e82f14f0d7f0c5b416f243ae235b645e7185d4b56a143b42d1f9183dabf04431"
+      "ast_sha256": "e82f14f0d7f0c5b416f243ae235b645e7185d4b56a143b42d1f9183dabf04431",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "furnace-of-rath.json",
       "oracle_id": "68715465-6cf9-4006-87e9-31f227fe9ed3",
       "record_sha256": "ebd8181fc5bb82cb6fe4dd406e4ffcb3ce40df82a552704d2381466b1d0de6bb",
       "source_sha256": "c25586ad2af602cc8f2ee5753ab7a3f1055e8ad31ea442d237ff8d80762db7f2",
-      "ast_sha256": "18159467108132b3b2995bddbd45509bfecc3dee4d31eef326014cfa987705df"
+      "ast_sha256": "18159467108132b3b2995bddbd45509bfecc3dee4d31eef326014cfa987705df",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "gallant-cavalry.json",
       "oracle_id": "b500c460-2814-47a4-b307-17ca519f3565",
       "record_sha256": "0263e39e1611c4c39c6bfc817dc2276a56b4ee4e4f48ebd333ccea211b45416d",
       "source_sha256": "628bc0990df66fee896f414768a490d3c14c1f87ff60822e303e202e220d84b0",
-      "ast_sha256": "6aa0d7855a44ddbbcdcadbdcd27c1b77612a66fa2f5dfacf2f83b3166beb3cce"
+      "ast_sha256": "6aa0d7855a44ddbbcdcadbdcd27c1b77612a66fa2f5dfacf2f83b3166beb3cce",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "generous-gift.json",
       "oracle_id": "fae37e28-e137-4177-b973-fa8b4dd8f409",
       "record_sha256": "1f64045c48173fa5657d2b4a9e338e6ab414df6bf75a1ae45f918feeb0d08516",
       "source_sha256": "581bcd34d8b77b6f68c21d93d386b5225771260539fcfec10a31d2c75eee9772",
-      "ast_sha256": "a6ff6bcef76d36ad88cbbfa1f0830c58959c2e90ba0a107886072b8e7f0b9f8d"
+      "ast_sha256": "a6ff6bcef76d36ad88cbbfa1f0830c58959c2e90ba0a107886072b8e7f0b9f8d",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "giant-growth.json",
       "oracle_id": "5748ebf1-24e3-499d-ab7c-c2cebd462a24",
       "record_sha256": "43b11869ae533f65176a3ed8422c4b1049866c66e106aae4c216971e3a0be51a",
       "source_sha256": "39f0e631d644137618c46213840c570637bc446f50e072c0aea567322c6b0656",
-      "ast_sha256": "97497091ffdc8617a4c0870ec9df938d8edae87b4cced3905d136bcf193090bc"
+      "ast_sha256": "97497091ffdc8617a4c0870ec9df938d8edae87b4cced3905d136bcf193090bc",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "giant-spider.json",
       "oracle_id": "e740ce2f-2134-473c-afa1-1b6d2d1e38ef",
       "record_sha256": "3c4fbf710b23e1d8c5aaa78fe71f3befc66e282360c360e6e1ace50df5f9d2b5",
       "source_sha256": "8de1087201127221306223967b41415baef55cc26f42f4acebee1ed7ee7493b7",
-      "ast_sha256": "e01460e83cb4b8cd97ec37024064512d2d31754967e5ef8277cbcbc88355db11"
+      "ast_sha256": "e01460e83cb4b8cd97ec37024064512d2d31754967e5ef8277cbcbc88355db11",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "gift-of-orzhova.json",
       "oracle_id": "dcb6d317-5c55-4973-8e3d-2e98211dc30e",
       "record_sha256": "79e561a0b565d9d0447f72f0955eb5a08eb72c9c6133cb6b6e6c91d675d88588",
       "source_sha256": "098ea8e2a96d1a240cd3c0bd332dae4104425b97da5963a1d79652734b5e9c2a",
-      "ast_sha256": "44c72f1a205671ad3716b2235a188ee501541d77d7f167b05895e6a29e168c55"
+      "ast_sha256": "44c72f1a205671ad3716b2235a188ee501541d77d7f167b05895e6a29e168c55",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "glorious-anthem.json",
       "oracle_id": "e3886fe8-9b76-4613-8891-4ec74657c087",
       "record_sha256": "11f98cd950cf0be3eebe6531393040c7afca52e6c19f9ac91eb2b5ed851575c6",
       "source_sha256": "a59bcf59622f29bcf2464eb018368d287371850aaa6108b96dd6969133a9a784",
-      "ast_sha256": "56b5dff17de61b7cc07bd8cdc2463eb3c5c8b5a2858aeb7745f4938ccf61111b"
+      "ast_sha256": "56b5dff17de61b7cc07bd8cdc2463eb3c5c8b5a2858aeb7745f4938ccf61111b",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "go-for-the-throat.json",
       "oracle_id": "2f092562-9e17-43cd-aeb8-d0567f99363e",
       "record_sha256": "837a70ad696179a755f6104b94fe7c9609abf6b59bf7bfb603701e9ba3abf114",
       "source_sha256": "53338afd0abfd6241c28bf98dabb2ab7e287e623c9eebc8859fe08bea7eddd78",
-      "ast_sha256": "e0379615ee50e9af310df79e83f3efee4a3b4bc4ee55c6342ddafb4d68e937cb"
+      "ast_sha256": "e0379615ee50e9af310df79e83f3efee4a3b4bc4ee55c6342ddafb4d68e937cb",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "goblin-arsonist.json",
       "oracle_id": "c1177f22-a1cf-4da3-a68d-ff954e878403",
       "record_sha256": "61d5e8fc53a90e1811954623579e2df2d3b047a57b966c7690434f11a4082f9b",
       "source_sha256": "62ba941b85dfe28356ecbd5362cfaf69c0d8186f7a32c3c902b2d0de2947a327",
-      "ast_sha256": "699fe06ba6cc7f0940e5912cd052ae1bad6a812d95609941ed7a5e213067a0ac"
+      "ast_sha256": "699fe06ba6cc7f0940e5912cd052ae1bad6a812d95609941ed7a5e213067a0ac",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "goblin-bombardment.json",
       "oracle_id": "edad60c6-80de-4033-af1b-a703ac332983",
       "record_sha256": "9ff7a3cdda56f266356b2879d998e27b746a2dbdf7addf6f3eaa874fdeec1412",
       "source_sha256": "90907dd2da8e6aabac9d6f1630b980eceff02c0f8c4308519e70cb81e7033167",
-      "ast_sha256": "a01a8014af4615fff87d5950722b5926320fab96f156cc3ceed0e16ca00b4773"
+      "ast_sha256": "a01a8014af4615fff87d5950722b5926320fab96f156cc3ceed0e16ca00b4773",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "goblin-instigator.json",
       "oracle_id": "8b022754-6d16-470e-b754-4df6e4f4709e",
       "record_sha256": "f6f7967305b49372f28674d2d1578e4fe3982ade17baf9a72f9d8e3a7eef67e9",
       "source_sha256": "275a3bee2335280a7024123572f45aae134099b2000a1f7f1eb8450beca47a90",
-      "ast_sha256": "89bdbc61495e0d6276d811a5a5289bfbcb31929c350a2ae048a6a759d386e2d7"
+      "ast_sha256": "89bdbc61495e0d6276d811a5a5289bfbcb31929c350a2ae048a6a759d386e2d7",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "goblin-trailblazer.json",
       "oracle_id": "38f66ef9-6afc-478b-a1d4-a9d42c31dfc9",
       "record_sha256": "2cf8043a2db1bff846c8acfcddf298b2152d57011e8fe1a2bcf3b3e29d13eed2",
       "source_sha256": "e07a7035f5fc698c5e65c7e4e36a58dae069e3fc722316f75b06d62e93c25cd1",
-      "ast_sha256": "76f4ee5470f7c0a5fc6cfe9e1e7c48f5619cd5373c978c0a2609ae3134043b52"
+      "ast_sha256": "76f4ee5470f7c0a5fc6cfe9e1e7c48f5619cd5373c978c0a2609ae3134043b52",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "golgari-signet.json",
       "oracle_id": "1cf51f50-24e4-48d0-95b3-1dad3ffa4bf5",
       "record_sha256": "8f9020b2290efb299a3432843f11a719c0c274f0ed341d172ed99f485e661e2a",
       "source_sha256": "32d69cfed2e41e968bdcd0e1af7beb24e486807563b1218be0c605f31eecf04b",
-      "ast_sha256": "e8aa2efcc00bf26d0ef2eecffeb5f4453307467641bfb073cad8367ca634bf03"
+      "ast_sha256": "e8aa2efcc00bf26d0ef2eecffeb5f4453307467641bfb073cad8367ca634bf03",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "goliath-sphinx.json",
       "oracle_id": "73115500-4468-43b3-9151-13e3da9050c5",
       "record_sha256": "39fbc8027907352b24e0b292be2ce7613f6de070f0b17ec4abaf8a8dc9f36842",
       "source_sha256": "20f77dd67df67aa3b25c1cb013a9396253b1c3e897707a811574aa933e8cfeb9",
-      "ast_sha256": "03c41db2c0f2f10f62b4010ad98aed0eb4e755cd59806cee146c2441ebc4c935"
+      "ast_sha256": "03c41db2c0f2f10f62b4010ad98aed0eb4e755cd59806cee146c2441ebc4c935",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "gratuitous-violence.json",
       "oracle_id": "7c340a39-4ee0-4ba1-bb66-6674f8020fda",
       "record_sha256": "3b8a48dc731d2ce8ac8d443ab56474b8f95578900196b512b22107c701c84457",
       "source_sha256": "81f6aeae09379a1a2a140e3de8de31d667735641625eb646bea95825f11cda50",
-      "ast_sha256": "1d2cfbf71360a37b4116a5b85129568efd976e11b0dbaada2f5020c2663e62a4"
+      "ast_sha256": "1d2cfbf71360a37b4116a5b85129568efd976e11b0dbaada2f5020c2663e62a4",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "gravedigger.json",
       "oracle_id": "1a2030cc-d7ee-4059-b2d7-fb95ea8e267b",
       "record_sha256": "178de24f8eeddaf6ee741ea4b79d7dd7f30d86cf2f92680af5bb37be3db87e52",
       "source_sha256": "fdf803a2147af8dc7a1f1c962a0499eb60334b0514ece92329538544b4b9284d",
-      "ast_sha256": "91befa201267e767dbbd9e72c507611c7d7d37566f54a03e8e8c6b2163c9df1c"
+      "ast_sha256": "91befa201267e767dbbd9e72c507611c7d7d37566f54a03e8e8c6b2163c9df1c",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "greenwood-sentinel.json",
       "oracle_id": "8178c546-84f8-4563-a804-6489ec016660",
       "record_sha256": "dd04ca76026f6980d0d3ab8ebf95c6166b8893b1469bab635c19edd7f485a071",
       "source_sha256": "3c41e25032ef3d06303aedd22f5ff452a1c76e5143e8e1670375a160a2819bb4",
-      "ast_sha256": "8763b20dedcec48ca890bcd17bab48b8387c02de5b18f265b15488b58f182a3b"
+      "ast_sha256": "8763b20dedcec48ca890bcd17bab48b8387c02de5b18f265b15488b58f182a3b",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "grizzly-bears.json",
       "oracle_id": "14c8f55d-d177-4c25-a931-ebeb9e6062a0",
       "record_sha256": "54f128f4edd526ff1b9c99e43c07ed749418e3a28d553c689242a585a656b3b1",
       "source_sha256": "0c19e173c1697928e3bb8c46cc6fde36912566e736c8fbfa9c6ee8fc2484743e",
-      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "gurmag-swiftwing.json",
       "oracle_id": "fc1256e9-eb92-43b6-abfc-ce19d910a929",
       "record_sha256": "c7ee888015dcf58ce6e91a75853b7c37a537585372f777a276d8c2450786e3ff",
       "source_sha256": "e7ae77c8477b0ebb821ca2706f542b6b7df32137f954298c7a216f11c4e266a3",
-      "ast_sha256": "839be490629b9a1260109fe68721bf4ff3b2256805576d2948eab9eb6e5e2a9e"
+      "ast_sha256": "839be490629b9a1260109fe68721bf4ff3b2256805576d2948eab9eb6e5e2a9e",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "hapless-researcher.json",
       "oracle_id": "240a349a-79f8-4e11-9a05-a78148e70a62",
       "record_sha256": "d047cc02d838a248585a596d13b60185911082a2897a1a0211310c2fe57591fd",
       "source_sha256": "9b7c1f4bbd45e5a5b2d96856a028d25eb23035c87c42866874fb74d8d20c2610",
-      "ast_sha256": "b2f0f066f520788c04676d044fd7cfb0b7c2ed81d8e43101031aeee9cd569cc0"
+      "ast_sha256": "b2f0f066f520788c04676d044fd7cfb0b7c2ed81d8e43101031aeee9cd569cc0",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "healers-hawk.json",
       "oracle_id": "28a52ba1-95da-44e1-8ac5-0dc23c902394",
       "record_sha256": "d7f17a9402e7805da802dc47caf946da7cb2a7079f8bc258e2c462174172feaf",
       "source_sha256": "21be140ebb567a08b3f5c78f3e82d041c3201cb646ccd8256c71a8b4b19a15aa",
-      "ast_sha256": "1c180d53ea612285a806ca85a21c9c3d40e063c0d5f2f158e8cdec2f86ac0b94"
+      "ast_sha256": "1c180d53ea612285a806ca85a21c9c3d40e063c0d5f2f158e8cdec2f86ac0b94",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "healing-hands.json",
       "oracle_id": "3cc48835-3ac0-4774-b380-f9b21d2dc974",
       "record_sha256": "fe1712c45689f77b1464694316a3bd525aa678469f1a85e5c65bb1504df30200",
       "source_sha256": "5da894433f37708bc58ae017caa6c499a8c4b8299d90a675081962f4eb9642b7",
-      "ast_sha256": "c72a402f9e4016a69fe718792f31955352242e8f45a6c2b7357aafc9ae0d21a8"
+      "ast_sha256": "c72a402f9e4016a69fe718792f31955352242e8f45a6c2b7357aafc9ae0d21a8",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "healing-salve.json",
       "oracle_id": "8da8644c-75a1-4fe9-8e94-900d948d631c",
       "record_sha256": "e291d7f06d81683580274c35e523e37bccd78b24f04aaf9db9b2c32d9ea80c6b",
       "source_sha256": "5c1fcd490046e7503cb066f742517400dfef4e40614e1d64bfcd471278d5241b",
-      "ast_sha256": "0dd55f5e8abd330c6c9452ec6c1338cea15ff78c1ba45e01da7e1fa0c6293513"
+      "ast_sha256": "0dd55f5e8abd330c6c9452ec6c1338cea15ff78c1ba45e01da7e1fa0c6293513",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "holy-strength.json",
       "oracle_id": "9357de36-f8be-4f49-b2c8-9fe9eaf82b07",
       "record_sha256": "f35476c0fff401167720286f5a6d137146f6708b7461fbdc4ace68e2b472b9cc",
       "source_sha256": "6fad0f71001ee376e38b0091d289ab20d3028729b8f4e161c9d8294cb145e54f",
-      "ast_sha256": "49f292d5a21efb02e21951270155226f64fefc43ede9f2a706be3fb7f69b3d7f"
+      "ast_sha256": "49f292d5a21efb02e21951270155226f64fefc43ede9f2a706be3fb7f69b3d7f",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "hornet-queen.json",
       "oracle_id": "3b1f8108-6911-49e9-8f78-f950bb58cb6c",
       "record_sha256": "a3dfc8fd07be9edb90474b7f26b61389b4cf27cbb74d9c8fda2e4fae929f62ae",
       "source_sha256": "aa57ded046ee70f69e28009226e6f44f11c273704f029f2abe00a22ae9a835e5",
-      "ast_sha256": "4bf5f3ac641d5de2797b53ff2f048502d2143702500212303909abddbf380dd2"
+      "ast_sha256": "4bf5f3ac641d5de2797b53ff2f048502d2143702500212303909abddbf380dd2",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "hover-barrier.json",
       "oracle_id": "a09cce6f-c957-49d7-af99-a7b2bce786e8",
       "record_sha256": "0f6124603bce75fc153537bc5f9e674e1c03f72c17749c676641ae0bbe27abfd",
       "source_sha256": "cf2c5c03e3adf1e3ea7c8962928d436ea6bd422e84bdcc169775e69279eb6557",
-      "ast_sha256": "723f80f724048f773e4cb8abb5865a5ffbfa16f279969eb6054beab3fc930d2f"
+      "ast_sha256": "723f80f724048f773e4cb8abb5865a5ffbfa16f279969eb6054beab3fc930d2f",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "hunted-dragon.json",
       "oracle_id": "39a4416f-9b40-432e-aeb6-cc7bf519b37a",
       "record_sha256": "0f3aa19e98cfd4898481de0dfca2acf6dfb0a51b66c82c7aa9a0b2d0db3c251b",
       "source_sha256": "94a671915f5df6a8a56692fc05acd4511088edb7e3fb93cd5a2c55e94da78380",
-      "ast_sha256": "0e6f69af12766b2e56648c1c7914d72cedeea7ae9ea602b57d87ada7cf33abd3"
+      "ast_sha256": "0e6f69af12766b2e56648c1c7914d72cedeea7ae9ea602b57d87ada7cf33abd3",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "infest.json",
       "oracle_id": "d6850616-7db5-4141-9ab0-ae8d1f08114f",
       "record_sha256": "0f67ff119bd911ccff472c2cc6aab203d93e79c9c4ec47941f2bda509eb4687d",
       "source_sha256": "d9a1e6a7de1c47edcd3aa018a636382a62c2fe1df2aad77784c78d4a58f26c34",
-      "ast_sha256": "9137db8843931a8889c5b4c0d45db286c9d5f14768b6d19f12b485d5f8c4689b"
+      "ast_sha256": "9137db8843931a8889c5b4c0d45db286c9d5f14768b6d19f12b485d5f8c4689b",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "innocent-blood.json",
       "oracle_id": "6791ec3c-c397-4087-8c8c-84d3797df415",
       "record_sha256": "cbf7fcd5f51c81b89a0ad394de57db979f6b3791a7c6d9e8ea2489dcb1b9a71c",
       "source_sha256": "a8cd749ec670a70edad252da45c6eeac0af659c842c8ef0f4a5729cc473c38d2",
-      "ast_sha256": "d45e6ee0ec2f20cefe0e12ef29a177e61c6e11ee2972eea5ad2b5e2b88e2a7bf"
+      "ast_sha256": "d45e6ee0ec2f20cefe0e12ef29a177e61c6e11ee2972eea5ad2b5e2b88e2a7bf",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "ironpaw-aspirant.json",
       "oracle_id": "fab5f694-4a9c-4e72-b164-f236e8212ff7",
       "record_sha256": "ea45afb421940eaa3b062cee5bdfd85fc2031c79aec1a70960785db8a43c430f",
       "source_sha256": "80891e451c391e28db5c72f050cc4f1a3e73c75de65f4140c6932ebf40bc7eea",
-      "ast_sha256": "c4d249062f4a45090831e5ee1892c7517e582a6eede33a1cf163c37b3f09e04b"
+      "ast_sha256": "c4d249062f4a45090831e5ee1892c7517e582a6eede33a1cf163c37b3f09e04b",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "isamaru.json",
       "oracle_id": "cfb756dd-6fe1-430a-8f04-8b10cac62a86",
       "record_sha256": "22bb848cea7e1d2f638966f9ca19aa9f096f1910ec9fd01f4d918bfdabce8e40",
       "source_sha256": "b71e7507f77abada88bb3512955ed9ca8fd5a3ff395ec8f1ff915940166b9602",
-      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "island.json",
       "oracle_id": "b2c6aa39-2d2a-459c-a555-fb48ba993373",
       "record_sha256": "2c96d0181155ee5c55da6cfb74e68c11fe8ad6489928fee23d54c12771f0df37",
       "source_sha256": "0e6758f21c30efca20f2e89ac83ce7286ccfd2a3e66c95fe5f2e8c1c25629b20",
-      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "knight-of-meadowgrain.json",
       "oracle_id": "4e6c71e8-aeaf-404e-84c2-c79f2a1cbe4b",
       "record_sha256": "4ad0dc704d81f156522e242a9e135a71ef8f093013d163e8fdd099caa129f76c",
       "source_sha256": "c8211095359537536a6f60652f7677dec003142d9e27217344828a330c109790",
-      "ast_sha256": "1fdaf68c5d7199e13752f7c9955f9042299973daca92f713933b377a82a6a382"
+      "ast_sha256": "1fdaf68c5d7199e13752f7c9955f9042299973daca92f713933b377a82a6a382",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "lavaborn-muse.json",
       "oracle_id": "2825ff5a-5340-4494-bfde-80f6f5bce5a2",
       "record_sha256": "7d120772ee60dffae43a4d5cf0f3a43618d7df94568df5b2da14d0a345d6552e",
       "source_sha256": "b2d9c2c4f76beb152074064bcfd8132e895923dcf70fe6a3d8966098d9cc3db4",
-      "ast_sha256": "2a21032cef18a513246c2847fe5780a7a7553a9a9b676a2d92693abc402b70bd"
+      "ast_sha256": "2a21032cef18a513246c2847fe5780a7a7553a9a9b676a2d92693abc402b70bd",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "lightning-bolt.json",
       "oracle_id": "4457ed35-7c10-48c8-9776-456485fdf070",
       "record_sha256": "a64006dde28cd47a2d242147837475921e4c56a059f6e671715f9d4bb6dac460",
       "source_sha256": "20ccb4e02f26dd5fd99c4a9d3616b7f9ef4b96442484808cc324a52d0735f18f",
-      "ast_sha256": "ce15469a6da1d09e5416beac9b87d0c449ccaa9c1fdc58ab0303c3f962feba91"
+      "ast_sha256": "ce15469a6da1d09e5416beac9b87d0c449ccaa9c1fdc58ab0303c3f962feba91",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "lightning-greaves.json",
       "oracle_id": "ca204b66-8d0c-431a-8d34-282f7c2d17da",
       "record_sha256": "499da109c2dde01d9e62cccc1a0d8b1618d7ac1292160e991641269485d1e157",
       "source_sha256": "2f3e16d7ea72c1978ca99de5fd5c2ed0e142656b5f8df6f1ebedbda421ff4e80",
-      "ast_sha256": "a388dc5617cdd1a92bb4bba63efb099403c4ee9e9c6ed4491b5b823892101835"
+      "ast_sha256": "a388dc5617cdd1a92bb4bba63efb099403c4ee9e9c6ed4491b5b823892101835",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "llanowar-elves.json",
       "oracle_id": "68954295-54e3-4303-a6bc-fc4547a4e3a3",
       "record_sha256": "16b5eebd200e0a3476e0cd3f2b6413ac41fc7d3b2fd2afb13770021ccff18fad",
       "source_sha256": "e89ba1f5614f9fc7fea9fa7e3375f52dfb10b19f9777aa987db872b756be8822",
-      "ast_sha256": "a2f82dac8450c4f4df02797b58e62e7c07469a08db1cd4c89e951132e58a5523"
+      "ast_sha256": "a2f82dac8450c4f4df02797b58e62e7c07469a08db1cd4c89e951132e58a5523",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "loxodon-warhammer.json",
       "oracle_id": "dba35ac5-7ad3-488a-a006-6b9a1d54eea5",
       "record_sha256": "813426e47d73a69e856838086a9d25d6442dd30f75c0dcbe86937d1021a72c59",
       "source_sha256": "5da759861ae6773cdbaa2e357fad14e29e26e0e2b24eecb860414011eb57e611",
-      "ast_sha256": "9a8c64fe76c3e3e0682b77f9c74fc2b3a48de2122481753ed9b919d133179d5a"
+      "ast_sha256": "9a8c64fe76c3e3e0682b77f9c74fc2b3a48de2122481753ed9b919d133179d5a",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "mask-of-memory.json",
       "oracle_id": "d6b2c998-a226-426c-a40d-6e6007041bfe",
       "record_sha256": "b54495c353437dd6b09738d14db0a90c88a876df8c4c70e06d2609d7bc6b8f7c",
       "source_sha256": "ccf4d2897d486f85070ee7a2a30973157186c851dc5d934f5c2672aed87cda3d",
-      "ast_sha256": "4059d1f910993ed9f10e4b28a0bf31fe7bb1b210e56dc768671f967a5530790b"
+      "ast_sha256": "4059d1f910993ed9f10e4b28a0bf31fe7bb1b210e56dc768671f967a5530790b",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "massacre-wurm.json",
       "oracle_id": "93cf50cf-0ecc-4d3e-abea-778c1ebacec4",
       "record_sha256": "ebf868454eacce148829a37127e455a90633f9f06b072a7834c62e95ee8bd8b0",
       "source_sha256": "496a77f81abe48f9a15358047c98e40bbf9d08ebe71b45faf8b9ef96fe79ad65",
-      "ast_sha256": "a40e8fd094846ecafbc1992aa64cecb4334178448ac3efa17a205686295e468e"
+      "ast_sha256": "a40e8fd094846ecafbc1992aa64cecb4334178448ac3efa17a205686295e468e",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "merfolk-looter.json",
       "oracle_id": "67362406-b1ca-49e2-800d-9050bfe8742a",
       "record_sha256": "7aa11f7f6acb6bd235123f70b319943d55fe8277c34214375bbc75d0b7830fb0",
       "source_sha256": "e5cc9faa5c2cad2e4800a6931a54506f90820d7b4c4a668162dfb13b0c11c4a9",
-      "ast_sha256": "4d8264216d2b613c00056c0574dac7a0289743c579ced4ff68808d6f409ec59c"
+      "ast_sha256": "4d8264216d2b613c00056c0574dac7a0289743c579ced4ff68808d6f409ec59c",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "midnight-haunting.json",
       "oracle_id": "a79e21fc-89bd-4547-8bef-5510554e1431",
       "record_sha256": "3c6e5fd4cace19bb47dd705cc4193afeaa455752f885b0b99b618b91d524f0d7",
       "source_sha256": "b4d1f23d8bc183e675cfa02f5d9f915e483ac83f5cde27770520496f824f3944",
-      "ast_sha256": "7a2e496a9e3f4c4a5c91abf2e7ac91ce10083b59b2dd38f2a4bfe7dacfcaa49c"
+      "ast_sha256": "7a2e496a9e3f4c4a5c91abf2e7ac91ce10083b59b2dd38f2a4bfe7dacfcaa49c",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "midnight-reaper.json",
       "oracle_id": "e8c7566d-7cc0-48af-a986-83223ec7e06c",
       "record_sha256": "3eb584a5e98c404fc6a950c01ee5e47e8e7a881766c99db098274a103b30035d",
       "source_sha256": "dc563861fedff99129be6fd6404212af89abe80e6ab3eefd17a0cb7c3564161e",
-      "ast_sha256": "4f038e28215cb5ba8fb623e4783d9fac20a576f5944c89efe968ff95d44d3b61"
+      "ast_sha256": "4f038e28215cb5ba8fb623e4783d9fac20a576f5944c89efe968ff95d44d3b61",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "mind-stone.json",
       "oracle_id": "c97361b5-af16-4a7b-af85-a429dbaf4ad2",
       "record_sha256": "d44563fa4a236971e1a0aca2aac2eebe115610631485b5a0f5291242c7baed78",
       "source_sha256": "4b4736f78c6ef9d38fe26e271e8fc7f9ff6ab33394c31cdb61e6be4450da0756",
-      "ast_sha256": "abbc91f3e5175b9312e0e2009f63d7d9d99d8cc44490e511c9fa01b8fb559e3d"
+      "ast_sha256": "abbc91f3e5175b9312e0e2009f63d7d9d99d8cc44490e511c9fa01b8fb559e3d",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "mogg-fanatic.json",
       "oracle_id": "7efd5d62-6da2-428a-98e3-5b842f668656",
       "record_sha256": "6073c54ac50b4d950fb075898c45357bb2cacf02229d5c3cf37f69f0ce4423f3",
       "source_sha256": "781e96663ce745f0561505acc39a030c6a84997a41eb38c79b666b8670dbf3ac",
-      "ast_sha256": "dc3b73f8c638c643de885591b95b1c649078fc1070a3bb5128ffbb70a805c332"
+      "ast_sha256": "dc3b73f8c638c643de885591b95b1c649078fc1070a3bb5128ffbb70a805c332",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "morbid-opportunist.json",
       "oracle_id": "322f44f0-e6da-4ee0-b474-e7d5e9a461c5",
       "record_sha256": "2f391aff098a9f169fd0d6274cb150dd85a4d8d317a0c6ffbc907bbf96610f0c",
       "source_sha256": "6893b9b6d73d685086f7f4ad0d4856793fba7a9dd6a78c03144e5784223e4b30",
-      "ast_sha256": "28ee50adf610b676ef3159edcd9c26c72b0e03d2ba33f9e48f70e512c1b76085"
+      "ast_sha256": "28ee50adf610b676ef3159edcd9c26c72b0e03d2ba33f9e48f70e512c1b76085",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "mountain.json",
       "oracle_id": "a3fb7228-e76b-4e96-a40e-20b5fed75685",
       "record_sha256": "de669ff74341c7bb16ab55b67e814ac0615ecb5096581ea03066b6bddf989d8a",
       "source_sha256": "a36be15fb1c2c6f31dc840854997ae1867516db5dd49d311de6669cf4d2de3df",
-      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "murder.json",
       "oracle_id": "938b4e2c-88d9-4637-bc00-e228920c9a78",
       "record_sha256": "ff414a8c55de4c6c4b83d79af7b618741cf0b4154738f30aa6deab2acba53c33",
       "source_sha256": "58d379e384b140940bb02be3ba3c8d63cc893a0e9424767d673dce85c30ed0a9",
-      "ast_sha256": "0b36a53af480c48c9c1cab699ed8e5f460a881fee81d9a5cf4b678b634495fc8"
+      "ast_sha256": "0b36a53af480c48c9c1cab699ed8e5f460a881fee81d9a5cf4b678b634495fc8",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "naturalize.json",
       "oracle_id": "bdb3ca68-ec1f-4e16-81cc-d23f8f52c728",
       "record_sha256": "9b90083fb778ff019c2dd088de1f88617c47d97d976b484b2f14a52841cf33d0",
       "source_sha256": "9f3610f95e93c8cfb1d898f391f8d45337932fdb7e6704ec856c7ab26874ca9d",
-      "ast_sha256": "a5104a0f9fbb91626d797eba9588a70e80c7045a5eeedb548f2347b8ba46f83f"
+      "ast_sha256": "a5104a0f9fbb91626d797eba9588a70e80c7045a5eeedb548f2347b8ba46f83f",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "natures-claim.json",
       "oracle_id": "6d4e558e-9109-4918-a082-fdcbaffd516b",
       "record_sha256": "7f266e53398aeb937a0c1b4243c08b3d9cd9c26683f617c5bb3e72e7eb5edbbc",
       "source_sha256": "c0aca2528d832f24ee248867c4dbfc6a174534c48fc584e59ce68c7c5630167f",
-      "ast_sha256": "e3b5c51c988fac68650ebc4dc5959ca8b9be26f8f563b1b09614987065416e8c"
+      "ast_sha256": "e3b5c51c988fac68650ebc4dc5959ca8b9be26f8f563b1b09614987065416e8c",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "nights-whisper.json",
       "oracle_id": "7ffae8f8-3006-4969-a339-6d30678f87ea",
       "record_sha256": "0b0b4eb9e5a6780342d5fdc102053f0cac5ad3a13eee53d9b5e7da11a54ff8dc",
       "source_sha256": "bff318c1aed1fd0cba9bf734730e5df57680a8c3f4272e1d113141fc1396a951",
-      "ast_sha256": "2cf17f0fffee832879e4d633804c155215ce9d31aeb7cb8996798d60da34e6c8"
+      "ast_sha256": "2cf17f0fffee832879e4d633804c155215ce9d31aeb7cb8996798d60da34e6c8",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "pacifism.json",
       "oracle_id": "5f5e0b10-c8cf-450c-bfd3-bcb0528ec330",
       "record_sha256": "2408980adedf58f3a43b65cd08a1285a2ba6340916551534efefe412dcaa096c",
       "source_sha256": "e65d4814d42188b0a6b1fa61626c48eeb5d5ee3802cf42fa6d72f64e6b005bfa",
-      "ast_sha256": "f71d50c78f9810e618ab6439b4ab8aaff8a69f7d4ac63c8e446d2bcea01a824b"
+      "ast_sha256": "f71d50c78f9810e618ab6439b4ab8aaff8a69f7d4ac63c8e446d2bcea01a824b",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "pitiless-plunderer.json",
       "oracle_id": "a784481f-eccb-4112-bb38-04a659319660",
       "record_sha256": "edbf182f7d6df9acc2ce956bfbe6cfa3949d1daa4dfe017dac2ed39bd99b5424",
       "source_sha256": "6ded579cc1dd3a155a8dabe236586995e3419e1b600fb263a94a9614fddf8f6c",
-      "ast_sha256": "de6dfaf8d5ccd99a135906ade240babeec198e90de90c78e7147de652224dad4"
+      "ast_sha256": "de6dfaf8d5ccd99a135906ade240babeec198e90de90c78e7147de652224dad4",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "plains.json",
       "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99",
       "record_sha256": "6b23cdb80b5897603e4bf4afc0d07c59e7b49c25672fc6c7fd6ba02855e5e6c0",
       "source_sha256": "2d754c3d2e6a5f780dac19f38fbe26e8631cfecdbe8a4372f095dbdfa308a1d5",
-      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "planar-cleansing.json",
       "oracle_id": "a98c2d81-4add-4292-bbdd-e1b69ff936d4",
       "record_sha256": "b08ebf8102fd001299c49bee2310409a5b4fd1432242237d8860ff0d459329a1",
       "source_sha256": "605607497bae3ea1c0e037b1a7c567cab510eb0039c5c3a77cec09b4c06aa5af",
-      "ast_sha256": "25c6e3a00558e8848597c53fe9a7295ac71d0ea23304dad211afc62c87ddef40"
+      "ast_sha256": "25c6e3a00558e8848597c53fe9a7295ac71d0ea23304dad211afc62c87ddef40",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "pongify.json",
       "oracle_id": "05849bd6-8f38-4031-be2b-e2aa03beb8cc",
       "record_sha256": "641350ca5af7d40d2fa04c321dfcd7a36cfb37af150162ee506e865029b16508",
       "source_sha256": "b06463f53d02290b1e90011e333062ebd1ae51b7905387558b1bfb78f3d1cff3",
-      "ast_sha256": "3a078fd3e70b3bb3af73825c1f550bd3e162719617b850e500b2d045898d6897"
+      "ast_sha256": "3a078fd3e70b3bb3af73825c1f550bd3e162719617b850e500b2d045898d6897",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "prodigal-sorcerer.json",
       "oracle_id": "5e961d15-5972-4e4b-9385-1cd7cd7c6bbe",
       "record_sha256": "287ac71a4e1e39aea298a4040a85457e7bef8972766bed5a0f1c029da67a8a41",
       "source_sha256": "18b86676187cd9d65e57f740d33eb4a2269f597798b3d01d3c1c0327ed49295b",
-      "ast_sha256": "3455807b0e87d423eb54c4d983f1ddbc3bdaf05017135f6fdb2e47793eef7165"
+      "ast_sha256": "3455807b0e87d423eb54c4d983f1ddbc3bdaf05017135f6fdb2e47793eef7165",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "pyroclasm.json",
       "oracle_id": "e4bcd4ea-e7cd-4471-8f3b-18bb51d3d70c",
       "record_sha256": "fa8513c16042a04e2b5999820d36d43b545c661edcb557a144bad79968ac87a2",
       "source_sha256": "5cb949a5975c011ee7dba6e97ef11e88ddde0f44376b71fe592dfb418fa67b76",
-      "ast_sha256": "d92ea22f8e6b3daabb257959d3f4fb03f1d6b97e2007ba83a1e5de78e714c73c"
+      "ast_sha256": "d92ea22f8e6b3daabb257959d3f4fb03f1d6b97e2007ba83a1e5de78e714c73c",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "quaketusk-boar.json",
       "oracle_id": "6fbaa853-48d4-4a3b-b22d-27415cc266d7",
       "record_sha256": "f3d41616dedf3db585a07c272febadcdb04d1b483e6e5435a96bde9286b872bf",
       "source_sha256": "dce31189fadfd6fd47b3a0fb6e670b58877c09182995539d4c0515260e550ee5",
-      "ast_sha256": "d9a8a1b4ad73954e7fb2a4e5be8bd2b1a827cfa40358e88d656769027a962356"
+      "ast_sha256": "d9a8a1b4ad73954e7fb2a4e5be8bd2b1a827cfa40358e88d656769027a962356",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "queens-commission.json",
       "oracle_id": "5e4c02c2-2e54-4e8d-8d94-6b2454027e7e",
       "record_sha256": "b08d5820278c141c7e839714f37087d0886d6de2cc4a4494b49ee47f1cbb74eb",
       "source_sha256": "b4e31040f05c8df35edde4cb5a0f65612b466242ae112fe33e368782a32d3f82",
-      "ast_sha256": "7309c66760636a196afe7ab77f3284c004bc187f635aceb27b608f5fd590dabb"
+      "ast_sha256": "7309c66760636a196afe7ab77f3284c004bc187f635aceb27b608f5fd590dabb",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "raging-goblin.json",
       "oracle_id": "30997b43-fc13-41d3-8064-1ccc2cb6fd2b",
       "record_sha256": "e4d0d17cbffa1c7fc681ffc82833a66f69f6e18b03d58fc38dee29bccf647031",
       "source_sha256": "27b1a3c0f6f2d12e6f982c5063c5e32962717fc2ce308aece830cd4d8ee6a74b",
-      "ast_sha256": "892d15d35b7c06da1d297dfe325ece8746bd71bb73308d3da853220b27ff6d6b"
+      "ast_sha256": "892d15d35b7c06da1d297dfe325ece8746bd71bb73308d3da853220b27ff6d6b",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "raise-dead.json",
       "oracle_id": "cbc9c731-181a-4f00-a7b0-eb7e56eac2ea",
       "record_sha256": "1dee303961bbc8a1259e119198291850943851b91604a2f4e3eb6eb6527f8e70",
       "source_sha256": "edd3ca6df904a6ad03972dcecd59250138196286e05419fc4756ea3395482955",
-      "ast_sha256": "c0fab01ed6b67f0d8c236adcd36b01fb22af801a02848a2acb5e672b013fcca3"
+      "ast_sha256": "c0fab01ed6b67f0d8c236adcd36b01fb22af801a02848a2acb5e672b013fcca3",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "raise-the-alarm.json",
       "oracle_id": "5b2364d7-a811-4595-a1b4-224c70555ffa",
       "record_sha256": "97707e1483bdaac0f4ca00018c5589da62b0124e6585fddb2fb078e5b77c5325",
       "source_sha256": "c9f9b51d5f4c08af2b3b0e13cecfea6f72a0b5d4458bb0893fdafab78f48fd00",
-      "ast_sha256": "c5704f1af51d0b005d4d8422245a0d8e005bd7de5825c31cf65418d2f8783b14"
+      "ast_sha256": "c5704f1af51d0b005d4d8422245a0d8e005bd7de5825c31cf65418d2f8783b14",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "rampant-growth.json",
       "oracle_id": "8539f295-5d58-4436-a73a-b9277c4c7795",
       "record_sha256": "152f997b3cc341acb7feafa9bb19935a49f1922929f0ab810edc2ae1b9144d49",
       "source_sha256": "e96c4a5fc4a6db591c1a0fbafc2adb66fa159f82b14e1dd81425e9686d7b0c86",
-      "ast_sha256": "a5d5fb89ceabe33a1ec2dd8c35068f33924adfabf422efb2b2c92296eb14fcc6"
+      "ast_sha256": "a5d5fb89ceabe33a1ec2dd8c35068f33924adfabf422efb2b2c92296eb14fcc6",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "rancor.json",
       "oracle_id": "9d2d6479-531c-4ce1-b52b-00e36fa63b64",
       "record_sha256": "55afb1ec118729dc1648947b7ccafe23a768a8f0dbaa172562be2f59e02f1cf8",
       "source_sha256": "a0569eed3950dbe43e659e974fe7e738d937314b2b162e8b22cc214ada19de26",
-      "ast_sha256": "7a97594db2af8a2d5e235d5a7224adc63f4434b5ffacbf5bfa46e8b408903343"
+      "ast_sha256": "7a97594db2af8a2d5e235d5a7224adc63f4434b5ffacbf5bfa46e8b408903343",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "ravenous-chupacabra.json",
       "oracle_id": "7b459306-149b-4f43-abc1-2dd70c748c0e",
       "record_sha256": "c9008798001c9c5ebeac6c992972d3b439ea6b71c175b7143ce9ad8705504c81",
       "source_sha256": "8f25aa1a16cf141dfecef7f69a7335633e65a3acb93b1cdd79434f971b233f6a",
-      "ast_sha256": "beb3f14061dc22d327f7402d477892223eef7a9df8dd7d19bc87bfb24780c9de"
+      "ast_sha256": "beb3f14061dc22d327f7402d477892223eef7a9df8dd7d19bc87bfb24780c9de",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "reclamation-sage.json",
       "oracle_id": "032ec6e2-6cc3-4a97-9cc7-3233f5e11904",
       "record_sha256": "caf6d27bfbf7149fa2d1d2d18f7edf1dc1d1afe8d9a94933f93a64d20d626734",
       "source_sha256": "7a7a9ce0399a068c03f8939c025746073181fbd32191a6376e6a4f158bad3729",
-      "ast_sha256": "532815ae52e5bd0b4f0b53b092198417642f67d454b0160250134f0d62c39a44"
+      "ast_sha256": "532815ae52e5bd0b4f0b53b092198417642f67d454b0160250134f0d62c39a44",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "requiem-angel.json",
       "oracle_id": "59f10ddb-8287-4d2c-8c60-1080b108fa78",
       "record_sha256": "d36beac5e0a32749a6b73fe2c9443e999a04dfcdf86f7fdbd60582e95d6ccbca",
       "source_sha256": "0a132e8a5ee1baf5c41f2c13ff8e81ba1bb8b3bca1a4fb3690e6e142fbb19ef2",
-      "ast_sha256": "1975022f7c5ae788a9f2ae8dd7cc2bc38cd77293af3f4f56d1ecf7c98b1b9ef1"
+      "ast_sha256": "1975022f7c5ae788a9f2ae8dd7cc2bc38cd77293af3f4f56d1ecf7c98b1b9ef1",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "return-to-dust.json",
       "oracle_id": "3029df1d-d02a-4fed-8ab4-000a2096f823",
       "record_sha256": "abfa429f0c45f49c949822f4b41f0776a21db3e6d405b065c631ddc875113e5d",
       "source_sha256": "c852704193eea285916190c53aecd2121d72d93966a7f5513fab4fc019f8c626",
-      "ast_sha256": "25c8bce4b3b98e1ccbc5769382e2600374bf7bfe8a7fe107ad609b652862af71"
+      "ast_sha256": "25c8bce4b3b98e1ccbc5769382e2600374bf7bfe8a7fe107ad609b652862af71",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "revoke-existence.json",
       "oracle_id": "289e1a7c-b301-4395-baf8-e9a1c6d38aab",
       "record_sha256": "2fbde13149b607187796c0aee1d23fba7ab2bff450211d7bf79bb8eb689dc6da",
       "source_sha256": "9d65e8777b2d47610532b925cf1642e55294b2903c95570c6c5b52d866994283",
-      "ast_sha256": "a30541f55ffc396a7494acd7e293814af0a3e8cad7d557ba7bdbca3ea7652247"
+      "ast_sha256": "a30541f55ffc396a7494acd7e293814af0a3e8cad7d557ba7bdbca3ea7652247",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "righteousness.json",
       "oracle_id": "3f6b2f76-0364-415e-a6a2-e9e5bf31b745",
       "record_sha256": "7f93ff4781abe286d05e5835771b711f964771fedddbf6e580d90c89074f62e0",
       "source_sha256": "f9af121b8a7525a90421c871f441e59b9449d1509a571e54b59656aca48f8177",
-      "ast_sha256": "39040712bbdeb4100fbbe67e4010a216db8a3cb431bd754c078285ab3167932f"
+      "ast_sha256": "39040712bbdeb4100fbbe67e4010a216db8a3cb431bd754c078285ab3167932f",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "rolling-earthquake.json",
       "oracle_id": "46b96552-830e-4732-9560-9872aeec858b",
       "record_sha256": "b2b50320e983cbdda93e09591fd1343d7043ab61325b93a07ab10d920f670078",
       "source_sha256": "88de2dc39150e0f4646c0a2d4900cf1e05d11e23b2c9b0064e329ed6a38c1fb5",
-      "ast_sha256": "991e9a8369fb95c23dbfd82d19bde4f9a4725d6523a3ba9f26b5c7fa75b0b604"
+      "ast_sha256": "991e9a8369fb95c23dbfd82d19bde4f9a4725d6523a3ba9f26b5c7fa75b0b604",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "rorix-bladewing.json",
       "oracle_id": "48fe0f52-1676-49d5-acf6-5476081e8e1b",
       "record_sha256": "0c80582c1e897ef332ac7b28fdf213aa49ca6adc6490b50636992899e0f18342",
       "source_sha256": "148ce16ea867a5172a0f78f5fd870ab926353610f54dc6162c92be857936f594",
-      "ast_sha256": "58a50948c65287165296bfd0caa3e746ceab19fd0deca4a541ded8765421b998"
+      "ast_sha256": "58a50948c65287165296bfd0caa3e746ceab19fd0deca4a541ded8765421b998",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "sacred-nectar.json",
       "oracle_id": "30870ee5-6ad7-48a9-983e-d3b018f2344f",
       "record_sha256": "397d9656cb65b76cd0c71e7b108b8b9cd32a9403b933fa7fee43585c5db11c18",
       "source_sha256": "c93432aa9fe8536aadb22fb18a0af83365545b13428c3c1d99eb367b34956c07",
-      "ast_sha256": "b4d55f3ca27f04128fbd115d53149ccc3dec439427fb679a39b3d4dda5d0c743"
+      "ast_sha256": "b4d55f3ca27f04128fbd115d53149ccc3dec439427fb679a39b3d4dda5d0c743",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "sakura-tribe-elder.json",
       "oracle_id": "e3afc704-220f-498f-9eaa-0821b17dc24c",
       "record_sha256": "60c5ec2257d80c4de7312a669f740eae01253a92ec9ddf9e0bacca2db969d482",
       "source_sha256": "54859c54d20a644c84b88c6605be6861a7b95ea49dbb6981f7dec91775102722",
-      "ast_sha256": "bebd0668ae190d83d4f981a4dd55b4efd2fe09556aaad6aac41b2dd26b77aba9"
+      "ast_sha256": "bebd0668ae190d83d4f981a4dd55b4efd2fe09556aaad6aac41b2dd26b77aba9",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "samite-healer.json",
       "oracle_id": "95a0ca48-d924-47f4-86ed-42c673ee778c",
       "record_sha256": "31c5c50e36d77c73c31f888644102e9f20a505697f96fd2749a198316a898cc5",
       "source_sha256": "27d9bf0d40404ffc25215c54808c6342bd36bc40c851115a40be64bf98ee1834",
-      "ast_sha256": "50db81cfd6330c9c3e609a76221d2866d1f866f2d6044e7e1c5014d13a0a6fe6"
+      "ast_sha256": "50db81cfd6330c9c3e609a76221d2866d1f866f2d6044e7e1c5014d13a0a6fe6",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "satyr-grovedancer.json",
       "oracle_id": "49f3bd5a-9c2a-45b8-aa10-9c6471028a0f",
       "record_sha256": "0dde3dd2536da97a62a3c8250c1efc7489ac3c905770293ebabe830b8bab275d",
       "source_sha256": "84f405f59bc0fe99d63131878b68840592fb5283ac04fe29ec66bfab0934d6b3",
-      "ast_sha256": "c4d249062f4a45090831e5ee1892c7517e582a6eede33a1cf163c37b3f09e04b"
+      "ast_sha256": "c4d249062f4a45090831e5ee1892c7517e582a6eede33a1cf163c37b3f09e04b",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "seeds-of-strength.json",
       "oracle_id": "dd3d4d96-1e88-49e1-8276-7f62c22ad91a",
       "record_sha256": "e39b96e7c3958730e7a1db765cd46322cfd14d55089486b107d625469ad650d3",
       "source_sha256": "19c6385e83d2239e4ba64050d0f7a8e4610a431183c31830dd56eb4b907f732f",
-      "ast_sha256": "2d5ccc70b91158cb25febb039807a769af60fc51446add2cea0f245c4359b7dc"
+      "ast_sha256": "2d5ccc70b91158cb25febb039807a769af60fc51446add2cea0f245c4359b7dc",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "seller-of-songbirds.json",
       "oracle_id": "87e4c6ff-f83f-412b-9d23-aac7a57ef6db",
       "record_sha256": "a60c6af21578093717b4743fdce7fd7c0a941adfeb61ed87ba5ca2d35b5b0f66",
       "source_sha256": "bb36dc941729edb4e89576f75d37de492a63c6ac092c46552b637f78b88ee850",
-      "ast_sha256": "9f0731878e3883c190eae66a04c21ede084f0b5a109768ecd930233264a24722"
+      "ast_sha256": "9f0731878e3883c190eae66a04c21ede084f0b5a109768ecd930233264a24722",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "serra-angel.json",
       "oracle_id": "4b7ac066-e5c7-43e6-9e7e-2739b24a905d",
       "record_sha256": "091d5adece7a57411a5b22831860f8a2c076f5499e273547311c753ff02e1e9f",
       "source_sha256": "d21651ec7b91ccf5541cbb3531351cc03e2252993c9a9949047c0beb40c5678c",
-      "ast_sha256": "2d3f45d3c23588f6d09df648ce64c4ab5a5355a18de86f3e4f4d200591a79784"
+      "ast_sha256": "2d3f45d3c23588f6d09df648ce64c4ab5a5355a18de86f3e4f4d200591a79784",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "shatter.json",
       "oracle_id": "84d32e68-72b9-432d-a023-7bc6a26b8ad0",
       "record_sha256": "27586a0f6be9fa385685e8d719367b76e52bd665bde25db55456052546f3d4a0",
       "source_sha256": "c663471b2cb8b47aa08c2e9a7510c6ab87a4f8bf446651b9b0e5cd52a27f684f",
-      "ast_sha256": "85641a94376097235f3cd901c98354072a9608cc8776b708a827ab7d9b600877"
+      "ast_sha256": "85641a94376097235f3cd901c98354072a9608cc8776b708a827ab7d9b600877",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "short-sword.json",
       "oracle_id": "e842a4e5-ea0b-43ae-9ed8-93e30f4e7b8a",
       "record_sha256": "e738e0bfb5511ddbacc566d3ad4b47458f30dae776a0d8eeb5fc8911135c97eb",
       "source_sha256": "ac9a20e471546e9d439481d1538706a6532691fc7c95ff04abcd5e7ffe199da6",
-      "ast_sha256": "849c83c6332300a7d5357bf375939dc5cf8e811dcab03bbcc354c8e08d6e2635"
+      "ast_sha256": "849c83c6332300a7d5357bf375939dc5cf8e811dcab03bbcc354c8e08d6e2635",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "siege-gang-commander.json",
       "oracle_id": "ddc7f59a-bbb1-4ba1-82c8-6813fd191940",
       "record_sha256": "0b8bd1aa3103e0cd59fe958610c4bdfd89db216d264a88c4a205bd4d7cbc3168",
       "source_sha256": "a2e320ae26d1e03185dbbf52f50cc188b0a6f3e0a28ba7910e9b4db3ab0a88ab",
-      "ast_sha256": "49cdfd27e0b46cf4146f024617ff04b838fcf1abfe6ef9d656e69f0ec94cde88"
+      "ast_sha256": "49cdfd27e0b46cf4146f024617ff04b838fcf1abfe6ef9d656e69f0ec94cde88",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "sign-in-blood.json",
       "oracle_id": "c6207f6a-a624-4754-88f5-dbe700c841ff",
       "record_sha256": "bf917681e46f8cde92369778d87afb612f443db11bf30aee7f915cb3ced7cb72",
       "source_sha256": "947644e73d6c11ef2505dff8ac0e8ad996a5d4ae3c0dab0542eff7b69631855b",
-      "ast_sha256": "05aff8fc67bee7b7b9bda0c654e6877a12e25add35298815a8cadd9c5956911a"
+      "ast_sha256": "05aff8fc67bee7b7b9bda0c654e6877a12e25add35298815a8cadd9c5956911a",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "skyhunter-skirmisher.json",
       "oracle_id": "0c07d09e-e127-4573-b827-6c50246f7a31",
       "record_sha256": "b2ace87f1bd1e7ccf1b3d3a9cfdc68e8c2b6d630daf12242f19c1460b11e7f14",
       "source_sha256": "b52fccd26f0ca89da750aea9c8a034ca15ebd6ce59e5a731f7701a4461d4695b",
-      "ast_sha256": "e0aade42178c8ba28e1f2514c6b5547038a4eb0a6cac148bc387a3c667dcced6"
+      "ast_sha256": "e0aade42178c8ba28e1f2514c6b5547038a4eb0a6cac148bc387a3c667dcced6",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "slaughterhouse-bouncer.json",
       "oracle_id": "82076865-7917-4d3b-8fe8-c21bfcd64d29",
       "record_sha256": "026bb9cb637a53c6e4780026c4d9c01dd23d624fcf2f9095ec2678c18397eb85",
       "source_sha256": "0f1ab8131190d307ec7082fa9b7ab924fc2213766a91fbaea129b335c5e96384",
-      "ast_sha256": "e6f9862ddd6af85140ae6caa2ad89048e036973cae29ef3ef640d93d3a0aec7c"
+      "ast_sha256": "e6f9862ddd6af85140ae6caa2ad89048e036973cae29ef3ef640d93d3a0aec7c",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "smash-to-smithereens.json",
       "oracle_id": "e0583f29-c344-4b56-b0dc-bef1089a95c7",
       "record_sha256": "2f7265690c701517aaf60df08347b3a98801a99de599862dbd320438e5e5d4f5",
       "source_sha256": "9b8145badbd1af339dfe07c28da3fadd32035e175609a5194e7413fa57712043",
-      "ast_sha256": "7cf1ca68cff0bb358455c1c17853f0718e8f57a13b439fc8c04d8739ab9f8a7a"
+      "ast_sha256": "7cf1ca68cff0bb358455c1c17853f0718e8f57a13b439fc8c04d8739ab9f8a7a",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "sol-ring.json",
       "oracle_id": "6ad8011d-3471-4369-9d68-b264cc027487",
       "record_sha256": "2e76cc591b7df76a2f3a27ba4faa3c82b91606059fbdb4e2a6d00e04b9b0b14d",
       "source_sha256": "fdb52f9a63144042fb27b041a74a38bb50745396632fbec4a4b7f6f944ba8ac2",
-      "ast_sha256": "6d66d039f56db42ccd83855fd6383adcf746610f15fb2815d7674d28006dd06a"
+      "ast_sha256": "6d66d039f56db42ccd83855fd6383adcf746610f15fb2815d7674d28006dd06a",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "soul-feast.json",
       "oracle_id": "8186fd80-015f-470c-9e1c-cbf45764a057",
       "record_sha256": "0a80eab34091227948d0331a3c79a12f5cdd9d7d0f4b2e7c40326ff65bc26ef6",
       "source_sha256": "d2a826aa1a024ab009b2dddbab58f06563025d1ec6bdd5f91449cf0584bc9286",
-      "ast_sha256": "a19b19d765e8d91cb533bbd98930b294f8913f8893c45b97b49c1222f6b41a1a"
+      "ast_sha256": "a19b19d765e8d91cb533bbd98930b294f8913f8893c45b97b49c1222f6b41a1a",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "spidersilk-armor.json",
       "oracle_id": "ad73e5eb-197c-45a3-9d20-a406ba126c79",
       "record_sha256": "c3839d30c6810f475cfd984f34d81790690b7d5d3ac5d3ccc8989b81a27f1df3",
       "source_sha256": "49c254d7204c2e58798098c81c5466101a435fcd446d33887c48afa7c6da6682",
-      "ast_sha256": "3033e8a6db0148c133c9a041d148be2b32587c0de4373dd62e725011aaa84677"
+      "ast_sha256": "3033e8a6db0148c133c9a041d148be2b32587c0de4373dd62e725011aaa84677",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "spore-burst.json",
       "oracle_id": "27a9e0af-76f0-4910-9f93-2a3617b4e79a",
       "record_sha256": "d0ee60a8bd3568c6170134c4488056e4a426531696e1d514fb69c0800d948a43",
       "source_sha256": "c719421351dac1ec9fb0489240f98682a2afbec4a0bffbe40f33d0301afaedf7",
-      "ast_sha256": "affabd92a8dc74b5c8f6ff208da024b62f5c23d1351f86f4b835219ffe201fd7"
+      "ast_sha256": "affabd92a8dc74b5c8f6ff208da024b62f5c23d1351f86f4b835219ffe201fd7",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "spore-swarm.json",
       "oracle_id": "8fb599a7-2c61-446b-a7a7-cd5367f9b796",
       "record_sha256": "4515ccf2dc75445578e0fc123e48ca32653e83acf641ede3617ee20560c84424",
       "source_sha256": "e0fe9fdd29adda5f609aa90702c376450494e01457883ccf230d80d1a122b460",
-      "ast_sha256": "979f3025d5bd64a348d51467d6215dd8ad20195a76f3b5f570f18f606e667209"
+      "ast_sha256": "979f3025d5bd64a348d51467d6215dd8ad20195a76f3b5f570f18f606e667209",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "stifle.json",
       "oracle_id": "b3b00911-ece7-4484-bc36-f211ce72b6cc",
       "record_sha256": "2cd78366919e27100154fdff2b7537a49d13e48f3d234196ed5a006558b405bf",
       "source_sha256": "ff9b29de13defa88690e55d6cfee7e7686062731c0a8dde954ac9c9f28f62665",
-      "ast_sha256": "c0828a3ba76f867d98971cc7d6f4ce5beefafc0c3adecaa36ab4753f35d46f12"
+      "ast_sha256": "c0828a3ba76f867d98971cc7d6f4ce5beefafc0c3adecaa36ab4753f35d46f12",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "storm-crow.json",
       "oracle_id": "000d5588-5a4c-434e-988d-396632ade42c",
       "record_sha256": "22f7d9d6a97af2023a9cd6d69c1a21c0fb516698bdcd40faa1280453ba4f555f",
       "source_sha256": "7c416a7dd23297b956874f4c77eac1946cf385aee39b80e428be3d30c88b422c",
-      "ast_sha256": "03c41db2c0f2f10f62b4010ad98aed0eb4e755cd59806cee146c2441ebc4c935"
+      "ast_sha256": "03c41db2c0f2f10f62b4010ad98aed0eb4e755cd59806cee146c2441ebc4c935",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "swamp.json",
       "oracle_id": "56719f6a-1a6c-4c0a-8d21-18f7d7350b68",
       "record_sha256": "bcbe2c30e38a590cbd441c564586532e3d0e6dc1fc4cedcdb363a95d96983dd7",
       "source_sha256": "51c17e4939aa3f3fcce238d3a1d6f7d4646c218d8bb124c07d66b5e1ce4736d1",
-      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "swan-song.json",
       "oracle_id": "8ddfc283-c9b4-41a5-af88-cf0068e986cc",
       "record_sha256": "bbeee27f2f20bac4ac9a51eb8a1f2a9765b58608e92b6be19e3921826d8dd6ac",
       "source_sha256": "4c59425ceedf15fa4c7f9ea2dac6307eb8dc9cc3dc8fc652f280708902e1540e",
-      "ast_sha256": "bde1b68dea311398d4139bac7ade118f7077ab9fe377f6383d996dd78484493c"
+      "ast_sha256": "bde1b68dea311398d4139bac7ade118f7077ab9fe377f6383d996dd78484493c",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "swiftfoot-boots.json",
       "oracle_id": "c8b143ad-43ec-4e0d-a440-e348daa31391",
       "record_sha256": "05a80c07c95b4eaa1fb27d49334b18efa2de00b8fb8c720cad31f245ba05b134",
       "source_sha256": "66348abd0a9d9e81753b0c32bf3f4d1273e9c72ac6641bb088abb9ca781e5a6c",
-      "ast_sha256": "61261d0b02c1fd4b0e83fab4bb7203d760df7b1c5cdb63ce130657ef2a07c89b"
+      "ast_sha256": "61261d0b02c1fd4b0e83fab4bb7203d760df7b1c5cdb63ce130657ef2a07c89b",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "swords-to-plowshares.json",
       "oracle_id": "b1544f21-7e98-461b-aed5-e748b0168c52",
       "record_sha256": "9575fd7578c5a2e83d27f1c37136730937fbf6864629de54c7226b0537c001aa",
       "source_sha256": "b0ac23f475c26fb56a890718d6692953facb04f407311b45683805546ede30c0",
-      "ast_sha256": "4043771eb8c2870f7ab86959eaa31df5368aed568b926efa8ee7a1792b5b5712"
+      "ast_sha256": "4043771eb8c2870f7ab86959eaa31df5368aed568b926efa8ee7a1792b5b5712",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "talisman-of-hierarchy.json",
       "oracle_id": "b693c3de-2eaf-4850-b405-e79d00adefda",
       "record_sha256": "1180a631aa67d37006b4497f7ed6a37566e014912716539e8aa10c1acab062e5",
       "source_sha256": "9410776ab6b1011e93edc691ec91bdf8a9e565dca7fae254452d7676211cc689",
-      "ast_sha256": "3d475c31e2237524c5f7a8939aca34257b36b91aa5ad8477025625b2d99b2e06"
+      "ast_sha256": "3d475c31e2237524c5f7a8939aca34257b36b91aa5ad8477025625b2d99b2e06",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "time-ebb.json",
       "oracle_id": "30cc8f7b-3c28-40f5-8f8f-157e8212280b",
       "record_sha256": "a04619d10b374f8927e6d68b5bbba10c9142fc328c70f8fb5df8ba521b88c321",
       "source_sha256": "30d342ea9e4ddace911969ad008d4f39244db74c134d2786832fb35c1d32392a",
-      "ast_sha256": "d0a2a24b923a7e56a68e89b7b69b426e53f7fee0919d63aaed8863d6f8d709eb"
+      "ast_sha256": "d0a2a24b923a7e56a68e89b7b69b426e53f7fee0919d63aaed8863d6f8d709eb",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "tranquility.json",
       "oracle_id": "f671e3c3-cd59-4d06-a1af-5d04892cf74d",
       "record_sha256": "5fc482614b1af8f83b22e0e10a4f664e0d5705bb9f96b697e810d5c3ae48453f",
       "source_sha256": "8e188fe30d85f307eb5b81e25db34945543df7c6df0eb86f16d6edb9f873623a",
-      "ast_sha256": "c980a880c189d5764eef88fc3101b1d5ba39131f99450e600c86f5475c430fb3"
+      "ast_sha256": "c980a880c189d5764eef88fc3101b1d5ba39131f99450e600c86f5475c430fb3",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "typhoid-rats.json",
       "oracle_id": "d6ee6cc1-902d-4f56-afa5-6fa4813bfbbc",
       "record_sha256": "e14ece749abb431ac70b885f7512c22345f64ccdda0b3995edd316328fb96589",
       "source_sha256": "b2b1bb04a53317a17adc895ac1575944964f7e1a89c5afbf5496ee453998e40b",
-      "ast_sha256": "401b1afc9aaf15d92d1a1e9b5352d8a84eeeb1c9f8276fbdd6d7259e6c4c6fee"
+      "ast_sha256": "401b1afc9aaf15d92d1a1e9b5352d8a84eeeb1c9f8276fbdd6d7259e6c4c6fee",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "unholy-strength.json",
       "oracle_id": "090d88a9-7f2d-4bd1-a30a-7c48d05068be",
       "record_sha256": "3bbfd92213b74f8408a76fdfd78c70083194a89a860b8953dbd0619b2654d342",
       "source_sha256": "c9b8ae52ca5b5a861614493bcb489a3d9f22b59ef4c5fdc5d1eaa94a80a5eeb3",
-      "ast_sha256": "9268f61914bea93ad7311cf57e796c58714b893afef4e286cc2ca13d1b572f26"
+      "ast_sha256": "9268f61914bea93ad7311cf57e796c58714b893afef4e286cc2ca13d1b572f26",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "unsummon.json",
       "oracle_id": "837182db-1bf3-4a2c-bd01-1af9d9873561",
       "record_sha256": "2ccc2cfc21e2ceb0594280ab8d1c8c2decb63dcbdfcc55524c5667cc057b3d38",
       "source_sha256": "6ce1877b4b39b55c3500bc0b5f472026c81b3ad944b1c88879240f863d4f7ec7",
-      "ast_sha256": "56e025ce420e42b19e06c0fa535f1840e48c22ca56e26e36b60442ce791b277c"
+      "ast_sha256": "56e025ce420e42b19e06c0fa535f1840e48c22ca56e26e36b60442ce791b277c",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "utopia-sprawl.json",
       "oracle_id": "00d8efa6-a2d9-4249-8da7-b45173675329",
       "record_sha256": "742d6358c87634243e6025f86412d7cb11873fa4991429ebdc2ff08fd42a408c",
       "source_sha256": "c0fbe1479600e8f4f162a8a0aa53a54c28c149d2eec046b5300c0d77ffa877e7",
-      "ast_sha256": "4d6b0e915ce5a7ad19d32d0ad8f0f5f01120ad8c69450afab75ee23c26f8090f"
+      "ast_sha256": "4d6b0e915ce5a7ad19d32d0ad8f0f5f01120ad8c69450afab75ee23c26f8090f",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "vampire-nighthawk.json",
       "oracle_id": "feb244f8-bcb1-44cf-9940-2719221a7309",
       "record_sha256": "c9f253d8bbb583927b3a57704cce2842cc697cc101adc999b71611fbd1fe6fde",
       "source_sha256": "382a52bec96e574a0dd06c8e7257db716ba884447f585cba8f4dac508131a3b2",
-      "ast_sha256": "104010707383cb3781d27cf6ed2aea74e6b47952dadb6f4bd08961eb12e56036"
+      "ast_sha256": "104010707383cb3781d27cf6ed2aea74e6b47952dadb6f4bd08961eb12e56036",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "vandalblast.json",
       "oracle_id": "3567c3c8-b3c7-45b7-935b-b1fdbc973720",
       "record_sha256": "5dd9150dafd0e6a5ca4efda0f3ed78d46b7700339b7a1167901f11b0f9a07d0f",
       "source_sha256": "7598f52b5b20ae73cef7f0fc93221e2fc8e52253858040771ee62c9dfd9cf636",
-      "ast_sha256": "79941e3332750b7432fafa1426169303bac5375b62ec241946c2bd316a52ed97"
+      "ast_sha256": "79941e3332750b7432fafa1426169303bac5375b62ec241946c2bd316a52ed97",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "village-rites.json",
       "oracle_id": "365548fb-5acc-4a8a-b20b-26d28b7d029f",
       "record_sha256": "f12fb58d12a9f424cf8d436dbbbf31d7b889d8ef8d234014ccbd99438f0e0027",
       "source_sha256": "26b717f23530ec320ba2ec32d6f6e750df476dc3bf3ad9da8af62bbe492b51e5",
-      "ast_sha256": "c49261de5216b92cead34435430b1c90e8d8f90202badc351b6eca3d305003df"
+      "ast_sha256": "c49261de5216b92cead34435430b1c90e8d8f90202badc351b6eca3d305003df",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "vindictive-vampire.json",
       "oracle_id": "11ad664e-36d3-4d5b-8a87-59ea715877e0",
       "record_sha256": "715b437514d7d92053576a64d9c4e19a21456dd300facb91844bc4c886edac7b",
       "source_sha256": "2d9966f928a24f4e7008d0ddfeeadfbf462942543a7a5f45d25ba6b9c10fcc26",
-      "ast_sha256": "a524dec86f6679946bff8d804d229307011ed495dc2f72cdf6fec2f14ba1b2bc"
+      "ast_sha256": "a524dec86f6679946bff8d804d229307011ed495dc2f72cdf6fec2f14ba1b2bc",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "viridian-zealot.json",
       "oracle_id": "9410ae41-b6db-47c6-ae0a-4e33aad1d3ce",
       "record_sha256": "304f06821e4d7382b6377168f8d4e61351e659d732db5eaccd90a1a4224e14d5",
       "source_sha256": "ce957432348903fb9e09e326f4f0fa70bbb9501f956512041d05595e51058cce",
-      "ast_sha256": "aa0389e9947de7e91a2e49de0f2d6cdd0d5f2f41502664d9461abf381ab99f59"
+      "ast_sha256": "aa0389e9947de7e91a2e49de0f2d6cdd0d5f2f41502664d9461abf381ab99f59",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "volcanic-fallout.json",
       "oracle_id": "bd6ce147-c991-40ac-b276-65b630fad8b6",
       "record_sha256": "eaaf77fd2156535aee3e664b0579bbcd6937f819d3ff9cdbeb63bfc2ab1847b8",
       "source_sha256": "808245fc7ac1f4b3f1c3c5862e2c2574490f8d8b5b065689ab23bf7c5a3218ea",
-      "ast_sha256": "2b2149e0fcafe60c47d6a9f3ab9439ec09a916642a4f66bc6ab062f6b0fd4805"
+      "ast_sha256": "2b2149e0fcafe60c47d6a9f3ab9439ec09a916642a4f66bc6ab062f6b0fd4805",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "vulshok-morningstar.json",
       "oracle_id": "12a8adc4-927f-4314-b2ef-9c647ace68d5",
       "record_sha256": "aef629b9a9f7e16933218a38ef56c0e7446c6c2ce13e24f5a50d92fd2ed8f0e9",
       "source_sha256": "42c96f8b6785b3575f34cd93849141eafb704c9420ef368427ed98cfb02f09be",
-      "ast_sha256": "ff82231a7484038152c417ae1ea842143715bde6710085e044826bc6f5c6806e"
+      "ast_sha256": "ff82231a7484038152c417ae1ea842143715bde6710085e044826bc6f5c6806e",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "wall-of-air.json",
       "oracle_id": "b2d3da40-e2f7-4480-9da9-33019d6f4071",
       "record_sha256": "b7bab4e1fb241f767a415971b59798d36a217e0a2fb618df8671fc83e8e938ed",
       "source_sha256": "d6185a58c18f10ef3f8a512ce295e1ab1e99837160d24e372c748fbe103619b5",
-      "ast_sha256": "723f80f724048f773e4cb8abb5865a5ffbfa16f279969eb6054beab3fc930d2f"
+      "ast_sha256": "723f80f724048f773e4cb8abb5865a5ffbfa16f279969eb6054beab3fc930d2f",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "wall-of-vines.json",
       "oracle_id": "51ce0158-c9a5-4fa5-9704-46ab02f01b86",
       "record_sha256": "1f2a2d47cd52488455caea1018b4ab609fea789165c8d18f54eb40d35e045d9f",
       "source_sha256": "82b319d3435950882e3b4c5db25094c92ebb7dac7c9fababe95bb7314f888b64",
-      "ast_sha256": "0c54fdc31aea424a142d72a4b55dab86da3e9c81dbd762930cb6dffba5f502c0"
+      "ast_sha256": "0c54fdc31aea424a142d72a4b55dab86da3e9c81dbd762930cb6dffba5f502c0",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "wall-of-wood.json",
       "oracle_id": "aa5e6894-8c97-46f8-a0fd-07c6db51e9a7",
       "record_sha256": "16121c60168862c6d622b862353666171a786d2d137420b2fcb248e0255d3026",
       "source_sha256": "dc212dc9d8f268c89e43243cdc6464577359ed8a4004ee2bfc6d36f5a91135a7",
-      "ast_sha256": "f9fbb33293b75070b31f98580784c74beed6c9dd5c9fe673247040366513fe10"
+      "ast_sha256": "f9fbb33293b75070b31f98580784c74beed6c9dd5c9fe673247040366513fe10",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "whispersilk-cloak.json",
       "oracle_id": "9ad4f730-a18e-4a7c-a468-a926c718c741",
       "record_sha256": "5e655d484a183ee4e5111faf78469a6be81688fad8b850c107641c2911ced515",
       "source_sha256": "13647cb6411abb0029743be3f0aca832f90c88bbbc7c405ac00ee4844255372c",
-      "ast_sha256": "70193c5005d5cb6b3259034aa7347e919b09c60ec05abd8cfcf2d9df89747d6b"
+      "ast_sha256": "70193c5005d5cb6b3259034aa7347e919b09c60ec05abd8cfcf2d9df89747d6b",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "wrath-of-god.json",
       "oracle_id": "34515b16-c9a4-4f98-8c77-416a7a523407",
       "record_sha256": "09bb9927544eff737a1bed58039130299dba9ff97f78d6964ba10d8042945ff3",
       "source_sha256": "d7837d49c5a8e36f5defd05c5c38cf14211823f84161576a6f400eec31eb2cd3",
-      "ast_sha256": "2593b2815ec4f2e597b6d962327aff428d64a18e1c5745f938ca8a2565b16e9c"
+      "ast_sha256": "2593b2815ec4f2e597b6d962327aff428d64a18e1c5745f938ca8a2565b16e9c",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "yargle-and-multani.json",
       "oracle_id": "980e1721-3717-4425-95a4-938dbf2ac661",
       "record_sha256": "dd2878582513bae556e31852560ea21cd694abad63d3756ea6b2296d0f124e13",
       "source_sha256": "23a1eb822133fa8f171c83c85987f9685a28e00b39722c85f261e562572b73e9",
-      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "yoked-ox.json",
       "oracle_id": "19b4cf0b-e1e4-4e50-80bc-673bc6ef8bb8",
       "record_sha256": "0f3f4906ebcf4789b5d54b87518a486e92207e9e3a6ff366c1076445aacb73ef",
       "source_sha256": "e2cbc722e77cbf6545235079ca7e1e4cd26fc02a8c03be382e240d7f848dc2b7",
-      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05"
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "young-wolf.json",
       "oracle_id": "8b492764-10b6-4506-be11-22daa9220a91",
       "record_sha256": "14c5d3be8d78e92b516d3a01edcc982150912cd479c9fe6f5fb3bdd380d01f81",
       "source_sha256": "3832811ab368401d1e3839efc2680f11d1c3a78edeb7d0ac4d1a218983ff3289",
-      "ast_sha256": "e07c63be4343737a5b03c5012e44db4a16411dd92bfdec2cf059dcb62a660419"
+      "ast_sha256": "e07c63be4343737a5b03c5012e44db4a16411dd92bfdec2cf059dcb62a660419",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "youthful-knight.json",
       "oracle_id": "ef2a24f5-ce5e-4054-843a-2cae0c66318a",
       "record_sha256": "c3dc4defb10720f27d6f922512dbe69281e4e870e65f5f447593aee7802e89fe",
       "source_sha256": "90c478b3634366041756b2b2fc40c11e63ac510aa4242d64702ed0c8f0e61dca",
-      "ast_sha256": "b9f534592fe03d15f7dcdfdd43dfb5509c6fb951255893097ac95541300a259b"
+      "ast_sha256": "b9f534592fe03d15f7dcdfdd43dfb5509c6fb951255893097ac95541300a259b",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "zephyr-sprite.json",
       "oracle_id": "11f77158-0240-4882-94a4-6bd6b3d94bcc",
       "record_sha256": "21d2a40ec93871bc461fe638ef876596b549bb41d5323cc3b8566687c3ce7dcc",
       "source_sha256": "73f06ce1d2afcfb089cd023baef77145cdb5a829fc3a0cf6a771d9ecc5bfec90",
-      "ast_sha256": "03c41db2c0f2f10f62b4010ad98aed0eb4e755cd59806cee146c2441ebc4c935"
+      "ast_sha256": "03c41db2c0f2f10f62b4010ad98aed0eb4e755cd59806cee146c2441ebc4c935",
+      "archive": "archive-manifest.json"
     },
     {
       "file": "zulaport-cutthroat.json",
       "oracle_id": "76b003e0-15af-4f22-bdf2-1ade5430964a",
       "record_sha256": "f32b9c5c4007df76ad7823425cae20478d3609c0d4ca6b95f4e55a3e2d6aa5cb",
       "source_sha256": "5af74e8026f8be9b8f765b80a15c67477a006e6333bc324ee7cba22a2f1800eb",
-      "ast_sha256": "ed0f9d02972afc062bb397b72358e2f1cb1b6a671f0d6e166eacbc7e0a112f9a"
+      "ast_sha256": "ed0f9d02972afc062bb397b72358e2f1cb1b6a671f0d6e166eacbc7e0a112f9a",
+      "archive": "archive-manifest.json"
+    },
+    {
+      "file": "0c7163e6-f5a1-45a5-88c2-19dd9ef0a587.json",
+      "oracle_id": "0c7163e6-f5a1-45a5-88c2-19dd9ef0a587",
+      "record_sha256": "2b3403f1fb7b25d0bb9900e6e684ffa24d569e5e5f121016b8837747ecfd9187",
+      "source_sha256": "015449fe1f872cee0bc4bb91369387397f9de6c98141aef90f6581f3466b1bcb",
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 1893
+    },
+    {
+      "file": "2f05f3ed-e3b7-4225-b3f2-c12eda335237.json",
+      "oracle_id": "2f05f3ed-e3b7-4225-b3f2-c12eda335237",
+      "record_sha256": "6da1df037e6c0ed4701f80ae91c4cda2bef9457bf3f27cdaf1235d8e41aa996b",
+      "source_sha256": "8d387241af1096b46b184c567b954fd9ff6a9f63217f90ad232190ffed954170",
+      "ast_sha256": "4ae8d9c5ab386c7ae0311ea378f5c6d5b5f464b557a23d78a3ca4862e6e70e97",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 6976
+    },
+    {
+      "file": "8b218023-50b8-4d9d-b17b-9647479d3675.json",
+      "oracle_id": "8b218023-50b8-4d9d-b17b-9647479d3675",
+      "record_sha256": "2ccbe16609d744b8b1c357a34a18ffe294949f95c09efb9f5c0f21cedd08c821",
+      "source_sha256": "84bfadf7ce79c7e69ca09bd7c32968a1c57d8d12c4dc8d0c971f606f724afbba",
+      "ast_sha256": "ce15469a6da1d09e5416beac9b87d0c449ccaa9c1fdc58ab0303c3f962feba91",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 20975
     }
   ]
 }

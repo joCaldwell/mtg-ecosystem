@@ -1,0 +1,20 @@
+{
+  "schema_version": 5,
+  "provenance": "../provenance.json",
+  "records": [
+    "../cruel-edict.json",
+    "../grizzly-bears.json",
+    "../hapless-researcher.json",
+    "../time-ebb.json",
+    "../swamp.json",
+    "../unsummon.json",
+    "../yargle-and-multani.json",
+    "../island.json",
+    "../forest.json",
+    "../plains.json",
+    "../isamaru.json"
+  ],
+  "expected_ir": "../expected-action-ir.json",
+  "expected_digest": "action.sha256",
+  "output_order": "struct"
+}

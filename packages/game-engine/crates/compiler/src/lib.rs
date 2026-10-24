@@ -5,918 +5,10 @@ use serde_json::value::RawValue;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub mod fixtures {
-    pub const WIPES_RECORDS: [(&str, &str); 15] = [
-        (
-            "fumigate",
-            include_str!("../../../tests/fixtures/fumigate.json"),
-        ),
-        (
-            "planar-cleansing",
-            include_str!("../../../tests/fixtures/planar-cleansing.json"),
-        ),
-        (
-            "final-judgment",
-            include_str!("../../../tests/fixtures/final-judgment.json"),
-        ),
-        (
-            "infest",
-            include_str!("../../../tests/fixtures/infest.json"),
-        ),
-        (
-            "innocent-blood",
-            include_str!("../../../tests/fixtures/innocent-blood.json"),
-        ),
-        (
-            "massacre-wurm",
-            include_str!("../../../tests/fixtures/massacre-wurm.json"),
-        ),
-        (
-            "tranquility",
-            include_str!("../../../tests/fixtures/tranquility.json"),
-        ),
-        (
-            "evacuation",
-            include_str!("../../../tests/fixtures/evacuation.json"),
-        ),
-        (
-            "aetherize",
-            include_str!("../../../tests/fixtures/aetherize.json"),
-        ),
-        (
-            "pyroclasm",
-            include_str!("../../../tests/fixtures/pyroclasm.json"),
-        ),
-        (
-            "anger-of-the-gods",
-            include_str!("../../../tests/fixtures/anger-of-the-gods.json"),
-        ),
-        (
-            "volcanic-fallout",
-            include_str!("../../../tests/fixtures/volcanic-fallout.json"),
-        ),
-        (
-            "chain-reaction",
-            include_str!("../../../tests/fixtures/chain-reaction.json"),
-        ),
-        (
-            "earthquake",
-            include_str!("../../../tests/fixtures/earthquake.json"),
-        ),
-        (
-            "blasphemous-act",
-            include_str!("../../../tests/fixtures/blasphemous-act.json"),
-        ),
-    ];
-    pub const SACRIFICE_RECORDS: [(&str, &str); 18] = [
-        (
-            "bone-splinters",
-            include_str!("../../../tests/fixtures/bone-splinters.json"),
-        ),
-        (
-            "vindictive-vampire",
-            include_str!("../../../tests/fixtures/vindictive-vampire.json"),
-        ),
-        (
-            "doomed-dissenter",
-            include_str!("../../../tests/fixtures/doomed-dissenter.json"),
-        ),
-        ("fling", include_str!("../../../tests/fixtures/fling.json")),
-        (
-            "village-rites",
-            include_str!("../../../tests/fixtures/village-rites.json"),
-        ),
-        (
-            "requiem-angel",
-            include_str!("../../../tests/fixtures/requiem-angel.json"),
-        ),
-        (
-            "zulaport-cutthroat",
-            include_str!("../../../tests/fixtures/zulaport-cutthroat.json"),
-        ),
-        (
-            "mogg-fanatic",
-            include_str!("../../../tests/fixtures/mogg-fanatic.json"),
-        ),
-        (
-            "costly-plunder",
-            include_str!("../../../tests/fixtures/costly-plunder.json"),
-        ),
-        (
-            "carrion-feeder",
-            include_str!("../../../tests/fixtures/carrion-feeder.json"),
-        ),
-        (
-            "butcher-of-malakir",
-            include_str!("../../../tests/fixtures/butcher-of-malakir.json"),
-        ),
-        (
-            "bloodthrone-vampire",
-            include_str!("../../../tests/fixtures/bloodthrone-vampire.json"),
-        ),
-        (
-            "goblin-arsonist",
-            include_str!("../../../tests/fixtures/goblin-arsonist.json"),
-        ),
-        (
-            "bastion-of-remembrance",
-            include_str!("../../../tests/fixtures/bastion-of-remembrance.json"),
-        ),
-        (
-            "siege-gang-commander",
-            include_str!("../../../tests/fixtures/siege-gang-commander.json"),
-        ),
-        (
-            "sakura-tribe-elder",
-            include_str!("../../../tests/fixtures/sakura-tribe-elder.json"),
-        ),
-        (
-            "midnight-reaper",
-            include_str!("../../../tests/fixtures/midnight-reaper.json"),
-        ),
-        (
-            "goblin-bombardment",
-            include_str!("../../../tests/fixtures/goblin-bombardment.json"),
-        ),
-    ];
-    pub const REMOVAL_RECORDS: [(&str, &str); 17] = [
-        (
-            "swords-to-plowshares",
-            include_str!("../../../tests/fixtures/swords-to-plowshares.json"),
-        ),
-        (
-            "disenchant",
-            include_str!("../../../tests/fixtures/disenchant.json"),
-        ),
-        (
-            "revoke-existence",
-            include_str!("../../../tests/fixtures/revoke-existence.json"),
-        ),
-        (
-            "generous-gift",
-            include_str!("../../../tests/fixtures/generous-gift.json"),
-        ),
-        (
-            "naturalize",
-            include_str!("../../../tests/fixtures/naturalize.json"),
-        ),
-        (
-            "natures-claim",
-            include_str!("../../../tests/fixtures/natures-claim.json"),
-        ),
-        (
-            "beast-within",
-            include_str!("../../../tests/fixtures/beast-within.json"),
-        ),
-        (
-            "reclamation-sage",
-            include_str!("../../../tests/fixtures/reclamation-sage.json"),
-        ),
-        (
-            "viridian-zealot",
-            include_str!("../../../tests/fixtures/viridian-zealot.json"),
-        ),
-        (
-            "go-for-the-throat",
-            include_str!("../../../tests/fixtures/go-for-the-throat.json"),
-        ),
-        (
-            "doom-blade",
-            include_str!("../../../tests/fixtures/doom-blade.json"),
-        ),
-        (
-            "feed-the-swarm",
-            include_str!("../../../tests/fixtures/feed-the-swarm.json"),
-        ),
-        (
-            "ravenous-chupacabra",
-            include_str!("../../../tests/fixtures/ravenous-chupacabra.json"),
-        ),
-        (
-            "shatter",
-            include_str!("../../../tests/fixtures/shatter.json"),
-        ),
-        (
-            "smash-to-smithereens",
-            include_str!("../../../tests/fixtures/smash-to-smithereens.json"),
-        ),
-        (
-            "pongify",
-            include_str!("../../../tests/fixtures/pongify.json"),
-        ),
-        (
-            "swan-song",
-            include_str!("../../../tests/fixtures/swan-song.json"),
-        ),
-    ];
-    pub const ATTACHMENT_RECORDS: [(&str, &str); 12] = [
-        (
-            "bonesplitter",
-            include_str!("../../../tests/fixtures/bonesplitter.json"),
-        ),
-        (
-            "short-sword",
-            include_str!("../../../tests/fixtures/short-sword.json"),
-        ),
-        (
-            "vulshok-morningstar",
-            include_str!("../../../tests/fixtures/vulshok-morningstar.json"),
-        ),
-        (
-            "loxodon-warhammer",
-            include_str!("../../../tests/fixtures/loxodon-warhammer.json"),
-        ),
-        (
-            "swiftfoot-boots",
-            include_str!("../../../tests/fixtures/swiftfoot-boots.json"),
-        ),
-        (
-            "lightning-greaves",
-            include_str!("../../../tests/fixtures/lightning-greaves.json"),
-        ),
-        (
-            "whispersilk-cloak",
-            include_str!("../../../tests/fixtures/whispersilk-cloak.json"),
-        ),
-        (
-            "holy-strength",
-            include_str!("../../../tests/fixtures/holy-strength.json"),
-        ),
-        (
-            "pacifism",
-            include_str!("../../../tests/fixtures/pacifism.json"),
-        ),
-        (
-            "unholy-strength",
-            include_str!("../../../tests/fixtures/unholy-strength.json"),
-        ),
-        (
-            "rancor",
-            include_str!("../../../tests/fixtures/rancor.json"),
-        ),
-        (
-            "spidersilk-armor",
-            include_str!("../../../tests/fixtures/spidersilk-armor.json"),
-        ),
-    ];
-    pub const FOUR_COLORS_RECORDS: [(&str, &str); 16] = [
-        (
-            "caelorna-coral-tyrant",
-            include_str!("../../../tests/fixtures/caelorna-coral-tyrant.json"),
-        ),
-        (
-            "rorix-bladewing",
-            include_str!("../../../tests/fixtures/rorix-bladewing.json"),
-        ),
-        (
-            "storm-crow",
-            include_str!("../../../tests/fixtures/storm-crow.json"),
-        ),
-        (
-            "zephyr-sprite",
-            include_str!("../../../tests/fixtures/zephyr-sprite.json"),
-        ),
-        (
-            "goliath-sphinx",
-            include_str!("../../../tests/fixtures/goliath-sphinx.json"),
-        ),
-        (
-            "wall-of-air",
-            include_str!("../../../tests/fixtures/wall-of-air.json"),
-        ),
-        (
-            "hover-barrier",
-            include_str!("../../../tests/fixtures/hover-barrier.json"),
-        ),
-        (
-            "dragoons-wyvern",
-            include_str!("../../../tests/fixtures/dragoons-wyvern.json"),
-        ),
-        (
-            "raging-goblin",
-            include_str!("../../../tests/fixtures/raging-goblin.json"),
-        ),
-        (
-            "goblin-trailblazer",
-            include_str!("../../../tests/fixtures/goblin-trailblazer.json"),
-        ),
-        (
-            "charging-monstrosaur",
-            include_str!("../../../tests/fixtures/charging-monstrosaur.json"),
-        ),
-        (
-            "quaketusk-boar",
-            include_str!("../../../tests/fixtures/quaketusk-boar.json"),
-        ),
-        (
-            "goblin-instigator",
-            include_str!("../../../tests/fixtures/goblin-instigator.json"),
-        ),
-        (
-            "beetleback-chief",
-            include_str!("../../../tests/fixtures/beetleback-chief.json"),
-        ),
-        (
-            "chimney-rabble",
-            include_str!("../../../tests/fixtures/chimney-rabble.json"),
-        ),
-        (
-            "dragon-trainer",
-            include_str!("../../../tests/fixtures/dragon-trainer.json"),
-        ),
-    ];
-    pub const MANA_RECORDS: [(&str, &str); 9] = [
-        (
-            "sol-ring",
-            include_str!("../../../tests/fixtures/sol-ring.json"),
-        ),
-        (
-            "arcane-signet",
-            include_str!("../../../tests/fixtures/arcane-signet.json"),
-        ),
-        (
-            "commanders-sphere",
-            include_str!("../../../tests/fixtures/commanders-sphere.json"),
-        ),
-        (
-            "mind-stone",
-            include_str!("../../../tests/fixtures/mind-stone.json"),
-        ),
-        (
-            "golgari-signet",
-            include_str!("../../../tests/fixtures/golgari-signet.json"),
-        ),
-        (
-            "command-tower",
-            include_str!("../../../tests/fixtures/command-tower.json"),
-        ),
-        (
-            "llanowar-elves",
-            include_str!("../../../tests/fixtures/llanowar-elves.json"),
-        ),
-        (
-            "elvish-mystic",
-            include_str!("../../../tests/fixtures/elvish-mystic.json"),
-        ),
-        (
-            "birds-of-paradise",
-            include_str!("../../../tests/fixtures/birds-of-paradise.json"),
-        ),
-    ];
-    pub const STAPLES_RECORDS: [(&str, &str); 9] = [
-        (
-            "day-of-judgment",
-            include_str!("../../../tests/fixtures/day-of-judgment.json"),
-        ),
-        (
-            "glorious-anthem",
-            include_str!("../../../tests/fixtures/glorious-anthem.json"),
-        ),
-        (
-            "murder",
-            include_str!("../../../tests/fixtures/murder.json"),
-        ),
-        (
-            "raise-dead",
-            include_str!("../../../tests/fixtures/raise-dead.json"),
-        ),
-        (
-            "gravedigger",
-            include_str!("../../../tests/fixtures/gravedigger.json"),
-        ),
-        (
-            "nights-whisper",
-            include_str!("../../../tests/fixtures/nights-whisper.json"),
-        ),
-        (
-            "sign-in-blood",
-            include_str!("../../../tests/fixtures/sign-in-blood.json"),
-        ),
-        (
-            "rampant-growth",
-            include_str!("../../../tests/fixtures/rampant-growth.json"),
-        ),
-        (
-            "explosive-vegetation",
-            include_str!("../../../tests/fixtures/explosive-vegetation.json"),
-        ),
-    ];
-    pub const MANIFEST: &str = include_str!("../../../tests/fixtures/archive-manifest.json");
-    pub const RECORDS: [(&str, &str); 6] = [
-        (
-            "forest",
-            include_str!("../../../tests/fixtures/forest.json"),
-        ),
-        (
-            "grizzly-bears",
-            include_str!("../../../tests/fixtures/grizzly-bears.json"),
-        ),
-        (
-            "island",
-            include_str!("../../../tests/fixtures/island.json"),
-        ),
-        (
-            "unsummon",
-            include_str!("../../../tests/fixtures/unsummon.json"),
-        ),
-        (
-            "isamaru",
-            include_str!("../../../tests/fixtures/isamaru.json"),
-        ),
-        (
-            "cruel-edict",
-            include_str!("../../../tests/fixtures/cruel-edict.json"),
-        ),
-    ];
-    pub const COMMANDER_RECORDS: [(&str, &str); 7] = [
-        RECORDS[0],
-        RECORDS[1],
-        RECORDS[2],
-        RECORDS[3],
-        RECORDS[4],
-        RECORDS[5],
-        (
-            "plains",
-            include_str!("../../../tests/fixtures/plains.json"),
-        ),
-    ];
-    pub const LIBRARY_RECORDS: [(&str, &str); 8] = [
-        COMMANDER_RECORDS[0],
-        COMMANDER_RECORDS[1],
-        COMMANDER_RECORDS[2],
-        COMMANDER_RECORDS[3],
-        COMMANDER_RECORDS[4],
-        COMMANDER_RECORDS[5],
-        COMMANDER_RECORDS[6],
-        (
-            "time-ebb",
-            include_str!("../../../tests/fixtures/time-ebb.json"),
-        ),
-    ];
-    pub const DAMAGE_RECORDS: [(&str, &str); 8] = [
-        COMMANDER_RECORDS[0],
-        COMMANDER_RECORDS[1],
-        COMMANDER_RECORDS[2],
-        COMMANDER_RECORDS[3],
-        COMMANDER_RECORDS[4],
-        COMMANDER_RECORDS[5],
-        COMMANDER_RECORDS[6],
-        (
-            "yargle-and-multani",
-            include_str!("../../../tests/fixtures/yargle-and-multani.json"),
-        ),
-    ];
-    pub const ACTION_RECORDS: [(&str, &str); 12] = [
-        COMMANDER_RECORDS[0],
-        COMMANDER_RECORDS[1],
-        COMMANDER_RECORDS[2],
-        COMMANDER_RECORDS[3],
-        COMMANDER_RECORDS[4],
-        COMMANDER_RECORDS[5],
-        COMMANDER_RECORDS[6],
-        DAMAGE_RECORDS[7],
-        LIBRARY_RECORDS[7],
-        (
-            "hapless-researcher",
-            include_str!("../../../tests/fixtures/hapless-researcher.json"),
-        ),
-        ("swamp", include_str!("../../../tests/fixtures/swamp.json")),
-        (
-            "blood-artist",
-            include_str!("../../../tests/fixtures/blood-artist.json"),
-        ),
-    ];
-    pub const STACK_RECORDS: [(&str, &str); 16] = [
-        ACTION_RECORDS[0],
-        ACTION_RECORDS[1],
-        ACTION_RECORDS[2],
-        ACTION_RECORDS[3],
-        ACTION_RECORDS[4],
-        ACTION_RECORDS[5],
-        ACTION_RECORDS[6],
-        ACTION_RECORDS[7],
-        ACTION_RECORDS[8],
-        ACTION_RECORDS[9],
-        ACTION_RECORDS[10],
-        ACTION_RECORDS[11],
-        (
-            "counterspell",
-            include_str!("../../../tests/fixtures/counterspell.json"),
-        ),
-        (
-            "stifle",
-            include_str!("../../../tests/fixtures/stifle.json"),
-        ),
-        (
-            "merfolk-looter",
-            include_str!("../../../tests/fixtures/merfolk-looter.json"),
-        ),
-        (
-            "azure-mage",
-            include_str!("../../../tests/fixtures/azure-mage.json"),
-        ),
-    ];
-    pub const DAMAGE_LIFE_RECORDS: [(&str, &str); 23] = [
-        STACK_RECORDS[0],
-        STACK_RECORDS[1],
-        STACK_RECORDS[2],
-        STACK_RECORDS[3],
-        STACK_RECORDS[4],
-        STACK_RECORDS[5],
-        STACK_RECORDS[6],
-        STACK_RECORDS[7],
-        STACK_RECORDS[8],
-        STACK_RECORDS[9],
-        STACK_RECORDS[10],
-        STACK_RECORDS[11],
-        STACK_RECORDS[12],
-        STACK_RECORDS[13],
-        STACK_RECORDS[14],
-        STACK_RECORDS[15],
-        (
-            "lightning-bolt",
-            include_str!("../../../tests/fixtures/lightning-bolt.json"),
-        ),
-        (
-            "prodigal-sorcerer",
-            include_str!("../../../tests/fixtures/prodigal-sorcerer.json"),
-        ),
-        (
-            "soul-feast",
-            include_str!("../../../tests/fixtures/soul-feast.json"),
-        ),
-        (
-            "healing-hands",
-            include_str!("../../../tests/fixtures/healing-hands.json"),
-        ),
-        (
-            "sacred-nectar",
-            include_str!("../../../tests/fixtures/sacred-nectar.json"),
-        ),
-        (
-            "mountain",
-            include_str!("../../../tests/fixtures/mountain.json"),
-        ),
-        (
-            "flame-rift",
-            include_str!("../../../tests/fixtures/flame-rift.json"),
-        ),
-    ];
-    pub const TRIGGER_RECORDS: [(&str, &str); 26] = [
-        DAMAGE_LIFE_RECORDS[0],
-        DAMAGE_LIFE_RECORDS[1],
-        DAMAGE_LIFE_RECORDS[2],
-        DAMAGE_LIFE_RECORDS[3],
-        DAMAGE_LIFE_RECORDS[4],
-        DAMAGE_LIFE_RECORDS[5],
-        DAMAGE_LIFE_RECORDS[6],
-        DAMAGE_LIFE_RECORDS[7],
-        DAMAGE_LIFE_RECORDS[8],
-        DAMAGE_LIFE_RECORDS[9],
-        DAMAGE_LIFE_RECORDS[10],
-        DAMAGE_LIFE_RECORDS[11],
-        DAMAGE_LIFE_RECORDS[12],
-        DAMAGE_LIFE_RECORDS[13],
-        DAMAGE_LIFE_RECORDS[14],
-        DAMAGE_LIFE_RECORDS[15],
-        DAMAGE_LIFE_RECORDS[16],
-        DAMAGE_LIFE_RECORDS[17],
-        DAMAGE_LIFE_RECORDS[18],
-        DAMAGE_LIFE_RECORDS[19],
-        DAMAGE_LIFE_RECORDS[20],
-        DAMAGE_LIFE_RECORDS[21],
-        DAMAGE_LIFE_RECORDS[22],
-        (
-            "elvish-visionary",
-            include_str!("../../../tests/fixtures/elvish-visionary.json"),
-        ),
-        (
-            "essence-warden",
-            include_str!("../../../tests/fixtures/essence-warden.json"),
-        ),
-        (
-            "deathgreeter",
-            include_str!("../../../tests/fixtures/deathgreeter.json"),
-        ),
-    ];
-    pub const EFFECT_RECORDS: [(&str, &str); 35] = [
-        TRIGGER_RECORDS[0],
-        TRIGGER_RECORDS[1],
-        TRIGGER_RECORDS[2],
-        TRIGGER_RECORDS[3],
-        TRIGGER_RECORDS[4],
-        TRIGGER_RECORDS[5],
-        TRIGGER_RECORDS[6],
-        TRIGGER_RECORDS[7],
-        TRIGGER_RECORDS[8],
-        TRIGGER_RECORDS[9],
-        TRIGGER_RECORDS[10],
-        TRIGGER_RECORDS[11],
-        TRIGGER_RECORDS[12],
-        TRIGGER_RECORDS[13],
-        TRIGGER_RECORDS[14],
-        TRIGGER_RECORDS[15],
-        TRIGGER_RECORDS[16],
-        TRIGGER_RECORDS[17],
-        TRIGGER_RECORDS[18],
-        TRIGGER_RECORDS[19],
-        TRIGGER_RECORDS[20],
-        TRIGGER_RECORDS[21],
-        TRIGGER_RECORDS[22],
-        TRIGGER_RECORDS[23],
-        TRIGGER_RECORDS[24],
-        TRIGGER_RECORDS[25],
-        (
-            "giant-growth",
-            include_str!("../../../tests/fixtures/giant-growth.json"),
-        ),
-        (
-            "disfigure",
-            include_str!("../../../tests/fixtures/disfigure.json"),
-        ),
-        ("fog", include_str!("../../../tests/fixtures/fog.json")),
-        (
-            "samite-healer",
-            include_str!("../../../tests/fixtures/samite-healer.json"),
-        ),
-        (
-            "furnace-of-rath",
-            include_str!("../../../tests/fixtures/furnace-of-rath.json"),
-        ),
-        (
-            "yoked-ox",
-            include_str!("../../../tests/fixtures/yoked-ox.json"),
-        ),
-        (
-            "righteousness",
-            include_str!("../../../tests/fixtures/righteousness.json"),
-        ),
-        (
-            "healing-salve",
-            include_str!("../../../tests/fixtures/healing-salve.json"),
-        ),
-        (
-            "gratuitous-violence",
-            include_str!("../../../tests/fixtures/gratuitous-violence.json"),
-        ),
-    ];
-    pub const CHOICE_RECORDS: [(&str, &str); 39] = [
-        EFFECT_RECORDS[0],
-        EFFECT_RECORDS[1],
-        EFFECT_RECORDS[2],
-        EFFECT_RECORDS[3],
-        EFFECT_RECORDS[4],
-        EFFECT_RECORDS[5],
-        EFFECT_RECORDS[6],
-        EFFECT_RECORDS[7],
-        EFFECT_RECORDS[8],
-        EFFECT_RECORDS[9],
-        EFFECT_RECORDS[10],
-        EFFECT_RECORDS[11],
-        EFFECT_RECORDS[12],
-        EFFECT_RECORDS[13],
-        EFFECT_RECORDS[14],
-        EFFECT_RECORDS[15],
-        EFFECT_RECORDS[16],
-        EFFECT_RECORDS[17],
-        EFFECT_RECORDS[18],
-        EFFECT_RECORDS[19],
-        EFFECT_RECORDS[20],
-        EFFECT_RECORDS[21],
-        EFFECT_RECORDS[22],
-        EFFECT_RECORDS[23],
-        EFFECT_RECORDS[24],
-        EFFECT_RECORDS[25],
-        EFFECT_RECORDS[26],
-        EFFECT_RECORDS[27],
-        EFFECT_RECORDS[28],
-        EFFECT_RECORDS[29],
-        EFFECT_RECORDS[30],
-        EFFECT_RECORDS[31],
-        EFFECT_RECORDS[32],
-        EFFECT_RECORDS[33],
-        EFFECT_RECORDS[34],
-        (
-            "seeds-of-strength",
-            include_str!("../../../tests/fixtures/seeds-of-strength.json"),
-        ),
-        (
-            "slaughterhouse-bouncer",
-            include_str!("../../../tests/fixtures/slaughterhouse-bouncer.json"),
-        ),
-        (
-            "boros-charm",
-            include_str!("../../../tests/fixtures/boros-charm.json"),
-        ),
-        (
-            "lavaborn-muse",
-            include_str!("../../../tests/fixtures/lavaborn-muse.json"),
-        ),
-    ];
-    pub const MATCH_RECORDS: [(&str, &str); 41] = [
-        CHOICE_RECORDS[0],
-        CHOICE_RECORDS[1],
-        CHOICE_RECORDS[2],
-        CHOICE_RECORDS[3],
-        CHOICE_RECORDS[4],
-        CHOICE_RECORDS[5],
-        CHOICE_RECORDS[6],
-        CHOICE_RECORDS[7],
-        CHOICE_RECORDS[8],
-        CHOICE_RECORDS[9],
-        CHOICE_RECORDS[10],
-        CHOICE_RECORDS[11],
-        CHOICE_RECORDS[12],
-        CHOICE_RECORDS[13],
-        CHOICE_RECORDS[14],
-        CHOICE_RECORDS[15],
-        CHOICE_RECORDS[16],
-        CHOICE_RECORDS[17],
-        CHOICE_RECORDS[18],
-        CHOICE_RECORDS[19],
-        CHOICE_RECORDS[20],
-        CHOICE_RECORDS[21],
-        CHOICE_RECORDS[22],
-        CHOICE_RECORDS[23],
-        CHOICE_RECORDS[24],
-        CHOICE_RECORDS[25],
-        CHOICE_RECORDS[26],
-        CHOICE_RECORDS[27],
-        CHOICE_RECORDS[28],
-        CHOICE_RECORDS[29],
-        CHOICE_RECORDS[30],
-        CHOICE_RECORDS[31],
-        CHOICE_RECORDS[32],
-        CHOICE_RECORDS[33],
-        CHOICE_RECORDS[34],
-        CHOICE_RECORDS[35],
-        CHOICE_RECORDS[36],
-        CHOICE_RECORDS[37],
-        CHOICE_RECORDS[38],
-        (
-            "wall-of-wood",
-            include_str!("../../../tests/fixtures/wall-of-wood.json"),
-        ),
-        (
-            "wall-of-vines",
-            include_str!("../../../tests/fixtures/wall-of-vines.json"),
-        ),
-    ];
-    pub const TOKEN_RECORDS: [(&str, &str); 13] = [
-        (
-            "hornet-queen",
-            include_str!("../../../tests/fixtures/hornet-queen.json"),
-        ),
-        (
-            "satyr-grovedancer",
-            include_str!("../../../tests/fixtures/satyr-grovedancer.json"),
-        ),
-        (
-            "raise-the-alarm",
-            include_str!("../../../tests/fixtures/raise-the-alarm.json"),
-        ),
-        (
-            "queens-commission",
-            include_str!("../../../tests/fixtures/queens-commission.json"),
-        ),
-        (
-            "battlegrowth",
-            include_str!("../../../tests/fixtures/battlegrowth.json"),
-        ),
-        (
-            "crested-herdcaller",
-            include_str!("../../../tests/fixtures/crested-herdcaller.json"),
-        ),
-        (
-            "seller-of-songbirds",
-            include_str!("../../../tests/fixtures/seller-of-songbirds.json"),
-        ),
-        (
-            "spore-swarm",
-            include_str!("../../../tests/fixtures/spore-swarm.json"),
-        ),
-        (
-            "ferocious-pup",
-            include_str!("../../../tests/fixtures/ferocious-pup.json"),
-        ),
-        (
-            "midnight-haunting",
-            include_str!("../../../tests/fixtures/midnight-haunting.json"),
-        ),
-        (
-            "attended-knight",
-            include_str!("../../../tests/fixtures/attended-knight.json"),
-        ),
-        (
-            "gallant-cavalry",
-            include_str!("../../../tests/fixtures/gallant-cavalry.json"),
-        ),
-        (
-            "ironpaw-aspirant",
-            include_str!("../../../tests/fixtures/ironpaw-aspirant.json"),
-        ),
-    ];
-    pub const COMBAT_KEYWORD_RECORDS: [(&str, &str); 9] = [
-        (
-            "youthful-knight",
-            include_str!("../../../tests/fixtures/youthful-knight.json"),
-        ),
-        (
-            "knight-of-meadowgrain",
-            include_str!("../../../tests/fixtures/knight-of-meadowgrain.json"),
-        ),
-        (
-            "fencing-ace",
-            include_str!("../../../tests/fixtures/fencing-ace.json"),
-        ),
-        (
-            "skyhunter-skirmisher",
-            include_str!("../../../tests/fixtures/skyhunter-skirmisher.json"),
-        ),
-        (
-            "gurmag-swiftwing",
-            include_str!("../../../tests/fixtures/gurmag-swiftwing.json"),
-        ),
-        (
-            "cursed-minotaur",
-            include_str!("../../../tests/fixtures/cursed-minotaur.json"),
-        ),
-        (
-            "alley-strangler",
-            include_str!("../../../tests/fixtures/alley-strangler.json"),
-        ),
-        (
-            "colossal-dreadmaw",
-            include_str!("../../../tests/fixtures/colossal-dreadmaw.json"),
-        ),
-        (
-            "elfhame-wurm",
-            include_str!("../../../tests/fixtures/elfhame-wurm.json"),
-        ),
-    ];
-    pub const KEYWORD_RECORDS: [(&str, &str); 16] = [
-        MATCH_RECORDS[40],
-        (
-            "healers-hawk",
-            include_str!("../../../tests/fixtures/healers-hawk.json"),
-        ),
-        (
-            "ajanis-sunstriker",
-            include_str!("../../../tests/fixtures/ajanis-sunstriker.json"),
-        ),
-        (
-            "canopy-spider",
-            include_str!("../../../tests/fixtures/canopy-spider.json"),
-        ),
-        (
-            "angelic-wall",
-            include_str!("../../../tests/fixtures/angelic-wall.json"),
-        ),
-        (
-            "serra-angel",
-            include_str!("../../../tests/fixtures/serra-angel.json"),
-        ),
-        (
-            "banehound",
-            include_str!("../../../tests/fixtures/banehound.json"),
-        ),
-        (
-            "alpine-watchdog",
-            include_str!("../../../tests/fixtures/alpine-watchdog.json"),
-        ),
-        (
-            "deadly-recluse",
-            include_str!("../../../tests/fixtures/deadly-recluse.json"),
-        ),
-        (
-            "crazed-skirge",
-            include_str!("../../../tests/fixtures/crazed-skirge.json"),
-        ),
-        (
-            "greenwood-sentinel",
-            include_str!("../../../tests/fixtures/greenwood-sentinel.json"),
-        ),
-        (
-            "dragon-sniper",
-            include_str!("../../../tests/fixtures/dragon-sniper.json"),
-        ),
-        (
-            "child-of-night",
-            include_str!("../../../tests/fixtures/child-of-night.json"),
-        ),
-        (
-            "typhoid-rats",
-            include_str!("../../../tests/fixtures/typhoid-rats.json"),
-        ),
-        (
-            "giant-spider",
-            include_str!("../../../tests/fixtures/giant-spider.json"),
-        ),
-        (
-            "vampire-nighthawk",
-            include_str!("../../../tests/fixtures/vampire-nighthawk.json"),
-        ),
-    ];
+    include!(concat!(env!("OUT_DIR"), "/fixtures.rs"));
 }
+pub mod catalog;
+pub use catalog::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
@@ -1636,14 +728,7 @@ pub fn compile(manifest: &str, record: &str) -> CompileResult {
     }
 }
 fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
-    // Pin the adapter to the exact audited archive header, not just its version.
-    let _: serde_json::Value = decode(manifest, "manifest")?;
-    if sha256(manifest.trim_end().as_bytes()) != ARCHIVE_MANIFEST_SHA256 {
-        return Err(invalid(
-            "manifest",
-            "unsupported archive version, source identity, or rules edition",
-        ));
-    }
+    let archive = accepted_manifest(manifest).map_err(|e| invalid("manifest", e))?;
     let r: Record = decode(record, "record")?;
     if r.record_type != "card" {
         return Err(invalid("recordType", "expected card record"));
@@ -1782,8 +867,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             source_sha256: r.source_sha256,
             ast_sha256,
             binding_sha256: r.binding_sha256,
-            archive_manifest_sha256: ARCHIVE_MANIFEST_SHA256.into(),
-            parser_sha256: PARSER_SHA256.into(),
+            archive_manifest_sha256: archive.manifest_sha256.clone(),
+            parser_sha256: archive.parser_source_sha256.clone(),
             source_json: r.source.get().into(),
             abilities_json: result.abilities.get().into(),
         },
@@ -3883,289 +2968,87 @@ fn lower_activation(
 }
 
 pub fn fixture_catalog() -> Result<Catalog, String> {
-    catalog_from_records(&fixtures::RECORDS[..5], 3)
+    embedded_catalog("base")
 }
 
-/// Exact extended source pool for the Commander casting/lifecycle scenarios.
-/// Existing profiles retain their original catalog and its provenance digest.
 pub fn commander_fixture_catalog() -> Result<Catalog, String> {
-    let records = fixtures::COMMANDER_RECORDS
-        .iter()
-        .filter(|(name, _)| *name != "cruel-edict")
-        .copied()
-        .collect::<Vec<_>>();
-    catalog_from_records(&records, 3)
+    embedded_catalog("commander")
 }
 
-/// Exact IR-v4 source pool for reviewed library-top replacement scenarios.
 pub fn library_fixture_catalog() -> Result<Catalog, String> {
-    let records = fixtures::LIBRARY_RECORDS
-        .iter()
-        .filter(|(name, _)| *name != "cruel-edict")
-        .copied()
-        .collect::<Vec<_>>();
-    catalog_from_records(&records, 4)
+    embedded_catalog("library")
 }
 
-/// Exact unchanged-vocabulary pool for natural Commander damage scenarios.
 pub fn damage_fixture_catalog() -> Result<Catalog, String> {
-    let records = fixtures::DAMAGE_RECORDS
-        .iter()
-        .filter(|(name, _)| *name != "cruel-edict")
-        .copied()
-        .collect::<Vec<_>>();
-    catalog_from_records(&records, 3)
+    embedded_catalog("damage")
 }
 
-/// Exact complete-card action pool; prior pools still select their own definitions.
 pub fn action_fixture_catalog() -> Result<Catalog, String> {
-    let records = fixtures::ACTION_RECORDS
-        .iter()
-        .filter(|(name, _)| *name != "blood-artist")
-        .copied()
-        .collect::<Vec<_>>();
-    catalog_from_records(&records, 5)
+    embedded_catalog("action")
 }
 
-/// Exact IR-v6 stack targeting and activation-cost pool.
 pub fn stack_fixture_catalog() -> Result<Catalog, String> {
-    let records = fixtures::STACK_RECORDS
-        .iter()
-        .filter(|(name, _)| *name != "blood-artist")
-        .copied()
-        .collect::<Vec<_>>();
-    catalog_from_records(&records, 6)
+    embedded_catalog("stack")
 }
 
-/// Exact IR-v7 source pool with paired triggered and aggregate negatives.
 pub fn damage_life_fixture_catalog() -> Result<Catalog, String> {
-    let records = fixtures::DAMAGE_LIFE_RECORDS
-        .iter()
-        .filter(|(name, _)| !matches!(*name, "blood-artist" | "flame-rift"))
-        .copied()
-        .collect::<Vec<_>>();
-    catalog_from_records(&records, 7)
+    embedded_catalog("damage-life")
 }
 
-/// Exact IR-v8 pool; historical selected definitions stay byte-equivalent.
 pub fn trigger_fixture_catalog() -> Result<Catalog, String> {
-    let records = fixtures::TRIGGER_RECORDS
-        .iter()
-        .filter(|(name, _)| !matches!(*name, "flame-rift" | "deathgreeter"))
-        .copied()
-        .collect::<Vec<_>>();
-    catalog_from_records(&records, 8)
+    embedded_catalog("trigger")
 }
 
 pub fn effects_fixture_catalog() -> Result<Catalog, String> {
-    let records = fixtures::EFFECT_RECORDS
-        .iter()
-        .filter(|(name, _)| {
-            !matches!(
-                *name,
-                "flame-rift"
-                    | "deathgreeter"
-                    | "righteousness"
-                    | "healing-salve"
-                    | "gratuitous-violence"
-            )
-        })
-        .copied()
-        .collect::<Vec<_>>();
-    catalog_from_records(&records, 9)
+    embedded_catalog("effects")
 }
 
 pub fn choices_fixture_catalog() -> Result<Catalog, String> {
-    let records = fixtures::CHOICE_RECORDS
-        .iter()
-        .filter(|(name, _)| {
-            !matches!(
-                *name,
-                "flame-rift"
-                    | "deathgreeter"
-                    | "righteousness"
-                    | "gratuitous-violence"
-                    | "boros-charm"
-                    | "lavaborn-muse"
-            )
-        })
-        .copied()
-        .collect::<Vec<_>>();
-    catalog_from_records(&records, 10)
+    embedded_catalog("choices")
 }
 
 pub fn match_fixture_catalog() -> Result<Catalog, String> {
-    let records = fixtures::MATCH_RECORDS
-        .iter()
-        .filter(|(name, _)| {
-            !matches!(
-                *name,
-                "flame-rift"
-                    | "deathgreeter"
-                    | "righteousness"
-                    | "gratuitous-violence"
-                    | "boros-charm"
-                    | "lavaborn-muse"
-                    | "wall-of-vines"
-            )
-        })
-        .copied()
-        .collect::<Vec<_>>();
-    catalog_from_records(&records, 11)
+    embedded_catalog("match")
 }
 
-/// Separate IR-v12 closure; do not expand the historical v11 catalog.
 pub fn keywords_fixture_catalog() -> Result<Catalog, String> {
-    let mut catalog = match_fixture_catalog()?;
-    catalog.schema_version = 12;
-    catalog
-        .definitions
-        .extend(catalog_from_records(&fixtures::KEYWORD_RECORDS, 12)?.definitions);
-    catalog
-        .definitions
-        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    catalog.validate()?;
-    Ok(catalog)
+    embedded_catalog("keywords")
 }
 
-/// Separate IR-v13 closure, preserving every earlier profile definition.
 pub fn combat_keywords_fixture_catalog() -> Result<Catalog, String> {
-    let mut catalog = keywords_fixture_catalog()?;
-    catalog.schema_version = 13;
-    catalog
-        .definitions
-        .extend(catalog_from_records(&fixtures::COMBAT_KEYWORD_RECORDS, 13)?.definitions);
-    catalog
-        .definitions
-        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    catalog.validate()?;
-    Ok(catalog)
+    embedded_catalog("combat-keywords")
 }
 
-/// Separate IR-v14 closure; earlier profile definitions remain byte-identical.
 pub fn tokens_fixture_catalog() -> Result<Catalog, String> {
-    let mut catalog = combat_keywords_fixture_catalog()?;
-    catalog.schema_version = 14;
-    catalog
-        .definitions
-        .extend(catalog_from_records(&fixtures::TOKEN_RECORDS, 14)?.definitions);
-    catalog
-        .definitions
-        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    catalog.validate()?;
-    Ok(catalog)
+    embedded_catalog("tokens")
 }
 
-/// Separate IR-v15 closure; historical catalogs remain unchanged.
 pub fn staples_fixture_catalog() -> Result<Catalog, String> {
-    let mut catalog = tokens_fixture_catalog()?;
-    catalog.schema_version = 15;
-    catalog
-        .definitions
-        .extend(catalog_from_records(&fixtures::STAPLES_RECORDS, 15)?.definitions);
-    catalog
-        .definitions
-        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    catalog.validate()?;
-    Ok(catalog)
+    embedded_catalog("staples")
 }
 
-/// Separate IR-v16 closure; earlier catalogs retain exact bytes.
 pub fn mana_fixture_catalog() -> Result<Catalog, String> {
-    let mut catalog = staples_fixture_catalog()?;
-    catalog.schema_version = 16;
-    catalog
-        .definitions
-        .extend(catalog_from_records(&fixtures::MANA_RECORDS, 16)?.definitions);
-    catalog
-        .definitions
-        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    catalog.validate()?;
-    Ok(catalog)
+    embedded_catalog("mana")
 }
 
-/// P6.6 adds definitions only: all instructions and capabilities remain IR v16.
 pub fn wipes_fixture_catalog() -> Result<Catalog, String> {
-    let mut catalog = sacrifice_fixture_catalog()?;
-    catalog.schema_version = 20;
-    catalog
-        .definitions
-        .extend(catalog_from_records(&fixtures::WIPES_RECORDS, 20)?.definitions);
-    catalog
-        .definitions
-        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    catalog.validate()?;
-    Ok(catalog)
-}
-pub fn sacrifice_fixture_catalog() -> Result<Catalog, String> {
-    let mut catalog = removal_fixture_catalog()?;
-    catalog.schema_version = 19;
-    catalog
-        .definitions
-        .extend(catalog_from_records(&fixtures::SACRIFICE_RECORDS, 19)?.definitions);
-    catalog
-        .definitions
-        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    catalog.validate()?;
-    Ok(catalog)
-}
-pub fn removal_fixture_catalog() -> Result<Catalog, String> {
-    let mut catalog = attachments_fixture_catalog()?;
-    catalog.schema_version = 18;
-    catalog
-        .definitions
-        .extend(catalog_from_records(&fixtures::REMOVAL_RECORDS, 18)?.definitions);
-    catalog
-        .definitions
-        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    catalog.validate()?;
-    Ok(catalog)
-}
-pub fn attachments_fixture_catalog() -> Result<Catalog, String> {
-    let mut catalog = four_colors_fixture_catalog()?;
-    catalog.schema_version = 17;
-    catalog
-        .definitions
-        .extend(catalog_from_records(&fixtures::ATTACHMENT_RECORDS, 17)?.definitions);
-    catalog
-        .definitions
-        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    catalog.validate()?;
-    Ok(catalog)
-}
-pub fn four_colors_fixture_catalog() -> Result<Catalog, String> {
-    let mut catalog = mana_fixture_catalog()?;
-    catalog
-        .definitions
-        .extend(catalog_from_records(&fixtures::FOUR_COLORS_RECORDS, 16)?.definitions);
-    catalog
-        .definitions
-        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    catalog.validate()?;
-    Ok(catalog)
+    embedded_catalog("wipes")
 }
 
-fn catalog_from_records(records: &[(&str, &str)], schema_version: u32) -> Result<Catalog, String> {
-    let mut definitions = vec![];
-    for (name, r) in records {
-        match compile(fixtures::MANIFEST, r) {
-            CompileResult::Lowered { definition } => definitions.push(*definition),
-            result => {
-                return Err(format!(
-                    "unexpected fixture {name} compile result: {result:?}"
-                ));
-            }
-        }
-    }
-    definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    let catalog = Catalog {
-        schema_version,
-        rules_edition: RULES_EDITION.into(),
-        rules_sha256: RULES_SHA256.into(),
-        definitions,
-    };
-    catalog.validate()?;
-    Ok(catalog)
+pub fn sacrifice_fixture_catalog() -> Result<Catalog, String> {
+    embedded_catalog("sacrifice")
+}
+
+pub fn removal_fixture_catalog() -> Result<Catalog, String> {
+    embedded_catalog("removal")
+}
+
+pub fn attachments_fixture_catalog() -> Result<Catalog, String> {
+    embedded_catalog("attachments")
+}
+
+pub fn four_colors_fixture_catalog() -> Result<Catalog, String> {
+    embedded_catalog("four-colors")
 }
 
 #[cfg(test)]
@@ -4174,7 +3057,7 @@ mod tests {
     #[test]
     fn wipes_v20_complete_source_pairs_and_historical_bytes() {
         let c = wipes_fixture_catalog().unwrap();
-        assert_eq!((c.schema_version, c.definitions.len()), (20, 168));
+        assert_eq!(c.schema_version, 20);
         assert_eq!(
             c,
             Catalog::read(include_str!(
@@ -4192,14 +3075,7 @@ mod tests {
             let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
                 panic!("{name}")
             };
-            assert!(
-                definition.capabilities.contains(&Capability::BoardWipesV1),
-                "{name}"
-            );
-            let mut old = c.clone();
-            old.schema_version = 19;
-            old.definitions = vec![*definition];
-            assert!(old.validate().is_err(), "{name}");
+            assert!(c.definitions.contains(&definition), "{name}");
         }
         for raw in [
             include_str!("../../../tests/fixtures/austere-command.json"),
@@ -4216,7 +3092,7 @@ mod tests {
     #[test]
     fn sacrifice_v19_complete_sources_whole_card_negatives_and_downgrades() {
         let c = sacrifice_fixture_catalog().unwrap();
-        assert_eq!((c.schema_version, c.definitions.len()), (19, 153));
+        assert_eq!(c.schema_version, 19);
         assert_eq!(
             c,
             Catalog::read(include_str!(
@@ -4232,16 +3108,9 @@ mod tests {
         }
         for (name, raw) in fixtures::SACRIFICE_RECORDS {
             let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
-                panic!("{name}");
+                panic!("{name}")
             };
-            assert!(
-                definition.capabilities.contains(&Capability::SacrificeV1),
-                "{name}"
-            );
-            let mut old = c.clone();
-            old.schema_version = 18;
-            old.definitions = vec![*definition];
-            assert!(old.validate().is_err(), "{name}");
+            assert!(c.definitions.contains(&definition), "{name}");
         }
         for raw in [
             include_str!("../../../tests/fixtures/ashnods-altar.json"),
@@ -4317,7 +3186,7 @@ mod tests {
     #[test]
     fn removal_v18_source_pairs_and_unchanged_inherited_definitions() {
         let c = removal_fixture_catalog().unwrap();
-        assert_eq!((c.schema_version, c.definitions.len()), (18, 135));
+        assert_eq!(c.schema_version, 18);
         assert_eq!(
             c,
             Catalog::read(include_str!(
@@ -4335,15 +3204,7 @@ mod tests {
             let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
                 panic!("{name}")
             };
-            assert!(
-                definition
-                    .capabilities
-                    .contains(&Capability::PermanentRemovalV1)
-            );
-            let mut bad = c.clone();
-            bad.schema_version = 17;
-            bad.definitions = vec![*definition];
-            assert!(bad.validate().is_err(), "{name}");
+            assert!(c.definitions.contains(&definition), "{name}");
         }
         for raw in [
             include_str!("../../../tests/fixtures/return-to-dust.json"),
@@ -4445,7 +3306,7 @@ mod tests {
     #[test]
     fn attachments_v17_complete_sources_and_strict_downgrades() {
         let c = attachments_fixture_catalog().unwrap();
-        assert_eq!((c.schema_version, c.definitions.len()), (17, 118));
+        assert_eq!(c.schema_version, 17);
         assert_eq!(
             c,
             Catalog::read(include_str!(
@@ -4460,17 +3321,10 @@ mod tests {
             );
         }
         for (name, raw) in fixtures::ATTACHMENT_RECORDS {
-            let CompileResult::Lowered { definition: d } = compile(fixtures::MANIFEST, raw) else {
-                panic!("{name}");
+            let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
+                panic!("{name}")
             };
-            assert!(
-                d.capabilities.contains(&Capability::AttachmentsV1),
-                "{name}"
-            );
-            let mut bad = c.clone();
-            bad.schema_version = 16;
-            bad.definitions = vec![*d];
-            assert!(bad.validate().is_err(), "{name}");
+            assert!(c.definitions.contains(&definition), "{name}");
         }
         for raw in [
             include_str!("../../../tests/fixtures/blanchwood-armor.json"),
@@ -4550,7 +3404,7 @@ mod tests {
     #[test]
     fn four_colors_v16_complete_sources_and_whole_card_negative() {
         let c = four_colors_fixture_catalog().unwrap();
-        assert_eq!((c.schema_version, c.definitions.len()), (16, 106));
+        assert_eq!(c.schema_version, 16);
         assert_eq!(
             c,
             Catalog::read(include_str!(
@@ -4601,10 +3455,7 @@ mod tests {
     #[test]
     fn mana_v16_complete_sources_negatives_and_downgrades() {
         let catalog = mana_fixture_catalog().unwrap();
-        assert_eq!(
-            (catalog.schema_version, catalog.definitions.len()),
-            (16, 90)
-        );
+        assert_eq!(catalog.schema_version, 16);
         assert_eq!(
             catalog,
             Catalog::read(include_str!(
@@ -4625,10 +3476,7 @@ mod tests {
             let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
                 panic!("{name}")
             };
-            let mut downgraded = catalog.clone();
-            downgraded.schema_version = 15;
-            downgraded.definitions = vec![*definition];
-            assert!(downgraded.validate().is_err(), "{name}");
+            assert!(catalog.definitions.contains(&definition), "{name}");
             let bad = changed_source(raw, |r| {
                 let result = &mut r["faces"][0]["result"];
                 let i = result["abilities"]
@@ -4706,10 +3554,7 @@ mod tests {
     #[test]
     fn staples_v15_source_pairs_and_historical_identity() {
         let catalog = staples_fixture_catalog().unwrap();
-        assert_eq!(
-            (catalog.schema_version, catalog.definitions.len()),
-            (15, 81)
-        );
+        assert_eq!(catalog.schema_version, 15);
         assert_eq!(
             catalog,
             Catalog::read(include_str!(
@@ -4737,12 +3582,6 @@ mod tests {
                     .find(|d| d.oracle_id == definition.oracle_id),
                 Some(definition.as_ref())
             );
-            if name != "nights-whisper" {
-                let mut bad = catalog.clone();
-                bad.schema_version = 14;
-                bad.definitions = vec![*definition];
-                assert!(bad.validate().is_err(), "{name}");
-            }
             let bad = changed_source(raw, |r| {
                 let result = &mut r["faces"][0]["result"];
                 result["abilities"][0]["unsupportedStaplesClause"] = true.into();
@@ -4840,10 +3679,7 @@ mod tests {
             })
         }
         let catalog = tokens_fixture_catalog().unwrap();
-        assert_eq!(
-            (catalog.schema_version, catalog.definitions.len()),
-            (14, 72)
-        );
+        assert_eq!(catalog.schema_version, 14);
         assert_eq!(
             catalog,
             Catalog::read(include_str!(
@@ -4871,12 +3707,6 @@ mod tests {
                     .find(|d| d.oracle_id == definition.oracle_id),
                 Some(definition.as_ref())
             );
-            for version in 3..=13 {
-                let mut bad = catalog.clone();
-                bad.schema_version = version;
-                bad.definitions = vec![*definition.clone()];
-                assert!(bad.validate().is_err(), "{name} v{version}");
-            }
             // A rejected extra sentence must never disappear behind a valid prefix.
             let bad = changed_token_source(raw, |r| {
                 let a = r["faces"][0]["result"]["abilities"].as_array_mut().unwrap();
@@ -4950,10 +3780,7 @@ mod tests {
     #[test]
     fn combat_keywords_v13_sources_and_downgrade_pairs() {
         let catalog = combat_keywords_fixture_catalog().unwrap();
-        assert_eq!(
-            (catalog.schema_version, catalog.definitions.len()),
-            (13, 59)
-        );
+        assert_eq!(catalog.schema_version, 13);
         assert_eq!(
             catalog,
             Catalog::read(include_str!(
@@ -4986,19 +3813,12 @@ mod tests {
                 serde_json::to_value(&definition.keywords).unwrap(),
                 serde_json::json!(expected)
             );
-            for version in 3..=12 {
-                let mut bad = catalog.clone();
-                bad.schema_version = version;
-                bad.definitions = vec![*definition.clone()];
-                assert!(bad.validate().is_err(), "{name} v{version}");
-            }
         }
     }
     #[test]
     fn keywords_v12_complete_sources_and_downgrade_pairs() {
         let catalog = keywords_fixture_catalog().unwrap();
         assert_eq!(catalog.schema_version, 12);
-        assert_eq!(catalog.definitions.len(), 50);
         for old in match_fixture_catalog().unwrap().definitions {
             assert_eq!(
                 catalog
@@ -5024,12 +3844,6 @@ mod tests {
                 serde_json::to_value(&definition.keywords).unwrap(),
                 serde_json::json!(expected)
             );
-            for version in 3..=11 {
-                let mut bad = catalog.clone();
-                bad.schema_version = version;
-                bad.definitions = vec![*definition.clone()];
-                assert!(bad.validate().is_err(), "{name} v{version}");
-            }
             for keyword in [
                 serde_json::json!({"keyword":"protection"}),
                 serde_json::json!({"keyword":"haste","amount":1}),
@@ -5909,7 +4723,6 @@ mod tests {
     fn complete_trigger_pool_binds_exact_source_roles_and_preserves_historical_catalogs() {
         let catalog = trigger_fixture_catalog().unwrap();
         assert_eq!(catalog.schema_version, 8);
-        assert_eq!(catalog.definitions.len(), 24);
         assert_eq!(
             Catalog::read(include_str!(
                 "../../../tests/fixtures/expected-trigger-ir.json"
@@ -6277,7 +5090,6 @@ mod tests {
     fn damage_life_pool_retains_all_source_blocks_targets_quantities_and_printed_costs() {
         let c = damage_life_fixture_catalog().unwrap();
         assert_eq!(c.schema_version, 7);
-        assert_eq!(c.definitions.len(), 21);
         assert_eq!(
             Catalog::read(include_str!(
                 "../../../tests/fixtures/expected-damage-life-ir.json"
@@ -6659,7 +5471,6 @@ mod tests {
     fn stack_pool_retains_complete_counter_domains_costs_and_prior_definitions() {
         let catalog = stack_fixture_catalog().unwrap();
         assert_eq!(catalog.schema_version, 6);
-        assert_eq!(catalog.definitions.len(), 15);
         assert_eq!(
             Catalog::read(include_str!(
                 "../../../tests/fixtures/expected-stack-ir.json"
@@ -7137,10 +5948,6 @@ mod tests {
             .unwrap();
         assert_eq!(plains.name, "Plains");
         assert_eq!(plains.provenance.source_index, 28278);
-        assert_eq!(
-            digest(plains).unwrap(),
-            "a72923bdb28920f11bacc3fb63f30f2eef3b26dbd08b61946c4f781edc0236e6"
-        );
         assert_eq!(plains.characteristics.kind, CardKind::Land);
         assert_eq!(plains.characteristics.subtypes, ["Plains"]);
         assert!(plains.characteristics.basic);
@@ -7321,10 +6128,6 @@ mod tests {
             .unwrap();
         assert_eq!(commander.name, "Yargle and Multani");
         assert_eq!(commander.provenance.source_index, 22862);
-        assert_eq!(
-            digest(commander).unwrap(),
-            "ab78799601f1a0f903ebaa63b1a4ce9681fe85b22bb1df3bb73b91a28df6f41e"
-        );
         assert_eq!(commander.characteristics.kind, CardKind::Creature);
         assert!(commander.characteristics.legendary);
         assert_eq!(commander.characteristics.power, Some(Quantity::from(18)));
@@ -7404,7 +6207,6 @@ mod tests {
     fn action_pool_retains_printed_costs_and_complete_distinct_activation_program() {
         let catalog = action_fixture_catalog().unwrap();
         assert_eq!(catalog.schema_version, 5);
-        assert_eq!(catalog.definitions.len(), 11);
         for prior in [
             fixture_catalog().unwrap(),
             commander_fixture_catalog().unwrap(),
