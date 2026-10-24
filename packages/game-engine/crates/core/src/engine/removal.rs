@@ -219,13 +219,20 @@ impl Game {
                     return self
                         .finish_instruction(frame, InstructionOutcome::IllegalTarget { target });
                 }
-                if matches!(instruction, Instruction::DestroyPermanent { .. })
-                    && matches!(
-                        instruction,
-                        Instruction::DestroyPermanent { optional: true, .. }
-                    )
-                    && self.is_live(frame.spell.controller)
-                {
+                if matches!(
+                    instruction,
+                    Instruction::DestroyPermanent { optional: true, .. }
+                ) {
+                    // CR 603.5: "may" is the controller's resolution choice; a
+                    // departed controller (800.4a) makes none, as in
+                    // removal_choice_step.
+                    if !self.is_live(frame.spell.controller) {
+                        let player = frame.spell.controller;
+                        return self.finish_instruction(
+                            frame,
+                            InstructionOutcome::PlayerActionSkipped { player },
+                        );
+                    }
                     self.state.frame = Frame::ResolutionChoice {
                         choice: ResolutionChoice::OptionalEffect {
                             player: frame.spell.controller,

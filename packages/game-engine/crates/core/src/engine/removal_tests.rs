@@ -1160,3 +1160,33 @@ fn swan_mixed_stack_rejects_wrong_typed_response_without_mutation() {
         assert_eq!(g.current(t[0]).unwrap().controller, PlayerId(1));
     });
 }
+// Reviewed P6.8 regression: CR 603.5 makes "may" the controller's resolution
+// choice. A controller who concedes as the trigger begins resolving makes none,
+// matching a concession at Request::OptionalEffect.
+#[test]
+fn sage_may_is_not_performed_for_a_departed_controller() {
+    let mut rows = vec![("Reclamation Sage", 0, true), ("Sol Ring", 1, false)];
+    rows.extend(lands("Forest", 3));
+    traces(prepared(&rows), |g| {
+        let ring = object(g, 1);
+        announce(g, 0, vec![]);
+        for _ in 0..4000 {
+            if matches!(&g.state.frame, Frame::Resolve { frame }
+                if matches!(frame.spell.kind, StackKind::Triggered { .. }))
+            {
+                break;
+            }
+            match g.advance(Budget::new(1)) {
+                Advance::Suspended { .. } => {}
+                Advance::AwaitingDecision(r) => {
+                    let response = automatic(&r, &target(ring));
+                    g.respond(r.player(), r.decision_id(), response).unwrap();
+                }
+                x => panic!("{x:?}"),
+            }
+        }
+        g.concede(PlayerId(0)).unwrap();
+        while matches!(g.advance(Budget::new(1)), Advance::Suspended { .. }) {}
+        assert_eq!(g.zone(object(g, 1)), Some(Zone::Battlefield));
+    });
+}
