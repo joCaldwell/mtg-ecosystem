@@ -108,8 +108,12 @@ impl Game {
             && let Ok(top) = self.top()
             && top.source == source
             && let StackKind::Activated { ability, .. } = top.kind
-            && matches!(&self.definition(source.card).unwrap().activated[ability as usize].cost,
+            && self.definition(source.card).is_ok_and(|d| {
+                d.activated.get(ability as usize).is_some_and(|a| {
+                    matches!(&a.cost,
                 ActivationCost::Composite { costs } if costs.tap || costs.sacrifice)
+                })
+            })
         {
             return true;
         }

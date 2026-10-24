@@ -654,14 +654,10 @@ fn nested_payment_concessions_preserve_live_payer_and_departed_last_known_facts(
 }
 
 #[test]
-fn optional_sacrifice_mana_cost_and_cost_triggers_reverse_with_source_and_pool() {
-    // Private IR composition: the production pool has no sacrifice-mana source.
-    // CR 733.1-2 reverses the cost and its pending triggers before priority.
-    let mut p = prepared(&[
-        ("Llanowar Elves", 0, false),
-        ("Blood Artist", 1, false),
-        ("Yargle and Multani", 0, true),
-    ]);
+fn sacrifice_mana_costs_are_not_admitted() {
+    // A sacrificed mana source must be reversible through the ordinary move
+    // path (CR 733.1-2) before any such ability is admitted; none is in the pool.
+    let mut p = prepared(&[("Llanowar Elves", 0, false)]);
     let c = Arc::make_mut(&mut p.catalog);
     c.definitions
         .iter_mut()
@@ -670,28 +666,7 @@ fn optional_sacrifice_mana_cost_and_cost_triggers_reverse_with_source_and_pool()
         .mana_abilities[0]
         .costs
         .sacrifice = true;
-    c.validate().unwrap();
-    p.catalog_digest = digest(c).unwrap();
-    traces(p, |g| {
-        reach(g, TurnStep::PrecombatMain);
-        let source = object(g, 0);
-        answer(g, Response::Cast { card: CardId(2) });
-        mana(g, 0);
-        let _ = request(g);
-        assert_eq!(
-            g.zone(object(g, 0)),
-            Some(Zone::Graveyard { owner: PlayerId(0) })
-        );
-        assert_eq!(g.state.pending_triggers.len(), 1);
-        check(g);
-        finish(g, true);
-        let _ = request(g);
-        assert_eq!(object(g, 0), source);
-        assert_eq!(g.zone(source), Some(Zone::Battlefield));
-        assert!(!g.current(source).unwrap().tapped);
-        assert!(g.state.players[0].mana.is_empty());
-        assert!(g.state.pending_triggers.is_empty());
-    });
+    assert!(c.validate().unwrap_err().contains("sacrifice mana costs"));
 }
 #[test]
 fn nested_and_completed_mana_receipt_forgery_fails_replay_proof() {
@@ -820,4 +795,29 @@ fn nested_mana_and_color_public_queries_resume_and_recover_without_version_chang
             assert_eq!(g.mana(PlayerId(0), Color::W), Some(1.into()));
         },
     );
+}
+#[test]
+fn nested_mana_request_names_its_mana_ability_source() {
+    // CR 605.3a: paying Golgari Signet's {1} is a payment for the Signet's
+    // ability, not for the spell being cast; the player-facing request says so.
+    let g = &mut Game::new(prepared(&[("Golgari Signet", 0, false)]));
+    reach(g, TurnStep::PrecombatMain);
+    mana(g, 0);
+    let _ = request(g);
+    let mut result = g.observe(PlayerId(0), Budget::new(0));
+    let observation = loop {
+        result = match result {
+            QueryResult::Complete(QueryValue::Observation(o)) => break o,
+            QueryResult::Incomplete { work, .. } => g.resume_work(work, Budget::new(1)),
+            _ => panic!("observation query failed"),
+        };
+    };
+    let Some(PlayerRequest::Mana {
+        mana_ability_source: Some(source),
+        ..
+    }) = observation.decision
+    else {
+        panic!("expected nested mana request with its source")
+    };
+    assert_eq!(g.handle_for(PlayerId(0), object(g, 0)).unwrap(), source);
 }

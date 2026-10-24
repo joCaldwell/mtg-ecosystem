@@ -514,7 +514,7 @@ impl Game {
             let no_domain = !self.has_target_domain(self.program()?, self.top()?.controller);
             let source_bad = cast.origin == AnnouncementOrigin::Activated
                 && (matches!(self.state.frame, Frame::EntityTargets { .. })
-                    || matches!(self.top()?.kind, StackKind::Activated {ability,..} if matches!(self.definition(self.top().unwrap().source.card).unwrap().activated[ability as usize].cost, ActivationCost::Composite {..})))
+                    || matches!(self.top()?.kind, StackKind::Activated {ability,..} if self.top().is_ok_and(|top| self.definition(top.source.card).is_ok_and(|d| d.activated.get(ability as usize).is_some_and(|a| matches!(a.cost, ActivationCost::Composite {..}))))))
                 && self.current(self.top()?.source).is_err();
             if targets_bad || pending_bad || no_domain || source_bad {
                 self.reverse_departure_cast(cast)?;

@@ -717,6 +717,11 @@ impl Definition {
             {
                 return Err("unsupported permanent mana ability".into());
             }
+            // Reversing a sacrificed mana source (CR 733) must go through the
+            // ordinary zone-move path; until it does, no such ability is admitted.
+            if a.costs.sacrifice {
+                return Err("sacrifice mana costs are not admitted".into());
+            }
             validate_permanent_costs(&a.costs)?;
         }
         if !self.activated.is_empty() && !matches!(c.kind, CardKind::Creature | CardKind::Artifact)

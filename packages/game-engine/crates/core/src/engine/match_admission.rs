@@ -472,6 +472,8 @@ pub fn validate_pod(
                 "catalog differs from reviewed eighty-one-definition staples pool"
             } else if profile.name == TOKENS_PROFILE {
                 "catalog differs from reviewed seventy-two-definition tokens pool"
+            } else if profile.name == MANA_PROFILE {
+                "catalog differs from reviewed ninety-definition mana pool"
             } else if profile.name == COMBAT_KEYWORDS_PROFILE {
                 "catalog differs from reviewed fifty-nine-definition combat keywords pool"
             } else {

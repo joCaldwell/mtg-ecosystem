@@ -170,6 +170,8 @@ pub enum PlayerRequest {
         token: DecisionToken,
         player: PlayerId,
         colors: Vec<Color>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mana_ability_source: Option<ObjectHandle>,
     },
     SearchLands {
         token: DecisionToken,
@@ -253,6 +255,10 @@ pub enum PlayerRequest {
         player: PlayerId,
         cost: ManaCost,
         available: BTreeMap<Color, Quantity>,
+        /// The permanent whose mana ability this nested payment or color choice
+        /// belongs to (CR 605.3a). Omitted outside nested mana-ability requests.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mana_ability_source: Option<ObjectHandle>,
     },
     CommanderReturn {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -310,6 +316,10 @@ pub enum PlayerRequest {
         token: DecisionToken,
         player: PlayerId,
         cost: ManaCost,
+        /// The permanent whose mana ability this nested payment or color choice
+        /// belongs to (CR 605.3a). Omitted outside nested mana-ability requests.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mana_ability_source: Option<ObjectHandle>,
     },
 }
 impl PlayerRequest {
@@ -1216,6 +1226,7 @@ impl Game {
                         token,
                         player: viewer,
                         cost,
+                        mana_ability_source: Some(self.handle_for(viewer, activation.source)?),
                     },
                     Request::SpendMana {
                         cost, available, ..
@@ -1224,11 +1235,13 @@ impl Game {
                         player: viewer,
                         cost,
                         available,
+                        mana_ability_source: Some(self.handle_for(viewer, activation.source)?),
                     },
                     Request::ManaColor { colors, .. } => PlayerRequest::ManaColor {
                         token,
                         player: viewer,
                         colors,
+                        mana_ability_source: Some(self.handle_for(viewer, activation.source)?),
                     },
                     _ => return Err("nested mana request invariant".into()),
                 }))
@@ -1245,6 +1258,7 @@ impl Game {
                     player: viewer,
                     cost,
                     available,
+                    mana_ability_source: None,
                 }))
             }
             Frame::CommanderReturn {
@@ -1278,6 +1292,7 @@ impl Game {
                     token,
                     player: viewer,
                     cost: self.top()?.total_cost.clone(),
+                    mana_ability_source: None,
                 }))
             }
             _ => Ok(None),

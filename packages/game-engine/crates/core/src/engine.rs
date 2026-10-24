@@ -1845,6 +1845,10 @@ impl Game {
     // Characteristics supply intrinsic behavior; reminder text never supplies
     // runtime code. CR 305.6 / 113.6 / 605.3b, pinned official rules:
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    /// Colors the object's mana ability can produce. In `commander-mana-v1`
+    /// this describes production only, not current activatability: a tapped
+    /// or summoning-sick source still reports its symbols. Use the mana
+    /// window's offered sources to decide what can be activated now.
     pub fn mana_abilities(&self, object: ObjectId) -> Result<Vec<Color>, String> {
         let o = self.current(object)?;
         let d = self.definition(object.card)?;

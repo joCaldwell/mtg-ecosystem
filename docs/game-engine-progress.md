@@ -2674,3 +2674,15 @@ This is a finite pool with one mana ability per admitted source. Colorless-
 specific costs, triggered/targeted/damage-dealing/"could produce" mana abilities,
 multiple commanders and other permanent families remain excluded. Search and
 server hosting remain foundations-only.
+
+Independent P6.5 review found no rules defects. Follow-ups:
+- **Request source.** Nested mana-ability payments and color choices now
+  name their source permanent (`mana_ability_source`, omitted elsewhere), so
+  agents can tell a Signet's {1} from the spell being cast.
+- **Sacrifice mana costs.** These are rejected at catalog validation until
+  their reversal uses the ordinary zone-move path. No admitted card has one;
+  the private reversal witness became a rejection test.
+- **`Game::mana_abilities`.** This now documents that it reports production,
+  not activatability.
+- **Diagnostic text.** The mana-pool catalog-mismatch diagnostic names its
+  own pool.
