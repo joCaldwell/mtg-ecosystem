@@ -2755,3 +2755,77 @@ Earlier capacities/bytes and versions 18/19/16/15 remain separate. Search and
 server registry remain foundations-only. No IR capability, response variant,
 snapshot/bundle/projection/sidecar bump, general deck support or opponent-owned
 token creation was added.
+
+
+## P6.7 attachments — accepted finite release
+
+The separate `commander-attachments-v1` catalog contains 118 definitions at IR
+v17 (catalog SHA256 `56affddedfe7b2482ad48238b95b3f8c30bfc39c701125cff883fa6ea9c404df`).
+Twelve positive and four whole-card negative records were copied byte-for-byte
+from the read-only pinned archive after checking its manifest hash. All names,
+ASTs, source Commander legality and retained ban/offensive-policy categories were
+reviewed. Pacifism costs {1}{W}; Spidersilk Armor costs {2}{G}. The contract now
+states their colors and source-backed costs explicitly. Default deck totals are
+white 29+9+62, BG 50+10+40, blue 20+7+73 and red 16+7+77, each 100.
+
+Equipment enters unattached; mana-paid equip uses sorcery timing, the stack and
+controlled-creature targeting. Creature Auras target on cast and enter attached.
+Continuous grants/restrictions and P/T derive from current sources; 704.5m/n
+handle orphaned Auras and Equipment every SBA wave. Hexproof/shroud use the
+invocation controller, with graveyard and stack targeting retaining their own
+domains. Damage LKI includes layer-6 grants, including simultaneous departures.
+Rancor binds its exact successor graveyard incarnation and returns to its owner.
+
+The contract re-derives 4,093 stack/pending entries, 760 damage occurrences,
+660 event members, 32 effects and 256 live tokens. The conservative lifetime
+token proof remains 100. Earlier limits, catalogs/policies/expected IR and
+versions 18/19/16/15 stay separate; server/search remain foundations-only.
+
+Pacifism evidence distinguishes two rules: a labelled private injected combat
+domain tests that a post-declaration attack/block prohibition does not remove
+combat participation or damage (506.4a), with strict internal snapshot decoding and continuation
+replay (public restore must reject the injected fixture as unreachable); a legal owner-concession path tests restored declaration eligibility
+(800.4a). Other witnesses use ordinary recorded actions and full journal replay
+in Off/Compact/Detailed modes. The completion policy uses permitted observations
+and public IR; trusted diagnostic replay counts attachment operations and
+otherwise-eligible objects excluded per target-decision scan.
+
+All fourteen attachment runtime/support witness groups pass. Synthetic unsupported
+keyword specimens now use indestructible because hexproof is supported; the
+unknown-future-IR sentinel advances from 17 to 18. The only new expected IR is
+`expected-attachments-ir.json`. All 24 prior expected-IR/policy fixtures remain
+byte-identical to base `315cede`.
+
+Pinned Rust 1.99.0 / Node 26.11.1 with `CARGO_BUILD_JOBS=2` passed
+`cargo fmt --check`, workspace/all-targets Clippy with `-D warnings`, and
+`cargo test --workspace --locked`: **775 passed, zero failed, 12 ignored**
+diagnostics. The final `npm run check:engine` passed the same Rust gate plus
+**52 JavaScript checks**, zero failed (`/tmp/p67-check-engine.log`). The release
+server build and SDK verification passed **40 tests and strict TypeScript**,
+including the unchanged exhaustive 28-response gate. SDK records were retained
+at `/tmp/p67-sdk-verification.json` and `/tmp/p67-sdk-verification.log`; the ten
+verified task-generated SDK files and their empty output directory were removed.
+
+`generated/p67-attachments-run-1/report.json` passes all **18** completion games
+and their independent replay/checkpoint checks, with zero faults/truncations:
+**28,135 decisions, 589 turns and 84,702 rule steps**. Committed counts are
+**106 successful equips, 14 Aura attachments, 26 attachment SBAs, nine hexproof
+and 32 shroud candidate exclusions, and one Rancor return**. Same-target equip
+no-ops are excluded; targeting exclusions count otherwise-eligible objects per
+actual target-decision scan, with shroud taking precedence. The explicit
+`attachments-match-replay` CLI also verifies game 17.
+
+Release build: `06b5d2818d38dcfadc822718a3152e7c04a538dfce9de35b68f73b3945cad418`.
+Report SHA256: `d64f8e95d9110e776ad634ba63d9b8b2e92c74687d2066b67dbe48d1e4fced4b`.
+The release executable verifies its **343-file** compiled source closure
+(`/tmp/p67-native-source-manifest.json`). Generated bundles, journals, reports,
+source manifests and build output remain ignored.
+
+The fresh P6.6 regression (`generated/p67-four-colors-regression/report.json`)
+passes all 18 games and exactly reproduces **29,959 decisions, 660 turns and
+89,803 rule steps**. Earlier scenario references also pass the historical bundle
+gate. This release does not incorporate later concurrent P6.6 review fixes.
+Snapshot/bundle/projection/sidecar versions remain 18/19/16/15, and hosting/search
+remain foundations-only. Arbitrary Auras, variable/hybrid costs, equipment
+triggers, ability suppression, protection and control-changing effects remain
+outside this finite profile.
