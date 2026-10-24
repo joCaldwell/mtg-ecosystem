@@ -2503,3 +2503,88 @@ hash/parser equality and IR v14 schema/catalog/policy downgrade pairs. Successfu
 final logs, the release batch and replay, and historical comparisons remain
 under ignored `generated/p63-tokens-counters/`. No new verification infrastructure
 was added, and no source or expected-result change was needed outside this slice.
+
+## P6.4 — Commander staples
+
+The [staples contract](game-engine-staples.md) adds a separate source-backed
+81-definition IR v15 catalog and policy. Nine positive records and Wrath of God
+come byte-for-byte from the pinned archive. The compiler consumes complete
+search/move/shuffle sequences and rejects regeneration clauses, restricted
+filters, incomplete searches and extra anthem modifiers. Multiple draws lower
+to individual draw instructions (CR 121.2); older definitions retain their bytes.
+
+Murder and Day of Judgment use actual graveyard movement (CR 701.8a), ordinary
+608.2b target legality and simultaneous 603.10a death lookback. Tokens cease in
+the subsequent SBA wave (704.5d). Destroyed Commanders offer their owner's fresh
+graveyard return choice (903.9a). Recursion targets only creature cards in the
+frozen controller's graveyard and creates a fresh hand incarnation (400.7).
+Gravedigger binds its mandatory target before its optional resolution choice
+(603.5); without a legal target it is not placed. Returning a Commander also
+offers the owner's hand-move replacement (903.9b); declining produces a hand
+card that retains its physical Commander designation.
+
+Search choices expose matching basic lands only to their controller. Choice-local
+handles never enter ordinary object-handle maps and expire with that choice.
+Other players see tapped battlefield entries and a public completed-shuffle
+counter, without candidate identities, order or RNG positions. Resolution-time
+shuffles use the setup's versioned ChaCha stream and rejection sampling, one
+word per budgeted step (701.23a–b/e, 701.24a–b). Snapshot/restore/replay witnesses
+include the private pending choice and recovered validation work in all trace
+modes. Sign in Blood can draw for an opponent, then reduce that player's life.
+
+Glorious Anthem uses ordinary enchantment casting and a continuously evaluated
+controller-scoped layer-7c affected set (611.3a–c, 613.4c). Its 2/2 entering
+creature becomes 3/3, then 4/4 with a counter and 7/7 with Giant Growth; opponents
+remain unaffected and the bonus ends with the source. The exact pool has a
+68-token lifetime bound (nine base tokens per seat plus at most two four-token creature recursions per BG seat). A compiled-pool test
+checks that derivation and guards future recursion/timing/producer additions.
+The deliberately conservative resource bounds remain 256 live tokens, 736
+damage occurrences, 3,752 stack/pending entries, 660
+event members and 32 effects. Ceased tokens free capacity without identity reuse;
+typed capacity faults are host truncations. The contract includes the episode
+proof accounting for recursion and newly created tokens after earlier deaths.
+
+Earlier expected catalogs, policies, limits and snapshot/bundle/projection/sidecar
+versions remain unchanged. Search and server hosting remain foundations-only.
+Regeneration, restricted destruction, reveal/split or other searches, other
+recursion destinations, keyword grants and general continuous layers remain
+outside this finite profile. Completion policies consume observations and the
+public catalog; they are completion machinery, not strategic-strength claims.
+
+The accepted release batch is `generated/p64-staples-reviewed-acceptance/report.json`,
+seed domain `commander-staples-v1/completion-batch/`, indices 0–17 with the frozen
+seat/mulligan pattern. All 18 games finished with zero faults/truncations and
+independent replay/checkpoint verification: 30,425 decisions, 630 turns and
+92,317 rule steps. Detailed replays count 37 creatures destroyed by removal/wipe instructions, ten completed
+graveyard-to-hand recursions, 18 searched lands and 274 final combat-damage
+points from creatures affected by an active anthem (not the marginal +1 bonus).
+They also retain 91 tokens created and 20 +1/+1 counters placed. This is finite
+completion evidence, not a performance measurement. Release build ID:
+`e908cc56b6517068627ca98ddf25827370f39352207eea9a9060dc521739e5d8`;
+catalog SHA256:
+`c0c9d9d238c60d00f3cad4b40e6f95b65225e67244b526f4a188b0faf33fff2a`;
+report SHA256:
+`5bac39139cee107d23d631c2ad85c2c562eb5b2bb2e1f9e080f24833b60ff559`.
+Generated reports, journals and build output remain ignored. All 34 historical
+expected-result and policy fixture files are byte-identical to base `5f43252`.
+
+Final verification on the pinned Rust 1.99.0 / Node 26.11.1 toolchain with
+`CARGO_BUILD_JOBS=2` passed:
+
+- `cargo fmt --check` and workspace formatting through the package gate;
+- `cargo clippy --workspace --all-targets --locked -- -D warnings`;
+- `cargo test --workspace --locked`: **728 passed, zero failed, 12 ignored**
+  diagnostics (four core and eight simulator diagnostics);
+- `npm run check:engine`: the same Rust checks plus **49 Node checks**, zero
+  failures, including historical golden outputs and the new schema/policy data;
+- the release `staples-match-batch` above: **18 finished**, zero faults or
+  truncations, all replay/checkpoint verifications passed.
+
+The eight staples runtime/proof groups cover the requested interactions, private
+choice recovery, all trace modes, live-capacity reuse, atomic typed truncation and
+the separately derived 68-token lifetime bound. Historical catalogs skip the new
+anthem-provider scan. The only historical negative-test maintenance is using
+IR v16 as the invalid future version and three draws as an unsupported amount,
+since v15 and two draws are now supported. No positive golden result was rewritten.
+The accepted combined gate log is `/tmp/p64-accepted-check-engine.log`; earlier
+interrupted/source-invalidated attempts remain separate and are not passes.
