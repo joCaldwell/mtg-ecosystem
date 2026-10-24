@@ -38,7 +38,16 @@ walk(sdk); sources.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0
 const generationBytes = fs.readFileSync(path.join(output, 'generation.json'));
 const generation = JSON.parse(generationBytes);
 const schemas = JSON.parse(fs.readFileSync(path.join(output, 'protocol.schema.json')));
-const responseVariants = schemas.command.definitions.PlayerResponse.oneOf.length;
+const expectedResponses = [
+  'mana_color', 'search_lands', 'optional_recursion', 'mulligan', 'bottom_opening',
+  'damage_allocation', 'modes', 'damage_effect', 'order_triggers', 'entity_targets',
+  'stack_targets', 'activate_ability', 'player_targets', 'sacrifice', 'resolve_discard',
+  'spend_mana', 'commander_return', 'attackers', 'blockers', 'damage', 'trample_damage',
+  'discard', 'play_land', 'activate_mana', 'cast', 'pass', 'targets', 'finish_mana',
+].sort();
+const actualResponses = schemas.command.definitions.PlayerResponse.oneOf.map(row => row.properties.response.const).sort();
+if (JSON.stringify(actualResponses) !== JSON.stringify(expectedResponses)) throw new Error('Review exhaustive hosted response variants');
+const responseVariants = actualResponses.length;
 const executionVariants = schemas.execution.definitions.CommandExecutionStatus.oneOf.length;
 const logBytes = fs.readFileSync(logPath);
 const tests = Number(/^# tests (\d+)$/m.exec(logBytes.toString('utf8'))?.[1]);
@@ -51,7 +60,7 @@ const result = {
   scope: 'schema/generated-types/mock-HTTP only; not hosting, durable recovery or four remote consumers',
   node: process.version, platform: process.platform, architecture: process.arch,
   tool_versions: packages, generation_manifest_sha256: sha(generationBytes), generation,
-  strict_typescript: true, exhaustive_player_response_variants: responseVariants, exhaustive_command_execution_variants: executionVariants,
+  strict_typescript: true, exhaustive_player_response_variants: responseVariants, player_response_names: actualResponses, exhaustive_command_execution_variants: executionVariants,
   tuple_contracts: ['damage', 'damage_allocation', 'attackers', 'blockers'],
   required_nullable_reference_contract: true,
   route_authority: 'Rust protocol::ROUTES', route_manifest: schemas.routes,

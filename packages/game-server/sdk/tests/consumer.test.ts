@@ -142,6 +142,17 @@ test('private bootstrap is closed and validation errors never echo bearer materi
   }
 });
 
+test('foundations profile pin stays the default and attachment consumers opt in explicitly', async () => {
+  const attachments = () => ({ ...publicManifest(), profile: 'commander-attachments-v1' });
+  const wrong = transport([], undefined, attachments);
+  assert.equal((await runFoundationsConsumer(bootstrap(0), { fetch: wrong.fetch })).reason, 'manifest_identity');
+  assert.deepEqual(wrong.polls, []);
+  const explicit = transport([page(1, outcome())], undefined, attachments);
+  assert.equal((await runFoundationsConsumer(bootstrap(0), {
+    fetch: explicit.fetch, expectedProfile: 'commander-attachments-v1',
+  })).status, 'completed');
+});
+
 test('CLI malformed private stdin emits only a scrubbed failure report', { timeout: 10_000 }, async () => {
   const script = fileURLToPath(new URL('../src/examples/foundations-consumer.mjs', import.meta.url));
   const secret = 'c'.repeat(64);

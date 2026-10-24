@@ -26,7 +26,7 @@ failed temporary output. Tests verify deterministic regeneration and failures.
 
 `json-schema-to-typescript` is pinned at16.0.0, TypeScript at5.9.3, and Ajv
 at8.20.0 in the standalone lockfile. DTOs come from the generated types; the
-compile check exhaustively consumes all24 `PlayerResponse` variants and checks
+compile check exhaustively consumes all28 `PlayerResponse` variants and checks
 fixed-arity damage/allocation/combat tuples. Runtime validation uses the exact
 Rust schemas without coercion, defaults or removing extra properties. Endpoint
 paths and methods come from the same Rust `protocol::ROUTES` export, through a
@@ -110,7 +110,7 @@ verify --workspaces=false` with the same `MTG_SERVER_BIN`. It repeats generation
 strict compilation and all test files, then writes `generated/verification.json`
 and `generated/verification.log`. The manifest hashes every SDK source and its
 lockfile, exact schema/declarations, generator version/options and complete log;
-it records actual tool versions,24 exhaustive response variants, tuple checks
+it records actual tool versions,28 exhaustive response variants, tuple checks
 and the executed test count. This evidence is scoped to the SDK checks above.
 See [AGENTS.md](AGENTS.md) for the nested workflow.
 
@@ -181,3 +181,20 @@ engine/host evidence; the SDK's schema/mock checks alone do not. Exact release
 identities, resource limits and retained reports are in
 [the server contract](../../../docs/game-engine-server.md). This finite policy
 makes no claim about arbitrary Commander decks or strategic strength.
+
+The attachments completion consumer uses the same bootstrap and unchanged limits:
+
+```sh
+node packages/game-server/sdk/src/examples/attachments-consumer.mjs < /private/path/seat-0-bootstrap.json
+```
+
+Create one `attachmentsDevelopmentPolicy()` instance per seat/game when using
+its exported callback directly. It accepts only `commander-attachments-v1` and
+uses that seat's observation plus the pinned public manifest/catalog. It plays
+lands, casts affordable commanders and spells, equips and targets Auras, plans
+mana from public lands/rocks/dorks (including nested Signet payments), and handles
+all 23 generated request families. Blocks use the offered legality hints and
+public granted keywords; trample and payments retain exact decimal quantities.
+Search choices use only the private handles offered to that seat. This is a
+finite completion example, with no strategic-strength claim. Its in-memory mana
+plan is private to the consumer; restarting a consumer is not supported.

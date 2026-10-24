@@ -57,6 +57,7 @@ export type ConsumerReport = Summary & (
 );
 /** Test seams change transport/time, never supply an authoritative Game. */
 export interface ConsumerOptions {
+  expectedProfile?: 'commander-foundations-v1' | 'commander-attachments-v1';
   policy?: (observation: Observation, viewer: number, manifest: PublicManifest) => PlayerResponse | null;
   fetch?: typeof globalThis.fetch;
   now?: () => number;
@@ -124,10 +125,10 @@ function canonical(value: unknown): string {
   };
   return write(value);
 }
-async function checkManifest(value: PublicManifest, matchId: string): Promise<string> {
+async function checkManifest(value: PublicManifest, matchId: string, expectedProfile: string): Promise<string> {
   const hex = (text: string): boolean => text.length === 64 && !/[^0-9a-f]/.test(text);
   if (value.match_id !== matchId || value.protocol_version !== PROTOCOL_VERSION
-    || value.profile !== 'commander-foundations-v1' || !hex(value.engine_build_id) || !hex(value.catalog_sha256)
+    || value.profile !== expectedProfile || !hex(value.engine_build_id) || !hex(value.catalog_sha256)
     || !Number.isInteger(value.starting_player) || value.starting_player < 0 || value.starting_player > 3) throw new ConsumerFailure('manifest_identity');
   const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical(value.catalog)));
   const actual = Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('');
@@ -143,6 +144,7 @@ export async function runFoundationsConsumer(input: ConsumerBootstrap, options: 
   const started = now();
   const sleep = options.sleep ?? (milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)));
   const limits = { ...CONSUMER_LIMITS, ...options.limits };
+  const expectedProfile = options.expectedProfile ?? 'commander-foundations-v1';
   const counts: ConsumerCounts = { commands_created: 0, submission_attempts: 0, accepted_inputs: 0, rejected_inputs: 0, poll_pages: 0, publications: 0, replacement_views: 0, retries: 0 };
   let cursor = '0', manifest: PublicManifest | undefined;
   const summary = (): Summary => ({
@@ -195,7 +197,7 @@ export async function runFoundationsConsumer(input: ConsumerBootstrap, options: 
     }
     const client = new GameClient({ baseURL: bootstrap.baseURL, matchId: bootstrap.matchId, capability: bootstrap.capability, ...(options.fetch === undefined ? {} : { fetch: options.fetch }) });
     const first = await request(signal => client.manifest({ signal }));
-    const pinned = await checkManifest(first, bootstrap.matchId);
+    const pinned = await checkManifest(first, bootstrap.matchId, expectedProfile);
     active();
     if ([first.engine_build_id, first.catalog_sha256].some(value => value.includes(bootstrap.capability))) throw new ConsumerFailure('manifest_identity');
     manifest = first;
@@ -238,7 +240,7 @@ export async function runFoundationsConsumer(input: ConsumerBootstrap, options: 
       } while (more);
       if (outcome !== undefined) {
         const final = await request(signal => client.manifest({ signal }));
-        if (await checkManifest(final, bootstrap.matchId) !== pinned) throw new ConsumerFailure('manifest_identity');
+        if (await checkManifest(final, bootstrap.matchId, expectedProfile) !== pinned) throw new ConsumerFailure('manifest_identity');
         active();
         return { ...summary(), status: 'completed', result: outcome };
       }
