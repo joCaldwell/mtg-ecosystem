@@ -1885,3 +1885,42 @@ fn wipes_anger_suppresses_surviving_artist_and_zulaport_for_later_deaths() {
         },
     );
 }
+// Reviewed P6.10 regression: Massacre Wurm dying simultaneously with opposing
+// creatures still triggers for each of them (CR 603.10a look-back), and the
+// life loss goes to each dying creature's last-known controller.
+#[test]
+fn wurm_simultaneous_death_looks_back() {
+    natural(
+        "wurm-simultaneous-death",
+        &[("Massacre Wurm", 1), ("Fumigate", 0), ("Serra Angel", 0)],
+        [0, 1, 2, 3],
+        |g| {
+            cast(g, "Caelorna, Coral Tyrant", 2, None, None);
+            cast(g, "Massacre Wurm", 1, None, None);
+            cast(g, "Serra Angel", 0, None, None);
+            main_for(g, 0);
+            let n = g.objects_in_set(&ObjectSet::Creatures, PlayerId(0)).len();
+            let (l0, l1, l2) = (life(g, 0), life(g, 1), life(g, 2));
+            announce(g, "Fumigate", 0, None, None);
+            for _ in 0..200 {
+                let r = request(g);
+                if g.state.stack.iter().any(|s| s.death_controller.is_some()) {
+                    check(g);
+                }
+                if matches!(r, Request::Priority { .. }) && g.state.stack.is_empty() {
+                    break;
+                }
+                let a = auto(g, &r);
+                answer(g, a);
+            }
+            let mut e0 = l0.clone();
+            e0.add(&Quantity::from(n as i64));
+            e0.subtract(&2.into());
+            let mut e2 = l2.clone();
+            e2.subtract(&2.into());
+            assert_eq!(life(g, 0), e0);
+            assert_eq!(life(g, 2), e2);
+            assert_eq!(life(g, 1), l1);
+        },
+    );
+}
