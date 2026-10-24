@@ -209,8 +209,7 @@ export function attachmentsDevelopmentPolicy(): (observation: Observation, viewe
       case 'order_triggers': return { response: 'order_triggers', order: r.candidates.map(c => c.handle) };
       case 'search_lands': return { response: 'search_lands', objects: r.candidates.slice(0, r.maximum).map(c => c.handle) };
       case 'optional_recursion': return { response: 'optional_recursion', perform: true };
-      // Removal-profile only; this policy is pinned to the attachments catalog.
-      // Sacrifice-profile only; unreachable with this pinned attachments catalog.
+      // Later-profile requests are unreachable with this pinned attachments catalog.
       case 'sacrifice_cost':
       case 'forced_sacrifice': return fail();
       case 'optional_effect': return fail();

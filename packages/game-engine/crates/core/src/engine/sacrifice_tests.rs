@@ -459,7 +459,7 @@ fn natural(label: &str, rows: &[(&str, u8)], colors: [u8; 4], run: impl Fn(&mut 
                         }
                     }
                 }
-                if library.iter().skip(32).any(|id| wanted.contains(id)) {
+                if library.iter().skip(20).any(|id| wanted.contains(id)) {
                     good = false;
                 }
             }
@@ -481,8 +481,24 @@ fn natural(label: &str, rows: &[(&str, u8)], colors: [u8; 4], run: impl Fn(&mut 
                     owner: base.state.cards[id].owner,
                 }
         });
+        let mana_ready = (0..4).all(|seat| {
+            colors[seat] != 1
+                || [FOREST, SWAMP].iter().all(|id| {
+                    base.state
+                        .objects
+                        .values()
+                        .filter(|o| {
+                            o.zone == Zone::Battlefield
+                                && o.controller == PlayerId(seat as u8)
+                                && base.state.cards[&o.id.card].oracle_id == *id
+                        })
+                        .count()
+                        >= 2
+                })
+        });
         if ready
-            && base.turn().number >= 65
+            && mana_ready
+            && base.turn().number >= 33
             && base.state.active == Some(PlayerId(0))
             && base.turn().step == TurnStep::PrecombatMain
             && matches!(r, Request::Priority { .. })

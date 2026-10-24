@@ -23,12 +23,15 @@ impl Strategy<'_> {
             })
             .collect()
     }
-    fn sacrifice_rank(&self, v: &PermittedView, o: &VisibleObject) -> (bool, bool, Quantity) {
+    fn sacrifice_rank(&self, v: &PermittedView, o: &VisibleObject) -> (bool, bool, bool, Quantity) {
         (
             v.commanders
                 .iter()
                 .any(|c| c.oracle_id == o.oracle_id && c.history.owner == v.viewer),
             o.token.is_none(),
+            !o.characteristics
+                .as_ref()
+                .is_some_and(|c| c.kind == CardKind::Creature),
             o.characteristics
                 .as_ref()
                 .and_then(|c| c.power.clone())

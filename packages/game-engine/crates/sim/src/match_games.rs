@@ -816,7 +816,11 @@ impl Strategy<'_> {
                 }
             }
             PlayerRequest::Sacrifice { candidates, .. } => PlayerResponse::Sacrifice {
-                object: candidates.first().ok_or("empty sacrifice")?.clone(),
+                object: if self.sacrifice() {
+                    self.sacrifice_choice(v, candidates)?
+                } else {
+                    candidates.first().ok_or("empty sacrifice")?.clone()
+                },
             },
             PlayerRequest::DamageEffect { candidates, .. } => {
                 let c = candidates.first().ok_or("empty damage effects")?;
