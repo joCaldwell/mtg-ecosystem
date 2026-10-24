@@ -176,6 +176,7 @@ pub enum Capability {
     BasicLandSearchV1,
     CreatureAnthemV1,
     TargetPlayerDrawV1,
+    AttachmentsV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -196,6 +197,7 @@ pub enum EvaluationStage {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TargetDomain {
+    ControlledBattlefieldCreature,
     BattlefieldCreature,
     OwnGraveyardCreatureCard,
     OpponentPlayer,
@@ -265,6 +267,13 @@ pub enum CounterRecipient {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    AttachEquipment {
+        target_slot: u32,
+        source_block: u32,
+    },
+    ReturnAuraFromGraveyard {
+        source_block: u32,
+    },
     DestroyTargetCreature {
         target_slot: u32,
         source_block: u32,
@@ -365,6 +374,13 @@ pub enum Duration {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
+    ModifyCreatures {
+        scope: CreatureScope,
+        power: Quantity,
+        toughness: Quantity,
+        keywords: Vec<KeywordAbility>,
+        restrictions: Vec<CreatureRestriction>,
+    },
     ControllerCreatureAnthem {
         power: Quantity,
         toughness: Quantity,
@@ -376,6 +392,20 @@ pub enum StaticEffect {
 pub struct StaticAbility {
     pub functioning_zone: FunctioningZone,
     pub effect: StaticEffect,
+}
+/// Static scopes in the finite attachment pool (CR 611.3a, 613.1f/4c).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CreatureScope {
+    Equipped,
+    Enchanted,
+    Controller,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CreatureRestriction {
+    CantBeBlocked,
+    CantAttackOrBlock,
 }
 /// Supported announcement timing; permissions are checked by the runtime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -458,6 +488,7 @@ pub enum TriggerCondition {
     /// The disjoint union of this creature and all other creatures dying.
     AnyCreatureDies,
     SelfDies,
+    SelfAuraToGraveyard,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -494,6 +525,8 @@ pub struct SourceProvenance {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum KeywordAbility {
+    Hexproof,
+    Shroud,
     Defender,
     Flying,
     Reach,
@@ -524,6 +557,8 @@ impl<'de> Deserialize<'de> for KeywordAbility {
             "first strike" => Ok(Self::FirstStrike),
             "double strike" => Ok(Self::DoubleStrike),
             "menace" => Ok(Self::Menace),
+            "hexproof" => Ok(Self::Hexproof),
+            "shroud" => Ok(Self::Shroud),
 
             other => Err(de::Error::unknown_variant(
                 other,
@@ -539,6 +574,8 @@ impl<'de> Deserialize<'de> for KeywordAbility {
                     "first strike",
                     "double strike",
                     "menace",
+                    "hexproof",
+                    "shroud",
                 ],
             )),
         }
@@ -595,6 +632,14 @@ impl Definition {
                 });
             }
         }
+        if self
+            .characteristics
+            .subtypes
+            .iter()
+            .any(|s| s == "Equipment" || s == "Aura")
+        {
+            set.insert(Capability::AttachmentsV1);
+        }
         if let Some(program) = &self.spell {
             add_program_requirements(&mut set, program);
         }
@@ -620,6 +665,7 @@ impl Definition {
                 }
                 TriggerCondition::AnyCreatureDies => Capability::CreatureDiesV1,
                 TriggerCondition::SelfDies => Capability::SelfDiesV1,
+                TriggerCondition::SelfAuraToGraveyard => Capability::AttachmentsV1,
             });
             if ability.intervening_if.is_some() {
                 set.insert(Capability::InterveningIfV1);
@@ -639,6 +685,7 @@ impl Definition {
                 KeywordAbility::FirstStrike => Capability::FirstStrikeV1,
                 KeywordAbility::DoubleStrike => Capability::DoubleStrikeV1,
                 KeywordAbility::Menace => Capability::MenaceV1,
+                KeywordAbility::Hexproof | KeywordAbility::Shroud => Capability::AttachmentsV1,
             });
         }
         for a in &self.static_abilities {
@@ -647,6 +694,7 @@ impl Definition {
                     Capability::StaticDamageReplacementV1
                 }
                 StaticEffect::ControllerCreatureAnthem { .. } => Capability::CreatureAnthemV1,
+                StaticEffect::ModifyCreatures { .. } => Capability::AttachmentsV1,
             });
         }
         set
@@ -684,7 +732,20 @@ impl Definition {
         if self.spell.as_ref().is_some_and(source_counters) {
             return Err("source counter recipient requires a self-enters trigger".into());
         }
+        if self.spell.as_ref().is_some_and(|p| {
+            p.instructions.iter().any(|i| {
+                matches!(
+                    i,
+                    Instruction::AttachEquipment { .. }
+                        | Instruction::ReturnAuraFromGraveyard { .. }
+                )
+            })
+        }) {
+            return Err("attachment operations are not spell instructions".into());
+        }
         let c = &self.characteristics;
+        let equipment = c.kind == CardKind::Artifact && c.subtypes == ["Equipment"];
+        let aura = c.kind == CardKind::Enchantment && c.subtypes == ["Aura"];
         if !self.keywords.is_empty() && c.kind != CardKind::Creature {
             return Err("keywords require creature characteristics".into());
         }
@@ -729,7 +790,36 @@ impl Definition {
             return Err("activated programs require supported creature characteristics".into());
         }
         for ability in &self.activated {
+            if equipment {
+                let p = &ability.program;
+                if ability.functioning_zone != FunctioningZone::Battlefield
+                    || !matches!(&ability.cost, ActivationCost::Mana { cost } if !cost.generic.is_negative() && !cost.colored.contains(&Color::C))
+                    || p.functioning_zone != FunctioningZone::Stack
+                    || p.timing != SpellTiming::MainPhase
+                    || p.resolution != SpellResolution::Instructions
+                    || !p.modes.is_empty()
+                    || !matches!(p.targets.as_slice(), [t] if t.domain == TargetDomain::ControlledBattlefieldCreature)
+                    || !matches!(
+                        p.instructions.as_slice(),
+                        [Instruction::AttachEquipment { target_slot: 0, .. }]
+                    )
+                {
+                    return Err("unsupported equip ability".into());
+                }
+                validate_instruction_program(p)?;
+                continue;
+            }
+            if ability.program.instructions.iter().any(|i| {
+                matches!(
+                    i,
+                    Instruction::AttachEquipment { .. }
+                        | Instruction::ReturnAuraFromGraveyard { .. }
+                )
+            }) {
+                return Err("attachment instruction requires equip or Aura return trigger".into());
+            }
             if c.kind == CardKind::Artifact
+                && !equipment
                 && !matches!(ability.cost, ActivationCost::Composite { .. })
             {
                 return Err("artifact nonmana abilities require sacrifice-to-draw costs".into());
@@ -773,11 +863,34 @@ impl Definition {
             }
             validate_instruction_program(p)?;
         }
-        if !self.triggered.is_empty() && c.kind != CardKind::Creature {
+        if !self.triggered.is_empty() && c.kind != CardKind::Creature && !aura {
             return Err("trigger programs require supported creature characteristics".into());
         }
         for ability in &self.triggered {
             let p = &ability.program;
+            if aura {
+                if ability.condition != TriggerCondition::SelfAuraToGraveyard
+                    || ability.intervening_if.is_some()
+                    || ability.functioning_zone != FunctioningZone::Battlefield
+                    || p.timing != SpellTiming::Instant
+                    || p.functioning_zone != FunctioningZone::Stack
+                    || p.resolution != SpellResolution::Instructions
+                    || !p.targets.is_empty()
+                    || !p.modes.is_empty()
+                    || !matches!(
+                        p.instructions.as_slice(),
+                        [Instruction::ReturnAuraFromGraveyard { .. }]
+                    )
+                {
+                    return Err("unsupported Aura return trigger".into());
+                }
+                validate_instruction_program(p)?;
+                continue;
+            }
+            if ability.condition == TriggerCondition::SelfAuraToGraveyard {
+                return Err("Aura trigger requires Aura".into());
+            }
+
             if ability.functioning_zone != FunctioningZone::Battlefield
                 || p.functioning_zone != FunctioningZone::Stack
                 || p.timing != SpellTiming::Instant
@@ -811,7 +924,7 @@ impl Definition {
             }
             validate_instruction_program(p)?;
         }
-        if !self.static_abilities.is_empty() && c.kind != CardKind::Enchantment {
+        if !self.static_abilities.is_empty() && c.kind != CardKind::Enchantment && !equipment {
             return Err("static damage replacement requires a supported enchantment".into());
         }
         if self
@@ -822,6 +935,38 @@ impl Definition {
             return Err("static damage replacement must function on battlefield".into());
         }
         for a in &self.static_abilities {
+            if let StaticEffect::ModifyCreatures {
+                scope,
+                power,
+                toughness,
+                keywords,
+                restrictions,
+            } = &a.effect
+            {
+                if power.is_negative()
+                    || toughness.is_negative()
+                    || (power == &Quantity::zero()
+                        && toughness == &Quantity::zero()
+                        && keywords.is_empty()
+                        && restrictions.is_empty())
+                    || (*scope == CreatureScope::Equipped && !equipment)
+                    || (*scope == CreatureScope::Enchanted && !aura)
+                    || (*scope == CreatureScope::Controller
+                        && (c.kind != CardKind::Enchantment || aura))
+                    || keywords
+                        .iter()
+                        .enumerate()
+                        .any(|(n, k)| keywords[..n].contains(k))
+                    || restrictions
+                        .iter()
+                        .enumerate()
+                        .any(|(n, k)| restrictions[..n].contains(k))
+                {
+                    return Err("invalid static creature modification".into());
+                }
+            } else if equipment || aura {
+                return Err("unsupported attachment static effect".into());
+            }
             if let StaticEffect::ControllerCreatureAnthem { power, toughness } = &a.effect
                 && (*power <= Quantity::zero() || power != toughness)
             {
@@ -833,14 +978,18 @@ impl Definition {
                 let p = self.spell.as_ref().ok_or("missing enchantment spell")?;
                 if c.basic
                     || c.legendary
-                    || !c.subtypes.is_empty()
+                    || (!c.subtypes.is_empty() && !equipment && !aura)
                     || c.power.is_some()
                     || c.toughness.is_some()
                     || self.intrinsic_zone.is_some()
                     || p.functioning_zone != FunctioningZone::Stack
                     || p.timing != SpellTiming::MainPhase
                     || p.resolution != SpellResolution::Permanent
-                    || !p.targets.is_empty()
+                    || if aura {
+                        !matches!(p.targets.as_slice(), [t] if t.domain == TargetDomain::BattlefieldCreature && t.slot == 0 && !t.selection_id.is_empty() && t.chooser == Chooser::Controller && t.stage == EvaluationStage::Announcement)
+                    } else {
+                        !p.targets.is_empty()
+                    }
                     || !p.instructions.is_empty()
                     || !p.modes.is_empty()
                 {
@@ -967,6 +1116,10 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     let mut used = BTreeSet::new();
     for instruction in &p.instructions {
         let binding = match instruction {
+            Instruction::AttachEquipment { target_slot, .. } => {
+                Some((*target_slot, TargetDomain::ControlledBattlefieldCreature))
+            }
+            Instruction::ReturnAuraFromGraveyard { .. } => None,
             Instruction::DestroyTargetCreature { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::BattlefieldCreature))
             }
@@ -1105,6 +1258,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
     for target in &program.targets {
         set.insert(match target.domain {
             TargetDomain::BattlefieldCreature => Capability::CreatureTargetV1,
+            TargetDomain::ControlledBattlefieldCreature => Capability::AttachmentsV1,
             TargetDomain::OwnGraveyardCreatureCard => Capability::GraveyardRecursionV1,
             TargetDomain::OpponentPlayer => Capability::OpponentTargetV1,
             TargetDomain::StackSpell => Capability::StackSpellTargetV1,
@@ -1114,7 +1268,18 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         });
     }
     for instruction in &program.instructions {
+        if let Instruction::CreateCreatureTokens { token, .. } = instruction
+            && token
+                .keywords
+                .iter()
+                .any(|k| matches!(k, KeywordAbility::Hexproof | KeywordAbility::Shroud))
+        {
+            set.insert(Capability::AttachmentsV1);
+        }
         set.insert(match instruction {
+            Instruction::AttachEquipment { .. } | Instruction::ReturnAuraFromGraveyard { .. } => {
+                Capability::AttachmentsV1
+            }
             Instruction::DestroyTargetCreature { .. } | Instruction::DestroyAllCreatures { .. } => {
                 Capability::DestroyCreatureV1
             }
@@ -1157,7 +1322,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 3, max = 16))]
+    #[schemars(range(min = 3, max = 17))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -1165,7 +1330,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.schema_version, 3..=16)
+        if !matches!(self.schema_version, 3..=17)
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -1174,6 +1339,9 @@ impl Catalog {
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
             d.validate()?;
+            if self.schema_version < 17 && d.capabilities.contains(&Capability::AttachmentsV1) {
+                return Err("IR v17 is required for attachments and targeting keywords".into());
+            }
             if self.schema_version < 16
                 && d.capabilities.iter().any(|c| {
                     matches!(
@@ -1549,6 +1717,28 @@ pub fn catalog_schema() -> serde_json::Value {
             "mana_abilities":{"maxItems":0},
             "activated":{"items":{"properties":{"cost":{"not":{"type":"object","required":["composite"]}}}}},
             "capabilities":{"items":{"not":{"enum":[Capability::CastArtifactV1,Capability::PermanentManaV1,Capability::CompositeActivationCostV1]}}}
+        }}}}}
+    }));
+    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["schema_version"],"properties":{"schema_version":{"maximum":16}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "capabilities":{"items":{"not":{"const":Capability::AttachmentsV1}}},
+            "keywords":{"items":{"not":{"enum":["hexproof","shroud"]}}},
+            "characteristics":{"properties":{"subtypes":{"items":{"not":{"enum":["Equipment","Aura"]}}}}},
+            "static_abilities":{"items":{"properties":{"effect":{"not":{"type":"object","required":["modify_creatures"]}}}}}
+        }}}}}
+    }));
+    schema["$defs"]["PreAttachmentsProgram"] = serde_json::json!({"properties":{
+        "targets":{"items":{"properties":{"domain":{"not":{"const":"controlled_battlefield_creature"}}}}},
+        "instructions":{"items":{"properties":{"op":{"not":{"enum":["attach_equipment","return_aura_from_graveyard"]}},"token":{"properties":{"keywords":{"items":{"not":{"enum":["hexproof","shroud"]}}}}}}}},
+        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreAttachmentsProgram"}}}}
+    }});
+    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["schema_version"],"properties":{"schema_version":{"maximum":16}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "spell":{"$ref":"#/$defs/PreAttachmentsProgram"},
+            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PreAttachmentsProgram"}}}},
+            "triggered":{"items":{"properties":{"condition":{"not":{"const":"self_aura_to_graveyard"}},"program":{"$ref":"#/$defs/PreAttachmentsProgram"}}}}
         }}}}}
     }));
     schema["$defs"]["SpellProgram"]["allOf"] = serde_json::json!([{
