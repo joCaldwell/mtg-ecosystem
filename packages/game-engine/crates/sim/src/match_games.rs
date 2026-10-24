@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 
 #[cfg(test)]
 mod current_pod_throughput;
+mod four_colors_policy;
 mod mana_policy;
 #[cfg(test)]
 mod ordinary_diagnostic;
@@ -126,6 +127,12 @@ impl Strategy<'_> {
     }
     fn priority(&mut self, o: &Observation) -> Result<PlayerResponse, String> {
         let v = &o.view;
+        if self.four_colors()
+            && self.policy == Policy::Develop
+            && let Some(response) = self.four_colors_priority(v)?
+        {
+            return Ok(response);
+        }
         if self.policy == Policy::DrawOnly
             || v.active != Some(v.viewer)
             || !v.stack.is_empty()
@@ -229,6 +236,12 @@ impl Strategy<'_> {
                     {
                         continue;
                     }
+                }
+                if self.four_colors()
+                    && (matches!(d.name.as_str(), "Counterspell" | "Stifle")
+                        || (matches!(d.name.as_str(), "Unsummon" | "Time Ebb") && !enemy_creature))
+                {
+                    continue;
                 }
                 if d.name == "Fog" {
                     continue;
@@ -388,7 +401,11 @@ impl Strategy<'_> {
                             .and_then(|h| v.objects.iter().find(|o| &o.handle == h))
                             .ok_or_else(|| "missing spell row".to_string())
                             .and_then(|o| definition(self.catalog, &o.oracle_id))
-                            .is_ok_and(|d| d.name == "Murder")
+                            .is_ok_and(|d| {
+                                d.name == "Murder"
+                                    || (self.four_colors()
+                                        && matches!(d.name.as_str(), "Unsummon" | "Time Ebb"))
+                            })
                     });
                     if recursion || removal {
                         let h = candidates
@@ -449,6 +466,14 @@ impl Strategy<'_> {
                 candidates,
                 ..
             } => {
+                if self.four_colors() {
+                    return Ok(PlayerResponse::EntityTargets {
+                        entities: vec![
+                            self.four_colors_entities(v, candidates)?;
+                            occurrences.len()
+                        ],
+                    });
+                }
                 let t=candidates.iter().find(|t|matches!(t,PlayerTargetEntity::Player{player} if (*player==v.viewer)==self.beneficial)).or(candidates.first()).ok_or("empty entity targets")?;
                 PlayerResponse::EntityTargets {
                     entities: vec![t.clone(); occurrences.len()],
@@ -458,12 +483,20 @@ impl Strategy<'_> {
                 occurrences,
                 candidates,
                 ..
-            } => PlayerResponse::StackTargets {
-                entries: vec![
-                    candidates.first().ok_or("empty stack targets")?.clone();
-                    occurrences.len()
-                ],
-            },
+            } => {
+                let target = if self.four_colors() {
+                    let ability = occurrences.first().is_some_and(|t| {
+                        t.domain == mtg_contracts::TargetDomain::StackActivatedOrTriggeredAbility
+                    });
+                    self.opposing_stack(v, ability, Some(candidates))
+                        .ok_or("no opposing stack target")?
+                } else {
+                    candidates.first().ok_or("empty stack targets")?.clone()
+                };
+                PlayerResponse::StackTargets {
+                    entries: vec![target; occurrences.len()],
+                }
+            }
             PlayerRequest::OrderTriggers { candidates, .. } => PlayerResponse::OrderTriggers {
                 order: candidates.iter().map(|c| c.handle.clone()).collect(),
             },
@@ -884,7 +917,9 @@ pub(super) fn run(
             Advance::Fault(e) => {
                 outcome = if matches!(
                     config.profile.as_str(),
-                    mtg_core::STAPLES_PROFILE | mtg_core::MANA_PROFILE
+                    mtg_core::STAPLES_PROFILE
+                        | mtg_core::MANA_PROFILE
+                        | mtg_core::FOUR_COLORS_PROFILE
                 ) && game.typed_fault().is_some()
                 {
                     format!("resource_truncation: {e}")
@@ -1092,17 +1127,27 @@ fn verify_terminal_result(game: &Game, e: &Evidence) -> Result<(), String> {
     Ok(())
 }
 pub(super) fn batch(catalog: &Catalog, directory: &Path) -> Result<serde_json::Value, String> {
-    let profile = match catalog.schema_version {
-        16 => mtg_core::MANA_PROFILE,
-        15 => mtg_core::STAPLES_PROFILE,
-        14 => mtg_core::TOKENS_PROFILE,
-        13 => mtg_core::COMBAT_KEYWORDS_PROFILE,
-        12 => mtg_core::KEYWORDS_PROFILE,
-        _ => mtg_core::MATCH_PROFILE,
+    let profile = if catalog.definitions.len() == 106 && catalog.schema_version == 16 {
+        mtg_core::FOUR_COLORS_PROFILE
+    } else {
+        match catalog.schema_version {
+            16 => mtg_core::MANA_PROFILE,
+            15 => mtg_core::STAPLES_PROFILE,
+            14 => mtg_core::TOKENS_PROFILE,
+            13 => mtg_core::COMBAT_KEYWORDS_PROFILE,
+            12 => mtg_core::KEYWORDS_PROFILE,
+            _ => mtg_core::MATCH_PROFILE,
+        }
     };
     let profile_spec = mtg_core::match_profile(profile).ok_or("unknown batch profile")?;
     fs::create_dir(directory).map_err(|e| e.to_string())?;
     let manifest = serde_json::json!({"profile":profile,"policy":"develop-v1","seed_domain":format!("{profile}/completion-batch/"),"seed_indices":(0..16).collect::<Vec<u32>>(),"starting_seat":"index modulo4","mulligans":"(index+seat) modulo3","additional":"index16 all-white;index17 all-black-green","decision_limit":DECISION_LIMIT,"turn_limit":TURN_LIMIT,"shared_work_limit":WORK_LIMIT,"quantum":1024,"required_complete":18,"allowed_faults":0,"allowed_truncations":0,"build_id":BUILD_ID,"catalog_sha256":mtg_contracts::digest(catalog)?});
+    let mut manifest = manifest;
+    if profile == mtg_core::FOUR_COLORS_PROFILE {
+        manifest["additional"] = serde_json::json!("index16 all-blue;index17 all-red");
+        manifest["seat_rotation"] =
+            serde_json::json!("default decks rotate left by floor(index/4), indices0..15");
+    }
     fs::write(directory.join("manifest.json"), canonical(&manifest)?).map_err(|e| e.to_string())?;
     let mut reports = vec![];
     let mut failures = vec![];
@@ -1113,10 +1158,19 @@ pub(super) fn batch(catalog: &Catalog, directory: &Path) -> Result<serde_json::V
             PlayerId((index % 4) as u8),
         )
         .map_err(|e| e.to_string())?;
-        if index == 16 {
+        if profile == mtg_core::FOUR_COLORS_PROFILE {
+            config.decks.rotate_left((index / 4) as usize);
+            if index == 16 {
+                config.decks = std::array::from_fn(|_| mtg_core::four_colors_blue_deck());
+            }
+            if index == 17 {
+                config.decks = std::array::from_fn(|_| mtg_core::four_colors_red_deck());
+            }
+        }
+        if index == 16 && profile != mtg_core::FOUR_COLORS_PROFILE {
             config.decks = std::array::from_fn(|_| (profile_spec.white_deck)());
         }
-        if index == 17 {
+        if index == 17 && profile != mtg_core::FOUR_COLORS_PROFILE {
             config.decks = std::array::from_fn(|_| (profile_spec.black_green_deck)());
         }
         eprintln!("running legal Commander batch seed{index}");
@@ -1160,6 +1214,7 @@ pub(super) fn batch(catalog: &Catalog, directory: &Path) -> Result<serde_json::V
                 | mtg_core::TOKENS_PROFILE
                 | mtg_core::STAPLES_PROFILE
                 | mtg_core::MANA_PROFILE
+                | mtg_core::FOUR_COLORS_PROFILE
         ) {
             report["keyword_interactions"] = keyword_interactions(catalog, &e)?;
         }
@@ -1203,7 +1258,10 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
     let physical_cards = p.config().cards.clone();
     let g = Game::replay_with_trace(p, &e.journal, TraceMode::Detailed)?;
     let mut mana_report = None;
-    if e.config.profile == mtg_core::MANA_PROFILE {
+    if matches!(
+        e.config.profile.as_str(),
+        mtg_core::MANA_PROFILE | mtg_core::FOUR_COLORS_PROFILE
+    ) {
         let mut activations = std::collections::BTreeSet::new();
         let mut by_type = BTreeMap::<String, u64>::from([
             ("land".into(), 0),
@@ -1272,12 +1330,18 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
         &mut counts,
     );
     let mut report = serde_json::json!({"lifelink_gains":counts[0],"deathtouch_destructions":counts[1],"blocks":counts[2]});
+    if e.config.profile == mtg_core::FOUR_COLORS_PROFILE {
+        report["four_colors"] = four_colors_policy::interactions(catalog, &physical_cards, &g)?;
+    }
     if let Some(mana) = mana_report {
         report["mana"] = mana;
     }
     if matches!(
         e.config.profile.as_str(),
-        mtg_core::TOKENS_PROFILE | mtg_core::STAPLES_PROFILE | mtg_core::MANA_PROFILE
+        mtg_core::TOKENS_PROFILE
+            | mtg_core::STAPLES_PROFILE
+            | mtg_core::MANA_PROFILE
+            | mtg_core::FOUR_COLORS_PROFILE
     ) {
         let mut tokens_created = 0u64;
         let mut counters_placed = Quantity::zero();
@@ -1300,7 +1364,7 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
 
     if matches!(
         e.config.profile.as_str(),
-        mtg_core::STAPLES_PROFILE | mtg_core::MANA_PROFILE
+        mtg_core::STAPLES_PROFILE | mtg_core::MANA_PROFILE | mtg_core::FOUR_COLORS_PROFILE
     ) {
         let mut destroyed = 0u64;
         let mut recursions = 0u64;
@@ -1377,6 +1441,7 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
             | mtg_core::TOKENS_PROFILE
             | mtg_core::STAPLES_PROFILE
             | mtg_core::MANA_PROFILE
+            | mtg_core::FOUR_COLORS_PROFILE
     ) {
         let mut trample = Quantity::zero();
         let mut first_steps = 0u64;
@@ -1484,10 +1549,19 @@ fn verify_suite_entry(index: usize, e: &Evidence) -> Result<(), String> {
         PlayerId((index % 4) as u8),
     )
     .map_err(|e| e.to_string())?;
-    if index == 16 {
+    if profile.name == mtg_core::FOUR_COLORS_PROFILE {
+        config.decks.rotate_left(index / 4);
+        if index == 16 {
+            config.decks = std::array::from_fn(|_| mtg_core::four_colors_blue_deck());
+        }
+        if index == 17 {
+            config.decks = std::array::from_fn(|_| mtg_core::four_colors_red_deck());
+        }
+    }
+    if index == 16 && profile.name != mtg_core::FOUR_COLORS_PROFILE {
         config.decks = std::array::from_fn(|_| (profile.white_deck)());
     }
-    if index == 17 {
+    if index == 17 && profile.name != mtg_core::FOUR_COLORS_PROFILE {
         config.decks = std::array::from_fn(|_| (profile.black_green_deck)());
     }
     let trace_mode = if index == 0 {
