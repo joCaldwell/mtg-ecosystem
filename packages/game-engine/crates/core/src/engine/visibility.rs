@@ -69,6 +69,14 @@ pub struct VisiblePlayer {
 #[serde(deny_unknown_fields)]
 pub struct VisibleObject {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attached_to: Option<ObjectHandle>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<ObjectHandle>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keywords: Vec<KeywordAbility>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub restrictions: Vec<CreatureRestriction>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<VisibleToken>,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
     pub plus_one_counters: Quantity,
@@ -721,6 +729,30 @@ impl Game {
             .get(&object.id.card)
             .ok_or("missing object definition")?;
         Ok(Some(VisibleObject {
+            attached_to: object
+                .attached_to
+                .filter(|t| self.current(*t).is_ok())
+                .map(|t| self.handle_for(viewer, t))
+                .transpose()?,
+            attachments: self
+                .state
+                .objects
+                .values()
+                .filter(|o| o.zone == Zone::Battlefield && o.attached_to == Some(object.id))
+                .map(|o| self.handle_for(viewer, o.id))
+                .collect::<Result<Vec<_>, _>>()?,
+            keywords: if self.attachments_enabled() && self.target_is_creature(object.id) {
+                self.current_keywords(object.id)
+            } else {
+                vec![]
+            },
+            restrictions: [
+                CreatureRestriction::CantBeBlocked,
+                CreatureRestriction::CantAttackOrBlock,
+            ]
+            .into_iter()
+            .filter(|r| self.has_restriction(object.id, *r))
+            .collect(),
             token: self
                 .state
                 .tokens
@@ -1105,6 +1137,7 @@ impl Game {
                                 | STAPLES_PROFILE
                                 | MANA_PROFILE
                                 | FOUR_COLORS_PROFILE
+                                | ATTACHMENTS_PROFILE
                         ) {
                             candidates
                                 .iter()

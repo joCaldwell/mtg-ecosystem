@@ -169,6 +169,20 @@ impl Game {
                 }
             }
         }
+        if self.attachments_enabled() && self.target_is_creature(object) {
+            for a in self.creature_modifications(object) {
+                if let StaticEffect::ModifyCreatures {
+                    power, toughness, ..
+                } = a
+                {
+                    c.power.as_mut().ok_or("attachment power")?.add(power);
+                    c.toughness
+                        .as_mut()
+                        .ok_or("attachment toughness")?
+                        .add(toughness);
+                }
+            }
+        }
         for e in &self.state.effects {
             if let ResolvedEffectKind::ModifyPowerToughness {
                 target,
@@ -1557,8 +1571,22 @@ impl Game {
             } else {
                 &[]
             };
-            if d.source.keywords != expected_keywords {
-                return Err("damage source keyword LKI differs from immutable definition".into());
+            let keywords_valid = if self.attachments_enabled() {
+                let can_have_grants = d.source.zone == Zone::Battlefield
+                    && d.source.characteristics.kind == CardKind::Creature;
+                expected_keywords.iter().all(|k|d.source.keywords.contains(k))
+                    && d.source.keywords.iter().enumerate().all(|(n,k)| {
+                        !d.source.keywords[..n].contains(k)
+                            && (expected_keywords.contains(k) || (can_have_grants && self.prepared.catalog.definitions.iter()
+                                .flat_map(|d| &d.static_abilities).any(|a|matches!(&a.effect,StaticEffect::ModifyCreatures {keywords,..} if keywords.contains(k)))))
+                    })
+            } else {
+                d.source.keywords == expected_keywords
+            };
+            if !keywords_valid {
+                return Err(
+                    "damage source keyword LKI outside admitted intrinsic/granted abilities".into(),
+                );
             }
             if let Ok(current) = self.object_before(d.source.object)
                 && current != d.source

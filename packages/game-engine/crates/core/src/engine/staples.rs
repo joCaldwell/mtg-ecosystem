@@ -70,7 +70,14 @@ impl Game {
             Some(TargetDomain::OwnGraveyardCreatureCard) => {
                 self.graveyard_creatures(entry.controller).contains(&object)
             }
-            _ => self.target_legal(object),
+            Some(TargetDomain::ControlledBattlefieldCreature) => {
+                self.target_legal(object)
+                    && self.targetable_by(object, entry.controller)
+                    && self
+                        .current(object)
+                        .is_ok_and(|o| o.controller == entry.controller && o.id != entry.source)
+            }
+            _ => self.target_legal(object) && self.targetable_by(object, entry.controller),
         }
     }
     pub(super) fn search_lands(&self, player: PlayerId) -> Vec<ObjectId> {

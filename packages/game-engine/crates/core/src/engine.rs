@@ -10,6 +10,9 @@ mod commander_policy;
 pub use commander_policy::{
     COMMANDER_POLICY_DATE, COMMANDER_POLICY_HTML_SHA256, COMMANDER_POLICY_URL, policy_digest,
 };
+mod attachments;
+#[cfg(test)]
+mod attachments_tests;
 mod four_colors;
 #[cfg(test)]
 mod four_colors_tests;
@@ -633,6 +636,8 @@ struct Card {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Object {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    attached_to: Option<ObjectId>,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
     plus_one_counters: Quantity,
     marked_damage: Quantity,
@@ -1096,6 +1101,10 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    Attach {
+        object: ObjectId,
+        target: Option<ObjectId>,
+    },
     ReversePermanentMana {
         receipt: Box<PermanentManaUndo>,
     },
@@ -1253,6 +1262,11 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    AttachmentChanged {
+        object: ObjectId,
+        previous: Option<ObjectId>,
+        target: Option<ObjectId>,
+    },
     PermanentManaReversed {
         player: PlayerId,
         source: ObjectId,
@@ -1713,6 +1727,7 @@ impl Game {
                 (
                     c.id,
                     Object {
+                        attached_to: None,
                         plus_one_counters: Quantity::zero(),
                         marked_damage: Quantity::zero(),
                         deathtouch_damage: false,
@@ -1970,7 +1985,9 @@ impl Game {
                 if self.program()?.targets.first().is_some_and(|t| {
                     matches!(
                         t.domain,
-                        TargetDomain::BattlefieldCreature | TargetDomain::OwnGraveyardCreatureCard
+                        TargetDomain::ControlledBattlefieldCreature
+                            | TargetDomain::BattlefieldCreature
+                            | TargetDomain::OwnGraveyardCreatureCard
                     )
                 }) =>
             {
@@ -2132,7 +2149,9 @@ impl Game {
                 if self.program()?.targets.iter().any(|t| {
                     !matches!(
                         t.domain,
-                        TargetDomain::BattlefieldCreature | TargetDomain::OwnGraveyardCreatureCard
+                        TargetDomain::ControlledBattlefieldCreature
+                            | TargetDomain::BattlefieldCreature
+                            | TargetDomain::OwnGraveyardCreatureCard
                     )
                 }) || objects.len() != self.program()?.targets.len()
                     || objects
@@ -2589,6 +2608,22 @@ impl Game {
                     source: stack.source,
                 },
             )?;
+            if destination == Zone::Battlefield
+                && self.definition(stack.source.card)?.characteristics.subtypes == ["Aura"]
+            {
+                let object = self.state.objects[&stack.source.card].id;
+                self.commit(
+                    ProposedEvent::Attach {
+                        object,
+                        target: stack.targets.first().copied(),
+                    },
+                    BatchCause::SpellCompletion {
+                        stack_id: stack.id,
+                        player: stack.controller,
+                        source: stack.source,
+                    },
+                )?;
+            }
             self.state.stack.pop();
         } else if self.is_live(owner) || self.state.stack.iter().any(|s| s.id == stack.id) {
             return Err("unsupported resolving-source movement".into());
@@ -2809,6 +2844,22 @@ impl Game {
                 && owner != card.owner
             {
                 return Err("snapshot zone-owner invariant".into());
+            }
+        }
+        for o in s.objects.values() {
+            if let Some(target) = o.attached_to
+                && (!self.attachments_enabled()
+                    || o.zone != Zone::Battlefield
+                    || o.id == target
+                    || !self
+                        .definition(o.id.card)?
+                        .characteristics
+                        .subtypes
+                        .iter()
+                        .any(|s| s == "Equipment" || s == "Aura")
+                    || self.definition(target.card)?.characteristics.kind != CardKind::Creature)
+            {
+                return Err("snapshot attachment invariant".into());
             }
         }
         self.validate_tokens_state()?;

@@ -85,9 +85,15 @@ impl Game {
             Some(TargetDomain::OwnGraveyardCreatureCard) => {
                 !self.graveyard_creatures(player).is_empty()
             }
-            Some(TargetDomain::BattlefieldCreature) => {
-                self.state.objects.values().any(|o| self.target_legal(o.id))
-            }
+            Some(
+                domain @ (TargetDomain::BattlefieldCreature
+                | TargetDomain::ControlledBattlefieldCreature),
+            ) => self.state.objects.values().any(|o| {
+                self.target_legal(o.id)
+                    && self.targetable_by(o.id, player)
+                    && (domain != TargetDomain::ControlledBattlefieldCreature
+                        || o.controller == player)
+            }),
         }
     }
     pub(super) fn announced_target_legality(&self, entry: &StackInstance) -> Vec<bool> {
@@ -95,7 +101,7 @@ impl Game {
             entry
                 .entity_targets
                 .iter()
-                .map(|t| self.entity_legal(*t))
+                .map(|t| self.entity_target_legal(*t, entry.controller))
                 .collect()
         } else if !entry.stack_targets.is_empty() {
             entry
@@ -164,6 +170,9 @@ impl Game {
                 && ability.cost != ActivationCost::SacrificeSource)
         {
             return Err("invalid activated ability source/permission".into());
+        }
+        if ability.program.timing == SpellTiming::MainPhase && !self.main_phase_action(player) {
+            return Err("equip requires sorcery timing".into());
         }
         let tap = ability.cost == ActivationCost::TapSource
             || matches!(&ability.cost, ActivationCost::Composite { costs } if costs.tap);
@@ -469,6 +478,10 @@ impl Game {
         }
         let player = frame.spell.controller;
         match instruction {
+            i @ (Instruction::AttachEquipment { .. }
+            | Instruction::ReturnAuraFromGraveyard { .. }) => {
+                self.execute_attachment_instruction(frame, i)
+            }
             op @ (Instruction::DestroyTargetCreature { .. }
             | Instruction::DestroyAllCreatures { .. }
             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }

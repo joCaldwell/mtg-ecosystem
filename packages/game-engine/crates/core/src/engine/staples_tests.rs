@@ -1113,6 +1113,10 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
         {
             for i in instructions(p) {
                 match i {
+                    Instruction::AttachEquipment { .. }
+                    | Instruction::ReturnAuraFromGraveyard { .. } => {
+                        panic!("attachment outside historical staples proof")
+                    }
                     Instruction::CreateCreatureTokens { .. }
                     | Instruction::PutPlusOneCounters { .. }
                     | Instruction::ModifyPowerToughness { .. }
@@ -1179,6 +1183,9 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
             );
             for a in &d.static_abilities {
                 match &a.effect {
+                    StaticEffect::ModifyCreatures { .. } => {
+                        panic!("grants outside historical staples proof")
+                    }
                     StaticEffect::DoubleDamageToPermanentOrPlayer => {}
                     StaticEffect::ControllerCreatureAnthem { power, toughness } => assert!(
                         *power > Quantity::zero() && *toughness > Quantity::zero(),

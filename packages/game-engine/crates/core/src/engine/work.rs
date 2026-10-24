@@ -522,7 +522,7 @@ impl Game {
                     } else {
                         cache
                             .next_object(self)
-                            .filter(|o| self.target_legal(o.id))
+                            .filter(|o| self.top().is_ok_and(|e| self.object_target_legal(e, o.id)))
                             .map(|o| TargetEntity::Object { object: o.id })
                     };
                     if let Some(target) = target {
@@ -693,7 +693,10 @@ impl Game {
                     let target = self
                         .resolve_entity(*viewer, &entities[converted_entities.len()])
                         .map_err(invalid)?;
-                    if !self.entity_legal(target) {
+                    if !self
+                        .top()
+                        .is_ok_and(|e| self.entity_target_legal(target, e.controller))
+                    {
                         return Err(QueryRejection::InvalidResponse);
                     }
                     converted_entities.push(target);

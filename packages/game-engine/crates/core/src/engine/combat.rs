@@ -67,7 +67,7 @@ impl Game {
             _ => None,
         }
     }
-    fn creatures(&self, player: PlayerId, attacking: bool) -> Vec<ObjectId> {
+    pub(super) fn creatures(&self, player: PlayerId, attacking: bool) -> Vec<ObjectId> {
         self.state
             .objects
             .values()
@@ -75,6 +75,7 @@ impl Game {
                 o.controller == player
                     && !o.tapped
                     && self.target_legal(o.id)
+                    && !self.has_restriction(o.id, CreatureRestriction::CantAttackOrBlock)
                     && (!attacking
                         || ((o.attack_ready || self.has_keyword(o.id, KeywordAbility::Haste))
                             && !self.has_keyword(o.id, KeywordAbility::Defender)))
@@ -610,6 +611,7 @@ impl Game {
                 });
             }
         }
+        self.attachment_sbas(&mut occurrences)?;
         // CR 111.7/704.5d: the previous movement already collected dies
         // triggers using lookback. Ceasing is its own next SBA wave.
         occurrences.extend(
@@ -776,6 +778,7 @@ impl Game {
                 | STAPLES_PROFILE
                 | MANA_PROFILE
                 | FOUR_COLORS_PROFILE
+                | ATTACHMENTS_PROFILE
         ) && (self.state.turn.step == TurnStep::FirstStrikeDamage
             || !self.state.first_strike_participants.is_empty()
             || !self.state.orphan_first_strike_blockers.is_empty()

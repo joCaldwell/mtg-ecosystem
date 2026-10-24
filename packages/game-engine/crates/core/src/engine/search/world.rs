@@ -358,6 +358,7 @@ impl SampleBuildWork {
             self.game.state.objects.insert(
                 id,
                 Object {
+                    attached_to: None,
                     plus_one_counters: Quantity::zero(),
                     deathtouch_damage: false,
                     id: object,

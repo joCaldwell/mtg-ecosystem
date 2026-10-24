@@ -80,19 +80,27 @@ impl Game {
             cast_from: Zone::Battlefield,
         });
         if targeted {
-            if cost != ActivationCost::TapSource {
+            if cost != ActivationCost::TapSource && !matches!(cost, ActivationCost::Mana { .. }) {
                 return Err("unsupported targeted activation cost".into());
             }
-            self.state.frame = Frame::EntityTargets {
-                cast: Casting {
-                    origin: AnnouncementOrigin::Activated,
-                    spending: None,
-                    stack_id: id,
-                    original_object: object,
-                    prior_passes: self.state.passes.clone(),
-                    mana_activations: vec![],
-                    undo_mana: false,
-                },
+            let cast = Casting {
+                origin: AnnouncementOrigin::Activated,
+                spending: None,
+                stack_id: id,
+                original_object: object,
+                prior_passes: self.state.passes.clone(),
+                mana_activations: vec![],
+                undo_mana: false,
+            };
+            self.state.frame = if self.definition(object.card)?.activated[ability as usize]
+                .program
+                .targets[0]
+                .domain
+                == TargetDomain::ControlledBattlefieldCreature
+            {
+                Frame::Targets { cast }
+            } else {
+                Frame::EntityTargets { cast }
             };
         } else if mana {
             self.state.frame = Frame::Mana {
@@ -173,7 +181,8 @@ impl Game {
             },
         };
         let announcing = match self.underlying_mana_frame(&self.state.frame) {
-            Frame::EntityTargets { cast }
+            Frame::Targets { cast }
+            | Frame::EntityTargets { cast }
             | Frame::Mana { cast }
             | Frame::SpendMana { cast }
             | Frame::Payment { cast } => {
@@ -186,7 +195,12 @@ impl Game {
         };
         if !self.prepared.config.actions_profile()
             || source_handles.len() != 4
-            || !entry.targets.is_empty()
+            || (!entry.targets.is_empty()
+                && activated
+                    .program
+                    .targets
+                    .first()
+                    .is_none_or(|t| t.domain != TargetDomain::ControlledBattlefieldCreature))
             || !entry.player_targets.is_empty()
             || !entry.stack_targets.is_empty()
             || entry.total_cost != expected

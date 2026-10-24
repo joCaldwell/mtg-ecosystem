@@ -1,4 +1,4 @@
-//! Intrinsic keywords only. CR 702.2/9/10/15/17/20, 120.3f, 510.2, 704.5h.
+//! Intrinsic and continuous layer-6 granted keywords. CR 702.2/9/10/15/17/20, 120.3f, 510.2, 704.5h.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,24 +25,24 @@ impl<'a> From<&'a ObjectBefore> for KeywordSource<'a> {
     }
 }
 impl Game {
-    /// Intrinsic abilities are immutable in this pool, including across source
-    /// departure. Saved ObjectBefore keywords bind LKI to the exact source.
+    /// Current checks include continuous grants (CR 613.1f); saved
+    /// ObjectBefore keywords bind damage LKI to the exact source (702.15c/2e).
     pub(super) fn has_keyword<'a>(
         &self,
         object: impl Into<KeywordSource<'a>>,
         keyword: KeywordAbility,
     ) -> bool {
         match object.into() {
-            KeywordSource::Current(object) => self
-                .definition(object.card)
-                .is_ok_and(|d| d.keywords.contains(&keyword)),
+            KeywordSource::Current(object) => self.current_keywords(object).contains(&keyword),
             KeywordSource::Historical(object) => object.keywords.contains(&keyword),
         }
     }
     pub(super) fn can_block(&self, blocker: ObjectId, attacker: ObjectId) -> bool {
-        !self.has_keyword(attacker, KeywordAbility::Flying)
-            || self.has_keyword(blocker, KeywordAbility::Flying)
-            || self.has_keyword(blocker, KeywordAbility::Reach)
+        !self.has_restriction(attacker, CreatureRestriction::CantBeBlocked)
+            && !self.has_restriction(blocker, CreatureRestriction::CantAttackOrBlock)
+            && (!self.has_keyword(attacker, KeywordAbility::Flying)
+                || self.has_keyword(blocker, KeywordAbility::Flying)
+                || self.has_keyword(blocker, KeywordAbility::Reach))
     }
     /// Called inside the atomic final damage commit, after all validation and
     /// prevention. No SBA or trigger placement can occur between damage/gains.

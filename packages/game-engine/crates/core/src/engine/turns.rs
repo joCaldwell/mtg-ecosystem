@@ -183,6 +183,7 @@ impl Game {
                     | STAPLES_PROFILE
                     | MANA_PROFILE
                     | FOUR_COLORS_PROFILE
+                    | ATTACHMENTS_PROFILE
             )
             && !self.first_strikers().is_empty()
         {
@@ -289,6 +290,7 @@ impl Game {
                         | STAPLES_PROFILE
                         | MANA_PROFILE
                         | FOUR_COLORS_PROFILE
+                        | ATTACHMENTS_PROFILE
                 ) =>
             {
                 self.state.frame = Frame::Damage;
