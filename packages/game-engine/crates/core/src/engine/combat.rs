@@ -772,19 +772,11 @@ impl Game {
         Ok(())
     }
     pub(super) fn validate_combat_state(&self) -> Result<(), String> {
-        if !matches!(
-            self.prepared.config.profile.as_str(),
-            COMBAT_KEYWORDS_PROFILE
-                | TOKENS_PROFILE
-                | STAPLES_PROFILE
-                | MANA_PROFILE
-                | FOUR_COLORS_PROFILE
-                | ATTACHMENTS_PROFILE
-                | REMOVAL_PROFILE
-        ) && (self.state.turn.step == TurnStep::FirstStrikeDamage
-            || !self.state.first_strike_participants.is_empty()
-            || !self.state.orphan_first_strike_blockers.is_empty()
-            || !self.state.player_damage_choices.is_empty())
+        if !self.profile_at_least(COMBAT_KEYWORDS_PROFILE)
+            && (self.state.turn.step == TurnStep::FirstStrikeDamage
+                || !self.state.first_strike_participants.is_empty()
+                || !self.state.orphan_first_strike_blockers.is_empty()
+                || !self.state.player_damage_choices.is_empty())
         {
             return Err("combat keyword continuation outside reviewed profile".into());
         }

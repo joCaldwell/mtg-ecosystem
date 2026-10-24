@@ -12,8 +12,7 @@ pub(super) const STACK_BOUND: usize =
 pub(super) const EFFECT_BOUND: usize = 8192;
 impl Game {
     pub(super) fn sacrifice_enabled(&self) -> bool {
-        self.prepared.config.profile == SACRIFICE_PROFILE
-            && self.prepared.catalog.schema_version == 19
+        self.profile_at_least(SACRIFICE_PROFILE)
     }
     pub(super) fn sacrifice_candidates(
         &self,

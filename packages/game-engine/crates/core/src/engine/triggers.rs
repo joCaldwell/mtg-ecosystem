@@ -127,7 +127,9 @@ impl Game {
                             TriggerCondition::SelfAuraToGraveyard => dies && object.id == subject,
                             TriggerCondition::AnyCreatureDies => creature && dies,
                             TriggerCondition::SelfEntersBattlefield => {
-                                enters && object.id == subject
+                                (creature || self.sacrifice_enabled())
+                                    && enters
+                                    && object.id == subject
                             }
                             TriggerCondition::OtherCreatureEntersBattlefield => {
                                 creature && enters && object.id != subject

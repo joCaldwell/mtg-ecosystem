@@ -1266,3 +1266,217 @@ fn sacrifice_tucked_token_ceases_with_rancor_sba_and_return_in_same_wave() {
         },
     );
 }
+
+fn to_attackers(g: &mut Game, seat: u8, attacker: ObjectId, after_turn: u64) {
+    for _ in 0..2000 {
+        let r = request(g);
+        if let Request::Attackers { candidates, .. } = &r
+            && r.player() == PlayerId(seat)
+            && g.turn().number > after_turn
+            && candidates.contains(&attacker)
+        {
+            return;
+        }
+        let a = auto(g, &r);
+        answer(g, a);
+    }
+    panic!("attackers cap")
+}
+
+#[test]
+fn double_strike_in_sacrifice_profile() {
+    let ace_id = catalog()
+        .definitions
+        .iter()
+        .find(|d| d.name == "Fencing Ace")
+        .unwrap()
+        .oracle_id
+        .clone();
+    assert!(
+        sacrifice_white_deck()
+            .cards
+            .iter()
+            .any(|e| e.oracle_id == ace_id)
+    );
+    natural("probe-ds", &[("Fencing Ace", 0)], [0, 1, 2, 3], |g| {
+        cast(g, "Fencing Ace", 0, None, None);
+        let ace = named(g, "Fencing Ace", 0);
+        let turn = g.turn().number;
+        to_attackers(g, 0, ace, turn);
+        let life = g.state.players[1].life.clone();
+        answer(
+            g,
+            Response::Attackers {
+                attacks: vec![(ace, PlayerId(1))],
+            },
+        );
+        let mut saw_first_strike_step = false;
+        for _ in 0..200 {
+            if g.turn().step == TurnStep::FirstStrikeDamage && !saw_first_strike_step {
+                check(g);
+                saw_first_strike_step = true;
+            }
+            if matches!(
+                g.turn().step,
+                TurnStep::EndCombat | TurnStep::PostcombatMain
+            ) {
+                break;
+            }
+            let r = request(g);
+            let a = auto(g, &r);
+            answer(g, a);
+        }
+        let mut expected = life;
+        expected.subtract(&2.into());
+        assert_eq!(
+            g.state.players[1].life, expected,
+            "double strike dealt damage once"
+        );
+        assert!(saw_first_strike_step, "no first-strike damage step");
+    });
+}
+
+#[test]
+fn blocker_hints_and_first_strike_death_in_sacrifice_profile() {
+    natural(
+        "probe-hints",
+        &[("Typhoid Rats", 1), ("Fencing Ace", 0)],
+        [0, 1, 2, 3],
+        |g| {
+            cast(g, "Typhoid Rats", 1, None, None);
+            cast(g, "Fencing Ace", 0, None, None);
+            let ace = named(g, "Fencing Ace", 0);
+            let rats = named(g, "Typhoid Rats", 1);
+            let turn = g.turn().number;
+            to_attackers(g, 0, ace, turn);
+            answer(
+                g,
+                Response::Attackers {
+                    attacks: vec![(ace, PlayerId(1))],
+                },
+            );
+            for _ in 0..200 {
+                let r = request(g);
+                if matches!(r, Request::Blockers { .. }) && r.player() == PlayerId(1) {
+                    break;
+                }
+                let a = auto(g, &r);
+                answer(g, a);
+            }
+            let Some(PlayerRequest::Blockers {
+                legal_attackers,
+                candidates,
+                ..
+            }) = observation(g, 1).decision
+            else {
+                panic!("blockers projection")
+            };
+            let rat_handle = g.handle_for(PlayerId(1), rats).unwrap();
+            let ace_handle = g.handle_for(PlayerId(1), ace).unwrap();
+            assert!(candidates.contains(&rat_handle));
+            assert!(
+                legal_attackers
+                    .iter()
+                    .any(|row| row.blocker == rat_handle && row.attackers.contains(&ace_handle))
+            );
+            assert!(
+                !legal_attackers.is_empty(),
+                "per-blocker legality hints are empty in the sacrifice profile"
+            );
+            answer(
+                g,
+                Response::Blockers {
+                    blocks: vec![(rats, ace)],
+                },
+            );
+            for _ in 0..200 {
+                if matches!(
+                    g.turn().step,
+                    TurnStep::EndCombat | TurnStep::PostcombatMain
+                ) {
+                    break;
+                }
+                let r = request(g);
+                let a = auto(g, &r);
+                answer(g, a);
+            }
+            // CR 510.4, 702.4b/7b: the Rats die before normal damage and
+            // cannot deal their deathtouch damage to the first-step participant.
+            assert_eq!(g.current(ace).unwrap().zone, Zone::Battlefield);
+            assert_eq!(
+                named(g, "Typhoid Rats", 1).incarnation,
+                rats.incarnation + 1
+            );
+            assert_eq!(
+                g.current(named(g, "Typhoid Rats", 1)).unwrap().zone,
+                Zone::Graveyard { owner: PlayerId(1) }
+            );
+        },
+    );
+}
+
+#[test]
+fn forced_previous_choice_after_chooser_concedes() {
+    natural(
+        "probe-forced-concede",
+        &[
+            ("Butcher of Malakir", 0),
+            ("Carrion Feeder", 0),
+            ("Butcher of Malakir", 1),
+            ("Typhoid Rats", 2),
+        ],
+        [1, 1, 1, 1],
+        |g| {
+            cast(g, "Butcher of Malakir", 0, None, None);
+            cast(g, "Carrion Feeder", 0, None, None);
+            cast(g, "Butcher of Malakir", 1, None, None);
+            cast(g, "Typhoid Rats", 2, None, None);
+            main_for(g, 0);
+            let feeder = named(g, "Carrion Feeder", 0);
+            activate(g, "Carrion Feeder", 0, None, Some(feeder));
+            for _ in 0..200 {
+                let r = request(g);
+                if matches!(r, Request::ForcedSacrifice { .. }) {
+                    break;
+                }
+                let a = auto(g, &r);
+                answer(g, a);
+            }
+            let b1 = named(g, "Butcher of Malakir", 1);
+            answer(g, Response::ForcedSacrifice { object: b1 });
+            assert_eq!(request(g).player(), PlayerId(2));
+            g.concede(PlayerId(1)).unwrap();
+            let r = request(g);
+            assert_eq!(r.player(), PlayerId(2), "{r:?}");
+            let o = observation(g, 2);
+            let Some(PlayerRequest::ForcedSacrifice {
+                previous_choices, ..
+            }) = o.decision
+            else {
+                panic!("forced projection")
+            };
+            assert!(previous_choices.is_empty());
+            assert!(o.view.sacrifice_choices.is_empty());
+            check(g);
+            answer(
+                g,
+                Response::ForcedSacrifice {
+                    object: named(g, "Typhoid Rats", 2),
+                },
+            );
+            settle(g);
+        },
+    );
+}
+
+#[test]
+fn legal_profile_lineage_is_ordered_and_rejects_unknown_names() {
+    for (i, profile) in MATCH_PROFILES.iter().enumerate() {
+        for (j, minimum) in MATCH_PROFILES.iter().enumerate() {
+            assert_eq!(profile_at_least(profile.name, minimum.name), i >= j);
+        }
+        assert!(!profile_at_least(profile.name, "unknown"));
+        assert!(!profile_at_least("unknown", profile.name));
+        assert!(!profile_at_least("four-seat-combat-game-v1", profile.name));
+    }
+}

@@ -910,6 +910,9 @@ impl Definition {
         }) {
             return Err("attachment operations are not spell instructions".into());
         }
+        // v19 alone admits enchantment programs and creature statics. Older
+        // catalogs reject this capability, retaining their original kind checks.
+        let sacrifice = self.capabilities.contains(&Capability::SacrificeV1);
         let c = &self.characteristics;
         let equipment = c.kind == CardKind::Artifact && c.subtypes == ["Equipment"];
         let aura = c.kind == CardKind::Enchantment && c.subtypes == ["Aura"];
@@ -953,10 +956,8 @@ impl Definition {
             validate_permanent_costs(&a.costs)?;
         }
         if !self.activated.is_empty()
-            && !matches!(
-                c.kind,
-                CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
-            )
+            && !matches!(c.kind, CardKind::Creature | CardKind::Artifact)
+            && !(sacrifice && c.kind == CardKind::Enchantment)
         {
             return Err("activated programs require supported creature characteristics".into());
         }
@@ -1083,7 +1084,8 @@ impl Definition {
         }
         if !self.triggered.is_empty()
             && c.kind != CardKind::Creature
-            && c.kind != CardKind::Enchantment
+            && !aura
+            && !(sacrifice && c.kind == CardKind::Enchantment)
         {
             return Err("trigger programs require supported creature characteristics".into());
         }
@@ -1166,8 +1168,9 @@ impl Definition {
             validate_instruction_program(p)?;
         }
         if !self.static_abilities.is_empty()
-            && !matches!(c.kind, CardKind::Enchantment | CardKind::Creature)
+            && c.kind != CardKind::Enchantment
             && !equipment
+            && !(sacrifice && c.kind == CardKind::Creature)
         {
             return Err("static damage replacement requires a supported enchantment".into());
         }

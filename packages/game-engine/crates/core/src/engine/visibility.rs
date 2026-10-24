@@ -1058,6 +1058,8 @@ impl Game {
                         .collect::<Result<_, _>>()?,
                     previous_choices: previous_choices
                         .into_iter()
+                        // CR 800.4a/104.3a: a departed chooser's objects no longer exist.
+                        .filter(|(p, o)| self.is_live(*p) && self.current(*o).is_ok())
                         .map(|(p, o)| Ok((p, self.handle_for(viewer, o)?)))
                         .collect::<Result<_, String>>()?,
                 }),
@@ -1216,17 +1218,7 @@ impl Game {
                                 .filter(|a| self.has_keyword(*a, KeywordAbility::Menace))
                                 .collect(),
                         )?,
-                        legal_attackers: if matches!(
-                            self.prepared.config.profile.as_str(),
-                            KEYWORDS_PROFILE
-                                | COMBAT_KEYWORDS_PROFILE
-                                | TOKENS_PROFILE
-                                | STAPLES_PROFILE
-                                | MANA_PROFILE
-                                | FOUR_COLORS_PROFILE
-                                | ATTACHMENTS_PROFILE
-                                | REMOVAL_PROFILE
-                        ) {
+                        legal_attackers: if self.profile_at_least(KEYWORDS_PROFILE) {
                             candidates
                                 .iter()
                                 .map(|b| {

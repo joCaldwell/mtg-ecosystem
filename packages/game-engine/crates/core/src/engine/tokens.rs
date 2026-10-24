@@ -99,9 +99,7 @@ impl Game {
         self.state.typed_fault.as_ref()
     }
     pub(super) fn tokens_enabled(&self) -> bool {
-        (self.prepared.config.profile == TOKENS_PROFILE
-            && self.prepared.catalog.schema_version == 14)
-            || self.staples_enabled()
+        self.profile_at_least(TOKENS_PROFILE)
     }
     pub(super) fn capacity_error(&mut self, fault: RuleFault) -> String {
         let reason = match fault {

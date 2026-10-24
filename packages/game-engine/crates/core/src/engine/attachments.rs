@@ -7,9 +7,7 @@ use super::*;
 pub(super) const STACK_BOUND: usize = four_colors::STACK_BOUND + 8 + 1 + 4;
 impl Game {
     pub(super) fn attachments_enabled(&self) -> bool {
-        self.removal_enabled()
-            || (self.prepared.config.profile == ATTACHMENTS_PROFILE
-                && self.prepared.catalog.schema_version == 17)
+        self.profile_at_least(ATTACHMENTS_PROFILE)
     }
     pub(super) fn target_is_creature(&self, object: ObjectId) -> bool {
         self.current(object)
