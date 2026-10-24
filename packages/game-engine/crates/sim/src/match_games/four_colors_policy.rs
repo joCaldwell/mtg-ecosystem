@@ -292,6 +292,7 @@ mod tests {
             priority: Some(player),
             players: (0..4)
                 .map(|i| mtg_core::VisiblePlayer {
+                    exile: vec![],
                     library_shuffles: 0,
                     player: PlayerId(i),
                     status: mtg_core::PlayerStatus::Live,

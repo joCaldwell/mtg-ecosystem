@@ -208,6 +208,7 @@ mod tests {
                 commanders: vec![],
                 priority: Some(player),
                 players: vec![mtg_core::VisiblePlayer {
+                    exile: vec![],
                     library_shuffles: 0,
                     player,
                     status: mtg_core::PlayerStatus::Live,

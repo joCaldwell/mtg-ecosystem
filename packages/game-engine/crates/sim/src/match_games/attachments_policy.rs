@@ -4,7 +4,8 @@ use mtg_contracts::{ActivationCost, KeywordAbility};
 use mtg_core::{PermittedView, VisibleObject};
 impl Strategy<'_> {
     pub(super) fn attachments(&self) -> bool {
-        self.catalog.schema_version == 17 && self.catalog.definitions.len() == 118
+        self.removal()
+            || (self.catalog.schema_version == 17 && self.catalog.definitions.len() == 118)
     }
     pub(super) fn targetable(&self, v: &PermittedView, o: &VisibleObject) -> bool {
         !o.keywords.contains(&KeywordAbility::Shroud)
