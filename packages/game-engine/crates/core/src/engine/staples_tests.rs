@@ -1113,7 +1113,14 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
         {
             for i in instructions(p) {
                 match i {
-                    Instruction::SacrificeDamage { .. }
+                    Instruction::MoveSet { .. }
+                    | Instruction::PumpSet { .. }
+                    | Instruction::DamageSet { .. }
+                    | Instruction::GainLifeDestroyed { .. }
+                    | Instruction::ExileDamagedThisTurn { .. }
+                    | Instruction::EachPlayerSacrifice { .. }
+                    | Instruction::LoseLifeDeathController { .. }
+                    | Instruction::SacrificeDamage { .. }
                     | Instruction::EachOpponentSacrifice { .. }
                     | Instruction::ModifySourcePowerToughness { .. }
                     | Instruction::DestroyPermanent { .. }
@@ -1191,7 +1198,9 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
             );
             for a in &d.static_abilities {
                 match &a.effect {
-                    StaticEffect::ModifyCreatures { .. } => {
+                    StaticEffect::ReduceGenericByCreatureCount
+                    | StaticEffect::CantBeCountered
+                    | StaticEffect::ModifyCreatures { .. } => {
                         panic!("grants outside historical staples proof")
                     }
                     StaticEffect::DoubleDamageToPermanentOrPlayer => {}

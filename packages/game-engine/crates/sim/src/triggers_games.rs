@@ -263,6 +263,9 @@ impl Strategy {
             .as_ref()
             .ok_or("missing trigger policy request")?;
         Ok(match request {
+            PlayerRequest::AnnounceX { .. } => {
+                return Err("X request outside historical profile".into());
+            }
             PlayerRequest::SacrificeCost { .. } | PlayerRequest::ForcedSacrifice { .. } => {
                 return Err("sacrifice request outside historical profile".into());
             }

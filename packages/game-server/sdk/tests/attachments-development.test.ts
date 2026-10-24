@@ -39,7 +39,7 @@ test('attachments policy handles every generated request family with schema-vali
  const schema=JSON.parse(fs.readFileSync(new URL('../generated/protocol.schema.json',import.meta.url),'utf8'));
  // These families belong to later catalogs and must fail closed for the
  // attachments-pinned policy, while still participating in the exact gate.
- const rejected = [['optional_effect',{}], ['sacrifice_cost',{candidates:['own']}], ['forced_sacrifice',{candidates:['own'],previous_choices:[]}]];
+ const rejected = [['announce_x',{}], ['optional_effect',{}], ['sacrifice_cost',{candidates:['own']}], ['forced_sacrifice',{candidates:['own'],previous_choices:[]}]];
  assert.deepEqual([...requests,...rejected].map(([name])=>name).sort(),schema.stream.definitions.PlayerRequest.oneOf.map(r=>r.properties.request.const).sort());
  for(const [name,fields]of requests) assert(choose(obs(name,fields)),name);
  for(const [name,fields]of rejected) assert.throws(()=>choose(obs(name,fields)),/unsupported/,name);

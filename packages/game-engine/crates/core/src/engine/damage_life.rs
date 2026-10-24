@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(tag = "entity", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TargetEntity {
     Player { player: PlayerId },
@@ -35,7 +35,8 @@ fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
         }
         Frame::Stabilize { resume, .. } => resolving_entry(resume),
         Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
-            CommanderContinuation::SpellMove { frame, .. }
+            CommanderContinuation::BoardReturn { frame, .. }
+            | CommanderContinuation::SpellMove { frame, .. }
             | CommanderContinuation::ResolutionDraw { frame, .. } => Some(&frame.spell),
             CommanderContinuation::StateBased { resume }
             | CommanderContinuation::StateBasedBatch { resume, .. } => resolving_entry(resume),
@@ -58,7 +59,8 @@ fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
         }
         Frame::Stabilize { resume, .. } => update_frame(resume, fact),
         Frame::CommanderReturn { continuation, .. } => match continuation.as_mut() {
-            CommanderContinuation::SpellMove { frame, .. }
+            CommanderContinuation::BoardReturn { frame, .. }
+            | CommanderContinuation::SpellMove { frame, .. }
             | CommanderContinuation::ResolutionDraw { frame, .. } => {
                 update_entry(&mut frame.spell, fact)
             }

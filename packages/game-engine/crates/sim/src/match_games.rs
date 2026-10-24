@@ -14,6 +14,7 @@ mod mana_policy;
 mod ordinary_diagnostic;
 mod removal_policy;
 mod sacrifice_policy;
+mod wipes_policy;
 
 // Evidence belongs outside native crate sources regardless of Cargo's test cwd.
 fn artifact_root() -> std::path::PathBuf {
@@ -130,6 +131,12 @@ impl Strategy<'_> {
     }
     fn priority(&mut self, o: &Observation) -> Result<PlayerResponse, String> {
         let v = &o.view;
+        if self.wipes()
+            && self.policy == Policy::Develop
+            && let Some(r) = self.wipes_priority(v)?
+        {
+            return Ok(r);
+        }
         if self.sacrifice()
             && self.policy == Policy::Develop
             && let Some(response) = self.sacrifice_priority(v)?
@@ -289,7 +296,17 @@ impl Strategy<'_> {
                 if d.name == "Fog" {
                     continue;
                 }
-                let mut cost = d.characteristics.mana_cost.clone();
+                if self.wipes() && !self.wipe_ready(v, d) {
+                    continue;
+                }
+                let mut cost = if self.wipes() {
+                    let Some(c) = self.wipe_cost(v, d) else {
+                        continue;
+                    };
+                    c
+                } else {
+                    d.characteristics.mana_cost.clone()
+                };
                 if command
                     && let Some(history) = v
                         .commanders
@@ -372,6 +389,9 @@ impl Strategy<'_> {
         let v = &o.view;
         let request = o.decision.as_ref().ok_or("missing match request")?;
         Ok(match request {
+            PlayerRequest::AnnounceX { .. } => PlayerResponse::AnnounceX {
+                value: self.earthquake_x(v).unwrap_or_default(),
+            },
             PlayerRequest::ManaColor { colors, .. } => PlayerResponse::ManaColor {
                 color: self
                     .mana_color
@@ -1407,6 +1427,9 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
     );
     let mut report = serde_json::json!({"lifelink_gains":counts[0],"deathtouch_destructions":counts[1],"blocks":counts[2]});
     // Exact slices select their own evidence adapters and capacities, not inherited mechanics.
+    if e.config.profile == mtg_core::WIPES_PROFILE {
+        report["wipes"] = wipes_policy::interactions(catalog, &physical_cards, &g)?;
+    }
     if e.config.profile == mtg_core::SACRIFICE_PROFILE {
         report["sacrifice"] = sacrifice_policy::interactions(catalog, &physical_cards, &g)?;
     }
@@ -1960,6 +1983,8 @@ mod admission_and_host_tests {
             current: Some(ObjectHandle("own-permanent".into())),
         };
         let entry = |name: &str| mtg_core::VisibleStackEntry {
+            x: None,
+            mana_value: None,
             mode: None,
             triggered: Some(mtg_core::VisibleTriggered {
                 handle: mtg_core::StackHandle(name.into()),

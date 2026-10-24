@@ -54,6 +54,14 @@ pub struct ResolvedEffect {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "effect", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ResolvedEffectKind {
+    PumpSet {
+        targets: Vec<ObjectId>,
+        power: Quantity,
+        toughness: Quantity,
+    },
+    ExileDamaged {
+        targets: Vec<ObjectId>,
+    },
     ModifyPowerToughness {
         target: ObjectId,
         power: Quantity,
@@ -184,6 +192,16 @@ impl Game {
             }
         }
         for e in &self.state.effects {
+            if let ResolvedEffectKind::PumpSet {
+                targets,
+                power,
+                toughness,
+            } = &e.kind
+                && targets.contains(&object)
+            {
+                c.power.as_mut().ok_or("set power")?.add(power);
+                c.toughness.as_mut().ok_or("set toughness")?.add(toughness);
+            }
             if let ResolvedEffectKind::ModifyPowerToughness {
                 target,
                 power,
@@ -434,7 +452,7 @@ impl Game {
             },
         )
     }
-    pub(super) fn prepare_sacrifice_damage(
+    pub(super) fn prepare_noncombat_set_damage(
         &mut self,
         frame: Resolving,
         amount: Quantity,
@@ -817,6 +835,33 @@ impl Game {
                     .ok_or("effect instruction absent")?;
                 let valid = match (instruction, &effect.kind) {
                     (
+                        Instruction::PumpSet {
+                            set,
+                            power,
+                            toughness,
+                            source_block,
+                        },
+                        ResolvedEffectKind::PumpSet {
+                            targets,
+                            power: p,
+                            toughness: t,
+                        },
+                    ) => {
+                        self.wipes_enabled()
+                            && *targets == self.objects_in_set(set, frame.spell.controller)
+                            && p == power
+                            && t == toughness
+                            && *source_block == effect.origin.source_block
+                    }
+                    (
+                        Instruction::ExileDamagedThisTurn { source_block },
+                        ResolvedEffectKind::ExileDamaged { targets },
+                    ) => {
+                        self.wipes_enabled()
+                            && *targets == self.anger_targets(frame)
+                            && *source_block == effect.origin.source_block
+                    }
+                    (
                         Instruction::ModifySourcePowerToughness {
                             power,
                             toughness,
@@ -888,6 +933,16 @@ impl Game {
                     }
                 };
                 let valid_target_handles = match &effect.kind {
+                    ResolvedEffectKind::PumpSet { targets, .. }
+                    | ResolvedEffectKind::ExileDamaged { targets } => {
+                        effect.target_handles.len() == targets.len() * 4
+                            && targets.iter().enumerate().all(|(i, o)| {
+                                (0..4).all(|v| {
+                                    self.handle_for(PlayerId(v), *o).as_ref()
+                                        == Ok(&effect.target_handles[i * 4 + v as usize])
+                                })
+                            })
+                    }
                     ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
                         effect.target_handles.len() == 4
                             && (0..4).all(|v| {
@@ -1149,6 +1204,33 @@ impl Game {
             for instruction in instructions {
                 bound |= match (instruction, &e.kind) {
                     (
+                        Instruction::PumpSet {
+                            power,
+                            toughness,
+                            source_block,
+                            ..
+                        },
+                        ResolvedEffectKind::PumpSet {
+                            targets,
+                            power: p,
+                            toughness: t,
+                        },
+                    ) => {
+                        self.wipes_enabled()
+                            && p == power
+                            && t == toughness
+                            && *source_block == e.origin.source_block
+                            && self.valid_set_effect_targets(e, targets)
+                    }
+                    (
+                        Instruction::ExileDamagedThisTurn { source_block },
+                        ResolvedEffectKind::ExileDamaged { targets },
+                    ) => {
+                        self.wipes_enabled()
+                            && *source_block == e.origin.source_block
+                            && self.valid_set_effect_targets(e, targets)
+                    }
+                    (
                         Instruction::ModifySourcePowerToughness {
                             power,
                             toughness,
@@ -1340,6 +1422,20 @@ pub struct VisibleEffectSource {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "effect", rename_all = "snake_case", deny_unknown_fields)]
 pub enum VisibleEffect {
+    PumpSet {
+        handle: EffectHandle,
+        origin: VisibleEffectSource,
+        targets: Vec<VisibleTarget>,
+        power: Quantity,
+        toughness: Quantity,
+        expires_in_cleanup_of_turn: u64,
+    },
+    ExileDamaged {
+        handle: EffectHandle,
+        origin: VisibleEffectSource,
+        targets: Vec<VisibleTarget>,
+        expires_in_cleanup_of_turn: u64,
+    },
     ModifyPowerToughness {
         handle: EffectHandle,
         origin: VisibleEffectSource,
@@ -1486,7 +1582,41 @@ impl Game {
                 current: self.handle_for(viewer, object).ok(),
             })
         };
+        let set_views = |targets: &[ObjectId]| -> Result<Vec<VisibleTarget>, String> {
+            targets
+                .iter()
+                .enumerate()
+                .map(|(i, o)| {
+                    Ok(VisibleTarget {
+                        announced: e
+                            .target_handles
+                            .get(i * 4 + viewer.0 as usize)
+                            .ok_or("missing set historical handle")?
+                            .clone(),
+                        current: self.handle_for(viewer, *o).ok(),
+                    })
+                })
+                .collect()
+        };
         Ok(match &e.kind {
+            ResolvedEffectKind::PumpSet {
+                targets,
+                power,
+                toughness,
+            } => VisibleEffect::PumpSet {
+                handle,
+                origin,
+                targets: set_views(targets)?,
+                power: power.clone(),
+                toughness: toughness.clone(),
+                expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
+            },
+            ResolvedEffectKind::ExileDamaged { targets } => VisibleEffect::ExileDamaged {
+                handle,
+                origin,
+                targets: set_views(targets)?,
+                expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
+            },
             ResolvedEffectKind::ModifyPowerToughness {
                 target,
                 power,
@@ -1653,7 +1783,11 @@ impl Game {
     // another player can leave with its conceding owner while prepared damage
     // awaits a choice. The frozen characteristics and keywords stay
     // authoritative; departure-invariant facts must still match.
-    fn frozen_damage_source_matches(&self, frozen: &ObjectBefore, current: ObjectBefore) -> bool {
+    pub(super) fn frozen_damage_source_matches(
+        &self,
+        frozen: &ObjectBefore,
+        current: ObjectBefore,
+    ) -> bool {
         if !self.attachments_enabled() {
             return current == *frozen;
         }
@@ -1760,7 +1894,9 @@ impl Game {
                     .instructions
                     .get(frame.cursor as usize)
                     .ok_or("missing damage continuation instruction")?;
-                if matches!(instruction, Instruction::SacrificeDamage { .. }) {
+                if matches!(instruction, Instruction::DamageSet { .. }) {
+                    self.validate_wipe_damage_transaction(tx, frame)?;
+                } else if matches!(instruction, Instruction::SacrificeDamage { .. }) {
                     self.validate_sacrifice_damage_transaction(tx, frame)?;
                 } else {
                     let (target_slot, amount, source_block, recipient) = match instruction {

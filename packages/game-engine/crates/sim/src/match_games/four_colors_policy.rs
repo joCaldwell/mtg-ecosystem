@@ -55,6 +55,9 @@ impl Strategy<'_> {
                     cost.add(&Quantity::from(
                         d.characteristics.mana_cost.colored.len() as i64
                     ));
+                    if let Some(mv) = &s.mana_value {
+                        cost = mv.clone();
+                    }
                     Some((cost, s.handle.clone()?))
                 })
                 .max_by(|a, b| a.0.cmp(&b.0).then(a.1.0.cmp(&b.1.0)))
@@ -320,6 +323,8 @@ mod tests {
             ("Goliath Sphinx", 2),
         ] {
             v.stack.push(mtg_core::VisibleStackEntry {
+                x: None,
+                mana_value: None,
                 mode: None,
                 triggered: None,
                 entity_targets: vec![],

@@ -3,6 +3,13 @@ use super::*;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "continuation", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum CommanderContinuation {
+    BoardReturn {
+        frame: Resolving,
+        objects: Vec<ObjectId>,
+        remaining: Vec<ObjectId>,
+        choices: Vec<(ObjectId, bool)>,
+        source_block: u32,
+    },
     SpellMove {
         frame: Resolving,
         source_block: u32,
@@ -29,7 +36,8 @@ impl Game {
     pub(super) fn previous_commander_choices(&self) -> Vec<(ObjectId, bool)> {
         match &self.state.frame {
             Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
-                CommanderContinuation::StateBasedBatch { choices, .. } => choices.clone(),
+                CommanderContinuation::StateBasedBatch { choices, .. }
+                | CommanderContinuation::BoardReturn { choices, .. } => choices.clone(),
                 _ => vec![],
             },
             _ => vec![],
@@ -86,6 +94,20 @@ impl Game {
         from: Zone,
     ) -> Result<ManaCost, String> {
         let mut cost = self.definition(card)?.characteristics.mana_cost.clone();
+        if self.wipes_enabled()
+            && self
+                .definition(card)?
+                .static_abilities
+                .iter()
+                .any(|a| a.effect == StaticEffect::ReduceGenericByCreatureCount)
+        {
+            cost.generic.subtract(&Quantity::from(
+                self.objects_in_set(&ObjectSet::Creatures, caster).len() as i64,
+            ));
+            if cost.generic.is_negative() {
+                cost.generic = Quantity::zero();
+            }
+        }
         if matches!(from, Zone::Command { .. }) {
             if !self.commander_enabled() || from != (Zone::Command { owner: caster }) {
                 return Err("unsupported command-zone casting permission".into());
@@ -210,6 +232,22 @@ impl Game {
             destination
         };
         match continuation {
+            CommanderContinuation::BoardReturn {
+                frame,
+                objects,
+                mut remaining,
+                mut choices,
+                source_block,
+            } => {
+                if remaining.first() != Some(&object) {
+                    return Err("mass return choice order".into());
+                }
+                remaining.remove(0);
+                if present {
+                    choices.push((object, to_command));
+                }
+                self.continue_board_return(frame, objects, remaining, choices, source_block)?;
+            }
             CommanderContinuation::SpellMove {
                 mut frame,
                 source_block,
@@ -401,6 +439,18 @@ impl Game {
             }
             let current = self.current(*object)?;
             match continuation.as_ref() {
+                CommanderContinuation::BoardReturn {
+                    frame,
+                    objects,
+                    remaining,
+                    choices,
+                    source_block,
+                } => {
+                    self.validate_board_return(frame, objects, remaining, choices, *source_block)?;
+                    if remaining.first() != Some(object) || *destination != (Zone::Hand { owner }) {
+                        return Err("mass return current choice".into());
+                    }
+                }
                 CommanderContinuation::SpellMove {
                     frame,
                     source_block,

@@ -65,6 +65,9 @@ impl Policy {
                 .find(|o| o.zone == (Zone::Hand { owner: v.viewer }) && o.oracle_id == id)
         };
         Ok(match request {
+            PlayerRequest::AnnounceX { .. } => {
+                return Err("X request outside historical profile".into());
+            }
             PlayerRequest::SacrificeCost { .. } | PlayerRequest::ForcedSacrifice { .. } => {
                 return Err("sacrifice request outside historical profile".into());
             }

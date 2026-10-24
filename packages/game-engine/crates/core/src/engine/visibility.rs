@@ -129,6 +129,10 @@ pub enum VisibleEntityTarget {
 #[serde(deny_unknown_fields)]
 pub struct VisibleStackEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x: Option<Quantity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mana_value: Option<Quantity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub triggered: Option<VisibleTriggered>,
@@ -179,6 +183,10 @@ pub struct PermittedView {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerRequest {
+    AnnounceX {
+        token: DecisionToken,
+        player: PlayerId,
+    },
     SacrificeCost {
         token: DecisionToken,
         player: PlayerId,
@@ -360,6 +368,7 @@ impl PlayerRequest {
             | Self::Mulligan { token, .. }
             | Self::BottomOpening { token, .. }
             | Self::DamageAllocation { token, .. }
+            | Self::AnnounceX { token, .. }
             | Self::Modes { token, .. }
             | Self::DamageEffect { token, .. }
             | Self::OrderTriggers { token, .. }
@@ -392,6 +401,9 @@ pub struct Observation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerResponse {
+    AnnounceX {
+        value: Quantity,
+    },
     SacrificeCost {
         object: ObjectHandle,
     },
@@ -941,6 +953,12 @@ impl Game {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(VisibleStackEntry {
+            x: instance.x.clone(),
+            mana_value: instance
+                .x
+                .as_ref()
+                .map(|_| self.stack_mana_value(instance))
+                .transpose()?,
             mode: instance.mode,
             triggered,
             entity_targets,
@@ -1116,6 +1134,14 @@ impl Game {
                 required,
                 candidates: vec![],
             }));
+        }
+        if let Frame::AnnounceX { .. } = self.state.frame {
+            return Ok(
+                (self.top()?.controller == viewer).then_some(PlayerRequest::AnnounceX {
+                    token,
+                    player: self.top()?.controller,
+                }),
+            );
         }
         if let Some(Request::Modes { player, .. }) = self.modes_request()? {
             return Ok((player == viewer).then_some(PlayerRequest::Modes {
@@ -1602,6 +1628,9 @@ impl Game {
                     Frame::Priority if self.state.priority == viewer => {
                         Some((self.state.revision, 0))
                     }
+                    Frame::AnnounceX { .. } if self.top()?.controller == viewer => {
+                        Some((self.state.revision, 18))
+                    }
                     Frame::Targets { .. } if self.top()?.controller == viewer => {
                         Some((self.state.revision, 1))
                     }
@@ -1688,6 +1717,9 @@ impl Game {
         match response {
             PlayerResponse::DamageAllocation { allocations } => Ok(Response::DamageAllocation {
                 allocations: self.resolve_allocation_response(viewer, allocations)?,
+            }),
+            PlayerResponse::AnnounceX { value } => Ok(Response::AnnounceX {
+                value: value.clone(),
             }),
             PlayerResponse::Modes { mode } => Ok(Response::Modes { mode: *mode }),
             PlayerResponse::DamageEffect { effect, damage } => {

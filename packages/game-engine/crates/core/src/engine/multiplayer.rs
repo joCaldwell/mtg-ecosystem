@@ -237,6 +237,7 @@ impl Game {
         let legal_targets = self.announced_target_legality(&stack);
         self.state.frame = Frame::Resolve {
             frame: Resolving {
+                set_damage: None,
                 target_facts: self.capture_target_facts(&stack, &legal_targets)?,
                 condition_check,
                 stack_id: stack.id,
@@ -450,7 +451,8 @@ impl Game {
         // CR 608.2m: a started invocation owns its frozen instance and keeps
         // resolving after its source leaves. Only an unfinished casting frame
         // whose own source left is discarded; lower departures cannot replace it.
-        if let Frame::Modes { cast }
+        if let Frame::AnnounceX { cast }
+        | Frame::Modes { cast }
         | Frame::EntityTargets { cast }
         | Frame::Targets { cast }
         | Frame::StackTargets { cast }
@@ -475,7 +477,8 @@ impl Game {
                 vec![]
             };
         }
-        if let Frame::Modes { cast }
+        if let Frame::AnnounceX { cast }
+        | Frame::Modes { cast }
         | Frame::EntityTargets { cast }
         | Frame::Targets { cast }
         | Frame::StackTargets { cast }

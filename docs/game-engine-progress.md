@@ -3322,3 +3322,220 @@ an empty stack. Gameplay witnesses run through all three trace modes and
 snapshot/restore/journal replay; the earlier witness guards remain intact.
 Only the final completed gate is counted as acceptance. Failed, interrupted
 and superseded attempts remain explicitly qualified above.
+
+
+## P6.10 board-wide effects and X — implementation and acceptance evidence
+
+The eleventh finite legal profile, `commander-wipes-v1`, appends to the ordered
+profile lineage. Its separate **168-definition IR v20** catalog adds all fifteen
+complete cards from [game-engine-board-wipes.md](game-engine-board-wipes.md).
+The canonical catalog digest is
+`4d9c719ef61fdd901ea6182bb2d22e72ceb89dcd9c0213cc8e88e4087ad59e16`.
+The retained records include exact source data, ASTs and provenance; four paired
+whole-card rejections cover Austere Command, Fiery Confluence, Bontu's Last
+Reckoning and Rolling Earthquake. Earlier IR versions reject the new vocabulary,
+including capability-stripped attempts. Unbound mana X is rejected directly by
+Definition validation and lowering, before catalog admission.
+
+The implementation supports current-characteristic set filters and simultaneous
+destroy/exile/bounce; fixed-membership temporary shrink sets; shared mass damage
+with Furnace and per-recipient prevention; counted Fumigate/Chain Reaction
+amounts; APNAP including-caster sacrifice; Wurm's dying-controller LKI; Act's
+generic reduction with its red floor; Fallout counter prevention with Swan's
+following Bird instruction; and Anger's incarnation-bound replacement for all
+would-die causes until cleanup. Public X announcement uses an exact decimal
+quantity, retains chooser identity and a decision token, and exposes stack X and
+mana value. Any nonnegative X may be announced; ordinary payment validates it.
+An exact **10^77** announcement exercises failed-payment reversal without a
+fixed-width ceiling. Snapshot/bundle/projection/sidecar versions remain
+**18/19/16/15**, with additive omitted-when-empty fields.
+
+The contract's reviewed P6.3-style derivation includes mass returns of mana
+sources and token makers, and secondary recursion by returned Gravediggers.
+Wipes-only capacities are **65,536 live tokens, 131,872 damage occurrences,
+2,442,108 stack/pending entries, 65,940 event members and 65,536 effects**, using
+typed capacity faults and atomic rollback. Earlier capacities are unchanged.
+
+Every listed witness is reached from accepted seeded 100-card pods, with no
+injected state and **no substitution or contract deviation**. Gameplay witnesses
+replay in off, compact and detailed trace modes, with snapshot/restore/journal
+checks, including active Anger and X/query-sidecar continuations. They cover:
+
+- Fumigate's token/commander count and simultaneous Artist/Zulaport payoffs;
+  Planar Cleansing's complete nonland set, lands preserved and Rancor return;
+  Final Judgment's exile, token cessation and commander choice without dies.
+- Infest's anthem/counter survivors and later unaffected creature; Wurm's
+  opponent-only shrink, token deaths and later combat death; Innocent Blood's
+  including-caster APNAP choices.
+- Pyroclasm with Furnace and an individual Healer shield; Anger's commander
+  exile/return, later Bolt and sacrifice deaths, cleanup, and a fully prevented
+  creature dying normally. A separate witness keeps both Artist and Zulaport
+  alive while the later exiles produce zero dies triggers.
+- Fallout against Counterspell and Swan Song, plus a last-two-player draw reached
+  through ordinary combat and two accepted concessions; Chain Reaction's
+  resolution-time token/flying count; Earthquake X=0 and X=3, flying exclusions,
+  all-player damage, Furnace, stack mana value, query receipt/sidecar recovery
+  and exact-X restoration; Act's eight/twelve-creature floor and unpayable case.
+- Evacuation's combat removal, owner choices, tokens, Auras/Rancor and unattached
+  Equipment; Aetherize's attackers-only set; Tranquility restoring a Pacified
+  creature's attack eligibility. Separate regressions prove inherited
+  first/double strike and blocker legality hints; payoff and attachment witnesses
+  exercise those inherited families in the new profile.
+
+The release code commit is `99c7521ea129ca187886cdfc225eeac9bed13aa0` with pinned
+**Rust 1.99.0 / Node 26.11.1**. Its **421-file** native source closure
+verifies with build identity
+`f4c8b143e9f2cff1b85d9a7c39bfa56f9713fe47478eb39102497ed6f5391654`.
+Manifest `generated/p610/final/native-source-manifest.json` has SHA256
+`ef6d9407a4d93ef11b93983b13ef510ca80bf8b67cbf63fc0dc248f2b0882b90`.
+Release executable hashes are retained in
+`generated/p610/final/release-executables.json`. These identify correctness
+runs on the shared machine; no performance claim is made.
+
+The frozen **18/18** wipes completion batch passes with **zero engine faults,
+zero truncations and zero failures**: **35,813 decisions, 783 turns and 103,616
+rule steps**. The domain is `commander-wipes-v1/completion-batch/`, including the
+frozen all-white and all-black/green games. All games internally replay and
+verify checkpoints. Detailed replay batch occurrences are counted using their
+internal `"outcome"` tag. The totals are **24 casts and 107 creature removals**:
+
+| Card | Casts | Creatures removed |
+| --- | ---: | ---: |
+| Aetherize | 2 | 6 |
+| Anger of the Gods | 1 | 3 |
+| Blasphemous Act | 2 | 14 |
+| Chain Reaction | 2 | 6 |
+| Day of Judgment | 5 | 38 |
+| Earthquake | 2 | 4 |
+| Evacuation | 0 | 0 |
+| Final Judgment | 2 | 12 |
+| Fumigate | 1 | 9 |
+| Infest | 0 | 0 |
+| Innocent Blood | 0 | 0 |
+| Massacre Wurm | 0 | 0 |
+| Planar Cleansing | 0 | 0 |
+| Pyroclasm | 1 | 2 |
+| Tranquility | 2 | 0 |
+| Volcanic Fallout | 4 | 13 |
+
+Anger exiles **3** creatures; Earthquake announcements are **X=1 once and X=2
+once**. Massacre Wurm life loss is **0** and Fallout counter attempts are **0**
+in this batch. Zero-count mechanics are covered by the accepted-pod witnesses
+above. Report `generated/p610/final/wipes-match/report.json` has SHA256
+`9512b70ed0ed5a7c8f17cd3c38fa51331a485685ef50e3727e9f90811d20f09f`.
+Explicit `wipes-match-replay` of game 6 also verifies at state digest
+`47a2a75992b2e160ea67aab9adda8c710b228e2e749b5991890f3a0975954763`
+(`generated/p610/final/wipes-replay.log`).
+
+The required `cargo build --release --locked -p mtg-server` and
+`MTG_SERVER_BIN=$PWD/target/release/mtg-server npm --prefix packages/game-server/sdk run verify --workspaces=false`
+pass: **47 SDK tests, strict TypeScript, and all 32 response variants**.
+The attachments-pinned policy explicitly fails on `announce_x`, and its rejected
+variant test includes it. The registry explicitly reviews wipes as **not hosted**;
+only foundations and attachments remain hosted, and search remains
+foundations-only. SDK evidence is
+`generated/p610/final/sdk-generated/verification.json`, SHA256
+`cdcdc4482958002fbf7bce3368dfa3f46745cab656f044a2f4dd416483dbbf02`,
+plus `sdk-build.log`, `sdk-command.log` and `sdk-generated/verification.log`
+in the same directory. `packages/game-server/sdk/generated` was removed after
+saving the evidence. This is schema/types/mock-HTTP verification, not wipes
+hosting acceptance.
+
+Source-freeze qualification: fixtures were extracted and committed as
+`696e24b65fc229a798ca16a9d050bf3222596800` before the external archive changed at
+**2026-10-24 14:31:59 -0500**. The archive's current line ordering therefore no
+longer matches the contract's extraction lines. The retained original records
+remain unchanged, with all fifteen original source-index/line bindings,
+provenance and pinned-rules hashes verified in
+`generated/p610/final/provenance-verification.json`. Comparing the current
+archive's corresponding cards finds identical complete ASTs and rule-relevant
+source fields; only prices, popularity ranks and an optional resource ID changed
+(`archive-regeneration-comparison.json` in that directory). Nothing under
+`/home/josh/Code/mtg-ecosystem` was edited. This does not change the frozen card
+semantics or require a witness substitution.
+
+Superseded and failed attempts remain retained, not counted as acceptance.
+The initial full gate found two stale future-version sentinels (v20 is now
+supported) and an unbound-X lowering gap. The sentinels now use v21; Definition
+validation now rejects the gap, preserving the original rejection test. A
+superseded 18-game wipes run completed 16 games and stopped two at a missing
+public X request; the chooser DTO and decision-token publication were corrected,
+and the final batch above completes both. An early SDK attempt lacked installed
+dependencies; strict verification then caught the missing chooser field before
+the corrected pass. Initial logs and artifacts are in `generated/p610/` and
+`generated/p610/diagnostics/`; only completed final gates qualify below. No guard
+or test was weakened, and the parser was not changed.
+
+The exact final `npm run check:engine` passes toolchain validation, formatting,
+workspace/all-targets Clippy with **`-D warnings`**, **864 Rust tests (zero
+failures, 12 ignored diagnostics)** and **55 Node checks (zero failures,
+cancellations or skips)**. It uses `RUST_TEST_THREADS=8 CARGO_BUILD_JOBS=2`.
+This includes the **21 P6.10 core tests**, compiler positive/negative/version
+checks, both observation-only policy regressions, the registry hosting-scope
+review and cross-language IR/schema/source contracts. The retained demonstration
+verifies all **540** historical trace-mode executions and recovery boundaries.
+Log `generated/p610/final/check-engine.log` has SHA256
+`bafca1ec0bb45d90834520f4a74d1d29526b119595a8a4e5e085d953958c2cbf`.
+
+After the gate, the release's native source manifest is reverified; its bytes
+are identical to the batch's original manifest
+(`generated/p610/final/native-source-manifest-recheck.json`). Every one of its
+421 source rows also matches Git code commit `99c7521` byte-for-byte
+(`native-code-binding.json` in that directory). Subsequent edits are documentation
+only and do not enter that native source closure.
+
+All **ten earlier-profile historical batches pass 18/18 each**, with zero faults
+or truncations. The **180** current games compare against the retained P6.9
+reference, whose **397-file** source closure is independently bound byte-for-byte
+to `ab3cd66eb3af57833f04ae49a43ab464cf876a10` and build identity
+`fdbd25acb9deed7a057300dbec1c2254cd8b2398310830ac2faf36e1584ffc51`.
+The baseline manifest is retained as
+`generated/p610/final/baseline-source-manifest.json`, SHA256
+`ad449df01ce263f84b8d3293def3521e9a6b5b45a72ca3f74c79f96d25bf3118`,
+with `baseline-binding.json` beside it.
+
+Canonical journals, final state digests, checkpoint state/trace bytes, policy
+decisions, rule counters and interaction reports are identical. The comparison
+excludes only actual measured `elapsed_millis` and build-identity metadata:
+report `build_id` fields and each checkpoint snapshot's single top-level
+`build_id` field. Every other checkpoint snapshot byte is compared directly;
+raw reports have different timing/build envelopes. All **46** earlier expected
+output/catalog and policy fixtures are raw-byte identical to `ab3cd66`.
+
+| Historical profile | Decisions (both builds) | Turns | Rule steps |
+| --- | ---: | ---: | ---: |
+| foundations | 25,286 | 645 | 80,564 |
+| keywords | 27,021 | 630 | 83,492 |
+| combat-keywords | 27,717 | 614 | 84,938 |
+| tokens | 27,997 | 594 | 85,386 |
+| staples | 30,425 | 630 | 92,317 |
+| mana | 30,225 | 615 | 90,879 |
+| four-colors | 29,959 | 660 | 89,803 |
+| attachments | 28,135 | 589 | 84,702 |
+| removal | 33,894 | 716 | 99,704 |
+| sacrifice | 35,615 | 775 | 104,112 |
+
+The comparison retains per-file, per-game and checkpoint proof hashes in
+`generated/p610/final/historical-comparison.json`, SHA256
+`bc7492441bb230ff03a98ddbf16641b35d8502cd6662cb0d9712a257d18378ca`.
+Its driver is `generated/p610/compare-historical.py`; the completed log is
+`generated/p610/final/historical-comparison.log`. Current reports are under
+`generated/p610/final/historical/`, and original reports remain preserved at the
+reference paths recorded in the comparison.
+
+Release executable hashes before and after the required Node gate are both
+retained in `release-executables.json`. The CLI executable hash differs between
+those phases while its verified native source manifest/build identity remains
+identical; the server executable hash is unchanged. The post-gate CLI explicitly
+replays wipes game 6 to the same state digest above
+(`generated/p610/final/wipes-replay-post-check.log`). These are correctness and
+compatibility results, with no executable-byte or performance-equivalence claim.
+
+The aggregate acceptance record is `generated/p610/final/acceptance-summary.json`,
+SHA256 `59bcd38c878bee9ee9ce71b31361db291f7f0f52e33bb698e3ab3bf8132becd3`.
+There are **no contract deviations or unreachable-witness substitutions**.
+Remaining limits are the frozen finite 168-definition pool and the contract's
+deferred mechanics: modal wipes, cycling/flashback/miracle, X activation costs,
+cost increases, land untap restrictions, regeneration and linked exile returns.
+Wipes is natively playable and remains unhosted; hosting stays foundations and
+attachments only, and search stays foundations-only.

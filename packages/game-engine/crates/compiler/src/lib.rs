@@ -5,6 +5,68 @@ use serde_json::value::RawValue;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub mod fixtures {
+    pub const WIPES_RECORDS: [(&str, &str); 15] = [
+        (
+            "fumigate",
+            include_str!("../../../tests/fixtures/fumigate.json"),
+        ),
+        (
+            "planar-cleansing",
+            include_str!("../../../tests/fixtures/planar-cleansing.json"),
+        ),
+        (
+            "final-judgment",
+            include_str!("../../../tests/fixtures/final-judgment.json"),
+        ),
+        (
+            "infest",
+            include_str!("../../../tests/fixtures/infest.json"),
+        ),
+        (
+            "innocent-blood",
+            include_str!("../../../tests/fixtures/innocent-blood.json"),
+        ),
+        (
+            "massacre-wurm",
+            include_str!("../../../tests/fixtures/massacre-wurm.json"),
+        ),
+        (
+            "tranquility",
+            include_str!("../../../tests/fixtures/tranquility.json"),
+        ),
+        (
+            "evacuation",
+            include_str!("../../../tests/fixtures/evacuation.json"),
+        ),
+        (
+            "aetherize",
+            include_str!("../../../tests/fixtures/aetherize.json"),
+        ),
+        (
+            "pyroclasm",
+            include_str!("../../../tests/fixtures/pyroclasm.json"),
+        ),
+        (
+            "anger-of-the-gods",
+            include_str!("../../../tests/fixtures/anger-of-the-gods.json"),
+        ),
+        (
+            "volcanic-fallout",
+            include_str!("../../../tests/fixtures/volcanic-fallout.json"),
+        ),
+        (
+            "chain-reaction",
+            include_str!("../../../tests/fixtures/chain-reaction.json"),
+        ),
+        (
+            "earthquake",
+            include_str!("../../../tests/fixtures/earthquake.json"),
+        ),
+        (
+            "blasphemous-act",
+            include_str!("../../../tests/fixtures/blasphemous-act.json"),
+        ),
+    ];
     pub const SACRIFICE_RECORDS: [(&str, &str); 18] = [
         (
             "bone-splinters",
@@ -1073,12 +1135,18 @@ struct TriggerFilter {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Sentence {
+    #[serde(default)]
+    bindings: Vec<serde_json::Value>,
     steps: Vec<Step>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(tag = "effect", rename_all = "kebab-case")]
 enum Step {
+    CreateReplacement {
+        replacement: serde_json::Value,
+        duration: SourceDuration,
+    },
     AddMana {
         who: PlayerSelector,
         mana: SourceMana,
@@ -1138,6 +1206,8 @@ enum Step {
     GainLife {
         who: PlayerSelector,
         amount: serde_json::Value,
+        #[serde(rename = "forEach")]
+        for_each: Option<serde_json::Value>,
     },
     LoseLife {
         who: PlayerSelector,
@@ -1210,6 +1280,13 @@ enum DamageSource {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "to", rename_all = "kebab-case", deny_unknown_fields)]
 enum DamageDestination {
+    Object {
+        #[serde(rename = "ref")]
+        reference: serde_json::Value,
+    },
+    Each {
+        refs: Vec<serde_json::Value>,
+    },
     Player {
         #[serde(rename = "ref")]
         reference: serde_json::Value,
@@ -1353,6 +1430,11 @@ enum AnyTargetReference {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "static", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceStaticEffect {
+    CostModification {
+        scope: serde_json::Value,
+        change: serde_json::Value,
+        multiplier: serde_json::Value,
+    },
     Cant {
         what: serde_json::Value,
         action: String,
@@ -1661,7 +1743,14 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         .map(|s| s.parse::<Quantity>())
         .transpose()
         .map_err(|e| unsupported("source.toughness", e))?;
+    if source.mana_cost.matches("{X}").count() > 1
+        || (source.mana_cost.contains("{X}")
+            && !matches!(kind, CardKind::Instant | CardKind::Sorcery))
+    {
+        return Err(unsupported("mana_cost", "unsupported X cost"));
+    }
     let mut definition = Definition {
+        x_mana_cost: source.mana_cost.contains("{X}"),
         oracle_id: r.oracle_identity,
         name: source.name,
         characteristics: Characteristics {
@@ -1669,7 +1758,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             basic,
             legendary: types == "Legendary Creature",
             subtypes: subtypes.split_whitespace().map(str::to_owned).collect(),
-            mana_cost: mana_cost(&source.mana_cost)?,
+            mana_cost: mana_cost(&source.mana_cost.replace("{X}", ""))?,
             colors: source.colors,
             color_identity: source.color_identity,
             power,
@@ -1915,6 +2004,14 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     program.additional_sacrifice = Some(lower_sacrifice_filter(what)?);
                     continue;
                 }
+                if let Ability::Static { effect } = ability {
+                    let a = lower_static(effect)?;
+                    if a.functioning_zone != FunctioningZone::Stack {
+                        return Err(unsupported("static", "spell static must function on stack"));
+                    }
+                    definition.static_abilities.push(a);
+                    continue;
+                }
                 let Ability::Spell { effects } = ability else {
                     return Err(unsupported(
                         "abilities.kind",
@@ -1979,7 +2076,7 @@ fn append_spell_effects(
     block: usize,
     slots: &mut BTreeMap<String, u32>,
 ) -> Result<(), Failure> {
-    if let [Sentence { steps }] = effects
+    if let [Sentence { steps, .. }] = effects
         && let [Step::Modal { count, options }] = steps.as_slice()
     {
         if count.exactly != 1
@@ -2022,6 +2119,22 @@ fn append_spell_effects(
     }
     let source_block = source_block(block)?;
     for sentence in effects {
+        let counted = if sentence.bindings.is_empty() {
+            false
+        } else if sentence.bindings
+            == [
+                serde_json::json!({"variable":"x","value":{"amount":"count","of":{"types":["creature"],"zone":{"zone":"battlefield"}}}}),
+            ]
+        {
+            true
+        } else {
+            return Err(unsupported("bindings", "unsupported complete X binding"));
+        };
+        if counted
+            && !matches!(sentence.steps.as_slice(),[Step::Damage {amount,..}] if *amount==serde_json::json!({"amount":"x"}))
+        {
+            return Err(unsupported("bindings", "unconsumed count binding"));
+        }
         if let [
             Step::Search { who, zones, find },
             Step::MoveZone {
@@ -2073,7 +2186,17 @@ fn append_spell_effects(
             return Err(invalid("effects.steps", "empty instruction group"));
         }
         for step in &sentence.steps {
+            if let Some(i) = lower_wipes_step(step, counted, source_block)? {
+                program.instructions.push(i);
+                continue;
+            }
+            if counted {
+                return Err(unsupported("bindings", "unconsumed count binding"));
+            }
             let instruction = match step {
+                Step::CreateReplacement { .. } => {
+                    return Err(unsupported("replacement", "unsupported replacement"));
+                }
                 Step::Exile { what } => Instruction::ExilePermanent {
                     target_slot: bind_permanent_target(program, slots, what)?,
                     source_block,
@@ -2283,7 +2406,7 @@ fn append_spell_effects(
                         source_block,
                     }
                 }
-                Step::GainLife { who, amount } | Step::LoseLife { who, amount }
+                Step::GainLife { who, amount, .. } | Step::LoseLife { who, amount }
                     if who.of.is_some() || amount["amount"] == "attribute" =>
                 {
                     let recipient = removal_recipient(
@@ -2297,7 +2420,7 @@ fn append_spell_effects(
                         source_block,
                     }
                 }
-                Step::GainLife { who, amount } => Instruction::GainLife {
+                Step::GainLife { who, amount, .. } => Instruction::GainLife {
                     recipient: life_recipient(program, slots, who)?,
                     amount: fixed_positive(
                         &serde_json::from_value(amount.clone())
@@ -2461,6 +2584,184 @@ fn append_spell_effects(
 }
 // Pinned CR 115, 608.2b/h and 202.3a: bind the complete finite filter and
 // target reference; no unparsed attribute or controller clause is discarded.
+/// Closed source-backed sets: never silently discard filter fields (CR 608.2h).
+fn lower_object_set(v: &serde_json::Value) -> Result<ObjectSet, Failure> {
+    use serde_json::json;
+    if v["ref"] != "each" && v["ref"] != "all" {
+        return Err(unsupported("set", "expected all/each set"));
+    }
+    if v.as_object().is_none_or(|o| o.len() != 2) {
+        return Err(unsupported("set", "extra set fields"));
+    }
+    let f = &v["filter"];
+    let set = if *f == json!({"types":["creature"]}) {
+        ObjectSet::Creatures
+    } else if *f == json!({"nonTypes":["land"],"cls":"permanent"}) {
+        ObjectSet::NonlandPermanents
+    } else if *f == json!({"types":["enchantment"]}) {
+        ObjectSet::Enchantments
+    } else if *f == json!({"types":["creature"],"status":["attacking"]}) {
+        ObjectSet::AttackingCreatures
+    } else if *f == json!({"types":["creature"],"control":"opponent"}) {
+        ObjectSet::OpponentCreatures
+    } else if *f == json!({"types":["creature"],"withAbility":["flying"]}) {
+        ObjectSet::FlyingCreatures
+    } else if *f == json!({"types":["creature"],"withoutAbility":["flying"]}) {
+        ObjectSet::NonflyingCreatures
+    } else {
+        return Err(unsupported("set", "unsupported complete filter"));
+    };
+    Ok(set)
+}
+fn lower_wipes_step(
+    step: &Step,
+    counted: bool,
+    source_block: u32,
+) -> Result<Option<Instruction>, Failure> {
+    use serde_json::json;
+    Ok(Some(match step {
+        Step::Exile { what } if what["ref"] == "all" || what["ref"] == "each" => {
+            Instruction::MoveSet {
+                set: lower_object_set(what)?,
+                action: SetMove::Exile,
+                source_block,
+            }
+        }
+        Step::Destroy {
+            what,
+            optional: None,
+            regeneration_forbidden: None,
+        } if (what["ref"] == "all" || what["ref"] == "each")
+            && *what != json!({"ref":"all","filter":{"types":["creature"]}}) =>
+        {
+            Instruction::MoveSet {
+                set: lower_object_set(what)?,
+                action: SetMove::Destroy,
+                source_block,
+            }
+        }
+        Step::ReturnToHand {
+            what,
+            to,
+            optional: None,
+        } if to == "owner" && (what["ref"] == "all" || what["ref"] == "each") => {
+            Instruction::MoveSet {
+                set: lower_object_set(what)?,
+                action: SetMove::Hand,
+                source_block,
+            }
+        }
+        Step::Pump {
+            what,
+            power,
+            toughness,
+            duration,
+        } if (what["ref"] == "all" || what["ref"] == "each")
+            && duration.duration == "end-of-turn" =>
+        {
+            Instruction::PumpSet {
+                set: lower_object_set(what)?,
+                power: signed_fixed(power)?,
+                toughness: signed_fixed(toughness)?,
+                source_block,
+            }
+        }
+        Step::Damage {
+            source: DamageSource::SelfReference {},
+            amount,
+            to,
+            optional: None,
+        } if matches!(
+            to,
+            DamageDestination::Object { .. } | DamageDestination::Each { .. }
+        ) =>
+        {
+            let refs = match to {
+                DamageDestination::Object { reference } => vec![reference.clone()],
+                DamageDestination::Each { refs } => refs.clone(),
+                _ => unreachable!(),
+            };
+            let mut sets = vec![];
+            let mut each_player = false;
+            for r in refs {
+                if r == json!({"player":"each-player"}) && !each_player {
+                    each_player = true;
+                } else {
+                    sets.push(lower_object_set(&r)?);
+                }
+            }
+            let amount = if *amount == json!({"amount":"x"}) {
+                if counted {
+                    WipeAmount::CreatureCount
+                } else {
+                    WipeAmount::AnnouncedX
+                }
+            } else {
+                if counted {
+                    return Err(unsupported("binding", "unused X"));
+                }
+                WipeAmount::Fixed {
+                    value: fixed_positive_value(amount)?,
+                }
+            };
+            Instruction::DamageSet {
+                sets,
+                each_player,
+                amount,
+                source_block,
+            }
+        }
+        Step::GainLife {
+            who,
+            amount,
+            for_each: Some(f),
+        } if who.player == "you"
+            && who.selection_id.is_none()
+            && who.of.is_none()
+            && *amount == json!({"amount":"fixed","value":1})
+            && *f
+                == json!({"types":["creature"],"relation":{"relation":"event-result","event":"destroy","scope":"this-way"}}) =>
+        {
+            Instruction::GainLifeDestroyed { source_block }
+        }
+        Step::GainLife {
+            for_each: Some(_), ..
+        } => return Err(unsupported("forEach", "unsupported event result")),
+        Step::LoseLife { who, amount }
+            if who.player == "that-player" && who.selection_id.is_none() && who.of.is_none() =>
+        {
+            Instruction::LoseLifeDeathController {
+                amount: fixed_positive_value(amount)?,
+                source_block,
+            }
+        }
+        Step::Sacrifice {
+            who,
+            what,
+            chosen_by,
+        } if who.player == "each-player"
+            && who == chosen_by
+            && who.of.is_none()
+            && who.selection_id.is_none()
+            && what.reference == "filter"
+            && matches!(&what.filter,ObjectFilter::Types(f) if f.types==["creature"])
+            && fixed_one(&what.count) =>
+        {
+            Instruction::EachPlayerSacrifice { source_block }
+        }
+        Step::CreateReplacement {
+            replacement,
+            duration,
+        } if duration.duration == "this-turn"
+            && *replacement
+                == json!({"event":{"event":"move-zone","what":{"ref":"filter","filter":{"types":["creature"],"damageHistory":{"role":"recipient","window":{"event":"this-way"}}},"count":{"amount":"fixed","value":1}},"from":{"zone":"battlefield"},"to":{"zone":"graveyard"}},"occurrence":"each","replace":{"replacement":"effects","effects":[{"steps":[{"effect":"exile","what":{"ref":"replacement-event-object","role":"affected"}}]}]}}) =>
+        {
+            Instruction::ExileDamagedThisTurn { source_block }
+        }
+        _ => return Ok(None),
+    }))
+}
+
 fn lower_creature_token(token: &SourceToken) -> Result<CreatureToken, Failure> {
     if !token.supertypes.is_empty()
         || token.types != ["creature"]
@@ -2763,6 +3064,36 @@ fn lower_prevention(
     }
 }
 fn lower_static(effect: &SourceStaticEffect) -> Result<StaticAbility, Failure> {
+    let special = match effect {
+        SourceStaticEffect::Cant { what, action }
+            if *what == serde_json::json!({"ref":"this","noun":"spell"})
+                && action == "be-countered" =>
+        {
+            Some(StaticEffect::CantBeCountered)
+        }
+        SourceStaticEffect::CostModification {
+            scope,
+            change,
+            multiplier,
+        } if *scope
+            == serde_json::json!({"action":"cast","spells":{"ref":"this","noun":"spell"}})
+            && *change == serde_json::json!({"direction":"reduce","symbols":["1"]})
+            && *multiplier
+                == serde_json::json!({"amount":"count","of":{"types":["creature"],"zone":{"zone":"battlefield"}}}) =>
+        {
+            Some(StaticEffect::ReduceGenericByCreatureCount)
+        }
+        SourceStaticEffect::CostModification { .. } => {
+            return Err(unsupported("static", "unsupported cost modification"));
+        }
+        _ => None,
+    };
+    if let Some(effect) = special {
+        return Ok(StaticAbility {
+            functioning_zone: FunctioningZone::Stack,
+            effect,
+        });
+    }
     if matches!(effect, SourceStaticEffect::Cant { what, action } if *what == serde_json::json!({"ref":"this","noun":"creature"}) && action == "block")
     {
         return Ok(StaticAbility {
@@ -3118,7 +3449,7 @@ fn lower_trigger(
             || from != "battlefield"
             || *to != serde_json::json!({"zone":"graveyard","owner":"any"})
             || intervening.is_some()
-            || !matches!(effects, [Sentence {steps}] if matches!(steps.as_slice(), [Step::ReturnToHand {what,to,optional:None}] if *what == serde_json::json!({"ref":"it"}) && to == "owner"))
+            || !matches!(effects, [Sentence {steps, ..}] if matches!(steps.as_slice(), [Step::ReturnToHand {what,to,optional:None}] if *what == serde_json::json!({"ref":"it"}) && to == "owner"))
         {
             return Err(unsupported("trigger", "unsupported Aura return"));
         }
@@ -3187,6 +3518,7 @@ fn lower_trigger(
         _ => None,
     };
     let condition=match trigger {
+        SourceTrigger::Dies { what: TriggerObject::Filter { filter, count } } if fixed_one(count) && filter.types == ["creature"] && filter.control.as_deref() == Some("opponent") && !filter.other && !filter.non_token && filter.non_subtypes.is_empty() => TriggerCondition::OpponentCreatureDies,
         _ if death_filter.is_some() => TriggerCondition::AnyCreatureDies,
         SourceTrigger::Enters { what: TriggerObject::This { noun } } if noun == "enchantment" => TriggerCondition::SelfEntersBattlefield,
         SourceTrigger::Dies {what} if is_source_creature(what)=>TriggerCondition::SelfDies,
@@ -3293,6 +3625,12 @@ fn lower_mana_ability(
     block: usize,
     kind: CardKind,
 ) -> Result<Option<ManaAbility>, Failure> {
+    if effects.iter().any(|s| !s.bindings.is_empty()) {
+        return Err(unsupported(
+            "bindings",
+            "bindings outside spell instructions",
+        ));
+    }
     if !effects
         .iter()
         .flat_map(|s| &s.steps)
@@ -3300,7 +3638,7 @@ fn lower_mana_ability(
     {
         return Ok(None);
     }
-    let [Sentence { steps }] = effects else {
+    let [Sentence { steps, .. }] = effects else {
         return Err(unsupported("mana", "extra mana effects"));
     };
     let [Step::AddMana { who, mana }] = steps.as_slice() else {
@@ -3341,6 +3679,12 @@ fn lower_activation(
     block: usize,
     kind: CardKind,
 ) -> Result<ActivatedAbility, Failure> {
+    if effects.iter().any(|s| !s.bindings.is_empty()) {
+        return Err(unsupported(
+            "bindings",
+            "bindings outside spell instructions",
+        ));
+    }
     let cost = match costs {
         [SourceCost::Sacrifice { what }] if what["ref"] == "filter" => {
             ActivationCost::SacrificePermanent {
@@ -3467,6 +3811,9 @@ fn lower_activation(
                 of: None,
             };
             let instruction = match step {
+                Step::CreateReplacement { .. } => {
+                    return Err(unsupported("replacement", "unsupported replacement"));
+                }
                 Step::PreventDamage {
                     prevention,
                     duration,
@@ -3738,6 +4085,18 @@ pub fn mana_fixture_catalog() -> Result<Catalog, String> {
 }
 
 /// P6.6 adds definitions only: all instructions and capabilities remain IR v16.
+pub fn wipes_fixture_catalog() -> Result<Catalog, String> {
+    let mut catalog = sacrifice_fixture_catalog()?;
+    catalog.schema_version = 20;
+    catalog
+        .definitions
+        .extend(catalog_from_records(&fixtures::WIPES_RECORDS, 20)?.definitions);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate()?;
+    Ok(catalog)
+}
 pub fn sacrifice_fixture_catalog() -> Result<Catalog, String> {
     let mut catalog = removal_fixture_catalog()?;
     catalog.schema_version = 19;
@@ -3812,6 +4171,48 @@ fn catalog_from_records(records: &[(&str, &str)], schema_version: u32) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn wipes_v20_complete_source_pairs_and_historical_bytes() {
+        let c = wipes_fixture_catalog().unwrap();
+        assert_eq!((c.schema_version, c.definitions.len()), (20, 168));
+        assert_eq!(
+            c,
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/expected-wipes-ir.json"
+            ))
+            .unwrap()
+        );
+        for old in sacrifice_fixture_catalog().unwrap().definitions {
+            assert_eq!(
+                c.definitions.iter().find(|d| d.oracle_id == old.oracle_id),
+                Some(&old)
+            );
+        }
+        for (name, raw) in fixtures::WIPES_RECORDS {
+            let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
+                panic!("{name}")
+            };
+            assert!(
+                definition.capabilities.contains(&Capability::BoardWipesV1),
+                "{name}"
+            );
+            let mut old = c.clone();
+            old.schema_version = 19;
+            old.definitions = vec![*definition];
+            assert!(old.validate().is_err(), "{name}");
+        }
+        for raw in [
+            include_str!("../../../tests/fixtures/austere-command.json"),
+            include_str!("../../../tests/fixtures/fiery-confluence.json"),
+            include_str!("../../../tests/fixtures/bontus-last-reckoning.json"),
+            include_str!("../../../tests/fixtures/rolling-earthquake.json"),
+        ] {
+            assert!(!matches!(
+                compile(fixtures::MANIFEST, raw),
+                CompileResult::Lowered { .. }
+            ));
+        }
+    }
     #[test]
     fn sacrifice_v19_complete_sources_whole_card_negatives_and_downgrades() {
         let c = sacrifice_fixture_catalog().unwrap();
@@ -5501,7 +5902,7 @@ mod tests {
             );
         }
         let mut future = c;
-        future.schema_version = 20;
+        future.schema_version = 21;
         assert!(future.validate().is_err());
     }
     #[test]
@@ -5868,7 +6269,7 @@ mod tests {
             assert!(Catalog::read(&bad).is_err());
         }
         let mut bad = c;
-        bad.schema_version = 20;
+        bad.schema_version = 21;
         assert!(bad.validate().is_err());
     }
 
@@ -6133,7 +6534,7 @@ mod tests {
             }
         }
         let mut bad = catalog.clone();
-        bad.schema_version = 20;
+        bad.schema_version = 21;
         assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
         for change in [
             (|d: &mut Definition| {
@@ -6445,7 +6846,7 @@ mod tests {
     #[test]
     fn stack_vocabulary_requires_ir6_and_rejects_bad_binding_and_capability_closure() {
         let catalog = stack_fixture_catalog().unwrap();
-        for version in [3, 4, 5, 20] {
+        for version in [3, 4, 5, 21] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -6650,7 +7051,7 @@ mod tests {
         let c = fixture_catalog().unwrap();
         let raw = canonical(&c).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":3", "\"schema_version\":20"),
+            raw.replace("\"schema_version\":3", "\"schema_version\":21"),
             raw.replace("\"op\":\"return_to_owner_hand\"", "\"op\":\"execute_text\""),
             raw.replace("\"target_slot\":0", "\"target_slot\":99"),
             raw.replace("\"source_block\":0", "\"unknown\":true,\"source_block\":0"),
@@ -7194,7 +7595,7 @@ mod tests {
     #[test]
     fn action_ir_version_shapes_and_target_domains_are_strict() {
         let catalog = action_fixture_catalog().unwrap();
-        for version in [3, 4, 20] {
+        for version in [3, 4, 21] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -7321,7 +7722,7 @@ mod tests {
         assert!(old.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":4", "\"schema_version\":20"),
+            raw.replace("\"schema_version\":4", "\"schema_version\":21"),
             raw.replace(
                 "\"op\":\"put_on_top_owner_library\"",
                 "\"op\":\"put_on_bottom_owner_library\"",

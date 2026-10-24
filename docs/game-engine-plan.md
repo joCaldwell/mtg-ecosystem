@@ -454,6 +454,19 @@ reachable Requiem substitution are recorded in
 versions remain separate; hosting stays foundations and attachments only and
 search stays foundations-only.
 
+P6.10 is implemented under [game-engine-board-wipes.md](game-engine-board-wipes.md):
+the separate 168-definition IR v20 `commander-wipes-v1` pool adds simultaneous
+filtered destroy/exile/bounce, fixed-membership temporary shrink sets, mass
+creature/player damage, counted destruction results, announced exact X, generic
+self cost reduction, uncounterable spells, each-player APNAP sacrifice and
+Massacre Wurm's death-controller LKI. Anger's incarnation-bound replacement
+covers all would-die causes until cleanup. Accepted-pod witnesses retain
+nested X/payment, replacement and commander-return continuations across trace
+modes. The contract derives bounds including mass-return reuse of mana creatures,
+token makers and Gravedigger. Verification and completion-batch evidence are in
+[game-engine-progress.md](game-engine-progress.md). Earlier bytes/capacities and
+versions 18/19/16/15 remain separate; hosting and search scope are unchanged.
+
 **Deliver in bounded families:** replacement/prevention ordering and budgets;
 continuous-effect layers/sublayers/timestamps/dependencies; granted abilities;
 multiple/cost-dependent targets; counters and tokens; attachments; alternate/

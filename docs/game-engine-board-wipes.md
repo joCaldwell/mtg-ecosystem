@@ -230,3 +230,105 @@ completion machinery, not strategy.
 - **Earlier profiles.** Catalog, policy and expected IR digests, and the
   historical batch outputs, are unchanged.
 - **Checks.** `npm run check:engine` and SDK verification pass.
+
+## Reviewed resource bounds
+
+These capacities apply only to wipes-v1. Earlier profiles' capacities remain
+unchanged. As in P6.9, overcount all 400 physical cards as creatures, mana
+sources and token producers whenever this increases the bound. A live token
+capacity of **65,536** exceeds the lifetime token bound below. Ceased token
+identities are retained and never reused.
+
+There are at most **416 turns**: 400 ordinary draws, eight inherited tuck
+instructions, four failed draws and four departures. No new effect replenishes
+a library. The eight new mass returns (four Evacuations and four Aetherizes)
+each return at most 400 physical creatures. Tokens cannot be recast. Thus these
+instructions add at most **3,200** physical hand returns. They can also return
+Gravedigger: each of four singleton Gravediggers can enter once more per mass
+return, adding at most **32** useful recursion instructions. Its trigger cannot
+return itself while it is on the battlefield, no player can recur another
+owner's Gravedigger, and none of these return spells can be recurred. Including
+the inherited eight recursions and eight bounce/tuck returns gives at most
+**3,248** additional physical entries. This explicitly includes the secondary
+recursion from returned Gravediggers.
+
+Lifetime spendable mana is at most **400×2×416 + 3,248×2 = 339,296**.
+Signet input spending adds no production; reversing a failed payment removes
+its receipt-recorded production before untapping. Command-origin casts cost at
+least 1+2i for the ith previous cast, so sum(n_i²) ≤339,296. Cauchy–Schwarz gives
+fewer than 1,165 combined command casts; conservatively allow **1,165**. Admitted
+commanders neither create tokens nor produce mana.
+
+Without Angel, at most **(400+3,248)×4 = 14,592** seed tokens can be created.
+Singletons, color identity and no control changes allow only one Requiem Angel
+per controller at a time. Each non-Spirit death makes at most one terminal
+Spirit; Spirit deaths make no further Spirit. At most
+**400+3,248+1,165+14,592 = 19,405** non-Spirit deaths therefore create at most
+19,405 additional tokens. Total lifetime tokens are at most **33,997**, below
+the live capacity; total lifetime creature deaths are at most
+**400+3,248+1,165+33,997 = 38,810**.
+
+A nonempty-stack episode cannot recast a creature: none has flash and no
+instruction returns one directly to the battlefield. Every physical producer
+therefore enters/dies at most once per episode, including Massacre Wurm,
+Butcher and Angel. With 65,536 initially live tokens, allow 1,600 tokens from
+400 producers and four additional Dissenter tokens, then double for Angel's
+terminal Spirit generation: **D = 2×(400+65,536+1,600+4) = 135,080** deaths.
+This decreasing non-Spirit stock still proves free outlets and Butcher cascades
+finite. Wipes cannot increase it except through the already counted producers.
+
+The capacities are:
+
+- **65,536 live tokens**.
+- **131,872 damage occurrences**, 2×(400+65,536), covering combat; a noncombat
+  set needs only 400+65,536+4 = 65,940 occurrences. Furnace changes amounts,
+  never occurrence counts.
+- **65,940 event members**, 400 physical cards + 65,536 live tokens + four
+  simultaneous losses. Commander bounce choices precede one simultaneous move.
+- **2,442,108 stack plus pending entries** = 400 physical spells + 1,824 Mage
+  activations + 24 inherited activations + 16D + 400 enters triggers + four
+  Rancor triggers + 4×(400+1,600+4+D/2) Warden triggers. The 16D term retains
+  P6.9's 12D and adds four Massacre Wurms per death, conservatively ignoring
+  controller/color exclusions. Per-step spendable mana is at most
+  **400×2+3,248×2 = 7,296**, funding at most 1,824 Mage activations. Mana abilities
+  add no stack entry; equip requires an empty stack.
+- **65,536 temporary effects**. Bloodthrone is bounded by 38,810 lifetime deaths.
+  Add the inherited 32 slots, at most 400+3,248+1,165 = 4,813 entries
+  conservatively treated as Wurm set effects, and four each of Infest and Anger.
+  The same per-entry allowance covers extra Healer/Bouncer uses from mass
+  returns. The resulting 43,663 bound is below capacity. Each set is one effect with
+  incarnation-bound membership, bounded by the live object count.
+
+X is an exact arbitrary-precision quantity. The public announcement accepts any
+nonnegative X; ordinary payment validates it, with the existing failed-payment
+reversal when unpayable. There is no fixed-width or arbitrary gameplay ceiling.
+The completion policy's finite search through X≤7,296 uses the payment proof
+above, chooses the smallest value achieving its largest affordable kill count,
+and keeps the caster above zero after Furnace multiplication.
+
+All five capacity paths use typed faults and atomic event rollback. Overflow
+remains a resource truncation, never a Magic outcome. Snapshot/bundle/projection/
+sidecar versions remain **18/19/16/15**. X, death-controller LKI, set-effect
+membership, and board-return continuations serialize additively; empty fields
+are omitted.
+
+## Reviewed witness reachability
+
+Every listed runtime witness is reachable from admitted, seeded 100-card pods;
+no private injected fixture or substitution is used. The witness driver records
+ordinary draws, land plays, casts, combat, choices and concessions, then replays
+the accepted journal in off, compact and detailed trace modes. In particular,
+the Fallout draw uses two accepted concessions and ordinary combat to leave the
+last two players at two life before Fallout resolves. The later Anger deaths
+also retain living Blood Artist and Zulaport Cutthroat: Spidersilk Armor,
+Morningstar and Giant Growth protect them while a damaged Spider dies to Bolt
+and a damaged Yargle is sacrificed to Village Rites. Neither exile produces a
+dies trigger. Separate witnesses cover a fully prevented creature and cleanup.
+
+The Earthquake witness checkpoints both announcement and the public X decision,
+including query receipt/sidecar recovery, and retains X through payment and
+stack projection. An exact X of 10^77 is accepted for announcement and rejected
+by ordinary payment with complete cast reversal. Inherited first/double strike,
+blocker legality hints, sacrifice payoffs and attachment interactions are
+exercised in this profile. Acceptance counts and source identities are recorded
+in `docs/game-engine-progress.md`. There are no contract deviations.

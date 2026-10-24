@@ -208,6 +208,19 @@ and `sacrifice-match-replay FILE`. Earlier fixtures/capacities and versions
 search foundations-only. See the progress ledger for acceptance evidence and
 the reachable Requiem Angel witness substitution.
 
+`docs/game-engine-board-wipes.md` defines `commander-wipes-v1`: a separate
+168-definition IR v20 catalog adds filtered simultaneous destroy/exile/bounce,
+fixed-membership -N/-N sets, simultaneous creature/player damage, counted destroy
+results, announced exact X, self cost reduction, uncounterable spells, APNAP
+including-caster sacrifice, and turn-scoped Anger exile replacement. Wurm dies
+triggers retain the dying controller. Profile-only capacities are 65,536 live
+tokens, 131,872 damage occurrences, 2,442,108 stack/pending entries, 65,940 event
+members and 65,536 effects; the contract includes mass-return/Gravedigger reuse
+in both lifetime and episode proofs. The simulator adds `wipes-match-batch` and
+`wipes-match-replay`. Earlier fixtures/capacities and versions 18/19/16/15 remain
+unchanged; hosting remains foundations/attachments and search foundations only.
+See the progress ledger for acceptance evidence and witness reachability.
+
 `docs/game-engine-search.md` releases finite P7 search for that same
 pool. Sealed captures contain only permitted facts/history; complete hypothetical
 hands/libraries and independent future randomness construct sampled games.
@@ -307,8 +320,8 @@ actual Commander combat damage and apply the 21-damage SBA loss rule. Earlier
 Commander profiles retain their explicit damage fault. Library replacement is
 enabled only for the reviewed Time Ebb and subsequent ordinary/ability draw paths.
 Replacement ordering is limited to the reviewed effects and subsequent profiles.
-Legal match setup is available only through the ten named foundations, keywords,
-combat-keywords, tokens, staples, mana, four-colors, attachments, removal and sacrifice profiles. Ordinary combat is enabled in the reviewed combat, Commander and action profiles.
+Legal match setup is available only through the eleven named foundations, keywords,
+combat-keywords, tokens, staples, mana, four-colors, attachments, removal, sacrifice and wipes profiles. Ordinary combat is enabled in the reviewed combat, Commander and action profiles.
 
 Batch mutation is private and atomic. Capture consumed pre-event facts and use
 actual typed outcome slots. Simultaneous groups admit independent read/write
@@ -342,8 +355,9 @@ Preserve blocked status after blockers leave, and skip blockers/damage only if
 no attackers were declared. Continuous-control eligibility is stamped at turn
 beginning and resets on new incarnations or controller changes. All simultaneous
 losers are absent before departure cleanup and outcome adjudication. Zero
-toughness and all-player loss/draw remain private domain fixtures: neither is
-reachable from this positive-life, positive-toughness admitted pool.
+toughness and all-player loss/draw remain private domain fixtures in the earlier
+positive-life, positive-toughness pools. Wipes-v1 has accepted-pod witnesses for
+zero toughness and simultaneous last-player loss/draw.
 
 Historical profiles enforce monochromatic reachable mana. The four action
 profiles allow mixed colors only through an explicit exact spending decision;

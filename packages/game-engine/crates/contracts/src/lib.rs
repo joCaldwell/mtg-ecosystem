@@ -179,6 +179,7 @@ pub enum Capability {
     AttachmentsV1,
     PermanentRemovalV1,
     SacrificeV1,
+    BoardWipesV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -231,6 +232,32 @@ pub struct PermanentFilter {
     pub non_types: Vec<CardKind>,
     pub non_colors: Vec<Color>,
     pub opponent: bool,
+}
+/// Closed non-targeted sets, evaluated as an instruction is performed (CR 608.2h).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum ObjectSet {
+    Creatures,
+    NonlandPermanents,
+    Enchantments,
+    AttackingCreatures,
+    OpponentCreatures,
+    FlyingCreatures,
+    NonflyingCreatures,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SetMove {
+    Destroy,
+    Exile,
+    Hand,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "amount", rename_all = "snake_case", deny_unknown_fields)]
+pub enum WipeAmount {
+    Fixed { value: Quantity },
+    AnnouncedX,
+    CreatureCount,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
@@ -306,6 +333,36 @@ pub enum CounterRecipient {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    MoveSet {
+        set: ObjectSet,
+        action: SetMove,
+        source_block: u32,
+    },
+    PumpSet {
+        set: ObjectSet,
+        power: Quantity,
+        toughness: Quantity,
+        source_block: u32,
+    },
+    DamageSet {
+        sets: Vec<ObjectSet>,
+        each_player: bool,
+        amount: WipeAmount,
+        source_block: u32,
+    },
+    GainLifeDestroyed {
+        source_block: u32,
+    },
+    ExileDamagedThisTurn {
+        source_block: u32,
+    },
+    EachPlayerSacrifice {
+        source_block: u32,
+    },
+    LoseLifeDeathController {
+        amount: Quantity,
+        source_block: u32,
+    },
     SacrificeDamage {
         target_slot: Option<u32>,
         recipient: Option<LifeRecipient>,
@@ -499,6 +556,8 @@ pub enum Duration {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
+    ReduceGenericByCreatureCount,
+    CantBeCountered,
     ModifyCreatures {
         scope: CreatureScope,
         power: Quantity,
@@ -620,6 +679,7 @@ pub struct ActivatedAbility {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TriggerCondition {
+    OpponentCreatureDies,
     SelfEntersBattlefield,
     /// Excludes the exact source incarnation, never every copy of its card.
     OtherCreatureEntersBattlefield,
@@ -724,6 +784,8 @@ impl<'de> Deserialize<'de> for KeywordAbility {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Definition {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub x_mana_cost: bool,
     pub oracle_id: String,
     pub name: String,
     pub characteristics: Characteristics,
@@ -745,6 +807,9 @@ pub struct Definition {
 impl Definition {
     pub fn requirements(&self) -> BTreeSet<Capability> {
         let mut set = BTreeSet::from([Capability::NormalLayoutV1]);
+        if self.x_mana_cost {
+            set.insert(Capability::BoardWipesV1);
+        }
         match self.characteristics.kind {
             CardKind::Land => {
                 set.insert(Capability::LandPlayV1);
@@ -819,6 +884,7 @@ impl Definition {
             }
             set.insert(Capability::TriggeredAbilityV1);
             set.insert(match ability.condition {
+                TriggerCondition::OpponentCreatureDies => Capability::BoardWipesV1,
                 TriggerCondition::SelfEntersBattlefield => Capability::SelfEntersBattlefieldV1,
                 TriggerCondition::OtherCreatureEntersBattlefield => {
                     Capability::OtherCreatureEntersBattlefieldV1
@@ -850,6 +916,9 @@ impl Definition {
         }
         for a in &self.static_abilities {
             set.insert(match a.effect {
+                StaticEffect::ReduceGenericByCreatureCount | StaticEffect::CantBeCountered => {
+                    Capability::BoardWipesV1
+                }
                 StaticEffect::DoubleDamageToPermanentOrPlayer => {
                     Capability::StaticDamageReplacementV1
                 }
@@ -913,6 +982,30 @@ impl Definition {
         // v19 alone admits enchantment programs and creature statics. Older
         // catalogs reject this capability, retaining their original kind checks.
         let sacrifice = self.capabilities.contains(&Capability::SacrificeV1);
+        let wipes = self.capabilities.contains(&Capability::BoardWipesV1);
+        if self.x_mana_cost
+            && !matches!(
+                self.characteristics.kind,
+                CardKind::Instant | CardKind::Sorcery
+            )
+        {
+            return Err("X requires a spell".into());
+        }
+        if self.x_mana_cost
+            != self.spell.as_ref().is_some_and(|p| {
+                p.instructions.iter().any(|i| {
+                    matches!(
+                        i,
+                        Instruction::DamageSet {
+                            amount: WipeAmount::AnnouncedX,
+                            ..
+                        }
+                    )
+                })
+            })
+        {
+            return Err("unbound mana X".into());
+        }
         let c = &self.characteristics;
         let equipment = c.kind == CardKind::Artifact && c.subtypes == ["Equipment"];
         let aura = c.kind == CardKind::Enchantment && c.subtypes == ["Aura"];
@@ -1150,7 +1243,9 @@ impl Definition {
                 || p.instructions.iter().any(|instruction| {
                     !matches!(
                         instruction,
-                        Instruction::SacrificeDamage { .. }
+                        Instruction::PumpSet { .. }
+                            | Instruction::LoseLifeDeathController { .. }
+                            | Instruction::SacrificeDamage { .. }
                             | Instruction::EachOpponentSacrifice { .. }
                             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
                             | Instruction::DestroyPermanent { .. }
@@ -1171,14 +1266,21 @@ impl Definition {
             && c.kind != CardKind::Enchantment
             && !equipment
             && !(sacrifice && c.kind == CardKind::Creature)
+            && !(wipes && matches!(c.kind, CardKind::Instant | CardKind::Sorcery))
         {
             return Err("static damage replacement requires a supported enchantment".into());
         }
-        if self
-            .static_abilities
-            .iter()
-            .any(|a| a.functioning_zone != FunctioningZone::Battlefield)
-        {
+        if self.static_abilities.iter().any(|a| {
+            if matches!(
+                a.effect,
+                StaticEffect::ReduceGenericByCreatureCount | StaticEffect::CantBeCountered
+            ) {
+                a.functioning_zone != FunctioningZone::Stack
+                    || !matches!(c.kind, CardKind::Instant | CardKind::Sorcery)
+            } else {
+                a.functioning_zone != FunctioningZone::Battlefield
+            }
+        }) {
             return Err("static damage replacement must function on battlefield".into());
         }
         for a in &self.static_abilities {
@@ -1420,6 +1522,58 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     }
     for instruction in &p.instructions {
         let binding = match instruction {
+            Instruction::MoveSet { .. }
+            | Instruction::PumpSet { .. }
+            | Instruction::EachPlayerSacrifice { .. } => None,
+            Instruction::DamageSet {
+                sets,
+                each_player,
+                amount,
+                ..
+            } => {
+                if sets.is_empty() && !each_player {
+                    return Err("empty damage set".into());
+                }
+                if let WipeAmount::Fixed { value } = amount
+                    && value <= &Quantity::zero()
+                {
+                    return Err("invalid set damage".into());
+                }
+                None
+            }
+            Instruction::GainLifeDestroyed { .. } => {
+                if !p
+                    .instructions
+                    .iter()
+                    .take_while(|i| !std::ptr::eq(*i, instruction))
+                    .any(|i| {
+                        matches!(
+                            i,
+                            Instruction::DestroyAllCreatures { .. }
+                                | Instruction::MoveSet {
+                                    action: SetMove::Destroy,
+                                    ..
+                                }
+                        )
+                    })
+                {
+                    return Err("destroy result requires preceding destroy".into());
+                }
+                None
+            }
+            Instruction::ExileDamagedThisTurn { .. } => {
+                if !matches!(p.instructions.first(), Some(Instruction::DamageSet { .. })) {
+                    return Err("damage history requires preceding damage".into());
+                }
+                None
+            }
+            Instruction::LoseLifeDeathController { amount, .. } => {
+                if amount <= &Quantity::zero() {
+                    return Err("invalid death loss".into());
+                }
+                None
+            }
+
             Instruction::SacrificeDamage {
                 target_slot,
                 recipient,
@@ -1696,6 +1850,13 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             set.insert(Capability::AttachmentsV1);
         }
         set.insert(match instruction {
+            Instruction::MoveSet { .. }
+            | Instruction::PumpSet { .. }
+            | Instruction::DamageSet { .. }
+            | Instruction::GainLifeDestroyed { .. }
+            | Instruction::ExileDamagedThisTurn { .. }
+            | Instruction::EachPlayerSacrifice { .. }
+            | Instruction::LoseLifeDeathController { .. } => Capability::BoardWipesV1,
             Instruction::SacrificeDamage { .. }
             | Instruction::EachOpponentSacrifice { .. }
             | Instruction::ModifySourcePowerToughness { .. } => Capability::SacrificeV1,
@@ -1749,7 +1910,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 3, max = 19))]
+    #[schemars(range(min = 3, max = 20))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -1757,7 +1918,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.schema_version, 3..=19)
+        if !matches!(self.schema_version, 3..=20)
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -1766,6 +1927,18 @@ impl Catalog {
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
             d.validate()?;
+            if self.schema_version < 20 && d.capabilities.contains(&Capability::BoardWipesV1) {
+                return Err("IR v20 is required for board wipes and X".into());
+            }
+            if d.triggered.iter().any(|a| {
+                a.program
+                    .instructions
+                    .iter()
+                    .any(|i| matches!(i, Instruction::LoseLifeDeathController { .. }))
+                    && a.condition != TriggerCondition::OpponentCreatureDies
+            }) {
+                return Err("unbound death controller".into());
+            }
             if self.schema_version < 19 && d.capabilities.contains(&Capability::SacrificeV1) {
                 return Err("IR v19 is required for sacrifice and death payoffs".into());
             }
@@ -2114,6 +2287,21 @@ pub fn catalog_schema() -> serde_json::Value {
             "capabilities":{"items":{"not":{"enum":[Capability::TrampleV1,Capability::FirstStrikeV1,Capability::DoubleStrikeV1,Capability::MenaceV1]}}}
         }}}}}
     }]);
+    schema["$defs"]["PreWipesProgram"] = serde_json::json!({"properties":{
+        "instructions":{"items":{"properties":{"op":{"not":{"enum":["move_set","pump_set","damage_set","gain_life_destroyed","exile_damaged_this_turn","each_player_sacrifice","lose_life_death_controller"]}}}}},
+        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreWipesProgram"}}}}
+    }});
+    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"properties":{"schema_version":{"maximum":19}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "x_mana_cost":{"const":false},
+            "capabilities":{"items":{"not":{"const":Capability::BoardWipesV1}}},
+            "static_abilities":{"items":{"properties":{"effect":{"not":{"enum":["reduce_generic_by_creature_count","cant_be_countered"]}}}}},
+            "spell":{"$ref":"#/$defs/PreWipesProgram"},
+            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PreWipesProgram"}}}},
+            "triggered":{"items":{"properties":{"condition":{"not":{"const":"opponent_creature_dies"}},"program":{"$ref":"#/$defs/PreWipesProgram"}}}}
+        }}}}}
+    }));
     schema["$defs"]["PreTokensProgram"] = serde_json::json!({"properties":{
         "instructions":{"items":{"properties":{"op":{"not":{"enum":["create_creature_tokens","put_plus_one_counters"]}}}}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreTokensProgram"}}}}
