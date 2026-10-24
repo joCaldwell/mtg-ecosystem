@@ -177,6 +177,7 @@ pub enum Capability {
     CreatureAnthemV1,
     TargetPlayerDrawV1,
     AttachmentsV1,
+    PermanentRemovalV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -197,6 +198,7 @@ pub enum EvaluationStage {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TargetDomain {
+    BattlefieldPermanent,
     ControlledBattlefieldCreature,
     BattlefieldCreature,
     OwnGraveyardCreatureCard,
@@ -216,6 +218,41 @@ pub struct TargetSpec {
     pub chooser: Chooser,
     pub stage: EvaluationStage,
     pub domain: TargetDomain,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<PermanentFilter>,
+}
+/// Finite CR 115 filters; an empty type set means any permanent. Types are
+/// alternatives; exclusions and the controller restriction are intersections.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PermanentFilter {
+    pub types: Vec<CardKind>,
+    pub non_types: Vec<CardKind>,
+    pub non_colors: Vec<Color>,
+    pub opponent: bool,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum EffectRecipient {
+    Controller,
+    TargetController { target_slot: u32 },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum TargetAmount {
+    Fixed {
+        amount: Quantity,
+    },
+    Attribute {
+        target_slot: u32,
+        attribute: TargetAttribute,
+    },
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TargetAttribute {
+    Power,
+    ManaValue,
 }
 /// Controller means the frozen invocation controller (CR 109.5), not the
 /// current controller of its physical source. Target refers to AnyPlayer.
@@ -267,6 +304,35 @@ pub enum CounterRecipient {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    DestroyPermanent {
+        target_slot: u32,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        optional: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        regeneration_forbidden: bool,
+        source_block: u32,
+    },
+    ExilePermanent {
+        target_slot: u32,
+        source_block: u32,
+    },
+    ChangeLifeFromTarget {
+        recipient: EffectRecipient,
+        amount: TargetAmount,
+        gain: bool,
+        source_block: u32,
+    },
+    CreateTokensFor {
+        recipient: EffectRecipient,
+        count: u32,
+        token: CreatureToken,
+        source_block: u32,
+    },
+    DamageTargetController {
+        target_slot: u32,
+        amount: Quantity,
+        source_block: u32,
+    },
     AttachEquipment {
         target_slot: u32,
         source_block: u32,
@@ -827,8 +893,18 @@ impl Definition {
             if let ActivationCost::Composite { costs } = &ability.cost {
                 validate_permanent_costs(costs)?;
                 if !costs.sacrifice
-                    || c.kind != CardKind::Artifact
-                    || !matches!(ability.program.instructions.as_slice(), [Instruction::DrawCards {count, recipient:None, ..}] if *count == Quantity::from(1))
+                    || !((c.kind == CardKind::Artifact
+                        && matches!(ability.program.instructions.as_slice(), [Instruction::DrawCards {count, recipient:None, ..}] if *count == Quantity::from(1)))
+                        || (c.kind == CardKind::Creature
+                            && !costs.tap
+                            && costs.mana.is_some()
+                            && matches!(
+                                ability.program.instructions.as_slice(),
+                                [Instruction::DestroyPermanent {
+                                    optional: false,
+                                    ..
+                                }]
+                            )))
                 {
                     return Err(
                         "composite nonmana activation requires artifact sacrifice and draw".into(),
@@ -846,6 +922,17 @@ impl Definition {
                 || if p.targets.is_empty() {
                     p.instructions.iter().any(|instruction| !matches!(instruction,
                         Instruction::DrawCards {count,..}|Instruction::DiscardCards {count,..} if *count==Quantity::from(1)))
+                } else if matches!(ability.cost, ActivationCost::Composite { .. })
+                    && matches!(
+                        p.instructions.as_slice(),
+                        [Instruction::DestroyPermanent {
+                            optional: false,
+                            ..
+                        }]
+                    )
+                {
+                    p.targets.len() != 1
+                        || p.targets[0].domain != TargetDomain::BattlefieldPermanent
                 } else {
                     p.targets
                         .iter()
@@ -887,6 +974,13 @@ impl Definition {
                 validate_instruction_program(p)?;
                 continue;
             }
+            if p.instructions
+                .iter()
+                .any(|i| matches!(i, Instruction::DestroyPermanent { .. }))
+                && ability.condition != TriggerCondition::SelfEntersBattlefield
+            {
+                return Err("targeted removal triggers require self-enters".into());
+            }
             if ability.condition == TriggerCondition::SelfAuraToGraveyard {
                 return Err("Aura trigger requires Aura".into());
             }
@@ -903,6 +997,7 @@ impl Definition {
                     !matches!(
                         target.domain,
                         TargetDomain::AnyPlayer
+                            | TargetDomain::BattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
                             | TargetDomain::OwnGraveyardCreatureCard
                     )
@@ -911,6 +1006,7 @@ impl Definition {
                     !matches!(
                         instruction,
                         Instruction::ReturnOwnGraveyardCreatureToHand { .. }
+                            | Instruction::DestroyPermanent { .. }
                             | Instruction::CreateCreatureTokens { .. }
                             | Instruction::PutPlusOneCounters { .. }
                             | Instruction::DrawCards { .. }
@@ -1113,9 +1209,122 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     {
         return Err("mixed target domains are unsupported".into());
     }
+    for t in &p.targets {
+        if let Some(f) = &t.filter {
+            if !matches!(
+                t.domain,
+                TargetDomain::BattlefieldPermanent | TargetDomain::StackSpell
+            ) || (t.domain == TargetDomain::StackSpell
+                && (f.types.is_empty()
+                    || !f.non_types.is_empty()
+                    || !f.non_colors.is_empty()
+                    || f.opponent))
+                || f.types
+                    .iter()
+                    .enumerate()
+                    .any(|(i, k)| f.types[..i].contains(k))
+                || f.non_types
+                    .iter()
+                    .enumerate()
+                    .any(|(i, k)| f.non_types[..i].contains(k))
+                || f.non_colors.contains(&Color::C)
+                || f.non_colors
+                    .iter()
+                    .enumerate()
+                    .any(|(i, k)| f.non_colors[..i].contains(k))
+                || (t.domain == TargetDomain::BattlefieldPermanent
+                    && f.types
+                        .iter()
+                        .chain(&f.non_types)
+                        .any(|k| matches!(k, CardKind::Instant | CardKind::Sorcery)))
+            {
+                return Err("unsupported permanent/spell target filter".into());
+            }
+        } else if t.domain == TargetDomain::BattlefieldPermanent {
+            return Err("permanent target requires explicit filter".into());
+        }
+    }
     let mut used = BTreeSet::new();
+    fn reference(p: &SpellProgram, slot: u32) -> Result<(u32, TargetDomain), String> {
+        let t = p.targets.get(slot as usize).ok_or("unbound LKI target")?;
+        if !matches!(
+            t.domain,
+            TargetDomain::BattlefieldPermanent | TargetDomain::StackSpell
+        ) {
+            return Err("unsupported LKI target domain".into());
+        }
+        Ok((slot, t.domain))
+    }
     for instruction in &p.instructions {
         let binding = match instruction {
+            Instruction::DestroyPermanent {
+                target_slot,
+                optional,
+                ..
+            } => {
+                if *optional && p.timing != SpellTiming::Instant {
+                    return Err("optional destroy requires a triggered program".into());
+                }
+                Some((*target_slot, TargetDomain::BattlefieldPermanent))
+            }
+            Instruction::ExilePermanent { target_slot, .. } => {
+                Some((*target_slot, TargetDomain::BattlefieldPermanent))
+            }
+            Instruction::ChangeLifeFromTarget {
+                recipient, amount, ..
+            } => {
+                if let EffectRecipient::TargetController { target_slot } = recipient {
+                    used.insert(reference(p, *target_slot)?.0);
+                }
+                match amount {
+                    TargetAmount::Fixed { amount } if *amount > Quantity::zero() => {}
+                    TargetAmount::Attribute {
+                        target_slot,
+                        attribute,
+                    } => {
+                        let (_, domain) = reference(p, *target_slot)?;
+                        if domain != TargetDomain::BattlefieldPermanent
+                            || (*attribute == TargetAttribute::Power
+                                && p.targets[*target_slot as usize]
+                                    .filter
+                                    .as_ref()
+                                    .is_none_or(|f| f.types != [CardKind::Creature]))
+                        {
+                            return Err("unsupported target attribute".into());
+                        }
+                        used.insert(*target_slot);
+                    }
+                    _ => return Err("invalid target life amount".into()),
+                }
+                None
+            }
+            Instruction::CreateTokensFor {
+                recipient,
+                count,
+                token,
+                ..
+            } => {
+                if *count == 0 {
+                    return Err("token count must be positive".into());
+                }
+                token.validate()?;
+                match recipient {
+                    EffectRecipient::Controller => None,
+                    EffectRecipient::TargetController { target_slot } => {
+                        Some(reference(p, *target_slot)?)
+                    }
+                }
+            }
+            Instruction::DamageTargetController {
+                target_slot,
+                amount,
+                ..
+            } => {
+                if *amount <= Quantity::zero() {
+                    return Err("damage quantity must be positive".into());
+                }
+                Some(reference(p, *target_slot)?)
+            }
             Instruction::AttachEquipment { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::ControlledBattlefieldCreature))
             }
@@ -1256,7 +1465,11 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         }
     }
     for target in &program.targets {
+        if target.filter.is_some() {
+            set.insert(Capability::PermanentRemovalV1);
+        }
         set.insert(match target.domain {
+            TargetDomain::BattlefieldPermanent => Capability::PermanentRemovalV1,
             TargetDomain::BattlefieldCreature => Capability::CreatureTargetV1,
             TargetDomain::ControlledBattlefieldCreature => Capability::AttachmentsV1,
             TargetDomain::OwnGraveyardCreatureCard => Capability::GraveyardRecursionV1,
@@ -1277,6 +1490,11 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             set.insert(Capability::AttachmentsV1);
         }
         set.insert(match instruction {
+            Instruction::DestroyPermanent { .. }
+            | Instruction::ExilePermanent { .. }
+            | Instruction::ChangeLifeFromTarget { .. }
+            | Instruction::CreateTokensFor { .. }
+            | Instruction::DamageTargetController { .. } => Capability::PermanentRemovalV1,
             Instruction::AttachEquipment { .. } | Instruction::ReturnAuraFromGraveyard { .. } => {
                 Capability::AttachmentsV1
             }
@@ -1322,7 +1540,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 3, max = 17))]
+    #[schemars(range(min = 3, max = 18))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -1330,7 +1548,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.schema_version, 3..=17)
+        if !matches!(self.schema_version, 3..=18)
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -1339,6 +1557,10 @@ impl Catalog {
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
             d.validate()?;
+            if self.schema_version < 18 && d.capabilities.contains(&Capability::PermanentRemovalV1)
+            {
+                return Err("IR v18 is required for permanent removal and LKI".into());
+            }
             if self.schema_version < 17 && d.capabilities.contains(&Capability::AttachmentsV1) {
                 return Err("IR v17 is required for attachments and targeting keywords".into());
             }
@@ -1726,6 +1948,20 @@ pub fn catalog_schema() -> serde_json::Value {
             "keywords":{"items":{"not":{"enum":["hexproof","shroud"]}}},
             "characteristics":{"properties":{"subtypes":{"items":{"not":{"enum":["Equipment","Aura"]}}}}},
             "static_abilities":{"items":{"properties":{"effect":{"not":{"type":"object","required":["modify_creatures"]}}}}}
+        }}}}}
+    }));
+    schema["$defs"]["PreRemovalProgram"] = serde_json::json!({"properties":{
+        "targets":{"items":{"properties":{"filter":{"not":{}},"domain":{"not":{"const":"battlefield_permanent"}}}}},
+        "instructions":{"items":{"properties":{"op":{"not":{"enum":["destroy_permanent","exile_permanent","change_life_from_target","create_tokens_for","damage_target_controller"]}}}}},
+        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreRemovalProgram"}}}}
+    }});
+    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["schema_version"],"properties":{"schema_version":{"maximum":17}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "capabilities":{"items":{"not":{"const":Capability::PermanentRemovalV1}}},
+            "spell":{"$ref":"#/$defs/PreRemovalProgram"},
+            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PreRemovalProgram"}}}},
+            "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreRemovalProgram"}}}}
         }}}}}
     }));
     schema["$defs"]["PreAttachmentsProgram"] = serde_json::json!({"properties":{

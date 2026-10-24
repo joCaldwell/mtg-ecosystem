@@ -5,6 +5,76 @@ use serde_json::value::RawValue;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub mod fixtures {
+    pub const REMOVAL_RECORDS: [(&str, &str); 17] = [
+        (
+            "swords-to-plowshares",
+            include_str!("../../../tests/fixtures/swords-to-plowshares.json"),
+        ),
+        (
+            "disenchant",
+            include_str!("../../../tests/fixtures/disenchant.json"),
+        ),
+        (
+            "revoke-existence",
+            include_str!("../../../tests/fixtures/revoke-existence.json"),
+        ),
+        (
+            "generous-gift",
+            include_str!("../../../tests/fixtures/generous-gift.json"),
+        ),
+        (
+            "naturalize",
+            include_str!("../../../tests/fixtures/naturalize.json"),
+        ),
+        (
+            "natures-claim",
+            include_str!("../../../tests/fixtures/natures-claim.json"),
+        ),
+        (
+            "beast-within",
+            include_str!("../../../tests/fixtures/beast-within.json"),
+        ),
+        (
+            "reclamation-sage",
+            include_str!("../../../tests/fixtures/reclamation-sage.json"),
+        ),
+        (
+            "viridian-zealot",
+            include_str!("../../../tests/fixtures/viridian-zealot.json"),
+        ),
+        (
+            "go-for-the-throat",
+            include_str!("../../../tests/fixtures/go-for-the-throat.json"),
+        ),
+        (
+            "doom-blade",
+            include_str!("../../../tests/fixtures/doom-blade.json"),
+        ),
+        (
+            "feed-the-swarm",
+            include_str!("../../../tests/fixtures/feed-the-swarm.json"),
+        ),
+        (
+            "ravenous-chupacabra",
+            include_str!("../../../tests/fixtures/ravenous-chupacabra.json"),
+        ),
+        (
+            "shatter",
+            include_str!("../../../tests/fixtures/shatter.json"),
+        ),
+        (
+            "smash-to-smithereens",
+            include_str!("../../../tests/fixtures/smash-to-smithereens.json"),
+        ),
+        (
+            "pongify",
+            include_str!("../../../tests/fixtures/pongify.json"),
+        ),
+        (
+            "swan-song",
+            include_str!("../../../tests/fixtures/swan-song.json"),
+        ),
+    ];
     pub const ATTACHMENT_RECORDS: [(&str, &str); 12] = [
         (
             "bonesplitter",
@@ -932,8 +1002,12 @@ enum Step {
         who: PlayerSelector,
         mana: SourceMana,
     },
+    Exile {
+        what: serde_json::Value,
+    },
     Destroy {
         what: serde_json::Value,
+        optional: Option<bool>,
         #[serde(rename = "regenerationForbidden")]
         regeneration_forbidden: Option<bool>,
     },
@@ -948,6 +1022,7 @@ enum Step {
         library: serde_json::Value,
     },
     CreateToken {
+        who: Option<serde_json::Value>,
         count: Count,
         token: SourceToken,
     },
@@ -980,11 +1055,11 @@ enum Step {
     },
     GainLife {
         who: PlayerSelector,
-        amount: Count,
+        amount: serde_json::Value,
     },
     LoseLife {
         who: PlayerSelector,
-        amount: Count,
+        amount: serde_json::Value,
     },
     ReturnToHand {
         what: serde_json::Value,
@@ -1052,6 +1127,10 @@ enum DamageSource {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "to", rename_all = "kebab-case", deny_unknown_fields)]
 enum DamageDestination {
+    Player {
+        #[serde(rename = "ref")]
+        reference: serde_json::Value,
+    },
     AnyTarget {
         #[serde(rename = "selectionId")]
         selection_id: String,
@@ -1064,11 +1143,14 @@ struct ThisObject {
     reference: String,
     noun: String,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct PlayerSelector {
     player: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     selection_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    of: Option<serde_json::Value>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1110,7 +1192,10 @@ struct CounterTarget {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "cls", rename_all = "snake_case", deny_unknown_fields)]
 enum CounterFilter {
-    Spell {},
+    Spell {
+        #[serde(rename = "allOf")]
+        all_of: Option<Vec<serde_json::Value>>,
+    },
     Ability {
         #[serde(rename = "anyOf")]
         any_of: Vec<AbilityKindFilter>,
@@ -1329,6 +1414,9 @@ fn source_lines(text: &str, name: &str) -> Result<Vec<String>, Failure> {
         .lines()
         .map(|line| {
             let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
+            // The pinned archive also normalizes a complete self-name at the
+            // start of a subsequent sentence (Smash to Smithereens; CR 201.5).
+            let line = line.replace(&format!(". {name} "), ". ~ ");
             // The reviewed archive normalizes a complete source name at the
             // start of a block to ~ (CR 201.5). Keep ASCII word boundaries;
             // literal-name and legendary-short-name grammar is not interpreted.
@@ -1601,6 +1689,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                             selection_id: "equip-creature".into(),
                                             chooser: Chooser::Controller,
                                             stage: EvaluationStage::Announcement,
+                                            filter: None,
                                             domain: TargetDomain::ControlledBattlefieldCreature,
                                         }],
                                         instructions: vec![Instruction::AttachEquipment {
@@ -1627,6 +1716,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                     selection_id: "enchanted-creature".into(),
                                     chooser: Chooser::Controller,
                                     stage: EvaluationStage::Announcement,
+                                    filter: None,
                                     domain: TargetDomain::BattlefieldCreature,
                                 });
                                 continue;
@@ -1776,6 +1866,7 @@ fn bind_target(
         chooser: Chooser::Controller,
         stage: EvaluationStage::Announcement,
         domain,
+        filter: None,
     });
     slots.insert(id.into(), slot);
     Ok(slot)
@@ -1880,27 +1971,49 @@ fn append_spell_effects(
         }
         for step in &sentence.steps {
             let instruction = match step {
-                Step::Destroy {
-                    regeneration_forbidden: Some(_),
-                    ..
-                } => {
-                    return Err(unsupported(
-                        "effects.destroy.regenerationForbidden",
-                        "regeneration and cannot-be-regenerated clauses are outside this slice",
-                    ));
-                }
+                Step::Exile { what } => Instruction::ExilePermanent {
+                    target_slot: bind_permanent_target(program, slots, what)?,
+                    source_block,
+                },
                 Step::Destroy {
                     what,
-                    regeneration_forbidden: None,
+                    optional,
+                    regeneration_forbidden,
                 } => {
-                    if *what == serde_json::json!({"ref":"all","filter":{"types":["creature"]}}) {
+                    if what["ref"] == "all" && regeneration_forbidden.is_some() {
+                        return Err(unsupported(
+                            "regeneration",
+                            "regeneration-forbidden mass destruction is outside this slice",
+                        ));
+                    }
+                    if optional.is_none()
+                        && regeneration_forbidden.is_none()
+                        && *what == serde_json::json!({"ref":"all","filter":{"types":["creature"]}})
+                    {
                         Instruction::DestroyAllCreatures { source_block }
-                    } else {
+                    } else if optional.is_none()
+                        && regeneration_forbidden.is_none()
+                        && what["filter"] == serde_json::json!({"types":["creature"]})
+                    {
                         let t: Target = serde_json::from_value(what.clone()).map_err(|_| {
-                            unsupported("effects.destroy", "unsupported destroy filter")
+                            unsupported("effects.destroy", "unsupported destroy target")
                         })?;
                         Instruction::DestroyTargetCreature {
                             target_slot: bind_creature_target(program, slots, &t)?,
+                            source_block,
+                        }
+                    } else {
+                        if regeneration_forbidden.is_some() && *regeneration_forbidden != Some(true)
+                        {
+                            return Err(unsupported(
+                                "regeneration",
+                                "only cannot-be-regenerated destroy is supported",
+                            ));
+                        }
+                        Instruction::DestroyPermanent {
+                            target_slot: bind_permanent_target(program, slots, what)?,
+                            optional: optional.unwrap_or(false),
+                            regeneration_forbidden: regeneration_forbidden.unwrap_or(false),
                             source_block,
                         }
                     }
@@ -1926,59 +2039,26 @@ fn append_spell_effects(
                         source_block,
                     }
                 }
-                Step::CreateToken { count, token }
-                    if count.amount == "fixed" && count.value > 0 =>
-                {
-                    if !token.supertypes.is_empty()
-                        || token.types != ["creature"]
-                        || token.power.amount != "fixed"
-                        || token.toughness.amount != "fixed"
-                    {
-                        return Err(unsupported(
-                            "effects.token",
-                            "unsupported token characteristic shape",
-                        ));
-                    }
-                    let colors = token
-                        .colors
-                        .iter()
-                        .map(|c| match c.as_str() {
-                            "white" => Ok(Color::W),
-                            "blue" => Ok(Color::U),
-                            "black" => Ok(Color::B),
-                            "red" => Ok(Color::R),
-                            "green" => Ok(Color::G),
-                            _ => Err(unsupported("effects.token.colors", "unsupported color")),
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
-                    let keywords = token
-                        .keywords
-                        .iter()
-                        .map(|k| {
-                            let obj = k.as_object().ok_or_else(|| {
-                                unsupported("effects.token.keywords", "invalid keyword")
-                            })?;
-                            if obj.len() != 1 {
-                                return Err(unsupported(
-                                    "effects.token.keywords",
-                                    "parameterized keyword",
-                                ));
-                            }
-                            serde_json::from_value::<KeywordAbility>(k["keyword"].clone()).map_err(
-                                |_| unsupported("effects.token.keywords", "unsupported keyword"),
-                            )
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
-                    let token = CreatureToken {
-                        colors,
-                        subtypes: token.subtypes.clone(),
-                        power: i64::from(token.power.value).into(),
-                        toughness: i64::from(token.toughness.value).into(),
-                        keywords,
-                    };
-                    token
-                        .validate()
-                        .map_err(|e| unsupported("effects.token", e))?;
+                Step::CreateToken {
+                    count,
+                    token,
+                    who: Some(who),
+                } => Instruction::CreateTokensFor {
+                    recipient: removal_recipient(program, who)?,
+                    count: if count.amount == "fixed" && count.value > 0 {
+                        count.value
+                    } else {
+                        return Err(unsupported("token", "unsupported token count"));
+                    },
+                    token: lower_creature_token(token)?,
+                    source_block,
+                },
+                Step::CreateToken {
+                    count,
+                    token,
+                    who: None,
+                } if count.amount == "fixed" && count.value > 0 => {
+                    let token = lower_creature_token(token)?;
                     Instruction::CreateCreatureTokens {
                         count: count.value,
                         token,
@@ -2027,9 +2107,27 @@ fn append_spell_effects(
                 Step::Damage {
                     source: DamageSource::SelfReference {},
                     amount,
+                    to: DamageDestination::Player { reference },
+                } => {
+                    let EffectRecipient::TargetController { target_slot } =
+                        removal_recipient(program, reference)?
+                    else {
+                        return Err(unsupported("damage", "requires target controller"));
+                    };
+                    Instruction::DamageTargetController {
+                        target_slot,
+                        amount: fixed_positive(amount)?,
+                        source_block,
+                    }
+                }
+                Step::Damage {
+                    source: DamageSource::SelfReference {},
+                    amount,
                     to,
                 } => {
-                    let DamageDestination::AnyTarget { selection_id } = to;
+                    let DamageDestination::AnyTarget { selection_id } = to else {
+                        return Err(unsupported("damage", "unsupported damage destination"));
+                    };
                     Instruction::DealDamage {
                         target_slot: bind_target(
                             program,
@@ -2041,14 +2139,34 @@ fn append_spell_effects(
                         source_block,
                     }
                 }
+                Step::GainLife { who, amount } | Step::LoseLife { who, amount }
+                    if who.of.is_some() || amount["amount"] == "attribute" =>
+                {
+                    let recipient = removal_recipient(
+                        program,
+                        &serde_json::to_value(who).map_err(|_| invalid("life", "recipient"))?,
+                    )?;
+                    Instruction::ChangeLifeFromTarget {
+                        recipient,
+                        amount: removal_amount(program, amount)?,
+                        gain: matches!(step, Step::GainLife { .. }),
+                        source_block,
+                    }
+                }
                 Step::GainLife { who, amount } => Instruction::GainLife {
                     recipient: life_recipient(program, slots, who)?,
-                    amount: fixed_positive(amount)?,
+                    amount: fixed_positive(
+                        &serde_json::from_value(amount.clone())
+                            .map_err(|_| unsupported("amount", "unsupported fixed amount"))?,
+                    )?,
                     source_block,
                 },
                 Step::LoseLife { who, amount } => Instruction::LoseLife {
                     recipient: life_recipient(program, slots, who)?,
-                    amount: fixed_positive(amount)?,
+                    amount: fixed_positive(
+                        &serde_json::from_value(amount.clone())
+                            .map_err(|_| unsupported("amount", "unsupported fixed amount"))?,
+                    )?,
                     source_block,
                 },
                 Step::Draw { who, amount } => {
@@ -2075,7 +2193,7 @@ fn append_spell_effects(
                 }
                 Step::Counter { what } if what.reference == "target" && fixed_one(&what.count) => {
                     let domain = match &what.filter {
-                        CounterFilter::Spell {} => TargetDomain::StackSpell,
+                        CounterFilter::Spell { .. } => TargetDomain::StackSpell,
                         CounterFilter::Ability { any_of }
                             if any_of.len() == 2
                                 && any_of
@@ -2093,8 +2211,23 @@ fn append_spell_effects(
                             ));
                         }
                     };
+                    let slot = bind_target(program, slots, &what.selection_id, domain)?;
+                    if let CounterFilter::Spell {
+                        all_of: Some(all_of),
+                    } = &what.filter
+                    {
+                        let f = lower_permanent_filter(&serde_json::json!({"allOf":all_of}))?;
+                        if f.types.is_empty()
+                            || !f.non_types.is_empty()
+                            || !f.non_colors.is_empty()
+                            || f.opponent
+                        {
+                            return Err(unsupported("counter", "unsupported typed spell filter"));
+                        }
+                        program.targets[slot as usize].filter = Some(f);
+                    }
                     Instruction::CounterStackObject {
-                        target_slot: bind_target(program, slots, &what.selection_id, domain)?,
+                        target_slot: slot,
                         source_block,
                     }
                 }
@@ -2164,6 +2297,238 @@ fn append_spell_effects(
         }
     }
     Ok(())
+}
+// Pinned CR 115, 608.2b/h and 202.3a: bind the complete finite filter and
+// target reference; no unparsed attribute or controller clause is discarded.
+fn lower_creature_token(token: &SourceToken) -> Result<CreatureToken, Failure> {
+    if !token.supertypes.is_empty()
+        || token.types != ["creature"]
+        || token.power.amount != "fixed"
+        || token.toughness.amount != "fixed"
+    {
+        return Err(unsupported(
+            "effects.token",
+            "unsupported token characteristic shape",
+        ));
+    }
+    let colors = token
+        .colors
+        .iter()
+        .map(|c| match c.as_str() {
+            "white" => Ok(Color::W),
+            "blue" => Ok(Color::U),
+            "black" => Ok(Color::B),
+            "red" => Ok(Color::R),
+            "green" => Ok(Color::G),
+            _ => Err(unsupported("effects.token.colors", "unsupported color")),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let keywords = token
+        .keywords
+        .iter()
+        .map(|k| {
+            let obj = k
+                .as_object()
+                .ok_or_else(|| unsupported("effects.token.keywords", "invalid keyword"))?;
+            if obj.len() != 1 {
+                return Err(unsupported(
+                    "effects.token.keywords",
+                    "parameterized keyword",
+                ));
+            }
+            serde_json::from_value::<KeywordAbility>(k["keyword"].clone())
+                .map_err(|_| unsupported("effects.token.keywords", "unsupported keyword"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let token = CreatureToken {
+        colors,
+        subtypes: token.subtypes.clone(),
+        power: i64::from(token.power.value).into(),
+        toughness: i64::from(token.toughness.value).into(),
+        keywords,
+    };
+    token
+        .validate()
+        .map_err(|e| unsupported("effects.token", e))?;
+
+    Ok(token)
+}
+fn lower_permanent_filter(v: &serde_json::Value) -> Result<PermanentFilter, Failure> {
+    let kind = |v: &serde_json::Value| -> Result<CardKind, Failure> {
+        serde_json::from_value(v.clone())
+            .map_err(|_| unsupported("filter", "unsupported card type"))
+    };
+    let mut types = vec![];
+    let obj = v
+        .as_object()
+        .ok_or_else(|| unsupported("filter", "not an object"))?;
+    if obj.keys().any(|k| {
+        !["cls", "types", "allOf", "nonTypes", "nonColors", "control"].contains(&k.as_str())
+    }) {
+        return Err(unsupported("filter", "unsupported filter term"));
+    }
+    if let Some(a) = v.get("types") {
+        for t in a.as_array().ok_or_else(|| unsupported("filter", "types"))? {
+            types.push(kind(t)?);
+        }
+    }
+    if let Some(a) = v.get("allOf") {
+        if !types.is_empty() {
+            return Err(unsupported("filter", "mixed type forms"));
+        }
+        let a = a.as_array().ok_or_else(|| unsupported("filter", "allOf"))?;
+        if a.len() != 1 || a[0].as_object().is_none_or(|o| o.len() != 1) {
+            return Err(unsupported("filter", "unsupported conjunction"));
+        }
+        let alternatives = a[0]["anyOf"]
+            .as_array()
+            .ok_or_else(|| unsupported("filter", "anyOf"))?;
+        if alternatives.len() < 2 {
+            return Err(unsupported("filter", "empty alternatives"));
+        }
+        for a in alternatives {
+            if a.as_object().is_none_or(|o| o.len() != 1)
+                || a["types"].as_array().is_none_or(|a| a.len() != 1)
+            {
+                return Err(unsupported("filter", "unsupported alternative"));
+            }
+            types.push(kind(&a["types"][0])?);
+        }
+    }
+    if let Some(cls) = v.get("cls")
+        && (cls != "permanent" || !types.is_empty())
+    {
+        return Err(unsupported("filter", "unsupported class"));
+    }
+    if types.is_empty() && v.get("cls").is_none() {
+        return Err(unsupported("filter", "missing type/class"));
+    }
+    let non_types = v
+        .get("nonTypes")
+        .map(|a| {
+            a.as_array()
+                .ok_or_else(|| unsupported("filter", "nonTypes"))
+                .and_then(|a| a.iter().map(kind).collect())
+        })
+        .transpose()?
+        .unwrap_or_default();
+    let non_colors = v
+        .get("nonColors")
+        .map(|a| {
+            a.as_array()
+                .ok_or_else(|| unsupported("filter", "nonColors"))
+                .and_then(|a| {
+                    a.iter()
+                        .map(|c| match c.as_str() {
+                            Some("black") => Ok(Color::B),
+                            _ => Err(unsupported("filter", "unsupported noncolor")),
+                        })
+                        .collect()
+                })
+        })
+        .transpose()?
+        .unwrap_or_default();
+    let opponent = match v.get("control") {
+        None => false,
+        Some(c) if c == "opponent" => true,
+        _ => return Err(unsupported("filter", "unsupported controller")),
+    };
+    Ok(PermanentFilter {
+        types,
+        non_types,
+        non_colors,
+        opponent,
+    })
+}
+fn bind_permanent_target(
+    p: &mut SpellProgram,
+    slots: &mut BTreeMap<String, u32>,
+    v: &serde_json::Value,
+) -> Result<u32, Failure> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct T {
+        #[serde(rename = "ref")]
+        reference: String,
+        filter: serde_json::Value,
+        count: Count,
+        selection_id: String,
+    }
+    let t: T = serde_json::from_value(v.clone())
+        .map_err(|_| unsupported("target", "unsupported complete permanent target"))?;
+    if t.reference != "target" || !fixed_one(&t.count) {
+        return Err(unsupported("target", "requires one target"));
+    }
+    let f = lower_permanent_filter(&t.filter)?;
+    let slot = bind_target(
+        p,
+        slots,
+        &t.selection_id,
+        TargetDomain::BattlefieldPermanent,
+    )?;
+    if p.targets[slot as usize]
+        .filter
+        .as_ref()
+        .is_some_and(|old| old != &f)
+    {
+        return Err(unsupported("filter", "conflicting target filter"));
+    }
+    p.targets[slot as usize].filter = Some(f);
+    Ok(slot)
+}
+fn target_reference(p: &SpellProgram, v: &serde_json::Value) -> Result<u32, Failure> {
+    if p.targets.len() != 1
+        || !matches!(
+            p.targets[0].domain,
+            TargetDomain::BattlefieldPermanent | TargetDomain::StackSpell
+        )
+    {
+        return Err(unsupported("reference", "requires bound removal target"));
+    }
+    let valid = *v == serde_json::json!({"ref":"it"})
+        || *v == serde_json::json!({"ref":"that","filter":{"cls":"permanent"}})
+        || (*v == serde_json::json!({"ref":"that","filter":{"types":["artifact"]}})
+            && p.targets[0]
+                .filter
+                .as_ref()
+                .is_some_and(|f| f.types == [CardKind::Artifact]));
+    if !valid {
+        return Err(unsupported(
+            "reference",
+            "unsupported complete target reference",
+        ));
+    }
+    Ok(0)
+}
+fn removal_recipient(p: &SpellProgram, v: &serde_json::Value) -> Result<EffectRecipient, Failure> {
+    if *v == serde_json::json!({"player":"you"}) {
+        return Ok(EffectRecipient::Controller);
+    }
+    if v.as_object().is_none_or(|o| o.len() != 2) || v["player"] != "controller" {
+        return Err(unsupported("recipient", "unsupported target controller"));
+    }
+    Ok(EffectRecipient::TargetController {
+        target_slot: target_reference(p, &v["of"])?,
+    })
+}
+fn removal_amount(p: &SpellProgram, v: &serde_json::Value) -> Result<TargetAmount, Failure> {
+    if v["amount"] == "attribute" && v.as_object().is_some_and(|o| o.len() == 3) {
+        let attribute = match v["attribute"].as_str() {
+            Some("power") => TargetAttribute::Power,
+            Some("mana-value") => TargetAttribute::ManaValue,
+            _ => return Err(unsupported("amount", "unsupported attribute")),
+        };
+        return Ok(TargetAmount::Attribute {
+            target_slot: target_reference(p, &v["of"])?,
+            attribute,
+        });
+    }
+    Ok(TargetAmount::Fixed {
+        amount: fixed_positive(
+            &serde_json::from_value(v.clone())
+                .map_err(|_| unsupported("amount", "unsupported amount"))?,
+        )?,
+    })
 }
 fn signed_fixed(value: &SignedAmount) -> Result<Quantity, Failure> {
     if value.amount.amount != "fixed" || !matches!(value.sign, -1 | 1) {
@@ -2435,6 +2800,9 @@ fn life_recipient(
     slots: &mut BTreeMap<String, u32>,
     who: &PlayerSelector,
 ) -> Result<LifeRecipient, Failure> {
+    if who.of.is_some() {
+        return Err(unsupported("who", "unexpected object reference"));
+    }
     match (who.player.as_str(), who.selection_id.as_deref()) {
         ("you", None) => Ok(LifeRecipient::Controller),
         ("target-player", Some(id)) => Ok(LifeRecipient::Target {
@@ -2632,6 +3000,7 @@ fn lower_mana_ability(
     let you = PlayerSelector {
         player: "you".into(),
         selection_id: None,
+        of: None,
     };
     if *who != you {
         return Err(unsupported("mana", "unsupported mana recipient"));
@@ -2688,9 +3057,13 @@ fn lower_activation(
                 cost: mana_cost(&text)?,
             }
         }
-        _ if kind == CardKind::Artifact => ActivationCost::Composite {
-            costs: lower_permanent_costs(costs, kind)?,
-        },
+        _ if kind == CardKind::Artifact
+            || matches!(costs, [SourceCost::Mana { .. }, SourceCost::Sacrifice { what }] if kind == CardKind::Creature && what.reference == "this" && what.noun == "creature") =>
+        {
+            ActivationCost::Composite {
+                costs: lower_permanent_costs(costs, kind)?,
+            }
+        }
         _ => {
             return Err(unsupported(
                 "abilities.costs",
@@ -2707,6 +3080,26 @@ fn lower_activation(
         instructions: vec![],
         modes: vec![],
     };
+    if kind == CardKind::Creature && matches!(cost, ActivationCost::Composite { .. }) {
+        append_spell_effects(&mut program, effects, block, &mut BTreeMap::new())?;
+        if !matches!(
+            program.instructions.as_slice(),
+            [Instruction::DestroyPermanent {
+                optional: false,
+                ..
+            }]
+        ) {
+            return Err(unsupported(
+                "activation",
+                "unsupported targeted sacrifice program",
+            ));
+        }
+        return Ok(ActivatedAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            cost,
+            program,
+        });
+    }
     let mut slots = BTreeMap::new();
     for sentence in effects {
         if sentence.steps.is_empty() {
@@ -2719,6 +3112,7 @@ fn lower_activation(
             let you = PlayerSelector {
                 player: "you".into(),
                 selection_id: None,
+                of: None,
             };
             let instruction = match step {
                 Step::PreventDamage {
@@ -2732,7 +3126,9 @@ fn lower_activation(
                     amount,
                     to,
                 } if noun == "creature" => {
-                    let DamageDestination::AnyTarget { selection_id } = to;
+                    let DamageDestination::AnyTarget { selection_id } = to else {
+                        return Err(unsupported("damage", "unsupported damage destination"));
+                    };
                     Instruction::DealDamage {
                         target_slot: bind_target(
                             &mut program,
@@ -2989,6 +3385,18 @@ pub fn mana_fixture_catalog() -> Result<Catalog, String> {
 }
 
 /// P6.6 adds definitions only: all instructions and capabilities remain IR v16.
+pub fn removal_fixture_catalog() -> Result<Catalog, String> {
+    let mut catalog = attachments_fixture_catalog()?;
+    catalog.schema_version = 18;
+    catalog
+        .definitions
+        .extend(catalog_from_records(&fixtures::REMOVAL_RECORDS, 18)?.definitions);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate()?;
+    Ok(catalog)
+}
 pub fn attachments_fixture_catalog() -> Result<Catalog, String> {
     let mut catalog = four_colors_fixture_catalog()?;
     catalog.schema_version = 17;
@@ -3015,10 +3423,14 @@ pub fn four_colors_fixture_catalog() -> Result<Catalog, String> {
 
 fn catalog_from_records(records: &[(&str, &str)], schema_version: u32) -> Result<Catalog, String> {
     let mut definitions = vec![];
-    for (_, r) in records {
+    for (name, r) in records {
         match compile(fixtures::MANIFEST, r) {
             CompileResult::Lowered { definition } => definitions.push(*definition),
-            result => return Err(format!("unexpected fixture compile result: {result:?}")),
+            result => {
+                return Err(format!(
+                    "unexpected fixture {name} compile result: {result:?}"
+                ));
+            }
         }
     }
     definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
@@ -3035,6 +3447,135 @@ fn catalog_from_records(records: &[(&str, &str)], schema_version: u32) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn removal_v18_source_pairs_and_unchanged_inherited_definitions() {
+        let c = removal_fixture_catalog().unwrap();
+        assert_eq!((c.schema_version, c.definitions.len()), (18, 135));
+        assert_eq!(
+            c,
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/expected-removal-ir.json"
+            ))
+            .unwrap()
+        );
+        for old in attachments_fixture_catalog().unwrap().definitions {
+            assert_eq!(
+                c.definitions.iter().find(|d| d.oracle_id == old.oracle_id),
+                Some(&old)
+            );
+        }
+        for (name, raw) in fixtures::REMOVAL_RECORDS {
+            let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
+                panic!("{name}")
+            };
+            assert!(
+                definition
+                    .capabilities
+                    .contains(&Capability::PermanentRemovalV1)
+            );
+            let mut bad = c.clone();
+            bad.schema_version = 17;
+            bad.definitions = vec![*definition];
+            assert!(bad.validate().is_err(), "{name}");
+        }
+        for raw in [
+            include_str!("../../../tests/fixtures/return-to-dust.json"),
+            include_str!("../../../tests/fixtures/vandalblast.json"),
+            include_str!("../../../tests/fixtures/bone-splinters.json"),
+            include_str!("../../../tests/fixtures/banishing-light.json"),
+        ] {
+            assert!(!matches!(
+                compile(fixtures::MANIFEST, raw),
+                CompileResult::Lowered { .. }
+            ));
+        }
+        let throat = c
+            .definitions
+            .iter()
+            .find(|d| d.name == "Go for the Throat")
+            .unwrap();
+        assert_eq!(
+            throat.spell.as_ref().unwrap().targets[0]
+                .filter
+                .as_ref()
+                .unwrap()
+                .non_types,
+            [CardKind::Artifact]
+        );
+        let pongify = c.definitions.iter().find(|d| d.name == "Pongify").unwrap();
+        assert!(matches!(
+            pongify.spell.as_ref().unwrap().instructions[0],
+            Instruction::DestroyPermanent {
+                regeneration_forbidden: true,
+                ..
+            }
+        ));
+    }
+    #[test]
+    fn removal_whole_card_mutants_cannot_lose_filters_references_or_flags() {
+        for (name, field, value) in [
+            (
+                "swords-to-plowshares",
+                "/effects/0/steps/0/regenerationForbidden",
+                serde_json::json!(true),
+            ),
+            (
+                "disenchant",
+                "/effects/0/steps/0/what/filter/power",
+                serde_json::json!(4),
+            ),
+            (
+                "doom-blade",
+                "/effects/0/steps/0/what/filter/nonColors",
+                serde_json::json!(["purple"]),
+            ),
+            (
+                "feed-the-swarm",
+                "/effects/1/steps/0/amount/attribute",
+                serde_json::json!("toughness"),
+            ),
+            (
+                "generous-gift",
+                "/effects/1/steps/0/who/of",
+                serde_json::json!({"ref":"them"}),
+            ),
+        ] {
+            let raw = fixtures::REMOVAL_RECORDS
+                .iter()
+                .find(|r| r.0 == name)
+                .unwrap()
+                .1;
+            let bad = changed_source(raw, |r| {
+                let a = &mut r["faces"][0]["result"]["abilities"][0];
+                // Paths include new fields, so use the object parent explicitly.
+                let (parent, key) = field.rsplit_once('/').unwrap();
+                a.pointer_mut(parent)
+                    .unwrap()
+                    .as_object_mut()
+                    .unwrap()
+                    .insert(key.into(), value);
+                r["faces"][0]["result"]["lines"][0]["ability"] =
+                    r["faces"][0]["result"]["abilities"][0].clone();
+            });
+            assert!(
+                !matches!(
+                    compile(fixtures::MANIFEST, &bad),
+                    CompileResult::Lowered { .. }
+                ),
+                "{name}"
+            );
+        }
+        let c = removal_fixture_catalog().unwrap();
+        let mut raw = serde_json::to_value(
+            c.definitions
+                .iter()
+                .find(|d| d.name == "Swords to Plowshares")
+                .unwrap(),
+        )
+        .unwrap();
+        raw["spell"]["instructions"][0]["regeneration_forbidden"] = true.into();
+        assert!(serde_json::from_value::<Definition>(raw).is_err());
+    }
     #[test]
     fn attachments_v17_complete_sources_and_strict_downgrades() {
         let c = attachments_fixture_catalog().unwrap();
@@ -4495,7 +5036,7 @@ mod tests {
             );
         }
         let mut future = c;
-        future.schema_version = 18;
+        future.schema_version = 19;
         assert!(future.validate().is_err());
     }
     #[test]
@@ -4627,6 +5168,7 @@ mod tests {
                 selection_id: "line:0:8".into(),
                 chooser: Chooser::Controller,
                 stage: EvaluationStage::Announcement,
+                filter: None,
                 domain: TargetDomain::AnyPlayer
             }]
         );
@@ -4859,7 +5401,7 @@ mod tests {
             assert!(Catalog::read(&bad).is_err());
         }
         let mut bad = c;
-        bad.schema_version = 18;
+        bad.schema_version = 19;
         assert!(bad.validate().is_err());
     }
 
@@ -5124,7 +5666,7 @@ mod tests {
             }
         }
         let mut bad = catalog.clone();
-        bad.schema_version = 18;
+        bad.schema_version = 19;
         assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
         for change in [
             (|d: &mut Definition| {
@@ -5436,7 +5978,7 @@ mod tests {
     #[test]
     fn stack_vocabulary_requires_ir6_and_rejects_bad_binding_and_capability_closure() {
         let catalog = stack_fixture_catalog().unwrap();
-        for version in [3, 4, 5, 18] {
+        for version in [3, 4, 5, 19] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -5589,6 +6131,7 @@ mod tests {
                 selection_id: "line:0:0".into(),
                 chooser: Chooser::Controller,
                 stage: EvaluationStage::Announcement,
+                filter: None,
                 domain: TargetDomain::OpponentPlayer
             }]
         );
@@ -5640,7 +6183,7 @@ mod tests {
         let c = fixture_catalog().unwrap();
         let raw = canonical(&c).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":3", "\"schema_version\":18"),
+            raw.replace("\"schema_version\":3", "\"schema_version\":19"),
             raw.replace("\"op\":\"return_to_owner_hand\"", "\"op\":\"execute_text\""),
             raw.replace("\"target_slot\":0", "\"target_slot\":99"),
             raw.replace("\"source_block\":0", "\"unknown\":true,\"source_block\":0"),
@@ -5849,6 +6392,7 @@ mod tests {
                     selection_id: "line:0:1".into(),
                     chooser: Chooser::Controller,
                     stage: EvaluationStage::Announcement,
+                    filter: None,
                     domain: TargetDomain::BattlefieldCreature
                 }],
                 instructions: vec![Instruction::PutOnTopOwnerLibrary {
@@ -6181,7 +6725,7 @@ mod tests {
     #[test]
     fn action_ir_version_shapes_and_target_domains_are_strict() {
         let catalog = action_fixture_catalog().unwrap();
-        for version in [3, 4, 18] {
+        for version in [3, 4, 19] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -6209,6 +6753,7 @@ mod tests {
                     selection_id: "unexpected".into(),
                     chooser: Chooser::Controller,
                     stage: EvaluationStage::Announcement,
+                    filter: None,
                     domain: TargetDomain::BattlefieldCreature,
                 }]
             },
@@ -6236,6 +6781,7 @@ mod tests {
             selection_id: "creature-slot".into(),
             chooser: Chooser::Controller,
             stage: EvaluationStage::Announcement,
+            filter: None,
             domain: TargetDomain::BattlefieldCreature,
         });
         p.instructions.push(Instruction::ReturnToOwnerHand {
@@ -6306,7 +6852,7 @@ mod tests {
         assert!(old.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":4", "\"schema_version\":18"),
+            raw.replace("\"schema_version\":4", "\"schema_version\":19"),
             raw.replace(
                 "\"op\":\"put_on_top_owner_library\"",
                 "\"op\":\"put_on_bottom_owner_library\"",
@@ -6505,6 +7051,7 @@ mod tests {
                     selection_id: "forged".into(),
                     chooser: Chooser::Controller,
                     stage: EvaluationStage::Announcement,
+                    filter: None,
                     domain: TargetDomain::BattlefieldCreature,
                 });
             },
