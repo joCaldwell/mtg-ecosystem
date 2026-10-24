@@ -76,6 +76,7 @@ impl Game {
                     && !o.tapped
                     && self.target_legal(o.id)
                     && !self.has_restriction(o.id, CreatureRestriction::CantAttackOrBlock)
+                    && (attacking || !self.has_restriction(o.id, CreatureRestriction::CantBlock))
                     && (!attacking
                         || ((o.attack_ready || self.has_keyword(o.id, KeywordAbility::Haste))
                             && !self.has_keyword(o.id, KeywordAbility::Defender)))

@@ -276,6 +276,7 @@ mod tests {
             }
         };
         let mut v = PermittedView {
+            sacrifice_choices: vec![],
             setup: None,
             effects: vec![],
             combat: vec![],

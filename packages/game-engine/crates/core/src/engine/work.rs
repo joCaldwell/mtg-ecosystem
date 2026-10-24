@@ -611,6 +611,15 @@ impl Game {
                             | PlayerResponse::ManaColor { .. },
                         ) => true,
                         (Frame::Modes { .. }, PlayerResponse::Modes { .. }) => true,
+                        (Frame::SacrificeCost { .. }, PlayerResponse::SacrificeCost { .. })
+                        | (Frame::ForcedSacrifice { .. }, PlayerResponse::ForcedSacrifice { .. })
+                        | (Frame::OptionalDamage { .. }, PlayerResponse::OptionalEffect { .. }) => {
+                            true
+                        }
+                        (
+                            Frame::TriggerTargets { .. },
+                            PlayerResponse::EntityTargets { entities },
+                        ) => entities.len() == self.program().map_err(invalid)?.targets.len(),
                         (Frame::TriggerTargets { .. }, PlayerResponse::Targets { objects }) => {
                             objects.len() == self.program().map_err(invalid)?.targets.len()
                         }

@@ -437,6 +437,8 @@ fn exactly_foundations_and_attachments_are_hosted() {
             mtg_core::STAPLES_PROFILE => "expected-staples-ir.json",
             mtg_core::MANA_PROFILE => "expected-mana-ir.json",
             mtg_core::FOUR_COLORS_PROFILE => "expected-four-colors-ir.json",
+            mtg_core::REMOVAL_PROFILE => "expected-removal-ir.json",
+            mtg_core::SACRIFICE_PROFILE => "expected-sacrifice-ir.json",
             _ => panic!("review new legal profile hosting scope"),
         };
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))

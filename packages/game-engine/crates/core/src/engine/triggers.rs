@@ -45,7 +45,9 @@ fn movement(outcome: &EventOutcome) -> Option<&MoveOutcome> {
 }
 impl Game {
     pub(super) fn stack_limit(&self) -> usize {
-        if self.removal_enabled() {
+        if self.sacrifice_enabled() {
+            sacrifice::STACK_BOUND
+        } else if self.removal_enabled() {
             removal::STACK_BOUND
         } else if self.attachments_enabled() {
             attachments::STACK_BOUND
@@ -125,12 +127,30 @@ impl Game {
                             TriggerCondition::SelfAuraToGraveyard => dies && object.id == subject,
                             TriggerCondition::AnyCreatureDies => creature && dies,
                             TriggerCondition::SelfEntersBattlefield => {
-                                creature && enters && object.id == subject
+                                enters && object.id == subject
                             }
                             TriggerCondition::OtherCreatureEntersBattlefield => {
                                 creature && enters && object.id != subject
                             }
                         };
+                        let matches = matches
+                            && definition.death_filter.as_ref().is_none_or(|f| {
+                                let Ok(dying) = observers.current(subject) else {
+                                    return false;
+                                };
+                                let Ok(d) = observers.definition(subject.card) else {
+                                    return false;
+                                };
+                                (!f.controlled || dying.controller == object.controller)
+                                    && (!f.other || subject != object.id)
+                                    && (!f.non_token
+                                        || !observers.state.tokens.contains_key(&subject.card))
+                                    && !d
+                                        .characteristics
+                                        .subtypes
+                                        .iter()
+                                        .any(|s| f.non_subtypes.contains(s))
+                            });
                         if matches
                             && definition.functioning_zone == FunctioningZone::Battlefield
                             && observers.is_live(object.controller)
@@ -372,6 +392,7 @@ impl Game {
                         colored: vec![],
                     };
                     self.state.stack.push(StackInstance {
+                        sacrificed: None,
                         mode: None,
                         effect_source_handles: vec![],
                         source_facts: Some(trigger.source_facts),
@@ -483,6 +504,14 @@ impl Game {
                     )
                 }) {
                     return self.bind_trigger_object_targets(placement, stack_id);
+                }
+                if self
+                    .program()?
+                    .targets
+                    .first()
+                    .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget)
+                {
+                    return self.bind_trigger_entity_targets(placement, stack_id);
                 }
                 let input = self
                     .state
@@ -693,7 +722,9 @@ impl Game {
                             && m.successor != trigger.source
                     }
                 }) && (condition == TriggerCondition::SelfAuraToGraveyard
-                    || self.definition(m.previous.card)?.characteristics.kind == CardKind::Creature)
+                    || self.definition(m.previous.card)?.characteristics.kind == CardKind::Creature
+                    || (condition == TriggerCondition::SelfEntersBattlefield
+                        && self.sacrifice_enabled()))
             } else {
                 false
             };
@@ -743,7 +774,7 @@ impl Game {
                                 | TargetDomain::OwnGraveyardCreatureCard
                         )
                     }))
-                || !entry.entity_targets.is_empty()
+                || (!entry.entity_targets.is_empty() && !self.sacrifice_enabled())
                 || !entry.stack_targets.is_empty()
                 || entry.total_cost
                     != (ManaCost {
@@ -788,7 +819,57 @@ impl Game {
 }
 
 impl Game {
-    fn bind_trigger_object_targets(
+    fn bind_trigger_entity_targets(
+        &mut self,
+        placement: TriggerPlacement,
+        stack_id: StackId,
+    ) -> Result<(), String> {
+        let input = self
+            .state
+            .pending
+            .take()
+            .ok_or("missing trigger entity targets")?;
+        let Response::EntityTargets { entities } = input.response else {
+            return Err("trigger entity response".into());
+        };
+        self.validate_entity_targets(input.player, &entities)?;
+        let announced = (0..4)
+            .map(|v| {
+                entities
+                    .iter()
+                    .map(|t| match t {
+                        TargetEntity::Player { .. } => Ok(None),
+                        TargetEntity::Object { object } => {
+                            self.handle_for(PlayerId(v), *object).map(Some)
+                        }
+                    })
+                    .collect::<Result<Vec<_>, String>>()
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let top = self
+            .state
+            .stack
+            .last_mut()
+            .ok_or("missing triggered invocation")?;
+        if top.id != stack_id {
+            return Err("trigger identity".into());
+        }
+        let StackKind::Triggered { trigger_id, .. } = top.kind else {
+            return Err("trigger kind".into());
+        };
+        top.entity_targets = entities;
+        top.announced_entity_targets = announced;
+        top.paid = Some(top.total_cost.clone());
+        let player = top.controller;
+        self.record_event(Event::TriggerPlaced {
+            trigger_id,
+            stack_id,
+            player,
+        })?;
+        self.state.frame = Frame::TriggerOrder { placement };
+        Ok(())
+    }
+    pub(super) fn bind_trigger_object_targets(
         &mut self,
         placement: TriggerPlacement,
         stack_id: StackId,

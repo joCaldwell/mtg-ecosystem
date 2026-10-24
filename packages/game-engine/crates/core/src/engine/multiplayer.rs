@@ -456,6 +456,7 @@ impl Game {
         | Frame::StackTargets { cast }
         | Frame::PlayerTargets { cast }
         | Frame::Mana { cast }
+        | Frame::SacrificeCost { cast }
         | Frame::SpendMana { cast }
         | Frame::Payment { cast } = self.state.frame.clone()
             && lost_stack.contains(&cast.stack_id)
@@ -480,6 +481,7 @@ impl Game {
         | Frame::StackTargets { cast }
         | Frame::PlayerTargets { cast }
         | Frame::Mana { cast }
+        | Frame::SacrificeCost { cast }
         | Frame::SpendMana { cast }
         | Frame::Payment { cast } = self.state.frame.clone()
         {
@@ -528,6 +530,7 @@ impl Game {
             self.state.frame,
             Frame::Priority
                 | Frame::Mana { .. }
+                | Frame::SacrificeCost { .. }
                 | Frame::SpendMana { .. }
                 | Frame::ManaAbility { .. }
         ) && self

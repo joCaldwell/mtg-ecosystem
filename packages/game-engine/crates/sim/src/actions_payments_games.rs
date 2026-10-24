@@ -200,6 +200,9 @@ impl Strategy {
         let v = &o.view;
         let r = o.decision.as_ref().ok_or("missing action decision")?;
         Ok(match r {
+            PlayerRequest::SacrificeCost { .. } | PlayerRequest::ForcedSacrifice { .. } => {
+                return Err("sacrifice request outside historical profile".into());
+            }
             PlayerRequest::ManaColor { .. }
             | PlayerRequest::SearchLands { .. }
             | PlayerRequest::OptionalEffect { .. }

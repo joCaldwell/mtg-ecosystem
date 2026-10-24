@@ -355,10 +355,19 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
         | ProposedEvent::Move { object, .. }
         | ProposedEvent::LeaveGame { object, .. } => {
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
-            (
-                BTreeSet::from([FactKey::Object(object.card), FactKey::Libraries]),
-                keys,
-            )
+            let mut reads = keys.clone();
+            // Zone membership is authoritative (CR 400.7). A battlefield Aura
+            // moving to graveyard neither consumes nor changes library order.
+            // Its SBA may coincide with a tucked token ceasing (704.5d/m).
+            // Distinct identity removals commute (including departure cleanup).
+            // They still read library order, rejecting composition with tuck.
+            if game
+                .current(*object)
+                .is_ok_and(|o| matches!(o.zone, Zone::Library { .. }))
+            {
+                reads.insert(FactKey::Libraries);
+            }
+            (reads, keys)
         }
         ProposedEvent::Untap { object } | ProposedEvent::Tap { object } => {
             let keys = BTreeSet::from([FactKey::Object(object.card)]);

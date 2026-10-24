@@ -38,6 +38,9 @@ impl Game {
             .checked_add(1)
             .ok_or("stack ID resource limit")?;
         let total_cost = match &cost {
+            ActivationCost::SacrificePermanent { mana, .. } => {
+                mana.clone().unwrap_or_else(zero_mana_cost)
+            }
             ActivationCost::Mana { cost } => cost.clone(),
             ActivationCost::Composite { costs } => {
                 costs.mana.clone().unwrap_or_else(zero_mana_cost)
@@ -47,13 +50,17 @@ impl Game {
                 colored: vec![],
             },
         };
-        let mana = matches!(cost, ActivationCost::Mana { .. })
-            || matches!(&cost, ActivationCost::Composite { costs } if costs.mana.is_some());
+        let chosen = matches!(cost, ActivationCost::SacrificePermanent { .. });
+        let mana = matches!(
+            cost,
+            ActivationCost::Mana { .. } | ActivationCost::SacrificePermanent { mana: Some(_), .. }
+        ) || matches!(&cost, ActivationCost::Composite { costs } if costs.mana.is_some());
         let targeted = !self.definition(object.card)?.activated[ability as usize]
             .program
             .targets
             .is_empty();
         self.state.stack.push(StackInstance {
+            sacrificed: None,
             mode: None,
             effect_source_handles: vec![],
             source_facts: if self.prepared.config.damage_life_profile() {
@@ -75,7 +82,7 @@ impl Game {
             controller: player,
             targets: vec![],
             announced_targets: vec![vec![]; 4],
-            paid: (!mana && !targeted).then_some(total_cost.clone()),
+            paid: (!mana && !targeted && !chosen).then_some(total_cost.clone()),
             total_cost,
             cast_from: Zone::Battlefield,
         });
@@ -83,12 +90,16 @@ impl Game {
             if cost != ActivationCost::TapSource
                 && !matches!(
                     cost,
-                    ActivationCost::Mana { .. } | ActivationCost::Composite { .. }
+                    ActivationCost::Mana { .. }
+                        | ActivationCost::Composite { .. }
+                        | ActivationCost::SacrificePermanent { .. }
+                        | ActivationCost::SacrificeSource
                 )
             {
                 return Err("unsupported targeted activation cost".into());
             }
             let cast = Casting {
+                sacrifice: None,
                 origin: AnnouncementOrigin::Activated,
                 spending: None,
                 stack_id: id,
@@ -111,8 +122,23 @@ impl Game {
         } else if mana {
             self.state.frame = Frame::Mana {
                 cast: Casting {
+                    sacrifice: None,
                     origin: AnnouncementOrigin::Activated,
                     spending: None,
+                    stack_id: id,
+                    original_object: object,
+                    prior_passes: self.state.passes.clone(),
+                    mana_activations: vec![],
+                    undo_mana: false,
+                },
+            };
+        } else if chosen {
+            // CR 602.2b/601.2g-h: no mana opportunity for a cost with no mana.
+            self.state.frame = Frame::SacrificeCost {
+                cast: Casting {
+                    sacrifice: None,
+                    origin: AnnouncementOrigin::Activated,
+                    spending: Some(BTreeMap::new()),
                     stack_id: id,
                     original_object: object,
                     prior_passes: self.state.passes.clone(),
@@ -138,7 +164,9 @@ impl Game {
                 let proposed = match cost {
                     ActivationCost::SacrificeSource => ProposedEvent::Sacrifice { object, player },
                     ActivationCost::TapSource => ProposedEvent::Tap { object },
-                    ActivationCost::Composite { .. } | ActivationCost::Mana { .. } => {
+                    ActivationCost::Composite { .. }
+                    | ActivationCost::Mana { .. }
+                    | ActivationCost::SacrificePermanent { .. } => {
                         return Err("activated cost branch invariant".into());
                     }
                 };
@@ -177,6 +205,9 @@ impl Game {
             .get(ability as usize)
             .ok_or("snapshot missing activated definition")?;
         let expected = match &activated.cost {
+            ActivationCost::SacrificePermanent { mana, .. } => {
+                mana.clone().unwrap_or_else(zero_mana_cost)
+            }
             ActivationCost::Mana { cost } => cost.clone(),
             ActivationCost::Composite { costs } => {
                 costs.mana.clone().unwrap_or_else(zero_mana_cost)
@@ -190,6 +221,7 @@ impl Game {
             Frame::Targets { cast }
             | Frame::EntityTargets { cast }
             | Frame::Mana { cast }
+            | Frame::SacrificeCost { cast }
             | Frame::SpendMana { cast }
             | Frame::Payment { cast } => {
                 cast.stack_id == entry.id && cast.origin == AnnouncementOrigin::Activated
@@ -219,7 +251,10 @@ impl Game {
                     !announcing
                         || !(matches!(
                             activated.cost,
-                            ActivationCost::Mana { .. } | ActivationCost::Composite { .. }
+                            ActivationCost::Mana { .. }
+                                | ActivationCost::Composite { .. }
+                                | ActivationCost::SacrificePermanent { .. }
+                                | ActivationCost::SacrificeSource
                         ) || (!activated.program.targets.is_empty()
                             && self.prepared.config.damage_life_profile()))
                 }

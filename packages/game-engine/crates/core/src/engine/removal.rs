@@ -34,8 +34,9 @@ pub(super) struct TargetFacts {
 }
 impl Game {
     pub(super) fn removal_enabled(&self) -> bool {
-        self.prepared.config.profile == REMOVAL_PROFILE
-            && self.prepared.catalog.schema_version == 18
+        self.sacrifice_enabled()
+            || (self.prepared.config.profile == REMOVAL_PROFILE
+                && self.prepared.catalog.schema_version == 18)
     }
     fn matches_permanent_filter(
         &self,

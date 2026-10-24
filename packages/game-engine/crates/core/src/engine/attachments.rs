@@ -36,6 +36,7 @@ impl Game {
                         .filter_map(move |a| match &a.effect {
                             StaticEffect::ModifyCreatures { scope, .. }
                                 if match scope {
+                                    CreatureScope::Source => o.id == target,
                                     CreatureScope::Controller => {
                                         o.controller == creature.controller
                                     }

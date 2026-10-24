@@ -13,6 +13,9 @@ pub use commander_policy::{
 mod removal;
 #[cfg(test)]
 mod removal_tests;
+mod sacrifice;
+#[cfg(test)]
+mod sacrifice_tests;
 use removal::TargetFacts;
 mod attachments;
 #[cfg(test)]
@@ -658,6 +661,8 @@ struct Object {
 #[serde(deny_unknown_fields)]
 struct StackInstance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    sacrificed: Option<ObjectBefore>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     mode: Option<u32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     effect_source_handles: Vec<ObjectHandle>,
@@ -687,6 +692,8 @@ struct StackInstance {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Casting {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sacrifice: Option<ObjectId>,
     #[serde(default, skip_serializing_if = "AnnouncementOrigin::is_spell")]
     origin: AnnouncementOrigin,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -724,6 +731,18 @@ struct Resolving {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 enum Frame {
+    SacrificeCost {
+        cast: Casting,
+    },
+    ForcedSacrifice {
+        frame: Resolving,
+        remaining: Vec<PlayerId>,
+        choices: Vec<(PlayerId, ObjectId)>,
+        source_block: u32,
+    },
+    OptionalDamage {
+        frame: Resolving,
+    },
     ManaAbility {
         activation: Box<ManaActivation>,
     },
@@ -810,6 +829,12 @@ enum Frame {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    SacrificeCost {
+        object: ObjectId,
+    },
+    ForcedSacrifice {
+        object: ObjectId,
+    },
     ManaColor {
         color: Color,
     },
@@ -910,6 +935,17 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    SacrificeCost {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<ObjectId>,
+    },
+    ForcedSacrifice {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<ObjectId>,
+        previous_choices: Vec<(PlayerId, ObjectId)>,
+    },
     ManaColor {
         decision_id: u64,
         player: PlayerId,
@@ -1072,6 +1108,8 @@ impl Request {
             | Self::StackTargets { decision_id, .. }
             | Self::PlayerTargets { decision_id, .. }
             | Self::Sacrifice { decision_id, .. }
+            | Self::SacrificeCost { decision_id, .. }
+            | Self::ForcedSacrifice { decision_id, .. }
             | Self::ResolveDiscard { decision_id, .. }
             | Self::SpendMana { decision_id, .. }
             | Self::CommanderReturn { decision_id, .. }
@@ -1100,6 +1138,8 @@ impl Request {
             | Self::StackTargets { player, .. }
             | Self::PlayerTargets { player, .. }
             | Self::Sacrifice { player, .. }
+            | Self::SacrificeCost { player, .. }
+            | Self::ForcedSacrifice { player, .. }
             | Self::ResolveDiscard { player, .. }
             | Self::SpendMana { player, .. }
             | Self::CommanderReturn { player, .. }
@@ -2024,6 +2064,20 @@ impl Game {
                         .collect(),
                 }
             }
+            Frame::TriggerTargets { .. }
+                if self
+                    .program()?
+                    .targets
+                    .first()
+                    .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget) =>
+            {
+                Request::EntityTargets {
+                    decision_id: self.state.revision,
+                    player: self.top()?.controller,
+                    occurrences: self.program()?.targets.clone(),
+                    candidates: self.eligible_entities(),
+                }
+            }
             Frame::PlayerTargets { .. } | Frame::TriggerTargets { .. } => Request::PlayerTargets {
                 decision_id: self.state.revision,
                 player: self.top()?.controller,
@@ -2031,6 +2085,11 @@ impl Game {
                 candidates: self
                     .eligible_players(self.program()?.targets[0].domain, self.top()?.controller),
             },
+            Frame::SacrificeCost { .. }
+            | Frame::ForcedSacrifice { .. }
+            | Frame::OptionalDamage { .. } => {
+                return Ok(self.sacrifice_request()?.filter(|r| r.player() == viewer));
+            }
             Frame::ManaAbility { activation } => self.permanent_mana_request(activation)?,
             Frame::SpendMana { .. } => self.spend_mana_request()?,
             Frame::CommanderReturn {
@@ -2070,6 +2129,14 @@ impl Game {
         Ok((req.player() == viewer).then_some(req))
     }
     fn validate_response(&self, player: PlayerId, response: &Response) -> Result<(), String> {
+        if matches!(
+            self.state.frame,
+            Frame::SacrificeCost { .. }
+                | Frame::ForcedSacrifice { .. }
+                | Frame::OptionalDamage { .. }
+        ) {
+            return self.validate_sacrifice_response(player, response);
+        }
         if matches!(self.state.frame, Frame::Setup) {
             return self.validate_setup_response(player, response);
         }
@@ -2154,6 +2221,11 @@ impl Game {
                 }
                 // Restrict targeted proposals to spells with an eligible target;
                 // the target-stage request never waits for an impossible choice.
+                if program.additional_sacrifice.as_ref().is_some_and(|f| {
+                    !self.sacrifice_enabled() || self.sacrifice_candidates(player, f).is_empty()
+                }) {
+                    return Err("no payable sacrifice cost".into());
+                }
                 if !self.has_target_domain(program, player) {
                     return Err("no legal target for this proposal".into());
                 }
@@ -2305,6 +2377,9 @@ impl Game {
             return self.apply_departure(player);
         }
         match self.state.frame.clone() {
+            Frame::SacrificeCost { .. }
+            | Frame::ForcedSacrifice { .. }
+            | Frame::OptionalDamage { .. } => self.sacrifice_step()?,
             Frame::Setup => self.setup_step()?,
             Frame::DamageAllocation { .. } => self.damage_allocation_step()?,
             Frame::Modes { cast } => self.bind_mode(cast)?,
@@ -2369,6 +2444,7 @@ impl Game {
                             vec![]
                         };
                         self.state.stack.push(StackInstance {
+                            sacrificed: None,
                             mode: None,
                             effect_source_handles,
                             source_facts: if self.prepared.config.damage_life_profile() {
@@ -2392,6 +2468,7 @@ impl Game {
                             cast_from,
                         });
                         let cast = Casting {
+                            sacrifice: None,
                             origin: AnnouncementOrigin::Spell,
                             spending: None,
                             stack_id: id,
@@ -2939,6 +3016,7 @@ impl Game {
                         | Frame::PlayerTargets { .. }
                         | Frame::Mana { .. }
                         | Frame::SpendMana { .. }
+                        | Frame::SacrificeCost { .. }
                         | Frame::Payment { .. }
                 ) || (matches!(
                     self.underlying_mana_frame(&s.frame),
@@ -2963,6 +3041,7 @@ impl Game {
         {
             return Err("snapshot stack/zone invariant".into());
         }
+        self.validate_sacrifice_state()?;
         self.validate_nested_mana_frame(&s.frame)?;
         match self.underlying_mana_frame(&s.frame) {
             Frame::Modes { cast }
@@ -2972,6 +3051,7 @@ impl Game {
             | Frame::PlayerTargets { cast }
             | Frame::Mana { cast }
             | Frame::SpendMana { cast }
+            | Frame::SacrificeCost { cast }
             | Frame::Payment { cast } => {
                 let top = self.top()?;
                 if cast.origin.is_spell() != top.kind.is_spell()
@@ -3020,15 +3100,19 @@ impl Game {
                 }
                 if matches!(
                     self.underlying_mana_frame(&s.frame),
-                    Frame::Mana { .. } | Frame::SpendMana { .. } | Frame::Payment { .. }
+                    Frame::Mana { .. }
+                        | Frame::SpendMana { .. }
+                        | Frame::SacrificeCost { .. }
+                        | Frame::Payment { .. }
                 ) && self.bound_target_count(top) != self.program()?.targets.len()
                 {
                     return Err("snapshot payment target invariant".into());
                 }
             }
-            Frame::Resolve { frame } | Frame::ResolutionChoice { frame, .. } => {
-                self.validate_resolving(frame)?
-            }
+            Frame::Resolve { frame }
+            | Frame::ResolutionChoice { frame, .. }
+            | Frame::ForcedSacrifice { frame, .. }
+            | Frame::OptionalDamage { frame } => self.validate_resolving(frame)?,
             _ => {}
         }
         if let Some(pending) = &s.pending {

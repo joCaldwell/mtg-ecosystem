@@ -98,7 +98,12 @@ impl Game {
         };
         self.validate_spending(input.player, &spending)?;
         cast.spending = Some(spending);
-        self.payment_step(cast)
+        if self.invocation_sacrifice_filter(self.top()?).is_some() {
+            self.state.frame = Frame::SacrificeCost { cast };
+            Ok(())
+        } else {
+            self.payment_step(cast)
+        }
     }
 
     pub(super) fn payment_step(&mut self, cast: Casting) -> Result<(), String> {
@@ -110,6 +115,7 @@ impl Game {
             self.stabilize()?;
             return Ok(());
         }
+        self.check_sacrifice_payment(&stack, &cast)?;
         let proposed = if self.explicit_payment_enabled() {
             let spending = cast.spending.ok_or("missing explicit mana spending")?;
             self.selected_payment_pool(stack.controller, &cost, &spending)?;
@@ -150,6 +156,7 @@ impl Game {
                 },
             )?;
         }
+        self.pay_sacrifice_cost(&stack, cast.sacrifice)?;
         self.state.stack.last_mut().ok_or("missing stack")?.paid = Some(cost);
         if stack.kind.is_spell() {
             self.record_event(Event::SpellCast {

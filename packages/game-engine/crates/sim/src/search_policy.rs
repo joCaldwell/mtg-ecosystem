@@ -70,6 +70,9 @@ pub(super) fn choose(
     let beneficial =
         selected_program(catalog, observation).is_some_and(search_candidates::beneficial);
     Ok(match request {
+        PlayerRequest::SacrificeCost { .. } | PlayerRequest::ForcedSacrifice { .. } => {
+            return Err("sacrifice request outside foundations search".into());
+        }
         PlayerRequest::ManaColor { .. }
         | PlayerRequest::SearchLands { .. }
         | PlayerRequest::OptionalEffect { .. }
