@@ -1921,6 +1921,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         "nonspell ability on instant/sorcery",
                     ));
                 };
+                if effects.iter().flat_map(|s| &s.steps).any(|step| matches!(step,Step::Damage { source,.. } if !matches!(source,DamageSource::SelfReference {}))) {
+                    return Err(unsupported("damage.source","a spell must refer to its own spell source"));
+                }
                 // Separate source blocks introduce independent occurrences (CR115.3).
                 // Reusing a selection ID across blocks must not alias targets.
                 slots.clear();
@@ -5498,7 +5501,7 @@ mod tests {
             );
         }
         let mut future = c;
-        future.schema_version = 19;
+        future.schema_version = 20;
         assert!(future.validate().is_err());
     }
     #[test]
@@ -5865,7 +5868,7 @@ mod tests {
             assert!(Catalog::read(&bad).is_err());
         }
         let mut bad = c;
-        bad.schema_version = 19;
+        bad.schema_version = 20;
         assert!(bad.validate().is_err());
     }
 
@@ -6130,7 +6133,7 @@ mod tests {
             }
         }
         let mut bad = catalog.clone();
-        bad.schema_version = 19;
+        bad.schema_version = 20;
         assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
         for change in [
             (|d: &mut Definition| {
@@ -6442,7 +6445,7 @@ mod tests {
     #[test]
     fn stack_vocabulary_requires_ir6_and_rejects_bad_binding_and_capability_closure() {
         let catalog = stack_fixture_catalog().unwrap();
-        for version in [3, 4, 5, 19] {
+        for version in [3, 4, 5, 20] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -6647,7 +6650,7 @@ mod tests {
         let c = fixture_catalog().unwrap();
         let raw = canonical(&c).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":3", "\"schema_version\":19"),
+            raw.replace("\"schema_version\":3", "\"schema_version\":20"),
             raw.replace("\"op\":\"return_to_owner_hand\"", "\"op\":\"execute_text\""),
             raw.replace("\"target_slot\":0", "\"target_slot\":99"),
             raw.replace("\"source_block\":0", "\"unknown\":true,\"source_block\":0"),
@@ -7191,7 +7194,7 @@ mod tests {
     #[test]
     fn action_ir_version_shapes_and_target_domains_are_strict() {
         let catalog = action_fixture_catalog().unwrap();
-        for version in [3, 4, 19] {
+        for version in [3, 4, 20] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -7318,7 +7321,7 @@ mod tests {
         assert!(old.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":4", "\"schema_version\":19"),
+            raw.replace("\"schema_version\":4", "\"schema_version\":20"),
             raw.replace(
                 "\"op\":\"put_on_top_owner_library\"",
                 "\"op\":\"put_on_bottom_owner_library\"",
