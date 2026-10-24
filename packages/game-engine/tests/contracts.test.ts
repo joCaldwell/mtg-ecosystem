@@ -35,7 +35,8 @@ test("retained archive hashes agree with JavaScript and source parser", () => {
     const record = JSON.parse(raw);
     assert.equal(sha(raw.trimEnd()), witness.record_sha256);
     assert.equal(sha(JSON.stringify(record.source)), record.sourceSha256);
-    assert.equal(sha(JSON.stringify(record.binding)), record.bindingSha256);
+    if (record.binding != null) assert.equal(sha(JSON.stringify(record.binding)), record.bindingSha256);
+    else assert.equal(record.bindingSha256, undefined);
     assert.equal(record.sourceSha256, witness.source_sha256);
     assert.equal(record.astSha256 ?? null, witness.ast_sha256);
     if (record.astSha256 != null) {

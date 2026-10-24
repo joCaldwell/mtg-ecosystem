@@ -333,15 +333,22 @@ fn extract_verified(
             oracle_identity: String,
             source_sha256: String,
             source: Box<serde_json::value::RawValue>,
-            binding_sha256: String,
-            binding: Box<serde_json::value::RawValue>,
+            binding_sha256: Option<String>,
+            binding: Option<Box<serde_json::value::RawValue>>,
             ast_sha256: Option<String>,
         }
         let record: ExtractRecord = serde_json::from_slice(&raw).map_err(|e| e.to_string())?;
+        // Excluded archive records retain only their source and exclusion
+        // reason; binding exists only for in-scope records (data_schemas.md).
+        let binding_valid = match (&record.binding, &record.binding_sha256) {
+            (Some(binding), Some(hash)) => sha256(binding.get().as_bytes()) == *hash,
+            (None, None) => true,
+            _ => false,
+        };
         if record.oracle_identity != id
             || record.record_type != "card"
             || sha256(record.source.get().as_bytes()) != record.source_sha256
-            || sha256(record.binding.get().as_bytes()) != record.binding_sha256
+            || !binding_valid
         {
             return Err(format!(
                 "{id}: invalid record identity or source/binding hashes"
@@ -622,6 +629,33 @@ mod guard_tests {
         assert!(matches!(
             compile(fixtures::MANIFEST, std::str::from_utf8(&bytes).unwrap()),
             CompileResult::Unsupported { .. }
+        ));
+    }
+    #[test]
+    fn excluded_records_need_no_binding_or_faces_and_remain_nonexecutable() {
+        // Preserve raw source spelling while modeling the documented excluded
+        // envelope. The private stream boundary uses its own synthetic file pin.
+        let mut record: std::collections::BTreeMap<String, Box<serde_json::value::RawValue>> =
+            serde_json::from_str(&embedded_file(Path::new("island.json")).unwrap()).unwrap();
+        for key in ["binding", "bindingSha256", "astSha256", "faces"] {
+            record.remove(key);
+        }
+        record.insert(
+            "status".into(),
+            serde_json::value::RawValue::from_string("\"excluded\"".into()).unwrap(),
+        );
+        let mut raw = serde_json::to_vec(&record).unwrap();
+        raw.push(b'\n');
+        let (scratch, result, bytes) = extraction_case(&["Island".into()], false, Some(raw));
+        let report = result.unwrap();
+        let file = report["extracted"][0]["file"].as_str().unwrap();
+        assert_eq!(fs::read(scratch.0.join(file)).unwrap(), bytes);
+        let p: FixtureProvenance =
+            strict_read(&fs::read_to_string(scratch.0.join("provenance.json")).unwrap()).unwrap();
+        assert_eq!(p.records[0].ast_sha256, None);
+        assert!(!matches!(
+            compile(fixtures::MANIFEST, std::str::from_utf8(&bytes).unwrap()),
+            CompileResult::Lowered { .. }
         ));
     }
     #[test]
