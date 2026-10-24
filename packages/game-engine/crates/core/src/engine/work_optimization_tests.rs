@@ -43,6 +43,11 @@ impl Game {
                         object: visible.handle.clone(),
                     });
                 }
+                if self.removal_enabled() && visible.zone == Zone::Exile {
+                    b.view.players[visible.owner.0 as usize]
+                        .exile
+                        .push(visible.handle.clone());
+                }
                 b.view.objects.push(visible);
             }
         } else if cursor < 4 + self.state.objects.len() + self.state.stack.len() {

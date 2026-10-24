@@ -26,7 +26,7 @@ failed temporary output. Tests verify deterministic regeneration and failures.
 
 `json-schema-to-typescript` is pinned at16.0.0, TypeScript at5.9.3, and Ajv
 at8.20.0 in the standalone lockfile. DTOs come from the generated types; the
-compile check exhaustively consumes all28 `PlayerResponse` variants and checks
+compile check exhaustively consumes all29 `PlayerResponse` variants and checks
 fixed-arity damage/allocation/combat tuples. Runtime validation uses the exact
 Rust schemas without coercion, defaults or removing extra properties. Endpoint
 paths and methods come from the same Rust `protocol::ROUTES` export, through a

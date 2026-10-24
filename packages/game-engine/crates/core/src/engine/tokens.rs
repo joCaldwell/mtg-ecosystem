@@ -27,6 +27,10 @@ pub(super) fn quantity_is_zero(n: &Quantity) -> bool {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "fault", rename_all = "snake_case", deny_unknown_fields)]
 pub enum RuleFault {
+    EffectCapacityExceeded {
+        capacity: usize,
+        requested: usize,
+    },
     DamageCapacityExceeded {
         capacity: usize,
         requested: usize,
@@ -101,6 +105,7 @@ impl Game {
     }
     pub(super) fn capacity_error(&mut self, fault: RuleFault) -> String {
         let reason = match fault {
+            RuleFault::EffectCapacityExceeded { .. } => "effect capacity exceeded",
             RuleFault::TokenCapacityExceeded { .. } => "token capacity exceeded",
             RuleFault::DamageCapacityExceeded { .. } => "damage capacity exceeded",
             RuleFault::StackCapacityExceeded { .. } => "stack capacity exceeded",
@@ -110,7 +115,9 @@ impl Game {
         reason.into()
     }
     pub(super) fn token_capacity(&self) -> u32 {
-        if self.staples_enabled() {
+        if self.removal_enabled() {
+            removal::LIVE_TOKEN_CAPACITY
+        } else if self.staples_enabled() {
             staples::LIVE_TOKEN_CAPACITY
         } else {
             TOKEN_CAPACITY
@@ -128,7 +135,9 @@ impl Game {
         }
     }
     pub(super) fn event_group_limit(&self) -> usize {
-        if self.staples_enabled() {
+        if self.removal_enabled() {
+            removal::EVENT_GROUP_BOUND
+        } else if self.staples_enabled() {
             staples::EVENT_GROUP_BOUND
         } else {
             EVENT_GROUP_BOUND
@@ -355,7 +364,7 @@ impl Game {
             }
             let source = self.definition(t.source.card)?;
             fn creates(p: &SpellProgram, spec: &CreatureToken) -> bool {
-                p.instructions.iter().any(|i| matches!(i, Instruction::CreateCreatureTokens { token, .. } if token == spec)) || p.modes.iter().any(|m| creates(&m.program,spec))
+                p.instructions.iter().any(|i| matches!(i, Instruction::CreateCreatureTokens { token, .. } | Instruction::CreateTokensFor {token,..} if token == spec)) || p.modes.iter().any(|m| creates(&m.program,spec))
             }
             if !source.spell.as_ref().is_some_and(|p| creates(p, &t.spec))
                 && !source
@@ -401,6 +410,15 @@ impl Game {
         }
         if let Some(fault) = self.typed_fault() {
             let expected = match fault {
+                RuleFault::EffectCapacityExceeded {
+                    capacity,
+                    requested,
+                } if self.removal_enabled()
+                    && *capacity == self.effect_limit()
+                    && *requested > *capacity =>
+                {
+                    "effect capacity exceeded"
+                }
                 RuleFault::TokenCapacityExceeded {
                     capacity,
                     created,

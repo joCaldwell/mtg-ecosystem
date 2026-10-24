@@ -56,6 +56,9 @@ pub struct DecisionToken(pub String);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisiblePlayer {
+    /// Public viewer handles, grouped by physical owner (CR406.1–3).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exile: Vec<ObjectHandle>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub library_shuffles: u64,
     pub player: PlayerId,
@@ -186,6 +189,10 @@ pub enum PlayerRequest {
         player: PlayerId,
         maximum: u32,
         candidates: Vec<VisibleSearchLand>,
+    },
+    OptionalEffect {
+        token: DecisionToken,
+        player: PlayerId,
     },
     OptionalRecursion {
         token: DecisionToken,
@@ -335,6 +342,7 @@ impl PlayerRequest {
         match self {
             Self::ManaColor { token, .. }
             | Self::SearchLands { token, .. }
+            | Self::OptionalEffect { token, .. }
             | Self::OptionalRecursion { token, .. }
             | Self::Mulligan { token, .. }
             | Self::BottomOpening { token, .. }
@@ -374,6 +382,9 @@ pub enum PlayerResponse {
     },
     SearchLands {
         objects: Vec<ObjectHandle>,
+    },
+    OptionalEffect {
+        perform: bool,
     },
     OptionalRecursion {
         perform: bool,
@@ -688,6 +699,7 @@ impl Game {
             .map_err(|_| "zone count resource limit".to_string())
         };
         Ok(VisiblePlayer {
+            exile: vec![],
             library_shuffles: self
                 .state
                 .match_state
@@ -1079,6 +1091,10 @@ impl Game {
                         })
                         .collect::<Result<_, String>>()?,
                 },
+                Request::OptionalEffect { .. } => PlayerRequest::OptionalEffect {
+                    token,
+                    player: viewer,
+                },
                 Request::OptionalRecursion { .. } => PlayerRequest::OptionalRecursion {
                     token,
                     player: viewer,
@@ -1138,6 +1154,7 @@ impl Game {
                                 | MANA_PROFILE
                                 | FOUR_COLORS_PROFILE
                                 | ATTACHMENTS_PROFILE
+                                | REMOVAL_PROFILE
                         ) {
                             candidates
                                 .iter()
@@ -1215,8 +1232,8 @@ impl Game {
                     player: viewer,
                     occurrences: self.program()?.targets.clone(),
                     candidates: self
-                        .eligible_stack_targets(
-                            self.program()?.targets[0].domain,
+                        .eligible_stack_targets_for(
+                            &self.program()?.targets[0],
                             Some(self.top()?.id),
                         )
                         .into_iter()
@@ -1229,7 +1246,8 @@ impl Game {
                     && self.program()?.targets.first().is_some_and(|t| {
                         matches!(
                             t.domain,
-                            TargetDomain::BattlefieldCreature
+                            TargetDomain::BattlefieldPermanent
+                                | TargetDomain::BattlefieldCreature
                                 | TargetDomain::OwnGraveyardCreatureCard
                         )
                     }) =>
@@ -1340,6 +1358,11 @@ impl Game {
         }
         for object in self.state.objects.values() {
             if let Some(o) = self.visible_object(viewer, object)? {
+                if self.removal_enabled() && o.zone == Zone::Exile {
+                    view.players[o.owner.0 as usize]
+                        .exile
+                        .push(o.handle.clone());
+                }
                 view.objects.push(o);
             }
         }
@@ -1620,6 +1643,9 @@ impl Game {
                     .map(|h| self.resolve_search_handle(viewer, h))
                     .collect::<Result<_, _>>()?,
             }),
+            PlayerResponse::OptionalEffect { perform } => {
+                Ok(Response::OptionalEffect { perform: *perform })
+            }
             PlayerResponse::OptionalRecursion { perform } => {
                 Ok(Response::OptionalRecursion { perform: *perform })
             }

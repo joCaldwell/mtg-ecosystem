@@ -216,7 +216,9 @@ impl ScenarioConfig {
 }
 impl Game {
     pub(super) fn damage_limit(&self) -> usize {
-        if self.four_colors_enabled() {
+        if self.removal_enabled() {
+            removal::DAMAGE_BOUND
+        } else if self.four_colors_enabled() {
             four_colors::DAMAGE_BOUND
         } else if self.mana_enabled() {
             mana_permanents::DAMAGE_BOUND

@@ -209,6 +209,8 @@ export function attachmentsDevelopmentPolicy(): (observation: Observation, viewe
       case 'order_triggers': return { response: 'order_triggers', order: r.candidates.map(c => c.handle) };
       case 'search_lands': return { response: 'search_lands', objects: r.candidates.slice(0, r.maximum).map(c => c.handle) };
       case 'optional_recursion': return { response: 'optional_recursion', perform: true };
+      // Removal-profile only; this policy is pinned to the attachments catalog.
+      case 'optional_effect': return fail();
       case 'commander_return': return { response: 'commander_return', to_command: true };
       case 'sacrifice': return { response: 'sacrifice', object: first(r.candidates) };
       case 'discard': return { response: 'discard', objects: take(r.candidates, r.count) };

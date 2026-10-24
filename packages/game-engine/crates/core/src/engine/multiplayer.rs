@@ -237,6 +237,7 @@ impl Game {
         let legal_targets = self.announced_target_legality(&stack);
         self.state.frame = Frame::Resolve {
             frame: Resolving {
+                target_facts: self.capture_target_facts(&stack, &legal_targets)?,
                 condition_check,
                 stack_id: stack.id,
                 spell: stack,

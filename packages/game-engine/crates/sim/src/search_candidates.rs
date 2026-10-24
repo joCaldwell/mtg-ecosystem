@@ -297,7 +297,9 @@ fn target_plans(
                 }],
             }))
             .collect(),
-        TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => vec![],
+        TargetDomain::BattlefieldPermanent
+        | TargetDomain::StackSpell
+        | TargetDomain::StackActivatedOrTriggeredAbility => vec![],
     };
     let mut plans = vec![TargetPlan::None];
     for _ in &program.targets {

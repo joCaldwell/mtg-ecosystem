@@ -12,6 +12,7 @@ mod four_colors_policy;
 mod mana_policy;
 #[cfg(test)]
 mod ordinary_diagnostic;
+mod removal_policy;
 
 // Evidence belongs outside native crate sources regardless of Cargo's test cwd.
 fn artifact_root() -> std::path::PathBuf {
@@ -128,6 +129,12 @@ impl Strategy<'_> {
     }
     fn priority(&mut self, o: &Observation) -> Result<PlayerResponse, String> {
         let v = &o.view;
+        if self.removal()
+            && self.policy == Policy::Develop
+            && let Some(response) = self.removal_priority(v)?
+        {
+            return Ok(response);
+        }
         if self.four_colors()
             && self.policy == Policy::Develop
             && let Some(response) = self.four_colors_priority(v)?
@@ -261,6 +268,14 @@ impl Strategy<'_> {
                 {
                     continue;
                 }
+                if self.removal()
+                    && d.spell
+                        .as_ref()
+                        .is_some_and(|p| p.targets.first().is_some_and(|t| t.filter.is_some()))
+                    && !self.removal_spell_ready(v, d)
+                {
+                    continue;
+                }
                 if d.name == "Fog" {
                     continue;
                 }
@@ -366,6 +381,9 @@ impl Strategy<'_> {
                     .map(|c| c.handle.clone())
                     .collect(),
             },
+            PlayerRequest::OptionalEffect { .. } => PlayerResponse::OptionalEffect {
+                perform: self.optional_removal(v),
+            },
             PlayerRequest::OptionalRecursion { .. } => {
                 PlayerResponse::OptionalRecursion { perform: true }
             }
@@ -390,6 +408,13 @@ impl Strategy<'_> {
                 candidates,
                 ..
             } => {
+                if self.removal()
+                    && let Some(h) = self.removal_target(v, candidates)?
+                {
+                    return Ok(PlayerResponse::Targets {
+                        objects: vec![h; occurrences.len()],
+                    });
+                }
                 if self.attachments()
                     && let Some(h) = self.attachment_target(v, candidates)?
                 {
@@ -509,7 +534,10 @@ impl Strategy<'_> {
                 candidates,
                 ..
             } => {
-                let target = if self.four_colors() {
+                let target = if self.removal() && self.is_swan_announcement(v) {
+                    self.swan_target(v, Some(candidates))
+                        .ok_or("no opposing Swan target")?
+                } else if self.four_colors() {
                     let ability = occurrences.first().is_some_and(|t| {
                         t.domain == mtg_contracts::TargetDomain::StackActivatedOrTriggeredAbility
                     });
@@ -953,6 +981,7 @@ pub(super) fn run(
                         | mtg_core::MANA_PROFILE
                         | mtg_core::FOUR_COLORS_PROFILE
                         | mtg_core::ATTACHMENTS_PROFILE
+                        | mtg_core::REMOVAL_PROFILE
                 ) && game.typed_fault().is_some()
                 {
                     format!("resource_truncation: {e}")
@@ -1164,6 +1193,7 @@ pub(super) fn batch(catalog: &Catalog, directory: &Path) -> Result<serde_json::V
         mtg_core::FOUR_COLORS_PROFILE
     } else {
         match catalog.schema_version {
+            18 => mtg_core::REMOVAL_PROFILE,
             17 => mtg_core::ATTACHMENTS_PROFILE,
             16 => mtg_core::MANA_PROFILE,
             15 => mtg_core::STAPLES_PROFILE,
@@ -1250,6 +1280,7 @@ pub(super) fn batch(catalog: &Catalog, directory: &Path) -> Result<serde_json::V
                 | mtg_core::MANA_PROFILE
                 | mtg_core::FOUR_COLORS_PROFILE
                 | mtg_core::ATTACHMENTS_PROFILE
+                | mtg_core::REMOVAL_PROFILE
         ) {
             report["keyword_interactions"] = keyword_interactions(catalog, &e)?;
         }
@@ -1295,7 +1326,10 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
     let mut mana_report = None;
     if matches!(
         e.config.profile.as_str(),
-        mtg_core::MANA_PROFILE | mtg_core::FOUR_COLORS_PROFILE | mtg_core::ATTACHMENTS_PROFILE
+        mtg_core::MANA_PROFILE
+            | mtg_core::FOUR_COLORS_PROFILE
+            | mtg_core::ATTACHMENTS_PROFILE
+            | mtg_core::REMOVAL_PROFILE
     ) {
         let mut activations = std::collections::BTreeSet::new();
         let mut by_type = BTreeMap::<String, u64>::from([
@@ -1365,6 +1399,9 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
         &mut counts,
     );
     let mut report = serde_json::json!({"lifelink_gains":counts[0],"deathtouch_destructions":counts[1],"blocks":counts[2]});
+    if e.config.profile == mtg_core::REMOVAL_PROFILE {
+        report["removal"] = removal_policy::interactions(catalog, e, &physical_cards, &g)?;
+    }
     if e.config.profile == mtg_core::ATTACHMENTS_PROFILE {
         report["attachments"] = attachments_policy::interactions(catalog, e, &physical_cards, &g)?;
     }
@@ -1381,6 +1418,7 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
             | mtg_core::MANA_PROFILE
             | mtg_core::FOUR_COLORS_PROFILE
             | mtg_core::ATTACHMENTS_PROFILE
+            | mtg_core::REMOVAL_PROFILE
     ) {
         let mut tokens_created = 0u64;
         let mut counters_placed = Quantity::zero();
@@ -1407,6 +1445,7 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
             | mtg_core::MANA_PROFILE
             | mtg_core::FOUR_COLORS_PROFILE
             | mtg_core::ATTACHMENTS_PROFILE
+            | mtg_core::REMOVAL_PROFILE
     ) {
         let mut destroyed = 0u64;
         let mut recursions = 0u64;
@@ -1485,6 +1524,7 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
             | mtg_core::MANA_PROFILE
             | mtg_core::FOUR_COLORS_PROFILE
             | mtg_core::ATTACHMENTS_PROFILE
+            | mtg_core::REMOVAL_PROFILE
     ) {
         let mut trample = Quantity::zero();
         let mut first_steps = 0u64;

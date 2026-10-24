@@ -2920,3 +2920,109 @@ its pending envelope and mana plan live in memory. Hosting remains local and
 limited to the two named profiles. Server-side search, other hosted profiles,
 deployment and fresh offline reconstruction of this P8.2 build remain outside
 this acceptance; historical foundations proofs retain their original identities.
+
+## P6.8 permanent removal and exile — implementation and acceptance evidence
+
+The separate `commander-removal-v1` profile has 135 definitions at IR v18
+(catalog SHA256 `0ff60a7e1dc37cd0a76dbdb6b6d01ea0303d7c29ed0f6c2df20229484e6ea3c6`).
+Seventeen positive and four whole-card negative source records were copied
+byte-for-byte from the read-only pinned archive. Names, costs, stats, ASTs,
+Commander legality and color identity agree with the contract. The pinned rules
+text's SHA256 is `8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca`.
+The new decks contain 58 Plains; 16 Forest/15 Swamp; 71 Island; and 75 Mountain,
+respectively, with four hundred physical cards in the default W/BG/U/R pod.
+
+The compiler retains complete permanent filters, exile, target-controller
+references, last-known power/mana-value amounts, the destroy-only regeneration
+flag, optional targeted enters triggers, targeted mana-plus-self-sacrifice
+abilities, and typed spell counters. IR v17 rejects every new definition.
+Return to Dust, Vandalblast, Bone Splinters and Banishing Light reject as whole
+cards; rehashed malformed filters/references/flags reject too. The compiler
+adapter now accounts for the archive's complete self-name normalization at a
+subsequent sentence in Smash to Smithereens. No parser change or parser request
+was needed. All 42 earlier expected-IR/policy fixture files remain byte-identical
+to base `02b842a`; `/tmp/p68-prior-fixtures.json` records their hashes.
+
+Runtime removal uses current target legality and incarnation-bound,
+resolution-start target facts. Compensation finishes before commander return
+SBAs; exile is public, grouped by physical owner with viewer handles, and empty
+lists omit serialization. `OptionalEffect` supplies a distinct public yes/no
+response for Sage. Zealot chooses its target before costs, pays mana and
+sacrifices before priority, and leaves an independently counterable invocation.
+Swan Song filters stack spell types at proposal, candidate, response and
+resolution checks. Smash uses the existing damage transaction and Furnace
+replacement path. Attachment SBAs and Rancor use ordinary actual move events.
+
+All **22** new runtime/support test groups pass. Nineteen gameplay groups cover
+Swords with an equipped commander and exile return/LKI, token life/cessation,
+Equipment and Pacifism removal, anthem removal, Beast Within on land/rock/self,
+Gift answered by Unsummon, Claim's controller life, Feed's token MV/opponent
+restriction and a naturally eight-mana taxed commander whose MV remains six,
+Doom Blade and targeting restrictions, Chupacabra's unplaceable trigger, Sage
+accept/decline, Zealot/Artist/Stifle, doubled Smash damage, Pongify token/commander
+compensation, Swan's Pacifism/Day counters and excluded creature/Equipment
+spells, a mixed-stack invalid typed response, creature/Aura/Equipment cleanup in
+one SBA wave, and noncreature exile. Every gameplay group proves
+snapshot/restore/journal replay in Off/Compact/Detailed modes, including pending
+optional choices and cards in exile. The other groups check admission/bounds
+and two explicitly private IR-domain token/effect-capacity faults; those probes
+are not claimed as reachable admitted-pool games. No listed witness required
+substitution, and there are no contract deviations.
+
+The contract's reviewed derivation gives 512 live tokens, 1,296 damage
+occurrences, 6,381 stack/pending entries, 916 event members and 32 temporary
+effects, with a conservative 116-token lifetime proof. Each capacity has a typed
+fault for this profile and atomic event rollback. Earlier profile bounds and
+snapshot/bundle/projection/sidecar versions **18/19/16/15** remain unchanged.
+
+The frozen batch `generated/p68-removal-run-1/report.json` passes all **18**
+games and independent replay/checkpoint verification with **zero faults and
+zero truncations**: **33,894 decisions, 716 turns and 99,704 rule steps**. Actual
+Detailed replay outcomes, tagged `outcome`, count **19 artifact, 141 creature,
+two enchantment and zero land destructions; one exile; 14 tokens created for a
+player other than the caster; two Swan Song counters; three hexproof and 49
+shroud candidate exclusions**. Destructions include destroy instructions and
+lethal/deathtouch SBAs; Aura graveyard SBAs are excluded. Exclusions count
+otherwise-domain-legal objects per actual target-decision scan, with shroud
+precedence. The explicit `removal-match-replay` CLI independently verifies game
+17. Report SHA256:
+`7f0c1bc936e60722e8a688c429e3aaaabe9c3f610c0250e0124276c709ed22cc`.
+
+The fresh attachments regression
+`generated/p68-attachments-regression/report.json` passes all **18** games and
+reproduces its frozen ledger counters exactly: **28,135 decisions, 589 turns,
+84,702 rule steps, 106 equips, 14 Aura attachments, 26 attachment SBAs, nine
+hexproof/32 shroud exclusions and one Rancor return**. Original per-game report
+files were absent at the documented checkout paths; this comparison uses the
+retained ledger counters. Earlier scenario/bundle reference tests also pass.
+Regression report SHA256:
+`8f1e0e412349ab451235275f7cf7fb9487603467fb2eff99f0514c1053efad28`.
+
+Pinned Rust 1.99.0 / Node 26.11.1 with `CARGO_BUILD_JOBS=2` passed the final
+`npm run check:engine`: formatting, workspace/all-targets Clippy with
+`-D warnings`, **811 Rust tests, zero failures, 12 ignored** diagnostics,
+and **53 JavaScript checks, zero failures**. Log:
+`/tmp/p68-check-engine-final.log`. The first full run's two source-identity
+checks failed after a policy was edited during its build; that failed attempt
+remains unchanged in `/tmp/p68-check-engine.log`. The final gate recompiles the
+frozen source tree; it does not upgrade the earlier attempt to a pass.
+
+The release `mtg-server` build and SDK verification pass **40 tests and strict
+TypeScript**, including the exhaustive **29-response** gate. SDK evidence is
+retained at `/tmp/p68-sdk-verification.json` and
+`/tmp/p68-sdk-verification.log`; `packages/game-server/sdk/generated` was removed.
+Release build identity:
+`c7def40debac3b7f47a75eb464c5d35b70260ad7fd75f2f5163891a16f8c6a2e`.
+The current executable verifies its **369-file** compiled source closure
+(`/tmp/p68-native-source-manifest-final.json`). Generated reports, journals,
+snapshots, SDK outputs and native build artifacts remain ignored.
+
+This is the ninth finite legal profile. An independent review found one
+low-severity defect: Reclamation Sage's optional destroy was performed when its
+controller conceded as the trigger began resolving. It is fixed with a reviewed
+regression (CR 603.5). The server hosts foundations and attachments only, and
+search remains foundations-only. Regeneration effects, indestructible,
+protection, linked/until-leaves exile, overload, additional spell sacrifice
+costs, another player's searches, multi-target removal and planeswalkers remain
+outside this slice. Completion policies are deterministic completion evidence,
+not an optimal Commander strategy.

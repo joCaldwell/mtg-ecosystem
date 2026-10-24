@@ -426,6 +426,20 @@ haste on returned mana creatures. Verification is recorded in
 [game-engine-progress.md](game-engine-progress.md); earlier profiles/versions and
 foundations-only search/server scope remain separate.
 
+P6.8 is implemented under [game-engine-removal.md](game-engine-removal.md): the
+separate 135-definition IR v18 `commander-removal-v1` pool adds filtered permanent
+destruction and exile, target-controller compensation with last-known power and
+mana value, optional targeted enters triggers, targeted sacrifice activations,
+and Swan Song's typed counter and Bird. Its source-backed witnesses preserve
+commander return ordering, attachment SBAs, targeting restrictions and token
+cessation; public owned-exile lists and optional-effect responses are additive.
+The contract derives profile-only bounds and typed capacity faults. Verification,
+the frozen 18-game batch and the attachments regression are recorded in
+[game-engine-progress.md](game-engine-progress.md). Earlier versions/fixtures
+remain separate. The server hosts foundations and attachments (P8.2,
+[game-engine-server-attachments.md](game-engine-server-attachments.md)); search
+remains foundations-only.
+
 **Deliver in bounded families:** replacement/prevention ordering and budgets;
 continuous-effect layers/sublayers/timestamps/dependencies; granted abilities;
 multiple/cost-dependent targets; counters and tokens; attachments; alternate/

@@ -21,6 +21,9 @@ pub const STAPLES_CATALOG_SHA256: &str =
 pub const MANA_PROFILE: &str = "commander-mana-v1";
 pub const MANA_CATALOG_SHA256: &str =
     "1df5823602dd4aacea6ab8e69766dc750e425686ba02221857b443c415b37794";
+pub const REMOVAL_PROFILE: &str = "commander-removal-v1";
+pub const REMOVAL_CATALOG_SHA256: &str =
+    "0ff60a7e1dc37cd0a76dbdb6b6d01ea0303d7c29ed0f6c2df20229484e6ea3c6";
 pub const ATTACHMENTS_PROFILE: &str = "commander-attachments-v1";
 pub const ATTACHMENTS_CATALOG_SHA256: &str =
     "56affddedfe7b2482ad48238b95b3f8c30bfc39c701125cff883fa6ea9c404df";
@@ -38,7 +41,7 @@ pub struct MatchProfile {
     pub black_green_deck: fn() -> Decklist,
     pub default_pod: [fn() -> Decklist; 4],
 }
-pub static MATCH_PROFILES: [MatchProfile; 8] = [
+pub static MATCH_PROFILES: [MatchProfile; 9] = [
     MatchProfile {
         name: MATCH_PROFILE,
         catalog_sha256: MATCH_CATALOG_SHA256,
@@ -164,6 +167,26 @@ pub static MATCH_PROFILES: [MatchProfile; 8] = [
             attachments_black_green_deck,
             attachments_blue_deck,
             attachments_red_deck,
+        ],
+    },
+    MatchProfile {
+        name: REMOVAL_PROFILE,
+        catalog_sha256: REMOVAL_CATALOG_SHA256,
+        ir_version: 18,
+        policy_json: include_str!("../../../../tests/fixtures/commander-removal-policy.json"),
+        commanders: &[
+            ISAMARU,
+            YARGLE,
+            "4bbc5df9-60d7-46c1-8856-91c9c74abf18",
+            "48fe0f52-1676-49d5-acf6-5476081e8e1b",
+        ],
+        white_deck: removal_white_deck,
+        black_green_deck: removal_black_green_deck,
+        default_pod: [
+            removal_white_deck,
+            removal_black_green_deck,
+            removal_blue_deck,
+            removal_red_deck,
         ],
     },
 ];
@@ -539,7 +562,9 @@ pub fn validate_pod(
             != profile.catalog_sha256
     {
         return Err(MatchAdmissionError::InvalidCatalog {
-            detail: if profile.name == MATCH_PROFILE {
+            detail: if profile.name == REMOVAL_PROFILE {
+                "catalog differs from reviewed one-hundred-thirty-five-definition removal pool"
+            } else if profile.name == MATCH_PROFILE {
                 "catalog differs from reviewed thirty-four-definition pool"
             } else if profile.name == FOUR_COLORS_PROFILE {
                 "catalog differs from reviewed 106-definition four-colors pool"
@@ -1028,6 +1053,59 @@ pub fn attachments_red_deck() -> Decklist {
             "9ad4f730-a18e-4a7c-a468-a926c718c741",
         ],
         &[("a3fb7228-e76b-4e96-a40e-20b5fed75685", 77)],
+    )
+}
+
+pub fn removal_white_deck() -> Decklist {
+    add_attachments(
+        attachments_white_deck(),
+        &[
+            "289e1a7c-b301-4395-baf8-e9a1c6d38aab",
+            "a7e97fa9-4b72-4548-b854-5be5f18a6f1a",
+            "b1544f21-7e98-461b-aed5-e748b0168c52",
+            "fae37e28-e137-4177-b973-fa8b4dd8f409",
+        ],
+        &[(PLAINS, 58)],
+    )
+}
+
+pub fn removal_black_green_deck() -> Decklist {
+    add_attachments(
+        attachments_black_green_deck(),
+        &[
+            "032ec6e2-6cc3-4a97-9cc7-3233f5e11904",
+            "2f092562-9e17-43cd-aeb8-d0567f99363e",
+            "5825997b-10d7-4a36-972c-a80ddd90b8ed",
+            "59e7f2ae-4535-4191-98be-3e65b6b2befa",
+            "6d4e558e-9109-4918-a082-fdcbaffd516b",
+            "7735eeba-693b-47e2-bd51-414379cf1016",
+            "7b459306-149b-4f43-abc1-2dd70c748c0e",
+            "9410ae41-b6db-47c6-ae0a-4e33aad1d3ce",
+            "bdb3ca68-ec1f-4e16-81cc-d23f8f52c728",
+        ],
+        &[(FOREST, 16), (SWAMP, 15)],
+    )
+}
+
+pub fn removal_blue_deck() -> Decklist {
+    add_attachments(
+        attachments_blue_deck(),
+        &[
+            "05849bd6-8f38-4031-be2b-e2aa03beb8cc",
+            "8ddfc283-c9b4-41a5-af88-cf0068e986cc",
+        ],
+        &[(ISLAND, 71)],
+    )
+}
+
+pub fn removal_red_deck() -> Decklist {
+    add_attachments(
+        attachments_red_deck(),
+        &[
+            "84d32e68-72b9-432d-a023-7bc6a26b8ad0",
+            "e0583f29-c344-4b56-b0dc-bef1089a95c7",
+        ],
+        &[("a3fb7228-e76b-4e96-a40e-20b5fed75685", 75)],
     )
 }
 

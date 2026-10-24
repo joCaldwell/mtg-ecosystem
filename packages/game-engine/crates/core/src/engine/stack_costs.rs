@@ -80,7 +80,12 @@ impl Game {
             cast_from: Zone::Battlefield,
         });
         if targeted {
-            if cost != ActivationCost::TapSource && !matches!(cost, ActivationCost::Mana { .. }) {
+            if cost != ActivationCost::TapSource
+                && !matches!(
+                    cost,
+                    ActivationCost::Mana { .. } | ActivationCost::Composite { .. }
+                )
+            {
                 return Err("unsupported targeted activation cost".into());
             }
             let cast = Casting {
@@ -92,12 +97,13 @@ impl Game {
                 mana_activations: vec![],
                 undo_mana: false,
             };
-            self.state.frame = if self.definition(object.card)?.activated[ability as usize]
-                .program
-                .targets[0]
-                .domain
-                == TargetDomain::ControlledBattlefieldCreature
-            {
+            self.state.frame = if matches!(
+                self.definition(object.card)?.activated[ability as usize]
+                    .program
+                    .targets[0]
+                    .domain,
+                TargetDomain::ControlledBattlefieldCreature | TargetDomain::BattlefieldPermanent
+            ) {
                 Frame::Targets { cast }
             } else {
                 Frame::EntityTargets { cast }
@@ -196,11 +202,13 @@ impl Game {
         if !self.prepared.config.actions_profile()
             || source_handles.len() != 4
             || (!entry.targets.is_empty()
-                && activated
-                    .program
-                    .targets
-                    .first()
-                    .is_none_or(|t| t.domain != TargetDomain::ControlledBattlefieldCreature))
+                && activated.program.targets.first().is_none_or(|t| {
+                    !matches!(
+                        t.domain,
+                        TargetDomain::ControlledBattlefieldCreature
+                            | TargetDomain::BattlefieldPermanent
+                    )
+                }))
             || !entry.player_targets.is_empty()
             || !entry.stack_targets.is_empty()
             || entry.total_cost != expected
@@ -293,7 +301,9 @@ impl Game {
             || top.controller != player
             || entries.len() != program.targets.len()
             || entries.iter().enumerate().any(|(slot, target)| {
-                !self.stack_target_legal(*target, top.id, program.targets[slot].domain)
+                !self
+                    .eligible_stack_targets_for(&program.targets[slot], Some(top.id))
+                    .contains(target)
             })
         {
             return Err("invalid stack targets".into());

@@ -45,7 +45,9 @@ fn movement(outcome: &EventOutcome) -> Option<&MoveOutcome> {
 }
 impl Game {
     pub(super) fn stack_limit(&self) -> usize {
-        if self.attachments_enabled() {
+        if self.removal_enabled() {
+            removal::STACK_BOUND
+        } else if self.attachments_enabled() {
             attachments::STACK_BOUND
         } else if self.four_colors_enabled() {
             four_colors::STACK_BOUND
@@ -475,7 +477,9 @@ impl Game {
                 if self.program()?.targets.first().is_some_and(|t| {
                     matches!(
                         t.domain,
-                        TargetDomain::BattlefieldCreature | TargetDomain::OwnGraveyardCreatureCard
+                        TargetDomain::BattlefieldPermanent
+                            | TargetDomain::BattlefieldCreature
+                            | TargetDomain::OwnGraveyardCreatureCard
                     )
                 }) {
                     return self.bind_trigger_object_targets(placement, stack_id);
@@ -734,7 +738,8 @@ impl Game {
                     && self.program_for(entry)?.targets.first().is_none_or(|t| {
                         !matches!(
                             t.domain,
-                            TargetDomain::BattlefieldCreature
+                            TargetDomain::BattlefieldPermanent
+                                | TargetDomain::BattlefieldCreature
                                 | TargetDomain::OwnGraveyardCreatureCard
                         )
                     }))

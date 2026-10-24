@@ -67,6 +67,7 @@ impl Policy {
         Ok(match request {
             PlayerRequest::ManaColor { .. }
             | PlayerRequest::SearchLands { .. }
+            | PlayerRequest::OptionalEffect { .. }
             | PlayerRequest::OptionalRecursion { .. } => {
                 return Err("staples request outside historical policy".into());
             }

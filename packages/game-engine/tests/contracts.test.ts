@@ -80,7 +80,7 @@ test("Rust lowering matches reviewed IR and its generated JSON Schema", () => {
   assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
   for (const mutate of [
     (c: any) => { c.unknownSemanticField = true; },
-    (c: any) => { c.schema_version=18; },
+    (c: any) => { c.schema_version=19; },
     (c: any) => { c.schema_version = 2; },
     (c: any) => { delete c.definitions.find((d: any) => d.spell).spell.timing; },
     (c: any) => { delete c.definitions.find((d: any) => d.spell).spell.resolution; },
@@ -168,7 +168,7 @@ test("library and damage catalogs retain exact source semantics and explicit IR 
   for (const catalog of [previous, library, damage]) assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
   for (const mutate of [
     (c: any) => { c.schema_version = 3; },
-    (c: any) => { c.schema_version=18; },
+    (c: any) => { c.schema_version=19; },
     (c: any) => { c.definitions.find((d: any) => d.characteristics.kind === "sorcery").spell.instructions[0].op = "put_on_bottom_owner_library"; },
     (c: any) => { c.definitions.find((d: any) => d.characteristics.kind === "sorcery").spell.instructions[0].position = "top"; },
   ]) {
@@ -219,7 +219,7 @@ test("action catalog preserves complete activated costs, opponent choice and sch
   for (const mutate of [
     (c: any) => { c.schema_version = 3; },
     (c: any) => { c.schema_version = 4; },
-    (c: any) => { c.schema_version=18; },
+    (c: any) => { c.schema_version=19; },
     (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].cost = "tap_source"; },
     (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].program.instructions[0].count = "01"; },
     (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].program.instructions[1].optional = true; },
@@ -274,7 +274,7 @@ test("stack catalog preserves complete counter domains and distinct tap and mana
     (c: any) => { c.schema_version = 3; },
     (c: any) => { c.schema_version = 4; },
     (c: any) => { c.schema_version = 5; },
-    (c: any) => { c.schema_version=18; },
+    (c: any) => { c.schema_version=19; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Stifle").spell.targets[0].domain = "stack_activated_ability"; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Counterspell").spell.instructions[0].destination = "graveyard"; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Azure Mage").activated[0].cost.mana.cost.extra = true; },
@@ -342,7 +342,7 @@ test("damage and life catalog preserves complete sources and explicit IR7 target
     }
   }
   for (const mutate of [
-    (c: any) => {c.schema_version=18;},
+    (c: any) => {c.schema_version=19;},
     (c: any) => {c.definitions.find((d: any) => d.name==="Lightning Bolt").spell.targets[0].domain="creature_or_player";},
     (c: any) => {c.definitions.find((d: any) => d.name==="Soul Feast").spell.instructions[0].recipient={opponent:{target_slot:0}};},
     (c: any) => {c.definitions.find((d: any) => d.name==="Sacred Nectar").spell.instructions[0].recipient={controller:{extra:true}};},
@@ -411,7 +411,7 @@ test("trigger catalog binds mandatory self and other events without trusting arc
     assert.equal(validate(bad),false,`${name} IR${version}`);
   }
   for (const mutate of [
-    (c: any) => {c.schema_version=18;},
+    (c: any) => {c.schema_version=19;},
     (c: any) => {c.definitions.find((d: any) => d.name==="Blood Artist").triggered[0].optional=true;},
     (c: any) => {c.definitions.find((d: any) => d.name==="Blood Artist").triggered[0].cost="tap_source";},
     (c: any) => {c.definitions.find((d: any) => d.name==="Blood Artist").triggered[0].condition="other_creature_dies";},
@@ -484,7 +484,7 @@ test("effects catalog preserves signed modifiers and complete prevention/replace
     assert.equal(validate(bad),false,`stripped ${name} IR${version}`);
   }
   for (const mutate of [
-    (c: any)=>{c.schema_version=18;},
+    (c: any)=>{c.schema_version=19;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Giant Growth").spell.instructions[0].power="-0";},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Disfigure").spell.instructions[0].toughness=-2;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Fog").spell.instructions[0].duration="this_turn";},
@@ -533,7 +533,7 @@ test("choices catalog preserves separate occurrences, complete modal programs an
     bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,`stripped ${name} IR${version}`);
   }
   for(const mutate of [
-    (c: any)=>{c.schema_version=18;},
+    (c: any)=>{c.schema_version=19;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Healing Salve").spell.modes[0].hidden=true;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Healing Salve").spell.modes.pop();},
     (c: any)=>{const p=c.definitions.find((d: any)=>d.name==="Healing Salve").spell;p.instructions=[{op:"draw_cards",count:"1",source_block:0}];},
@@ -555,7 +555,7 @@ test("match catalog binds sole defender and the current finite Commander policy"
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   for(const file of ["expected-ir.json","expected-commander-ir.json","expected-damage-ir.json","expected-library-ir.json","expected-action-ir.json","expected-stack-ir.json","expected-damage-life-ir.json","expected-trigger-ir.json","expected-effects-ir.json","expected-choices-ir.json","expected-match-ir.json"])assert.equal(validate(JSON.parse(read(file))),true,file+JSON.stringify(validate.errors));
   for(let version=3;version<=10;version++){const bad=structuredClone(catalog);bad.schema_version=version;bad.definitions=[structuredClone(wall)];assert.equal(validate(bad),false);bad.definitions[0].capabilities=[];assert.equal(validate(bad),false);}
-  for(const mutate of [(c:any)=>{c.schema_version=18;},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=["reach"];},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{keyword:"defender"}];},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{defender:null}];}]){const bad=structuredClone(catalog);mutate(bad);assert.equal(validate(bad),false);}
+  for(const mutate of [(c:any)=>{c.schema_version=19;},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=["reach"];},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{keyword:"defender"}];},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{defender:null}];}]){const bad=structuredClone(catalog);mutate(bad);assert.equal(validate(bad),false);}
   const policy=JSON.parse(read("commander-policy.json"));assert.equal(policy.policy_version,1);assert.equal(policy.profile,"commander-foundations-v1");assert.equal(policy.retrieved_date,"2026-10-15");assert.equal(policy.html_sha256,"def38a80a72f7da25d7a0c13ba82bfa2e0b4139f2954f9cf02d1d7cbf134d938");assert.equal(policy.named_bans.length,42);
   assert.equal(policy.offensive_policy.html_sha256,"91f536b644fc278d62c840865a499bc883c2fd086831ddddcdc83adf316322fa");assert.equal(policy.offensive_policy.records.length,7);assert.equal(policy.categories.lutri,"companion_only");
   const banned=new Set<string>();
@@ -1528,6 +1528,24 @@ test("attachments IR v17 preserves prior definitions, policy and strict downgrad
     assert.deepEqual(policy.admitted_pool_review.find((r:any)=>r.oracle_id===d.oracle_id),{oracle_id:d.oracle_id,name:d.name,source_sha256:d.provenance.source_sha256,conspiracy_type:false,ante_reference:false,offensive_named_ban:false});
     if(!d.capabilities.includes("attachments_v1")) continue;
     const bad={...catalog,schema_version:16,definitions:[structuredClone(d)]};assert.equal(validate(bad),false,d.name);
+    bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,d.name);
+  }
+});
+
+test("removal IR v18 preserves inherited bytes, policy and complete downgrade guards", () => {
+  const catalog=run("compile-removal");
+  assert.equal(catalog.schema_version,18);assert.equal(catalog.definitions.length,135);
+  assert.deepEqual(catalog,JSON.parse(read("expected-removal-ir.json")));
+  for(const old of run("compile-attachments").definitions) assert.deepEqual(catalog.definitions.find((d:any)=>d.oracle_id===old.oracle_id),old);
+  const policy=JSON.parse(read("commander-removal-policy.json")), prior=JSON.parse(read("commander-attachments-policy.json"));
+  assert.equal(policy.admitted_pool_review.length,135);assert.deepEqual(policy.named_bans,prior.named_bans);assert.deepEqual(policy.offensive_policy,prior.offensive_policy);
+  const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
+  assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
+  for(const d of catalog.definitions) {
+    const source=JSON.parse(d.provenance.source_json);assert.equal(source.legalities.commander,"legal");
+    assert.deepEqual(policy.admitted_pool_review.find((r:any)=>r.oracle_id===d.oracle_id),{oracle_id:d.oracle_id,name:d.name,source_sha256:d.provenance.source_sha256,conspiracy_type:false,ante_reference:false,offensive_named_ban:false});
+    if(!d.capabilities.includes("permanent_removal_v1"))continue;
+    const bad={...catalog,schema_version:17,definitions:[structuredClone(d)]};assert.equal(validate(bad),false,d.name);
     bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,d.name);
   }
 });
