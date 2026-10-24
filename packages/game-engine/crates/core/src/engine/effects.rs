@@ -147,7 +147,8 @@ impl Game {
         }
         // CR 611.3a-c/613.4c: a static source continuously defines its affected
         // set. Source/controller/zone changes therefore need no cached grants.
-        if c.kind == CardKind::Creature
+        if self.prepared.catalog.schema_version >= 15
+            && c.kind == CardKind::Creature
             && let Ok(o) = self.current(object)
             && o.zone == Zone::Battlefield
         {
