@@ -1075,3 +1075,221 @@ fn staples_token_capacity_is_a_typed_atomic_replayable_truncation() {
         assert!(g.state.tokens.is_empty());
     });
 }
+
+#[test]
+fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
+    // CR603.3d/603.5: Gravedigger targets when its enters trigger is placed,
+    // while it is on the battlefield, so it cannot return itself. CR400.7:
+    // old incarnation-bound Disfigure/Growth effects do not follow a recast.
+    // Singleton construction plus own-graveyard creature-card targets excludes
+    // another seat's Gravedigger, and excludes Spore Swarm/other noncreatures.
+    let c = catalog();
+    let profile = match_profile(STAPLES_PROFILE).unwrap();
+    assert_eq!(profile.commanders, &[ISAMARU, YARGLE]);
+    fn instructions(p: &SpellProgram) -> Vec<&Instruction> {
+        p.instructions
+            .iter()
+            .chain(p.modes.iter().flat_map(|m| instructions(&m.program)))
+            .collect()
+    }
+    fn tokens(p: &SpellProgram) -> usize {
+        instructions(p)
+            .iter()
+            .map(|i| match i {
+                Instruction::CreateCreatureTokens { count, .. } => *count as usize,
+                _ => 0,
+            })
+            .sum()
+    }
+    // A new instruction can move/recur producers or repeatedly create tokens.
+    // Keep the complete reviewed vocabulary explicit: future operators require
+    // auditing this lifetime proof rather than disappearing through a wildcard.
+    for d in &c.definitions {
+        for p in d
+            .spell
+            .iter()
+            .chain(d.triggered.iter().map(|a| &a.program))
+            .chain(d.activated.iter().map(|a| &a.program))
+        {
+            for i in instructions(p) {
+                match i {
+                    Instruction::CreateCreatureTokens { .. }
+                    | Instruction::PutPlusOneCounters { .. }
+                    | Instruction::ModifyPowerToughness { .. }
+                    | Instruction::PreventCombatDamage { .. }
+                    | Instruction::PreventNextDamage { .. }
+                    | Instruction::ReturnToOwnerHand { .. }
+                    | Instruction::PutOnTopOwnerLibrary { .. }
+                    | Instruction::TargetPlayerSacrificeCreature { .. }
+                    | Instruction::DrawCards { .. }
+                    | Instruction::DiscardCards { .. }
+                    | Instruction::CounterStackObject { .. }
+                    | Instruction::DealDamage { .. }
+                    | Instruction::GainLife { .. }
+                    | Instruction::LoseLife { .. }
+                    | Instruction::DestroyTargetCreature { .. }
+                    | Instruction::DestroyAllCreatures { .. }
+                    | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
+                    | Instruction::SearchBasicLands { .. } => {}
+                }
+            }
+        }
+    }
+    for id in profile.commanders {
+        let d = c.definitions.iter().find(|d| d.oracle_id == *id).unwrap();
+        assert!(d.activated.is_empty() && d.triggered.is_empty());
+        assert_eq!(
+            tokens(d.spell.as_ref().unwrap()),
+            0,
+            "commanders make no tokens"
+        );
+    }
+    let mut seat_bounds = vec![];
+    for colors in [vec![Color::W], vec![Color::B, Color::G]] {
+        let pool = c
+            .definitions
+            .iter()
+            .filter(|d| {
+                d.characteristics
+                    .color_identity
+                    .iter()
+                    .all(|color| colors.contains(color))
+            })
+            .collect::<Vec<_>>();
+        let mut base = 0;
+        let mut largest_creature_entry = 0;
+        let mut recursion_cards = vec![];
+        for d in pool {
+            assert!(
+                d.keywords.iter().all(|k| [
+                    KeywordAbility::Defender,
+                    KeywordAbility::Flying,
+                    KeywordAbility::Reach,
+                    KeywordAbility::Vigilance,
+                    KeywordAbility::Haste,
+                    KeywordAbility::Lifelink,
+                    KeywordAbility::Deathtouch,
+                    KeywordAbility::Trample,
+                    KeywordAbility::FirstStrike,
+                    KeywordAbility::DoubleStrike,
+                    KeywordAbility::Menace
+                ]
+                .contains(k)),
+                "new timing/recursion keyword needs review"
+            );
+            for a in &d.static_abilities {
+                match &a.effect {
+                    StaticEffect::DoubleDamageToPermanentOrPlayer => {}
+                    StaticEffect::ControllerCreatureAnthem { power, toughness } => assert!(
+                        *power > Quantity::zero() && *toughness > Quantity::zero(),
+                        "an enters-time toughness loss needs review"
+                    ),
+                }
+            }
+            assert!(d.activated.iter().all(|a| tokens(&a.program) == 0));
+            let mut entry_tokens = 0;
+            for a in &d.triggered {
+                if tokens(&a.program) > 0 {
+                    assert_eq!(d.characteristics.kind, CardKind::Creature);
+                    assert_eq!(a.condition, TriggerCondition::SelfEntersBattlefield);
+                    entry_tokens += tokens(&a.program);
+                }
+            }
+            if d.characteristics.kind == CardKind::Creature {
+                assert!(d.characteristics.toughness.as_ref().unwrap() > &Quantity::zero());
+                assert_eq!(d.spell.as_ref().unwrap().timing, SpellTiming::MainPhase);
+                largest_creature_entry = largest_creature_entry.max(entry_tokens);
+            }
+            base += entry_tokens + d.spell.as_ref().map_or(0, tokens);
+            for p in d
+                .spell
+                .iter()
+                .chain(d.triggered.iter().map(|a| &a.program))
+                .chain(d.activated.iter().map(|a| &a.program))
+            {
+                for i in instructions(p) {
+                    match i {
+                        Instruction::ReturnOwnGraveyardCreatureToHand { target_slot, .. } => {
+                            assert_eq!(
+                                p.targets[*target_slot as usize].domain,
+                                TargetDomain::OwnGraveyardCreatureCard
+                            );
+                            recursion_cards.push(d.name.as_str());
+                        }
+                        Instruction::ReturnToOwnerHand { .. }
+                        | Instruction::PutOnTopOwnerLibrary { .. } => {
+                            panic!("new repeat-entry route in admitted colors: {}", d.name)
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        recursion_cards.sort();
+        assert_eq!(base, 9);
+        let recursions = if colors == [Color::W] {
+            assert!(recursion_cards.is_empty());
+            0
+        } else {
+            assert_eq!(recursion_cards, vec!["Gravedigger", "Raise Dead"]);
+            let raise = c
+                .definitions
+                .iter()
+                .find(|d| d.name == "Raise Dead")
+                .unwrap();
+            assert_eq!(raise.characteristics.kind, CardKind::Sorcery);
+            assert!(matches!(
+                raise.spell.as_ref().unwrap().instructions.as_slice(),
+                [Instruction::ReturnOwnGraveyardCreatureToHand {
+                    optional: false,
+                    ..
+                }]
+            ));
+            let digger = c
+                .definitions
+                .iter()
+                .find(|d| d.name == "Gravedigger")
+                .unwrap();
+            assert_eq!(digger.characteristics.kind, CardKind::Creature);
+            assert_eq!(digger.triggered.len(), 1);
+            assert_eq!(
+                digger.triggered[0].condition,
+                TriggerCondition::SelfEntersBattlefield
+            );
+            assert!(matches!(
+                digger.triggered[0].program.instructions.as_slice(),
+                [Instruction::ReturnOwnGraveyardCreatureToHand { optional: true, .. }]
+            ));
+            assert!(digger.activated.is_empty());
+            assert_eq!(largest_creature_entry, 4);
+            let queen = c
+                .definitions
+                .iter()
+                .find(|d| d.name == "Hornet Queen")
+                .unwrap();
+            assert_eq!(
+                queen
+                    .triggered
+                    .iter()
+                    .map(|a| tokens(&a.program))
+                    .sum::<usize>(),
+                4
+            );
+            // Raise Dead either returns a producer directly, or is spent on
+            // Gravedigger for one extra enters trigger: TWO recursions total.
+            2
+        };
+        seat_bounds.push(base + recursions * largest_creature_entry);
+    }
+    assert_eq!(
+        c.definitions
+            .iter()
+            .find(|d| d.name == "Spore Swarm")
+            .unwrap()
+            .characteristics
+            .kind,
+        CardKind::Instant
+    );
+    assert_eq!(seat_bounds, vec![9, 17]);
+    assert_eq!(4 * seat_bounds.into_iter().max().unwrap(), 68);
+}

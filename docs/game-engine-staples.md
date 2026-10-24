@@ -62,11 +62,11 @@ battlefield must work for a noncreature permanent spell.
 ## Resource bounds
 
 P6.3's lifetime token capacity (64) relied on no admitted card recurring a
-token producer. Raise Dead and Gravedigger break that: Hornet Queen can be
-recast after it dies. Token creation is therefore no longer bounded by the
-decks. This profile replaces the lifetime cap with a capacity on live tokens of
-256. Token identities stay monotonic and never reused, with checked overflow
-far beyond the host's decision cap. Ceased tokens free live capacity.
+token producer. Raise Dead and Gravedigger invalidate that number, but token
+creation is still finite in this exact pool: the reviewed lifetime bound is 68,
+derived below. This profile deliberately uses a capacity on live tokens of 256.
+Token identities stay monotonic and never reused, with checked overflow far
+beyond the host's decision cap. Ceased tokens free live capacity.
 
 Damage-occurrence, stack/pending and event-group capacities are re-derived with
 the P6.3 method (docs/game-engine-tokens-counters.md, "Reviewed resource
@@ -121,6 +121,33 @@ highest-power creature card for recursion.
   searched and anthem-affected combat damage.
 - Earlier profiles' catalog, policy and expected IR digests and historical
   batch outputs are unchanged, and `npm run check:engine` passes.
+
+### Reviewed lifetime token bound
+
+Each seat's compiled color-legal pool makes at most nine tokens without
+recursion. The largest creature producer is Hornet Queen, at four tokens per
+entry. The profile has only Isamaru and Yargle and Multani as commanders; neither
+makes tokens or recurs cards, so repeated command casting adds no tokens.
+
+Each BG seat owns only one Raise Dead and one Gravedigger under singleton
+construction. Both recursion instructions target a creature **card** in **your
+own graveyard**: they cannot return another seat's Gravedigger, and cannot return
+Spore Swarm or any other instant/sorcery, including Raise Dead itself. Gravedigger
+chooses its mandatory target when its enters trigger is placed, while it is on
+the battlefield; it cannot target itself. No admitted effect kills it as an
+enters-time SBA before target selection, and no flash/reanimation route exists.
+
+There are at most two useful producer recursions per BG seat. Raise Dead can
+return a producer directly and the initial Gravedigger trigger can return a
+producer; alternatively, Raise Dead is spent returning Gravedigger, which gives
+one additional Gravedigger entry instead of a direct producer return. Either
+allocation adds at most 2×4 = eight tokens. A white seat has no recursion.
+Consequently an all-BG pod is maximal: 4×9 + 4×8 = **68 lifetime tokens**.
+This exceeds P6.3's 64, while the deliberately retained **256-live-token** capacity
+and its typed fault remain conservative. The compiled-catalog test derives the
+9/17 per-seat totals and 68 per-pod total, and guards the recursion targets,
+producer trigger kinds, command whitelist and instruction/timing vocabulary so
+future changes require this proof to be reviewed.
 
 ### Reviewed implementation bounds
 
