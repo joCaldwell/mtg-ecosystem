@@ -10,6 +10,10 @@ mod commander_policy;
 pub use commander_policy::{
     COMMANDER_POLICY_DATE, COMMANDER_POLICY_HTML_SHA256, COMMANDER_POLICY_URL, policy_digest,
 };
+mod removal;
+#[cfg(test)]
+mod removal_tests;
+use removal::TargetFacts;
 mod attachments;
 #[cfg(test)]
 mod attachments_tests;
@@ -713,6 +717,8 @@ struct Resolving {
     spell: StackInstance,
     cursor: u32,
     legal_targets: Vec<bool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    target_facts: Vec<Option<TargetFacts>>,
     outcomes: Vec<InstructionOutcome>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -809,6 +815,9 @@ pub enum Response {
     },
     SearchLands {
         objects: Vec<ObjectId>,
+    },
+    OptionalEffect {
+        perform: bool,
     },
     OptionalRecursion {
         perform: bool,
@@ -911,6 +920,10 @@ pub enum Request {
         player: PlayerId,
         maximum: u32,
         candidates: Vec<ObjectId>,
+    },
+    OptionalEffect {
+        decision_id: u64,
+        player: PlayerId,
     },
     OptionalRecursion {
         decision_id: u64,
@@ -1047,6 +1060,7 @@ impl Request {
         match self {
             Self::ManaColor { decision_id, .. }
             | Self::SearchLands { decision_id, .. }
+            | Self::OptionalEffect { decision_id, .. }
             | Self::OptionalRecursion { decision_id, .. }
             | Self::Mulligan { decision_id, .. }
             | Self::BottomOpening { decision_id, .. }
@@ -1074,6 +1088,7 @@ impl Request {
         match self {
             Self::ManaColor { player, .. }
             | Self::SearchLands { player, .. }
+            | Self::OptionalEffect { player, .. }
             | Self::OptionalRecursion { player, .. }
             | Self::Mulligan { player, .. }
             | Self::BottomOpening { player, .. }
@@ -1110,6 +1125,9 @@ pub enum ProposedEvent {
     },
     FinishLibraryShuffle {
         player: PlayerId,
+    },
+    DestroyPermanent {
+        object: ObjectId,
     },
     DestroyCreature {
         object: ObjectId,
@@ -1976,16 +1994,15 @@ impl Game {
                 decision_id: self.state.revision,
                 player: self.top()?.controller,
                 occurrences: self.program()?.targets.clone(),
-                candidates: self.eligible_stack_targets(
-                    self.program()?.targets[0].domain,
-                    Some(self.top()?.id),
-                ),
+                candidates: self
+                    .eligible_stack_targets_for(&self.program()?.targets[0], Some(self.top()?.id)),
             },
             Frame::TriggerTargets { .. }
                 if self.program()?.targets.first().is_some_and(|t| {
                     matches!(
                         t.domain,
                         TargetDomain::ControlledBattlefieldCreature
+                            | TargetDomain::BattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
                             | TargetDomain::OwnGraveyardCreatureCard
                     )
@@ -2150,6 +2167,7 @@ impl Game {
                     !matches!(
                         t.domain,
                         TargetDomain::ControlledBattlefieldCreature
+                            | TargetDomain::BattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
                             | TargetDomain::OwnGraveyardCreatureCard
                     )

@@ -1113,7 +1113,12 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
         {
             for i in instructions(p) {
                 match i {
-                    Instruction::AttachEquipment { .. }
+                    Instruction::DestroyPermanent { .. }
+                    | Instruction::ExilePermanent { .. }
+                    | Instruction::ChangeLifeFromTarget { .. }
+                    | Instruction::CreateTokensFor { .. }
+                    | Instruction::DamageTargetController { .. }
+                    | Instruction::AttachEquipment { .. }
                     | Instruction::ReturnAuraFromGraveyard { .. } => {
                         panic!("attachment outside historical staples proof")
                     }

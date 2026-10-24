@@ -779,6 +779,7 @@ impl Game {
                 | MANA_PROFILE
                 | FOUR_COLORS_PROFILE
                 | ATTACHMENTS_PROFILE
+                | REMOVAL_PROFILE
         ) && (self.state.turn.step == TurnStep::FirstStrikeDamage
             || !self.state.first_strike_participants.is_empty()
             || !self.state.orphan_first_strike_blockers.is_empty()

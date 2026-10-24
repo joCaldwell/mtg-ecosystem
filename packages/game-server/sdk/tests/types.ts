@@ -52,6 +52,7 @@ export function exhaustive(response: PlayerResponse): string {
     case 'finish_mana': return String(response.undo_mana);
     case 'trample_damage': return `${response.player}:${response.amount}:${response.assignments.length}`;
     case 'search_lands': return response.objects.join(',');
+    case 'optional_effect': return String(response.perform);
     case 'optional_recursion': return String(response.perform);
     case 'mana_color': return String(response.color);
     default: { const unhandled: never = response; return unhandled; }

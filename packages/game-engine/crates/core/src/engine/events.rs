@@ -329,7 +329,8 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             }
             (reads, writes)
         }
-        ProposedEvent::DestroyCreature { object }
+        ProposedEvent::DestroyPermanent { object }
+        | ProposedEvent::DestroyCreature { object }
         | ProposedEvent::StateBasedGraveyard { object, .. } => {
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
             (keys.clone(), keys)
@@ -525,7 +526,8 @@ impl Game {
                 | ProposedEvent::ShuffleLibraryWord { player, .. } => {
                     libraries.insert(*player);
                 }
-                ProposedEvent::DestroyCreature { object }
+                ProposedEvent::DestroyPermanent { object }
+                | ProposedEvent::DestroyCreature { object }
                 | ProposedEvent::SearchLandEntry { object, .. } => {
                     objects.insert(*object);
                     if let Zone::Library { owner } = self.current(*object)?.zone {
@@ -1185,6 +1187,21 @@ impl Game {
                     previous,
                     target: *target,
                 }
+            }
+            ProposedEvent::DestroyPermanent { object } => {
+                if !self.removal_enabled()
+                    || !self
+                        .current(*object)
+                        .is_ok_and(|o| o.zone == Zone::Battlefield)
+                {
+                    return Err("invalid destroy permanent event".into());
+                }
+                self.apply_occurrence(&ProposedEvent::Move {
+                    object: *object,
+                    destination: Zone::Graveyard {
+                        owner: self.state.cards[&object.card].owner,
+                    },
+                })?
             }
             ProposedEvent::DestroyCreature { object } => {
                 if !self.staples_enabled() || !self.target_legal(*object) {

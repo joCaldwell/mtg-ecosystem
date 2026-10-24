@@ -1,0 +1,1162 @@
+//! Private source-backed witness configurations exercise rules without broadening
+//! public admission. Every natural witness proves restore/replay in all traces.
+//! CR citations refer to the pinned 2026-09-25 rules:
+//! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+use super::*;
+fn catalog() -> Catalog {
+    Catalog::read(include_str!(
+        "../../../../tests/fixtures/expected-removal-ir.json"
+    ))
+    .unwrap()
+}
+fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
+    let c = catalog();
+    let mut cards = rows
+        .iter()
+        .enumerate()
+        .map(|(i, (name, p, hand))| CardSetup {
+            id: CardId(i as u32),
+            oracle_id: c
+                .definitions
+                .iter()
+                .find(|d| d.name == *name)
+                .unwrap()
+                .oracle_id
+                .clone(),
+            owner: PlayerId(*p),
+            controller: PlayerId(*p),
+            zone: if *hand {
+                Zone::Hand {
+                    owner: PlayerId(*p),
+                }
+            } else {
+                Zone::Battlefield
+            },
+        })
+        .collect::<Vec<_>>();
+    for p in 0..4 {
+        for _ in 0..4 {
+            cards.push(CardSetup {
+                id: CardId(cards.len() as u32),
+                oracle_id: FOREST.into(),
+                owner: PlayerId(p),
+                controller: PlayerId(p),
+                zone: Zone::Library { owner: PlayerId(p) },
+            });
+        }
+    }
+    let config = ScenarioConfig {
+        mode: Mode::CommanderMatch,
+        players: 4,
+        profile: REMOVAL_PROFILE.into(),
+        commanders: rows
+            .iter()
+            .enumerate()
+            .filter(|(_, (name, _, _))| {
+                matches!(
+                    *name,
+                    "Isamaru, Hound of Konda"
+                        | "Yargle and Multani"
+                        | "Caelorna, Coral Tyrant"
+                        | "Rorix Bladewing"
+                )
+            })
+            .map(|(i, _)| CardId(i as u32))
+            .collect(),
+        cards,
+    };
+    Prepared {
+        catalog_digest: digest(&c).unwrap(),
+        profile_digest: digest(&config).unwrap(),
+        catalog: Arc::new(c),
+        config,
+        match_config: None,
+    }
+}
+fn object(g: &Game, id: u32) -> ObjectId {
+    g.object_id(CardId(id)).unwrap()
+}
+fn request(g: &mut Game) -> Request {
+    match g.advance(Budget::unlimited()) {
+        Advance::AwaitingDecision(r) => r,
+        x => panic!("{x:?}"),
+    }
+}
+fn answer(g: &mut Game, response: Response) {
+    let r = request(g);
+    g.respond(r.player(), r.decision_id(), response).unwrap();
+}
+fn reach(g: &mut Game, step: TurnStep) {
+    for _ in 0..200 {
+        let r = request(g);
+        if g.turn().step == step && matches!(r, Request::Priority { .. }) {
+            return;
+        }
+        let response = match r {
+            Request::Priority { .. } => Response::Pass,
+            Request::CommanderReturn { .. } => Response::CommanderReturn { to_command: false },
+            Request::DamageEffect { ref candidates, .. } => Response::DamageEffect {
+                effect: candidates[0].effect.clone(),
+                damage: candidates[0].damage,
+            },
+            x => panic!("unexpected {x:?}"),
+        };
+        g.respond(r.player(), r.decision_id(), response).unwrap();
+    }
+    panic!("step not reached")
+}
+fn attackers(g: &mut Game) -> Vec<ObjectId> {
+    for _ in 0..100 {
+        let r = request(g);
+        if let Request::Attackers { candidates, .. } = r {
+            return candidates;
+        }
+        g.respond(r.player(), r.decision_id(), Response::Pass)
+            .unwrap();
+    }
+    panic!("attackers not reached")
+}
+fn check(g: &Game) {
+    let p = g.prepared.as_ref().clone();
+    let restored = Game::restore(p.clone(), &g.snapshot().unwrap()).unwrap();
+    assert_eq!(restored.state, g.state);
+    assert_eq!(restored.trace(), g.trace());
+    let mut replayed = Game::replay_to(
+        p,
+        &g.replay_journal(),
+        Some(g.rule_boundary()),
+        g.trace.mode,
+    )
+    .unwrap();
+    if matches!(g.state.frame, Frame::Fault { .. }) {
+        let _ = replayed.advance(Budget::new(1));
+    }
+    assert_eq!(replayed.state, g.state);
+    assert_eq!(replayed.trace(), g.trace());
+}
+fn traces(p: Prepared, run: impl Fn(&mut Game)) {
+    let mut digest0 = None;
+    for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
+        let mut g = Game::with_trace(p.clone(), mode);
+        run(&mut g);
+        check(&g);
+        let d = g.state_digest().unwrap();
+        if let Some(old) = &digest0 {
+            assert_eq!(&d, old)
+        } else {
+            digest0 = Some(d)
+        }
+    }
+}
+fn announce(g: &mut Game, id: u32, targets: Vec<TargetEntity>) {
+    if g.turn().step == TurnStep::Untap {
+        reach(g, TurnStep::PrecombatMain);
+    }
+    let obj = object(g, id);
+    answer(g, Response::Cast { card: obj.card });
+    pay_proposal(g, targets, None);
+}
+fn pay_proposal(g: &mut Game, targets: Vec<TargetEntity>, stack_target: Option<StackId>) {
+    loop {
+        let r = request(g);
+        let response = match &r {
+            Request::EntityTargets { .. } => Response::EntityTargets {
+                entities: targets.clone(),
+            },
+            Request::Targets { .. } => Response::Targets {
+                objects: targets
+                    .iter()
+                    .map(|t| match t {
+                        TargetEntity::Object { object } => *object,
+                        _ => panic!("object target"),
+                    })
+                    .collect(),
+            },
+            Request::Mana { cost, .. } => {
+                let enough = g.payment_pool(r.player(), cost).is_ok();
+                if enough {
+                    Response::FinishMana { undo_mana: false }
+                } else {
+                    let land = g
+                        .state
+                        .objects
+                        .values()
+                        .filter(|o| {
+                            o.controller == r.player()
+                                && o.zone == Zone::Battlefield
+                                && !o.tapped
+                                && g.definition(o.id.card).unwrap().characteristics.kind
+                                    == CardKind::Land
+                        })
+                        .min_by_key(|o| {
+                            usize::from(
+                                !g.mana_abilities(o.id)
+                                    .unwrap()
+                                    .iter()
+                                    .any(|c| Some(c) == cost.colored.first()),
+                            )
+                        })
+                        .unwrap();
+                    Response::ActivateMana { object: land.id }
+                }
+            }
+            Request::SpendMana {
+                cost, available, ..
+            } => {
+                let mut rest = available.clone();
+                let mut spending = BTreeMap::<Color, Quantity>::new();
+                for c in &cost.colored {
+                    rest.get_mut(c).unwrap().subtract(&1.into());
+                    spending.entry(*c).or_default().add(&1.into());
+                }
+                let mut generic = cost.generic.clone();
+                for (c, n) in rest {
+                    let used = n.min(generic.clone());
+                    generic.subtract(&used);
+                    if used > Quantity::zero() {
+                        spending.entry(c).or_default().add(&used);
+                    }
+                }
+                assert_eq!(generic, Quantity::zero());
+                Response::SpendMana { spending }
+            }
+            Request::StackTargets { .. } => Response::StackTargets {
+                entries: vec![stack_target.unwrap_or(g.state.stack[0].id)],
+            },
+            Request::PlayerTargets { .. } => Response::PlayerTargets {
+                players: vec![PlayerId(1)],
+            },
+            Request::OrderTriggers { candidates, .. } => Response::OrderTriggers {
+                order: candidates.clone(),
+            },
+            Request::Priority { .. } => break,
+            x => panic!("cast request {x:?}"),
+        };
+        g.respond(r.player(), r.decision_id(), response).unwrap();
+    }
+}
+
+fn automatic(r: &Request, targets: &[TargetEntity]) -> Response {
+    match r {
+        Request::Priority { .. } => Response::Pass,
+        Request::OrderTriggers { candidates, .. } => Response::OrderTriggers {
+            order: candidates.clone(),
+        },
+        Request::Targets { .. } => Response::Targets {
+            objects: targets
+                .iter()
+                .map(|t| match t {
+                    TargetEntity::Object { object } => *object,
+                    _ => panic!("creature target"),
+                })
+                .collect(),
+        },
+        Request::CommanderReturn { .. } => Response::CommanderReturn { to_command: false },
+        Request::OptionalEffect { .. } => Response::OptionalEffect { perform: true },
+        Request::OptionalRecursion { .. } => Response::OptionalRecursion { perform: true },
+        Request::ResolveDiscard { candidates, .. } => Response::ResolveDiscard {
+            objects: vec![candidates[0]],
+        },
+        Request::DamageEffect { candidates, .. } => Response::DamageEffect {
+            effect: candidates[0].effect.clone(),
+            damage: candidates[0].damage,
+        },
+        Request::PlayerTargets { .. } => Response::PlayerTargets {
+            players: vec![PlayerId(1)],
+        },
+        x => panic!("unexpected resolution request {x:?}"),
+    }
+}
+fn resolve_with(g: &mut Game, targets: Vec<TargetEntity>, mut inspect: impl FnMut(&Game)) {
+    for _ in 0..2000 {
+        let advance = g.advance(Budget::new(1));
+        inspect(g);
+        match advance {
+            Advance::Suspended { .. } => {}
+            Advance::AwaitingDecision(r) => {
+                if matches!(r, Request::Priority { .. })
+                    && g.state.stack.is_empty()
+                    && g.state.pending_triggers.is_empty()
+                {
+                    return;
+                }
+                let response = automatic(&r, &targets);
+                g.respond(r.player(), r.decision_id(), response).unwrap();
+            }
+            x => panic!("resolve {x:?}"),
+        }
+    }
+    panic!("resolution budget")
+}
+fn resolve(g: &mut Game, targets: Vec<TargetEntity>) {
+    resolve_with(g, targets, |_| {});
+}
+fn cast(g: &mut Game, id: u32, targets: Vec<TargetEntity>) {
+    announce(g, id, targets.clone());
+    resolve(g, targets);
+}
+fn target(o: ObjectId) -> Vec<TargetEntity> {
+    vec![TargetEntity::Object { object: o }]
+}
+fn token_objects(g: &Game) -> Vec<ObjectId> {
+    g.state
+        .objects
+        .values()
+        .filter(|o| g.state.tokens.contains_key(&o.id.card))
+        .map(|o| o.id)
+        .collect()
+}
+fn observation(g: &Game, viewer: u8) -> Observation {
+    let QueryResult::Complete(QueryValue::Observation(o)) =
+        g.observe(PlayerId(viewer), Budget::unlimited())
+    else {
+        panic!("observation")
+    };
+    o
+}
+fn lands(name: &str, n: usize) -> Vec<(&str, u8, bool)> {
+    vec![(name, 0, false); n]
+}
+
+fn priority_for(g: &mut Game, player: u8) {
+    for _ in 0..20 {
+        let r = request(g);
+        if matches!(r, Request::Priority { .. }) && r.player() == PlayerId(player) {
+            return;
+        }
+        answer(g, automatic(&r, &[]));
+    }
+    panic!("priority not reached");
+}
+fn counter(g: &mut Game, card: u32, target: StackId) {
+    answer(g, Response::Cast { card: CardId(card) });
+    pay_proposal(g, vec![], Some(target));
+    check(g);
+}
+fn activated(g: &mut Game, id: u32, targets: Vec<TargetEntity>) {
+    answer(
+        g,
+        Response::ActivateAbility {
+            object: object(g, id),
+            ability: 0,
+        },
+    );
+    pay_proposal(g, targets, None);
+}
+#[test]
+fn removal_profile_decks_policy_and_reviewed_capacities() {
+    let c = catalog();
+    assert_eq!((c.schema_version, c.definitions.len()), (18, 135));
+    assert_eq!(digest(&c).unwrap(), REMOVAL_CATALOG_SHA256);
+    let cfg = MatchConfig::for_profile(REMOVAL_PROFILE, [9; 32], PlayerId(0)).unwrap();
+    assert_eq!(validate_pod(&c, &cfg).unwrap().config.cards.len(), 400);
+    for (deck, n) in cfg.decks.iter().zip([58, 31, 71, 75]) {
+        assert_eq!(deck.cards.iter().map(|r| r.count).sum::<u32>(), 100);
+        assert_eq!(
+            deck.cards
+                .iter()
+                .filter(|r| c
+                    .definitions
+                    .iter()
+                    .any(|d| d.oracle_id == r.oracle_id && d.characteristics.basic))
+                .map(|r| r.count)
+                .sum::<u32>(),
+            n
+        );
+    }
+    let max_creatures = c
+        .definitions
+        .iter()
+        .filter(|d| {
+            d.characteristics.kind == CardKind::Creature
+                && d.characteristics
+                    .color_identity
+                    .iter()
+                    .all(|c| matches!(c, Color::B | Color::G))
+        })
+        .count();
+    assert_eq!(max_creatures, 34);
+    let g = Game::new(prepared(&[("Grizzly Bears", 0, false)]));
+    assert_eq!(
+        (
+            g.token_capacity(),
+            g.damage_limit(),
+            g.stack_limit(),
+            g.event_group_limit(),
+            g.effect_limit()
+        ),
+        (512, 1296, 6381, 916, 32)
+    );
+    assert!(
+        validate_pod(
+            &c,
+            &MatchConfig::for_profile(ATTACHMENTS_PROFILE, [9; 32], PlayerId(0)).unwrap()
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("catalog")
+    );
+}
+#[test]
+fn swords_commander_equipment_lki_precedes_exile_return_and_public_exile_survives_restore() {
+    let mut rows = vec![
+        ("Isamaru, Hound of Konda", 0, false),
+        ("Bonesplitter", 0, false),
+        ("Swords to Plowshares", 1, true),
+    ];
+    rows.extend(lands("Plains", 3));
+    rows.push(("Plains", 1, false));
+    traces(prepared(&rows), |g| {
+        reach(g, TurnStep::PrecombatMain);
+        activated(g, 1, target(object(g, 0)));
+        resolve(g, vec![]);
+        assert_eq!(
+            g.characteristics(object(g, 0)).unwrap().power,
+            Some(4.into())
+        );
+        priority_for(g, 1);
+        announce(g, 2, target(object(g, 0)));
+        let mut choice = false;
+        for _ in 0..100 {
+            let r = request(g);
+            if matches!(r, Request::CommanderReturn { .. }) {
+                assert_eq!(g.state.players[0].life, Quantity::from(44));
+                assert_eq!(g.zone(object(g, 0)), Some(Zone::Exile));
+                for seat in 0..4 {
+                    let o = observation(g, seat);
+                    assert_eq!(o.view.players[0].exile.len(), 1);
+                    assert!(
+                        o.view
+                            .objects
+                            .iter()
+                            .any(|o| o.zone == Zone::Exile && o.oracle_id == ISAMARU)
+                    );
+                }
+                check(g);
+                answer(g, Response::CommanderReturn { to_command: true });
+                choice = true;
+                break;
+            }
+            answer(g, automatic(&r, &[]));
+        }
+        assert!(choice);
+        resolve(g, vec![]);
+        assert_eq!(
+            g.zone(object(g, 0)),
+            Some(Zone::Command { owner: PlayerId(0) })
+        );
+        assert!(g.current(object(g, 1)).unwrap().attached_to.is_none());
+        assert!(observation(g, 0).view.players[0].exile.is_empty());
+    });
+}
+#[test]
+fn swords_token_life_then_exile_cessation() {
+    let mut rows = vec![
+        ("Raise the Alarm", 0, true),
+        ("Swords to Plowshares", 0, true),
+    ];
+    rows.extend(lands("Plains", 3));
+    traces(prepared(&rows), |g| {
+        cast(g, 0, vec![]);
+        let t = token_objects(g)[0];
+        cast(g, 1, target(t));
+        assert!(g.current(t).is_err());
+        assert_eq!(token_objects(g).len(), 1);
+        assert_eq!(g.state.players[0].life, Quantity::from(41));
+        assert!(observation(g, 0).view.players[0].exile.is_empty());
+    });
+}
+#[test]
+fn disenchant_equipment_removes_bonus_keeps_creature() {
+    let mut rows = vec![
+        ("Grizzly Bears", 0, false),
+        ("Bonesplitter", 0, false),
+        ("Disenchant", 0, true),
+    ];
+    rows.extend(lands("Plains", 4));
+    traces(prepared(&rows), |g| {
+        reach(g, TurnStep::PrecombatMain);
+        activated(g, 1, target(object(g, 0)));
+        resolve(g, vec![]);
+        assert_eq!(
+            g.characteristics(object(g, 0)).unwrap().power,
+            Some(4.into())
+        );
+        cast(g, 2, target(object(g, 1)));
+        assert_eq!(g.zone(object(g, 0)), Some(Zone::Battlefield));
+        assert_eq!(
+            g.characteristics(object(g, 0)).unwrap().power,
+            Some(2.into())
+        );
+    });
+}
+#[test]
+fn disenchant_pacifism_restores_attack_and_naturalize_anthem_updates_pt() {
+    for anthem in [false, true] {
+        let mut rows = vec![
+            ("Grizzly Bears", 0, false),
+            (
+                if anthem {
+                    "Glorious Anthem"
+                } else {
+                    "Pacifism"
+                },
+                0,
+                true,
+            ),
+            (if anthem { "Naturalize" } else { "Disenchant" }, 0, true),
+        ];
+        rows.extend(lands("Plains", 6));
+        rows.push(("Forest", 0, false));
+        traces(prepared(&rows), |g| {
+            cast(g, 1, if anthem { vec![] } else { target(object(g, 0)) });
+            if anthem {
+                assert_eq!(
+                    g.characteristics(object(g, 0)).unwrap().power,
+                    Some(3.into())
+                );
+            } else {
+                assert!(g.has_restriction(object(g, 0), CreatureRestriction::CantAttackOrBlock));
+            }
+            cast(g, 2, target(object(g, 1)));
+            assert_eq!(
+                g.characteristics(object(g, 0)).unwrap().power,
+                Some(2.into())
+            );
+            assert!(!g.has_restriction(object(g, 0), CreatureRestriction::CantAttackOrBlock));
+            assert!(attackers(g).contains(&object(g, 0)));
+        });
+    }
+}
+#[test]
+fn beast_within_land_rock_and_own_permanent_controller_tokens_and_mana_windows() {
+    for (name, owner) in [("Forest", 1), ("Sol Ring", 1), ("Sol Ring", 0)] {
+        let mut rows = vec![(name, owner, false), ("Beast Within", 0, true)];
+        rows.extend(lands("Forest", 3));
+        traces(prepared(&rows), |g| {
+            let old = object(g, 0);
+            cast(g, 1, target(old));
+            assert_eq!(
+                g.zone(object(g, 0)),
+                Some(Zone::Graveyard {
+                    owner: PlayerId(owner)
+                })
+            );
+            let t = token_objects(g);
+            assert_eq!(t.len(), 1);
+            assert_eq!(g.current(t[0]).unwrap().controller, PlayerId(owner));
+            assert_eq!(g.characteristics(t[0]).unwrap().power, Some(3.into()));
+            assert!(
+                g.validate_response(
+                    PlayerId(owner),
+                    &Response::ActivateAbility {
+                        object: old,
+                        ability: 0
+                    }
+                )
+                .is_err()
+            );
+            assert!(
+                !g.state
+                    .objects
+                    .values()
+                    .any(|o| o.id == old && o.zone == Zone::Battlefield)
+            );
+        });
+    }
+}
+#[test]
+fn generous_gift_unsummon_response_skips_entire_program() {
+    let mut rows = vec![
+        ("Generous Gift", 0, true),
+        ("Unsummon", 1, true),
+        ("Grizzly Bears", 2, false),
+    ];
+    rows.extend(lands("Plains", 3));
+    rows.push(("Island", 1, false));
+    traces(prepared(&rows), |g| {
+        let t = object(g, 2);
+        announce(g, 0, target(t));
+        priority_for(g, 1);
+        announce(g, 1, target(t));
+        resolve(g, vec![]);
+        assert!(token_objects(g).is_empty());
+        assert_eq!(
+            g.zone(object(g, 2)),
+            Some(Zone::Hand { owner: PlayerId(2) })
+        );
+    });
+}
+#[test]
+fn natures_claim_life_to_artifact_controller() {
+    let mut rows = vec![("Sol Ring", 1, false), ("Nature's Claim", 0, true)];
+    rows.extend(lands("Forest", 1));
+    traces(prepared(&rows), |g| {
+        cast(g, 1, target(object(g, 0)));
+        assert_eq!(g.state.players[1].life, Quantity::from(44));
+        assert_eq!(g.state.players[0].life, Quantity::from(40));
+    });
+}
+#[test]
+fn feed_swarm_token_zero_mv_commander_printed_mv_and_opponent_filter() {
+    let mut rows = vec![
+        ("Feed the Swarm", 0, true),
+        ("Raise the Alarm", 1, true),
+        ("Grizzly Bears", 0, false),
+    ];
+    rows.extend(lands("Swamp", 2));
+    rows.extend([("Plains", 1, false); 2]);
+    traces(prepared(&rows), |g| {
+        reach(g, TurnStep::PrecombatMain);
+        priority_for(g, 1);
+        cast(g, 1, vec![]);
+        priority_for(g, 0);
+        answer(g, Response::Cast { card: CardId(0) });
+        let Request::Targets { candidates, .. } = request(g) else {
+            panic!()
+        };
+        assert!(!candidates.contains(&object(g, 2)));
+        let t = token_objects(g)[0];
+        pay_proposal(g, target(t), None);
+        resolve(g, vec![]);
+        assert_eq!(g.state.players[0].life, Quantity::from(40));
+        assert!(g.current(t).is_err());
+    });
+    let mut rows = vec![
+        ("Feed the Swarm", 0, true),
+        ("Yargle and Multani", 1, false),
+    ];
+    rows.extend(lands("Swamp", 2));
+    traces(prepared(&rows), |g| {
+        cast(g, 0, target(object(g, 1)));
+        assert_eq!(g.state.players[0].life, Quantity::from(34));
+        assert_eq!(
+            g.state
+                .commanders
+                .history(CardId(1))
+                .unwrap()
+                .command_casts
+                .len(),
+            0
+        );
+    });
+}
+#[test]
+fn doom_blade_excludes_black_and_target_restrictions_apply_to_new_domains() {
+    let mut rows = vec![
+        ("Doom Blade", 0, true),
+        ("Yargle and Multani", 1, false),
+        ("Grizzly Bears", 1, false),
+        ("Swiftfoot Boots", 1, false),
+        ("Lightning Greaves", 0, false),
+        ("Grizzly Bears", 0, false),
+        ("Beast Within", 0, true),
+    ];
+    rows.extend(lands("Swamp", 2));
+    traces(prepared(&rows), |g| {
+        reach(g, TurnStep::PrecombatMain);
+        answer(g, Response::Cast { card: CardId(0) });
+        let Request::Targets { candidates, .. } = request(g) else {
+            panic!()
+        };
+        assert!(!candidates.contains(&object(g, 1)));
+        assert!(candidates.contains(&object(g, 2)));
+        pay_proposal(g, target(object(g, 2)), None);
+        resolve(g, vec![]);
+    });
+    for equipment in ["Swiftfoot Boots", "Lightning Greaves"] {
+        let mut rows = vec![
+            ("Grizzly Bears", 0, false),
+            (equipment, 0, false),
+            ("Swords to Plowshares", 1, true),
+        ];
+        rows.extend(lands("Plains", 1));
+        rows.push(("Plains", 1, false));
+        traces(prepared(&rows), |g| {
+            reach(g, TurnStep::PrecombatMain);
+            activated(g, 1, target(object(g, 0)));
+            resolve(g, vec![]);
+            priority_for(g, 1);
+            let r = request(g);
+            assert!(
+                g.respond(
+                    r.player(),
+                    r.decision_id(),
+                    Response::Cast { card: CardId(2) }
+                )
+                .is_err()
+            );
+        });
+    }
+}
+#[test]
+fn chupacabra_no_legal_opposing_trigger_target_removed() {
+    let mut rows = vec![
+        ("Grizzly Bears", 0, false),
+        ("Lightning Greaves", 0, false),
+        ("Ravenous Chupacabra", 1, true),
+    ];
+    rows.extend(lands("Plains", 1));
+    rows.extend([("Swamp", 1, false); 4]);
+    // Equip is sorcery-only. Seat0 equips on its turn; seat1 casts Chupacabra
+    // on its next main phase, with the only opposing creature now shrouded.
+    traces(prepared(&rows), |g| {
+        reach(g, TurnStep::PrecombatMain);
+        activated(g, 1, target(object(g, 0)));
+        resolve(g, vec![]);
+        for _ in 0..100 {
+            let r = request(g);
+            if g.state.active == Some(PlayerId(1))
+                && g.turn().step == TurnStep::PrecombatMain
+                && matches!(r, Request::Priority { .. })
+            {
+                break;
+            }
+            let response = match r {
+                Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
+                Request::Blockers { .. } => Response::Blockers { blocks: vec![] },
+                _ => automatic(&r, &[]),
+            };
+            answer(g, response);
+        }
+        cast(g, 2, vec![]);
+        assert!(g.state.stack.is_empty());
+        if g.trace.mode == TraceMode::Detailed {
+            assert!(g.events().iter().any(|e| matches!(
+                e,
+                Event::TriggeredAbilityNotPlaced {
+                    reason: TriggerPlacementFailure::NoLegalTargets,
+                    ..
+                }
+            )));
+        }
+        assert_eq!(g.zone(object(g, 0)), Some(Zone::Battlefield));
+    });
+}
+#[test]
+fn reclamation_sage_may_declined_after_target_selection() {
+    let mut rows = vec![("Reclamation Sage", 0, true), ("Sol Ring", 1, false)];
+    rows.extend(lands("Forest", 3));
+    traces(prepared(&rows), |g| {
+        announce(g, 0, vec![]);
+        for _ in 0..100 {
+            let r = request(g);
+            if matches!(r, Request::OptionalEffect { .. }) {
+                check(g);
+                answer(g, Response::OptionalEffect { perform: false });
+                break;
+            }
+            answer(g, automatic(&r, &target(object(g, 1))));
+        }
+        resolve(g, vec![]);
+        assert_eq!(g.zone(object(g, 1)), Some(Zone::Battlefield));
+    });
+}
+#[test]
+fn zealot_targets_before_cost_artist_triggers_and_stifle_counters_detached_ability() {
+    let mut rows = vec![
+        ("Viridian Zealot", 0, false),
+        ("Blood Artist", 0, false),
+        ("Sol Ring", 2, false),
+        ("Stifle", 1, true),
+    ];
+    rows.extend(lands("Forest", 2));
+    rows.push(("Island", 1, false));
+    traces(prepared(&rows), |g| {
+        reach(g, TurnStep::PrecombatMain);
+        answer(
+            g,
+            Response::ActivateAbility {
+                object: object(g, 0),
+                ability: 0,
+            },
+        );
+        assert_eq!(g.zone(object(g, 0)), Some(Zone::Battlefield));
+        assert!(matches!(request(g), Request::Targets { .. }));
+        check(g);
+        pay_proposal(g, target(object(g, 2)), None);
+        assert_eq!(
+            g.zone(object(g, 0)),
+            Some(Zone::Graveyard { owner: PlayerId(0) })
+        );
+        assert!(
+            !g.state.pending_triggers.is_empty()
+                || g.state
+                    .stack
+                    .iter()
+                    .any(|e| matches!(e.kind, StackKind::Triggered { .. }))
+        );
+        // Place Blood Artist's mandatory target before the next priority.
+        for _ in 0..30 {
+            let r = request(g);
+            if matches!(r, Request::Priority { .. }) {
+                break;
+            }
+            answer(g, automatic(&r, &[]));
+        }
+        let ability = g
+            .state
+            .stack
+            .iter()
+            .find(|e| matches!(e.kind, StackKind::Activated { .. }))
+            .unwrap()
+            .id;
+        priority_for(g, 1);
+        counter(g, 3, ability);
+        resolve(g, vec![]);
+        assert_eq!(g.zone(object(g, 2)), Some(Zone::Battlefield));
+        assert_eq!(
+            g.zone(object(g, 0)),
+            Some(Zone::Graveyard { owner: PlayerId(0) })
+        );
+        assert_eq!(g.state.players[1].life, Quantity::from(39));
+    });
+}
+#[test]
+fn smash_furnace_six_noncombat_damage_no_commander_history() {
+    let mut rows = vec![
+        ("Furnace of Rath", 0, false),
+        ("Sol Ring", 1, false),
+        ("Smash to Smithereens", 0, true),
+    ];
+    rows.extend(lands("Mountain", 2));
+    traces(prepared(&rows), |g| {
+        cast(g, 2, target(object(g, 1)));
+        assert_eq!(g.state.players[1].life, Quantity::from(34));
+        assert!(g.state.commanders.records.is_empty());
+    });
+}
+#[test]
+fn pongify_token_and_commander_compensation_before_return() {
+    let mut rows = vec![("Pongify", 0, true), ("Isamaru, Hound of Konda", 1, false)];
+    rows.extend(lands("Island", 1));
+    traces(prepared(&rows), |g| {
+        cast(g, 0, target(object(g, 1)));
+        let t = token_objects(g);
+        assert_eq!(t.len(), 1);
+        assert_eq!(g.current(t[0]).unwrap().controller, PlayerId(1));
+        assert_eq!(
+            g.definition(t[0].card).unwrap().characteristics.subtypes,
+            ["Ape"]
+        );
+    });
+    let mut rows = vec![("Pongify", 0, true), ("Raise the Alarm", 0, true)];
+    rows.extend(lands("Island", 1));
+    rows.extend(lands("Plains", 2));
+    traces(prepared(&rows), |g| {
+        cast(g, 1, vec![]);
+        let t = token_objects(g)[0];
+        cast(g, 0, target(t));
+        assert!(g.current(t).is_err());
+        assert_eq!(token_objects(g).len(), 2);
+    });
+}
+#[test]
+fn swan_counters_pacifism_and_day_with_controller_bird_excludes_creature_equipment() {
+    for name in [
+        "Pacifism",
+        "Day of Judgment",
+        "Grizzly Bears",
+        "Bonesplitter",
+    ] {
+        let mut rows = vec![
+            (name, 0, true),
+            ("Swan Song", 1, true),
+            ("Grizzly Bears", 2, false),
+        ];
+        rows.extend(lands("Plains", 4));
+        rows.extend(lands("Forest", 2));
+        rows.push(("Island", 1, false));
+        traces(prepared(&rows), |g| {
+            announce(
+                g,
+                0,
+                if name == "Pacifism" {
+                    target(object(g, 2))
+                } else {
+                    vec![]
+                },
+            );
+            let id = g.top().unwrap().id;
+            priority_for(g, 1);
+            if matches!(name, "Grizzly Bears" | "Bonesplitter") {
+                let r = request(g);
+                assert!(
+                    g.respond(
+                        r.player(),
+                        r.decision_id(),
+                        Response::Cast { card: CardId(1) }
+                    )
+                    .is_err()
+                );
+                resolve(g, vec![]);
+                assert!(token_objects(g).is_empty());
+            } else {
+                counter(g, 1, id);
+                resolve(g, vec![]);
+                let t = token_objects(g);
+                assert_eq!(t.len(), 1);
+                assert_eq!(g.current(t[0]).unwrap().controller, PlayerId(0));
+                assert!(g.has_keyword(t[0], KeywordAbility::Flying));
+                assert_eq!(g.zone(object(g, 2)), Some(Zone::Battlefield));
+            }
+        });
+    }
+}
+#[test]
+fn destroy_attached_creature_aura_sba_equipment_detach_and_rancor_return() {
+    let mut rows = vec![
+        ("Grizzly Bears", 0, false),
+        ("Bonesplitter", 0, false),
+        ("Rancor", 0, true),
+        ("Pongify", 0, true),
+    ];
+    rows.extend(lands("Forest", 2));
+    rows.extend(lands("Island", 1));
+    traces(prepared(&rows), |g| {
+        reach(g, TurnStep::PrecombatMain);
+        activated(g, 1, target(object(g, 0)));
+        resolve(g, vec![]);
+        cast(g, 2, target(object(g, 0)));
+        cast(g, 3, target(object(g, 0)));
+        assert_eq!(
+            g.zone(object(g, 2)),
+            Some(Zone::Hand { owner: PlayerId(0) })
+        );
+        assert_eq!(g.zone(object(g, 1)), Some(Zone::Battlefield));
+        assert!(g.current(object(g, 1)).unwrap().attached_to.is_none());
+        if g.trace.mode == TraceMode::Detailed {
+            assert!(g.trace().records.iter().any(|r|matches!(&r.record,EvidenceRecord::Batch {batch} if batch.cause==BatchCause::StateBased
+                && batch.occurrences.iter().any(|o|matches!(o.proposed,ProposedEvent::Attach {object,target:None} if object.card==CardId(1)))
+                && batch.occurrences.iter().any(|o|matches!(o.actual,EventOutcome::Moved {ref movement} if movement.previous.card==CardId(2) && matches!(movement.destination,Zone::Graveyard {..}))))));
+        }
+    });
+}
+
+#[test]
+fn revoke_exiles_equipment_and_sage_chupacabra_destroy_legal_trigger_targets() {
+    let mut rows = vec![
+        ("Revoke Existence", 0, true),
+        ("Bonesplitter", 1, false),
+        ("Reclamation Sage", 0, true),
+        ("Sol Ring", 1, false),
+        ("Ravenous Chupacabra", 0, true),
+        ("Grizzly Bears", 1, false),
+    ];
+    rows.extend(lands("Plains", 2));
+    rows.extend(lands("Forest", 3));
+    rows.extend(lands("Swamp", 4));
+    traces(prepared(&rows), |g| {
+        cast(g, 0, target(object(g, 1)));
+        assert_eq!(g.zone(object(g, 1)), Some(Zone::Exile));
+        check(g);
+        assert_eq!(observation(g, 2).view.players[1].exile.len(), 1);
+        cast(g, 2, target(object(g, 3)));
+        assert_eq!(
+            g.zone(object(g, 3)),
+            Some(Zone::Graveyard { owner: PlayerId(1) })
+        );
+        cast(g, 4, target(object(g, 5)));
+        assert_eq!(
+            g.zone(object(g, 5)),
+            Some(Zone::Graveyard { owner: PlayerId(1) })
+        );
+    });
+}
+
+fn resolve_to_command(g: &mut Game) {
+    for _ in 0..200 {
+        let r = request(g);
+        if matches!(r, Request::Priority { .. }) && g.state.stack.is_empty() {
+            return;
+        }
+        let response = if matches!(r, Request::CommanderReturn { .. }) {
+            Response::CommanderReturn { to_command: true }
+        } else {
+            automatic(&r, &[])
+        };
+        answer(g, response);
+    }
+    panic!("commander resolution cap")
+}
+fn main_for(g: &mut Game, seat: u8) {
+    for _ in 0..400 {
+        let r = request(g);
+        if g.active_player() == Some(PlayerId(seat))
+            && g.turn().step == TurnStep::PrecombatMain
+            && matches!(r, Request::Priority { .. })
+        {
+            return;
+        }
+        let response = match r {
+            Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
+            Request::Blockers { .. } => Response::Blockers { blocks: vec![] },
+            _ => automatic(&r, &[]),
+        };
+        answer(g, response);
+    }
+    panic!("main phase cap")
+}
+#[test]
+fn feed_swarm_uses_six_mana_value_after_eight_mana_taxed_commander_cast() {
+    let mut rows = vec![
+        ("Yargle and Multani", 0, false),
+        ("Unsummon", 0, true),
+        ("Unsummon", 1, true),
+        ("Feed the Swarm", 1, true),
+    ];
+    rows.extend(lands("Swamp", 10));
+    rows.extend(lands("Forest", 5));
+    rows.extend(lands("Island", 1));
+    rows.push(("Island", 1, false));
+    rows.extend([("Swamp", 1, false); 2]);
+    traces(prepared(&rows), |g| {
+        announce(g, 1, target(object(g, 0)));
+        resolve_to_command(g);
+        announce(g, 0, vec![]);
+        resolve(g, vec![]);
+        priority_for(g, 1);
+        announce(g, 2, target(object(g, 0)));
+        resolve_to_command(g);
+        priority_for(g, 0);
+        announce(g, 0, vec![]);
+        resolve(g, vec![]);
+        assert_eq!(
+            g.state
+                .commanders
+                .history(CardId(0))
+                .unwrap()
+                .command_casts
+                .get(&PlayerId(0)),
+            Some(&2.into())
+        );
+        main_for(g, 1);
+        cast(g, 3, target(object(g, 0)));
+        assert_eq!(g.state.players[1].life, Quantity::from(34));
+    });
+}
+#[test]
+fn removal_token_capacity_fault_is_typed_atomic_and_replayable_private_domain() {
+    // Labelled compiler-domain fixture, not a claimed reachable accepted-pool
+    // witness. It proves the overflow mechanism without manufacturing tokens.
+    let mut p = prepared(&[
+        ("Generous Gift", 0, true),
+        ("Sol Ring", 1, false),
+        ("Plains", 0, false),
+        ("Plains", 0, false),
+        ("Plains", 0, false),
+    ]);
+    let c = Arc::make_mut(&mut p.catalog);
+    let d = c
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Generous Gift")
+        .unwrap();
+    let Instruction::CreateTokensFor { count, .. } = &mut d.spell.as_mut().unwrap().instructions[1]
+    else {
+        panic!()
+    };
+    *count = removal::LIVE_TOKEN_CAPACITY + 1;
+    c.validate().unwrap();
+    p.catalog_digest = digest(c).unwrap();
+    traces(p, |g| {
+        announce(g, 0, target(object(g, 1)));
+        for _ in 0..4 {
+            answer(g, Response::Pass);
+        }
+        assert!(
+            matches!(g.advance(Budget::unlimited()),Advance::Fault(ref reason) if reason=="token capacity exceeded")
+        );
+        assert_eq!(
+            g.typed_fault(),
+            Some(&RuleFault::TokenCapacityExceeded {
+                capacity: 512,
+                created: 0,
+                requested: 513
+            })
+        );
+        assert!(g.state.tokens.is_empty());
+    });
+}
+#[test]
+fn removal_effect_capacity_is_typed_atomic_and_replayable_private_domain() {
+    // Private IR-domain capacity probe; not a supported-pool gameplay witness.
+    let mut p = prepared(&[
+        ("Giant Growth", 0, true),
+        ("Grizzly Bears", 0, false),
+        ("Forest", 0, false),
+    ]);
+    let c = Arc::make_mut(&mut p.catalog);
+    let d = c
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Giant Growth")
+        .unwrap();
+    let p0 = d.spell.as_mut().unwrap();
+    p0.instructions = vec![p0.instructions[0].clone(); 33];
+    c.validate().unwrap();
+    p.catalog_digest = digest(c).unwrap();
+    traces(p, |g| {
+        announce(g, 0, target(object(g, 1)));
+        for _ in 0..4 {
+            answer(g, Response::Pass);
+        }
+        assert!(
+            matches!(g.advance(Budget::unlimited()),Advance::Fault(ref reason) if reason=="effect capacity exceeded")
+        );
+        assert_eq!(
+            g.typed_fault(),
+            Some(&RuleFault::EffectCapacityExceeded {
+                capacity: 32,
+                requested: 33
+            })
+        );
+        assert_eq!(g.state.effects.len(), 32);
+    });
+}
+#[test]
+fn swan_mixed_stack_rejects_wrong_typed_response_without_mutation() {
+    let mut rows = vec![
+        ("Grizzly Bears", 0, true),
+        ("Unsummon", 1, true),
+        ("Swan Song", 2, true),
+        ("Grizzly Bears", 3, false),
+    ];
+    rows.extend(lands("Forest", 2));
+    rows.push(("Island", 1, false));
+    rows.push(("Island", 2, false));
+    traces(prepared(&rows), |g| {
+        announce(g, 0, vec![]);
+        let creature = g.top().unwrap().id;
+        priority_for(g, 1);
+        announce(g, 1, target(object(g, 3)));
+        let instant = g.top().unwrap().id;
+        priority_for(g, 2);
+        answer(g, Response::Cast { card: CardId(2) });
+        let r = request(g);
+        let Request::StackTargets { ref candidates, .. } = r else {
+            panic!()
+        };
+        assert!(candidates.contains(&instant));
+        assert!(!candidates.contains(&creature));
+        let state = g.state_digest().unwrap();
+        assert!(
+            g.respond(
+                r.player(),
+                r.decision_id(),
+                Response::StackTargets {
+                    entries: vec![creature]
+                }
+            )
+            .is_err()
+        );
+        assert_eq!(g.state_digest().unwrap(), state);
+        check(g);
+        pay_proposal(g, vec![], Some(instant));
+        resolve(g, vec![]);
+        assert_eq!(g.zone(object(g, 0)), Some(Zone::Battlefield));
+        let t = token_objects(g);
+        assert_eq!(t.len(), 1);
+        assert_eq!(g.current(t[0]).unwrap().controller, PlayerId(1));
+    });
+}

@@ -67,6 +67,11 @@ impl Game {
             .and_then(|p| p.targets.first())
             .map(|t| t.domain)
         {
+            Some(TargetDomain::BattlefieldPermanent) => self
+                .program_for(entry)
+                .ok()
+                .and_then(|p| p.targets.first())
+                .is_some_and(|spec| self.permanent_target_legal(object, entry.controller, spec)),
             Some(TargetDomain::OwnGraveyardCreatureCard) => {
                 self.graveyard_creatures(entry.controller).contains(&object)
             }
@@ -468,6 +473,24 @@ impl Game {
             return false;
         }
         match (choice, instruction) {
+            (
+                ResolutionChoice::OptionalEffect {
+                    player,
+                    target,
+                    source_block,
+                },
+                Instruction::DestroyPermanent {
+                    target_slot,
+                    optional: true,
+                    source_block: b,
+                    ..
+                },
+            ) => {
+                self.removal_enabled()
+                    && *player == frame.spell.controller
+                    && source_block == b
+                    && frame.spell.targets.get(*target_slot as usize) == Some(target)
+            }
             (
                 ResolutionChoice::Search {
                     player,

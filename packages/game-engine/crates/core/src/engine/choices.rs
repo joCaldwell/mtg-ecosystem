@@ -242,6 +242,7 @@ impl Game {
                     Frame::PlayerTargets { cast }
                 }
                 TargetDomain::ControlledBattlefieldCreature
+                | TargetDomain::BattlefieldPermanent
                 | TargetDomain::BattlefieldCreature
                 | TargetDomain::OwnGraveyardCreatureCard => Frame::Targets { cast },
                 TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {

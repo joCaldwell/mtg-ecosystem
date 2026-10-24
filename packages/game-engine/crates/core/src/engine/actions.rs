@@ -37,6 +37,11 @@ pub(super) enum ResolutionChoice {
         index: u32,
         source_block: u32,
     },
+    OptionalEffect {
+        player: PlayerId,
+        target: ObjectId,
+        source_block: u32,
+    },
     OptionalRecursion {
         player: PlayerId,
         target: ObjectId,
@@ -78,10 +83,16 @@ impl Game {
                 !self.live_players().is_empty()
             }
             Some(TargetDomain::OpponentPlayer) => !self.opponents(player).is_empty(),
-            Some(
-                domain
-                @ (TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility),
-            ) => !self.eligible_stack_targets(domain, None).is_empty(),
+            Some(TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility) => {
+                !self
+                    .eligible_stack_targets_for(&program.targets[0], None)
+                    .is_empty()
+            }
+            Some(TargetDomain::BattlefieldPermanent) => self
+                .state
+                .objects
+                .values()
+                .any(|o| self.permanent_target_legal(o.id, player, &program.targets[0])),
             Some(TargetDomain::OwnGraveyardCreatureCard) => {
                 !self.graveyard_creatures(player).is_empty()
             }
@@ -111,7 +122,8 @@ impl Game {
                 .map(|(slot, target)| {
                     self.program_for(entry).is_ok_and(|program| {
                         program.targets.get(slot).is_some_and(|spec| {
-                            self.stack_target_legal(*target, entry.id, spec.domain)
+                            self.eligible_stack_targets_for(spec, Some(entry.id))
+                                .contains(target)
                         })
                     })
                 })
@@ -216,6 +228,12 @@ impl Game {
                 maximum: *maximum,
                 candidates: self.search_lands(*player),
             }),
+            ResolutionChoice::OptionalEffect { player, .. } if self.is_live(*player) => {
+                Some(Request::OptionalEffect {
+                    decision_id,
+                    player: *player,
+                })
+            }
             ResolutionChoice::OptionalRecursion { player, .. } if self.is_live(*player) => {
                 Some(Request::OptionalRecursion {
                     decision_id,
@@ -247,6 +265,25 @@ impl Game {
         player: PlayerId,
         response: &Response,
     ) -> Option<Result<(), String>> {
+        if let (
+            Frame::ResolutionChoice {
+                choice:
+                    ResolutionChoice::OptionalEffect {
+                        player: chooser, ..
+                    },
+                ..
+            },
+            Response::OptionalEffect { .. },
+        ) = (&self.state.frame, response)
+        {
+            return Some(
+                if self.removal_enabled() && *chooser == player && self.is_live(player) {
+                    Ok(())
+                } else {
+                    Err("invalid optional effect choice".into())
+                },
+            );
+        }
         if let Some(result) = self.validate_staples_response(player, response) {
             return Some(result);
         }
@@ -344,9 +381,18 @@ impl Game {
                 self.state.frame = Frame::Mana { cast };
             }
             Frame::ResolutionChoice { frame, choice } => {
+                if let ResolutionChoice::OptionalEffect {
+                    player,
+                    target,
+                    source_block,
+                } = choice
+                {
+                    return self.removal_choice_step(frame, player, target, source_block);
+                }
                 if matches!(
                     choice,
-                    ResolutionChoice::Search { .. }
+                    ResolutionChoice::OptionalEffect { .. }
+                        | ResolutionChoice::Search { .. }
                         | ResolutionChoice::Shuffle { .. }
                         | ResolutionChoice::OptionalRecursion { .. }
                 ) {
@@ -354,7 +400,8 @@ impl Game {
                 }
                 let Some(request) = self.actions_request()? else {
                     let outcome = match choice {
-                        ResolutionChoice::Search { .. }
+                        ResolutionChoice::OptionalEffect { .. }
+                        | ResolutionChoice::Search { .. }
                         | ResolutionChoice::Shuffle { .. }
                         | ResolutionChoice::OptionalRecursion { .. } => unreachable!(),
                         ResolutionChoice::Sacrifice { player, .. } => {
@@ -379,7 +426,8 @@ impl Game {
                     .ok_or("missing resolution choice")?;
                 self.validate_choice_input(&choice, input.player, &input.response)?;
                 let source_block = match choice {
-                    ResolutionChoice::Search { .. }
+                    ResolutionChoice::OptionalEffect { .. }
+                    | ResolutionChoice::Search { .. }
                     | ResolutionChoice::Shuffle { .. }
                     | ResolutionChoice::OptionalRecursion { .. } => unreachable!(),
                     ResolutionChoice::Sacrifice { source_block, .. }
@@ -478,6 +526,13 @@ impl Game {
         }
         let player = frame.spell.controller;
         match instruction {
+            i @ (Instruction::DestroyPermanent { .. }
+            | Instruction::ExilePermanent { .. }
+            | Instruction::ChangeLifeFromTarget { .. }
+            | Instruction::CreateTokensFor { .. }
+            | Instruction::DamageTargetController { .. }) => {
+                self.execute_removal_instruction(frame, i)
+            }
             i @ (Instruction::AttachEquipment { .. }
             | Instruction::ReturnAuraFromGraveyard { .. }) => {
                 self.execute_attachment_instruction(frame, i)
@@ -708,6 +763,7 @@ impl Game {
     pub(super) fn validate_resolving(&self, frame: &Resolving) -> Result<(), String> {
         self.validate_mode_binding(&frame.spell)?;
         self.validate_condition_cache(frame)?;
+        self.validate_target_facts(frame)?;
         let entry = &frame.spell;
         let program = self.program_for(entry)?;
         self.validate_damage_bindings(entry)?;

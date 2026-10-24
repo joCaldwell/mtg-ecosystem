@@ -719,6 +719,12 @@ impl Game {
         }
         match event {
             ProposedEvent::CreateEffect { effect } => {
+                if self.removal_enabled() && self.state.effects.len() >= self.effect_limit() {
+                    return Err(self.capacity_error(RuleFault::EffectCapacityExceeded {
+                        capacity: self.effect_limit(),
+                        requested: self.state.effects.len() + 1,
+                    }));
+                }
                 if effect.id != EffectId(self.state.next_effect_id)
                     || self.state.effects.len() >= self.effect_limit()
                     || effect.expires_in_cleanup_of_turn != self.state.turn.number
@@ -1635,28 +1641,49 @@ impl Game {
                     .instructions
                     .get(frame.cursor as usize)
                     .ok_or("missing damage continuation instruction")?;
-                let Instruction::DealDamage {
-                    target_slot,
-                    amount,
-                    source_block,
-                } = instruction
-                else {
-                    return Err("damage continuation not damage instruction".into());
+                let (target_slot, amount, source_block, recipient) = match instruction {
+                    Instruction::DealDamage {
+                        target_slot,
+                        amount,
+                        source_block,
+                    } => (
+                        *target_slot,
+                        amount,
+                        *source_block,
+                        frame
+                            .spell
+                            .entity_targets
+                            .get(*target_slot as usize)
+                            .copied()
+                            .ok_or("missing damage target")?,
+                    ),
+                    Instruction::DamageTargetController {
+                        target_slot,
+                        amount,
+                        source_block,
+                    } if self.removal_enabled() => (
+                        *target_slot,
+                        amount,
+                        *source_block,
+                        TargetEntity::Player {
+                            player: self.removal_target_controller(frame, *target_slot)?,
+                        },
+                    ),
+                    _ => return Err("damage continuation not damage instruction".into()),
                 };
                 let expected = BatchCause::Instruction {
                     stack_id: frame.spell.id,
                     player: frame.spell.controller,
                     source: frame.spell.source,
                     cursor: frame.cursor,
-                    source_block: *source_block,
+                    source_block,
                 };
                 let d = tx.entries.first().ok_or("empty noncombat damage")?;
                 if tx.entries.len() != 1
                     || tx.cause != expected
                     || d.original_amount != *amount
-                    || frame.spell.entity_targets.get(*target_slot as usize)
-                        != Some(&d.recipient.entity())
-                    || frame.legal_targets.get(*target_slot as usize) != Some(&true)
+                    || recipient != d.recipient.entity()
+                    || frame.legal_targets.get(target_slot as usize) != Some(&true)
                     || d.controller != frame.spell.controller
                     || d.source != self.source_facts(&frame.spell)?
                 {

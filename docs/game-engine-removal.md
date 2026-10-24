@@ -205,3 +205,63 @@ The completion policies use only observation and the public catalog:
   - targets rejected for hexproof or shroud.
 - Earlier profiles' catalog, policy and expected IR digests and historical batch
   outputs are unchanged. `npm run check:engine` and SDK verification pass.
+
+## Reviewed resource bounds
+
+These capacities apply only to removal-v1. Earlier profile limits, catalog and
+policy digests, fixture bytes and version numbers remain unchanged. The compiled
+color-legal BG pool has 34 creature cards per seat, three more than P6.7. With
+512 live tokens let C = 4×34 + 512 = **648**. This deliberately conservative live
+allowance is larger than the lifetime proof below. Ceased tokens free live
+capacity; their monotonic historical identities are never reused.
+
+No admitted creature has flash and no instruction returns a creature to the
+battlefield. Recursion, bounce and tuck return cards to hand/library; recasting
+requires an empty stack. Thus each physical creature enters/dies and each
+physical Zealot sacrifices at most once per nonempty-stack episode. Sage and
+Chupacabra add two self-enters trigger sources per BG seat; the conservative
+136 self-enters term covers every creature card, including both new triggers.
+
+P6.7's mana bound is retained: at most 800 mana from 400 physical sources plus
+32 from the eight recursion and eight bounce/tuck returns across a step, with
+haste allowing a returned dork to tap. Destruction/exile add no mana and cannot
+return a source. All mana together funds at most **208 Azure Mage activations**.
+Signet input spending does not increase production. Mana abilities add no stack
+entries (605.3b). Repeated commander casts and equips require an empty stack.
+
+- Damage occurrences per combat step: 2C = **1,296**. Furnaces multiply final
+  amounts without multiplying occurrences. Smash creates one separate noncombat
+  occurrence. First/double-strike damage steps remain separate transactions.
+- Stack plus pending triggers: **6,381** = 400 physical spell entries + 24
+  inherited once-per-episode activations + four Zealot activations + 208 Mage
+  activations + 8(C+52) Artist/Warden triggers + 136 self-enters triggers + four
+  Bouncer self-dies triggers + one equip activation + four Rancor return triggers.
+  Here 52 = 36 inherited new tokens plus 16 compensation tokens (four new
+  one-token spells times four seats), in addition to initially live tokens.
+  Counting mutually exclusive colors and creature trigger kinds overestimates
+  the pool. Swan Song counters remove entries and do not refund costs or copy
+  spells. Token recipients need not be the caster; this changes trigger
+  controllers/ownership but not the total number of entries or occurrences.
+- Event-group members: **916** = 400 physical cards + 512 live tokens + four
+  simultaneous player losses. Destruction of noncreatures, exile and attachment
+  SBAs stay within this object count. Compensation is an ordered instruction,
+  not an additional member of the destruction group.
+- Temporary effects: **32**, retaining P6.7's proof: 24 effects plus at most
+  eight additional Bouncer deaths or Healer activations from bounce/tuck.
+  New removal effects create no temporary effects and recur no spell. Static
+  attachment modifiers require no temporary-effect slots.
+
+A conservative lifetime token bound is **116**: P6.7's 36 initial tokens plus
+at most eight useful creature recursions and eight bounce/tuck returns, each
+adding at most four tokens, plus at most sixteen new compensation tokens:
+36 + (8+8)×4 + 4×4. Raise Dead and Gravedigger return only creature cards in
+one's own graveyard; none of the four compensation spells can be recurred.
+A recurred Sage, Zealot or Chupacabra does not create tokens. Gravedigger cannot
+choose itself when its enters trigger is placed, and commanders neither create
+tokens nor recur cards. These restrictions preserve the finite recursion proof.
+
+Token, damage, stack/pending, event-group and temporary-effect overflow in this
+profile uses serializable typed resource faults with atomic event rollback;
+capacity exhaustion is a host truncation, never a rules outcome. Existing
+historical effect-capacity behavior remains unchanged. The completion batch
+must have zero such faults and truncations.
