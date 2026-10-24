@@ -21,6 +21,9 @@ pub const STAPLES_CATALOG_SHA256: &str =
 pub const MANA_PROFILE: &str = "commander-mana-v1";
 pub const MANA_CATALOG_SHA256: &str =
     "1df5823602dd4aacea6ab8e69766dc750e425686ba02221857b443c415b37794";
+pub const SACRIFICE_PROFILE: &str = "commander-sacrifice-v1";
+pub const SACRIFICE_CATALOG_SHA256: &str =
+    "9ae8605e83e6538ff900227bde4f43b91d06cb6acbc8afd22fd35ef2388c0a88";
 pub const REMOVAL_PROFILE: &str = "commander-removal-v1";
 pub const REMOVAL_CATALOG_SHA256: &str =
     "0ff60a7e1dc37cd0a76dbdb6b6d01ea0303d7c29ed0f6c2df20229484e6ea3c6";
@@ -31,6 +34,7 @@ pub const FOUR_COLORS_PROFILE: &str = "commander-four-colors-v1";
 pub const FOUR_COLORS_CATALOG_SHA256: &str =
     "0ca81434d87be618d60f1267783fe3d89983f397a01bed7c0640ade57a4dd93b";
 /// All reviewed legal-profile identity and construction inputs live here.
+/// MATCH_PROFILES is an ordered lineage: each entry inherits earlier mechanics.
 pub struct MatchProfile {
     pub name: &'static str,
     pub catalog_sha256: &'static str,
@@ -41,7 +45,7 @@ pub struct MatchProfile {
     pub black_green_deck: fn() -> Decklist,
     pub default_pod: [fn() -> Decklist; 4],
 }
-pub static MATCH_PROFILES: [MatchProfile; 9] = [
+pub static MATCH_PROFILES: [MatchProfile; 10] = [
     MatchProfile {
         name: MATCH_PROFILE,
         catalog_sha256: MATCH_CATALOG_SHA256,
@@ -189,10 +193,47 @@ pub static MATCH_PROFILES: [MatchProfile; 9] = [
             removal_red_deck,
         ],
     },
+    MatchProfile {
+        name: SACRIFICE_PROFILE,
+        catalog_sha256: SACRIFICE_CATALOG_SHA256,
+        ir_version: 19,
+        policy_json: include_str!("../../../../tests/fixtures/commander-sacrifice-policy.json"),
+        commanders: &[
+            ISAMARU,
+            YARGLE,
+            "4bbc5df9-60d7-46c1-8856-91c9c74abf18",
+            "48fe0f52-1676-49d5-acf6-5476081e8e1b",
+        ],
+        white_deck: sacrifice_white_deck,
+        black_green_deck: sacrifice_black_green_deck,
+        default_pod: [
+            sacrifice_white_deck,
+            sacrifice_black_green_deck,
+            removal_blue_deck,
+            sacrifice_red_deck,
+        ],
+    },
 ];
 pub fn match_profile(name: &str) -> Option<&'static MatchProfile> {
     MATCH_PROFILES.iter().find(|p| p.name == name)
 }
+/// Whether a legal profile is at or after `minimum` in the reviewed lineage.
+/// Unknown names (including historical scenario profiles) never inherit it.
+pub fn profile_at_least(profile: &str, minimum: &str) -> bool {
+    MATCH_PROFILES
+        .iter()
+        .position(|p| p.name == minimum)
+        .is_some_and(|start| MATCH_PROFILES[start..].iter().any(|p| p.name == profile))
+}
+impl Game {
+    pub(super) fn profile_at_least(&self, minimum: &str) -> bool {
+        let profile = self.prepared.config.profile.as_str();
+        profile_at_least(profile, minimum)
+            && match_profile(profile)
+                .is_some_and(|p| p.ir_version == self.prepared.catalog.schema_version)
+    }
+}
+
 const WALL_OF_WOOD: &str = "aa5e6894-8c97-46f8-a0fd-07c6db51e9a7";
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -562,7 +603,9 @@ pub fn validate_pod(
             != profile.catalog_sha256
     {
         return Err(MatchAdmissionError::InvalidCatalog {
-            detail: if profile.name == REMOVAL_PROFILE {
+            detail: if profile.name == SACRIFICE_PROFILE {
+                "catalog differs from reviewed one-hundred-fifty-three-definition sacrifice pool"
+            } else if profile.name == REMOVAL_PROFILE {
                 "catalog differs from reviewed one-hundred-thirty-five-definition removal pool"
             } else if profile.name == MATCH_PROFILE {
                 "catalog differs from reviewed thirty-four-definition pool"
@@ -1106,6 +1149,49 @@ pub fn removal_red_deck() -> Decklist {
             "e0583f29-c344-4b56-b0dc-bef1089a95c7",
         ],
         &[("a3fb7228-e76b-4e96-a40e-20b5fed75685", 75)],
+    )
+}
+
+pub fn sacrifice_white_deck() -> Decklist {
+    add_attachments(
+        removal_white_deck(),
+        &["59f10ddb-8287-4d2c-8c60-1080b108fa78"],
+        &[(PLAINS, 57)],
+    )
+}
+
+pub fn sacrifice_black_green_deck() -> Decklist {
+    add_attachments(
+        removal_black_green_deck(),
+        &[
+            "0c936582-d4c0-4da8-bc7e-49da5a433939",
+            "11ad664e-36d3-4d5b-8a87-59ea715877e0",
+            "11cb509d-21af-48f1-b355-135ebd3e4bd1",
+            "365548fb-5acc-4a8a-b20b-26d28b7d029f",
+            "76b003e0-15af-4f22-bdf2-1ade5430964a",
+            "8cdfd9df-4783-4138-a286-828a97f516aa",
+            "a1cc5e37-b09a-4b7f-afd5-77c1c35aa425",
+            "a85197ab-dc94-4b72-9716-8dbdbbe90ff8",
+            "aa76cc50-5be0-4844-b3a4-fb33fca3cdd3",
+            "c7f33cea-2ec8-4081-9208-a5b1d86721b3",
+            "e3afc704-220f-498f-9eaa-0821b17dc24c",
+            "e8c7566d-7cc0-48af-a986-83223ec7e06c",
+        ],
+        &[(FOREST, 9), (SWAMP, 10)],
+    )
+}
+
+pub fn sacrifice_red_deck() -> Decklist {
+    add_attachments(
+        removal_red_deck(),
+        &[
+            "24227761-b50e-4b9e-93a2-e82d053b3e3d",
+            "7efd5d62-6da2-428a-98e3-5b842f668656",
+            "c1177f22-a1cf-4da3-a68d-ff954e878403",
+            "ddc7f59a-bbb1-4ba1-82c8-6813fd191940",
+            "edad60c6-80de-4033-af1b-a703ac332983",
+        ],
+        &[("a3fb7228-e76b-4e96-a40e-20b5fed75685", 70)],
     )
 }
 

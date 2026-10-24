@@ -263,6 +263,9 @@ impl Strategy {
             .as_ref()
             .ok_or("missing trigger policy request")?;
         Ok(match request {
+            PlayerRequest::SacrificeCost { .. } | PlayerRequest::ForcedSacrifice { .. } => {
+                return Err("sacrifice request outside historical profile".into());
+            }
             PlayerRequest::ManaColor { .. }
             | PlayerRequest::SearchLands { .. }
             | PlayerRequest::OptionalEffect { .. }

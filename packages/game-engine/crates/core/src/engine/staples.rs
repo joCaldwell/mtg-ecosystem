@@ -42,9 +42,7 @@ impl Game {
         }
     }
     pub(super) fn staples_enabled(&self) -> bool {
-        (self.prepared.config.profile == STAPLES_PROFILE
-            && self.prepared.catalog.schema_version == 15)
-            || self.mana_enabled()
+        self.profile_at_least(STAPLES_PROFILE)
     }
     pub(super) fn graveyard_creatures(&self, player: PlayerId) -> Vec<ObjectId> {
         self.state

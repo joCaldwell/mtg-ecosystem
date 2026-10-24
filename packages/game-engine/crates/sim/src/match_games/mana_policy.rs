@@ -193,6 +193,7 @@ mod tests {
             observation_version: 16,
             decision: None,
             view: mtg_core::PermittedView {
+                sacrifice_choices: vec![],
                 setup: None,
                 effects: vec![],
                 combat: vec![],

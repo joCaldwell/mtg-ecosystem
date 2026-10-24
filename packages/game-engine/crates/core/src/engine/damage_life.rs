@@ -23,7 +23,10 @@ fn update_entry(entry: &mut StackInstance, fact: &ObjectBefore) {
 }
 fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
     match frame {
-        Frame::Resolve { frame } | Frame::ResolutionChoice { frame, .. } => Some(&frame.spell),
+        Frame::Resolve { frame }
+        | Frame::ResolutionChoice { frame, .. }
+        | Frame::ForcedSacrifice { frame, .. }
+        | Frame::OptionalDamage { frame } => Some(&frame.spell),
         Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
             match transaction.continuation.as_ref() {
                 DamageContinuation::Instruction { frame } => Some(&frame.spell),
@@ -43,9 +46,10 @@ fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
 }
 fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
     match frame {
-        Frame::Resolve { frame } | Frame::ResolutionChoice { frame, .. } => {
-            update_entry(&mut frame.spell, fact)
-        }
+        Frame::Resolve { frame }
+        | Frame::ResolutionChoice { frame, .. }
+        | Frame::ForcedSacrifice { frame, .. }
+        | Frame::OptionalDamage { frame } => update_entry(&mut frame.spell, fact),
         Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
             if let DamageContinuation::Instruction { frame } = transaction.continuation.as_mut() {
                 update_entry(&mut frame.spell, fact);
@@ -234,6 +238,26 @@ impl Game {
         let StackKind::Activated { ability, .. } = entry.kind else {
             return Err("targeted activation kind".into());
         };
+        if self.sacrifice_enabled() {
+            match &self.definition(entry.source.card)?.activated[ability as usize].cost {
+                ActivationCost::SacrificePermanent { mana: None, .. } => {
+                    let mut cast = cast;
+                    cast.spending = Some(BTreeMap::new());
+                    self.state.frame = Frame::SacrificeCost { cast };
+                    return Ok(());
+                }
+                ActivationCost::SacrificePermanent { mana: Some(_), .. } => {
+                    self.state.frame = Frame::Mana { cast };
+                    return Ok(());
+                }
+                ActivationCost::SacrificeSource => {
+                    let mut cast = cast;
+                    cast.spending = Some(BTreeMap::new());
+                    return self.payment_step(cast);
+                }
+                _ => {}
+            }
+        }
         // CR 602.2b/601.2c,h: announce targets before paying the tap cost;
         // there is no mana window when this cost contains no mana.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -411,6 +435,9 @@ impl Game {
                 source_block,
             } => {
                 let player = match recipient {
+                    LifeRecipient::EachOpponent => {
+                        return self.sacrifice_life(frame, amount, source_block, gain);
+                    }
                     LifeRecipient::Controller => frame.spell.controller,
                     LifeRecipient::Target { target_slot } => {
                         if !frame

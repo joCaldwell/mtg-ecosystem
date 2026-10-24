@@ -60,7 +60,11 @@ IR v19 adds:
 - static `cant block` on the source creature.
 - self-sacrifice abilities with a targeted damage effect or a land search.
 
-IR v18 and earlier reject all of these.
+IR v18 and earlier reject all of these. The definition-kind relaxations for
+noncreature enchantment triggers, enchantment activations and creature statics
+require the v19 `SacrificeV1` capability; historical Aura triggers keep their
+existing exception. Noncreature self-enters matching is enabled only in the
+sacrifice lineage.
 
 ## Profile
 
@@ -133,13 +137,22 @@ stay unchanged.
   and is answered with one choice.
 - **Forced sacrifice.** Each player is asked in APNAP order, and only that
   player sees the request.
-- **Blocker hints** exclude Carrion Feeder.
+- **Blocker hints** exclude Carrion Feeder. Inherited blocker legality hints
+  and first/double-strike steps use the ordered `MATCH_PROFILES` lineage, so
+  later reviewed profiles inherit them without new profile-name lists.
+- **Chooser departure.** Prior forced-sacrifice choices are projected only
+  while both their chooser and selected object remain in the game (CR 800.4a,
+  104.3a), matching the public view's choice filter.
 - **SDK.** New request and response variants are additive. The SDK's
   exhaustive gates list them. Snapshot, bundle, projection and sidecar
   versions do not change.
 
 The completion policies use only observation and the public catalog. They are
 completion machinery, not strategy:
+- **Optional effects.** Accept Goblin Arsonist's optional damage when its
+  trigger is on top of the stack. Other optional effects use the removal
+  policy, so Reclamation Sage declines to destroy its controller's Bastion
+  or Sol Ring merely because it is the only target.
 - **Sacrifice choices.** Sacrifice tokens first, then the lowest-power
   creature. Never sacrifice the commander unless it is the only creature.
 - **Cost spells.** Cast Village Rites, Costly Plunder and Bone Splinters when a
@@ -207,3 +220,148 @@ completion machinery, not strategy:
 - **Earlier profiles and checks.** Earlier profiles' catalog, policy and
   expected IR digests and historical batch outputs are unchanged. `npm run
   check:engine` and SDK verification pass.
+
+## Reviewed resource bounds
+
+Only sacrifice-v1 changes capacities. The reviewed color-legal creature maxima
+(including each commander) are white **17**, BG **42**, blue **11**, red **12**.
+For the P6.3 calculation we deliberately overcount all **400** physical cards
+as creatures. Capacity is on live tokens; ceased identities are never reused.
+
+The new death producers require a lifetime proof as well as an episode proof.
+There are at most 400 ordinary cards available to draw, eight tuck instructions
+(one Time Ebb per blue seat, with eight conservatively allowing both blue
+return instructions), four failed draws and four departures before a draw step.
+Thus **416 turns** is an upper bound on normal untap opportunities. Searches,
+extra draws and mulligans only reduce the number of remaining normal draws.
+No instruction replenishes a library except those bounded tucks. A physical
+mana source produces at most two mana per untap; the eight useful creature
+recursions and eight bounce/tuck returns add at most sixteen extra activations
+through haste. Lifetime spendable mana is therefore at most
+**400×2×416 + 16×2 = 332,832**. This overcounts Signet's net production and
+untaps of another player's permanents. Failed-payment reversals subtract their
+receipt-recorded production before untapping, so repeated undo cannot fund
+additional completed casts (CR 733.1–.2). There are no other untap instructions.
+
+Every command-origin cast costs at least 1+2i for its ith previous command cast.
+For four physical commanders, sum(n_i²) ≤332,832, so Cauchy–Schwarz bounds their
+combined command casts below **1,154**. Hand recasts are already among the
+sixteen returns. Neither an admitted commander nor a returned Aura produces
+mana or tokens itself. Commander recasting can feed Requiem Angel, so it must
+be included; the removal slice's 116-token lifetime proof cannot be reused.
+
+Excluding Angel's separately counted Spirit generation, each physical producer
+makes at most four tokens per entry or death. Overcounting every physical card
+as a four-token producer gives **(400+16)×4 = 1,664** seed tokens, conservatively
+treating even the existing Spirit producers' tokens as non-Spirits. This includes Siege-Gang,
+Bastion and Doomed Dissenter. Singleton construction, color identity, no control
+changes/copies, and the absence of white recursion give at most one Requiem
+Angel per controller at any instant. A non-Spirit death therefore produces at
+most one Spirit. A Spirit never produces another Spirit. All non-Spirit deaths
+are bounded by **400+16+1,154+1,664 = 3,234**. Consequently at most
+**1,664+3,234 = 4,898 lifetime tokens** are created. The deliberately conservative
+live-token capacity is **8,192**, with checked monotonic u32 identity allocation.
+Total lifetime creature deaths are at most **400+16+1,154+4,898 = 6,468**.
+
+For a nonempty-stack episode, no creature has flash, no instruction returns a
+creature directly to the battlefield, and recursion returns cards to hand.
+Thus each physical creature can enter and die at most once in that episode.
+The same is true of Butcher and Angel: they cannot be recast over a nonempty
+stack. Allow 400 physical creatures, 8,192 initially live tokens, 1,600 tokens
+from all 400 physical producers, and four extra Dissenter tokens. Every
+non-Spirit can die once, and every resulting Spirit can die once:
+**D = 2×(400+8,192+1,600+4) = 20,392 deaths**. This decreasing stock of
+non-Spirits proves Butcher cascades finite. A Butcher trigger never creates a
+creature; a forced sacrifice only consumes one from that stock. Requiem adds a
+single terminal Spirit generation. Free outlets likewise consume a creature
+per activation, including when they sacrifice themselves.
+
+The capacities are:
+
+- Live tokens: **8,192**.
+- Damage occurrences: **2×(400+8,192) = 17,184**.
+- Event members: **400+8,192+4 = 8,596**.
+- Stack plus pending triggers: **294,540** = 400 physical spell entries +
+  208 Azure Mage activations + 24 inherited activations + 12D + 400 self-enters
+  triggers + four Rancor triggers + 4×(400+1,600+4+D/2) Warden triggers.
+  The 12D term allows one cost activation per death, four Blood Artists from
+  any seats, six controller-scoped payoffs (Zulaport, Bastion, Vindictive,
+  Reaper, Butcher, Angel), and one additional self-dies payoff per death
+  (Dissenter, Arsonist or Bouncer). Warden's separate term includes the Spirit
+  births; it does not count initially live tokens as entering again. Mage's
+  inherited per-step spendable mana bound is 832: 400 sources producing two plus
+  sixteen returned sources producing two, hence at most 208 activations at
+  four mana. Equip still requires an empty stack.
+- Temporary effects: **8,192**. Bloodthrone creates at most one effect per
+  sacrificed creature, bounded even over the entire match by 6,468 deaths.
+  Adding the inherited 32-effect allowance stays below this capacity.
+
+The catalog/pool tests guard these premises and the exact constants. All five
+capacity checks retain typed faults and atomic rollback. Earlier profile
+capacities and version numbers 18/19/16/15 remain unchanged.
+
+## Reviewed witness substitutions
+
+The admitted pool has no control-changing effect and no white/BG commander.
+Requiem Angel cannot control Doomed Dissenter or its black Zombie. The reachable
+substitute uses **Seller of Songbirds, its Bird token, and a Spirit** controlled
+by Angel's white seat; Butcher forces their sacrifices. It tests a non-Spirit
+card death, a non-Spirit token death, and a Spirit death, preserving every filter
+rule. Dissenter's separate BG death produces its Zombie in that same accepted
+pod. No private injected fixture is used for this substitution.
+
+
+## Independent-review correction batch
+
+The corrected batch is `generated/p69-review-fixes/after/sacrifice-match/report.json`
+(SHA256 `246a99a08200b18f38ccb571221dd8849f01ac721bedb250ecc6c77eb63fe041`).
+It completes **18/18 games**, including the batch's independent replay/checkpoint
+checks, with **zero engine faults and zero truncations**. It uses the unchanged
+seed domain and pod manifest. The pre-review report remains preserved with
+SHA256 `82fc11f3b65be83e6c2972bb00e697504d71b9a0011968c97915d9f9c22f1f31`.
+
+| Recorded quantity | Pre-review | Corrected |
+| --- | ---: | ---: |
+| Decisions | 32,385 | 35,615 |
+| Turns | 717 | 775 |
+| Rule steps | 96,004 | 104,112 |
+| Blocks | 0 | 140 |
+| First-strike steps | 0 | 48 |
+| Cost sacrifices | 52 | 57 |
+| Forced sacrifices | 1 | 1 |
+| Each-opponent life-loss events | 8 | 15 |
+| Each-opponent damage events | 11 | 12 |
+| Total Fling damage | 7 | 12 |
+| Tokens created on death | 5 | 6 |
+
+Collected dies triggers change from Blood Artist **3→4**, Bastion **3→6**,
+Zulaport **0→1**, Dissenter **0→1**, and Arsonist **0→1**. Vindictive **4**,
+Reaper **3**, Angel **5** and Butcher **0** are unchanged. These remain
+completion-policy counts, not claims that every admitted interaction appears
+in the batch; the accepted-pod witnesses cover the remaining cases.
+
+The corrected release's **397-file** native source closure is verified by
+`generated/p69-review-fixes/final-source-manifest.json` (SHA256
+`ad449df01ce263f84b8d3293def3521e9a6b5b45a72ca3f74c79f96d25bf3118`),
+with build identity
+`fdbd25acb9deed7a057300dbec1c2254cd8b2398310830ac2faf36e1584ffc51`.
+The code commit is `dc021ae943cb6c8fa52e0f1d417063455a9243d8`.
+The progress ledger records the complete check and historical-comparison gates.
+
+
+Historical regression reruns pass **162/162 games** across all nine earlier
+profiles. Their canonical gameplay evidence, checkpoint state/trace bytes and
+final digests are identical; the comparison excludes only measured elapsed
+time and the explicitly recorded build-identity envelope fields. All **44**
+earlier expected-output/policy fixtures remain raw-byte identical to `2681c45`.
+The progress ledger records the exact comparison artifact, hashes and totals.
+
+
+Final checks pass with pinned Rust 1.99.0 / Node 26.11.1: `npm run check:engine`
+verifies formatting, warnings-denied Clippy, **840 Rust tests** (zero failures,
+12 ignored diagnostics) and **54 JavaScript checks** (zero failures or
+cancellations). Check log SHA256:
+`7b2d7542e2429b0c1f9032801c17eb28070d60dacbb499aef1e86a3aa13e3ebd`. The required release server build and SDK verification
+pass **47 tests, strict TypeScript and all 31 response variants**; generated SDK
+files are removed. The progress ledger qualifies the separate stale-build
+attempts and records all final log/artifact paths.

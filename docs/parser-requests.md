@@ -30,3 +30,23 @@ slice is blocked.
 - **Status:** not blocking. The next ramp slice uses Rampant Growth and
   Explosive Vegetation, which parse. Check whether the current main parser
   already handles this text before treating it as new parser work.
+
+### Each-other-player sacrifice and conditional discard (P6.9 exclusions)
+
+- **Cards:** Grave Pact `6f4ac4a4-53ec-4bc9-8f5c-d4b801d867b2`;
+  Liliana's Triumph `c2e68ac5-cfff-4b76-8062-25a82fdf9a5c`.
+- **Frozen archive:** 1-based lines **16697** and **29312** of
+  `generated/oracle-ast.jsonl`; both have status `unsupported` and no abilities.
+- **Paths/errors:** `faces/0/result/lines/0`. Grave Pact fails at `"player"`
+  (token 9) in “each other player sacrifices a creature of their choice”.
+  Liliana's Triumph fails at `"also"` (token 18) in its conditional discard.
+- **Needed shapes:** a dies trigger filtered by `control: you`, followed by
+  an `each-other-player` sacrifice set whose members choose their own creatures;
+  and an `each-opponent` sacrifice followed by a separate resolution-time
+  conditional discard if the controller controls a Liliana planeswalker.
+  The condition must retain the planeswalker subtype and its controller.
+- **Rules:** pinned CR 101.4, 102.2–.3, 603.6c/603.10a, 608.2c/h,
+  700.4 and 701.21a. Player-set semantics must remain distinct from targeting.
+- **Status:** not blocking. The frozen P6.9 contract explicitly excludes these
+  cards and uses parsed Butcher of Malakir for APNAP forced sacrifice. No parser
+  changes were made. Recheck the current parser before starting new parser work.

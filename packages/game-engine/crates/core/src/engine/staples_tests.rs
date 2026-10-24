@@ -1113,7 +1113,10 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
         {
             for i in instructions(p) {
                 match i {
-                    Instruction::DestroyPermanent { .. }
+                    Instruction::SacrificeDamage { .. }
+                    | Instruction::EachOpponentSacrifice { .. }
+                    | Instruction::ModifySourcePowerToughness { .. }
+                    | Instruction::DestroyPermanent { .. }
                     | Instruction::ExilePermanent { .. }
                     | Instruction::ChangeLifeFromTarget { .. }
                     | Instruction::CreateTokensFor { .. }

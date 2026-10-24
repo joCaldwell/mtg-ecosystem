@@ -234,6 +234,26 @@ impl Game {
             return Err("unsupported continuous effect profile".into());
         }
         let (kind, block) = match instruction {
+            Instruction::ModifySourcePowerToughness {
+                power,
+                toughness,
+                source_block,
+                ..
+            } => {
+                let target = frame.spell.source;
+                if !self.sacrifice_enabled() || !self.target_is_creature(target) {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                }
+                (
+                    ResolvedEffectKind::ModifyPowerToughness {
+                        target,
+                        power,
+                        toughness,
+                    },
+                    source_block,
+                )
+            }
             Instruction::ModifyPowerToughness {
                 target_slot,
                 power,
@@ -405,6 +425,52 @@ impl Game {
             amount: damage.amount,
             applied: vec![],
         }];
+        self.begin_damage(
+            DamageKind::Noncombat,
+            entries,
+            cause,
+            DamageContinuation::Instruction {
+                frame: Box::new(frame),
+            },
+        )
+    }
+    pub(super) fn prepare_sacrifice_damage(
+        &mut self,
+        frame: Resolving,
+        amount: Quantity,
+        block: u32,
+        targets: Vec<TargetEntity>,
+    ) -> Result<(), String> {
+        let cause = BatchCause::Instruction {
+            stack_id: frame.spell.id,
+            player: frame.spell.controller,
+            source: frame.spell.source,
+            cursor: frame.cursor,
+            source_block: block,
+        };
+        let handles = match &frame.spell.kind {
+            StackKind::Activated { source_handles, .. }
+            | StackKind::Triggered { source_handles, .. } => source_handles.clone(),
+            StackKind::Spell => frame.spell.effect_source_handles.clone(),
+        };
+        let source = self.source_facts(&frame.spell)?;
+        let entries = targets
+            .into_iter()
+            .enumerate()
+            .map(|(n, t)| PreparedDamage {
+                source_handles: handles.clone(),
+                id: DamageId(n as u32),
+                source: source.clone(),
+                controller: frame.spell.controller,
+                recipient: match t {
+                    TargetEntity::Player { player } => DamageRecipient::Player { player },
+                    TargetEntity::Object { object } => DamageRecipient::Creature { object },
+                },
+                original_amount: amount.clone(),
+                amount: amount.clone(),
+                applied: vec![],
+            })
+            .collect();
         self.begin_damage(
             DamageKind::Noncombat,
             entries,
@@ -751,6 +817,26 @@ impl Game {
                     .ok_or("effect instruction absent")?;
                 let valid = match (instruction, &effect.kind) {
                     (
+                        Instruction::ModifySourcePowerToughness {
+                            power,
+                            toughness,
+                            source_block,
+                            ..
+                        },
+                        ResolvedEffectKind::ModifyPowerToughness {
+                            target,
+                            power: p,
+                            toughness: t,
+                        },
+                    ) => {
+                        self.sacrifice_enabled()
+                            && *target == frame.spell.source
+                            && self.target_is_creature(*target)
+                            && power == p
+                            && toughness == t
+                            && *source_block == effect.origin.source_block
+                    }
+                    (
                         Instruction::ModifyPowerToughness {
                             target_slot,
                             power,
@@ -1062,6 +1148,25 @@ impl Game {
             let mut bound = false;
             for instruction in instructions {
                 bound |= match (instruction, &e.kind) {
+                    (
+                        Instruction::ModifySourcePowerToughness {
+                            power,
+                            toughness,
+                            source_block,
+                            ..
+                        },
+                        ResolvedEffectKind::ModifyPowerToughness {
+                            target,
+                            power: p,
+                            toughness: t,
+                        },
+                    ) => {
+                        self.sacrifice_enabled()
+                            && *target == e.origin.source
+                            && power == p
+                            && toughness == t
+                            && *source_block == e.origin.source_block
+                    }
                     (
                         Instruction::ModifyPowerToughness {
                             power,
@@ -1655,54 +1760,60 @@ impl Game {
                     .instructions
                     .get(frame.cursor as usize)
                     .ok_or("missing damage continuation instruction")?;
-                let (target_slot, amount, source_block, recipient) = match instruction {
-                    Instruction::DealDamage {
-                        target_slot,
-                        amount,
+                if matches!(instruction, Instruction::SacrificeDamage { .. }) {
+                    self.validate_sacrifice_damage_transaction(tx, frame)?;
+                } else {
+                    let (target_slot, amount, source_block, recipient) = match instruction {
+                        Instruction::DealDamage {
+                            target_slot,
+                            amount,
+                            source_block,
+                        } => (
+                            *target_slot,
+                            amount,
+                            *source_block,
+                            frame
+                                .spell
+                                .entity_targets
+                                .get(*target_slot as usize)
+                                .copied()
+                                .ok_or("missing damage target")?,
+                        ),
+                        Instruction::DamageTargetController {
+                            target_slot,
+                            amount,
+                            source_block,
+                        } if self.removal_enabled() => (
+                            *target_slot,
+                            amount,
+                            *source_block,
+                            TargetEntity::Player {
+                                player: self.removal_target_controller(frame, *target_slot)?,
+                            },
+                        ),
+                        _ => return Err("damage continuation not damage instruction".into()),
+                    };
+                    let expected = BatchCause::Instruction {
+                        stack_id: frame.spell.id,
+                        player: frame.spell.controller,
+                        source: frame.spell.source,
+                        cursor: frame.cursor,
                         source_block,
-                    } => (
-                        *target_slot,
-                        amount,
-                        *source_block,
-                        frame
-                            .spell
-                            .entity_targets
-                            .get(*target_slot as usize)
-                            .copied()
-                            .ok_or("missing damage target")?,
-                    ),
-                    Instruction::DamageTargetController {
-                        target_slot,
-                        amount,
-                        source_block,
-                    } if self.removal_enabled() => (
-                        *target_slot,
-                        amount,
-                        *source_block,
-                        TargetEntity::Player {
-                            player: self.removal_target_controller(frame, *target_slot)?,
-                        },
-                    ),
-                    _ => return Err("damage continuation not damage instruction".into()),
-                };
-                let expected = BatchCause::Instruction {
-                    stack_id: frame.spell.id,
-                    player: frame.spell.controller,
-                    source: frame.spell.source,
-                    cursor: frame.cursor,
-                    source_block,
-                };
-                let d = tx.entries.first().ok_or("empty noncombat damage")?;
-                if tx.entries.len() != 1
-                    || tx.cause != expected
-                    || d.original_amount != *amount
-                    || recipient != d.recipient.entity()
-                    || frame.legal_targets.get(target_slot as usize) != Some(&true)
-                    || d.controller != frame.spell.controller
-                    || !self
-                        .frozen_damage_source_matches(&d.source, self.source_facts(&frame.spell)?)
-                {
-                    return Err("unbound noncombat damage transaction".into());
+                    };
+                    let d = tx.entries.first().ok_or("empty noncombat damage")?;
+                    if tx.entries.len() != 1
+                        || tx.cause != expected
+                        || d.original_amount != *amount
+                        || recipient != d.recipient.entity()
+                        || frame.legal_targets.get(target_slot as usize) != Some(&true)
+                        || d.controller != frame.spell.controller
+                        || !self.frozen_damage_source_matches(
+                            &d.source,
+                            self.source_facts(&frame.spell)?,
+                        )
+                    {
+                        return Err("unbound noncombat damage transaction".into());
+                    }
                 }
             }
             _ => return Err("wrong damage continuation kind".into()),
@@ -1851,6 +1962,77 @@ impl Game {
             if *remaining != budget {
                 return Err("shield budget differs from consumed prefix".into());
             }
+        }
+        Ok(())
+    }
+}
+
+impl Game {
+    fn validate_sacrifice_damage_transaction(
+        &self,
+        tx: &DamageTransaction,
+        frame: &Resolving,
+    ) -> Result<(), String> {
+        if !self.sacrifice_enabled() {
+            return Err("sacrifice damage profile".into());
+        }
+        let (amount, block, mut targets) = self.sacrifice_damage_spec(frame)?;
+        if matches!(
+            self.program_for(&frame.spell)?
+                .instructions
+                .get(frame.cursor as usize),
+            Some(Instruction::SacrificeDamage {
+                recipient: Some(LifeRecipient::EachOpponent),
+                ..
+            })
+        ) {
+            // CR 800.4a: the simultaneous recipient set was frozen when this
+            // transaction began. Departures cancel their damage at commit;
+            // they cannot erase the retained occurrence or add a new recipient.
+            let frozen = tx
+                .entries
+                .iter()
+                .map(|d| d.recipient.entity())
+                .collect::<Vec<_>>();
+            let players = frozen
+                .iter()
+                .filter_map(|t| {
+                    if let TargetEntity::Player { player } = t {
+                        Some(*player)
+                    } else {
+                        None
+                    }
+                })
+                .collect::<BTreeSet<_>>();
+            if players.len() != frozen.len()
+                || players
+                    .iter()
+                    .any(|p| p.0 >= 4 || *p == frame.spell.controller)
+                || targets.iter().any(|t| !frozen.contains(t))
+            {
+                return Err("invalid frozen opponent damage set".into());
+            }
+            targets = frozen;
+        }
+        let expected = BatchCause::Instruction {
+            stack_id: frame.spell.id,
+            player: frame.spell.controller,
+            source: frame.spell.source,
+            cursor: frame.cursor,
+            source_block: block,
+        };
+        if tx.cause != expected
+            || tx.entries.len() != targets.len()
+            || tx.entries.iter().zip(&targets).any(|(d, t)| {
+                d.recipient.entity() != *t
+                    || d.original_amount != amount
+                    || d.controller != frame.spell.controller
+                    || !self
+                        .source_facts(&frame.spell)
+                        .is_ok_and(|f| self.frozen_damage_source_matches(&d.source, f))
+            })
+        {
+            return Err("unbound sacrifice damage transaction".into());
         }
         Ok(())
     }

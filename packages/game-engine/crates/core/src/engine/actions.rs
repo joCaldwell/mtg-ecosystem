@@ -143,7 +143,7 @@ impl Game {
                 .collect()
         }
     }
-    fn controlled_creatures(&self, player: PlayerId) -> Vec<ObjectId> {
+    pub(super) fn controlled_creatures(&self, player: PlayerId) -> Vec<ObjectId> {
         self.state
             .objects
             .values()
@@ -195,6 +195,11 @@ impl Game {
                     && !self.has_keyword(source.id, KeywordAbility::Haste)))
         {
             return Err("tap ability requires an untapped continuously controlled creature".into());
+        }
+        if let ActivationCost::SacrificePermanent { filter, .. } = &ability.cost
+            && (!self.sacrifice_enabled() || self.sacrifice_candidates(player, filter).is_empty())
+        {
+            return Err("no payable sacrifice permanent".into());
         }
         if !self.has_target_domain(&ability.program, player) {
             return Err("no eligible ability targets".into());
@@ -291,9 +296,10 @@ impl Game {
             return Some(result);
         }
         match (&self.state.frame, response) {
-            (Frame::EntityTargets { .. }, Response::EntityTargets { entities }) => {
-                Some(self.validate_entity_targets(player, entities))
-            }
+            (
+                Frame::EntityTargets { .. } | Frame::TriggerTargets { .. },
+                Response::EntityTargets { entities },
+            ) => Some(self.validate_entity_targets(player, entities)),
             (Frame::StackTargets { .. }, Response::StackTargets { entries }) => {
                 Some(self.validate_stack_targets(player, entries))
             }
@@ -526,6 +532,11 @@ impl Game {
         }
         let player = frame.spell.controller;
         match instruction {
+            i @ (Instruction::SacrificeDamage { .. }
+            | Instruction::EachOpponentSacrifice { .. }
+            | Instruction::ModifySourcePowerToughness { .. }) => {
+                self.execute_sacrifice_instruction(frame, i)
+            }
             i @ (Instruction::DestroyPermanent { .. }
             | Instruction::ExilePermanent { .. }
             | Instruction::ChangeLifeFromTarget { .. }
@@ -593,6 +604,9 @@ impl Game {
                     return Err("unsupported draw count".into());
                 }
                 let player = match recipient {
+                    Some(LifeRecipient::EachOpponent) => {
+                        return Err("unsupported each-opponent draw".into());
+                    }
                     None | Some(LifeRecipient::Controller) => player,
                     Some(LifeRecipient::Target { target_slot }) => {
                         if frame.legal_targets.get(target_slot as usize) != Some(&true) {
@@ -787,12 +801,16 @@ impl Game {
         Ok(())
     }
     pub(super) fn revalidate_actions_departure(&mut self) -> Result<(), String> {
-        if matches!(self.state.frame, Frame::ResolutionChoice { .. })
-            && self.state.pending.as_ref().is_some_and(|input| {
-                self.validate_response(input.player, &input.response)
-                    .is_err()
-            })
-        {
+        if matches!(
+            self.state.frame,
+            Frame::ResolutionChoice { .. }
+                | Frame::ForcedSacrifice { .. }
+                | Frame::OptionalDamage { .. }
+                | Frame::SacrificeCost { .. }
+        ) && self.state.pending.as_ref().is_some_and(|input| {
+            self.validate_response(input.player, &input.response)
+                .is_err()
+        }) {
             self.state.pending = None;
         }
         Ok(())

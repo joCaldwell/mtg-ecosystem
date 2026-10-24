@@ -85,6 +85,8 @@ impl<'de> Deserialize<'de> for StoredObject {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct StoredViewData {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    sacrifice_choices: Vec<(PlayerId, ObjectHandle)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) setup: Option<VisibleSetup>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -170,6 +172,7 @@ impl<'de> Deserialize<'de> for StoredPermittedView {
 impl From<PermittedView> for StoredPermittedView {
     fn from(view: PermittedView) -> Self {
         let PermittedView {
+            sacrifice_choices,
             setup,
             effects,
             combat,
@@ -195,6 +198,7 @@ impl From<PermittedView> for StoredPermittedView {
         }
         Self {
             data: StoredViewData {
+                sacrifice_choices,
                 setup,
                 effects,
                 combat,
@@ -216,6 +220,7 @@ impl From<PermittedView> for StoredPermittedView {
 impl StoredPermittedView {
     pub(super) fn to_public(&self) -> PermittedView {
         let StoredViewData {
+            sacrifice_choices,
             setup,
             effects,
             combat,
@@ -231,6 +236,7 @@ impl StoredPermittedView {
             stack,
         } = &self.data;
         PermittedView {
+            sacrifice_choices: sacrifice_choices.clone(),
             setup: setup.clone(),
             effects: effects.clone(),
             combat: combat.clone(),
@@ -248,6 +254,7 @@ impl StoredPermittedView {
     }
     pub(super) fn matches_public(&self, view: &PermittedView) -> bool {
         let PermittedView {
+            sacrifice_choices,
             setup,
             effects,
             combat,
@@ -263,6 +270,7 @@ impl StoredPermittedView {
             stack,
         } = view;
         let StoredViewData {
+            sacrifice_choices: sc,
             setup: s,
             effects: e,
             combat: c,
@@ -277,7 +285,8 @@ impl StoredPermittedView {
             objects: r,
             stack: k,
         } = &self.data;
-        s == setup
+        sc == sacrifice_choices
+            && s == setup
             && e == effects
             && c == combat
             && v == viewer
@@ -328,6 +337,7 @@ impl StoredPermittedView {
         self.segments
             .get_or_init(|| {
                 let StoredViewData {
+                    sacrifice_choices,
                     setup,
                     effects,
                     combat,
@@ -343,6 +353,7 @@ impl StoredPermittedView {
                     stack,
                 } = &self.data;
                 let skeleton = PermittedView {
+                    sacrifice_choices: sacrifice_choices.clone(),
                     setup: setup.clone(),
                     effects: effects.clone(),
                     combat: combat.clone(),

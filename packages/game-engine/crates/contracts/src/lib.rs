@@ -178,6 +178,7 @@ pub enum Capability {
     TargetPlayerDrawV1,
     AttachmentsV1,
     PermanentRemovalV1,
+    SacrificeV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -259,6 +260,7 @@ pub enum TargetAttribute {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum LifeRecipient {
+    EachOpponent,
     Controller,
     Target { target_slot: u32 },
 }
@@ -304,6 +306,22 @@ pub enum CounterRecipient {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    SacrificeDamage {
+        target_slot: Option<u32>,
+        recipient: Option<LifeRecipient>,
+        amount: SacrificeDamageAmount,
+        optional: bool,
+        source_block: u32,
+    },
+    EachOpponentSacrifice {
+        source_block: u32,
+    },
+    ModifySourcePowerToughness {
+        power: Quantity,
+        toughness: Quantity,
+        duration: Duration,
+        source_block: u32,
+    },
     DestroyPermanent {
         target_slot: u32,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -431,6 +449,47 @@ pub enum Instruction {
         source_block: u32,
     },
 }
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "amount", rename_all = "snake_case", deny_unknown_fields)]
+pub enum SacrificeDamageAmount {
+    Fixed { value: Quantity },
+    SacrificedPower,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SacrificeFilter {
+    /// A union of permanent types; empty means any permanent type.
+    pub types: Vec<CardKind>,
+    pub subtypes: Vec<String>,
+}
+impl SacrificeFilter {
+    pub fn validate(&self) -> Result<(), String> {
+        if (self.types.is_empty() && self.subtypes.is_empty())
+            || self
+                .types
+                .iter()
+                .any(|k| !matches!(k, CardKind::Creature | CardKind::Artifact))
+            || self
+                .types
+                .iter()
+                .enumerate()
+                .any(|(n, k)| self.types[..n].contains(k))
+            || self.subtypes.iter().any(|s| s != "Goblin")
+            || self.subtypes.len() > 1
+        {
+            return Err("unsupported sacrifice permanent filter".into());
+        }
+        Ok(())
+    }
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DeathFilter {
+    pub controlled: bool,
+    pub other: bool,
+    pub non_token: bool,
+    pub non_subtypes: Vec<String>,
+}
 /// Fixed-turn effects expire in the atomic cleanup action (CR 514.2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -466,10 +525,12 @@ pub enum CreatureScope {
     Equipped,
     Enchanted,
     Controller,
+    Source,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CreatureRestriction {
+    CantBlock,
     CantBeBlocked,
     CantAttackOrBlock,
 }
@@ -490,6 +551,8 @@ pub enum SpellResolution {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SpellProgram {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub additional_sacrifice: Option<SacrificeFilter>,
     pub timing: SpellTiming,
     pub resolution: SpellResolution,
     pub functioning_zone: FunctioningZone,
@@ -506,10 +569,19 @@ pub struct SpellMode {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum ActivationCost {
+    SacrificePermanent {
+        filter: SacrificeFilter,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mana: Option<ManaCost>,
+    },
     SacrificeSource,
     TapSource,
-    Mana { cost: ManaCost },
-    Composite { costs: PermanentActivationCosts },
+    Mana {
+        cost: ManaCost,
+    },
+    Composite {
+        costs: PermanentActivationCosts,
+    },
 }
 /// Finite permanent costs; costs are committed only after complete payment.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -564,6 +636,8 @@ pub enum InterveningCondition {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TriggeredAbility {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub death_filter: Option<DeathFilter>,
     pub functioning_zone: FunctioningZone,
     pub condition: TriggerCondition,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -715,14 +789,34 @@ impl Definition {
         for ability in &self.activated {
             set.insert(Capability::ActivatedAbilityV1);
             set.insert(match ability.cost {
+                ActivationCost::SacrificePermanent { .. } => Capability::SacrificeV1,
                 ActivationCost::SacrificeSource => Capability::SacrificeSourceCostV1,
                 ActivationCost::TapSource => Capability::TapSourceCostV1,
                 ActivationCost::Mana { .. } => Capability::ManaActivationCostV1,
                 ActivationCost::Composite { .. } => Capability::CompositeActivationCostV1,
             });
+            if ability.cost == ActivationCost::SacrificeSource
+                && ability
+                    .program
+                    .instructions
+                    .iter()
+                    .any(|i| matches!(i, Instruction::SearchBasicLands { .. }))
+            {
+                set.insert(Capability::SacrificeV1);
+            }
             add_program_requirements(&mut set, &ability.program);
         }
         for ability in &self.triggered {
+            if ability.death_filter.is_some()
+                || (ability.condition == TriggerCondition::SelfDies
+                    && ability
+                        .program
+                        .instructions
+                        .iter()
+                        .any(|i| matches!(i, Instruction::CreateCreatureTokens { .. })))
+            {
+                set.insert(Capability::SacrificeV1);
+            }
             set.insert(Capability::TriggeredAbilityV1);
             set.insert(match ability.condition {
                 TriggerCondition::SelfEntersBattlefield => Capability::SelfEntersBattlefieldV1,
@@ -760,6 +854,10 @@ impl Definition {
                     Capability::StaticDamageReplacementV1
                 }
                 StaticEffect::ControllerCreatureAnthem { .. } => Capability::CreatureAnthemV1,
+                StaticEffect::ModifyCreatures {
+                    scope: CreatureScope::Source,
+                    ..
+                } => Capability::SacrificeV1,
                 StaticEffect::ModifyCreatures { .. } => Capability::AttachmentsV1,
             });
         }
@@ -775,11 +873,14 @@ impl Definition {
                 )
             }) || p.modes.iter().any(|m| new_ops(&m.program))
         }
-        if self.activated.iter().any(|a| new_ops(&a.program))
-            || self.triggered.iter().any(|a| {
-                new_ops(&a.program) && a.condition != TriggerCondition::SelfEntersBattlefield
-            })
-        {
+        if self.activated.iter().any(|a| {
+            new_ops(&a.program) && !matches!(a.cost, ActivationCost::SacrificePermanent { .. })
+        }) || self.triggered.iter().any(|a| {
+            new_ops(&a.program)
+                && a.condition != TriggerCondition::SelfEntersBattlefield
+                && a.condition != TriggerCondition::SelfDies
+                && a.death_filter.is_none()
+        }) {
             return Err("tokens/counters require spells or self-enters triggers".into());
         }
         // A spell's own source is the spell on the stack, never a creature; a
@@ -809,6 +910,9 @@ impl Definition {
         }) {
             return Err("attachment operations are not spell instructions".into());
         }
+        // v19 alone admits enchantment programs and creature statics. Older
+        // catalogs reject this capability, retaining their original kind checks.
+        let sacrifice = self.capabilities.contains(&Capability::SacrificeV1);
         let c = &self.characteristics;
         let equipment = c.kind == CardKind::Artifact && c.subtypes == ["Equipment"];
         let aura = c.kind == CardKind::Enchantment && c.subtypes == ["Aura"];
@@ -851,11 +955,22 @@ impl Definition {
             }
             validate_permanent_costs(&a.costs)?;
         }
-        if !self.activated.is_empty() && !matches!(c.kind, CardKind::Creature | CardKind::Artifact)
+        if !self.activated.is_empty()
+            && !matches!(c.kind, CardKind::Creature | CardKind::Artifact)
+            && !(sacrifice && c.kind == CardKind::Enchantment)
         {
             return Err("activated programs require supported creature characteristics".into());
         }
         for ability in &self.activated {
+            if let ActivationCost::SacrificePermanent { filter, mana } = &ability.cost {
+                filter.validate()?;
+                if mana
+                    .as_ref()
+                    .is_some_and(|m| m.generic.is_negative() || m.colored.contains(&Color::C))
+                {
+                    return Err("invalid sacrifice mana cost".into());
+                }
+            }
             if equipment {
                 let p = &ability.program;
                 if ability.functioning_zone != FunctioningZone::Battlefield
@@ -919,7 +1034,24 @@ impl Definition {
                 || p.resolution != SpellResolution::Instructions
                 || p.instructions.is_empty()
                 || !p.modes.is_empty()
-                || if p.targets.is_empty() {
+                || if matches!(
+                    ability.cost,
+                    ActivationCost::SacrificePermanent { .. } | ActivationCost::SacrificeSource
+                ) && p.instructions.iter().all(|i| {
+                    matches!(
+                        i,
+                        Instruction::SacrificeDamage {
+                            optional: false,
+                            ..
+                        } | Instruction::PutPlusOneCounters {
+                            on: CounterRecipient::Source,
+                            ..
+                        } | Instruction::ModifySourcePowerToughness { .. }
+                            | Instruction::SearchBasicLands { maximum: 1, .. }
+                    )
+                }) {
+                    false
+                } else if p.targets.is_empty() {
                     p.instructions.iter().any(|instruction| !matches!(instruction,
                         Instruction::DrawCards {count,..}|Instruction::DiscardCards {count,..} if *count==Quantity::from(1)))
                 } else if matches!(ability.cost, ActivationCost::Composite { .. })
@@ -950,10 +1082,22 @@ impl Definition {
             }
             validate_instruction_program(p)?;
         }
-        if !self.triggered.is_empty() && c.kind != CardKind::Creature && !aura {
+        if !self.triggered.is_empty()
+            && c.kind != CardKind::Creature
+            && !aura
+            && !(sacrifice && c.kind == CardKind::Enchantment)
+        {
             return Err("trigger programs require supported creature characteristics".into());
         }
         for ability in &self.triggered {
+            if let Some(f) = &ability.death_filter
+                && (ability.condition != TriggerCondition::AnyCreatureDies
+                    || !f.controlled
+                    || f.non_subtypes.iter().any(|s| s != "Spirit")
+                    || f.non_subtypes.len() > 1)
+            {
+                return Err("invalid filtered dies trigger".into());
+            }
             let p = &ability.program;
             if aura {
                 if ability.condition != TriggerCondition::SelfAuraToGraveyard
@@ -997,6 +1141,7 @@ impl Definition {
                     !matches!(
                         target.domain,
                         TargetDomain::AnyPlayer
+                            | TargetDomain::AnyDamageTarget
                             | TargetDomain::BattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
                             | TargetDomain::OwnGraveyardCreatureCard
@@ -1005,7 +1150,9 @@ impl Definition {
                 || p.instructions.iter().any(|instruction| {
                     !matches!(
                         instruction,
-                        Instruction::ReturnOwnGraveyardCreatureToHand { .. }
+                        Instruction::SacrificeDamage { .. }
+                            | Instruction::EachOpponentSacrifice { .. }
+                            | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
                             | Instruction::DestroyPermanent { .. }
                             | Instruction::CreateCreatureTokens { .. }
                             | Instruction::PutPlusOneCounters { .. }
@@ -1020,7 +1167,11 @@ impl Definition {
             }
             validate_instruction_program(p)?;
         }
-        if !self.static_abilities.is_empty() && c.kind != CardKind::Enchantment && !equipment {
+        if !self.static_abilities.is_empty()
+            && c.kind != CardKind::Enchantment
+            && !equipment
+            && !(sacrifice && c.kind == CardKind::Creature)
+        {
             return Err("static damage replacement requires a supported enchantment".into());
         }
         if self
@@ -1045,6 +1196,12 @@ impl Definition {
                         && toughness == &Quantity::zero()
                         && keywords.is_empty()
                         && restrictions.is_empty())
+                    || (*scope == CreatureScope::Source
+                        && (c.kind != CardKind::Creature
+                            || *power != Quantity::zero()
+                            || *toughness != Quantity::zero()
+                            || !keywords.is_empty()
+                            || restrictions != &[CreatureRestriction::CantBlock]))
                     || (*scope == CreatureScope::Equipped && !equipment)
                     || (*scope == CreatureScope::Enchanted && !aura)
                     || (*scope == CreatureScope::Controller
@@ -1172,6 +1329,12 @@ fn validate_permanent_costs(c: &PermanentActivationCosts) -> Result<(), String> 
     Ok(())
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
+    if let Some(f) = &p.additional_sacrifice {
+        f.validate()?;
+        if p.resolution != SpellResolution::Instructions || !p.modes.is_empty() {
+            return Err("unsupported additional sacrifice program".into());
+        }
+    }
     if !p.modes.is_empty() {
         if p.modes.len() < 2
             || !p.targets.is_empty()
@@ -1257,6 +1420,33 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     }
     for instruction in &p.instructions {
         let binding = match instruction {
+            Instruction::SacrificeDamage {
+                target_slot,
+                recipient,
+                amount,
+                optional,
+                ..
+            } => {
+                if target_slot.is_some() == recipient.is_some()
+                    || recipient
+                        .as_ref()
+                        .is_some_and(|r| matches!(r, LifeRecipient::Target { .. }))
+                    || (*optional && target_slot.is_none())
+                {
+                    return Err("invalid sacrifice damage recipient".into());
+                }
+                match amount {
+                    SacrificeDamageAmount::Fixed { value } if *value > Quantity::zero() => {}
+                    SacrificeDamageAmount::SacrificedPower
+                        if p.additional_sacrifice.as_ref().is_some_and(|f| {
+                            f.types == [CardKind::Creature] && f.subtypes.is_empty()
+                        }) => {}
+                    _ => return Err("invalid sacrifice damage amount".into()),
+                }
+                target_slot.map(|slot| (slot, TargetDomain::AnyDamageTarget))
+            }
+            Instruction::EachOpponentSacrifice { .. }
+            | Instruction::ModifySourcePowerToughness { .. } => None,
             Instruction::DestroyPermanent {
                 target_slot,
                 optional,
@@ -1416,7 +1606,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     return Err("life quantity must be positive".into());
                 }
                 match recipient {
-                    LifeRecipient::Controller => None,
+                    LifeRecipient::Controller | LifeRecipient::EachOpponent => None,
                     LifeRecipient::Target { target_slot } => {
                         Some((*target_slot, TargetDomain::AnyPlayer))
                     }
@@ -1458,6 +1648,22 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     Ok(())
 }
 fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgram) {
+    if program.additional_sacrifice.is_some()
+        || program.instructions.iter().any(|i| {
+            matches!(
+                i,
+                Instruction::GainLife {
+                    recipient: LifeRecipient::EachOpponent,
+                    ..
+                } | Instruction::LoseLife {
+                    recipient: LifeRecipient::EachOpponent,
+                    ..
+                }
+            )
+        })
+    {
+        set.insert(Capability::SacrificeV1);
+    }
     if !program.modes.is_empty() {
         set.insert(Capability::ModalChoiceV1);
         for mode in &program.modes {
@@ -1490,6 +1696,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             set.insert(Capability::AttachmentsV1);
         }
         set.insert(match instruction {
+            Instruction::SacrificeDamage { .. }
+            | Instruction::EachOpponentSacrifice { .. }
+            | Instruction::ModifySourcePowerToughness { .. } => Capability::SacrificeV1,
             Instruction::DestroyPermanent { .. }
             | Instruction::ExilePermanent { .. }
             | Instruction::ChangeLifeFromTarget { .. }
@@ -1540,7 +1749,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 3, max = 18))]
+    #[schemars(range(min = 3, max = 19))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -1548,7 +1757,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.schema_version, 3..=18)
+        if !matches!(self.schema_version, 3..=19)
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -1557,6 +1766,9 @@ impl Catalog {
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
             d.validate()?;
+            if self.schema_version < 19 && d.capabilities.contains(&Capability::SacrificeV1) {
+                return Err("IR v19 is required for sacrifice and death payoffs".into());
+            }
             if self.schema_version < 18 && d.capabilities.contains(&Capability::PermanentRemovalV1)
             {
                 return Err("IR v18 is required for permanent removal and LKI".into());
@@ -1964,6 +2176,20 @@ pub fn catalog_schema() -> serde_json::Value {
             "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreRemovalProgram"}}}}
         }}}}}
     }));
+    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["schema_version"],"properties":{"schema_version":{"maximum":18}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "capabilities":{"items":{"not":{"const":Capability::SacrificeV1}}},
+            "spell":{"$ref":"#/$defs/PreSacrificeProgram"},
+            "triggered":{"items":{"allOf":[{"if":{"properties":{"condition":{"const":"self_dies"}}},"then":{"properties":{"program":{"properties":{"instructions":{"items":{"properties":{"op":{"not":{"const":"create_creature_tokens"}}}}}}}}}}],"properties":{"death_filter":{"type":"null"},"program":{"$ref":"#/$defs/PreSacrificeProgram"}}}},
+            "activated":{"items":{"allOf":[{"if":{"properties":{"cost":{"const":"sacrifice_source"}}},"then":{"properties":{"program":{"properties":{"instructions":{"items":{"properties":{"op":{"not":{"const":"search_basic_lands"}}}}}}}}}}],"properties":{"cost":{"not":{"type":"object","required":["sacrifice_permanent"]}},"program":{"$ref":"#/$defs/PreSacrificeProgram"}}}}
+        }}}}}
+    }));
+    schema["$defs"]["PreSacrificeProgram"] = serde_json::json!({"properties":{
+        "additional_sacrifice":{"type":"null"},
+        "instructions":{"items":{"properties":{"op":{"not":{"enum":["sacrifice_damage","each_opponent_sacrifice","modify_source_power_toughness"]}},"recipient":{"not":{"const":"each_opponent"}}}}},
+        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreSacrificeProgram"}}}}
+    }});
     schema["$defs"]["PreAttachmentsProgram"] = serde_json::json!({"properties":{
         "targets":{"items":{"properties":{"domain":{"not":{"const":"controlled_battlefield_creature"}}}}},
         "instructions":{"items":{"properties":{"op":{"not":{"enum":["attach_equipment","return_aura_from_graveyard"]}},"token":{"properties":{"keywords":{"items":{"not":{"enum":["hexproof","shroud"]}}}}}}}},

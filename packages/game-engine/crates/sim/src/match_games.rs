@@ -13,6 +13,7 @@ mod mana_policy;
 #[cfg(test)]
 mod ordinary_diagnostic;
 mod removal_policy;
+mod sacrifice_policy;
 
 // Evidence belongs outside native crate sources regardless of Cargo's test cwd.
 fn artifact_root() -> std::path::PathBuf {
@@ -129,6 +130,12 @@ impl Strategy<'_> {
     }
     fn priority(&mut self, o: &Observation) -> Result<PlayerResponse, String> {
         let v = &o.view;
+        if self.sacrifice()
+            && self.policy == Policy::Develop
+            && let Some(response) = self.sacrifice_priority(v)?
+        {
+            return Ok(response);
+        }
         if self.removal()
             && self.policy == Policy::Develop
             && let Some(response) = self.removal_priority(v)?
@@ -276,6 +283,9 @@ impl Strategy<'_> {
                 {
                     continue;
                 }
+                if self.sacrifice() && !self.sacrifice_spell_ready(v, d) {
+                    continue;
+                }
                 if d.name == "Fog" {
                     continue;
                 }
@@ -381,8 +391,22 @@ impl Strategy<'_> {
                     .map(|c| c.handle.clone())
                     .collect(),
             },
+            PlayerRequest::SacrificeCost { candidates, .. } => PlayerResponse::SacrificeCost {
+                object: self.sacrifice_choice(v, candidates)?,
+            },
+            PlayerRequest::ForcedSacrifice { candidates, .. } => PlayerResponse::ForcedSacrifice {
+                object: self.sacrifice_choice(v, candidates)?,
+            },
             PlayerRequest::OptionalEffect { .. } => PlayerResponse::OptionalEffect {
-                perform: self.optional_removal(v),
+                perform: (self.sacrifice()
+                    && v.stack
+                        .last()
+                        .and_then(|s| s.triggered.as_ref())
+                        .is_some_and(|t| {
+                            definition(self.catalog, &t.oracle_id)
+                                .is_ok_and(|d| d.name == "Goblin Arsonist")
+                        }))
+                    || self.optional_removal(v),
             },
             PlayerRequest::OptionalRecursion { .. } => {
                 PlayerResponse::OptionalRecursion { perform: true }
@@ -516,6 +540,13 @@ impl Strategy<'_> {
                 candidates,
                 ..
             } => {
+                if self.sacrifice()
+                    && let Some(t) = self.sacrifice_damage_target(v, candidates)
+                {
+                    return Ok(PlayerResponse::EntityTargets {
+                        entities: vec![t; occurrences.len()],
+                    });
+                }
                 if self.four_colors() {
                     return Ok(PlayerResponse::EntityTargets {
                         entities: vec![
@@ -793,7 +824,11 @@ impl Strategy<'_> {
                 }
             }
             PlayerRequest::Sacrifice { candidates, .. } => PlayerResponse::Sacrifice {
-                object: candidates.first().ok_or("empty sacrifice")?.clone(),
+                object: if self.sacrifice() {
+                    self.sacrifice_choice(v, candidates)?
+                } else {
+                    candidates.first().ok_or("empty sacrifice")?.clone()
+                },
             },
             PlayerRequest::DamageEffect { candidates, .. } => {
                 let c = candidates.first().ok_or("empty damage effects")?;
@@ -975,13 +1010,9 @@ pub(super) fn run(
                 break;
             }
             Advance::Fault(e) => {
-                outcome = if matches!(
+                outcome = if mtg_core::profile_at_least(
                     config.profile.as_str(),
-                    mtg_core::STAPLES_PROFILE
-                        | mtg_core::MANA_PROFILE
-                        | mtg_core::FOUR_COLORS_PROFILE
-                        | mtg_core::ATTACHMENTS_PROFILE
-                        | mtg_core::REMOVAL_PROFILE
+                    mtg_core::STAPLES_PROFILE,
                 ) && game.typed_fault().is_some()
                 {
                     format!("resource_truncation: {e}")
@@ -1189,24 +1220,16 @@ fn verify_terminal_result(game: &Game, e: &Evidence) -> Result<(), String> {
     Ok(())
 }
 pub(super) fn batch(catalog: &Catalog, directory: &Path) -> Result<serde_json::Value, String> {
-    let profile = if catalog.definitions.len() == 106 && catalog.schema_version == 16 {
-        mtg_core::FOUR_COLORS_PROFILE
-    } else {
-        match catalog.schema_version {
-            18 => mtg_core::REMOVAL_PROFILE,
-            17 => mtg_core::ATTACHMENTS_PROFILE,
-            16 => mtg_core::MANA_PROFILE,
-            15 => mtg_core::STAPLES_PROFILE,
-            14 => mtg_core::TOKENS_PROFILE,
-            13 => mtg_core::COMBAT_KEYWORDS_PROFILE,
-            12 => mtg_core::KEYWORDS_PROFILE,
-            _ => mtg_core::MATCH_PROFILE,
-        }
-    };
-    let profile_spec = mtg_core::match_profile(profile).ok_or("unknown batch profile")?;
+    let catalog_sha256 = mtg_contracts::digest(catalog)?;
+    let profile_spec = mtg_core::MATCH_PROFILES
+        .iter()
+        .find(|p| p.catalog_sha256 == catalog_sha256 && p.ir_version == catalog.schema_version)
+        .ok_or("unknown batch catalog")?;
+    let profile = profile_spec.name;
     fs::create_dir(directory).map_err(|e| e.to_string())?;
     let manifest = serde_json::json!({"profile":profile,"policy":"develop-v1","seed_domain":format!("{profile}/completion-batch/"),"seed_indices":(0..16).collect::<Vec<u32>>(),"starting_seat":"index modulo4","mulligans":"(index+seat) modulo3","additional":"index16 all-white;index17 all-black-green","decision_limit":DECISION_LIMIT,"turn_limit":TURN_LIMIT,"shared_work_limit":WORK_LIMIT,"quantum":1024,"required_complete":18,"allowed_faults":0,"allowed_truncations":0,"build_id":BUILD_ID,"catalog_sha256":mtg_contracts::digest(catalog)?});
     let mut manifest = manifest;
+    // The frozen four-colors suite has its own pod manifest; later suites use theirs.
     if profile == mtg_core::FOUR_COLORS_PROFILE {
         manifest["additional"] = serde_json::json!("index16 all-blue;index17 all-red");
         manifest["seat_rotation"] =
@@ -1271,17 +1294,7 @@ pub(super) fn batch(catalog: &Catalog, directory: &Path) -> Result<serde_json::V
             );
         }
         let mut report = serde_json::json!({"index":index,"outcome":e.outcome,"winner":e.winner,"survivor_counts":e.survivor_counts,"turns":e.turns,"decisions":e.decisions,"advances":e.advances,"rule_steps":e.rule_steps,"query_calls":e.query_calls,"verified_losses":replay.as_ref().ok(),"elapsed_millis":e.elapsed_millis,"final_state_sha256":e.final_state_sha256});
-        if matches!(
-            profile,
-            mtg_core::KEYWORDS_PROFILE
-                | mtg_core::COMBAT_KEYWORDS_PROFILE
-                | mtg_core::TOKENS_PROFILE
-                | mtg_core::STAPLES_PROFILE
-                | mtg_core::MANA_PROFILE
-                | mtg_core::FOUR_COLORS_PROFILE
-                | mtg_core::ATTACHMENTS_PROFILE
-                | mtg_core::REMOVAL_PROFILE
-        ) {
+        if mtg_core::profile_at_least(profile, mtg_core::KEYWORDS_PROFILE) {
             report["keyword_interactions"] = keyword_interactions(catalog, &e)?;
         }
         reports.push(report);
@@ -1324,13 +1337,7 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
     let physical_cards = p.config().cards.clone();
     let g = Game::replay_with_trace(p, &e.journal, TraceMode::Detailed)?;
     let mut mana_report = None;
-    if matches!(
-        e.config.profile.as_str(),
-        mtg_core::MANA_PROFILE
-            | mtg_core::FOUR_COLORS_PROFILE
-            | mtg_core::ATTACHMENTS_PROFILE
-            | mtg_core::REMOVAL_PROFILE
-    ) {
+    if mtg_core::profile_at_least(e.config.profile.as_str(), mtg_core::MANA_PROFILE) {
         let mut activations = std::collections::BTreeSet::new();
         let mut by_type = BTreeMap::<String, u64>::from([
             ("land".into(), 0),
@@ -1399,6 +1406,10 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
         &mut counts,
     );
     let mut report = serde_json::json!({"lifelink_gains":counts[0],"deathtouch_destructions":counts[1],"blocks":counts[2]});
+    // Exact slices select their own evidence adapters and capacities, not inherited mechanics.
+    if e.config.profile == mtg_core::SACRIFICE_PROFILE {
+        report["sacrifice"] = sacrifice_policy::interactions(catalog, &physical_cards, &g)?;
+    }
     if e.config.profile == mtg_core::REMOVAL_PROFILE {
         report["removal"] = removal_policy::interactions(catalog, e, &physical_cards, &g)?;
     }
@@ -1411,15 +1422,7 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
     if let Some(mana) = mana_report {
         report["mana"] = mana;
     }
-    if matches!(
-        e.config.profile.as_str(),
-        mtg_core::TOKENS_PROFILE
-            | mtg_core::STAPLES_PROFILE
-            | mtg_core::MANA_PROFILE
-            | mtg_core::FOUR_COLORS_PROFILE
-            | mtg_core::ATTACHMENTS_PROFILE
-            | mtg_core::REMOVAL_PROFILE
-    ) {
+    if mtg_core::profile_at_least(e.config.profile.as_str(), mtg_core::TOKENS_PROFILE) {
         let mut tokens_created = 0u64;
         let mut counters_placed = Quantity::zero();
         for event in g.events() {
@@ -1439,14 +1442,7 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
         report["plus_one_counters_placed"] = serde_json::json!(counters_placed);
     }
 
-    if matches!(
-        e.config.profile.as_str(),
-        mtg_core::STAPLES_PROFILE
-            | mtg_core::MANA_PROFILE
-            | mtg_core::FOUR_COLORS_PROFILE
-            | mtg_core::ATTACHMENTS_PROFILE
-            | mtg_core::REMOVAL_PROFILE
-    ) {
+    if mtg_core::profile_at_least(e.config.profile.as_str(), mtg_core::STAPLES_PROFILE) {
         let mut destroyed = 0u64;
         let mut recursions = 0u64;
         let mut searched = 0u64;
@@ -1516,16 +1512,7 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
         // controller, not the marginal damage attributable to its +1/+1.
         report["anthem_affected_combat_damage"] = serde_json::json!(anthem_damage);
     }
-    if matches!(
-        e.config.profile.as_str(),
-        mtg_core::COMBAT_KEYWORDS_PROFILE
-            | mtg_core::TOKENS_PROFILE
-            | mtg_core::STAPLES_PROFILE
-            | mtg_core::MANA_PROFILE
-            | mtg_core::FOUR_COLORS_PROFILE
-            | mtg_core::ATTACHMENTS_PROFILE
-            | mtg_core::REMOVAL_PROFILE
-    ) {
+    if mtg_core::profile_at_least(e.config.profile.as_str(), mtg_core::COMBAT_KEYWORDS_PROFILE) {
         let mut trample = Quantity::zero();
         let mut first_steps = 0u64;
         let mut menace = 0u64;
@@ -1940,6 +1927,89 @@ pub(super) fn replay_live(catalog: &Catalog, path: &Path) -> Result<serde_json::
 mod admission_and_host_tests {
     use super::*;
     use std::cell::Cell;
+
+    #[test]
+    fn optional_effect_policy_identifies_only_the_top_arsonist_trigger() {
+        let catalog = mtg_compiler::sacrifice_fixture_catalog().unwrap();
+        let (_, _, _, mut game) = initial();
+        game.advance(Budget::unlimited());
+        let mut o = observe(&game, PlayerId(0), u64::MAX, &mut 0, &mut 0).unwrap();
+        o.decision = Some(PlayerRequest::OptionalEffect {
+            token: mtg_core::DecisionToken("policy-fixture".into()),
+            player: PlayerId(0),
+        });
+        let mut strategy = Strategy {
+            catalog: &catalog,
+            policy: Policy::Develop,
+            mulligans: [0; 4],
+            beneficial: false,
+            mana_plan: Default::default(),
+            mana_color: None,
+        };
+        let id = |name: &str| {
+            catalog
+                .definitions
+                .iter()
+                .find(|d| d.name == name)
+                .unwrap()
+                .oracle_id
+                .clone()
+        };
+        let target = mtg_core::VisibleTarget {
+            announced: ObjectHandle("own-permanent".into()),
+            current: Some(ObjectHandle("own-permanent".into())),
+        };
+        let entry = |name: &str| mtg_core::VisibleStackEntry {
+            mode: None,
+            triggered: Some(mtg_core::VisibleTriggered {
+                handle: mtg_core::StackHandle(name.into()),
+                source: target.clone(),
+                oracle_id: id(name),
+                ability: 0,
+            }),
+            entity_targets: vec![],
+            handle: Some(mtg_core::StackHandle(name.into())),
+            stack_targets: vec![],
+            spell: None,
+            ability: None,
+            player_targets: vec![],
+            controller: PlayerId(0),
+            cast_complete: true,
+            targets: vec![target.clone()],
+        };
+        for name in ["Bastion of Remembrance", "Sol Ring"] {
+            let d = definition(&catalog, &id(name)).unwrap();
+            let mut permanent = o.view.objects[0].clone();
+            permanent.handle = target.announced.clone();
+            permanent.oracle_id = d.oracle_id.clone();
+            permanent.characteristics = Some(d.characteristics.clone());
+            permanent.controller = PlayerId(0);
+            permanent.zone = Zone::Battlefield;
+            o.view.objects = vec![permanent];
+            // A lower Arsonist must not make Sage's own-permanent target desirable.
+            o.view.stack = vec![entry("Goblin Arsonist"), entry("Reclamation Sage")];
+            assert_eq!(
+                strategy.choose(&o).unwrap(),
+                PlayerResponse::OptionalEffect { perform: false }
+            );
+            o.view.objects[0].controller = PlayerId(1);
+            assert_eq!(
+                strategy.choose(&o).unwrap(),
+                PlayerResponse::OptionalEffect { perform: true }
+            );
+            o.view.objects[0].controller = PlayerId(0);
+            o.view.stack = vec![entry("Goblin Arsonist")];
+            assert_eq!(
+                strategy.choose(&o).unwrap(),
+                PlayerResponse::OptionalEffect { perform: true }
+            );
+        }
+        o.view.stack.clear();
+        assert_eq!(
+            strategy.choose(&o).unwrap(),
+            PlayerResponse::OptionalEffect { perform: false }
+        );
+    }
 
     #[test]
     fn frozen_completion_suite_cannot_substitute_host_concessions() {

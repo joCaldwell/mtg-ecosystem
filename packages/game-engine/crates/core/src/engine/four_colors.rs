@@ -14,6 +14,7 @@ pub(super) const MAGE_ACTIVATIONS: usize = 400 * 2 / 4;
 pub(super) const STACK_BOUND: usize =
     400 + 24 + MAGE_ACTIVATIONS + 8 * (CREATURES + 36) + CREATURE_CARDS + 4;
 impl Game {
+    // Exact slice: selects its resource bounds; later slices have separate bounds.
     pub(super) fn four_colors_enabled(&self) -> bool {
         self.prepared.config.profile == FOUR_COLORS_PROFILE
             && self.prepared.catalog.schema_version == 16

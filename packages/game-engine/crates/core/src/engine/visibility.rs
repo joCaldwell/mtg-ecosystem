@@ -158,6 +158,8 @@ pub struct VisibleAttacker {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PermittedView {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sacrifice_choices: Vec<(PlayerId, ObjectHandle)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub setup: Option<VisibleSetup>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -177,6 +179,17 @@ pub struct PermittedView {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerRequest {
+    SacrificeCost {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+    },
+    ForcedSacrifice {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+        previous_choices: Vec<(PlayerId, ObjectHandle)>,
+    },
     ManaColor {
         token: DecisionToken,
         player: PlayerId,
@@ -354,6 +367,8 @@ impl PlayerRequest {
             | Self::StackTargets { token, .. }
             | Self::PlayerTargets { token, .. }
             | Self::Sacrifice { token, .. }
+            | Self::SacrificeCost { token, .. }
+            | Self::ForcedSacrifice { token, .. }
             | Self::ResolveDiscard { token, .. }
             | Self::SpendMana { token, .. }
             | Self::CommanderReturn { token, .. }
@@ -377,6 +392,12 @@ pub struct Observation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerResponse {
+    SacrificeCost {
+        object: ObjectHandle,
+    },
+    ForcedSacrifice {
+        object: ObjectHandle,
+    },
     ManaColor {
         color: Color,
     },
@@ -761,6 +782,7 @@ impl Game {
             restrictions: [
                 CreatureRestriction::CantBeBlocked,
                 CreatureRestriction::CantAttackOrBlock,
+                CreatureRestriction::CantBlock,
             ]
             .into_iter()
             .filter(|r| self.has_restriction(object.id, *r))
@@ -941,6 +963,15 @@ impl Game {
             return Err("invalid viewer".into());
         }
         Ok(PermittedView {
+            sacrifice_choices: if let Frame::ForcedSacrifice { choices, .. } = &self.state.frame {
+                choices
+                    .iter()
+                    .filter(|(p, o)| self.is_live(*p) && self.current(*o).is_ok())
+                    .map(|(p, o)| Ok((*p, self.handle_for(viewer, *o)?)))
+                    .collect::<Result<_, String>>()?
+            } else {
+                vec![]
+            },
             setup: self.visible_setup(),
             effects: vec![],
             combat: self
@@ -996,6 +1027,48 @@ impl Game {
         let Some(token) = token else {
             return Ok(None);
         };
+        if matches!(
+            self.state.frame,
+            Frame::SacrificeCost { .. }
+                | Frame::ForcedSacrifice { .. }
+                | Frame::OptionalDamage { .. }
+        ) {
+            return Ok(match self.sacrifice_request()? {
+                Some(Request::SacrificeCost {
+                    player, candidates, ..
+                }) if player == viewer => Some(PlayerRequest::SacrificeCost {
+                    token,
+                    player,
+                    candidates: candidates
+                        .into_iter()
+                        .map(|o| self.handle_for(viewer, o))
+                        .collect::<Result<_, _>>()?,
+                }),
+                Some(Request::ForcedSacrifice {
+                    player,
+                    candidates,
+                    previous_choices,
+                    ..
+                }) if player == viewer => Some(PlayerRequest::ForcedSacrifice {
+                    token,
+                    player,
+                    candidates: candidates
+                        .into_iter()
+                        .map(|o| self.handle_for(viewer, o))
+                        .collect::<Result<_, _>>()?,
+                    previous_choices: previous_choices
+                        .into_iter()
+                        // CR 800.4a/104.3a: a departed chooser's objects no longer exist.
+                        .filter(|(p, o)| self.is_live(*p) && self.current(*o).is_ok())
+                        .map(|(p, o)| Ok((p, self.handle_for(viewer, o)?)))
+                        .collect::<Result<_, String>>()?,
+                }),
+                Some(Request::OptionalEffect { player, .. }) if player == viewer => {
+                    Some(PlayerRequest::OptionalEffect { token, player })
+                }
+                _ => None,
+            });
+        }
         if matches!(self.state.frame, Frame::Setup) {
             return Ok(match self.setup_request()? {
                 Some(Request::Mulligan {
@@ -1145,17 +1218,7 @@ impl Game {
                                 .filter(|a| self.has_keyword(*a, KeywordAbility::Menace))
                                 .collect(),
                         )?,
-                        legal_attackers: if matches!(
-                            self.prepared.config.profile.as_str(),
-                            KEYWORDS_PROFILE
-                                | COMBAT_KEYWORDS_PROFILE
-                                | TOKENS_PROFILE
-                                | STAPLES_PROFILE
-                                | MANA_PROFILE
-                                | FOUR_COLORS_PROFILE
-                                | ATTACHMENTS_PROFILE
-                                | REMOVAL_PROFILE
-                        ) {
+                        legal_attackers: if self.profile_at_least(KEYWORDS_PROFILE) {
                             candidates
                                 .iter()
                                 .map(|b| {
@@ -1218,7 +1281,14 @@ impl Game {
             }));
         }
         match &self.state.frame {
-            Frame::EntityTargets { .. } if self.top()?.controller == viewer => {
+            Frame::EntityTargets { .. } | Frame::TriggerTargets { .. }
+                if self.top()?.controller == viewer
+                    && self
+                        .program()?
+                        .targets
+                        .first()
+                        .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget) =>
+            {
                 Ok(Some(PlayerRequest::EntityTargets {
                     token,
                     player: viewer,
@@ -1465,6 +1535,11 @@ impl Game {
                 .is_some_and(|r| r.player() == viewer)
             {
                 Some((self.state.revision, 14))
+            } else if self
+                .sacrifice_request()?
+                .is_some_and(|r| r.player() == viewer)
+            {
+                Some((self.state.revision, 17))
             } else if self.modes_request()?.is_some_and(|r| r.player() == viewer) {
                 Some((self.state.revision, 13))
             } else if self
@@ -1489,7 +1564,14 @@ impl Game {
                     Frame::Setup if self.setup_request()?.is_some_and(|r| r.player() == viewer) => {
                         Some((self.state.revision, 15))
                     }
-                    Frame::EntityTargets { .. } if self.top()?.controller == viewer => {
+                    Frame::EntityTargets { .. } | Frame::TriggerTargets { .. }
+                        if self.top()?.controller == viewer
+                            && self
+                                .program()?
+                                .targets
+                                .first()
+                                .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget) =>
+                    {
                         Some((self.state.revision, 10))
                     }
                     Frame::StackTargets { .. } if self.top()?.controller == viewer => {
@@ -1649,6 +1731,12 @@ impl Game {
             PlayerResponse::OptionalRecursion { perform } => {
                 Ok(Response::OptionalRecursion { perform: *perform })
             }
+            PlayerResponse::SacrificeCost { object } => Ok(Response::SacrificeCost {
+                object: self.resolve_handle(viewer, object)?,
+            }),
+            PlayerResponse::ForcedSacrifice { object } => Ok(Response::ForcedSacrifice {
+                object: self.resolve_handle(viewer, object)?,
+            }),
             PlayerResponse::Sacrifice { object } => Ok(Response::Sacrifice {
                 object: self.resolve_handle(viewer, object)?,
             }),

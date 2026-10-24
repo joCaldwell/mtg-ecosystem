@@ -216,7 +216,9 @@ impl ScenarioConfig {
 }
 impl Game {
     pub(super) fn damage_limit(&self) -> usize {
-        if self.removal_enabled() {
+        if self.sacrifice_enabled() {
+            sacrifice::DAMAGE_BOUND
+        } else if self.removal_enabled() {
             removal::DAMAGE_BOUND
         } else if self.four_colors_enabled() {
             four_colors::DAMAGE_BOUND
@@ -233,6 +235,9 @@ impl Game {
         }
     }
     pub(super) fn effect_limit(&self) -> usize {
+        if self.sacrifice_enabled() {
+            return sacrifice::EFFECT_BOUND;
+        }
         if self.prepared.config.match_profile() {
             32
         } else {
