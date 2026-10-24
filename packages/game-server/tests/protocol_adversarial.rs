@@ -396,3 +396,55 @@ fn commander_history_key_aliases_reject_inside_publication_and_ipc() {
     );
     assert!(mtg_server::codec::exact::<StreamPage>(&duplicate).is_err());
 }
+
+#[test]
+fn attachments_profile_variants_decode_strictly_through_commands_and_publications() {
+    let decoder = CommandDecoder::new().unwrap();
+    for response in [
+        json!({"response":"mana_color","color":"C"}),
+        json!({"response":"search_lands","objects":["private-search"]}),
+        json!({"response":"optional_recursion","perform":true}),
+        json!({"response":"trample_damage","assignments":[["blocker","1"]],"player":2,"amount":"9007199254740993"}),
+        json!({"response":"activate_ability","object":"equipment","ability":0}),
+    ] {
+        decoder
+            .decode(&envelope(response.clone()).to_string())
+            .unwrap();
+        let mut extra = response;
+        extra["ignored"] = json!(true);
+        assert!(decoder.decode(&envelope(extra).to_string()).is_err());
+    }
+    for response in [
+        json!({"response":"mana_color","color":"colorless"}),
+        json!({"response":"search_lands","objects":[{"oracle_id":"public"}]}),
+        json!({"response":"optional_recursion","perform":1}),
+        json!({"response":"trample_damage","assignments":[["b","1","extra"]],"player":2,"amount":"0"}),
+        json!({"response":"trample_damage","assignments":[],"player":2,"amount":9007199254740993_u64}),
+    ] {
+        assert!(decoder.decode(&envelope(response).to_string()).is_err());
+    }
+    let validate = validator(serde_json::to_value(stream_schema()).unwrap());
+    for request in [
+        json!({"request":"mana_color","colors":["W","C"],"mana_ability_source":"rock"}),
+        json!({"request":"search_lands","maximum":2,"candidates":[{"handle":"private-search","oracle_id":"public"}]}),
+        json!({"request":"optional_recursion"}),
+        json!({"request":"mana","cost":{"generic":"1","colored":[]},"mana_ability_source":"signet"}),
+        json!({"request":"spend_mana","cost":{"generic":"1","colored":[]},"available":{"C":"1"},"mana_ability_source":"signet"}),
+        json!({"request":"damage","source":"attacker","power":"3","recipients":["blocker"],"player_recipient":1,"lethal_requirements":[["blocker","1"]]}),
+        json!({"request":"blockers","candidates":["blocker"],"attackers":["attacker"],"menace_attackers":["attacker"],"legal_attackers":[{"blocker":"blocker","attackers":["attacker"]}]}),
+    ] {
+        let mut request = request;
+        request["player"] = json!(0);
+        request["token"] = json!("private-token");
+        let typed: mtg_core::PlayerRequest =
+            mtg_server::codec::exact(&request.to_string()).unwrap();
+        assert_eq!(serde_json::to_value(typed).unwrap(), request);
+        let mut publication = serde_json::to_value(page(1, 1)).unwrap();
+        publication["entries"][0]["publication"]["observation"]["decision"] = request.clone();
+        assert!(validate.is_valid(&publication));
+        request["ignored"] = json!(true);
+        assert!(mtg_server::codec::exact::<mtg_core::PlayerRequest>(&request.to_string()).is_err());
+        publication["entries"][0]["publication"]["observation"]["decision"] = request;
+        assert!(!validate.is_valid(&publication));
+    }
+}

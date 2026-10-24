@@ -116,3 +116,16 @@ export function publicCatalog(manifest: PublicManifest): [Catalog, Decklist] {
 export type ForbiddenManifestSeed = PublicManifest['seed'];
 // @ts-expect-error public manifest never transports a hidden profile digest.
 export type ForbiddenManifestDigest = PublicManifest['profile_digest'];
+
+// Newer hosted profiles retain exact tuples, private search handles and nested mana sources.
+const trample: PlayerResponse = { response: 'trample_damage', assignments: [['blocker', '1']], player: 2, amount: '9007199254740993' };
+const search: PlayerResponse = { response: 'search_lands', objects: ['private-resolution-handle'] };
+const recursion: PlayerResponse = { response: 'optional_recursion', perform: true };
+const color: PlayerResponse = { response: 'mana_color', color: 'C' };
+// @ts-expect-error search responses use offered handles, never catalog IDs/rows.
+const rawSearch: PlayerResponse = { response: 'search_lands', objects: [{ oracle_id: 'public-card' }] };
+// @ts-expect-error color choices use the generated finite color enum.
+const badColor: PlayerResponse = { response: 'mana_color', color: 'colorless' };
+// @ts-expect-error trample quantities cannot be imprecise JSON numbers.
+const numericTrample: PlayerResponse = { response: 'trample_damage', assignments: [], player: 1, amount: 3 };
+void [trample, search, recursion, color, rawSearch, badColor, numericTrample];

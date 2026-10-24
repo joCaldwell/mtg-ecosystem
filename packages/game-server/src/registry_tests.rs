@@ -424,19 +424,51 @@ fn actual_worker_closes_before_rename_and_recovers_at_final_path() {
     );
 }
 #[test]
-fn later_legal_profiles_are_not_hosted() {
-    let a = Area::new();
-    let mut r = MatchRegistry::open(&a.root()).unwrap();
-    let keywords = Catalog::read(include_str!(
-        "../../game-engine/tests/fixtures/expected-keywords-ir.json"
-    ))
-    .unwrap();
-    let config = MatchConfig::keywords([17; 32], mtg_core::PlayerId(0));
-    // The core admits this pod; only hosting scope rejects it.
-    Prepared::admit_pod(keywords.clone(), config.clone()).unwrap();
-    let Err(error) = r.create("cafe", &keywords, &config, &a.out("cafe"), init) else {
-        panic!("later legal profile must not be hosted");
-    };
-    assert!(error.contains("commander-foundations-v1"), "{error}");
-    assert!(!a.out("cafe").exists());
+fn exactly_foundations_and_attachments_are_hosted() {
+    for profile in mtg_core::MATCH_PROFILES.iter() {
+        let config =
+            MatchConfig::for_profile(profile.name, [17; 32], mtg_core::PlayerId(0)).unwrap();
+        let fixture = match profile.name {
+            mtg_core::MATCH_PROFILE => "expected-match-ir.json",
+            mtg_core::ATTACHMENTS_PROFILE => "expected-attachments-ir.json",
+            mtg_core::KEYWORDS_PROFILE => "expected-keywords-ir.json",
+            mtg_core::COMBAT_KEYWORDS_PROFILE => "expected-combat-keywords-ir.json",
+            mtg_core::TOKENS_PROFILE => "expected-tokens-ir.json",
+            mtg_core::STAPLES_PROFILE => "expected-staples-ir.json",
+            mtg_core::MANA_PROFILE => "expected-mana-ir.json",
+            mtg_core::FOUR_COLORS_PROFILE => "expected-four-colors-ir.json",
+            _ => panic!("review new legal profile hosting scope"),
+        };
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../game-engine/tests/fixtures")
+            .join(fixture);
+        let catalog = Catalog::read(&fs::read_to_string(path).unwrap()).unwrap();
+        Prepared::admit_pod(catalog.clone(), config.clone()).unwrap();
+        let area = Area::new();
+        let mut registry = MatchRegistry::open(&area.root()).unwrap();
+        let result = registry.create("cafe", &catalog, &config, &area.out("cafe"), init);
+        if matches!(
+            profile.name,
+            mtg_core::MATCH_PROFILE | mtg_core::ATTACHMENTS_PROFILE
+        ) {
+            let registered = result.unwrap();
+            assert_eq!(registered.config, config);
+            drop(registry);
+            let loaded = MatchRegistry::open(&area.root())
+                .unwrap()
+                .load_all_matches()
+                .unwrap();
+            assert_eq!(loaded.len(), 1);
+            assert_eq!(loaded[0].config, config);
+        } else {
+            let Err(error) = result else {
+                panic!("unexpected hosted profile")
+            };
+            assert!(error.contains("registry hosts only"), "{error}");
+            assert!(!area.out("cafe").exists());
+        }
+    }
+    let mut unknown = config();
+    unknown.profile = "commander-future-v1".into();
+    assert!(hosted_profile(&unknown).is_err());
 }

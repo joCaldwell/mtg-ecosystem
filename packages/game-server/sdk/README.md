@@ -181,3 +181,20 @@ engine/host evidence; the SDK's schema/mock checks alone do not. Exact release
 identities, resource limits and retained reports are in
 [the server contract](../../../docs/game-engine-server.md). This finite policy
 makes no claim about arbitrary Commander decks or strategic strength.
+
+The attachments completion consumer uses the same bootstrap and unchanged limits:
+
+```sh
+node packages/game-server/sdk/src/examples/attachments-consumer.mjs < /private/path/seat-0-bootstrap.json
+```
+
+Create one `attachmentsDevelopmentPolicy()` instance per seat/game when using
+its exported callback directly. It accepts only `commander-attachments-v1` and
+uses that seat's observation plus the pinned public manifest/catalog. It plays
+lands, casts affordable commanders and spells, equips and targets Auras, plans
+mana from public lands/rocks/dorks (including nested Signet payments), and handles
+all 23 generated request families. Blocks use the offered legality hints and
+public granted keywords; trample and payments retain exact decimal quantities.
+Search choices use only the private handles offered to that seat. This is a
+finite completion example, with no strategic-strength claim. Its in-memory mana
+plan is private to the consumer; restarting a consumer is not supported.

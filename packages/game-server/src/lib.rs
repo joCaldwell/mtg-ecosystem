@@ -1,4 +1,4 @@
-//! Local hosting boundary for the frozen Commander foundations profile.
+//! Local hosting boundary for the foundations and attachments Commander profiles.
 //! Protocol code is not evidence that HTTP hosting/recovery has been completed.
 pub mod protocol;
 pub mod store;
