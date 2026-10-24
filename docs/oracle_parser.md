@@ -5,8 +5,9 @@ The parser is a hand-written, zero-runtime-dependency TypeScript package at
 structured AST. The ANTLR implementation was retired on 2026-08-01.
 
 The parser remains a limited supported subset. The deck-builder is active and
-standalone; it does not consume this AST. A rules engine and IR emitter are not
-implemented. See [architecture.md](architecture.md) and the package
+standalone; it does not consume this AST. A narrow Rust scenario compiler and
+runtime are implemented; general parser-to-executable compilation and bulk IR
+emission remain unfinished. See [architecture.md](architecture.md) and the package
 [AGENTS.md](../packages/oracle-parser/AGENTS.md).
 
 The parser, ingestion, archive, and diagnostic reference analysis remain
@@ -14,8 +15,9 @@ TypeScript. Production semantic binding, lowering, and Card IR emission belong
 to the Rust compiler alongside the rules engine; see the
 [adopted language decision](runtime-language-decision.md).
 
-The [2026-10-10 checkpoint](oracle-parser-checkpoint.md) records the stopping
-point, verified coverage, reproduction inputs, and unfinished work.
+The [checkpoint history](oracle-parser-checkpoint.md) records verified coverage,
+reproduction inputs, and unfinished work, including the October 15–16 parsing
+and reference-binding results.
 
 ## Pipeline and public API
 
@@ -400,10 +402,10 @@ hints, not proof that every example needs the same grammar extension.
 2. Expand supported constructs with full structural assertions and negative
    tests; pair near-identical inputs when a word changes the meaning.
 3. Extend the conservative reference graph to linked abilities and nested
-   captures, then implement semantic validation, keyword expansion, and the
-   capability boundary with a first engine consumer.
-4. Implement an emitter only after a small, audited subset can pass that
-   validation end to end. Corpus coverage alone is not an emission gate.
+   captures, then expand semantic validation, keyword expansion, and executable
+   admission beyond the existing Rust scenario compiler/runtime.
+4. Implement bulk emission only after the admitted subset passes validation
+   end to end. Corpus coverage alone is not an emission gate.
 
 `npm run build-ir` deliberately fails. The proposed envelope and remaining
 storage decisions are described in [data_schemas.md](data_schemas.md).

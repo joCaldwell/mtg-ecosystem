@@ -1,5 +1,12 @@
 # Oracle parser checkpoints
 
+These dated sections preserve historical results and audit evidence. Local
+`parser-98-*` reports belong to those checkpoints, not the current parser.
+For current results, run the validation and archive commands under
+[Reproduce and resume](#reproduce-and-resume) from the repository root.
+Check parser source hashes, corpus hashes, and scope before comparing
+snapshots; generated files are not refreshed automatically.
+
 ## 2026-10-16 — reference binding
 
 After the coverage target was met, work moved to the reference-binding
@@ -189,11 +196,11 @@ The source fingerprint includes working source contents, independently of the
 Git revision recorded by each run. Rules references use the official
 2026-09-25 Comprehensive Rules. Generated artifacts remain local and ignored:
 
-- `.scryfall-cache/parser-98-checkpoint11.json`: final per-card coverage and hashes.
+- `.scryfall-cache/parser-98-checkpoint11.json`: final per-card coverage and hashes for the 2026-10-10 checkpoint.
 - `.scryfall-cache/checkpoint11-review.json`: checks and review handoff.
 - `.scryfall-cache/checkpoint11-grammar-gain-audit-coverage.json`: all 355 additions linked to matching reviewed ASTs.
 - `.scryfall-cache/archive-checkpoint11-independent-audit.json`: complete archive readback verification.
-- `generated/oracle-ast.jsonl`: source records, ASTs and binding results, with content-addressed input snapshots beside it.
+- `generated/oracle-ast.jsonl`: rebuildable source records, ASTs and binding results, with content-addressed input snapshots beside it. This path is reused by later runs; its manifest identifies which checkpoint it contains.
 
 Remaining work includes unsupported grammar, resolving symbolic references,
 semantic validation and engine capability checks, and executable IR emission.

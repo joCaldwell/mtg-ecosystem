@@ -74,6 +74,12 @@ cached corpus. Optional `--input <path>` and `--output <path>` arguments select
 other local files. It does not download data. The generated archive is ignored
 by Git and is not executable Card IR.
 
+The archive is a snapshot, not a live index of parser support. Before treating
+its results as current, compare `parser.sourceSha256` with `sourceIdentity()`
+from `scripts/validate-parser.ts`, and confirm the intended corpus hash and
+scope. Re-run `npm run archive-parser` after parser changes; an older archive
+can report failures that the current parser already handles.
+
 The first JSON line is a manifest with `artifactKind: "oracle-ast-archive"`,
 `schemaVersion: 3`, and `executable: false`. It records the exact corpus byte
 hash, canonical source-record hash, parser source hash and Git revision, rules

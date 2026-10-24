@@ -62,6 +62,7 @@ or emitted parser build. The retired ANTLR implementation remains in Git history
 | `npm run ingest` | `scripts/ingest-scryfall.ts`: validate and atomically replace bulk cache |
 | `npm run validate` | `scripts/validate-parser.ts`: scope, identities, acceptance and failure groups |
 | `npm run validate -- --json` | Same report with per-card AST hashes in JSON |
+| `npm run archive-parser` | `scripts/archive-parser.ts`: verified source, AST, and binding archive |
 | `npm run build-ir` | `scripts/build-ir.ts`: fails; emitter not implemented |
 | `npm run check --workspace=@mtg-ecosystem/oracle-parser` | Typecheck and tests, including imported pipeline modules |
 

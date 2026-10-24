@@ -1,8 +1,9 @@
 # 🔮 oracle-parser — Layer 0: Oracle Text Parser & Card IR
 
 Parse every Magic card's oracle text into a typed AST and versioned source
-archive. The Rust semantic compiler (future work under `packages/game-engine/`)
-will bind and lower that archive to JSON Card IR for the Rust rules engine.
+archive. A narrow Rust scenario compiler and runtime exist under
+`packages/game-engine/`; general compilation of parser archives to executable
+Card IR and bulk emission remain unfinished.
 The parser and its ingestion/archive tooling remain TypeScript; see the
 [adopted language decision](../../docs/runtime-language-decision.md).
 See [docs/oracle_parser.md](../../docs/oracle_parser.md) for the design and
@@ -71,8 +72,18 @@ From the repo root:
     `npm run validate -- --json` includes per-card AST hashes for comparison.
     Empty text is valid; missing face text fails. The historical 33% cards /
     53% lines baseline used a different denominator and is not a target.
-*   `npm run build-ir` — deliberately fails. Semantic validation and emission
-    are future work; acceptance percentage alone does not justify emission.
+*   `npm run archive-parser` — rebuild `generated/oracle-ast.jsonl` from the
+    cached corpus, with verified source snapshots, ASTs, and reference bindings.
+*   `npm run build-ir` — deliberately fails. General semantic validation and
+    bulk emission remain unfinished; acceptance percentage alone does not
+    justify emission.
+
+Local reports and archives are snapshots, not live parser results. Before using
+one to assess current support, compare its `parser.sourceSha256` with
+`sourceIdentity()` from `scripts/validate-parser.ts`, and check its corpus hash
+and scope. Rebuild stale results with the commands above. Files named
+`parser-98-*` and checkpoint audit files are historical evidence; they do not
+describe the current parser. See [the checkpoint history](../../docs/oracle-parser-checkpoint.md).
 
 ## 🔄 Development loop: correctness before coverage
 
