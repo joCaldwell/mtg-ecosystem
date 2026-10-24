@@ -222,9 +222,8 @@ impl Strategy<'_> {
                             .and_then(|c| c.toughness.as_ref())
                             .is_some_and(|t| {
                                 let mut n = q.clone();
-                                if d.name != "Infest" {
-                                    n.add(&o.marked_damage);
-                                }
+                                // Shrinking toughness also makes existing marks lethal.
+                                n.add(&o.marked_damage);
                                 &n >= t
                             })
                     })
@@ -563,5 +562,16 @@ mod tests {
         v.objects
             .push(card(&c, "Spidersilk Armor", 1, Zone::Battlefield));
         assert!(s.wipe_ready(&v, d("Tranquility")));
+        v.viewer = PlayerId(1);
+        v.objects = vec![
+            card(&c, "Giant Spider", 1, Zone::Battlefield),
+            card(&c, "Typhoid Rats", 2, Zone::Battlefield),
+            card(&c, "Storm Crow", 3, Zone::Battlefield),
+        ];
+        v.objects[0].marked_damage = 3.into();
+        assert!(
+            !s.wipe_ready(&v, d("Infest")),
+            "the marked friendly Spider also dies, so the removal margin is only one"
+        );
     }
 }

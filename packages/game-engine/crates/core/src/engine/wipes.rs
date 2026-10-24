@@ -1,4 +1,5 @@
-//! P6.10. Pinned rules-20260925.txt: CR 107.3a/c, 202.3e, 601.2b/f,
+//! P6.10. Pinned rules-20260925.txt: CR 101.2, 104.4a, 107.3a/c,
+//! 113.6g, 118.7a, 120.4, 202.3e, 601.2b/f,
 //! 603.2c/10a, 608.2c/h, 611.2c, 614.1a/6, 701.8a, 903.9a/b, 514.2.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;

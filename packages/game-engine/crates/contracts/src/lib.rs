@@ -991,6 +991,21 @@ impl Definition {
         {
             return Err("X requires a spell".into());
         }
+        if self.x_mana_cost
+            != self.spell.as_ref().is_some_and(|p| {
+                p.instructions.iter().any(|i| {
+                    matches!(
+                        i,
+                        Instruction::DamageSet {
+                            amount: WipeAmount::AnnouncedX,
+                            ..
+                        }
+                    )
+                })
+            })
+        {
+            return Err("unbound mana X".into());
+        }
         let c = &self.characteristics;
         let equipment = c.kind == CardKind::Artifact && c.subtypes == ["Equipment"];
         let aura = c.kind == CardKind::Enchantment && c.subtypes == ["Aura"];
@@ -1914,21 +1929,6 @@ impl Catalog {
             d.validate()?;
             if self.schema_version < 20 && d.capabilities.contains(&Capability::BoardWipesV1) {
                 return Err("IR v20 is required for board wipes and X".into());
-            }
-            if d.x_mana_cost
-                != d.spell.as_ref().is_some_and(|p| {
-                    p.instructions.iter().any(|i| {
-                        matches!(
-                            i,
-                            Instruction::DamageSet {
-                                amount: WipeAmount::AnnouncedX,
-                                ..
-                            }
-                        )
-                    })
-                })
-            {
-                return Err("unbound mana X".into());
             }
             if d.triggered.iter().any(|a| {
                 a.program

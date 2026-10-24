@@ -1381,7 +1381,7 @@ fn wipes_earthquake_x_zero_announcement_restore_mv_flying_and_furnace() {
                 .is_err()
             );
             assert_eq!(before, g.state_digest().unwrap());
-            answer(g, Response::AnnounceX { value: 3.into() });
+            // Exercise the public request, query receipt and sidecar path in pay.
             pay(g, None, None);
             let view = observation(g, 0).view;
             assert_eq!(view.stack.last().unwrap().x, Some(3.into()));

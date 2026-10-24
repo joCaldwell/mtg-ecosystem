@@ -295,7 +295,8 @@ The capacities are:
 - **65,536 temporary effects**. Bloodthrone is bounded by 38,810 lifetime deaths.
   Add the inherited 32 slots, at most 400+3,248+1,165 = 4,813 entries
   conservatively treated as Wurm set effects, and four each of Infest and Anger.
-  The resulting 43,663 bound is below capacity. Each set is one effect with
+  The same per-entry allowance covers extra Healer/Bouncer uses from mass
+  returns. The resulting 43,663 bound is below capacity. Each set is one effect with
   incarnation-bound membership, bounded by the live object count.
 
 X is an exact arbitrary-precision quantity. The public announcement accepts any

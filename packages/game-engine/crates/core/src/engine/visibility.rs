@@ -1628,6 +1628,9 @@ impl Game {
                     Frame::Priority if self.state.priority == viewer => {
                         Some((self.state.revision, 0))
                     }
+                    Frame::AnnounceX { .. } if self.top()?.controller == viewer => {
+                        Some((self.state.revision, 18))
+                    }
                     Frame::Targets { .. } if self.top()?.controller == viewer => {
                         Some((self.state.revision, 1))
                     }
