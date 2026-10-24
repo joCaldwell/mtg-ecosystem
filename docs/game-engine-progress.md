@@ -2674,3 +2674,72 @@ This is a finite pool with one mana ability per admitted source. Colorless-
 specific costs, triggered/targeted/damage-dealing/"could produce" mana abilities,
 multiple commanders and other permanent families remain excluded. Search and
 server hosting remain foundations-only.
+
+## P6.6 — Blue and red decks
+
+The [blue/red contract](game-engine-blue-red.md) adds the seventh finite profile,
+`commander-four-colors-v1`: 106 definitions at unchanged IR v16, including 16
+new complete records and the Caelorna/Rorix commanders. The default pod is
+white/BG/blue/red. Blue has 80 Islands; red has 84 Mountains. All 17 new fixture
+records, including the Hunted Dragon whole-card negative, were rechecked
+byte-for-byte against archive lines `sourceIndex + 2` and the pinned manifest.
+The separate policy retains the pinned official ban/offensive sources and
+reviews all 106 identities. All 38 historical expected-result/policy fixtures
+are byte-identical to base `1ae686f`; no earlier expected result was changed.
+
+Thirteen source-backed match witness groups pass across all trace modes,
+snapshots, restore and replay. They verify countered commander grave returns
+and retained tax (903.8/903.9a), Stifle against newer triggered/activated
+abilities but never mana (605.3b), bounce/tuck commander and hidden draw choices
+(903.9b), token destination then cessation (111.7/704.5d), counter loss and anthem
+scope (122.2/611.3b), full any-target damage, source sacrifice and tap readiness,
+and Furnace with first/double strike, trample, deathtouch, lifelink and physical
+Commander history using final doubled damage (120.4b/702.15b/903.10a).
+
+The reviewed bounds are 256 live tokens, 760 damage occurrences, 4,080
+stack/pending entries, 660 event members and 32 effects. The contract includes
+the conservative 100-token lifetime proof and repeated Azure Mage activations.
+Completion policies use permitted observations and public catalog facts;
+Counterspell ranks opposing spells by printed mana value, Stifle selects the
+first opposing nonmana invocation, and bounce/Bolt use highest opposing power.
+A zero-power-only opposing board is not worth a Bolt; its fallback is the
+lowest-life opponent. Detailed replay counts committed counters, bounces, tucks,
+positive Furnace doubling applications and commander casts by each identity
+color (a BG commander cast increments both B and G).
+
+The accepted release report is `generated/p66-four-colors-run-1/report.json`,
+seed domain `commander-four-colors-v1/completion-batch/`: indices 0–15 cover
+four deck rotations and all four starting seats, with all-blue index 16 and
+all-red index 17. All **18 finished**, with zero faults/truncations and all
+independent replay/checkpoint checks passing: **29,959 decisions, 660 turns and
+89,803 rule steps**. Committed counts are **five spells countered, six abilities
+countered, two bounces, two library tucks and 58 Furnace doubling applications**
+(359 damage before those applications, 718 afterwards). Commander casts are
+**W 47, BG 17, U 24, R 25**. The all-blue evidence also passes the explicit
+`four-colors-match-replay` CLI. These are completion counts, not performance
+measurements.
+
+Release build: `2248142cc65b2cbeb8083826c98a5a9963de12f042d969e1eefbdac13f962cc9`.
+Catalog SHA256: `0ca81434d87be618d60f1267783fe3d89983f397a01bed7c0640ade57a4dd93b`.
+Report SHA256: `8d42defdefd1f6698fb85164c52867c8d05e648c0feb3e5d02fc41793e349fbe`.
+The release executable verifies its 322-file source closure.
+
+Pinned Rust 1.99.0 / Node 26.11.1 with `CARGO_BUILD_JOBS=2` passed
+`cargo fmt --check`, strict workspace/all-targets Clippy and
+`cargo test --workspace --locked`: **759 passed, zero failed, 12 ignored**
+diagnostics. `npm run check:engine` passed **51 Node checks**, zero failed
+(`/tmp/p66-check-engine-final.log`). The release server build and SDK verification
+passed **40 tests and strict TypeScript**, including the unchanged exhaustive
+28-response gate. No new response variant was needed. Detailed SDK evidence is
+retained at `/tmp/p66-sdk-verification.json` and `/tmp/p66-sdk-verification.log`;
+the task-generated SDK output directory was removed as requested.
+
+The fresh historical mana regression (`generated/p66-mana-regression/report.json`)
+passes all 18 games and exactly reproduces P6.5's 30,225 decisions, 615 turns,
+90,879 rule steps and 1,469 land / 153 artifact / 28 creature mana activations.
+Generated journals, reports, source manifests and build output remain ignored.
+
+Earlier capacities/bytes and versions 18/19/16/15 remain separate. Search and
+server registry remain foundations-only. No IR capability, response variant,
+snapshot/bundle/projection/sidecar bump, general deck support or opponent-owned
+token creation was added.
