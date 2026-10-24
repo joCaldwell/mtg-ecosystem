@@ -105,7 +105,11 @@ pub(super) fn plan(
         let d = definition(catalog, &o.oracle_id).ok()?;
         if d.characteristics.kind == CardKind::Creature
             && !o.attack_ready
-            && !d.keywords.contains(&KeywordAbility::Haste)
+            && !(if catalog.schema_version == 17 {
+                o.keywords.contains(&KeywordAbility::Haste)
+            } else {
+                d.keywords.contains(&KeywordAbility::Haste)
+            })
         {
             continue;
         }
@@ -161,6 +165,10 @@ mod tests {
         let card = |name: &str, zone: Zone| {
             let d = catalog.definitions.iter().find(|d| d.name == name).unwrap();
             mtg_core::VisibleObject {
+                attached_to: None,
+                attachments: vec![],
+                keywords: vec![],
+                restrictions: vec![],
                 token: None,
                 plus_one_counters: Quantity::zero(),
                 characteristics: Some(d.characteristics.clone()),
