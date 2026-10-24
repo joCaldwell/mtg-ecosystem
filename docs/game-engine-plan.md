@@ -408,6 +408,16 @@ activations. Verification and the frozen 18-game batch are recorded in
 [game-engine-progress.md](game-engine-progress.md). Earlier versions/bytes and
 foundations-only search/server hosting remain separate.
 
+P6.6 is complete under [game-engine-blue-red.md](game-engine-blue-red.md): the separate
+106-definition IR v16 `commander-four-colors-v1` pool adds mono-blue and mono-red
+decks and the Caelorna/Rorix commanders. The default pod is W/BG/U/R; reviewed
+match witnesses cover every reused blue/red definition and resource bounds
+include repeated draw activations and bounce/tuck. Completion policies and the
+18-game batch count counters, bounces, tucks, Furnace damage and commander casts
+by color. Acceptance results are recorded in
+[game-engine-progress.md](game-engine-progress.md). Versions and foundations-only
+search/server hosting remain separate.
+
 **Deliver in bounded families:** replacement/prevention ordering and budgets;
 continuous-effect layers/sublayers/timestamps/dependencies; granted abilities;
 multiple/cost-dependent targets; counters and tokens; attachments; alternate/

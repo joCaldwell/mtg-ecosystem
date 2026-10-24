@@ -5,6 +5,72 @@ use serde_json::value::RawValue;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub mod fixtures {
+    pub const FOUR_COLORS_RECORDS: [(&str, &str); 16] = [
+        (
+            "caelorna-coral-tyrant",
+            include_str!("../../../tests/fixtures/caelorna-coral-tyrant.json"),
+        ),
+        (
+            "rorix-bladewing",
+            include_str!("../../../tests/fixtures/rorix-bladewing.json"),
+        ),
+        (
+            "storm-crow",
+            include_str!("../../../tests/fixtures/storm-crow.json"),
+        ),
+        (
+            "zephyr-sprite",
+            include_str!("../../../tests/fixtures/zephyr-sprite.json"),
+        ),
+        (
+            "goliath-sphinx",
+            include_str!("../../../tests/fixtures/goliath-sphinx.json"),
+        ),
+        (
+            "wall-of-air",
+            include_str!("../../../tests/fixtures/wall-of-air.json"),
+        ),
+        (
+            "hover-barrier",
+            include_str!("../../../tests/fixtures/hover-barrier.json"),
+        ),
+        (
+            "dragoons-wyvern",
+            include_str!("../../../tests/fixtures/dragoons-wyvern.json"),
+        ),
+        (
+            "raging-goblin",
+            include_str!("../../../tests/fixtures/raging-goblin.json"),
+        ),
+        (
+            "goblin-trailblazer",
+            include_str!("../../../tests/fixtures/goblin-trailblazer.json"),
+        ),
+        (
+            "charging-monstrosaur",
+            include_str!("../../../tests/fixtures/charging-monstrosaur.json"),
+        ),
+        (
+            "quaketusk-boar",
+            include_str!("../../../tests/fixtures/quaketusk-boar.json"),
+        ),
+        (
+            "goblin-instigator",
+            include_str!("../../../tests/fixtures/goblin-instigator.json"),
+        ),
+        (
+            "beetleback-chief",
+            include_str!("../../../tests/fixtures/beetleback-chief.json"),
+        ),
+        (
+            "chimney-rabble",
+            include_str!("../../../tests/fixtures/chimney-rabble.json"),
+        ),
+        (
+            "dragon-trainer",
+            include_str!("../../../tests/fixtures/dragon-trainer.json"),
+        ),
+    ];
     pub const MANA_RECORDS: [(&str, &str); 9] = [
         (
             "sol-ring",
@@ -2627,6 +2693,19 @@ pub fn mana_fixture_catalog() -> Result<Catalog, String> {
     Ok(catalog)
 }
 
+/// P6.6 adds definitions only: all instructions and capabilities remain IR v16.
+pub fn four_colors_fixture_catalog() -> Result<Catalog, String> {
+    let mut catalog = mana_fixture_catalog()?;
+    catalog
+        .definitions
+        .extend(catalog_from_records(&fixtures::FOUR_COLORS_RECORDS, 16)?.definitions);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate()?;
+    Ok(catalog)
+}
+
 fn catalog_from_records(records: &[(&str, &str)], schema_version: u32) -> Result<Catalog, String> {
     let mut definitions = vec![];
     for (_, r) in records {
@@ -2649,6 +2728,57 @@ fn catalog_from_records(records: &[(&str, &str)], schema_version: u32) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn four_colors_v16_complete_sources_and_whole_card_negative() {
+        let c = four_colors_fixture_catalog().unwrap();
+        assert_eq!((c.schema_version, c.definitions.len()), (16, 106));
+        assert_eq!(
+            c,
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/expected-four-colors-ir.json"
+            ))
+            .unwrap()
+        );
+        for old in mana_fixture_catalog().unwrap().definitions {
+            assert_eq!(
+                c.definitions.iter().find(|d| d.oracle_id == old.oracle_id),
+                Some(&old)
+            );
+        }
+        for (name, raw) in fixtures::FOUR_COLORS_RECORDS {
+            let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
+                panic!("{name}")
+            };
+            let source: serde_json::Value = serde_json::from_str(raw).unwrap();
+            assert_eq!(source["source"]["legalities"]["commander"], "legal");
+            assert_eq!(definition.name, source["source"]["name"]);
+        }
+        assert!(matches!(
+            compile(
+                fixtures::MANIFEST,
+                include_str!("../../../tests/fixtures/hunted-dragon.json")
+            ),
+            CompileResult::Unsupported { .. }
+        ));
+        let find = |name: &str| c.definitions.iter().find(|d| d.name == name).unwrap();
+        assert_eq!(
+            find("Caelorna, Coral Tyrant").characteristics.power,
+            Some(0.into())
+        );
+        assert_eq!(
+            find("Caelorna, Coral Tyrant").characteristics.toughness,
+            Some(8.into())
+        );
+        assert_eq!(
+            find("Rorix Bladewing").keywords,
+            vec![KeywordAbility::Flying, KeywordAbility::Haste]
+        );
+        assert_eq!(
+            find("Wall of Air").keywords,
+            vec![KeywordAbility::Defender, KeywordAbility::Flying]
+        );
+    }
+
     #[test]
     fn mana_v16_complete_sources_negatives_and_downgrades() {
         let catalog = mana_fixture_catalog().unwrap();

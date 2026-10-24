@@ -159,6 +159,20 @@ search remain foundations-only. Colorless-specific costs, "could produce",
 triggered mana abilities, damage-dealing mana abilities and multiple commanders
 remain excluded.
 
+`docs/game-engine-blue-red.md` defines `commander-four-colors-v1`: the seventh
+legal profile, with 106 definitions at unchanged IR v16. It adds Caelorna and
+Rorix commanders, exact mono-blue/red decks (80 Island/84 Mountain), and a
+white/BG/blue/red default pod. Thirteen match-mode witness groups cover the
+reused blue/red spells, abilities, tokens, counters, anthems, commander returns
+and final Furnace damage. Bounds are 256 live tokens, 760 damage occurrences,
+4,080 stack/pending entries, 660 event members and 32 effects; the contract
+re-derives them including repeatable Azure Mage activation and bounce/tuck.
+The simulator adds `four-colors-match-batch OUTPUT` and
+`four-colors-match-replay FILE`, with counter, bounce, tuck, Furnace and
+commander-color counts. Earlier fixtures/limits, versions 18/19/16/15 and
+foundations-only search/server hosting remain separate. Target-opponent token
+creation (Hunted Dragon) remains a whole-card rejection.
+
 `docs/game-engine-search.md` releases finite P7 search for that same
 pool. Sealed captures contain only permitted facts/history; complete hypothetical
 hands/libraries and independent future randomness construct sampled games.
@@ -258,8 +272,8 @@ actual Commander combat damage and apply the 21-damage SBA loss rule. Earlier
 Commander profiles retain their explicit damage fault. Library replacement is
 enabled only for the reviewed Time Ebb and subsequent ordinary/ability draw paths.
 Replacement ordering is limited to the reviewed effects and subsequent profiles.
-Legal match setup is available only through the six named foundations, keywords,
-combat-keywords, tokens, staples and mana profiles. Ordinary combat is enabled in the reviewed combat, Commander and action profiles.
+Legal match setup is available only through the seven named foundations, keywords,
+combat-keywords, tokens, staples, mana and four-colors profiles. Ordinary combat is enabled in the reviewed combat, Commander and action profiles.
 
 Batch mutation is private and atomic. Capture consumed pre-event facts and use
 actual typed outcome slots. Simultaneous groups admit independent read/write

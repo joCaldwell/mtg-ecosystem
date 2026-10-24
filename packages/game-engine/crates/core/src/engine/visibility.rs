@@ -1104,6 +1104,7 @@ impl Game {
                                 | TOKENS_PROFILE
                                 | STAPLES_PROFILE
                                 | MANA_PROFILE
+                                | FOUR_COLORS_PROFILE
                         ) {
                             candidates
                                 .iter()

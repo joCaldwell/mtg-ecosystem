@@ -106,3 +106,51 @@ policies use only observation and the public catalog:
 - Earlier profiles' catalog, policy and expected IR digests and historical
   batch outputs are unchanged. `npm run check:engine` and SDK verification
   pass.
+
+## Reviewed resource bounds
+
+This derivation applies only to four-colors-v1. Earlier profile capacities are
+unchanged. The largest color-legal creature pool is still BG at 31 per seat;
+white, blue and red have fewer. With 256 live tokens let C = 4×31 + 256 = 380.
+Every mana source taps, produces at most two mana, and cannot untap in a step.
+No admitted haste creature has a mana ability. Bounced/tucked dorks cannot tap
+again after reentry that turn (302.6); artifacts and lands cannot be bounced by
+these creature-only spells. Across all 400 physical cards, at most 800 mana can
+be produced in a step, including mana floated before a nonempty-stack episode.
+This funds at most 200 Azure Mage activations at {3}{U}. Signet input spending
+cannot increase that production bound. Mana abilities add no stack entries
+(605.3b). Counterspell and Stifle are already included in physical spell entries;
+countering removes entries and never generates additional copies or refunds.
+
+- Damage occurrences per combat step: 2C = **760**. Up to four Furnaces multiply
+  quantities by at most sixteen, but do not create extra occurrences. Both
+  combat steps are separate transactions; exact quantities have no fixed-width
+  damage ceiling. Lifelink and Commander history consume final damage amounts
+  (120.4b, 702.15b, 903.10a).
+- Stack plus pending triggers: **4,080** = 400 physical spell entries + 24
+  once-per-episode activations (four each Healer, Looter, Prodigal, Researcher;
+  eight Sphere/Mind Stone) + 200 Azure Mage activations + 4(C+36) Artist death
+  triggers + 4(C+36) Warden enters triggers + 124 self-enters triggers + four
+  Bouncer self-dies triggers. Each creature still enters and dies at most once
+  per nonempty-stack episode: recursion, bounce and tuck return it to hand or
+  library, and no flash or battlefield-return effect exists. Recasting requires
+  an empty stack. The extra 36 covers new tokens even when initial live tokens
+  cease. The terms deliberately overcount mutually exclusive color-legal pools.
+- Event-group members: **660** = 400 physical cards + 256 live tokens + four
+  player losses. Bounces, tucks and counters are ordered effects below this bound.
+- Temporary effects: **32**. P6.4's 24-effect pod bound gains at most eight extra
+  Bouncer deaths from the four Unsummons and four Time Ebbs. Bouncing/tucking
+  Gravedigger to recur Bouncer uses the same one extra return allowance per
+  bounce/tuck. No new effect recurs an instant/sorcery or untaps Samite Healer.
+
+A deliberately conservative lifetime token proof is **100**: at most nine
+initial tokens per seat (36), at most eight useful creature recursions per pod,
+and at most eight bounce/tuck uses, each adding at most four tokens by returning
+a producer or Gravedigger (36 + (8+8)×4). New red producers make five initial
+tokens per seat; blue makes one. None of the four commanders creates tokens or
+recurs cards. A Gravedigger cannot target itself while its enters trigger is
+placed; targets are chosen before priority and no source dies as an enters SBA.
+These observations preserve P6.4's finite recursion argument. Ceased tokens free
+live capacity and keep monotonic, unreused historical identities. The existing
+serializable typed capacity faults and atomic rollback remain in force; cast or
+activation validation refuses a full stack before mutation.

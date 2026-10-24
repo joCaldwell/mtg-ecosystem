@@ -1482,3 +1482,28 @@ test("mana IR v16 preserves earlier catalogs and enforces complete costs and pol
   assert.equal(tower.characteristics.basic,false);assert.deepEqual(tower.characteristics.subtypes,[]);
   assert.deepEqual(tower.characteristics.color_identity,[]);
 });
+
+
+test("four colors adds sixteen exact v16 records and separately reviews policy", () => {
+  const catalog=run("compile-four-colors");
+  assert.equal(catalog.schema_version,16); assert.equal(catalog.definitions.length,106);
+  assert.deepEqual(catalog,JSON.parse(read("expected-four-colors-ir.json")));
+  for(const d of run("compile-mana").definitions) assert.deepEqual(catalog.definitions.find((x:any)=>x.oracle_id===d.oracle_id),d);
+  const policy=JSON.parse(read("commander-four-colors-policy.json"));
+  const pinned=JSON.parse(read("commander-policy.json"));
+  assert.equal(policy.profile,"commander-four-colors-v1"); assert.equal(policy.admitted_pool_review.length,106);
+  assert.deepEqual(policy.named_bans,pinned.named_bans); assert.deepEqual(policy.offensive_policy,pinned.offensive_policy);
+  // Pinned official ban list and its linked offensive-card policy are retained
+  // separately from source legality. Check every admitted identity and category.
+  // https://magic.wizards.com/en/banned-restricted-list
+  // https://magic.wizards.com/en/news/announcements/depictions-racism-magic-2020-06-10
+  for(const d of catalog.definitions) {
+    const source=JSON.parse(d.provenance.source_json);
+    assert.equal(source.legalities.commander,"legal",d.name);
+    assert.equal(/Conspiracy/.test(source.type_line),false,d.name);
+    assert.equal(/\bante\b/i.test(source.oracle_text),false,d.name);
+    assert.equal(policy.named_bans.some((b:any)=>b.oracle_id===d.oracle_id),false,d.name);
+    assert.equal(policy.offensive_policy.records.some((b:any)=>b.oracle_id===d.oracle_id),false,d.name);
+    assert.deepEqual(policy.admitted_pool_review.find((r:any)=>r.oracle_id===d.oracle_id),{oracle_id:d.oracle_id,name:d.name,source_sha256:d.provenance.source_sha256,conspiracy_type:false,ante_reference:false,offensive_named_ban:false});
+  }
+});
