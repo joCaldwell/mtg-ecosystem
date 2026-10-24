@@ -241,9 +241,9 @@ impl Game {
                 TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer => {
                     Frame::PlayerTargets { cast }
                 }
-                TargetDomain::BattlefieldCreature | TargetDomain::OwnGraveyardCreatureCard => {
-                    Frame::Targets { cast }
-                }
+                TargetDomain::ControlledBattlefieldCreature
+                | TargetDomain::BattlefieldCreature
+                | TargetDomain::OwnGraveyardCreatureCard => Frame::Targets { cast },
                 TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
                     Frame::StackTargets { cast }
                 }

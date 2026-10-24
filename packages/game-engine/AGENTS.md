@@ -173,6 +173,17 @@ commander-color counts. Earlier fixtures/limits, versions 18/19/16/15 and
 foundations-only search/server hosting remain separate. Target-opponent token
 creation (Hunted Dragon) remains a whole-card rejection.
 
+`docs/game-engine-attachments.md` defines `commander-attachments-v1`: a separate
+118-definition IR v17 catalog adds Equipment/equip, creature Auras, continuous
+layer-6 keyword grants (including hexproof/shroud), attachment P/T and combat
+restrictions, attachment SBAs and Rancor return triggers. Targeting restrictions
+use invocation controllers at announcement and resolution; damage LKI retains
+granted keywords. Its stack/pending bound is 4,093; damage/event/effect/live-token
+bounds remain 760/660/32/256. The simulator adds `attachments-match-batch OUTPUT`
+and `attachments-match-replay FILE`. Versions remain 18/19/16/15; omitted empty
+fields preserve earlier projections. Search and server remain foundations-only.
+See the progress ledger for acceptance status and private witness boundaries.
+
 `docs/game-engine-search.md` releases finite P7 search for that same
 pool. Sealed captures contain only permitted facts/history; complete hypothetical
 hands/libraries and independent future randomness construct sampled games.
@@ -272,8 +283,8 @@ actual Commander combat damage and apply the 21-damage SBA loss rule. Earlier
 Commander profiles retain their explicit damage fault. Library replacement is
 enabled only for the reviewed Time Ebb and subsequent ordinary/ability draw paths.
 Replacement ordering is limited to the reviewed effects and subsequent profiles.
-Legal match setup is available only through the seven named foundations, keywords,
-combat-keywords, tokens, staples, mana and four-colors profiles. Ordinary combat is enabled in the reviewed combat, Commander and action profiles.
+Legal match setup is available only through the eight named foundations, keywords,
+combat-keywords, tokens, staples, mana, four-colors and attachments profiles. Ordinary combat is enabled in the reviewed combat, Commander and action profiles.
 
 Batch mutation is private and atomic. Capture consumed pre-event facts and use
 actual typed outcome slots. Simultaneous groups admit independent read/write

@@ -321,6 +321,14 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             let keys = BTreeSet::from([FactKey::AllDamage]);
             (keys.clone(), keys)
         }
+        ProposedEvent::Attach { object, target } => {
+            let writes = BTreeSet::from([FactKey::Object(object.card)]);
+            let mut reads = writes.clone();
+            if let Some(target) = target {
+                reads.insert(FactKey::Object(target.card));
+            }
+            (reads, writes)
+        }
         ProposedEvent::DestroyCreature { object }
         | ProposedEvent::StateBasedGraveyard { object, .. } => {
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
@@ -735,6 +743,12 @@ impl Game {
                             .map(|o| o.id),
                     );
                 }
+                ProposedEvent::Attach { object, target } => {
+                    objects.insert(*object);
+                    if let Some(target) = target {
+                        objects.insert(*target);
+                    }
+                }
                 ProposedEvent::StateBasedGraveyard { object, .. } => {
                     objects.insert(*object);
                 }
@@ -803,7 +817,7 @@ impl Game {
                 let o = self.current(object)?;
                 Ok(ObjectBefore {
                     keywords: if self.prepared.catalog.schema_version >= 12 {
-                        self.definition(object.card)?.keywords.clone()
+                        self.current_keywords(object)
                     } else {
                         vec![]
                     },
@@ -1013,6 +1027,21 @@ impl Game {
                     self.apply_leaf(event, batch, path, before, out)?;
                     path.pop();
                 }
+                // CR 603.10a, 702.15c/702.2e: simultaneous departures use
+                // the common prior layer-6 view, even if a granting source
+                // happened to be applied first by deterministic event order.
+                if self.attachments_enabled() {
+                    for o in common
+                        .state
+                        .objects
+                        .values()
+                        .filter(|o| o.zone == Zone::Battlefield)
+                    {
+                        if self.current(o.id).is_err() {
+                            self.retain_source_facts(&common.object_before(o.id)?);
+                        }
+                    }
+                }
                 self.collect_triggers(&common, &out[offset..])?;
             }
         }
@@ -1129,6 +1158,32 @@ impl Game {
                 EventOutcome::LibraryShuffled {
                     player: *player,
                     count: *count,
+                }
+            }
+            ProposedEvent::Attach { object, target } => {
+                if !self.attachments_enabled()
+                    || self.current(*object)?.zone != Zone::Battlefield
+                    || !self
+                        .definition(object.card)?
+                        .characteristics
+                        .subtypes
+                        .iter()
+                        .any(|s| s == "Equipment" || s == "Aura")
+                    || target.is_some_and(|t| t == *object || !self.target_legal(t))
+                {
+                    return Err("invalid attachment event".into());
+                }
+                let o = self
+                    .state
+                    .objects
+                    .get_mut(&object.card)
+                    .ok_or("missing attachment")?;
+                let previous = o.attached_to;
+                o.attached_to = *target;
+                EventOutcome::AttachmentChanged {
+                    object: *object,
+                    previous,
+                    target: *target,
                 }
             }
             ProposedEvent::DestroyCreature { object } => {
@@ -1755,6 +1810,7 @@ impl Game {
                 self.state.objects.insert(
                     object.card,
                     Object {
+                        attached_to: None,
                         plus_one_counters: Quantity::zero(),
                         marked_damage: Quantity::zero(),
                         attack_ready: false,

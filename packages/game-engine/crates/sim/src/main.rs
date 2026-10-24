@@ -1588,6 +1588,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )?)?
             );
         }
+        Some("attachments-match-batch") if args.len() == 2 => {
+            println!(
+                "{}",
+                canonical(&match_games::batch(
+                    &mtg_compiler::attachments_fixture_catalog()?,
+                    Path::new(&args[1])
+                )?)?
+            );
+        }
+        Some("attachments-match-replay") if args.len() == 2 => {
+            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
+            match_games::verify(&mtg_compiler::attachments_fixture_catalog()?, &e)?;
+            println!(
+                "{}",
+                canonical(
+                    &serde_json::json!({"status":"attachments_match_replay_verified","state_sha256":e.final_state_sha256})
+                )?
+            );
+        }
         Some("four-colors-match-batch") if args.len() == 2 => {
             println!(
                 "{}",
@@ -1774,6 +1793,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let (_, _, report) =
                 choices_games::suite(&choices_fixture_catalog()?, args.len() == 2)?;
             println!("{}", canonical(&report)?);
+        }
+        Some("compile-attachments") if args.len() == 1 => {
+            println!(
+                "{}",
+                canonical(&mtg_compiler::attachments_fixture_catalog()?)?
+            )
         }
         Some("compile-four-colors") if args.len() == 1 => {
             println!(

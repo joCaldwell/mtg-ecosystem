@@ -21,6 +21,9 @@ pub const STAPLES_CATALOG_SHA256: &str =
 pub const MANA_PROFILE: &str = "commander-mana-v1";
 pub const MANA_CATALOG_SHA256: &str =
     "1df5823602dd4aacea6ab8e69766dc750e425686ba02221857b443c415b37794";
+pub const ATTACHMENTS_PROFILE: &str = "commander-attachments-v1";
+pub const ATTACHMENTS_CATALOG_SHA256: &str =
+    "56affddedfe7b2482ad48238b95b3f8c30bfc39c701125cff883fa6ea9c404df";
 pub const FOUR_COLORS_PROFILE: &str = "commander-four-colors-v1";
 pub const FOUR_COLORS_CATALOG_SHA256: &str =
     "0ca81434d87be618d60f1267783fe3d89983f397a01bed7c0640ade57a4dd93b";
@@ -35,7 +38,7 @@ pub struct MatchProfile {
     pub black_green_deck: fn() -> Decklist,
     pub default_pod: [fn() -> Decklist; 4],
 }
-pub static MATCH_PROFILES: [MatchProfile; 7] = [
+pub static MATCH_PROFILES: [MatchProfile; 8] = [
     MatchProfile {
         name: MATCH_PROFILE,
         catalog_sha256: MATCH_CATALOG_SHA256,
@@ -141,6 +144,26 @@ pub static MATCH_PROFILES: [MatchProfile; 7] = [
             mana_black_green_deck,
             four_colors_blue_deck,
             four_colors_red_deck,
+        ],
+    },
+    MatchProfile {
+        name: ATTACHMENTS_PROFILE,
+        catalog_sha256: ATTACHMENTS_CATALOG_SHA256,
+        ir_version: 17,
+        policy_json: include_str!("../../../../tests/fixtures/commander-attachments-policy.json"),
+        commanders: &[
+            ISAMARU,
+            YARGLE,
+            "4bbc5df9-60d7-46c1-8856-91c9c74abf18",
+            "48fe0f52-1676-49d5-acf6-5476081e8e1b",
+        ],
+        white_deck: attachments_white_deck,
+        black_green_deck: attachments_black_green_deck,
+        default_pod: [
+            attachments_white_deck,
+            attachments_black_green_deck,
+            attachments_blue_deck,
+            attachments_red_deck,
         ],
     },
 ];
@@ -923,6 +946,89 @@ pub fn four_colors_red_deck() -> Decklist {
             ("a3fb7228-e76b-4e96-a40e-20b5fed75685", 84), // Mountain
         ]),
     }
+}
+
+fn add_attachments(mut deck: Decklist, additions: &[&str], basics: &[(&str, u32)]) -> Decklist {
+    for (id, count) in basics {
+        deck.cards
+            .iter_mut()
+            .find(|r| r.oracle_id == *id)
+            .unwrap()
+            .count = *count;
+    }
+    for id in additions {
+        deck.cards.push(DeckEntry {
+            oracle_id: (*id).into(),
+            count: 1,
+        });
+    }
+    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    deck
+}
+pub fn attachments_white_deck() -> Decklist {
+    add_attachments(
+        mana_white_deck(),
+        &[
+            "452e3f5f-ce17-4682-966b-5cc100210aee",
+            "e842a4e5-ea0b-43ae-9ed8-93e30f4e7b8a",
+            "12a8adc4-927f-4314-b2ef-9c647ace68d5",
+            "dba35ac5-7ad3-488a-a006-6b9a1d54eea5",
+            "c8b143ad-43ec-4e0d-a440-e348daa31391",
+            "ca204b66-8d0c-431a-8d34-282f7c2d17da",
+            "9ad4f730-a18e-4a7c-a468-a926c718c741",
+            "9357de36-f8be-4f49-b2c8-9fe9eaf82b07",
+            "5f5e0b10-c8cf-450c-bfd3-bcb0528ec330",
+        ],
+        &[(PLAINS, 62)],
+    )
+}
+pub fn attachments_black_green_deck() -> Decklist {
+    add_attachments(
+        mana_black_green_deck(),
+        &[
+            "452e3f5f-ce17-4682-966b-5cc100210aee",
+            "e842a4e5-ea0b-43ae-9ed8-93e30f4e7b8a",
+            "12a8adc4-927f-4314-b2ef-9c647ace68d5",
+            "dba35ac5-7ad3-488a-a006-6b9a1d54eea5",
+            "c8b143ad-43ec-4e0d-a440-e348daa31391",
+            "ca204b66-8d0c-431a-8d34-282f7c2d17da",
+            "9ad4f730-a18e-4a7c-a468-a926c718c741",
+            "090d88a9-7f2d-4bd1-a30a-7c48d05068be",
+            "9d2d6479-531c-4ce1-b52b-00e36fa63b64",
+            "ad73e5eb-197c-45a3-9d20-a406ba126c79",
+        ],
+        &[(FOREST, 20), (SWAMP, 20)],
+    )
+}
+pub fn attachments_blue_deck() -> Decklist {
+    add_attachments(
+        four_colors_blue_deck(),
+        &[
+            "452e3f5f-ce17-4682-966b-5cc100210aee",
+            "e842a4e5-ea0b-43ae-9ed8-93e30f4e7b8a",
+            "12a8adc4-927f-4314-b2ef-9c647ace68d5",
+            "dba35ac5-7ad3-488a-a006-6b9a1d54eea5",
+            "c8b143ad-43ec-4e0d-a440-e348daa31391",
+            "ca204b66-8d0c-431a-8d34-282f7c2d17da",
+            "9ad4f730-a18e-4a7c-a468-a926c718c741",
+        ],
+        &[(ISLAND, 73)],
+    )
+}
+pub fn attachments_red_deck() -> Decklist {
+    add_attachments(
+        four_colors_red_deck(),
+        &[
+            "452e3f5f-ce17-4682-966b-5cc100210aee",
+            "e842a4e5-ea0b-43ae-9ed8-93e30f4e7b8a",
+            "12a8adc4-927f-4314-b2ef-9c647ace68d5",
+            "dba35ac5-7ad3-488a-a006-6b9a1d54eea5",
+            "c8b143ad-43ec-4e0d-a440-e348daa31391",
+            "ca204b66-8d0c-431a-8d34-282f7c2d17da",
+            "9ad4f730-a18e-4a7c-a468-a926c718c741",
+        ],
+        &[("a3fb7228-e76b-4e96-a40e-20b5fed75685", 77)],
+    )
 }
 
 #[cfg(test)]

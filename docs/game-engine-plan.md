@@ -418,6 +418,14 @@ by color. Acceptance results are recorded in
 [game-engine-progress.md](game-engine-progress.md). Versions and foundations-only
 search/server hosting remain separate.
 
+P6.7 is complete under [game-engine-attachments.md](game-engine-attachments.md): the
+118-definition IR v17 `commander-attachments-v1` pool adds Equipment/equip,
+creature Auras, continuous keyword grants, hexproof/shroud targeting, combat
+restrictions and Rancor. Its independent bounds account for equip, Rancor and
+haste on returned mana creatures. Verification is recorded in
+[game-engine-progress.md](game-engine-progress.md); earlier profiles/versions and
+foundations-only search/server scope remain separate.
+
 **Deliver in bounded families:** replacement/prevention ordering and budgets;
 continuous-effect layers/sublayers/timestamps/dependencies; granted abilities;
 multiple/cost-dependent targets; counters and tokens; attachments; alternate/

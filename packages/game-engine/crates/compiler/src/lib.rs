@@ -5,6 +5,56 @@ use serde_json::value::RawValue;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub mod fixtures {
+    pub const ATTACHMENT_RECORDS: [(&str, &str); 12] = [
+        (
+            "bonesplitter",
+            include_str!("../../../tests/fixtures/bonesplitter.json"),
+        ),
+        (
+            "short-sword",
+            include_str!("../../../tests/fixtures/short-sword.json"),
+        ),
+        (
+            "vulshok-morningstar",
+            include_str!("../../../tests/fixtures/vulshok-morningstar.json"),
+        ),
+        (
+            "loxodon-warhammer",
+            include_str!("../../../tests/fixtures/loxodon-warhammer.json"),
+        ),
+        (
+            "swiftfoot-boots",
+            include_str!("../../../tests/fixtures/swiftfoot-boots.json"),
+        ),
+        (
+            "lightning-greaves",
+            include_str!("../../../tests/fixtures/lightning-greaves.json"),
+        ),
+        (
+            "whispersilk-cloak",
+            include_str!("../../../tests/fixtures/whispersilk-cloak.json"),
+        ),
+        (
+            "holy-strength",
+            include_str!("../../../tests/fixtures/holy-strength.json"),
+        ),
+        (
+            "pacifism",
+            include_str!("../../../tests/fixtures/pacifism.json"),
+        ),
+        (
+            "unholy-strength",
+            include_str!("../../../tests/fixtures/unholy-strength.json"),
+        ),
+        (
+            "rancor",
+            include_str!("../../../tests/fixtures/rancor.json"),
+        ),
+        (
+            "spidersilk-armor",
+            include_str!("../../../tests/fixtures/spidersilk-armor.json"),
+        ),
+    ];
     pub const FOUR_COLORS_RECORDS: [(&str, &str); 16] = [
         (
             "caelorna-coral-tyrant",
@@ -778,10 +828,43 @@ enum Ability {
         effects: Vec<Sentence>,
     },
 }
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct SourceKeyword {
     keyword: String,
+    cost: Option<Vec<SourceCost>>,
+    filter: Option<serde_json::Value>,
+}
+impl<'de> Deserialize<'de> for SourceKeyword {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let object = value
+            .as_object()
+            .ok_or_else(|| D::Error::custom("keyword must be an object"))?;
+        let keyword = object
+            .get("keyword")
+            .and_then(|k| k.as_str())
+            .ok_or_else(|| D::Error::custom("missing keyword"))?
+            .to_owned();
+        let allowed = match keyword.as_str() {
+            "equip" => ["keyword", "cost"].as_slice(),
+            "enchant" => ["keyword", "filter"].as_slice(),
+            _ => ["keyword"].as_slice(),
+        };
+        if object.len() != allowed.len() || object.keys().any(|k| !allowed.contains(&k.as_str())) {
+            return Err(D::Error::custom("unsupported complete keyword shape"));
+        }
+        let cost = object
+            .get("cost")
+            .map(|c| serde_json::from_value(c.clone()).map_err(D::Error::custom))
+            .transpose()?;
+        let filter = object.get("filter").cloned();
+        Ok(Self {
+            keyword,
+            cost,
+            filter,
+        })
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -809,9 +892,20 @@ struct SourceComparison {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "trigger", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceTrigger {
-    Enters { what: TriggerObject },
-    Dies { what: TriggerObject },
-    AnyOf { events: Vec<SourceTrigger> },
+    PutIntoGraveyard {
+        what: TriggerObject,
+        from: String,
+        to: serde_json::Value,
+    },
+    Enters {
+        what: TriggerObject,
+    },
+    Dies {
+        what: TriggerObject,
+    },
+    AnyOf {
+        events: Vec<SourceTrigger>,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "ref", rename_all = "kebab-case", deny_unknown_fields)]
@@ -1091,6 +1185,10 @@ enum AnyTargetReference {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "static", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceStaticEffect {
+    Cant {
+        what: serde_json::Value,
+        action: String,
+    },
     Modify {
         what: serde_json::Value,
         modifiers: Vec<serde_json::Value>,
@@ -1431,29 +1529,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         },
     };
     match kind {
-        CardKind::Enchantment => {
-            if source.oracle_text.is_empty() || abilities.is_empty() {
+        CardKind::Land | CardKind::Creature | CardKind::Artifact | CardKind::Enchantment => {
+            if kind == CardKind::Enchantment
+                && (source.oracle_text.is_empty() || abilities.is_empty())
+            {
                 return Err(unsupported("abilities", "empty enchantment behavior"));
             }
-            definition.spell = Some(SpellProgram {
-                timing: SpellTiming::MainPhase,
-                resolution: SpellResolution::Permanent,
-                functioning_zone: FunctioningZone::Stack,
-                targets: vec![],
-                instructions: vec![],
-                modes: vec![],
-            });
-            for ability in &abilities {
-                let Ability::Static { effect } = ability else {
-                    return Err(unsupported(
-                        "abilities.kind",
-                        "unsupported enchantment ability",
-                    ));
-                };
-                definition.static_abilities.push(lower_static(effect)?);
-            }
-        }
-        CardKind::Land | CardKind::Creature | CardKind::Artifact => {
             if kind == CardKind::Land && basic && !abilities.is_empty() {
                 return Err(unsupported(
                     "abilities",
@@ -1482,11 +1563,80 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             }
             for (block, ability) in abilities.iter().enumerate() {
                 match ability {
+                    Ability::Static { effect } => {
+                        definition.static_abilities.push(lower_static(effect)?)
+                    }
                     Ability::Keywords { keywords } => {
                         if keywords.is_empty() {
                             return Err(unsupported("abilities.keywords", "empty keyword block"));
                         }
                         for keyword in keywords {
+                            if keyword.keyword == "equip"
+                                && kind == CardKind::Artifact
+                                && definition.characteristics.subtypes == ["Equipment"]
+                                && keyword.filter.is_none()
+                            {
+                                let costs = keyword
+                                    .cost
+                                    .as_ref()
+                                    .ok_or_else(|| unsupported("equip", "missing equip cost"))?;
+                                let c = lower_permanent_costs(costs, kind)?;
+                                if c.tap || c.sacrifice || c.mana.is_none() {
+                                    return Err(unsupported(
+                                        "equip",
+                                        "equip requires fixed mana only",
+                                    ));
+                                }
+                                definition.activated.push(ActivatedAbility {
+                                    functioning_zone: FunctioningZone::Battlefield,
+                                    cost: ActivationCost::Mana {
+                                        cost: c.mana.unwrap(),
+                                    },
+                                    program: SpellProgram {
+                                        timing: SpellTiming::MainPhase,
+                                        resolution: SpellResolution::Instructions,
+                                        functioning_zone: FunctioningZone::Stack,
+                                        targets: vec![TargetSpec {
+                                            slot: 0,
+                                            selection_id: "equip-creature".into(),
+                                            chooser: Chooser::Controller,
+                                            stage: EvaluationStage::Announcement,
+                                            domain: TargetDomain::ControlledBattlefieldCreature,
+                                        }],
+                                        instructions: vec![Instruction::AttachEquipment {
+                                            target_slot: 0,
+                                            source_block: block as u32,
+                                        }],
+                                        modes: vec![],
+                                    },
+                                });
+                                continue;
+                            }
+                            if keyword.keyword == "enchant"
+                                && kind == CardKind::Enchantment
+                                && definition.characteristics.subtypes == ["Aura"]
+                                && keyword.cost.is_none()
+                                && keyword.filter == Some(serde_json::json!({"types":["creature"]}))
+                            {
+                                let spell = definition.spell.as_mut().unwrap();
+                                if !spell.targets.is_empty() {
+                                    return Err(unsupported("enchant", "duplicate enchant"));
+                                }
+                                spell.targets.push(TargetSpec {
+                                    slot: 0,
+                                    selection_id: "enchanted-creature".into(),
+                                    chooser: Chooser::Controller,
+                                    stage: EvaluationStage::Announcement,
+                                    domain: TargetDomain::BattlefieldCreature,
+                                });
+                                continue;
+                            }
+                            if keyword.cost.is_some() || keyword.filter.is_some() {
+                                return Err(unsupported(
+                                    "keyword",
+                                    "unsupported keyword parameters",
+                                ));
+                            }
                             match keyword.keyword.as_str() {
                                 "defender" => definition.keywords.push(KeywordAbility::Defender),
                                 "trample" => definition.keywords.push(KeywordAbility::Trample),
@@ -1497,6 +1647,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                     definition.keywords.push(KeywordAbility::DoubleStrike)
                                 }
                                 "menace" => definition.keywords.push(KeywordAbility::Menace),
+                                "hexproof" => definition.keywords.push(KeywordAbility::Hexproof),
+                                "shroud" => definition.keywords.push(KeywordAbility::Shroud),
                                 "flying" => definition.keywords.push(KeywordAbility::Flying),
                                 "reach" => definition.keywords.push(KeywordAbility::Reach),
                                 "vigilance" => definition.keywords.push(KeywordAbility::Vigilance),
@@ -2085,6 +2237,124 @@ fn lower_prevention(
     }
 }
 fn lower_static(effect: &SourceStaticEffect) -> Result<StaticAbility, Failure> {
+    let scope = |what: &serde_json::Value| {
+        if *what == serde_json::json!({"ref":"equipped","noun":"creature"}) {
+            Some(CreatureScope::Equipped)
+        } else if *what == serde_json::json!({"ref":"enchanted","noun":"creature"}) {
+            Some(CreatureScope::Enchanted)
+        } else if *what
+            == serde_json::json!({"ref":"each","filter":{"types":["creature"],"control":"you"}})
+        {
+            Some(CreatureScope::Controller)
+        } else {
+            None
+        }
+    };
+    if let SourceStaticEffect::Cant { what, action } = effect {
+        if scope(what) != Some(CreatureScope::Enchanted) || action != "attack-or-block" {
+            return Err(unsupported("static.cant", "unsupported prohibition"));
+        }
+        return Ok(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::ModifyCreatures {
+                scope: CreatureScope::Enchanted,
+                power: Quantity::zero(),
+                toughness: Quantity::zero(),
+                keywords: vec![],
+                restrictions: vec![CreatureRestriction::CantAttackOrBlock],
+            },
+        });
+    }
+    if let SourceStaticEffect::Modify { what, modifiers } = effect
+        && (scope(what) != Some(CreatureScope::Controller)
+            || modifiers.len() != 1
+            || modifiers[0]["modifier"] != "pt"
+            || modifiers[0]["power"] != modifiers[0]["toughness"]
+            || modifiers[0]["power"]["amount"]["value"] == 0)
+    {
+        let scope =
+            scope(what).ok_or_else(|| unsupported("static.scope", "unsupported modifier scope"))?;
+        let mut power = Quantity::zero();
+        let mut toughness = Quantity::zero();
+        let mut keywords = vec![];
+        let mut restrictions = vec![];
+        let mut pt = false;
+        for modifier in modifiers {
+            #[derive(Deserialize)]
+            #[serde(tag = "modifier", rename_all = "kebab-case", deny_unknown_fields)]
+            enum Modifier {
+                Pt {
+                    power: SignedAmount,
+                    toughness: SignedAmount,
+                },
+                Abilities {
+                    abilities: Vec<serde_json::Value>,
+                },
+                Cant {
+                    action: String,
+                },
+            }
+            match serde_json::from_value(modifier.clone())
+                .map_err(|e| unsupported("static.modifier", format!("{e}")))?
+            {
+                Modifier::Pt {
+                    power: p,
+                    toughness: t,
+                } => {
+                    if pt {
+                        return Err(unsupported("static.modifier", "duplicate pt"));
+                    }
+                    pt = true;
+                    power = signed_fixed(&p)?;
+                    toughness = signed_fixed(&t)?;
+                    if power.is_negative() || toughness.is_negative() {
+                        return Err(unsupported("static.modifier", "negative static pt"));
+                    }
+                }
+                Modifier::Abilities { abilities } => {
+                    if abilities.is_empty() {
+                        return Err(unsupported("static.modifier", "empty grant"));
+                    }
+                    for a in abilities {
+                        if a.as_object().is_none_or(|o| o.len() != 2)
+                            || a["gained"] != "keyword"
+                            || a["keyword"].as_object().is_none_or(|o| o.len() != 1)
+                        {
+                            return Err(unsupported("static.modifier", "unsupported grant"));
+                        }
+                        let k: KeywordAbility =
+                            serde_json::from_value(a["keyword"]["keyword"].clone())
+                                .map_err(|e| unsupported("static.keyword", e.to_string()))?;
+                        if keywords.contains(&k) {
+                            return Err(unsupported("static.keyword", "duplicate grant"));
+                        }
+                        keywords.push(k);
+                    }
+                }
+                Modifier::Cant { action } => {
+                    let restriction = match action.as_str() {
+                        "be-blocked" => CreatureRestriction::CantBeBlocked,
+                        "attack-or-block" => CreatureRestriction::CantAttackOrBlock,
+                        _ => return Err(unsupported("static.cant", "unsupported restriction")),
+                    };
+                    if restrictions.contains(&restriction) {
+                        return Err(unsupported("static.cant", "duplicate restriction"));
+                    }
+                    restrictions.push(restriction);
+                }
+            }
+        }
+        return Ok(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::ModifyCreatures {
+                scope,
+                power,
+                toughness,
+                keywords,
+                restrictions,
+            },
+        });
+    }
     if let SourceStaticEffect::Modify { what, modifiers } = effect {
         if *what
             != serde_json::json!({"ref":"each","filter":{"types":["creature"],"control":"you"}})
@@ -2209,6 +2479,31 @@ fn lower_trigger(
     intervening: Option<&SourceCondition>,
     block: usize,
 ) -> Result<TriggeredAbility, Failure> {
+    if let SourceTrigger::PutIntoGraveyard { what, from, to } = trigger {
+        if !matches!(what, TriggerObject::This {noun} if noun == "aura")
+            || from != "battlefield"
+            || *to != serde_json::json!({"zone":"graveyard","owner":"any"})
+            || intervening.is_some()
+            || !matches!(effects, [Sentence {steps}] if matches!(steps.as_slice(), [Step::ReturnToHand {what,to,optional:None}] if *what == serde_json::json!({"ref":"it"}) && to == "owner"))
+        {
+            return Err(unsupported("trigger", "unsupported Aura return"));
+        }
+        return Ok(TriggeredAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            condition: TriggerCondition::SelfAuraToGraveyard,
+            intervening_if: None,
+            program: SpellProgram {
+                timing: SpellTiming::Instant,
+                resolution: SpellResolution::Instructions,
+                functioning_zone: FunctioningZone::Stack,
+                targets: vec![],
+                instructions: vec![Instruction::ReturnAuraFromGraveyard {
+                    source_block: block as u32,
+                }],
+                modes: vec![],
+            },
+        });
+    }
     // The archive reference-binding object is diagnostic/nonexecutable. This
     // Rust semantic binder consumes the complete typed AST instead: "other"
     // excludes this exact source incarnation (CR 201.5), and the exact disjoint
@@ -2694,6 +2989,18 @@ pub fn mana_fixture_catalog() -> Result<Catalog, String> {
 }
 
 /// P6.6 adds definitions only: all instructions and capabilities remain IR v16.
+pub fn attachments_fixture_catalog() -> Result<Catalog, String> {
+    let mut catalog = four_colors_fixture_catalog()?;
+    catalog.schema_version = 17;
+    catalog
+        .definitions
+        .extend(catalog_from_records(&fixtures::ATTACHMENT_RECORDS, 17)?.definitions);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate()?;
+    Ok(catalog)
+}
 pub fn four_colors_fixture_catalog() -> Result<Catalog, String> {
     let mut catalog = mana_fixture_catalog()?;
     catalog
@@ -2728,6 +3035,111 @@ fn catalog_from_records(records: &[(&str, &str)], schema_version: u32) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn attachments_v17_complete_sources_and_strict_downgrades() {
+        let c = attachments_fixture_catalog().unwrap();
+        assert_eq!((c.schema_version, c.definitions.len()), (17, 118));
+        assert_eq!(
+            c,
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/expected-attachments-ir.json"
+            ))
+            .unwrap()
+        );
+        for old in four_colors_fixture_catalog().unwrap().definitions {
+            assert_eq!(
+                c.definitions.iter().find(|d| d.oracle_id == old.oracle_id),
+                Some(&old)
+            );
+        }
+        for (name, raw) in fixtures::ATTACHMENT_RECORDS {
+            let CompileResult::Lowered { definition: d } = compile(fixtures::MANIFEST, raw) else {
+                panic!("{name}");
+            };
+            assert!(
+                d.capabilities.contains(&Capability::AttachmentsV1),
+                "{name}"
+            );
+            let mut bad = c.clone();
+            bad.schema_version = 16;
+            bad.definitions = vec![*d];
+            assert!(bad.validate().is_err(), "{name}");
+        }
+        for raw in [
+            include_str!("../../../tests/fixtures/blanchwood-armor.json"),
+            include_str!("../../../tests/fixtures/gift-of-orzhova.json"),
+            include_str!("../../../tests/fixtures/arrest.json"),
+            include_str!("../../../tests/fixtures/mask-of-memory.json"),
+        ] {
+            assert!(!matches!(
+                compile(fixtures::MANIFEST, raw),
+                CompileResult::Lowered { .. }
+            ));
+        }
+        let get = |name| c.definitions.iter().find(|d| d.name == name).unwrap();
+        assert_eq!(
+            get("Pacifism").characteristics.mana_cost.generic,
+            Quantity::from(1)
+        );
+        assert_eq!(
+            get("Spidersilk Armor").characteristics.mana_cost.generic,
+            Quantity::from(2)
+        );
+        assert!(
+            matches!(&get("Lightning Greaves").activated[0].cost, ActivationCost::Mana {cost} if cost.generic==Quantity::zero())
+        );
+        for keyword in [
+            "defender",
+            "flying",
+            "reach",
+            "vigilance",
+            "haste",
+            "lifelink",
+            "deathtouch",
+            "trample",
+            "first strike",
+            "double strike",
+            "menace",
+            "hexproof",
+            "shroud",
+        ] {
+            let k: KeywordAbility = serde_json::from_value(serde_json::json!(keyword)).unwrap();
+            let source = SourceStaticEffect::Modify {
+                what: serde_json::json!({"ref":"equipped","noun":"creature"}),
+                modifiers: vec![
+                    serde_json::json!({"modifier":"abilities","abilities":[{"gained":"keyword","keyword":{"keyword":keyword}}]}),
+                ],
+            };
+            assert!(
+                matches!(lower_static(&source).unwrap().effect, StaticEffect::ModifyCreatures {keywords,..} if keywords == [k])
+            );
+            let mut intrinsic = get("Storm Crow").clone();
+            intrinsic.keywords = vec![k];
+            intrinsic.capabilities = intrinsic.requirements();
+            intrinsic.validate().unwrap();
+            if matches!(k, KeywordAbility::Hexproof | KeywordAbility::Shroud) {
+                let mut bad = c.clone();
+                bad.schema_version = 16;
+                bad.definitions = vec![intrinsic];
+                assert!(bad.validate().is_err());
+            }
+        }
+        for keyword in [KeywordAbility::Hexproof, KeywordAbility::Shroud] {
+            let mut token_spell = get("Raise the Alarm").clone();
+            let Instruction::CreateCreatureTokens { token, .. } =
+                &mut token_spell.spell.as_mut().unwrap().instructions[0]
+            else {
+                panic!("token program")
+            };
+            token.keywords.push(keyword);
+            token_spell.capabilities = token_spell.requirements();
+            let mut probe = c.clone();
+            probe.definitions = vec![token_spell];
+            probe.validate().unwrap();
+            probe.schema_version = 16;
+            assert!(probe.validate().is_err());
+        }
+    }
     #[test]
     fn four_colors_v16_complete_sources_and_whole_card_negative() {
         let c = four_colors_fixture_catalog().unwrap();
@@ -3300,7 +3712,7 @@ mod tests {
     fn defender_whole_source_and_ir_fields_reject_unknown_keyword_semantics() {
         type Mutation = fn(&mut serde_json::Value);
         for mutate in [
-            (|a: &mut serde_json::Value| a["keywords"][0]["keyword"] = "hexproof".into())
+            (|a: &mut serde_json::Value| a["keywords"][0]["keyword"] = "indestructible".into())
                 as Mutation,
             |a| a["keywords"][0]["condition"] = true.into(),
             |a| a["keywords"].as_array_mut().unwrap().clear(),
@@ -4083,7 +4495,7 @@ mod tests {
             );
         }
         let mut future = c;
-        future.schema_version = 17;
+        future.schema_version = 18;
         assert!(future.validate().is_err());
     }
     #[test]
@@ -4447,7 +4859,7 @@ mod tests {
             assert!(Catalog::read(&bad).is_err());
         }
         let mut bad = c;
-        bad.schema_version = 17;
+        bad.schema_version = 18;
         assert!(bad.validate().is_err());
     }
 
@@ -4712,7 +5124,7 @@ mod tests {
             }
         }
         let mut bad = catalog.clone();
-        bad.schema_version = 17;
+        bad.schema_version = 18;
         assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
         for change in [
             (|d: &mut Definition| {
@@ -5024,7 +5436,7 @@ mod tests {
     #[test]
     fn stack_vocabulary_requires_ir6_and_rejects_bad_binding_and_capability_closure() {
         let catalog = stack_fixture_catalog().unwrap();
-        for version in [3, 4, 5, 17] {
+        for version in [3, 4, 5, 18] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -5228,7 +5640,7 @@ mod tests {
         let c = fixture_catalog().unwrap();
         let raw = canonical(&c).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":3", "\"schema_version\":17"),
+            raw.replace("\"schema_version\":3", "\"schema_version\":18"),
             raw.replace("\"op\":\"return_to_owner_hand\"", "\"op\":\"execute_text\""),
             raw.replace("\"target_slot\":0", "\"target_slot\":99"),
             raw.replace("\"source_block\":0", "\"unknown\":true,\"source_block\":0"),
@@ -5542,8 +5954,8 @@ mod tests {
         );
         for (text, ability) in [
             (
-                "Hexproof",
-                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"hexproof"}]}),
+                "Indestructible",
+                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"indestructible"}]}),
             ),
             (
                 "When this creature attacks, draw a card.",
@@ -5769,7 +6181,7 @@ mod tests {
     #[test]
     fn action_ir_version_shapes_and_target_domains_are_strict() {
         let catalog = action_fixture_catalog().unwrap();
-        for version in [3, 4, 17] {
+        for version in [3, 4, 18] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -5894,7 +6306,7 @@ mod tests {
         assert!(old.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":4", "\"schema_version\":17"),
+            raw.replace("\"schema_version\":4", "\"schema_version\":18"),
             raw.replace(
                 "\"op\":\"put_on_top_owner_library\"",
                 "\"op\":\"put_on_bottom_owner_library\"",
@@ -6020,8 +6432,8 @@ mod tests {
                 serde_json::json!({"kind":"keywords","keywords":[{"keyword":"indestructible"}]}),
             ),
             (
-                "Hexproof",
-                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"hexproof"}]}),
+                "Indestructible",
+                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"indestructible"}]}),
             ),
             (
                 "When this creature dies, draw a card.",

@@ -70,7 +70,7 @@ impl Game {
         let o = self.current(object)?;
         Ok(ObjectBefore {
             keywords: if self.prepared.catalog.schema_version >= 12 {
-                self.definition(object.card)?.keywords.clone()
+                self.current_keywords(object)
             } else {
                 vec![]
             },
@@ -99,16 +99,20 @@ impl Game {
             return Ok(());
         }
         let fact = self.object_before(object)?;
+        self.retain_source_facts(&fact);
+        Ok(())
+    }
+    pub(super) fn retain_source_facts(&mut self, fact: &ObjectBefore) {
+        let object = fact.object;
         for trigger in &mut self.state.pending_triggers {
             if trigger.source == object {
                 trigger.source_facts = fact.clone();
             }
         }
         for entry in &mut self.state.stack {
-            update_entry(entry, &fact);
+            update_entry(entry, fact);
         }
-        update_frame(&mut self.state.frame, &fact);
-        Ok(())
+        update_frame(&mut self.state.frame, fact);
     }
     pub(super) fn source_facts(&self, entry: &StackInstance) -> Result<ObjectBefore, String> {
         self.object_before(entry.source).or_else(|_| {
@@ -159,7 +163,12 @@ impl Game {
                 self.state
                     .objects
                     .values()
-                    .filter(|o| self.target_legal(o.id))
+                    .filter(|o| {
+                        self.target_legal(o.id)
+                            && self
+                                .top()
+                                .is_ok_and(|e| self.targetable_by(o.id, e.controller))
+                    })
                     .map(|o| TargetEntity::Object { object: o.id }),
             )
             .collect()
@@ -176,7 +185,7 @@ impl Game {
             || entities.len() != program.targets.len()
             || entities.iter().enumerate().any(|(slot, target)| {
                 program.targets[slot].domain != TargetDomain::AnyDamageTarget
-                    || !self.entity_legal(*target)
+                    || !self.entity_target_legal(*target, top.controller)
             })
         {
             return Err("invalid damage targets".into());

@@ -273,7 +273,7 @@ fn target_plans(
         .collect::<Vec<_>>();
     players.sort_by_key(|p| ((*p == view.viewer) != own, p.0));
     let variants = match domain {
-        TargetDomain::OwnGraveyardCreatureCard => {
+        TargetDomain::ControlledBattlefieldCreature | TargetDomain::OwnGraveyardCreatureCard => {
             return Err("staples target outside foundations search".into());
         }
         TargetDomain::BattlefieldCreature => objects

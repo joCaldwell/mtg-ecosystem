@@ -45,7 +45,9 @@ fn movement(outcome: &EventOutcome) -> Option<&MoveOutcome> {
 }
 impl Game {
     pub(super) fn stack_limit(&self) -> usize {
-        if self.four_colors_enabled() {
+        if self.attachments_enabled() {
+            attachments::STACK_BOUND
+        } else if self.four_colors_enabled() {
             four_colors::STACK_BOUND
         } else if self.mana_enabled() {
             mana_permanents::STACK_BOUND
@@ -100,9 +102,8 @@ impl Game {
                             .map(|m| if enters { m.successor } else { m.previous })
                     })
                     .ok_or("missing trigger subject")?;
-                if self.definition(subject.card)?.characteristics.kind != CardKind::Creature {
-                    continue;
-                }
+                let creature =
+                    self.definition(subject.card)?.characteristics.kind == CardKind::Creature;
                 let observers = if dies { before } else { &*self };
                 let mut matched = vec![];
                 for object in observers
@@ -118,13 +119,14 @@ impl Game {
                         .enumerate()
                     {
                         let matches = match definition.condition {
-                            TriggerCondition::SelfDies => dies && object.id == subject,
-                            TriggerCondition::AnyCreatureDies => dies,
+                            TriggerCondition::SelfDies => creature && dies && object.id == subject,
+                            TriggerCondition::SelfAuraToGraveyard => dies && object.id == subject,
+                            TriggerCondition::AnyCreatureDies => creature && dies,
                             TriggerCondition::SelfEntersBattlefield => {
-                                enters && object.id == subject
+                                creature && enters && object.id == subject
                             }
                             TriggerCondition::OtherCreatureEntersBattlefield => {
-                                enters && object.id != subject
+                                creature && enters && object.id != subject
                             }
                         };
                         if matches
@@ -667,7 +669,7 @@ impl Game {
                     && token != trigger.source
             } else if let Some(m) = &trigger.movement {
                 (match condition {
-                    TriggerCondition::SelfDies => {
+                    TriggerCondition::SelfDies | TriggerCondition::SelfAuraToGraveyard => {
                         m.from == Zone::Battlefield
                             && matches!(m.destination, Zone::Graveyard { .. })
                             && m.previous == trigger.source
@@ -686,7 +688,8 @@ impl Game {
                             && m.from != Zone::Battlefield
                             && m.successor != trigger.source
                     }
-                }) && self.definition(m.previous.card)?.characteristics.kind == CardKind::Creature
+                }) && (condition == TriggerCondition::SelfAuraToGraveyard
+                    || self.definition(m.previous.card)?.characteristics.kind == CardKind::Creature)
             } else {
                 false
             };

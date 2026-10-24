@@ -281,6 +281,7 @@ impl Game {
                     self.state.objects.insert(
                         card,
                         Object {
+                            attached_to: None,
                             plus_one_counters: Quantity::zero(),
                             marked_damage: Quantity::zero(),
                             deathtouch_damage: false,
