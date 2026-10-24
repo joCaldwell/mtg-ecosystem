@@ -5,6 +5,44 @@ use serde_json::value::RawValue;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub mod fixtures {
+    pub const MANA_RECORDS: [(&str, &str); 9] = [
+        (
+            "sol-ring",
+            include_str!("../../../tests/fixtures/sol-ring.json"),
+        ),
+        (
+            "arcane-signet",
+            include_str!("../../../tests/fixtures/arcane-signet.json"),
+        ),
+        (
+            "commanders-sphere",
+            include_str!("../../../tests/fixtures/commanders-sphere.json"),
+        ),
+        (
+            "mind-stone",
+            include_str!("../../../tests/fixtures/mind-stone.json"),
+        ),
+        (
+            "golgari-signet",
+            include_str!("../../../tests/fixtures/golgari-signet.json"),
+        ),
+        (
+            "command-tower",
+            include_str!("../../../tests/fixtures/command-tower.json"),
+        ),
+        (
+            "llanowar-elves",
+            include_str!("../../../tests/fixtures/llanowar-elves.json"),
+        ),
+        (
+            "elvish-mystic",
+            include_str!("../../../tests/fixtures/elvish-mystic.json"),
+        ),
+        (
+            "birds-of-paradise",
+            include_str!("../../../tests/fixtures/birds-of-paradise.json"),
+        ),
+    ];
     pub const STAPLES_RECORDS: [(&str, &str); 9] = [
         (
             "day-of-judgment",
@@ -730,6 +768,10 @@ struct Sentence {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "effect", rename_all = "kebab-case")]
 enum Step {
+    AddMana {
+        who: PlayerSelector,
+        mana: SourceMana,
+    },
     Destroy {
         what: serde_json::Value,
         #[serde(rename = "regenerationForbidden")]
@@ -1036,6 +1078,20 @@ struct SourceQuantityChange {
     factor: u32,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "mana", rename_all = "kebab-case", deny_unknown_fields)]
+enum SourceMana {
+    Fixed {
+        symbols: Vec<Color>,
+    },
+    AnyColor {
+        amount: Count,
+    },
+    CommanderColor {
+        amount: Count,
+        whose: PlayerSelector,
+    },
+}
 fn mana_cost(text: &str) -> Result<ManaCost, Failure> {
     let mut cost = ManaCost {
         generic: Quantity::zero(),
@@ -1245,6 +1301,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         .split_once(" — ")
         .unwrap_or((&source.type_line, ""));
     let (kind, basic) = match types {
+        "Artifact" => (CardKind::Artifact, false),
+        "Land" => (CardKind::Land, false),
         "Basic Land" => (CardKind::Land, true),
         "Creature" => (CardKind::Creature, false),
         "Legendary Creature" => (CardKind::Creature, false),
@@ -1289,6 +1347,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         },
         spell: None,
         activated: vec![],
+        mana_abilities: vec![],
         triggered: vec![],
         static_abilities: vec![],
         keywords: vec![],
@@ -1328,8 +1387,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                 definition.static_abilities.push(lower_static(effect)?);
             }
         }
-        CardKind::Land | CardKind::Creature => {
-            if kind == CardKind::Land && !abilities.is_empty() {
+        CardKind::Land | CardKind::Creature | CardKind::Artifact => {
+            if kind == CardKind::Land && basic && !abilities.is_empty() {
                 return Err(unsupported(
                     "abilities",
                     "nonempty land abilities are not supported",
@@ -1342,7 +1401,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     "empty AST for nonempty creature behavior",
                 ));
             }
-            if kind == CardKind::Creature {
+            if kind != CardKind::Land {
                 // CR 302.1–2 / 608.3a: casting a creature and activating one of
                 // its battlefield abilities are distinct executable programs.
                 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -1354,80 +1413,77 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     instructions: vec![],
                     modes: vec![],
                 });
-                for (block, ability) in abilities.iter().enumerate() {
-                    match ability {
-                        Ability::Keywords { keywords } => {
-                            if keywords.is_empty() {
-                                return Err(unsupported(
-                                    "abilities.keywords",
-                                    "empty keyword block",
-                                ));
-                            }
-                            for keyword in keywords {
-                                match keyword.keyword.as_str() {
-                                    "defender" => {
-                                        definition.keywords.push(KeywordAbility::Defender)
-                                    }
-                                    "trample" => definition.keywords.push(KeywordAbility::Trample),
-                                    "first strike" => {
-                                        definition.keywords.push(KeywordAbility::FirstStrike)
-                                    }
-                                    "double strike" => {
-                                        definition.keywords.push(KeywordAbility::DoubleStrike)
-                                    }
-                                    "menace" => definition.keywords.push(KeywordAbility::Menace),
-                                    "flying" => definition.keywords.push(KeywordAbility::Flying),
-                                    "reach" => definition.keywords.push(KeywordAbility::Reach),
-                                    "vigilance" => {
-                                        definition.keywords.push(KeywordAbility::Vigilance)
-                                    }
-                                    "haste" => definition.keywords.push(KeywordAbility::Haste),
-                                    "lifelink" => {
-                                        definition.keywords.push(KeywordAbility::Lifelink)
-                                    }
-                                    "deathtouch" => {
-                                        definition.keywords.push(KeywordAbility::Deathtouch)
-                                    }
-                                    _ => {
-                                        return Err(unsupported(
-                                            "abilities.keywords",
-                                            "unsupported whole-card keyword family",
-                                        ));
-                                    }
+            }
+            for (block, ability) in abilities.iter().enumerate() {
+                match ability {
+                    Ability::Keywords { keywords } => {
+                        if keywords.is_empty() {
+                            return Err(unsupported("abilities.keywords", "empty keyword block"));
+                        }
+                        for keyword in keywords {
+                            match keyword.keyword.as_str() {
+                                "defender" => definition.keywords.push(KeywordAbility::Defender),
+                                "trample" => definition.keywords.push(KeywordAbility::Trample),
+                                "first strike" => {
+                                    definition.keywords.push(KeywordAbility::FirstStrike)
+                                }
+                                "double strike" => {
+                                    definition.keywords.push(KeywordAbility::DoubleStrike)
+                                }
+                                "menace" => definition.keywords.push(KeywordAbility::Menace),
+                                "flying" => definition.keywords.push(KeywordAbility::Flying),
+                                "reach" => definition.keywords.push(KeywordAbility::Reach),
+                                "vigilance" => definition.keywords.push(KeywordAbility::Vigilance),
+                                "haste" => definition.keywords.push(KeywordAbility::Haste),
+                                "lifelink" => definition.keywords.push(KeywordAbility::Lifelink),
+                                "deathtouch" => {
+                                    definition.keywords.push(KeywordAbility::Deathtouch)
+                                }
+                                _ => {
+                                    return Err(unsupported(
+                                        "abilities.keywords",
+                                        "unsupported whole-card keyword family",
+                                    ));
                                 }
                             }
                         }
-                        Ability::Activated { costs, effects } => definition
-                            .activated
-                            .push(lower_activation(costs, effects, block)?),
-                        Ability::Triggered {
-                            trigger,
-                            effects,
-                            condition,
-                            ability_word,
-                        } => {
-                            if ability_word.as_ref().is_some_and(|word| {
-                                word.is_empty()
-                                    || !word.chars().all(|c| c.is_ascii_alphabetic() || c == ' ')
-                            }) {
-                                return Err(unsupported(
-                                    "abilities.abilityWord",
-                                    "unsupported annotation",
-                                ));
-                            }
-                            definition.triggered.push(lower_trigger(
-                                trigger,
-                                effects,
-                                condition.as_ref(),
-                                block,
-                            )?);
+                    }
+                    Ability::Activated { costs, effects } => {
+                        if let Some(mana) = lower_mana_ability(costs, effects, block, kind)? {
+                            definition.mana_abilities.push(mana);
+                        } else {
+                            definition
+                                .activated
+                                .push(lower_activation(costs, effects, block, kind)?);
                         }
-                        _ => {
+                    }
+                    Ability::Triggered {
+                        trigger,
+                        effects,
+                        condition,
+                        ability_word,
+                    } => {
+                        if ability_word.as_ref().is_some_and(|word| {
+                            word.is_empty()
+                                || !word.chars().all(|c| c.is_ascii_alphabetic() || c == ' ')
+                        }) {
                             return Err(unsupported(
-                                "abilities.kind",
-                                "unsupported complete creature ability kind",
+                                "abilities.abilityWord",
+                                "unsupported annotation",
                             ));
                         }
+                        definition.triggered.push(lower_trigger(
+                            trigger,
+                            effects,
+                            condition.as_ref(),
+                            block,
+                        )?);
+                    }
+                    _ => {
+                        return Err(unsupported(
+                            "abilities.kind",
+                            "unsupported complete creature ability kind",
+                        ));
                     }
                 }
             }
@@ -2141,10 +2197,110 @@ fn lower_trigger(
     })
 }
 
+fn lower_permanent_costs(
+    costs: &[SourceCost],
+    kind: CardKind,
+) -> Result<PermanentActivationCosts, Failure> {
+    let mut result = PermanentActivationCosts {
+        tap: false,
+        mana: None,
+        sacrifice: false,
+    };
+    for cost in costs {
+        match cost {
+            SourceCost::TapSelf {} if !result.tap => result.tap = true,
+            SourceCost::Mana { symbols }
+                if result.mana.is_none()
+                    && !symbols.is_empty()
+                    && symbols
+                        .iter()
+                        .all(|s| !s.is_empty() && !s.contains(['{', '}'])) =>
+            {
+                let m = mana_cost(
+                    &symbols
+                        .iter()
+                        .map(|s| format!("{{{s}}}"))
+                        .collect::<String>(),
+                )?;
+                if m.colored.contains(&Color::C) {
+                    return Err(unsupported("cost", "colorless-specific costs excluded"));
+                }
+                result.mana = Some(m);
+            }
+            SourceCost::Sacrifice { what }
+                if !result.sacrifice
+                    && what.reference == "this"
+                    && what.noun
+                        == match kind {
+                            CardKind::Artifact => "artifact",
+                            CardKind::Land => "land",
+                            _ => "creature",
+                        } =>
+            {
+                result.sacrifice = true
+            }
+            _ => {
+                return Err(unsupported(
+                    "cost",
+                    "unsupported complete permanent activation costs",
+                ));
+            }
+        }
+    }
+    Ok(result)
+}
+fn lower_mana_ability(
+    costs: &[SourceCost],
+    effects: &[Sentence],
+    block: usize,
+    kind: CardKind,
+) -> Result<Option<ManaAbility>, Failure> {
+    if !effects
+        .iter()
+        .flat_map(|s| &s.steps)
+        .any(|s| matches!(s, Step::AddMana { .. }))
+    {
+        return Ok(None);
+    }
+    let [Sentence { steps }] = effects else {
+        return Err(unsupported("mana", "extra mana effects"));
+    };
+    let [Step::AddMana { who, mana }] = steps.as_slice() else {
+        return Err(unsupported("mana", "extra mana steps"));
+    };
+    let you = PlayerSelector {
+        player: "you".into(),
+        selection_id: None,
+    };
+    if *who != you {
+        return Err(unsupported("mana", "unsupported mana recipient"));
+    }
+    let production = match mana {
+        SourceMana::Fixed { symbols } if !symbols.is_empty() => ManaProduction::Fixed {
+            symbols: symbols.clone(),
+        },
+        SourceMana::AnyColor { amount } if fixed_one(amount) => ManaProduction::AnyColor,
+        SourceMana::CommanderColor { amount, whose } if fixed_one(amount) && *whose == you => {
+            ManaProduction::CommanderColor
+        }
+        _ => return Err(unsupported("mana", "unsupported complete mana production")),
+    };
+    let costs = lower_permanent_costs(costs, kind)?;
+    if !costs.tap {
+        return Err(unsupported("mana", "mana ability requires tap-self"));
+    }
+    Ok(Some(ManaAbility {
+        costs,
+        production,
+        source_block: source_block(block)?,
+    }))
+}
+
 fn lower_activation(
     costs: &[SourceCost],
     effects: &[Sentence],
     block: usize,
+    kind: CardKind,
 ) -> Result<ActivatedAbility, Failure> {
     let cost = match costs {
         [SourceCost::Sacrifice { what }] if what.reference == "this" && what.noun == "creature" => {
@@ -2171,6 +2327,9 @@ fn lower_activation(
                 cost: mana_cost(&text)?,
             }
         }
+        _ if kind == CardKind::Artifact => ActivationCost::Composite {
+            costs: lower_permanent_costs(costs, kind)?,
+        },
         _ => {
             return Err(unsupported(
                 "abilities.costs",
@@ -2454,6 +2613,20 @@ pub fn staples_fixture_catalog() -> Result<Catalog, String> {
     Ok(catalog)
 }
 
+/// Separate IR-v16 closure; earlier catalogs retain exact bytes.
+pub fn mana_fixture_catalog() -> Result<Catalog, String> {
+    let mut catalog = staples_fixture_catalog()?;
+    catalog.schema_version = 16;
+    catalog
+        .definitions
+        .extend(catalog_from_records(&fixtures::MANA_RECORDS, 16)?.definitions);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate()?;
+    Ok(catalog)
+}
+
 fn catalog_from_records(records: &[(&str, &str)], schema_version: u32) -> Result<Catalog, String> {
     let mut definitions = vec![];
     for (_, r) in records {
@@ -2476,6 +2649,111 @@ fn catalog_from_records(records: &[(&str, &str)], schema_version: u32) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn mana_v16_complete_sources_negatives_and_downgrades() {
+        let catalog = mana_fixture_catalog().unwrap();
+        assert_eq!(
+            (catalog.schema_version, catalog.definitions.len()),
+            (16, 90)
+        );
+        assert_eq!(
+            catalog,
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/expected-mana-ir.json"
+            ))
+            .unwrap()
+        );
+        for old in staples_fixture_catalog().unwrap().definitions {
+            assert_eq!(
+                catalog
+                    .definitions
+                    .iter()
+                    .find(|d| d.oracle_id == old.oracle_id),
+                Some(&old)
+            );
+        }
+        for (name, raw) in fixtures::MANA_RECORDS {
+            let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
+                panic!("{name}")
+            };
+            let mut downgraded = catalog.clone();
+            downgraded.schema_version = 15;
+            downgraded.definitions = vec![*definition];
+            assert!(downgraded.validate().is_err(), "{name}");
+            let bad = changed_source(raw, |r| {
+                let result = &mut r["faces"][0]["result"];
+                let i = result["abilities"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .position(|a| a["kind"] == "activated")
+                    .unwrap();
+                result["abilities"][i]["extraManaClause"] = true.into();
+                result["lines"][i]["ability"] = result["abilities"][i].clone();
+            });
+            assert!(
+                !matches!(
+                    compile(fixtures::MANIFEST, &bad),
+                    CompileResult::Lowered { .. }
+                ),
+                "{name}"
+            );
+        }
+        for raw in [
+            include_str!("../../../tests/fixtures/fellwar-stone.json"),
+            include_str!("../../../tests/fixtures/talisman-of-hierarchy.json"),
+            include_str!("../../../tests/fixtures/utopia-sprawl.json"),
+        ] {
+            assert!(matches!(
+                compile(fixtures::MANIFEST, raw),
+                CompileResult::Unsupported { .. }
+            ));
+        }
+        let find = |name: &str| catalog.definitions.iter().find(|d| d.name == name).unwrap();
+        let tower = find("Command Tower");
+        assert!(!tower.characteristics.basic && tower.characteristics.subtypes.is_empty());
+        assert!(tower.characteristics.color_identity.is_empty());
+        assert_eq!(
+            find("Sol Ring").mana_abilities[0].production,
+            ManaProduction::Fixed {
+                symbols: vec![Color::C, Color::C]
+            }
+        );
+        assert_eq!(
+            find("Golgari Signet").mana_abilities[0]
+                .costs
+                .mana
+                .as_ref()
+                .unwrap()
+                .generic,
+            Quantity::from(1)
+        );
+        assert_eq!(find("Mind Stone").activated.len(), 1);
+        assert_eq!(
+            find("Birds of Paradise").keywords,
+            vec![KeywordAbility::Flying]
+        );
+        // Rehashed near misses must fail semantic lowering, not provenance.
+        for (field, value) in [
+            ("who", serde_json::json!({"player":"opponent"})),
+            (
+                "mana",
+                serde_json::json!({"mana":"any-color","amount":{"amount":"fixed","value":2}}),
+            ),
+        ] {
+            let raw = fixtures::MANA_RECORDS[1].1;
+            let bad = changed_source(raw, |r| {
+                let result = &mut r["faces"][0]["result"];
+                result["abilities"][0]["effects"][0]["steps"][0][field] = value;
+                result["lines"][0]["ability"] = result["abilities"][0].clone();
+            });
+            assert!(!matches!(
+                compile(fixtures::MANIFEST, &bad),
+                CompileResult::Lowered { .. }
+            ));
+        }
+    }
+
     #[test]
     fn staples_v15_source_pairs_and_historical_identity() {
         let catalog = staples_fixture_catalog().unwrap();
@@ -3675,7 +3953,7 @@ mod tests {
             );
         }
         let mut future = c;
-        future.schema_version = 16;
+        future.schema_version = 17;
         assert!(future.validate().is_err());
     }
     #[test]
@@ -4039,7 +4317,7 @@ mod tests {
             assert!(Catalog::read(&bad).is_err());
         }
         let mut bad = c;
-        bad.schema_version = 16;
+        bad.schema_version = 17;
         assert!(bad.validate().is_err());
     }
 
@@ -4304,7 +4582,7 @@ mod tests {
             }
         }
         let mut bad = catalog.clone();
-        bad.schema_version = 16;
+        bad.schema_version = 17;
         assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
         for change in [
             (|d: &mut Definition| {
@@ -4616,7 +4894,7 @@ mod tests {
     #[test]
     fn stack_vocabulary_requires_ir6_and_rejects_bad_binding_and_capability_closure() {
         let catalog = stack_fixture_catalog().unwrap();
-        for version in [3, 4, 5, 16] {
+        for version in [3, 4, 5, 17] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -4820,7 +5098,7 @@ mod tests {
         let c = fixture_catalog().unwrap();
         let raw = canonical(&c).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":3", "\"schema_version\":16"),
+            raw.replace("\"schema_version\":3", "\"schema_version\":17"),
             raw.replace("\"op\":\"return_to_owner_hand\"", "\"op\":\"execute_text\""),
             raw.replace("\"target_slot\":0", "\"target_slot\":99"),
             raw.replace("\"source_block\":0", "\"unknown\":true,\"source_block\":0"),
@@ -4868,7 +5146,7 @@ mod tests {
                     assert_eq!(spell.resolution, SpellResolution::Instructions);
                     assert!(!spell.instructions.is_empty());
                 }
-                CardKind::Sorcery | CardKind::Enchantment => {
+                CardKind::Sorcery | CardKind::Enchantment | CardKind::Artifact => {
                     panic!("legacy catalog cannot contain sorceries/enchantments")
                 }
             }
@@ -5361,7 +5639,7 @@ mod tests {
     #[test]
     fn action_ir_version_shapes_and_target_domains_are_strict() {
         let catalog = action_fixture_catalog().unwrap();
-        for version in [3, 4, 16] {
+        for version in [3, 4, 17] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -5486,7 +5764,7 @@ mod tests {
         assert!(old.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":4", "\"schema_version\":16"),
+            raw.replace("\"schema_version\":4", "\"schema_version\":17"),
             raw.replace(
                 "\"op\":\"put_on_top_owner_library\"",
                 "\"op\":\"put_on_bottom_owner_library\"",
