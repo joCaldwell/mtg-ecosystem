@@ -173,6 +173,14 @@ impl Game {
                 self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
             }
             Instruction::DestroyAllCreatures { source_block } => {
+                if self.wipes_enabled() {
+                    return self.move_board_set(
+                        frame,
+                        ObjectSet::Creatures,
+                        SetMove::Destroy,
+                        source_block,
+                    );
+                }
                 let occurrences = self
                     .state
                     .objects

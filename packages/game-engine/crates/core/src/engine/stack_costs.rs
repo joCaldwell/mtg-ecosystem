@@ -60,6 +60,8 @@ impl Game {
             .targets
             .is_empty();
         self.state.stack.push(StackInstance {
+            x: None,
+            death_controller: None,
             sacrificed: None,
             mode: None,
             effect_source_handles: vec![],
@@ -266,6 +268,19 @@ impl Game {
     }
     pub(super) fn validate_stack_bindings(&self, entry: &StackInstance) -> Result<(), String> {
         self.validate_damage_bindings(entry)?;
+        let x_spell = self.definition(entry.source.card)?.x_mana_cost && entry.kind.is_spell();
+        let announcing =
+            matches!(&self.state.frame,Frame::AnnounceX {cast} if cast.stack_id==entry.id);
+        if entry.x.as_ref().is_some_and(|q| q.is_negative())
+            || (x_spell && !self.wipes_enabled())
+            || (entry.x.is_some() != x_spell && !announcing)
+            || (announcing && (!x_spell || entry.x.is_some()))
+            || entry.death_controller.is_some_and(|p| p.0 >= 4)
+            || entry.death_controller.is_some()
+                != matches!(&entry.kind,StackKind::Triggered {ability,..} if self.definition(entry.source.card)?.triggered[*ability as usize].condition==TriggerCondition::OpponentCreatureDies)
+        {
+            return Err("snapshot X/death LKI binding invariant".into());
+        }
         let program = self.program_for(entry)?;
         let stack_domain = program.targets.first().is_some_and(|target| {
             matches!(
@@ -403,7 +418,7 @@ impl Game {
                 .get(target_slot as usize)
                 .ok_or("missing counter target domain")?
                 .domain;
-            let EventOutcome::StackObjectCountered { movement, .. } = self.commit(
+            let actual = self.commit(
                 ProposedEvent::CounterStackObject {
                     target,
                     countering: frame.stack_id,
@@ -416,11 +431,16 @@ impl Game {
                     cursor: frame.cursor,
                     source_block,
                 },
-            )?
-            else {
-                return Err("missing actual counter outcome".into());
-            };
-            InstructionOutcome::Countered { target, movement }
+            )?;
+            match actual {
+                EventOutcome::StackObjectCountered { movement, .. } => {
+                    InstructionOutcome::Countered { target, movement }
+                }
+                EventOutcome::CounterPrevented { .. } => {
+                    InstructionOutcome::CounterPrevented { target }
+                }
+                _ => return Err("missing counter outcome".into()),
+            }
         };
         self.finish_instruction(frame, outcome)
     }

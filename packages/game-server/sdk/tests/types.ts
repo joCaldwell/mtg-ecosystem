@@ -26,6 +26,7 @@ const rawReceipt: PlayerResponse = { response: 'raw_receipt', receipt: {} };
 // enum addition deliberately makes this compile check fail until reviewed.
 export function exhaustive(response: PlayerResponse): string {
   switch (response.response) {
+    case 'announce_x': return response.value;
     case 'mulligan': return String(response.take);
     case 'bottom_opening': return response.objects.join(',');
     case 'damage_allocation': return String(response.allocations.length);
@@ -132,3 +133,8 @@ const badColor: PlayerResponse = { response: 'mana_color', color: 'colorless' };
 // @ts-expect-error trample quantities cannot be imprecise JSON numbers.
 const numericTrample: PlayerResponse = { response: 'trample_damage', assignments: [], player: 1, amount: 3 };
 void [trample, search, recursion, color, rawSearch, badColor, numericTrample];
+
+const x: PlayerResponse = {response: 'announce_x', value: '90071992547409931234567890'};
+// @ts-expect-error X is an exact quantity.
+const badX: PlayerResponse = {response: 'announce_x', value: 3};
+void [x,badX];

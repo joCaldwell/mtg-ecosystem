@@ -378,7 +378,7 @@ impl Game {
         if amount == Quantity::zero() || targets.is_empty() {
             return self.finish_instruction(frame, InstructionOutcome::Damage { actual: None });
         }
-        self.prepare_sacrifice_damage(frame, amount, block, targets)
+        self.prepare_noncombat_set_damage(frame, amount, block, targets)
     }
     pub(super) fn sacrifice_life(
         &mut self,
@@ -460,20 +460,27 @@ impl Game {
                 choices,
                 source_block,
             } => {
-                let valid = matches!(self.program_for(&frame.spell)?.instructions.get(frame.cursor as usize),Some(Instruction::EachOpponentSacrifice {source_block:b}) if b==source_block);
+                let instruction = self
+                    .program_for(&frame.spell)?
+                    .instructions
+                    .get(frame.cursor as usize);
+                let includes_caster =
+                    matches!(instruction, Some(Instruction::EachPlayerSacrifice { .. }));
+                let valid = matches!(instruction,Some(Instruction::EachOpponentSacrifice {source_block:b} | Instruction::EachPlayerSacrifice {source_block:b}) if b==source_block)
+                    && (!includes_caster || self.wipes_enabled());
                 let all = (0..4)
                     .map(|n| PlayerId((self.state.turn_owner.0 + n) % 4))
-                    .filter(|p| *p != frame.spell.controller)
+                    .filter(|p| includes_caster || *p != frame.spell.controller)
                     .collect::<Vec<_>>();
                 if !self.sacrifice_enabled()
                     || !valid
-                    || remaining.len() > 3
-                    || choices.len() > 3
+                    || remaining.len() > all.len()
+                    || choices.len() > all.len()
                     || remaining.windows(2).any(|w| {
                         all.iter().position(|p| p == &w[0]) >= all.iter().position(|p| p == &w[1])
                     })
                     || choices.iter().any(|(p, o)| {
-                        *p == frame.spell.controller
+                        !all.contains(p)
                             || remaining.contains(p)
                             || !self.state.cards.contains_key(&o.card)
                     })

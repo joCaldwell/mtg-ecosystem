@@ -532,6 +532,15 @@ impl Game {
         }
         let player = frame.spell.controller;
         match instruction {
+            i @ (Instruction::MoveSet { .. }
+            | Instruction::PumpSet { .. }
+            | Instruction::DamageSet { .. }
+            | Instruction::GainLifeDestroyed { .. }
+            | Instruction::ExileDamagedThisTurn { .. }
+            | Instruction::EachPlayerSacrifice { .. }
+            | Instruction::LoseLifeDeathController { .. }) => {
+                self.execute_wipes_instruction(frame, i)
+            }
             i @ (Instruction::SacrificeDamage { .. }
             | Instruction::EachOpponentSacrifice { .. }
             | Instruction::ModifySourcePowerToughness { .. }) => {
@@ -778,6 +787,7 @@ impl Game {
         self.validate_mode_binding(&frame.spell)?;
         self.validate_condition_cache(frame)?;
         self.validate_target_facts(frame)?;
+        self.validate_set_damage_facts(frame)?;
         let entry = &frame.spell;
         let program = self.program_for(entry)?;
         self.validate_damage_bindings(entry)?;

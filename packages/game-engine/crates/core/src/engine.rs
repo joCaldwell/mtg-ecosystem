@@ -16,6 +16,9 @@ mod removal_tests;
 mod sacrifice;
 #[cfg(test)]
 mod sacrifice_tests;
+mod wipes;
+#[cfg(test)]
+mod wipes_tests;
 use removal::TargetFacts;
 mod attachments;
 #[cfg(test)]
@@ -661,6 +664,10 @@ struct Object {
 #[serde(deny_unknown_fields)]
 struct StackInstance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    x: Option<Quantity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    death_controller: Option<PlayerId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     sacrificed: Option<ObjectBefore>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     mode: Option<u32>,
@@ -717,7 +724,16 @@ struct ManaActivationUndo {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct SetDamageFacts {
+    cursor: u32,
+    amount: Quantity,
+    targets: Vec<TargetEntity>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Resolving {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    set_damage: Option<SetDamageFacts>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     condition_check: Option<InterveningCheck>,
     stack_id: StackId,
@@ -731,6 +747,9 @@ struct Resolving {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 enum Frame {
+    AnnounceX {
+        cast: Casting,
+    },
     SacrificeCost {
         cast: Casting,
     },
@@ -829,6 +848,9 @@ enum Frame {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    AnnounceX {
+        value: Quantity,
+    },
     SacrificeCost {
         object: ObjectId,
     },
@@ -935,6 +957,10 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    AnnounceX {
+        decision_id: u64,
+        player: PlayerId,
+    },
     SacrificeCost {
         decision_id: u64,
         player: PlayerId,
@@ -1094,7 +1120,8 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::ManaColor { decision_id, .. }
+            Self::AnnounceX { decision_id, .. }
+            | Self::ManaColor { decision_id, .. }
             | Self::SearchLands { decision_id, .. }
             | Self::OptionalEffect { decision_id, .. }
             | Self::OptionalRecursion { decision_id, .. }
@@ -1124,7 +1151,8 @@ impl Request {
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::ManaColor { player, .. }
+            Self::AnnounceX { player, .. }
+            | Self::ManaColor { player, .. }
             | Self::SearchLands { player, .. }
             | Self::OptionalEffect { player, .. }
             | Self::OptionalRecursion { player, .. }
@@ -1320,6 +1348,9 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    CounterPrevented {
+        target: StackId,
+    },
     AttachmentChanged {
         object: ObjectId,
         previous: Option<ObjectId>,
@@ -1501,6 +1532,13 @@ pub enum EventOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 enum InstructionOutcome {
+    CounterPrevented {
+        target: StackId,
+    },
+    SetMoved {
+        movements: Vec<MoveOutcome>,
+        destroyed_creatures: usize,
+    },
     Effect {
         actual: Option<EventOutcome>,
     },
@@ -1549,6 +1587,11 @@ enum InstructionOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Event {
+    XAnnounced {
+        stack_id: StackId,
+        player: PlayerId,
+        value: Quantity,
+    },
     ModeSelected {
         stack_id: StackId,
         player: PlayerId,
@@ -2107,6 +2150,10 @@ impl Game {
                 decision_id: self.state.revision,
                 player: self.state.priority,
             },
+            Frame::AnnounceX { .. } => Request::AnnounceX {
+                decision_id: self.state.revision,
+                player: self.top()?.controller,
+            },
             Frame::Mana { .. } => Request::Mana {
                 decision_id: self.state.revision,
                 player: self.top()?.controller,
@@ -2129,6 +2176,15 @@ impl Game {
         Ok((req.player() == viewer).then_some(req))
     }
     fn validate_response(&self, player: PlayerId, response: &Response) -> Result<(), String> {
+        if let Frame::AnnounceX { .. } = self.state.frame {
+            return if matches!(response, Response::AnnounceX { value } if !value.is_negative())
+                && self.top()?.controller == player
+            {
+                Ok(())
+            } else {
+                Err("invalid X announcement".into())
+            };
+        }
         if matches!(
             self.state.frame,
             Frame::SacrificeCost { .. }
@@ -2382,6 +2438,7 @@ impl Game {
             | Frame::OptionalDamage { .. } => self.sacrifice_step()?,
             Frame::Setup => self.setup_step()?,
             Frame::DamageAllocation { .. } => self.damage_allocation_step()?,
+            Frame::AnnounceX { cast } => self.bind_x(cast)?,
             Frame::Modes { cast } => self.bind_mode(cast)?,
             Frame::DamageEffects { .. } => self.damage_effect_step()?,
             Frame::Priority => {
@@ -2444,6 +2501,8 @@ impl Game {
                             vec![]
                         };
                         self.state.stack.push(StackInstance {
+                            x: None,
+                            death_controller: None,
                             sacrificed: None,
                             mode: None,
                             effect_source_handles,
@@ -2477,7 +2536,9 @@ impl Game {
                             mana_activations: vec![],
                             undo_mana: false,
                         };
-                        self.state.frame = if !self
+                        self.state.frame = if self.definition(card)?.x_mana_cost {
+                            Frame::AnnounceX { cast }
+                        } else if !self
                             .definition(card)?
                             .spell
                             .as_ref()
@@ -3009,6 +3070,7 @@ impl Game {
                 && (matches!(
                     self.underlying_mana_frame(&s.frame),
                     Frame::TriggerTargets { .. }
+                        | Frame::AnnounceX { .. }
                         | Frame::Modes { .. }
                         | Frame::EntityTargets { .. }
                         | Frame::Targets { .. }
@@ -3044,7 +3106,8 @@ impl Game {
         self.validate_sacrifice_state()?;
         self.validate_nested_mana_frame(&s.frame)?;
         match self.underlying_mana_frame(&s.frame) {
-            Frame::Modes { cast }
+            Frame::AnnounceX { cast }
+            | Frame::Modes { cast }
             | Frame::EntityTargets { cast }
             | Frame::Targets { cast }
             | Frame::StackTargets { cast }
@@ -3076,7 +3139,8 @@ impl Game {
                     })
                     || (matches!(
                         self.underlying_mana_frame(&s.frame),
-                        Frame::Modes { .. }
+                        Frame::AnnounceX { .. }
+                            | Frame::Modes { .. }
                             | Frame::EntityTargets { .. }
                             | Frame::Targets { .. }
                             | Frame::PlayerTargets { .. }
@@ -3089,7 +3153,8 @@ impl Game {
                 }
                 if matches!(
                     self.underlying_mana_frame(&s.frame),
-                    Frame::Modes { .. }
+                    Frame::AnnounceX { .. }
+                        | Frame::Modes { .. }
                         | Frame::EntityTargets { .. }
                         | Frame::Targets { .. }
                         | Frame::PlayerTargets { .. }

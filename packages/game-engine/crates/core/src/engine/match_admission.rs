@@ -21,6 +21,9 @@ pub const STAPLES_CATALOG_SHA256: &str =
 pub const MANA_PROFILE: &str = "commander-mana-v1";
 pub const MANA_CATALOG_SHA256: &str =
     "1df5823602dd4aacea6ab8e69766dc750e425686ba02221857b443c415b37794";
+pub const WIPES_PROFILE: &str = "commander-wipes-v1";
+pub const WIPES_CATALOG_SHA256: &str =
+    "4d9c719ef61fdd901ea6182bb2d22e72ceb89dcd9c0213cc8e88e4087ad59e16";
 pub const SACRIFICE_PROFILE: &str = "commander-sacrifice-v1";
 pub const SACRIFICE_CATALOG_SHA256: &str =
     "9ae8605e83e6538ff900227bde4f43b91d06cb6acbc8afd22fd35ef2388c0a88";
@@ -45,7 +48,7 @@ pub struct MatchProfile {
     pub black_green_deck: fn() -> Decklist,
     pub default_pod: [fn() -> Decklist; 4],
 }
-pub static MATCH_PROFILES: [MatchProfile; 10] = [
+pub static MATCH_PROFILES: [MatchProfile; 11] = [
     MatchProfile {
         name: MATCH_PROFILE,
         catalog_sha256: MATCH_CATALOG_SHA256,
@@ -211,6 +214,26 @@ pub static MATCH_PROFILES: [MatchProfile; 10] = [
             sacrifice_black_green_deck,
             removal_blue_deck,
             sacrifice_red_deck,
+        ],
+    },
+    MatchProfile {
+        name: WIPES_PROFILE,
+        catalog_sha256: WIPES_CATALOG_SHA256,
+        ir_version: 20,
+        policy_json: include_str!("../../../../tests/fixtures/commander-wipes-policy.json"),
+        commanders: &[
+            ISAMARU,
+            YARGLE,
+            "4bbc5df9-60d7-46c1-8856-91c9c74abf18",
+            "48fe0f52-1676-49d5-acf6-5476081e8e1b",
+        ],
+        white_deck: wipes_white_deck,
+        black_green_deck: wipes_black_green_deck,
+        default_pod: [
+            wipes_white_deck,
+            wipes_black_green_deck,
+            wipes_blue_deck,
+            wipes_red_deck,
         ],
     },
 ];
@@ -603,7 +626,9 @@ pub fn validate_pod(
             != profile.catalog_sha256
     {
         return Err(MatchAdmissionError::InvalidCatalog {
-            detail: if profile.name == SACRIFICE_PROFILE {
+            detail: if profile.name == WIPES_PROFILE {
+                "requires the reviewed one-hundred-sixty-eight-definition wipes catalog"
+            } else if profile.name == SACRIFICE_PROFILE {
                 "catalog differs from reviewed one-hundred-fifty-three-definition sacrifice pool"
             } else if profile.name == REMOVAL_PROFILE {
                 "catalog differs from reviewed one-hundred-thirty-five-definition removal pool"
@@ -1193,6 +1218,112 @@ pub fn sacrifice_red_deck() -> Decklist {
         ],
         &[("a3fb7228-e76b-4e96-a40e-20b5fed75685", 70)],
     )
+}
+
+pub fn wipes_white_deck() -> Decklist {
+    let mut deck = sacrifice_white_deck();
+    deck.cards
+        .iter_mut()
+        .find(|c| c.oracle_id == "bc71ebf6-2056-41f7-be35-b2e5c34afa99")
+        .unwrap()
+        .count = 54;
+    deck.cards.push(DeckEntry {
+        oracle_id: "b17ea905-0696-4e58-b564-557e87236e27".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "a98c2d81-4add-4292-bbdd-e1b69ff936d4".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "69ef9308-bc25-4f3c-a5fd-1ebaed6e4842".into(),
+        count: 1,
+    });
+    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    deck
+}
+pub fn wipes_black_green_deck() -> Decklist {
+    let mut deck = sacrifice_black_green_deck();
+    deck.cards
+        .iter_mut()
+        .find(|c| c.oracle_id == "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6")
+        .unwrap()
+        .count = 8;
+    deck.cards
+        .iter_mut()
+        .find(|c| c.oracle_id == "56719f6a-1a6c-4c0a-8d21-18f7d7350b68")
+        .unwrap()
+        .count = 7;
+    deck.cards.push(DeckEntry {
+        oracle_id: "d6850616-7db5-4141-9ab0-ae8d1f08114f".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "6791ec3c-c397-4087-8c8c-84d3797df415".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "93cf50cf-0ecc-4d3e-abea-778c1ebacec4".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "f671e3c3-cd59-4d06-a1af-5d04892cf74d".into(),
+        count: 1,
+    });
+    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    deck
+}
+pub fn wipes_blue_deck() -> Decklist {
+    let mut deck = removal_blue_deck();
+    deck.cards
+        .iter_mut()
+        .find(|c| c.oracle_id == "b2c6aa39-2d2a-459c-a555-fb48ba993373")
+        .unwrap()
+        .count = 69;
+    deck.cards.push(DeckEntry {
+        oracle_id: "fdd94383-b573-439a-8e1c-925af887c5a6".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "7c779721-cd1b-4696-9ae9-68ccc284ed2a".into(),
+        count: 1,
+    });
+    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    deck
+}
+pub fn wipes_red_deck() -> Decklist {
+    let mut deck = sacrifice_red_deck();
+    deck.cards
+        .iter_mut()
+        .find(|c| c.oracle_id == "a3fb7228-e76b-4e96-a40e-20b5fed75685")
+        .unwrap()
+        .count = 64;
+    deck.cards.push(DeckEntry {
+        oracle_id: "e4bcd4ea-e7cd-4471-8f3b-18bb51d3d70c".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "3a7fe095-8278-4b1d-bec4-19b35bdcdd1b".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "bd6ce147-c991-40ac-b276-65b630fad8b6".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "086b2564-9114-4ba2-94fd-b490f98f38a7".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "9a40614b-50a3-422c-849e-53c8b7d3d204".into(),
+        count: 1,
+    });
+    deck.cards.push(DeckEntry {
+        oracle_id: "7a2484a9-04fd-41a0-8224-610c1c07ed10".into(),
+        count: 1,
+    });
+    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    deck
 }
 
 #[cfg(test)]

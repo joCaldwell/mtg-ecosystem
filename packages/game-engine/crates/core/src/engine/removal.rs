@@ -129,6 +129,15 @@ impl Game {
                 mana_value.add(&Quantity::from(
                     i64::try_from(c.mana_cost.colored.len()).map_err(|_| "mana value overflow")?,
                 ));
+                if t.domain == TargetDomain::StackSpell {
+                    let entry = self
+                        .state
+                        .stack
+                        .iter()
+                        .find(|e| Some(&e.id) == entry.stack_targets.get(slot))
+                        .ok_or("missing stack mana value")?;
+                    mana_value = self.stack_mana_value(entry)?;
+                }
                 Ok(Some(TargetFacts {
                     controller,
                     power: c.power,

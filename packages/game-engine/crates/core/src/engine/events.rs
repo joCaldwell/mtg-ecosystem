@@ -593,6 +593,8 @@ impl Game {
                         stack.insert(effect.origin.stack_id);
                     }
                     match &effect.kind {
+                        ResolvedEffectKind::PumpSet { targets, .. }
+                        | ResolvedEffectKind::ExileDamaged { targets } => objects.extend(targets),
                         ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
                             objects.insert(*target);
                         }
@@ -1294,6 +1296,9 @@ impl Game {
                 {
                     return Err("invalid countered stack object".into());
                 }
+                if self.cant_counter(*target) {
+                    return Ok(EventOutcome::CounterPrevented { target: *target });
+                }
                 let index = self
                     .state
                     .stack
@@ -1767,6 +1772,14 @@ impl Game {
                 object,
                 destination,
             } => {
+                // Pinned CR 614.1a/6: replace every would-die cause, including
+                // costs and SBAs, before any graveyard move or dies observer.
+                let replaced = if self.anger_replaces_death(*object, *destination) {
+                    Zone::Exile
+                } else {
+                    *destination
+                };
+                let destination = &replaced;
                 let o = self.current(*object)?.clone();
                 // CR 111.8: once a token has left the battlefield it cannot move again.
                 if self.state.tokens.contains_key(&object.card) && o.zone != Zone::Battlefield {

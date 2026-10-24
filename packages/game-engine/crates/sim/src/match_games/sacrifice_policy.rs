@@ -4,7 +4,7 @@ use mtg_contracts::{ActivationCost, Definition, SacrificeFilter};
 use mtg_core::{PermittedView, VisibleObject};
 impl Strategy<'_> {
     pub(super) fn sacrifice(&self) -> bool {
-        self.catalog.schema_version == 19 && self.catalog.definitions.len() == 153
+        self.lineage(mtg_core::SACRIFICE_PROFILE)
     }
     fn sacrifice_permanents<'a>(
         &self,

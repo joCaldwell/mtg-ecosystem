@@ -10,6 +10,8 @@ pub(super) fn is_zero(value: &u64) -> bool {
 #[serde(deny_unknown_fields)]
 pub(super) struct PendingTrigger {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    death_controller: Option<PlayerId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) match_condition: Option<InterveningCheck>,
     pub(super) id: TriggerId,
     pub(super) source: ObjectId,
@@ -45,7 +47,9 @@ fn movement(outcome: &EventOutcome) -> Option<&MoveOutcome> {
 }
 impl Game {
     pub(super) fn stack_limit(&self) -> usize {
-        if self.sacrifice_enabled() {
+        if self.wipes_enabled() {
+            wipes::STACK_BOUND
+        } else if self.sacrifice_enabled() {
             sacrifice::STACK_BOUND
         } else if self.removal_enabled() {
             removal::STACK_BOUND
@@ -123,6 +127,13 @@ impl Game {
                         .enumerate()
                     {
                         let matches = match definition.condition {
+                            TriggerCondition::OpponentCreatureDies => {
+                                creature
+                                    && dies
+                                    && observers
+                                        .current(subject)
+                                        .is_ok_and(|s| s.controller != object.controller)
+                            }
                             TriggerCondition::SelfDies => creature && dies && object.id == subject,
                             TriggerCondition::SelfAuraToGraveyard => dies && object.id == subject,
                             TriggerCondition::AnyCreatureDies => creature && dies,
@@ -158,6 +169,11 @@ impl Game {
                             && observers.is_live(object.controller)
                         {
                             matched.push((
+                                if definition.condition == TriggerCondition::OpponentCreatureDies {
+                                    Some(observers.current(subject)?.controller)
+                                } else {
+                                    None
+                                },
                                 observers.object_before(object.id)?,
                                 u32::try_from(ability)
                                     .map_err(|_| "trigger ability index limit")?,
@@ -172,7 +188,7 @@ impl Game {
                         }
                     }
                 }
-                for (source_facts, ability, match_condition) in matched {
+                for (death_controller, source_facts, ability, match_condition) in matched {
                     if let Some(check) = &match_condition {
                         self.record_event(Event::TriggerConditionChecked {
                             source: source_facts.object,
@@ -213,6 +229,7 @@ impl Game {
                     let consumed = source_facts.clone();
                     let source_handles = self.capture_trigger_source_handles(source)?;
                     self.state.pending_triggers.push(PendingTrigger {
+                        death_controller,
                         match_condition,
                         id,
                         source,
@@ -394,6 +411,8 @@ impl Game {
                         colored: vec![],
                     };
                     self.state.stack.push(StackInstance {
+                        x: None,
+                        death_controller: trigger.death_controller,
                         sacrificed: None,
                         mode: None,
                         effect_source_handles: vec![],
@@ -708,6 +727,14 @@ impl Game {
                         m.from == Zone::Battlefield
                             && matches!(m.destination, Zone::Graveyard { .. })
                             && m.previous == trigger.source
+                    }
+                    TriggerCondition::OpponentCreatureDies => {
+                        self.wipes_enabled()
+                            && m.from == Zone::Battlefield
+                            && matches!(m.destination, Zone::Graveyard { .. })
+                            && trigger
+                                .death_controller
+                                .is_some_and(|p| p.0 < 4 && p != trigger.controller)
                     }
                     TriggerCondition::AnyCreatureDies => {
                         m.from == Zone::Battlefield

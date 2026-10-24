@@ -113,7 +113,9 @@ impl Game {
         reason.into()
     }
     pub(super) fn token_capacity(&self) -> u32 {
-        if self.sacrifice_enabled() {
+        if self.wipes_enabled() {
+            wipes::LIVE_TOKEN_CAPACITY as u32
+        } else if self.sacrifice_enabled() {
             sacrifice::LIVE_TOKEN_CAPACITY as u32
         } else if self.removal_enabled() {
             removal::LIVE_TOKEN_CAPACITY
@@ -135,7 +137,9 @@ impl Game {
         }
     }
     pub(super) fn event_group_limit(&self) -> usize {
-        if self.sacrifice_enabled() {
+        if self.wipes_enabled() {
+            wipes::EVENT_GROUP_BOUND
+        } else if self.sacrifice_enabled() {
             sacrifice::EVENT_GROUP_BOUND
         } else if self.removal_enabled() {
             removal::EVENT_GROUP_BOUND

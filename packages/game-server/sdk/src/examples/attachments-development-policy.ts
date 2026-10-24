@@ -210,6 +210,7 @@ export function attachmentsDevelopmentPolicy(): (observation: Observation, viewe
       case 'search_lands': return { response: 'search_lands', objects: r.candidates.slice(0, r.maximum).map(c => c.handle) };
       case 'optional_recursion': return { response: 'optional_recursion', perform: true };
       // Later-profile requests are unreachable with this pinned attachments catalog.
+      case 'announce_x':
       case 'sacrifice_cost':
       case 'forced_sacrifice': return fail();
       case 'optional_effect': return fail();
