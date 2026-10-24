@@ -1549,3 +1549,21 @@ test("removal IR v18 preserves inherited bytes, policy and complete downgrade gu
     bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,d.name);
   }
 });
+
+test("sacrifice IR v19 preserves the v18 closure and rejects complete downgrades", () => {
+  const catalog=run("compile-sacrifice");
+  assert.equal(catalog.schema_version,19);assert.equal(catalog.definitions.length,153);
+  assert.deepEqual(catalog,JSON.parse(read("expected-sacrifice-ir.json")));
+  for(const old of run("compile-removal").definitions) assert.deepEqual(catalog.definitions.find((d:any)=>d.oracle_id===old.oracle_id),old);
+  const policy=JSON.parse(read("commander-sacrifice-policy.json")), prior=JSON.parse(read("commander-removal-policy.json"));
+  assert.equal(policy.admitted_pool_review.length,153);assert.deepEqual(policy.named_bans,prior.named_bans);assert.deepEqual(policy.offensive_policy,prior.offensive_policy);
+  const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
+  assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
+  for(const d of catalog.definitions) {
+    const source=JSON.parse(d.provenance.source_json);assert.equal(source.legalities.commander,"legal");
+    assert.deepEqual(policy.admitted_pool_review.find((r:any)=>r.oracle_id===d.oracle_id),{oracle_id:d.oracle_id,name:d.name,source_sha256:d.provenance.source_sha256,conspiracy_type:false,ante_reference:false,offensive_named_ban:false});
+    if(!d.capabilities.includes("sacrifice_v1"))continue;
+    const bad={...catalog,schema_version:18,definitions:[structuredClone(d)]};assert.equal(validate(bad),false,d.name);
+    bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,d.name);
+  }
+});
