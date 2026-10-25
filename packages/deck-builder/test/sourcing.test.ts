@@ -26,7 +26,7 @@ function setup() {
   const slot = createSlot(db, OWNER, target, "Control");
   createSlot(db, OWNER, target, "Disruption");
   fileCards(db, OWNER, target, [{ oracle_id: moon, slot: "Control", secondary_slots: ["Disruption"], add_tags: ["Keep", "Ordered"] }]);
-  const price = db.prepare("INSERT INTO card_prices (oracle_id, usd_cents, set_code, collector_number, finish) VALUES (?, ?, 'test', '1', 'nonfoil')");
+  const price = db.prepare("INSERT INTO card_prices (oracle_id, store, currency, cents, set_code, collector_number, finish) VALUES (?, 'tcgplayer', 'USD', ?, 'test', '1', 'nonfoil')");
   price.run(moon, 800); price.run(heroic, 2000); price.run(descent, 700); price.run("id-forest", 10);
   db.exec("INSERT INTO meta (key, value) VALUES ('prices_as_of', '2026-10-15T12:00:00Z')");
   return { db, target, ramp, chaos, moon, heroic, descent, slot };
@@ -46,11 +46,11 @@ test("multi-source overlaps return actual cards, both sources, list quantities a
     assert.deepEqual(card.source_decks.map(d => d.quantity), [1, 1]);
     assert.deepEqual(card.ownership, { status: "unknown", quantity: null, evidence: [] });
     assert.deepEqual(card.reuse, { status: "unknown", available_quantity: null });
-    assert.deepEqual(card.price, { usd_cents: 800, as_of: "2026-10-15T12:00:00Z", estimated: true });
+    assert.deepEqual(card.price, { currency: "USD", store: "tcgplayer", source: "Scryfall", cents: 800, as_of: "2026-10-15T12:00:00Z", estimated: true });
     assert.equal(result.shared_cards.find(c => c.oracle_id === "id-forest")!.quantity, 3);
     assert.equal(result.summary.shared.cards, 2);
     assert.equal(result.summary.shared.copies, 4);
-    assert.deepEqual(result.summary.shared.cost, { usd_cents: 830, unpriced: 0 });
+    assert.deepEqual(result.summary.shared.cost, { cents: 830, unpriced: 0, currency: "USD", store: "tcgplayer", source: "Scryfall", as_of: "2026-10-15T12:00:00Z" });
     const after = getDeck(db, OWNER, target);
     const filed = after.cards.find(c => c.oracle_id === moon)!;
     assert.equal(filed.slot_id, slot);
@@ -72,8 +72,8 @@ test("Have excludes Heroic Intervention; Keep is not ownership; unknowns stay di
     assert.ok(!result.cards.some(c => c.oracle_id === heroic));
     assert.equal(result.cards[0].oracle_id, descent);
     assert.equal(result.cards[0].ownership.status, "unknown");
-    assert.equal(result.cards.at(-1)!.price.usd_cents, null);
-    assert.deepEqual(result.summary.remaining.cost, { usd_cents: 700, unpriced: 1 });
+    assert.equal(result.cards.at(-1)!.price.cents, null);
+    assert.deepEqual(result.summary.remaining.cost, { cents: 700, unpriced: 1, currency: "USD", store: "tcgplayer", source: "Scryfall", as_of: "2026-10-15T12:00:00Z" });
     assert.equal(compareDeckSources(db, AGENT, target, [ramp], { ownership: "unowned" }).cards.length, 0);
     recordOwnership(db, AGENT, target, [{ oracle_id: descent, status: "unowned", quantity: 0, basis: "Owner explicitly confirmed no copy." }]);
     assert.deepEqual(compareDeckSources(db, AGENT, target, [ramp], { ownership: "unowned" }).cards.map(c => c.oracle_id), [descent]);

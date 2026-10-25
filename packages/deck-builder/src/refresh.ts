@@ -24,7 +24,7 @@ export async function refreshCardData(
   const cards = (await ingestFromFile(db, await ensureBulkFile(opts.force))).inserted;
 
   const entry = await bulkEntry("default_cards");
-  const current = !opts.force && pricesAsOf(db) === entry.updated_at;
+  const current = !opts.force && !!db.prepare("SELECT 1 FROM meta WHERE key = 'price_stores_version' AND value = '1'").get() && pricesAsOf(db) === entry.updated_at;
   if (current) {
     console.log(`Prices are current (Scryfall's are from ${entry.updated_at}); skipping download.`);
   } else {

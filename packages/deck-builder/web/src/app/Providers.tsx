@@ -1,7 +1,7 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { api } from "../api/client.ts";
-import { LiveProvider } from "../api/live.tsx";
-import { CardHoverProvider, CardLookupProvider, type CardInfo } from "../mtg/index.ts";
+import { LiveProvider, useLive } from "../api/live.tsx";
+import { CardHoverProvider, CardLookupProvider, useCardLookup, type CardInfo } from "../mtg/index.ts";
 import { ToastProvider } from "../ui/index.ts";
 import { SessionProvider } from "./Session.tsx";
 import { FocusProvider } from "./Focus.tsx";
@@ -18,7 +18,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     <ToastProvider>
       <SessionProvider><LiveProvider>
         <CardLookupProvider lookup={lookupCard}>
-          <CardHoverProvider>
+          <ClearCardCache /><CardHoverProvider>
             <InboxProvider>
               <FocusProvider>{children}</FocusProvider>
             </InboxProvider>
@@ -27,4 +27,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
       </LiveProvider></SessionProvider>
     </ToastProvider>
   );
+}
+
+function ClearCardCache() {
+  const live = useLive();
+  const { clear } = useCardLookup();
+  useEffect(clear, [live, clear]);
+  return null;
 }

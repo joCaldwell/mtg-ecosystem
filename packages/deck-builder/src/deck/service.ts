@@ -9,7 +9,7 @@ import { withTransaction } from "../db.ts";
 import { type Actor, type DeckRole, isDeckOwner, requireDeckOwner, authorOf, PermissionError, requireUi } from "../actor.ts";
 import { recordActivity } from "../activity.ts";
 import { requireCardById } from "../cards.ts";
-import { estimateCost, pricesAsOf } from "../prices.ts";
+import { estimateCost, priceResolver, type PriceMetadata, type ResolvedPrice } from "../prices.ts";
 
 export type Role = "card" | "commander" | "companion";
 export type DeckCategory = "paper" | "theorycrafted" | "legacy";
@@ -30,7 +30,7 @@ const RESERVED_NAMES = new Set([
   // search prefixes
   "t", "type", "o", "oracle", "fo", "fulloracle", "cmc", "mv", "manavalue",
   "c", "color", "id", "identity", "pow", "power", "tou", "toughness",
-  "loy", "loyalty", "usd", "is", "f", "format", "banned", "slot", "tag",
+  "loy", "loyalty", "usd", "eur", "is", "f", "format", "banned", "slot", "tag",
   // grammar words and sentinels
   "or", "and", "not", "none",
 ]);
@@ -759,7 +759,7 @@ export function unshortlistCard(db: Database, actor: Actor, deckId: number, orac
 
 // ---------- the deck view ----------
 
-export interface DeckCardView {
+export interface DeckCardView extends ResolvedPrice {
   oracle_id: string;
   name: string;
   mana_cost: string | null;
@@ -774,7 +774,6 @@ export interface DeckCardView {
   commander_legality: string;
   is_commander: number;
   /** Spec §4.4: the cheapest printing's price; null when no printing has one. */
-  usd_cents: number | null;
   image_small: string | null;
   image_normal: string | null;
   image_art_crop: string | null;
@@ -794,17 +793,17 @@ export function getDeck(db: Database, actor: Actor, deckId: number) {
   const slots = listSlots(db, actor, deckId);
   const tags = listTags(db, actor, deckId);
 
-  const cards = db
+  const prices = priceResolver(db, actor);
+  const cards = prices.resolve(db
     .prepare(
       `SELECT c.oracle_id, c.name, c.mana_cost, c.cmc, c.type_line, c.oracle_text,
               c.power, c.toughness, c.loyalty, c.color_identity, c.ci_mask,
-              c.commander_legality, c.is_commander, p.usd_cents, c.image_small, c.image_normal, c.image_art_crop, c.retired,
+              c.commander_legality, c.is_commander, c.image_small, c.image_normal, c.image_art_crop, c.retired,
               dc.slot_id, dc.role, dc.maybe, dc.maybe_note, dc.quantity
        FROM deck_cards dc JOIN cards c ON c.oracle_id = dc.oracle_id
-       LEFT JOIN card_prices p ON p.oracle_id = dc.oracle_id
        WHERE dc.deck_id = ? ORDER BY c.name`,
     )
-    .all(deckId) as unknown as DeckCardView[];
+    .all(deckId) as unknown as DeckCardView[]);
 
   const tagRows = db
     .prepare("SELECT oracle_id, tag_id FROM deck_card_tags WHERE deck_id = ?")
@@ -826,16 +825,16 @@ export function getDeck(db: Database, actor: Actor, deckId: number) {
   }
   for (const card of cards) card.secondary_slot_ids = secondaryByCard.get(card.oracle_id) ?? [];
 
-  const pendingItems = db
+  const pendingItems = prices.resolve(db
     .prepare(
-      `SELECT pi.action, pi.slot_id, dc.slot_id AS current_slot_id,
+      `SELECT pi.oracle_id, pi.action, pi.to_maybe, pi.slot_id, dc.slot_id AS current_slot_id,
               dc.maybe AS current_maybe, dc.role AS current_role
        FROM proposal_items pi
        JOIN proposals p ON p.id = pi.proposal_id
        LEFT JOIN deck_cards dc ON dc.deck_id = p.deck_id AND dc.oracle_id = pi.oracle_id
-       WHERE p.deck_id = ? AND p.status = 'open' AND pi.status = 'pending'`,
+       WHERE p.deck_id = ? AND p.status = 'open' AND pi.status = 'pending' ORDER BY pi.id`,
     )
-    .all(deckId) as unknown as PendingItem[];
+    .all(deckId) as unknown as PendingItem[]);
 
   const parentRow = deck.parent_id
     ? (db.prepare("SELECT id, name FROM decks WHERE id = ? AND user_id = ?").get(deck.parent_id, actor.user_id) as
@@ -857,13 +856,15 @@ export function getDeck(db: Database, actor: Actor, deckId: number) {
     slots,
     tags,
     cards,
-    computed: computeState(deck, slots, cards, pendingItems, pricesAsOf(db)),
+    computed: computeState(deck, slots, cards, pendingItems, prices),
   };
 }
 
 export type DeckView = ReturnType<typeof getDeck>;
 
-interface PendingItem {
+interface PendingItem extends ResolvedPrice {
+  oracle_id: string;
+  to_maybe: number;
   action: "add" | "cut";
   slot_id: number | null;
   current_slot_id: number | null;
@@ -882,7 +883,7 @@ function computeState(
   slots: SlotRow[],
   cards: DeckCardView[],
   pendingItems: PendingItem[],
-  pricesAsOf: string | null,
+  prices: PriceMetadata,
 ) {
   // Everything below counts the deck. The maybe list is explicitly not part
   // of it: parked cards contribute to no count, curve, pip spread, slot delta
@@ -979,7 +980,22 @@ function computeState(
   // Spec §4.4: what the deck would cost to buy, every card at its cheapest
   // printing. The companion is a card to buy too, so it counts here though it
   // sits outside the 100.
-  const cost = { ...estimateCost(deckCards), as_of: pricesAsOf };
+  const cost = { ...estimateCost(deckCards), currency: prices.currency, store: prices.store, as_of: prices.as_of, source: prices.source };
+
+  // Price projection follows membership's one-copy add/cut and whole-card
+  // parking rules. Simulate by oracle id so copies and unpriced distinct cards
+  // stay correct when several proposals touch the same card (§4.4).
+  const projected = new Map(deckCards.map(c => [c.oracle_id, { cents: c.cents, quantity: c.quantity }]));
+  for (const item of pendingItems) {
+    const held = projected.get(item.oracle_id);
+    if (item.action === "add") projected.set(item.oracle_id, { cents: item.cents, quantity: (held?.quantity ?? 0) + 1 });
+    else if (held) {
+      if (item.to_maybe || held.quantity === 1) projected.delete(item.oracle_id);
+      else projected.set(item.oracle_id, { ...held, quantity: held.quantity - 1 });
+    }
+  }
+  const projectedCost = { ...cost, ...estimateCost([...projected.values()]) };
+  const costDelta = { ...cost, cents: projectedCost.cents - cost.cents, unpriced: projectedCost.unpriced - cost.unpriced };
 
   const pendingAdds = pendingItems.filter((i) => i.action === "add").length;
   const pendingCuts = pendingItems.filter((i) => i.action === "cut").length;
@@ -1004,6 +1020,8 @@ function computeState(
       cuts: pendingCuts,
       projected_count: cardCount + pendingAdds - pendingCuts,
       by_slot: pendingBySlot,
+      projected_cost: projectedCost,
+      cost_delta: costDelta,
     },
     unslotted_count: unslotted,
     maybe_count: maybeCards.length,

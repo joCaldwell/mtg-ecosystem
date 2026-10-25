@@ -3,9 +3,10 @@
 // the same way. Facts come from the best source at hand, in order: the deck's
 // own row, a proposal item naming it, then a lookup by name.
 
+import { useLive } from "../../../api/live.tsx";
 import { useEffect, useState } from "react";
 import { ptString } from "../../../domain/cards.ts";
-import { formatUsd } from "../../../domain/price.ts";
+import { formatPrice } from "../../../domain/price.ts";
 import { pendingOf } from "../../../domain/grouping.ts";
 import { CardImage, InlineText, ManaCost, OracleText, useCardLookup, type CardInfo } from "../../../mtg/index.ts";
 import { Button, Chip, Icon, Loading, Text } from "../../../ui/index.ts";
@@ -26,6 +27,7 @@ export function CardPanel({ card: open }: { card: OpenCard }) {
   const proposal = proposals[0];
   const seen = state.proposals.flatMap((p) => p.items).find((i) => i.oracle_id === open.oracleId);
 
+  const live = useLive();
   const [looked, setLooked] = useState<CardInfo | null>(null);
   const needsLookup = !owned && !seen;
   useEffect(() => {
@@ -35,7 +37,7 @@ export function CardPanel({ card: open }: { card: OpenCard }) {
     return () => {
       current = false;
     };
-  }, [needsLookup, lookup, open.name]);
+  }, [needsLookup, lookup, open.name, live]);
 
   const info: CardInfo | null = owned ?? (seen ? { ...seen, name: seen.card_name } : looked);
   const where = !owned
@@ -48,7 +50,7 @@ export function CardPanel({ card: open }: { card: OpenCard }) {
           ? "Companion"
           : "In the deck";
   const pt = info ? ptString(info) : "";
-  const price = info?.usd_cents == null ? "" : `${formatUsd(info.usd_cents)} cheapest printing`;
+  const price = info?.cents == null ? "" : `${formatPrice(info.cents, info.currency)} cheapest printing · ${info.store === "tcgplayer" ? "TCGplayer" : "Cardmarket"} · Scryfall ${info.as_of?.slice(0,10) ?? "date unknown"}`;
   const parts = info ? [info.type_line, pt, price].filter(Boolean) : [];
 
   return (

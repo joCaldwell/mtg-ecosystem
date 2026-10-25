@@ -3,11 +3,11 @@ import type { Actor } from "../actor.ts";
 import type { Database } from "../sqlite.ts";
 import { parse, SearchError } from "./parse.ts";
 import { compile } from "./compile.ts";
-import { USD_CENTS_COLUMN } from "../prices.ts";
+import { priceResolver, type ResolvedPrice } from "../prices.ts";
 
 export { SearchError };
 
-export interface SearchResult {
+export interface SearchResult extends ResolvedPrice {
   oracle_id: string;
   name: string;
   mana_cost: string | null;
@@ -20,7 +20,6 @@ export interface SearchResult {
   color_identity: string;
   commander_legality: string;
   is_commander: number;
-  usd_cents: number | null;
   image_small: string | null;
   image_normal: string | null;
   image_art_crop: string | null;
@@ -29,7 +28,7 @@ export interface SearchResult {
 
 const RESULT_COLUMNS =
   "oracle_id, name, mana_cost, cmc, type_line, oracle_text, power, toughness, loyalty, color_identity, " +
-  `commander_legality, is_commander, image_small, image_normal, image_art_crop, retired, ${USD_CENTS_COLUMN}`;
+  `commander_legality, is_commander, image_small, image_normal, image_art_crop, retired`;
 
 export interface SearchOptions {
   limit?: number;
@@ -44,7 +43,8 @@ export interface SearchOptions {
 
 export function search(db: Database, actor: Actor, query: string, opts: SearchOptions = {}): SearchResult[] {
   if (opts.deckId !== undefined) requireDeck(db, actor, opts.deckId);
-  const { sql, params } = compile(parse(query), { deckId: opts.deckId });
+  const prices = priceResolver(db, actor);
+  const { sql, params } = compile(parse(query), { deckId: opts.deckId, prices: { USD: priceResolver(db, actor, "USD").sql("cards.oracle_id"), EUR: priceResolver(db, actor, "EUR").sql("cards.oracle_id") } });
   const clauses = [sql, opts.deckId === undefined ? "retired = 0" :
     "(retired = 0 OR oracle_id IN (SELECT oracle_id FROM deck_cards WHERE deck_id = ?))"];
   if (opts.deckId !== undefined) params.push(opts.deckId);
@@ -62,5 +62,5 @@ export function search(db: Database, actor: Actor, query: string, opts: SearchOp
   const stmt = db.prepare(
     `SELECT ${RESULT_COLUMNS} FROM cards WHERE ${clauses.join(" AND ")} ORDER BY name LIMIT ?`,
   );
-  return stmt.all(...params, limit) as unknown as SearchResult[];
+  return prices.resolve(stmt.all(...params, limit) as unknown as SearchResult[]);
 }

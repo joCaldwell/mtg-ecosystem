@@ -12,5 +12,8 @@ export interface CardInfo {
   toughness: string | null;
   loyalty: string | null;
   /** The cheapest printing's price in cents; absent or null when unknown. */
-  usd_cents?: number | null;
+  cents?: number | null;
+  currency?: "USD" | "EUR";
+  store?: "tcgplayer" | "cardmarket";
+  as_of?: string | null;
 }

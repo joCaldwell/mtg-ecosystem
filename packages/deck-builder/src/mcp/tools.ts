@@ -1,3 +1,5 @@
+import { priceResolver, formatPrice } from "../prices.ts";
+import { priceSourceLine } from "./render.ts";
 // The agent's tools (spec §10.3). Few, shaped around tasks, each a thin
 // adapter: resolve names, call the capability layer, render text. Every rule
 // an agent is held to is enforced below this file, in the same functions the
@@ -307,12 +309,12 @@ export const TOOLS: ToolDef[] = [
     run: ({ db, actor }, a) => {
       const result = compareDeckSources(db, actor, deckId(db, actor, a.deck, !!a.apply_source_tags), a.sources.map((s: string | number) => deckId(db, actor, s, !!a.apply_source_tags)), a);
       const s = result.summary;
-      const price = (cents: number | null) => cents == null ? "price unknown" : `$${(cents / 100).toFixed(2)} est.`;
+      const price = (cents: number | null) => cents == null ? "price unknown" : `${formatPrice(cents, result.price.currency)} est.`;
       return {
         changed: !!a.apply_source_tags, structuredContent: result,
-        text: `${result.target.name}: ${s.target.cards} distinct cards / ${s.target.copies} copies. ${s.shared.cards} shared; ${s.remaining.cards} absent from sources and not explicitly owned (${price(s.remaining.cost.usd_cents)}, ${s.remaining.cost.unpriced} unpriced). ${s.unknown_ownership.cards} have unknown ownership. Physical quantities are never summed across decks. Prices as of ${result.prices_as_of ?? "unknown"}.${a.apply_source_tags ? ` Source tags applied to ${s.tagged} card${s.tagged === 1 ? "" : "s"}.` : ""}\n` +
+        text: `${result.target.name}: ${s.target.cards} distinct cards / ${s.target.copies} copies. ${s.shared.cards} shared; ${s.remaining.cards} absent from sources and not explicitly owned (${price(s.remaining.cost.cents)}, ${s.remaining.cost.unpriced} unpriced). ${s.unknown_ownership.cards} have unknown ownership. Physical quantities are never summed across decks.${a.apply_source_tags ? ` Source tags applied to ${s.tagged} card${s.tagged === 1 ? "" : "s"}.` : ""}\n` +
           `Shared: ${result.shared_cards.map(c => `${c.name} [${c.source_decks.map(d => d.name).join("; ")}]`).join(", ") || "none"}\n` +
-          `Most expensive remaining (first 10; full data attached): ${result.remaining_cards.slice(0, 10).map(c => `${c.name} — ${price(c.price.usd_cents)}, ${c.ownership.status}`).join("; ") || "none"}\nUnknown ownership and source membership do not establish availability or a purchase requirement.`,
+          `Most expensive remaining (first 10; full data attached): ${result.remaining_cards.slice(0, 10).map(c => `${c.name} — ${price(c.price.cents)}, ${c.ownership.status}`).join("; ") || "none"}\nUnknown ownership and source membership do not establish availability or a purchase requirement.`,
       };
     },
   },
@@ -358,7 +360,7 @@ export const TOOLS: ToolDef[] = [
       "Search every Magic card with a subset of Scryfall syntax. Bare words match the name; " +
       't:creature (type), o:"draw a card" (oracle text), fo: (text including reminder text), ' +
       "mv<=2 or cmc>=5, c:rg (colours, at least these), id<=wub (colour identity within), " +
-      "pow>=4, tou<3, loy=3, usd<=2 (price of the cheapest printing, in dollars), is:commander, " +
+      "pow>=4, tou<3, loy=3, usd<=2 or eur<=2 (cheapest playable printing in that currency, at your chosen store or lowest), is:commander, " +
       "f:commander, banned:commander. Combine with spaces (AND), " +
       "'or', '-' or 'not', and parentheses. With a deck named, results are limited to that deck's colour " +
       "identity, marked if already in it, and carry the owner's prior rulings on each card in that deck; " +
@@ -394,7 +396,7 @@ export const TOOLS: ToolDef[] = [
       } catch (e) {
         if (e instanceof SearchError)
           throw new ServiceError(
-            `That search could not be read: ${e.message}. Supported keys: t, o, fo, mv/cmc, c, id, pow, tou, loy, usd, ` +
+            `That search could not be read: ${e.message}. Supported keys: t, o, fo, mv/cmc, c, id, pow, tou, loy, usd, eur, ` +
               `is:commander, f:commander, banned:commander, and with a deck: slot:, tag:. Quote phrases: o:"draw a card".`,
           );
         throw e;
@@ -436,10 +438,11 @@ export const TOOLS: ToolDef[] = [
     run: ({ db, actor }, a) => {
       const deck = a.deck === undefined ? undefined : deckId(db, actor, a.deck);
       const resolved = (a.cards as string[]).map((ref) => tryResolveCard(db, ref));
-      const found = resolved.filter((r): r is CardRow => !("problem" in r));
+      const found = priceResolver(db, actor).resolve(resolved.filter((r): r is CardRow => !("problem" in r)));
+      const priced = new Map(found.map(c => [c.oracle_id, c]));
       const ctx = contextFor(db, actor, found, deck, !!a.include_my_decks);
       return {
-        text: resolved.map(r => "problem" in r ? resolutionFailureLine(r) : cardWithContext(r, ctx(r))).join("\n"),
+        text: resolved.map(r => "problem" in r ? resolutionFailureLine(r) : cardWithContext(priced.get(r.oracle_id)!, ctx(r))).join("\n"),
         structuredContent: { cards: found, failures: resolved.filter(r => "problem" in r) },
       };
     },
@@ -1197,5 +1200,7 @@ export function callTool(ctx: ToolContext, name: string, args: unknown = {}): To
       `Invalid arguments for ${name}: ${parsed.error.issues.map((i) => `${i.path.join(".") || "(arguments)"}: ${i.message}`).join("; ")}`,
     );
   const result = tool.run(ctx, parsed.data);
-  return typeof result === "string" ? { text: result } : result;
+  const output = typeof result === "string" ? { text: result } : result;
+  const line = priceSourceLine(priceResolver(ctx.db, ctx.actor));
+  return { ...output, text: [output.text.split("\n" + line).join("").split(line).join("").trimEnd(), line].join("\n") };
 }

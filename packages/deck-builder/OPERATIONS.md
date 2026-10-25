@@ -370,3 +370,39 @@ get-session; the product uses /api/session)
 are disabled. Hashed assets are immutable for a year; HTML/auth/API responses
 are no-store. Rate buckets are isolated by kind, IPv6 shares a /64, claim
 attempts use 5/minute/IP, and OAuth token exchange uses 240/minute/client.
+
+
+## Per-store prices (v3 Phase 1b)
+
+Schema v13 migrates old USD quotes to `(oracle_id, tcgplayer)` without
+changing cents, printing or finish. Preferences are per-user `price_currency`
+and `price_store` keys (absent means USD/lowest). Production applies the ordered
+migration on deploy. The first subsequent refresh downloads default-cards even
+if its timestamp matches: `price_stores_version` is set only with the successful
+atomic swap. Later refreshes retain the normal publication freshness check.
+Both store reductions stream together; the staging transactions still hold at
+most 500 rows. Failed loads preserve both stores and the previous date.
+
+Settings reports counts for the principal's selected store. To audit all stores:
+`SELECT store, currency, count(*) FROM card_prices JOIN cards USING(oracle_id) GROUP BY store, currency;`.
+Scryfall is the only source; no credentials, vendor API, exchange rates or new
+cache/download artifact are needed. Lowest compares only the chosen currency.
+
+Phase 1b acceptance used an online read-only-source backup of the owner's live
+DB into this worktree's ignored `.dev/`, never the live file for migrations or
+refresh. A real forced refresh at Scryfall publication 2026-10-25T21:05:44.018+00:00
+priced 33,327 database cards at TCGplayer and 33,092 at Cardmarket (34,039 and
+33,601 total store rows, including oracle IDs outside the card catalogue).
+Every old USD per-card quote and all 18 original deck totals matched exactly.
+Peak sampled JS heap was 83.46 MiB; Linux `/proc/self/status` VmHWM was
+236.52 MiB RSS, below Phase 0's recorded 246.21 MiB. This runner's getrusage
+maxRSS inherits a parent high-water value, so it is not used for that comparison.
+
+User 2's EUR/Cardmarket choice was saved through the rendered Settings form on
+5181 against an ignored acceptance harness using createApp's existing actor seam
+(API 8791). The seeded 76-card deck showed €244.27, Cardmarket, 2026-10-25;
+its selected card panel showed the matching EUR amount and date. Desktop and
+720 px screenshots were inspected; browser console had no runtime errors. The
+390 px shell remains cramped pending Phase 4a's phone view. Real-data agent
+start_session/get_deck and eur<=1 search text were read; user 1 still showed
+TCGplayer/USD. The harness, backup, screenshots and transcripts stay ignored.

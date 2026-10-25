@@ -30,7 +30,7 @@ export function MaybeRow({ card, slotName, filterMatch }: { card: DeckCard; slot
       </span>
       {slotName && <Chip>{slotName}</Chip>}
       <ManaCost cost={card.mana_cost} />
-      <Price cents={card.usd_cents} column />
+      <Price currency={card.currency} cents={card.cents} column />
     </div>
   );
 }

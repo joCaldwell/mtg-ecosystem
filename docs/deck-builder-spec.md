@@ -712,6 +712,14 @@ every request resolves its bearer and every tool names its deck.
 | | `revise_proposal` | Amend or withdraw the calling agent's own pending card/document proposals, retaining history and links |
 | Write freely | `assess_deck_power` | Attributed, revision-bound gameplay assessment (§5.7) |
 
+Price-bearing structured results use `cents`, `currency`, `store`, `as_of`
+and `source: "Scryfall"`; `get_cards` attaches these to each card. Amounts
+are resolved for the calling principal, not the deck owner. Every tool
+response has one store/date line; card lines keep compact $/€ amounts.
+`computed.pending.projected_cost` and `cost_delta` use the same price source
+and simulate pending one-copy adds/cuts and whole-card parking in item order.
+The delta's `unpriced` is signed (change in distinct unpriced cards).
+
 **Focus.** The app records what the owner has open in the UI (which deck,
 which cards are selected). `start_session` returns it and `get_deck` accepts
 `"focus"` as the deck, so "this deck" in conversation means the one on
@@ -780,7 +788,10 @@ card.
 - **Memories:** §7.5.
 - **Profile:** edit directly.
 - **Activity feed:** every agent write, with the agent's name, time and target. The audit trail for unapproved writes.
-- **Settings:** connection details for agents, memory budgets, card data refresh.
+- **Settings:** connection details for agents, memory budgets, card data refresh,
+  and a currency then store/Lowest price-source control (§4.4). Saving is
+  UI-only and invalidates that principal's views, including hover lookups.
+  The deck estimate and card panel name the resolved store and Scryfall date.
 - *Planned (§2, phase 4a):* **phones** get the read-and-rule view, and wider
   screens keep everything above.
 
@@ -946,7 +957,10 @@ are built. Hosted login, sessions, OAuth, visibility and public pages are
 future v3 phases, not verified features. What has not been checked:
 
 - Any client other than Claude Code and Codex.
-- How agents use prices. The price beside each card, the deck's estimated cost and the playbook's rule about them are pinned by tests, but no real transcript has been read since they were added.
+- Longer real agent budgeting workflows remain unverified. Phase 1b read a
+  live-data tool transcript for a second EUR user (start_session, get_deck,
+  eur<=1 search) and verified USD isolation for user 1; it does not establish
+  how agents use those prices over a full deck-building conversation.
 - ChatGPT on the web or phone. Its servers cannot reach a loopback address. The route is OpenAI's Secure MCP Tunnel running the stdio shim; the Settings page gives the commands from OpenAI's guide, but they have not been run, because they need a tunnel created in the owner's OpenAI Platform organization.
 - The evaluation was run once per task, on one model, with tasks written by the same hand as the tools. It shows the interface works; it does not measure how often.
 

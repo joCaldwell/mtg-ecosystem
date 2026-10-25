@@ -49,7 +49,7 @@ export function AddBarResult({ result, id, highlighted, offerCommander, onPick, 
         <span className={styles.name}>{card.name}</span>
         <ManaCost cost={card.mana_cost} />
         <span className={styles.type}>{card.type_line}</span>
-        <Price cents={card.usd_cents} />
+        <Price currency={card.currency} cents={card.cents} />
       </span>
       <span className={styles.flags}>
         {!legal && <Chip tone="cut">not legal in Commander</Chip>}

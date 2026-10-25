@@ -79,9 +79,12 @@ function HoverCard({ shown }: { shown: Shown }) {
           {card.type_line}
           {pt && <span className={styles.pt}>{pt}</span>}
           <span className={styles.price}>
-            <Price cents={card.usd_cents} />
+            <Price currency={card.currency} cents={card.cents} />
           </span>
         </div>
+        {card.cents != null && card.store && <div className={styles.type}>
+          {card.store === "tcgplayer" ? "TCGplayer" : "Cardmarket"} · Scryfall estimate · {card.as_of?.slice(0, 10) ?? "date unknown"}
+        </div>}
         <div className={styles.oracle}>
           <OracleText text={card.oracle_text} bare />
         </div>

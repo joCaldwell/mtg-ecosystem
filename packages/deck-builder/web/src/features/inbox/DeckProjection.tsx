@@ -1,3 +1,4 @@
+import { costCaption, formatPrice } from "../../domain/price.ts";
 import type { DeckState } from "../../api/client.ts";
 import { formatTarget } from "../../domain/grouping.ts";
 import { Box, Eyebrow, Text } from "../../ui/index.ts";
@@ -62,6 +63,7 @@ export function DeckProjection({ state }: { state: DeckState }) {
           </div>
         ))}
       </div>
+      {state.computed.cost.as_of && <Text size="sm" tone="muted" title={costCaption(state.computed.cost)}>Estimated cost: {formatPrice(state.computed.cost.cents, state.computed.cost.currency)} → {formatPrice(state.computed.pending.projected_cost.cents, state.computed.cost.currency)} · {state.computed.pending.projected_cost.unpriced} unpriced cards · {state.computed.cost.store === "tcgplayer" ? "TCGplayer" : "Cardmarket"} · {state.computed.cost.as_of.slice(0, 10)}</Text>}
       <Text tone="faint" size="xs">
         {openProposals > 1
           ? `Counts everything pending on this deck: ${openProposals} open proposals, not only this one.`

@@ -680,8 +680,12 @@ const globalProbes:Record<string,GlobalProbe>={
   allowedRequest:fn=>fn({headers:{host:"127.0.0.1:8787"}},"local"),
   openDb:fn=>{const db=fn(":memory:");try{assert.equal(db.prepare("SELECT count(*) n FROM decks").get().n,0);return [];}finally{db.close();}},
   withTransaction:(fn,f,a)=>fn(f.db,()=>documents.getProfile(f.db,a)),
+  getPriceSource:(fn,f,a)=>{setSetting(f.db,a,"price_currency","EUR");assert.deepEqual(fn(f.db,a),{currency:"EUR",store:"lowest"});return fn(f.db,a);},
+  setPriceSource:(fn,f,a)=>{fn(f.db,a,{currency:"EUR",store:"cardmarket"});assert.equal(getSetting(f.db,a,"price_currency"),"EUR");return getSetting(f.db,a,"price_store");},
+  priceResolver:(fn,f,a)=>{setSetting(f.db,a,"price_currency","EUR");const r=fn(f.db,a);assert.equal(r.store,"cardmarket");return r.resolve([{oracle_id:"id-forest"}]);},
+  priceSourceLine:fn=>fn({currency:"EUR",store:"cardmarket",as_of:null}),
   pricesAsOf:(fn,f)=>fn(f.db),priceStatus:(fn,f)=>fn(f.db),
-  formatUsd:fn=>fn(100),estimateCost:fn=>fn([{quantity:2,usd_cents:100}]),cheapestPrintings:fn=>fn([]),
+  formatPrice:fn=>fn(100),estimateCost:fn=>fn([{quantity:2,cents:100}]),cheapestPrintings:fn=>fn([]),
   ingestPrices:(fn,f)=>fn(f.db,new Map(),"2026-10-25T00:00:00Z"),
   parse:fn=>fn("t:land"),compile:fn=>fn(functions.parse("t:land")),
   cardLine:(fn,f)=>fn(functions.requireCardById(f.db,"id-forest")),cardWithContext:(fn,f)=>fn(functions.requireCardById(f.db,"id-forest")),
@@ -701,7 +705,7 @@ const globalProbes:Record<string,GlobalProbe>={
 };
 for(const name of ["AppError","ServiceError","SchemaError","PermissionError","SearchError"])globalProbes[name]=fn=>new fn("Second probe");
 globalProbes.CardResolutionError=fn=>new fn([{ref:"missing",problem:"unknown",suggestions:[],candidates:[]}]);
-const globalKinds:Record<string,Classification>={connectedClients:"owner-only",disconnectClient:"owner-only",accountInfo:"owner-only",chooseHandle:"owner-only",exportAccount:"owner-only",deleteAccount:"owner-only",createInvite:"owner-only",adminInfo:"owner-only",accountScopes:"public-read",getSetting:"read",setSetting:"write",createDeck:"write",listDecks:"read",getProfile:"read",setProfile:"owner-only",getBudgets:"read",setBudgets:"write",unreviewedCount:"read",getFocus:"read",playerStats:"read",listActivity:"read",ownershipEvidence:"read",createToken:"owner-only",listTokens:"owner-only",revokeToken:"owner-only",requireUi:"owner-only",requireAdmin:"owner-only",ingestPrices:"write"};
+const globalKinds:Record<string,Classification>={getPriceSource:"read",setPriceSource:"owner-only",priceResolver:"read",connectedClients:"owner-only",disconnectClient:"owner-only",accountInfo:"owner-only",chooseHandle:"owner-only",exportAccount:"owner-only",deleteAccount:"owner-only",createInvite:"owner-only",adminInfo:"owner-only",accountScopes:"public-read",getSetting:"read",setSetting:"write",createDeck:"write",listDecks:"read",getProfile:"read",setProfile:"owner-only",getBudgets:"read",setBudgets:"write",unreviewedCount:"read",getFocus:"read",playerStats:"read",listActivity:"read",ownershipEvidence:"read",createToken:"owner-only",listTokens:"owner-only",revokeToken:"owner-only",requireUi:"owner-only",requireAdmin:"owner-only",ingestPrices:"write"};
 for(const [name,probe] of Object.entries(globalProbes))globalCase(name,globalKinds[name]??"public-read",probe);
 
 function ownerSnapshot(f:Fixture) {

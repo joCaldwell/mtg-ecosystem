@@ -20,9 +20,11 @@ import type { DeckCategory, DeckSummary } from "../../../src/deck/service.ts";
 import type { DocumentEditView, ProfileView } from "../../../src/documents.ts";
 import type { MemoryView, Revision } from "../../../src/memory.ts";
 import type { Jobs } from "../../../src/jobs.ts";
-import type { PriceStatus } from "../../../src/prices.ts";
+import type { Currency, Store, PriceSource, PriceStatus } from "../../../src/prices.ts";
 import type { SearchResult } from "../../../src/search/index.ts";
 import type { PlayerStats } from "../../../src/stats.ts";
+
+export type { Currency, Store, PriceSource };
 
 export type {
   PowerProfile,
@@ -67,6 +69,7 @@ export interface Inbox {
 export interface Session { mode: "local" | "hosted"; providers: string[]; legal: {operator_name:string;contact_email:string}|null; invites_required:boolean; user: ReturnType<typeof accountInfo> | null }
 
 export interface Settings {
+  price_source: PriceSource;
   jobs: ReturnType<Jobs["status"]> | null;
   budgets: { global: number; deck: number };
   cards: { count: number; updated_at: string | null; prices: PriceStatus };
@@ -253,7 +256,7 @@ export const api = {
   setFocus: (deckId: number | null, selected: string[] = []) =>
     request<{ ok: true }>("PUT", "/api/focus", { deck_id: deckId, selected }),
   getSettings: () => request<Settings>("GET", "/api/settings"),
-  updateSettings: (patch: { budgets?: { global?: number; deck?: number } }) =>
+  updateSettings: (patch: { price_source?: PriceSource; budgets?: { global?: number; deck?: number } }) =>
     request<Settings>("PUT", "/api/settings", patch),
   createToken: (label: string) => request<{ token: string; credential: AgentToken }>("POST", "/api/settings/tokens", { label }),
   revokeToken: (id: number) => request<{ ok: true }>("DELETE", `/api/settings/tokens/${id}`),

@@ -332,7 +332,7 @@ test("v10 identity migration preserves data, sequences and structured authors, w
   old.close();
   const db = openDb(path);
   try {
-    assert.equal((db.prepare("SELECT value FROM meta WHERE key='schema_version'").get() as { value: string }).value, "12");
+    assert.equal((db.prepare("SELECT value FROM meta WHERE key='schema_version'").get() as { value: string }).value, "13");
     assert.deepEqual(getDeck(db, OWNER, deck), before.deck);
     assert.deepEqual(getProfile(db, OWNER), before.profile);
     assert.deepEqual(listMemories(db, OWNER, { status: "any" }), before.memories);
@@ -375,4 +375,27 @@ test("a v10 FK failure rolls back every identity table and the version together"
     assert.ok(!(unchanged.prepare("PRAGMA table_info(memories)").all() as { name:string }[]).some(c => c.name === "user_id"));
     assert.equal((unchanged.prepare("SELECT deck_id FROM memories").get() as { deck_id:number }).deck_id, 999);
   } finally { unchanged.close(); }
+});
+
+test("v12 populated prices migrate without changing content or USD estimates and reopen safely", async () => {
+  const { removePriceSources } = await import("./legacy-db.ts");
+  const { ingestPrices, cheapestPrintings, getPriceSource } = await import("../src/prices.ts");
+  const file = join(dir, "v12-prices.db"), db = openDb(file);
+  ingestCards(db, FIXTURES);
+  const deck = createDeck(db, OWNER, "Preserved price deck");
+  add(db, deck, "id-solring");
+  await ingestPrices(db, await cheapestPrintings([{ oracle_id: "id-solring", set: "test", collector_number: "1", games: ["paper"], prices: { usd: "1.19" } }]), "2026-10-25T00:00:00Z");
+  const before = getDeck(db, OWNER, deck);
+  removePriceSources(db);
+  db.exec("UPDATE meta SET value='12' WHERE key='schema_version'");
+  db.close();
+  const migrated = openDb(file);
+  assert.deepEqual(getDeck(migrated, OWNER, deck), before);
+  assert.deepEqual(getPriceSource(migrated, OWNER), { currency: "USD", store: "lowest" });
+  assert.deepEqual({ ...migrated.prepare("SELECT * FROM card_prices").get() }, { oracle_id: "id-solring", store: "tcgplayer", currency: "USD", cents: 119, set_code: "test", collector_number: "1", finish: "nonfoil" });
+  assert.equal(migrated.prepare("SELECT value FROM meta WHERE key='price_stores_version'").get(), undefined, "same-date bulk still needs the second store on next refresh");
+  migrated.close();
+  const reopened = openDb(file);
+  assert.deepEqual(getDeck(reopened, OWNER, deck), before);
+  reopened.close();
 });

@@ -50,10 +50,10 @@ export function byName<T extends { name: string }>(a: T, b: T): number {
 }
 
 /** Most expensive first, then name. A card with no price has no place in the order, so it goes last. */
-export function byPrice<T extends { usd_cents?: number | null; name: string }>(a: T, b: T): number {
-  if (a.usd_cents == null || b.usd_cents == null)
-    return Number(a.usd_cents == null) - Number(b.usd_cents == null) || byName(a, b);
-  return b.usd_cents - a.usd_cents || byName(a, b);
+export function byPrice<T extends { cents?: number | null; name: string }>(a: T, b: T): number {
+  if (a.cents == null || b.cents == null)
+    return Number(a.cents == null) - Number(b.cents == null) || byName(a, b);
+  return b.cents - a.cents || byName(a, b);
 }
 
 /** How the cards inside a group are ordered. The owner picks; "curve" is the default. */
@@ -68,7 +68,7 @@ export const CARD_ORDER: Record<SortBy, (a: SortableCard, b: SortableCard) => nu
 interface SortableCard {
   cmc: number;
   name: string;
-  usd_cents?: number | null;
+  cents?: number | null;
 }
 
 /** Copies, not rows: a group holding six of one basic reads 6. */
