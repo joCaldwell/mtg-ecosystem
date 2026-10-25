@@ -12,10 +12,14 @@ fn prepared(commanders: bool) -> Prepared {
     .unwrap()
 }
 fn respond(game: &mut Game, response: Response) {
+    let finish = matches!(response, Response::FinishMana { .. });
     let Advance::AwaitingDecision(r) = game.advance(Budget::unlimited()) else {
         panic!("missing decision")
     };
     game.respond(r.player(), r.decision_id(), response).unwrap();
+    if finish {
+        game.complete_test_mana();
+    }
 }
 fn cast(game: &mut Game) {
     respond(
@@ -91,13 +95,18 @@ fn departure_revalidates_pending_priority_casts_without_losing_the_journal() {
                 );
                 assert!(game.state.pending.is_some());
                 assert!(matches!(
-                    game.advance(Budget::new(1)),
+                    game.advance(Budget::unlimited()),
                     Advance::AwaitingDecision(Request::Targets { candidates, .. })
                         if candidates.len() == 1
                 ));
             } else {
                 // Either removal by the owner or exile by the default
                 // controller's departure invalidates the only target domain.
+                let outcome = if matches!(outcome, Advance::Suspended { .. }) {
+                    game.advance(Budget::unlimited())
+                } else {
+                    outcome
+                };
                 assert!(matches!(
                     outcome,
                     Advance::AwaitingDecision(Request::Priority {
@@ -161,7 +170,10 @@ fn queued_departures_finish_before_empty_stack_phase_advancement() {
                 }
             );
             assert_eq!(game.state.pending_concessions.len(), remaining);
-            assert!(matches!(game.state.frame, Frame::Priority));
+            assert!(matches!(
+                game.state.frame,
+                Frame::Priority | Frame::Stabilize { .. }
+            ));
             assert!(matches!(
                 game.observe(PlayerId(0), Budget::unlimited()),
                 QueryResult::Rejected(QueryRejection::UnsupportedBoundary)
@@ -210,7 +222,10 @@ fn queued_departures_finish_before_resolution_target_legality_is_captured() {
                 required_minimum: 1
             }
         );
-        assert!(matches!(game.state.frame, Frame::Priority));
+        assert!(matches!(
+            game.state.frame,
+            Frame::Priority | Frame::Stabilize { .. }
+        ));
         recover(&game);
         assert_eq!(
             game.advance(Budget::new(1)),
@@ -218,12 +233,16 @@ fn queued_departures_finish_before_resolution_target_legality_is_captured() {
                 required_minimum: 1
             }
         );
+        while matches!(game.state.frame, Frame::Stabilize { .. }) {
+            let _ = game.advance(Budget::new(1));
+            recover(&game);
+        }
         let Frame::Resolve { frame } = &game.state.frame else {
             panic!("expected resolution after both departures");
         };
         assert_eq!(frame.legal_targets, vec![false]);
         recover(&game);
-        assert_eq!(game.advance(Budget::new(1)), expected);
+        assert_eq!(game.advance(Budget::unlimited()), expected);
         assert_eq!(game.state, uninterrupted.state);
         assert_eq!(game.trace(), uninterrupted.trace());
         assert_eq!(
@@ -402,9 +421,17 @@ fn target_departure_reverses_unfinished_cast_without_spending_mana() {
             assert!(matches!(game.state.frame, Frame::Mana { .. }));
         }
         if boundary == 3 {
-            respond(&mut game, Response::FinishMana { undo_mana: false });
+            let Advance::AwaitingDecision(r) = game.advance(Budget::unlimited()) else {
+                panic!("mana request")
+            };
+            game.respond(
+                r.player(),
+                r.decision_id(),
+                Response::FinishMana { undo_mana: false },
+            )
+            .unwrap();
             let _ = game.advance(Budget::new(1));
-            assert!(matches!(game.state.frame, Frame::Payment { .. }));
+            assert!(matches!(game.state.frame, Frame::SpendMana { .. }));
         }
         depart(&mut game, 1);
         assert_eq!(
@@ -420,6 +447,7 @@ fn target_departure_reverses_unfinished_cast_without_spending_mana() {
                 .iter()
                 .any(|e| matches!(e, Event::SpellCast { .. }))
         );
+        let _ = game.advance(Budget::unlimited());
         assert_eq!(
             Game::replay(game.prepared.as_ref().clone(), &game.replay_journal())
                 .unwrap()
@@ -467,7 +495,10 @@ fn source_departure_discards_casting_but_started_resolution_continues() {
             );
             assert_eq!(game.state.priority, PlayerId(1));
         } else {
-            assert!(matches!(game.state.frame, Frame::Priority));
+            assert!(matches!(
+                game.state.frame,
+                Frame::Priority | Frame::Stabilize { .. }
+            ));
         }
         assert!(game.object_id(CardId(1)).is_none());
         assert_eq!(game.active_player(), None);

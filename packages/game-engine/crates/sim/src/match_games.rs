@@ -65,7 +65,7 @@ pub(super) struct Evidence {
     pub survivor_counts: Vec<usize>,
     pub elapsed_millis: u128,
 }
-fn spend(
+pub(crate) fn spend(
     cost: &ManaCost,
     available: &BTreeMap<Color, Quantity>,
 ) -> Option<BTreeMap<Color, Quantity>> {
@@ -131,26 +131,22 @@ impl Strategy<'_> {
     }
     fn priority(&mut self, o: &Observation) -> Result<PlayerResponse, String> {
         let v = &o.view;
-        if self.wipes()
-            && self.policy == Policy::Develop
+        if self.policy == Policy::Develop
             && let Some(r) = self.wipes_priority(v)?
         {
             return Ok(r);
         }
-        if self.sacrifice()
-            && self.policy == Policy::Develop
+        if self.policy == Policy::Develop
             && let Some(response) = self.sacrifice_priority(v)?
         {
             return Ok(response);
         }
-        if self.removal()
-            && self.policy == Policy::Develop
+        if self.policy == Policy::Develop
             && let Some(response) = self.removal_priority(v)?
         {
             return Ok(response);
         }
-        if self.four_colors()
-            && self.policy == Policy::Develop
+        if self.policy == Policy::Develop
             && let Some(response) = self.four_colors_priority(v)?
         {
             return Ok(response);
@@ -176,12 +172,10 @@ impl Strategy<'_> {
                 object: land.handle.clone(),
             });
         }
-        if self.attachments()
-            && let Some(response) = self.attachment_priority(v)?
-        {
+        if let Some(response) = self.attachment_priority(v)? {
             return Ok(response);
         }
-        let funds = self.funds(v);
+        let _funds = self.funds(v);
         let enemy_creature = v.objects.iter().any(|x| {
             x.zone == Zone::Battlefield
                 && x.controller != v.viewer
@@ -217,11 +211,10 @@ impl Strategy<'_> {
                 }
                 if !command
                     && d.characteristics.kind != CardKind::Creature
-                    && !(self.catalog.schema_version >= 15
-                        && matches!(
-                            d.characteristics.kind,
-                            CardKind::Enchantment | CardKind::Artifact
-                        ))
+                    && !(matches!(
+                        d.characteristics.kind,
+                        CardKind::Enchantment | CardKind::Artifact
+                    ))
                     && v.turn.step != TurnStep::PostcombatMain
                 {
                     continue;
@@ -232,7 +225,7 @@ impl Strategy<'_> {
                 if matches!(d.name.as_str(), "Giant Growth" | "Battlegrowth") && !own_creature {
                     continue;
                 }
-                if self.catalog.schema_version >= 15 {
+                {
                     if d.name == "Murder" && !enemy_creature {
                         continue;
                     }
@@ -266,14 +259,12 @@ impl Strategy<'_> {
                         continue;
                     }
                 }
-                if self.four_colors()
-                    && (matches!(d.name.as_str(), "Counterspell" | "Stifle")
-                        || (matches!(d.name.as_str(), "Unsummon" | "Time Ebb") && !enemy_creature))
+                if (matches!(d.name.as_str(), "Counterspell" | "Stifle")
+                    || (matches!(d.name.as_str(), "Unsummon" | "Time Ebb") && !enemy_creature))
                 {
                     continue;
                 }
-                if self.attachments()
-                    && d.characteristics.subtypes == ["Aura"]
+                if d.characteristics.subtypes == ["Aura"]
                     && if d.name == "Pacifism" {
                         !enemy_creature
                     } else {
@@ -282,30 +273,27 @@ impl Strategy<'_> {
                 {
                     continue;
                 }
-                if self.removal()
-                    && d.spell
-                        .as_ref()
-                        .is_some_and(|p| p.targets.first().is_some_and(|t| t.filter.is_some()))
+                if d.spell
+                    .as_ref()
+                    .is_some_and(|p| p.targets.first().is_some_and(|t| t.filter.is_some()))
                     && !self.removal_spell_ready(v, d)
                 {
                     continue;
                 }
-                if self.sacrifice() && !self.sacrifice_spell_ready(v, d) {
+                if !self.sacrifice_spell_ready(v, d) {
                     continue;
                 }
                 if d.name == "Fog" {
                     continue;
                 }
-                if self.wipes() && !self.wipe_ready(v, d) {
+                if !self.wipe_ready(v, d) {
                     continue;
                 }
-                let mut cost = if self.wipes() {
+                let mut cost = {
                     let Some(c) = self.wipe_cost(v, d) else {
                         continue;
                     };
                     c
-                } else {
-                    d.characteristics.mana_cost.clone()
                 };
                 if command
                     && let Some(history) = v
@@ -322,12 +310,10 @@ impl Strategy<'_> {
                     cost.generic.add(&n);
                     cost.generic.add(&n);
                 }
-                let plan = (self.catalog.schema_version >= 16)
+                let plan = true
                     .then(|| mana_policy::plan(self.catalog, v, &cost, None))
                     .flatten();
-                if plan.is_some()
-                    || (self.catalog.schema_version < 16 && spend(&cost, &funds).is_some())
-                {
+                if plan.is_some() {
                     if let Some(plan) = plan {
                         self.mana_plan = plan;
                     }
@@ -345,8 +331,7 @@ impl Strategy<'_> {
                 }
             }
         }
-        if self.catalog.schema_version >= 16
-            && v.turn.step == TurnStep::PostcombatMain
+        if v.turn.step == TurnStep::PostcombatMain
             && v.turn.number >= 20
             && v.players
                 .iter()
@@ -418,14 +403,14 @@ impl Strategy<'_> {
                 object: self.sacrifice_choice(v, candidates)?,
             },
             PlayerRequest::OptionalEffect { .. } => PlayerResponse::OptionalEffect {
-                perform: (self.sacrifice()
-                    && v.stack
-                        .last()
-                        .and_then(|s| s.triggered.as_ref())
-                        .is_some_and(|t| {
-                            definition(self.catalog, &t.oracle_id)
-                                .is_ok_and(|d| d.name == "Goblin Arsonist")
-                        }))
+                perform: (v
+                    .stack
+                    .last()
+                    .and_then(|s| s.triggered.as_ref())
+                    .is_some_and(|t| {
+                        definition(self.catalog, &t.oracle_id)
+                            .is_ok_and(|d| d.name == "Goblin Arsonist")
+                    }))
                     || self.optional_removal(v),
             },
             PlayerRequest::OptionalRecursion { .. } => {
@@ -452,40 +437,36 @@ impl Strategy<'_> {
                 candidates,
                 ..
             } => {
-                if self.removal()
-                    && let Some(h) = self.removal_target(v, candidates)?
-                {
+                if let Some(h) = self.removal_target(v, candidates)? {
                     return Ok(PlayerResponse::Targets {
                         objects: vec![h; occurrences.len()],
                     });
                 }
-                if self.attachments()
-                    && let Some(h) = self.attachment_target(v, candidates)?
-                {
+                if let Some(h) = self.attachment_target(v, candidates)? {
                     return Ok(PlayerResponse::Targets {
                         objects: vec![h; occurrences.len()],
                     });
                 }
                 let trigger = v.stack.last().and_then(|s| s.triggered.as_ref()).is_some();
-                let counter_trigger = self.catalog.schema_version >= 14
-                    && v.stack
-                        .last()
-                        .and_then(|s| s.triggered.as_ref())
-                        .is_some_and(|t| {
-                            definition(self.catalog, &t.oracle_id)
-                                .ok()
-                                .and_then(|d| d.triggered.get(t.ability as usize))
-                                .is_some_and(|a| {
-                                    a.program.instructions.iter().any(|i| {
-                                        matches!(
-                                            i,
-                                            mtg_contracts::Instruction::PutPlusOneCounters { .. }
-                                        )
-                                    })
+                let counter_trigger = v
+                    .stack
+                    .last()
+                    .and_then(|s| s.triggered.as_ref())
+                    .is_some_and(|t| {
+                        definition(self.catalog, &t.oracle_id)
+                            .ok()
+                            .and_then(|d| d.triggered.get(t.ability as usize))
+                            .is_some_and(|a| {
+                                a.program.instructions.iter().any(|i| {
+                                    matches!(
+                                        i,
+                                        mtg_contracts::Instruction::PutPlusOneCounters { .. }
+                                    )
                                 })
-                        });
+                            })
+                    });
                 let own = counter_trigger || (self.beneficial && !trigger);
-                if self.catalog.schema_version >= 15 {
+                {
                     let recursion = occurrences.first().is_some_and(|t| {
                         t.domain == mtg_contracts::TargetDomain::OwnGraveyardCreatureCard
                     });
@@ -497,8 +478,7 @@ impl Strategy<'_> {
                             .and_then(|o| definition(self.catalog, &o.oracle_id))
                             .is_ok_and(|d| {
                                 d.name == "Murder"
-                                    || (self.four_colors()
-                                        && matches!(d.name.as_str(), "Unsummon" | "Time Ebb"))
+                                    || (matches!(d.name.as_str(), "Unsummon" | "Time Ebb"))
                             })
                     });
                     if recursion || removal {
@@ -560,24 +540,12 @@ impl Strategy<'_> {
                 candidates,
                 ..
             } => {
-                if self.sacrifice()
-                    && let Some(t) = self.sacrifice_damage_target(v, candidates)
-                {
-                    return Ok(PlayerResponse::EntityTargets {
-                        entities: vec![t; occurrences.len()],
-                    });
-                }
-                if self.four_colors() {
-                    return Ok(PlayerResponse::EntityTargets {
-                        entities: vec![
-                            self.four_colors_entities(v, candidates)?;
-                            occurrences.len()
-                        ],
-                    });
-                }
-                let t=candidates.iter().find(|t|matches!(t,PlayerTargetEntity::Player{player} if (*player==v.viewer)==self.beneficial)).or(candidates.first()).ok_or("empty entity targets")?;
+                let target = self
+                    .sacrifice_damage_target(v, candidates)
+                    .map(Ok)
+                    .unwrap_or_else(|| self.four_colors_entities(v, candidates))?;
                 PlayerResponse::EntityTargets {
-                    entities: vec![t.clone(); occurrences.len()],
+                    entities: vec![target; occurrences.len()],
                 }
             }
             PlayerRequest::StackTargets {
@@ -585,17 +553,15 @@ impl Strategy<'_> {
                 candidates,
                 ..
             } => {
-                let target = if self.removal() && self.is_swan_announcement(v) {
+                let target = if self.is_swan_announcement(v) {
                     self.swan_target(v, Some(candidates))
                         .ok_or("no opposing Swan target")?
-                } else if self.four_colors() {
+                } else {
                     let ability = occurrences.first().is_some_and(|t| {
                         t.domain == mtg_contracts::TargetDomain::StackActivatedOrTriggeredAbility
                     });
                     self.opposing_stack(v, ability, Some(candidates))
                         .ok_or("no opposing stack target")?
-                } else {
-                    candidates.first().ok_or("empty stack targets")?.clone()
                 };
                 PlayerResponse::StackTargets {
                     entries: vec![target; occurrences.len()],
@@ -604,7 +570,7 @@ impl Strategy<'_> {
             PlayerRequest::OrderTriggers { candidates, .. } => PlayerResponse::OrderTriggers {
                 order: candidates.iter().map(|c| c.handle.clone()).collect(),
             },
-            PlayerRequest::Mana { cost, .. } if self.catalog.schema_version >= 16 => {
+            PlayerRequest::Mana { cost, .. } => {
                 let available = &v
                     .players
                     .iter()
@@ -622,41 +588,7 @@ impl Strategy<'_> {
                     PlayerResponse::FinishMana { undo_mana: true }
                 }
             }
-            PlayerRequest::Mana { cost, .. } => {
-                let available = &v
-                    .players
-                    .iter()
-                    .find(|p| p.player == v.viewer)
-                    .ok_or("missing viewer")?
-                    .mana;
-                if spend(cost, available).is_some() {
-                    PlayerResponse::FinishMana { undo_mana: true }
-                } else {
-                    let mut needed = BTreeMap::<Color, Quantity>::new();
-                    for c in &cost.colored {
-                        needed.entry(*c).or_default().add(&1.into());
-                    }
-                    let deficit = needed
-                        .iter()
-                        .find(|(c, n)| available.get(c).cloned().unwrap_or_default() < **n)
-                        .map(|(c, _)| *c);
-                    let x = v
-                        .objects
-                        .iter()
-                        .find(|x| {
-                            x.zone == Zone::Battlefield
-                                && x.controller == v.viewer
-                                && !x.tapped
-                                && self
-                                    .land_color(&x.oracle_id)
-                                    .is_some_and(|c| deficit.is_none_or(|d| d == c))
-                        })
-                        .ok_or("publicly funded cast lost mana source")?;
-                    PlayerResponse::ActivateMana {
-                        object: x.handle.clone(),
-                    }
-                }
-            }
+
             PlayerRequest::SpendMana {
                 cost, available, ..
             } => PlayerResponse::SpendMana {
@@ -708,16 +640,8 @@ impl Strategy<'_> {
                             .find(|o| o.handle == hint.blocker)
                             .ok_or("missing public blocker")?;
                         let bd = definition(self.catalog, &blocker.oracle_id).ok();
-                        let bd_keywords = if self.attachments() {
-                            Some(blocker.keywords.as_slice())
-                        } else {
-                            blocker
-                                .token
-                                .as_ref()
-                                .map(|t| t.keywords.as_slice())
-                                .or_else(|| bd.map(|d| d.keywords.as_slice()))
-                        }
-                        .ok_or("missing public blocker keywords")?;
+                        let bd_keywords = { Some(blocker.keywords.as_slice()) }
+                            .ok_or("missing public blocker keywords")?;
                         let toughness = blocker
                             .characteristics
                             .as_ref()
@@ -736,15 +660,8 @@ impl Strategy<'_> {
                                 .find(|o| &o.handle == attacker)
                                 .ok_or("missing public attacker")?;
                             let ad = definition(self.catalog, &a.oracle_id).ok();
-                            let ad_keywords = if self.attachments() {
-                                Some(a.keywords.as_slice())
-                            } else {
-                                a.token
-                                    .as_ref()
-                                    .map(|t| t.keywords.as_slice())
-                                    .or_else(|| ad.map(|d| d.keywords.as_slice()))
-                            }
-                            .ok_or("missing public attacker keywords")?;
+                            let ad_keywords = { Some(a.keywords.as_slice()) }
+                                .ok_or("missing public attacker keywords")?;
                             let power = a
                                 .characteristics
                                 .as_ref()
@@ -844,11 +761,7 @@ impl Strategy<'_> {
                 }
             }
             PlayerRequest::Sacrifice { candidates, .. } => PlayerResponse::Sacrifice {
-                object: if self.sacrifice() {
-                    self.sacrifice_choice(v, candidates)?
-                } else {
-                    candidates.first().ok_or("empty sacrifice")?.clone()
-                },
+                object: { self.sacrifice_choice(v, candidates)? },
             },
             PlayerRequest::DamageEffect { candidates, .. } => {
                 let c = candidates.first().ok_or("empty damage effects")?;
@@ -1030,11 +943,7 @@ pub(super) fn run(
                 break;
             }
             Advance::Fault(e) => {
-                outcome = if mtg_core::profile_at_least(
-                    config.profile.as_str(),
-                    mtg_core::STAPLES_PROFILE,
-                ) && game.typed_fault().is_some()
-                {
+                outcome = if game.typed_fault().is_some() {
                     format!("resource_truncation: {e}")
                 } else {
                     format!("fault: {e}")
@@ -1314,7 +1223,7 @@ pub(super) fn batch(catalog: &Catalog, directory: &Path) -> Result<serde_json::V
             );
         }
         let mut report = serde_json::json!({"index":index,"outcome":e.outcome,"winner":e.winner,"survivor_counts":e.survivor_counts,"turns":e.turns,"decisions":e.decisions,"advances":e.advances,"rule_steps":e.rule_steps,"query_calls":e.query_calls,"verified_losses":replay.as_ref().ok(),"elapsed_millis":e.elapsed_millis,"final_state_sha256":e.final_state_sha256});
-        if mtg_core::profile_at_least(profile, mtg_core::KEYWORDS_PROFILE) {
+        {
             report["keyword_interactions"] = keyword_interactions(catalog, &e)?;
         }
         reports.push(report);
@@ -1356,8 +1265,8 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
     let p = Prepared::admit_pod(catalog.clone(), e.config.clone()).map_err(|e| format!("{e:?}"))?;
     let physical_cards = p.config().cards.clone();
     let g = Game::replay_with_trace(p, &e.journal, TraceMode::Detailed)?;
-    let mut mana_report = None;
-    if mtg_core::profile_at_least(e.config.profile.as_str(), mtg_core::MANA_PROFILE) {
+    let mana_report;
+    {
         let mut activations = std::collections::BTreeSet::new();
         let mut by_type = BTreeMap::<String, u64>::from([
             ("land".into(), 0),
@@ -1427,25 +1336,25 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
     );
     let mut report = serde_json::json!({"lifelink_gains":counts[0],"deathtouch_destructions":counts[1],"blocks":counts[2]});
     // Exact slices select their own evidence adapters and capacities, not inherited mechanics.
-    if e.config.profile == mtg_core::WIPES_PROFILE {
+    {
         report["wipes"] = wipes_policy::interactions(catalog, &physical_cards, &g)?;
     }
-    if e.config.profile == mtg_core::SACRIFICE_PROFILE {
+    {
         report["sacrifice"] = sacrifice_policy::interactions(catalog, &physical_cards, &g)?;
     }
-    if e.config.profile == mtg_core::REMOVAL_PROFILE {
+    {
         report["removal"] = removal_policy::interactions(catalog, e, &physical_cards, &g)?;
     }
-    if e.config.profile == mtg_core::ATTACHMENTS_PROFILE {
+    {
         report["attachments"] = attachments_policy::interactions(catalog, e, &physical_cards, &g)?;
     }
-    if e.config.profile == mtg_core::FOUR_COLORS_PROFILE {
+    {
         report["four_colors"] = four_colors_policy::interactions(catalog, &physical_cards, &g)?;
     }
     if let Some(mana) = mana_report {
         report["mana"] = mana;
     }
-    if mtg_core::profile_at_least(e.config.profile.as_str(), mtg_core::TOKENS_PROFILE) {
+    {
         let mut tokens_created = 0u64;
         let mut counters_placed = Quantity::zero();
         for event in g.events() {
@@ -1465,7 +1374,7 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
         report["plus_one_counters_placed"] = serde_json::json!(counters_placed);
     }
 
-    if mtg_core::profile_at_least(e.config.profile.as_str(), mtg_core::STAPLES_PROFILE) {
+    {
         let mut destroyed = 0u64;
         let mut recursions = 0u64;
         let mut searched = 0u64;
@@ -1535,7 +1444,7 @@ fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::V
         // controller, not the marginal damage attributable to its +1/+1.
         report["anthem_affected_combat_damage"] = serde_json::json!(anthem_damage);
     }
-    if mtg_core::profile_at_least(e.config.profile.as_str(), mtg_core::COMBAT_KEYWORDS_PROFILE) {
+    {
         let mut trample = Quantity::zero();
         let mut first_steps = 0u64;
         let mut menace = 0u64;

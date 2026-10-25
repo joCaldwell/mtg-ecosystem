@@ -1,5 +1,9 @@
 # Explicit mana spending, opponent sacrifice and self-sacrifice abilities
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 Contract frozen October 15, 2026 after independent source, rules and profile
 review. This is a bounded P3 continuation of the
 Commander damage/library slice. It adds three connected mechanic families:

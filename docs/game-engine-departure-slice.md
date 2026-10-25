@@ -1,5 +1,9 @@
 # Commander state and multiplayer departure
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 The follow-up [event contract](game-engine-event-slice.md) advances snapshots
 and bundles to version 4, preserving the departure behavior and flat trace.
 The [instant-response slice](game-engine-stack-slice.md) advances them to version

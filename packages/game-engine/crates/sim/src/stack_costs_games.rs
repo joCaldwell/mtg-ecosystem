@@ -258,16 +258,16 @@ impl Strategy {
         let r = o.decision.as_ref().ok_or("missing stack/cost decision")?;
         Ok(match r {
             PlayerRequest::AnnounceX { .. } => {
-                return Err("X request outside historical profile".into());
+                return Err("X request unsupported by this completion policy".into());
             }
             PlayerRequest::SacrificeCost { .. } | PlayerRequest::ForcedSacrifice { .. } => {
-                return Err("sacrifice request outside historical profile".into());
+                return Err("sacrifice request unsupported by this completion policy".into());
             }
             PlayerRequest::ManaColor { .. }
             | PlayerRequest::SearchLands { .. }
             | PlayerRequest::OptionalEffect { .. }
             | PlayerRequest::OptionalRecursion { .. } => {
-                return Err("staples request outside historical policy".into());
+                return Err("staples request unsupported by this completion policy".into());
             }
             PlayerRequest::Mulligan { .. } | PlayerRequest::BottomOpening { .. } => {
                 return Err("opening setup is not admitted by this historical scenario".into());
@@ -362,10 +362,12 @@ impl Strategy {
             | PlayerRequest::DamageAllocation { .. }
             | PlayerRequest::DamageEffect { .. }
             | PlayerRequest::OrderTriggers { .. } => {
-                return Err("ordinary trigger ordering outside historical profile".into());
+                return Err(
+                    "ordinary trigger ordering unsupported by this completion policy".into(),
+                );
             }
             PlayerRequest::EntityTargets { .. } => {
-                return Err("mixed targets outside damage/life profile".into());
+                return Err("unsupported completion-policy target request".into());
             }
             PlayerRequest::StackTargets { candidates, .. } => {
                 let wanted = if self.policy.stifle() {

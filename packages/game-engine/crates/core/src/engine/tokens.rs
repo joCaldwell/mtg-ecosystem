@@ -4,22 +4,27 @@
 use super::*;
 use mtg_contracts::{CounterRecipient, CreatureToken};
 
-// Lifetime allocation cap, not a reusable slot pool. Reviewed decks create at
-// most 9 tokens per seat (36 per pod), with no recasting/recursion in this pool.
-// IDs never alias one of the 400 deck cards, nor a ceased token's historical ID.
-pub const TOKEN_CAPACITY: u32 = 64;
-// Any admitted deck has at most 27 creature cards (BG; white has 16).
+// Generic live-object cap. Physical token identities are never reused,
+// including after a token ceases; history is retained independently.
+pub const TOKEN_CAPACITY: u32 = capacities::TOKEN_CAPACITY;
+// Historical tokens-slice arithmetic, test-only; it never selects runtime limits.
+// That release had at most 27 creature cards per deck.
 // Every trigger source is singleton per seat. Within a nonempty-stack episode
 // creatures enter/die at most once; commander recasts require an empty stack.
+#[cfg(test)]
 pub(super) const CREATURE_CARD_BOUND: usize = 4 * 27;
-pub(super) const CREATURE_BOUND: usize = CREATURE_CARD_BOUND + TOKEN_CAPACITY as usize;
+#[cfg(test)]
+pub(super) const CREATURE_BOUND: usize = CREATURE_CARD_BOUND + 64;
+#[cfg(test)]
 pub(super) const DAMAGE_BOUND: usize = 2 * CREATURE_BOUND;
 // Reserve all 400 physical spells, 4 tap activations, C*4 Artist deaths,
 // C*4 Warden entries, 108 self-enters and 4 Bouncer self-dies triggers.
 // This deliberately overcounts mutually exclusive white/BG deck allocations.
+#[cfg(test)]
 pub(super) const STACK_BOUND: usize = 400 + 4 + CREATURE_BOUND * 8 + CREATURE_CARD_BOUND + 4;
 // All physical cards, allocated tokens and simultaneous player losses.
-pub(super) const EVENT_GROUP_BOUND: usize = 400 + TOKEN_CAPACITY as usize + 4;
+#[cfg(test)]
+pub(super) const EVENT_GROUP_BOUND: usize = 400 + 64 + 4;
 const TOKEN_ID_START: u32 = 1 << 31;
 pub(super) fn quantity_is_zero(n: &Quantity) -> bool {
     *n == Quantity::zero()
@@ -27,6 +32,10 @@ pub(super) fn quantity_is_zero(n: &Quantity) -> bool {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "fault", rename_all = "snake_case", deny_unknown_fields)]
 pub enum RuleFault {
+    EventGroupDepthCapacityExceeded {
+        capacity: u32,
+        requested: u32,
+    },
     EffectCapacityExceeded {
         capacity: usize,
         requested: usize,
@@ -98,11 +107,12 @@ impl Game {
     pub fn typed_fault(&self) -> Option<&RuleFault> {
         self.state.typed_fault.as_ref()
     }
-    pub(super) fn tokens_enabled(&self) -> bool {
-        self.profile_at_least(TOKENS_PROFILE)
-    }
+
     pub(super) fn capacity_error(&mut self, fault: RuleFault) -> String {
         let reason = match fault {
+            RuleFault::EventGroupDepthCapacityExceeded { .. } => {
+                "event group depth capacity exceeded"
+            }
             RuleFault::EffectCapacityExceeded { .. } => "effect capacity exceeded",
             RuleFault::TokenCapacityExceeded { .. } => "token capacity exceeded",
             RuleFault::DamageCapacityExceeded { .. } => "damage capacity exceeded",
@@ -112,42 +122,35 @@ impl Game {
         self.state.typed_fault = Some(fault);
         reason.into()
     }
-    pub(super) fn token_capacity(&self) -> u32 {
-        if self.wipes_enabled() {
-            wipes::LIVE_TOKEN_CAPACITY as u32
-        } else if self.sacrifice_enabled() {
-            sacrifice::LIVE_TOKEN_CAPACITY as u32
-        } else if self.removal_enabled() {
-            removal::LIVE_TOKEN_CAPACITY
-        } else if self.staples_enabled() {
-            staples::LIVE_TOKEN_CAPACITY
-        } else {
-            TOKEN_CAPACITY
+    pub(super) fn check_stack_capacity(&mut self, additional: usize) -> Result<(), String> {
+        let requested = self
+            .state
+            .stack
+            .len()
+            .saturating_add(self.state.pending_triggers.len())
+            .saturating_add(additional);
+        if requested > self.stack_limit() {
+            return Err(self.capacity_error(RuleFault::StackCapacityExceeded {
+                capacity: self.stack_limit(),
+                requested,
+            }));
         }
+        Ok(())
+    }
+    pub(super) fn token_capacity(&self) -> u32 {
+        capacities::TOKEN_CAPACITY
     }
     pub(super) fn allocated_capacity_count(&self) -> usize {
-        if self.staples_enabled() {
+        {
             self.state
                 .objects
                 .keys()
                 .filter(|id| self.state.tokens.contains_key(id))
                 .count()
-        } else {
-            self.state.tokens.len()
         }
     }
     pub(super) fn event_group_limit(&self) -> usize {
-        if self.wipes_enabled() {
-            wipes::EVENT_GROUP_BOUND
-        } else if self.sacrifice_enabled() {
-            sacrifice::EVENT_GROUP_BOUND
-        } else if self.removal_enabled() {
-            removal::EVENT_GROUP_BOUND
-        } else if self.staples_enabled() {
-            staples::EVENT_GROUP_BOUND
-        } else {
-            EVENT_GROUP_BOUND
-        }
+        capacities::EVENT_GROUP_LIMIT
     }
     fn check_token_capacity(&mut self, requested: u32) -> Result<(), String> {
         let created =
@@ -167,9 +170,6 @@ impl Game {
         frame: Resolving,
         instruction: Instruction,
     ) -> Result<(), String> {
-        if !self.tokens_enabled() {
-            return Err("unsupported token/counter profile".into());
-        }
         let (event, block) = match instruction {
             Instruction::CreateCreatureTokens {
                 count,
@@ -245,9 +245,6 @@ impl Game {
         &mut self,
         event: &ProposedEvent,
     ) -> Result<EventOutcome, String> {
-        if !self.tokens_enabled() {
-            return Err("unsupported token/counter event profile".into());
-        }
         match event {
             ProposedEvent::CreateCreatureTokens {
                 controller,
@@ -351,11 +348,8 @@ impl Game {
         }
     }
     pub(super) fn validate_tokens_state(&self) -> Result<(), String> {
-        if (!self.tokens_enabled()
-            && (!self.state.tokens.is_empty() || self.state.typed_fault.is_some()))
-            || self.allocated_capacity_count() > self.token_capacity() as usize
-        {
-            return Err("snapshot token profile/capacity invariant".into());
+        if self.allocated_capacity_count() > self.token_capacity() as usize {
+            return Err("snapshot token capacity invariant".into());
         }
         for (i, (id, t)) in self.state.tokens.iter().enumerate() {
             t.spec.validate()?;
@@ -393,8 +387,7 @@ impl Game {
         for (id, o) in &self.state.objects {
             if o.plus_one_counters.is_negative()
                 || (o.plus_one_counters > Quantity::zero()
-                    && (!self.tokens_enabled()
-                        || o.zone != Zone::Battlefield
+                    && (o.zone != Zone::Battlefield
                         || self.definition(*id)?.characteristics.kind != CardKind::Creature))
             {
                 return Err("snapshot counter invariant".into());
@@ -416,13 +409,17 @@ impl Game {
         }
         if let Some(fault) = self.typed_fault() {
             let expected = match fault {
+                RuleFault::EventGroupDepthCapacityExceeded {
+                    capacity,
+                    requested,
+                } if *capacity == capacities::EVENT_GROUP_DEPTH && requested > capacity => {
+                    "event group depth capacity exceeded"
+                }
+
                 RuleFault::EffectCapacityExceeded {
                     capacity,
                     requested,
-                } if self.removal_enabled()
-                    && *capacity == self.effect_limit()
-                    && *requested > *capacity =>
-                {
+                } if *capacity == self.effect_limit() && *requested > *capacity => {
                     "effect capacity exceeded"
                 }
                 RuleFault::TokenCapacityExceeded {

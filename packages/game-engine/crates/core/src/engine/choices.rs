@@ -87,6 +87,10 @@ impl ScenarioConfig {
             })
             .collect();
         Self {
+            initial: ScenarioInitial {
+                turn_step: TurnStep::PrecombatMain,
+                ..ScenarioInitial::default()
+            },
             mode: Mode::Scenario,
             players: 4,
             profile: "four-seat-choices-v1".into(),
@@ -147,20 +151,6 @@ impl ScenarioConfig {
             )
         });
         c
-    }
-    pub(super) fn choices_profile(&self) -> bool {
-        if self.match_profile() {
-            return true;
-        }
-        matches!(
-            self.profile.as_str(),
-            "four-seat-choices-v1"
-                | "four-seat-choices-furnace-v1"
-                | "four-seat-conditions-v1"
-                | "four-seat-conditions-nonempty-v1"
-                | "four-seat-conditions-borrowed-v1"
-                | "four-seat-conditions-no-targets-v1"
-        )
     }
 }
 impl Game {
@@ -312,8 +302,7 @@ impl Game {
                 .spell
                 .as_ref()
                 .ok_or("missing modal announcement definition")?;
-            if !self.prepared.config.choices_profile()
-                || !cast.origin.is_spell()
+            if !cast.origin.is_spell()
                 || root.modes.is_empty()
                 || top.mode.is_some()
                 || top.paid.is_some()
@@ -351,9 +340,6 @@ impl Game {
                 return Err("nonmodal spell selected mode".into());
             }
         } else {
-            if !self.prepared.config.choices_profile() {
-                return Err("modal program outside exact profile".into());
-            }
             match entry.mode {
                 Some(mode) if (mode as usize) < root.modes.len() => {}
                 None if matches!(&self.state.frame,Frame::Modes{cast} if cast.stack_id==entry.id) =>

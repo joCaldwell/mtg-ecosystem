@@ -105,11 +105,7 @@ pub(super) fn plan(
         let d = definition(catalog, &o.oracle_id).ok()?;
         if d.characteristics.kind == CardKind::Creature
             && !o.attack_ready
-            && !(if catalog.schema_version == 17 {
-                o.keywords.contains(&KeywordAbility::Haste)
-            } else {
-                d.keywords.contains(&KeywordAbility::Haste)
-            })
+            && !({ o.keywords.contains(&KeywordAbility::Haste) })
         {
             continue;
         }

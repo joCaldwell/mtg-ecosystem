@@ -57,6 +57,10 @@ fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
         }
     }
     let config = ScenarioConfig {
+        initial: ScenarioInitial {
+            turn_step: TurnStep::Untap,
+            ..ScenarioInitial::default()
+        },
         mode: Mode::CommanderMatch,
         players: 4,
         profile: STAPLES_PROFILE.into(),
@@ -1023,13 +1027,19 @@ fn reviewed_staples_resource_bounds_live_capacity_and_deck_counts() {
     assert_eq!(g.allocated_capacity_count(), 256);
     assert!(g.object_id(ceased.card).is_none());
     assert!(g.state.tokens.last_key_value().unwrap().0.0 > ceased.card.0);
-    assert!(g.commit(create(1), BatchCause::StateBased).is_err());
+    assert!(
+        g.commit(
+            create(capacities::TOKEN_CAPACITY - 256 + 1),
+            BatchCause::StateBased
+        )
+        .is_err()
+    );
     assert_eq!(
         g.typed_fault(),
         Some(&RuleFault::TokenCapacityExceeded {
-            capacity: 256,
+            capacity: capacities::TOKEN_CAPACITY,
             created: 256,
-            requested: 1
+            requested: capacities::TOKEN_CAPACITY - 256 + 1
         })
     );
     assert_eq!(g.allocated_capacity_count(), 256);
@@ -1053,7 +1063,7 @@ fn staples_token_capacity_is_a_typed_atomic_replayable_truncation() {
     else {
         panic!()
     };
-    *count = staples::LIVE_TOKEN_CAPACITY + 1;
+    *count = capacities::TOKEN_CAPACITY + 1;
     c.validate().unwrap();
     p.catalog_digest = digest(c).unwrap();
     traces(p, |g| {
@@ -1067,9 +1077,9 @@ fn staples_token_capacity_is_a_typed_atomic_replayable_truncation() {
         assert_eq!(
             g.typed_fault(),
             Some(&RuleFault::TokenCapacityExceeded {
-                capacity: staples::LIVE_TOKEN_CAPACITY,
+                capacity: capacities::TOKEN_CAPACITY,
                 created: 0,
-                requested: staples::LIVE_TOKEN_CAPACITY + 1
+                requested: capacities::TOKEN_CAPACITY + 1
             })
         );
         assert!(g.state.tokens.is_empty());

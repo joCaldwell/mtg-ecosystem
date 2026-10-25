@@ -1,5 +1,6 @@
 //! Independent black-box evidence for Commander casting/return continuations.
 //! Actions use player-facing handles; physical IDs are trusted assertions only.
+mod support;
 use mtg_contracts::{Catalog, Color, Quantity};
 use mtg_core::*;
 
@@ -72,7 +73,11 @@ fn submit(game: &mut Game, response: PlayerResponse) {
     game.submit(receipt).unwrap();
 }
 fn input(game: &mut Game, prepared: &Prepared, response: PlayerResponse) {
+    let finish = matches!(response, PlayerResponse::FinishMana { .. });
     submit(game, response);
+    if finish {
+        support::complete_mana(game);
+    }
     verify(game, prepared);
     assert!(matches!(
         settle(game, prepared),
@@ -569,39 +574,27 @@ fn actual_unblocked_commander_damage_faults_without_committing_partial_damage() 
         PlayerResponse::Blockers { blocks: vec![] },
     );
     for _ in 0..4 {
-        submit(&mut game, PlayerResponse::Pass);
-        let result = settle(&mut game, &prepared);
-        if let Advance::Fault(reason) = result {
-            assert_eq!(reason, "unsupported commander combat damage to player");
-            assert_eq!(
-                observe(&game, PlayerId(0)).view.players[1].life,
-                Quantity::from(40)
-            );
-            assert!(
-                game.commander_ledger()
-                    .history(CardId(0))
-                    .unwrap()
-                    .combat_damage
-                    .is_empty()
-            );
-            assert!(game.events().iter().all(|e| !matches!(
-                e,
-                Event::Committed {
-                    actual: EventOutcome::DamageDealt { .. },
-                    ..
-                }
-            )));
-            assert_eq!(
-                Game::replay(prepared.clone(), &game.replay_journal())
-                    .err()
-                    .as_deref(),
-                Some("unsupported commander combat damage to player")
-            );
-            return;
-        }
-        assert!(matches!(result, Advance::AwaitingDecision(_)));
+        input(&mut game, &prepared, PlayerResponse::Pass);
     }
-    panic!("unblocked commander damage did not fault")
+    assert_eq!(
+        observe(&game, PlayerId(0)).view.players[1].life,
+        Quantity::from(38)
+    );
+    let damage = &game
+        .commander_ledger()
+        .history(CardId(0))
+        .unwrap()
+        .combat_damage;
+    assert_eq!(damage.get(&PlayerId(1)), Some(&Quantity::from(2)));
+    assert!(game.events().iter().any(|e| matches!(
+        e,
+        Event::Committed {
+            actual: EventOutcome::DamageCommitted { .. },
+            ..
+        }
+    )));
+    let replay = Game::replay(prepared.clone(), &game.replay_journal()).unwrap();
+    assert_eq!(replay.state_digest().unwrap(), game.state_digest().unwrap());
 }
 
 #[test]

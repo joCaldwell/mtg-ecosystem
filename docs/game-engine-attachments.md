@@ -1,5 +1,9 @@
 # Equipment, Auras and granted keywords — `commander-attachments-v1`
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 P6.7 slice, following `commander-four-colors-v1` (docs/game-engine-blue-red.md).
 Adds attachments (Equipment and creature Auras), keyword grants from static
 abilities (layer 6), hexproof and shroud, and "can't be blocked" and "can't

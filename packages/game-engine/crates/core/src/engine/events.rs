@@ -410,7 +410,7 @@ fn collect<'a>(
     limit: usize,
     out: &mut Vec<&'a ProposedEvent>,
 ) -> Result<(), String> {
-    if depth > 4 {
+    if depth > capacities::EVENT_GROUP_DEPTH {
         return Err("event group depth resource limit".into());
     }
     match group {
@@ -732,9 +732,7 @@ impl Game {
                         match d.recipient {
                             DamageRecipient::Player { player } => {
                                 players.insert(player);
-                                if self.commander_damage_enabled()
-                                    && self.state.commanders.history(d.source.card).is_some()
-                                {
+                                if self.state.commanders.history(d.source.card).is_some() {
                                     commander_damage.insert((d.source.card, player));
                                 }
                             }
@@ -829,11 +827,7 @@ impl Game {
             .map(|object| {
                 let o = self.current(object)?;
                 Ok(ObjectBefore {
-                    keywords: if self.prepared.catalog.schema_version >= 12 {
-                        self.current_keywords(object)
-                    } else {
-                        vec![]
-                    },
+                    keywords: { self.current_keywords(object) },
                     deathtouch_damage: o.deathtouch_damage,
                     object,
                     owner: self.state.cards[&object.card].owner,
@@ -942,18 +936,34 @@ impl Game {
         group: EventGroup,
     ) -> Result<CommittedBatch, String> {
         let mut events = vec![];
-        if self.tokens_enabled() {
-            fn members(g: &EventGroup) -> usize {
-                match g {
+        {
+            fn members(g: &EventGroup, depth: u32) -> Result<usize, u32> {
+                if depth > capacities::EVENT_GROUP_DEPTH {
+                    return Err(depth);
+                }
+                Ok(match g {
                     EventGroup::Occurrence { .. } => 1,
                     EventGroup::Simultaneous { occurrences } => occurrences.len(),
-                    EventGroup::Ordered { children } => children
-                        .iter()
-                        .map(members)
-                        .fold(0usize, usize::saturating_add),
-                }
+                    EventGroup::Ordered { children } => {
+                        let mut total = 0usize;
+                        for child in children {
+                            total = total.saturating_add(members(child, depth + 1)?);
+                        }
+                        total
+                    }
+                })
             }
-            let requested = members(&group);
+            let requested = match members(&group, 0) {
+                Ok(n) => n,
+                Err(requested) => {
+                    return Err(
+                        self.capacity_error(RuleFault::EventGroupDepthCapacityExceeded {
+                            capacity: capacities::EVENT_GROUP_DEPTH,
+                            requested,
+                        }),
+                    );
+                }
+            };
             if requested > self.event_group_limit() {
                 return Err(self.capacity_error(RuleFault::EventGroupCapacityExceeded {
                     capacity: self.event_group_limit(),
@@ -961,19 +971,7 @@ impl Game {
                 }));
             }
         }
-        collect(
-            &group,
-            self,
-            0,
-            if self.tokens_enabled() {
-                self.event_group_limit()
-            } else if self.prepared.config.match_profile() {
-                400
-            } else {
-                16
-            },
-            &mut events,
-        )?;
+        collect(&group, self, 0, self.event_group_limit(), &mut events)?;
         let before = self.facts(&events)?;
         let batch_id = self.state.next_batch_id;
         let next_batch = batch_id.checked_add(1).ok_or("batch ID resource limit")?;
@@ -1009,7 +1007,7 @@ impl Game {
     ) -> Result<(), String> {
         match group {
             EventGroup::Occurrence { proposed } => {
-                let trigger_before = self.prepared.config.triggers_profile().then(|| self.fork());
+                let trigger_before = Some(self.fork());
                 let offset = out.len();
                 let before = self.facts(&[proposed])?;
                 self.apply_leaf(proposed, batch, path, before, out)?;
@@ -1043,7 +1041,7 @@ impl Game {
                 // CR 603.10a, 702.15c/702.2e: simultaneous departures use
                 // the common prior layer-6 view, even if a granting source
                 // happened to be applied first by deterministic event order.
-                if self.attachments_enabled() {
+                {
                     for o in common
                         .state
                         .objects
@@ -1152,8 +1150,7 @@ impl Game {
     ) -> Result<EventOutcome, String> {
         let actual = match proposed {
             ProposedEvent::FinishLibraryShuffle { player } => {
-                if !self.staples_enabled()
-                    || !matches!(self.state.frame,Frame::ResolutionChoice {choice:ResolutionChoice::Shuffle {player:p,index:0,..},..} if p==*player)
+                if !matches!(self.state.frame,Frame::ResolutionChoice {choice:ResolutionChoice::Shuffle {player:p,index:0,..},..} if p==*player)
                 {
                     return Err("invalid shuffle completion".into());
                 }
@@ -1174,8 +1171,7 @@ impl Game {
                 }
             }
             ProposedEvent::Attach { object, target } => {
-                if !self.attachments_enabled()
-                    || self.current(*object)?.zone != Zone::Battlefield
+                if self.current(*object)?.zone != Zone::Battlefield
                     || !self
                         .definition(object.card)?
                         .characteristics
@@ -1200,10 +1196,9 @@ impl Game {
                 }
             }
             ProposedEvent::DestroyPermanent { object } => {
-                if !self.removal_enabled()
-                    || !self
-                        .current(*object)
-                        .is_ok_and(|o| o.zone == Zone::Battlefield)
+                if !self
+                    .current(*object)
+                    .is_ok_and(|o| o.zone == Zone::Battlefield)
                 {
                     return Err("invalid destroy permanent event".into());
                 }
@@ -1215,7 +1210,7 @@ impl Game {
                 })?
             }
             ProposedEvent::DestroyCreature { object } => {
-                if !self.staples_enabled() || !self.target_legal(*object) {
+                if !self.target_legal(*object) {
                     return Err("invalid destroy creature event".into());
                 }
                 self.apply_occurrence(&ProposedEvent::Move {
@@ -1226,7 +1221,7 @@ impl Game {
                 })?
             }
             ProposedEvent::SearchLandEntry { object, player } => {
-                if !self.staples_enabled() || !self.search_lands(*player).contains(object) {
+                if !self.search_lands(*player).contains(object) {
                     return Err("invalid searched land entry".into());
                 }
                 let moved = self.apply_occurrence(&ProposedEvent::Move {
@@ -1259,10 +1254,7 @@ impl Game {
             ProposedEvent::NoncombatDamage { damage } => self.apply_noncombat_damage(damage)?,
             ProposedEvent::GainLife { player, amount }
             | ProposedEvent::LoseLife { player, amount } => {
-                if !self.prepared.config.damage_life_profile()
-                    || !self.is_live(*player)
-                    || *amount <= Quantity::zero()
-                {
+                if !self.is_live(*player) || *amount <= Quantity::zero() {
                     return Err("invalid life change".into());
                 }
                 let life = &mut self.state.players[player.0 as usize].life;
@@ -1290,8 +1282,7 @@ impl Game {
                 countering,
                 domain,
             } => {
-                if !self.prepared.config.stack_costs_profile()
-                    || countering.0 >= self.state.next_stack_id
+                if countering.0 >= self.state.next_stack_id
                     || !self.stack_target_legal(*target, *countering, *domain)
                 {
                     return Err("invalid countered stack object".into());
@@ -1393,11 +1384,6 @@ impl Game {
                 }
             }
             ProposedEvent::PutOnTopOwnerLibrary { object } => {
-                if !self.prepared.config.library_profile()
-                    && !self.prepared.config.actions_profile()
-                {
-                    return Err("unsupported top-library movement profile".into());
-                }
                 let owner = self
                     .state
                     .cards
@@ -1436,14 +1422,11 @@ impl Game {
                         PlayerLossReason::Life => {
                             self.state.players[player.0 as usize].life > Quantity::zero()
                         }
-                        PlayerLossReason::CommanderDamage => {
-                            !self.commander_damage_enabled()
-                                || !self
-                                    .state
-                                    .commanders
-                                    .combat_loss_candidates()
-                                    .contains(player)
-                        }
+                        PlayerLossReason::CommanderDamage => !self
+                            .state
+                            .commanders
+                            .combat_loss_candidates()
+                            .contains(player),
                         PlayerLossReason::FailedDraw => {
                             !self.state.players[player.0 as usize].failed_draw
                         }
@@ -1600,8 +1583,7 @@ impl Game {
                 }
             }
             ProposedEvent::TurnTransition { next, owner } => {
-                if !self.turns_enabled()
-                    || !matches!(self.state.frame, Frame::Transition)
+                if !matches!(self.state.frame, Frame::Transition)
                     || self.next_turn_state()? != (next.clone(), *owner)
                 {
                     return Err("invalid turn-transition event".into());
@@ -1647,12 +1629,11 @@ impl Game {
                 source,
             } => {
                 if self.current(*source).is_err()
-                    && !(self.mana_enabled()
-                        && self
-                            .state
-                            .cards
-                            .get(&source.card)
-                            .is_some_and(|c| !self.is_live(c.owner)))
+                    && !(self
+                        .state
+                        .cards
+                        .get(&source.card)
+                        .is_some_and(|c| !self.is_live(c.owner)))
                 {
                     return Err("missing mana source".into());
                 }
@@ -1800,12 +1781,11 @@ impl Game {
                 {
                     return Err("zone owner invariant".into());
                 }
-                if self.prepared.config.match_profile()
-                    && self
-                        .state
-                        .match_state
-                        .as_ref()
-                        .is_some_and(|m| m.setup.is_none())
+                if self
+                    .state
+                    .match_state
+                    .as_ref()
+                    .is_some_and(|m| m.setup.is_none())
                     && o.zone == (Zone::Library { owner })
                     && *destination == (Zone::Hand { owner })
                 {
@@ -1824,8 +1804,7 @@ impl Game {
                 self.state
                     .commander_returns
                     .retain(|id| id.card != object.card);
-                if self.commander_enabled()
-                    && self.state.commanders.history(object.card).is_some()
+                if self.state.commanders.history(object.card).is_some()
                     && matches!(destination, Zone::Graveyard { .. } | Zone::Exile)
                 {
                     self.state.commander_returns.insert(successor);
@@ -1892,11 +1871,6 @@ impl Game {
             }
             let key = match d.recipient {
                 DamageRecipient::Player { player } => {
-                    if self.state.commanders.history(d.source.card).is_some()
-                        && !self.commander_damage_enabled()
-                    {
-                        return Err("unsupported commander combat damage to player".into());
-                    }
                     if !self.is_live(player) {
                         return Err("departed damage recipient".into());
                     }

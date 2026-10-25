@@ -787,7 +787,7 @@ fn wipes_profile_catalog_decks_policy_bounds_and_prior_catalog_rejection() {
     let c = catalog();
     assert_eq!(digest(&c).unwrap(), WIPES_CATALOG_SHA256);
     for p in MATCH_PROFILES.iter().take(10) {
-        assert!(profile_at_least(WIPES_PROFILE, p.name));
+        assert!(match_profile(p.name).is_some());
     }
     let config = MatchConfig::for_profile(WIPES_PROFILE, [7; 32], PlayerId(0)).unwrap();
     let g = Game::new(Prepared::admit_pod(c, config.clone()).unwrap());
@@ -799,7 +799,13 @@ fn wipes_profile_catalog_decks_policy_bounds_and_prior_catalog_rejection() {
             g.event_group_limit(),
             g.effect_limit()
         ),
-        (65536, 131872, wipes::STACK_BOUND, 65940, 65536)
+        (
+            capacities::TOKEN_CAPACITY,
+            capacities::DAMAGE_LIMIT,
+            capacities::STACK_LIMIT,
+            capacities::EVENT_GROUP_LIMIT,
+            capacities::EFFECT_LIMIT
+        )
     );
     let old = Catalog::read(include_str!(
         "../../../../tests/fixtures/expected-sacrifice-ir.json"

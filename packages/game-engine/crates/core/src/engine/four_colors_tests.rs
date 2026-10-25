@@ -46,6 +46,10 @@ fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
         }
     }
     let config = ScenarioConfig {
+        initial: ScenarioInitial {
+            turn_step: TurnStep::Untap,
+            ..ScenarioInitial::default()
+        },
         mode: Mode::CommanderMatch,
         players: 4,
         profile: FOUR_COLORS_PROFILE.into(),
@@ -449,7 +453,13 @@ fn profile_decks_admission_and_compiled_pool_resource_proof() {
             g.token_capacity(),
             g.effect_limit()
         ),
-        (760, 4080, 660, 256, 32)
+        (
+            capacities::DAMAGE_LIMIT,
+            capacities::STACK_LIMIT,
+            capacities::EVENT_GROUP_LIMIT,
+            capacities::TOKEN_CAPACITY,
+            capacities::EFFECT_LIMIT
+        )
     );
 }
 #[test]

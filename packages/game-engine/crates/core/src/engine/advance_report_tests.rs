@@ -61,11 +61,15 @@ fn fixture() -> Game {
     Game::with_trace(prepared(), TraceMode::Off)
 }
 fn answer(game: &mut Game, response: Response) {
+    let finish = matches!(response, Response::FinishMana { .. });
     let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
         panic!("decision")
     };
     game.respond(request.player(), request.decision_id(), response)
         .unwrap();
+    if finish {
+        game.complete_test_mana();
+    }
 }
 fn pending_identity(game: &Game) -> CoreInputIdentity {
     let counts = game.accepted_input_counts().unwrap();

@@ -1,4 +1,5 @@
 //! Independent exact-admission and untrusted readback checks for the new pools.
+mod support;
 use mtg_contracts::{Catalog, Color, Instruction, Quantity};
 use mtg_core::*;
 
@@ -131,8 +132,12 @@ fn request(game: &mut Game) -> Request {
     }
 }
 fn answer(game: &mut Game, response: Response) {
+    let finish = matches!(response, Response::FinishMana { .. });
     let r = request(game);
     game.respond(r.player(), r.decision_id(), response).unwrap();
+    if finish {
+        support::complete_mana(game);
+    }
 }
 fn restored(game: &Game, prepared: &Prepared) {
     let other = Game::restore(prepared.clone(), &game.snapshot().unwrap()).unwrap();

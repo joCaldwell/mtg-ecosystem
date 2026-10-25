@@ -84,10 +84,8 @@ impl Game {
         Ok((player, *target, remaining.clone(), required, candidates))
     }
     pub(super) fn needs_allocation(&self, tx: &DamageTransaction, effect: &EffectKey) -> bool {
-        self.prepared.config.choices_profile()
-            && self
-                .allocation_options(tx, effect)
-                .is_ok_and(|(_, _, remaining, _, c)| remaining > Quantity::from(1) && c.len() > 1)
+        self.allocation_options(tx, effect)
+            .is_ok_and(|(_, _, remaining, _, c)| remaining > Quantity::from(1) && c.len() > 1)
     }
     pub(super) fn damage_allocation_request(&self) -> Result<Option<Request>, String> {
         let Frame::DamageAllocation {

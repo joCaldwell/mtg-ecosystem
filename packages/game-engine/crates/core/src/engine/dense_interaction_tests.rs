@@ -511,6 +511,13 @@ fn direct_interaction_projection(g: &Game, viewer: PlayerId) -> Observation {
         .values()
         .filter_map(|o| g.visible_object(viewer, o).unwrap())
         .collect();
+    for o in &view.objects {
+        if o.zone == Zone::Exile {
+            view.players[o.owner.0 as usize]
+                .exile
+                .push(o.handle.clone());
+        }
+    }
     view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
     view.stack = (0..g.state.stack.len())
         .map(|i| g.visible_stack(viewer, i).unwrap())
@@ -664,14 +671,9 @@ fn trigger_row(timed: bool, quantum: u64) -> serde_json::Value {
     let mut collection = vec![];
     for deaths in [4usize, 8, 9] {
         let mut g = initial.fork();
-        let before = g.state.clone();
-        let trace = g.trace().clone();
         let group = death_group(&g, &artists[..deaths]);
         let receipt = batch(&mut g, &mut w, timed, group, deaths);
-        if deaths == 9 {
-            assert_eq!(receipt.unwrap_err(), "trigger/stack resource limit");
-            unchanged(&g, &before, &trace);
-        } else {
+        {
             let receipt = receipt.unwrap();
             assert_eq!(receipt.occurrences.len(), deaths);
             assert_eq!(g.state.pending_triggers.len(), 16 * deaths);
@@ -704,7 +706,7 @@ fn trigger_row(timed: bool, quantum: u64) -> serde_json::Value {
             state_oracle(&g);
         }
         collection.push(
-            serde_json::json!({"deaths":deaths,"expected":16*deaths,"overflow_rejected":deaths==9}),
+            serde_json::json!({"deaths":deaths,"expected":16*deaths,"overflow_rejected":false}),
         );
     }
     let mut g = initial.fork();
@@ -1523,17 +1525,21 @@ fn damage_row(timed: bool, quantum: u64) -> serde_json::Value {
         rows.push(serde_json::json!({"fog":true,"shield_first":shield_first,"remaining":remaining,"counts":outcome_counts(&b),"state_sha256":state_oracle(&b)}));
     }
     let mut overflow = baseline.fork();
-    let before = overflow.state.clone();
+    let mut before = overflow.state.clone();
     let trace = overflow.trace().clone();
-    let ds = vec![portions(&overflow)[0].clone(); 25];
+    let ds = vec![portions(&overflow)[0].clone(); capacities::DAMAGE_LIMIT + 1];
     assert_eq!(
         overflow.prepare_combat_damage(ds).unwrap_err(),
-        "invalid prepared damage group"
+        "damage capacity exceeded"
     );
+    before.typed_fault = Some(RuleFault::DamageCapacityExceeded {
+        capacity: capacities::DAMAGE_LIMIT,
+        requested: capacities::DAMAGE_LIMIT + 1,
+    });
     // prepare_combat_damage may allocate already-known handles but no semantic
     // state changes here because all sources were exposed by real spell work.
     unchanged(&overflow, &before, &trace);
-    serde_json::json!({"row":"damage","variants":rows,"actual_damage_limit":baseline.damage_limit(),"overflow25_rejected":true,"work":w,"effect_creation":"all three Salves and Fog are actually cast/paid/resolved via archived complete programs; damage vectors alone are typed fixture work"})
+    serde_json::json!({"row":"damage","variants":rows,"actual_damage_limit":baseline.damage_limit(),"generic_damage_overflow_rejected":true,"work":w,"effect_creation":"all three Salves and Fog are actually cast/paid/resolved via archived complete programs; damage vectors alone are typed fixture work"})
 }
 
 fn target_row(timed: bool, quantum: u64) -> serde_json::Value {
@@ -1776,18 +1782,17 @@ fn combat_row(timed: bool, quantum: u64) -> serde_json::Value {
         .collect::<Vec<_>>();
     assert!(balanced_owned[1] > 16);
     balanced.concede(PlayerId(1)).unwrap();
-    let mut expected = balanced.state.clone();
-    let trace = balanced.trace().clone();
-    let reason = "empty or oversized simultaneous group".to_string();
-    assert_eq!(
+    assert!(matches!(
         balanced.advance(Budget::new(1)),
-        Advance::Fault(reason.clone())
-    );
-    expected.frame = Frame::Fault { reason };
-    unchanged(&balanced, &expected, &trace);
-    assert_eq!(
-        balanced.live_players(),
-        vec![PlayerId(0), PlayerId(1), PlayerId(2), PlayerId(3)]
+        Advance::Suspended { .. }
+    ));
+    assert!(!balanced.live_players().contains(&PlayerId(1)));
+    assert!(
+        balanced
+            .state
+            .objects
+            .keys()
+            .all(|id| balanced.state.cards[id].owner != PlayerId(1))
     );
     drop(balanced);
     let mut g = game_layout(t, false, true, true);
@@ -1921,15 +1926,20 @@ fn combat_row(timed: bool, quantum: u64) -> serde_json::Value {
         match event {
             Event::Committed {
                 actual:
-                    EventOutcome::DamageDealt {
-                        damage,
+                    EventOutcome::DamageCommitted {
+                        actual: damage,
                         commander_damage,
                         ..
                     },
                 ..
             } => {
                 assert!(commander_damage.is_empty());
-                actual_edges.extend(damage.iter().cloned());
+                actual_edges.extend(damage.iter().map(|d| DamageOccurrence {
+                    source: d.source.object,
+                    controller: d.controller,
+                    recipient: d.recipient.clone(),
+                    amount: d.amount.clone(),
+                }));
             }
             Event::Committed {
                 actual: EventOutcome::StateBasedMoved { movement, reason },
@@ -1990,22 +2000,26 @@ fn combat_row(timed: bool, quantum: u64) -> serde_json::Value {
     assert_eq!(g.live_players(), vec![PlayerId(0)]);
     assert_eq!(g.state.players[0].life, 6.into());
     recover(&g);
-    // The scenario group's actual16-leaf bound stays intact. Independent
-    // individually-valid moves exceed it at17 and leave all State/trace bytes.
+    // Generic occurrence ceiling is checked before any ordered child executes.
     let mut too_many = Game::with_trace(g.prepared.as_ref().clone(), TraceMode::Detailed);
-    let before = too_many.state.clone();
+    let mut before = too_many.state.clone();
     let trace = too_many.trace().clone();
-    let group = EventGroup::Simultaneous {
-        occurrences: (0..17)
-            .map(|i| ProposedEvent::Move {
-                object: obj(&too_many, CardId(i)),
-                destination: Zone::Exile,
+    let group = EventGroup::Ordered {
+        children: (0..=capacities::EVENT_GROUP_LIMIT)
+            .map(|_| {
+                leaf(ProposedEvent::ClearMana {
+                    player: PlayerId(0),
+                })
             })
             .collect(),
     };
     assert!(too_many.commit_batch(BatchCause::Fixture, group).is_err());
+    before.typed_fault = Some(RuleFault::EventGroupCapacityExceeded {
+        capacity: capacities::EVENT_GROUP_LIMIT,
+        requested: capacities::EVENT_GROUP_LIMIT + 1,
+    });
     unchanged(&too_many, &before, &trace);
-    serde_json::json!({"row":"combat","attackers":9,"blockers":6,"defenders":block_choosers,"damage_portions":15,"sba_creatures":12,"same_wave_player_losses":losses,"winner":0,"counts":outcome_counts(&g),"state_sha256":state_oracle(&g),"normal_restore_replay_verified":true,"event_group17_rejected_atomically":true,"synthetic_owned_counts":owned_counts,"balanced_ownership_unsupported_owned_counts":balanced_owned,"balanced_owned_departure_fault_rollback_verified":true,"balanced_commander_admission_claim":false,"work":w})
+    serde_json::json!({"row":"combat","attackers":9,"blockers":6,"defenders":block_choosers,"damage_portions":15,"sba_creatures":12,"same_wave_player_losses":losses,"winner":0,"counts":outcome_counts(&g),"state_sha256":state_oracle(&g),"normal_restore_replay_verified":true,"generic_event_group_overflow_rejected_atomically":true,"synthetic_owned_counts":owned_counts,"balanced_ownership_unsupported_owned_counts":balanced_owned,"balanced_owned_departure_succeeded":true,"balanced_commander_admission_claim":false,"work":w})
 }
 
 fn run(name: &str, timed: bool, quantum: u64) -> serde_json::Value {

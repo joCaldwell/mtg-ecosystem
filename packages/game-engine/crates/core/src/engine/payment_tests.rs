@@ -33,12 +33,16 @@ fn settle(game: &mut Game) -> Advance {
     }
 }
 fn input(game: &mut Game, player: u8, response: Response) {
+    let finish = matches!(response, Response::FinishMana { .. });
     let Advance::AwaitingDecision(request) = settle(game) else {
         panic!("missing decision")
     };
     assert_eq!(request.player(), PlayerId(player));
     game.respond(request.player(), request.decision_id(), response)
         .unwrap();
+    if finish {
+        game.complete_test_mana();
+    }
     recover(game);
 }
 fn announce(game: &mut Game, player: u8) {
@@ -128,15 +132,27 @@ fn casting_mana_is_a_saved_decision_before_atomic_payment_in_all_trace_modes() {
         };
         assert_eq!(cast.mana_activations.len(), 1);
         assert_eq!(game.mana(PlayerId(0), Color::U), Some(Quantity::from(1)));
-        input(&mut game, 0, Response::FinishMana { undo_mana: true });
+        let r = game.decision_for(PlayerId(0)).unwrap().unwrap();
+        game.respond(
+            r.player(),
+            r.decision_id(),
+            Response::FinishMana { undo_mana: true },
+        )
+        .unwrap();
         assert!(matches!(
             game.advance(Budget::new(1)),
-            Advance::Suspended { .. }
+            Advance::AwaitingDecision(Request::SpendMana { .. })
         ));
         recover(&game);
-        assert!(matches!(game.state.frame, Frame::Payment { .. }));
         assert!(game.state.stack[0].paid.is_none());
         assert_eq!(game.mana(PlayerId(0), Color::U), Some(Quantity::from(1)));
+        input(
+            &mut game,
+            0,
+            Response::SpendMana {
+                spending: BTreeMap::from([(Color::U, 1.into())]),
+            },
+        );
         assert!(matches!(
             settle(&mut game),
             Advance::AwaitingDecision(Request::Priority {

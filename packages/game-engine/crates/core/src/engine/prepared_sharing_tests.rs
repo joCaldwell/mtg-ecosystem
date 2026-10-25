@@ -130,7 +130,7 @@ fn prepared_arc_matches_old_deep_fork_and_keeps_receipts_and_work_executor_scope
 #[test]
 fn prepared_arc_frozen_payment_journal_matches_owned_oracle_at_every_budget_boundary() {
     let raw: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../tests/fixtures/expected-payment-scenario.json"
+        "../../../../tests/fixtures/d1b2-payment-inputs.json"
     ))
     .unwrap();
     let inputs: Vec<AcceptedInput> =

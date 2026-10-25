@@ -1,5 +1,9 @@
 # Ordinary combat and complete scenario games
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 Contract frozen after independent rules and configuration review, October 13, 2026. Based on merged main `bb3f245` including the
 turns/permanents implementation and preceding departure review fixes. This is
 one bounded delivery, not full P3/P4/P5 or legal Commander match support.

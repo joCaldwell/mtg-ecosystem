@@ -1,5 +1,9 @@
 # Modes, target occurrences and intervening conditions
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 This slice extends the reviewed effects kernel with complete Healing Salve,
 Seeds of Strength and Bouncer programs. The implementation and independent offline verification are complete;
 completed evidence and retained identities are recorded in

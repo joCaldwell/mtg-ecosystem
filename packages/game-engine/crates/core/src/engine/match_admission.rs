@@ -38,7 +38,7 @@ pub const FOUR_COLORS_PROFILE: &str = "commander-four-colors-v1";
 pub const FOUR_COLORS_CATALOG_SHA256: &str =
     include_str!("../../../../tests/fixtures/catalogs/four-colors.sha256");
 /// All reviewed legal-profile identity and construction inputs live here.
-/// MATCH_PROFILES is an ordered lineage: each entry inherits earlier mechanics.
+/// Admission registry only. Runtime mechanics never depend on its ordering.
 pub struct MatchProfile {
     pub name: &'static str,
     pub catalog_sha256: &'static str,
@@ -241,23 +241,6 @@ pub static MATCH_PROFILES: [MatchProfile; 11] = [
 pub fn match_profile(name: &str) -> Option<&'static MatchProfile> {
     MATCH_PROFILES.iter().find(|p| p.name == name)
 }
-/// Whether a legal profile is at or after `minimum` in the reviewed lineage.
-/// Unknown names (including historical scenario profiles) never inherit it.
-pub fn profile_at_least(profile: &str, minimum: &str) -> bool {
-    MATCH_PROFILES
-        .iter()
-        .position(|p| p.name == minimum)
-        .is_some_and(|start| MATCH_PROFILES[start..].iter().any(|p| p.name == profile))
-}
-impl Game {
-    pub(super) fn profile_at_least(&self, minimum: &str) -> bool {
-        let profile = self.prepared.config.profile.as_str();
-        profile_at_least(profile, minimum)
-            && match_profile(profile)
-                .is_some_and(|p| p.ir_version == self.prepared.catalog.schema_version)
-    }
-}
-
 const WALL_OF_WOOD: &str = "aa5e6894-8c97-46f8-a0fd-07c6db51e9a7";
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -753,6 +736,10 @@ pub fn validate_pod(
     }
     Ok(ValidatedPod {
         config: ScenarioConfig {
+            initial: ScenarioInitial {
+                turn_step: TurnStep::Untap,
+                ..ScenarioInitial::default()
+            },
             mode: Mode::CommanderMatch,
             players: 4,
             profile: profile.name.into(),

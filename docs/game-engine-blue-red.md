@@ -1,5 +1,9 @@
 # Blue and red decks — `commander-four-colors-v1`
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 P6.6 slice, following `commander-mana-v1` (docs/game-engine-mana-permanents.md).
 Every profile so far plays only white and black/green decks. This slice
 admits a mono-blue deck and a mono-red deck alongside them, using the blue and

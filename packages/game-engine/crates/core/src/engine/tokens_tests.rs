@@ -57,6 +57,10 @@ fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
         }
     }
     let config = ScenarioConfig {
+        initial: ScenarioInitial {
+            turn_step: TurnStep::Untap,
+            ..ScenarioInitial::default()
+        },
         mode: Mode::CommanderMatch,
         players: 4,
         profile: TOKENS_PROFILE.into(),
@@ -951,17 +955,17 @@ fn maximal_pool_capacity_derivation_and_earlier_limits() {
     assert_eq!(most_creatures, 27);
     assert_eq!(most_tokens, 9);
     assert_eq!(tokens::CREATURE_CARD_BOUND, 4 * most_creatures);
-    assert!(4 * most_tokens < TOKEN_CAPACITY as usize);
-    let creatures = 4 * most_creatures + TOKEN_CAPACITY as usize;
+    assert!(4 * most_tokens < 64usize);
+    let creatures = 4 * most_creatures + 64usize;
     assert_eq!(creatures, 172);
     assert_eq!(tokens::DAMAGE_BOUND, 2 * creatures);
     let maximal_stack = 400 + 4 + creatures * 4 + creatures * 4 + 4 * most_creatures + 4;
     assert_eq!(maximal_stack, 1892);
     assert_eq!(tokens::STACK_BOUND, maximal_stack);
-    assert_eq!(tokens::EVENT_GROUP_BOUND, 400 + TOKEN_CAPACITY as usize + 4);
+    assert_eq!(tokens::EVENT_GROUP_BOUND, 400 + 64usize + 4);
     let g = Game::new(prepared(&[]));
-    assert_eq!(g.damage_limit(), 344);
-    assert_eq!(g.stack_limit(), 1892);
+    assert_eq!(g.damage_limit(), capacities::DAMAGE_LIMIT);
+    assert_eq!(g.stack_limit(), capacities::STACK_LIMIT);
     let config = MatchConfig::tokens([1; 32], PlayerId(0));
     let pod = Prepared::admit_pod(c.clone(), config.clone()).unwrap();
     assert_eq!(pod.config.cards.len(), 400);
@@ -1008,8 +1012,8 @@ fn maximal_pool_capacity_derivation_and_earlier_limits() {
         )
         .unwrap(),
     );
-    assert_eq!(foundations.damage_limit(), 64);
-    assert_eq!(foundations.stack_limit(), 256);
+    assert_eq!(foundations.damage_limit(), capacities::DAMAGE_LIMIT);
+    assert_eq!(foundations.stack_limit(), capacities::STACK_LIMIT);
 }
 
 #[test]

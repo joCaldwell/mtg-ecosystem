@@ -1,5 +1,9 @@
 # Board-wide effects and X spells — `commander-wipes-v1`
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 This is the P6.10 slice. It follows `commander-sacrifice-v1`
 (docs/game-engine-sacrifice.md).
 

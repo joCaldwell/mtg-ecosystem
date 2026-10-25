@@ -1,5 +1,9 @@
 # Commander foundations profile
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 This contract names the first finite legal-deck release,
 `commander-foundations-v1`. Implementation and verification passed; retained
 artifact identities and checks are recorded in `game-engine-progress.md`.

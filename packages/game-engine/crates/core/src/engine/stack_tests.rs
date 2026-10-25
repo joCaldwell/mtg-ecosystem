@@ -32,11 +32,15 @@ fn settle(game: &mut Game) -> Advance {
     }
 }
 fn input(game: &mut Game, player: u8, response: Response) {
+    let finish = matches!(response, Response::FinishMana { .. });
     let Advance::AwaitingDecision(r) = settle(game) else {
         panic!("missing decision")
     };
     assert_eq!(r.player(), PlayerId(player));
     game.respond(r.player(), r.decision_id(), response).unwrap();
+    if finish {
+        game.complete_test_mana();
+    }
     recover(game);
 }
 fn cast(game: &mut Game, player: u8, pay: bool) {
@@ -263,7 +267,19 @@ fn lower_source_departure_preserves_top_announcement_payment_and_resolution() {
             );
             let _ = game.advance(Budget::new(1));
             recover(&game);
-            input(&mut game, 1, Response::FinishMana { undo_mana: false });
+            if boundary == 1 {
+                let Advance::AwaitingDecision(r) = settle(&mut game) else {
+                    panic!("mana request")
+                };
+                game.respond(
+                    r.player(),
+                    r.decision_id(),
+                    Response::FinishMana { undo_mana: false },
+                )
+                .unwrap();
+            } else {
+                input(&mut game, 1, Response::FinishMana { undo_mana: false });
+            }
             let _ = game.advance(Budget::new(1));
             recover(&game);
         }
@@ -283,7 +299,7 @@ fn lower_source_departure_preserves_top_announcement_payment_and_resolution() {
         assert_eq!(game.state.stack[0].id, StackId(1));
         match boundary {
             0 => assert!(matches!(game.state.frame, Frame::Targets { .. })),
-            1 => assert!(matches!(game.state.frame, Frame::Payment { .. })),
+            1 => assert!(matches!(game.state.frame, Frame::SpendMana { .. })),
             _ => assert!(matches!(game.state.frame, Frame::Resolve { .. })),
         }
     }
@@ -412,7 +428,7 @@ fn timing_ownership_and_rehashed_stack_metadata_reject_without_changing_state() 
     }
 }
 #[test]
-fn unsupported_empty_stack_transition_faults_and_restores_in_all_trace_modes() {
+fn empty_stack_transition_works_and_restores_in_all_trace_modes() {
     for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
         let mut game = Game::with_trace(prepared(), mode);
         for player in 0..4 {
@@ -420,7 +436,7 @@ fn unsupported_empty_stack_transition_faults_and_restores_in_all_trace_modes() {
         }
         assert!(matches!(
             game.advance(Budget::unlimited()),
-            Advance::Fault(_)
+            Advance::AwaitingDecision(_)
         ));
         recover(&game);
         assert_eq!(game.live_players().len(), 4);

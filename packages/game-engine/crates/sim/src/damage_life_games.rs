@@ -278,16 +278,16 @@ impl Strategy {
         let r = o.decision.as_ref().ok_or("missing damage/life request")?;
         Ok(match r {
             PlayerRequest::AnnounceX { .. } => {
-                return Err("X request outside historical profile".into());
+                return Err("X request unsupported by this completion policy".into());
             }
             PlayerRequest::SacrificeCost { .. } | PlayerRequest::ForcedSacrifice { .. } => {
-                return Err("sacrifice request outside historical profile".into());
+                return Err("sacrifice request unsupported by this completion policy".into());
             }
             PlayerRequest::ManaColor { .. }
             | PlayerRequest::SearchLands { .. }
             | PlayerRequest::OptionalEffect { .. }
             | PlayerRequest::OptionalRecursion { .. } => {
-                return Err("staples request outside historical policy".into());
+                return Err("staples request unsupported by this completion policy".into());
             }
             PlayerRequest::Mulligan { .. } | PlayerRequest::BottomOpening { .. } => {
                 return Err("opening setup is not admitted by this historical scenario".into());
@@ -366,7 +366,9 @@ impl Strategy {
             | PlayerRequest::DamageAllocation { .. }
             | PlayerRequest::DamageEffect { .. }
             | PlayerRequest::OrderTriggers { .. } => {
-                return Err("ordinary trigger ordering outside historical profile".into());
+                return Err(
+                    "ordinary trigger ordering unsupported by this completion policy".into(),
+                );
             }
             PlayerRequest::EntityTargets { candidates, .. } => {
                 let target = if self.policy == Policy::PingerSourceKilled && v.viewer == PlayerId(1)
@@ -756,12 +758,26 @@ fn assert_outcome(run: &Run, policy: Policy) -> Result<(), String> {
         let damage = g
             .events()
             .iter()
-            .filter_map(|event| match event {
+            .flat_map(|event| match event {
                 Event::Committed {
-                    actual: mtg_core::EventOutcome::NoncombatDamageDealt { damage, result, .. },
+                    actual:
+                        mtg_core::EventOutcome::DamageCommitted {
+                            actual, results, ..
+                        },
                     ..
-                } => Some((damage, result)),
-                _ => None,
+                } => actual
+                    .iter()
+                    .map(|damage| {
+                        (
+                            damage,
+                            results
+                                .iter()
+                                .find(|r| r.recipient == damage.recipient)
+                                .expect("damage result"),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+                _ => vec![],
             })
             .collect::<Vec<_>>();
         let expected_damage = match policy {

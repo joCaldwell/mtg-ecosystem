@@ -135,7 +135,7 @@ mod tests {
         verifier.verify(&game.snapshot().unwrap()).unwrap();
     }
     #[test]
-    fn fault_reachability_is_verified_even_without_a_new_rule_boundary() {
+    fn empty_stack_transition_reachability_is_verified() {
         let p = prepared(ScenarioConfig::land_return());
         let mut game = Game::new(p.clone());
         let mut verifier = SnapshotVerifier::new(p, TraceMode::Detailed);
@@ -151,9 +151,9 @@ mod tests {
         let boundary = game.rule_boundary();
         assert!(matches!(
             game.advance(Budget::unlimited()),
-            Advance::Fault(_)
+            Advance::AwaitingDecision(_)
         ));
-        assert_eq!(game.rule_boundary(), boundary);
+        assert!(game.rule_boundary() > boundary);
         let fault = game.snapshot().unwrap();
         verifier.verify(&fault).unwrap();
         verifier.verify(&fault).unwrap();

@@ -1,17 +1,12 @@
 use super::*;
 
 impl Game {
-    pub(super) fn explicit_payment_enabled(&self) -> bool {
-        self.prepared.config.actions_profile()
-    }
-
     pub(super) fn finish_mana_frame(&self, cast: Casting) -> Result<Frame, String> {
         let stack = self.top()?;
         Ok(
-            if self.explicit_payment_enabled()
-                && self
-                    .payment_pool(stack.controller, &stack.total_cost)
-                    .is_ok()
+            if self
+                .payment_pool(stack.controller, &stack.total_cost)
+                .is_ok()
             {
                 Frame::SpendMana { cast }
             } else {
@@ -36,8 +31,8 @@ impl Game {
         spending: &BTreeMap<Color, Quantity>,
     ) -> Result<(), String> {
         let stack = self.top()?;
-        if !self.explicit_payment_enabled() || stack.controller != player {
-            return Err("mana spending controller/profile invariant".into());
+        if stack.controller != player {
+            return Err("mana spending controller invariant".into());
         }
         self.selected_payment_pool(player, &stack.total_cost, spending)?;
         Ok(())
@@ -116,18 +111,13 @@ impl Game {
             return Ok(());
         }
         self.check_sacrifice_payment(&stack, &cast)?;
-        let proposed = if self.explicit_payment_enabled() {
+        let proposed = {
             let spending = cast.spending.ok_or("missing explicit mana spending")?;
             self.selected_payment_pool(stack.controller, &cost, &spending)?;
             ProposedEvent::PayManaSelected {
                 player: stack.controller,
                 cost: cost.clone(),
                 spending,
-            }
-        } else {
-            ProposedEvent::PayMana {
-                player: stack.controller,
-                cost: cost.clone(),
             }
         };
         self.commit(

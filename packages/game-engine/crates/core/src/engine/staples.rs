@@ -3,16 +3,22 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
+#[cfg(test)]
 pub(super) const LIVE_TOKEN_CAPACITY: u32 = 256;
+#[cfg(test)]
 pub(super) const CREATURE_CARDS: usize = 4 * 28;
+#[cfg(test)]
 pub(super) const CREATURES: usize = CREATURE_CARDS + LIVE_TOKEN_CAPACITY as usize;
+#[cfg(test)]
 pub(super) const DAMAGE_BOUND: usize = 2 * CREATURES;
 // Recursion returns creature cards to hand. All creature/recursion casts need
 // an empty stack; no flash/reanimation exists. Thus each card enters/dies at
 // most once per nonempty-stack episode. At most 36 NEW tokens can enter during
 // that episode, in addition to the initial live capacity. This allowance must
 // not be lost when dying tokens free capacity. See the contract derivation.
+#[cfg(test)]
 pub(super) const STACK_BOUND: usize = 400 + 4 + 8 * (CREATURES + 36) + CREATURE_CARDS + 4;
+#[cfg(test)]
 pub(super) const EVENT_GROUP_BOUND: usize = 400 + LIVE_TOKEN_CAPACITY as usize + 4;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -41,9 +47,7 @@ impl Game {
             _ => Err("not draw instruction".into()),
         }
     }
-    pub(super) fn staples_enabled(&self) -> bool {
-        self.profile_at_least(STAPLES_PROFILE)
-    }
+
     pub(super) fn graveyard_creatures(&self, player: PlayerId) -> Vec<ObjectId> {
         self.state
             .objects
@@ -153,9 +157,6 @@ impl Game {
         frame: Resolving,
         instruction: Instruction,
     ) -> Result<(), String> {
-        if !self.staples_enabled() {
-            return Err("unsupported staples profile".into());
-        }
         match instruction {
             Instruction::DestroyTargetCreature {
                 target_slot,
@@ -173,30 +174,7 @@ impl Game {
                 self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
             }
             Instruction::DestroyAllCreatures { source_block } => {
-                if self.wipes_enabled() {
-                    return self.move_board_set(
-                        frame,
-                        ObjectSet::Creatures,
-                        SetMove::Destroy,
-                        source_block,
-                    );
-                }
-                let occurrences = self
-                    .state
-                    .objects
-                    .values()
-                    .filter(|o| self.target_legal(o.id))
-                    .map(|o| ProposedEvent::DestroyCreature { object: o.id })
-                    .collect::<Vec<_>>();
-                if !occurrences.is_empty() {
-                    // One group observer snapshot sees EVERY dying source and
-                    // subject together (CR 603.10a); tokens cease at next SBA.
-                    self.commit_batch(
-                        Self::staple_cause(&frame, source_block),
-                        EventGroup::Simultaneous { occurrences },
-                    )?;
-                }
-                self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
+                self.move_board_set(frame, ObjectSet::Creatures, SetMove::Destroy, source_block)
             }
             Instruction::ReturnOwnGraveyardCreatureToHand {
                 target_slot,
@@ -291,8 +269,7 @@ impl Game {
                 },
                 Response::SearchLands { objects },
             ) => Some(
-                if self.staples_enabled()
-                    && *p == player
+                if *p == player
                     && self.is_live(player)
                     && objects.len() <= *maximum as usize
                     && objects.iter().collect::<BTreeSet<_>>().len() == objects.len()
@@ -308,13 +285,11 @@ impl Game {
             (
                 ResolutionChoice::OptionalRecursion { player: p, .. },
                 Response::OptionalRecursion { .. },
-            ) => Some(
-                if self.staples_enabled() && *p == player && self.is_live(player) {
-                    Ok(())
-                } else {
-                    Err("invalid optional recursion choice".into())
-                },
-            ),
+            ) => Some(if *p == player && self.is_live(player) {
+                Ok(())
+            } else {
+                Err("invalid optional recursion choice".into())
+            }),
             _ => None,
         }
     }
@@ -429,8 +404,7 @@ impl Game {
         player: PlayerId,
         index: u32,
     ) -> Result<EventOutcome, String> {
-        if !self.staples_enabled()
-            || !matches!(self.state.frame, Frame::ResolutionChoice { choice: ResolutionChoice::Shuffle { player: p,index: i,.. },.. } if p == player && i==index)
+        if !matches!(self.state.frame, Frame::ResolutionChoice { choice: ResolutionChoice::Shuffle { player: p,index: i,.. },.. } if p == player && i==index)
         {
             return Err("shuffle continuation invariant".into());
         }
@@ -475,9 +449,6 @@ impl Game {
         choice: &ResolutionChoice,
         instruction: &Instruction,
     ) -> bool {
-        if !self.staples_enabled() {
-            return false;
-        }
         match (choice, instruction) {
             (
                 ResolutionChoice::OptionalEffect {
@@ -492,8 +463,7 @@ impl Game {
                     ..
                 },
             ) => {
-                self.removal_enabled()
-                    && *player == frame.spell.controller
+                *player == frame.spell.controller
                     && source_block == b
                     && frame.spell.targets.get(*target_slot as usize) == Some(target)
             }

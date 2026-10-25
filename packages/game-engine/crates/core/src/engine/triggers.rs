@@ -47,29 +47,7 @@ fn movement(outcome: &EventOutcome) -> Option<&MoveOutcome> {
 }
 impl Game {
     pub(super) fn stack_limit(&self) -> usize {
-        if self.wipes_enabled() {
-            wipes::STACK_BOUND
-        } else if self.sacrifice_enabled() {
-            sacrifice::STACK_BOUND
-        } else if self.removal_enabled() {
-            removal::STACK_BOUND
-        } else if self.attachments_enabled() {
-            attachments::STACK_BOUND
-        } else if self.four_colors_enabled() {
-            four_colors::STACK_BOUND
-        } else if self.mana_enabled() {
-            mana_permanents::STACK_BOUND
-        } else if self.staples_enabled() {
-            staples::STACK_BOUND
-        } else if self.tokens_enabled() {
-            tokens::STACK_BOUND
-        } else if self.prepared.config.match_profile() {
-            256
-        } else if self.prepared.config.triggers_profile() {
-            128
-        } else {
-            4
-        }
+        capacities::STACK_LIMIT
     }
     // CR 603.2c/603.3a/603.10a: one match per actual occurrence, with
     // pre-event lookback for dies and post-event observers for enters. An
@@ -81,9 +59,6 @@ impl Game {
         before: &Game,
         occurrences: &[OccurrenceResult],
     ) -> Result<(), String> {
-        if !self.prepared.config.triggers_profile() {
-            return Ok(());
-        }
         for occurrence in occurrences {
             let subjects = if let EventOutcome::TokensCreated { objects, .. } = &occurrence.actual {
                 objects.iter().map(|o| (None, Some(*o))).collect::<Vec<_>>()
@@ -138,9 +113,7 @@ impl Game {
                             TriggerCondition::SelfAuraToGraveyard => dies && object.id == subject,
                             TriggerCondition::AnyCreatureDies => creature && dies,
                             TriggerCondition::SelfEntersBattlefield => {
-                                (creature || self.sacrifice_enabled())
-                                    && enters
-                                    && object.id == subject
+                                enters && object.id == subject
                             }
                             TriggerCondition::OtherCreatureEntersBattlefield => {
                                 creature && enters && object.id != subject
@@ -203,21 +176,7 @@ impl Game {
                             continue;
                         }
                     }
-                    // Historical scenario limits remain unchanged. The tokens
-                    // profile uses the complete source-pool bound in tokens.rs.
-                    if self.state.pending_triggers.len() + self.state.stack.len()
-                        >= self.stack_limit()
-                    {
-                        if self.tokens_enabled() {
-                            let requested =
-                                self.state.pending_triggers.len() + self.state.stack.len() + 1;
-                            return Err(self.capacity_error(RuleFault::StackCapacityExceeded {
-                                capacity: self.stack_limit(),
-                                requested,
-                            }));
-                        }
-                        return Err("trigger/stack resource limit".into());
-                    }
+                    self.check_stack_capacity(1)?;
                     let id = TriggerId(self.state.next_trigger_id);
                     self.state.next_trigger_id = self
                         .state
@@ -268,7 +227,7 @@ impl Game {
         cleanup: bool,
         changed: bool,
     ) -> Result<bool, String> {
-        if !self.prepared.config.triggers_profile() || self.state.pending_triggers.is_empty() {
+        if self.state.pending_triggers.is_empty() {
             return Ok(false);
         }
         let live = self.live_players();
@@ -640,8 +599,7 @@ impl Game {
             .triggered
             .get(ability as usize)
             .ok_or("snapshot missing triggered definition")?;
-        if !self.prepared.config.triggers_profile()
-            || controller.0 >= 4
+        if controller.0 >= 4
             || fact.object != source
             || fact.owner
                 != self
@@ -653,36 +611,17 @@ impl Game {
             || fact.controller.0 >= 4
             || fact.default_controller.0 >= 4
             || fact.zone != Zone::Battlefield
-            || (!self.prepared.config.effects_profile()
-                && fact.characteristics != self.definition(source.card)?.characteristics)
             || handles.len() != 4
             || definition.functioning_zone != FunctioningZone::Battlefield
         {
             return Err("snapshot trigger source invariant".into());
         }
-        if self.prepared.config.effects_profile() {
+        {
             self.validate_characteristic_identity(source, &fact.characteristics)?;
         }
         Ok(())
     }
     pub(super) fn validate_trigger_state(&self) -> Result<(), String> {
-        if !self.prepared.config.triggers_profile() {
-            if self.state.next_trigger_id != 0
-                || !self.state.pending_triggers.is_empty()
-                || matches!(
-                    self.state.frame,
-                    Frame::TriggerOrder { .. } | Frame::TriggerTargets { .. }
-                )
-                || self
-                    .state
-                    .stack
-                    .iter()
-                    .any(|s| matches!(s.kind, StackKind::Triggered { .. }))
-            {
-                return Err("snapshot unexpected trigger state".into());
-            }
-            return Ok(());
-        }
         if self.state.pending_triggers.len() + self.state.stack.len() > self.stack_limit() {
             return Err("snapshot trigger/stack resource bound".into());
         }
@@ -729,8 +668,7 @@ impl Game {
                             && m.previous == trigger.source
                     }
                     TriggerCondition::OpponentCreatureDies => {
-                        self.wipes_enabled()
-                            && m.from == Zone::Battlefield
+                        m.from == Zone::Battlefield
                             && matches!(m.destination, Zone::Graveyard { .. })
                             && trigger
                                 .death_controller
@@ -752,8 +690,7 @@ impl Game {
                     }
                 }) && (condition == TriggerCondition::SelfAuraToGraveyard
                     || self.definition(m.previous.card)?.characteristics.kind == CardKind::Creature
-                    || (condition == TriggerCondition::SelfEntersBattlefield
-                        && self.sacrifice_enabled()))
+                    || (condition == TriggerCondition::SelfEntersBattlefield))
             } else {
                 false
             };
@@ -803,7 +740,6 @@ impl Game {
                                 | TargetDomain::OwnGraveyardCreatureCard
                         )
                     }))
-                || (!entry.entity_targets.is_empty() && !self.sacrifice_enabled())
                 || !entry.stack_targets.is_empty()
                 || entry.total_cost
                     != (ManaCost {

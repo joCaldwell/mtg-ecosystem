@@ -46,6 +46,10 @@ fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
         }
     }
     let config = ScenarioConfig {
+        initial: ScenarioInitial {
+            turn_step: TurnStep::Untap,
+            ..ScenarioInitial::default()
+        },
         mode: Mode::CommanderMatch,
         players: 4,
         profile: ATTACHMENTS_PROFILE.into(),
@@ -361,9 +365,9 @@ fn profile_decks_policy_and_bounds_are_separate() {
     }
     assert_eq!(digest(&c).unwrap(), ATTACHMENTS_CATALOG_SHA256);
     let g = Game::new(prepared(&[("Grizzly Bears", 0, false)]));
-    assert_eq!(g.stack_limit(), 4093);
-    assert_eq!(g.damage_limit(), 760);
-    assert_eq!(g.effect_limit(), 32);
+    assert_eq!(g.stack_limit(), capacities::STACK_LIMIT);
+    assert_eq!(g.damage_limit(), capacities::DAMAGE_LIMIT);
+    assert_eq!(g.effect_limit(), capacities::EFFECT_LIMIT);
     assert!(
         validate_pod(
             &c,

@@ -619,7 +619,13 @@ fn sacrifice_profile_catalog_decks_policy_and_bounds() {
             g.event_group_limit(),
             g.effect_limit()
         ),
-        (8192, 17184, 294540, 8596, 8192)
+        (
+            capacities::TOKEN_CAPACITY,
+            capacities::DAMAGE_LIMIT,
+            capacities::STACK_LIMIT,
+            capacities::EVENT_GROUP_LIMIT,
+            capacities::EFFECT_LIMIT
+        )
     );
 }
 #[test]
@@ -1466,16 +1472,4 @@ fn forced_previous_choice_after_chooser_concedes() {
             settle(g);
         },
     );
-}
-
-#[test]
-fn legal_profile_lineage_is_ordered_and_rejects_unknown_names() {
-    for (i, profile) in MATCH_PROFILES.iter().enumerate() {
-        for (j, minimum) in MATCH_PROFILES.iter().enumerate() {
-            assert_eq!(profile_at_least(profile.name, minimum.name), i >= j);
-        }
-        assert!(!profile_at_least(profile.name, "unknown"));
-        assert!(!profile_at_least("unknown", profile.name));
-        assert!(!profile_at_least("four-seat-combat-game-v1", profile.name));
-    }
 }

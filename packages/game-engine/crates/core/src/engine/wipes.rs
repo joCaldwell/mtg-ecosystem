@@ -5,17 +5,8 @@
 use super::*;
 use mtg_contracts::{ObjectSet, SetMove, WipeAmount};
 // See docs/game-engine-board-wipes.md, Reviewed resource bounds.
-pub(super) const LIVE_TOKEN_CAPACITY: usize = 65536;
-pub(super) const DAMAGE_BOUND: usize = 2 * (400 + LIVE_TOKEN_CAPACITY);
-pub(super) const DEATH_BOUND: usize = 2 * (400 + LIVE_TOKEN_CAPACITY + 1600 + 4);
-pub(super) const STACK_BOUND: usize =
-    400 + 1824 + 24 + 16 * DEATH_BOUND + 400 + 4 + 4 * (400 + 1600 + 4 + DEATH_BOUND / 2);
-pub(super) const EVENT_GROUP_BOUND: usize = 400 + LIVE_TOKEN_CAPACITY + 4;
-pub(super) const EFFECT_BOUND: usize = 65536;
+
 impl Game {
-    pub(super) fn wipes_enabled(&self) -> bool {
-        self.profile_at_least(WIPES_PROFILE)
-    }
     pub(super) fn objects_in_set(&self, set: &ObjectSet, controller: PlayerId) -> Vec<ObjectId> {
         self.state
             .objects
@@ -88,23 +79,21 @@ impl Game {
         Ok(())
     }
     pub(super) fn cant_counter(&self, id: StackId) -> bool {
-        self.wipes_enabled()
-            && self
-                .state
-                .stack
-                .iter()
-                .find(|e| e.id == id)
-                .is_some_and(|e| {
-                    e.kind.is_spell()
-                        && self.definition(e.source.card).is_ok_and(|d| {
-                            d.static_abilities
-                                .iter()
-                                .any(|a| a.effect == StaticEffect::CantBeCountered)
-                        })
-                })
+        self.state
+            .stack
+            .iter()
+            .find(|e| e.id == id)
+            .is_some_and(|e| {
+                e.kind.is_spell()
+                    && self.definition(e.source.card).is_ok_and(|d| {
+                        d.static_abilities
+                            .iter()
+                            .any(|a| a.effect == StaticEffect::CantBeCountered)
+                    })
+            })
     }
     pub(super) fn anger_replaces_death(&self, object: ObjectId, destination: Zone) -> bool {
-        self.wipes_enabled() && matches!(destination,Zone::Graveyard { .. }) && self.current(object).is_ok_and(|o|o.zone==Zone::Battlefield) && self.state.effects.iter().any(|e|matches!(&e.kind,ResolvedEffectKind::ExileDamaged {targets} if targets.contains(&object)))
+        matches!(destination,Zone::Graveyard { .. }) && self.current(object).is_ok_and(|o|o.zone==Zone::Battlefield) && self.state.effects.iter().any(|e|matches!(&e.kind,ResolvedEffectKind::ExileDamaged {targets} if targets.contains(&object)))
     }
     pub(super) fn move_board_set(
         &mut self,
@@ -223,8 +212,7 @@ impl Game {
         block: u32,
     ) -> Result<(), String> {
         self.validate_resolving(frame)?;
-        if !self.wipes_enabled()
-            || !matches!(self.program_for(&frame.spell)?.instructions.get(frame.cursor as usize),Some(Instruction::MoveSet {action:SetMove::Hand,source_block,..}) if *source_block==block)
+        if !matches!(self.program_for(&frame.spell)?.instructions.get(frame.cursor as usize),Some(Instruction::MoveSet {action:SetMove::Hand,source_block,..}) if *source_block==block)
             || objects.len() > self.event_group_limit()
             || objects.iter().collect::<BTreeSet<_>>().len() != objects.len()
             || remaining.iter().any(|o| !objects.contains(o))
@@ -347,9 +335,6 @@ impl Game {
         mut frame: Resolving,
         i: Instruction,
     ) -> Result<(), String> {
-        if !self.wipes_enabled() {
-            return Err("unsupported board wipe profile".into());
-        }
         match i {
             Instruction::MoveSet {
                 set,
@@ -516,8 +501,7 @@ impl Game {
         else {
             return Err("unbound set damage facts".into());
         };
-        if !self.wipes_enabled()
-            || f.cursor > frame.cursor
+        if f.cursor > frame.cursor
             || f.amount.is_negative()
             || f.targets.len() > self.damage_limit()
             || f.targets.iter().collect::<BTreeSet<_>>().len() != f.targets.len()
@@ -534,7 +518,11 @@ impl Game {
                 WipeAmount::Fixed { value } => *value != f.amount,
                 WipeAmount::AnnouncedX => frame.spell.x.as_ref() != Some(&f.amount),
                 WipeAmount::CreatureCount => {
-                    f.amount > Quantity::from((400 + LIVE_TOKEN_CAPACITY) as i64)
+                    f.amount
+                        > Quantity::from(
+                            (4 * capacities::OWNED_LIMIT + capacities::TOKEN_CAPACITY as usize)
+                                as i64,
+                        )
                 }
             }
         {

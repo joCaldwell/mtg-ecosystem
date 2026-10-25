@@ -1,5 +1,9 @@
 # Budgeted execution and private observations
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 Scope frozen October 13 2026. This P2 slice hardens the existing reviewed
 three-card, four-seat scenario. It adds resumable execution/query work,
 viewer-specific observations and handles, the permitted SearchContext boundary,

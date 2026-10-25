@@ -165,9 +165,6 @@ impl Game {
         object: ObjectId,
         ability: u32,
     ) -> Result<(), String> {
-        if !self.prepared.config.actions_profile() || self.state.stack.len() >= self.stack_limit() {
-            return Err("unsupported activated ability profile/stack bound".into());
-        }
         let source = self.current(object)?;
         let ability = self
             .definition(object.card)?
@@ -178,8 +175,6 @@ impl Game {
             || source.controller != player
             || !self.is_live(player)
             || ability.functioning_zone != FunctioningZone::Battlefield
-            || (!self.prepared.config.stack_costs_profile()
-                && ability.cost != ActivationCost::SacrificeSource)
         {
             return Err("invalid activated ability source/permission".into());
         }
@@ -197,7 +192,7 @@ impl Game {
             return Err("tap ability requires an untapped continuously controlled creature".into());
         }
         if let ActivationCost::SacrificePermanent { filter, .. } = &ability.cost
-            && (!self.sacrifice_enabled() || self.sacrifice_candidates(player, filter).is_empty())
+            && (self.sacrifice_candidates(player, filter).is_empty())
         {
             return Err("no payable sacrifice permanent".into());
         }
@@ -216,6 +211,7 @@ impl Game {
         object: ObjectId,
         ability: u32,
     ) -> Result<(), String> {
+        self.check_stack_capacity(1)?;
         self.validate_activation(player, object, ability)?;
         self.announce_ability(player, decision_id, object, ability)
     }
@@ -281,13 +277,11 @@ impl Game {
             Response::OptionalEffect { .. },
         ) = (&self.state.frame, response)
         {
-            return Some(
-                if self.removal_enabled() && *chooser == player && self.is_live(player) {
-                    Ok(())
-                } else {
-                    Err("invalid optional effect choice".into())
-                },
-            );
+            return Some(if *chooser == player && self.is_live(player) {
+                Ok(())
+            } else {
+                Err("invalid optional effect choice".into())
+            });
         }
         if let Some(result) = self.validate_staples_response(player, response) {
             return Some(result);
@@ -527,9 +521,6 @@ impl Game {
         frame: Resolving,
         instruction: Instruction,
     ) -> Result<(), String> {
-        if !self.prepared.config.actions_profile() {
-            return Err("unsupported resolution instruction profile".into());
-        }
         let player = frame.spell.controller;
         match instruction {
             i @ (Instruction::MoveSet { .. }
@@ -837,9 +828,6 @@ impl Game {
             self.validate_activated_entry(entry, *ability, source_handles)?;
         }
         if let Frame::ResolutionChoice { frame, choice } = &self.state.frame {
-            if !self.prepared.config.actions_profile() {
-                return Err("snapshot resolution choice profile invariant".into());
-            }
             let instruction = self
                 .program_for(&frame.spell)?
                 .instructions

@@ -1,5 +1,9 @@
 # Creature tokens and +1/+1 counters — `commander-tokens-v1`
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 P6.3 slice, following `commander-combat-keywords-v1`
 (docs/game-engine-combat-keywords.md). Adds creature-token creation and +1/+1
 counters, and releases a fourth finite legal Commander profile. Earlier

@@ -71,7 +71,7 @@ pub(super) fn choose(
         selected_program(catalog, observation).is_some_and(search_candidates::beneficial);
     Ok(match request {
         PlayerRequest::AnnounceX { .. } => {
-            return Err("X request outside historical profile".into());
+            return Err("X request unsupported by this completion policy".into());
         }
         PlayerRequest::SacrificeCost { .. } | PlayerRequest::ForcedSacrifice { .. } => {
             return Err("sacrifice request outside foundations search".into());
@@ -80,7 +80,7 @@ pub(super) fn choose(
         | PlayerRequest::SearchLands { .. }
         | PlayerRequest::OptionalEffect { .. }
         | PlayerRequest::OptionalRecursion { .. } => {
-            return Err("staples request outside historical policy".into());
+            return Err("staples request unsupported by this completion policy".into());
         }
         PlayerRequest::Priority { .. } => {
             if view.active != Some(view.viewer)

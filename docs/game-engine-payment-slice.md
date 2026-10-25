@@ -1,5 +1,9 @@
 # Casting-time intrinsic mana
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 The subsequent [turns/permanents slice](game-engine-turns-slice.md) adds the
 fifth exact configuration, IR v3, snapshot/bundle v7, and projection v5. The
 version-6 evidence and restrictions below describe this earlier slice.

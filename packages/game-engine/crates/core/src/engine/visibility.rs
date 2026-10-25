@@ -786,7 +786,7 @@ impl Game {
                 .filter(|o| o.zone == Zone::Battlefield && o.attached_to == Some(object.id))
                 .map(|o| self.handle_for(viewer, o.id))
                 .collect::<Result<Vec<_>, _>>()?,
-            keywords: if self.attachments_enabled() && self.target_is_creature(object.id) {
+            keywords: if self.target_is_creature(object.id) {
                 self.current_keywords(object.id)
             } else {
                 vec![]
@@ -808,11 +808,7 @@ impl Game {
                     keywords: t.definition.keywords.clone(),
                 }),
             plus_one_counters: object.plus_one_counters.clone(),
-            characteristics: if self.prepared.config.effects_profile() {
-                Some(self.characteristics(object.id)?)
-            } else {
-                None
-            },
+            characteristics: { Some(self.characteristics(object.id)?) },
             marked_damage: object.marked_damage.clone(),
             attack_ready: object.attack_ready,
             handle: self.handle_for(viewer, object.id)?,
@@ -962,11 +958,7 @@ impl Game {
             mode: instance.mode,
             triggered,
             entity_targets,
-            handle: if self.prepared.config.stack_costs_profile() {
-                Some(self.stack_handle_for(viewer, instance.id)?)
-            } else {
-                None
-            },
+            handle: { Some(self.stack_handle_for(viewer, instance.id)?) },
             stack_targets,
             spell,
             ability,
@@ -1244,7 +1236,7 @@ impl Game {
                                 .filter(|a| self.has_keyword(*a, KeywordAbility::Menace))
                                 .collect(),
                         )?,
-                        legal_attackers: if self.profile_at_least(KEYWORDS_PROFILE) {
+                        legal_attackers: {
                             candidates
                                 .iter()
                                 .map(|b| {
@@ -1260,8 +1252,6 @@ impl Game {
                                     })
                                 })
                                 .collect::<Result<Vec<_>, String>>()?
-                        } else {
-                            vec![]
                         },
                         token,
                         player: viewer,
@@ -1454,7 +1444,7 @@ impl Game {
         }
         for object in self.state.objects.values() {
             if let Some(o) = self.visible_object(viewer, object)? {
-                if self.removal_enabled() && o.zone == Zone::Exile {
+                if o.zone == Zone::Exile {
                     view.players[o.owner.0 as usize]
                         .exile
                         .push(o.handle.clone());
@@ -1488,9 +1478,6 @@ impl Game {
                 .state
                 .stack
                 .iter()
-                .filter(|entry| {
-                    !entry.kind.is_spell() || self.prepared.config.stack_costs_profile()
-                })
                 .map(|entry| entry.id)
                 .collect::<Vec<_>>();
             let triggers = self
@@ -1522,15 +1509,7 @@ impl Game {
                 {
                     let handle = StackHandle(scoped(
                         &k.namespace,
-                        format!(
-                            "v{v}-{}{}",
-                            if self.prepared.config.stack_costs_profile() {
-                                "s"
-                            } else {
-                                "a"
-                            },
-                            k.next_ability_handle
-                        ),
+                        format!("v{v}-{}{}", "s", k.next_ability_handle),
                     ));
                     k.next_ability_handle = k
                         .next_ability_handle
@@ -1702,16 +1681,7 @@ impl Game {
             PlayerResponse::StackTargets { entries } => entries.len(),
             _ => 0,
         };
-        if size
-            > std::cmp::max(
-                self.state.objects.len(),
-                if self.prepared.config.triggers_profile() {
-                    self.stack_limit()
-                } else {
-                    0
-                },
-            )
-        {
+        if size > std::cmp::max(self.state.objects.len(), self.stack_limit()) {
             return Err("oversized player declaration".into());
         }
         match response {
