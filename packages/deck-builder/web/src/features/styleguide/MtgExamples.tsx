@@ -9,6 +9,7 @@ import {
   CardLookupProvider,
   CardOpenProvider,
   CardRef,
+  CardSheet,
   ColorIdentity,
   InlineText,
   ManaCost,
@@ -20,6 +21,7 @@ import {
   useCardLookup,
   type CardInfo,
 } from "../../mtg/index.ts";
+import { Button, Row } from "../../ui/index.ts";
 import styles from "./MtgExamples.module.css";
 
 const SYMBOLS = ["W", "U", "B", "R", "G", "C", "X", "0", "3", "12", "S", "T"];
@@ -64,6 +66,7 @@ function Prime({ cards, children }: { cards: CardInfo[]; children: ReactNode }) 
 function CardExamples({ cards }: { cards: CardInfo[] }) {
   const [a, b, c] = cards;
   const [opened, setOpened] = useState<string | null>(null);
+  const [sheet, setSheet] = useState<"center" | "sheet" | null>(null);
   const markdown = [
     "## A heading",
     `Plain prose with **bold**, *italic*, \`inline code\` and a [link](https://scryfall.com). Hover the reference to see the card: [[${a.name}]].`,
@@ -98,6 +101,14 @@ function CardExamples({ cards }: { cards: CardInfo[] }) {
         <Labelled label="bare (inside a framed surface)">
           <OracleText text={b.oracle_text} bare />
         </Labelled>
+      </Example>
+
+      <Example title="CardSheet" note="The hover card's touch form: tapped open, a bottom sheet on a phone and a small dialog otherwise. Read-only decks open every card this way.">
+        <Row gap={4} wrap>
+          <Button onClick={() => setSheet("center")}>Open as a dialog</Button>
+          <Button size="touch" onClick={() => setSheet("sheet")}>Open as a sheet</Button>
+        </Row>
+        {sheet && <CardSheet card={a} sheet={sheet === "sheet"} onClose={() => setSheet(null)} />}
       </Example>
 
       <Example title="CardImage" note="Fixed 488 / 680 proportions. The placeholder keeps the footprint until the picture loads, and when it cannot.">

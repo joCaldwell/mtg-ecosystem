@@ -113,6 +113,9 @@ export function CardHoverProvider({ children }: { children: ReactNode }) {
   const show = useCallback(
     (card: string | CardInfo, el: HTMLElement) => {
       hide();
+      // Touch screens emulate a hover on tap; there the card opens as a sheet
+      // instead (CardSheet), so a tap never leaves a stray hover card behind.
+      if (typeof window.matchMedia === "function" && window.matchMedia("(hover: none)").matches) return;
       anchorEl.current = el;
       const mine = epoch.current;
       timer.current = window.setTimeout(() => {

@@ -7,6 +7,11 @@
   padding: var(--s-6) var(--s-6) calc(var(--s-8) * 2);
 }
 
+/* Read-only: part of a page that scrolls as a whole (ReadOnlyDeck). */
+.flow {
+  min-width: 0;
+}
+
 .cols {
   columns: 3 250px;
   column-gap: var(--s-7);

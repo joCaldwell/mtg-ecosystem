@@ -19,6 +19,9 @@ const PATHS = {
   search: "M7 12a5 5 0 100-10 5 5 0 000 10z M11 11l3 3",
   // Three dots: zero-length segments with round caps, drawn thicker so they read.
   more: "M3.5 8h.01 M8 8h.01 M12.5 8h.01",
+  // Sharing (spec §18): public is the globe, unlisted the link.
+  globe: "M8 14.5a6.5 6.5 0 100-13 6.5 6.5 0 000 13z M1.5 8h13 M8 1.5c1.8 1.8 2.6 4 2.6 6.5S9.8 12.7 8 14.5 M8 1.5C6.2 3.3 5.4 5.5 5.4 8s.8 4.7 2.6 6.5",
+  link: "M6.6 9.4a2.6 2.6 0 003.7 0l2.3-2.3a2.6 2.6 0 10-3.7-3.7l-.9.9 M9.4 6.6a2.6 2.6 0 00-3.7 0L3.4 8.9a2.6 2.6 0 103.7 3.7l.9-.9",
 } as const;
 
 export type IconName = keyof typeof PATHS;

@@ -19,9 +19,11 @@ interface BriefFieldProps {
   onSave: (next: string) => Promise<boolean>;
   /** Pending proposed edits, shown in place under the field. */
   children?: ReactNode;
+  /** false: no Edit button at all, for a deck nobody here can edit (ReadOnlyDeck). */
+  editable?: boolean;
 }
 
-export function BriefField({ title, value, purpose, onSave, children, readOnly = false }: BriefFieldProps) {
+export function BriefField({ title, value, purpose, onSave, children, readOnly = false, editable = true }: BriefFieldProps) {
   const [draft, setDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const area = useRef<HTMLTextAreaElement>(null);
@@ -59,7 +61,7 @@ export function BriefField({ title, value, purpose, onSave, children, readOnly =
     <section className={styles.field}>
       <div className={styles.head}>
         <Eyebrow>{title}</Eyebrow>
-        <div className={styles.actions}>
+        {editable && <div className={styles.actions}>
           {editing ? (
             <>
               <Button size="sm" variant="ghost" onClick={() => setDraft(null)} disabled={busy}>
@@ -74,7 +76,7 @@ export function BriefField({ title, value, purpose, onSave, children, readOnly =
               Edit
             </Button>
           )}
-        </div>
+        </div>}
       </div>
       {editing ? (
         <>

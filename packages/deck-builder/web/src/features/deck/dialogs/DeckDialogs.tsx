@@ -3,6 +3,7 @@ import { CompareDialog } from "./CompareDialog.tsx";
 import { DeleteDeckDialog } from "./DeleteDeckDialog.tsx";
 import { ForkDialog } from "./ForkDialog.tsx";
 import { InteropDialog } from "./InteropDialog.tsx";
+import { ShareDialog } from "./ShareDialog.tsx";
 import { SlotsDialog } from "./SlotsDialog.tsx";
 
 /** The dialog the deck screen has asked for, if any. */
@@ -17,6 +18,8 @@ export function DeckDialogs() {
       return <InteropDialog onClose={closeDialog} />;
     case "slots":
       return <SlotsDialog onClose={closeDialog} />;
+    case "share":
+      return <ShareDialog onClose={closeDialog} />;
     case "delete":
       return <DeleteDeckDialog onClose={closeDialog} />;
     case null:

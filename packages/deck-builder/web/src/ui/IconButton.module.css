@@ -19,3 +19,8 @@
   width: var(--h-sm);
   height: var(--h-sm);
 }
+
+.touch {
+  width: var(--tap);
+  height: var(--tap);
+}

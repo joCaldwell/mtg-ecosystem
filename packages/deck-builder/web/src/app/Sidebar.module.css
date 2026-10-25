@@ -132,3 +132,10 @@
   color: var(--text);
   font-weight: 550;
 }
+
+/* Shared decks (spec §18.2): a quiet glyph, grey because sharing is not one of the colour meanings. */
+.shared {
+  display: inline-flex;
+  flex: none;
+  color: var(--faint);
+}

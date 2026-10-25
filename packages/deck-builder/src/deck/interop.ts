@@ -64,6 +64,10 @@ import { requireDeck } from "./service.ts";
 //    header with a colon: SIDEBOARD:, ATTRACTIONS:, STICKERS:. The
 //    companion is an unmarked line under SIDEBOARD:. The maybeboard
 //    ("Considering") is never exported.
+//  * Names: "Copy Plain Text" and "Copy for Moxfield" use the printed name
+//    Scryfall uses ("Spider-Punk"); "Copy for MTGO" uses MTGO's own name where
+//    it differs ("Kraza, the Swarm as One"), which then fails to resolve and
+//    is reported like any unknown name. Plain Text is the one to paste.
 //  * The commander: "Copy for MTGO", "Download for MTGO" and "Copy Plain
 //    Text" put it in a final block after a blank line, with no header (all
 //    12 decks). "Copy for Moxfield" lists it first with no marker at all, so

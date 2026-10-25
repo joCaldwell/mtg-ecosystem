@@ -1,0 +1,61 @@
+.card {
+  display: grid;
+  grid-template-columns: minmax(0, 200px) minmax(0, 1fr);
+  gap: var(--s-6);
+  align-items: start;
+}
+
+.image,
+.pending {
+  width: 100%;
+  aspect-ratio: 488 / 680;
+  border-radius: 4.75% / 3.4%;
+  background: var(--bg);
+}
+
+.pending {
+  visibility: hidden;
+}
+
+.facts {
+  display: grid;
+  gap: var(--s-4);
+  min-width: 0;
+}
+
+.head:empty {
+  display: none;
+}
+
+.type {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-3);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.pt {
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+}
+
+.price {
+  margin-left: auto;
+}
+
+/* On a phone the picture leads and the text follows. */
+@media (max-width: 719px) {
+  .card {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+  }
+  .image,
+  .pending {
+    max-width: 260px;
+  }
+  .facts {
+    width: 100%;
+  }
+}

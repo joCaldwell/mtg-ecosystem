@@ -48,3 +48,11 @@
 .row > :last-child {
   align-self: center;
 }
+
+@media (max-width: 719px) {
+  .row {
+    flex-wrap: wrap;
+    align-items: center;
+    min-height: var(--tap);
+  }
+}

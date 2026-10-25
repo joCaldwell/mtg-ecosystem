@@ -1,0 +1,32 @@
+.page {
+  display: grid;
+  gap: var(--s-6);
+  padding: var(--s-7) var(--s-6);
+}
+
+.head {
+  display: grid;
+  gap: var(--s-2);
+}
+
+.title {
+  font-size: var(--text-xl);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.name {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* A table scrolls inside its own box, never the page (no horizontal page scroll at 375 px). */
+.tableWrap {
+  overflow-x: auto;
+}
+
+@media (max-width: 719px) {
+  .page {
+    padding: var(--s-6) var(--s-4);
+  }
+}

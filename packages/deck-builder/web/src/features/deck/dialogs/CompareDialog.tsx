@@ -3,9 +3,8 @@ import { api, type DeckComparison } from "../../../api/client.ts";
 import { useQuery } from "../../../api/useQuery.ts";
 import { Button, Dialog, ErrorNote, Field, Loading, Row, Select, Spacer, Stack, Text } from "../../../ui/index.ts";
 import { useDeck, useDeckState } from "../DeckStore.tsx";
-import { CardLine } from "./CardLine.tsx";
+import { Differences } from "./Differences.tsx";
 import { useAttempt } from "./useAttempt.ts";
-import styles from "./CompareDialog.module.css";
 
 // Compare this deck with any other, and record which deck it was forked
 // from — a deck copied by hand has no such link until it is set here.
@@ -13,7 +12,9 @@ export function CompareDialog({ onClose }: { onClose: () => void }) {
   const { deckId } = useDeck();
   const { deck } = useDeckState();
   const parent = deck.parent;
-  const [other, setOther] = useState<number | null>(parent?.id ?? null);
+  // A fork of another user's shared deck compares with it while it can still be read (§18.4).
+  const upstream = deck.upstream;
+  const [other, setOther] = useState<number | "upstream" | null>(parent?.id ?? (upstream ? "upstream" : null));
   const { error, mutate } = useAttempt();
 
   const decks = useQuery(() => api.listDecks(), []);
@@ -21,11 +22,11 @@ export function CompareDialog({ onClose }: { onClose: () => void }) {
 
   // Refetched when this deck's revision moves, so the diff never describes a list that has changed.
   const comparison = useQuery(
-    () => (other == null ? Promise.resolve(null) : api.compareDecks(deckId, other)),
+    () => (other == null ? Promise.resolve(null) : other === "upstream" ? api.compareShared(deckId, upstream!.slug) : api.compareDecks(deckId, other)),
     [deckId, other, deck.revision],
   );
   // The previous result stays while a refetch runs; it must not be shown for a different deck.
-  const diff = comparison.data && comparison.data.b.id === other ? comparison.data : null;
+  const diff = comparison.data && (other === "upstream" ? comparison.data.b.slug === upstream?.slug : comparison.data.b.id === other) ? comparison.data : null;
 
   return (
     <Dialog title="Compare decks" width="lg" onClose={onClose} footer={<Button onClick={onClose}>Close</Button>}>
@@ -34,10 +35,11 @@ export function CompareDialog({ onClose }: { onClose: () => void }) {
           <Field label="Compare with">
             <Select
               value={other ?? ""}
-              onChange={(e) => setOther(e.target.value === "" ? null : Number(e.target.value))}
+              onChange={(e) => setOther(e.target.value === "" ? null : e.target.value === "upstream" ? "upstream" : Number(e.target.value))}
               data-autofocus=""
             >
               <option value="">Choose a deck…</option>
+              {upstream && <option value="upstream">{upstream.owner_handle}/{upstream.name} (forked from, shared)</option>}
               {others.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.name}
@@ -47,11 +49,11 @@ export function CompareDialog({ onClose }: { onClose: () => void }) {
             </Select>
           </Field>
           <Spacer />
-          {other != null && other !== parent?.id ? (
+          {typeof other === "number" && other !== parent?.id ? (
             <Button
               size="sm"
               title="Record that this deck was forked from the one selected"
-              onClick={() => mutate(() => api.setDeckParent(deckId, other))}
+              onClick={() => typeof other === "number" && mutate(() => api.setDeckParent(deckId, other))}
             >
               Mark this deck as a fork of it
             </Button>
@@ -74,90 +76,5 @@ export function CompareDialog({ onClose }: { onClose: () => void }) {
         {diff ? <Differences diff={diff} /> : null}
       </Stack>
     </Dialog>
-  );
-}
-
-function Differences({ diff }: { diff: DeckComparison }) {
-  const { a, b } = diff;
-  const none = diff.only_in_a.length + diff.only_in_b.length + diff.quantity_differs.length + diff.role_differs.length === 0;
-  return (
-    <Stack gap={6}>
-      <Text tone="muted" as="p">
-        <Text mono tone="soft">
-          {diff.shared_count}
-        </Text>{" "}
-        cards are in both. Maybe lists are not compared.
-        {none ? " The two lists are the same." : ""}
-      </Text>
-
-      <div className={styles.columns}>
-        <Side title={`Only in ${a.name}`} cards={diff.only_in_a} />
-        <Side title={`Only in ${b.name}`} cards={diff.only_in_b} />
-      </div>
-
-      {diff.quantity_differs.length > 0 ? (
-        <Stack gap={2}>
-          <Text weight="medium" size="sm" as="h3">
-            Different quantities · {diff.quantity_differs.length}
-          </Text>
-          <ul className={styles.list}>
-            {diff.quantity_differs.map((q) => (
-              <li key={q.name} className={styles.diffLine}>
-                <span className={styles.diffName}>{q.name}</span>
-                <Text tone="muted" size="sm" mono>
-                  {q.in_a} in {a.name} · {q.in_b} in {b.name}
-                </Text>
-              </li>
-            ))}
-          </ul>
-        </Stack>
-      ) : null}
-
-      {diff.role_differs.length > 0 ? (
-        <Stack gap={2}>
-          <Text weight="medium" size="sm" as="h3">
-            Different roles · {diff.role_differs.length}
-          </Text>
-          <ul className={styles.list}>
-            {diff.role_differs.map((r) => (
-              <li key={r.name} className={styles.diffLine}>
-                <span className={styles.diffName}>{r.name}</span>
-                <Text tone="muted" size="sm">
-                  {r.in_a} in {a.name} · {r.in_b} in {b.name}
-                </Text>
-              </li>
-            ))}
-          </ul>
-        </Stack>
-      ) : null}
-    </Stack>
-  );
-}
-
-function Side({ title, cards }: { title: string; cards: DeckComparison["only_in_a"] }) {
-  return (
-    <Stack gap={2} className={styles.side}>
-      <Text weight="medium" size="sm" as="h3" className={styles.sideTitle}>
-        {title} · <Text mono>{cards.length}</Text>
-      </Text>
-      {cards.length ? (
-        <ul className={styles.list}>
-          {cards.map((c) => (
-            <CardLine
-              key={c.oracle_id}
-              oracleId={c.oracle_id}
-              name={c.name}
-              quantity={c.quantity}
-              cost={c.mana_cost}
-              detail={c.type_line}
-            />
-          ))}
-        </ul>
-      ) : (
-        <Text tone="muted" size="sm" as="p">
-          None.
-        </Text>
-      )}
-    </Stack>
   );
 }

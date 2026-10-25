@@ -21,13 +21,13 @@ export function InteropDialog({ onClose }: { onClose: () => void }) {
   const [draft, setDraft] = useState<ImportDraft>({ paste: "", note: "", diff: null });
   return (
     <Dialog
-      title="Archidekt"
+      title="Import and export"
       width="lg"
       onClose={onClose}
       footer={<Button onClick={onClose}>Close</Button>}
     >
       <Tabs
-        aria-label="Archidekt"
+        aria-label="Import and export"
         tabs={[
           { id: "export", label: "Export" },
           ...(readOnly ? [] : [{ id: "import", label: "Import" }]),

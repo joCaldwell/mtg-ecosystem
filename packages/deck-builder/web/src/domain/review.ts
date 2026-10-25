@@ -1,7 +1,7 @@
 // Ruling on proposals (spec §8). The owner decides in units, never in loose
 // items, and sees the list as it would look if everything pending were accepted.
 
-import type { DeckState, Proposal, ProposalItem } from "../api/client.ts";
+import type { DeckListState, Proposal, ProposalItem } from "../api/client.ts";
 import { groupKeyForAdd, pendingOf } from "./grouping.ts";
 import type { DeckLayout, GroupBy } from "./grouping.ts";
 import { pendingItems } from "./inbox.ts";
@@ -72,7 +72,7 @@ export interface ReviewOverlay {
 }
 
 /** What the list looks like if every pending item were accepted. */
-export function reviewOverlay(state: DeckState, layout: DeckLayout, groupBy: GroupBy): ReviewOverlay {
+export function reviewOverlay(state: DeckListState, layout: DeckLayout, groupBy: GroupBy): ReviewOverlay {
   const pending = pendingOf(state);
   const cuts = new Set(pending.filter((i) => i.action === "cut").map((i) => i.oracle_id));
 

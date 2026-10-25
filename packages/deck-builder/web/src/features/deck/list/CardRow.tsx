@@ -5,6 +5,7 @@
 import type { KeyboardEvent, MouseEvent } from "react";
 import type { CardMark } from "../../../domain/marks.ts";
 import { ManaCost, Price, useCardHover, type CardInfo } from "../../../mtg/index.ts";
+import { useDeckList } from "../DeckStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import { Mark } from "./Mark.tsx";
 import styles from "./CardRow.module.css";
@@ -28,11 +29,12 @@ export interface CardRowProps {
 
 export function CardRow({ card, quantity = 1, change, mark, bold, current, filterMatch, purpose }: CardRowProps) {
   const ui = useDeckUi();
+  const { readOnly } = useDeckList();
   const hover = useCardHover();
   const selected = ui.selected.includes(card.oracle_id);
   const open = ui.openCard?.oracleId === card.oracle_id;
-  // Proposed adds are not in the deck, so there is nothing to select.
-  const selectable = change !== "add";
+  // Proposed adds are not in the deck, and a read-only list has no selection.
+  const selectable = change !== "add" && !readOnly;
 
   function onClick(e: MouseEvent) {
     if (selectable && (e.ctrlKey || e.metaKey || e.shiftKey)) ui.toggleSelected(card.oracle_id);

@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef } from "react";
 import type { ProposalItem } from "../../../api/client.ts";
 import { costOf } from "../../../domain/price.ts";
 import { EmptyState, Text } from "../../../ui/index.ts";
-import { useDeckState } from "../DeckStore.tsx";
+import { useDeckList } from "../DeckStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import type { DeckViewModel } from "../useDeckView.ts";
 import { GroupBlock } from "./GroupBlock.tsx";
@@ -24,7 +24,7 @@ const NONE = new Set<string>();
 const NO_ADDS = new Map<string, ProposalItem[]>();
 
 export function DeckList({ view }: { view: DeckViewModel }) {
-  const state = useDeckState();
+  const { state, readOnly } = useDeckList();
   const ui = useDeckUi();
   const scroll = useRef<HTMLDivElement>(null);
   const { layout, overlay, marks, units, matches } = view;
@@ -52,10 +52,10 @@ export function DeckList({ view }: { view: DeckViewModel }) {
   const nothingToShow = state.cards.length === 0 && !(reviewing && overlay.addsByGroup.size > 0);
 
   return (
-    <div ref={scroll} className={styles.scroll}>
+    <div ref={scroll} className={readOnly ? styles.flow : styles.scroll}>
       {nothingToShow ? (
         <EmptyState title="No cards yet">
-          Use the bar above to add the first one, or import a list from the More menu.
+          {readOnly ? "This deck has no cards in it yet." : "Use the bar above to add the first one, or import a list from the More menu."}
         </EmptyState>
       ) : (
         <>
@@ -71,7 +71,7 @@ export function DeckList({ view }: { view: DeckViewModel }) {
               bold
               empty={
                 <p className={styles.hint}>
-                  No commander yet. Search for a legendary creature above and add it as the commander.
+                  {readOnly ? "No commander yet." : "No commander yet. Search for a legendary creature above and add it as the commander."}
                 </p>
               }
             />
@@ -120,9 +120,11 @@ export function DeckList({ view }: { view: DeckViewModel }) {
             <Mark kind={kind} /> {label}
           </Text>
         ))}
-        <Text tone="faint" size="xs">
-          Ctrl-click to select several
-        </Text>
+        {!readOnly && (
+          <Text tone="faint" size="xs">
+            Ctrl-click to select several
+          </Text>
+        )}
       </p>
     </div>
   );

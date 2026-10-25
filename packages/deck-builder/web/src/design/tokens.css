@@ -104,6 +104,8 @@
   --h-md: 26px;
   --h-lg: 30px;
   --row: 24px;
+  /* Touch: the smallest thing a finger is asked to hit (DESIGN.md, narrow screens). */
+  --tap: 44px;
 
   /* Layout */
   --sidebar-w: 216px;
@@ -114,6 +116,14 @@
   --panel-w-max: 640px;
   --list-w-min: 360px;
   --measure: 720px;
+  /* Shared pages and the phone view (spec §18.5, §11.2). The phone breakpoint
+     itself is PHONE_MAX_WIDTH in app/breakpoints.ts: media queries cannot
+     read a custom property. */
+  --public-w: 1240px;
+  --art-h: 176px;
+  --art-fade: linear-gradient(180deg, rgba(13, 14, 16, 0.15) 0%, rgba(13, 14, 16, 0.6) 55%, var(--bg) 100%);
+  --phone-bar-h: 48px;
+  --sheet-max-h: 86dvh;
 
   /* Elevation and stacking */
   --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.55);

@@ -79,3 +79,8 @@
   border-color: var(--agent);
   background: var(--agent-bg);
 }
+
+.touch {
+  height: var(--tap);
+  padding: 0 var(--s-6);
+}

@@ -15,10 +15,11 @@ export interface Review {
   /** The unit under the cursor, or null when nothing is pending. */
   current: ReviewUnit | null;
   confirmation: ReactNode;
-  accept: (unit: ReviewUnit) => Promise<void>;
+  /** The optional reason is recorded with the acceptance (the phone view asks for one, §11.2). */
+  accept: (unit: ReviewUnit, reason?: string) => Promise<void>;
   reject: (unit: ReviewUnit, reason: string) => Promise<void>;
   /** Accept every pending item of every open proposal on this deck. */
-  acceptAll: () => Promise<void>;
+  acceptAll: (reason?: string) => Promise<void>;
 }
 
 export function useReview(units: ReviewUnit[]): Review {
@@ -46,10 +47,10 @@ export function useReview(units: ReviewUnit[]): Review {
   );
 
   const accept = useCallback(
-    async (unit: ReviewUnit) => {
+    async (unit: ReviewUnit, reason = "") => {
       const proposal = state?.proposals.find(p => p.id === unit.proposalId);
       const submit = async () => {
-        const result = await run(() => api.ruleItems(deckId, unit.itemIds, "accept", "", {
+        const result = await run(() => api.ruleItems(deckId, unit.itemIds, "accept", reason.trim(), {
           expected_revision: state?.deck.revision, ...(proposal?.stale ? { acknowledge_stale: true } : {}),
         }));
         if (!result) return;
@@ -81,14 +82,14 @@ export function useReview(units: ReviewUnit[]): Review {
     [deckId, run, inbox, toast, ui],
   );
 
-  const acceptAll = useCallback(async () => {
+  const acceptAll = useCallback(async (reason = "") => {
     const open = (state?.proposals ?? []).filter((p) => p.items.some((i) => i.status === "pending"));
     const submit = async () => {
       if (!state || !open.length) return;
       const result = await run(() => api.acceptProposals(deckId, open.map(proposal => ({
         proposal_id: proposal.id,
         ...(proposal.stale ? { acknowledge_stale: true } : {}),
-      })), state.deck.revision));
+      })), state.deck.revision, reason.trim()));
       if (!result) return;
       inbox.apply(result.inbox);
       toast(`Accepted everything that was open. The deck is at r${result.state.deck.revision}.`);

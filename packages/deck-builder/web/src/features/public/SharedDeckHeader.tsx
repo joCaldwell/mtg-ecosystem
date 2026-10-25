@@ -1,0 +1,90 @@
+// A shared deck's header (spec §18.5, D20): the commander's art crop with its
+// artist line, the deck's name and owner, and what a reader can do with it.
+// The art is the stored Scryfall CDN URL (D10); without a stored artist the
+// picture is left out rather than shown uncredited.
+
+import { Fragment, useState } from "react";
+import type { PublicDeckState } from "../../api/client.ts";
+import { href } from "../../app/routes.ts";
+import { useSession } from "../../app/Session.tsx";
+import { bracketLabel } from "../../domain/power.ts";
+import { DECK_CATEGORY_LABELS } from "../../domain/deckCategory.ts";
+import { CardRef, ColorIdentity } from "../../mtg/index.ts";
+import { Button, Chip, Icon, useToast } from "../../ui/index.ts";
+import { CompareSharedDialog, ExportSharedDialog, ForkSharedDialog } from "./SharedDialogs.tsx";
+import styles from "./SharedDeckHeader.module.css";
+
+type Open = "fork" | "compare" | "export" | null;
+
+export function SharedDeckHeader({ shared, own }: { shared: PublicDeckState; own: boolean }) {
+  const { session } = useSession();
+  const { toast } = useToast();
+  const [open, setOpen] = useState<Open>(null);
+  const { deck, power } = shared;
+  const signedIn = session.mode === "local" || !!session.user;
+  const commanders = shared.cards.filter((c) => c.role === "commander" && !c.maybe);
+  const art = commanders.find((c) => c.image_art_crop && c.artist);
+  const link = `${location.origin}${href({ page: "shared", slug: deck.slug })}`;
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(link);
+      toast("Link copied.");
+    } catch {
+      toast(`Copy this link: ${link}`);
+    }
+  }
+
+  return (
+    <header className={styles.header}>
+      <div className={art ? styles.art : styles.plain}>
+        {art && <img className={styles.image} src={art.image_art_crop!} alt="" loading="eager" />}
+        {art && <span className={styles.credit}>Art by {art.artist} · {art.name}</span>}
+      </div>
+      <div className={styles.text}>
+        <div className={styles.meta}>
+          <Chip>{DECK_CATEGORY_LABELS[deck.category]}</Chip>
+          {deck.visibility !== "private" && (
+            <span className={styles.visibility}>
+              <Icon name={deck.visibility === "public" ? "globe" : "link"} />
+              {deck.visibility === "public" ? "Public" : "Unlisted"}
+            </span>
+          )}
+          <ColorIdentity colors={deck.color_identity} />
+        </div>
+        <h1 className={styles.title}>{deck.name}</h1>
+        <p className={styles.byline}>
+          by <a href={href({ page: "user", handle: deck.owner.handle })}>{deck.owner.display_name}</a>{" "}
+          <span className={styles.handle}>@{deck.owner.handle}</span>
+          {deck.parent && (
+            <>
+              {" · forked from "}
+              <a href={href({ page: "shared", slug: deck.parent.slug })}>{deck.parent.owner_handle}/{deck.parent.name}</a>
+            </>
+          )}
+        </p>
+        <p className={styles.commanders}>
+          {commanders.length
+            ? commanders.map((c, i) => <Fragment key={c.oracle_id}>{i > 0 && " + "}<CardRef name={c.name} /></Fragment>)
+            : "No commander yet"}
+          {power.target && <span className={styles.bracket}> · target {bracketLabel(power.target.mapping)}{power.target.mapping.name ? ` ${power.target.mapping.name}` : ""}</span>}
+        </p>
+        <div className={styles.actions}>
+          <Button size="touch" onClick={() => void copyLink()}><Icon name="link" /> Copy link</Button>
+          <Button size="touch" onClick={() => setOpen("export")}>Export</Button>
+          {signedIn ? (
+            <>
+              <Button size="touch" variant="primary" onClick={() => setOpen("fork")}>{own ? "Fork your deck" : "Fork"}</Button>
+              <Button size="touch" onClick={() => setOpen("compare")}>Compare with one of my decks</Button>
+            </>
+          ) : (
+            <a className={styles.signin} href={href({ page: "signin" })}>Sign in to fork or compare</a>
+          )}
+        </div>
+      </div>
+      {open === "export" && <ExportSharedDialog shared={shared} onClose={() => setOpen(null)} />}
+      {open === "fork" && <ForkSharedDialog shared={shared} onClose={() => setOpen(null)} />}
+      {open === "compare" && <CompareSharedDialog shared={shared} onClose={() => setOpen(null)} />}
+    </header>
+  );
+}

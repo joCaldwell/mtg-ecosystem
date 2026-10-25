@@ -6,7 +6,8 @@ export interface IconButtonProps
   extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-label" | "title"> {
   /** What the button does. Becomes the accessible name and the tooltip. */
   label: string;
-  size?: "sm" | "md";
+  /** `touch` is one touch target tall (--tap), for phone and touch layouts. */
+  size?: "sm" | "md" | "touch";
 }
 
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
@@ -19,7 +20,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
       type={type}
       aria-label={label}
       title={label}
-      className={cx(styles.iconButton, size === "sm" && styles.sm, className)}
+      className={cx(styles.iconButton, size === "sm" && styles.sm, size === "touch" && styles.touch, className)}
       {...rest}
     >
       {children}

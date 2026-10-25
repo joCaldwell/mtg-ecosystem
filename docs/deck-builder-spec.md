@@ -886,10 +886,21 @@ and [implementation guide](playtester.md). Archidekt interop remains available.
 - One-way out, one-way in. No sync layer.
 - **Moxfield import** *(phase 4a)*: the same import dialog accepts the text
   Moxfield's Export gives, with the same preview, one log entry and one
-  undo. The format is read off Moxfield's own export and cited, with
-  fixtures, in `src/deck/interop.ts`. A Moxfield list and the equivalent
-  Archidekt text import to the same deck. Paste only: no URL fetching, no
-  Moxfield API, no sync. Export stays Archidekt.
+  undo. The format is read off Moxfield's help pages and 72 real exports and
+  cited, with fixtures, in `src/deck/interop.ts`: quantity, name, optional
+  `(SET) number`, `*F*`/`*E*` and `#tags`; boards after a blank line under
+  `SIDEBOARD:`, `ATTRACTIONS:` or `STICKERS:`; multi-face names with one
+  slash, tried as `A // B` only when the name as written does not resolve.
+  "Copy Plain Text" (and "Copy for MTGO") end with the commander in a block
+  of its own, which the import puts in the command zone; the sideboard
+  (where Moxfield keeps the companion) goes to the maybe list like
+  Archidekt's; attraction and sticker boards are left out and reported.
+  "Copy for Moxfield" marks no commander at all, so the preview says so
+  rather than guessing (reading its order would be wrong for 2 of the 12
+  sampled decks). The dialog recommends "Copy Plain Text": it uses the names
+  Scryfall uses, where "Copy for MTGO" may use MTGO's own. A Moxfield list
+  and the equivalent Archidekt text import to the same deck. Paste only: no
+  URL fetching, no Moxfield API, no sync. Export stays Archidekt.
 
 Verify Archidekt's and Moxfield's text formats against their own
 documentation (or, where none exists, a real export) and cite the sources in

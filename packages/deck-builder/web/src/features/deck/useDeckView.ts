@@ -10,7 +10,7 @@ import { matchDeckList, type DeckFilterMatches } from "../../domain/deckSearch.t
 import { layoutDeck, type DeckLayout } from "../../domain/grouping.ts";
 import { cardMarks, type CardMark } from "../../domain/marks.ts";
 import { reviewOverlay, reviewUnits, type ReviewOverlay, type ReviewUnit } from "../../domain/review.ts";
-import { useDeckState } from "./DeckStore.tsx";
+import { useDeckList } from "./DeckStore.tsx";
 import { useDeckUi } from "./DeckUi.tsx";
 
 export interface DeckViewModel {
@@ -36,11 +36,13 @@ export function useSharedDeckView(): DeckViewModel {
   return view;
 }
 
-export function useDeckView(): DeckViewModel {
-  const state = useDeckState();
+/** `memories: false` for read-only views: a shared deck's viewer has no
+ *  memories to mark, and the phone view does not show them. */
+export function useDeckView({ memories: withMemories = true }: { memories?: boolean } = {}): DeckViewModel {
+  const { state } = useDeckList();
   const { groupBy, sortBy, reviewing, searchTerm, tagIds, tagMatch, tagInverted } = useDeckUi();
   // Active memories of every scope; cardMarks keeps the global ones and this deck's.
-  const memories = useQuery(() => api.listMemories(), [state.deck.id]);
+  const memories = useQuery(() => withMemories ? api.listMemories() : Promise.resolve(null), [state.deck.id, withMemories]);
 
   const layout = useMemo(() => layoutDeck(state, groupBy, sortBy), [state, groupBy, sortBy]);
   const units = useMemo(() => reviewUnits(state.proposals), [state.proposals]);
