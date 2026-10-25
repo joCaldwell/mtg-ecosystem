@@ -176,7 +176,10 @@ test("malformed MCP URL labels do not become a server error; invalid bearers get
 
 test("unused social and session-token listing endpoints are disabled",async()=>{
   const f=await fixture();try{
-    for(const [method,path] of [["GET","list-sessions"],["GET","list-accounts"],["POST","link-social"],["POST","unlink-account"],["POST","revoke-session"],["POST","revoke-sessions"],["POST","revoke-other-sessions"],["POST","get-access-token"],["POST","refresh-token"]])assert.equal((await f.call("/api/auth/"+path,{method,headers:{"Content-Type":"application/json"},...(method==="POST"?{body:"{}"}:{})})).status,404,path);
+    provisionIdentity(f.db,{id:"disabled-endpoint-user",name:"Endpoint reader"},beginSignup(f.db,createInvite(f.db,OWNER).code,env),env);
+    const cookie=await f.session("disabled-endpoint-user");
+    assert.equal((await f.call("/api/session",{headers:{Cookie:cookie}})).status,200);
+    for(const [method,path] of [["GET","get-session"],["GET","list-sessions"],["GET","list-accounts"],["POST","link-social"],["POST","unlink-account"],["POST","revoke-session"],["POST","revoke-sessions"],["POST","revoke-other-sessions"],["POST","get-access-token"],["POST","refresh-token"]])assert.equal((await f.call("/api/auth/"+path,{method,headers:{Cookie:cookie,"Content-Type":"application/json"},...(method==="POST"?{body:"{}"}:{})})).status,404,path);
   }finally{await f.close();}
 });
 test("unconsented DCR clients expire after a day while granted clients survive cleanup",async()=>{

@@ -365,7 +365,8 @@ re-consent. Tokens minted within the same second as disconnect may need a
 retry the next second. Handles can only be changed in the first-run picker.
 Anonymous native client registrations with no grants expire after one day;
 cleanup runs at most hourly on auth requests. Refresh rotation permits a
-five-second retry grace. Auth/session/linking endpoints unused by the product
+five-second retry grace. Auth/session/linking endpoints unused by the product (including generic HTTP
+get-session; the product uses /api/session)
 are disabled. Hashed assets are immutable for a year; HTML/auth/API responses
 are no-store. Rate buckets are isolated by kind, IPv6 shares a /64, claim
 attempts use 5/minute/IP, and OAuth token exchange uses 240/minute/client.

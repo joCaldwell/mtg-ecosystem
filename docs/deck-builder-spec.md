@@ -1262,7 +1262,7 @@ have one-second precision: a new grant issued in the disconnect second must
 be retried in the following second. Other clients/users retain access.
 Unused unconsented DCR registrations expire after one day (hourly cleanup
 on auth requests). Refresh retries have five seconds of rotation grace.
-Unused social linking/account listing/session listing/revoke endpoints are
+Unused social linking/account listing/session listing/generic HTTP get-session/revoke endpoints are
 disabled; no browser API exposes raw session tokens. Callback state/provider
 errors ask the user to restart sign-in; registration errors mention the code.
 
