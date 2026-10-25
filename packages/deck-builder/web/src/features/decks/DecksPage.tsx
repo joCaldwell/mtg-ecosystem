@@ -1,3 +1,4 @@
+import { familyOrder } from "../../domain/familyOrder.ts";
 import { Fragment, useState } from "react";
 import { api, type DeckSummary } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
@@ -22,15 +23,6 @@ import { PlayerStatsPanel } from "./PlayerStatsPanel.tsx";
 import { DeckActions, type DeckAction } from "./DeckActions.tsx";
 import { DeckActionDialog } from "./DeckActionDialog.tsx";
 
-/** Forks listed directly under the deck they came from. */
-function familyOrder(decks: DeckSummary[]): Array<{ deck: DeckSummary; fork: boolean }> {
-  const ids = new Set(decks.map((d) => d.id));
-  const roots = decks.filter((d) => d.parent_id == null || !ids.has(d.parent_id));
-  return roots.flatMap((root) => [
-    { deck: root, fork: false },
-    ...decks.filter((d) => d.parent_id === root.id).map((deck) => ({ deck, fork: true })),
-  ]);
-}
 
 function Commanders({ deck }: { deck: DeckSummary }) {
   if (deck.commanders.length === 0) return <Text tone="faint">none yet</Text>;

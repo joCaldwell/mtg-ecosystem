@@ -18,7 +18,7 @@
 //   https://scryfall.com/docs/api/sets — set_type `memorabilia`: "A set made
 //     up of gold-bordered, oversize, or trophy cards that are not legal".
 
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "./sqlite.ts";
 import { withTransaction } from "./db.ts";
 
 export type Finish = "nonfoil" | "foil" | "etched";
@@ -102,21 +102,33 @@ function isCheaper(a: CheapestPrice, b: CheapestPrice): boolean {
 // `cards` — it keeps a price for every card Scryfall prices, so a card that
 // enters the database later is priced without downloading the printings again.
 export function ingestPrices(
-  db: DatabaseSync,
+  db: Database,
   prices: Map<string, CheapestPrice>,
   asOf: string,
 ): { priced: number; unpriced: number } {
-  withTransaction(db, () => {
-    db.exec("DELETE FROM card_prices");
-    const insert = db.prepare(
-      "INSERT INTO card_prices (oracle_id, usd_cents, set_code, collector_number, finish) VALUES (?, ?, ?, ?, ?)",
-    );
-    for (const [oracleId, p] of prices)
-      insert.run(oracleId, p.usd_cents, p.set_code, p.collector_number, p.finish);
-    db.prepare(
-      "INSERT INTO meta (key, value) VALUES ('prices_as_of', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    ).run(asOf);
-  });
+  // Prepare in bounded transactions while readers keep seeing the old table.
+  db.exec(`DROP TABLE IF EXISTS card_prices_staging;
+    CREATE TABLE card_prices_staging (
+      oracle_id TEXT PRIMARY KEY, usd_cents INTEGER NOT NULL, set_code TEXT NOT NULL,
+      collector_number TEXT NOT NULL, finish TEXT NOT NULL CHECK (finish IN ('nonfoil','foil','etched'))
+    )`);
+  try {
+    const insert = db.prepare("INSERT INTO card_prices_staging VALUES (?, ?, ?, ?, ?)");
+    const entries = prices.entries();
+    for (;;) {
+      const batch: [string, CheapestPrice][] = [];
+      for (let i = 0; i < 500; i++) { const next = entries.next(); if (next.done) break; batch.push(next.value); }
+      if (!batch.length) break;
+      withTransaction(db, () => {
+        for (const [oracleId, p] of batch) insert.run(oracleId, p.usd_cents, p.set_code, p.collector_number, p.finish);
+      });
+    }
+    withTransaction(db, () => {
+      db.exec(`DROP TABLE card_prices; ALTER TABLE card_prices_staging RENAME TO card_prices;
+        CREATE INDEX idx_card_prices_usd ON card_prices(usd_cents)`);
+      db.prepare("INSERT INTO meta (key, value) VALUES ('prices_as_of', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(asOf);
+    });
+  } finally { db.exec("DROP TABLE IF EXISTS card_prices_staging"); }
   const status = priceStatus(db);
   return { priced: status.priced, unpriced: status.unpriced };
 }
@@ -129,14 +141,14 @@ export interface PriceStatus {
   unpriced: number;
 }
 
-export function pricesAsOf(db: DatabaseSync): string | null {
+export function pricesAsOf(db: Database): string | null {
   const row = db.prepare("SELECT value FROM meta WHERE key = 'prices_as_of'").get() as
     | { value: string }
     | undefined;
   return row?.value ?? null;
 }
 
-export function priceStatus(db: DatabaseSync): PriceStatus {
+export function priceStatus(db: Database): PriceStatus {
   const { total, priced } = db
     .prepare(
       `SELECT COUNT(*) AS total, COUNT(p.oracle_id) AS priced

@@ -82,7 +82,7 @@ export function clientConfigs(url: string, token: string, stdio: string | undefi
             <>
               ChatGPT's servers cannot reach an app that only listens on this machine. OpenAI's Secure MCP Tunnel is
               the supported way through: a small program you run here that connects out to OpenAI, so nothing is
-              opened to the internet. It needs an OpenAI Platform organization with Tunnels enabled, a tunnel id and a
+              opened to the internet. Run these commands from the deck-builder package directory. It needs an OpenAI Platform organization with Tunnels enabled, a tunnel id and a
               runtime API key from <Code>platform.openai.com/settings/organization/tunnels</Code>, and the{" "}
               <Code>tunnel-client</Code> program from there. These commands follow OpenAI's guide and have not been
               run against this app; what you say to ChatGPT about your decks then passes through OpenAI, as anything
@@ -144,7 +144,7 @@ export function clientConfigs(url: string, token: string, stdio: string | undefi
           prose: (
             <>
               For a client that only launches a command. The command is a pipe to this running app, so the app must be
-              started first. It reads the token from the app's data folder.
+              started first. Run this command from the deck-builder package directory. It reads the token from the app's data folder.
             </>
           ),
         },

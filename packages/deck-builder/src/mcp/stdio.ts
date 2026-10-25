@@ -16,6 +16,11 @@ import { createInterface } from "node:readline";
 import { getAgentToken } from "../token.ts";
 import { MCP_PATH } from "./http.ts";
 
+if (!getAgentToken()) {
+  console.error("No agent token is configured. Start the deck builder app first, or configure DECKBUILDER_TOKEN.");
+  process.exit(1);
+}
+
 const PORT = Number(process.env.DECKBUILDER_PORT ?? 8787);
 const nameArg = process.argv.indexOf("--name");
 const label = nameArg > -1 ? process.argv[nameArg + 1] : "";
@@ -39,6 +44,8 @@ async function forward(line: string): Promise<void> {
   const first = Array.isArray(message) ? message[0] : message;
   const expectsReply = first && "id" in first && "method" in first;
 
+  const token = getAgentToken();
+  if (!token) throw new Error("No agent token is configured; start the deck builder app first");
   let res: Response;
   try {
     res = await fetch(ENDPOINT, {
@@ -46,7 +53,7 @@ async function forward(line: string): Promise<void> {
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json, text/event-stream",
-        Authorization: `Bearer ${getAgentToken()}`,
+        Authorization: `Bearer ${token}`,
         ...(negotiated && first?.method !== "initialize" ? { "MCP-Protocol-Version": negotiated } : {}),
       },
       body: line,

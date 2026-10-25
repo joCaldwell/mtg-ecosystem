@@ -2,7 +2,7 @@
 // the deck is organized. No JSON blobs and no ids the agent will not need.
 // Counts are always the app's, stated outright, so the reader never counts.
 
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "../sqlite.ts";
 import type { CardRow, ResolutionFailure } from "../cards.ts";
 import type { ActivityEntry } from "../activity.ts";
 import { getPower, profileLines, targetText } from "../deck/power.ts";
@@ -218,7 +218,7 @@ export function findingLines(findings: Finding[]): string {
 }
 
 /** One line after a write: the numbers an agent would otherwise go and count. */
-export function afterWrite(db: DatabaseSync, deckId: number): string {
+export function afterWrite(db: Database, deckId: number): string {
   const view = getDeck(db, deckId);
   const c = view.computed;
   const problems = checkDeck(db, deckId);
@@ -345,7 +345,7 @@ export function logLines(entries: LogEntry[]): string {
 }
 
 export function renderDeck(
-  db: DatabaseSync,
+  db: Database,
   deckId: number,
   sections: readonly DeckSection[] = DECK_SECTIONS,
   withText = true,

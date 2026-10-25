@@ -32,7 +32,7 @@ const db = testDb();
 
 describe("deck lifecycle", () => {
   test("create, list, rename, delete", () => {
-    const id = createDeck(db, "Test CRUD");
+    const id = createDeck(db, OWNER, "Test CRUD");
     assert.ok(listDecks(db).some((d) => d.id === id && d.name === "Test CRUD"));
     renameDeck(db, OWNER, id, "Renamed");
     assert.equal(getDeck(db, id).deck.name, "Renamed");
@@ -40,12 +40,12 @@ describe("deck lifecycle", () => {
     assert.throws(() => getDeck(db, id), ServiceError);
   });
   test("duplicate names rejected", () => {
-    createDeck(db, "Dupe");
-    assert.throws(() => createDeck(db, "dupe"), /already exists/);
+    createDeck(db, OWNER, "Dupe");
+    assert.throws(() => createDeck(db, OWNER, "dupe"), /already exists/);
   });
   // Spec §5.2: a new deck is a draft; only the owner changes that.
   test("new decks are Theorycrafted, and only the owner changes lifecycle", () => {
-    const id = createDeck(db, "Status");
+    const id = createDeck(db, OWNER, "Status");
     assert.equal(getDeck(db, id).deck.category, "theorycrafted");
     assert.throws(() => setDeckCategory(db, AGENT, id, "paper"), PermissionError);
     setDeckCategory(db, OWNER, id, "paper");

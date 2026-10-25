@@ -46,3 +46,5 @@ export { tokenPx } from "./tokens.ts";
 export { pressesFocusedControl, useHotkeys, type HotkeyOptions } from "./useHotkeys.ts";
 
 export { CounterControl } from "./CounterControl.tsx";
+
+export { Pill } from "./Pill.tsx";

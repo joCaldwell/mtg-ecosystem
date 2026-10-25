@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "../src/sqlite.ts";
 import { OWNER } from "../src/actor.ts";
 import { resolveCard } from "../src/cards.ts";
 import { createSlot, getDeck, shortlistCard } from "../src/deck/service.ts";
@@ -32,7 +32,7 @@ function printing(oracleId: string, over: Partial<ScryfallPrinting> = {}): Scryf
 
 const AS_OF = "2026-10-11T09:05:44.341+00:00";
 
-async function priced(db: DatabaseSync, printings: ScryfallPrinting[]) {
+async function priced(db: Database, printings: ScryfallPrinting[]) {
   return ingestPrices(db, await cheapestPrintings(printings), AS_OF);
 }
 

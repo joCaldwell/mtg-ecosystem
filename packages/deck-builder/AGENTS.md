@@ -40,10 +40,15 @@ design intent.
 
 ## 🏗️ Stack and layout
 
-Node runs the `.ts` files directly via type stripping — **there is no build
-step for `src/`**. `node:sqlite` (built in, has FTS5) means no native deps.
+Use Node 26 (`nvm use`; the package floor is >=24.12). Both tsconfigs enforce
+`erasableSyntaxOnly`. Node runs the `.ts` files directly via type stripping — **there is no build
+step for `src/`**. `node:sqlite` (built in, has FTS5) means no native deps. Use `Database`
+from `src/sqlite.ts` (Node 26 rename; the same constructor on Node 24).
+Connections have a 5-second busy timeout.
 Runtime dependencies: React, `@modelcontextprotocol/server` (the official MCP
-TypeScript SDK, v2 line) and `zod`. Keep it to those.
+TypeScript SDK, v2 line) and `zod`. `@aws-sdk/client-s3` is the ops-only
+exception for optional S3-compatible backup uploads; it is loaded only when
+configured. Keep product dependencies to the original set.
 
 ```
 src/
@@ -53,7 +58,10 @@ src/
   cards.ts           ⭐ exact card resolution, suggestions, prose linting
   ingest.ts          Scryfall bulk → SQLite            search/  Scryfall-syntax subset
   prices.ts          the cheapest playable printing of each card (spec §4.4)
-  refresh.ts         refreshCardData(): cards, then prices — the CLI and Settings both call it
+  refresh.ts         refreshCardData(): streamed cards, then staged price swap — CLI child only
+  jobs.ts            daily/stale-boot refresh and nightly backup scheduler; shared SQLite lease
+  backups.ts         online SQLite backup, optional S3 upload, validated offline restore
+  json-array.ts      incremental oracle JSON-array reader
   deck/
     service.ts       decks (lifecycle, parent), slots, tags, maybe list, computed state
     membership.ts    ⭐ applyChanges — the one place a deck's contents change; undo
@@ -108,12 +116,17 @@ Run from this directory (`packages/deck-builder/`):
 | `npm run check` | Typecheck (src + web) then test — the gate before committing |
 | `npm test` | Tests only — `node --test`, **not** Vitest |
 | `npm run seed:demo` | Create/replace the demo deck and its fork, which exercise every panel |
-| `npm run refresh` | Bring card data up to date from Scryfall: every card, then every card's price. `--force` re-downloads even if nothing is newer |
+| `npm run refresh` | CLI job: stream cards, then prices. `-- --force` bypasses freshness; Settings only enqueues a child job |
+| `npm run backup` | Consistent online SQLite snapshot, keep 14 days, optional S3 upload |
+| `npm run restore -- <file>` | Verify and restore a snapshot while the server is stopped |
 | `npm run search '<query>'` | Scryfall-syntax search from the CLI |
 | `npm run mcp` | The stdio shim, for clients that only launch a command |
 
 `DECKBUILDER_PORT`, `DECKBUILDER_DB`, `DECKBUILDER_DATA` and `DECKBUILDER_TOKEN`
 override the port, database file, data folder and agent token.
+
+See [OPERATIONS.md](OPERATIONS.md) for scheduled jobs, backup/restore drills,
+job/process locks and environment variables. Never copy a live `.db` alone.
 
 ### Connecting an agent
 
@@ -178,6 +191,9 @@ Vite proxy follows the API port.
     estimate.** Decks hold cards, not printings, so nothing may present a
     price as what the owner's copy is worth. Totals come from `estimateCost`
     and always report how many cards had no price.
+*   **Retired cards stay resolvable.** Refresh never deletes a missing oracle ID.
+    Hide it from general search, retain it in its deck context and flag its check.
+    Images come from stored bulk URLs; never construct a Scryfall API image lookup.
 *   **Exact name resolution only — never fuzzy.** A full-name match wins over
     a face-name match; what is still ambiguous needs an `oracle_id`.
 *   **Agent prose is linted on write.** Reasons, memory text, brief and

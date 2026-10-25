@@ -467,7 +467,7 @@ describe("the UI's API", () => {
     const settings = await (await api("/api/settings")).json();
     assert.equal(settings.agent.token, TOKEN);
     assert.match(settings.agent.url, /^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
-    assert.match(settings.agent.stdio_command, /^node \/.*\/src\/mcp\/stdio\.ts$/);
+    assert.equal(settings.agent.stdio_command, "node src/mcp/stdio.ts");
     assert.deepEqual(settings.budgets, { global: 1500, deck: 1000 });
   });
 });

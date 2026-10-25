@@ -25,6 +25,7 @@ import {
   MultiSelect,
   Page,
   PageHeader,
+  Pill,
   Popover,
   ResizeHandle,
   Row,
@@ -245,6 +246,7 @@ function TypeScale() {
 }
 
 function Buttons() {
+  const [pillOn, setPillOn] = useState(false);
   const variants = ["default", "ghost", "primary", "accept", "reject", "agent"] as const;
   return (
     <Stack gap={7}>
@@ -257,6 +259,11 @@ function Buttons() {
               ))}
             </Row>
           ))}
+        </Demo>
+      </Section>
+      <Section title="Pill filters">
+        <Demo note="Selectable filters show their pressed state; click either example.">
+          <Row><Pill on={pillOn} onClick={() => setPillOn(true)}>Selected</Pill><Pill on={!pillOn} onClick={() => setPillOn(false)}>Other filter</Pill></Row>
         </Demo>
       </Section>
       <Section title="IconButton">

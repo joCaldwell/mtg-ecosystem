@@ -20,7 +20,7 @@ import { DeckPanel } from "./panel/DeckPanel.tsx";
 import { ProposalBanner } from "./ProposalBanner.tsx";
 import { DeckViewProvider, useDeckView } from "./useDeckView.ts";
 import { useReportFocus } from "../../app/useReportFocus.ts";
-import { useReview } from "./useReview.ts";
+import { useReview } from "./useReview.tsx";
 import styles from "./DeckPage.module.css";
 
 export function DeckPage({ deckId, review = false }: { deckId: number; review?: boolean }) {
@@ -34,7 +34,7 @@ export function DeckPage({ deckId, review = false }: { deckId: number; review?: 
 }
 
 function DeckGate({ startInReview }: { startInReview: boolean }) {
-  const { state, missing } = useDeck();
+  const { state, missing, loadError, retry } = useDeck();
   if (missing)
     return (
       <Page>
@@ -43,6 +43,10 @@ function DeckGate({ startInReview }: { startInReview: boolean }) {
         </EmptyState>
       </Page>
     );
+  if (!state && loadError) return <Page><EmptyState title={loadError.status === 403 ? "You do not have access to this deck" : "Could not load this deck"}>
+    {loadError.status === 403 ? "Return to all decks or retry if your access has changed." : "The server could not be reached or returned an error. Please retry."}
+    <Button onClick={retry}>Retry</Button>
+  </EmptyState></Page>;
   if (!state) return <Loading />;
   return <DeckScreen startInReview={startInReview} />;
 }
@@ -125,6 +129,7 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
             }
             panel={<DeckPanel view={view} review={review} />}
           />
+          {review.confirmation}
           <DeckDialogs />
         </div>
       </DeckViewProvider>

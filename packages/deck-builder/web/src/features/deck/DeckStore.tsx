@@ -4,29 +4,30 @@
 // `run(() => api.x(...))` and the response lands here; no setState or mutate
 // callbacks are threaded through props.
 
-import { createContext, useCallback, useContext, useEffect, useReducer, type ReactNode } from "react";
-import { api, type DeckState, type Envelope } from "../../api/client.ts";
+import { createContext, useCallback, useContext, useEffect, useReducer, useState, type ReactNode } from "react";
+import { api, ApiError, type DeckState, type Envelope } from "../../api/client.ts";
 import { useLive } from "../../api/live.tsx";
 
 interface DeckData {
   state: DeckState | null;
   /** The deck does not exist (deleted, or a stale link). */
   missing: boolean;
+  loadError: { status: number; message: string } | null;
   /** The last failed action, shown as a banner until the next action. */
   error: string | null;
 }
 
 type Action =
   | { t: "apply"; payload: Envelope }
-  | { t: "missing" }
+  | { t: "loadError"; status: number; message: string }
   | { t: "error"; message: string | null };
 
 function reducer(data: DeckData, action: Action): DeckData {
   switch (action.t) {
     case "apply":
-      return { ...data, state: action.payload.state ?? data.state, missing: false };
-    case "missing":
-      return { ...data, missing: true };
+      return { ...data, state: action.payload.state ?? data.state, missing: false, loadError: null };
+    case "loadError":
+      return { ...data, state: null, missing: action.status === 404, loadError: { status: action.status, message: action.message } };
     case "error":
       return { ...data, error: action.message };
   }
@@ -39,13 +40,16 @@ export interface DeckStore extends DeckData {
    *  failure shows the error and resolves null instead of throwing. */
   run: <T extends Envelope>(fn: () => Promise<T>) => Promise<T | null>;
   clearError: () => void;
+  retry: () => void;
 }
 
 const DeckContext = createContext<DeckStore | null>(null);
 
 export function DeckProvider({ deckId, children }: { deckId: number; children: ReactNode }) {
-  const [data, dispatch] = useReducer(reducer, { state: null, missing: false, error: null });
+  const [data, dispatch] = useReducer(reducer, { state: null, missing: false, loadError: null, error: null });
   const live = useLive();
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => setAttempt(n => n + 1), []);
 
   // Stable identities (dispatch is stable), so effects may depend on them.
   const apply = useCallback((payload: Envelope) => dispatch({ t: "apply", payload }), []);
@@ -69,14 +73,14 @@ export function DeckProvider({ deckId, children }: { deckId: number; children: R
     api
       .getDeck(deckId)
       .then((r) => current && apply(r))
-      .catch(() => current && dispatch({ t: "missing" }));
+      .catch((error: unknown) => current && dispatch({ t: "loadError", status: error instanceof ApiError ? error.status : 0, message: error instanceof Error ? error.message : String(error) }));
     return () => {
       current = false;
     };
-  }, [deckId, apply, live]);
+  }, [deckId, apply, live, attempt]);
 
   return (
-    <DeckContext.Provider value={{ ...data, deckId, apply, run, clearError }}>{children}</DeckContext.Provider>
+    <DeckContext.Provider value={{ ...data, deckId, apply, run, clearError, retry }}>{children}</DeckContext.Provider>
   );
 }
 

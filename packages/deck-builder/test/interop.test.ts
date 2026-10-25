@@ -18,7 +18,7 @@ const db = testDb();
 
 describe("Archidekt export (spec §12)", () => {
   test("emits quantity + name + [Category], grouped command zone first then slot order", () => {
-    const id = createDeck(db, "Export shape");
+    const id = createDeck(db, OWNER, "Export shape");
     const ramp = createSlot(db, id, "ramp", 8, 12);
     const interaction = createSlot(db, id, "interaction", 6, null);
     add(db, id, "id-teferi", { role: "commander" });
@@ -40,7 +40,7 @@ describe("Archidekt export (spec §12)", () => {
   });
 
   test("quantities ride the line; categories can be turned off", () => {
-    const id = createDeck(db, "Export qty");
+    const id = createDeck(db, OWNER, "Export qty");
     add(db, id, "id-forest");
     setQuantity(db, OWNER, id, "id-forest", 12);
     assert.match(exportDeck(db, id).text, /^12 Forest \[Unslotted\]$/m);
@@ -50,14 +50,14 @@ describe("Archidekt export (spec §12)", () => {
 
 
   test("companion is exported but stays outside the 100", () => {
-    const id = createDeck(db, "Export companion");
+    const id = createDeck(db, OWNER, "Export companion");
     add(db, id, "id-atraxa", { role: "commander" });
     add(db, id, "id-llanowar", { role: "companion" });
     assert.match(exportDeck(db, id).text, /Llanowar Elves \[Companion\]/);
   });
 
   test("a selection exports only matching deck cards, preserves quantities, and never falls back to the full deck", () => {
-    const id = createDeck(db, "Filtered export");
+    const id = createDeck(db, OWNER, "Filtered export");
     add(db, id, "id-teferi", { role: "commander" });
     add(db, id, "id-forest");
     setQuantity(db, OWNER, id, "id-forest", 12);
@@ -79,7 +79,7 @@ describe("Archidekt export (spec §12)", () => {
   });
 
   test("maybe-list inclusion is independent of the selection and round-trips as Maybeboard", () => {
-    const id = createDeck(db, "Optional maybe export");
+    const id = createDeck(db, OWNER, "Optional maybe export");
     add(db, id, "id-solring");
     shortlistCard(db, id, "id-forest");
     const before = getDeck(db, id);
@@ -92,7 +92,7 @@ describe("Archidekt export (spec §12)", () => {
     const oracleIds = ["id-forest"];
     assert.equal(exportDeck(db, id, { oracleIds }).text, "");
     assert.equal(exportDeck(db, id, { oracleIds, includeMaybe: true, categories: false }).text, `1 ${maybeName}\n`);
-    const imported = createDeck(db, "Maybe export round trip");
+    const imported = createDeck(db, OWNER, "Maybe export round trip");
     applyImport(db, OWNER, imported, full.text);
     const parked = getDeck(db, imported).cards.find(c => c.oracle_id === "id-forest")!;
     assert.equal(parked.maybe, 1);
@@ -204,7 +204,7 @@ describe("Archidekt list parsing (verified format superset)", () => {
 
 describe("import diff (spec §12)", () => {
   function seed(name: string) {
-    const id = createDeck(db, name);
+    const id = createDeck(db, OWNER, name);
     add(db, id, "id-teferi", { role: "commander" });
     add(db, id, "id-solring");
     add(db, id, "id-counterspell");
@@ -244,7 +244,7 @@ describe("import diff (spec §12)", () => {
   });
 
   test("counts every copy of a newly imported basic land", () => {
-    const id = createDeck(db, "Import copy count");
+    const id = createDeck(db, OWNER, "Import copy count");
     const diff = diffImport(db, id, "30 Forest\n1 Sol Ring");
     assert.equal(diff.adds.length, 2); // two distinct card rows
     assert.equal(diff.add_count, 31); // but 31 physical cards
@@ -283,7 +283,7 @@ describe("import diff (spec §12)", () => {
 
 describe("import applies in full and at once (spec §12)", () => {
   test("adds, cuts and quantity changes all land in one call — no per-card gate", () => {
-    const id = createDeck(db, "Import applies");
+    const id = createDeck(db, OWNER, "Import applies");
     add(db, id, "id-solring"); // absent from the list below → cut
     add(db, id, "id-rats");
     setQuantity(db, OWNER, id, "id-rats", 1);
@@ -302,7 +302,7 @@ describe("import applies in full and at once (spec §12)", () => {
   });
 
   test("a 100-card list is one log entry, not one per card ", () => {
-    const id = createDeck(db, "Import log volume");
+    const id = createDeck(db, OWNER, "Import log volume");
     const list = [
       "94 Forest",
       "1 Llanowar Elves",
@@ -323,7 +323,7 @@ describe("import applies in full and at once (spec §12)", () => {
   });
 
   test("undoing the single log entry restores the entire pre-import list", () => {
-    const id = createDeck(db, "Import undo");
+    const id = createDeck(db, OWNER, "Import undo");
     const ramp = createSlot(db, id, "ramp", 8, 12);
     add(db, id, "id-teferi", { role: "commander" });
     add(db, id, "id-solring", { slotId: ramp });
@@ -347,7 +347,7 @@ describe("import applies in full and at once (spec §12)", () => {
   });
 
   test("a [Commander] category puts the card in the command zone", () => {
-    const id = createDeck(db, "Import commander");
+    const id = createDeck(db, OWNER, "Import commander");
     applyImport(db, OWNER, id, "1 Teferi, Temporal Archmage [Commander]\n1 Counterspell");
     const state = getDeck(db, id);
     assert.equal(state.cards.find((c) => c.name === "Teferi, Temporal Archmage")!.role, "commander");
@@ -355,7 +355,7 @@ describe("import applies in full and at once (spec §12)", () => {
   });
 
   test("an identical list changes nothing and writes no log entry", () => {
-    const id = createDeck(db, "Import noop");
+    const id = createDeck(db, OWNER, "Import noop");
     add(db, id, "id-solring");
     const r = applyImport(db, OWNER, id, "1 Sol Ring");
     assert.equal(r.log_id, null);
@@ -365,7 +365,7 @@ describe("import applies in full and at once (spec §12)", () => {
   });
 
   test("a Maybeboard category is shortlisted, not added, and the preview says so", () => {
-    const id = createDeck(db, "Import maybeboard");
+    const id = createDeck(db, OWNER, "Import maybeboard");
     const text = "1 Sol Ring\n1 Ball Lightning [Maybeboard]";
     assert.deepEqual(diffImport(db, id, text).set_aside.map((c) => c.name), ["Ball Lightning"]);
     applyImport(db, OWNER, id, text);
@@ -375,7 +375,7 @@ describe("import applies in full and at once (spec §12)", () => {
   });
 
   test("Archidekt's sectioned export sets the commander and keeps the maybeboard out of the deck", () => {
-    const id = createDeck(db, "Import sections");
+    const id = createDeck(db, OWNER, "Import sections");
     const text = [
       "Commander",
       "1 Teferi, Temporal Archmage",
@@ -400,7 +400,7 @@ describe("import applies in full and at once (spec §12)", () => {
   });
 
   test("pasting the sectioned list over a deck that took it all in flat repairs it, in one undoable entry", () => {
-    const id = createDeck(db, "Import repair");
+    const id = createDeck(db, OWNER, "Import repair");
     // What the same list produced while the headers were being skipped.
     applyImport(db, OWNER, id, "1 Teferi, Temporal Archmage\n1 Sol Ring\n1 Ball Lightning");
     const text = "Commander\n1 Teferi, Temporal Archmage\n\nMainboard\n1 Sol Ring\n\nMaybeboard\n1 Ball Lightning";
@@ -428,7 +428,7 @@ describe("import applies in full and at once (spec §12)", () => {
   });
 
   test("a list never demotes the commander, and never seats a third", () => {
-    const id = createDeck(db, "Import keeps commander");
+    const id = createDeck(db, OWNER, "Import keeps commander");
     add(db, id, "id-teferi", { role: "commander" });
     add(db, id, "id-kenrith", { role: "commander" });
     add(db, id, "id-golos");
@@ -442,7 +442,7 @@ describe("import applies in full and at once (spec §12)", () => {
   });
 
   test("the maybe list is not exported and a shortlisted card in the paste is an add", () => {
-    const id = createDeck(db, "Import promotes");
+    const id = createDeck(db, OWNER, "Import promotes");
     applyImport(db, OWNER, id, "1 Sol Ring\n1 Ball Lightning [Maybeboard]");
     assert.equal(exportDeck(db, id).text, "1 Sol Ring [Unslotted]\n");
     applyImport(db, OWNER, id, "1 Sol Ring\n1 Ball Lightning");

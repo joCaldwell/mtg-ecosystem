@@ -2,7 +2,7 @@
 // never stored, never a model's arithmetic. Judgement about a deck is an
 // agent's work and reaches the app as proposals and memories, not here.
 
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "../sqlite.ts";
 import { getPower } from "./power.ts";
 import { getBrief } from "./brief.ts";
 import { getDeck } from "./service.ts";
@@ -35,7 +35,7 @@ export function isDoctorPair(cards: { type_line: string; oracle_text: string }[]
   );
 }
 
-export function checkDeck(db: DatabaseSync, deckId: number): Finding[] {
+export function checkDeck(db: Database, deckId: number): Finding[] {
   const { deck, cards, computed } = getDeck(db, deckId);
   const inDeck = cards.filter((c) => !c.maybe);
   const findings: Finding[] = [];
@@ -51,6 +51,12 @@ export function checkDeck(db: DatabaseSync, deckId: number): Finding[] {
           : `${computed.delta_to_100} card(s) over 100.`,
     });
   }
+
+  for (const c of cards.filter(c => c.retired)) findings.push({
+    key: `retired:${c.oracle_id}`, severity: "warn", title: `${c.name}: retired printing/oracle id`,
+    detail: "Absent from the latest Scryfall bulk data; retained for this deck and its history. Verify the current card identity.",
+    oracle_id: c.oracle_id, card_name: c.name,
+  });
 
   const commanders = inDeck.filter((c) => c.role === "commander");
   if (!commanders.length) {

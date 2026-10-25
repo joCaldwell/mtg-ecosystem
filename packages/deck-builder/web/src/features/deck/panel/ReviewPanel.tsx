@@ -8,7 +8,7 @@ import { Button, Eyebrow, Kbd, Text } from "../../../ui/index.ts";
 import { useDeckState } from "../DeckStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import type { DeckViewModel } from "../useDeckView.ts";
-import type { Review } from "../useReview.ts";
+import type { Review } from "../useReview.tsx";
 import { ReviewDelta } from "./ReviewDelta.tsx";
 import { ReviewUnitCard } from "./ReviewUnitCard.tsx";
 import styles from "./ReviewPanel.module.css";

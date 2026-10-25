@@ -65,8 +65,9 @@ history, no choice of vendor and no record of which printing the owner holds.
 
 Reopened on 2026-10-10: **card images are shown on demand.** The deck stays a
 text list; a card's picture appears only in its hover card and its detail
-panel, loaded from Scryfall by exact name. Nothing about images is stored,
-and no agent-facing output mentions them.
+panel, using image URLs stored from Scryfall bulk data (§4.1, §13).
+No image lookup by name is sent to the Scryfall API. `get_cards` includes
+image facts in its structured result; its compact text stays unchanged.
 
 ---
 
@@ -94,9 +95,11 @@ and the playbook forbids storing them.
 **Source:** Scryfall bulk data, the `oracle-cards` file: one entry per unique
 card, not per printing.
 
-- SQLite, with an FTS5 index over name and oracle text. A refresh command re-pulls the bulk file and upserts, then refreshes prices (§4.4). The button in Settings does the same.
+- SQLite, with an FTS5 index over name and oracle text. The server schedules a refresh child process daily and on boot when stale; the CLI runs the same operation. Settings enqueues it and returns immediately. A shared timestamped lease prevents overlapping refresh/backup jobs; leases expire after two hours. Job result, last run and next run appear in Settings.
+- Oracle data is streamed and staged on disk, then upserted in savepoint batches of roughly 500. Malformed input and a file with fewer than 90% of the currently active cards are refused before publishing. Missing IDs become `retired=1`, preserving exact resolution, references, history and images. General search excludes retired IDs; a named deck may still find retired cards it holds, and its checks flag “retired printing/oracle id”. Returning IDs are reactivated. Retired rows are excluded from the next truncation threshold.
+- The per-instance oracle cache lives under `DATA_DIR/.scryfall-cache`, reused for 24 hours. The Settings path never forces a download; CLI `--force` remains available. All connections wait up to five seconds for SQLite locks. Refresh and nightly backup run outside the serving event loop; see `packages/deck-builder/OPERATIONS.md`.
 - Keyed on `oracle_id` internally.
-- Retain: `oracle_id`, `name`, `mana_cost`, `cmc`, `type_line`, `oracle_text`, `power`, `toughness`, `loyalty`, `color_identity`, `legalities.commander`, `layout`, `card_faces`, nullable `game_changer` (§5.7). Discard everything else.
+- Retain: `oracle_id`, `name`, `mana_cost`, `cmc`, `type_line`, `oracle_text`, `power`, `toughness`, `loyalty`, `color_identity`, `legalities.commander`, `layout`, `card_faces`, nullable `game_changer` (§5.7), `image_small`, `image_normal`, `image_art_crop` (front-face imagery for double-sided layouts), and `retired`. Discard everything else.
 - Use Scryfall's `color_identity` directly. Do not compute it.
 - `legalities.commander` supplies the banned list. Commander eligibility is a separate check.
 
@@ -149,7 +152,7 @@ priced.
 
 - A printing counts if it is a paper card, not oversized, and not from a `memorabilia` set (gold-bordered, Collectors' Edition, 30th Anniversary Edition). Those are not legal to play and would otherwise be the "cheapest printing" of most Reserved List cards.
 - The lowest of the printing's `usd`, `usd_foil` and `usd_etched` is used; a foil is sometimes the cheapest copy.
-- Stored as whole cents in `card_prices`, with the printing it came from. Replaced wholesale on every refresh: a card that lost its price is unpriced, not stale.
+- Stored as whole cents in `card_prices`, with the printing it came from. Loaded into a staging table in bounded transactions, then atomically swapped with the live prices and as-of timestamp: a card that lost its price is unpriced, not stale. A failed staging load preserves the previous prices.
 - The file is read as it downloads and not kept. A refresh skips the download when Scryfall has published nothing newer than the prices in use.
 - A card with no price on any counted printing has none. Totals leave it out and say how many cards they left out.
 
@@ -418,9 +421,9 @@ surface it without relying on the agent to go looking.
 ### 7.3 Writing
 
 - **No approval.** `remember` writes immediately.
-- **Revise before adding.** `remember` returns existing memories that resemble the new one, so the agent can update or supersede instead of duplicating.
+- **Revise before adding.** `remember` returns existing memories that resemble the new one, so the agent can update or supersede instead of duplicating. Similarity search filters to reachable scopes before taking its top results; unrelated decks cannot crowd out duplicates.
 - **Nothing is deleted by an agent.** Superseding keeps the old row, marked and linked. Retiring hides a memory from loading and search but keeps it on disk.
-- **The owner outranks the agent.** An agent cannot edit, supersede or retire a memory the owner wrote or edited. It may write a new memory that disagrees and say so.
+- **The owner outranks the agent.** An agent cannot edit, supersede, retire, restore **or confirm** a memory the owner wrote or edited. Confirm changes its epistemic basis, so it is subject to the same owner-control check as an edit. It may write a new memory that disagrees and say so.
 - **Inferred memories are hypotheses.** They load marked as inferred. When the owner confirms one, it becomes stated.
 - Deck-scoped memories written after a playtest carry the deck revision, so a note about how the deck played attaches to the list that was played.
 
@@ -468,7 +471,14 @@ On a Paper deck, an agent changes membership by calling `propose_changes`.
 
 The owner rules in the app: per item, per group, or the whole proposal at
 once. A ruling is accept or reject with an **optional free-text reason**.
-There are no reason types.
+There are no reason types. “Accept all” sends one atomic batch, with the
+revision read at the click and stale acknowledgements only for proposals that
+were already stale then. The capability checks all bases before applying any
+proposal; conflicts roll back the whole batch. Changes within that batch do
+not require another stale acknowledgement. Older proposals use the app's
+ConfirmDialog, never a browser-native confirmation. Pre-existing proposals
+and deck document edits with a missing baseline are anchored once to the
+deck's revision during upgrade; subsequent edits make them stale normally.
 
 Every ruling is a row in the **rulings log**: deck, card, action, outcome,
 reason, proposal, author, timestamp, and the deck revision it produced. The
@@ -502,7 +512,8 @@ assembling a Theorycrafted deck card by card, are not queued.)* `start_session` 
 many rulings are unreviewed, `list_rulings` returns them, and
 `mark_rulings_reviewed` clears them once the agent has decided what, if
 anything, is worth a memory. A reason given in the app is never lost for lack
-of a listener.
+of a listener. `through` clears only the deck (or profile scope) of the
+anchor ruling; a cross-deck result gives explicit IDs to mark instead.
 
 ---
 
@@ -686,6 +697,7 @@ sources in the code. Do not rely on model memory for it.
 | No invented card appears anywhere in the app | Agent prose is linted on write (§10.5) |
 | An agent reads card text; it does not recall it | Deck views, searches and lookups all return oracle text |
 | Counts and legality are never an agent's arithmetic | Computed by the app and returned with every read and write (§9) |
+| Images use ingested facts | Scryfall bulk `image_uris` (card or front face), returned by table lookup/search/`get_cards`; all browser images use these stored CDN URLs and load lazily. Missing imagery has a placeholder; no `cards/named` URL is constructed. |
 
 **Not guaranteed:** what an agent says in its own chat window. The app cannot
 lint text it never sees. The playbook's citation rule and the `get_cards`
@@ -744,21 +756,46 @@ Checked on 2026-10-11, when deck power profiles were added (§5.7):
   assessments remain unset until deliberately written. Game Changer metadata
   was populated from the installed Scryfall cache, without downloading it.
 
+Checked on 2026-10-25, v3 Phase 0 hardening:
+
+- A forced live Scryfall refresh on an isolated copy completed in 12.95 s:
+  35,134 active cards and 33,327 priced. The child peaked at 246.21 MiB RSS;
+  all 124 concurrent HTTP probes succeeded, maximum 6.55 ms. The serving
+  process stayed running through download, ingest and price swap.
+- An online backup with the serving process running restored to a separate
+  database, served 19 decks and returned healthy status on a second port.
+  Automated tests also verify committed WAL content, retention and refusal
+  while the server lease is held. Optional S3 delivery needs credentials and
+  has not been verified against a real bucket.
+- Chrome verified the seeded demo, a loaded CDN image, stale accept-all's
+  ConfirmDialog and successful ruling, and styled proposal history. An
+  automated hover rendered the stored CDN URL with lazy loading; browser
+  resource entries showed zero `api.scryfall.com` requests. T3 snapshots
+  timed out; Chrome supplied visual inspection and T3 evaluation supplied
+  the hover/network evidence.
+- The official MCP client transcript was read through `start_session`,
+  `get_cards` (including structured image URLs), deck-scoped `list_rulings`
+  and `mark_rulings_reviewed`: other decks' unread rulings remained unread.
+- `npm run check` passes 449 tests on Node 26.12.1, and the same suite
+  passes on the declared Node 24.12.0 floor.
+- Phase 0 keeps schema version 10's existing additive-column migration style;
+  image/retirement columns and missing proposal baselines upgrade on open.
+  Phase 1 owns the ordered migration framework and schema 11 tenant rewrite.
+
 ## 16. Not verified
 
 Ownership-aware sourcing and proposal cleanup were added on 2026-10-15.
 `npm run check` passes 422 tests, including migration, evidence persistence,
 multi-source tagging, grouped approval, supersession, stale revisions and both
 MCP protocol eras. A scripted official-client transcript against an isolated
-database copy was read through sourcing, amendment and owner approval. Visual
-browser QA for the changed approval/history controls remains unverified:
-collaborative preview snapshots/evaluation timed out, and the fallback browser
-provider reported no available browsers. The live owner database was not upgraded.
+database copy was read through sourcing, amendment and owner approval. At that time visual
+browser QA could not complete because preview automation failed. Phase 0
+subsequently verified the current approval/history controls on an isolated
+copy (see §15); the live owner database was not upgraded during that drill.
 
 Everything in §1–§14 is built. What has not been checked:
 
 - Any client other than Claude Code and Codex.
 - How agents use prices. The price beside each card, the deck's estimated cost and the playbook's rule about them are pinned by tests, but no real transcript has been read since they were added.
 - ChatGPT on the web or phone. Its servers cannot reach a loopback address. The route is OpenAI's Secure MCP Tunnel running the stdio shim; the Settings page gives the commands from OpenAI's guide, but they have not been run, because they need a tunnel created in the owner's OpenAI Platform organization.
-- The "download the latest card data" button, which was not pressed: it rewrites the bulk file the oracle parser shares. The code under it is the same `refresh` command the CLI runs.
 - The evaluation was run once per task, on one model, with tasks written by the same hand as the tools. It shows the interface works; it does not measure how often.

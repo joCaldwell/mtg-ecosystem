@@ -6,7 +6,7 @@ import type { ReviewUnit } from "../../../domain/review.ts";
 import { cx } from "../../../ui/internal.ts";
 import { RulingControls } from "../../rulings/index.ts";
 import { useDeckUi } from "../DeckUi.tsx";
-import type { Review } from "../useReview.ts";
+import type { Review } from "../useReview.tsx";
 import { ReviewItemLine } from "./ReviewItemLine.tsx";
 import styles from "./ReviewUnitCard.module.css";
 

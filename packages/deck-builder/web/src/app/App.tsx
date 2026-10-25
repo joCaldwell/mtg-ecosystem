@@ -8,6 +8,7 @@ import { MemoriesPage } from "../features/memories/index.ts";
 import { ProfilePage } from "../features/profile/index.ts";
 import { SettingsPage } from "../features/settings/index.ts";
 import { StyleguidePage } from "../features/styleguide/index.ts";
+import { ErrorBoundary } from "./ErrorBoundary.tsx";
 import { AppShell } from "./AppShell.tsx";
 import { AppProviders } from "./Providers.tsx";
 import { useRoute, type Route } from "./routes.ts";
@@ -40,8 +41,8 @@ function screen(route: Route): ReactNode {
 export function App() {
   const route = useRoute();
   return (
-    <AppProviders>
+    <ErrorBoundary><AppProviders>
       <AppShell route={route}>{screen(route)}</AppShell>
-    </AppProviders>
+    </AppProviders></ErrorBoundary>
   );
 }

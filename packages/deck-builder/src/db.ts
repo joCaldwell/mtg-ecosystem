@@ -1,12 +1,12 @@
-import { DatabaseSync } from "node:sqlite";
+import { Database } from "./sqlite.ts";
 import { mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AppError } from "./errors.ts";
 
 export const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-export const DATA_DIR = process.env.DECKBUILDER_DATA ?? join(PKG_ROOT, "data");
-export const DEFAULT_DB_PATH = process.env.DECKBUILDER_DB ?? join(DATA_DIR, "deck-builder.db");
+export const DATA_DIR = resolve(process.env.DECKBUILDER_DATA ?? join(PKG_ROOT, "data"));
+export const DEFAULT_DB_PATH = resolve(process.env.DECKBUILDER_DB ?? join(DATA_DIR, "deck-builder.db"));
 
 export const SCHEMA_VERSION = 10;
 
@@ -50,6 +50,10 @@ CREATE TABLE IF NOT EXISTS cards (
   game_changer     INTEGER CHECK (game_changer IN (0, 1)),
   layout           TEXT NOT NULL,
   faces_json       TEXT,
+  image_small      TEXT,
+  image_normal     TEXT,
+  image_art_crop   TEXT,
+  retired          INTEGER NOT NULL DEFAULT 0 CHECK (retired IN (0, 1)),
   -- oracle text minus reminder text, faces joined; what o: searches
   search_text      TEXT NOT NULL,
   -- oracle text including reminder text; what fo: searches
@@ -389,9 +393,9 @@ CREATE INDEX IF NOT EXISTS idx_activity_ts ON activity(id);
 /** Thrown when the file on disk is not a supported schema version. */
 export class SchemaError extends AppError {}
 
-export function openDb(path: string = DEFAULT_DB_PATH): DatabaseSync {
+export function openDb(path: string = DEFAULT_DB_PATH): Database {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
-  const db = new DatabaseSync(path);
+  const db = new Database(path, { timeout: 5000 });
   const version = assertOurs(db, path);
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA foreign_keys = ON");
@@ -454,6 +458,11 @@ export function openDb(path: string = DEFAULT_DB_PATH): DatabaseSync {
         db.exec("ALTER TABLE proposal_items ADD COLUMN to_maybe INTEGER NOT NULL DEFAULT 0 CHECK (to_maybe IN (0, 1))");
       if (!itemColumns.some((c) => c.name === "secondary_slot_ids_json"))
         db.exec("ALTER TABLE proposal_items ADD COLUMN secondary_slot_ids_json TEXT");
+      const facts = db.prepare("PRAGMA table_info(cards)").all() as unknown as { name: string }[];
+      for (const [name, type] of Object.entries({
+        image_small: "TEXT", image_normal: "TEXT", image_art_crop: "TEXT",
+        retired: "INTEGER NOT NULL DEFAULT 0 CHECK (retired IN (0, 1))",
+      })) if (!facts.some(c => c.name === name)) db.exec(`ALTER TABLE cards ADD COLUMN ${name} ${type}`);
       const cardColumns = db.prepare("PRAGMA table_info(deck_cards)").all() as unknown as { name: string }[];
       if (cardColumns.some((c) => c.name === "in_paper")) {
         // The owner chose to discard assembly marks and use ordinary tags.
@@ -470,6 +479,10 @@ export function openDb(path: string = DEFAULT_DB_PATH): DatabaseSync {
           superseded_by: "INTEGER", ...(table === "document_edits" ? { group_id: "INTEGER" } : {}),
         })) if (!columns.some(c => c.name === name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
       }
+      // Older proposals lacked a baseline. Anchor them once, then preserve it.
+      for (const table of ["proposals", "document_edits"])
+        db.exec(`UPDATE ${table} SET base_revision = (SELECT revision FROM decks WHERE id = ${table}.deck_id)
+          WHERE base_revision IS NULL AND deck_id IS NOT NULL`);
       if (version != null && Number(version) < 10) {
         // Only the explicit Have convention is ownership evidence. Keep/Ordered
         // and deck membership say nothing about physical ownership or quantity.
@@ -496,7 +509,7 @@ export function openDb(path: string = DEFAULT_DB_PATH): DatabaseSync {
 // different shape it would add its tables beside the others and leave a file
 // nothing can read. A file that already holds tables must say it is this
 // version (or a version we can migrate); otherwise this refuses before writing anything.
-function assertOurs(db: DatabaseSync, path: string) {
+function assertOurs(db: Database, path: string) {
   const tables = db.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE type = 'table'").get() as {
     n: number;
   };
@@ -523,9 +536,9 @@ function assertOurs(db: DatabaseSync, path: string) {
 // function may freely call another one (BEGIN cannot nest and throws). An
 // inner failure rolls back only the inner writes; whether the outer work
 // survives is decided by whoever catches the error.
-const txDepth = new WeakMap<DatabaseSync, number>();
+const txDepth = new WeakMap<Database, number>();
 
-export function withTransaction<T>(db: DatabaseSync, fn: () => T): T {
+export function withTransaction<T>(db: Database, fn: () => T): T {
   const depth = txDepth.get(db) ?? 0;
   const name = `tx_${depth}`;
   db.exec(`SAVEPOINT ${name}`);
@@ -547,14 +560,14 @@ export function withTransaction<T>(db: DatabaseSync, fn: () => T): T {
 
 // ---------- settings (meta key/value) ----------
 
-export function getSetting(db: DatabaseSync, key: string): string | null {
+export function getSetting(db: Database, key: string): string | null {
   const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(`setting:${key}`) as
     | { value: string }
     | undefined;
   return row?.value ?? null;
 }
 
-export function setSetting(db: DatabaseSync, key: string, value: string): void {
+export function setSetting(db: Database, key: string, value: string): void {
   db.prepare(
     "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
   ).run(`setting:${key}`, value);

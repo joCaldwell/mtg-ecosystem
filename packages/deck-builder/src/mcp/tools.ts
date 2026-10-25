@@ -6,7 +6,7 @@
 // A tool is a plain function of (context, arguments) so it can be tested
 // without a transport; mcp/http.ts registers the same list with the SDK.
 
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "../sqlite.ts";
 import * as z from "zod/v4";
 import { type Actor } from "../actor.ts";
 import { recordActivity } from "../activity.ts";
@@ -66,7 +66,7 @@ import {
 } from "./render.ts";
 
 export interface ToolContext {
-  db: DatabaseSync;
+  db: Database;
   actor: Actor;
 }
 
@@ -98,7 +98,7 @@ const cardRef = z
   .string()
   .describe("A card: its exact name as a tool returned it, or its oracle_id. Never a guess.");
 
-function deckId(db: DatabaseSync, ref: number | string): number {
+function deckId(db: Database, ref: number | string): number {
   if (typeof ref === "number") return requireDeck(db, ref).id;
   const text = ref.trim();
   if (/^\d+$/.test(text)) return requireDeck(db, Number(text)).id;
@@ -128,7 +128,7 @@ const proposalItem = z.object({
   slot: z.string().optional(), secondary_slots: z.array(z.string()).optional(),
   to_maybe: z.boolean().optional(), group: z.string().optional(),
 });
-function documentChanges(db: DatabaseSync, changes: z.infer<typeof documentChange>[]) {
+function documentChanges(db: Database, changes: z.infer<typeof documentChange>[]) {
   return changes.map(c => ({ kind: c.kind, reason: c.reason, payload: {
     content: c.text, engine_name: c.engine_name, description: c.description, target: c.target,
     pieces: c.pieces?.map(p => ({ oracle_id: resolveCard(db, p.card).oracle_id, note: p.note })),
@@ -136,7 +136,7 @@ function documentChanges(db: DatabaseSync, changes: z.infer<typeof documentChang
 }
 
 
-function myDecksFor(db: DatabaseSync, oracleIds: string[], exceptDeck?: number): Map<string, string[]> {
+function myDecksFor(db: Database, oracleIds: string[], exceptDeck?: number): Map<string, string[]> {
   const stmt = db.prepare(
     `SELECT d.name FROM deck_cards dc JOIN decks d ON d.id = dc.deck_id
      WHERE dc.oracle_id = ? AND dc.maybe = 0 AND dc.deck_id != ? ORDER BY d.name`,
@@ -153,7 +153,7 @@ function myDecksFor(db: DatabaseSync, oracleIds: string[], exceptDeck?: number):
 // §8.3): linked memories always, prior rulings and membership when a deck is
 // named, other decks only when the call asked (§4.2).
 function contextFor(
-  db: DatabaseSync,
+  db: Database,
   cards: CardRow[],
   deck: number | undefined,
   includeMyDecks: boolean,
@@ -435,9 +435,10 @@ export const TOOLS: ToolDef[] = [
       const resolved = (a.cards as string[]).map((ref) => tryResolveCard(db, ref));
       const found = resolved.filter((r): r is CardRow => !("problem" in r));
       const ctx = contextFor(db, found, deck, !!a.include_my_decks);
-      return resolved
-        .map((r) => ("problem" in r ? resolutionFailureLine(r) : cardWithContext(r, ctx(r))))
-        .join("\n");
+      return {
+        text: resolved.map(r => "problem" in r ? resolutionFailureLine(r) : cardWithContext(r, ctx(r))).join("\n"),
+        structuredContent: { cards: found, failures: resolved.filter(r => "problem" in r) },
+      };
     },
   },
   {
@@ -471,7 +472,9 @@ export const TOOLS: ToolDef[] = [
         // the arguments.
         (unread.length
           ? `\n\nOnce you have decided what here is worth a memory, call mark_rulings_reviewed with ` +
-            `{"through": ${Math.max(...unread.map((e) => e.id))}}.`
+            (new Set(unread.map(e => e.deck_id)).size === 1
+              ? `{"through": ${Math.max(...unread.map((e) => e.id))}}.`
+              : `${JSON.stringify({ ids: unread.map(e => e.id) })}.`)
           : "")
       );
     },
@@ -585,7 +588,7 @@ export const TOOLS: ToolDef[] = [
       const commanders = resolveCards(db, a.commanders ?? []);
       let thesisProposal: number | null = null;
       const id = withTransaction(db, () => {
-        const deck = createDeck(db, a.name);
+        const deck = createDeck(db, actor, a.name);
         if (a.list?.trim()) fillFromList(db, actor, deck, a.list);
         const changes: Change[] = commanders.map((c) => {
           const row = findDeckCard(db, deck, c.oracle_id);
@@ -600,7 +603,6 @@ export const TOOLS: ToolDef[] = [
         }
         return deck;
       });
-      recordActivity(db, actor, "create_deck", id, `Created Theorycrafted deck "${a.name}"`);
       return done(`Created Theorycrafted deck ${id} "${a.name.trim()}" (lifecycle ${requireDeck(db, id).category}).\n${thesisProposal != null ? `Initial thesis proposed as edit #${thesisProposal}; awaiting the owner.\n` : ""}${afterWrite(db, id)}`);
     },
   },
@@ -937,7 +939,7 @@ export const TOOLS: ToolDef[] = [
     readOnly: false,
     description:
       "Tell the app you have read rulings from list_rulings and decided what, if anything, is worth a " +
-      "memory. Give the ids, or 'through' to clear everything up to and including an id.",
+      "memory. Give the ids, or 'through' to clear that ruling's deck up to and including its id.",
     input: {
       ids: z.array(z.number().int()).optional(),
       through: z.number().int().optional(),

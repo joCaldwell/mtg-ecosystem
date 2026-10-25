@@ -1,7 +1,7 @@
 // The solo table owns a private membership/card-fact snapshot. It never writes
 // deck_cards, and its undo history contains game frames only (design brief).
 import { randomUUID } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "../sqlite.ts";
 import { z } from "zod";
 import { type Actor, requireOwner } from "../actor.ts";
 import { CARD_COLUMNS } from "../cards.ts";
@@ -32,7 +32,7 @@ export type {
   Mode,
 } from "./model.ts";
 
-export function tableCard(db: DatabaseSync, oracleId: string): TableCard {
+export function tableCard(db: Database, oracleId: string): TableCard {
   const c = db
     .prepare(
       `SELECT ${CARD_COLUMNS}, faces_json FROM cards WHERE oracle_id = ?`,
@@ -40,6 +40,7 @@ export function tableCard(db: DatabaseSync, oracleId: string): TableCard {
     .get(oracleId) as (TableCard & { faces_json: string | null }) | undefined;
   if (!c) throw new ServiceError("This card is not in the database", 404);
   return {
+    image_small: c.image_small, image_normal: c.image_normal, image_art_crop: c.image_art_crop,
     oracle_id: c.oracle_id,
     name: c.name,
     mana_cost: c.mana_cost,
@@ -51,7 +52,7 @@ export function tableCard(db: DatabaseSync, oracleId: string): TableCard {
     faces: c.faces_json ? JSON.parse(c.faces_json) : [],
   };
 }
-function read(db: DatabaseSync, deckId: number): PlaytestSession | null {
+function read(db: Database, deckId: number): PlaytestSession | null {
   requireDeck(db, deckId);
   const row = db
     .prepare("SELECT payload_json FROM playtest_sessions WHERE deck_id = ?")
@@ -109,7 +110,7 @@ function read(db: DatabaseSync, deckId: number): PlaytestSession | null {
     );
   }
 }
-function write(db: DatabaseSync, session: PlaytestSession) {
+function write(db: Database, session: PlaytestSession) {
   session.updated_at = new Date().toISOString();
   db.prepare(
     `INSERT INTO playtest_sessions (deck_id, payload_json) VALUES (?, ?)
@@ -117,7 +118,7 @@ function write(db: DatabaseSync, session: PlaytestSession) {
   ).run(session.deck_id, JSON.stringify(session));
   return view(session);
 }
-export function getPlaytest(db: DatabaseSync, actor: Actor, deckId: number) {
+export function getPlaytest(db: Database, actor: Actor, deckId: number) {
   requireOwner(actor, "Read the owner's playtest");
   const session = read(db, deckId);
   return session ? view(session) : null;
@@ -129,7 +130,7 @@ const startSchema = z.object({
   expected_version: z.number().int().optional(),
 });
 export function startPlaytest(
-  db: DatabaseSync,
+  db: Database,
   actor: Actor,
   deckId: number,
   input: unknown,
@@ -250,7 +251,7 @@ function checkVersion(
     );
 }
 export function changePlaytest(
-  db: DatabaseSync,
+  db: Database,
   actor: Actor,
   deckId: number,
   input: { session_id?: unknown; expected_version?: unknown; action?: unknown },
@@ -280,7 +281,7 @@ export function changePlaytest(
   });
 }
 export function savePlaytestUi(
-  db: DatabaseSync,
+  db: Database,
   actor: Actor,
   deckId: number,
   input: { session_id?: unknown; expected_version?: unknown; ui?: unknown },
@@ -328,7 +329,7 @@ const observationSchema = z.object({
   deck_revision: z.number().int().min(0).optional(),
 });
 export function saveObservation(
-  db: DatabaseSync,
+  db: Database,
   actor: Actor,
   deckId: number,
   input: unknown,

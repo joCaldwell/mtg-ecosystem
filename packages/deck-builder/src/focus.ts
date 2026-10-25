@@ -2,7 +2,7 @@
 // stateless and every call names its deck, so this is how "this deck" in
 // conversation comes to mean the one on screen.
 
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "./sqlite.ts";
 import { getSetting, setSetting } from "./db.ts";
 
 export interface Focus {
@@ -14,7 +14,7 @@ export interface Focus {
   age_minutes: number;
 }
 
-export function setFocus(db: DatabaseSync, deckId: number | null, selected: string[] = []): void {
+export function setFocus(db: Database, deckId: number | null, selected: string[] = []): void {
   setSetting(
     db,
     "focus",
@@ -22,7 +22,7 @@ export function setFocus(db: DatabaseSync, deckId: number | null, selected: stri
   );
 }
 
-export function getFocus(db: DatabaseSync): Focus | null {
+export function getFocus(db: Database): Focus | null {
   const raw = getSetting(db, "focus");
   if (!raw) return null;
   let parsed: { deck_id: number | null; selected: string[]; at: number };

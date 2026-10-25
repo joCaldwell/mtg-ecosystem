@@ -5,7 +5,7 @@ import { href } from "../../app/routes.ts";
 import { groupSessions } from "../../domain/activity.ts";
 import { clockTime, dayLabel } from "../../domain/time.ts";
 import { InlineText } from "../../mtg/index.ts";
-import { Chip, Dot, EmptyState, ErrorNote, Loading, Page, PageHeader, Text } from "../../ui/index.ts";
+import { Pill, Chip, Dot, EmptyState, ErrorNote, Loading, Page, PageHeader, Text } from "../../ui/index.ts";
 import styles from "./ActivityPage.module.css";
 
 // The action strings recordActivity is called with (src/mcp/tools.ts), as words.
@@ -40,13 +40,6 @@ function waitingOnYou(e: ActivityEntry): boolean {
   return false;
 }
 
-function Pill({ on, onClick, children }: { on: boolean; onClick: () => void; children: string }) {
-  return (
-    <button type="button" aria-pressed={on} className={`${styles.pill} ${on ? styles.pillOn : ""}`} onClick={onClick}>
-      {children}
-    </button>
-  );
-}
 
 /** Every write an agent made (spec §11): the audit trail for what needed no approval. */
 export function ActivityPage() {

@@ -3,14 +3,13 @@ import { dirname, join } from "node:path";
 import { Readable, Transform, pipeline as pipelineOf } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import { pipeline } from "node:stream/promises";
-import { fileURLToPath } from "node:url";
 import { createGunzip } from "node:zlib";
 import type { ScryfallPrinting } from "./prices.ts";
 
-// Shared with scripts/ingest-scryfall.ts at the repo root so the bulk file
-// is only ever downloaded once per day for the whole monorepo.
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-export const CACHE_FILE = join(REPO_ROOT, ".scryfall-cache", "oracle-cards.json");
+import { DATA_DIR } from "./db.ts";
+
+// Per-instance cache: jobs and CLI use the same DATA_DIR as the database.
+export const CACHE_FILE = join(DATA_DIR, ".scryfall-cache", "oracle-cards.json");
 
 const MANIFEST_URL = "https://api.scryfall.com/bulk-data";
 const USER_AGENT = "mtg-ecosystem-deckbuilder/0.1";

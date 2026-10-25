@@ -5,7 +5,7 @@ import { useEffect, useRef } from "react";
 import { Tabs, type TabSpec } from "../../../ui/index.ts";
 import { useDeckUi, type PanelTab } from "../DeckUi.tsx";
 import type { DeckViewModel } from "../useDeckView.ts";
-import type { Review } from "../useReview.ts";
+import type { Review } from "../useReview.tsx";
 import { BriefPanel } from "./BriefPanel.tsx";
 import { CardPanel } from "./CardPanel.tsx";
 import { ChecksPanel } from "./ChecksPanel.tsx";

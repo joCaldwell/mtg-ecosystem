@@ -42,7 +42,7 @@
 // https://archidekt.com/forum/thread/6024990/1
 // https://archidekt.com/forum/thread/3223199
 
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "../sqlite.ts";
 import { ServiceError } from "../errors.ts";
 import { type Actor, requireOwner } from "../actor.ts";
 import { type CardRow, CardResolutionError, type ResolutionFailure, tryResolveCard } from "../cards.ts";
@@ -81,7 +81,7 @@ export interface ExportResult {
 
 /** The deck as Archidekt-importable text, optionally restricted to a selection. */
 export function exportDeck(
-  db: DatabaseSync,
+  db: Database,
   deckId: number,
   opts: ExportOptions = {},
 ): ExportResult {
@@ -298,7 +298,7 @@ export interface ImportDiff {
   revision: number;
 }
 
-export function diffImport(db: DatabaseSync, deckId: number, text: string): ImportDiff {
+export function diffImport(db: Database, deckId: number, text: string): ImportDiff {
   const { deck, slots, cards } = getDeck(db, deckId);
   const { entries, unparsed } = parseArchidektList(text);
 
@@ -469,7 +469,7 @@ function changesFor(diff: ImportDiff): Change[] {
 }
 
 function land(
-  db: DatabaseSync,
+  db: Database,
   actor: Actor,
   deckId: number,
   diff: ImportDiff,
@@ -500,7 +500,7 @@ function land(
 // and the whole import is ONE log entry, so one undo reverts it. Names that do
 // not resolve are reported and left out; they never block the rest.
 export function applyImport(
-  db: DatabaseSync,
+  db: Database,
   actor: Actor,
   deckId: number,
   text: string,
@@ -514,7 +514,7 @@ export function applyImport(
 // agent rule applies in full: one name that does not resolve fails the whole
 // call (spec §4.3), and applyChanges refuses unless the deck is Theorycrafted.
 export function fillFromList(
-  db: DatabaseSync,
+  db: Database,
   actor: Actor,
   deckId: number,
   text: string,

@@ -36,6 +36,7 @@ export function card(over: Partial<DeckCard> & { name?: string } = {}): DeckCard
     commander_legality: "legal",
     is_commander: 0,
     usd_cents: null,
+    image_small: null, image_normal: null, image_art_crop: null, retired: 0,
     slot_id: null,
     secondary_slot_ids: [],
     role: "card",
@@ -63,6 +64,7 @@ export function searchResult(over: Partial<CardData> & { name?: string } = {}): 
     commander_legality: "legal",
     is_commander: 0,
     usd_cents: null,
+    image_small: null, image_normal: null, image_art_crop: null, retired: 0,
     ...over,
   };
 }
@@ -88,6 +90,7 @@ export function item(over: Partial<ProposalItem> & { name?: string } = {}): Prop
     toughness: null,
     loyalty: null,
     usd_cents: null,
+    image_small: null, image_normal: null, image_art_crop: null,
     slot_id: null,
     slot_name: null,
     secondary_slot_ids: [],

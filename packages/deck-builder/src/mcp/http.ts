@@ -14,7 +14,7 @@
 // directs (https://ts.sdk.modelcontextprotocol.io/v2/serving/http).
 
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "../sqlite.ts";
 import * as z from "zod/v4";
 import {
   McpServer,
@@ -31,7 +31,7 @@ import { INSTRUCTIONS } from "./playbook.ts";
 import { TOOLS } from "./tools.ts";
 
 export const MCP_PATH = "/mcp";
-const MAX_BODY_BYTES = 4 * 1024 * 1024;
+const MAX_BODY_BYTES = 1024 * 1024;
 
 // The 2026-07-28 revision carries the client's identity in every request's
 // _meta; the 2025 revisions sent it once, in initialize.
@@ -67,18 +67,22 @@ function respond(res: ServerResponse, status: number, message: string, headers: 
   res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message }, id: null }));
 }
 
-async function readBody(req: IncomingMessage): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of req) {
-    size += (chunk as Buffer).length;
-    if (size > MAX_BODY_BYTES) throw new AppError("Request body too large", 413);
-    chunks.push(chunk as Buffer);
-  }
-  return Buffer.concat(chunks);
+function readBody(req: IncomingMessage): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0, oversized = false;
+    req.on("data", (chunk: Buffer) => {
+      if (oversized) return;
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) { oversized = true; chunks.length = 0; reject(new AppError("Request body too large", 413)); }
+      else chunks.push(chunk);
+    });
+    req.on("end", () => { if (!oversized) resolve(Buffer.concat(chunks)); });
+    req.on("error", reject);
+  });
 }
 
-export function createAgentEndpoint(db: DatabaseSync, opts: AgentEndpointOptions) {
+export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
   // Which protocol era each client speaks, logged once per client: the
   // question spec §15 leaves to be answered by what actually connects.
   const seen = new Set<string>();

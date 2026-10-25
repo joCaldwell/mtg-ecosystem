@@ -4,7 +4,7 @@
 //
 // Direct brief writes are owner-only; agents always propose through documents.ts.
 
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "../sqlite.ts";
 import { ServiceError } from "../errors.ts";
 import { type Actor, requireOwner } from "../actor.ts";
 import { withTransaction } from "../db.ts";
@@ -25,7 +25,7 @@ export interface BriefView {
   updated_at: string | null;
 }
 
-export function getBrief(db: DatabaseSync, deckId: number): BriefView {
+export function getBrief(db: Database, deckId: number): BriefView {
   requireDeck(db, deckId);
   const row = db
     .prepare("SELECT thesis, constraints_md, updated_at FROM briefs WHERE deck_id = ?")
@@ -61,7 +61,7 @@ export function getBrief(db: DatabaseSync, deckId: number): BriefView {
 }
 
 export function updateBrief(
-  db: DatabaseSync,
+  db: Database,
   actor: Actor,
   deckId: number,
   patch: { thesis?: string; constraints_md?: string },
@@ -84,7 +84,7 @@ export interface EnginePieceInput {
 
 /** Create the engine, or replace the one of the same name. */
 export function setEngine(
-  db: DatabaseSync,
+  db: Database,
   actor: Actor,
   deckId: number,
   name: string,
@@ -128,14 +128,14 @@ export function setEngine(
   });
 }
 
-export function removeEngine(db: DatabaseSync, actor: Actor, deckId: number, engineId: number): void {
+export function removeEngine(db: Database, actor: Actor, deckId: number, engineId: number): void {
   requireOwner(actor, "edit a deck brief directly (use propose_brief_edit)");
   requireEditableDeck(db, deckId);
   const r = db.prepare("DELETE FROM engines WHERE id = ? AND deck_id = ?").run(engineId, deckId);
   if (!r.changes) throw new ServiceError(`Engine ${engineId} not found in deck ${deckId}`, 404);
 }
 
-export function removeEngineByName(db: DatabaseSync, actor: Actor, deckId: number, name: string): void {
+export function removeEngineByName(db: Database, actor: Actor, deckId: number, name: string): void {
   requireOwner(actor, "edit a deck brief directly (use propose_brief_edit)");
   requireEditableDeck(db, deckId);
   const engine = db
