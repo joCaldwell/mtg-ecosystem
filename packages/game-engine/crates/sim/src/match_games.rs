@@ -5,16 +5,13 @@ use mtg_contracts::{CardKind, Color, ManaCost, Quantity};
 use mtg_core::{MatchConfig, ObjectHandle, PlayerRequest, PlayerResponse, PlayerTargetEntity};
 use std::collections::BTreeMap;
 
-mod attachments_policy;
 #[cfg(test)]
 mod current_pod_throughput;
-mod four_colors_policy;
+mod generic_policy;
+mod interactions;
 mod mana_policy;
 #[cfg(test)]
 mod ordinary_diagnostic;
-mod removal_policy;
-mod sacrifice_policy;
-mod wipes_policy;
 
 // Evidence belongs outside native crate sources regardless of Cargo's test cwd.
 fn artifact_root() -> std::path::PathBuf {
@@ -100,282 +97,19 @@ struct Strategy<'a> {
     catalog: &'a Catalog,
     policy: Policy,
     mulligans: [u8; 4],
-    beneficial: bool,
     mana_plan: std::collections::VecDeque<mana_policy::PlannedMana>,
     mana_color: Option<Color>,
 }
 impl Strategy<'_> {
-    fn land_color(&self, id: &str) -> Option<Color> {
-        let d = definition(self.catalog, id).ok()?;
-        (d.characteristics.kind == CardKind::Land)
-            .then(|| d.characteristics.color_identity.first().copied())
-            .flatten()
-    }
-    fn funds(&self, v: &mtg_core::PermittedView) -> BTreeMap<Color, Quantity> {
-        let mut funds = v
-            .players
-            .iter()
-            .find(|p| p.player == v.viewer)
-            .map(|p| p.mana.clone())
-            .unwrap_or_default();
-        for o in &v.objects {
-            if o.zone == Zone::Battlefield
-                && o.controller == v.viewer
-                && !o.tapped
-                && let Some(c) = self.land_color(&o.oracle_id)
-            {
-                funds.entry(c).or_default().add(&1.into());
-            }
-        }
-        funds
-    }
-    fn priority(&mut self, o: &Observation) -> Result<PlayerResponse, String> {
-        let v = &o.view;
-        if self.policy == Policy::Develop
-            && let Some(r) = self.wipes_priority(v)?
-        {
-            return Ok(r);
-        }
-        if self.policy == Policy::Develop
-            && let Some(response) = self.sacrifice_priority(v)?
-        {
-            return Ok(response);
-        }
-        if self.policy == Policy::Develop
-            && let Some(response) = self.removal_priority(v)?
-        {
-            return Ok(response);
-        }
-        if self.policy == Policy::Develop
-            && let Some(response) = self.four_colors_priority(v)?
-        {
-            return Ok(response);
-        }
-        if self.policy == Policy::DrawOnly
-            || v.active != Some(v.viewer)
-            || !v.stack.is_empty()
-            || !matches!(
-                v.turn.step,
-                TurnStep::PrecombatMain | TurnStep::PostcombatMain
-            )
-        {
-            return Ok(PlayerResponse::Pass);
-        }
-        if v.turn.lands_played == 0
-            && let Some(land) = v.objects.iter().find(|x| {
-                x.zone == Zone::Hand { owner: v.viewer }
-                    && definition(self.catalog, &x.oracle_id)
-                        .is_ok_and(|d| d.characteristics.kind == CardKind::Land)
-            })
-        {
-            return Ok(PlayerResponse::PlayLand {
-                object: land.handle.clone(),
-            });
-        }
-        if let Some(response) = self.attachment_priority(v)? {
-            return Ok(response);
-        }
-        let _funds = self.funds(v);
-        let enemy_creature = v.objects.iter().any(|x| {
-            x.zone == Zone::Battlefield
-                && x.controller != v.viewer
-                && self.targetable(v, x)
-                && x.characteristics
-                    .as_ref()
-                    .is_some_and(|c| c.kind == CardKind::Creature)
-        });
-        let own_creature = v.objects.iter().any(|x| {
-            x.zone == Zone::Battlefield
-                && x.controller == v.viewer
-                && self.targetable(v, x)
-                && x.characteristics
-                    .as_ref()
-                    .is_some_and(|c| c.kind == CardKind::Creature)
-        });
-        // Deterministic, intentionally simple completion policy. Commanders and
-        // creatures precede one-shot programs; every cost is checked publicly.
-        for command in [true, false] {
-            for x in &v.objects {
-                if x.owner != v.viewer
-                    || if command {
-                        x.zone != Zone::Command { owner: v.viewer }
-                    } else {
-                        x.zone != Zone::Hand { owner: v.viewer }
-                    }
-                {
-                    continue;
-                }
-                let d = definition(self.catalog, &x.oracle_id)?;
-                if d.characteristics.kind == CardKind::Land {
-                    continue;
-                }
-                if !command
-                    && d.characteristics.kind != CardKind::Creature
-                    && !(matches!(
-                        d.characteristics.kind,
-                        CardKind::Enchantment | CardKind::Artifact
-                    ))
-                    && v.turn.step != TurnStep::PostcombatMain
-                {
-                    continue;
-                }
-                if matches!(d.name.as_str(), "Cruel Edict" | "Disfigure") && !enemy_creature {
-                    continue;
-                }
-                if matches!(d.name.as_str(), "Giant Growth" | "Battlegrowth") && !own_creature {
-                    continue;
-                }
-                {
-                    if d.name == "Murder" && !enemy_creature {
-                        continue;
-                    }
-                    if d.name == "Day of Judgment" {
-                        let mut ours = 0;
-                        let mut theirs = 0;
-                        for c in &v.objects {
-                            if c.zone == Zone::Battlefield
-                                && c.characteristics
-                                    .as_ref()
-                                    .is_some_and(|c| c.kind == CardKind::Creature)
-                            {
-                                if c.controller == v.viewer {
-                                    ours += 1;
-                                } else {
-                                    theirs += 1;
-                                }
-                            }
-                        }
-                        if theirs <= ours {
-                            continue;
-                        }
-                    }
-                    if d.name == "Raise Dead"
-                        && !v.objects.iter().any(|x| {
-                            x.zone == (Zone::Graveyard { owner: v.viewer })
-                                && definition(self.catalog, &x.oracle_id)
-                                    .is_ok_and(|d| d.characteristics.kind == CardKind::Creature)
-                        })
-                    {
-                        continue;
-                    }
-                }
-                if (matches!(d.name.as_str(), "Counterspell" | "Stifle")
-                    || (matches!(d.name.as_str(), "Unsummon" | "Time Ebb") && !enemy_creature))
-                {
-                    continue;
-                }
-                if d.characteristics.subtypes == ["Aura"]
-                    && if d.name == "Pacifism" {
-                        !enemy_creature
-                    } else {
-                        !own_creature
-                    }
-                {
-                    continue;
-                }
-                if d.spell
-                    .as_ref()
-                    .is_some_and(|p| p.targets.first().is_some_and(|t| t.filter.is_some()))
-                    && !self.removal_spell_ready(v, d)
-                {
-                    continue;
-                }
-                if !self.sacrifice_spell_ready(v, d) {
-                    continue;
-                }
-                if d.name == "Fog" {
-                    continue;
-                }
-                if !self.wipe_ready(v, d) {
-                    continue;
-                }
-                let mut cost = {
-                    let Some(c) = self.wipe_cost(v, d) else {
-                        continue;
-                    };
-                    c
-                };
-                if command
-                    && let Some(history) = v
-                        .commanders
-                        .iter()
-                        .find(|c| c.oracle_id == x.oracle_id && c.history.owner == v.viewer)
-                {
-                    let n = history
-                        .history
-                        .command_casts
-                        .get(&v.viewer)
-                        .cloned()
-                        .unwrap_or_default();
-                    cost.generic.add(&n);
-                    cost.generic.add(&n);
-                }
-                let plan = true
-                    .then(|| mana_policy::plan(self.catalog, v, &cost, None))
-                    .flatten();
-                if plan.is_some() {
-                    if let Some(plan) = plan {
-                        self.mana_plan = plan;
-                    }
-                    self.beneficial = matches!(
-                        d.name.as_str(),
-                        "Giant Growth"
-                            | "Battlegrowth"
-                            | "Healing Hands"
-                            | "Healing Salve"
-                            | "Sacred Nectar"
-                    );
-                    return Ok(PlayerResponse::Cast {
-                        card: x.handle.clone(),
-                    });
-                }
-            }
-        }
-        if v.turn.step == TurnStep::PostcombatMain
-            && v.turn.number >= 20
-            && v.players
-                .iter()
-                .find(|p| p.player == v.viewer)
-                .is_some_and(|p| p.library_count > 0)
-        {
-            for o in &v.objects {
-                if o.zone != Zone::Battlefield || o.controller != v.viewer || o.token.is_some() {
-                    continue;
-                }
-                let d = definition(self.catalog, &o.oracle_id)?;
-                if d.characteristics.kind != CardKind::Artifact {
-                    continue;
-                }
-                for (i, a) in d.activated.iter().enumerate() {
-                    if let mtg_contracts::ActivationCost::Composite { costs } = &a.cost {
-                        if costs.tap && o.tapped {
-                            continue;
-                        }
-                        let cost = costs.mana.clone().unwrap_or(ManaCost {
-                            generic: Quantity::zero(),
-                            colored: vec![],
-                        });
-                        if let Some(plan) =
-                            mana_policy::plan(self.catalog, v, &cost, Some(&o.handle))
-                        {
-                            self.mana_plan = plan;
-                            return Ok(PlayerResponse::ActivateAbility {
-                                object: o.handle.clone(),
-                                ability: i as u32,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-        Ok(PlayerResponse::Pass)
-    }
     fn choose(&mut self, o: &Observation) -> Result<PlayerResponse, String> {
         let v = &o.view;
         let request = o.decision.as_ref().ok_or("missing match request")?;
         Ok(match request {
             PlayerRequest::AnnounceX { .. } => PlayerResponse::AnnounceX {
-                value: self.earthquake_x(v).unwrap_or_default(),
+                value: self
+                    .top_program(v)
+                    .and_then(|(d, p)| self.choose_x(v, d, p))
+                    .unwrap_or_default(),
             },
             PlayerRequest::ManaColor { colors, .. } => PlayerResponse::ManaColor {
                 color: self
@@ -403,15 +137,7 @@ impl Strategy<'_> {
                 object: self.sacrifice_choice(v, candidates)?,
             },
             PlayerRequest::OptionalEffect { .. } => PlayerResponse::OptionalEffect {
-                perform: (v
-                    .stack
-                    .last()
-                    .and_then(|s| s.triggered.as_ref())
-                    .is_some_and(|t| {
-                        definition(self.catalog, &t.oracle_id)
-                            .is_ok_and(|d| d.name == "Goblin Arsonist")
-                    }))
-                    || self.optional_removal(v),
+                perform: self.optional_effect(v),
             },
             PlayerRequest::OptionalRecursion { .. } => {
                 PlayerResponse::OptionalRecursion { perform: true }
@@ -430,143 +156,70 @@ impl Strategy<'_> {
             },
             PlayerRequest::Priority { .. } => return self.priority(o),
             PlayerRequest::Modes { candidates, .. } => PlayerResponse::Modes {
-                mode: *candidates.first().ok_or("empty modes")?,
+                mode: self.choose_mode(v, candidates).ok_or("empty modes")?,
             },
             PlayerRequest::Targets {
                 occurrences,
                 candidates,
                 ..
             } => {
-                if let Some(h) = self.removal_target(v, candidates)? {
-                    return Ok(PlayerResponse::Targets {
-                        objects: vec![h; occurrences.len()],
-                    });
-                }
-                if let Some(h) = self.attachment_target(v, candidates)? {
-                    return Ok(PlayerResponse::Targets {
-                        objects: vec![h; occurrences.len()],
-                    });
-                }
-                let trigger = v.stack.last().and_then(|s| s.triggered.as_ref()).is_some();
-                let counter_trigger = v
-                    .stack
-                    .last()
-                    .and_then(|s| s.triggered.as_ref())
-                    .is_some_and(|t| {
-                        definition(self.catalog, &t.oracle_id)
-                            .ok()
-                            .and_then(|d| d.triggered.get(t.ability as usize))
-                            .is_some_and(|a| {
-                                a.program.instructions.iter().any(|i| {
-                                    matches!(
-                                        i,
-                                        mtg_contracts::Instruction::PutPlusOneCounters { .. }
-                                    )
-                                })
-                            })
-                    });
-                let own = counter_trigger || (self.beneficial && !trigger);
-                {
-                    let recursion = occurrences.first().is_some_and(|t| {
-                        t.domain == mtg_contracts::TargetDomain::OwnGraveyardCreatureCard
-                    });
-                    let removal = v.stack.last().is_some_and(|top| {
-                        top.spell
-                            .as_ref()
-                            .and_then(|h| v.objects.iter().find(|o| &o.handle == h))
-                            .ok_or_else(|| "missing spell row".to_string())
-                            .and_then(|o| definition(self.catalog, &o.oracle_id))
-                            .is_ok_and(|d| {
-                                d.name == "Murder"
-                                    || (matches!(d.name.as_str(), "Unsummon" | "Time Ebb"))
-                            })
-                    });
-                    if recursion || removal {
-                        let h = candidates
-                            .iter()
-                            .filter_map(|h| v.objects.iter().find(|o| &o.handle == h))
-                            .filter(|o| recursion || o.controller != v.viewer)
-                            .max_by_key(|o| {
-                                (
-                                    o.characteristics
-                                        .as_ref()
-                                        .and_then(|c| c.power.clone())
-                                        .or_else(|| {
-                                            definition(self.catalog, &o.oracle_id)
-                                                .ok()
-                                                .and_then(|d| d.characteristics.power.clone())
-                                        })
-                                        .unwrap_or_default(),
-                                    v.commanders.iter().any(|c| c.oracle_id == o.oracle_id),
-                                    o.handle.0.clone(),
-                                )
-                            })
-                            .ok_or("no policy target")?;
-                        return Ok(PlayerResponse::Targets {
-                            objects: vec![h.handle.clone(); occurrences.len()],
-                        });
-                    }
-                }
-                let h = candidates
+                let (d, p) = self.top_program(v).ok_or("missing target program")?;
+                let objects = occurrences
                     .iter()
-                    .find(|h| {
-                        v.objects
-                            .iter()
-                            .any(|x| &x.handle == *h && (x.controller == v.viewer) == own)
+                    .map(|t| {
+                        self.object_target(v, d, p, t, Some(candidates))
+                            .or_else(|| candidates.first().cloned())
+                            .ok_or("empty object targets".into())
                     })
-                    .or(candidates.first())
-                    .ok_or("empty creature targets")?;
-                PlayerResponse::Targets {
-                    objects: vec![h.clone(); occurrences.len()],
-                }
+                    .collect::<Result<Vec<_>, String>>()?;
+                PlayerResponse::Targets { objects }
             }
             PlayerRequest::PlayerTargets {
                 occurrences,
                 candidates,
                 ..
             } => {
-                let trigger = v.stack.last().and_then(|s| s.triggered.as_ref()).is_some();
-                let p = candidates
+                let (d, p) = self.top_program(v).ok_or("missing player program")?;
+                let players = occurrences
                     .iter()
-                    .find(|p| (**p == v.viewer) == (self.beneficial && !trigger))
-                    .or(candidates.first())
-                    .ok_or("empty player targets")?;
-                PlayerResponse::PlayerTargets {
-                    players: vec![*p; occurrences.len()],
-                }
+                    .map(|t| {
+                        self.player_target(v, candidates, self.target_beneficial(d, p, t.slot))
+                            .ok_or("empty player targets".into())
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                PlayerResponse::PlayerTargets { players }
             }
             PlayerRequest::EntityTargets {
                 occurrences,
                 candidates,
                 ..
             } => {
-                let target = self
-                    .sacrifice_damage_target(v, candidates)
-                    .map(Ok)
-                    .unwrap_or_else(|| self.four_colors_entities(v, candidates))?;
-                PlayerResponse::EntityTargets {
-                    entities: vec![target; occurrences.len()],
-                }
+                let (_, p) = self.top_program(v).ok_or("missing damage program")?;
+                let entities = occurrences
+                    .iter()
+                    .map(|_| {
+                        self.damage_target(v, p, candidates)
+                            .ok_or("empty entity targets".into())
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                PlayerResponse::EntityTargets { entities }
             }
             PlayerRequest::StackTargets {
                 occurrences,
                 candidates,
                 ..
             } => {
-                let target = if self.is_swan_announcement(v) {
-                    self.swan_target(v, Some(candidates))
-                        .ok_or("no opposing Swan target")?
-                } else {
-                    let ability = occurrences.first().is_some_and(|t| {
-                        t.domain == mtg_contracts::TargetDomain::StackActivatedOrTriggeredAbility
-                    });
-                    self.opposing_stack(v, ability, Some(candidates))
-                        .ok_or("no opposing stack target")?
-                };
-                PlayerResponse::StackTargets {
-                    entries: vec![target; occurrences.len()],
-                }
+                let entries = occurrences
+                    .iter()
+                    .map(|t| {
+                        self.stack_target(v, t, Some(candidates))
+                            .or_else(|| candidates.first().cloned())
+                            .ok_or("empty stack targets".into())
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                PlayerResponse::StackTargets { entries }
             }
+
             PlayerRequest::OrderTriggers { candidates, .. } => PlayerResponse::OrderTriggers {
                 order: candidates.iter().map(|c| c.handle.clone()).collect(),
             },
@@ -901,7 +554,6 @@ pub(super) fn run(
         catalog,
         policy,
         mulligans,
-        beneficial: false,
         mana_plan: Default::default(),
         mana_color: None,
     };
@@ -1162,7 +814,7 @@ pub(super) fn batch(
     }
     let profile = profile_spec.name.as_str();
     fs::create_dir(directory).map_err(|e| e.to_string())?;
-    let manifest = serde_json::json!({"profile":profile,"policy":"develop-v1","seed_domain":format!("{profile}/completion-batch/"),"seed_indices":(0..16).collect::<Vec<u32>>(),"starting_seat":"index modulo4","mulligans":"(index+seat) modulo3","additional":{"homogeneous_seats":profile_spec.completion.homogeneous_seats},"decision_limit":DECISION_LIMIT,"turn_limit":TURN_LIMIT,"shared_work_limit":WORK_LIMIT,"quantum":1024,"required_complete":18,"allowed_faults":0,"allowed_truncations":0,"build_id":BUILD_ID,"catalog_sha256":mtg_contracts::digest(catalog)?});
+    let manifest = serde_json::json!({"profile":profile,"policy":"ir-develop-v2","seed_domain":format!("{profile}/completion-batch/"),"seed_indices":(0..16).collect::<Vec<u32>>(),"starting_seat":"index modulo4","mulligans":"(index+seat) modulo3","additional":{"homogeneous_seats":profile_spec.completion.homogeneous_seats},"decision_limit":DECISION_LIMIT,"turn_limit":TURN_LIMIT,"shared_work_limit":WORK_LIMIT,"quantum":1024,"required_complete":18,"allowed_faults":0,"allowed_truncations":0,"build_id":BUILD_ID,"catalog_sha256":mtg_contracts::digest(catalog)?});
     let mut manifest = manifest;
     // The optional rotation layout and extra homogeneous decks come from data.
     if profile_spec.completion.rotate {
@@ -1215,11 +867,12 @@ pub(super) fn batch(
         }
         let mut report = serde_json::json!({"index":index,"outcome":e.outcome,"winner":e.winner,"survivor_counts":e.survivor_counts,"turns":e.turns,"decisions":e.decisions,"advances":e.advances,"rule_steps":e.rule_steps,"query_calls":e.query_calls,"verified_losses":replay.as_ref().ok(),"elapsed_millis":e.elapsed_millis,"final_state_sha256":e.final_state_sha256});
         {
-            report["keyword_interactions"] = keyword_interactions(catalog, &e)?;
+            report["interactions"] = interactions::game(catalog, &e)?;
         }
         reports.push(report);
     }
-    let report = serde_json::json!({"manifest":manifest,"games":reports,"failures":failures,"passed":failures.is_empty()});
+    let interaction_summary = interactions::summarize(catalog, &reports)?;
+    let report = serde_json::json!({"manifest":manifest,"games":reports,"interactions":interaction_summary,"failures":failures,"passed":failures.is_empty()});
     fs::write(directory.join("report.json"), canonical(&report)?).map_err(|e| e.to_string())?;
     if !failures.is_empty() {
         return Err(format!(
@@ -1230,270 +883,6 @@ pub(super) fn batch(
     Ok(report)
 }
 
-/// Diagnostic counts from an independent Detailed replay: evidence that the
-/// completion games exercise the keyword mechanics, not a correctness oracle.
-fn keyword_interactions(catalog: &Catalog, e: &Evidence) -> Result<serde_json::Value, String> {
-    fn walk(v: &serde_json::Value, counts: &mut [u64; 3]) {
-        match v {
-            serde_json::Value::Object(map) => {
-                if let Some(serde_json::Value::Array(gains)) = map.get("life_gains") {
-                    counts[0] += gains.len() as u64;
-                }
-                if map.get("reason").and_then(|r| r.as_str()) == Some("deathtouch") {
-                    counts[1] += 1;
-                }
-                if map.get("outcome").and_then(|e| e.as_str()) == Some("blockers_declared")
-                    && let Some(serde_json::Value::Array(blocks)) = map.get("blocks")
-                {
-                    counts[2] += blocks.len() as u64;
-                }
-                map.values().for_each(|v| walk(v, counts));
-            }
-            serde_json::Value::Array(items) => items.iter().for_each(|v| walk(v, counts)),
-            _ => {}
-        }
-    }
-    let p = Prepared::admit_pod(catalog.clone(), e.config.clone()).map_err(|e| format!("{e:?}"))?;
-    let physical_cards = p.config().cards.clone();
-    let g = Game::replay_with_trace(p, &e.journal, TraceMode::Detailed)?;
-    let mana_report;
-    {
-        let mut activations = std::collections::BTreeSet::new();
-        let mut by_type = BTreeMap::<String, u64>::from([
-            ("land".into(), 0),
-            ("artifact".into(), 0),
-            ("creature".into(), 0),
-        ]);
-        let mut first = BTreeMap::<PlayerId, u64>::new();
-        let mut turn = 1;
-        let mut proposed = BTreeMap::new();
-        for record in g.trace().records.iter() {
-            match &record.record {
-                mtg_core::EvidenceRecord::Event { event } => match event.as_ref() {
-                    mtg_core::Event::Committed {
-                        actual: mtg_core::EventOutcome::TurnTransitioned { current, .. },
-                        ..
-                    } => turn = current.number,
-                    mtg_core::Event::SpellProposed { card, stack_id } => {
-                        proposed.insert(*stack_id, *card);
-                    }
-                    mtg_core::Event::SpellCast { stack_id } => {
-                        if let Some(card) = proposed
-                            .get(stack_id)
-                            .and_then(|id| physical_cards.iter().find(|c| c.id == *id))
-                            && card.id.0 % 100 == 0
-                        {
-                            first.entry(card.owner).or_insert(turn);
-                        }
-                    }
-                    _ => {}
-                },
-                mtg_core::EvidenceRecord::Batch { batch } => {
-                    if let mtg_core::BatchCause::ManaActivation {
-                        source,
-                        decision_id,
-                        ..
-                    } = batch.cause
-                        && batch
-                            .occurrences
-                            .iter()
-                            .any(|o| matches!(o.actual, mtg_core::EventOutcome::ManaAdded { .. }))
-                        && activations.insert((source, decision_id))
-                    {
-                        let card = physical_cards
-                            .iter()
-                            .find(|c| c.id == source.card)
-                            .ok_or("missing mana source")?;
-                        let d = definition(catalog, &card.oracle_id)?;
-                        let kind = match d.characteristics.kind {
-                            CardKind::Land => "land",
-                            CardKind::Creature => "creature",
-                            CardKind::Artifact => "artifact",
-                            _ => return Err("unexpected mana source kind".into()),
-                        };
-                        *by_type.entry(kind.into()).or_default() += 1;
-                    }
-                }
-            }
-        }
-        mana_report = Some(
-            serde_json::json!({"activations_by_source_type":by_type,"first_commander_cast_turn":(0..4).map(|i|first.get(&PlayerId(i)).copied()).collect::<Vec<_>>()}),
-        );
-    }
-    let mut counts = [0; 3];
-    walk(
-        &serde_json::to_value(g.events()).map_err(|e| e.to_string())?,
-        &mut counts,
-    );
-    let mut report = serde_json::json!({"lifelink_gains":counts[0],"deathtouch_destructions":counts[1],"blocks":counts[2]});
-    // Exact slices select their own evidence adapters and capacities, not inherited mechanics.
-    {
-        report["wipes"] = wipes_policy::interactions(catalog, &physical_cards, &g)?;
-    }
-    {
-        report["sacrifice"] = sacrifice_policy::interactions(catalog, &physical_cards, &g)?;
-    }
-    {
-        report["removal"] = removal_policy::interactions(catalog, e, &physical_cards, &g)?;
-    }
-    {
-        report["attachments"] = attachments_policy::interactions(catalog, e, &physical_cards, &g)?;
-    }
-    {
-        report["four_colors"] = four_colors_policy::interactions(catalog, &physical_cards, &g)?;
-    }
-    if let Some(mana) = mana_report {
-        report["mana"] = mana;
-    }
-    {
-        let mut tokens_created = 0u64;
-        let mut counters_placed = Quantity::zero();
-        for event in g.events() {
-            match event {
-                mtg_core::Event::Committed {
-                    actual: mtg_core::EventOutcome::TokensCreated { objects, .. },
-                    ..
-                } => tokens_created += objects.len() as u64,
-                mtg_core::Event::Committed {
-                    actual: mtg_core::EventOutcome::PlusOneCountersPlaced { amount, .. },
-                    ..
-                } => counters_placed.add(amount),
-                _ => {}
-            }
-        }
-        report["tokens_created"] = serde_json::json!(tokens_created);
-        report["plus_one_counters_placed"] = serde_json::json!(counters_placed);
-    }
-
-    {
-        let mut destroyed = 0u64;
-        let mut recursions = 0u64;
-        let mut searched = 0u64;
-        let mut anthem_damage = Quantity::zero();
-        let mut anthems = BTreeMap::new();
-        let anthem_ids = physical_cards
-            .iter()
-            .filter(|c| {
-                definition(catalog, &c.oracle_id).is_ok_and(|d| {
-                    d.static_abilities.iter().any(|a| {
-                        matches!(
-                            a.effect,
-                            mtg_contracts::StaticEffect::ControllerCreatureAnthem { .. }
-                        )
-                    })
-                })
-            })
-            .map(|c| (c.id, c.owner))
-            .collect::<BTreeMap<_, _>>();
-        for record in g.trace().records.iter() {
-            if let mtg_core::EvidenceRecord::Batch { batch } = &record.record {
-                for occurrence in &batch.occurrences {
-                    match &occurrence.proposed {
-                        mtg_core::ProposedEvent::DestroyCreature { .. } => destroyed += 1,
-                        mtg_core::ProposedEvent::SearchLandEntry { .. } => searched += 1,
-                        _ => {}
-                    }
-                    if let mtg_core::EventOutcome::Moved { movement } = &occurrence.actual {
-                        if matches!(movement.from, Zone::Graveyard { .. })
-                            && matches!(movement.destination, Zone::Hand { .. })
-                        {
-                            recursions += 1;
-                        }
-                        if let Some(owner) = anthem_ids.get(&movement.previous.card) {
-                            if movement.destination == Zone::Battlefield {
-                                anthems.insert(movement.successor, *owner);
-                            } else {
-                                anthems.remove(&movement.previous);
-                            }
-                        }
-                    }
-                    if let mtg_core::ProposedEvent::LeaveGame { object, .. } = &occurrence.proposed
-                    {
-                        anthems.remove(object);
-                    }
-                    if let mtg_core::EventOutcome::DamageCommitted { actual, .. } =
-                        &occurrence.actual
-                        && occurrence
-                            .before
-                            .damage_transaction
-                            .as_ref()
-                            .is_some_and(|t| t.kind == mtg_core::DamageKind::Combat)
-                    {
-                        for damage in actual {
-                            if anthems.values().any(|p| *p == damage.controller) {
-                                anthem_damage.add(&damage.amount);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        report["destroyed_creatures"] = serde_json::json!(destroyed);
-        report["recursions"] = serde_json::json!(recursions);
-        report["lands_searched"] = serde_json::json!(searched);
-        // Final combat damage from creatures controlled by an active anthem's
-        // controller, not the marginal damage attributable to its +1/+1.
-        report["anthem_affected_combat_damage"] = serde_json::json!(anthem_damage);
-    }
-    {
-        let mut trample = Quantity::zero();
-        let mut first_steps = 0u64;
-        let mut menace = 0u64;
-        let has = |object: mtg_core::ObjectId, keyword| {
-            // Evidence config is the deck construction; physical cards are in
-            // the admitted host configuration, never in policy inputs.
-            physical_cards
-                .iter()
-                .find(|c| c.id == object.card)
-                .and_then(|c| {
-                    catalog
-                        .definitions
-                        .iter()
-                        .find(|d| d.oracle_id == c.oracle_id)
-                })
-                .is_some_and(|d| d.keywords.contains(&keyword))
-        };
-        for event in g.events() {
-            if let mtg_core::Event::Committed { actual, .. } = event {
-                match actual {
-                    mtg_core::EventOutcome::DamageCommitted { actual, .. } => {
-                        for d in actual {
-                            if matches!(d.recipient, mtg_core::DamageRecipient::Player { .. })
-                                && d.source
-                                    .keywords
-                                    .contains(&mtg_contracts::KeywordAbility::Trample)
-                            {
-                                trample.add(&d.amount);
-                            }
-                        }
-                    }
-                    mtg_core::EventOutcome::TurnTransitioned { current, .. }
-                        if current.step == mtg_core::TurnStep::FirstStrikeDamage =>
-                    {
-                        first_steps += 1
-                    }
-                    mtg_core::EventOutcome::BlockersDeclared { blocks, .. } => {
-                        let mut attackers = Vec::new();
-                        for (_, a) in blocks {
-                            if !attackers.contains(a)
-                                && has(*a, mtg_contracts::KeywordAbility::Menace)
-                            {
-                                attackers.push(*a);
-                                menace += 1;
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-        report["player_damage_from_trample_sources"] =
-            serde_json::to_value(trample).map_err(|e| e.to_string())?;
-        report["first_strike_steps"] = first_steps.into();
-        report["menace_blocks"] = menace.into();
-    }
-    Ok(report)
-}
 pub(super) fn suite(catalog: &Catalog) -> Result<(Vec<Evidence>, serde_json::Value), String> {
     let parent = artifact_root().join("p5-batches");
     fs::create_dir_all(&parent).map_err(|e| e.to_string())?;
@@ -1873,7 +1262,7 @@ mod admission_and_host_tests {
     use std::cell::Cell;
 
     #[test]
-    fn optional_effect_policy_identifies_only_the_top_arsonist_trigger() {
+    fn optional_effect_policy_uses_only_the_top_program() {
         let catalog = mtg_compiler::catalog::embedded_catalog("sacrifice").unwrap();
         let (_, _, _, mut game) = initial();
         game.advance(Budget::unlimited());
@@ -1886,7 +1275,6 @@ mod admission_and_host_tests {
             catalog: &catalog,
             policy: Policy::Develop,
             mulligans: [0; 4],
-            beneficial: false,
             mana_plan: Default::default(),
             mana_color: None,
         };

@@ -249,10 +249,9 @@ diagnostic CLI from building. `record-groups.json`
 preserves historical mutation-test/evidence ordering only; catalog membership
 comes exclusively from `catalogs/*.json`. The existing named compiler functions
 are wrappers over the generic loader. Adding records or building a scratch
-catalog needs no Rust edits. Profile admission and simulator policy remain
-separate D1b/D1c work.
+catalog needs no Rust edits. Profile admission is data-driven; simulator strategy reads IR features.
 
-### Engine code identity (D1b, partial)
+### Engine code identity
 
 `BUILD_ID` hashes Rust sources and Cargo manifests under `crates/`, the root
 Cargo manifest/lockfile and toolchain pin, plus compiler/target/build settings.
@@ -262,3 +261,40 @@ Retained source manifests still carry data and server files with per-file
 hashes; the independent verifier uses the same code-input selection as the
 core build. A new data-only catalog therefore does not invalidate snapshots
 for an unchanged catalog.
+
+
+### Generic completion batches (D1c)
+
+Run every profile with the same release commands:
+
+```sh
+cargo build --release --locked -p mtg-sim
+target/release/mtg-sim match-batch commander-wipes-v1 generated/my-wipes-batch
+target/release/mtg-sim match-replay commander-wipes-v1 generated/my-wipes-batch/game-00.json
+```
+
+`match-batch PROFILE OUTPUT` runs 18 seeded games using the profile JSON's
+rotation and homogeneous-deck layout, saves every journal and independently
+replays each game. `match-replay PROFILE FILE` verifies one saved journal and
+rejects a different profile. The output directory must not already exist.
+`match-game PROFILE INDEX` runs an individual suite game; `match-replay-live
+PROFILE FILE` verifies a live journal. The DrawOnly policy remains solely for
+the generic draw/decking witness; no policy variant selects a catalog.
+
+The Develop policy uses target domains, permanent filters, instruction amounts,
+static cost reductions and activation costs from the catalog, plus public board
+facts. It attacks with eligible positive-power creatures, picks valuable removal
+targets, lethal burn targets or the lowest-life opponent, and estimates wipe
+losses from the instruction's set and amount. These are simple strategy estimates;
+core validates every proposal and owns all rules. No card names or catalog-size
+fingerprints select decisions.
+
+`report.json` contains one batch `interactions` summary and per-game counts.
+Instruction kinds and exact catalog sites distinguish chosen invocations from
+nonempty committed instruction batches; modes and repeated continuation batches
+are accounted separately. Trigger counts distinguish collection, placement and
+resolution. Keyword counts measure involvement in combat declarations/damage,
+including tokens and granted keywords, rather than claiming each keyword changed
+the result. The report lists every unreached catalog instruction site and unused
+catalog card, so omissions remain visible and need capability witnesses.
+See [D1c verification](../../docs/game-engine-cards-as-data-d1c.md).

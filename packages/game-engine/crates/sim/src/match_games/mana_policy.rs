@@ -226,7 +226,6 @@ mod tests {
             catalog: &catalog,
             policy: Policy::Develop,
             mulligans: [0; 4],
-            beneficial: false,
             mana_plan: Default::default(),
             mana_color: None,
         };
