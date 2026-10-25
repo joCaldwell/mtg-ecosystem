@@ -15,10 +15,11 @@ import { withTransaction } from "../db.ts";
 import { ServiceError } from "../errors.ts";
 import { getFocus } from "../focus.ts";
 import { compareDecks, forkDeck } from "../deck/fork.ts";
+import { compareDeckSources, recordOwnership } from "../deck/sourcing.ts";
 import { exportDeck, fillFromList } from "../deck/interop.ts";
 import { cardHistories, listLog, markReviewed, unreviewedCount } from "../deck/log.ts";
 import { type Change, applyChanges } from "../deck/membership.ts";
-import { createProposal, getProposal } from "../deck/proposals.ts";
+import { createProposal, getProposal, listProposals, amendProposal, withdrawProposal } from "../deck/proposals.ts";
 import {
   createDeck,
   deleteDeck,
@@ -35,7 +36,7 @@ import {
   unshortlistCard,
 } from "../deck/service.ts";
 import { PowerTargetSchema, PowerAssessmentSchema, getPower, recordPowerAssessment } from "../deck/power.ts";
-import { getProfile, proposeDocumentEdit } from "../documents.ts";
+import { getProfile, proposeDocumentEdit, getDocumentEdit, listDocumentEdits, proposeDocumentGroup, withdrawDocumentEdit } from "../documents.ts";
 import {
   type MemoryView,
   listMemories,
@@ -71,6 +72,7 @@ export interface ToolContext {
 
 export interface ToolResult {
   text: string;
+  structuredContent?: Record<string, unknown>;
   /** Set by tools that wrote something, so the app can refresh what is on screen. */
   changed?: boolean;
 }
@@ -114,6 +116,25 @@ function deckId(db: DatabaseSync, ref: number | string): number {
 }
 
 const done = (text: string): ToolResult => ({ text, changed: true });
+
+const documentChange = z.object({
+  kind: z.enum(["profile", "thesis", "constraints", "engine_set", "engine_remove", "power_target"]),
+  text: z.string().optional(), engine_name: z.string().optional(), description: z.string().optional(),
+  pieces: z.array(z.object({ card: cardRef, note: z.string().optional() })).optional(),
+  target: PowerTargetSchema.nullable().optional(), reason: z.string().trim().min(1),
+});
+const proposalItem = z.object({
+  action: z.enum(["add", "cut"]), card: cardRef, reason: z.string().trim().min(1),
+  slot: z.string().optional(), secondary_slots: z.array(z.string()).optional(),
+  to_maybe: z.boolean().optional(), group: z.string().optional(),
+});
+function documentChanges(db: DatabaseSync, changes: z.infer<typeof documentChange>[]) {
+  return changes.map(c => ({ kind: c.kind, reason: c.reason, payload: {
+    content: c.text, engine_name: c.engine_name, description: c.description, target: c.target,
+    pieces: c.pieces?.map(p => ({ oracle_id: resolveCard(db, p.card).oracle_id, note: p.note })),
+  } }));
+}
+
 
 function myDecksFor(db: DatabaseSync, oracleIds: string[], exceptDeck?: number): Map<string, string[]> {
   const stmt = db.prepare(
@@ -237,12 +258,13 @@ export const TOOLS: ToolDef[] = [
       "Use get_deck sections: [power] for field anchors and the app's explained bracket mapping.",
     input: {
       deck: deckRef,
+      expected_revision: z.number().int().nonnegative().optional(),
       target: PowerTargetSchema.nullable().describe("The desired profile and limits, or null to clear the target. Turn ranges are inclusive; occasional early wins are outliers, not frequent lines."),
       reason: z.string().trim().min(1).describe("Why this target fits what the owner wants; card references as [[Card Name]]."),
     },
     run: ({ db, actor }, a) => {
       const id = deckId(db, a.deck);
-      const r = proposeDocumentEdit(db, actor, id, "power_target", { target: a.target }, a.reason);
+      const r = proposeDocumentEdit(db, actor, id, "power_target", { target: a.target }, a.reason, { expected_revision: a.expected_revision });
       return done(`${r.applied ? "Set the power target." : `Proposed power target edit #${r.edit_id}; awaiting the owner.`}\n${renderPower(getPower(db, id))}\n${afterWrite(db, id)}`);
     },
   },
@@ -261,6 +283,53 @@ export const TOOLS: ToolDef[] = [
       const id = deckId(db, a.deck);
       const assessmentId = recordPowerAssessment(db, actor, id, a.assessment);
       return done(`Recorded power assessment #${assessmentId}.\n${renderPower(getPower(db, id))}\n${afterWrite(db, id)}`);
+    },
+  },
+  {
+    name: "compare_deck_sources",
+    title: "Compare a deck against its sources",
+    readOnly: false,
+    description: "Compare a target with multiple source decks in one operation. Returns actual shared cards and expensive remaining cards, IDs, exact names, list quantities, source decks, persistent ownership evidence, availability, estimated prices and timestamps, and app-computed totals as structured data. Membership never proves ownership or physical quantity; unknown ownership is not a shopping list. Optionally add all source tags in bulk, preserving slots and unrelated tags; revision guards are required when tagging. Filtering affects cards/result totals, not shared_cards, remaining_cards or tagging.",
+    input: {
+      deck: deckRef, sources: z.array(deckRef).min(1),
+      sourcing: z.enum(["shared", "not_in_sources"]).optional(),
+      ownership: z.enum(["owned", "unowned", "unknown"]).optional(),
+      not_marked_owned: z.boolean().optional(),
+      availability: z.enum(["available", "insufficient", "unknown"]).optional(),
+      sort: z.enum(["name", "price_desc", "price_asc", "ownership", "sourcing"]).optional(),
+      apply_source_tags: z.boolean().optional(),
+      expected_revision: z.number().int().nonnegative().optional(),
+      expected_source_revisions: z.record(z.string(), z.number().int().nonnegative()).optional(),
+    },
+    run: ({ db, actor }, a) => {
+      const result = compareDeckSources(db, actor, deckId(db, a.deck), a.sources.map((s: string | number) => deckId(db, s)), a);
+      const s = result.summary;
+      const price = (cents: number | null) => cents == null ? "price unknown" : `$${(cents / 100).toFixed(2)} est.`;
+      return {
+        changed: !!a.apply_source_tags, structuredContent: result,
+        text: `${result.target.name}: ${s.target.cards} distinct cards / ${s.target.copies} copies. ${s.shared.cards} shared; ${s.remaining.cards} absent from sources and not explicitly owned (${price(s.remaining.cost.usd_cents)}, ${s.remaining.cost.unpriced} unpriced). ${s.unknown_ownership.cards} have unknown ownership. Physical quantities are never summed across decks. Prices as of ${result.prices_as_of ?? "unknown"}.${a.apply_source_tags ? ` Source tags applied to ${s.tagged} card${s.tagged === 1 ? "" : "s"}.` : ""}\n` +
+          `Shared: ${result.shared_cards.map(c => `${c.name} [${c.source_decks.map(d => d.name).join("; ")}]`).join(", ") || "none"}\n` +
+          `Most expensive remaining (first 10; full data attached): ${result.remaining_cards.slice(0, 10).map(c => `${c.name} — ${price(c.price.usd_cents)}, ${c.ownership.status}`).join("; ") || "none"}\nUnknown ownership and source membership do not establish availability or a purchase requirement.`,
+      };
+    },
+  },
+  {
+    name: "record_ownership",
+    title: "Record explicit ownership evidence",
+    readOnly: false,
+    description: "Record explicit owner-provided ownership and optional physical/available quantities, with evidence. Persists independently of deck membership; never infer it from list appearances or keep preferences. Latest statement is current and all history remains. Requires an editable context deck, supports revision/evidence guards, and changes no cards, slots, brief or power target.",
+    input: {
+      deck: deckRef, expected_revision: z.number().int().nonnegative().optional(),
+      cards: z.array(z.object({ card: cardRef, status: z.enum(["owned", "unowned", "unknown"]),
+        quantity: z.number().int().nonnegative().nullable().optional(), available_quantity: z.number().int().nonnegative().nullable().optional(),
+        basis: z.string().trim().min(1), expected_evidence_id: z.number().int().positive().nullable().optional(),
+      })).min(1),
+    },
+    run: ({ db, actor }, a) => {
+      const id = deckId(db, a.deck);
+      const cards = resolveCards(db, a.cards.map((c: { card: string }) => c.card));
+      recordOwnership(db, actor, id, a.cards.map((c: object, i: number) => ({ ...c, oracle_id: cards[i].oracle_id })), a.expected_revision);
+      return done(`Recorded explicit ownership evidence for ${cards.length} card(s).\n${afterWrite(db, id)}`);
     },
   },
   {
@@ -721,6 +790,7 @@ export const TOOLS: ToolDef[] = [
         deck,
         filings.map((f, i) => ({ ...f, oracle_id: cards[i].oracle_id })),
         a.remove_unused_tags,
+        actor,
       );
       recordActivity(db, actor, "file_cards", deck, `Filed ${cards.length} card(s)${a.remove_unused_tags?.length ? `; removed unused tags: ${a.remove_unused_tags.join(", ")}` : ""}`);
       return done(`Filed ${cards.length} card(s).\n${renderDeck(db, deck, ["state"])}`);
@@ -886,7 +956,7 @@ export const TOOLS: ToolDef[] = [
     title: "Propose changes to a deck",
     readOnly: false,
     description:
-      "Propose adding and cutting cards. This is the only way to change which cards are in an ACTIVE deck: " +
+      "Propose adding and cutting cards. This is the only way to change which cards are in a Paper deck: " +
       "the owner rules on each item in the app, and you learn the outcome from list_rulings. Propose as " +
       "many items as the request calls for. Every item needs its own reason (write cards as [[Card Name]], " +
       "and quote the oracle text you rely on). Give items that only make sense together the same group " +
@@ -895,6 +965,7 @@ export const TOOLS: ToolDef[] = [
       "what the deck would become and any prior rulings and memories on the cards involved.",
     input: {
       deck: deckRef,
+      expected_revision: z.number().int().nonnegative().optional(),
       summary: z.string().optional().describe("One line on what this proposal is for."),
       items: z
         .array(
@@ -927,6 +998,7 @@ export const TOOLS: ToolDef[] = [
       const cards = resolveCards(db, items.map((i) => i.card));
       const id = createProposal(db, actor, deck, {
         summary: a.summary,
+        expected_revision: a.expected_revision,
         items: items.map((i, n) => ({
           action: i.action,
           oracle_id: cards[n].oracle_id,
@@ -969,6 +1041,74 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "list_proposals",
+    title: "Read current proposals and their history",
+    readOnly: true,
+    description: "Read card and document proposals with current status, supersession links, revision bases, stale flags, and full preserved drafts. Defaults to current pending work; include_history returns resolved, withdrawn and superseded versions. No approval or mutation is performed.",
+    input: { deck: deckRef.optional(), include_history: z.boolean().optional() },
+    run: ({ db }, a) => {
+      const id = a.deck === undefined ? undefined : deckId(db, a.deck);
+      const proposals = listProposals(db, { deckId: id, status: a.include_history ? undefined : "open" });
+      const document_edits = listDocumentEdits(db, { deckId: id, status: a.include_history ? undefined : "pending" });
+      return { structuredContent: { proposals, document_edits }, text:
+        [...proposals.map(p => `Card proposal #${p.id}: ${p.is_current ? "current open" : p.disposition === "current" ? p.status : p.disposition}, based on r${p.base_revision ?? "unknown"}${p.stale ? ", stale" : ""}${p.superseded_by ? ` → #${p.superseded_by}` : ""}`),
+          ...document_edits.map(e => `Document edit #${e.id}${e.group_id ? ` (group #${e.group_id})` : ""}: ${e.kind}, ${e.is_current ? "current pending" : e.disposition === "current" ? e.status : e.disposition}, based on r${e.base_revision ?? "unknown"}${e.stale ? ", stale" : ""}${e.superseded_by ? ` → #${e.superseded_by}` : ""}`)].join("\n") || "No proposals.",
+      };
+    },
+  },
+  {
+    name: "propose_document_changes",
+    title: "Propose a related set of document changes",
+    readOnly: false,
+    description: "Propose related brief or power-target changes as one atomic owner approval group. Use supersedes to explicitly replace your previous pending edits/groups; their history and links remain. The full replacement group becomes current. Always awaits owner approval for agents; Legacy is read-only. Profile groups omit deck and contain only profile edits. Duplicate current drafts for the same field require explicit supersession.",
+    input: { deck: deckRef.optional(), changes: z.array(documentChange).min(1),
+      supersedes: z.array(z.number().int().positive()).optional(), expected_revision: z.number().int().nonnegative().optional() },
+    run: ({ db, actor }, a) => {
+      const id = a.deck === undefined ? null : deckId(db, a.deck);
+      const result = proposeDocumentGroup(db, actor, id, documentChanges(db, a.changes), a);
+      return { changed: true, structuredContent: { ...result, document_edits: listDocumentEdits(db, id == null ? { profileOnly: true } : { deckId: id }) },
+        text: `Document group #${result.group_id}: edits ${result.edit_ids.join(", ")}; awaiting the owner's grouped approval. Superseded drafts remain in history.` };
+    },
+  },
+  {
+    name: "revise_proposal",
+    title: "Amend or withdraw your pending proposal",
+    readOnly: false,
+    description: "Amend or withdraw only your own pending card or document proposal. Amendments are linked replacements retaining the original audit history. For documents name any edit in a group and supply the complete replacement changes; the whole group is superseded. For partially ruled card proposals, supply only remaining work; earlier rulings stay in history. Never accepts, changes lifecycle, or edits an approved brief/power target.",
+    input: { type: z.enum(["cards", "document"]), id: z.number().int().positive(), action: z.enum(["amend", "withdraw"]),
+      reason: z.string().trim().min(1), expected_revision: z.number().int().nonnegative().optional(),
+      summary: z.string().optional(), items: z.array(proposalItem).min(1).optional(), changes: z.array(documentChange).min(1).optional() },
+    run: ({ db, actor }, a) => {
+      if (a.action === "withdraw") {
+        const scope = a.type === "cards" ? getProposal(db, a.id)?.deck_id : getDocumentEdit(db, a.id)?.deck_id;
+        if (a.type === "cards") withdrawProposal(db, actor, a.id, a.reason, a.expected_revision);
+        else withdrawDocumentEdit(db, actor, a.id, a.reason, a.expected_revision);
+        return done(`Withdrew ${a.type} proposal #${a.id}; history retained.${scope == null ? "" : `\n${afterWrite(db, scope)}`}`);
+      }
+      if (a.type === "document") {
+        const edit = getDocumentEdit(db, a.id);
+        if (!edit) throw new ServiceError(`Proposed edit ${a.id} not found`, 404);
+        if (!a.changes) throw new ServiceError("A document amendment needs the complete replacement changes");
+        lintProse(db, a.reason);
+        const result = proposeDocumentGroup(db, actor, edit.deck_id, documentChanges(db, a.changes), { supersedes: [a.id], expected_revision: a.expected_revision });
+        recordActivity(db, actor, "amend_document_proposal", edit.deck_id, `Amended edit #${a.id} with group #${result.group_id}: ${a.reason}`);
+        return { changed: true, structuredContent: result, text: `Current document group #${result.group_id} supersedes #${a.id}; awaiting owner approval.` };
+      }
+      const old = getProposal(db, a.id);
+      if (!old) throw new ServiceError(`Proposal ${a.id} not found`, 404);
+      if (!a.items) throw new ServiceError("A card amendment needs the complete replacement items");
+      lintProse(db, a.reason);
+      const items = (a.items as z.infer<typeof proposalItem>[]).map(i => ({ ...i,
+        oracle_id: resolveCard(db, i.card).oracle_id,
+        slot_id: i.slot ? requireSlotByName(db, old.deck_id, i.slot).id : undefined,
+        secondary_slot_ids: i.secondary_slots?.map(name => requireSlotByName(db, old.deck_id, name).id),
+      }));
+      const id = amendProposal(db, actor, a.id, { summary: a.summary, items, expected_revision: a.expected_revision });
+      recordActivity(db, actor, "amend_card_proposal", old.deck_id, `Amended #${a.id} as #${id}: ${a.reason}`);
+      return { changed: true, structuredContent: { proposal: getProposal(db, id) }, text: `Current card proposal #${id} supersedes #${a.id}; awaiting owner approval.\n${afterWrite(db, old.deck_id)}` };
+    },
+  },
+  {
     name: "propose_brief_edit",
     title: "Propose an edit to a deck's brief",
     readOnly: false,
@@ -979,6 +1119,7 @@ export const TOOLS: ToolDef[] = [
       "prompted it. Legacy is read-only.",
     input: {
       deck: deckRef,
+      expected_revision: z.number().int().nonnegative().optional(),
       kind: z.enum(["thesis", "constraints", "engine_set", "engine_remove"]),
       text: z.string().optional().describe("For thesis / constraints: the full replacement text."),
       engine_name: z.string().optional().describe("For engine_set / engine_remove."),
@@ -1005,6 +1146,7 @@ export const TOOLS: ToolDef[] = [
           pieces: a.kind === "engine_set" ? pieces.map((p, i) => ({ oracle_id: cards[i].oracle_id, note: p.note })) : undefined,
         },
         a.reason ?? "",
+        { expected_revision: a.expected_revision },
       );
       recordActivity(db, actor, "propose_brief_edit", deck, r.applied ? `Wrote the brief (${a.kind})` : `Proposed brief edit #${r.edit_id} (${a.kind})`);
       return done(

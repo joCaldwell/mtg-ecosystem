@@ -76,7 +76,7 @@ src/
   mcp/
     playbook.ts      INSTRUCTIONS (short) and PLAYBOOK (returned by start_session)
     render.ts        text for agents — compact, grouped, counts stated
-    tools.ts         the 25 tools: thin adapters over the capability layer
+    tools.ts         the 30 tools: thin adapters over the capability layer
     http.ts          Streamable HTTP endpoint: Host/Origin checks, token, attribution
     stdio.ts         stdio shim: a pipe to the running app
 skill/commander-deck-building/SKILL.md   method for agents (optional Agent Skill)

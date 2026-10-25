@@ -53,6 +53,14 @@ describe("deck list matches", () => {
       const noMatch = matchDeckList(layout, new Map(), "both", { ids: [99], match: "any" });
       assert.equal(noMatch.active, true);
       assert.equal(noMatch.cardIds.size, 0);
+      const notAny = matchDeckList(layout, new Map(), "", { ids: [1, 2], match: "any", inverted: true });
+      assert.deepEqual([...notAny.cardIds], ["oid-Test Untagged"]);
+      const notAll = matchDeckList(layout, new Map(), "", { ids: [1, 2], match: "all", inverted: true });
+      assert.deepEqual([...notAll.cardIds].sort(), ["oid-Test Commander", "oid-Test One", "oid-Test Two", "oid-Test Untagged"]);
+      const notOne = matchDeckList(layout, new Map(), "", { ids: [1], match: "any", inverted: true });
+      assert.deepEqual([...notOne.cardIds].sort(), ["oid-Test Two", "oid-Test Untagged"]);
+      const invertedSearch = matchDeckList(layout, new Map(), "  tWo  ", { ids: [1], match: "any", inverted: true });
+      assert.deepEqual([...invertedSearch.cardIds], ["oid-Test Two"], "inversion applies only to tags, not name search");
       assert.deepEqual(layout, snapshot, "tag filtering never removes rows or changes quantities and costs");
     });
   }
@@ -79,15 +87,19 @@ describe("deck list matches", () => {
   test("proposed adds inherit parked tags; untagged adds are nonmatches", () => {
     const parked = card({ oracle_id: "parked", name: "Test Parked", maybe: 1, tag_ids: [1] });
     const matchingAdd = item({ oracle_id: "parked", name: "Test Parked" });
+    const newAdd = item({ oracle_id: "new", name: "Test New" });
     const state = deckState({
       cards: [parked],
-      proposals: [proposal([matchingAdd, item({ oracle_id: "new", name: "Test New" })])],
+      proposals: [proposal([matchingAdd, newAdd])],
     });
     const layout = layoutDeck(state, "slot");
     const overlay = reviewOverlay(state, layout, "slot");
     const result = matchDeckList(layout, overlay.addsByGroup, "", { ids: [1], match: "any" }, state.cards);
     assert.deepEqual([...result.addIds], [matchingAdd.id]);
     assert.deepEqual([...result.cardIds], ["parked"]);
+    const inverted = matchDeckList(layout, overlay.addsByGroup, "", { ids: [1], match: "any", inverted: true }, state.cards);
+    assert.deepEqual([...inverted.addIds], [newAdd.id]);
+    assert.equal(inverted.cardIds.size, 0);
     assert.equal([...overlay.addsByGroup.values()].flat().length, 2);
   });
 
@@ -95,11 +107,13 @@ describe("deck list matches", () => {
     const layout = layoutDeck(deckState({ cards: [card()], slots: [slot({ id: 10 })] }), "slot");
     const snapshot = structuredClone(layout);
     for (const query of ["", "   "]) {
-      const result = matchDeckList(layout, new Map(), query, { ids: [], match: "all" });
+      const result = matchDeckList(layout, new Map(), query, { ids: [], match: "all", inverted: true });
       assert.equal(result.active, false);
       assert.equal(result.cardIds.size, 0);
       assert.equal(result.addIds.size, 0);
     }
+    const searchOnly = matchDeckList(layout, new Map(), "test", { ids: [], match: "any", inverted: true });
+    assert.deepEqual([...searchOnly.cardIds], [layout.groups.flatMap((group) => group.cards)[0].oracle_id]);
     const result = matchDeckList(layout, new Map(), "no-match");
     assert.equal(result.active, true);
     assert.equal(result.cardIds.size, 0);

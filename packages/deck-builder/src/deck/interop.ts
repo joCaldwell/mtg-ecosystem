@@ -38,6 +38,10 @@
 // text being pasted back was produced by Archidekt, not by us.
 // ---------------------------------------------------------------------------
 
+// Category syntax rechecked 2026-10-17:
+// https://archidekt.com/forum/thread/6024990/1
+// https://archidekt.com/forum/thread/3223199
+
 import type { DatabaseSync } from "node:sqlite";
 import { ServiceError } from "../errors.ts";
 import { type Actor, requireOwner } from "../actor.ts";
@@ -63,6 +67,9 @@ const OUTSIDE_CATEGORIES = new Set(["maybeboard", "sideboard"]);
 export interface ExportOptions {
   // Emit [Category] tags derived from slots / role. Off = bare "QTY Name".
   categories?: boolean;
+  /** Restrict the export to these deck-card identities. An empty list exports nothing. */
+  oracleIds?: string[];
+  includeMaybe?: boolean;
 }
 
 export interface ExportResult {
@@ -72,7 +79,7 @@ export interface ExportResult {
   revision: number;
 }
 
-/** The deck as Archidekt-importable text. The maybe list is not part of the deck and is not exported. */
+/** The deck as Archidekt-importable text, optionally restricted to a selection. */
 export function exportDeck(
   db: DatabaseSync,
   deckId: number,
@@ -80,8 +87,10 @@ export function exportDeck(
 ): ExportResult {
   const { deck, slots, cards } = getDeck(db, deckId);
   const slotName = new Map(slots.map((s) => [s.id, s.name]));
+  const selected = opts.oracleIds === undefined ? null : new Set(opts.oracleIds);
 
   const categoryOf = (c: (typeof cards)[number]) => {
+    if (c.maybe) return MAYBEBOARD_CATEGORY;
     if (c.role === "commander") return COMMANDER_CATEGORY;
     if (c.role === "companion") return COMPANION_CATEGORY;
     return c.slot_id != null ? (slotName.get(c.slot_id) ?? UNSLOTTED_CATEGORY) : UNSLOTTED_CATEGORY;
@@ -95,9 +104,10 @@ export function exportDeck(
   slots.forEach((s, i) => order.set(s.name, i + 1));
   order.set(UNSLOTTED_CATEGORY, slots.length + 1);
   order.set(COMPANION_CATEGORY, slots.length + 2);
+  order.set(MAYBEBOARD_CATEGORY, slots.length + 3);
 
   const rows = cards
-    .filter((c) => !c.maybe)
+    .filter((c) => (!c.maybe || opts.includeMaybe) && (!selected || selected.has(c.oracle_id)))
     .map((c) => ({ card: c, category: categoryOf(c) }))
     .sort(
       (a, b) =>

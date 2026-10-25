@@ -216,7 +216,7 @@ Forks replace named checkpoints. There is no snapshot system and no DAG.
 
 - **Slots:** purposes such as ramp, interaction, card advantage, and a deck's particular engines. A card may have one optional **primary** slot and any number of **secondary** slots. A slot cannot be both primary and secondary on the same card. New decks define no slots. Primary assignments group the ordinary deck list; the command zone remains separate. Secondary purposes are available in expandable contributor lists for each slot. Card rows do not repeat the card's secondary slots beneath its name in either grouping mode, including in the command zone, proposed additions and maybe list. The card panel and bulk actions edit primary and secondary assignments separately.
 - **Targets:** a number or min–max range, soft and visibly checked. **Only primary assignments count toward targets.** The server reports primary count, secondary count, and total coverage separately, weighted by quantity. Coverage counts a card once per slot; secondary coverage never changes target status or pending target deltas. Parked cards and companions contribute to neither primary nor secondary counts; commanders in the 100 contribute according to their assignments. Slot totals must not be used to derive the deck's card count.
-- **Tags:** sourcing, ownership, assembly, and overall status (for example Have, Ordered, or From another deck), from a per-deck vocabulary. Additional card purposes belong in secondary slots. The card panel uses a searchable checkbox dropdown and shows only assigned tags beneath it; an untagged card shows no tag chips. The deck list can be filtered by one or more tags, matching **any** (union) or **all** (intersection), together with its name search. Filters apply to commanders, companions and the maybe list as well as ordinary cards. Matching rows are highlighted and nonmatches muted; every card and group stays visible in its original position and remains interactive. Counts, targets, costs and review decisions still describe the full deck. Selected cards support adding and removing tags in bulk.
+- **Tags:** sourcing, ownership, assembly, and overall status (for example Have, Ordered, or From another deck), from a per-deck vocabulary. Additional card purposes belong in secondary slots. The card panel uses a searchable checkbox dropdown and shows only assigned tags beneath it; an untagged card shows no tag chips. The deck list can be filtered by one or more tags, matching **any** (union) or **all** (intersection), together with its name search. **Invert filter** negates the selected any/all tag condition, so selecting Have and inverting matches cards without that tag, including untagged cards. Name search still applies normally. The closed filter shows the inversion; clearing all selected tags resets it. Filters apply to commanders, companions and the maybe list as well as ordinary cards. Matching rows are highlighted and nonmatches muted; every card and group stays visible in its original position and remains interactive. Counts, targets, costs and review decisions still describe the full deck. Selected cards support adding and removing tags in bulk.
 - **Maybe list:** cards under consideration, outside the 100. A parked card keeps its primary slot, secondary slots, and tags.
 - **Naming rule:** slot and tag names may not equal a card type in singular or plural (`land`, `lands`), nor any search prefix. Slot and card type are independent axes; whole-name matches only, so `land destruction` is allowed.
 
@@ -546,7 +546,7 @@ memories and proposed brief edits, not as a stored report.
 
 - **Stateless.** Every call names its deck. There is no "current deck" on the server.
 - **Few tools, shaped around tasks,** not one per database operation.
-- **Results are compact text meant to be read,** grouped the way the deck is organized. No JSON blobs, no ids the agent will not need. `get_deck` takes a `sections` argument so re-reads are cheap, and the full view must stay well under a typical client's tool-result cap.
+- **Results are compact text meant to be read,** grouped the way the deck is organized. Comparison and proposal-management workflows also return MCP `structuredContent` so agents consume stable IDs, quantities, evidence and prices without parsing prose. `get_deck` takes a `sections` argument so re-reads are cheap, and the full view must stay well under a typical client's tool-result cap.
 - **Writes return the new state:** card count, slot deltas and check results come back with the write, so the agent never re-fetches or counts.
 - **Errors say how to fix the call.** A failed name resolution lists suggestions; an `edit_cards` on a Paper deck says to use `propose_changes`.
 - **Annotations are honest:** read-only tools are marked read-only; `delete_deck` is marked destructive.
@@ -560,6 +560,8 @@ memories and proposed brief edits, not as a stored report.
 | | `player_stats` | Computed across Paper decks only: colours, commander types, curves, slot habits, most-reused cards |
 | Read | `get_deck` | Brief, list grouped by slot with oracle text, computed state, checks, deck memories, pending proposals, recent rulings; `sections` selects parts |
 | | `compare_decks` | Cards only in one, only in the other, and shared; defaults to a fork's parent |
+| | `compare_deck_sources` | Target versus multiple sources: shared cards, persistent ownership evidence, availability, timestamped price estimates and computed totals; optionally adds source tags with revision guards |
+| | `list_proposals` | Current card/document proposals, revision bases, stale flags, supersession and preserved history |
 | | `search_cards` | §4.2 |
 | | `get_cards` | Exact-name lookup of several cards: full text, linked memories, and rulings if a deck is named. Also the way to check that names are real |
 | | `list_rulings` | By deck, by date, or unreviewed only |
@@ -572,6 +574,7 @@ memories and proposed brief edits, not as a stored report.
 | | `edit_cards` | Add and remove cards, set commanders; Theorycrafted only |
 | | `define_slots` | Create, rename, retarget and remove slots |
 | | `file_cards` | Assign a primary slot (`slot`), replace secondary purposes (`secondary_slots`), and manage tags on cards already in the deck |
+| | `record_ownership` | Explicit ownership/availability evidence independent of deck membership; unknown quantities stay unknown |
 | | `shortlist_cards` | Add to or remove from the maybe list, with a note |
 | | `remember` | §7.3 |
 | | `revise_memory` | Update, supersede, retire or confirm |
@@ -580,12 +583,32 @@ memories and proposed brief edits, not as a stored report.
 | | `propose_brief_edit` | §6 |
 | | `propose_profile_edit` | §6 |
 | | `propose_power_target` | Propose a target change on editable decks (§5.7) |
+| | `propose_document_changes` | Related brief/power-target changes in one atomic owner approval group; explicitly supersede prior pending drafts |
+| | `revise_proposal` | Amend or withdraw the calling agent's own pending card/document proposals, retaining history and links |
 | Write freely | `assess_deck_power` | Attributed, revision-bound gameplay assessment (§5.7) |
 
 **Focus.** The app records what the owner has open in the UI (which deck,
 which cards are selected). `start_session` returns it and `get_deck` accepts
 `"focus"` as the deck, so "this deck" in conversation means the one on
 screen.
+
+Ownership evidence persists after cutting, moving, untagging, forking or deleting
+a deck. An explicit `Have` tag records ownership with unknown physical quantity
+and availability. Source-deck appearances and `Keep` preferences do not prove
+ownership; source quantities must never be added into a physical inventory.
+Unknown ownership is separate from an explicit statement of being unowned.
+
+Proposal amendments create linked replacements. Superseded/withdrawn drafts
+cannot be ruled on; their payloads and earlier owner rulings remain in history.
+Naming one document-group member for approval, rejection, withdrawal or
+supersession covers the whole group. Pending proposals record their membership
+revision and document bases (including engines). Changed bases/revisions require
+owner review and explicit stale acknowledgment before acceptance; expected
+revisions reject conflicting writes. Checks are recomputed in the returned state.
+The inbox shows each approval group once, with read-only history available.
+
+See [MCP workflow examples and migration details](deck-builder-mcp-workflows.md)
+for tool arguments, evidence semantics, response fields and limitations.
 
 **Owner-only actions** have no tool: ruling on proposals and document edits,
 changing a deck’s lifecycle, importing over an existing deck,
@@ -646,7 +669,7 @@ Construction and desktop solo goldfishing happen here. The manual playtester
 was added on 2026-10-13; see [its requirements](playtester-design-brief.md)
 and [implementation guide](playtester.md). Archidekt interop remains available.
 
-- **Export:** an Archidekt-importable list.
+- **Export:** an Archidekt-importable list. With active name or tag filters, **Export matches** opens an export restricted to matching cards, including inverted tag filters. The export dialog can switch between current matches and the whole deck, independently include or exclude the maybe list (excluded by default), and toggle categories. Filtered exports default to plain quantity-and-name lines for a buying list. Included maybe-list cards use `Maybeboard` when categories are enabled. Quantities are preserved; commanders and companions are eligible, and pending proposed additions are excluded. An empty selection exports nothing. Export counts describe the exported copies and lines, and exporting changes no deck records.
 - **Import:** the owner pastes a list; the app diffs it against the deck, shows the diff with destructive cuts called out first, and applies it in full on confirmation. It is one rulings-log entry, so one undo reverts it. Lines in a `Maybeboard` or `Sideboard` category, or under a section header of that name, are shortlisted on the maybe list, not added, and the preview says so. A `Commander` category or section header puts the card in the command zone, including a card already in the deck.
 - One-way out, one-way in. No sync layer.
 
@@ -722,6 +745,15 @@ Checked on 2026-10-11, when deck power profiles were added (§5.7):
   was populated from the installed Scryfall cache, without downloading it.
 
 ## 16. Not verified
+
+Ownership-aware sourcing and proposal cleanup were added on 2026-10-15.
+`npm run check` passes 422 tests, including migration, evidence persistence,
+multi-source tagging, grouped approval, supersession, stale revisions and both
+MCP protocol eras. A scripted official-client transcript against an isolated
+database copy was read through sourcing, amendment and owner approval. Visual
+browser QA for the changed approval/history controls remains unverified:
+collaborative preview snapshots/evaluation timed out, and the fallback browser
+provider reported no available browsers. The live owner database was not upgraded.
 
 Everything in §1–§14 is built. What has not been checked:
 

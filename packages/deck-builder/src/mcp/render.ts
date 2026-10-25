@@ -301,7 +301,7 @@ export function proposalLines(proposals: ProposalView[], edits: DocumentEditView
   for (const p of proposals) {
     const pending = p.items.filter((i) => i.status === "pending");
     if (!pending.length) continue;
-    lines.push(`- proposal #${p.id} by ${p.author}${p.summary ? `: ${p.summary}` : ""}`);
+    lines.push(`- proposal #${p.id} by ${p.author}${p.summary ? `: ${p.summary}` : ""} [current; based on r${p.base_revision ?? "unknown"}${p.stale ? "; stale" : ""}]`);
     for (const i of pending)
       lines.push(
         `  - ${i.action} ${i.card_name}${i.to_maybe ? ", moving it to the maybe list" : ""}${i.secondary_slot_names.length ? ` [secondary slots: ${i.secondary_slot_names.join(", ")}]` : ""}${i.group_id ? ` (group "${i.group_id}")` : ""}: ${i.reason}`,
@@ -309,7 +309,7 @@ export function proposalLines(proposals: ProposalView[], edits: DocumentEditView
   }
   for (const e of edits)
     lines.push(
-      `- proposed ${e.kind === "profile" ? "profile" : `brief (${e.kind.replace("_", " ")})`} edit #${e.id} by ${e.author}: ${e.reason}`,
+      `- proposed ${e.kind === "profile" ? "profile" : `brief (${e.kind.replace("_", " ")})`} edit #${e.id} by ${e.author}: ${e.reason} [current${e.group_id ? `; approval group #${e.group_id}` : ""}; based on r${e.base_revision ?? "unknown"}${e.stale ? "; stale" : ""}]`,
     );
   return lines.join("\n") || "(nothing is awaiting the owner's ruling)";
 }

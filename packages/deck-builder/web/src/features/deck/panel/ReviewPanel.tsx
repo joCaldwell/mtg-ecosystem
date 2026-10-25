@@ -39,6 +39,8 @@ export function ReviewPanel({ view, review }: { view: DeckViewModel; review: Rev
               <InlineText text={proposal.summary} />
             </p>
           </div>
+          {proposal.stale && <Text tone="warn">The deck changed since this proposal (based on r{proposal.base_revision ?? "unknown"}, current r{proposal.current_revision}). Acceptance requires reviewing and acknowledging those changes.</Text>}
+          {proposal.supersedes.length > 0 && <Text tone="faint">Replaces proposals {proposal.supersedes.join(", ")}.</Text>}
           {/* The projection covers every open proposal, so it appears once. */}
           {n === 0 && <ReviewDelta />}
           <div className={styles.units}>

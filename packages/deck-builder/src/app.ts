@@ -44,7 +44,7 @@ import {
   unshortlistCard,
   updateSlot,
 } from "./deck/service.ts";
-import { getProfile, listDocumentEdits, ruleDocumentEdit, setProfile } from "./documents.ts";
+import { getProfile, getDocumentEdit, listDocumentEdits, ruleDocumentEdit, setProfile } from "./documents.ts";
 import { MCP_PATH, createAgentEndpoint } from "./mcp/http.ts";
 import {
   getBudgets,
@@ -238,9 +238,12 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
     unreviewed: unreviewedCount(db),
   });
   route("GET", /^\/api\/inbox$/, inbox);
+  route("GET", /^\/api\/proposal-history$/, () => ({
+    proposals: listProposals(db), document_edits: listDocumentEdits(db),
+  }));
   const rule = (ids: number[], body: any) =>
     body.outcome === "accept"
-      ? acceptItems(db, OWNER, ids, String(body.reason ?? ""))
+      ? acceptItems(db, OWNER, ids, String(body.reason ?? ""), { expected_revision: body.expected_revision, acknowledge_stale: body.acknowledge_stale })
       : body.outcome === "reject"
         ? rejectItems(db, OWNER, ids, String(body.reason ?? ""))
         : (() => {
@@ -257,8 +260,8 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
   route("POST", /^\/api\/document-edits\/(\d+)\/rule$/, ([editId], body) => {
     if (body.outcome !== "accept" && body.outcome !== "reject")
       throw new ServiceError("A ruling's outcome is 'accept' or 'reject'");
-    const edit = listDocumentEdits(db, {}).find((e) => e.id === Number(editId));
-    ruleDocumentEdit(db, OWNER, Number(editId), body.outcome, String(body.reason ?? ""));
+    const edit = getDocumentEdit(db, Number(editId));
+    ruleDocumentEdit(db, OWNER, Number(editId), body.outcome, String(body.reason ?? ""), { expected_revision: body.expected_revision, acknowledge_stale: body.acknowledge_stale, expected_documents: body.expected_documents });
     return {
       ...(edit?.deck_id != null ? { state: state(edit.deck_id) } : { profile: getProfile(db) }),
       inbox: inbox(),
@@ -379,6 +382,8 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
   route("GET", /^\/api\/decks\/(\d+)\/export$/, ([id], _b, url) =>
     exportDeck(db, Number(id), {
       categories: url.searchParams.get("categories") !== "off",
+      oracleIds: url.searchParams.has("oracle_ids") ? url.searchParams.get("oracle_ids")!.split(",").filter(Boolean) : undefined,
+      includeMaybe: url.searchParams.get("include_maybe") === "on",
     }),
   );
   route("POST", /^\/api\/decks\/(\d+)\/import\/preview$/, ([id], body) =>

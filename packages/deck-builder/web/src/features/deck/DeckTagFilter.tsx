@@ -1,12 +1,12 @@
 import { useEffect } from "react";
-import { Button, MultiSelect, Segmented, Text } from "../../ui/index.ts";
+import { Button, Checkbox, MultiSelect, Segmented, Stack, Text } from "../../ui/index.ts";
 import { useDeckState } from "./DeckStore.tsx";
 import { useDeckUi } from "./DeckUi.tsx";
 import styles from "./DeckTagFilter.module.css";
 
 export function DeckTagFilter() {
   const { tags } = useDeckState();
-  const { tagIds, tagMatch, setTagIds, setTagMatch, openDialog } = useDeckUi();
+  const { tagIds, tagMatch, tagInverted, setTagIds, setTagMatch, setTagInverted, openDialog } = useDeckUi();
   // A deleted tag must not leave an invisible filter muting the whole list.
   const liveIds = tagIds.filter((id) => tags.some((tag) => tag.id === id));
   useEffect(() => {
@@ -26,13 +26,21 @@ export function DeckTagFilter() {
             options={tags.map((tag) => ({ value: String(tag.id), label: tag.name }))}
             value={liveIds.map(String)}
             compact
+            summary={tagInverted
+              ? liveIds.length === 1
+                ? `Not ${tags.find((tag) => tag.id === liveIds[0])?.name}`
+                : `Not ${tagMatch} of ${liveIds.length} tags`
+              : undefined}
             onChange={(ids) => setTagIds(ids.map(Number))}
             emptyText="No tags yet. Create tags, then assign them to cards."
             footer={liveIds.length > 0 && (
-              <div className={styles.actions}>
-                <Segmented label="Match selected tags" options={[{ value: "any", label: "Any tag" }, { value: "all", label: "All tags" }]} value={tagMatch} onChange={setTagMatch} />
-                <Button size="sm" variant="ghost" onClick={() => setTagIds([])}>Clear tags</Button>
-              </div>
+              <Stack gap={3}>
+                <div className={styles.actions}>
+                  <Segmented label="Match selected tags" options={[{ value: "any", label: "Any tag" }, { value: "all", label: "All tags" }]} value={tagMatch} onChange={setTagMatch} />
+                  <Button size="sm" variant="ghost" onClick={() => setTagIds([])}>Clear tags</Button>
+                </div>
+                <Checkbox label="Invert filter" checked={tagInverted} onChange={setTagInverted} />
+              </Stack>
             )}
           />
         </div>

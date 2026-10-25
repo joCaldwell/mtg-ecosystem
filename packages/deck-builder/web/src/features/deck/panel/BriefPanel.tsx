@@ -28,7 +28,7 @@ export function BriefPanel() {
 
   const pending = (kinds: DocumentEdit["kind"][]) =>
     edits
-      .filter((e) => kinds.includes(e.kind))
+      .filter((e) => e.group_id == null && kinds.includes(e.kind))
       .map((e) => (
         <DocumentEditCard
           key={e.id}
@@ -46,6 +46,8 @@ export function BriefPanel() {
 
   return (
     <>
+      {edits.filter(e => e.group_id === e.id).map(edit => <DocumentEditCard key={edit.id} edit={edit}
+        onRuled={r => { apply(r); inbox.apply(r.inbox); }} />)}
       <BriefField
         readOnly={readOnly}
         title="Thesis"

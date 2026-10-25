@@ -6,11 +6,12 @@
 import type { DatabaseSync } from "node:sqlite";
 import { ServiceError } from "../errors.ts";
 import { withTransaction } from "../db.ts";
-import { type Actor, authorOf, requireOwner } from "../actor.ts";
+import { type Actor, authorOf, requireOwner, PermissionError } from "../actor.ts";
 import { lintProse, requireCardById } from "../cards.ts";
+import { recordActivity } from "../activity.ts";
 import { type LogCardInput, writeLog } from "./log.ts";
 import { type Change, applyChanges } from "./membership.ts";
-import { copyLimit, findDeckCard, requireDeck, requireEditableDeck, listSlots, validateSlotAssignments } from "./service.ts";
+import { copyLimit, findDeckCard, requireDeck, requireEditableDeck, requireRevision, listSlots, validateSlotAssignments } from "./service.ts";
 
 export interface ProposalItemInput {
   action: "add" | "cut";
@@ -32,9 +33,10 @@ export function createProposal(
   db: DatabaseSync,
   actor: Actor,
   deckId: number,
-  input: { summary?: string; items: ProposalItemInput[] },
+  input: { summary?: string; items: ProposalItemInput[]; expected_revision?: number },
 ): number {
   requireEditableDeck(db, deckId);
+  requireRevision(db, deckId, input.expected_revision);
   const items = input.items ?? [];
   if (!items.length) throw new ServiceError("A proposal needs at least one item");
 
@@ -88,7 +90,7 @@ export function createProposal(
     const pending = db
       .prepare(
         `SELECT p.id FROM proposal_items pi JOIN proposals p ON p.id = pi.proposal_id
-         WHERE p.deck_id = ? AND pi.oracle_id = ? AND pi.action = ? AND pi.status = 'pending'`,
+         WHERE p.deck_id = ? AND pi.oracle_id = ? AND pi.action = ? AND pi.status = 'pending' AND p.status = 'open'`,
       )
       .get(deckId, item.oracle_id, item.action) as { id: number } | undefined;
     if (pending)
@@ -101,8 +103,8 @@ export function createProposal(
 
   return withTransaction(db, () => {
     const r = db
-      .prepare("INSERT INTO proposals (deck_id, summary, author) VALUES (?, ?, ?)")
-      .run(deckId, (input.summary ?? "").trim(), authorOf(actor));
+      .prepare("INSERT INTO proposals (deck_id, summary, author, base_revision) VALUES (?, ?, ?, ?)")
+      .run(deckId, (input.summary ?? "").trim(), authorOf(actor), requireDeck(db, deckId).revision);
     const proposalId = Number(r.lastInsertRowid);
     const ins = db.prepare(
       `INSERT INTO proposal_items (proposal_id, action, oracle_id, slot_id, secondary_slot_ids_json, to_maybe, reason, group_id)
@@ -158,6 +160,13 @@ export interface ProposalView {
   status: "open" | "resolved";
   created_at: string;
   items: ProposalItemView[];
+  base_revision: number | null;
+  current_revision: number;
+  stale: boolean;
+  disposition: "current" | "withdrawn" | "superseded";
+  superseded_by: number | null;
+  supersedes: number[];
+  is_current: boolean;
 }
 
 const ITEM_SELECT = `SELECT pi.id, pi.proposal_id, pi.action, pi.oracle_id, c.name AS card_name,
@@ -168,7 +177,7 @@ const ITEM_SELECT = `SELECT pi.id, pi.proposal_id, pi.action, pi.oracle_id, c.na
   LEFT JOIN slots s ON s.id = pi.slot_id
   WHERE pi.proposal_id = ? ORDER BY pi.id`;
 
-const PROPOSAL_SELECT = `SELECT p.id, p.deck_id, d.name AS deck_name, p.summary, p.author, p.status, p.created_at
+const PROPOSAL_SELECT = `SELECT p.id, p.deck_id, d.name AS deck_name, p.summary, p.author, p.status, p.created_at, p.base_revision, p.disposition, p.superseded_by
   FROM proposals p JOIN decks d ON d.id = p.deck_id`;
 
 function withItems(db: DatabaseSync, rows: Array<Omit<ProposalView, "items">>): ProposalView[] {
@@ -186,7 +195,10 @@ function withItems(db: DatabaseSync, rows: Array<Omit<ProposalView, "items">>): 
       const secondary_slot_ids = ids.filter(id => slots.has(id) && id !== primary);
       return { ...item, slot_id: primary, slot_name: primary == null ? null : slots.get(primary)!, secondary_slot_ids, secondary_slot_names: secondary_slot_ids.map(id => slots.get(id)!) };
     });
-    return { ...p, items };
+    const currentRevision = requireDeck(db, p.deck_id).revision;
+    return { ...p, items, current_revision: currentRevision, stale: p.base_revision !== currentRevision,
+      is_current: p.status === "open" && p.disposition === "current",
+      supersedes: (db.prepare("SELECT id FROM proposals WHERE superseded_by = ? ORDER BY id").all(p.id) as unknown as { id: number }[]).map(r => r.id) };
   });
 }
 
@@ -248,6 +260,8 @@ function itemsToRule(db: DatabaseSync, itemIds: number[]): ItemRow[] {
   for (const id of itemIds) {
     const item = db.prepare(`${ITEM_ROW} WHERE pi.id = ?`).get(id) as ItemRow | undefined;
     if (!item) throw new ServiceError(`Proposal item ${id} not found`, 404);
+    const proposal = getProposal(db, item.proposal_id)!;
+    if (!proposal.is_current) throw new ServiceError(`Proposal #${proposal.id} is ${proposal.disposition === "current" ? proposal.status : proposal.disposition}`);
     const group = item.group_id
       ? (db
           .prepare(`${ITEM_ROW} WHERE pi.proposal_id = ? AND pi.group_id = ?`)
@@ -288,11 +302,15 @@ export function acceptItems(
   actor: Actor,
   itemIds: number[],
   reason = "",
+  options: { expected_revision?: number; acknowledge_stale?: boolean } = {},
 ): number {
   requireOwner(actor, "rule on a proposal");
   const items = itemsToRule(db, itemIds);
   const deckId = items[0].deck_id;
   requireEditableDeck(db, deckId);
+  requireRevision(db, deckId, options.expected_revision);
+  if (getProposal(db, items[0].proposal_id)!.stale && (options.acknowledge_stale !== true || options.expected_revision === undefined))
+    throw new ServiceError("Proposal is stale; review changes and acknowledge_stale with expected_revision, or amend it", 409);
 
   return withTransaction(db, () => {
     // Cuts first: a swap that replaces a commander needs the seat free.
@@ -375,4 +393,41 @@ export function pendingItemIds(db: DatabaseSync, proposalId: number): number[] {
       .prepare("SELECT id FROM proposal_items WHERE proposal_id = ? AND status = 'pending' ORDER BY id")
       .all(proposalId) as unknown as { id: number }[]
   ).map((r) => r.id);
+}
+
+/** Only current pending work can be revised. Items already ruled on remain
+ * immutable in the previous proposal; the replacement describes remaining work. */
+function requireOwnPending(db: DatabaseSync, actor: Actor, id: number): ProposalView {
+  const proposal = getProposal(db, id);
+  if (!proposal) throw new ServiceError(`Proposal ${id} not found`, 404);
+  requireEditableDeck(db, proposal.deck_id);
+  if (actor.kind !== "owner" && (proposal.author !== authorOf(actor) || proposal.author === "owner"))
+    throw new PermissionError("Agents can amend or withdraw only their own pending proposals");
+  if (!proposal.is_current || !proposal.items.some(i => i.status === "pending"))
+    throw new ServiceError("Only a current proposal with pending items can be amended or withdrawn");
+  return proposal;
+}
+
+export function withdrawProposal(db: DatabaseSync, actor: Actor, id: number, reason: string, expectedRevision?: number): void {
+  withTransaction(db, () => {
+    const proposal = requireOwnPending(db, actor, id);
+    requireRevision(db, proposal.deck_id, expectedRevision);
+    if (!reason?.trim()) throw new ServiceError("Withdrawing a proposal needs a reason");
+    lintProse(db, reason);
+    db.prepare("UPDATE proposals SET status = 'resolved', disposition = 'withdrawn' WHERE id = ?").run(id);
+    recordActivity(db, actor, "withdraw_proposal", proposal.deck_id, `Withdrew proposal #${id}: ${reason}`);
+  });
+}
+
+export function amendProposal(db: DatabaseSync, actor: Actor, id: number,
+  input: { summary?: string; items: ProposalItemInput[]; expected_revision?: number }): number {
+  return withTransaction(db, () => {
+    const proposal = requireOwnPending(db, actor, id);
+    requireRevision(db, proposal.deck_id, input.expected_revision);
+    db.prepare("UPDATE proposals SET status = 'resolved', disposition = 'superseded' WHERE id = ?").run(id);
+    const replacement = createProposal(db, actor, proposal.deck_id, input);
+    db.prepare("UPDATE proposals SET superseded_by = ? WHERE id = ?").run(replacement, id);
+    recordActivity(db, actor, "amend_proposal", proposal.deck_id, `Proposal #${replacement} supersedes #${id}`);
+    return replacement;
+  });
 }

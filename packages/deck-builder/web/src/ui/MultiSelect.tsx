@@ -16,12 +16,14 @@ export interface MultiSelectProps {
   emptyText?: string;
   /** Keep selection in the trigger rather than adding rows of chips beneath it. */
   compact?: boolean;
+  /** Override the compact trigger's selection summary, e.g. for an inverted filter. */
+  summary?: string;
   /** Optional controls inside the dropdown, before Done. */
   footer?: ReactNode;
 }
 
 /** A searchable checkbox dropdown with optional compact selection display. */
-export function MultiSelect({ label, placeholder = "Select…", options, value, onChange, emptyText = "No options available.", compact = false, footer }: MultiSelectProps) {
+export function MultiSelect({ label, placeholder = "Select…", options, value, onChange, emptyText = "No options available.", compact = false, summary, footer }: MultiSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
@@ -86,7 +88,7 @@ export function MultiSelect({ label, placeholder = "Select…", options, value, 
       >
         <span className={compact ? styles.summary : undefined}>
           {compact && selected.length > 0
-            ? selected.length === 1 ? selected[0].label : `${selected.length} selected`
+            ? summary ?? (selected.length === 1 ? selected[0].label : `${selected.length} selected`)
             : placeholder}
         </span>
         <Icon name="chevronDown" size={12} />

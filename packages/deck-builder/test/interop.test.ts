@@ -2,7 +2,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { OWNER, PermissionError } from "../src/actor.ts";
 import { CardResolutionError } from "../src/cards.ts";
-import { createDeck, createSlot, getDeck } from "../src/deck/service.ts";
+import { createDeck, createSlot, getDeck, shortlistCard } from "../src/deck/service.ts";
 import { listLog } from "../src/deck/log.ts";
 import { setQuantity, undo } from "../src/deck/membership.ts";
 import {
@@ -54,6 +54,50 @@ describe("Archidekt export (spec §12)", () => {
     add(db, id, "id-atraxa", { role: "commander" });
     add(db, id, "id-llanowar", { role: "companion" });
     assert.match(exportDeck(db, id).text, /Llanowar Elves \[Companion\]/);
+  });
+
+  test("a selection exports only matching deck cards, preserves quantities, and never falls back to the full deck", () => {
+    const id = createDeck(db, "Filtered export");
+    add(db, id, "id-teferi", { role: "commander" });
+    add(db, id, "id-forest");
+    setQuantity(db, OWNER, id, "id-forest", 12);
+    add(db, id, "id-solring");
+    const before = getDeck(db, id);
+    const r = exportDeck(db, id, { categories: false, oracleIds: ["id-teferi", "id-forest", "id-forest", "not-in-this-deck"] });
+    const names = new Map(before.cards.map(c => [c.oracle_id, c.name]));
+    assert.equal(r.text, `1 ${names.get("id-teferi")}\n12 ${names.get("id-forest")}\n`);
+    assert.equal(r.card_count, 13);
+    assert.equal(r.line_count, 2);
+    assert.equal(r.revision, before.deck.revision);
+    for (const oracleIds of [[], ["not-in-this-deck"]]) {
+      const empty = exportDeck(db, id, { oracleIds, includeMaybe: true });
+      assert.equal(empty.text, "");
+      assert.equal(empty.card_count, 0);
+      assert.equal(empty.line_count, 0);
+    }
+    assert.deepEqual(getDeck(db, id), before);
+  });
+
+  test("maybe-list inclusion is independent of the selection and round-trips as Maybeboard", () => {
+    const id = createDeck(db, "Optional maybe export");
+    add(db, id, "id-solring");
+    shortlistCard(db, id, "id-forest");
+    const before = getDeck(db, id);
+    const maybeName = before.cards.find(c => c.oracle_id === "id-forest")!.name;
+    assert.equal(exportDeck(db, id).card_count, 1);
+    const full = exportDeck(db, id, { includeMaybe: true });
+    assert.equal(full.card_count, 2);
+    assert.equal(full.line_count, 2);
+    assert.ok(full.text.endsWith(`1 ${maybeName} [Maybeboard]\n`));
+    const oracleIds = ["id-forest"];
+    assert.equal(exportDeck(db, id, { oracleIds }).text, "");
+    assert.equal(exportDeck(db, id, { oracleIds, includeMaybe: true, categories: false }).text, `1 ${maybeName}\n`);
+    const imported = createDeck(db, "Maybe export round trip");
+    applyImport(db, OWNER, imported, full.text);
+    const parked = getDeck(db, imported).cards.find(c => c.oracle_id === "id-forest")!;
+    assert.equal(parked.maybe, 1);
+    assert.equal(parked.quantity, 1);
+    assert.deepEqual(getDeck(db, id), before);
   });
 });
 

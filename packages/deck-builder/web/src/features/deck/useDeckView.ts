@@ -38,7 +38,7 @@ export function useSharedDeckView(): DeckViewModel {
 
 export function useDeckView(): DeckViewModel {
   const state = useDeckState();
-  const { groupBy, sortBy, reviewing, searchTerm, tagIds, tagMatch } = useDeckUi();
+  const { groupBy, sortBy, reviewing, searchTerm, tagIds, tagMatch, tagInverted } = useDeckUi();
   // Active memories of every scope; cardMarks keeps the global ones and this deck's.
   const memories = useQuery(() => api.listMemories(), [state.deck.id]);
 
@@ -50,9 +50,9 @@ export function useDeckView(): DeckViewModel {
     layout,
     reviewing ? overlay.addsByGroup : NO_ADDS,
     searchTerm,
-    { ids: tagIds.filter((id) => state.tags.some((tag) => tag.id === id)), match: tagMatch },
+    { ids: tagIds.filter((id) => state.tags.some((tag) => tag.id === id)), match: tagMatch, inverted: tagInverted },
     state.cards,
-  ), [layout, overlay, reviewing, searchTerm, tagIds, tagMatch, state.tags, state.cards]);
+  ), [layout, overlay, reviewing, searchTerm, tagIds, tagMatch, tagInverted, state.tags, state.cards]);
 
   return { layout, units, overlay, marks, matches };
 }

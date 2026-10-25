@@ -6,7 +6,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { ServiceError } from "../errors.ts";
 import { withTransaction } from "../db.ts";
-import { type Actor, PermissionError, requireOwner } from "../actor.ts";
+import { type Actor, OWNER, authorOf, PermissionError, requireOwner } from "../actor.ts";
 import { recordActivity } from "../activity.ts";
 import { requireCardById } from "../cards.ts";
 import { estimateCost, pricesAsOf } from "../prices.ts";
@@ -202,7 +202,7 @@ export function listDecks(db: DatabaseSync): DeckSummary[] {
               COALESCE((SELECT SUM(quantity) FROM deck_cards dc
                         WHERE dc.deck_id = d.id AND dc.role != 'companion' AND dc.maybe = 0), 0) AS card_count,
               (SELECT COUNT(*) FROM proposal_items pi JOIN proposals pr ON pr.id = pi.proposal_id
-               WHERE pr.deck_id = d.id AND pi.status = 'pending') AS pending_items,
+               WHERE pr.deck_id = d.id AND pr.status = 'open' AND pi.status = 'pending') AS pending_items,
               (SELECT COUNT(*) FROM document_edits de
                WHERE de.deck_id = d.id AND de.status = 'pending') AS pending_document_edits
        FROM decks d LEFT JOIN decks p ON p.id = d.parent_id ORDER BY d.name`,
@@ -226,6 +226,13 @@ export function requireDeck(db: DatabaseSync, deckId: number): DeckRow {
       404,
     );
   return deck;
+}
+
+/** Guard a membership revision before a dependent mutation. */
+export function requireRevision(db: DatabaseSync, deckId: number, expected?: number): void {
+  const deck = requireDeck(db, deckId);
+  if (expected !== undefined && expected !== deck.revision)
+    throw new ServiceError(`Deck revision changed: expected ${expected}, current ${deck.revision}. Read the deck again.`, 409);
 }
 
 /** All writes to an archived deck pass this guard, including organization. */
@@ -485,7 +492,18 @@ export function createTag(db: DatabaseSync, deckId: number, name: string): numbe
   return Number(r.lastInsertRowid);
 }
 
-export function renameTag(db: DatabaseSync, deckId: number, tagId: number, name: string): void {
+// Have adds evidence of ownership only. Reapplying it must not erase a more
+// precise current physical/available count or create extra physical copies.
+function recordHaveEvidence(db: DatabaseSync, deckId: number, oracleId: string, actor: Actor): void {
+  const latest = db.prepare("SELECT status FROM ownership_evidence WHERE oracle_id = ? ORDER BY id DESC LIMIT 1").get(oracleId) as { status: string } | undefined;
+  if (latest?.status === "owned") return;
+  db.prepare(`INSERT INTO ownership_evidence
+    (oracle_id, status, basis, author, source_deck_id, source_deck_name)
+    VALUES (?, 'owned', 'Explicit Have tag; physical quantity and availability unknown', ?, ?, ?)`)
+    .run(oracleId, authorOf(actor), deckId, requireDeck(db, deckId).name);
+}
+
+export function renameTag(db: DatabaseSync, deckId: number, tagId: number, name: string, actor: Actor = OWNER): void {
   requireEditableDeck(db, deckId);
   requireTag(db, deckId, tagId);
   const valid = validateVocabName(name);
@@ -496,7 +514,13 @@ export function renameTag(db: DatabaseSync, deckId: number, tagId: number, name:
       409,
     );
   try {
-    db.prepare("UPDATE tags SET name = ? WHERE id = ?").run(valid, tagId);
+    withTransaction(db, () => {
+      db.prepare("UPDATE tags SET name = ? WHERE id = ?").run(valid, tagId);
+      if (valid.trim().toLowerCase() === "have") {
+        for (const row of db.prepare("SELECT oracle_id FROM deck_card_tags WHERE deck_id = ? AND tag_id = ?").all(deckId, tagId) as unknown as { oracle_id: string }[])
+          recordHaveEvidence(db, deckId, row.oracle_id, actor);
+      }
+    });
   } catch (e: any) {
     if (String(e.message).includes("UNIQUE"))
       throw new ServiceError(`Tag '${valid}' already exists in this deck`, 409);
@@ -544,6 +568,7 @@ export function organizeCard(
   deckId: number,
   oracleId: string,
   patch: OrganizePatch,
+  actor: Actor = OWNER,
 ): void {
   requireEditableDeck(db, deckId);
   withTransaction(db, () => {
@@ -567,6 +592,10 @@ export function organizeCard(
     }
     if (patch.tagIds !== undefined) {
       for (const tagId of patch.tagIds) requireTag(db, deckId, tagId);
+      const hadHave = db.prepare(`SELECT 1 FROM deck_card_tags ct JOIN tags t ON t.id = ct.tag_id
+        WHERE ct.deck_id = ? AND ct.oracle_id = ? AND lower(trim(t.name)) = 'have'`).get(deckId, oracleId);
+      const addsHave = patch.tagIds.some(id => listTags(db, deckId).some(t => t.id === id && t.name.trim().toLowerCase() === "have"));
+      if (addsHave && !hadHave) recordHaveEvidence(db, deckId, oracleId, actor);
       db.prepare("DELETE FROM deck_card_tags WHERE deck_id = ? AND oracle_id = ?").run(
         deckId,
         oracleId,
@@ -591,7 +620,7 @@ export interface FilingInput {
 
 // Bulk filing by name, for agents: every entry lands or none does. Tags named
 // here are created if the deck lacks them, subject to the near-duplicate rule.
-export function fileCards(db: DatabaseSync, deckId: number, filings: FilingInput[], removeUnusedTags: string[] = []): void {
+export function fileCards(db: DatabaseSync, deckId: number, filings: FilingInput[], removeUnusedTags: string[] = [], actor: Actor = OWNER): void {
   requireEditableDeck(db, deckId);
   if (!Array.isArray(removeUnusedTags) || removeUnusedTags.some(name => typeof name !== "string"))
     throw new ServiceError("Unused tags to remove must be an array of tag names");
@@ -623,7 +652,7 @@ export function fileCards(db: DatabaseSync, deckId: number, filings: FilingInput
         }
         patch.tagIds = [...current];
       }
-      organizeCard(db, deckId, f.oracle_id, patch);
+      organizeCard(db, deckId, f.oracle_id, patch, actor);
     }
     // Explicit vocabulary cleanup, never inferred from an empty assignment.
     // Reserved status tags can stay even while no card carries them.
@@ -785,7 +814,7 @@ export function getDeck(db: DatabaseSync, deckId: number) {
        FROM proposal_items pi
        JOIN proposals p ON p.id = pi.proposal_id
        LEFT JOIN deck_cards dc ON dc.deck_id = p.deck_id AND dc.oracle_id = pi.oracle_id
-       WHERE p.deck_id = ? AND pi.status = 'pending'`,
+       WHERE p.deck_id = ? AND p.status = 'open' AND pi.status = 'pending'`,
     )
     .all(deckId) as unknown as PendingItem[];
 

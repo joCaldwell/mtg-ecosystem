@@ -11,7 +11,7 @@ import type { CardRow } from "../../../src/cards.ts";
 import type { EngineView } from "../../../src/deck/brief.ts";
 import type { Finding } from "../../../src/deck/checks.ts";
 import type { DeckComparison } from "../../../src/deck/fork.ts";
-import type { ExportResult, ImportDiff } from "../../../src/deck/interop.ts";
+import type { ExportOptions, ExportResult, ImportDiff } from "../../../src/deck/interop.ts";
 import type { CardRuling, LogEntry } from "../../../src/deck/log.ts";
 import type { ProposalView } from "../../../src/deck/proposals.ts";
 import type { DeckCategory, DeckSummary } from "../../../src/deck/service.ts";
@@ -170,19 +170,22 @@ export const api = {
 
   // ---------- rulings (spec §8) ----------
   getInbox: () => request<Inbox>("GET", "/api/inbox"),
-  ruleItems: (deckId: number, itemIds: number[], outcome: Outcome, reason = "") =>
+  proposalHistory: () => request<{ proposals: Proposal[]; document_edits: DocumentEdit[] }>("GET", "/api/proposal-history"),
+  ruleItems: (deckId: number, itemIds: number[], outcome: Outcome, reason = "", options: { expected_revision?: number; acknowledge_stale?: boolean } = {}) =>
     request<StateResponse & { inbox: Inbox }>("POST", `/api/decks/${deckId}/items/rule`, {
+      ...options,
       item_ids: itemIds,
       outcome,
       reason,
     }),
-  ruleProposal: (deckId: number, proposalId: number, outcome: Outcome, reason = "") =>
+  ruleProposal: (deckId: number, proposalId: number, outcome: Outcome, reason = "", options: { expected_revision?: number; acknowledge_stale?: boolean } = {}) =>
     request<StateResponse & { inbox: Inbox }>("POST", `/api/decks/${deckId}/proposals/${proposalId}/rule`, {
+      ...options,
       outcome,
       reason,
     }),
-  ruleDocumentEdit: (editId: number, outcome: Outcome, reason = "") =>
-    request<Envelope & { inbox: Inbox }>("POST", `/api/document-edits/${editId}/rule`, { outcome, reason }),
+  ruleDocumentEdit: (editId: number, outcome: Outcome, reason = "", options: { expected_revision?: number; acknowledge_stale?: boolean; expected_documents?: Record<string, string> } = {}) =>
+    request<Envelope & { inbox: Inbox }>("POST", `/api/document-edits/${editId}/rule`, { outcome, reason, ...options }),
   undo: (deckId: number, logId: number) =>
     request<StateResponse & { skipped: string[] }>("POST", `/api/decks/${deckId}/log/${logId}/undo`),
 
@@ -225,9 +228,11 @@ export const api = {
   refreshCards: () => request<Settings>("POST", "/api/cards/refresh"),
 
   // ---------- Archidekt interop (spec §12) ----------
-  exportDeck: (deckId: number, opts: { categories?: boolean } = {}) => {
+  exportDeck: (deckId: number, opts: ExportOptions = {}) => {
     const params = new URLSearchParams();
     if (opts.categories === false) params.set("categories", "off");
+    if (opts.oracleIds !== undefined) params.set("oracle_ids", opts.oracleIds.join(","));
+    if (opts.includeMaybe) params.set("include_maybe", "on");
     return request<ExportResult>("GET", `/api/decks/${deckId}/export?${params}`);
   },
   previewImport: (deckId: number, text: string) =>

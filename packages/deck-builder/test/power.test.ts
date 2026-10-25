@@ -76,7 +76,8 @@ describe("power capabilities and document permissions", () => {
     assert.equal(getPower(db, id).target!.profile.intent, "social");
     setPowerTarget(db, OWNER, id, target({ intent: "optimized" }));
     assert.equal(listDocumentEdits(db, { deckId: id })[0].stale, true);
-    ruleDocumentEdit(db, OWNER, pending.edit_id!, "accept");
+    assert.throws(() => ruleDocumentEdit(db, OWNER, pending.edit_id!, "accept"), /stale/);
+    ruleDocumentEdit(db, OWNER, pending.edit_id!, "accept", "Reviewed changed target", { acknowledge_stale: true, expected_revision: 0 });
     assert.equal(getPower(db, id).target!.profile.intent, "synergy");
     assert.deepEqual(listActivity(db).map(a => a.action), ["propose_power_target", "propose_power_target"]);
     assert.equal(getDeck(db, id).deck.revision, 0);

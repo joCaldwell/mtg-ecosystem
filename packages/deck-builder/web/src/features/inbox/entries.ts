@@ -17,7 +17,7 @@ export function inboxEntries(inbox: Inbox): Entry[] {
       .filter((p) => p.status === "open" && pendingItems(p).length > 0)
       .map((proposal): Entry => ({ key: `proposal-${proposal.id}`, type: "proposal", created_at: proposal.created_at, proposal })),
     ...inbox.document_edits
-      .filter((e) => e.status === "pending")
+      .filter((e) => e.status === "pending" && (e.group_id == null || e.group_id === e.id))
       .map((edit): Entry => ({ key: `edit-${edit.id}`, type: "edit", created_at: edit.created_at, edit })),
   ];
   return entries.sort((a, b) => parseServerTime(a.created_at) - parseServerTime(b.created_at));

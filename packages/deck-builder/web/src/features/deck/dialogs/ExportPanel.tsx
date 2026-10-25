@@ -3,21 +3,27 @@ import { api } from "../../../api/client.ts";
 import { useQuery } from "../../../api/useQuery.ts";
 import { Button, Checkbox, ErrorNote, Row, Spacer, Stack, Text, TextArea, useToast } from "../../../ui/index.ts";
 import { useDeck, useDeckState } from "../DeckStore.tsx";
+import { useSharedDeckView } from "../useDeckView.ts";
 import styles from "./ExportPanel.module.css";
 
 export function ExportPanel() {
   const { deckId } = useDeck();
   const { deck } = useDeckState();
+  const { matches } = useSharedDeckView();
   const { toast } = useToast();
-  const [categories, setCategories] = useState(true);
+  const [filtered, setFiltered] = useState(matches.active);
+  const [categories, setCategories] = useState(!matches.active);
+  const [includeMaybe, setIncludeMaybe] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
 
-  // Refetched when the revision moves, so a card added elsewhere is in the text.
+  const oracleIds = filtered ? [...matches.cardIds].sort() : undefined;
+  const queryKey = JSON.stringify([deckId, categories, includeMaybe, oracleIds, deck.revision]);
+  // Keep a previous scope's response from being copied while the new export loads.
   const exported = useQuery(
-    () => api.exportDeck(deckId, { categories }),
-    [deckId, categories, deck.revision],
+    async () => ({ key: queryKey, result: await api.exportDeck(deckId, { categories, oracleIds, includeMaybe }) }),
+    [queryKey],
   );
-  const result = exported.data;
+  const result = exported.data?.key === queryKey && !exported.error ? exported.data.result : null;
 
   async function copy() {
     if (!result?.text) return;
@@ -33,8 +39,14 @@ export function ExportPanel() {
   return (
     <Stack gap={5} className={styles.panel}>
       <Row gap={6} wrap>
+        <Checkbox checked={filtered} onChange={setFiltered} disabled={!matches.active && !filtered} label="Only current filter matches" />
+        <Checkbox checked={includeMaybe} onChange={setIncludeMaybe} label="Include maybe list" />
         <Checkbox checked={categories} onChange={setCategories} label="Include categories" />
       </Row>
+      <Text tone="muted" size="sm">
+        {filtered ? "Exports cards matching the deck’s current name and tag filters, including inversion." : "Exports the whole deck."}{" "}
+        {includeMaybe ? "Maybe-list cards are included." : "Maybe-list cards are excluded."} Pending proposed additions are excluded.
+      </Text>
 
       {exported.error ? <ErrorNote>{exported.error}</ErrorNote> : null}
       {copyError ? <ErrorNote>{copyError}</ErrorNote> : null}
@@ -50,9 +62,9 @@ export function ExportPanel() {
         />
       ) : result ? (
         <Text tone="muted" as="p" className={styles.empty}>
-          Nothing to export. The deck is empty.
+          {filtered ? "No cards match these filters and export options." : "Nothing to export with these options."}
         </Text>
-      ) : null}
+      ) : !exported.error ? <Text tone="muted">Preparing export…</Text> : null}
 
       <Row>
         {result ? (
@@ -75,9 +87,8 @@ export function ExportPanel() {
       </Row>
 
       <Text tone="muted" size="sm" as="p">
-        Quantity and name, one card per line, with categories in brackets: Archidekt's own round-trip syntax. Set
-        codes and foil markers are left out on purpose. They break some importers, and this app keys cards on
-        oracle id, so nothing is lost. The maybe list is not exported.
+        Quantity and name, one card per line. Categories use Archidekt’s bracket syntax; included maybe-list
+        cards are marked Maybeboard when categories are enabled.
       </Text>
     </Stack>
   );

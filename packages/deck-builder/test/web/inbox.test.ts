@@ -29,3 +29,10 @@ describe("inbox", () => {
     );
   });
 });
+
+test("a related document group is one inbox decision; superseded cards aren't pending work", () => {
+  const group = [documentEdit({ id: 101, group_id: 101 }), documentEdit({ id: 102, group_id: 101 })];
+  assert.equal(waitingCount({ proposals: [], document_edits: group, unreviewed: 0 }), 1);
+  const old = proposal([item()], { status: "resolved", disposition: "superseded", is_current: false });
+  assert.deepEqual(pendingItems(old), []);
+});

@@ -110,6 +110,7 @@ export function proposal(items: ProposalItem[], over: Partial<Proposal> = {}): P
     author: "test-agent",
     status: "open",
     created_at: "2026-01-01 12:00:00",
+    base_revision: 0, current_revision: 0, stale: false, disposition: "current", superseded_by: null, supersedes: [], is_current: true,
     items: items.map((i) => ({ ...i, proposal_id: proposalId })),
     ...over,
   };
@@ -175,6 +176,7 @@ export function documentEdit(over: Partial<DocumentEdit> = {}): DocumentEdit {
     stale: false,
     current: "",
     piece_names: [],
+    base_revision: 0, current_revision: 0, disposition: "current", superseded_by: null, supersedes: [], group_id: null, group_edit_ids: [], group_edits: [], current_engine: null, is_current: true,
     ...over,
   };
 }

@@ -6,12 +6,14 @@ export type TagMatch = "any" | "all";
 export interface TagFilter {
   ids: number[];
   match: TagMatch;
+  inverted?: boolean;
 }
 
 export function matchesTags(tagIds: number[], filter: TagFilter): boolean {
   if (filter.ids.length === 0) return true;
   const has = (id: number) => tagIds.includes(id);
-  return filter.match === "all" ? filter.ids.every(has) : filter.ids.some(has);
+  const matches = filter.match === "all" ? filter.ids.every(has) : filter.ids.some(has);
+  return filter.inverted ? !matches : matches;
 }
 
 export interface DeckFilterMatches {

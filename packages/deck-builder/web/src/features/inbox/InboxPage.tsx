@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { navigate } from "../../app/routes.ts";
 import { useInbox } from "../../app/Inbox.tsx";
-import { EmptyState, Loading, PageHeader, SplitPane, Text, useHotkeys } from "../../ui/index.ts";
+import { Button, EmptyState, Loading, PageHeader, SplitPane, Text, useHotkeys } from "../../ui/index.ts";
 import { DocumentEditCard } from "../rulings/index.ts";
 import { inboxEntries } from "./entries.ts";
 import { InboxEntry } from "./InboxEntry.tsx";
+import { ProposalHistory } from "./ProposalHistory.tsx";
 import { ProposalSummary } from "./ProposalSummary.tsx";
 import styles from "./InboxPage.module.css";
 
@@ -16,6 +17,7 @@ import styles from "./InboxPage.module.css";
  */
 export function InboxPage() {
   const { inbox, apply } = useInbox();
+  const [history, setHistory] = useState(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
   const entries = inbox ? inboxEntries(inbox) : [];
@@ -64,6 +66,8 @@ export function InboxPage() {
   return (
     <div className={styles.page}>
       {header}
+      <Button variant="ghost" onClick={() => setHistory(!history)}>{history ? "Hide proposal history" : "Show proposal history"}</Button>
+      {history && <ProposalHistory />}
       <SplitPane
         list={entries.map((entry) => (
           <InboxEntry

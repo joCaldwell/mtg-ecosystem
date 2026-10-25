@@ -176,7 +176,7 @@ describe("ruling (spec §8.2)", () => {
     // The owner cuts the card by hand before ruling.
     add(db, id, "id-forest");
     db.prepare("DELETE FROM deck_cards WHERE deck_id = ? AND oracle_id = 'id-counterspell'").run(id);
-    assert.throws(() => acceptItems(db, OWNER, pendingItemIds(db, pid)), /not in the deck/);
+    assert.throws(() => acceptItems(db, OWNER, pendingItemIds(db, pid)), /stale/);
     assert.ok(!names(id).includes("Sol Ring"));
     assert.equal(pendingItemIds(db, pid).length, 2);
   });

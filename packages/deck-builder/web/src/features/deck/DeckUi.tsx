@@ -24,6 +24,7 @@ export interface DeckUiState {
   searchTerm: string;
   tagIds: number[];
   tagMatch: TagMatch;
+  tagInverted: boolean;
   tab: PanelTab;
   /** The card shown in the side panel, over whichever tab is open. It need
    *  not be in the deck: a proposed add or a card named in a memory opens too. */
@@ -45,6 +46,7 @@ type Action =
   | { t: "searchTerm"; value: string }
   | { t: "tagIds"; value: number[] }
   | { t: "tagMatch"; value: TagMatch }
+  | { t: "tagInverted"; value: boolean }
   | { t: "tab"; value: PanelTab }
   | { t: "openCard"; card: OpenCard | null }
   | { t: "toggleSelected"; oracleId: string }
@@ -72,9 +74,11 @@ function reducer(ui: DeckUiState, action: Action): DeckUiState {
     case "searchTerm":
       return { ...ui, searchTerm: action.value };
     case "tagIds":
-      return { ...ui, tagIds: action.value };
+      return { ...ui, tagIds: action.value, tagInverted: action.value.length > 0 && ui.tagInverted };
     case "tagMatch":
       return { ...ui, tagMatch: action.value };
+    case "tagInverted":
+      return { ...ui, tagInverted: action.value };
     case "tab":
       // Choosing a tab is asking to see it, so the card panel gets out of the way.
       return { ...ui, tab: action.value, openCard: null };
@@ -105,6 +109,7 @@ export interface DeckUi extends DeckUiState {
   setSearchTerm: (value: string) => void;
   setTagIds: (value: number[]) => void;
   setTagMatch: (value: TagMatch) => void;
+  setTagInverted: (value: boolean) => void;
   setTab: (value: PanelTab) => void;
   openCardPanel: (card: OpenCard | null) => void;
   toggleSelected: (oracleId: string) => void;
@@ -126,6 +131,7 @@ export function DeckUiProvider({ children }: { children: ReactNode }) {
     searchTerm: "",
     tagIds: [],
     tagMatch: "any",
+    tagInverted: false,
     tab: "brief",
     openCard: null,
     selected: [],
@@ -150,6 +156,7 @@ export function DeckUiProvider({ children }: { children: ReactNode }) {
       setSearchTerm: (value: string) => dispatch({ t: "searchTerm", value }),
       setTagIds: (value: number[]) => dispatch({ t: "tagIds", value }),
       setTagMatch: (value: TagMatch) => dispatch({ t: "tagMatch", value }),
+      setTagInverted: (value: boolean) => dispatch({ t: "tagInverted", value }),
       setTab: (value: PanelTab) => dispatch({ t: "tab", value }),
       openCardPanel: (card: OpenCard | null) => dispatch({ t: "openCard", card }),
       toggleSelected: (oracleId: string) => dispatch({ t: "toggleSelected", oracleId }),

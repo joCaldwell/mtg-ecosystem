@@ -39,6 +39,24 @@ those, not a general tune-up.
 - Write each reason so it stands alone when read in the app, away from this conversation: what the card does here, quoting the clause, and what it is better than.
 - Check the result of `propose_changes`. It shows what the app already knows about those cards. If a prior ruling contradicts your reason, say so to the owner at once.
 
+## Comparing sources and keeping proposals current
+
+Use `compare_deck_sources` with the target and every source deck together.
+Read its `shared_cards`, `remaining_cards`, evidence, unknown quantities and
+application-computed totals. Use `apply_source_tags` with all observed revisions
+when the owner asks to label sources. Treat source membership as a reuse
+candidate; it does not prove a physical copy is free. `Have` records ownership,
+`Keep` records preference, and unknown ownership remains unresolved. Record
+new evidence with `record_ownership` only when the owner has supplied it.
+
+When a package leaves the list, inspect engine findings and pending proposals.
+Propose related brief repairs in one `propose_document_changes` group. If the
+budget or finishing plan changes again, amend the whole group with
+`revise_proposal` or explicitly name it in `supersedes`; carry forward every
+still-needed change. Withdraw abandoned drafts. Read `list_proposals` to verify
+one current plan remains, with earlier drafts linked in history. Approval of
+brief and power targets remains the owner's action.
+
 ## Building from a commander
 
 1. Look the commander up (`get_cards`). Read what it actually does.

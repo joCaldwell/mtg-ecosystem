@@ -233,6 +233,33 @@ describe("the UI's API", () => {
   const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
     api(path, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) });
 
+  test("exports current matches with independently optional maybe-list inclusion", async () => {
+    const created = await (await post("/api/decks", { name: "Filtered export endpoint" })).json();
+    const id = created.state.deck.id;
+    await post(`/api/decks/${id}/cards`, { oracle_id: "id-solring" });
+    const parked = await (await post(`/api/decks/${id}/cards`, { oracle_id: "id-forest", maybe: true })).json();
+    const name = parked.state.cards.find((c: any) => c.oracle_id === "id-forest").name;
+    const read = async (query: string) => {
+      const res = await api(`/api/decks/${id}/export?${query}`);
+      assert.equal(res.status, 200);
+      return res.json();
+    };
+    assert.equal((await read("")).card_count, 1);
+    assert.equal((await read("include_maybe=on")).card_count, 2);
+    assert.equal((await read("oracle_ids=id-forest")).text, "");
+    const filtered = await read("oracle_ids=id-forest&include_maybe=on&categories=off");
+    assert.equal(filtered.text, `1 ${name}\n`);
+    assert.equal(filtered.card_count, 1);
+    assert.equal(filtered.line_count, 1);
+    assert.equal((await read("oracle_ids=&include_maybe=on")).text, "");
+    assert.equal((await read("oracle_ids=not-in-this-deck&include_maybe=on")).text, "");
+    const categorized = await read("oracle_ids=id-forest&include_maybe=on");
+    assert.equal(categorized.text, `1 ${name} [Maybeboard]\n`);
+    const unchanged = await (await api(`/api/decks/${id}`)).json();
+    assert.equal(unchanged.state.deck.revision, parked.state.deck.revision);
+    assert.deepEqual(unchanged.state.cards, parked.state.cards);
+  });
+
   test("primary and secondary purposes round-trip through HTTP and the official MCP client", async () => {
     const created = await (await post("/api/decks", { name: "Purpose endpoint deck" })).json();
     const id = created.state.deck.id;
@@ -475,5 +502,53 @@ describe("the stdio shim (spec §10.1)", () => {
       client.connect(shim({ DECKBUILDER_PORT: "1" })),
       /The deck builder app is not running on port 1/,
     );
+  });
+});
+
+describe("sourcing and proposal cleanup end to end", () => {
+  const api = (path: string, init: RequestInit = {}) => fetch(`${base}${path}`, init);
+  const post = (path: string, body: unknown) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  test("both MCP protocol eras carry structured sourcing records", async () => {
+    const target = newDeck(db, "theorycrafted", "Protocol source target");
+    const source = newDeck(db, "paper", "Protocol source");
+    add(db, target, "id-solring"); add(db, source, "id-solring");
+    for (const modern of [false, true]) {
+      const client = await connect("/mcp/source-agent", modern);
+      try {
+        const result = await client.callTool({ name: "compare_deck_sources", arguments: { deck: target, sources: [source] } });
+        assert.equal(result.isError, undefined);
+        const data = result.structuredContent as any;
+        assert.equal(data.shared_cards[0].oracle_id, "id-solring");
+        assert.equal(data.shared_cards[0].source_decks[0].quantity, 1);
+        assert.equal(data.shared_cards[0].ownership.quantity, null);
+        assert.match(textOf(result), /1 shared/);
+      } finally { await client.close(); }
+    }
+  });
+
+  test("owner HTTP approvals apply groups, expose history and refreshed checks, and reject superseded/stale drafts", async () => {
+    const target = newDeck(db, "paper", "Protocol cleanup target");
+    const client = await connect("/mcp/cleanup-agent");
+    try {
+      const initial = await client.callTool({ name: "propose_document_changes", arguments: { deck: target, expected_revision: 0,
+        changes: [{ kind: "thesis", text: "Old draft", reason: "Request" }, { kind: "constraints", text: "Budget", reason: "Request" }] } });
+      const oldId = (initial.structuredContent as any).group_id;
+      const replacement = await client.callTool({ name: "revise_proposal", arguments: { type: "document", id: oldId, action: "amend", reason: "New budget", expected_revision: 0,
+        changes: [{ kind: "thesis", text: "Current plan", reason: "Budget" }, { kind: "engine_set", engine_name: "Ramp", pieces: [{ card: "Sol Ring" }], reason: "Plan" }] } });
+      const currentId = (replacement.structuredContent as any).group_id;
+      assert.equal((await post(`/api/document-edits/${oldId}/rule`, { outcome: "accept" })).status, 400);
+      add(db, target, "id-forest");
+      assert.equal((await post(`/api/document-edits/${currentId}/rule`, { outcome: "accept" })).status, 409);
+      const response = await post(`/api/document-edits/${currentId}/rule`, { outcome: "accept", expected_revision: 1, acknowledge_stale: true });
+      assert.equal(response.status, 200);
+      const result = await response.json();
+      assert.equal(result.state.brief.thesis, "Current plan");
+      assert.equal(result.state.brief.engines[0].name, "Ramp");
+      assert.ok(result.state.checks.some((c: any) => c.key.startsWith("engine_incomplete")));
+      assert.equal(result.state.document_edits.length, 0);
+      const history = await (await api("/api/proposal-history")).json();
+      assert.equal(history.document_edits.find((e: any) => e.id === oldId).superseded_by, currentId);
+      assert.equal(history.document_edits.find((e: any) => e.id === currentId).status, "accepted");
+    } finally { await client.close(); }
   });
 });

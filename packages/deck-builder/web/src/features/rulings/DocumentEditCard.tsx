@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, type DocumentEdit, type Envelope, type Inbox } from "../../api/client.ts";
 import { editDiff, editTitle, isTextEdit } from "../../domain/documents.ts";
 import { ago } from "../../domain/time.ts";
 import { RichText } from "../../mtg/index.ts";
-import { Box, Chip, DiffView, ErrorNote, Eyebrow, Row, Stack, Text } from "../../ui/index.ts";
+import { Box, Checkbox, Chip, DiffView, ErrorNote, Eyebrow, Row, Stack, Text } from "../../ui/index.ts";
 import { RulingControls } from "./RulingControls.tsx";
 import styles from "./DocumentEditCard.module.css";
 
@@ -54,15 +54,21 @@ export function DocumentEditCard({
   onRuled: (result: Envelope & { inbox: Inbox }) => void;
   showDeck?: boolean;
 }) {
+  const group = edit.group_edits.length ? edit.group_edits : [edit];
+  const stale = group.some(e => e.stale);
+  const reviewKey = JSON.stringify(group.map(e => [e.id, e.current_revision, e.current]));
+  const [acknowledged, setAcknowledged] = useState(false);
   const [rejecting, setRejecting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => setAcknowledged(false), [reviewKey]);
 
   async function rule(outcome: "accept" | "reject", reason = "") {
     setBusy(true);
     setError(null);
     try {
-      onRuled(await api.ruleDocumentEdit(edit.id, outcome, reason));
+      onRuled(await api.ruleDocumentEdit(edit.id, outcome, reason, { expected_revision: edit.current_revision ?? undefined, acknowledge_stale: acknowledged, expected_documents: Object.fromEntries(group.map(e => [e.id, e.current])) }));
       setRejecting(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -88,23 +94,37 @@ export function DocumentEditCard({
         <RichText text={edit.reason} />
       </Stack>
 
-      {edit.stale && (
+      {stale && (
         <Box tone="warn" padding="sm" role="status">
           <Text tone="warn">
-            This document changed after the edit was proposed. Accepting replaces the current text with the
-            proposal. The diff below is against what the agent saw.
+            The deck or document changed after this proposal. Review the current text and all related changes before accepting.
+            The diff below is against the proposal’s original base.
           </Text>
+          <Checkbox checked={acknowledged} onChange={setAcknowledged} label="I reviewed the changed deck/document and approve replacing it." />
         </Box>
       )}
 
-      <Change edit={edit} />
+      {edit.supersedes.length > 0 && <Text tone="faint">Replaces edits {edit.supersedes.join(", ")}; earlier drafts remain in proposal history.</Text>}
+      {group.map(change => <Stack key={change.id} gap={2}>
+        {group.length > 1 && <Text weight="medium">{editTitle(change)}</Text>}
+        {change.id !== edit.id && <RichText text={change.reason} />}
+        <Change edit={change} />
+        {change.stale && <Stack gap={2}>
+          <Eyebrow>Current document</Eyebrow>
+          {change.kind.startsWith("engine_") ? change.current_engine ? <>
+            <Text weight="medium">{change.current_engine.name}</Text>
+            <RichText text={change.current_engine.description} />
+            <Row gap={3} wrap>{change.current_engine.pieces.map(piece => <Chip key={piece.oracle_id}>{piece.name}</Chip>)}</Row>
+          </> : <Text tone="faint">This engine is absent.</Text> : <RichText text={change.current || "(empty)"} />}
+        </Stack>}
+      </Stack>)}
 
       {!edit.read_only && <RulingControls
         rejecting={rejecting}
         busy={busy}
-        acceptLabel="Accept the edit"
+        acceptLabel={group.length > 1 ? "Accept all related edits" : "Accept the edit"}
         rejectLabel="Reject"
-        onAccept={() => rule("accept")}
+        onAccept={() => { if (stale && !acknowledged) { setError("Review the current document and acknowledge the changes first."); return; } void rule("accept"); }}
         onStartReject={() => setRejecting(true)}
         onReject={(reason) => rule("reject", reason)}
         onCancelReject={() => setRejecting(false)}

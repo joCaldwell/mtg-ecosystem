@@ -32,9 +32,9 @@ function seeded(db: DatabaseSync, status: "theorycrafted" | "paper" = "paper") {
 }
 
 describe("the tool list (spec §10.3)", () => {
-  test("twenty-five tools, uniquely named, every one described", () => {
-    assert.equal(TOOLS.length, 25);
-    assert.equal(new Set(TOOLS.map((t) => t.name)).size, 25);
+  test("thirty tools, uniquely named, every one described", () => {
+    assert.equal(TOOLS.length, 30);
+    assert.equal(new Set(TOOLS.map((t) => t.name)).size, 30);
     for (const t of TOOLS) assert.ok(t.description.length > 80, t.name);
     assert.equal(TOOLS[0].name, "start_session");
   });

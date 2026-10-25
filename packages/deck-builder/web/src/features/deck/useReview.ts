@@ -44,7 +44,11 @@ export function useReview(units: ReviewUnit[]): Review {
 
   const accept = useCallback(
     async (unit: ReviewUnit) => {
-      const result = await run(() => api.ruleItems(deckId, unit.itemIds, "accept"));
+      const proposal = state?.proposals.find(p => p.id === unit.proposalId);
+      if (proposal?.stale && !window.confirm(`This proposal was based on r${proposal.base_revision ?? "unknown"}; the deck is now r${state!.deck.revision}. Have you reviewed those changes and want to accept this item/group?`)) return;
+      const result = await run(() => api.ruleItems(deckId, unit.itemIds, "accept", "", {
+        expected_revision: state?.deck.revision, acknowledge_stale: proposal?.stale === true,
+      }));
       if (!result) return;
       inbox.apply(result.inbox);
       const entry = result.state.log.find((e) => e.kind === "accept");
@@ -53,7 +57,7 @@ export function useReview(units: ReviewUnit[]): Review {
         entry ? { action: { label: "Undo", onAction: () => undo(entry.id) } } : undefined,
       );
     },
-    [deckId, run, inbox, toast, undo],
+    [deckId, state, run, inbox, toast, undo],
   );
 
   const reject = useCallback(
@@ -74,8 +78,12 @@ export function useReview(units: ReviewUnit[]): Review {
   const acceptAll = useCallback(async () => {
     const open = (state?.proposals ?? []).filter((p) => p.items.some((i) => i.status === "pending"));
     let revision: number | null = null;
+    if (open.some(p => p.stale) && !window.confirm("Some proposals were based on an older deck revision. Have you reviewed the changed list and want to accept all current proposals?")) return;
     for (const proposal of open) {
-      const result = await run(() => api.ruleProposal(deckId, proposal.id, "accept"));
+      const expected: number = revision ?? state!.deck.revision;
+      const result = await run(() => api.ruleProposal(deckId, proposal.id, "accept", "", {
+        expected_revision: expected, acknowledge_stale: proposal.stale || proposal.base_revision !== expected,
+      }));
       if (!result) return;
       inbox.apply(result.inbox);
       revision = result.state.deck.revision;

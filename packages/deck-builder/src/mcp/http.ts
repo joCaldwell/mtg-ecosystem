@@ -105,7 +105,8 @@ export function createAgentEndpoint(db: DatabaseSync, opts: AgentEndpointOptions
             const out = tool.run({ db, actor }, args ?? {});
             const result = typeof out === "string" ? { text: out } : out;
             if (result.changed) opts.onChange?.();
-            return { content: [{ type: "text" as const, text: result.text }] };
+            return { content: [{ type: "text" as const, text: result.text }],
+              ...(result.structuredContent ? { structuredContent: result.structuredContent } : {}) };
           } catch (e) {
             // A failure the agent can act on is a tool result, not a protocol
             // error: the message says how to fix the call.

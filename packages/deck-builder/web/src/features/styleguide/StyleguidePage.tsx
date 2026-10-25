@@ -463,6 +463,7 @@ function Forms() {
             <MultiSelect label="Example tags" placeholder="Select tags…" options={[{ value: "a", label: "Need to get" }, { value: "b", label: "Engine piece" }, { value: "c", label: "A longer label that wraps when space is limited" }]} value={multi} onChange={setMulti} />
             <MultiSelect label="Empty example" options={[]} value={[]} onChange={() => undefined} />
             <MultiSelect compact label="Compact example" placeholder="Select tags…" options={[{ value: "a", label: "Need to get" }, { value: "b", label: "Engine piece" }, { value: "c", label: "A longer label that wraps when space is limited" }]} value={multi} onChange={setMulti} footer={<Button size="sm" variant="ghost" onClick={() => setMulti([])}>Clear selection</Button>} />
+            <MultiSelect compact label="Custom summary example" summary="Not Have" options={[{ value: "have", label: "Have" }]} value={["have"]} onChange={() => undefined} />
           </Stack>
         </Demo>
       </Section>

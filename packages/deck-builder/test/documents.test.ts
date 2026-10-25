@@ -52,7 +52,8 @@ describe("the profile (spec §6)", () => {
     assert.equal(edit.stale, true);
 
     assert.throws(() => ruleDocumentEdit(fresh, AGENT, edit.id, "accept"), PermissionError);
-    ruleDocumentEdit(fresh, OWNER, edit.id, "accept", "Fair.");
+    assert.throws(() => ruleDocumentEdit(fresh, OWNER, edit.id, "accept"), /stale/);
+    ruleDocumentEdit(fresh, OWNER, edit.id, "accept", "Fair.", { acknowledge_stale: true });
     assert.equal(getProfile(fresh).body_md, "Likes long games. Avoids fast mana.");
     // A profile ruling belongs to no deck and still lands in the review queue.
     const [entry] = listLog(fresh, { unreviewedOnly: true });

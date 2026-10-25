@@ -8,9 +8,24 @@ export const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const DATA_DIR = process.env.DECKBUILDER_DATA ?? join(PKG_ROOT, "data");
 export const DEFAULT_DB_PATH = process.env.DECKBUILDER_DB ?? join(DATA_DIR, "deck-builder.db");
 
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
 const SCHEMA = `
+-- Explicit physical evidence survives deck membership, forks and deletion.
+-- NULL quantities mean unknown, never a count derived from deck appearances.
+CREATE TABLE IF NOT EXISTS ownership_evidence (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  oracle_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('owned', 'unowned', 'unknown')),
+  quantity INTEGER CHECK (quantity >= 0),
+  available_quantity INTEGER CHECK (available_quantity >= 0),
+  basis TEXT NOT NULL,
+  author TEXT NOT NULL,
+  source_deck_id INTEGER,
+  source_deck_name TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ownership_card ON ownership_evidence(oracle_id, id);
 CREATE TABLE IF NOT EXISTS cards (
   oracle_id        TEXT PRIMARY KEY,
   name             TEXT NOT NULL,
@@ -418,7 +433,7 @@ export function openDb(path: string = DEFAULT_DB_PATH): DatabaseSync {
           status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected')),
           created_at TEXT NOT NULL DEFAULT (datetime('now')), resolved_at TEXT
         );
-        INSERT INTO document_edits_v5 SELECT * FROM document_edits;
+        INSERT INTO document_edits_v5 SELECT id, deck_id, kind, payload_json, reason, author, status, created_at, resolved_at FROM document_edits;
         DROP TABLE document_edits;
         ALTER TABLE document_edits_v5 RENAME TO document_edits;`);
         // Deleted decks may have consumed higher IDs than the surviving rows.
@@ -448,6 +463,23 @@ export function openDb(path: string = DEFAULT_DB_PATH): DatabaseSync {
           WHERE json_valid(before_json) AND json_type(before_json, '$.in_paper') IS NOT NULL;`);
       }
       db.exec("CREATE INDEX IF NOT EXISTS idx_deck_card_tags_tag ON deck_card_tags(deck_id, tag_id, oracle_id)");
+      for (const table of ["proposals", "document_edits"]) {
+        const columns = db.prepare(`PRAGMA table_info(${table})`).all() as unknown as { name: string }[];
+        for (const [name, type] of Object.entries({
+          base_revision: "INTEGER", disposition: "TEXT NOT NULL DEFAULT 'current'",
+          superseded_by: "INTEGER", ...(table === "document_edits" ? { group_id: "INTEGER" } : {}),
+        })) if (!columns.some(c => c.name === name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+      }
+      if (version != null && Number(version) < 10) {
+        // Only the explicit Have convention is ownership evidence. Keep/Ordered
+        // and deck membership say nothing about physical ownership or quantity.
+        db.exec(`INSERT INTO ownership_evidence
+          (oracle_id, status, basis, author, source_deck_id, source_deck_name)
+          SELECT DISTINCT ct.oracle_id, 'owned', 'Migrated explicit Have tag; quantity unknown',
+            'migration', d.id, d.name
+          FROM deck_card_tags ct JOIN tags t ON t.id = ct.tag_id
+          JOIN decks d ON d.id = ct.deck_id WHERE lower(trim(t.name)) = 'have'`);
+      }
       db.prepare("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(
         String(SCHEMA_VERSION),
       );
@@ -478,7 +510,7 @@ function assertOurs(db: DatabaseSync, path: string) {
   } catch {
     /* no meta table at all */
   }
-  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5" || found === "6" || found === "7" || found === "8") return found;
+  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5" || found === "6" || found === "7" || found === "8" || found === "9") return found;
   db.close();
   throw new SchemaError(
     `${path} is not a database this version of the deck builder can open ` +
