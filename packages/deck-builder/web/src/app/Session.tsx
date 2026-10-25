@@ -21,7 +21,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   if (!session) return error ? <ErrorNote>{error}</ErrorNote> : <Loading />;
   const path = location.pathname;
   return <Context.Provider value={{session,reload}}>
-    {path === "/privacy" || path === "/terms" ? <LegalPage page={path.slice(1) as "privacy" | "terms"} /> :
+    {session.mode === "hosted" && (path === "/privacy" || path === "/terms") ? <LegalPage page={path.slice(1) as "privacy" | "terms"} /> :
       session.mode === "hosted" && !session.user ? <SignInPage /> :
       session.mode === "hosted" && session.user?.needs_handle ? <HandlePicker /> : children}
   </Context.Provider>;

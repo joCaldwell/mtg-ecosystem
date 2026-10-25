@@ -586,7 +586,10 @@ mode is untouched.
    Register the deck-builder's Client ID Metadata Document for CIMD clients.
 4. **Hosted request pipeline** (`src/app.ts`, `src/mcp/http.ts`):
    configurable allowed origin (`DECKBUILDER_PUBLIC_ORIGIN`) replacing the
-   loopback lists in both doors; trust `X-Forwarded-Proto`/`For` only when
+   loopback lists in both doors. Hosted GET `/api/health` alone bypasses Host/Origin
+   for Railway probes, returning only `{ok,schema_version}` without cookies/auth;
+   local health keeps loopback checks. Trust forwarded host/protocol and Railway
+   `X-Real-IP` (fallback rightmost XFF) only when
    `DECKBUILDER_TRUST_PROXY=1`; bind `0.0.0.0` in hosted mode;
    `settings.agent.url` derived from the public origin; security headers
    (`Content-Security-Policy` allowing `cards.scryfall.io` images,
@@ -615,7 +618,8 @@ mode is untouched.
    them moot).
 9. **Legal pages (D13).** `/privacy` and `/terms` as static markdown
    rendered through the existing `RichText`, with the operator name and
-   contact from phase-2 inputs; footer with the Fan Content notice and
+   contact from required non-secret `DECKBUILDER_OPERATOR_NAME` and
+   `DECKBUILDER_CONTACT_EMAIL`; no legal pages/footer in local mode. Footer with the Fan Content notice and
    "prices are daily estimates from Scryfall bulk data, as of <date>".
    Content covers what is stored, why, retention, third parties (Railway,
    Scryfall images fetched by the browser), cookies, deletion and export,
@@ -983,7 +987,8 @@ verified, what is not), AGENTS.md status line (v3 hosted).
 `DECKBUILDER_DATA`, `DECKBUILDER_DB`, `DECKBUILDER_TOKEN_FILE` (stdio only),
 `DECKBUILDER_PUBLIC_ORIGIN`,
 `DECKBUILDER_TRUST_PROXY`, `DECKBUILDER_INVITES_REQUIRED`,
-`DECKBUILDER_CLAIM_CODE` (secret; remove after claiming),
+`DECKBUILDER_CLAIM_CODE` (secret, at least 32 characters; remove after claiming),
+`DECKBUILDER_OPERATOR_NAME`, `DECKBUILDER_CONTACT_EMAIL` (required non-secret hosted legal identity),
 `BETTER_AUTH_SECRET`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`,
 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `BACKUP_S3_ENDPOINT`,
 `BACKUP_S3_BUCKET`, `BACKUP_S3_ACCESS_KEY`, `BACKUP_S3_SECRET_KEY`,

@@ -3,6 +3,7 @@ import type { Database } from "./sqlite.ts";
 import { type Actor, requireUi, requireAdmin, PermissionError } from "./actor.ts";
 import { withTransaction } from "./db.ts";
 import { ServiceError, isUniqueViolation } from "./errors.ts";
+import { RESERVED_HANDLES } from "./handles.ts";
 import { exportDeck } from "./deck/interop.ts";
 
 export function accountInfo(db: Database, actor: Actor) {
@@ -14,7 +15,8 @@ export function accountInfo(db: Database, actor: Actor) {
 }
 export function chooseHandle(db: Database, actor: Actor, handle: string) {
   requireUi(actor, "choose your handle");
-  if (!/^[a-z0-9_-]{3,24}$/.test(handle)) throw new ServiceError("Use 3–24 lowercase letters, digits, underscores or hyphens");
+  if (!accountInfo(db,actor).needs_handle) throw new PermissionError("Handles can only be chosen during first-run setup");
+  if (RESERVED_HANDLES.has(handle) || !/^[a-z0-9_-]{3,24}$/.test(handle)) throw new ServiceError("Use 3–24 lowercase letters, digits, underscores or hyphens");
   try { db.prepare("UPDATE users SET handle=?,needs_handle=0 WHERE id=?").run(handle, actor.user_id); }
   catch (e) { if (isUniqueViolation(e)) throw new ServiceError("That handle is already taken", 409); throw e; }
   return accountInfo(db, actor);
@@ -52,7 +54,8 @@ export function accountScopes(db: Database): Scope[] {
     if (visiting.has(name) || globals.has(name) || isIndex(name)) return undefined;
     const next = new Set(visiting).add(name);
     const columns = db.prepare(`PRAGMA table_info(${quote(name)})`).all() as { name: string }[];
-    const parts = columns.filter(c => ["user_id", "author_user_id", "actor_user_id", "created_by", "used_by"].includes(c.name)).map(c => `${quote(c.name)}=:uid`);
+    const owner = columns.find(c=>c.name === "user_id") ?? columns.find(c=>c.name === "created_by");
+    const parts = owner ? [`${quote(owner.name)}=:uid`] : [];
     if (columns.some(c => c.name === "userId")) parts.push('"userId"=:aid');
     // A direct tenant key is authoritative. Tables without one inherit through
     // their FK (deck children, OAuth client-resource links, memory card links).
@@ -62,11 +65,13 @@ export function accountScopes(db: Database): Scope[] {
         const group=groups.get(fk.id) ?? []; group.push(fk); groups.set(fk.id,group);
       }
       for (const group of groups.values()) {
+        // Attribution FKs (including author_token_id) never confer ownership.
+        if(group.some(f=>/^(author_|actor_)/.test(f.from) || f.from === "used_by"))continue;
         group.sort((a,b)=>a.seq-b.seq);
         const parent=visit(group[0].table,next);
         // Composite FKs are one relation. Matching their columns separately
         // would select other tenants who happen to use the same oracle_id.
-        if(parent) parts.push(`(${group.map(f=>quote(f.from)).join(",")}) IN (SELECT ${group.map(f=>quote(f.to)).join(",")} FROM ${quote(group[0].table)} WHERE ${parent})`);
+        if(parent && group[0].table !== "users") parts.push(`(${group.map(f=>quote(f.from)).join(",")}) IN (SELECT ${group.map(f=>quote(f.to)).join(",")} FROM ${quote(group[0].table)} WHERE ${parent})`);
       }
     }
     if (!parts.length) return undefined;
@@ -111,6 +116,18 @@ export function deleteAccount(db: Database, actor: Actor, handle: string): void 
   if (!info.can_delete) throw new PermissionError(info.deletion_reason!);
   withTransaction(db, () => {
     const rows = ownedRows(db, actor);
+    // Authorship is not ownership. Preserve other tenants' records and spent
+    // invites, replacing deleted principals with a non-login tombstone.
+    for(const {table} of accountScopes(db)) {
+      const columns=db.prepare(`PRAGMA table_info(${quote(table)})`).all() as {name:string}[];
+      for(const column of ["author_user_id","actor_user_id","used_by"])if(columns.some(c=>c.name===column) && db.prepare(`SELECT 1 FROM ${quote(table)} WHERE ${quote(column)}=?`).get(actor.user_id)) {
+        db.prepare("INSERT OR IGNORE INTO users(id,handle,display_name,deleted_at) VALUES(0,'deleted_account','Deleted account',datetime('now'))").run();
+        const labelColumns=column==="author_user_id"?["author","author_label"]:column==="actor_user_id"?["actor","actor_label"]:[];
+        const anonymize=columns.filter(c=>labelColumns.includes(c.name)).map(c=>`,${quote(c.name)}='Deleted account'`).join("");
+        const extra=anonymize+columns.filter(c=>["author_token_id","author_oauth_client_id"].includes(c.name)).map(c=>`,${quote(c.name)}=NULL`).join("");
+        db.prepare(`UPDATE ${quote(table)} SET ${quote(column)}=0${extra} WHERE ${quote(column)}=?`).run(actor.user_id);
+      }
+    }
     // Remove referencing rows before parents, handling self references through
     // deferred FK checking inside this transaction. Never disable FK checks.
     db.exec("PRAGMA defer_foreign_keys=ON");
@@ -126,4 +143,25 @@ export function deleteAccount(db: Database, actor: Actor, handle: string): void 
     for (const invite of rows.invites) db.prepare("DELETE FROM signup_intents WHERE code_hash=?").run(createHash("sha256").update(invite.code).digest("hex"));
     if (db.prepare("PRAGMA foreign_key_check").get()) throw new Error("Account deletion left a foreign key reference");
   });
+}
+
+/** Connected grants, including clients that have not made their first tool call. */
+export function connectedClients(db:Database,actor:Actor) {
+  requireUi(actor,"manage OAuth connections");
+  return db.prepare(`SELECT c.clientId client_id,c.name label,u.last_used_at FROM oauthConsent g JOIN users p ON p.auth_id=g.userId JOIN oauthClient c ON c.clientId=g.clientId LEFT JOIN oauth_usage u ON u.user_id=p.id AND u.client_id=c.clientId WHERE p.id=?`).all(actor.user_id) as {client_id:string;label:string|null;last_used_at:string|null}[];
+}
+export function disconnectClient(db:Database,actor:Actor,clientId:string) {
+  requireUi(actor,"disconnect OAuth clients");
+  const principal=db.prepare("SELECT auth_id FROM users WHERE id=? AND deleted_at IS NULL").get(actor.user_id) as {auth_id:string}|undefined;
+  if(!principal || !connectedClients(db,actor).some(c=>c.client_id===clientId))throw new ServiceError("Connection not found",404);
+  withTransaction(db,()=>{
+    for(const table of ["oauthConsent","oauthRefreshToken","oauthAccessToken"])db.prepare(`DELETE FROM ${quote(table)} WHERE userId=? AND clientId=?`).run(principal.auth_id,clientId);
+    for(const row of relatedVerification(db,principal.auth_id)) {
+      const contains=(v:unknown):boolean=>v===clientId || (v!==null && typeof v==="object" && Object.values(v).some(contains));
+      try{if(contains(JSON.parse(row.value)))db.prepare("DELETE FROM verification WHERE id=?").run(row.id);}catch{}
+    }
+    db.prepare("INSERT INTO user_settings(user_id,key,value) VALUES(?,?,?) ON CONFLICT(user_id,key) DO UPDATE SET value=excluded.value").run(actor.user_id,"oauth:revoked:"+clientId,String(Math.floor(Date.now()/1000)));
+    db.prepare("DELETE FROM oauth_usage WHERE user_id=? AND client_id=?").run(actor.user_id,clientId);
+  });
+  return {ok:true};
 }

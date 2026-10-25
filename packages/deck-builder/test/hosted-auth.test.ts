@@ -203,7 +203,21 @@ test("Discord callback provisions atomically; DCR → S256 PKCE → consent → 
     assert.equal(token.status,200,await token.clone().text());const credentials=await token.json() as any;assert.ok(credentials.access_token.split(".").length===3);assert.ok(credentials.refresh_token);
     const actor=await f.auth.verifyAccessToken(credentials.access_token);assert.equal(actor?.user_id,session.user.id);assert.equal(actor?.label,"Test CLI");
     const renewal=await f.call("/api/auth/oauth2/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({grant_type:"refresh_token",refresh_token:credentials.refresh_token,client_id:client.client_id,resource:f.base+"/mcp"})});
-    assert.equal(renewal.status,200,await renewal.clone().text());assert.notEqual((await renewal.json() as any).refresh_token,credentials.refresh_token);
+    assert.equal(renewal.status,200,await renewal.clone().text());const renewed=await renewal.json() as any;assert.notEqual(renewed.refresh_token,credentials.refresh_token);
+    const settings=await (await f.call("/api/settings",{headers:{Cookie:cookie}})).json() as any;
+    assert.equal(settings.agent.oauth_clients[0].client_id,client.client_id);
+    assert.equal((await f.call("/api/account/oauth",{method:"DELETE",headers:{Cookie:cookie,"Content-Type":"application/json"},body:JSON.stringify({client_id:client.client_id})})).status,200);
+    assert.equal(f.db.prepare("SELECT count(*) n FROM oauthConsent").get()!.n,0);
+    assert.equal(f.db.prepare("SELECT count(*) n FROM oauthRefreshToken").get()!.n,0);
+    assert.equal(await f.auth.verifyAccessToken(credentials.access_token),null);
+    assert.equal((await f.call("/mcp",{method:"POST",headers:{Authorization:`Bearer ${credentials.access_token}`}})).status,401);
+    const refreshAgain=()=>f.call("/api/auth/oauth2/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({grant_type:"refresh_token",refresh_token:renewed.refresh_token,client_id:client.client_id,resource:f.base+"/mcp"})});
+    assert.equal((await refreshAgain()).status,400);
+    const reauthorize=await f.call("/api/auth/oauth2/authorize?"+params,{headers:{Cookie:cookie}});
+    const query=new URL((await reauthorize.json() as any).url,f.base).search.slice(1);
+    assert.equal((await f.call("/api/auth/oauth2/consent",{method:"POST",headers:{Cookie:cookie,"Content-Type":"application/json"},body:JSON.stringify({accept:true,oauth_query:query})})).status,200);
+    assert.equal(await f.auth.verifyAccessToken(credentials.access_token),null,"re-consent must not revive an old JWT");
+    assert.equal((await refreshAgain()).status,400,"re-consent must not revive a deleted refresh token");
     assert.equal((await f.call("/api/account/export",{headers:{Cookie:cookie}})).status,200);
     const deletion=await f.call("/api/account",{method:"DELETE",headers:{Cookie:cookie,"Content-Type":"application/json"},body:JSON.stringify({handle:session.user.handle})});assert.equal(deletion.status,200,await deletion.text());
     assert.equal(await f.auth.verifyAccessToken(credentials.access_token),null);assert.equal((await f.call("/api/decks",{headers:{Cookie:cookie}})).status,401);
@@ -254,7 +268,7 @@ test("every hosted-only API route is classified; UI sessions alone authorize sel
     const key=(r:{method:string;pattern:RegExp})=>`${r.method} ${r.pattern.source}`;
     const localKeys=new Set(local.routes.map(key));await local.close();
     const routes=[
-      ["GET","/api/account","self"],["PATCH","/api/account/handle","self"],
+      ["DELETE","/api/account/oauth","self"],["GET","/api/account","self"],["PATCH","/api/account/handle","self"],
       ["GET","/api/account/export","self"],["DELETE","/api/account","self"],
       ["GET","/api/admin","admin"],["POST","/api/admin/invites","admin"],["POST","/api/admin/jobs","admin"],
     ] as const;

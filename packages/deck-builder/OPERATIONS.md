@@ -56,7 +56,7 @@ The serving process schedules work; it never ingests bulk data itself.
   price table and its as-of timestamp in one short transaction. Failed
   staging leaves the old prices usable.
 
-`GET /api/health` returns `{ ok, schema_version, cards, last_ingest }` without
+Local `GET /api/health` returns `{ ok, schema_version, cards, last_ingest }` without
 credentials. Host/Origin protection still applies. It is a liveness/data-date
 check, not proof that Scryfall or off-box storage is reachable.
 
@@ -234,7 +234,9 @@ responses, or provider credentials. Local `.env` is ignored and mode 0600.
 | `DECKBUILDER_TRUST_PROXY` | No | `1` only behind the trusted Railway ingress |
 | `DECKBUILDER_INVITES_REQUIRED` | No | Keep `1` for beta; only `0` opens signup |
 | `BETTER_AUTH_SECRET` | Yes | Random stable value, at least 32 characters |
-| `DECKBUILDER_CLAIM_CODE` | Yes | Random bootstrap code, remove after owner claim |
+| `DECKBUILDER_CLAIM_CODE` | Yes | Random bootstrap code, at least 32 characters; remove after owner claim |
+| `DECKBUILDER_OPERATOR_NAME` | No | Required public operator name for hosted legal pages |
+| `DECKBUILDER_CONTACT_EMAIL` | No | Required public contact email for hosted legal pages |
 | `DISCORD_CLIENT_ID` | No | Discord application ID |
 | `DISCORD_CLIENT_SECRET` | Yes | Discord application secret |
 | `GOOGLE_CLIENT_ID` | No | Optional; Google requires both variables |
@@ -281,19 +283,21 @@ Loopback HTTP development deliberately omits Secure so the supplied Discord
 callback works. TLS terminates at Railway; the public origin still stays
 HTTPS. The application trusts forwarded host/protocol/IP only when
 `DECKBUILDER_TRUST_PROXY=1`; configure exactly one ingress that overwrites
-those headers. Do not expose a second untrusted route to the container.
+host/protocol headers. Rate-limit IP uses Railway’s documented `X-Real-IP`,
+falling back to the rightmost XFF hop, never the spoofable leftmost entry.
+Phase 3 must confirm those headers on the live service (including IPv6); see
+[Railway network specs](https://docs.railway.com/networking/public-networking/specs-and-limits).
+Do not expose a second untrusted route to the container.
 Host and browser Origin must match the configured public origin. Auth uses a
 fixed base URL, never a forwarded-header-selected issuer.
 
-`GET /api/health` is unauthenticated and returns shared liveness/schema/card
-freshness data. Through a proxy it accepts the configured Host or a trusted
-forwarded public host/protocol. **Railway's native checker uses
-`Host: healthcheck.railway.app`; our single-public-host rule rejects that
-with 403.** Phase 3 must arrange a trusted health-check relay that rewrites
-that Host to the public domain (or explicitly amend the host rule), and test
-it before switching traffic. Do not silently widen the allowlist here. See
-[Railway health-check hostname documentation](https://docs.railway.com/deployments/healthchecks#healthcheck-hostname).
-The public path remains `/api/health`; deployment port must match `PORT`.
+Hosted `GET /api/health` bypasses Host/Origin and authentication, returns only
+`{ok,schema_version}`, sets no cookies and reveals no card/tenant/session facts.
+This explicit exception supports Railway's `Host: healthcheck.railway.app`;
+use `/api/health` directly as the Railway health-check path, with no relay.
+Every other path keeps the public-origin rule. Local health retains its
+loopback checks and existing payload. Deployment port must match `PORT`.
+See [Railway health-check hostname documentation](https://docs.railway.com/deployments/healthchecks#healthcheck-hostname).
 
 The service intentionally runs one replica: rate limits are in-memory and
 reset at restart. `src/ratelimit.ts` is the canonical limit table. A future
@@ -307,7 +311,9 @@ answers and never follows redirects. Do not substitute ordinary fetch.
 Settings → Account exports JSON (all owned tables plus Archidekt deck text)
 and deletes after typed-handle confirmation. Export excludes credential
 secrets. Deletion removes auth sessions/accounts, OAuth grants/codes, personal
-tokens and all application rows, with no post-deletion activity. Local
+tokens and all owned application rows, with no post-deletion activity.
+Other tenants’ content and spent invite records stay; attribution is replaced
+with non-login tombstone user 0 and identifying author labels are cleared. Local
 backups expire in 14 days; the operator must configure remote bucket retention
 and repeat deletions when restoring older backups.
 
@@ -342,3 +348,24 @@ or transaction. Never wrap the auth handler or outbound DNS/provider fetches
 in it. The public metadata fetcher has four slots, a five-second deadline
 including DNS waiting, a 64 KiB body cap and 30-second/128-entry public cache.
 Concurrent UI reads remain available during slow CIMD/provider requests.
+
+
+Hosted startup requires public `DECKBUILDER_OPERATOR_NAME` and
+`DECKBUILDER_CONTACT_EMAIL`; set them in Railway/environment, not source.
+Do not put personal contact details in the repository. Local mode needs
+neither and exposes no legal pages/footer. Set a cryptographically random
+claim code of at least 32 characters; shorter configured codes fail startup.
+If the owner's Discord identity first registers as an invited/open user,
+it cannot later claim user 1: delete that new account first, then sign in
+with the owner claim code. Never manually rewrite auth_id.
+
+Settings → Agent connection → Connected OAuth apps → Disconnect removes the
+grant and refresh tokens, and invalidates existing JWTs even after a later
+re-consent. Tokens minted within the same second as disconnect may need a
+retry the next second. Handles can only be changed in the first-run picker.
+Anonymous native client registrations with no grants expire after one day;
+cleanup runs at most hourly on auth requests. Refresh rotation permits a
+five-second retry grace. Auth/session/linking endpoints unused by the product
+are disabled. Hashed assets are immutable for a year; HTML/auth/API responses
+are no-store. Rate buckets are isolated by kind, IPv6 shares a /64, claim
+attempts use 5/minute/IP, and OAuth token exchange uses 240/minute/client.

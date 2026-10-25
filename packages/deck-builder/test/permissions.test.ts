@@ -606,7 +606,10 @@ test("MCP and HTTP reject own-deck/foreign-child combinations without partial wr
 // rejects a no-op probe, and output/owner snapshots verify the privacy claim.
 const globalProbes:Record<string,GlobalProbe>={
   accountInfo:(fn,f,a)=>{const info=fn(f.db,a);assert.equal(info.id,2);return info;},
-  chooseHandle:(fn,f,a)=>fn(f.db,a,"second_chosen"),
+  chooseHandle:(fn,f,a)=>{f.db.prepare("UPDATE users SET needs_handle=1 WHERE id=?").run(a.user_id);return fn(f.db,a,"second_chosen");},
+  connectedClients:(fn,f,a)=>fn(f.db,a),
+  disconnectClient:(fn,f,a)=>{assert.throws(()=>fn(f.db,a,"missing"),{status:404});return null;},
+  ipBucket:fn=>fn("2001:db8::1"),
   exportAccount:(fn,f,a)=>{const data=fn(f.db,a);assert.ok(data.tables.decks.every((d:any)=>d.user_id===2));return data;},
   deleteAccount:(fn,f,a)=>{const handle=f.db.prepare("SELECT handle FROM users WHERE id=2").get()!.handle;fn(f.db,a,handle);assert.equal(f.db.prepare("SELECT id FROM users WHERE id=2").get(),undefined);return null;},
   createInvite:(fn,f,a)=>{assert.throws(()=>fn(f.db,a),{status:403});return null;},
@@ -698,7 +701,7 @@ const globalProbes:Record<string,GlobalProbe>={
 };
 for(const name of ["AppError","ServiceError","SchemaError","PermissionError","SearchError"])globalProbes[name]=fn=>new fn("Second probe");
 globalProbes.CardResolutionError=fn=>new fn([{ref:"missing",problem:"unknown",suggestions:[],candidates:[]}]);
-const globalKinds:Record<string,Classification>={accountInfo:"owner-only",chooseHandle:"owner-only",exportAccount:"owner-only",deleteAccount:"owner-only",createInvite:"owner-only",adminInfo:"owner-only",accountScopes:"public-read",getSetting:"read",setSetting:"write",createDeck:"write",listDecks:"read",getProfile:"read",setProfile:"owner-only",getBudgets:"read",setBudgets:"write",unreviewedCount:"read",getFocus:"read",playerStats:"read",listActivity:"read",ownershipEvidence:"read",createToken:"owner-only",listTokens:"owner-only",revokeToken:"owner-only",requireUi:"owner-only",requireAdmin:"owner-only",ingestPrices:"write"};
+const globalKinds:Record<string,Classification>={connectedClients:"owner-only",disconnectClient:"owner-only",accountInfo:"owner-only",chooseHandle:"owner-only",exportAccount:"owner-only",deleteAccount:"owner-only",createInvite:"owner-only",adminInfo:"owner-only",accountScopes:"public-read",getSetting:"read",setSetting:"write",createDeck:"write",listDecks:"read",getProfile:"read",setProfile:"owner-only",getBudgets:"read",setBudgets:"write",unreviewedCount:"read",getFocus:"read",playerStats:"read",listActivity:"read",ownershipEvidence:"read",createToken:"owner-only",listTokens:"owner-only",revokeToken:"owner-only",requireUi:"owner-only",requireAdmin:"owner-only",ingestPrices:"write"};
 for(const [name,probe] of Object.entries(globalProbes))globalCase(name,globalKinds[name]??"public-read",probe);
 
 function ownerSnapshot(f:Fixture) {

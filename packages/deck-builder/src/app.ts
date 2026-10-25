@@ -12,7 +12,7 @@ import { readRequestBody } from "./http-body.ts";
 import { databaseGate } from "./auth-database.ts";
 import { consentHtml, consentScript } from "./consent.ts";
 import { createHostedAuth, type HostedAuth } from "./auth.ts";
-import { accountInfo, chooseHandle, createInvite, adminInfo, exportAccount, deleteAccount } from "./accounts.ts";
+import { accountInfo, chooseHandle, createInvite, adminInfo, exportAccount, deleteAccount, connectedClients, disconnectClient } from "./accounts.ts";
 import { createRateLimiter, RateLimitError } from "./ratelimit.ts";
 import { clientIp, securityHeaders } from "./mode.ts";
 import { allowedRequest, getMode, localActor, publicOrigin, type Mode } from "./mode.ts";
@@ -141,6 +141,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
   const state = (actor: Actor, id: number) => deckState(db, actor, id);
 
   if (mode === "hosted") {
+    route("DELETE", /^\/api\/account\/oauth$/, (actor,_p,body) => disconnectClient(db,actor,String(body.client_id ?? "")));
     route("GET", /^\/api\/account$/, actor => accountInfo(db, actor));
     route("PATCH", /^\/api\/account\/handle$/, (actor,_p,body) => chooseHandle(db,actor,String(body.handle ?? "")));
     route("GET", /^\/api\/account\/export$/, actor => exportAccount(db,actor));
@@ -424,6 +425,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
         url: `${mode === "hosted" ? publicOrigin() : `http://127.0.0.1:${opts.port ?? 8787}`}${MCP_PATH}`,
         mode,
         tokens: listTokens(db, actor),
+        oauth_clients: mode === "hosted" ? connectedClients(db,actor) : [],
         oauth_usage: mode === "hosted" ? db.prepare("SELECT client_id,label,last_used_at FROM oauth_usage WHERE user_id=? ORDER BY last_used_at DESC").all(actor.user_id) : [],
         ...(mode === "local" ? { stdio_command: `node ${join(PKG_ROOT, "src", "mcp", "stdio.ts")}` } : {}),
       },
@@ -505,6 +507,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
 
   function serveStatic(pathname: string, res: ServerResponse): boolean {
     const root = resolve(opts.webDist ?? WEB_DIST);
+    if (mode === "local" && ["/privacy","/terms"].includes(pathname)) return false;
     if (pathname.startsWith("/mcp") || /^\/(api|\.well-known)(\/|$)/.test(pathname)) return false;
     const file = resolve(root, pathname === "/" ? "index.html" : pathname.slice(1));
     if (!file.startsWith(root + sep)) return false;
@@ -516,7 +519,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
       const content = readFileSync(target);
       res.writeHead(200, {
         "Content-Type": MIME[extname(target)] ?? "application/octet-stream",
-        "Cache-Control": pathname.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache",
+        "Cache-Control": pathname.startsWith("/assets/") ? "public, max-age=31536000, immutable" : mode === "hosted" ? "no-store" : "no-cache",
       });
       res.end(content);
       return true;
@@ -538,6 +541,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
   const withDatabase = <T>(work:()=>T|Promise<T>):Promise<T> => mode === "hosted" ? gate.run(work) : Promise.resolve(work());
   const server: Server = createServer(async (req, res) => {
     securityHeaders(res,mode);
+    if(mode === "hosted")res.setHeader("Cache-Control","no-store");
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     const json = (status: number, data: unknown) => {
       res.writeHead(status, { "Content-Type": "application/json" });
@@ -545,6 +549,8 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     };
 
     try {
+      // Railway health probes use their own Host. This public response has no auth or tenant data.
+      if(mode === "hosted" && req.method === "GET" && url.pathname === "/api/health")return json(200,{ok:true,schema_version:SCHEMA_VERSION});
       if(mode === "hosted") {
         if(!allowedRequest(req,mode))return json(403,{error:"Host or Origin is not allowed"});
         await readRequestBody(req);
@@ -554,11 +560,24 @@ export function createApp(db: Database, opts: AppOptions = {}) {
         return await agents.handle(req, res);
 
       if (!allowedRequest(req, mode)) return json(403, { error: "This app only answers requests from this machine." });
-      if (mode === "hosted" && /^\/(api\/(auth|signup)|\.well-known)(\/|$)/.test(url.pathname)) rateLimit("auth",clientIp(req));
+      if (mode === "hosted" && /^\/(api\/(auth|signup)|\.well-known)(\/|$)/.test(url.pathname)) {
+        if(url.pathname === "/api/auth/oauth2/token") {
+          const raw=(await readRequestBody(req)).toString("utf8");
+          let id="";
+          try {id=req.headers["content-type"]?.startsWith("application/json")?String(JSON.parse(raw).client_id ?? ""):new URLSearchParams(raw).get("client_id") ?? "";}catch{}
+          if(!id && req.headers.authorization?.startsWith("Basic "))try{id=decodeURIComponent(Buffer.from(req.headers.authorization.slice(6),"base64").toString("utf8").split(":")[0]);}catch{}
+          const exists=await withDatabase(()=>db.prepare('SELECT 1 FROM oauthClient WHERE clientId=? AND (disabled IS NULL OR disabled=0)').get(id));
+          rateLimit(exists?"token":"auth",exists?id:clientIp(req));
+        } else rateLimit("auth",clientIp(req));
+      }
       if (mode === "hosted" && req.method === "POST" && url.pathname === "/api/signup") {
         if (!auth) throw new ServiceError("Authentication is not configured",503);
         if (req.headers.origin !== publicOrigin()) throw new ServiceError("Origin is required",403);
-        const body = await readJson(req); await withDatabase(()=>auth.signup(req,res,String(body.code ?? ""))); return json(200,{ok:true});
+        const body = await readJson(req); await withDatabase(()=>{
+          const code=String(body.code ?? "");
+          if(auth.claimsEnabled && code && !db.prepare("SELECT 1 FROM invites WHERE code=? AND used_by IS NULL").get(code))rateLimit("claim",clientIp(req));
+          auth.signup(req,res,code);
+        }); return json(200,{ok:true});
       }
       if (mode === "hosted" && auth && (url.pathname.startsWith("/api/auth/") || url.pathname.startsWith("/.well-known/"))) {
         if (url.pathname === "/.well-known/oauth-authorization-server") req.url = "/api/auth/.well-known/oauth-authorization-server";
@@ -571,7 +590,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
         const sessionActor = await resolveActor(req,mode);
         const providers = [process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET ? "discord" : null, process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET ? "google" : null].filter(Boolean);
         if (mode === "hosted" && !sessionActor) rateLimit("unauthenticated",clientIp(req));
-        return json(200,{mode,providers,user:sessionActor ? accountInfo(db,sessionActor) : null});
+        return json(200,{mode,providers,legal:auth?.legal ?? null,invites_required:auth?.invitesRequired ?? true,user:sessionActor ? accountInfo(db,sessionActor) : null});
       }
       if (mode === "hosted" && req.method === "GET" && url.pathname === "/consent.js") {
         res.writeHead(200,{"Content-Type":"text/javascript"}); return void res.end(consentScript);
@@ -602,7 +621,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
       if (req.method === "GET" && url.pathname === "/api/events") {
         res.writeHead(200, {
           "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
+          "Cache-Control": mode === "hosted" ? "no-store" : "no-cache",
           Connection: "keep-alive",
           "X-Accel-Buffering": "no",
         });

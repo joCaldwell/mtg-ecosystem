@@ -15,7 +15,7 @@ import { createProposal } from "../src/deck/proposals.ts";
 import { OWNER, agent } from "./actors.ts";
 import { testDb } from "./helpers.ts";
 export const secret = "test-only-auth-secret-0123456789-abcdef";
-export const env = { BETTER_AUTH_SECRET: secret, DISCORD_CLIENT_ID:"fixture", DISCORD_CLIENT_SECRET:"fixture", DECKBUILDER_PUBLIC_ORIGIN:"http://localhost:8787", DECKBUILDER_CLAIM_CODE:"test-only-owner-code" };
+export const env = { DECKBUILDER_OPERATOR_NAME:"Test operator", DECKBUILDER_CONTACT_EMAIL:"operator@test.invalid", BETTER_AUTH_SECRET: secret, DISCORD_CLIENT_ID:"fixture", DISCORD_CLIENT_SECRET:"fixture", DECKBUILDER_PUBLIC_ORIGIN:"http://localhost:8787", DECKBUILDER_CLAIM_CODE:"test-only-owner-code-0123456789-abcdef" };
 export function enroll(db: ReturnType<typeof testDb>, id:string, code:string, name=id) {
   return provisionIdentity(db,{id,name},beginSignup(db,code,env),env);
 }

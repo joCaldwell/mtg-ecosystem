@@ -52,7 +52,8 @@ export interface AgentEndpointOptions {
 // and wins; otherwise the client's self-reported name; otherwise its
 // User-Agent product; otherwise "agent".
 export function agentName(pathname: string, body: unknown, userAgent: string | undefined): string {
-  const fromPath = decodeURIComponent(pathname.slice(MCP_PATH.length).replace(/^\/+|\/+$/g, ""));
+  let fromPath = "";
+  try { fromPath = decodeURIComponent(pathname.slice(MCP_PATH.length).replace(/^\/+|\/+$/g, "")); } catch { /* malformed hint carries no authority */ }
   if (fromPath) return clean(fromPath);
   const first = Array.isArray(body) ? body[0] : body;
   const params = (first as any)?.params;
@@ -167,7 +168,7 @@ export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
         res,
         401,
         "Missing or wrong bearer token. Copy the agent token from the app's Settings page into this client's configuration.",
-        { "WWW-Authenticate": `Bearer resource_metadata="${mode === "hosted" ? publicOrigin() : `http://${req.headers.host}`}/.well-known/oauth-protected-resource/mcp"${mode === "hosted" ? ", scope=\"deck-builder\"" : ""}` },
+        { "WWW-Authenticate": `Bearer resource_metadata="${mode === "hosted" ? publicOrigin() : `http://${req.headers.host}`}/.well-known/oauth-protected-resource/mcp"${mode === "hosted" ? ", scope=\"deck-builder\"" : ""}${presented ? ", error=\"invalid_token\"" : ""}` },
       );
     }
 

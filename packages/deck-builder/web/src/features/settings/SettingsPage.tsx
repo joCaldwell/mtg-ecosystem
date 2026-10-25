@@ -33,7 +33,7 @@ export function SettingsPage() {
           <CardDataCard cards={data.cards} jobs={data.jobs} onChanged={settings.reload} canRefresh={session.mode === "local" || !!session.user?.is_admin} />
           {session.mode === "hosted" && <AccountCard />}
           {session.mode === "hosted" && !!session.user?.is_admin && <AdminCard />}
-          <LegalFooter asOf={data.cards.prices.as_of} />
+          {session.mode === "hosted" && <LegalFooter asOf={data.cards.prices.as_of} />}
           <Text tone="faint" size="sm">
             Colours, type and every component are on the <a href={href({ page: "design" })}>design reference</a>.
           </Text>

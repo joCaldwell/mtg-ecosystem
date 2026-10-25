@@ -173,3 +173,17 @@ with typed-handle confirmation. The Admin card appears only for is_admin;
 the server rechecks admin/UI permissions. The final admin's disabled deletion
 button explains why. The legal footer names WotC's Fan Content policy and
 Scryfall daily estimates with as-of date; no new price source is introduced.
+
+
+Hosted `/api/session` also bootstraps `legal` (public operator name/contact)
+and `invites_required`. LegalPage renders the runtime identity as React text;
+no source placeholders or personal operator data are committed. Local mode
+renders no legal routes/footer. Open signup requests a blank registration
+ticket. Provider/state failures and invite registration failures have distinct
+recovery messages. HandlePicker is allowed only on first-run collisions.
+
+Settings lists consent-backed OAuth apps separately from personal tokens,
+including unused grants, and confirms Disconnect through the UI-only
+account capability. The server deletes consent/refresh tokens and remembers
+an issuance cutoff, so re-consent cannot revive old credentials. Public
+hashed assets cache immutably; hosted HTML, API and consent remain no-store.

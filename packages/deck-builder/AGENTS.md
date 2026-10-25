@@ -288,8 +288,10 @@ and `DISCORD_CLIENT_SECRET` enable Discord; `GOOGLE_CLIENT_ID` and
 `GOOGLE_CLIENT_SECRET` together enable Google. `BETTER_AUTH_SECRET` is a
 secret of at least 32 characters, generated with cryptographic randomness.
 `DECKBUILDER_CLAIM_CODE` is a separate one-time owner bootstrap secret; it
-only claims user 1 while auth_id is NULL. Remove it after the success log.
+must be at least 32 characters when set and only claims user 1 while auth_id is NULL. Remove it after the success log.
 `DECKBUILDER_INVITES_REQUIRED` defaults to gated; only `0` disables the gate.
+Hosted startup also requires non-secret `DECKBUILDER_OPERATOR_NAME` and
+`DECKBUILDER_CONTACT_EMAIL`, served to legal pages from session bootstrap.
 Secrets belong in the environment or ignored `.env`, never code or logs.
 Use `node --env-file=.env src/server.ts` for explicit local env-file loading;
 set DB/DATA to an ignored `.dev/` copy when testing hosted mode. Never migrate
@@ -305,7 +307,15 @@ gate. Never hold that gate around an auth HTTP handler or outbound I/O.
 Account lifecycle derives selectors from sqlite_master and grouped composite
 foreign keys. Unknown tables fail closed unless explicitly global or linked
 to a tenant. Add lifecycle coverage with any table. Export redacts credentials;
-deletion removes all personal records, OAuth state/grants and sessions without
-writing new activity. UI-only guards apply below HTTP. The last admin cannot
+deletion removes owned records, OAuth state/grants and sessions without
+writing new activity. Retain foreign content/spent invites with tombstone
+user 0 attribution, never delete based on author/used_by. UI-only guards apply below HTTP. The last admin cannot
 delete their account. OAuth drafts bind to `author_oauth_client_id` just as
 personal-token drafts bind to `author_token_id`. URL labels never grant rights.
+
+Hosted GET /api/health alone bypasses Host/Origin for Railway probes and
+returns only ok/schema_version with no cookies/auth. Other hosted routes
+keep the configured-origin boundary; local health remains loopback-only.
+Local mode exposes neither legal pages nor their footer. OAuth disconnect
+must remove refresh grants and preserve JWT issuance cutoffs on re-consent.
+Handles reserve route words and may change only during the first-run picker.

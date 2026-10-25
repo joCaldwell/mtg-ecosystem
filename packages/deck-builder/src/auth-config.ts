@@ -30,7 +30,7 @@ export function authConfiguration(db: Database, origin: string, env = process.en
     session: { cookieCache: { enabled: false } },
     // Only our consent-bound OAuth access tokens may authorize MCP. Disable
     // the JWT plugin's generic session-token endpoint and BA's own deletion.
-    disabledPaths: ["/token", "/delete-user", "/update-user"],
+    disabledPaths: ["/token", "/delete-user", "/update-user", "/link-social", "/list-accounts", "/unlink-account", "/list-sessions", "/revoke-session", "/revoke-sessions", "/revoke-other-sessions", "/get-access-token", "/refresh-token", "/account-info", "/oauth2/delete-consent", "/oauth2/update-consent"],
     advanced: {
       useSecureCookies: origin.startsWith("https:"),
       defaultCookieAttributes: { httpOnly: true, sameSite: "lax", secure: origin.startsWith("https:") },
@@ -56,7 +56,7 @@ export function authConfiguration(db: Database, origin: string, env = process.en
       allowDynamicClientRegistration: true, allowUnauthenticatedClientRegistration: true,
       clientRegistrationDefaultApplicationType: "infer",
       clientRegistrationRequirePKCE: true,
-      refreshTokenReuseInterval: 0,
+      refreshTokenReuseInterval: 5,
       clientPrivileges: async () => false,
     }), cimd({ fetchClientMetadataResource: metadataFetch, metadataProfile: "mcp-2026-07-28" })],
   };

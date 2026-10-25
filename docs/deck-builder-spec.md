@@ -608,16 +608,16 @@ value. Existing HTTP Claude Code and Codex configurations need no changes.
 
 Host and Origin checks precede the SDK. Local requests require loopback
 Host/Origin; hosted requests require the configured public origin. Unauthenticated
-MCP requests return 401 and `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp"`;
+MCP requests return 401 (a presented invalid bearer adds `error="invalid_token"`) and `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp"`;
 Hosted mode serves RFC 9728 resource metadata and RFC 8414 authorization
 server metadata. Better Auth 1.7.13 with JWT, MCP and CIMD plugins implements
 authorization code + S256 PKCE, resource-bound JWTs, refresh rotation, consent,
-CIMD (MCP 2026-07-28 profile) and explicit DCR fallback for older clients.
+CIMD (MCP 2026-07-28 profile) and DCR fallback limited to native/loopback clients.
 The api-key plugin is omitted: existing `agent_tokens` satisfies D7. Local
 mode exposes no OAuth endpoints.
 
 OAuth tokens are verified against this issuer’s JWKS, signature, expiry and
-the `at+jwt` type and exact `<public-origin>/mcp` audience; another resource’s token is 401.
+EdDSA algorithm (30-second JWKS cache), the `at+jwt` type and exact `<public-origin>/mcp` audience; another resource’s token is 401.
 This Bearer endpoint rejects DPoP-bound tokens rather than discarding their
 proof requirement. Subjects map through `users.auth_id`; the OAuth client name is the agent
 label. Deleted identities and disconnected grants cannot use MCP. Both
@@ -1131,8 +1131,10 @@ migration-only defaults cannot silently authorize a future runtime write.
 providers and one invite/claim field; local mode never shows sign-in. Cookies
 automatically accompany requests and EventSource. `request()` maps 401 to
 sign-in, 403 to a readable-action toast, 429 to a slowdown toast with retry
-time. `/privacy` and `/terms` are public, identify <OPERATOR NAME>, contact
-<CONTACT EMAIL>, stored data, cookies, retention, Railway, Scryfall browser
+time. Hosted `/privacy` and `/terms` are public and identify the operator and
+contact from required non-secret `DECKBUILDER_OPERATOR_NAME` and
+`DECKBUILDER_CONTACT_EMAIL` environment values, served by `/api/session`.
+They describe stored data, cookies, retention, Railway, Scryfall browser
 requests, export/deletion and no warranty. The footer carries the WotC Fan
 Content notice and current daily Scryfall estimate/as-of wording until 1b.
 
@@ -1140,12 +1142,16 @@ Settings has hosted connection steps for Claude Code, Codex, Claude.ai and
 ChatGPT, inline CLI token creation and last-seen personal/OAuth usage. Remove
 Secure MCP Tunnel instructions. Local HTTP and stdio configs remain valid.
 
-`GET /api/account/export` is UI-only: all owned/attributed rows, deck
+`GET /api/account/export` is UI-only: all owned rows, deck
 children and Archidekt text per deck. Auth exports exclude all secrets
 (session/provider tokens, credentials, signing keys). `DELETE /api/account`
 requires UI and typed-handle confirmation, atomically removing all personal
 rows, FTS entries, tokens, sessions, linked providers, OAuth grants and owned
-clients. Write no activity afterwards. Shared card/price/job data remain.
+clients. Foreign ownership is never inferred from authorship or invite use.
+Retain others’ content and spent invitations, anonymizing references/labels
+to non-login tombstone user 0 (`deleted_account`, deleted_at set). No author
+token/client identifiers survive on those records. Write no activity afterwards.
+Shared card/price/job data remain.
 A sqlite_master inventory test verifies every tenant table participates, so
 a new table cannot silently escape export/deletion. Backups expire under
 14-day local retention; off-box retention follows bucket policy. The last
@@ -1200,9 +1206,11 @@ profiles, suggestions, path routing and renames remain later phases.
   fail closed. Auth verification payloads are searched for the identity
   when deleting codes/state, and omitted from export.
 - Railway's native healthcheck Host differs from the public domain. The
-  binding single-origin rule is preserved: it returns 403 until Phase 3
-  arranges a trusted healthcheck Host rewrite (see OPERATIONS). Public
-  health through the configured origin works without credentials.
+  only exception to the hosted Host/Origin boundary is `GET /api/health`,
+  which returns exactly `{ok,schema_version}` without cookies, auth or tenant
+  data. It runs before session/body/database reservations so Railway probes
+  work directly. All other hosted requests keep the single-origin rule;
+  local health keeps its loopback Host/Origin check.
 
 Existing runtime validation dependencies also receive compatible security
 patches: Zod's minimum is 4.6.7, and the lockfile selects fast-uri 3.1.9.
@@ -1229,3 +1237,35 @@ a concurrent authenticated roster read or health request. The public-document
 transport races DNS against the abort signal, limits concurrent fetches to
 four, bounds response bytes and caches successful public documents for
 30 seconds (128 entries). Late DNS answers never open a connection.
+
+
+Hosted startup rejects a configured claim code shorter than 32 characters,
+and missing/blank operator name or contact email. Blank-code sign-in creates
+an account when invites are disabled; it never implicitly claims user 1.
+Route words are reserved as handles; short names pad with neutral underscores.
+Only a collision/reserved-name first-run picker may change a handle. Once
+picked it is stable for future shared URLs.
+
+With trusted ingress, rate-limit IP comes from Railway’s documented
+X-Real-IP, falling back to the rightmost X-Forwarded-For hop; otherwise only
+the socket counts. IPv6 addresses share a /64 bucket. Independent bounded
+LRU stores per limit kind prevent anonymous capacity from denying verified
+users/credentials. Unknown-code attempts have their own 5/minute/IP bucket;
+known OAuth clients exchange tokens in a 240/minute/client bucket rather
+than the 20/minute/IP sign-in bucket. Phase 3 verifies ingress IP headers.
+
+Settings lists every connected OAuth consent, including unused grants, with
+Disconnect. UI-only `DELETE /api/account/oauth` removes that user/client’s
+consent, refresh/opaque tokens, pending codes and usage. A stored issuance
+cutoff also rejects previously issued JWTs after re-consent. JWT timestamps
+have one-second precision: a new grant issued in the disconnect second must
+be retried in the following second. Other clients/users retain access.
+Unused unconsented DCR registrations expire after one day (hourly cleanup
+on auth requests). Refresh retries have five seconds of rotation grace.
+Unused social linking/account listing/session listing/revoke endpoints are
+disabled; no browser API exposes raw session tokens. Callback state/provider
+errors ask the user to restart sign-in; registration errors mention the code.
+
+Hosted legal routes and legal footer are absent in local mode. Hashed SPA
+assets use `public, max-age=31536000, immutable`; APIs, auth, consent, HTML
+and the index route remain `no-store`.

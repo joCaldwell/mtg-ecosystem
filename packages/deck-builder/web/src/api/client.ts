@@ -64,13 +64,13 @@ export interface Inbox {
   unreviewed: number;
 }
 
-export interface Session { mode: "local" | "hosted"; providers: string[]; user: ReturnType<typeof accountInfo> | null }
+export interface Session { mode: "local" | "hosted"; providers: string[]; legal: {operator_name:string;contact_email:string}|null; invites_required:boolean; user: ReturnType<typeof accountInfo> | null }
 
 export interface Settings {
   jobs: ReturnType<Jobs["status"]> | null;
   budgets: { global: number; deck: number };
   cards: { count: number; updated_at: string | null; prices: PriceStatus };
-  agent: { url: string; mode: "local" | "hosted"; tokens: AgentToken[]; oauth_usage?: { client_id:string; label:string; last_used_at:string }[]; stdio_command?: string };
+  agent: { url: string; mode: "local" | "hosted"; tokens: AgentToken[]; oauth_clients?: {client_id:string;label:string|null;last_used_at:string|null}[]; oauth_usage?: { client_id:string; label:string; last_used_at:string }[]; stdio_command?: string };
 }
 
 export interface MemoryList {
@@ -116,6 +116,7 @@ type StateResponse = { state: DeckState };
 export type Outcome = "accept" | "reject";
 
 export const api = {
+  disconnectClient: (client_id:string) => request<{ok:boolean}>("DELETE","/api/account/oauth",{client_id}),
   session: () => request<Session>("GET","/api/session"),
   signup: (code:string) => request("POST","/api/signup",{code}),
   signIn: (provider:string, oauth_query:string) => request<{url:string}>("POST","/api/auth/sign-in/social",{provider,callbackURL:location.origin + "/",errorCallbackURL:location.origin + "/signin",...(oauth_query && new URLSearchParams(oauth_query).has("sig") ? {oauth_query} : {})}),

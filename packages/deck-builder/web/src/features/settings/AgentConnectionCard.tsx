@@ -11,6 +11,7 @@ export function AgentConnectionCard({ agent, onChanged }: { agent: Settings["age
   const [label, setLabel] = useState("");
   const [secret, setSecret] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<number | null>(null);
+  const [disconnecting,setDisconnecting] = useState<string|null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [clientId, setClientId] = useState<ClientId>("claude-code");
@@ -58,6 +59,14 @@ export function AgentConnectionCard({ agent, onChanged }: { agent: Settings["age
       {!token.revoked_at && <Button size="sm" variant="ghost" disabled={busy} onClick={() => setRevoking(token.id)}>Revoke</Button>}
     </Row>)}
     {!agent.tokens.length && <Text tone="muted" size="sm">No agent tokens yet.</Text>}
+    {agent.mode === "hosted" && <Stack gap={3}>
+      <Text as="h3" weight="bold">Connected OAuth apps</Text>
+      {(agent.oauth_clients ?? []).map(c=><Row key={c.client_id} gap={4} justify="between">
+        <Stack gap={1} className={styles.value}><Text weight="medium">{c.label ?? "OAuth app"}</Text><Text size="sm" mono>{c.client_id}</Text><Text tone="muted" size="sm">{c.last_used_at ? `Last used ${ago(c.last_used_at)}` : "No tool calls yet"}</Text></Stack>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={()=>setDisconnecting(c.client_id)}>Disconnect</Button>
+      </Row>)}
+      {!agent.oauth_clients?.length && <Text size="sm" tone="muted">No OAuth apps connected.</Text>}
+    </Stack>}
     <Stack gap={4}>
       <Text tone="muted" size="sm">{(() => {
         const seen = [...agent.tokens.filter(t=>t.last_used_at && !t.revoked_at).map(t=>({label:t.label,last_used_at:t.last_used_at!})),...(agent.oauth_usage ?? [])].sort((a,b)=>b.last_used_at.localeCompare(a.last_used_at));
@@ -68,6 +77,10 @@ export function AgentConnectionCard({ agent, onChanged }: { agent: Settings["age
         <div key={i} className={styles.snippet}><pre className={styles.code} aria-label={part.label}>{part.code}</pre><div className={styles.copy}><CopyButton text={part.code} label={part.label} /></div></div>)}
     </Stack>
   </Stack>
+  {disconnecting !== null && <ConfirmDialog title="Disconnect OAuth app" tone="danger" confirmLabel="Disconnect" onClose={()=>setDisconnecting(null)} onConfirm={async()=>{
+    setBusy(true);setError(null);
+    try{await api.disconnectClient(disconnecting);setDisconnecting(null);onChanged();}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);}
+  }}><Text>This removes its authorization and refresh tokens. Its current access tokens stop working immediately.</Text></ConfirmDialog>}
   {revoking != null && <ConfirmDialog title="Revoke agent token" tone="danger" confirmLabel="Revoke token" onClose={() => setRevoking(null)} onConfirm={revoke}>
     <Text>This client will lose access immediately. Other tokens keep working.</Text>
   </ConfirmDialog>}
