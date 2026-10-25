@@ -290,10 +290,10 @@ their targets and both primary and secondary assignments, tags and card tags,
 the brief's thesis and constraints, and engines with their pieces. It never
 copies memories, ownership evidence, the power target or assessments,
 proposals, playtest state, or any log entry. The new deck is the forker's:
-Theorycrafted, private, with one log entry naming its source. It records the
-parent's id and a snapshot of the parent's owner handle, slug and name, so
-"forked from handle/name" survives the parent going private, being renamed
-or being deleted. Comparison against that parent works while the forker can
+Theorycrafted, private, with one log entry naming its source. It records a
+snapshot of the parent's owner handle, slug and name, so "forked from
+handle/name" survives the parent going private, being renamed or being
+deleted. It does not record the parent's numeric id, which stays its owner's. Comparison against that parent works while the forker can
 still read it; card history never crosses the owner boundary.
 
 ### 5.4 Slots, tags and the maybe list
@@ -1583,9 +1583,12 @@ composite:
 - `price { total_cents, currency, store, unpriced, as_of, source: "Scryfall" }`.
   Until phase 1b lands this is today's single price: `USD` and `tcgplayer`.
 - `decisions` only when `publish_decisions = 1`: the newest 100 log entries
-  that are not hidden, each with its kind, summary, the owner's reason,
-  time and cards. Who acted is `by: "owner" | "agent"`, never an agent's
-  name or handle. Proposal and edit ids are dropped.
+  that are not hidden (an undo of a hidden entry is hidden with it), each
+  with its kind, a summary the app writes from the cards it moved, the
+  owner's reason, time and cards. The stored summary is not used: it is
+  free text that can quote a proposal ("proposed because: …") or an agent.
+  Who acted is `by: "owner" | "agent"`, never an agent's name or handle.
+  Proposal and edit ids are dropped.
 - `computed`: the app's counts, curve, pips and slot deltas, computed as if
   nothing were pending, so pending proposals leave no trace.
 
@@ -1598,9 +1601,13 @@ every viewer and visibility.
 
 `forkDeck(db, actor, source, name)` takes the owner's deck id as before, or
 `{ slug }` for a deck the actor can view. A fork of one's own deck is
-unchanged (§5.3). A cross-owner fork copies what §5.3 lists and records
-`parent_id` plus the snapshot `parent_owner_handle`, `parent_slug` and
-`parent_name` at fork time. The fork's own page and public page say
+unchanged (§5.3). A cross-owner fork copies what §5.3 lists and records the
+snapshot `parent_owner_handle`, `parent_slug` and `parent_name` at fork
+time. *(Choice: the plan says it records the parent's id too. That id is
+the other user's, and it would reach the forker through their account
+export; the slug addresses the parent instead. When the parent's owner
+deletes their account, forks keep the lineage as "deleted_account/a deleted
+deck".)* The fork's own page and public page say
 "forked from handle/name"; the link opens the parent's public page, which
 answers 404 once the parent is private or gone.
 
@@ -1644,8 +1651,9 @@ so a cross-owner parent's rulings never reach the fork.
 In hosted mode, without a session: `GET /api/public/decks/:slug`, its
 `/export`, `GET /api/public/users/:handle`, `/api/search` (without a deck),
 `/api/resolve` and `/api/cards/:id/table` answer under the per-IP
-`unauthenticated` rate bucket (D13). A search naming a deck still needs that
-deck's owner. Every other API stays 401. Forking and comparing need a
+`unauthenticated` rate bucket (D13); anonymous search also counts against
+the `search` bucket per IP (/64 for IPv6), the same 60 a minute a signed-in
+user gets. A search naming a deck still needs that deck's owner. Every other API stays 401. Forking and comparing need a
 session.
 
 ### 18.7 Agents

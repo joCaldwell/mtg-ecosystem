@@ -44,6 +44,25 @@ export interface PublicDecision {
   cards: Array<{ oracle_id: string; card_name: string; action: LogCard["action"]; quantity: number }>;
 }
 
+/** What a published entry says, written by the app from the cards it moved.
+ * The stored summary is free text that can quote a proposal or an agent
+ * (a brief ruling's "proposed because: …", an agent's edit summary), and
+ * proposals are never shown (§18.1); only the owner's own reason is. */
+export function publicSummary(e: Pick<LogEntry, "kind" | "cards" | "document_edit_id">): string {
+  const names = (action: LogCard["action"]) => e.cards.filter(c => c.action === action).map(c => `${c.quantity > 1 ? `${c.quantity}× ` : ""}${c.card_name}`);
+  const [adds, cuts, roles] = [names("add"), names("cut"), names("role")];
+  if (!e.cards.length)
+    return e.document_edit_id != null
+      ? `${e.kind === "reject" ? "Rejected" : "Accepted"} a proposed change to the brief`
+      : e.kind === "undo" ? "Undid an earlier change" : "Changed the deck";
+  const list = (items: string[]) => items.length > 3 ? `${items.slice(0, 3).join(", ")} and ${items.length - 3} more` : items.join(", ");
+  if (e.kind === "reject")
+    return `Rejected ${[adds.length ? `adding ${list(adds)}` : "", cuts.length ? `cutting ${list(cuts)}` : "", roles.length ? `moving ${list(roles)}` : ""].filter(Boolean).join("; ")}`;
+  const lead = e.kind === "accept" ? "Accepted: " : e.kind === "import" ? "Imported a list: " : e.kind === "undo" ? "Undid an earlier change: " : "";
+  return lead + [adds.length ? `added ${list(adds)}` : "", cuts.length ? `cut ${list(cuts)}` : "", roles.length ? `moved ${list(roles)} in the command zone` : ""]
+    .filter(Boolean).join("; ").replace(/^./, c => lead ? c : c.toUpperCase());
+}
+
 /** A deck as anyone its visibility admits may read it. Built field by field
  * from an allow-list; nothing private is copied and then trimmed. */
 export function publicDeckState(db: Database, viewer: Actor | null, slug: string) {
@@ -58,8 +77,10 @@ export function publicDeckState(db: Database, viewer: Actor | null, slug: string
   // Computed as if nothing were pending, so proposals leave no trace.
   const computed = { ...view.computed, pending: { adds: 0, cuts: 0, projected_count: view.computed.card_count, by_slot: {} as Record<number, number> } };
   const ownAssessment = power.history.find(a => a.author_via === "ui" && a.author_user_id === row.user_id) ?? null;
+  // An undo of a hidden entry repeats it, so it is hidden with it.
+  const hidden = new Set((db.prepare("SELECT id FROM log WHERE deck_id = ? AND hidden = 1").all(row.id) as { id: number }[]).map(r => r.id));
   const log = row.publish_decisions
-    ? listLog(db, reader, { deckId: row.id, limit: 200 }).filter(e => !e.hidden).slice(0, 100)
+    ? listLog(db, reader, { deckId: row.id, limit: 200 }).filter(e => !e.hidden && !(e.undo_of != null && hidden.has(e.undo_of))).slice(0, 100)
     : null;
   return {
     deck: {
@@ -94,7 +115,7 @@ export function publicDeckState(db: Database, viewer: Actor | null, slug: string
       source: "Scryfall" as const,
     },
     ...(log ? { decisions: log.map((e): PublicDecision => ({
-      kind: e.kind, summary: e.summary, reason: e.ruling_reason, by: e.author_via === "ui" ? "owner" : "agent", at: e.ts,
+      kind: e.kind, summary: publicSummary(e), reason: e.ruling_reason, by: e.author_via === "ui" ? "owner" : "agent", at: e.ts,
       cards: e.cards.map(c => ({ oracle_id: c.oracle_id, card_name: c.card_name, action: c.action, quantity: c.quantity })),
     })) } : {}),
     computed,

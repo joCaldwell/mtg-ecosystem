@@ -31,8 +31,10 @@ export function forkDeck(db: Database, actor: Actor, source: DeckSource, name: s
     const forkId = createDeck(db, actor, name, foreign ? {} : { parentId: deckId });
     if (foreign) {
       const handle = (db.prepare("SELECT handle FROM users WHERE id = ?").get(parent.user_id) as { handle: string }).handle;
-      db.prepare("UPDATE decks SET parent_id = ?, parent_owner_handle = ?, parent_slug = ?, parent_name = ? WHERE id = ?")
-        .run(deckId, handle, parent.slug, parent.name, forkId);
+      // Lineage by snapshot only: the other user's numeric id is theirs (§18.3)
+      // and never stored where the forker's own reads or export could show it.
+      db.prepare("UPDATE decks SET parent_owner_handle = ?, parent_slug = ?, parent_name = ? WHERE id = ?")
+        .run(handle, parent.slug, parent.name, forkId);
     }
 
     const slotMap = new Map<number, number>();

@@ -93,6 +93,7 @@ export function linkPreview(db: Database, viewer: Actor | null, pathname: string
 
 /** index.html with the preview's tags in place of its own title. */
 export function withPreview(html: string, preview: LinkPreview): string {
-  const head = html.replace(/<title>[^<]*<\/title>/, "");
-  return head.replace("</head>", `  ${preview.head}\n  </head>`);
+  // Replacer functions: a deck named "A$'B" must not be read as a "$'" pattern.
+  const head = html.replace(/<title>[^<]*<\/title>/, () => "");
+  return head.replace("</head>", () => `  ${preview.head}\n  </head>`);
 }

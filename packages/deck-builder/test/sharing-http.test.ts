@@ -88,6 +88,27 @@ test("an unauthenticated request for /d/<slug> gets HTML with the deck's Open Gr
   } finally { await s.close(); }
 });
 
+test("a deck name with replacement patterns ($' $& $`) stays inside its escaped tags", async () => {
+  const s = await served("hosted");
+  try {
+    s.db.prepare("UPDATE decks SET name = ? WHERE id = ?").run("A$'B$&C$`D", s.id);
+    const { slug } = setVisibility(s.db, OWNER, s.id, "public");
+    const html = await (await fetch(`${s.base}/d/${slug}`)).text();
+    assert.equal(meta(html, "og:title"), "A$&#39;B$&amp;C$`D · owner");
+    assert.equal(html.match(/<div id="root">/g)!.length, 1, "the rest of the page is not spliced into the head");
+    assert.match(html, /<title>A\$&#39;B\$&amp;C\$`D · owner<\/title>\n/);
+  } finally { await s.close(); }
+});
+
+test("anonymous search shares the search bucket's limit, per IP", async () => {
+  const s = await served("hosted");
+  try {
+    let last = 200;
+    for (let i = 0; i < 61 && last === 200; i++) last = (await fetch(`${s.base}/api/search?q=t:land`)).status;
+    assert.equal(last, 429, "the 61st anonymous search in a minute is refused, like a signed-in user's");
+  } finally { await s.close(); }
+});
+
 test("/u/<handle> lists public decks only, with profile tags", async () => {
   const s = await served("hosted");
   try {

@@ -312,7 +312,10 @@ test("public-read capabilities: owner, other and anonymous across lifecycle × v
             assert.equal(shared.deck.visibility,visibility);assert.equal(shared.deck.owner.handle,"owner");
             assert.equal(shared.power.target!.notes,"Owner target");assert.equal(shared.power.latest_owner_assessment,null,"an agent's assessment is not the owner's");
             if(published) {
-              assert.ok(shared.decisions!.length>0);assert.ok(!shared.decisions!.some(d=>d.summary==="Hidden entry"),"hidden entries are omitted");
+              assert.ok(shared.decisions!.length>0);
+              // The hidden entry is the only one that touched Llanowar Elves.
+              assert.ok(!shared.decisions!.some(d=>d.cards.some(c=>c.oracle_id==="id-llanowar")||/Llanowar/.test(d.summary)),"hidden entries are omitted");
+              assert.ok(!shared.decisions!.some(d=>d.summary==="Hidden entry"),"summaries are the app's, not stored free text");
               if(t.category==="theorycrafted") assert.ok(shared.decisions!.some(d=>d.by==="agent"),"agent entries say only 'agent'");
             }
             assert.equal(decks.requireViewableDeck(f.db,viewer,slugOf(t)).role,owner?"owner":"viewer");
@@ -343,6 +346,8 @@ test("cross-owner fork by slug copies the list, slots, tags, brief and engines o
       assert.equal(row.user_id,2);assert.equal(row.category,"theorycrafted");assert.equal(row.visibility,"private");
       assert.deepEqual(view.deck.upstream,{owner_handle:"owner",slug:slugOf(parent),name:original.deck.name});
       assert.equal(view.deck.parent,null,"the parent is not one of the forker's decks");
+      assert.equal(row.parent_id,null,"the other user's numeric id is never stored on the fork");
+      assert.ok(!JSON.stringify(exportAccount(f.db,{user_id:2,via:"ui",label:"ui"}).tables.decks).includes(`"parent_id":${parent.id}`),"nor exported");
       assert.deepEqual(view.cards.map(c=>[c.name,c.quantity,c.maybe]).sort(),original.cards.map(c=>[c.name,c.quantity,c.maybe]).sort());
       assert.ok(view.cards.every(c=>c.maybe_note===""));
       assert.deepEqual(view.slots.map(s=>s.name),original.slots.map(s=>s.name));
@@ -366,6 +371,26 @@ test("cross-owner fork by slug copies the list, slots, tags, brief and engines o
     assert.deepEqual(state.publicDeckState(f.db,null,forkSlug).deck.parent,{owner_handle:"owner",slug:slugOf(parent),name:decks.requireDeck(f.db,parent.ui,parent.id).name});
     decks.deleteDeck(f.db,parent.ui,parent.id);
     assert.equal(state.publicDeckState(f.db,null,forkSlug).deck.parent!.owner_handle,"owner","lineage survives the parent's deletion");
+  } finally {f.db.close();}
+});
+
+test("published decisions: an undo of a hidden entry is hidden too, and no summary quotes a proposal or an agent",()=>{
+  const f=fixture();
+  try {
+    const t=f.targets.find(t=>t.ui.user_id===1&&t.category==="theorycrafted")!;
+    share(f.db,t,"public");f.db.prepare("UPDATE decks SET publish_decisions=1 WHERE id=?").run(t.id);
+    const added=membership.applyChanges(f.db,t.ui,t.id,[{action:"add",oracle_id:"id-llanowar"}],{kind:"edit"})!;
+    membership.undo(f.db,t.ui,added);log.hideLogEntry(f.db,t.ui,added,true);
+    // A brief ruling's stored summary embeds the proposal's reason; an agent may name itself in one.
+    const edit=documents.proposeDocumentEdit(f.db,t.ag,t.id,"constraints",{content:"No infinite combos"},"Proposed by test-agent because Secret reason").edit_id!;
+    documents.ruleDocumentEdit(f.db,t.ui,edit,"accept","Owner agrees");
+    membership.applyChanges(f.db,t.ag,t.id,[{action:"add",oracle_id:"id-counterspell"}],{kind:"edit",summary:"test-agent wrote this summary"});
+    const decisions=state.publicDeckState(f.db,null,slugOf(t)).decisions!;
+    assert.ok(!decisions.some(d=>d.cards.some(c=>c.oracle_id==="id-llanowar")),"neither the hidden entry nor its undo");
+    const text=JSON.stringify(decisions);
+    for(const secret of ["Secret reason","test-agent","proposed because"]) assert.ok(!text.includes(secret),secret);
+    assert.ok(decisions.some(d=>d.summary==="Accepted a proposed change to the brief"&&d.reason==="Owner agrees"));
+    assert.ok(decisions.some(d=>d.summary==="Added Counterspell"&&d.by==="agent"));
   } finally {f.db.close();}
 });
 
@@ -546,6 +571,7 @@ test("MCP roster, focus, identity, global memory/FTS, card context and include_m
 
 // The HTTP registry is discovered too: adding a route without a matrix row fails.
 import { createApp } from "../src/app.ts";
+import { exportAccount } from "../src/accounts.ts";
 import type { AddressInfo } from "node:net";
 type HttpCase = { method:string; path:(t:Target,f:Fixture)=>string; kind:Classification; body?:(t:Target)=>unknown; global?:boolean; ownStatus?:number;
   /** Addressed by slug: another signed-in user reaches it while the deck is unlisted or public (§18.3). */
@@ -924,6 +950,7 @@ const globalProbes:Record<string,GlobalProbe>={
   linkPreview:(fn,f,a,t)=>{const p=fn(f.db,a,`/d/${slugOf(t)}`,"https://example.test");assert.equal(p.status,200);assert.equal(fn(f.db,a,`/d/${slugOf(f.targets[0])}`,"https://example.test").status,404);return p;},
   withPreview:fn=>fn("<head><title>x</title></head>",{status:200,head:"<title>Second</title>"}),
   renderPublicDeck:(fn,f,a,t)=>fn(state.publicDeckState(f.db,a,slugOf(t))),
+  publicSummary:fn=>{const s=fn({kind:"accept",document_edit_id:3,cards:[]});assert.equal(s,"Accepted a proposed change to the brief");return s;},
   renderPower:(fn,f,a,t)=>fn(power.getPower(f.db,a,t.id)),stateLines:(fn,f,a,t)=>fn(decks.getDeck(f.db,a,t.id)),
   renderCompare:(fn,f,a,t)=>fn(fork.compareDecks(f.db,a,t.id,f.otherOwn(a,t).id)),
   resolutionFailureLine:fn=>fn({ref:"missing",problem:"unknown",suggestions:[],candidates:[]}),

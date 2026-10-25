@@ -14,7 +14,7 @@ import { consentHtml, consentScript } from "./consent.ts";
 import { createHostedAuth, type HostedAuth } from "./auth.ts";
 import { accountInfo, chooseHandle, createInvite, adminInfo, exportAccount, deleteAccount, connectedClients, disconnectClient } from "./accounts.ts";
 import { createRateLimiter, RateLimitError } from "./ratelimit.ts";
-import { clientIp, securityHeaders } from "./mode.ts";
+import { clientIp, ipBucket, securityHeaders } from "./mode.ts";
 import { allowedRequest, getMode, localActor, publicOrigin, type Mode } from "./mode.ts";
 import { createToken, listTokens, revokeToken } from "./tokens.ts";
 import { listActivity } from "./activity.ts";
@@ -640,8 +640,11 @@ export function createApp(db: Database, opts: AppOptions = {}) {
         await resolveActor(req,mode);
       logging.actor(actor);
       if (mode === "hosted") {
-        if (!actor || url.pathname === "/api/health") rateLimit("unauthenticated",clientIp(req));
-        else {
+        if (!actor || url.pathname === "/api/health") {
+          rateLimit("unauthenticated",clientIp(req));
+          // Anonymous search (§18.6) is as expensive as anyone's: same bucket, per IP (/64 for IPv6).
+          if (url.pathname === "/api/search") rateLimit("search",`anonymous:${ipBucket(clientIp(req))}`);
+        } else {
           rateLimit("ui",String(actor.user_id));
           if (url.pathname === "/api/search") rateLimit("search",String(actor.user_id));
           if (url.pathname.endsWith("/compare")) rateLimit("compare",String(actor.user_id));
