@@ -1182,10 +1182,10 @@ profiles, suggestions, path routing and renames remain later phases.
   address policy, checks every DNS answer, resolves once and pins one
   IPv4-preferred answer, preserving Host/SNI/TLS and refusing redirects.
   There is no fallback to unpinned fetch.
-- Hosted handlers buffer bounded request bodies before reserving the shared
-  connection, so slow uploads cannot block readers. They serialize database work, releasing
-  after MCP dispatch rather than holding the queue for an open network
-  stream. Scheduler failure persistence uses the same database reservation.
+- Hosted handlers buffer bounded bodies before database work. The native
+  auth dialect reserves the connection per query/transaction, and service
+  batches use the same gate. Neither outbound auth I/O nor an open MCP
+  stream holds a reservation. Scheduler failure persistence uses the same database reservation.
   Limits remain single-instance in-memory windows. The local
   handler stays unchanged. The launcher probes public health rather than
   the now-authenticated roster to determine readiness.
@@ -1208,3 +1208,24 @@ Existing runtime validation dependencies also receive compatible security
 patches: Zod's minimum is 4.6.7, and the lockfile selects fast-uri 3.1.9.
 These address the published constrained-collection resource-exhaustion and
 URI-normalization advisories without changing the tool contract.
+
+### 17.7 Owner review security corrections
+
+Consent verifies the provider's signed oauth_query server-side before
+rendering. It prominently identifies the redirect host and complete URI,
+warns about local-app impersonation for loopback callbacks, and identifies
+CIMD clients by their document host. DCR names are self-asserted and labelled
+“Unverified app — its name was chosen by the app itself”. Anonymous DCR is
+limited to loopback HTTP/native-app callbacks; web connectors use CIMD.
+Unsigned/tampered/expired consent queries are refused, not rendered. See
+the MCP 2026-07-28 localhost redirect security considerations.
+
+The shared SQLite reservation now covers each auth query or transaction,
+using the official pinned node:sqlite dialect wrapped at its connection
+acquire/release boundary. Application service batches and job failure writes
+use the same reentrant gate. Auth handlers, CIMD DNS/fetch and provider token
+exchanges run outside it. A stalled anonymous auth request must not delay
+a concurrent authenticated roster read or health request. The public-document
+transport races DNS against the abort signal, limits concurrent fetches to
+four, bounds response bytes and caches successful public documents for
+30 seconds (128 entries). Late DNS answers never open a connection.

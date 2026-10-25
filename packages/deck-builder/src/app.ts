@@ -9,6 +9,7 @@ import { extname, join, resolve, sep } from "node:path";
 import type { Database } from "./sqlite.ts";
 import { type Actor, requireAdmin } from "./actor.ts";
 import { readRequestBody } from "./http-body.ts";
+import { databaseGate } from "./auth-database.ts";
 import { consentHtml, consentScript } from "./consent.ts";
 import { createHostedAuth, type HostedAuth } from "./auth.ts";
 import { accountInfo, chooseHandle, createInvite, adminInfo, exportAccount, deleteAccount } from "./accounts.ts";
@@ -132,7 +133,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     for (const res of listeners.get(userId) ?? []) res.write(`data: ${JSON.stringify(change)}\n\n`);
   };
   const notifyAll = (change: Change) => { for (const id of listeners.keys()) notify(id, change); };
-  const agents = createAgentEndpoint(db, { mode, version: APP_VERSION, onChange: notify, verifyOAuth: auth?.verifyAccessToken, rateLimit });
+  const agents = createAgentEndpoint(db, { mode, version: APP_VERSION, onChange: notify, verifyOAuth: auth?.verifyAccessToken, rateLimit, withDatabase: work => withDatabase(work) });
 
   // Envelope rule: a response carrying a domain composite names it — `state`,
   // `profile`, `memories` — and never spreads it at top level, so one
@@ -533,20 +534,9 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     }catch{throw new ServiceError("JSON body must be a valid object");}
   }
 
-  // Native SQLite has one transaction state on this shared connection.
-  // Serialize hosted handlers so async auth transactions cannot accidentally
-  // contain another request's synchronous domain writes. SSE setup returns
-  // immediately and does not hold the queue for the stream's lifetime.
-  let tail: Promise<void> = Promise.resolve();
-  async function reserveDatabase() {
-    const previous=tail;let release=()=>{};
-    tail=new Promise<void>(resolve=>{release=resolve;});await previous;return release;
-  }
-  async function withDatabase<T>(work:()=>T|Promise<T>):Promise<T> {
-    const release=await reserveDatabase();try{return await work();}finally{release();}
-  }
+  const gate=databaseGate(db);
+  const withDatabase = <T>(work:()=>T|Promise<T>):Promise<T> => mode === "hosted" ? gate.run(work) : Promise.resolve(work());
   const server: Server = createServer(async (req, res) => {
-    let release = () => {};
     securityHeaders(res,mode);
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     const json = (status: number, data: unknown) => {
@@ -558,18 +548,17 @@ export function createApp(db: Database, opts: AppOptions = {}) {
       if(mode === "hosted") {
         if(!allowedRequest(req,mode))return json(403,{error:"Host or Origin is not allowed"});
         await readRequestBody(req);
-        release=await reserveDatabase();
       }
       await auth?.ready;
       if (url.pathname === MCP_PATH || url.pathname.startsWith(`${MCP_PATH}/`))
-        return await agents.handle(req, res, release);
+        return await agents.handle(req, res);
 
       if (!allowedRequest(req, mode)) return json(403, { error: "This app only answers requests from this machine." });
       if (mode === "hosted" && /^\/(api\/(auth|signup)|\.well-known)(\/|$)/.test(url.pathname)) rateLimit("auth",clientIp(req));
       if (mode === "hosted" && req.method === "POST" && url.pathname === "/api/signup") {
         if (!auth) throw new ServiceError("Authentication is not configured",503);
         if (req.headers.origin !== publicOrigin()) throw new ServiceError("Origin is required",403);
-        const body = await readJson(req); auth.signup(req,res,String(body.code ?? "")); return json(200,{ok:true});
+        const body = await readJson(req); await withDatabase(()=>auth.signup(req,res,String(body.code ?? ""))); return json(200,{ok:true});
       }
       if (mode === "hosted" && auth && (url.pathname.startsWith("/api/auth/") || url.pathname.startsWith("/.well-known/"))) {
         if (url.pathname === "/.well-known/oauth-authorization-server") req.url = "/api/auth/.well-known/oauth-authorization-server";
@@ -577,6 +566,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
         // never get a chance to select a different auth origin.
         return await auth.handle(req,res);
       }
+      return await withDatabase(async () => {
       if (req.method === "GET" && url.pathname === "/api/session") {
         const sessionActor = await resolveActor(req,mode);
         const providers = [process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET ? "discord" : null, process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET ? "google" : null].filter(Boolean);
@@ -602,11 +592,11 @@ export function createApp(db: Database, opts: AppOptions = {}) {
 
       if (mode === "hosted" && req.method === "GET" && url.pathname === "/consent") {
         if (!actor) { res.writeHead(302,{Location:`/signin${url.search}`});return void res.end(); }
-        const client = db.prepare('SELECT name FROM oauthClient WHERE clientId=?').get(url.searchParams.get("client_id") ?? "") as {name:string|null}|undefined;
-        if (!client) return json(400,{error:"Unknown OAuth client; start the connection again"});
+        if (!auth) return json(503,{error:"Authentication is not configured"});
+        const client = await auth.consentIdentity(url.search.slice(1));
         const index = join(opts.webDist ?? WEB_DIST,"index.html");
         const css = existsSync(index) ? [...readFileSync(index,"utf8").matchAll(/href="([^" ]+\.css)"/g)].map(m=>m[1]) : [];
-        res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});return void res.end(consentHtml(client.name ?? "OAuth client",css));
+        res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});return void res.end(consentHtml(client,css));
       }
 
       if (req.method === "GET" && url.pathname === "/api/events") {
@@ -640,13 +630,14 @@ export function createApp(db: Database, opts: AppOptions = {}) {
       if (req.method === "GET" && !url.pathname.startsWith("/api/") && serveStatic(url.pathname, res))
         return;
       json(404, { error: `Not found: ${req.method} ${url.pathname}` });
+      });
     } catch (e: any) {
       if (res.headersSent) return void res.end();
       if (e instanceof RateLimitError) res.setHeader("Retry-After",String(e.retryAfter));
       if (e instanceof AppError) return json(e.status, { error: e.message });
       console.error(e);
       json(500, { error: "Internal error" });
-    } finally { release(); }
+    }
   });
 
   return {

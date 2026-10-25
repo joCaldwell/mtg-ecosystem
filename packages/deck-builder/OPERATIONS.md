@@ -322,3 +322,23 @@ shared database connection. Incomplete bodies time out after 10 seconds;
 slow uploads do not hold up other users’ reads. Open MCP subscriptions release
 the reservation after dispatch. Scheduler failure writes queue behind auth
 transactions on this connection; refresh/backup workers keep separate connections.
+
+## OAuth review hardening
+
+Web connectors use CIMD; anonymous DCR accepts only loopback HTTP or native
+custom-scheme callbacks. Claude.ai publishes its client document at
+https://claude.ai/oauth/mcp-oauth-client-metadata (redirect
+https://claude.ai/api/mcp/auth_callback); ChatGPT publishes
+https://chatgpt.com/oauth/client.json (redirect
+https://chatgpt.com/connector_platform_oauth_redirect). Both documents were
+verified directly from their hosts. ChatGPT's documented CIMD flow is at
+https://developers.openai.com/plugins/build/auth#oauth-flow. Choose CIMD in
+the connector setup; no HTTPS DCR redirect allowlist is needed. Consent shows
+the identity and redirect hosts, plus an unverified-name notice for DCR and
+local-app impersonation warning for loopback callbacks.
+
+The DB reservation is taken by the pinned native Kysely dialect per query
+or transaction. Never wrap the auth handler or outbound DNS/provider fetches
+in it. The public metadata fetcher has four slots, a five-second deadline
+including DNS waiting, a 64 KiB body cap and 30-second/128-entry public cache.
+Concurrent UI reads remain available during slow CIMD/provider requests.

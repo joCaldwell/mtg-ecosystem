@@ -9,6 +9,8 @@ import { authConfiguration, configureAuth } from "./auth-config.ts";
 import { withTransaction } from "./db.ts";
 import { ServiceError } from "./errors.ts";
 import { readRequestBody } from "./http-body.ts";
+import { consentIdentity } from "./oauth-policy.ts";
+import { fetchClientMetadata } from "./cimd-transport.ts";
 import { publicOrigin } from "./mode.ts";
 
 const digest = (s: string) => createHash("sha256").update(s).digest();
@@ -56,10 +58,10 @@ export function provisionIdentity(db: Database, identity: { id: string; name: st
   });
 }
 
-export function createHostedAuth(db: Database, env = process.env) {
+export function createHostedAuth(db: Database, env = process.env, metadataFetch = fetchClientMetadata) {
   const origin = publicOrigin(env);
   if (!env.BETTER_AUTH_SECRET || env.BETTER_AUTH_SECRET.length < 32) throw new Error("Hosted mode requires BETTER_AUTH_SECRET (at least 32 characters)");
-  const options = authConfiguration(db, origin, env);
+  const options = authConfiguration(db, origin, env, metadataFetch);
   if (!Object.keys(options.socialProviders ?? {}).length) throw new Error("Hosted mode requires a configured Discord or Google provider");
   // v1.7.13 concepts/database.mdx: social creation runs in the native
   // adapter's transaction. Principal/invite writes BEFORE auth insertion
@@ -88,6 +90,7 @@ export function createHostedAuth(db: Database, env = process.env) {
   } });
   return {
     auth, origin, ready,
+    consentIdentity: (query:string) => consentIdentity(db,query,env.BETTER_AUTH_SECRET!),
     async resolveUiActor(req: IncomingMessage): Promise<Actor | null> {
       const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
       if (!session) return null;

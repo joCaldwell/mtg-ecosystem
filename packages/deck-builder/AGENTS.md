@@ -65,7 +65,8 @@ provider and RFC 9728 metadata; `@better-auth/cimd@1.7.13` for client
 document registration; `@better-auth/oauth-provider@1.7.13` to pin the MCP
 plugin’s provider peer to the documented version; `@better-auth/core@1.7.13`
 for the canonical public-address policy used by the DNS-pinned CIMD
-transport; `jose@6.2.3` for JWKS JWT verification. The existing personal
+transport; `@better-auth/kysely-adapter@1.7.13` and `kysely@0.29.7`
+for the official native dialect with query/transaction-scoped reservations; `jose@6.2.3` for JWKS JWT verification. The existing personal
 tokens satisfy D7, so do not install the api-key plugin. No native deps.
 The auth CLI is an offline schema-generation tool, not a runtime dependency. Prefer the platform and the existing set otherwise.
 
@@ -297,8 +298,9 @@ or test against the owner's live data.
 Better Auth schema comes from `npx auth@1.7.13 generate`, committed in
 `src/migrations/auth-v12.sql` and executed by v12 in our migration transaction.
 Never run its migrate command or runtime auto-migration. Native SQLite is
-shared with the capability layer; hosted request handlers are serialized so
-an async library transaction cannot contain another request's writes.
+shared with the capability layer. Its official native dialect reserves the
+connection per SQL query/transaction; service batches use the same reentrant
+gate. Never hold that gate around an auth HTTP handler or outbound I/O.
 
 Account lifecycle derives selectors from sqlite_master and grouped composite
 foreign keys. Unknown tables fail closed unless explicitly global or linked

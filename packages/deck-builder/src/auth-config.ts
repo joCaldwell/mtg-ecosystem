@@ -2,15 +2,18 @@
 // and adapters/sqlite.mdx. The native driver shares our connection; schema is
 // generated offline and applied ONLY by db.ts, never by Better Auth at runtime.
 import { betterAuth, type BetterAuthOptions } from "better-auth";
+import { createAuthMiddleware, APIError } from "better-auth/api";
+import { authDialect } from "./auth-database.ts";
+import { nativeRedirect } from "./oauth-policy.ts";
 import { jwt } from "better-auth/plugins";
 import { mcp } from "@better-auth/mcp";
 import { cimd } from "@better-auth/cimd";
 import { fetchClientMetadata } from "./cimd-transport.ts";
 import type { Database } from "./sqlite.ts";
 
-export function authConfiguration(db: Database, origin: string, env = process.env): BetterAuthOptions {
+export function authConfiguration(db: Database, origin: string, env = process.env, metadataFetch = fetchClientMetadata): BetterAuthOptions {
   return {
-    database: db,
+    database: { dialect: authDialect(db), type: "sqlite", transaction: true },
     baseURL: `${origin}/api/auth`,
     secret: env.BETTER_AUTH_SECRET,
     trustedOrigins: [origin],
@@ -36,6 +39,15 @@ export function authConfiguration(db: Database, origin: string, env = process.en
       ipAddress: { ipAddressHeaders: [] },
     },
     logger: { disabled: true }, // never log provider responses or credentials
+    hooks: { before: createAuthMiddleware(async ctx => {
+      // DCR names are self-asserted. Web clients must prove domain identity
+      // with CIMD; DCR remains only for loopback/native CLI compatibility.
+      const params=ctx.method === "GET" ? ctx.query : ctx.body;
+      if(ctx.path === "/oauth2/authorize" && typeof params?.client_id === "string" && !params.client_id.startsWith("https://") && !nativeRedirect(String(params.redirect_uri ?? "")))
+        throw new APIError("BAD_REQUEST",{error:"invalid_client_metadata",error_description:"Unverified web clients must use CIMD."});
+      if (ctx.path === "/oauth2/register" && (!Array.isArray(ctx.body?.redirect_uris) || !ctx.body.redirect_uris.length || !ctx.body.redirect_uris.every((uri:unknown) => typeof uri === "string" && nativeRedirect(uri))))
+        throw new APIError("BAD_REQUEST", { error: "invalid_client_metadata", error_description: "DCR permits only loopback HTTP or native-app redirects. Web clients must use CIMD." });
+    }) },
     rateLimit: { enabled: false }, // app-owned, single-instance limits in ratelimit.ts
     plugins: [jwt(), mcp({
       resource: `${origin}/mcp`, loginPage: "/signin", consentPage: "/consent",
@@ -46,7 +58,7 @@ export function authConfiguration(db: Database, origin: string, env = process.en
       clientRegistrationRequirePKCE: true,
       refreshTokenReuseInterval: 0,
       clientPrivileges: async () => false,
-    }), cimd({ fetchClientMetadataResource: fetchClientMetadata, metadataProfile: "mcp-2026-07-28" })],
+    }), cimd({ fetchClientMetadataResource: metadataFetch, metadataProfile: "mcp-2026-07-28" })],
   };
 }
 // Retain inference for the application, while the schema CLI reads the same configuration.

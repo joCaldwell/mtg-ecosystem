@@ -42,6 +42,7 @@ export interface AgentEndpointOptions {
   version: string;
   verifyOAuth?: (token: string) => Promise<Actor | null>;
   rateLimit?: ReturnType<typeof createRateLimiter>;
+  withDatabase?: <T>(work:()=>T|Promise<T>)=>Promise<T>;
   /** Called after any tool wrote something, so the UI can refresh. */
   onChange?: (userId: number, change: { kind: string; deck_id?: number }) => void;
 }
@@ -131,7 +132,7 @@ export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
     { onerror: (e) => console.error("[mcp]", e.message) },
   );
 
-  async function handle(req: IncomingMessage, res: ServerResponse, dispatched?: () => void): Promise<void> {
+  async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (!allowedRequest(req, mode)) return respond(res, 403, "Host or Origin is not allowed");
     const url = new URL(req.url ?? "/", mode === "hosted" ? publicOrigin() : "http://127.0.0.1");
     const headers = new Headers();
@@ -155,6 +156,7 @@ export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
     // if present, must be too.
     if (!allowedRequest(req, mode)) return respond(res, 403, "Host or Origin is not allowed");
 
+    const dispatch = async () => {
     const auth = req.headers.authorization ?? "";
     const presented = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
     const authenticated = verifyToken(db, presented) ?? (mode === "hosted" && presented ? await opts.verifyOAuth?.(presented) : null);
@@ -190,10 +192,10 @@ export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
       authInfo: { token: presented, clientId: name, scopes: [], extra: { actor } },
       parsedBody: parsed,
     });
-    // Tool services are synchronous and complete during dispatch. An open
-    // protocol stream must not hold SQLite's reservation for its lifetime.
-    dispatched?.();
-    return send(res, response);
+    return response;
+    };
+    const response = await (opts.withDatabase ? opts.withDatabase(dispatch) : dispatch());
+    if (response) return send(res, response);
   }
 
   return { handle, close: () => handler.close?.() };
