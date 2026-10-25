@@ -47,3 +47,28 @@ Archive SHA-256:
 `d705222b280a71cb5a5362f657d530b22402ca51687bac3227c1d6db403d0282`;
 parser revision `327b3360ea8e5cffb75b136223e75a348e903cbe`.
 Raw baseline: `generated/cards-as-data-coverage/d2a/00-baseline/` (ignored).
+
+## D2a intake measurements
+
+Each output directory contains the full TSV and JSON at that stage. Deltas
+are sequential and count newly lowered **and validated** legal records.
+
+| Stage | Lowered | Change | Percent |
+| --- | ---: | ---: | ---: |
+| Baseline (`00-baseline`) | 1,719 | — | 5.35247% |
+| Source normalization (`01-normalization`) | 1,719 | +0 | 5.35247% |
+
+The source adapter now uses case-sensitive Unicode word boundaries, punctuation
+canonicalization, full and source-established legendary short names in all
+clauses, guarded source pronouns, balanced reminder removal, and complete
+modal/dice blocks. Explicit literal-name quotation is canonicalized on both
+sides without dropping any name or surrounding text. The resulting comparison
+is exact. AST hashes, source hashes, line/aggregate equality and unknown-field
+checks remain mandatory for every successful compilation.
+
+Unknown ASTs are rejected before normalization: unsupported station blocks and
+self-replacement paragraphs do not become false source-integrity failures.
+This changes the first reported boundary, not successful admission. The 2,229
+original source-line mismatches and 227 orphan modal-header failures now reach
+Unsupported reasons. Legal Invalid falls from 3,222 to 767. There is no coverage
+increase because those records still require unsupported semantics.

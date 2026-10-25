@@ -619,6 +619,7 @@ name = "mtg-compiler"
 version = "0.1.0"
 dependencies = [
  "mtg-contracts",
+ "regex",
  "serde",
  "serde_json",
  "sha2",

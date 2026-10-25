@@ -9,7 +9,9 @@ pub mod fixtures {
 }
 pub mod catalog;
 pub mod coverage;
+mod normalization;
 pub use catalog::*;
+use normalization::source_lines;
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
@@ -633,86 +635,6 @@ fn mana_cost(text: &str) -> Result<ManaCost, Failure> {
     Ok(cost)
 }
 
-fn source_lines(text: &str, name: &str) -> Result<Vec<String>, Failure> {
-    // Only the first subset's ASCII text/reminder normalization is consumed.
-    // This checks source block association; it does not interpret rule bodies.
-    // CR 207.2a, same pinned rules URL as the parser's normalize.ts.
-    if text
-        .chars()
-        .any(|c| !c.is_ascii() && !matches!(c, '—' | '•'))
-    {
-        return Err(unsupported(
-            "source.oracle_text",
-            "normalization outside the first source adapter subset",
-        ));
-    }
-    let mut normalized = String::new();
-    let mut depth = 0_u32;
-    for c in text.chars() {
-        match c {
-            '(' => {
-                depth = depth
-                    .checked_add(1)
-                    .ok_or_else(|| invalid("source.oracle_text", "parenthesis depth limit"))?;
-                if depth == 1 {
-                    normalized.push(' ');
-                }
-            }
-            ')' if depth > 0 => depth -= 1,
-            ')' => return Err(invalid("source.oracle_text", "unbalanced reminder text")),
-            '\n' => normalized.push('\n'),
-            c if depth == 0 => normalized.push(c),
-            _ => {}
-        }
-    }
-    if depth != 0 {
-        return Err(invalid("source.oracle_text", "unbalanced reminder text"));
-    }
-    let lines: Vec<String> = normalized
-        .lines()
-        .map(|line| {
-            let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
-            // The pinned archive also normalizes a complete self-name at the
-            // start of a subsequent sentence (Smash to Smithereens; CR 201.5).
-            let line = line.replace(&format!(". {name} "), ". ~ ");
-            // The reviewed archive normalizes a complete source name at the
-            // start of a block to ~ (CR 201.5). Keep ASCII word boundaries;
-            // literal-name and legendary-short-name grammar is not interpreted.
-            let (prefix, body) = line
-                .strip_prefix("• ")
-                .map_or(("", line.as_str()), |body| ("• ", body));
-            match body.strip_prefix(name) {
-                Some(rest)
-                    if rest
-                        .chars()
-                        .next()
-                        .is_some_and(|c| !c.is_ascii_alphanumeric() && c != '_') =>
-                {
-                    format!("{prefix}~{rest}")
-                }
-                _ => line,
-            }
-        })
-        .filter(|line| !line.is_empty())
-        .collect();
-    // The parser groups a complete choose/bullet source block into one line
-    // entry. Preserve its newlines and account for every bullet, never discard
-    // unknown alternatives. CR700.2: selection semantics are bound from AST.
-    let mut blocks: Vec<String> = vec![];
-    for line in lines {
-        if line.starts_with("• ") {
-            let Some(previous) = blocks.last_mut().filter(|b| b.starts_with("Choose ")) else {
-                return Err(invalid("lines", "orphan modal source option"));
-            };
-            previous.push('\n');
-            previous.push_str(&line);
-        } else {
-            blocks.push(line);
-        }
-    }
-    Ok(blocks)
-}
-
 pub fn compile(manifest: &str, record: &str) -> CompileResult {
     match lower(manifest, record) {
         Ok(definition) => CompileResult::Lowered {
@@ -769,18 +691,6 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     if !result.ok || result.name != source.name || result.lines.iter().any(|l| !l.ok) {
         return Err(invalid("faces[0].result", "incomplete or mismatched parse"));
     }
-    if source_lines(&source.oracle_text, &source.name)?
-        != result
-            .lines
-            .iter()
-            .map(|l| l.text.clone())
-            .collect::<Vec<_>>()
-    {
-        return Err(invalid(
-            "lines",
-            "source contains unaccounted or mismatched normalized blocks",
-        ));
-    }
     let ast_sha256 = r
         .ast_sha256
         .ok_or_else(|| invalid("astSha256", "missing successful AST hash"))?;
@@ -789,6 +699,21 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }
     let abilities: Vec<Ability> =
         strict_read(result.abilities.get()).map_err(|e| unsupported("abilities", e))?;
+    // Only understood whole-card ASTs reach source normalization. Unsupported
+    // nodes are rejected first; every candidate for admission still proves the
+    // exact complete normalized source and line/aggregate mirror below.
+    if source_lines(&source.oracle_text, &source.name, &source.type_line)?
+        != result
+            .lines
+            .iter()
+            .map(|l| normalization::literal_spelling(&l.text))
+            .collect::<Vec<_>>()
+    {
+        return Err(invalid(
+            "lines",
+            "source contains unaccounted or mismatched normalized blocks",
+        ));
+    }
     if result.lines.len() != abilities.len() {
         return Err(invalid("lines", "unaccounted ability block"));
     }
@@ -2971,6 +2896,50 @@ fn lower_activation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn source_normalization_accounts_for_every_clause_and_literal_name() {
+        assert_eq!(source_lines("When Aether Bear enters, put a counter on Aether Bear. Aether Bear's power is 2.\n(Outer (nested) reminder) Flying", "Aether Bear", "Creature").unwrap(), ["When ~ enters, put a counter on ~. ~'s power is 2.", "Flying"]);
+        assert_eq!(
+            source_lines(
+                "When Ada enters, Ada, the Wise draws a card.",
+                "Ada, the Wise",
+                "Legendary Creature"
+            )
+            .unwrap(),
+            ["When ~ enters, ~ draws a card."]
+        );
+        assert_eq!(
+            source_lines("Fearsome fear Fear’s power is 1.", "Fear", "Creature").unwrap(),
+            ["Fearsome fear ~'s power is 1."]
+        );
+        assert_eq!(
+            source_lines(
+                "Search for cards named Squadron Hawk.",
+                "Squadron Hawk",
+                "Creature"
+            )
+            .unwrap(),
+            ["Search for cards named Squadron Hawk."]
+        );
+        assert_eq!(
+            source_lines(
+                "When Ada enters, target Ada planeswalker gains loyalty.",
+                "Ada, the Wise",
+                "Legendary Creature"
+            )
+            .unwrap(),
+            ["When ~ enters, target Ada planeswalker gains loyalty."]
+        );
+        assert!(source_lines("Flying (unclosed", "Bear", "Creature").is_err());
+        // The expected line is still byte-exact after normalization.
+        let raw = changed_record(3, |r| {
+            r["faces"][0]["result"]["lines"][0]["text"] = "When ~ enters, draw two cards.".into();
+        });
+        assert!(
+            matches!(compile(fixtures::MANIFEST, &raw), CompileResult::Invalid { path, .. } if path == "lines")
+        );
+    }
+
     #[test]
     fn wipes_v20_complete_source_pairs_and_historical_bytes() {
         let c = embedded_catalog("wipes").unwrap();
