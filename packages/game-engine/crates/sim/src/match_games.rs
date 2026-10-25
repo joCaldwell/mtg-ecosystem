@@ -1852,7 +1852,17 @@ fn replay_live_reader(
         )
     }
 }
-pub(super) fn replay_live(catalog: &Catalog, path: &Path) -> Result<serde_json::Value, String> {
+pub(super) fn replay_live(
+    catalog: &Catalog,
+    profile: &str,
+    path: &Path,
+) -> Result<serde_json::Value, String> {
+    let decoded = decode_live(std::io::BufReader::new(
+        fs::File::open(path).map_err(|e| e.to_string())?,
+    ))?;
+    if decoded.header.config.profile != profile {
+        return Err("replay profile mismatch".into());
+    }
     let file = fs::File::open(path).map_err(|e| e.to_string())?;
     replay_live_reader(catalog, std::io::BufReader::new(file))
 }
@@ -1864,7 +1874,7 @@ mod admission_and_host_tests {
 
     #[test]
     fn optional_effect_policy_identifies_only_the_top_arsonist_trigger() {
-        let catalog = mtg_compiler::sacrifice_fixture_catalog().unwrap();
+        let catalog = mtg_compiler::catalog::embedded_catalog("sacrifice").unwrap();
         let (_, _, _, mut game) = initial();
         game.advance(Budget::unlimited());
         let mut o = observe(&game, PlayerId(0), u64::MAX, &mut 0, &mut 0).unwrap();
@@ -1973,7 +1983,7 @@ mod admission_and_host_tests {
     }
 
     fn initial() -> (Catalog, MatchConfig, Prepared, Game) {
-        let catalog = mtg_compiler::match_fixture_catalog().unwrap();
+        let catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
         let config =
             MatchConfig::for_profile("commander-foundations-v1", [31; 32], PlayerId(0)).unwrap();
         let prepared = Prepared::admit_pod(catalog.clone(), config.clone()).unwrap();

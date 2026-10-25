@@ -471,7 +471,7 @@ mod tests {
 
     #[test]
     fn retained_commander_evidence_rejects_missing_or_changed_witnesses() {
-        let catalog = commander_fixture_catalog().unwrap();
+        let catalog = mtg_compiler::catalog::embedded_catalog("commander").unwrap();
         let (evidence, _, _) = suite(&catalog, false).unwrap();
         verify(&catalog, &evidence).unwrap();
         let original = serde_json::to_value(&evidence).unwrap();

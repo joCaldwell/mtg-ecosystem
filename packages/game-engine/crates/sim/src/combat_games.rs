@@ -599,7 +599,7 @@ mod tests {
     #[test]
     fn policy_budget_exhaustion_is_not_a_rules_outcome() {
         let (game, result, checkpoints) = run(
-            fixture_catalog().unwrap(),
+            mtg_compiler::catalog::embedded_catalog("base").unwrap(),
             Policy::Integrated,
             TraceMode::Off,
             1,
@@ -613,7 +613,7 @@ mod tests {
         assert!(checkpoints.is_empty());
         assert!(
             run(
-                fixture_catalog().unwrap(),
+                mtg_compiler::catalog::embedded_catalog("base").unwrap(),
                 Policy::Integrated,
                 TraceMode::Off,
                 0,
@@ -626,7 +626,11 @@ mod tests {
 
     #[test]
     fn frozen_policies_finish_real_games_and_distinct_interactions() {
-        let (_, games, report) = suite(&fixture_catalog().unwrap(), false).unwrap();
+        let (_, games, report) = suite(
+            &mtg_compiler::catalog::embedded_catalog("base").unwrap(),
+            false,
+        )
+        .unwrap();
         assert_eq!(games.len(), 4);
         assert_eq!(
             report[0]["result"],

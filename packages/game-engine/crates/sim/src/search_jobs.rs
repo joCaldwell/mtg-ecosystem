@@ -1700,7 +1700,7 @@ mod tests {
     }
     #[test]
     fn search_job_reference_verifier_binds_sampler_worklist_and_diagnostic_scope() {
-        let catalog = mtg_compiler::match_fixture_catalog().unwrap();
+        let catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
         let root = super::super::search_roots::prepare(&catalog, 0).unwrap();
         let capture = super::super::search_roots::capture(&root.game, root.case.viewer).unwrap();
         let mut report = stopped_report();

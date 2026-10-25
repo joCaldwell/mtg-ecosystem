@@ -156,7 +156,7 @@ mod tests {
     use super::*;
     #[test]
     fn tokens_without_oracle_ids_do_not_disable_casts_or_sacrifice_draws() {
-        let catalog = mtg_compiler::mana_fixture_catalog().unwrap();
+        let catalog = mtg_compiler::catalog::embedded_catalog("mana").unwrap();
         let player = PlayerId(0);
         let card = |name: &str, zone: Zone| {
             let d = catalog.definitions.iter().find(|d| d.name == name).unwrap();

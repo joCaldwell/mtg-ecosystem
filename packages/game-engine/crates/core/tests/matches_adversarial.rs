@@ -248,10 +248,11 @@ fn oversize_underflow_unknown_and_incompatible_cards_fail_before_physical_alloca
 #[test]
 fn current_known_ban_classification_precedes_generic_unsupported_pool_errors() {
     let cat = catalog();
-    let policy: Value = serde_json::from_str(include_str!(
-        "../../../tests/fixtures/commander-banned-2026-10-15.json"
-    ))
-    .unwrap();
+    let profile = mtg_core::match_profile(&config().profile).unwrap();
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/profiles")
+        .join(&profile.commander_policy.banned_list);
+    let policy: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     let ban = &policy["named_bans"].as_array().unwrap()[0];
     let id = ban["oracle_id"].as_str().unwrap();
     let mut c = config();

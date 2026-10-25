@@ -252,7 +252,7 @@ mod tests {
     use super::*;
     #[test]
     fn reactive_policy_uses_opposing_cost_and_power_and_respects_payment() {
-        let c = mtg_compiler::four_colors_fixture_catalog().unwrap();
+        let c = mtg_compiler::catalog::embedded_catalog("four-colors").unwrap();
         let player = PlayerId(0);
         let card = |name: &str, owner: u8, zone: Zone| {
             let d = c.definitions.iter().find(|d| d.name == name).unwrap();

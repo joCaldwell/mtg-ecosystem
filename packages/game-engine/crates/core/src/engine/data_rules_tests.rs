@@ -97,3 +97,112 @@ fn profile_data_is_strict_and_every_default_pod_is_admitted() {
         assert!(strict_read::<MatchProfile>(&raw.to_string()).is_err());
     }
 }
+
+#[test]
+fn feature_requests_reject_unreviewed_mechanics_and_ignore_profile_names() {
+    let wipes = match_profile("commander-wipes-v1").unwrap();
+    for (flag, feature) in [("search", Feature::Search), ("hosted", Feature::Hosting)] {
+        let mut raw = serde_json::to_value(wipes).unwrap();
+        raw[flag] = true.into();
+        raw["name"] = "unreviewed-probe".into();
+        let err = MatchProfile::load(
+            &raw.to_string(),
+            &canonical(wipes.catalog()).unwrap(),
+            &wipes.banned_list_raw,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, ProfileError::UnreviewedCapabilities { feature: f, ref capabilities }
+            if f == feature && capabilities.contains(&Capability::BoardWipesV1)),
+            "{err:?}"
+        );
+    }
+    for p in MATCH_PROFILES.iter() {
+        p.validate_requested_features(p.catalog()).unwrap();
+        if p.search || p.hosted {
+            let mut raw = serde_json::to_value(p).unwrap();
+            raw["name"] = "renamed-reviewed-probe".into();
+            MatchProfile::load(
+                &raw.to_string(),
+                &canonical(p.catalog()).unwrap(),
+                &p.banned_list_raw,
+            )
+            .unwrap();
+        }
+    }
+}
+
+#[test]
+fn build_profile_loader_rejects_malformed_data_and_out_of_range_layouts() {
+    let p = &MATCH_PROFILES[0];
+    for (field, value) in [
+        (
+            "completion",
+            serde_json::json!({"rotate": true, "homogeneous_seats": [0, 4]}),
+        ),
+        ("search", serde_json::json!("yes")),
+        ("decks", serde_json::json!([])),
+        ("unexpected", serde_json::json!(true)),
+    ] {
+        let mut raw = serde_json::to_value(p).unwrap();
+        raw[field] = value;
+        assert!(matches!(
+            MatchProfile::load(
+                &raw.to_string(),
+                &canonical(p.catalog()).unwrap(),
+                &p.banned_list_raw
+            ),
+            Err(ProfileError::InvalidProfile { .. })
+        ));
+    }
+}
+
+#[test]
+fn generic_simultaneous_trigger_bound_fits_shared_stack_policy() {
+    for p in MATCH_PROFILES.iter() {
+        let c = p.catalog();
+        // Nonbasic sources are singleton per seat. Basic lands and generated
+        // token definitions have no triggers in this IR vocabulary.
+        assert!(
+            c.definitions
+                .iter()
+                .filter(|d| d.characteristics.basic)
+                .all(|d| d.triggered.is_empty())
+        );
+        let sources = 4 * c
+            .definitions
+            .iter()
+            .map(|d| d.triggered.len())
+            .sum::<usize>();
+        let simultaneous_creatures = 400 + capacities::TOKEN_CAPACITY as usize;
+        // Leave over half the ceiling for existing stack entries, enters
+        // triggers and terminal token-generation/death waves.
+        assert!(
+            simultaneous_creatures * sources < capacities::STACK_LIMIT / 2,
+            "{}: {sources} trigger sources",
+            p.name
+        );
+    }
+}
+
+#[test]
+fn dated_policy_selection_binds_the_selected_file_and_its_metadata() {
+    let p = &MATCH_PROFILES[0];
+    let mut raw = serde_json::to_value(p).unwrap();
+    raw["commander_policy"]["banned_list"] = "../commander-banned-synthetic-test.json".into();
+    let mut list: serde_json::Value = strict_read(&p.banned_list_raw).unwrap();
+    // Synthetic metadata and a subset of authentic records exercise selection,
+    // without asserting a future real-world banned list.
+    list["retrieved_date"] = "synthetic-test".into();
+    let removed = list["named_bans"].as_array_mut().unwrap().remove(0);
+    let id = removed["oracle_id"].as_str().unwrap();
+    assert!(p.banned_commander_card(id).is_some());
+    let selected = MatchProfile::load(
+        &raw.to_string(),
+        &canonical(p.catalog()).unwrap(),
+        &list.to_string(),
+    )
+    .unwrap();
+    assert!(selected.banned_commander_card(id).is_none());
+    assert_ne!(selected.policy_digest(), p.policy_digest());
+}

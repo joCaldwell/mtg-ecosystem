@@ -60,15 +60,18 @@ impl Game {
                 "not a fresh active precombat empty-window root",
             ));
         }
-        // P5 constructors admit no control-changing, bounce, library rearranging,
-        // recursion or copy mechanics. This exact catalog/profile gate is part
-        // of the historical public-to-hidden information proof below.
+        // Search grants require the reviewed IR capability set. A data flag
+        // alone cannot extend the hidden-information reconstruction proof.
         if self
             .prepared
             .match_config
             .as_ref()
             .and_then(|c| match_profile(&c.profile))
-            .is_none_or(|p| !p.search || p.catalog_sha256 != self.prepared.catalog_digest)
+            .is_none_or(|p| {
+                p.require_feature(&self.prepared.catalog, Feature::Search)
+                    .is_err()
+                    || p.catalog_sha256 != self.prepared.catalog_digest
+            })
             || self.state.objects.values().any(|o| {
                 o.marked_damage != Quantity::zero()
                     || self
@@ -148,7 +151,8 @@ impl Game {
                             engine_build_id: BUILD_ID.into(),
                             catalog_digest: self.prepared.catalog_digest.clone(),
                             rules_digest: RULES_SHA256.into(),
-                            commander_policy_digest: policy_digest(),
+                            commander_policy_digest: policy_digest(&config.profile)
+                                .map_err(invariant)?,
                             match_profile: config.profile.clone(),
                             decks: config.decks.clone(),
                             starting_player: config.starting_player,

@@ -938,14 +938,10 @@ fn reviewed_staples_resource_bounds_live_capacity_and_deck_counts() {
         );
     }
     assert_eq!((most_creatures, most_new_tokens), (28, 9));
-    assert_eq!(staples::CREATURES, 4 * most_creatures + 256);
-    assert_eq!(staples::DAMAGE_BOUND, 736);
-    assert_eq!(
-        staples::STACK_BOUND,
-        400 + 4 + 8 * (4 * most_creatures + 256 + 4 * most_new_tokens) + 4 * most_creatures + 4
+    assert!(
+        2 * (4 * most_creatures + capacities::TOKEN_CAPACITY as usize) < capacities::DAMAGE_LIMIT
     );
-    assert_eq!(staples::STACK_BOUND, 3752);
-    assert_eq!(staples::EVENT_GROUP_BOUND, 660);
+    assert!(400 + capacities::TOKEN_CAPACITY as usize + 4 < capacities::EVENT_GROUP_LIMIT);
     let config = MatchConfig::for_profile("commander-staples-v1", [0; 32], PlayerId(0)).unwrap();
     assert!(
         config

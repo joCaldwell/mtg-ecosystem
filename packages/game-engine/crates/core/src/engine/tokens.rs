@@ -7,24 +7,6 @@ use mtg_contracts::{CounterRecipient, CreatureToken};
 // Generic live-object cap. Physical token identities are never reused,
 // including after a token ceases; history is retained independently.
 pub const TOKEN_CAPACITY: u32 = capacities::TOKEN_CAPACITY;
-// Historical tokens-slice arithmetic, test-only; it never selects runtime limits.
-// That release had at most 27 creature cards per deck.
-// Every trigger source is singleton per seat. Within a nonempty-stack episode
-// creatures enter/die at most once; commander recasts require an empty stack.
-#[cfg(test)]
-pub(super) const CREATURE_CARD_BOUND: usize = 4 * 27;
-#[cfg(test)]
-pub(super) const CREATURE_BOUND: usize = CREATURE_CARD_BOUND + 64;
-#[cfg(test)]
-pub(super) const DAMAGE_BOUND: usize = 2 * CREATURE_BOUND;
-// Reserve all 400 physical spells, 4 tap activations, C*4 Artist deaths,
-// C*4 Warden entries, 108 self-enters and 4 Bouncer self-dies triggers.
-// This deliberately overcounts mutually exclusive white/BG deck allocations.
-#[cfg(test)]
-pub(super) const STACK_BOUND: usize = 400 + 4 + CREATURE_BOUND * 8 + CREATURE_CARD_BOUND + 4;
-// All physical cards, allocated tokens and simultaneous player losses.
-#[cfg(test)]
-pub(super) const EVENT_GROUP_BOUND: usize = 400 + 64 + 4;
 const TOKEN_ID_START: u32 = 1 << 31;
 pub(super) fn quantity_is_zero(n: &Quantity) -> bool {
     *n == Quantity::zero()

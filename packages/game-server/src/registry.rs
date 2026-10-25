@@ -253,10 +253,9 @@ fn validate_credentials(credentials: &CredentialHashes, id: &str) -> Result<(), 
 /// Hosting admission is selected by profile data; catalog/config integrity is
 /// still enforced by Prepared::admit_pod before any durable state is written.
 fn hosted_profile(config: &MatchConfig) -> Result<(), String> {
-    if mtg_core::match_profile(&config.profile).is_none_or(|p| !p.hosted) {
-        return Err("registry hosts only profiles with hosted: true".into());
-    }
-    Ok(())
+    let p = mtg_core::match_profile(&config.profile).ok_or("unknown hosting profile")?;
+    p.require_feature(p.catalog(), mtg_core::Feature::Hosting)
+        .map_err(|e| e.to_string())
 }
 fn validate_metadata(
     metadata: &RegistryMetadata,
@@ -274,7 +273,7 @@ fn validate_metadata(
         || metadata.catalog_sha256 != digest(catalog)?
         || metadata.config_sha256 != digest(config)?
         || metadata.rules_sha256 != catalog.rules_sha256
-        || metadata.commander_policy_sha256 != mtg_core::policy_digest()
+        || metadata.commander_policy_sha256 != mtg_core::policy_digest(&config.profile)?
         || metadata.profile_sha256 != prepared.profile_digest()
     {
         return Err("registry engine/catalog/config identity mismatch".into());
@@ -556,7 +555,7 @@ impl MatchRegistry {
             catalog_sha256: digest(catalog)?,
             config_sha256: digest(config)?,
             rules_sha256: catalog.rules_sha256.clone(),
-            commander_policy_sha256: mtg_core::policy_digest(),
+            commander_policy_sha256: mtg_core::policy_digest(&config.profile)?,
             profile_sha256: prepared.profile_digest().into(),
         };
         let (credentials, issued) = CredentialHashes::issue(id)?;

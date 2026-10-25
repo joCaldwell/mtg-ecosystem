@@ -728,7 +728,7 @@ mod tests {
     use super::*;
     #[test]
     fn retained_action_coverage_binds_policies_configs_and_initial_roots() {
-        let catalog = mtg_compiler::action_fixture_catalog().unwrap();
+        let catalog = mtg_compiler::catalog::embedded_catalog("action").unwrap();
         let (evidence, _, _) = suite(&catalog, false).unwrap();
         let original = serde_json::to_value(&evidence).unwrap();
         for mutation in 0..4 {

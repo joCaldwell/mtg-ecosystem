@@ -4,81 +4,10 @@ use super::*;
 use std::fmt;
 include!(concat!(env!("OUT_DIR"), "/catalog_sizes.rs"));
 
-/// Data is discovered and embedded at build time; core performs no filesystem I/O.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CommanderPolicy {
-    pub color_identity: ColorIdentityPolicy,
-    pub eligibility: CommanderEligibility,
-    pub banned_list: String,
-}
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ColorIdentityPolicy {
-    CommanderSubset,
-}
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CommanderEligibility {
-    LegendaryCreature,
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CompletionLayout {
-    pub rotate: bool,
-    pub homogeneous_seats: [usize; 2],
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct MatchProfile {
-    pub name: String,
-    pub catalog_manifest: String,
-    pub decks: [Decklist; 4],
-    pub commanders: Vec<String>,
-    pub commander_policy: CommanderPolicy,
-    pub hosted: bool,
-    pub search: bool,
-    pub completion: CompletionLayout,
-    #[serde(skip)]
-    pub catalog_sha256: String,
-    #[serde(skip)]
-    pub ir_version: u32,
-    #[serde(skip)]
-    pub catalog: Option<Catalog>,
-}
-impl MatchProfile {
-    fn load(raw: &str, catalog_raw: &str) -> Self {
-        let mut profile: Self = strict_read(raw).expect("profile data");
-        let catalog = Catalog::read(catalog_raw).expect("profile catalog");
-        profile.catalog_sha256 = digest(&catalog).expect("catalog digest");
-        profile.ir_version = catalog.schema_version;
-        assert!(
-            profile.completion.homogeneous_seats.iter().all(|i| *i < 4),
-            "completion deck index"
-        );
-        profile.catalog = Some(catalog);
-        profile
-    }
-    pub fn catalog(&self) -> &Catalog {
-        self.catalog.as_ref().expect("loaded catalog")
-    }
-}
+pub use crate::profile_data::*;
 include!(concat!(env!("OUT_DIR"), "/match_profiles.rs"));
 pub fn match_profile(name: &str) -> Option<&'static MatchProfile> {
     MATCH_PROFILES.iter().find(|p| p.name == name)
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct DeckEntry {
-    pub oracle_id: String,
-    pub count: u32,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct Decklist {
-    /// This physical designation is included in the hundred cards below.
-    pub commander: String,
-    pub cards: Vec<DeckEntry>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -177,13 +106,17 @@ impl ValidatedPod {
             &p.name,
             &p.catalog_sha256,
             p,
-            policy_digest(),
+            p.policy_digest(),
             &self.match_config,
         ))
     }
 }
-fn known_ban(player: PlayerId, id: &str) -> Result<(), MatchAdmissionError> {
-    if let Some(name) = super::commander_policy::banned_commander_card(id) {
+fn known_ban(
+    profile: &MatchProfile,
+    player: PlayerId,
+    id: &str,
+) -> Result<(), MatchAdmissionError> {
+    if let Some(name) = profile.banned_commander_card(id) {
         return Err(MatchAdmissionError::BannedCard {
             player,
             oracle_id: id.into(),
@@ -260,7 +193,7 @@ pub fn validate_pod(
     let mut normalized = config.clone();
     for (seat, deck) in config.decks.iter().enumerate() {
         let player = PlayerId(seat as u8);
-        known_ban(player, &deck.commander)?;
+        known_ban(profile, player, &deck.commander)?;
         if !profile.commanders.contains(&deck.commander) {
             // A different rule-eligible commander (including some legendary
             // Vehicles under903.3) is unsupported here, not universally illegal.
@@ -306,7 +239,7 @@ pub fn validate_pod(
             if total > 100 {
                 return Err(MatchAdmissionError::InvalidDeckSize { player, total });
             }
-            known_ban(player, &row.oracle_id)?;
+            known_ban(profile, player, &row.oracle_id)?;
             let count = counts.entry(row.oracle_id.clone()).or_default();
             *count = count
                 .checked_add(row.count)
@@ -629,7 +562,7 @@ mod tests {
         let input =
             MatchConfig::for_profile("commander-foundations-v1", [1; 32], PlayerId(0)).unwrap();
         let policy: serde_json::Value =
-            serde_json::from_str(super::super::commander_policy::COMMANDER_POLICY_JSON).unwrap();
+            serde_json::from_str(&match_profile(&input.profile).unwrap().banned_list_raw).unwrap();
         let named = policy["named_bans"].as_array().unwrap();
         let offensive = policy["offensive_policy"]["records"].as_array().unwrap();
         for ban in named.iter().chain(offensive) {

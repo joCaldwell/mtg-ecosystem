@@ -431,7 +431,7 @@ fn public_seed(root: usize) -> [u8; 32] {
 }
 
 fn fixture(root: usize) -> (Catalog, SearchCapture) {
-    let catalog = mtg_compiler::match_fixture_catalog().unwrap();
+    let catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
     let root = super::super::search_roots::prepare(&catalog, root).unwrap();
     let capture = super::super::search_roots::capture(&root.game, root.case.viewer).unwrap();
     drop(root);
@@ -651,7 +651,7 @@ fn fixed_work_generic_sampled_rollout_matches_original_production_loop() {
 
 #[test]
 fn fixed_work_real_reference_preserves_actual_origin_and_single_world_identity() {
-    let catalog = mtg_compiler::match_fixture_catalog().unwrap();
+    let catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
     let fixture = super::super::search_roots::prepare(&catalog, 0).unwrap();
     let capture = super::super::search_roots::capture(&fixture.game, fixture.case.viewer).unwrap();
     let work = freeze(&catalog, &capture, public_seed(0), MINIMUM_WORLDS).unwrap();

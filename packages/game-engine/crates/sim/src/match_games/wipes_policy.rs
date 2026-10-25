@@ -460,7 +460,7 @@ mod tests {
     }
     #[test]
     fn wipes_counter_policy_orders_announced_x_mana_value() {
-        let c = mtg_compiler::wipes_fixture_catalog().unwrap();
+        let c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
         let mut v = view(&c);
         for (name, x, mv) in [
             ("Earthquake", Some(3.into()), Some(4.into())),
@@ -505,7 +505,7 @@ mod tests {
     }
     #[test]
     fn wipes_policy_thresholds_and_smallest_safe_earthquake_x() {
-        let c = mtg_compiler::wipes_fixture_catalog().unwrap();
+        let c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
         let mut v = view(&c);
         v.players
             .iter_mut()

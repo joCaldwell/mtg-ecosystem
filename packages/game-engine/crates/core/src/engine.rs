@@ -20,9 +20,7 @@ mod state_digest;
 pub use advance_report::*;
 pub use match_admission::*;
 mod commander_policy;
-pub use commander_policy::{
-    COMMANDER_POLICY_DATE, COMMANDER_POLICY_HTML_SHA256, COMMANDER_POLICY_URL, policy_digest,
-};
+pub use commander_policy::policy_digest;
 mod removal;
 #[cfg(test)]
 mod removal_tests;

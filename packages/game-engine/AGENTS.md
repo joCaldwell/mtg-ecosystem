@@ -9,7 +9,10 @@ manifest references, decks, commander policy, hosting/search flags and completio
 layout. See `docs/game-engine-profiles.md`. Foundations and attachments are hosted;
 only foundations is search-enabled. `match-batch PROFILE OUTPUT` and
 `match-replay PROFILE FILE` replace per-profile CLI selectors. The capacity policy
-now uses measured practical ceilings and bounds retained token identities.
+now uses measured shared ceilings and bounds retained token identities.
+Feature requests must fit the explicit reviewed capability sets; catalog integrity
+and the selected dated banned-list digest remain bound independently.
+`catalog build MANIFEST [--write]` replaces all per-catalog compile commands.
 Card-specific Develop heuristics remain D1c work.
 
 

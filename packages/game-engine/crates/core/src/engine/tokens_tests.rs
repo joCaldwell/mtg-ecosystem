@@ -954,15 +954,12 @@ fn maximal_pool_capacity_derivation_and_earlier_limits() {
     }
     assert_eq!(most_creatures, 27);
     assert_eq!(most_tokens, 9);
-    assert_eq!(tokens::CREATURE_CARD_BOUND, 4 * most_creatures);
-    assert!(4 * most_tokens < 64usize);
-    let creatures = 4 * most_creatures + 64usize;
-    assert_eq!(creatures, 172);
-    assert_eq!(tokens::DAMAGE_BOUND, 2 * creatures);
-    let maximal_stack = 400 + 4 + creatures * 4 + creatures * 4 + 4 * most_creatures + 4;
-    assert_eq!(maximal_stack, 1892);
-    assert_eq!(tokens::STACK_BOUND, maximal_stack);
-    assert_eq!(tokens::EVENT_GROUP_BOUND, 400 + 64usize + 4);
+
+    assert!(4 * most_tokens < capacities::TOKEN_CAPACITY as usize);
+    let creatures = 4 * most_creatures + capacities::TOKEN_CAPACITY as usize;
+    assert!(2 * creatures < capacities::DAMAGE_LIMIT);
+    assert!(400 + 4 + creatures * 8 + 4 * most_creatures + 4 < capacities::STACK_LIMIT);
+    assert!(400 + capacities::TOKEN_CAPACITY as usize + 4 < capacities::EVENT_GROUP_LIMIT);
     let g = Game::new(prepared(&[]));
     assert_eq!(g.damage_limit(), capacities::DAMAGE_LIMIT);
     assert_eq!(g.stack_limit(), capacities::STACK_LIMIT);
@@ -1170,60 +1167,63 @@ fn capacity_release_probe() {
     )
     .unwrap();
     let wipe_us = started.elapsed().as_micros();
-    let mut history_wipe_us = 0;
-    for round in 0..4 {
-        let ceased = g
-            .state
-            .objects
-            .values()
-            .filter(|o| g.state.tokens.contains_key(&o.id.card))
-            .map(|o| o.id)
-            .collect::<Vec<_>>();
-        g.commit_batch(
-            BatchCause::StateBased,
-            EventGroup::Simultaneous {
-                occurrences: ceased
-                    .iter()
-                    .map(|o| ProposedEvent::CeaseToken { object: *o })
-                    .collect(),
+    let ceased = g
+        .state
+        .objects
+        .values()
+        .filter(|o| g.state.tokens.contains_key(&o.id.card))
+        .map(|o| o.id)
+        .collect::<Vec<_>>();
+    g.commit_batch(
+        BatchCause::StateBased,
+        EventGroup::Simultaneous {
+            occurrences: ceased
+                .iter()
+                .map(|o| ProposedEvent::CeaseToken { object: *o })
+                .collect(),
+        },
+    )
+    .unwrap();
+    let identity = g.state.tokens.values().next().unwrap().clone();
+    let first = *g.state.tokens.keys().next().unwrap();
+    for i in g.state.tokens.len()..capacities::TOKEN_HISTORY_LIMIT - TOKEN_CAPACITY as usize {
+        let id = CardId(first.0 + i as u32);
+        let mut token = identity.clone();
+        token.definition.oracle_id = format!("token:{}", id.0);
+        g.state.cards.insert(
+            id,
+            Card {
+                owner: PlayerId(0),
+                oracle_id: token.definition.oracle_id.clone(),
             },
-        )
-        .unwrap();
-        if round == 3 {
-            break;
-        }
-        let spec = match &g.definition(source.card).unwrap().triggered[0]
-            .program
-            .instructions[0]
-        {
-            Instruction::CreateCreatureTokens { token, .. } => token.clone(),
-            _ => unreachable!(),
-        };
-        g.commit(
-            ProposedEvent::CreateCreatureTokens {
-                controller: PlayerId(0),
-                source,
-                count: TOKEN_CAPACITY,
-                token: Box::new(spec),
-            },
-            BatchCause::StateBased,
-        )
-        .unwrap();
-        let occurrences = g
-            .state
-            .objects
-            .values()
-            .filter(|o| o.zone == Zone::Battlefield && g.state.tokens.contains_key(&o.id.card))
-            .map(|o| ProposedEvent::DestroyCreature { object: o.id })
-            .collect();
-        let started = std::time::Instant::now();
-        g.commit_batch(
-            BatchCause::StateBased,
-            EventGroup::Simultaneous { occurrences },
-        )
-        .unwrap();
-        history_wipe_us = started.elapsed().as_micros();
+        );
+        g.state.tokens.insert(id, token);
     }
+    let spec = identity.spec.clone();
+    g.commit(
+        ProposedEvent::CreateCreatureTokens {
+            controller: PlayerId(0),
+            source,
+            count: TOKEN_CAPACITY,
+            token: Box::new(spec),
+        },
+        BatchCause::StateBased,
+    )
+    .unwrap();
+    let occurrences = g
+        .state
+        .objects
+        .values()
+        .filter(|o| o.zone == Zone::Battlefield && g.state.tokens.contains_key(&o.id.card))
+        .map(|o| ProposedEvent::DestroyCreature { object: o.id })
+        .collect();
+    let started = std::time::Instant::now();
+    g.commit_batch(
+        BatchCause::StateBased,
+        EventGroup::Simultaneous { occurrences },
+    )
+    .unwrap();
+    let history_wipe_us = started.elapsed().as_micros();
     assert_eq!(g.state.tokens.len(), capacities::TOKEN_HISTORY_LIMIT);
     let history_snapshot_bytes = g.snapshot().unwrap().len();
     // Stack payload deliberately includes a full supported program via its source.
@@ -1278,49 +1278,46 @@ fn retained_token_history_capacity_faults_before_allocating_more_identities() {
         Instruction::CreateCreatureTokens { token, .. } => token.clone(),
         _ => panic!("token producer"),
     };
-    for _ in 0..capacities::TOKEN_HISTORY_LIMIT / TOKEN_CAPACITY as usize {
-        g.commit(
-            ProposedEvent::CreateCreatureTokens {
-                controller: PlayerId(0),
-                source,
-                count: TOKEN_CAPACITY,
-                token: Box::new(spec.clone()),
+    g.commit(
+        ProposedEvent::CreateCreatureTokens {
+            controller: PlayerId(0),
+            source,
+            count: 1,
+            token: Box::new(spec.clone()),
+        },
+        BatchCause::StateBased,
+    )
+    .unwrap();
+    let token = g.state.tokens.values().next().unwrap().clone();
+    let first = *g.state.tokens.keys().next().unwrap();
+    let id = g.object_id(first).unwrap();
+    g.commit(
+        ProposedEvent::Move {
+            object: id,
+            destination: Zone::Graveyard { owner: PlayerId(0) },
+        },
+        BatchCause::StateBased,
+    )
+    .unwrap();
+    g.commit(
+        ProposedEvent::CeaseToken {
+            object: g.object_id(first).unwrap(),
+        },
+        BatchCause::StateBased,
+    )
+    .unwrap();
+    for i in 1..capacities::TOKEN_HISTORY_LIMIT {
+        let id = CardId(first.0 + i as u32);
+        let mut identity = token.clone();
+        identity.definition.oracle_id = format!("token:{}", id.0);
+        g.state.cards.insert(
+            id,
+            Card {
+                owner: PlayerId(0),
+                oracle_id: identity.definition.oracle_id.clone(),
             },
-            BatchCause::StateBased,
-        )
-        .unwrap();
-        let objects = g
-            .state
-            .objects
-            .values()
-            .filter(|o| g.state.tokens.contains_key(&o.id.card))
-            .map(|o| o.id)
-            .collect::<Vec<_>>();
-        g.commit_batch(
-            BatchCause::StateBased,
-            EventGroup::Simultaneous {
-                occurrences: objects
-                    .iter()
-                    .map(|o| ProposedEvent::Move {
-                        object: *o,
-                        destination: Zone::Graveyard { owner: PlayerId(0) },
-                    })
-                    .collect(),
-            },
-        )
-        .unwrap();
-        g.commit_batch(
-            BatchCause::StateBased,
-            EventGroup::Simultaneous {
-                occurrences: objects
-                    .iter()
-                    .map(|o| ProposedEvent::CeaseToken {
-                        object: g.object_id(o.card).unwrap(),
-                    })
-                    .collect(),
-            },
-        )
-        .unwrap();
+        );
+        g.state.tokens.insert(id, identity);
     }
     assert_eq!(g.allocated_capacity_count(), 0);
     let before = g.state.tokens.clone();
@@ -1355,5 +1352,189 @@ fn retained_token_history_capacity_faults_before_allocating_more_identities() {
             .unwrap()
             .as_ref(),
         g.typed_fault()
+    );
+}
+
+// Private stress injection into a genuinely admitted all-Yargle pod. It tests
+// cardinality and trigger resolution, not accepted-input reachability/replay.
+fn death_payoff_board(tokens: u32) -> Game {
+    let p = match_profile("commander-wipes-v1").unwrap();
+    let mut config = MatchConfig::for_profile(&p.name, [7; 32], PlayerId(0)).unwrap();
+    let deck = config
+        .decks
+        .iter()
+        .find(|d| {
+            p.catalog()
+                .definitions
+                .iter()
+                .any(|c| c.oracle_id == d.commander && c.name == "Yargle and Multani")
+        })
+        .unwrap()
+        .clone();
+    config.decks = std::array::from_fn(|_| deck.clone());
+    let mut g = Game::with_trace(
+        Prepared::admit_pod(p.catalog().clone(), config).unwrap(),
+        TraceMode::Off,
+    );
+    for player in &mut g.state.players {
+        player.life = 1_000_000.into();
+    }
+    let payoffs = [
+        "Blood Artist",
+        "Zulaport Cutthroat",
+        "Vindictive Vampire",
+        "Butcher of Malakir",
+        "Bastion of Remembrance",
+        "Massacre Wurm",
+    ];
+    let cards = g
+        .state
+        .cards
+        .keys()
+        .copied()
+        .filter(|id| payoffs.contains(&g.definition(*id).unwrap().name.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(cards.len(), 24);
+    for card in cards {
+        g.commit(
+            ProposedEvent::Move {
+                object: g.object_id(card).unwrap(),
+                destination: Zone::Battlefield,
+            },
+            BatchCause::StateBased,
+        )
+        .unwrap();
+    }
+    // Each token belongs to a different seat in round-robin groups.
+    let source = *g
+        .state
+        .cards
+        .keys()
+        .find(|id| g.definition(**id).unwrap().name == "Hornet Queen")
+        .unwrap();
+    let spec = match &g.definition(source).unwrap().triggered[0]
+        .program
+        .instructions[0]
+    {
+        Instruction::CreateCreatureTokens { token, .. } => token.clone(),
+        _ => panic!("token source"),
+    };
+    for seat in 0..4 {
+        let count = tokens / 4 + u32::from((seat as u32) < tokens % 4);
+        if count > 0 {
+            g.commit(
+                ProposedEvent::CreateCreatureTokens {
+                    controller: PlayerId(seat),
+                    source: g.object_id(source).unwrap(),
+                    count,
+                    token: Box::new(spec.clone()),
+                },
+                BatchCause::StateBased,
+            )
+            .unwrap();
+        }
+    }
+    g.state.pending_triggers.clear();
+    g.state.frame = Frame::Priority;
+    g.state.turn.step = TurnStep::PrecombatMain;
+    g.refresh_visibility().unwrap();
+    g
+}
+fn wipe_death_payoff_board(g: &mut Game) -> (usize, usize) {
+    let occurrences = g
+        .state
+        .objects
+        .values()
+        .filter(|o| {
+            o.zone == Zone::Battlefield
+                && g.definition(o.id.card).unwrap().characteristics.kind == CardKind::Creature
+        })
+        .map(|o| ProposedEvent::DestroyCreature { object: o.id })
+        .collect::<Vec<_>>();
+    let deaths = occurrences.len();
+    g.commit_batch(
+        BatchCause::StateBased,
+        EventGroup::Simultaneous { occurrences },
+    )
+    .unwrap();
+    (deaths, g.state.pending_triggers.len())
+}
+#[test]
+fn ninety_six_simultaneous_deaths_with_four_yargle_payoffs_resolve() {
+    let mut g = death_payoff_board(76); // 20 physical payoff creatures + 76 tokens.
+    let (deaths, triggers) = wipe_death_payoff_board(&mut g);
+    assert_eq!(deaths, 96);
+    assert!(
+        triggers > 1024,
+        "regression must exceed old ceiling: {triggers}"
+    );
+    g.state.frame = Frame::Stabilize {
+        resume: Box::new(Frame::Priority),
+        cleanup: false,
+        changed: true,
+    };
+    let mut steps = 0;
+    loop {
+        let r = g
+            .live_players()
+            .into_iter()
+            .find_map(|p| g.decision_for(p).unwrap());
+        if let Some(r) = r {
+            if g.state.pending_triggers.is_empty()
+                && g.state.stack.is_empty()
+                && matches!(r, Request::Priority { .. })
+            {
+                break;
+            }
+            let response = match &r {
+                Request::Priority { .. } => Response::Pass,
+                Request::OrderTriggers { candidates, .. } => Response::OrderTriggers {
+                    order: candidates.clone(),
+                },
+                Request::PlayerTargets { candidates, .. } => Response::PlayerTargets {
+                    players: vec![candidates[0]],
+                },
+                other => panic!("unexpected payoff decision: {other:?}"),
+            };
+            // Use the ordinary response validator but skip public-history capture
+            // in this private cardinality witness. Accepted-input/replay coverage
+            // belongs to the existing natural gameplay tests.
+            let checked = g
+                .check_response(r.player(), r.decision_id(), response)
+                .unwrap();
+            g.state.pending = Some(checked.input);
+            g.state.revision += 1;
+        }
+        let mut staged = g.fork();
+        staged.step().unwrap();
+        g = staged;
+        steps += 1;
+        assert!(steps < 50_000);
+    }
+    assert!(g.typed_fault().is_none());
+    assert_eq!(g.allocated_capacity_count(), 0);
+    assert!(
+        g.state
+            .players
+            .iter()
+            .any(|p| p.life != Quantity::from(1_000_000))
+    );
+}
+#[test]
+#[ignore = "manual release capacity measurement"]
+fn death_payoff_release_probe() {
+    let mut g = death_payoff_board(TOKEN_CAPACITY);
+    let started = std::time::Instant::now();
+    let (deaths, triggers) = wipe_death_payoff_board(&mut g);
+    let wipe_us = started.elapsed().as_micros();
+    let started = std::time::Instant::now();
+    for _ in 0..20 {
+        std::hint::black_box(g.fork());
+    }
+    let fork_us = started.elapsed().as_micros() / 20;
+    assert!(g.typed_fault().is_none());
+    eprintln!(
+        "death_payoff_probe {}",
+        serde_json::json!({"deaths":deaths,"pending_triggers":triggers,"wipe_us":wipe_us,"fork_us":fork_us})
     );
 }

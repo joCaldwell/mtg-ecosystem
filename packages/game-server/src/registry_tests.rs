@@ -95,7 +95,7 @@ fn private_bound_capacity_lock_and_restart() {
     assert_eq!(record.metadata.config_sha256, digest(&config()).unwrap());
     assert_eq!(
         record.metadata.commander_policy_sha256,
-        mtg_core::policy_digest()
+        mtg_core::policy_digest("commander-foundations-v1").unwrap()
     );
     assert_eq!(record.worker_directory, r.worker_path("a1").unwrap());
     let keys = keys(&a.out("a1"));
@@ -448,7 +448,13 @@ fn registry_hosts_exactly_the_profiles_flagged_in_data() {
             let Err(error) = result else {
                 panic!("unexpected hosted profile")
             };
-            assert!(error.contains("registry hosts only"), "{error}");
+            assert!(error.contains("FeatureNotRequested"), "{error}");
+            assert!(matches!(
+                profile.require_feature(&catalog, mtg_core::Feature::Hosting),
+                Err(mtg_core::ProfileError::FeatureNotRequested {
+                    feature: mtg_core::Feature::Hosting
+                })
+            ));
             assert!(!area.out("cafe").exists());
         }
     }

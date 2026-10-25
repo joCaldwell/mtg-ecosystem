@@ -1,6 +1,7 @@
 # Local Rust hosting and generated clients
 
-D1b-3 hosting admission reads each profile's `hosted` flag. The current hosted
+D1b-3 hosting admission treats each profile's `hosted` flag as a request,
+validated against the explicit reviewed IR capability set at build time and admission. The current hosted
 profiles remain foundations and attachments. Registry tests iterate the data
 registry and its embedded catalogs; adding an unhosted profile needs no server
 selector or test-table edit. See `docs/game-engine-profiles.md`.

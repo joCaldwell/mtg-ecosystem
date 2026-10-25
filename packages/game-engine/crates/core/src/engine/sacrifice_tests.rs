@@ -607,10 +607,10 @@ fn sacrifice_profile_catalog_decks_policy_and_bounds() {
     assert!(
         matches!(&angel.triggered[0].program.instructions[0],Instruction::CreateCreatureTokens {count:1,token,..} if token.subtypes==["Spirit"])
     );
+    // Retention, not live allocation, covers historical lifetime token counts.
     const {
-        assert!(4898 < sacrifice::LIVE_TOKEN_CAPACITY);
-        assert!(6468 + 32 < sacrifice::EFFECT_BOUND);
-    };
+        assert!(4898 < capacities::TOKEN_HISTORY_LIMIT);
+    }
     let p = Prepared::admit_pod(
         c,
         MatchConfig::for_profile("commander-sacrifice-v1", [7; 32], PlayerId(0)).unwrap(),

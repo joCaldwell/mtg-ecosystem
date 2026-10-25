@@ -245,7 +245,7 @@ mod tests {
         use mtg_core::*;
         let hex = sha256(format!("p7-independent-capture/{index}").as_bytes());
         let seed = std::array::from_fn(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap());
-        let catalog = mtg_compiler::match_fixture_catalog().unwrap();
+        let catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
         let prepared = Prepared::admit_pod(
             catalog,
             MatchConfig::for_profile("commander-foundations-v1", seed, PlayerId(0)).unwrap(),
@@ -332,7 +332,7 @@ mod tests {
             }
         }
         assert_eq!(digest, relabeled.assignment_digest().unwrap());
-        let catalog = mtg_compiler::match_fixture_catalog().unwrap();
+        let catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
         let build = |capture: &SearchCapture, proposal| {
             let mut outcome =
                 SampledGame::build(catalog.clone(), capture, proposal, Budget::new(1024));

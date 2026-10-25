@@ -122,7 +122,7 @@ fn execute(
 
 #[test]
 fn first_eight_worlds_all_candidates_are_exact_across_worker_schedules() {
-    let catalog = mtg_compiler::match_fixture_catalog().unwrap();
+    let catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
     let fixture = super::super::search_roots::prepare(&catalog, 0).unwrap();
     let capture = super::super::search_roots::capture(&fixture.game, fixture.case.viewer).unwrap();
     drop(fixture);

@@ -1,3 +1,6 @@
+#[path = "src/profile_data.rs"]
+#[allow(dead_code)]
+mod profile_data;
 use sha2::{Digest, Sha256};
 use std::{
     env, fs,
@@ -85,9 +88,23 @@ fn main() {
     // Profile files select catalogs, decks and admission policy. Generated code
     // contains data only and is excluded from the engine code identity.
     let fixtures = data.parent().unwrap();
-    let banned_path = fixtures.join("commander-banned-2026-10-15.json");
-    let banned: serde_json::Value =
-        serde_json::from_slice(&fs::read(&banned_path).unwrap()).unwrap();
+    let mut banned_files = std::collections::BTreeMap::new();
+    for entry in fs::read_dir(fixtures).unwrap() {
+        let path = entry.unwrap().path();
+        if path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("commander-banned-")
+            && path.extension().is_some_and(|e| e == "json")
+        {
+            banned_files.insert(
+                fs::canonicalize(&path).unwrap(),
+                fs::read_to_string(path).unwrap(),
+            );
+        }
+    }
+    let mut names = std::collections::BTreeSet::new();
     let mut paths = fs::read_dir(fixtures.join("profiles"))
         .unwrap()
         .map(|e| e.unwrap().path())
@@ -99,11 +116,15 @@ fn main() {
     );
     for path in paths {
         let raw = fs::read_to_string(&path).unwrap();
-        let profile: serde_json::Value = serde_json::from_str(&raw).unwrap();
-        let manifest_path = path
-            .parent()
-            .unwrap()
-            .join(profile["catalog_manifest"].as_str().unwrap());
+        let profile: profile_data::MatchProfile = mtg_contracts::strict_read(&raw)
+            .unwrap_or_else(|e| panic!("invalid profile {}: {e}", path.display()));
+        assert!(
+            names.insert(profile.name.clone()),
+            "duplicate profile name {:?} in {}",
+            profile.name,
+            path.display()
+        );
+        let manifest_path = path.parent().unwrap().join(&profile.catalog_manifest);
         let manifest: serde_json::Value =
             serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
         let catalog_raw = fs::read_to_string(
@@ -131,16 +152,22 @@ fn main() {
             .trim(),
             "manifest catalog digest"
         );
-        assert_eq!(
-            fs::canonicalize(
-                path.parent()
-                    .unwrap()
-                    .join(profile["commander_policy"]["banned_list"].as_str().unwrap())
+        let banned_path = fs::canonicalize(
+            path.parent()
+                .unwrap()
+                .join(&profile.commander_policy.banned_list),
+        )
+        .unwrap_or_else(|e| panic!("banned list for {}: {e}", path.display()));
+        let banned_raw = banned_files.get(&banned_path).unwrap_or_else(|| {
+            panic!(
+                "profile {} selects a file outside the banned-list data: {}",
+                path.display(),
+                banned_path.display()
             )
-            .unwrap(),
-            fs::canonicalize(&banned_path).unwrap(),
-            "one shared banned list"
-        );
+        });
+        let validated = profile_data::MatchProfile::load(&raw, &catalog_raw, banned_raw)
+            .unwrap_or_else(|e| panic!("invalid profile {}: {e}", path.display()));
+        let banned: serde_json::Value = serde_json::from_str(banned_raw).unwrap();
         // Derive the old pool review from each authentic archive source record.
         for record in manifest["records"].as_array().unwrap() {
             let card: serde_json::Value = serde_json::from_slice(
@@ -183,9 +210,20 @@ fn main() {
                 "banned card: {id}"
             );
         }
-        generated += &format!("MatchProfile::load({raw:?}, {catalog_raw:?}),\n");
+        // Same typed loader and exact bytes were validated above. Runtime errors
+        // are unreachable without a build-script defect; no user I/O is parsed.
+        assert_eq!(validated.catalog_sha256, catalog_hash);
+        let banned_index = banned_files.keys().position(|p| p == &banned_path).unwrap();
+        generated += &format!(
+            "MatchProfile::load({raw:?}, {catalog_raw:?}, BANNED_LISTS[{banned_index}]).expect(\"build-validated profile\"),\n"
+        );
     }
-    generated += "]; profiles.sort_by_key(|p| p.ir_version); let mut names = std::collections::BTreeSet::new(); for p in &profiles { assert!(names.insert(&p.name), \"duplicate profile\"); } profiles });\n";
+    generated += "]; profiles.sort_by_key(|p| p.ir_version); profiles });\n";
+    generated += "pub(crate) const BANNED_LISTS: &[&str] = &[\n";
+    for raw in banned_files.values() {
+        generated += &format!("{raw:?},\n");
+    }
+    generated += "];\n";
     fs::write(
         PathBuf::from(env::var("OUT_DIR").unwrap()).join("match_profiles.rs"),
         generated,
