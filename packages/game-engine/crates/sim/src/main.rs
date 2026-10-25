@@ -38,7 +38,7 @@ mod search_sampler;
 mod stack_costs_games;
 mod triggers_games;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SourceFile {
     path: String,
@@ -1245,10 +1245,15 @@ fn verify_native_source_bytes(
         if sha256(file.contents.as_bytes()) != file.sha256 {
             return Err("retained source hash mismatch".into());
         }
-        source_bytes.extend_from_slice(file.path.as_bytes());
-        source_bytes.push(0);
-        source_bytes.extend_from_slice(file.contents.as_bytes());
-        source_bytes.push(0);
+        // Validate every retained file hash above, while code identity is
+        // independent of card data and hosting sources. Their artifact/catalog
+        // hashes remain part of the separately verified evidence.
+        if mtg_contracts::engine_build_input(&file.path) {
+            source_bytes.extend_from_slice(file.path.as_bytes());
+            source_bytes.push(0);
+            source_bytes.extend_from_slice(file.contents.as_bytes());
+            source_bytes.push(0);
+        }
     }
     for (index, value) in metadata.iter().enumerate() {
         if index > 0 {
@@ -1527,10 +1532,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some("build") if args.len() == 3 || (args.len() == 4 && args[3] == "--write") => {
                     mtg_compiler::generate_catalog(Path::new(&args[2]), args.len() == 4)?
                 }
+                Some("verify") if args.len() == 4 => {
+                    mtg_compiler::verify_archive(Path::new(&args[2]), Path::new(&args[3]))?
+                }
                 Some("extract") if args.len() >= 5 => {
                     mtg_compiler::extract_records(Path::new(&args[2]), Path::new(&args[3]), &args[4..])?
                 }
-                _ => return Err("usage: catalog build MANIFEST [--write] | catalog extract ARCHIVE PROVENANCE EXACT_NAME_OR_ORACLE_ID...".into()),
+                _ => return Err("usage: catalog build MANIFEST [--write] | catalog extract ARCHIVE PROVENANCE EXACT_NAME_OR_ORACLE_ID... | catalog verify ARCHIVE PROVENANCE".into()),
             };
             println!("{}", canonical(&report)?);
         }
@@ -2206,6 +2214,57 @@ mod tests {
             files
                 .iter()
                 .all(|f| f.sha256 == sha256(f.contents.as_bytes()))
+        );
+    }
+    #[test]
+    fn code_identity_excludes_catalog_data_but_keeps_source_and_hash_checks() {
+        let metadata = [
+            BUILD_RUSTC.to_owned() + "\n",
+            BUILD_PROFILE.into(),
+            BUILD_TARGET.into(),
+            BUILD_RUSTFLAGS.into(),
+            BUILD_OPT_LEVEL.into(),
+            BUILD_DEBUG.into(),
+            BUILD_DEBUG_ASSERTIONS.into(),
+        ];
+        let metadata = metadata.each_ref().map(String::as_str);
+        let original = source_files().unwrap();
+        verify_native_source_bytes(&original, BUILD_ID, metadata).unwrap();
+        let mut files = original.clone();
+        let data = files
+            .iter_mut()
+            .find(|f| f.path.ends_with("fixtures/provenance.json"))
+            .unwrap();
+        data.contents.push(' ');
+        // Separate per-file integrity remains enforced for data too.
+        assert!(
+            verify_native_source_bytes(&files, BUILD_ID, metadata)
+                .unwrap_err()
+                .contains("source hash mismatch")
+        );
+        let data = files
+            .iter_mut()
+            .find(|f| f.path.ends_with("fixtures/provenance.json"))
+            .unwrap();
+        data.sha256 = sha256(data.contents.as_bytes());
+        verify_native_source_bytes(&files, BUILD_ID, metadata).unwrap();
+        let host = files
+            .iter_mut()
+            .find(|f| f.path.starts_with("packages/game-server/src/"))
+            .unwrap();
+        host.contents.push(' ');
+        host.sha256 = sha256(host.contents.as_bytes());
+        verify_native_source_bytes(&files, BUILD_ID, metadata).unwrap();
+        let code = files
+            .iter_mut()
+            .find(|f| f.path.ends_with("crates/core/src/engine.rs"))
+            .unwrap();
+        code.contents.push(' ');
+        code.sha256 = sha256(code.contents.as_bytes());
+        assert!(
+            verify_native_source_bytes(&files, BUILD_ID, metadata)
+                .unwrap_err()
+                .contains("does not reproduce the build identity")
         );
     }
     #[test]

@@ -1,4 +1,16 @@
 //! Versioned executable contracts. No rules execution or parser dependency.
+/// Engine build identity excludes card/profile data and hosting code. Retained
+/// evidence still carries those files with their own hashes; matches/snapshots
+/// separately bind the exact catalog digest. Used by both the core build and
+/// the independent native source-closure verifier.
+pub fn engine_build_input(path: &str) -> bool {
+    matches!(path, "Cargo.toml" | "Cargo.lock" | "rust-toolchain.toml")
+        || (path.starts_with("packages/game-engine/crates/")
+            && !path
+                .split('/')
+                .any(|p| matches!(p, "generated" | "target" | "node_modules" | ".git"))
+            && (path.ends_with(".rs") || path.ends_with("/Cargo.toml")))
+}
 use num_bigint::BigInt;
 use num_traits::Zero;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
@@ -2458,6 +2470,170 @@ impl<'de> Deserialize<'de> for UniqueJson {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn every_capability_has_a_minimum_ir_version_witness() {
+        use Capability::*;
+        let groups: &[(u32, &[Capability])] = &[
+            (
+                3,
+                &[
+                    NormalLayoutV1,
+                    BasicLandManaV1,
+                    LandPlayV1,
+                    BaseCreatureV1,
+                    CommanderIdentityV1,
+                    CastInstantV1,
+                    CastCreatureV1,
+                    CreatureTargetV1,
+                    OwnerHandMoveV1,
+                ],
+            ),
+            (4, &[CastSorceryV1, OwnerLibraryTopMoveV1]),
+            (
+                5,
+                &[
+                    ActivatedAbilityV1,
+                    SacrificeSourceCostV1,
+                    ControllerDrawV1,
+                    ControllerDiscardV1,
+                    OpponentTargetV1,
+                    TargetPlayerSacrificeCreatureV1,
+                ],
+            ),
+            (
+                6,
+                &[
+                    StackSpellTargetV1,
+                    StackAbilityTargetV1,
+                    CounterStackObjectV1,
+                    TapSourceCostV1,
+                    ManaActivationCostV1,
+                ],
+            ),
+            (
+                7,
+                &[
+                    AnyDamageTargetV1,
+                    AnyPlayerTargetV1,
+                    NoncombatDamageV1,
+                    LifeGainV1,
+                    LifeLossV1,
+                ],
+            ),
+            (
+                8,
+                &[
+                    TriggeredAbilityV1,
+                    SelfEntersBattlefieldV1,
+                    OtherCreatureEntersBattlefieldV1,
+                    CreatureDiesV1,
+                ],
+            ),
+            (
+                9,
+                &[
+                    CastEnchantmentV1,
+                    TemporaryPowerToughnessV1,
+                    CombatDamagePreventionV1,
+                    DamageBudgetPreventionV1,
+                    StaticDamageReplacementV1,
+                ],
+            ),
+            (10, &[SelfDiesV1, InterveningIfV1, ModalChoiceV1]),
+            (11, &[DefenderV1]),
+            (
+                12,
+                &[
+                    FlyingV1,
+                    ReachV1,
+                    VigilanceV1,
+                    HasteV1,
+                    LifelinkV1,
+                    DeathtouchV1,
+                ],
+            ),
+            (13, &[TrampleV1, FirstStrikeV1, DoubleStrikeV1, MenaceV1]),
+            (14, &[CreatureTokensV1, PlusOneCountersV1]),
+            (
+                15,
+                &[
+                    DestroyCreatureV1,
+                    GraveyardRecursionV1,
+                    BasicLandSearchV1,
+                    CreatureAnthemV1,
+                    TargetPlayerDrawV1,
+                ],
+            ),
+            (
+                16,
+                &[CastArtifactV1, PermanentManaV1, CompositeActivationCostV1],
+            ),
+            (17, &[AttachmentsV1]),
+            (18, &[PermanentRemovalV1]),
+            (19, &[SacrificeV1]),
+            (20, &[BoardWipesV1]),
+        ];
+        // Enumerate the public vocabulary, so a new capability cannot silently
+        // escape this contract. Check real, fully valid definitions rather than
+        // inventing capability-only records that fail independent shape checks.
+        let schema = serde_json::to_value(schemars::schema_for!(Capability)).unwrap();
+        let vocabulary: BTreeSet<Capability> =
+            serde_json::from_value::<Vec<Capability>>(schema["enum"].clone())
+                .unwrap()
+                .into_iter()
+                .collect();
+        let covered: BTreeSet<Capability> = groups
+            .iter()
+            .flat_map(|(_, caps)| caps.iter().copied())
+            .collect();
+        assert_eq!(covered, vocabulary);
+        let root =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/catalogs");
+        let definitions = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(|entry| {
+                let path = entry.unwrap().path();
+                path.extension()
+                    .is_some_and(|e| e == "json")
+                    .then_some(path)
+            })
+            .flat_map(|path| {
+                let manifest: serde_json::Value =
+                    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+                let catalog: Catalog = serde_json::from_slice(
+                    &std::fs::read(root.join(manifest["expected_ir"].as_str().unwrap())).unwrap(),
+                )
+                .unwrap();
+                catalog.definitions
+            })
+            .collect::<Vec<_>>();
+        for &(version, caps) in groups {
+            for cap in caps {
+                let witnesses = definitions
+                    .iter()
+                    .filter(|d| d.capabilities.contains(cap))
+                    .collect::<Vec<_>>();
+                let catalog = |d: &Definition, schema_version| Catalog {
+                    schema_version,
+                    rules_edition: RULES_EDITION.into(),
+                    rules_sha256: RULES_SHA256.into(),
+                    definitions: vec![d.clone()],
+                };
+                assert!(
+                    witnesses
+                        .iter()
+                        .any(|d| catalog(d, version).validate().is_ok()),
+                    "{cap:?}: no valid IR v{version} witness"
+                );
+                for d in witnesses {
+                    assert!(
+                        catalog(d, version - 1).validate().is_err(),
+                        "{cap:?}: accepted below IR v{version}"
+                    );
+                }
+            }
+        }
+    }
     #[test]
     fn incremental_sha256_matches_reference_across_byte_fragment_boundaries() {
         use std::io::Write;
