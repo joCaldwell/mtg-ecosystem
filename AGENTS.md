@@ -115,8 +115,12 @@ Project-wide docs in [docs/](docs/), relevant regardless of package:
     syntax, Archidekt's import format, the Comprehensive Rules: read the
     source and cite it in a comment. These are exactly the details that get
     confabulated.
-*   **Prefer clean design over backward compatibility.** Everything here is
-    early-stage and single-user. Rewrite rather than shim.
+*   **Prefer clean design over backward compatibility.** Most of this is
+    early-stage and single-user. Rewrite rather than shim. The exception is
+    the deck-builder's public surface once others use it (v3 plan D19):
+    other users' data is never dropped, and from public sign-up the MCP
+    tools, shared URLs and token format change only additively or through
+    a deprecation. Its internals are still rewritten freely.
 *   **Don't commit generated or downloaded artifacts.** `generated/`,
     `.scryfall-cache/`, `dist/`, and the deck-builder's `data/` and `.dev/`
     are all ignored.

@@ -72,7 +72,9 @@ native tag sets. Tags therefore do not round-trip through that text format.
 Adding this requires a separate format decision and verification against the
 external format's documentation.
 
-The app remains desktop-oriented as specified. Tag controls were inspected at
+At the time of this change the app was desktop-oriented; phones get a
+read-and-rule view in v3 phase 4a (plan D17), which has no tag editing. Tag
+controls were inspected at
 1280×800, 1440×960 and 1024×768; long selected labels wrap without horizontal
 clipping. A 390px viewport still exceeds the existing application shell's
 width, so full phone layout support remains outside this change.

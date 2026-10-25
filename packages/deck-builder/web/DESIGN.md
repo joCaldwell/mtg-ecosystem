@@ -11,7 +11,9 @@ the rules behind it.
 2. **Colour means something or it is grey.** See the table below. A new
    feature does not get a new colour.
 3. **Text first.** Cards are names, costs and oracle text. The picture appears
-   on demand: in the hover card and the card panel.
+   on demand: in the hover card and the card panel. The one exception is a
+   public deck page, whose header and link preview carry the commander's art
+   (see Narrow screens and public pages).
 4. **Dense, not cramped.** 13px body, 24px rows, one line per card. Space goes
    between groups, not between rows.
 5. **Every agent write is visibly an agent's.** Violet marks it wherever it
@@ -19,6 +21,25 @@ the rules behind it.
 6. **Reasons are cheap.** Any ruling can take a reason in one optional field,
    committed with Enter.
 7. **Numbers are monospaced and come from the server.**
+
+## Narrow screens and public pages
+
+These were decided on 2026-10-25 and are built in v3 phases 4a/4b
+([plan](../../../docs/deck-builder-v3-plan.md) D17, D20). Until then, the app
+is laid out for 1024 px and wider.
+
+- **Phones (under 720 px) read and rule.** The deck list, a read-only deck,
+  the inbox, and accept/reject with a reason. Nothing else writes. A screen
+  that cannot work there says "Open on a larger screen" rather than
+  squeezing in.
+- **720 px and wider is the full app.** The sidebar becomes a drawer under
+  960 px, and the deck panel becomes a bottom sheet under 1100 px.
+- **Touch replaces hover.** On touch, the hover card opens on tap as a sheet.
+  Tap targets are at least 44 px; the dense 24px rows of principle 4 are a
+  desktop rule.
+- **Public pages show the commander's art** in the header and as the link
+  preview image, with the artist line. The card list itself stays text.
+- **The playtester is desktop-only.**
 
 ## What each colour means
 

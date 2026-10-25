@@ -62,8 +62,25 @@ to do** (its brief), **what the owner has decided and why** (rulings), and
 - No live sync with any external service.
 - No formats other than Commander.
 
-Carried over from the previous spec without being re-examined; say so if any
-should be reopened: no mobile layout.
+Reopened on 2026-10-25 (planned in the
+[v3 plan](deck-builder-v3-plan.md); each entry becomes a description of
+built behaviour when its phase lands):
+
+- **Phones read and rule; agents edit** (D17, phase 4a). Below 720 px the app
+  is a read-and-rule view: the deck list, each deck read-only, the inbox, and
+  accept/reject on pending proposals with the optional reason. A phone user
+  changes a deck by prompting an agent and ruling on its proposals. No direct
+  editing, hotkeys, playtester or Settings on phones. 720 px and wider keep
+  the full app. The playtester stays desktop-only.
+- **Price source per user** (D18, phase 1b). Each user picks a currency (USD
+  or EUR) and a store in it (TCGplayer, Cardmarket) or the lowest in that
+  currency. The chosen price is shown, totalled, searched and given to
+  agents, always labelled with its store and date. Scryfall's bulk data
+  remains the only source: no other price data, no exchange rates.
+- **Commander art on public pages** (D20, phase 4a): the public deck page's
+  header and its link preview. The editor stays a text list.
+- **Moxfield import** (phase 4a): paste-in text, alongside Archidekt. No URL
+  fetching and no sync.
 
 Reopened on 2026-10-11: **cards carry a price** (§4.4). It is an estimate
 from the same Scryfall refresh that loads the cards. There is still no price
@@ -143,6 +160,10 @@ Things the app mints (decks, proposals, memories, rulings) are referred to by
 short integer ids, always shown beside their names.
 
 ### 4.4 Prices
+
+*Planned change (§2, D18):* prices per store, with each user choosing the
+currency and store. This section describes today's single USD price until
+phase 1b rewrites it.
 
 Every card has at most one price: what its **cheapest playable paper
 printing** costs, in USD. A deck records cards, not printings (§4.1), so this
@@ -709,6 +730,8 @@ card.
 - **Profile:** edit directly.
 - **Activity feed:** every agent write, with the agent's name, time and target. The audit trail for unapproved writes.
 - **Settings:** connection details for agents, memory budgets, card data refresh.
+- *Planned (§2, phase 4a):* **phones** get the read-and-rule view, and wider
+  screens keep everything above.
 
 The UI updates live when an agent writes (server-sent events from the app to
 the browser). A proposal made in a terminal appears in the inbox without a
@@ -725,6 +748,8 @@ and [implementation guide](playtester.md). Archidekt interop remains available.
 - **Export:** an Archidekt-importable list. With active name or tag filters, **Export matches** opens an export restricted to matching cards, including inverted tag filters. The export dialog can switch between current matches and the whole deck, independently include or exclude the maybe list (excluded by default), and toggle categories. Filtered exports default to plain quantity-and-name lines for a buying list. Included maybe-list cards use `Maybeboard` when categories are enabled. Quantities are preserved; commanders and companions are eligible, and pending proposed additions are excluded. An empty selection exports nothing. Export counts describe the exported copies and lines, and exporting changes no deck records.
 - **Import:** the owner pastes a list; the app diffs it against the deck, shows the diff with destructive cuts called out first, and applies it in full on confirmation. It is one rulings-log entry, so one undo reverts it. Lines in a `Maybeboard` or `Sideboard` category, or under a section header of that name, are shortlisted on the maybe list, not added, and the preview says so. A `Commander` category or section header puts the card in the command zone, including a card already in the deck.
 - One-way out, one-way in. No sync layer.
+- *Planned (§2, phase 4a):* import also accepts Moxfield's text export, with
+  the same preview, log entry and undo. Export stays Archidekt.
 
 Verify Archidekt's text format against its own documentation and cite the
 sources in the code. Do not rely on model memory for it.

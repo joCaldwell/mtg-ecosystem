@@ -5,7 +5,8 @@
 > Section numbers in code comments (§5.2 lifecycle, §7 memories, §8
 > rulings, §10 agent interface) refer to that document.
 
-A localhost app for building Commander decks, designed to be used by a person
+An app for building Commander decks that runs locally for one person or hosted
+for many (`DECKBUILDER_MODE`, spec §17). It is designed to be used by people
 through its UI and by external AI agents through an MCP endpoint. **The app
 makes no AI model calls.** It stores structured data, validates, computes, and
 keeps an auditable record; interpretation and conversation happen in whatever
@@ -56,7 +57,9 @@ Connections have a 5-second busy timeout.
 Runtime dependencies: React, `@modelcontextprotocol/server` (the official MCP
 TypeScript SDK, v2 line) and `zod`. `@aws-sdk/client-s3` is the ops-only
 exception for optional S3-compatible backup uploads; it is loaded only when
-configured. Keep product dependencies to the original set.
+configured. A new runtime dependency needs a stated reason in the PR and an
+entry here. The planned ones are Better Auth (phase 2) and whatever its
+plugins require. Prefer the platform and the existing set otherwise.
 
 ```
 src/

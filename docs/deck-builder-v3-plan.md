@@ -11,6 +11,9 @@ asking the owner anything.
 and `packages/deck-builder/web/ARCHITECTURE.md`. The spec remains the source of
 truth; every phase that changes behaviour updates the spec in the same PR.
 
+**Status (2026-10-25):** phase 0 merged (PR #3), phase 1 merged (PR #4).
+Next: phase 2, with phase 1b and 4b free to run in parallel worktrees.
+
 ---
 
 ## 0. How the phases are run
@@ -29,9 +32,11 @@ truth; every phase that changes behaviour updates the spec in the same PR.
   document does not answer, pick the option that keeps the five rules at the
   top of AGENTS.md intact, write the choice and the reason into the spec, and
   continue. Do not stop to ask.
-- **Phases are sequential** (0 → 1 → 2 → 3 → 4a → 4b → 5 → 6) with one
-  exception: 4b (UX overhaul) touches only the web client and may run in a
-  worktree in parallel with 2 and 3 once 1 has merged.
+- **Phases are sequential** (0 → 1 → 2 → 3 → 4a → 4b → 5 → 6) with two
+  exceptions, each run in its own worktree once 1 has merged: 1b (price
+  sources) needs only phase 1's per-user settings and may run in parallel
+  with 2 and 3; 4b (UX overhaul) touches only the web client and may run in
+  parallel with 2 and 3.
 - **Nothing the owner must do mid-phase.** What the owner must provide
   *before* a phase starts is listed in §2; everything else the agent obtains
   itself (Railway via the CLI, Scryfall via bulk data, docs via the web).
@@ -177,7 +182,8 @@ mirrors production with its own volume. Hobby plan is sufficient (see review).
 **D13. Legal posture.** Free, donations at most, no paid tiers (WotC Fan
 Content Policy). Public deck pages and card search work with no account.
 Accounts are required only to save decks. Footer carries the Fan Content
-notice; prices are labelled as Scryfall daily estimates with the as-of date;
+notice; prices are labelled as Scryfall daily estimates with the store and
+the as-of date (D18);
 privacy policy and terms pages exist before anyone outside the owner signs in;
 self-service account deletion and data export exist before public sign-up.
 
@@ -195,6 +201,56 @@ without a ruling.
 phase 4a so public pages have real URLs with server-injected Open Graph tags.
 The static fallback serves `index.html` for app routes only; `/api/*`,
 `/mcp*`, `/.well-known/*`, `/assets/*` and unknown file extensions return 404.
+
+*D17–D20 were added on 2026-10-25, after phase 1 merged, from the owner's
+answers to a documentation review.*
+
+**D17. Phones read and rule; agents edit.** Below 720 px the signed-in app
+is a read-and-rule view, not a shrunken editor. It shows the deck list, each
+deck through the same read-only composition as the public page (4a), the
+inbox, and the deck's pending proposals with accept/reject per item, per
+group or all at once, plus the optional reason. Accept and reject are the
+only writes on a phone. Changes to a deck from a phone are made by prompting
+an agent (Claude or ChatGPT on the phone, through the phase 2 OAuth
+connectors) and ruling on what it proposes. Not on phones: direct editing,
+hotkeys, the playtester and Settings (each says "open on a larger
+screen"). 720 px and wider keep the full app; 4b
+makes it hold up down to that width. Ruling uses the existing capabilities
+and needs no new backend. This workflow depends on hosting: phone agents
+cannot reach a loopback app.
+
+**D18. Price sources from Scryfall data only.** Scryfall's `default-cards`
+file, already read daily, carries `usd`/`usd_foil`/`usd_etched` (TCGplayer)
+and `eur`/`eur_foil` (Cardmarket) per printing. Verify the field-to-store
+mapping against Scryfall's documentation and cite it. The app stores each
+card's cheapest playable printing per store, using the playable-printing
+rules already in spec §4.4. Each user chooses a currency (`USD` default,
+or `EUR`) and a store: one of that currency's stores, or `lowest` (the
+cheapest store in that currency; there is no exchange-rate source, so
+`lowest` never compares USD with EUR). With one store per currency today,
+the choice is effectively TCGplayer or Cardmarket; the shape admits more
+stores if Scryfall adds them. The choice drives the price on every card,
+deck totals and unpriced counts, any price-based check, which comparator
+search treats as "my price", and what agents are told. Every price shown or
+returned names its store and as-of date once per view or response. Public
+pages use the viewer's choice when signed in, otherwise `USD`/`lowest`.
+No other price source (MTGJSON, vendor APIs, scraping) and no exchange rates.
+
+**D19. The public surface is stable once others depend on it.** The root
+AGENTS.md rule "rewrite rather than shim" keeps applying to internals. From
+the first non-owner account (phase 3), user data is never dropped: every
+migration preserves and backfills user-authored content. From public sign-up
+(phase 6), three surfaces change only additively or through a deprecation
+that keeps the old form working for at least one release and says so in tool
+text: MCP tool names, argument names and result shapes; shared URLs
+(`/d/:slug`, `/u/:handle`); the token format. D9's renames land in 4b,
+during the invite-only beta, with migrations and no deprecation period.
+
+**D20. Art where people decide whether to look.** The editor stays text-first
+(DESIGN.md principle 3). Public deck pages carry the commander's art crop in
+the header, and link previews use it as the Open Graph image, with the
+artist line per D10. Cards in the list stay text rows; their pictures are on
+demand, as in the editor.
 
 ---
 
@@ -428,6 +484,71 @@ constraints list (owner-only → deck-owner-only; tokens).
 
 ---
 
+### Phase 1b — Price sources (size: M)
+
+**Goal.** Each user chooses where their prices come from (D18). Every price
+the app shows or hands an agent follows that choice and names its store.
+Prices stay daily Scryfall estimates, with no new external source. May run in
+a worktree in parallel with phases 2 and 3.
+
+**Scope.**
+
+1. **Spec first.** Rewrite spec §4.4 for per-store prices and the user's
+   choice, and update the §2 "reopened" entry from planned to built.
+2. **Prices per store.** `card_prices` (today one row per `oracle_id` with
+   `usd_cents`) becomes one row per `(oracle_id, store)`. `store` is
+   `tcgplayer` or `cardmarket`. Each row stores `currency`, `cents` and the
+   printing and finish it came from. Per store, take the lowest of that store's
+   finishes across the counted printings. The counting rules stay as they are:
+   paper, not oversized, not memorabilia. Keep the staged load and atomic swap
+   from phase 0 (`src/prices.ts`, `src/refresh.ts`) and the bounded peak heap.
+   Migrate through the ordered migration list; existing USD rows become
+   `tcgplayer` rows.
+3. **The user's choice.** `user_settings` gains `price_currency` (`USD` |
+   `EUR`, default `USD`) and `price_store` (`lowest` or a store in that
+   currency, default `lowest`). Add `getPriceSource(db, actor)` and
+   `setPriceSource(db, actor, …)`. The setter rejects a store that does not
+   sell in the chosen currency. Agents may read the choice and not change it
+   (`requireUi`), like other settings. Classify both in the permission matrix.
+4. **Every consumer follows it.** The price on cards and rows, deck totals
+   and unpriced counts (`src/deck/service.ts`, `src/deck/sourcing.ts`,
+   proposals' price deltas), `src/cards.ts` card facts and `get_cards`
+   structured results all resolve through one function taking the actor.
+   Search keeps Scryfall's own operators (`usd`, `eur`), each comparing that
+   currency under the user's store choice for that currency, else `lowest`.
+   Verify the syntax against Scryfall's syntax guide and cite it.
+5. **Agent text.** Per-card lines keep the compact price with its currency
+   symbol (`$1.71`, `€1.20`). `start_session` and each deck render state the
+   store and as-of date once. The playbook's price paragraph says the price
+   is the user's chosen store. Change `tools.test.ts` deliberately.
+6. **UI.** Settings gains a price-source control: currency, then store or
+   "Lowest". The deck header total and card panel name the store and date.
+   `web/src/domain/price.ts` formats by currency.
+7. **Public pages (when 4a lands).** `PublicDeckState.price` follows the
+   viewer's choice if signed in, otherwise `USD`/`lowest` (§4 shape). If 1b
+   merges first, 4a builds on it; if 4a merges first, 1b updates the public
+   page.
+
+**Out of scope.** MTGJSON or any non-Scryfall price data, exchange rates,
+price history, foil-only preferences, printings the owner holds, buy links.
+
+**Acceptance.**
+- `npm run check` green, including the permission matrix with the new
+  settings capabilities.
+- On a copy of the owner's database after a real refresh, user 1's deck
+  totals and per-card prices under the default (`USD`/`lowest`) equal the
+  pre-phase values exactly, since today's price is the TCGplayer one. Record
+  priced-card counts per store.
+- A second user set to `EUR` sees Cardmarket prices in the UI, in agent text
+  and in `eur<=` search, while user 1 sees USD.
+- The refresh's peak heap stays within phase 0's bound.
+
+**Docs.** Spec §2, §4.2 (search operators), §4.4, §10.3 (tool results),
+§11 (Settings); playbook; AGENTS.md if a constraint changes; OPERATIONS.md if
+refresh behaviour changes.
+
+---
+
 ### Phase 2 — Accounts, sessions and OAuth for hosted mode (size: XL)
 
 **Goal.** A stranger can sign in with Discord (or Google), claim or create an
@@ -587,7 +708,9 @@ time" gains the hosted checks.
 
 **Goal.** A deck can be shared by link or published; anyone can read it
 without an account; a signed-in user can fork it or compare against it; the
-page looks right on a phone and unfurls in Discord.
+page looks right on a phone and unfurls in Discord. On a phone, the owner reads
+their own decks and rules on their agents' proposals (D17). Decks import from
+Moxfield as well as Archidekt.
 
 **Scope.**
 
@@ -618,13 +741,16 @@ page looks right on a phone and unfurls in Discord.
 4. **Public deck page** (`web/src/features/public/`): a composition of the
    existing `DeckList`, `GroupBlock`, `CardRow` (wrapped in read-only
    `DeckProvider`/`DeckUiProvider`), `ChecksPanel`, read-only `BriefField`s,
-   the power panel's read-only branch, price estimate with source and date,
-   the decisions log when published (hidden entries omitted), owner byline
-   linking to `/u/:handle`, actions: Fork (signed-in), Compare with one of
-   my decks (signed-in), Export (Archidekt text, no account needed), Copy
-   link. No sidebar, no inbox, no focus reporting, no ruling hotkeys. Fully
-   responsive: single column under 720 px, list rows wrap, hover card becomes
-   a tap-to-open sheet.
+   the power panel's read-only branch, price estimate with store and date
+   (D18), the decisions log when published (hidden entries omitted), owner
+   byline linking to `/u/:handle`, and a header carrying the commander's art
+   crop with its artist line (D20). Actions: Fork (signed-in), Compare with
+   one of my decks (signed-in), Export (Archidekt text, no account needed),
+   Copy link. No sidebar, no inbox, no focus reporting, no ruling hotkeys.
+   Fully responsive: single column under 720 px, list rows wrap, hover card
+   becomes a tap-to-open sheet, tap targets at least 44 px. Build the read-only
+   composition as one component (`ReadOnlyDeck`) so the phone view (item 9)
+   reuses it rather than copying it.
 5. **Share dialog** in the deck header: visibility segmented control with
    plain-language consequences, publish-decisions toggle with the per-entry
    hide affordance in the History panel, copy link, "what viewers see"
@@ -639,19 +765,41 @@ page looks right on a phone and unfurls in Discord.
 8. **Agent-facing.** `start_session` lists the user's public decks count;
    playbook gains a paragraph on public decks and forks; `tools.test.ts`
    updated deliberately.
+9. **Phone view for the owner (D17).** Below 720 px the signed-in app
+   renders a phone shell (`web/src/features/phone/`, or a branch of the app
+   shell): a top bar, the deck list, and the inbox. A deck opens in
+   `ReadOnlyDeck` (item 4) plus its pending proposals, drawn in place as on
+   desktop, with accept/reject per item, per group and all at once, each
+   taking the optional reason. Document (brief/profile) proposals rule from the
+   inbox as diffs. Ruling calls the existing capabilities through the
+   existing API, with no new routes. Direct editing, hotkeys, the playtester and
+   Settings render "Open on a larger screen". The breakpoint is one constant
+   shared with the public page. Live updates (SSE) work as on desktop, so a
+   proposal an agent makes appears without a reload.
+10. **Moxfield import.** The import dialog (spec §12) also accepts Moxfield's
+   text export: the same diff preview, one log entry and one undo. Verify
+   Moxfield's export format against Moxfield's own documentation, or against
+   a real export when there is none. Cite it in the parser and add fixtures
+   for each section header it uses (commander, sideboard/maybeboard). Paste
+   only: no URL fetching, no Moxfield API, no sync. Export stays Archidekt.
 
 **Out of scope.** Suggestions from other users (phase 5), comments, renames
-and onboarding copy (4b), playgroups.
+and onboarding copy (4b), playgroups, editing on phones.
 
 **Acceptance.** Permission matrix green with viewer rows; an unauthenticated
 `curl` of `/d/<slug>` returns HTML with correct OG tags; a private slug 404s;
 a Discord/Slack unfurl preview (manual) shows the commander art; Lighthouse
-mobile layout has no horizontal scroll at 375 px on the public page; fork of a
-public deck by a second user contains no memories; export works signed out.
+mobile layout has no horizontal scroll at 375 px on the public page or the
+phone view; at 375 px the owner can open a deck, accept one proposed item
+with a reason, reject another, and see an agent's new proposal arrive live
+(screenshots in the PR); fork of a public deck by a second user contains no
+memories; export works signed out; a real Moxfield export imports with the
+same result as the equivalent Archidekt text.
 
-**Docs.** Spec §5.3 (cross-owner forks), §11 (public pages, routing), new
-§18 "Sharing" (D8 verbatim), §13 (what is guaranteed on public pages);
-ARCHITECTURE.md (routing, `features/public`, read-only providers).
+**Docs.** Spec §5.3 (cross-owner forks), §11 (public pages, routing, phone
+view), §12 (Moxfield import), new §18 "Sharing" (D8 verbatim), §13 (what is
+guaranteed on public pages); ARCHITECTURE.md (routing, `features/public`,
+`features/phone`, read-only providers); DESIGN.md (narrow screens).
 
 ---
 
@@ -660,7 +808,8 @@ ARCHITECTURE.md (routing, `features/public`, read-only providers).
 **Goal.** Someone who has never heard of agents, proposals or briefs opens an
 empty account and understands what to do; the app reads as a deck builder
 first and an agent workbench second; it holds up on a laptop at 1280 px and
-degrades gracefully below.
+degrades gracefully down to 720 px, below which phones get 4a's phone view
+(D17).
 
 **Scope.**
 
@@ -685,10 +834,12 @@ degrades gracefully below.
    flags, ownership evidence and revision chips move behind an "Advanced"
    disclosure in their panels; defaults unchanged for existing users
    (persist the disclosure in `user_settings`).
-5. **Responsive shell:** viewport meta; sidebar collapses to a top bar with
-   a drawer under 960 px; deck page stacks list over panel under 1100 px
-   with the panel as a bottom sheet; tables scroll horizontally inside their
-   container instead of the page. Playtest keeps its own rules.
+5. **Tablet shell (720 px and up; D17):** viewport meta; sidebar collapses
+   to a top bar with a drawer under 960 px; deck page stacks list over panel
+   under 1100 px with the panel as a bottom sheet; tables scroll
+   horizontally inside their container instead of the page. The full editor
+   is not made to work below 720 px; that width belongs to the phone view.
+   Playtest keeps its own rules and stays desktop-only.
 6. **Accessibility:** raise `--faint` to ≥ 4.5:1 at 12 px or stop using it
    below `--text-sm`; global `prefers-reduced-motion` rule zeroing `--fast`
    and disabling transitions; `MultiSelect` as `listbox` +
@@ -710,8 +861,8 @@ degrades gracefully below.
 **Acceptance.** `npm run check` green; `tools.test.ts` and transcript check
 re-run after renames; bundle gzip for the public page route under 90 KB JS;
 axe (or equivalent) reports no contrast or role violations on decks, deck,
-inbox, public page; manual narrow-width pass at 375, 768, 1024, 1280 recorded
-with screenshots in the PR.
+inbox, public page; manual narrow-width pass recorded with screenshots in
+the PR, at 768, 1024 and 1280 for the full app and at 375 for the phone view.
 
 **Docs.** Spec §5.6 (archived), §8 (decisions), §11; DESIGN.md (breakpoints,
 disclosure pattern, motion rule); ARCHITECTURE.md; SKILL.md and playbook.
@@ -848,7 +999,8 @@ owner via agent → `handle via label`; other user → `@handle`.
 { handle, display_name }, commander, color_identity, category, visibility,
 parent? { owner_handle, slug, name } }`, `cards`, `slots`, `tags`, `brief`,
 `engines`, `checks`, `power { target, latest_owner_assessment? }`,
-`price { total_cents, unpriced, as_of, source: "Scryfall" }`,
+`price { total_cents, currency, store, unpriced, as_of, source: "Scryfall" }`
+(D18),
 `decisions?: LogEntry[]` (only when published; hidden omitted), `computed`.
 
 **Permission matrix dimensions:** actor ∈ {owner-ui, owner-agent,
@@ -865,6 +1017,8 @@ owns, so an unclassified new export fails.
 
 Collaborator and co-owner roles; merge requests from forks back to the
 parent; shared playtest replays; playgroups and shared memories; comments;
-email sign-in; paid anything; a mobile app; the ChatGPT tunnel path; other
+email sign-in; paid anything; a native mobile app, and editing on phones
+beyond ruling (D17); price sources beyond Scryfall's data, and exchange
+rates (D18); Moxfield export and URL import; the ChatGPT tunnel path; other
 formats; printings and collection. Each is a candidate for a later phase and
 none blocks launch.
