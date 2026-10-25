@@ -119,10 +119,11 @@ claim rule.
 **D6. Auth library: Better Auth.** Discord and Google providers, cookie
 sessions, existing `agent_tokens` for personal credentials (skip api-key),
 `@better-auth/mcp` (+ `@better-auth/cimd`) so the app is an OAuth 2.1
-authorization server for Claude.ai and ChatGPT connectors. It runs on the
-existing `node:sqlite` connection via its sqlite adapter and on the plain
+authorization server for Claude.ai and ChatGPT connectors. Phase 2 pins these packages and their OAuth provider peer to 1.7.13, adds
+`jose@6.2.3` for JWKS verification, and retains personal tokens without api-key.
+It runs on the existing `node:sqlite` connection via its native adapter and on the plain
 `http` server via `toNodeHandler`. Better Auth owns its own tables (`user`,
-`session`, `account`, `verification`, api-key and oauth tables); our `users`
+`session`, `account`, `verification`, JWT and OAuth tables); our `users`
 table links through `auth_id`. This adds dependencies beyond the AGENTS.md
 trio; AGENTS.md is updated to say so and why. Pin the version in
 `package.json` and read that version's docs, not the latest.

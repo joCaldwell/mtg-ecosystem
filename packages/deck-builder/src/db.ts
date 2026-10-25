@@ -1,6 +1,6 @@
 import type { Actor } from "./actor.ts";
 import { Database } from "./sqlite.ts";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AppError } from "./errors.ts";
@@ -9,7 +9,7 @@ export const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const DATA_DIR = resolve(process.env.DECKBUILDER_DATA ?? join(PKG_ROOT, "data"));
 export const DEFAULT_DB_PATH = resolve(process.env.DECKBUILDER_DB ?? join(DATA_DIR, "deck-builder.db"));
 
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 const SCHEMA = `
 -- Explicit physical evidence survives deck membership, forks and deletion.
@@ -460,6 +460,27 @@ const MIGRATIONS: Array<{ version: number; up: (db: Database) => void }> = [
 
   } },
   { version: 11, up(db) { normalizeV10(db); migrateIdentity(db); } },
+  { version: 12, up(db) {
+    // Generated with auth@1.7.13 from our plugin config, never auto-migrated.
+    db.exec(readFileSync(new URL("./migrations/auth-v12.sql", import.meta.url), "utf8"));
+    db.exec(`ALTER TABLE proposals ADD COLUMN author_oauth_client_id TEXT;
+      ALTER TABLE document_edits ADD COLUMN author_oauth_client_id TEXT;
+      ALTER TABLE users ADD COLUMN needs_handle INTEGER NOT NULL DEFAULT 0;
+      CREATE TABLE invites (
+        code TEXT PRIMARY KEY, created_by INTEGER NOT NULL REFERENCES users(id),
+        used_by INTEGER REFERENCES users(id), used_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE signup_intents (
+        id TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK(kind IN ('claim','invite','open')),
+        code_hash TEXT NOT NULL, expires_at INTEGER NOT NULL
+      );
+      CREATE TABLE oauth_usage (
+        user_id INTEGER NOT NULL REFERENCES users(id), client_id TEXT NOT NULL,
+        label TEXT NOT NULL, last_used_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY(user_id, client_id)
+      );`);
+  } },
 ];
 
 function removeDeckStatus(db: Database) {
@@ -637,7 +658,7 @@ function assertOurs(db: Database, path: string) {
   } catch {
     /* no meta table at all */
   }
-  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5" || found === "6" || found === "7" || found === "8" || found === "9" || found === "10") return found;
+  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5" || found === "6" || found === "7" || found === "8" || found === "9" || found === "10" || found === "11") return found;
   throw new SchemaError(
     `${path} is not a database this version of the deck builder can open ` +
       `(it reports schema ${found ?? "unknown"}; this version uses ${SCHEMA_VERSION}). ` +

@@ -131,8 +131,16 @@ depends only on the scope and unfiltered memory response.
 ## Identity foundation (v3 Phase 1)
 
 The browser calls the same actor-scoped capabilities as MCP. Local mode builds
-implicit user 1 without a login; hosted APIs return 401 while Phase 2 adds
-sessions. No login page or account selection exists in this phase.
+implicit user 1 without a login. Hosted APIs use cookie sessions; the
+unauthenticated session bootstrap is `/api/session`. `SessionProvider` sits
+above `LiveProvider` and gates private providers/screens until signed in, so
+SSE and private data queries never start on the sign-in page. `useSession()`
+exposes mode, configured providers, the current account and a reload hook.
+The first-run handle picker appears only on a provider-handle collision.
+Legal pages bypass sign-in; `/signin` is an auth boundary while the existing
+application still uses hash routes. The server serves `/consent` as plain
+HTML with an external script; it submits Better Auth's signed oauth_query.
+Local mode never renders sign-in, regardless of the path.
 
 `api/live.tsx` consumes `{ kind, deck_id? }` events on a per-user SSE stream.
 It initially invalidates all queries for that stream; the typed payload is
@@ -148,3 +156,20 @@ storage. Client snippets use a placeholder outside that one-time display.
 Reachability copy follows server mode. Revoke actions align at the row edge;
 labels and metadata stay grouped and long labels wrap. Existing generic
 primitives and design tokens supply the form and dialogs.
+
+## Hosted request recovery and account settings
+
+`request()` explicitly uses same-origin cookies and emits an `api-error`
+event on HTTP failure. `SessionProvider` maps 401 to `/signin` only in hosted
+mode, 403 to the server's readable-action error toast, and 429 to a slowdown
+toast including Retry-After seconds. It retains ApiError status and text;
+404/revision/5xx behavior is unchanged. EventSource automatically sends the
+same-origin cookie. Sign-out navigates away and unmounts all private providers.
+
+Settings retains once-shown personal tokens in component state, adds hosted
+OAuth connector steps and last-seen grant usage (Settings refreshes every
+30 seconds while open), and has Account export/delete
+with typed-handle confirmation. The Admin card appears only for is_admin;
+the server rechecks admin/UI permissions. The final admin's disabled deletion
+button explains why. The legal footer names WotC's Fan Content policy and
+Scryfall daily estimates with as-of date; no new price source is introduced.

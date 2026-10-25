@@ -8,6 +8,12 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, join, resolve, sep } from "node:path";
 import type { Database } from "./sqlite.ts";
 import { type Actor, requireAdmin } from "./actor.ts";
+import { readRequestBody } from "./http-body.ts";
+import { consentHtml, consentScript } from "./consent.ts";
+import { createHostedAuth, type HostedAuth } from "./auth.ts";
+import { accountInfo, chooseHandle, createInvite, adminInfo, exportAccount, deleteAccount } from "./accounts.ts";
+import { createRateLimiter, RateLimitError } from "./ratelimit.ts";
+import { clientIp, securityHeaders } from "./mode.ts";
 import { allowedRequest, getMode, localActor, publicOrigin, type Mode } from "./mode.ts";
 import { createToken, listTokens, revokeToken } from "./tokens.ts";
 import { listActivity } from "./activity.ts";
@@ -71,7 +77,8 @@ const WEB_DIST = join(PKG_ROOT, "web", "dist");
 
 export interface AppOptions {
   mode?: Mode;
-  /** Phase 2 plugs session authentication into this request-to-Actor seam. */
+  auth?: HostedAuth;
+  /** Optional request-to-Actor override; production uses the hosted session resolver. */
   resolveUiActor?: (req: IncomingMessage, mode: Mode) => Actor | null | Promise<Actor | null>;
   /** The port the server listens on, for the connection details shown in Settings. */
   port?: number;
@@ -82,9 +89,9 @@ export interface AppOptions {
 
 type Handler = (actor: Actor, params: string[], body: any, url: URL) => unknown | Promise<unknown>;
 
-/** Phase 2 replaces the hosted null with its cookie-session resolver. */
-export function resolveUiActor(_req: IncomingMessage, mode: Mode): Actor | null {
-  return mode === "local" ? localActor() : null;
+/** The session seam preserves implicit user 1 in the local product. */
+export function resolveUiActor(req: IncomingMessage, mode: Mode, auth?: HostedAuth): Actor | null | Promise<Actor | null> {
+  return mode === "local" ? localActor() : auth?.resolveUiActor(req) ?? null;
 }
 
 export interface Change { kind: string; deck_id?: number }
@@ -110,6 +117,9 @@ function validateNumbers(body: Record<string, any>) {
 
 export function createApp(db: Database, opts: AppOptions = {}) {
   const mode = opts.mode ?? getMode();
+  const auth = mode === "hosted" ? opts.auth ?? (process.env.BETTER_AUTH_SECRET ? createHostedAuth(db) : undefined) : undefined;
+  const rateLimit = createRateLimiter();
+  const resolveActor = opts.resolveUiActor ?? ((req:IncomingMessage, requestMode:Mode) => resolveUiActor(req,requestMode,auth));
   const routes: Array<{ method: string; pattern: RegExp; handler: Handler; mutates: boolean }> = [];
   const route = (method: string, pattern: RegExp, handler: Handler) =>
     routes.push({ method, pattern, handler, mutates: method !== "GET" && !pattern.source.includes("preview") });
@@ -122,12 +132,32 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     for (const res of listeners.get(userId) ?? []) res.write(`data: ${JSON.stringify(change)}\n\n`);
   };
   const notifyAll = (change: Change) => { for (const id of listeners.keys()) notify(id, change); };
-  const agents = createAgentEndpoint(db, { mode, version: APP_VERSION, onChange: notify });
+  const agents = createAgentEndpoint(db, { mode, version: APP_VERSION, onChange: notify, verifyOAuth: auth?.verifyAccessToken, rateLimit });
 
   // Envelope rule: a response carrying a domain composite names it — `state`,
   // `profile`, `memories` — and never spreads it at top level, so one
   // client-side applier can route every response.
   const state = (actor: Actor, id: number) => deckState(db, actor, id);
+
+  if (mode === "hosted") {
+    route("GET", /^\/api\/account$/, actor => accountInfo(db, actor));
+    route("PATCH", /^\/api\/account\/handle$/, (actor,_p,body) => chooseHandle(db,actor,String(body.handle ?? "")));
+    route("GET", /^\/api\/account\/export$/, actor => exportAccount(db,actor));
+    route("DELETE", /^\/api\/account$/, (actor,_p,body) => {
+      deleteAccount(db,actor,String(body.handle ?? ""));
+      for (const stream of listeners.get(actor.user_id) ?? []) stream.end();
+      listeners.delete(actor.user_id);
+      return { ok: true };
+    });
+    route("GET", /^\/api\/admin$/, actor => ({ ...adminInfo(db,actor), jobs: opts.jobs?.status() ?? null }));
+    route("POST", /^\/api\/admin\/invites$/, actor => createInvite(db,actor));
+    route("POST", /^\/api\/admin\/jobs$/, (actor,_p,body) => {
+      adminInfo(db,actor);
+      if (!["backup","refresh"].includes(body.job)) throw new ServiceError("Unknown job");
+      if (!opts.jobs) throw new ServiceError("Background jobs are not configured",503);
+      opts.jobs.enqueue(body.job); return { ok:true };
+    });
+  }
 
   // ---------- decks ----------
   route("GET", /^\/api\/health$/, (actor) => ({
@@ -393,6 +423,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
         url: `${mode === "hosted" ? publicOrigin() : `http://127.0.0.1:${opts.port ?? 8787}`}${MCP_PATH}`,
         mode,
         tokens: listTokens(db, actor),
+        oauth_usage: mode === "hosted" ? db.prepare("SELECT client_id,label,last_used_at FROM oauth_usage WHERE user_id=? ORDER BY last_used_at DESC").all(actor.user_id) : [],
         ...(mode === "local" ? { stdio_command: `node ${join(PKG_ROOT, "src", "mcp", "stdio.ts")}` } : {}),
       },
     };
@@ -476,7 +507,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     if (pathname.startsWith("/mcp") || /^\/(api|\.well-known)(\/|$)/.test(pathname)) return false;
     const file = resolve(root, pathname === "/" ? "index.html" : pathname.slice(1));
     if (!file.startsWith(root + sep)) return false;
-    const appRoute = /^\/(?:decks|inbox|memories|profile|activity|settings|design|signin|privacy|terms|deck\/[^/]+(?:\/(?:review|playtest))?|[du]\/[^/]+)?$/.test(pathname);
+    const appRoute = /^\/(?:decks|inbox|memories|profile|activity|settings|design|signin|consent|privacy|terms|deck\/[^/]+(?:\/(?:review|playtest))?|[du]\/[^/]+)?$/.test(pathname);
     const target = existsSync(file) && statSync(file).isFile() ? file :
       appRoute && !extname(pathname) ? join(root, "index.html") : null;
     if (!target || !existsSync(target)) return false;
@@ -491,33 +522,32 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     } catch { return false; }
   }
 
-  function readJson(req: IncomingMessage): Promise<Record<string, any>> {
-    return new Promise((resolve, reject) => {
-      const chunks: Buffer[] = [];
-      let size = 0, failed = false;
-      const fail = (error: Error) => { failed = true; chunks.length = 0; reject(error); };
-      req.on("data", (chunk: Buffer) => {
-        if (failed) return;
-        size += chunk.length;
-        if (size > 1024 * 1024) return fail(new ServiceError("JSON body exceeds 1 MiB", 413));
-        const type = req.headers["content-type"]?.split(";")[0].trim().toLowerCase();
-        if (type !== "application/json") return fail(new ServiceError("Content-Type must be application/json", 415));
-        chunks.push(chunk);
-      });
-      req.on("error", reject);
-      req.on("end", () => {
-        if (failed) return;
-        if (!chunks.length) return resolve({});
-        try {
-          const value: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-          if (!value || typeof value !== "object" || Array.isArray(value)) throw Error();
-          resolve(value as Record<string, any>);
-        } catch { reject(new ServiceError("JSON body must be a valid object")); }
-      });
-    });
+  async function readJson(req: IncomingMessage): Promise<Record<string, any>> {
+    const body=await readRequestBody(req);
+    if(!body.length)return {};
+    if(req.headers["content-type"]?.split(";")[0].trim().toLowerCase()!=="application/json") throw new ServiceError("Content-Type must be application/json",415);
+    try {
+      const value:unknown=JSON.parse(body.toString("utf8"));
+      if(!value || typeof value!=="object" || Array.isArray(value))throw Error();
+      return value as Record<string,any>;
+    }catch{throw new ServiceError("JSON body must be a valid object");}
   }
 
+  // Native SQLite has one transaction state on this shared connection.
+  // Serialize hosted handlers so async auth transactions cannot accidentally
+  // contain another request's synchronous domain writes. SSE setup returns
+  // immediately and does not hold the queue for the stream's lifetime.
+  let tail: Promise<void> = Promise.resolve();
+  async function reserveDatabase() {
+    const previous=tail;let release=()=>{};
+    tail=new Promise<void>(resolve=>{release=resolve;});await previous;return release;
+  }
+  async function withDatabase<T>(work:()=>T|Promise<T>):Promise<T> {
+    const release=await reserveDatabase();try{return await work();}finally{release();}
+  }
   const server: Server = createServer(async (req, res) => {
+    let release = () => {};
+    securityHeaders(res,mode);
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     const json = (status: number, data: unknown) => {
       res.writeHead(status, { "Content-Type": "application/json" });
@@ -525,14 +555,59 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     };
 
     try {
+      if(mode === "hosted") {
+        if(!allowedRequest(req,mode))return json(403,{error:"Host or Origin is not allowed"});
+        await readRequestBody(req);
+        release=await reserveDatabase();
+      }
+      await auth?.ready;
       if (url.pathname === MCP_PATH || url.pathname.startsWith(`${MCP_PATH}/`))
-        return await agents.handle(req, res);
+        return await agents.handle(req, res, release);
 
       if (!allowedRequest(req, mode)) return json(403, { error: "This app only answers requests from this machine." });
+      if (mode === "hosted" && /^\/(api\/(auth|signup)|\.well-known)(\/|$)/.test(url.pathname)) rateLimit("auth",clientIp(req));
+      if (mode === "hosted" && req.method === "POST" && url.pathname === "/api/signup") {
+        if (!auth) throw new ServiceError("Authentication is not configured",503);
+        if (req.headers.origin !== publicOrigin()) throw new ServiceError("Origin is required",403);
+        const body = await readJson(req); auth.signup(req,res,String(body.code ?? "")); return json(200,{ok:true});
+      }
+      if (mode === "hosted" && auth && (url.pathname.startsWith("/api/auth/") || url.pathname.startsWith("/.well-known/"))) {
+        if (url.pathname === "/.well-known/oauth-authorization-server") req.url = "/api/auth/.well-known/oauth-authorization-server";
+        // toNodeHandler uses the fixed configured issuer; forwarded headers
+        // never get a chance to select a different auth origin.
+        return await auth.handle(req,res);
+      }
+      if (req.method === "GET" && url.pathname === "/api/session") {
+        const sessionActor = await resolveActor(req,mode);
+        const providers = [process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET ? "discord" : null, process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET ? "google" : null].filter(Boolean);
+        if (mode === "hosted" && !sessionActor) rateLimit("unauthenticated",clientIp(req));
+        return json(200,{mode,providers,user:sessionActor ? accountInfo(db,sessionActor) : null});
+      }
+      if (mode === "hosted" && req.method === "GET" && url.pathname === "/consent.js") {
+        res.writeHead(200,{"Content-Type":"text/javascript"}); return void res.end(consentScript);
+      }
       // Health contains shared facts only; every other API/event request needs a principal.
       const actor = url.pathname === "/api/health" ? localActor() :
-        await (opts.resolveUiActor ?? resolveUiActor)(req, mode);
+        await resolveActor(req,mode);
+      if (mode === "hosted") {
+        if (!actor || url.pathname === "/api/health") rateLimit("unauthenticated",clientIp(req));
+        else {
+          rateLimit("ui",String(actor.user_id));
+          if (url.pathname === "/api/search") rateLimit("search",String(actor.user_id));
+          if (url.pathname.endsWith("/compare")) rateLimit("compare",String(actor.user_id));
+        }
+        if (actor && url.pathname.startsWith("/api/") && !["GET","HEAD","OPTIONS"].includes(req.method ?? "") && req.headers.origin !== publicOrigin()) return json(403,{error:"Origin is required"});
+      }
       if (url.pathname.startsWith("/api/") && !actor) return json(401, { error: "Sign in is required" });
+
+      if (mode === "hosted" && req.method === "GET" && url.pathname === "/consent") {
+        if (!actor) { res.writeHead(302,{Location:`/signin${url.search}`});return void res.end(); }
+        const client = db.prepare('SELECT name FROM oauthClient WHERE clientId=?').get(url.searchParams.get("client_id") ?? "") as {name:string|null}|undefined;
+        if (!client) return json(400,{error:"Unknown OAuth client; start the connection again"});
+        const index = join(opts.webDist ?? WEB_DIST,"index.html");
+        const css = existsSync(index) ? [...readFileSync(index,"utf8").matchAll(/href="([^" ]+\.css)"/g)].map(m=>m[1]) : [];
+        res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});return void res.end(consentHtml(client.name ?? "OAuth client",css));
+      }
 
       if (req.method === "GET" && url.pathname === "/api/events") {
         res.writeHead(200, {
@@ -559,7 +634,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
         const body = req.method === "GET" ? {} : await readJson(req);
         validateNumbers(body);
         const result = await r.handler(actor!, m.slice(1), body, url);
-        if (r.mutates && !quiet.has(url.pathname)) notify(actor!.user_id, { kind: url.pathname.split("/")[2] ?? "change", ...(url.pathname.match(/^\/api\/decks\/(\d+)/) ? { deck_id: Number(url.pathname.match(/^\/api\/decks\/(\d+)/)![1]) } : {}) });
+        if (r.mutates && url.pathname !== "/api/account" && !quiet.has(url.pathname)) notify(actor!.user_id, { kind: url.pathname.split("/")[2] ?? "change", ...(url.pathname.match(/^\/api\/decks\/(\d+)/) ? { deck_id: Number(url.pathname.match(/^\/api\/decks\/(\d+)/)![1]) } : {}) });
         return json(200, result);
       }
       if (req.method === "GET" && !url.pathname.startsWith("/api/") && serveStatic(url.pathname, res))
@@ -567,16 +642,17 @@ export function createApp(db: Database, opts: AppOptions = {}) {
       json(404, { error: `Not found: ${req.method} ${url.pathname}` });
     } catch (e: any) {
       if (res.headersSent) return void res.end();
+      if (e instanceof RateLimitError) res.setHeader("Retry-After",String(e.retryAfter));
       if (e instanceof AppError) return json(e.status, { error: e.message });
       console.error(e);
       json(500, { error: "Internal error" });
-    }
+    } finally { release(); }
   });
 
   return {
     server,
     routes: routes.map(({ method, pattern, mutates }) => ({ method, pattern, mutates })),
-    notify, notifyAll,
+    notify, notifyAll, withDatabase,
     close: async () => {
       await agents.close();
       await new Promise<void>((resolve) => {

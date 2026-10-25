@@ -82,6 +82,7 @@ export interface DocumentEditView {
   author_label: string;
   author_display?: string;
   author_token_id: number | null;
+  author_oauth_client_id: string | null;
   status: "pending" | "accepted" | "rejected";
   created_at: string;
   /** The document changed after this was proposed; accepting overwrites that. */
@@ -215,9 +216,9 @@ export function proposeDocumentEdit(
   if (conflict) throw new ServiceError(`Edit #${conflict.id} is already current for this document. Amend or explicitly supersede it.`);
   const r = db
     .prepare(
-      "INSERT INTO document_edits (deck_id, kind, payload_json, reason, author, base_revision, user_id, author_user_id, author_via, author_label, author_token_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO document_edits (deck_id, kind, payload_json, reason, author, base_revision, user_id, author_user_id, author_via, author_label, author_token_id, author_oauth_client_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
-    .run(deckId, kind, JSON.stringify(stored), reason.trim(), authorOf(actor), deckId == null ? null : requireDeck(db, actor, deckId).revision, actor.user_id, actor.user_id, actor.via, actor.label, actor.token_id ?? null);
+    .run(deckId, kind, JSON.stringify(stored), reason.trim(), authorOf(actor), deckId == null ? null : requireDeck(db, actor, deckId).revision, actor.user_id, actor.user_id, actor.via, actor.label, actor.token_id ?? null, actor.oauth_client_id ?? null);
   if (kind === "power_target") recordActivity(db, actor, "propose_power_target", deckId, `Proposed power target edit #${r.lastInsertRowid}: ${reason}`);
   return { applied: false, edit_id: Number(r.lastInsertRowid) };
 }
@@ -235,6 +236,7 @@ interface EditRow {
   author_label: string;
   author_display?: string;
   author_token_id: number | null;
+  author_oauth_client_id: string | null;
   status: "pending" | "accepted" | "rejected";
   created_at: string;
   base_revision: number | null;
@@ -244,7 +246,7 @@ interface EditRow {
 }
 
 const EDIT_SELECT = `SELECT e.id, e.deck_id, d.name AS deck_name, e.kind, e.payload_json, e.reason,
-       e.author, e.author_user_id, e.author_via, e.author_label, e.author_token_id, e.status, e.created_at, e.base_revision, e.disposition, e.superseded_by, e.group_id
+       e.author, e.author_user_id, e.author_via, e.author_label, e.author_token_id, e.author_oauth_client_id, e.status, e.created_at, e.base_revision, e.disposition, e.superseded_by, e.group_id
   FROM document_edits e LEFT JOIN decks d ON d.id = e.deck_id`;
 
 function toView(db: Database, actor: Actor, row: EditRow, includeGroup = true): DocumentEditView {

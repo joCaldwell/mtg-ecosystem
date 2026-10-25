@@ -47,7 +47,7 @@ function running() {
 
 async function portResponds(timeoutMs = 500) {
   try {
-    const res = await fetch(`${URL}/api/decks`, {
+    const res = await fetch(`${URL}/api/health`, {
       signal: AbortSignal.timeout(timeoutMs),
     });
     return res.ok;
@@ -202,7 +202,7 @@ async function status() {
     return;
   }
   try {
-    const decks = await (await fetch(`${URL}/api/decks`)).json();
+    const decks = await (await fetch(`${URL}/api/health`)).json();
     console.log(`decks    : ${decks.length}`);
     for (const d of decks) console.log(`  #${d.id} ${d.name} — ${d.card_count}/100 (${d.color_identity || "no commander"})`);
   } catch {

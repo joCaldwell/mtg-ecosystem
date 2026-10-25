@@ -617,8 +617,9 @@ The api-key plugin is omitted: existing `agent_tokens` satisfies D7. Local
 mode exposes no OAuth endpoints.
 
 OAuth tokens are verified against this issuer’s JWKS, signature, expiry and
-the exact `<public-origin>/mcp` audience; another resource’s token is 401.
-Subjects map through `users.auth_id`; the OAuth client name is the agent
+the `at+jwt` type and exact `<public-origin>/mcp` audience; another resource’s token is 401.
+This Bearer endpoint rejects DPoP-bound tokens rather than discarding their
+proof requirement. Subjects map through `users.auth_id`; the OAuth client name is the agent
 label. Deleted identities and disconnected grants cannot use MCP. Both
 credential kinds yield the same agent Actor and capability checks. Consent
 identifies the client and the single application scope `deck-builder`;
@@ -637,7 +638,8 @@ development uses non-Secure cookies for the documented Discord callback.
 In-memory sliding-window limits apply by unauthenticated IP, UI principal
 and MCP credential, with stricter auth/search/compare limits. Rejection is
 429 with Retry-After. Unreadable targets stay 404; 403 is reserved for
-forbidden actions on readable targets. A URL suffix (`/mcp/claude-code`) is an attribution hint only:
+forbidden actions on readable targets. A local URL suffix (`/mcp/claude-code`) is an attribution hint only; hosted
+labels come from the stored token or registered OAuth client name:
 it never changes the principal or token ownership and cannot impersonate UI.
 
 Use the official MCP TypeScript SDK v2: the same stateless handler supports
@@ -989,6 +991,7 @@ export type Actor = {
   via: "ui" | "agent";
   label: string;              // "ui" or agent attribution label
   token_id?: number;          // authenticated personal token, when present
+  oauth_client_id?: string;   // authenticated OAuth client, when present
 };
 ```
 
@@ -1101,10 +1104,8 @@ Phase 2 plugs its session resolver into
 mode keeps `localActor()`; hosted mode replaces the current `null` with the
 session’s principal. OAuth access-token verification goes beside
 `verifyToken(db, secret, now?): Actor | null` in `tokens.ts`; `mcp/http.ts`
-passes the verified Actor through the SDK’s `authInfo.extra.actor`. It inherits per-user data and streams, with no
-login, sessions, Better Auth, visibility, public pages or renames in Phase 1.
-Hosted signup will be invite-gated (D14); the invite table and UI arrive with
-Phase 2 account creation, not in this identity-only phase.
+passes the verified Actor through the SDK’s `authInfo.extra.actor`. Phase 2
+implements these seams; visibility, public pages and renames remain later work.
 
 
 Phase 1 review follow-up: the permission suite discovers `src/**/*.ts` exports
@@ -1155,3 +1156,55 @@ Admins have a Settings card for jobs/enqueue, invite creation/listing, user
 count and database size. Invites are random and single-use. UI/admin guards
 live in the capability layer. No impersonation. Public deck visibility,
 profiles, suggestions, path routing and renames remain later phases.
+
+### 17.6 Phase 2 implementation choices
+
+- Pinned `better-auth`, `@better-auth/core`, `@better-auth/mcp`,
+  `@better-auth/cimd` and `@better-auth/oauth-provider` at **1.7.13**;
+  `jose` at **6.2.3** verifies access tokens. No api-key plugin or native
+  SQLite dependency. The official built-in driver supports our connection.
+  `scripts/auth-schema.ts` is the reproducible in-memory CLI input;
+  `src/migrations/auth-v12.sql` is its unmodified generated SQL.
+- A random browser registration ticket stores only a hash of the invite or
+  claim code. Provisioning runs in the social user-create **before** hook,
+  inside Better Auth's transaction, with an explicitly generated auth ID.
+  Provider access/refresh/ID tokens are encrypted with BETTER_AUTH_SECRET;
+  implicit provider-account linking is disabled. The after-commit hook logs
+  successful claims once. Invalid/reused tickets
+  cannot leave a principal behind. Existing accounts need no ticket.
+- CIMD registers **the connecting client's** metadata document (e.g. Claude
+  Code's document at claude.ai), with DCR as fallback. Deck builder is the
+  authorization/resource server, not an outbound OAuth client: it publishes
+  resource/AS metadata, rather than inventing a client document with a
+  nonfunctional callback. The real Claude Code flow verifies this choice.
+- The documented CIMD Node transport pins the first DNS result, which can
+  be unreachable IPv6. Our MIT-attributed adaptation uses the same public
+  address policy, checks every DNS answer, resolves once and pins one
+  IPv4-preferred answer, preserving Host/SNI/TLS and refusing redirects.
+  There is no fallback to unpinned fetch.
+- Hosted handlers buffer bounded request bodies before reserving the shared
+  connection, so slow uploads cannot block readers. They serialize database work, releasing
+  after MCP dispatch rather than holding the queue for an open network
+  stream. Scheduler failure persistence uses the same database reservation.
+  Limits remain single-instance in-memory windows. The local
+  handler stays unchanged. The launcher probes public health rather than
+  the now-authenticated roster to determine readiness.
+- OAuth identity and label come from subject/client metadata, and draft
+  amendments bind to `author_oauth_client_id`. Hosted personal labels use
+  the stored token label; local URL attribution hints preserve existing
+  configs. Consent and a live enabled client are rechecked for JWT usage,
+  so deleting a grant disconnects an otherwise unexpired signed token.
+- Lifecycle inventories group composite foreign keys as a single relation.
+  Matching columns separately would leak/delete rows for another user who
+  uses the same card. Global tables are explicitly listed; unknown tables
+  fail closed. Auth verification payloads are searched for the identity
+  when deleting codes/state, and omitted from export.
+- Railway's native healthcheck Host differs from the public domain. The
+  binding single-origin rule is preserved: it returns 403 until Phase 3
+  arranges a trusted healthcheck Host rewrite (see OPERATIONS). Public
+  health through the configured origin works without credentials.
+
+Existing runtime validation dependencies also receive compatible security
+patches: Zod's minimum is 4.6.7, and the lockfile selects fast-uri 3.1.9.
+These address the published constrained-collection resource-exhaustion and
+URI-normalization advisories without changing the tool contract.
