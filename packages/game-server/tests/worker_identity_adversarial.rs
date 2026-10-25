@@ -40,6 +40,7 @@ fn expected(catalog: &Catalog, config: &MatchConfig) -> WorkerIdentity {
     WorkerIdentity {
         match_id: "a1".into(),
         engine_build_id: mtg_core::BUILD_ID.into(),
+        server_build_id: mtg_server::SERVER_BUILD_ID.to_string(),
         catalog_sha256: digest(catalog).unwrap(),
         profile_sha256: Prepared::admit_pod(catalog.clone(), config.clone())
             .unwrap()
@@ -152,7 +153,7 @@ fn identical_config_copied_under_a_different_registered_match_id_rejects() {
 #[test]
 fn every_required_binding_and_canonical_hash_encoding_is_checked() {
     let expected = expected(&catalog(), &MatchConfig::foundations([41; 32], PlayerId(2)));
-    for index in 0..3 {
+    for index in 0..4 {
         for malformed in [
             String::new(),
             "0".repeat(63),
@@ -165,7 +166,8 @@ fn every_required_binding_and_canonical_hash_encoding_is_checked() {
             match index {
                 0 => actual.engine_build_id = malformed,
                 1 => actual.catalog_sha256 = malformed,
-                _ => actual.profile_sha256 = malformed,
+                2 => actual.profile_sha256 = malformed,
+                _ => actual.server_build_id = malformed,
             }
             assert!(verify_identity(&expected, &actual).is_err());
             assert!(verify_identity(&actual, &expected).is_err());
@@ -175,9 +177,46 @@ fn every_required_binding_and_canonical_hash_encoding_is_checked() {
         match index {
             0 => actual.engine_build_id = "0".repeat(64),
             1 => actual.catalog_sha256 = "0".repeat(64),
-            _ => actual.profile_sha256 = "0".repeat(64),
+            2 => actual.profile_sha256 = "0".repeat(64),
+            _ => actual.server_build_id = "0".repeat(64),
         }
         assert_ne!(actual, expected);
         assert!(verify_identity(&expected, &actual).is_err());
     }
+}
+
+#[test]
+fn changed_server_identity_rejects_recovery_before_opening_database() {
+    let catalog = catalog();
+    let config = MatchConfig::foundations([41; 32], PlayerId(2));
+    let directory = Directory::new();
+    let worker =
+        Worker::create(&directory.0, catalog.clone(), config, "a1", Instant::now()).unwrap();
+    let expected = worker.identity().clone();
+    assert_eq!(expected.server_build_id, *mtg_server::SERVER_BUILD_ID);
+    let mut different_host = expected.clone();
+    different_host.server_build_id = "0".repeat(64);
+    assert!(verify_identity(&expected, &different_host).is_err());
+    drop(worker);
+    let path = directory.0.join("bootstrap.json");
+    let original = std::fs::read(&path).unwrap();
+    let mut bootstrap: serde_json::Value = serde_json::from_slice(&original).unwrap();
+    bootstrap["server_build_id"] = "0".repeat(64).into();
+    std::fs::write(&path, mtg_contracts::canonical(&bootstrap).unwrap()).unwrap();
+    let database_before = std::fs::read(directory.0.join("match.sqlite3")).unwrap();
+    let error = Worker::recover(&directory.0, catalog.clone(), "a1", Instant::now())
+        .err()
+        .unwrap();
+    assert_eq!(error, "worker bootstrap identity mismatch");
+    assert_eq!(
+        database_before,
+        std::fs::read(directory.0.join("match.sqlite3")).unwrap()
+    );
+    std::fs::write(path, original).unwrap();
+    assert_eq!(
+        Worker::recover(&directory.0, catalog, "a1", Instant::now())
+            .unwrap()
+            .identity(),
+        &expected
+    );
 }

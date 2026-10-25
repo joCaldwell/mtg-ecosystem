@@ -18,5 +18,8 @@ subtle = "=2.6.1"
 axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio", "json", "query"] }
 tokio = { version = "=1.53.3", default-features = false, features = ["rt-multi-thread", "macros", "net", "io-util", "process", "sync", "time", "signal"] }
 
+[build-dependencies]
+sha2.workspace = true
+
 [lints]
 workspace = true

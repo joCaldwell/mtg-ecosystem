@@ -29,6 +29,7 @@ pub struct RegistryMetadata {
     pub registry_version: u32,
     pub match_id: String,
     pub engine_build_id: String,
+    pub server_build_id: String,
     pub catalog_sha256: String,
     pub config_sha256: String,
     pub rules_sha256: String,
@@ -271,6 +272,7 @@ fn validate_metadata(
     if metadata.registry_version != VERSION
         || metadata.match_id != id
         || metadata.engine_build_id != mtg_core::BUILD_ID
+        || metadata.server_build_id != *crate::SERVER_BUILD_ID
         || metadata.catalog_sha256 != digest(catalog)?
         || metadata.config_sha256 != digest(config)?
         || metadata.rules_sha256 != catalog.rules_sha256
@@ -552,6 +554,7 @@ impl MatchRegistry {
             registry_version: VERSION,
             match_id: id.into(),
             engine_build_id: mtg_core::BUILD_ID.into(),
+            server_build_id: crate::SERVER_BUILD_ID.to_string(),
             catalog_sha256: digest(catalog)?,
             config_sha256: digest(config)?,
             rules_sha256: catalog.rules_sha256.clone(),

@@ -9,7 +9,7 @@ const catalog=JSON.parse(fs.readFileSync(new URL('../../../game-engine/tests/fix
 const definition=name=>{const d=catalog.definitions.find(row=>row.name===name);assert(d);return d;};
 const commander=definition('Isamaru, Hound of Konda'), plains=definition('Plains');
 const deck={commander:commander.oracle_id,cards:['Isamaru, Hound of Konda','Yoked Ox','Samite Healer','Sacred Nectar','Healing Hands','Healing Salve','Plains'].map(name=>({oracle_id:definition(name).oracle_id,count:name==='Plains'?94:1}))};
-const manifest=()=>({protocol_version:1,match_id:'abc',engine_build_id:'b'.repeat(64),catalog_sha256:'fc4bd3390e63ea352e129ac370fa848dbee11cf0700e7e6781d449fd49244a7f',profile:'commander-foundations-v1',decks:Array.from({length:4},()=>structuredClone(deck)),starting_player:0,catalog:structuredClone(catalog)});
+const manifest=()=>({protocol_version:1,match_id:'abc',engine_build_id:'b'.repeat(64),server_build_id:'c'.repeat(64),catalog_sha256:'fc4bd3390e63ea352e129ac370fa848dbee11cf0700e7e6781d449fd49244a7f',profile:'commander-foundations-v1',decks:Array.from({length:4},()=>structuredClone(deck)),starting_player:0,catalog:structuredClone(catalog)});
 const object=(name,handle,zone,extra={})=>({oracle_id:definition(name).oracle_id,handle,owner:0,controller:0,zone,tapped:false,attack_ready:true,marked_damage:'0',characteristics:structuredClone(definition(name).characteristics),...extra});
 const land=(handle,zone={zone:'battlefield'},extra={})=>object('Plains',handle,zone,extra);
 const dog=(zone={zone:'command',owner:0},extra={})=>object('Isamaru, Hound of Konda','commander-handle',zone,extra);

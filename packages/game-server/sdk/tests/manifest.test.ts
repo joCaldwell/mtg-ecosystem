@@ -17,7 +17,7 @@ const deck = {
   cards: ['Isamaru, Hound of Konda', 'Yoked Ox', 'Samite Healer', 'Sacred Nectar', 'Healing Hands', 'Healing Salve', 'Plains'].map(name => ({ oracle_id: oracle(name), count: name === 'Plains' ? 94 : 1 })),
 };
 const fixture = () => ({
-  protocol_version: 1, match_id: 'abc', engine_build_id: 'b'.repeat(64),
+  protocol_version: 1, match_id: 'abc', engine_build_id: 'b'.repeat(64), server_build_id: 'c'.repeat(64),
   catalog_sha256: 'fc4bd3390e63ea352e129ac370fa848dbee11cf0700e7e6781d449fd49244a7f',
   profile: 'commander-foundations-v1', decks: Array.from({ length: 4 }, () => structuredClone(deck)),
   starting_player: 0, catalog: structuredClone(catalog),

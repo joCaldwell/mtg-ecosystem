@@ -79,6 +79,7 @@ pub fn verify_identity(
     };
     if !crate::worker::valid_match_id(&expected.match_id)
         || !hash(&expected.engine_build_id)
+        || !hash(&expected.server_build_id)
         || !hash(&expected.catalog_sha256)
         || !hash(&expected.profile_sha256)
         || actual != expected
@@ -538,6 +539,7 @@ mod tests {
             identity: ipc::WorkerIdentity {
                 match_id: "a1".into(),
                 engine_build_id: "a".repeat(64),
+                server_build_id: "b".repeat(64),
                 catalog_sha256: "b".repeat(64),
                 profile_sha256: "c".repeat(64),
             },
