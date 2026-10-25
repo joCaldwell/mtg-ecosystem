@@ -48,6 +48,8 @@ import {
   reviseMemory,
 } from "../memory.ts";
 import { SearchError, search } from "../search/index.ts";
+import { sharedCounts, slugFrom } from "../sharing.ts";
+import { publicDeckState } from "../state.ts";
 import { playerStats } from "../stats.ts";
 import { PLAYBOOK } from "./playbook.ts";
 import {
@@ -59,6 +61,7 @@ import {
   renderCompare,
   renderDeck,
   renderPower,
+  renderPublicDeck,
   renderMemories,
   renderScope,
   renderStats,
@@ -117,10 +120,39 @@ function deckId(db: Database, actor: Actor, ref: number | string, forWrite = fal
   }
   const named = listDecks(db, actor).filter((d) => d.name.toLowerCase() === text.toLowerCase());
   if (named.length === 1) return named[0].id;
+  const slug = slugFrom(text);
+  if (slug) {
+    const own = db.prepare("SELECT id FROM decks WHERE slug = ? AND user_id = ?").get(slug, actor.user_id) as { id: number } | undefined;
+    if (own) return own.id;
+    throw new ServiceError(`"${ref}" is a link to a shared deck. Only get_deck, compare_decks (as other) and fork_deck read shared decks; it cannot be changed here.`, 404);
+  }
   throw new ServiceError(`There is no deck named "${ref}". The decks are:\n${rosterLines(listDecks(db, actor))}`, 404);
 }
 
+/** A deck by any reference, or another user's shared deck by its slug or link (§18.7). */
+function deckOrShared(db: Database, actor: Actor, ref: number | string): number | { slug: string } {
+  try {
+    return deckId(db, actor, ref);
+  } catch (e) {
+    const slug = typeof ref === "string" ? slugFrom(ref) : null;
+    if (slug && e instanceof ServiceError && e.status === 404) return { slug };
+    throw e;
+  }
+}
+
+const sharedRef = z
+  .union([z.number().int(), z.string()])
+  .describe(
+    'A deck: its id, its exact name, "focus", or a shared deck\'s link (/d/<slug>) or slug.',
+  );
+
 const done = (text: string): ToolResult => ({ text, changed: true });
+
+/** §18.7: how many decks anyone with a link can read. Only the owner changes it, in the app. */
+function sharingLine(counts: { public: number; unlisted: number }): string {
+  return `\nShared: ${counts.public} public (listed on the owner's profile), ${counts.unlisted} unlisted (anyone with the link); the rest are private. ` +
+    "Viewers see the list, brief, checks and power, never memories or proposals. Only the owner changes who can see a deck.";
+}
 
 const documentChange = z.object({
   kind: z.enum(["profile", "thesis", "constraints", "engine_set", "engine_remove", "power_target"]),
@@ -204,7 +236,7 @@ export const TOOLS: ToolDef[] = [
             ? `\n(The profile is ${profile.word_count} words, over its soft cap. Suggest tightening it.)`
             : ""),
         `# Your global memories\n${renderScope(loadScope(db, actor, "global"), "global")}`,
-        `# Decks\n${rosterLines(listDecks(db, actor))}`,
+        `# Decks\n${rosterLines(listDecks(db, actor))}${sharingLine(sharedCounts(db, actor))}`,
         `# Focus\n${
           focus
             ? `The owner has deck ${focus.deck_id} "${focus.deck_name}" open` +
@@ -241,9 +273,10 @@ export const TOOLS: ToolDef[] = [
       "One deck in full: its brief, the list grouped by slot with oracle text, the maybe list, the app's " +
       "computed counts, check results, the memories for this deck, what is awaiting the owner's ruling, " +
       "and recent rulings. Read a deck before discussing or changing it. To re-read cheaply after a " +
-      "change, pass only the sections you need, or card_text: false for names without oracle text.",
+      "change, pass only the sections you need, or card_text: false for names without oracle text. " +
+      "Given another user's shared deck link or slug, returns what its viewers see, read-only.",
     input: {
-      deck: deckRef,
+      deck: sharedRef,
       sections: z
         .array(z.enum(DECK_SECTIONS))
         .optional()
@@ -253,7 +286,12 @@ export const TOOLS: ToolDef[] = [
         .optional()
         .describe("Include each card's oracle text (default true)."),
     },
-    run: ({ db, actor }, a) => renderDeck(db, actor, deckId(db, actor, a.deck), a.sections ?? DECK_SECTIONS, a.card_text ?? true),
+    run: ({ db, actor }, a) => {
+      const ref = deckOrShared(db, actor, a.deck);
+      return typeof ref === "number"
+        ? renderDeck(db, actor, ref, a.sections ?? DECK_SECTIONS, a.card_text ?? true)
+        : renderPublicDeck(publicDeckState(db, actor, ref.slug), a.sections ?? DECK_SECTIONS, a.card_text ?? true);
+    },
   },
   {
     name: "propose_power_target",
@@ -352,13 +390,13 @@ export const TOOLS: ToolDef[] = [
     description:
       "The cards only in one deck, only in the other, and how many they share. With one deck named, " +
       "compares a fork against the deck it was forked from. Use it to see how a fork has diverged, or how " +
-      "two of the owner's decks overlap.",
+      "two of the owner's decks overlap. other may be another user's shared deck, by link or slug.",
     input: {
       deck: deckRef,
-      other: deckRef.optional().describe("The deck to compare against. Omit to use the first deck's parent."),
+      other: sharedRef.optional().describe("The deck to compare against: one of the owner's, or a shared deck's link. Omit to use the first deck's parent."),
     },
     run: ({ db, actor }, a) =>
-      renderCompare(compareDecks(db, actor, deckId(db, actor, a.deck), a.other === undefined ? undefined : deckId(db, actor, a.other))),
+      renderCompare(compareDecks(db, actor, deckId(db, actor, a.deck), a.other === undefined ? undefined : deckOrShared(db, actor, a.other))),
   },
   {
     name: "search_cards",
@@ -632,11 +670,22 @@ export const TOOLS: ToolDef[] = [
     description:
       "Copy a deck — its list, slots, tags, maybe list, brief and deck memories — into a new Theorycrafted deck that " +
       "records where it came from. Use it when the owner wants to make big changes to a deck but keep the " +
-      "original. The original is untouched; compare_decks shows how the two diverge.",
-    input: { deck: deckRef, name: z.string().describe("The new deck's name.") },
+      "original. The original is untouched; compare_decks shows how the two diverge. " +
+      "Another user's shared deck (its link or slug) forks too, without its memories, rulings or power records.",
+    input: { deck: sharedRef, name: z.string().describe("The new deck's name.") },
     run: ({ db, actor }, a) => {
-      const parent = deckId(db, actor, a.deck, true);
-      const id = forkDeck(db, actor, parent, a.name);
+      const source = deckOrShared(db, actor, a.deck);
+      const id = forkDeck(db, actor, typeof source === "number" ? requireDeckOwner(db, actor, source).id : source, a.name);
+      const from = requireDeck(db, actor, id);
+      if (typeof source !== "number" && from.parent_owner_handle) {
+        recordActivity(db, actor, "fork_deck", id, `Forked ${from.parent_owner_handle}/${from.parent_name} as "${a.name}"`);
+        return done(
+          `Forked ${from.parent_owner_handle}'s shared deck "${from.parent_name}" into your Theorycrafted deck ${id} "${a.name.trim()}". ` +
+            `It copied the list, slots, tags, brief and engines; it has none of the original's memories, rulings or power records. ` +
+            `Edit its cards with edit_cards.\n${afterWrite(db, actor, id)}`,
+        );
+      }
+      const parent = from.parent_id!;
       recordActivity(db, actor, "fork_deck", id, `Forked "${requireDeck(db, actor, parent).name}" as "${a.name}"`);
       return done(
         `Forked into Theorycrafted deck ${id} "${a.name.trim()}". Edit its cards with edit_cards.\n` +

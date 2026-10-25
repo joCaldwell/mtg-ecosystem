@@ -12,8 +12,15 @@ export type Actor = {
 };
 export type DeckRole = "owner" | "viewer" | "suggester";
 
+/** Only public reads accept a null viewer (§18.6); anything else refuses it
+ * as an unauthenticated request rather than failing on the missing principal. */
+export function requireActor(actor: Actor | null): asserts actor is Actor {
+  if (!actor) throw new ServiceError("Sign in is required", 401);
+}
+
 /** Retained compact author field; structured attribution is authoritative. */
 export function authorOf(actor: Actor): string {
+  requireActor(actor);
   return actor.via === "ui" ? "owner" : actor.label;
 }
 
@@ -22,21 +29,22 @@ export class PermissionError extends AppError {
 }
 
 export function requireSelf(actor: Actor, userId: number): void {
-  if (actor.user_id !== userId) throw new ServiceError("Account record not found", 404);
+  if (!actor || actor.user_id !== userId) throw new ServiceError("Account record not found", 404);
 }
 
 export function isDeckOwner(db: Database, actor: Actor, deckId: number): boolean {
-  return !!db.prepare("SELECT 1 FROM decks WHERE id = ? AND user_id = ?").get(deckId, actor.user_id);
+  return !!actor && !!db.prepare("SELECT 1 FROM decks WHERE id = ? AND user_id = ?").get(deckId, actor.user_id);
 }
 
 export function requireDeckOwner(db: Database, actor: Actor, deckId: number, what = "change this deck"): DeckRow {
   const deck = db.prepare("SELECT * FROM decks WHERE id = ?").get(deckId) as DeckRow | undefined;
-  if (!deck || deck.user_id !== actor.user_id) throw new ServiceError(`There is no deck ${deckId}. List the decks to see which ids exist.`, 404);
+  if (!deck || !actor || deck.user_id !== actor.user_id) throw new ServiceError(`There is no deck ${deckId}. List the decks to see which ids exist.`, 404);
   return { ...deck, role: "owner" };
 }
 
 /** Human-only actions preserve the Paper approval gate for owner-agents. */
 export function requireUi(actor: Actor, what: string): void {
+  requireActor(actor);
   if (actor.via !== "ui")
     throw new PermissionError(`Only the owner can ${what}. Ask them to do it in the app.`);
 }

@@ -1,4 +1,4 @@
-import { displayAuthor } from "../actor.ts";
+import { displayAuthor, requireActor } from "../actor.ts";
 import { requireDeck } from "./service.ts";
 // The rulings log (spec §8.2): the deck's version history and the record of
 // what the owner decided and why. Every act lands here through writeLog —
@@ -7,7 +7,7 @@ import { requireDeck } from "./service.ts";
 
 import type { Database } from "../sqlite.ts";
 import { ServiceError } from "../errors.ts";
-import { type Actor, authorOf, requireSelf, isDeckOwner, requireDeckOwner } from "../actor.ts";
+import { type Actor, authorOf, requireSelf, isDeckOwner, requireDeckOwner, requireUi } from "../actor.ts";
 
 export type LogKind = "accept" | "reject" | "edit" | "import" | "undo";
 
@@ -130,12 +130,14 @@ export interface LogEntry {
   undone_by: number | null;
   reviewed_at: string | null;
   ts: string;
+  /** Left off the public page's decisions log by the owner (§18.2). */
+  hidden: number;
   cards: LogCard[];
 }
 
 const ENTRY_SELECT = `SELECT l.id, l.deck_id, (d.category = 'legacy') AS read_only, d.name AS deck_name, l.revision, l.kind, l.summary,
        l.ruling_reason, l.proposal_id, l.document_edit_id, l.author, l.author_user_id, l.author_via, l.author_label, l.undo_of, l.undone_by,
-       l.reviewed_at, l.ts
+       l.reviewed_at, l.ts, l.hidden
   FROM log l LEFT JOIN decks d ON d.id = l.deck_id`;
 
 function withCards(db: Database, actor: Actor, rows: Array<Omit<LogEntry, "cards">>): LogEntry[] {
@@ -177,7 +179,20 @@ export function listLog(db: Database, actor: Actor, query: LogQuery = {}): LogEn
   return withCards(db, actor, rows);
 }
 
+/** Hide one entry from the public decisions log, or show it again (§18.2).
+ * The owner's, in the app; the entry itself and its undo are untouched. */
+export function hideLogEntry(db: Database, actor: Actor, logId: number, hidden: boolean): LogEntry {
+  const entry = getLogEntry(db, actor, logId)!;
+  if (entry.deck_id == null) throw new ServiceError(`Log entry ${logId} is not about a deck`, 404);
+  requireDeckOwner(db, actor, entry.deck_id, "change what this deck publishes");
+  requireUi(actor, "change what a deck publishes");
+  if (typeof hidden !== "boolean") throw new ServiceError("hidden must be true or false");
+  db.prepare("UPDATE log SET hidden = ? WHERE id = ? AND user_id = ?").run(hidden ? 1 : 0, logId, actor.user_id);
+  return getLogEntry(db, actor, logId)!;
+}
+
 export function getLogEntry(db: Database, actor: Actor, logId: number): LogEntry | null {
+  requireActor(actor);
   const row = db.prepare(`${ENTRY_SELECT} WHERE l.id = ? AND l.user_id = ?`).get(logId, actor.user_id) as
     | Omit<LogEntry, "cards">
     | undefined;
@@ -287,6 +302,7 @@ export function markReviewed(
   db: Database, actor: Actor,
   which: { ids?: number[]; through?: number },
 ): number {
+  requireActor(actor);
   if (which.through != null) {
     if (which.through === 0) return 0;
     const entry = db.prepare("SELECT deck_id FROM log WHERE id = ? AND user_id = ?").get(which.through, actor.user_id) as { deck_id: number | null } | undefined;

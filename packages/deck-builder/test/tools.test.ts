@@ -18,6 +18,7 @@ import { getProfile, listDocumentEdits, setProfile } from "../src/documents.ts";
 import { setFocus } from "../src/focus.ts";
 import { listMemories, remember, setBudgets } from "../src/memory.ts";
 import { PLAYBOOK } from "../src/mcp/playbook.ts";
+import { setVisibility } from "../src/sharing.ts";
 import { TOOLS, callTool } from "../src/mcp/tools.ts";
 import { AGENT, add, newDeck, testDb } from "./helpers.ts";
 
@@ -477,5 +478,41 @@ describe("statistics and export", () => {
     assert.match(text(db, "player_stats"), /computed from 1 Paper deck\(s\)/);
     assert.match(text(db, "player_stats"), /By exact identity: U ×1/);
     assert.match(text(db, "export_deck", { deck: id }), /2 card\(s\) at revision 2:\n\n1 Teferi, Temporal Archmage \[Commander\]\n1 Counterspell \[Unslotted\]/);
+  });
+});
+
+describe("shared decks (spec §18.7)", () => {
+  const second = { user_id: 2, via: "agent" as const, label: "second-agent" };
+  function sharedSetup() {
+    const db = testDb();
+    db.exec("INSERT INTO users(id,handle,display_name) VALUES (2,'second','Second')");
+    const id = seeded(db, "paper");
+    remember(db, AGENT, { text: "The owner hates [[Sol Ring]].", scope: "deck", deck_id: id });
+    const { slug } = setVisibility(db, OWNER, id, "unlisted");
+    return { db, id, slug: slug! };
+  }
+  test("start_session states how many decks are shared and who controls it", () => {
+    const { db } = sharedSetup();
+    assert.match(text(db, "start_session"), /\nShared: 0 public \(listed on the owner's profile\), 1 unlisted \(anyone with the link\); the rest are private\. Viewers see the list, brief, checks and power, never memories or proposals\. Only the owner changes who can see a deck\./);
+    assert.match(PLAYBOOK, /## Shared decks and forks\n- A deck can be private \(the default\), unlisted \(anyone with its link\) or public/);
+    assert.match(PLAYBOOK, /you cannot change who sees a deck/);
+  });
+  test("get_deck on another user's link is the read-only public rendering", () => {
+    const { db, slug } = sharedSetup();
+    const out = callTool({ db, actor: second }, "get_deck", { deck: `https://example.test/d/${slug}` }).text;
+    assert.match(out, new RegExp(`^# Shared deck ${slug} "Teferi paper \\w+" — lifecycle paper · identity U · 2/100 cards\nPublic deck owned by owner; read-only\\. Nothing here can be changed\\. To build on it, fork it with fork_deck \\(deck: "${slug}"\\)`));
+    assert.match(out, /Memories and proposals belong to the deck's owner and are never shared\./);
+    assert.ok(!out.includes("hates"), "memories stay private");
+    assert.match(TOOLS.find(t => t.name === "get_deck")!.description, /Given another user's shared deck link or slug, returns what its viewers see, read-only\.$/);
+  });
+  test("compare_decks and fork_deck take a link; other tools say which tools read shared decks", () => {
+    const { db, slug } = sharedSetup();
+    const out = callTool({ db, actor: second }, "fork_deck", { deck: `/d/${slug}`, name: "Second copy" }).text;
+    assert.match(out, /^Forked owner's shared deck "Teferi paper \w+" into your Theorycrafted deck \d+ "Second copy"\. It copied the list, slots, tags, brief and engines; it has none of the original's memories, rulings or power records\./);
+    const forkId = Number(out.match(/Theorycrafted deck (\d+)/)![1]);
+    assert.match(callTool({ db, actor: second }, "compare_decks", { deck: forkId }).text, new RegExp(`compared with owner's shared deck ${slug} "Teferi paper \\w+" \\(2 cards\\) — its parent`));
+    assert.throws(() => callTool({ db, actor: second }, "rename_deck", { deck: slug, name: "Taken" }),
+      (e: Error) => /is a link to a shared deck\. Only get_deck, compare_decks \(as other\) and fork_deck read shared decks; it cannot be changed here\./.test(e.message));
+    assert.match(TOOLS.find(t => t.name === "fork_deck")!.description, /Another user's shared deck \(its link or slug\) forks too, without its memories, rulings or power records\.$/);
   });
 });

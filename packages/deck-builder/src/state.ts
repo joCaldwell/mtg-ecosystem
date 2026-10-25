@@ -6,9 +6,9 @@ import type { Database } from "./sqlite.ts";
 import { getPower } from "./deck/power.ts";
 import { getBrief } from "./deck/brief.ts";
 import { checkDeck } from "./deck/checks.ts";
-import { listLog } from "./deck/log.ts";
+import { type LogCard, type LogEntry, listLog } from "./deck/log.ts";
 import { listProposals } from "./deck/proposals.ts";
-import { getDeck } from "./deck/service.ts";
+import { getDeck, requireViewableDeck } from "./deck/service.ts";
 import { listDocumentEdits } from "./documents.ts";
 import { loadScope } from "./memory.ts";
 
@@ -28,3 +28,77 @@ export function deckState(db: Database, actor: Actor, deckId: number) {
 }
 
 export type DeckState = ReturnType<typeof deckState>;
+
+// ---------- what a viewer sees (spec §18.3, plan §4 PublicDeckState) ----------
+
+/** Who did something, as a viewer may know it: never which agent. */
+export type PublicActor = "owner" | "agent";
+
+export interface PublicDecision {
+  kind: LogEntry["kind"];
+  summary: string;
+  /** The owner's own reason for the ruling; empty when none was given. */
+  reason: string;
+  by: PublicActor;
+  at: string;
+  cards: Array<{ oracle_id: string; card_name: string; action: LogCard["action"]; quantity: number }>;
+}
+
+/** A deck as anyone its visibility admits may read it. Built field by field
+ * from an allow-list; nothing private is copied and then trimmed. */
+export function publicDeckState(db: Database, viewer: Actor | null, slug: string) {
+  const row = requireViewableDeck(db, viewer, slug);
+  // The owner's read functions, read-only, for the owner's own deck; only the
+  // projection below leaves this function.
+  const reader: Actor = { user_id: row.user_id, via: "ui", label: "ui" };
+  const view = getDeck(db, reader, row.id);
+  const brief = getBrief(db, reader, row.id);
+  const power = getPower(db, reader, row.id);
+  const owner = db.prepare("SELECT handle, display_name FROM users WHERE id = ?").get(row.user_id) as { handle: string; display_name: string };
+  // Computed as if nothing were pending, so proposals leave no trace.
+  const computed = { ...view.computed, pending: { adds: 0, cuts: 0, projected_count: view.computed.card_count, by_slot: {} as Record<number, number> } };
+  const ownAssessment = power.history.find(a => a.author_via === "ui" && a.author_user_id === row.user_id) ?? null;
+  const log = row.publish_decisions
+    ? listLog(db, reader, { deckId: row.id, limit: 200 }).filter(e => !e.hidden).slice(0, 100)
+    : null;
+  return {
+    deck: {
+      name: view.deck.name,
+      slug: row.slug!,
+      owner: { handle: owner.handle, display_name: owner.display_name },
+      commander: view.cards.filter(c => c.role === "commander" && !c.maybe).map(c => c.name),
+      color_identity: view.deck.color_identity,
+      category: view.deck.category,
+      visibility: row.visibility,
+      parent: view.deck.upstream,
+    },
+    cards: view.cards.map(c => ({ ...c, maybe_note: "" })),
+    slots: view.slots,
+    tags: view.tags,
+    brief: { thesis: brief.thesis, constraints_md: brief.constraints_md },
+    engines: brief.engines.map(e => ({ name: e.name, description: e.description, pieces: e.pieces.map(p => ({ oracle_id: p.oracle_id, name: p.name, note: p.note, in_deck: p.in_deck })) })),
+    checks: checkDeck(db, reader, row.id),
+    power: {
+      target: power.target ? { profile: power.target.profile, game_changers_max: power.target.game_changers_max, notes: power.target.notes, mapping: power.target.mapping } : null,
+      latest_owner_assessment: ownAssessment ? {
+        profile: ownAssessment.profile, evidence: ownAssessment.evidence, confidence: ownAssessment.confidence,
+        notes: ownAssessment.notes, mapping: ownAssessment.mapping, stale: ownAssessment.stale, created_at: ownAssessment.created_at,
+      } : null,
+    },
+    price: {
+      total_cents: view.computed.cost.usd_cents,
+      currency: "USD" as const,
+      store: "tcgplayer" as const,
+      unpriced: view.computed.cost.unpriced,
+      as_of: view.computed.cost.as_of,
+      source: "Scryfall" as const,
+    },
+    ...(log ? { decisions: log.map((e): PublicDecision => ({
+      kind: e.kind, summary: e.summary, reason: e.ruling_reason, by: e.author_via === "ui" ? "owner" : "agent", at: e.ts,
+      cards: e.cards.map(c => ({ oracle_id: c.oracle_id, card_name: c.card_name, action: c.action, quantity: c.quantity })),
+    })) } : {}),
+    computed,
+  };
+}
+
+export type PublicDeckState = ReturnType<typeof publicDeckState>;

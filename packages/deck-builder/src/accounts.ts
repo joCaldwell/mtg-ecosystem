@@ -128,6 +128,11 @@ export function deleteAccount(db: Database, actor: Actor, handle: string): void 
         db.prepare(`UPDATE ${quote(table)} SET ${quote(column)}=0${extra} WHERE ${quote(column)}=?`).run(actor.user_id);
       }
     }
+    // Other users' forks keep their lineage (§18.4), but no longer name the
+    // deleted handle; their link already answers 404.
+    db.prepare(`UPDATE decks SET parent_owner_handle='deleted_account'
+      WHERE user_id!=? AND parent_owner_handle IS NOT NULL
+        AND (parent_owner_handle=? COLLATE NOCASE OR parent_id IN (SELECT id FROM decks WHERE user_id=?))`).run(actor.user_id, info.handle, actor.user_id);
     // Remove referencing rows before parents, handling self references through
     // deferred FK checking inside this transaction. Never disable FK checks.
     db.exec("PRAGMA defer_foreign_keys=ON");

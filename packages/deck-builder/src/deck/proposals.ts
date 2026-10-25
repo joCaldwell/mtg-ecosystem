@@ -1,5 +1,5 @@
 import { priceResolver, type ResolvedPrice } from "../prices.ts";
-import { displayAuthor } from "../actor.ts";
+import { displayAuthor, requireActor } from "../actor.ts";
 import { requireDeckOwner } from "../actor.ts";
 // Proposals and rulings (spec §8). On a Paper deck an agent changes
 // membership only by proposing; the owner rules per item, per group, or on
@@ -237,6 +237,7 @@ export function listProposals(
 }
 
 export function getProposal(db: Database, actor: Actor, proposalId: number, forWrite = false): ProposalView | null {
+  requireActor(actor);
   const row = db.prepare(`${PROPOSAL_SELECT} WHERE p.id = ? AND d.user_id = ?`).get(proposalId, actor.user_id) as
     | Omit<ProposalView, "items">
     | undefined;
@@ -364,6 +365,8 @@ export function acceptItems(
 export function acceptProposals(
   db: Database, actor: Actor, deckId: number,
   approvals: Array<{ proposal_id: number; acknowledge_stale?: boolean }>, expectedRevision: number,
+  /** The owner's optional reason, recorded on each acceptance (§11.2). */
+  reason = "",
 ): void {
   requireEditableDeck(db, actor, deckId);
   requireUi(actor, "rule on proposals");
@@ -380,7 +383,7 @@ export function acceptProposals(
       if (!ids.length) throw new ServiceError("Proposal has no pending items", 409);
       return ids;
     });
-    for (const ids of pending) acceptItems(db, actor, ids, "", {
+    for (const ids of pending) acceptItems(db, actor, ids, reason, {
       expected_revision: requireDeck(db, actor, deckId).revision,
       // All original bases were checked above, within this transaction. Only
       // this batch can have advanced the revision since that check.

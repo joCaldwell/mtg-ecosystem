@@ -43,6 +43,38 @@ import { requireDeck } from "./service.ts";
 // Category syntax rechecked 2026-10-17:
 // https://archidekt.com/forum/thread/6024990/1
 // https://archidekt.com/forum/thread/3223199
+//
+// ---------------------------------------------------------------------------
+// MOXFIELD — import only (spec §12), verified 2026-10-25 against Moxfield's
+// help center and 72 real exports (12 public Commander decks × every button
+// of the deck page's Export dialog; fixtures in test/fixtures/moxfield/):
+//
+//  * Line syntax, from Moxfield's "Creating decks" help article
+//    (https://moxfield.com/help/creating-decks, updated 2026-06-16): "The
+//    format to list them is: AMOUNT CARDNAME (SETCODE) NUMBER *F*. The set
+//    code, collector number and foil indicator (*F*) are optional." Its
+//    "Adding cards" article (https://moxfield.com/help/adding-cards) adds
+//    tags: "1 Lightning Bolt (A25) *F* #OneDrop #!Removal".
+//  * What the exporter writes: *F* for foil and *E* for etched; set codes of
+//    3–5 characters (PLST, P30M); collector numbers that are not plain
+//    digits (1492★, 1F★, 2018A, 259p, CSP-105, 2023-8); multi-face names with
+//    ONE slash, "Wear / Tear" ("Copy for Moxfield") or "Wear/Tear" ("Copy for
+//    MTGO"), where Scryfall writes "Wear // Tear".
+//  * Boards other than the main deck follow a blank line under an upper-case
+//    header with a colon: SIDEBOARD:, ATTRACTIONS:, STICKERS:. The
+//    companion is an unmarked line under SIDEBOARD:. The maybeboard
+//    ("Considering") is never exported.
+//  * The commander: "Copy for MTGO", "Download for MTGO" and "Copy Plain
+//    Text" put it in a final block after a blank line, with no header (all
+//    12 decks). "Copy for Moxfield" lists it first with no marker at all, so
+//    it cannot be told from the deck; we do not guess (the alphabetical-order
+//    break that would hint at it is wrong for 2 of the 12 decks), and the
+//    preview says so. "Copy for Arena" uses About / Name / Companion /
+//    Commander / Deck / Sideboard headings and drops cards Arena lacks.
+//
+// Moxfield publishes no import grammar beyond the help text, and its API is
+// not public; nothing here fetches from Moxfield.
+// ---------------------------------------------------------------------------
 
 import type { Database } from "../sqlite.ts";
 import { ServiceError } from "../errors.ts";
@@ -50,6 +82,7 @@ import { type Actor, requireUi } from "../actor.ts";
 import { type CardRow, CardResolutionError, type ResolutionFailure, tryResolveCard } from "../cards.ts";
 import { type Change, applyChanges } from "./membership.ts";
 import { type Role, getDeck, shortlistCard } from "./service.ts";
+import { publicDeckState } from "../state.ts";
 
 // Categories we emit for cards that aren't in a user slot. "Commander" is
 // Archidekt's own command-zone category name.
@@ -65,6 +98,9 @@ const MAYBEBOARD_CATEGORY = "Maybeboard";
 // preview reports every card it sets aside this way rather than doing it
 // silently.
 const OUTSIDE_CATEGORIES = new Set(["maybeboard", "sideboard"]);
+// Moxfield boards that are separate decks in their own right, not cards for
+// the 100 nor candidates for it. Listed in the preview and left out.
+const IGNORED_CATEGORY = "Not part of the deck";
 
 export interface ExportOptions {
   // Emit [Category] tags derived from slots / role. Off = bare "QTY Name".
@@ -88,7 +124,21 @@ export function exportDeck(
   opts: ExportOptions = {},
 ): ExportResult {
   requireDeck(db, actor, deckId);
-  const { deck, slots, cards } = getDeck(db, actor, deckId);
+  const view = getDeck(db, actor, deckId);
+  return { ...exportLines(view, opts), revision: view.deck.revision };
+}
+
+/** A shared deck's list as Archidekt text, for anyone who can read it (§18.5).
+ * Built from the public projection, so it carries nothing the page does not. */
+export function exportPublicDeck(db: Database, viewer: Actor | null, slug: string, opts: Pick<ExportOptions, "categories" | "includeMaybe"> = {}): Omit<ExportResult, "revision"> & { name: string } {
+  const shared = publicDeckState(db, viewer, slug);
+  return { name: shared.deck.name, ...exportLines(shared, opts) };
+}
+
+function exportLines(
+  { slots, cards }: { slots: Array<{ id: number; name: string }>; cards: Array<{ oracle_id: string; name: string; quantity: number; role: Role; maybe: number; slot_id: number | null }> },
+  opts: ExportOptions,
+): Omit<ExportResult, "revision"> {
   const slotName = new Map(slots.map((s) => [s.id, s.name]));
   const selected = opts.oracleIds === undefined ? null : new Set(opts.oracleIds);
 
@@ -128,7 +178,6 @@ export function exportDeck(
     text: lines.join("\n") + (lines.length ? "\n" : ""),
     card_count: rows.reduce((n, r) => n + r.card.quantity, 0),
     line_count: lines.length,
-    revision: deck.revision,
   };
 }
 
@@ -148,18 +197,22 @@ export interface ParseResult {
   // Lines we could not read as a card at all (as opposed to names that simply
   // don't resolve — those come back from the diff, with suggestions).
   unparsed: Array<{ line_no: number; raw: string }>;
+  // Lines under a board that is not part of a Commander deck (Moxfield's
+  // ATTRACTIONS:, STICKERS:), left out and reported.
+  ignored: Array<{ line_no: number; name: string; section: string }>;
+  /** What the text says about where it came from, for the preview's notes. */
+  notes: string[];
 }
 
-// Whole-line section headers Archidekt and other exporters emit, and the
-// category each one gives the lines beneath it (null: the deck itself). None
-// of these are Magic card names, so reading them as headers cannot swallow a
-// real card.
+// Whole-line section headers Archidekt, Moxfield and other exporters emit,
+// and the category each gives the lines beneath it (null: the deck itself).
+// None of these are Magic card names, so reading them as headers cannot
+// swallow a real card.
 const SECTIONS = new Map<string, string | null>([
   ["deck", null],
   ["decklist", null],
   ["main", null],
   ["mainboard", null],
-  ["about", null],
   ["token", null],
   ["tokens", null],
   ["commander", COMMANDER_CATEGORY],
@@ -167,34 +220,74 @@ const SECTIONS = new Map<string, string | null>([
   ["companion", COMPANION_CATEGORY],
   ["sideboard", SIDEBOARD_CATEGORY],
   ["maybeboard", MAYBEBOARD_CATEGORY],
+  // Moxfield's name for its maybeboard.
+  ["considering", MAYBEBOARD_CATEGORY],
+  ["attractions", IGNORED_CATEGORY],
+  ["stickers", IGNORED_CATEGORY],
+  ["contraptions", IGNORED_CATEGORY],
 ]);
+// Arena's "About" block names the deck ("Name Tom Bombadil + Jegantha"); its
+// lines are not cards.
+const ABOUT = "about";
 const SECTION_HEADER = /^([A-Za-z]+)\s*:?\s*$/;
+// Moxfield's board headers: upper case with a colon. A board ends at the next
+// blank line, after which an unlabelled block is the command zone.
+const BOARD_HEADER = /^[A-Z]+:$/;
 // "Creatures (24)" style count headers — documented to break the importer,
 // so they turn up in lists people hand-edit.
 const COUNT_HEADER = /^([A-Za-z][A-Za-z '\/-]*?)\s*\(\d+\)\s*$/;
+// "(SET) NUMBER": 2–6 character set codes, collector numbers with letters,
+// stars and dashes as Moxfield writes them (259p, 1492★, CSP-105).
+const PRINTING = /\s*\([0-9A-Za-z_]{2,6}\)(\s+[0-9A-Za-z][0-9A-Za-z★†-]*)?\s*$/;
 
-export function parseArchidektList(text: string): ParseResult {
+export function parseDeckList(text: string): ParseResult {
   const entries: ParsedLine[] = [];
   const unparsed: Array<{ line_no: number; raw: string }> = [];
+  const ignored: ParseResult["ignored"] = [];
   // The category of the header the current line sits under. It holds until
-  // the next header, not the next blank line.
+  // the next header, not the next blank line — except a Moxfield board, which
+  // a blank line ends.
   let section: string | null = null;
+  let skipping = false;
+  let board = false;
+  let explicitCommandZone = false;
+  let wordHeaders = false;
+  // Blocks are runs of lines between blank lines; the last one may be
+  // Moxfield's unlabelled command zone.
+  let block = 0;
+  let blockLabelled = false;
+  const blocks: Array<{ labelled: boolean; entries: ParsedLine[] }> = [];
+  let printed = 0;
 
   text.split(/\r?\n/).forEach((raw, i) => {
     const lineNo = i + 1;
     let line = raw.trim();
-    if (!line) return;
-    if (line.startsWith("//") || line.startsWith("#")) return;
-    const header = line.match(SECTION_HEADER);
-    if (header && SECTIONS.has(header[1].toLowerCase())) {
-      section = SECTIONS.get(header[1].toLowerCase()) ?? null;
+    if (!line) {
+      if (blocks[block]?.entries.length || blockLabelled) { block++; blockLabelled = false; }
+      if (board) { section = null; board = false; }
       return;
     }
+    if (line.startsWith("//") || line.startsWith("#")) return;
+    const header = line.match(SECTION_HEADER);
+    const key = header?.[1].toLowerCase();
+    if (header && (SECTIONS.has(key!) || key === ABOUT)) {
+      skipping = key === ABOUT;
+      section = skipping ? null : SECTIONS.get(key!) ?? null;
+      board = BOARD_HEADER.test(line);
+      if (!board) wordHeaders = true;
+      if (section === COMMANDER_CATEGORY) explicitCommandZone = true;
+      blockLabelled = true;
+      return;
+    }
+    if (skipping) return;
     // A count header we don't know ("Creatures (24)") is a grouping inside
     // the deck, so it ends a Commander or Maybeboard section.
     const counted = line.match(COUNT_HEADER);
     if (counted) {
       section = SECTIONS.get(counted[1].toLowerCase()) ?? null;
+      wordHeaders = true;
+      if (section === COMMANDER_CATEGORY) explicitCommandZone = true;
+      blockLabelled = true;
       return;
     }
     const implied = section ? [section] : [];
@@ -241,10 +334,21 @@ export function parseArchidektList(text: string): ParseResult {
         if (c) categories.unshift(c);
         line = line.slice(0, backtick.index).trimEnd();
       }
+      // Moxfield tags: #Tag (this deck) and #!Tag (every deck). Like an
+      // Archidekt category, a tag naming one of the deck's slots files it.
+      const tag = line.match(/\s+#!?([^\s#]+)\s*$/);
+      if (tag) {
+        categories.unshift(tag[1]);
+        line = line.slice(0, tag.index).trimEnd();
+      }
       // *F*, *E*, *F**E*
       line = line.replace(/(\s*\*[A-Za-z]\*)+\s*$/, "");
       // (set) optionally followed by a collector number
-      line = line.replace(/\s*\([0-9A-Za-z_]{2,6}\)(\s+[0-9]+[a-z★]?)?\s*$/, "");
+      const print = line.match(PRINTING);
+      if (print) {
+        printed++;
+        line = line.slice(0, print.index).trimEnd();
+      }
       if (line === before) break;
     }
 
@@ -255,10 +359,51 @@ export function parseArchidektList(text: string): ParseResult {
     }
     for (const c of implied)
       if (!categories.some((own) => own.toLowerCase() === c.toLowerCase())) categories.push(c);
-    entries.push({ line_no: lineNo, raw, quantity, name, categories });
+    if (categories.includes(IGNORED_CATEGORY)) {
+      ignored.push({ line_no: lineNo, name, section: header?.[1] ?? sectionName(text, lineNo) });
+      return;
+    }
+    const entry = { line_no: lineNo, raw, quantity, name, categories };
+    entries.push(entry);
+    blocks[block] ??= { labelled: blockLabelled, entries: [] };
+    blocks[block].entries.push(entry);
   });
 
-  return { entries, unparsed };
+  // Moxfield's MTGO and plain-text exports end with the command zone: one or
+  // two lines in a final block of their own, after a blank line, under no
+  // header. Only when nothing else in the text names a command zone and the
+  // list uses no word headers, which is how Archidekt marks it.
+  const filled = blocks.filter(Boolean);
+  const last = filled.at(-1);
+  if (!explicitCommandZone && !wordHeaders && last && filled.length > 1 && !last.labelled && last.entries.length <= 2)
+    for (const entry of last.entries) {
+      entry.categories = entry.categories.filter((c) => !OUTSIDE_CATEGORIES.has(c.toLowerCase()));
+      entry.categories.unshift(COMMANDER_CATEGORY);
+    }
+
+  const notes: string[] = [];
+  if (entries.length && printed >= entries.length * 0.9 && !explicitCommandZone && !entries.some((e) => e.categories.includes(COMMANDER_CATEGORY)))
+    notes.push(
+      "This looks like Moxfield's “Copy for Moxfield” export, which does not mark the commander. " +
+        "Set the commander after importing, or paste Moxfield's “Copy Plain Text” export instead: it lists the commander last.",
+    );
+  if (ignored.length)
+    notes.push(`${ignored.length} line${ignored.length === 1 ? " is" : "s are"} on a board that is not part of a Commander deck (attractions, stickers or contraptions) and ${ignored.length === 1 ? "is" : "are"} left out.`);
+  return { entries, unparsed, ignored, notes };
+}
+
+/** The header a line sits under, for reporting ignored lines. */
+function sectionName(text: string, lineNo: number): string {
+  const lines = text.split(/\r?\n/).slice(0, lineNo - 1).reverse();
+  return lines.find((l) => BOARD_HEADER.test(l.trim()) || SECTION_HEADER.test(l.trim()))?.trim().replace(/:$/, "") ?? "";
+}
+
+/** A name as written, then as Moxfield's one-slash multi-face form (§12). */
+function resolveListed(db: Database, name: string) {
+  const hit = tryResolveCard(db, name);
+  if (!("problem" in hit) || !name.includes("/") || name.includes("//")) return hit;
+  const faces = tryResolveCard(db, name.split(/\s*\/\s*/).join(" // "));
+  return "problem" in faces ? hit : faces;
 }
 
 // ---------- diff ----------
@@ -298,13 +443,15 @@ export interface ImportDiff {
   // Lines in a Maybeboard or Sideboard category or section: shortlisted, not added.
   set_aside: Array<{ oracle_id: string; name: string; category: string }>;
   unparsed: Array<{ line_no: number; raw: string }>;
+  ignored: ParseResult["ignored"];
+  notes: string[];
   revision: number;
 }
 
 export function diffImport(db: Database, actor: Actor, deckId: number, text: string): ImportDiff {
   requireDeck(db, actor, deckId);
   const { deck, slots, cards } = getDeck(db, actor, deckId);
-  const { entries, unparsed } = parseArchidektList(text);
+  const { entries, unparsed, ignored, notes } = parseDeckList(text);
 
   const slotByName = new Map(slots.map((s) => [s.name.toLowerCase(), s]));
   // The maybe list is not the deck: a pasted card that is only shortlisted
@@ -321,7 +468,7 @@ export function diffImport(db: Database, actor: Actor, deckId: number, text: str
   const pasted = new Map<string, { name: string; quantity: number; categories: string[] }>();
 
   for (const entry of entries) {
-    const hit = tryResolveCard(db, entry.name);
+    const hit = resolveListed(db, entry.name);
     if ("problem" in hit) {
       const failure = hit as ResolutionFailure;
       if (failure.problem === "ambiguous")
@@ -440,6 +587,8 @@ export function diffImport(db: Database, actor: Actor, deckId: number, text: str
     ambiguous,
     set_aside: [...setAside.values()].filter((c) => !pasted.has(c.oracle_id)),
     unparsed,
+    ignored,
+    notes,
     revision: deck.revision,
   };
 }

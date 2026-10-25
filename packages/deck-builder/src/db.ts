@@ -9,7 +9,7 @@ export const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const DATA_DIR = resolve(process.env.DECKBUILDER_DATA ?? join(PKG_ROOT, "data"));
 export const DEFAULT_DB_PATH = resolve(process.env.DECKBUILDER_DB ?? join(DATA_DIR, "deck-builder.db"));
 
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 
 const SCHEMA = `
 -- Explicit physical evidence survives deck membership, forks and deletion.
@@ -494,6 +494,22 @@ const MIGRATIONS: Array<{ version: number; up: (db: Database) => void }> = [
       DROP TABLE card_prices_usd;
       CREATE INDEX idx_card_prices_currency ON card_prices(currency,store,cents);`);
   } },
+  { version: 14, up(db) {
+    // Sharing (spec §18, v3 D8). SQLite refuses UNIQUE on ADD COLUMN
+    // (https://www.sqlite.org/lang_altertable.html#alter_table_add_column),
+    // so the slug's uniqueness is a unique index; NULLs never collide.
+    // Added by presence, like the steps above, so a rerun is harmless.
+    addColumn(db, "decks", "visibility", "TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('private','unlisted','public'))");
+    addColumn(db, "decks", "slug", "TEXT");
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_decks_slug ON decks(slug)");
+    addColumn(db, "decks", "publish_decisions", "INTEGER NOT NULL DEFAULT 0 CHECK (publish_decisions IN (0, 1))");
+    addColumn(db, "decks", "accept_suggestions", "INTEGER NOT NULL DEFAULT 0 CHECK (accept_suggestions IN (0, 1))");
+    // Lineage of a cross-owner fork, snapshotted so it outlives the parent (§18.4).
+    for (const column of ["parent_owner_handle", "parent_slug", "parent_name"]) addColumn(db, "decks", column, "TEXT");
+    addColumn(db, "log", "hidden", "INTEGER NOT NULL DEFAULT 0 CHECK (hidden IN (0, 1))");
+    // The art crop's credit (D10). NULL until the next refresh supplies it.
+    addColumn(db, "cards", "artist", "TEXT");
+  } },
 ];
 
 function removeDeckStatus(db: Database) {
@@ -671,7 +687,7 @@ function assertOurs(db: Database, path: string) {
   } catch {
     /* no meta table at all */
   }
-  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5" || found === "6" || found === "7" || found === "8" || found === "9" || found === "10" || found === "11" || found === "12") return found;
+  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5" || found === "6" || found === "7" || found === "8" || found === "9" || found === "10" || found === "11" || found === "12" || found === "13") return found;
   throw new SchemaError(
     `${path} is not a database this version of the deck builder can open ` +
       `(it reports schema ${found ?? "unknown"}; this version uses ${SCHEMA_VERSION}). ` +

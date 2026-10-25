@@ -22,9 +22,11 @@ const schema=readFileSync(new URL("./schema/v10.sql",import.meta.url),"utf8");
 function v10(path:string) {const db=new Database(path,{timeout:5000});db.exec(schema);return db;}
 const master=(db:Database)=>db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name").all();
 
-test("frozen main v10 schema migrates to the same sqlite_master as a fresh v13; historical human/system authors render honestly",()=>{
+test("frozen main v10 schema migrates to the same sqlite_master as a fresh v14; historical human/system authors render honestly",()=>{
   const dir=mkdtempSync(join(tmpdir(),"frozen-v10-")),path=join(dir,"old.db"),old=v10(path);
   try {
+    // Today's ingest writes v13's card credit; v13 adds the column by presence.
+    old.exec("ALTER TABLE cards ADD COLUMN artist TEXT");
     ingestCards(old,FIXTURES);
     old.exec(`INSERT INTO decks(id,name,category) VALUES (7,'Previous deck','paper');
       UPDATE sqlite_sequence SET seq=100 WHERE name='decks';
@@ -88,7 +90,7 @@ test("concurrent openers wait for the writer, re-read version under BEGIN IMMEDI
     assert.ok(children.every(c=>c.child.exitCode===null),"both openers must wait rather than fail while a writer holds the lock");
     parent.exec("COMMIT");released=true;
     await Promise.all(children.map(c=>c.done));
-    for(const c of children)assert.deepEqual(c.result(),{value:"13"});
+    for(const c of children)assert.deepEqual(c.result(),{value:"14"});
     const check=openDb(path);try {assert.equal(check.prepare("SELECT count(*) n FROM users").get()!.n,1);assert.deepEqual(check.prepare("PRAGMA foreign_key_check").all(),[]);}finally{check.close();}
   } finally {
     if(!released)parent.exec("ROLLBACK");parent.close();

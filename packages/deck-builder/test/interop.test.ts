@@ -11,7 +11,7 @@ import {
   diffImport,
   exportDeck,
   fillFromList,
-  parseArchidektList,
+  parseDeckList,
 } from "../src/deck/interop.ts";
 import { AGENT, add, newDeck, testDb } from "./helpers.ts";
 
@@ -104,7 +104,7 @@ describe("Archidekt export (spec §12)", () => {
 
 describe("Archidekt list parsing (verified format superset)", () => {
   test("accepts the full round-trip template: 1x Name (code) *F* [Category] ^Label,#hex^", () => {
-    const { entries } = parseArchidektList("1x Sol Ring (cmm) 405 *F* [Ramp,Artifact] ^Buy,#000000^");
+    const { entries } = parseDeckList("1x Sol Ring (cmm) 405 *F* [Ramp,Artifact] ^Buy,#000000^");
     assert.equal(entries.length, 1);
     assert.equal(entries[0].quantity, 1);
     assert.equal(entries[0].name, "Sol Ring");
@@ -112,7 +112,7 @@ describe("Archidekt list parsing (verified format superset)", () => {
   });
 
   test("accepts bare MTGO style, backtick categories, and a missing quantity", () => {
-    const { entries } = parseArchidektList(
+    const { entries } = parseDeckList(
       ["2 Counterspell", "1 Sol Ring `Maybeboard`", "Tarmogoyf"].join("\n"),
     );
     assert.deepEqual(
@@ -126,7 +126,7 @@ describe("Archidekt list parsing (verified format superset)", () => {
   });
 
   test("skips comments, section headers and count headers; reads SB: as the sideboard", () => {
-    const { entries, unparsed } = parseArchidektList(
+    const { entries, unparsed } = parseDeckList(
       [
         "// exported from Archidekt",
         "Commander",
@@ -150,7 +150,7 @@ describe("Archidekt list parsing (verified format superset)", () => {
 
   test("a section header is the category of every line beneath it, until the next header", () => {
     // The shape of Archidekt's plain text export: no [Category] on any line.
-    const { entries } = parseArchidektList(
+    const { entries } = parseDeckList(
       [
         "Commander",
         "1 Teferi, Temporal Archmage",
@@ -179,7 +179,7 @@ describe("Archidekt list parsing (verified format superset)", () => {
   });
 
   test("a count header names its section too, and an unknown one returns to the deck", () => {
-    const { entries } = parseArchidektList(
+    const { entries } = parseDeckList(
       ["Maybeboard (1)", "1 Ball Lightning", "Creatures (1)", "1 Tarmogoyf"].join("\n"),
     );
     assert.deepEqual(
@@ -192,13 +192,13 @@ describe("Archidekt list parsing (verified format superset)", () => {
   });
 
   test("split-card names survive the metadata stripping", () => {
-    const { entries } = parseArchidektList("1 Witch Enchanter // Witch-Blessed Meadow [Lands]");
+    const { entries } = parseDeckList("1 Witch Enchanter // Witch-Blessed Meadow [Lands]");
     assert.equal(entries[0].name, "Witch Enchanter // Witch-Blessed Meadow");
     assert.deepEqual(entries[0].categories, ["Lands"]);
   });
 
   test("category modifiers are stripped rather than guessed at", () => {
-    const { entries } = parseArchidektList("1 Sol Ring [Commander{top}]");
+    const { entries } = parseDeckList("1 Sol Ring [Commander{top}]");
     assert.deepEqual(entries[0].categories, ["Commander"]);
   });
 });

@@ -36,7 +36,7 @@ export function card(over: Partial<DeckCard> & { name?: string } = {}): DeckCard
     commander_legality: "legal",
     is_commander: 0,
     cents: null, currency: "USD", store: "tcgplayer", as_of: null, source: "Scryfall",
-    image_small: null, image_normal: null, image_art_crop: null, retired: 0,
+    image_small: null, image_normal: null, image_art_crop: null, artist: null, retired: 0,
     slot_id: null,
     secondary_slot_ids: [],
     role: "card",
@@ -124,6 +124,7 @@ export function proposal(items: ProposalItem[], over: Partial<Proposal> = {}): P
 export function logEntry(over: Partial<LogEntry> = {}): LogEntry {
   return {
     read_only: false,
+    hidden: 0,
     id: id(),
     deck_id: 1,
     deck_name: "Test Deck",
@@ -275,6 +276,10 @@ export function deckState(
       name: "Test Deck",
       category: "theorycrafted",
       parent: null,
+      upstream: null,
+      visibility: "private",
+      slug: null,
+      publish_decisions: false,
       ci_mask: null,
       color_identity: "",
       revision: 1,

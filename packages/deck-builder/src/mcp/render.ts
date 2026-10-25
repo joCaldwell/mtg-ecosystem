@@ -6,7 +6,8 @@ import type { Actor } from "../actor.ts";
 import type { Database } from "../sqlite.ts";
 import type { CardRow, ResolutionFailure } from "../cards.ts";
 import type { ActivityEntry } from "../activity.ts";
-import { getPower, profileLines, targetText } from "../deck/power.ts";
+import { type BracketMapping, getPower, profileLines, targetText } from "../deck/power.ts";
+import type { PublicDeckState } from "../state.ts";
 import { getBrief } from "../deck/brief.ts";
 import { type Finding, checkDeck } from "../deck/checks.ts";
 import type { DeckComparison } from "../deck/fork.ts";
@@ -160,6 +161,8 @@ function header(view: DeckView): string {
     `${view.computed.card_count}/100 cards`,
   ];
   if (d.parent) bits.push(`forked from deck ${d.parent.id} "${d.parent.name}"`);
+  else if (d.upstream) bits.push(`forked from ${d.upstream.owner_handle}/${d.upstream.name} (shared deck ${d.upstream.slug})`);
+  if (d.visibility !== "private") bits.push(`${d.visibility}, link /d/${d.slug}`);
   const rule = d.category === "legacy"
     ? "Legacy: read-only. View, export or fork it; only the owner can restore it."
     : (d.category === "paper"
@@ -168,7 +171,7 @@ function header(view: DeckView): string {
   return `# Deck ${d.id} "${d.name}" — ${bits.join(" · ")}\n${rule}\n${priceSourceLine(view.computed.cost)}`;
 }
 
-export function stateLines(view: DeckView): string {
+export function stateLines(view: Pick<DeckView, "slots" | "computed">): string {
   const c = view.computed;
   const lines = [
     `- Cards: ${c.card_count}/100 (${countPhrase(c)})`,
@@ -240,7 +243,7 @@ export function afterWrite(db: Database, actor: Actor, deckId: number): string {
     .join("\n");
 }
 
-function listSection(view: DeckView, withText: boolean): string {
+function listSection(view: Pick<DeckView, "cards" | "slots" | "tags" | "computed">, withText: boolean): string {
   const tagName = new Map(view.tags.map((t) => [t.id, t.name]));
   const slotName = new Map(view.slots.map(s => [s.id, s.name]));
   const line = (c: DeckCardView) => {
@@ -403,6 +406,60 @@ export function renderDeck(
   return out.join("\n\n");
 }
 
+/** A shared deck as its viewers may read it (spec §18.7): PublicDeckState only. */
+export function renderPublicDeck(shared: PublicDeckState, sections: readonly DeckSection[] = DECK_SECTIONS, withText = true): string {
+  const d = shared.deck;
+  const want = new Set(sections);
+  const bits = [
+    `lifecycle ${d.category}`,
+    `identity ${d.color_identity || "none yet (no commander)"}`,
+    `${shared.computed.card_count}/100 cards`,
+  ];
+  if (d.parent) bits.push(`forked from ${d.parent.owner_handle}/${d.parent.name}`);
+  const out = [
+    `# Shared deck ${d.slug} "${d.name}" — ${bits.join(" · ")}\n` +
+      `Public deck owned by ${d.owner.handle}; read-only. Nothing here can be changed. To build on it, fork it with fork_deck (deck: "${d.slug}"); ` +
+      `the fork is the principal's own Theorycrafted deck and starts without memories or rulings. compare_decks takes it as other.`,
+  ];
+  if (want.has("brief")) {
+    const engines = shared.engines.map((e) =>
+      `- ${e.name}: ${e.description || "(no description)"}\n  pieces: ${e.pieces.map((p) => `${p.name}${p.in_deck ? "" : " (NOT in the deck)"}${p.note ? ` — ${p.note}` : ""}`).join("; ") || "(none listed)"}`);
+    out.push(`## Brief (the owner's document)\n### Thesis\n${shared.brief.thesis || "(not written yet)"}\n### Constraints\n${shared.brief.constraints_md || "(none recorded)"}\n### Engines\n${engines.join("\n") || "(none defined)"}`);
+  }
+  if (want.has("power")) {
+    const p = shared.power;
+    const mapping = (m: BracketMapping) => `Suggested bracket: ${m.bracket == null ? "Undetermined" : `${m.bracket} — ${m.name}`}${m.provisional ? " (provisional)" : ""}`;
+    out.push([
+      "## Power — target and the owner's assessment",
+      "### Target",
+      p.target ? `${profileLines(p.target.profile).join("\n")}\nGame Changers: ${p.target.game_changers_max == null ? "No limit set" : `at most ${p.target.game_changers_max}`}${p.target.notes ? `\n${p.target.notes}` : ""}\n${mapping(p.target.mapping)}` : "Not set.",
+      "### The owner's latest assessment",
+      p.latest_owner_assessment
+        ? `${p.latest_owner_assessment.confidence}, evidence: ${p.latest_owner_assessment.evidence}${p.latest_owner_assessment.stale ? " — the list has changed since" : ""}\n${profileLines(p.latest_owner_assessment.profile).join("\n")}\nReasoning: ${p.latest_owner_assessment.notes}\n${mapping(p.latest_owner_assessment.mapping)}`
+        : "Not assessed by the owner.",
+    ].join("\n"));
+  }
+  if (want.has("list")) out.push(listSection(shared, withText));
+  if (want.has("maybe")) {
+    const maybe = shared.cards.filter((c) => c.maybe);
+    if (maybe.length) out.push(`## Maybe list (${maybe.length}; outside the 100)\n${maybe.map((c) => cardLine(c, { text: withText })).join("\n")}`);
+  }
+  if (want.has("state")) {
+    const price = shared.price.as_of
+      ? `- Estimated cost: ${formatUsd(shared.price.total_cents)} at the cheapest printing of each card (${shared.price.source} prices, ${shared.price.store}, ${shared.price.as_of.slice(0, 10)})${shared.price.unpriced ? `; ${shared.price.unpriced} card(s) have no price and are not counted` : ""}`
+      : null;
+    out.push(`## Computed state (the app's counts; do not recount)\n${stateLines({ ...shared, computed: { ...shared.computed, cost: { ...shared.computed.cost, as_of: null } } })}${price ? `\n${price}` : ""}`);
+  }
+  if (want.has("checks")) out.push(`## Checks\n${findingLines(shared.checks)}`);
+  if (want.has("rulings"))
+    out.push(`## The owner's published decisions (newest first)\n${shared.decisions
+      ? shared.decisions.slice(0, 15).map((e) => `- ${e.at.slice(0, 10)} ${e.kind} by the ${e.by}: ${e.summary}${e.reason ? ` — reason: ${e.reason}` : ""}`).join("\n") || "(none)"
+      : "(the owner has not published this deck's decisions)"}`);
+  if (want.has("memories") || want.has("proposals"))
+    out.push("Memories and proposals belong to the deck's owner and are never shared.");
+  return out.join("\n\n");
+}
+
 export function renderPower(power: ReturnType<typeof getPower>): string {
   const mapping = (m: ReturnType<typeof getPower>["history"][number]["mapping"]) => [
     `Suggested bracket: ${m.bracket == null ? "Undetermined" : `${m.bracket} — ${m.name}`}${m.provisional ? " (provisional)" : ""}`,
@@ -438,6 +495,7 @@ export function rosterLines(decks: DeckSummary[]): string {
         `lifecycle ${d.category}`,
       ];
       if (d.parent_name) bits.push(`fork of "${d.parent_name}"`);
+      if (d.visibility !== "private") bits.push(d.visibility);
       const waiting = d.pending_items + d.pending_document_edits;
       if (waiting) bits.push(`${waiting} awaiting ruling`);
       return `- deck ${d.id} "${d.name}" — ${bits.join(" · ")}`;
@@ -464,10 +522,12 @@ export function renderCompare(d: DeckComparison): string {
     list
       .map((c) => `- ${c.quantity > 1 ? `${c.quantity}x ` : ""}${c.name}${c.mana_cost ? ` ${c.mana_cost}` : ""} — ${c.type_line}${c.role !== "card" ? ` (${c.role})` : ""}`)
       .join("\n") || "(none)";
+  const other = d.b.id != null
+    ? `deck ${d.b.id} "${d.b.name}" (rev ${d.b.revision}, ${d.b.card_count} cards)`
+    : `${d.b.owner_handle}'s shared deck ${d.b.slug} "${d.b.name}" (${d.b.card_count} cards)`;
   const out = [
     `# Deck ${d.a.id} "${d.a.name}" (rev ${d.a.revision}, ${d.a.card_count} cards) compared with ` +
-      `deck ${d.b.id} "${d.b.name}" (rev ${d.b.revision}, ${d.b.card_count} cards)` +
-      (d.b_is_parent ? " — its parent" : ""),
+      other + (d.b_is_parent ? " — its parent" : ""),
     `${d.shared_count} cards are in both. Maybe lists are not compared.`,
     `## Only in "${d.a.name}" (${d.only_in_a.length})\n${cards(d.only_in_a)}`,
     `## Only in "${d.b.name}" (${d.only_in_b.length})\n${cards(d.only_in_b)}`,

@@ -63,6 +63,8 @@ for(const file of [...globSync("**/*.ts",{cwd:sourceRoot})].sort()) {
   }
 }
 const notFound = (error: any) => error.status === 404;
+/** A deterministic 10-character base62 slug per fixture deck. */
+const slugOf = (t: { id: number }) => `S${String(t.id).padStart(9, "0")}`;
 type Classification = "read" | "write" | "owner-only" | "suggest" | "public-read";
 type Target = { id: number; ui: Actor; ag: Actor; slot: number; tag: number; engine: number; memory: number; proposal: number; item: number; edit: number; log: number; session: ReturnType<typeof playtest.startPlaytest>; category: decks.DeckCategory; token: number };
 type Fixture = ReturnType<typeof fixture>;
@@ -146,9 +148,18 @@ scoped("deckState", "read", (db,a,t) => state.deckState(db,a,t.id));
 scoped("search", "read", (db,a,t) => search.search(db,a,"t:land",{deckId:t.id}));
 scoped("recordActivity", "write", (db,a,t) => activity.recordActivity(db,a,"matrix",t.id,"Visible write"), {archived:true});
 
+// Sharing (§18). Visibility and publishing are the owner's, in the app; the
+// slug-addressed reads are classified public-read and get their own matrix below.
+scoped("setVisibility","owner-only",(db,a,t)=>functions.setVisibility(db,a,t.id,"unlisted"),{agentBlocked:"all",archived:true});
+scoped("setPublishDecisions","owner-only",(db,a,t)=>functions.setPublishDecisions(db,a,t.id,true),{agentBlocked:"all",archived:true});
+scoped("hideLogEntry","owner-only",(db,a,t)=>log.hideLogEntry(db,a,t.log,true),{agentBlocked:"all",archived:true});
+scoped("sharingOf","read",(db,a,t)=>functions.sharingOf(db,a,t.id),{archived:true});
+scoped("requireViewableDeck","public-read",(db,a,t)=>decks.requireViewableDeck(db,a,slugOf(t)),{archived:true});
+scoped("publicDeckState","public-read",(db,a,t)=>state.publicDeckState(db,a,slugOf(t)),{archived:true});
+scoped("exportPublicDeck","public-read",(db,a,t)=>interop.exportPublicDeck(db,a,slugOf(t)),{archived:true});
 scoped("renderDeck","read",(db,a,t)=>functions.renderDeck(db,a,t.id));
 scoped("afterWrite","read",(db,a,t)=>functions.afterWrite(db,a,t.id));
-scoped("isDeckOwner","read",(db,a,t)=>{const own=functions.isDeckOwner(db,a,t.id);assert.equal(own,a.user_id===t.ui.user_id);if(!own)throw Object.assign(new Error("unreadable"),{status:404});return own;});
+scoped("isDeckOwner","read",(db,a,t)=>{const own=functions.isDeckOwner(db,a,t.id);assert.equal(own,a?.user_id===t.ui.user_id);if(!own)throw Object.assign(new Error("unreadable"),{status:404});return own;});
 scoped("requireDeckOwner","write",(db,a,t)=>functions.requireDeckOwner(db,a,t.id),{archived:true});
 
 type GlobalProbe = (invoke:any,f:Fixture,a:Actor,t:Target)=>unknown|Promise<unknown>;
@@ -193,7 +204,9 @@ function fixture() {
     memory.setBudgets(db,ui,{global:1000+ui.user_id});
     activity.recordActivity(db,agent("test-agent",ui.user_id),"fixture",targets.find(t=>t.ui.user_id===ui.user_id)!.id,`Private activity ${ui.user_id}`);
   }
-  return {db,users,targets,otherOwn:(a:Actor,t:Target)=>targets.find(x=>x.ui.user_id===a.user_id&&x.id!==t.id)!};
+  // Every deck has a slug, as if once shared; visibility alone decides who reads it (§18.2).
+  for(const t of targets) db.prepare("UPDATE decks SET slug=? WHERE id=?").run(slugOf(t),t.id);
+  return {db,users,targets,otherOwn:(a:Actor|null,t:Target)=>targets.find(x=>x.ui.user_id===(a?.user_id??t.ui.user_id)&&x.id!==t.id)!};
 }
 
 for(const [name,c] of Object.entries(cases).filter(([,c])=>!c.global)) {
@@ -217,6 +230,167 @@ for(const [name,c] of Object.entries(cases).filter(([,c])=>!c.global)) {
     });
   }
 }
+
+// ---------- Phase 4a: viewer and anonymous rows (spec §18.3, plan §4) ----------
+// Visibility never opens an id-addressed capability. For every capability,
+// lifecycle and visibility (including public with suggestions on, which phase
+// 5 will use), another user's UI and agent and an anonymous caller (a null
+// viewer) all meet the same 404 or 401, and nothing anywhere is written.
+const VISIBILITY_ROWS = [["private",0],["unlisted",0],["public",0],["public",1]] as const;
+const refused = (e: any) => e instanceof Error && [401, 404].includes((e as any).status);
+function share(db: Database, t: Target, visibility: string, suggestions = 0, category: string = t.category) {
+  db.prepare("UPDATE decks SET visibility=?, accept_suggestions=?, category=? WHERE id=?").run(visibility, suggestions, category, t.id);
+}
+const viewers = (t: Target): Array<[string, Actor | null]> => [
+  ["other-ui", { user_id: 2, via: "ui", label: "ui" }], ["other-agent", agent("test-agent", 2)], ["anonymous", null],
+].filter(([, a]) => a === null || (a as Actor).user_id !== t.ui.user_id) as Array<[string, Actor | null]>;
+for(const [name,c] of Object.entries(cases).filter(([,c])=>!c.global && c.kind!=="public-read")) {
+  test(`${name}: other-ui, other-agent and anonymous are refused on private, unlisted and public decks`,()=>{
+    const f=fixture();
+    try {
+      for(const t of f.targets.filter(t=>t.ui.user_id===1)) for(const category of [t.category,"legacy"]) for(const [visibility,suggestions] of VISIBILITY_ROWS) {
+        share(f.db,t,visibility,suggestions,category);
+        for(const [who,viewer] of viewers(t)) {
+          const before=personalSnapshot(f.db);
+          assert.throws(()=>c.run(f.db,viewer as Actor,t,f),refused,`${name} ${who} on ${visibility}${suggestions?"+suggestions":""} ${category}`);
+          assert.deepEqual(personalSnapshot(f.db),before,`${name} ${who} wrote nothing`);
+        }
+      }
+    } finally {f.db.close();}
+  });
+}
+
+/** The exact shape a viewer receives (plan §4 PublicDeckState); anything new fails here first. */
+const PUBLIC_KEYS = {
+  top: ["brief","cards","checks","computed","deck","engines","power","price","slots","tags"],
+  deck: ["category","color_identity","commander","name","owner","parent","slug","visibility"],
+  power: ["latest_owner_assessment","target"],
+  price: ["as_of","currency","source","store","total_cents","unpriced"],
+  decision: ["at","by","cards","kind","reason","summary"],
+};
+const PRIVATE_TEXT = ["Private deck preference","Private activity","Private profile","Private global","Proposed thesis","test-agent","Matrix client","Preference","Shortlist note"];
+function assertPublicShape(shared: state.PublicDeckState, published: boolean) {
+  assert.deepEqual(Object.keys(shared).sort(),[...PUBLIC_KEYS.top,...(published?["decisions"]:[])].sort());
+  assert.deepEqual(Object.keys(shared.deck).sort(),PUBLIC_KEYS.deck);
+  assert.deepEqual(Object.keys(shared.deck.owner).sort(),["display_name","handle"]);
+  assert.deepEqual(Object.keys(shared.power).sort(),PUBLIC_KEYS.power);
+  assert.deepEqual(Object.keys(shared.price).sort(),PUBLIC_KEYS.price);
+  assert.deepEqual(Object.keys(shared.brief).sort(),["constraints_md","thesis"]);
+  for(const d of shared.decisions ?? []) { assert.deepEqual(Object.keys(d).sort(),PUBLIC_KEYS.decision); assert.ok(["owner","agent"].includes(d.by)); }
+  assert.ok(shared.cards.every(c=>c.maybe_note===""),"shortlist notes stay private");
+  assert.deepEqual(shared.computed.pending,{adds:0,cuts:0,projected_count:shared.computed.card_count,by_slot:{}},"pending proposals leave no trace");
+  const text=JSON.stringify(shared);
+  for(const secret of PRIVATE_TEXT) assert.ok(!text.includes(secret),`public state leaks "${secret}"`);
+  for(const key of ["user_id","author","author_label","author_display","author_via","author_user_id","id","revision","proposal_id","document_edit_id","memories","proposals","document_edits","log"])
+    assert.ok(!new RegExp(`"${key}":`).test(JSON.stringify({...shared,cards:[],slots:[],tags:[]})),`public state carries ${key}`);
+}
+test("public-read capabilities: owner, other and anonymous across lifecycle × visibility get exactly PublicDeckState or 404",()=>{
+  const f=fixture();
+  try {
+    for(const t of f.targets.filter(t=>t.ui.user_id===1)) {
+      // Material a viewer must never see, beside what they may: an agent's log
+      // entry and shortlist note, an owner power target and assessment.
+      decks.shortlistCard(f.db,t.ui,t.id,"id-solring","Shortlist note");
+      if(t.category==="theorycrafted") membership.applyChanges(f.db,t.ag,t.id,[{action:"add",oracle_id:"id-counterspell"}],{kind:"edit"});
+      power.setPowerTarget(f.db,t.ui,t.id,{profile:{},game_changers_max:2,notes:"Owner target"});
+      power.recordPowerAssessment(f.db,t.ag,t.id,{profile:{},revision:decks.requireDeck(f.db,t.ui,t.id).revision,evidence:"list",confidence:"tentative",notes:"Agent guess"});
+      const hidden=membership.applyChanges(f.db,t.ui,t.id,[{action:"add",oracle_id:"id-llanowar"}],{kind:"edit",summary:"Hidden entry"})!;
+      log.hideLogEntry(f.db,t.ui,hidden,true);
+      for(const category of [t.category,"legacy"]) for(const [visibility,suggestions] of VISIBILITY_ROWS) for(const published of [0,1]) {
+        share(f.db,t,visibility,suggestions,category);
+        f.db.prepare("UPDATE decks SET publish_decisions=? WHERE id=?").run(published,t.id);
+        const actors:Array<[string,Actor|null]>=[["owner-ui",t.ui],["owner-agent",t.ag],...viewers(t)];
+        for(const [who,viewer] of actors) {
+          const owner=viewer?.user_id===1, readable=owner||visibility!=="private", label=`${who} ${visibility} ${category} published=${published}`;
+          const before=personalSnapshot(f.db);
+          if(!readable) {
+            for(const run of [()=>state.publicDeckState(f.db,viewer,slugOf(t)),()=>interop.exportPublicDeck(f.db,viewer,slugOf(t)),()=>decks.requireViewableDeck(f.db,viewer,slugOf(t))])
+              assert.throws(run,notFound,label);
+          } else {
+            const shared=state.publicDeckState(f.db,viewer,slugOf(t));
+            assertPublicShape(shared,!!published);
+            assert.equal(shared.deck.visibility,visibility);assert.equal(shared.deck.owner.handle,"owner");
+            assert.equal(shared.power.target!.notes,"Owner target");assert.equal(shared.power.latest_owner_assessment,null,"an agent's assessment is not the owner's");
+            if(published) {
+              assert.ok(shared.decisions!.length>0);assert.ok(!shared.decisions!.some(d=>d.summary==="Hidden entry"),"hidden entries are omitted");
+              if(t.category==="theorycrafted") assert.ok(shared.decisions!.some(d=>d.by==="agent"),"agent entries say only 'agent'");
+            }
+            assert.equal(decks.requireViewableDeck(f.db,viewer,slugOf(t)).role,owner?"owner":"viewer");
+            assert.match(interop.exportPublicDeck(f.db,viewer,slugOf(t)).text,/Forest/);
+          }
+          assert.deepEqual(personalSnapshot(f.db),before,`${label} wrote nothing`);
+        }
+      }
+    }
+    assert.throws(()=>state.publicDeckState(f.db,null,"NoSuchSlug"),notFound);
+  } finally {f.db.close();}
+});
+
+test("cross-owner fork by slug copies the list, slots, tags, brief and engines only, and keeps its lineage",()=>{
+  const f=fixture();
+  try {
+    const parent=f.targets.find(t=>t.ui.user_id===1&&t.category==="paper")!, second=f.users[1], secondAgent=agent("test-agent",2);
+    decks.shortlistCard(f.db,parent.ui,parent.id,"id-solring","Shortlist note");
+    power.setPowerTarget(f.db,parent.ui,parent.id,{profile:{},notes:"Owner target"});
+    sourcing.recordOwnership(f.db,parent.ui,parent.id,[{oracle_id:"id-forest",status:"owned",basis:"Owner evidence"}]);
+    assert.throws(()=>fork.forkDeck(f.db,second,{slug:slugOf(parent)},"Too early"),notFound,"a private deck cannot be forked by another user");
+    assert.throws(()=>fork.forkDeck(f.db,null as unknown as Actor,{slug:slugOf(parent)},"Anonymous"),refused);
+    share(f.db,parent,"unlisted");
+    for(const [who,actor] of [["ui",second],["agent",secondAgent]] as const) {
+      const id=fork.forkDeck(f.db,actor,{slug:slugOf(parent)},`Second ${who} fork`);
+      const view=decks.getDeck(f.db,actor,id), original=decks.getDeck(f.db,parent.ui,parent.id);
+      const row=decks.requireDeck(f.db,actor,id);
+      assert.equal(row.user_id,2);assert.equal(row.category,"theorycrafted");assert.equal(row.visibility,"private");
+      assert.deepEqual(view.deck.upstream,{owner_handle:"owner",slug:slugOf(parent),name:original.deck.name});
+      assert.equal(view.deck.parent,null,"the parent is not one of the forker's decks");
+      assert.deepEqual(view.cards.map(c=>[c.name,c.quantity,c.maybe]).sort(),original.cards.map(c=>[c.name,c.quantity,c.maybe]).sort());
+      assert.ok(view.cards.every(c=>c.maybe_note===""));
+      assert.deepEqual(view.slots.map(s=>s.name),original.slots.map(s=>s.name));
+      assert.deepEqual(view.tags.map(t=>t.name),original.tags.map(t=>t.name));
+      assert.deepEqual(brief.getBrief(f.db,actor,id).engines.map(e=>e.name),["Engine"]);
+      assert.equal(memory.listMemories(f.db,actor,{deckId:id}).length,0,"a second user's fork contains no memories");
+      assert.equal(f.db.prepare("SELECT COUNT(*) n FROM memories WHERE deck_id=?").get(id)!.n,0);
+      assert.equal(f.db.prepare("SELECT COUNT(*) n FROM ownership_evidence WHERE user_id=2 AND source_deck_id=?").get(id)!.n,0);
+      assert.equal(power.getPower(f.db,actor,id).target,null);assert.equal(power.getPower(f.db,actor,id).history.length,0);
+      assert.deepEqual(log.listLog(f.db,actor,{deckId:id}).map(e=>e.summary),[`Forked from owner/${original.deck.name}`]);
+      assert.equal(proposals.listProposals(f.db,actor,{deckId:id}).length,0);
+      assert.ok(log.cardHistory(f.db,actor,id,"id-forest").every(r=>r.from_deck==null),"card history does not cross the owner boundary");
+      assert.equal(fork.compareDecks(f.db,actor,id).b.slug,slugOf(parent));
+    }
+    const [forked]=decks.listDecks(f.db,second).filter(d=>d.name==="Second ui fork");
+    share(f.db,parent,"private");
+    assert.throws(()=>fork.compareDecks(f.db,second,forked.id),{status:404,message:/no longer read/});
+    assert.ok(decks.getDeck(f.db,second,forked.id).deck.upstream,"lineage survives the parent going private");
+    f.db.prepare("UPDATE decks SET visibility='public' WHERE id=?").run(forked.id);
+    const forkSlug=functions.setVisibility(f.db,second,forked.id,"public").slug;
+    assert.deepEqual(state.publicDeckState(f.db,null,forkSlug).deck.parent,{owner_handle:"owner",slug:slugOf(parent),name:decks.requireDeck(f.db,parent.ui,parent.id).name});
+    decks.deleteDeck(f.db,parent.ui,parent.id);
+    assert.equal(state.publicDeckState(f.db,null,forkSlug).deck.parent!.owner_handle,"owner","lineage survives the parent's deletion");
+  } finally {f.db.close();}
+});
+
+test("sharing controls: slugs are issued once, agents cannot publish, Legacy decks can be shared",()=>{
+  const f=fixture();
+  try {
+    const t=f.targets.find(t=>t.ui.user_id===1&&t.category==="paper")!;
+    f.db.prepare("UPDATE decks SET slug=NULL WHERE id=?").run(t.id);
+    assert.equal(functions.setVisibility(f.db,t.ui,t.id,"private").slug,null,"a private deck gets no slug");
+    const slug=functions.setVisibility(f.db,t.ui,t.id,"unlisted").slug;
+    assert.match(slug,/^[0-9A-Za-z]{10}$/);
+    assert.equal(functions.setVisibility(f.db,t.ui,t.id,"public").slug,slug);
+    assert.equal(functions.setVisibility(f.db,t.ui,t.id,"private").slug,slug,"going private keeps the link for later");
+    assert.throws(()=>state.publicDeckState(f.db,f.users[1],slug),notFound);
+    assert.throws(()=>functions.setVisibility(f.db,t.ag,t.id,"public"),PermissionError);
+    assert.throws(()=>functions.setPublishDecisions(f.db,t.ag,t.id,true),PermissionError);
+    assert.throws(()=>log.hideLogEntry(f.db,t.ag,t.log,true),PermissionError);
+    assert.throws(()=>functions.setVisibility(f.db,t.ui,t.id,"everyone"),{status:400});
+    decks.setDeckCategory(f.db,t.ui,t.id,"legacy");
+    assert.equal(functions.setVisibility(f.db,t.ui,t.id,"public").visibility,"public");
+    assert.equal(functions.setPublishDecisions(f.db,t.ui,t.id,true).publish_decisions,true);
+    assert.equal(log.hideLogEntry(f.db,t.ui,t.log,true).hidden,1);
+    assert.equal(state.publicDeckState(f.db,null,slug).deck.category,"legacy");
+  } finally {f.db.close();}
+});
 
 test("all per-user feeds, searches, settings and credentials exclude the other principal",()=>{
   const f=fixture(),{db}=f;
@@ -314,6 +488,36 @@ for(const [name,c] of Object.entries(toolCases)) {
   });
 }
 
+// Phase 4a viewer rows for the agent door: an id never reaches a shared deck,
+// and a slug reaches one only through get_deck, compare_decks (other) and
+// fork_deck. MCP has no anonymous caller: a missing bearer is 401 (below).
+const SLUG_TOOLS = new Set(["get_deck","compare_decks","fork_deck"]);
+for(const [name,c] of Object.entries(toolCases).filter(([,c])=>!c.global)) {
+  test(`MCP ${name}: other user's agent on private, unlisted and public decks, by id and by slug`,()=>{
+    const f=fixture();
+    try {
+      for(const t of f.targets.filter(t=>t.ui.user_id===1)) for(const [visibility,suggestions] of VISIBILITY_ROWS) {
+        share(f.db,t,visibility,suggestions);
+        const viewer=agent("test-agent",2), own=f.targets.find(x=>x.ui.user_id===2&&x.category===t.category)!;
+        const before=personalSnapshot(f.db);
+        assert.throws(()=>callTool({db:f.db,actor:viewer},name,c.args(t,f)),notFound,`${name} by id on ${visibility}`);
+        assert.deepEqual(personalSnapshot(f.db),before);
+        const bySlug=name==="compare_decks"?{deck:own.id,other:`/d/${slugOf(t)}`}:{...c.args(t,f),...("deck" in c.args(t,f)?{deck:slugOf(t)}:{})};
+        if(!("deck" in c.args(t,f))) continue;
+        const run=()=>callTool({db:f.db,actor:viewer},name,name==="fork_deck"?{...bySlug,name:`Viewer fork ${visibility}${suggestions} ${t.id}`}:bySlug);
+        if(SLUG_TOOLS.has(name)&&visibility!=="private") {
+          const text=run().text;
+          for(const secret of PRIVATE_TEXT.filter(s=>s!=="test-agent")) assert.ok(!text.includes(secret),`${name} on a shared deck leaks "${secret}"`);
+          if(name==="get_deck") assert.match(text,/Public deck owned by owner; read-only/);
+        } else {
+          assert.throws(run,notFound,`${name} by slug on ${visibility}`);
+          assert.deepEqual(personalSnapshot(f.db),before,`${name} by slug wrote nothing`);
+        }
+      }
+    } finally {f.db.close();}
+  });
+}
+
 test("MCP roster, focus, identity, global memory/FTS, card context and include_my_decks belong to the bearer",()=>{
   const f=fixture();
   try {
@@ -343,7 +547,11 @@ test("MCP roster, focus, identity, global memory/FTS, card context and include_m
 // The HTTP registry is discovered too: adding a route without a matrix row fails.
 import { createApp } from "../src/app.ts";
 import type { AddressInfo } from "node:net";
-type HttpCase = { method:string; path:(t:Target,f:Fixture)=>string; kind:Classification; body?:(t:Target)=>unknown; global?:boolean; ownStatus?:number };
+type HttpCase = { method:string; path:(t:Target,f:Fixture)=>string; kind:Classification; body?:(t:Target)=>unknown; global?:boolean; ownStatus?:number;
+  /** Addressed by slug: another signed-in user reaches it while the deck is unlisted or public (§18.3). */
+  bySlug?:boolean;
+  /** Without a session; public reads default to 200, everything else to 401 (§18.6). */
+  anonymousStatus?:(visibility:string)=>number };
 const httpCases:HttpCase[]=[];
 const http=(method:string,path:HttpCase["path"],kind:Classification,body?:HttpCase["body"],more:Partial<HttpCase>={})=>httpCases.push({method,path,kind,body,...more});
 const deckPath=(t:Target)=>`/api/decks/${t.id}`;
@@ -403,7 +611,17 @@ http("GET",t=>`${deckPath(t)}/export`,"read");
 http("POST",t=>`${deckPath(t)}/import/preview`,"read",()=>({text:"7 Forest"}));
 http("POST",t=>`${deckPath(t)}/import`,"owner-only",()=>({text:"7 Forest"}));
 http("GET",()=>"/api/resolve?name=Forest","public-read",undefined,{global:true});
-http("GET",t=>`/api/search?q=t:land&deck=${t.id}`,"read");
+http("GET",t=>`/api/search?q=t:land&deck=${t.id}`,"read",undefined,{anonymousStatus:()=>404});
+http("GET",()=>"/api/search?q=t:land","public-read",undefined,{global:true});
+// Sharing (§18): the owner's controls, and the slug-addressed public surface.
+http("PATCH",t=>`${deckPath(t)}/sharing`,"owner-only",()=>({visibility:"unlisted",publish_decisions:true}));
+http("PATCH",t=>`${deckPath(t)}/log/${t.log}`,"owner-only",()=>({hidden:true}));
+http("GET",(t,f)=>`${deckPath(t)}/compare?slug=${slugOf(f.otherOwn(t.ui,t))}`,"read");
+const sharedRead=(v:string)=>v==="private"?404:200;
+http("GET",t=>`/api/public/decks/${slugOf(t)}`,"public-read",undefined,{bySlug:true,anonymousStatus:sharedRead});
+http("GET",t=>`/api/public/decks/${slugOf(t)}/export`,"public-read",undefined,{bySlug:true,anonymousStatus:sharedRead});
+http("GET",()=>"/api/public/users/owner","public-read",undefined,{global:true});
+http("POST",t=>`/api/public/decks/${slugOf(t)}/fork`,"write",()=>({name:`HTTP shared fork ${randomUUID()}`}),{bySlug:true});
 http("PUT",()=>"/api/focus","write",t=>({deck_id:t.id}));
 
 async function listening(app:ReturnType<typeof createApp>) {
@@ -421,7 +639,7 @@ test("every HTTP API route is classified and reachable only with the right princ
     const routeIds=(c:HttpCase)=>app.routes.map((r,i)=>r.method===c.method&&r.pattern.test(new URL(c.path(f.targets[0],f),base).pathname)?i:-1).filter(i=>i>=0);
     assert.ok(httpCases.every(c=>routeIds(c).length===1));
     assert.deepEqual([...new Set(httpCases.flatMap(routeIds))].sort((a,b)=>a-b),app.routes.map((_,i)=>i));
-    for(const category of ["paper","theorycrafted"]) for(const c of httpCases) {
+    for(const category of ["paper","theorycrafted"]) for(const visibility of ["private","unlisted","public"]) for(const c of httpCases) {
       const own=f.targets.find(t=>t.ui.user_id===1&&t.category===category)!;
       // Each mutation runs in a savepoint and rolls back, so every row sees
       // the same meaningful setup without hiding the request's validation.
@@ -429,16 +647,18 @@ test("every HTTP API route is classified and reachable only with the right princ
       try {
         principal=OWNER;
         const other=f.targets.find(t=>t.ui.user_id===2&&t.category===category)!;
+        // Both decks share the visibility under test; ids stay the owner's namespace.
+        f.db.prepare("UPDATE decks SET visibility=? WHERE id IN (?,?)").run(visibility,own.id,other.id);
+        const label=`${c.method} ${c.path(own,f)} (${visibility} ${category})`;
         if(!c.global) {
           const res=await send(base,c,other,f);
-          assert.equal(res.status,404,`${c.method} ${c.path(other,f)} cross-user: ${await res.text()}`);
+          assert.equal(res.status,c.bySlug&&visibility!=="private"?200:404,`${label} cross-user: ${await res.text()}`);
         }
         const res=await send(base,c,own,f);
-        assert.equal(res.status,c.ownStatus??200,`${c.method} ${c.path(own,f)} own: ${await res.text()}`);
+        assert.equal(res.status,c.ownStatus??200,`${label} own: ${await res.text()}`);
         principal=null;
         const anonymous=await send(base,c,own,f);
-        assert.equal(anonymous.status,c.path(own,f)==="/api/health"?200:401,`${c.method} anonymous`);
-        await anonymous.arrayBuffer();
+        assert.equal(anonymous.status,c.anonymousStatus?.(visibility)??(c.kind==="public-read"?200:401),`${label} anonymous: ${await anonymous.text()}`);
       } finally { f.db.exec("ROLLBACK TO http_matrix; RELEASE http_matrix"); }
     }
   } finally {await app.close();f.db.close();}
@@ -668,13 +888,14 @@ const globalProbes:Record<string,GlobalProbe>={
   resolveCard:(fn,f)=>fn(f.db,"Forest"),resolveCards:(fn,f)=>fn(f.db,["Forest"]),tryResolveCard:(fn,f)=>fn(f.db,"Forest"),
   suggestNames:(fn,f)=>fn(f.db,"Fores"),extractCardRefs:fn=>fn("Uses [[Forest]]"),lintProse:(fn,f)=>fn(f.db,"Uses [[Forest]]"),
   copyLimit:(fn,f)=>fn(functions.requireCardById(f.db,"id-forest")),similarTag:fn=>fn(["Have"],"have"),validateVocabName:fn=>fn("Utility"),
-  isDoctorPair:fn=>fn([]),parseArchidektList:fn=>fn("7 Forest"),
+  isDoctorPair:fn=>fn([]),parseDeckList:fn=>fn("7 Forest"),
   parseTarget:fn=>fn({profile:{}}),mapBracket:fn=>fn(power.parseTarget({profile:{}}).profile,0),
   profileLines:fn=>fn(power.parseTarget({profile:{}}).profile),targetText:fn=>fn(null),estimateTokens:fn=>fn("Second preference"),
   authorOf:(fn,_f,a)=>fn(a),displayAuthor:(fn,f)=>{const s=fn(f.db,{author_user_id:2,author_via:"agent",author_label:"second agent"});assert.equal(s,"second via second agent");return s;},
   isAuthor:(fn,_f,a)=>{assert.equal(fn(a,{author_user_id:1,author_via:"ui",author_label:"ui"}),false);return fn(a,{author_user_id:2,author_via:"ui",author_label:"ui"});},
   requireSelf:(fn,_f,a)=>{assert.throws(()=>fn(a,1),notFound);return fn(a,2);},
-  requireUi:(fn,_f,a)=>fn(a,"perform a human action"),requireAdmin:(fn,f,a)=>{assert.throws(()=>fn(f.db,a),PermissionError);return false;},
+  requireUi:(fn,_f,a)=>fn(a,"perform a human action"),
+  requireActor:(fn,_f,a)=>{assert.throws(()=>fn(null),{status:401});return fn(a);},requireAdmin:(fn,f,a)=>{assert.throws(()=>fn(f.db,a),PermissionError);return false;},
   normalizeName:fn=>fn("Second"),isUniqueViolation:fn=>fn(Object.assign(new Error("unique"),{errcode:2067})),
   getMode:fn=>fn({DECKBUILDER_MODE:"local"}),publicOrigin:fn=>fn({DECKBUILDER_PUBLIC_ORIGIN:"https://second.example"}),
   localActor:fn=>{const actor=fn();assert.deepEqual(actor,{user_id:1,via:"ui",label:"ui"});return undefined;}, // explicit local-mode policy, no stored rows
@@ -696,6 +917,13 @@ const globalProbes:Record<string,GlobalProbe>={
   logLines:(fn,f,a)=>fn(log.listLog(f.db,a)),proposalLines:(fn,f,a)=>fn(proposals.listProposals(f.db,a),documents.listDocumentEdits(f.db,a)),
   renderActivity:(fn,f,a)=>fn(activity.listActivity(f.db,a)),renderStats:(fn,f,a)=>fn(stats.playerStats(f.db,a)),
   rosterLines:(fn,f,a)=>fn(decks.listDecks(f.db,a)),renderScope:(fn,f,a)=>fn(memory.loadScope(f.db,a,"global"),"global"),
+  newSlug:fn=>{const slug=fn();assert.match(slug,/^[0-9A-Za-z]{10}$/);return slug;},
+  slugFrom:fn=>{assert.equal(fn("https://example.test/d/Ab3dE6gH9k"),"Ab3dE6gH9k");assert.equal(fn("Second deck"),null);return fn("/d/Ab3dE6gH9k");},
+  publicProfile:(fn,f,a,t)=>{f.db.prepare("UPDATE decks SET visibility='public' WHERE id=?").run(t.id);const p=fn(f.db,a,"second");assert.deepEqual(p.decks.map((d:any)=>d.slug),[slugOf(t)]);return p;},
+  sharedCounts:(fn,f,a,t)=>{f.db.prepare("UPDATE decks SET visibility='unlisted' WHERE id=?").run(t.id);const c=fn(f.db,a);assert.deepEqual(c,{public:0,unlisted:1});return c;},
+  linkPreview:(fn,f,a,t)=>{const p=fn(f.db,a,`/d/${slugOf(t)}`,"https://example.test");assert.equal(p.status,200);assert.equal(fn(f.db,a,`/d/${slugOf(f.targets[0])}`,"https://example.test").status,404);return p;},
+  withPreview:fn=>fn("<head><title>x</title></head>",{status:200,head:"<title>Second</title>"}),
+  renderPublicDeck:(fn,f,a,t)=>fn(state.publicDeckState(f.db,a,slugOf(t))),
   renderPower:(fn,f,a,t)=>fn(power.getPower(f.db,a,t.id)),stateLines:(fn,f,a,t)=>fn(decks.getDeck(f.db,a,t.id)),
   renderCompare:(fn,f,a,t)=>fn(fork.compareDecks(f.db,a,t.id,f.otherOwn(a,t).id)),
   resolutionFailureLine:fn=>fn({ref:"missing",problem:"unknown",suggestions:[],candidates:[]}),
@@ -706,7 +934,7 @@ const globalProbes:Record<string,GlobalProbe>={
 };
 for(const name of ["AppError","ServiceError","SchemaError","PermissionError","SearchError"])globalProbes[name]=fn=>new fn("Second probe");
 globalProbes.CardResolutionError=fn=>new fn([{ref:"missing",problem:"unknown",suggestions:[],candidates:[]}]);
-const globalKinds:Record<string,Classification>={getPriceSource:"read",setPriceSource:"owner-only",priceResolver:"read",connectedClients:"owner-only",disconnectClient:"owner-only",accountInfo:"owner-only",chooseHandle:"owner-only",exportAccount:"owner-only",deleteAccount:"owner-only",createInvite:"owner-only",adminInfo:"owner-only",accountScopes:"public-read",getSetting:"read",setSetting:"write",createDeck:"write",listDecks:"read",getProfile:"read",setProfile:"owner-only",getBudgets:"read",setBudgets:"write",unreviewedCount:"read",getFocus:"read",playerStats:"read",listActivity:"read",ownershipEvidence:"read",createToken:"owner-only",listTokens:"owner-only",revokeToken:"owner-only",requireUi:"owner-only",requireAdmin:"owner-only",ingestPrices:"write"};
+const globalKinds:Record<string,Classification>={sharedCounts:"read",getPriceSource:"read",setPriceSource:"owner-only",priceResolver:"read",connectedClients:"owner-only",disconnectClient:"owner-only",accountInfo:"owner-only",chooseHandle:"owner-only",exportAccount:"owner-only",deleteAccount:"owner-only",createInvite:"owner-only",adminInfo:"owner-only",accountScopes:"public-read",getSetting:"read",setSetting:"write",createDeck:"write",listDecks:"read",getProfile:"read",setProfile:"owner-only",getBudgets:"read",setBudgets:"write",unreviewedCount:"read",getFocus:"read",playerStats:"read",listActivity:"read",ownershipEvidence:"read",createToken:"owner-only",listTokens:"owner-only",revokeToken:"owner-only",requireUi:"owner-only",requireAdmin:"owner-only",ingestPrices:"write"};
 for(const [name,probe] of Object.entries(globalProbes))globalCase(name,globalKinds[name]??"public-read",probe);
 
 function ownerSnapshot(f:Fixture) {

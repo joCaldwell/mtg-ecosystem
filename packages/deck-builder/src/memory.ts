@@ -1,4 +1,4 @@
-import { displayAuthor } from "./actor.ts";
+import { displayAuthor, requireActor } from "./actor.ts";
 // Memories (spec §7): short notes about preferences, reasons and outcomes.
 // Agents write them without approval; the owner can always see, edit and
 // retire them. They are rows, not files, so the app can attach one to a card
@@ -64,6 +64,7 @@ function toViews(db: Database, actor: Actor, rows: Row[]): MemoryView[] {
 }
 
 export function getMemory(db: Database, actor: Actor, id: number): MemoryView {
+  requireActor(actor);
   const row = db.prepare(`${SELECT} WHERE m.id = ? AND m.user_id = ?`).get(id, actor.user_id) as Row | undefined;
   if (!row) throw new ServiceError(`There is no memory ${id}`, 404);
   return toViews(db, actor, [row])[0];

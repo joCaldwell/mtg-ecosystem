@@ -24,8 +24,8 @@ import { AppError, ServiceError } from "./errors.ts";
 import { getFocus, setFocus } from "./focus.ts";
 import { removeEngine, setEngine, updateBrief } from "./deck/brief.ts";
 import { compareDecks, forkDeck } from "./deck/fork.ts";
-import { applyImport, diffImport, exportDeck } from "./deck/interop.ts";
-import { cardHistory, listLog, unreviewedCount } from "./deck/log.ts";
+import { applyImport, diffImport, exportDeck, exportPublicDeck } from "./deck/interop.ts";
+import { cardHistory, hideLogEntry, listLog, unreviewedCount } from "./deck/log.ts";
 import { applyChanges, setQuantity, undo } from "./deck/membership.ts";
 import { getPower, setPowerTarget, recordPowerAssessment } from "./deck/power.ts";
 import {
@@ -69,7 +69,9 @@ import {
 import { priceStatus, priceResolver, getPriceSource, setPriceSource } from "./prices.ts";
 import type { Jobs } from "./jobs.ts";
 import { SearchError, search } from "./search/index.ts";
-import { deckState } from "./state.ts";
+import { deckState, publicDeckState } from "./state.ts";
+import { publicProfile, setPublishDecisions, setVisibility } from "./sharing.ts";
+import { linkPreview, withPreview } from "./preview.ts";
 import { getPlaytest, startPlaytest, changePlaytest, savePlaytestUi, saveObservation, tableCard } from "./playtest/service.ts";
 import { playerStats } from "./stats.ts";
 import { logging } from "./logging.ts";
@@ -90,6 +92,8 @@ export interface AppOptions {
 }
 
 type Handler = (actor: Actor, params: string[], body: any, url: URL) => unknown | Promise<unknown>;
+/** A route anyone may call, signed in or not (spec §18.6); the capability takes the nullable viewer. */
+type PublicHandler = (viewer: Actor | null, params: string[], body: any, url: URL) => unknown | Promise<unknown>;
 
 /** The session seam preserves implicit user 1 in the local product. */
 export function resolveUiActor(req: IncomingMessage, mode: Mode, auth?: HostedAuth): Actor | null | Promise<Actor | null> {
@@ -122,9 +126,11 @@ export function createApp(db: Database, opts: AppOptions = {}) {
   const auth = mode === "hosted" ? opts.auth ?? (process.env.BETTER_AUTH_SECRET ? createHostedAuth(db) : undefined) : undefined;
   const rateLimit = createRateLimiter();
   const resolveActor = opts.resolveUiActor ?? ((req:IncomingMessage, requestMode:Mode) => resolveUiActor(req,requestMode,auth));
-  const routes: Array<{ method: string; pattern: RegExp; handler: Handler; mutates: boolean }> = [];
+  const routes: Array<{ method: string; pattern: RegExp; handler: PublicHandler; mutates: boolean; anonymous: boolean }> = [];
   const route = (method: string, pattern: RegExp, handler: Handler) =>
-    routes.push({ method, pattern, handler, mutates: method !== "GET" && !pattern.source.includes("preview") });
+    routes.push({ method, pattern, handler: handler as PublicHandler, mutates: method !== "GET" && !pattern.source.includes("preview"), anonymous: false });
+  const publicRoute = (pattern: RegExp, handler: PublicHandler) =>
+    routes.push({ method: "GET", pattern, handler, mutates: false, anonymous: true });
 
   // ---------- live updates (spec §11) ----------
   // The stream says only "something changed"; the page refetches what it is
@@ -190,11 +196,31 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     state: state(actor, forkDeck(db, actor, num(id), String(body.name ?? ""))),
   }));
   route("GET", /^\/api\/decks\/(\d+)\/compare$/, (actor, [id], _b, url) => {
-    const other = url.searchParams.get("other");
-    return compareDecks(db, actor, num(id), other ? num(other) : undefined);
+    const other = url.searchParams.get("other"), slug = url.searchParams.get("slug");
+    return compareDecks(db, actor, num(id), slug ? { slug } : other ? num(other) : undefined);
   });
 
-  route("GET", /^\/api\/cards\/([0-9a-z-]+)\/table$/, (actor, [id]) => ({ card: tableCard(db, actor, id) }));
+  // ---------- sharing (spec §18) ----------
+  route("PATCH", /^\/api\/decks\/(\d+)\/sharing$/, (actor, [id], body) => withTransaction(db, () => {
+    if (body.visibility !== undefined) setVisibility(db, actor, num(id), body.visibility);
+    if (body.publish_decisions !== undefined) setPublishDecisions(db, actor, num(id), body.publish_decisions);
+    return { state: state(actor, num(id)) };
+  }));
+  route("PATCH", /^\/api\/decks\/(\d+)\/log\/(\d+)$/, (actor, [id, logId], body) => {
+    if (!db.prepare("SELECT 1 FROM log WHERE id = ? AND deck_id = ?").get(num(logId), num(id)))
+      throw new ServiceError("Log entry does not belong to this deck", 404);
+    hideLogEntry(db, actor, num(logId), body.hidden);
+    return { state: state(actor, num(id)) };
+  });
+  publicRoute(/^\/api\/public\/decks\/([0-9A-Za-z]+)$/, (viewer, [slug]) => ({ deck: publicDeckState(db, viewer, slug) }));
+  publicRoute(/^\/api\/public\/decks\/([0-9A-Za-z]+)\/export$/, (viewer, [slug], _b, url) =>
+    exportPublicDeck(db, viewer, slug, { categories: url.searchParams.get("categories") !== "off", includeMaybe: url.searchParams.get("include_maybe") === "on" }));
+  publicRoute(/^\/api\/public\/users\/([a-z0-9_-]+)$/i, (viewer, [handle]) => ({ profile: publicProfile(db, viewer, handle) }));
+  route("POST", /^\/api\/public\/decks\/([0-9A-Za-z]+)\/fork$/, (actor, [slug], body) => ({
+    state: state(actor, forkDeck(db, actor, { slug }, String(body.name ?? ""))),
+  }));
+
+  publicRoute(/^\/api\/cards\/([0-9a-z-]+)\/table$/, (viewer, [id]) => ({ card: tableCard(db, viewer, id) }));
   // Owner's private solo table: capability-layer permissions and validation.
   route("GET", /^\/api\/decks\/(\d+)\/playtest$/, (actor, [id]) => ({ playtest: getPlaytest(db, actor, num(id)) }));
   route("POST", /^\/api\/decks\/(\d+)\/playtest$/, (actor, [id], body) => ({ playtest: startPlaytest(db, actor, num(id), body) }));
@@ -313,7 +339,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
   route("POST", /^\/api\/decks\/(\d+)\/proposals\/rule$/, (actor, [id], body) => {
     if (!Array.isArray(body.proposals) || !body.proposals.every((p: any) => p && typeof p === "object" && Number.isSafeInteger(p.proposal_id) && p.proposal_id > 0 && (p.acknowledge_stale === undefined || typeof p.acknowledge_stale === "boolean")))
       throw new ServiceError("proposals must be an array of proposal IDs and optional stale acknowledgements");
-    acceptProposals(db, actor, num(id), body.proposals, num(body.expected_revision, "expected_revision"));
+    acceptProposals(db, actor, num(id), body.proposals, num(body.expected_revision, "expected_revision"), String(body.reason ?? ""));
     return { state: state(actor, num(id)), inbox: inbox(actor) };
   });
   route("POST", /^\/api\/decks\/(\d+)\/proposals\/(\d+)\/rule$/, (actor, [id, pid], body) => {
@@ -468,12 +494,12 @@ export function createApp(db: Database, opts: AppOptions = {}) {
   });
 
   // ---------- card search ----------
-  route("GET", /^\/api\/resolve$/, (actor, _p, _b, url) => {
+  publicRoute(/^\/api\/resolve$/, (_viewer, _p, _b, url) => {
     const name = url.searchParams.get("name") ?? "";
     const matches = priceResolver(db, actor).resolve(cardsNamed(db, name));
     return { matches, suggestions: matches.length ? [] : suggestNames(db, name) };
   });
-  route("GET", /^\/api\/search$/, (actor, _p, _b, url) => {
+  publicRoute(/^\/api\/search$/, (actor, _p, _b, url) => {
     const q = url.searchParams.get("q") ?? "";
     const deckParam = url.searchParams.get("deck");
     try {
@@ -508,7 +534,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     ".png": "image/png",
   };
 
-  function serveStatic(pathname: string, res: ServerResponse): boolean {
+  function serveStatic(pathname: string, res: ServerResponse, viewer: Actor | null, req: IncomingMessage): boolean {
     const root = resolve(opts.webDist ?? WEB_DIST);
     if (mode === "local" && ["/privacy","/terms"].includes(pathname)) return false;
     if (pathname.startsWith("/mcp") || /^\/(api|\.well-known)(\/|$)/.test(pathname)) return false;
@@ -519,6 +545,16 @@ export function createApp(db: Database, opts: AppOptions = {}) {
       appRoute && !extname(pathname) ? join(root, "index.html") : null;
     if (!target || !existsSync(target)) return false;
     try {
+      // Shared pages carry their own link-preview tags (§18.5), and say 404
+      // when this requester cannot read what they name.
+      const preview = target.endsWith("index.html")
+        ? linkPreview(db, viewer, pathname, mode === "hosted" ? publicOrigin() : `http://${req.headers.host ?? "127.0.0.1"}`)
+        : null;
+      if (preview) {
+        res.writeHead(preview.status, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": mode === "hosted" ? "no-store" : "no-cache" });
+        res.end(withPreview(readFileSync(target, "utf8"), preview));
+        return true;
+      }
       const content = readFileSync(target);
       res.writeHead(200, {
         "Content-Type": MIME[extname(target)] ?? "application/octet-stream",
@@ -612,7 +648,8 @@ export function createApp(db: Database, opts: AppOptions = {}) {
         }
         if (actor && url.pathname.startsWith("/api/") && !["GET","HEAD","OPTIONS"].includes(req.method ?? "") && req.headers.origin !== publicOrigin()) return json(403,{error:"Origin is required"});
       }
-      if (url.pathname.startsWith("/api/") && !actor) return json(401, { error: "Sign in is required" });
+      const anonymous = routes.some(r => r.anonymous && r.method === req.method && r.pattern.test(url.pathname));
+      if (url.pathname.startsWith("/api/") && !actor && !anonymous) return json(401, { error: "Sign in is required" });
 
       if (mode === "hosted" && req.method === "GET" && url.pathname === "/consent") {
         if (!actor) { res.writeHead(302,{Location:`/signin${url.search}`});return void res.end(); }
@@ -647,11 +684,11 @@ export function createApp(db: Database, opts: AppOptions = {}) {
         if (!m) continue;
         const body = req.method === "GET" ? {} : await readJson(req);
         validateNumbers(body);
-        const result = await r.handler(actor!, m.slice(1), body, url);
+        const result = await r.handler(r.anonymous ? actor : actor!, m.slice(1), body, url);
         if (r.mutates && url.pathname !== "/api/account" && !quiet.has(url.pathname)) notify(actor!.user_id, { kind: url.pathname.split("/")[2] ?? "change", ...(url.pathname.match(/^\/api\/decks\/(\d+)/) ? { deck_id: Number(url.pathname.match(/^\/api\/decks\/(\d+)/)![1]) } : {}) });
         return json(200, result);
       }
-      if (req.method === "GET" && !url.pathname.startsWith("/api/") && serveStatic(url.pathname, res))
+      if (req.method === "GET" && !url.pathname.startsWith("/api/") && serveStatic(url.pathname, res, actor, req))
         return;
       json(404, { error: `Not found: ${req.method} ${url.pathname}` });
       });

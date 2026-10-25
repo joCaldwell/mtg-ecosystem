@@ -33,7 +33,8 @@ export type {
   Mode,
 } from "./model.ts";
 
-export function tableCard(db: Database, actor: Actor, oracleId: string): TableCard {
+/** A card's table facts. Global card data, readable without an account (§18.6). */
+export function tableCard(db: Database, _actor: Actor | null, oracleId: string): TableCard {
   const c = db
     .prepare(
       `SELECT ${CARD_COLUMNS}, faces_json FROM cards WHERE oracle_id = ?`,

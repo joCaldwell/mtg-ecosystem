@@ -41,8 +41,10 @@ export interface SearchOptions {
   filterByDeckIdentity?: boolean;
 }
 
-export function search(db: Database, actor: Actor, query: string, opts: SearchOptions = {}): SearchResult[] {
-  if (opts.deckId !== undefined) requireDeck(db, actor, opts.deckId);
+/** Card facts are global; a viewer without an account searches them too (§18.6),
+ * priced USD/lowest. A deck context is the owner's. */
+export function search(db: Database, actor: Actor | null, query: string, opts: SearchOptions = {}): SearchResult[] {
+  if (opts.deckId !== undefined) requireDeck(db, actor!, opts.deckId);
   const prices = priceResolver(db, actor);
   const { sql, params } = compile(parse(query), { deckId: opts.deckId, prices: { USD: priceResolver(db, actor, "USD").sql("cards.oracle_id"), EUR: priceResolver(db, actor, "EUR").sql("cards.oracle_id") } });
   const clauses = [sql, opts.deckId === undefined ? "retired = 0" :
