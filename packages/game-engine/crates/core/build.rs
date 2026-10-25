@@ -32,32 +32,43 @@ fn main() {
         "pub(super) fn reviewed_catalog_size(hash: &str) -> Option<usize> { const SIZES: &[(&str, usize)] = &[\n",
     );
     let mut manifests = fs::read_dir(&data)
-        .expect("catalog manifests")
-        .map(|e| e.unwrap().path())
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .map(|e| e.path())
         .collect::<Vec<_>>();
     manifests.sort();
     for path in manifests {
         if !path.extension().is_some_and(|e| e == "json") {
             continue;
         }
-        let manifest: serde_json::Value =
-            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-        let expected = data.join(manifest["expected_ir"].as_str().unwrap());
-        // A new manifest must be buildable by mtg-sim before its first
-        // expected IR exists. Only existing outputs supply admission metadata;
-        // named profile includes still require their own committed digest files.
-        let bytes = match fs::read(expected) {
-            Ok(bytes) => bytes,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => panic!("catalog output: {e}"),
+        // Source diagnostics belong to the runtime catalog loader. A malformed
+        // manifest/output must never prevent building the diagnostic CLI.
+        let Some(manifest) = fs::read(&path)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        else {
+            continue;
         };
-        let catalog: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        let rows = catalog["definitions"].as_array().unwrap();
+        let Some(expected) = manifest["expected_ir"].as_str() else {
+            continue;
+        };
+        let Some(catalog) = fs::read(data.join(expected))
+            .ok()
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        else {
+            continue;
+        };
+        let Some(rows) = catalog["definitions"].as_array() else {
+            continue;
+        };
         let canonical = serde_json::to_vec(&catalog).unwrap();
         let digest = format!("{:x}", Sha256::digest(canonical));
         sizes += &format!("({digest:?}, {}),\n", rows.len());
         for row in rows {
-            let id = row["oracle_id"].as_str().unwrap().to_owned();
+            let Some(id) = row["oracle_id"].as_str() else {
+                continue;
+            };
             let hash = format!("{:x}", Sha256::digest(serde_json::to_vec(row).unwrap()));
             println!(
                 "cargo:rustc-env=MTG_DEFINITION_{}_{id}={hash}",
@@ -77,21 +88,6 @@ fn main() {
         root.join("rust-toolchain.toml"),
     ];
     collect(&root.join("packages/game-engine/crates"), &mut files);
-    collect(&root.join("packages/game-server/src"), &mut files);
-    collect(&root.join("packages/game-server/tests"), &mut files);
-    files.push(root.join("packages/game-server/Cargo.toml"));
-    println!(
-        "cargo:rerun-if-changed={}",
-        root.join("packages/game-server/src").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        root.join("packages/game-server/tests").display()
-    );
-    collect(
-        &root.join("packages/game-engine/tests/fixtures"),
-        &mut files,
-    );
     println!(
         "cargo:rerun-if-changed={}",
         root.join("packages/game-engine/crates").display()
@@ -100,6 +96,9 @@ fn main() {
         "cargo:rerun-if-changed={}",
         root.join("packages/game-engine/tests/fixtures").display()
     );
+    files.retain(|p| {
+        mtg_contracts::engine_build_input(&p.strip_prefix(&root).unwrap().to_string_lossy())
+    });
     // The manifest is ordered by serialized path bytes, not PathBuf's
     // component ordering (which differs once sources have nested modules).
     files.sort_by_key(|p| {

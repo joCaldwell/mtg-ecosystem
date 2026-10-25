@@ -1,5 +1,15 @@
 mod advance_report;
 mod search;
+// Missing/malformed generated outputs remain runtime admission failures rather
+// than making the catalog diagnostic CLI impossible to compile.
+macro_rules! definition_digest {
+    ($name:literal) => {
+        match option_env!($name) {
+            Some(value) => value,
+            None => "",
+        }
+    };
+}
 pub use search::*;
 mod match_admission;
 mod snapshot_codec;
@@ -53,27 +63,27 @@ const OX: &str = "19b4cf0b-e1e4-4e50-80bc-673bc6ef8bb8";
 const EFFECT_EXTRA: [(&str, &str); 6] = [
     (
         GROWTH,
-        env!("MTG_DEFINITION_effects_5748ebf1-24e3-499d-ab7c-c2cebd462a24"),
+        definition_digest!("MTG_DEFINITION_effects_5748ebf1-24e3-499d-ab7c-c2cebd462a24"),
     ),
     (
         DISFIGURE,
-        env!("MTG_DEFINITION_effects_77eafe49-b9c5-461d-89c5-cec217dd2974"),
+        definition_digest!("MTG_DEFINITION_effects_77eafe49-b9c5-461d-89c5-cec217dd2974"),
     ),
     (
         FOG,
-        env!("MTG_DEFINITION_effects_27e9db49-7af7-4bef-ad4c-bf5dfb92030d"),
+        definition_digest!("MTG_DEFINITION_effects_27e9db49-7af7-4bef-ad4c-bf5dfb92030d"),
     ),
     (
         HEALER,
-        env!("MTG_DEFINITION_effects_95a0ca48-d924-47f4-86ed-42c673ee778c"),
+        definition_digest!("MTG_DEFINITION_effects_95a0ca48-d924-47f4-86ed-42c673ee778c"),
     ),
     (
         FURNACE,
-        env!("MTG_DEFINITION_effects_68715465-6cf9-4006-87e9-31f227fe9ed3"),
+        definition_digest!("MTG_DEFINITION_effects_68715465-6cf9-4006-87e9-31f227fe9ed3"),
     ),
     (
         OX,
-        env!("MTG_DEFINITION_effects_19b4cf0b-e1e4-4e50-80bc-673bc6ef8bb8"),
+        definition_digest!("MTG_DEFINITION_effects_19b4cf0b-e1e4-4e50-80bc-673bc6ef8bb8"),
     ),
 ];
 mod allocation;
@@ -99,26 +109,29 @@ const FOREST: &str = "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6";
 const SPELL: &str = "837182db-1bf3-4a2c-bd01-1af9d9873561";
 const BEARS: &str = "14c8f55d-d177-4c25-a931-ebeb9e6062a0";
 const PLAINS: &str = "bc71ebf6-2056-41f7-be35-b2e5c34afa99";
-const PLAINS_DIGEST: &str = env!("MTG_DEFINITION_commander_bc71ebf6-2056-41f7-be35-b2e5c34afa99");
+const PLAINS_DIGEST: &str =
+    definition_digest!("MTG_DEFINITION_commander_bc71ebf6-2056-41f7-be35-b2e5c34afa99");
 const TIME_EBB: &str = "30cc8f7b-3c28-40f5-8f8f-157e8212280b";
-const TIME_EBB_DIGEST: &str = env!("MTG_DEFINITION_library_30cc8f7b-3c28-40f5-8f8f-157e8212280b");
+const TIME_EBB_DIGEST: &str =
+    definition_digest!("MTG_DEFINITION_library_30cc8f7b-3c28-40f5-8f8f-157e8212280b");
 const YARGLE: &str = "980e1721-3717-4425-95a4-938dbf2ac661";
-const YARGLE_DIGEST: &str = env!("MTG_DEFINITION_damage_980e1721-3717-4425-95a4-938dbf2ac661");
+const YARGLE_DIGEST: &str =
+    definition_digest!("MTG_DEFINITION_damage_980e1721-3717-4425-95a4-938dbf2ac661");
 const EDICT: &str = "10c585c4-bf5b-4d8f-94a9-e9a5036a688f";
 const HAPLESS: &str = "240a349a-79f8-4e11-9a05-a78148e70a62";
 const SWAMP: &str = "56719f6a-1a6c-4c0a-8d21-18f7d7350b68";
 const ACTION_EXTRA: [(&str, &str); 3] = [
     (
         EDICT,
-        env!("MTG_DEFINITION_action_10c585c4-bf5b-4d8f-94a9-e9a5036a688f"),
+        definition_digest!("MTG_DEFINITION_action_10c585c4-bf5b-4d8f-94a9-e9a5036a688f"),
     ),
     (
         HAPLESS,
-        env!("MTG_DEFINITION_action_240a349a-79f8-4e11-9a05-a78148e70a62"),
+        definition_digest!("MTG_DEFINITION_action_240a349a-79f8-4e11-9a05-a78148e70a62"),
     ),
     (
         SWAMP,
-        env!("MTG_DEFINITION_action_56719f6a-1a6c-4c0a-8d21-18f7d7350b68"),
+        definition_digest!("MTG_DEFINITION_action_56719f6a-1a6c-4c0a-8d21-18f7d7350b68"),
     ),
 ];
 const LOOTER: &str = "67362406-b1ca-49e2-800d-9050bfe8742a";
@@ -128,19 +141,19 @@ const COUNTERSPELL: &str = "cc187110-1148-4090-bbb8-e205694a39f5";
 const STACK_EXTRA: [(&str, &str); 4] = [
     (
         LOOTER,
-        env!("MTG_DEFINITION_stack_67362406-b1ca-49e2-800d-9050bfe8742a"),
+        definition_digest!("MTG_DEFINITION_stack_67362406-b1ca-49e2-800d-9050bfe8742a"),
     ),
     (
         STIFLE,
-        env!("MTG_DEFINITION_stack_b3b00911-ece7-4484-bc36-f211ce72b6cc"),
+        definition_digest!("MTG_DEFINITION_stack_b3b00911-ece7-4484-bc36-f211ce72b6cc"),
     ),
     (
         AZURE,
-        env!("MTG_DEFINITION_stack_bbf9fd47-10e1-4749-b06f-4fe72200afc7"),
+        definition_digest!("MTG_DEFINITION_stack_bbf9fd47-10e1-4749-b06f-4fe72200afc7"),
     ),
     (
         COUNTERSPELL,
-        env!("MTG_DEFINITION_stack_cc187110-1148-4090-bbb8-e205694a39f5"),
+        definition_digest!("MTG_DEFINITION_stack_cc187110-1148-4090-bbb8-e205694a39f5"),
     ),
 ];
 const ISAMARU: &str = "cfb756dd-6fe1-430a-8f04-8b10cac62a86";
@@ -148,23 +161,23 @@ const ISAMARU: &str = "cfb756dd-6fe1-430a-8f04-8b10cac62a86";
 const ALLOWED: [(&str, &str); 5] = [
     (
         ISAMARU,
-        env!("MTG_DEFINITION_base_cfb756dd-6fe1-430a-8f04-8b10cac62a86"),
+        definition_digest!("MTG_DEFINITION_base_cfb756dd-6fe1-430a-8f04-8b10cac62a86"),
     ),
     (
         ISLAND,
-        env!("MTG_DEFINITION_base_b2c6aa39-2d2a-459c-a555-fb48ba993373"),
+        definition_digest!("MTG_DEFINITION_base_b2c6aa39-2d2a-459c-a555-fb48ba993373"),
     ),
     (
         FOREST,
-        env!("MTG_DEFINITION_base_b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6"),
+        definition_digest!("MTG_DEFINITION_base_b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6"),
     ),
     (
         SPELL,
-        env!("MTG_DEFINITION_base_837182db-1bf3-4a2c-bd01-1af9d9873561"),
+        definition_digest!("MTG_DEFINITION_base_837182db-1bf3-4a2c-bd01-1af9d9873561"),
     ),
     (
         BEARS,
-        env!("MTG_DEFINITION_base_14c8f55d-d177-4c25-a931-ebeb9e6062a0"),
+        definition_digest!("MTG_DEFINITION_base_14c8f55d-d177-4c25-a931-ebeb9e6062a0"),
     ),
 ];
 const BOLT: &str = "4457ed35-7c10-48c8-9776-456485fdf070";
@@ -176,27 +189,27 @@ const MOUNTAIN: &str = "a3fb7228-e76b-4e96-a40e-20b5fed75685";
 const DAMAGE_LIFE_EXTRA: [(&str, &str); 6] = [
     (
         BOLT,
-        env!("MTG_DEFINITION_damage-life_4457ed35-7c10-48c8-9776-456485fdf070"),
+        definition_digest!("MTG_DEFINITION_damage-life_4457ed35-7c10-48c8-9776-456485fdf070"),
     ),
     (
         PRODIGAL,
-        env!("MTG_DEFINITION_damage-life_5e961d15-5972-4e4b-9385-1cd7cd7c6bbe"),
+        definition_digest!("MTG_DEFINITION_damage-life_5e961d15-5972-4e4b-9385-1cd7cd7c6bbe"),
     ),
     (
         SOUL_FEAST,
-        env!("MTG_DEFINITION_damage-life_8186fd80-015f-470c-9e1c-cbf45764a057"),
+        definition_digest!("MTG_DEFINITION_damage-life_8186fd80-015f-470c-9e1c-cbf45764a057"),
     ),
     (
         HEALING_HANDS,
-        env!("MTG_DEFINITION_damage-life_3cc48835-3ac0-4774-b380-f9b21d2dc974"),
+        definition_digest!("MTG_DEFINITION_damage-life_3cc48835-3ac0-4774-b380-f9b21d2dc974"),
     ),
     (
         NECTAR,
-        env!("MTG_DEFINITION_damage-life_30870ee5-6ad7-48a9-983e-d3b018f2344f"),
+        definition_digest!("MTG_DEFINITION_damage-life_30870ee5-6ad7-48a9-983e-d3b018f2344f"),
     ),
     (
         MOUNTAIN,
-        env!("MTG_DEFINITION_damage-life_a3fb7228-e76b-4e96-a40e-20b5fed75685"),
+        definition_digest!("MTG_DEFINITION_damage-life_a3fb7228-e76b-4e96-a40e-20b5fed75685"),
     ),
 ];
 const BLOOD_ARTIST: &str = "310f141c-7f37-4729-aed6-dd9c09db448d";
@@ -205,15 +218,15 @@ const WARDEN: &str = "6ca2a89e-7032-4864-b4e9-66f3178f90ab";
 const TRIGGER_EXTRA: [(&str, &str); 3] = [
     (
         BLOOD_ARTIST,
-        env!("MTG_DEFINITION_trigger_310f141c-7f37-4729-aed6-dd9c09db448d"),
+        definition_digest!("MTG_DEFINITION_trigger_310f141c-7f37-4729-aed6-dd9c09db448d"),
     ),
     (
         VISIONARY,
-        env!("MTG_DEFINITION_trigger_c6a3a882-a127-4590-93d7-679ef4313efe"),
+        definition_digest!("MTG_DEFINITION_trigger_c6a3a882-a127-4590-93d7-679ef4313efe"),
     ),
     (
         WARDEN,
-        env!("MTG_DEFINITION_trigger_6ca2a89e-7032-4864-b4e9-66f3178f90ab"),
+        definition_digest!("MTG_DEFINITION_trigger_6ca2a89e-7032-4864-b4e9-66f3178f90ab"),
     ),
 ];
 mod damage_life;

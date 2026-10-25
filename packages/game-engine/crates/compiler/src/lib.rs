@@ -2968,87 +2968,87 @@ fn lower_activation(
 }
 
 pub fn fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("base")
+    embedded_catalog("base").map_err(|e| e.to_string())
 }
 
 pub fn commander_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("commander")
+    embedded_catalog("commander").map_err(|e| e.to_string())
 }
 
 pub fn library_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("library")
+    embedded_catalog("library").map_err(|e| e.to_string())
 }
 
 pub fn damage_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("damage")
+    embedded_catalog("damage").map_err(|e| e.to_string())
 }
 
 pub fn action_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("action")
+    embedded_catalog("action").map_err(|e| e.to_string())
 }
 
 pub fn stack_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("stack")
+    embedded_catalog("stack").map_err(|e| e.to_string())
 }
 
 pub fn damage_life_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("damage-life")
+    embedded_catalog("damage-life").map_err(|e| e.to_string())
 }
 
 pub fn trigger_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("trigger")
+    embedded_catalog("trigger").map_err(|e| e.to_string())
 }
 
 pub fn effects_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("effects")
+    embedded_catalog("effects").map_err(|e| e.to_string())
 }
 
 pub fn choices_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("choices")
+    embedded_catalog("choices").map_err(|e| e.to_string())
 }
 
 pub fn match_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("match")
+    embedded_catalog("match").map_err(|e| e.to_string())
 }
 
 pub fn keywords_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("keywords")
+    embedded_catalog("keywords").map_err(|e| e.to_string())
 }
 
 pub fn combat_keywords_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("combat-keywords")
+    embedded_catalog("combat-keywords").map_err(|e| e.to_string())
 }
 
 pub fn tokens_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("tokens")
+    embedded_catalog("tokens").map_err(|e| e.to_string())
 }
 
 pub fn staples_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("staples")
+    embedded_catalog("staples").map_err(|e| e.to_string())
 }
 
 pub fn mana_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("mana")
+    embedded_catalog("mana").map_err(|e| e.to_string())
 }
 
 pub fn wipes_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("wipes")
+    embedded_catalog("wipes").map_err(|e| e.to_string())
 }
 
 pub fn sacrifice_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("sacrifice")
+    embedded_catalog("sacrifice").map_err(|e| e.to_string())
 }
 
 pub fn removal_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("removal")
+    embedded_catalog("removal").map_err(|e| e.to_string())
 }
 
 pub fn attachments_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("attachments")
+    embedded_catalog("attachments").map_err(|e| e.to_string())
 }
 
 pub fn four_colors_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("four-colors")
+    embedded_catalog("four-colors").map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

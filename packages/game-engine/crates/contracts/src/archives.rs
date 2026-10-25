@@ -1,9 +1,9 @@
 //! Accepted source identities are reviewed data, shared by lowering and IR validation.
 use crate::{sha256, strict_read};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AcceptedArchive {
     pub manifest_file: String,
@@ -14,6 +14,10 @@ pub struct AcceptedArchive {
     pub parser_revision: String,
     pub parser_source_sha256: String,
     pub corpus_sha256: String,
+    /// Reviewed raw-record hashes bound to this origin, independent of the
+    /// mutable archive filename on a provenance row. Extraction extends these
+    /// only after verifying the retained full archive hash and original bytes.
+    pub record_sha256: std::collections::BTreeSet<String>,
 }
 static ARCHIVES: LazyLock<Result<Vec<AcceptedArchive>, String>> = LazyLock::new(|| {
     let archives: Vec<AcceptedArchive> = strict_read(include_str!(
@@ -28,6 +32,7 @@ static ARCHIVES: LazyLock<Result<Vec<AcceptedArchive>, String>> = LazyLock::new(
         ]
         .into_iter()
         .chain(a.file_sha256.iter())
+        .chain(a.record_sha256.iter())
         {
             if h.len() != 64
                 || !h

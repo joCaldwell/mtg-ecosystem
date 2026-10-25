@@ -3569,9 +3569,13 @@ The archive was read only from the preserved copy under
 `/home/josh/.local/share/mtg-ecosystem/engine-evidence/archives/`; neither the
 live parser checkout nor its generated archive was modified or used.
 
-Every committed record's provenance row names its archive. The loader checks
-raw record hashes, declared Oracle identity, source/AST hashes and exact accepted
-manifest identity, then compiles and validates the complete catalog. Duplicate
+Every committed record's provenance row names its archive. D1a checked raw
+record hashes, declared Oracle identity, source/AST hashes and the exact accepted
+manifest supplied by that label before compiling and validating the catalog.
+This did **not** independently bind a record's bytes to the labelled archive:
+a row could be relabelled with another accepted header. Only extraction and
+the separate three-record comparison below established original-line equality.
+The D1b follow-up adds independent origin pins and a repeatable full-file verifier. Duplicate
 record files, duplicate provenance files, missing witnesses and unsupported
 lowering fail explicitly. Mixed accepted archives validate in one catalog.
 Extraction itself is independent of lowering: it can preserve unparsed records
@@ -3726,3 +3730,71 @@ substituting historical headers; rejection/coverage measurements should use its
 real manifest. Coverage tooling should distinguish excluded envelopes (which
 omit binding/face data) from in-scope unsupported records. This step makes no
 new corpus-coverage or gameplay claim.
+
+## D1b partial — provenance repair and engine code identity (2026-10-24)
+
+This is a coherent subset of D1b, using the plan's allowed partial-delivery
+boundary. It completes the six D1a review repairs and code-only `BUILD_ID`.
+It does **not** complete D1b or claim the data-only playable-profile exit.
+
+Accepted archives now independently pin their reviewed record hashes: 195
+historical records and three records from the preserved current archive. Catalog
+construction requires the actual record hash to occur under the labelled
+accepted archive. A negative witness relabels Grizzly Bears with the other real
+accepted header and proves `catalog build --write` rejects it before creating
+IR/digest outputs. Initial historical attribution preserves D1a's reviewed pins;
+without a retained historical JSONL, it cannot prove original archive-line
+membership anew. No historical archive identity or full-file proof is invented.
+Extraction extends origin pins only after checking the full accepted file hash.
+
+`catalog verify ARCHIVE PROVENANCE` re-reads the entire full-file-pinned archive,
+compares every row of that origin to its original `archive_line` byte-for-byte,
+and checks record identity/hash fields. Missing, duplicate, invalid or past-end
+line numbers, terminator/fixture changes, record-hash/identity changes, unknown
+origin pins and incorrect full-file hashes fail explicitly. Other-origin rows
+are counted separately, never claimed as verified. The vestigial top-level
+`archive_manifest_sha256` has been removed from provenance and is rejected by
+its strict decoder.
+
+Compiler embedding now follows source manifests/provenance and legacy evidence
+record groups. It embeds source records, archive headers, accepted origins and
+manifests, excluding expected IR, digest outputs and policy copies. Catalog and
+record-group syntax errors no longer panic in build scripts. Public
+`CatalogError` is tagged and serializable. Missing scenario definition pins
+become failed runtime admission instead of a compile-time `env!` failure; valid
+pins still derive from reviewed expected IR. The three `CHOICE_EXTRA` literals
+now use those derived pins. The eleven Node pool-review lengths derive from
+the catalog rather than fixed pool sizes. One contracts test enumerates all
+64 public capabilities and proves each has a fully valid minimum-IR witness
+and rejects every available witness below that version.
+
+`BUILD_ID` now selects only Rust source/Cargo manifests below engine `crates/`,
+root Cargo manifest/lockfile and toolchain pin, and the existing effective
+compiler/target/build settings. Catalog/profile data, expected outputs and
+server code are excluded. The core build and independent native source verifier
+share this selection. Full retained source tables still include data and server
+files, enforce ordered unique safe paths and validate every per-file hash.
+Snapshot restoration still checks build, catalog, profile and semantic-state
+hashes separately. A test changes/re-hashes data and host code without changing
+code identity, rejects a bad data hash, and rejects changed/re-hashed engine
+code. This is a one-time engine identity change; old evidence remains preserved.
+
+No IR content, catalog digest, profile deck or runtime rules are re-baselined in
+this subset. Zero profile gates or profile constants are deleted. Capacities
+and their existing proofs remain unchanged; no generic-capacity claim is made.
+The 21 catalogs are checked against their committed expected outputs.
+
+Remaining D1b: move all eleven legal profiles/decks/commander rules/hosting and
+search flags to data; consolidate the dated banned list and derive pool reviews;
+replace the server allowlist with flags; remove lineage gates throughout core,
+server and sim; admit behavior solely from validated catalog IR; implement one
+mechanical capacity policy with existing typed atomic overflow; re-baseline all
+profiles; and add the thirteen-or-more-card data-only profile plus legal-request
+driver completing a four-player game. Foundations/attachments hosting remains
+the existing registry behavior until that migration.
+
+D1c remains generic batch/replay commands, capability-driven completion policies
+and removal of card-name/count heuristics. D2 remains generic IR and compositional
+lowering, source normalization/multiface classification, corpus coverage tooling
+and capability/randomized gameplay witnesses. This subset makes no new gameplay
+or corpus-coverage claim.

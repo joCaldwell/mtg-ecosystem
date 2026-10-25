@@ -12,15 +12,15 @@ pub(super) const BOUNCER: &str = "82076865-7917-4d3b-8fe8-c21bfcd64d29";
 pub(super) const CHOICE_EXTRA: [(&str, &str); 3] = [
     (
         SEEDS,
-        "2733bff5ca875a5cc285bf3130692267a3f65d39cc34bec570203af7b13ed7e8",
+        definition_digest!("MTG_DEFINITION_choices_dd3d4d96-1e88-49e1-8276-7f62c22ad91a"),
     ),
     (
         SALVE,
-        "7efa090ef62afedf875d9fee010c0c2b0e78aa972c229ccb4ad97addcbd45c5f",
+        definition_digest!("MTG_DEFINITION_choices_8da8644c-75a1-4fe9-8e94-900d948d631c"),
     ),
     (
         BOUNCER,
-        "9b84cebde576e601e220dcae56fafb9fe6ef5064d29b1c25a1dc08483d769ee8",
+        definition_digest!("MTG_DEFINITION_choices_82076865-7917-4d3b-8fe8-c21bfcd64d29"),
     ),
 ];
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

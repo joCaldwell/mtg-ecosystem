@@ -580,7 +580,7 @@ test("match catalog binds sole defender and the current finite Commander policy"
     assert.equal(r.oracleIdentity,item.oracle_id);assert.equal(r.sourceIndex,item.source_index);assert.equal(sha(JSON.stringify(r.source)),item.source_sha256);assert.equal(r.sourceSha256,item.source_sha256);
     assert.ok(r.source.name===item.name||r.source.card_faces?.some((f:any)=>f.name===item.name));
   }
-  assert.equal(banned.size,49);assert.equal(policy.admitted_pool_review.length,34);
+  assert.equal(banned.size,49);assert.equal(policy.admitted_pool_review.length,catalog.definitions.length);
   for(const d of catalog.definitions){assert.equal(banned.has(d.oracle_id),false);const source=JSON.parse(d.provenance.source_json);assert.equal(source.type_line.includes("Conspiracy"),false);assert.equal(/\bante\b/i.test(source.oracle_text),false);assert.equal(policy.offensive_policy.names.includes(source.name),false);const review=policy.admitted_pool_review.find((r:any)=>r.oracle_id===d.oracle_id);assert.deepEqual(review,{oracle_id:d.oracle_id,name:d.name,source_sha256:d.provenance.source_sha256,conspiracy_type:false,ante_reference:false,offensive_named_ban:false});}
 });
 
@@ -1410,7 +1410,7 @@ test("keywords IR v12 preserves foundations and rejects vocabulary downgrades", 
   const policy=JSON.parse(read("commander-keywords-policy.json"));
   const foundations=JSON.parse(read("commander-policy.json"));
   assert.deepEqual(policy.named_bans,foundations.named_bans); assert.deepEqual(policy.offensive_policy,foundations.offensive_policy);
-  assert.equal(policy.profile,"commander-keywords-v1"); assert.equal(policy.admitted_pool_review.length,50);
+  assert.equal(policy.profile,"commander-keywords-v1"); assert.equal(policy.admitted_pool_review.length,catalog.definitions.length);
   for(const d of catalog.definitions) assert.deepEqual(policy.admitted_pool_review.find((r:any)=>r.oracle_id===d.oracle_id),{oracle_id:d.oracle_id,name:d.name,source_sha256:d.provenance.source_sha256,conspiracy_type:false,ante_reference:false,offensive_named_ban:false});
 });
 
@@ -1429,7 +1429,7 @@ test("combat keywords IR v13 preserves v12 and enforces vocabulary and policy", 
     assert.equal(validate(bad),false); bad.definitions[0].capabilities=[]; assert.equal(validate(bad),false);
   }
   const policy=JSON.parse(read("commander-combat-keywords-policy.json"));
-  assert.equal(policy.profile,"commander-combat-keywords-v1"); assert.equal(policy.admitted_pool_review.length,59);
+  assert.equal(policy.profile,"commander-combat-keywords-v1"); assert.equal(policy.admitted_pool_review.length,catalog.definitions.length);
   assert.deepEqual(policy.named_bans,JSON.parse(read("commander-policy.json")).named_bans);
   for(const d of catalog.definitions) assert.deepEqual(policy.admitted_pool_review.find((r:any)=>r.oracle_id===d.oracle_id),{oracle_id:d.oracle_id,name:d.name,source_sha256:d.provenance.source_sha256,conspiracy_type:false,ante_reference:false,offensive_named_ban:false});
 });
@@ -1449,7 +1449,7 @@ test("tokens IR v14 preserves earlier definitions and rejects v13 instruction do
     bad.definitions[0].capabilities = []; assert.equal(validate(bad),false);
   }
   const policy = JSON.parse(read("commander-tokens-policy.json"));
-  assert.equal(policy.profile,"commander-tokens-v1"); assert.equal(policy.admitted_pool_review.length,72);
+  assert.equal(policy.profile,"commander-tokens-v1"); assert.equal(policy.admitted_pool_review.length,catalog.definitions.length);
   assert.deepEqual(policy.named_bans, JSON.parse(read("commander-policy.json")).named_bans);
   for (const d of catalog.definitions) assert.deepEqual(policy.admitted_pool_review.find((r:any)=>r.oracle_id===d.oracle_id),{oracle_id:d.oracle_id,name:d.name,source_sha256:d.provenance.source_sha256,conspiracy_type:false,ante_reference:false,offensive_named_ban:false});
 });
@@ -1467,7 +1467,7 @@ test("staples IR v15 preserves earlier definitions, complete scopes and policy",
     assert.equal(validate(bad),false,d.name);bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,d.name);
   }
   const policy=JSON.parse(read("commander-staples-policy.json"));
-  assert.equal(policy.profile,"commander-staples-v1");assert.equal(policy.admitted_pool_review.length,81);
+  assert.equal(policy.profile,"commander-staples-v1");assert.equal(policy.admitted_pool_review.length,catalog.definitions.length);
   assert.deepEqual(policy.named_bans,JSON.parse(read("commander-policy.json")).named_bans);
   for(const d of catalog.definitions) assert.deepEqual(policy.admitted_pool_review.find((r:any)=>r.oracle_id===d.oracle_id),{oracle_id:d.oracle_id,name:d.name,source_sha256:d.provenance.source_sha256,conspiracy_type:false,ante_reference:false,offensive_named_ban:false});
 });
@@ -1486,7 +1486,7 @@ test("mana IR v16 preserves earlier catalogs and enforces complete costs and pol
     assert.equal(validate(bad),false,d.name);bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,d.name);
   }
   const policy=JSON.parse(read("commander-mana-policy.json"));
-  assert.equal(policy.profile,"commander-mana-v1");assert.equal(policy.admitted_pool_review.length,90);
+  assert.equal(policy.profile,"commander-mana-v1");assert.equal(policy.admitted_pool_review.length,catalog.definitions.length);
   const pinned=JSON.parse(read("commander-policy.json"));
   assert.deepEqual(policy.named_bans,pinned.named_bans);assert.deepEqual(policy.offensive_policy,pinned.offensive_policy);
   for(const d of catalog.definitions) {
@@ -1506,7 +1506,7 @@ test("four colors adds sixteen exact v16 records and separately reviews policy",
   for(const d of run("compile-mana").definitions) assert.deepEqual(catalog.definitions.find((x:any)=>x.oracle_id===d.oracle_id),d);
   const policy=JSON.parse(read("commander-four-colors-policy.json"));
   const pinned=JSON.parse(read("commander-policy.json"));
-  assert.equal(policy.profile,"commander-four-colors-v1"); assert.equal(policy.admitted_pool_review.length,106);
+  assert.equal(policy.profile,"commander-four-colors-v1"); assert.equal(policy.admitted_pool_review.length,catalog.definitions.length);
   assert.deepEqual(policy.named_bans,pinned.named_bans); assert.deepEqual(policy.offensive_policy,pinned.offensive_policy);
   // Pinned official ban list and its linked offensive-card policy are retained
   // separately from source legality. Check every admitted identity and category.
@@ -1531,7 +1531,7 @@ test("attachments IR v17 preserves prior definitions, policy and strict downgrad
   for(const old of run("compile-four-colors").definitions) assert.deepEqual(catalog.definitions.find((d:any)=>d.oracle_id===old.oracle_id),old);
   const policy=JSON.parse(read("commander-attachments-policy.json"));
   const prior=JSON.parse(read("commander-four-colors-policy.json"));
-  assert.equal(policy.admitted_pool_review.length,118);assert.deepEqual(policy.named_bans,prior.named_bans);assert.deepEqual(policy.offensive_policy,prior.offensive_policy);
+  assert.equal(policy.admitted_pool_review.length,catalog.definitions.length);assert.deepEqual(policy.named_bans,prior.named_bans);assert.deepEqual(policy.offensive_policy,prior.offensive_policy);
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
   for(const d of catalog.definitions) {
@@ -1553,7 +1553,7 @@ test("removal IR v18 preserves inherited bytes, policy and complete downgrade gu
   assert.deepEqual(catalog,JSON.parse(read("expected-removal-ir.json")));
   for(const old of run("compile-attachments").definitions) assert.deepEqual(catalog.definitions.find((d:any)=>d.oracle_id===old.oracle_id),old);
   const policy=JSON.parse(read("commander-removal-policy.json")), prior=JSON.parse(read("commander-attachments-policy.json"));
-  assert.equal(policy.admitted_pool_review.length,135);assert.deepEqual(policy.named_bans,prior.named_bans);assert.deepEqual(policy.offensive_policy,prior.offensive_policy);
+  assert.equal(policy.admitted_pool_review.length,catalog.definitions.length);assert.deepEqual(policy.named_bans,prior.named_bans);assert.deepEqual(policy.offensive_policy,prior.offensive_policy);
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
   for(const d of catalog.definitions) {
@@ -1571,7 +1571,7 @@ test("sacrifice IR v19 preserves the v18 closure and rejects complete downgrades
   assert.deepEqual(catalog,JSON.parse(read("expected-sacrifice-ir.json")));
   for(const old of run("compile-removal").definitions) assert.deepEqual(catalog.definitions.find((d:any)=>d.oracle_id===old.oracle_id),old);
   const policy=JSON.parse(read("commander-sacrifice-policy.json")), prior=JSON.parse(read("commander-removal-policy.json"));
-  assert.equal(policy.admitted_pool_review.length,153);assert.deepEqual(policy.named_bans,prior.named_bans);assert.deepEqual(policy.offensive_policy,prior.offensive_policy);
+  assert.equal(policy.admitted_pool_review.length,catalog.definitions.length);assert.deepEqual(policy.named_bans,prior.named_bans);assert.deepEqual(policy.offensive_policy,prior.offensive_policy);
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
   for(const d of catalog.definitions) {
@@ -1589,7 +1589,7 @@ test("wipes v20 preserves inherited IR and rejects new operations in v19", () =>
   assert.deepEqual(catalog,JSON.parse(read("expected-wipes-ir.json")));
   for(const old of run("compile-sacrifice").definitions) assert.deepEqual(catalog.definitions.find((d:any)=>d.oracle_id===old.oracle_id),old);
   const policy=JSON.parse(read("commander-wipes-policy.json")), prior=JSON.parse(read("commander-sacrifice-policy.json"));
-  assert.equal(policy.admitted_pool_review.length,168);assert.deepEqual(policy.named_bans,prior.named_bans);assert.deepEqual(policy.offensive_policy,prior.offensive_policy);
+  assert.equal(policy.admitted_pool_review.length,catalog.definitions.length);assert.deepEqual(policy.named_bans,prior.named_bans);assert.deepEqual(policy.offensive_policy,prior.offensive_policy);
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
   for(const d of catalog.definitions) {
