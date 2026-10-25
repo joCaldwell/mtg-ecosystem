@@ -3733,8 +3733,8 @@ new corpus-coverage or gameplay claim.
 
 ## D1b partial — provenance repair and engine code identity (2026-10-24)
 
-This is a coherent subset of D1b, using the plan's allowed partial-delivery
-boundary. It completes the six D1a review repairs and code-only `BUILD_ID`.
+This is a coherent subset of D1b, using the task brief's allowed partial-delivery
+boundary. It completes the listed D1a review repairs and code-only `BUILD_ID`.
 It does **not** complete D1b or claim the data-only playable-profile exit.
 
 Accepted archives now independently pin their reviewed record hashes: 195
@@ -3798,3 +3798,41 @@ and removal of card-name/count heuristics. D2 remains generic IR and composition
 lowering, source normalization/multiface classification, corpus coverage tooling
 and capability/randomized gameplay witnesses. This subset makes no new gameplay
 or corpus-coverage claim.
+
+Verification on implementation `83ea934` (same Rust/TypeScript/data source as
+this documentation follow-up), with pinned Rust 1.99.0 / Node 26.11.1:
+
+- `npm run check:engine`: **exit 0**, formatting and Clippy with warnings denied,
+  **880 passed Rust tests**, **12 pre-existing ignored diagnostics**, and
+  **56 passed Node checks**. This includes
+  `registry::tests::exactly_foundations_and_attachments_are_hosted` and the new
+  code-identity/source-integrity test.
+- `cargo build --release --locked -p mtg-server`: **exit 0**.
+- `MTG_SERVER_BIN=$PWD/target/release/mtg-server npm --prefix packages/game-server/sdk run verify --workspaces=false`:
+  **exit 0**, **47 Node tests**, strict TypeScript and **32 response variants**;
+  reported `preliminary-sdk-checks-passed` (schema/generated types/mock HTTP).
+  Verification metadata was retained and SDK `generated` removed afterwards.
+- All **21** catalog manifests passed CLI check mode, preserving every committed
+  expected-IR byte and digest. No profile re-baseline is claimed.
+- Full-file `catalog verify` checked **3 current-origin records**, reporting
+  **195 other-origin records separately**, against full archive SHA-256
+  `d705222b280a71cb5a5362f657d530b22402ca51687bac3227c1d6db403d0282`.
+  Fresh extraction of Canyon Minotaur, Open Fire and Flesh to Dust reproduced
+  every committed fixture byte and passed the new verifier in a scratch directory.
+- With both a malformed catalog and malformed record-group manifest present,
+  `cargo build --release --locked -p mtg-sim` passed; CLI commands then reported
+  `InvalidManifest` and `invalid_record_groups`. Only those two data files changed.
+  Both were restored exactly, the normal release CLI rebuilt successfully, and
+  the full native source manifest returned byte-identically to its initial value.
+  Before/during/after engine code identity stayed
+  `1c3f0baea6397166a568e77c45342258020423061264c941894c8f4de0b67f68`.
+  This is a build-identity probe, **not** the pending new-profile/game demonstration.
+- Restored release `mtg-sim`: **28,611,888 bytes**. Expected IR and policy copies
+  are absent from the compiler's embedded input table.
+
+Logs, CLI reports and aggregate results are ignored under
+`generated/cards-data-d1b/verification/`. Two development identity checks failed
+while source edits invalidated their compiled source closure; their failed logs
+are retained separately from the final frozen-source passing gate. No historical
+catalog, snapshot or batch evidence was overwritten. There is no new-profile
+full-game result or thirteen-card data-only exit proof in this subset.
