@@ -1,0 +1,17 @@
+**
+!package.json
+!package-lock.json
+!tsconfig.base.json
+!packages/
+!packages/deck-builder/
+!packages/deck-builder/package.json
+!packages/deck-builder/tsconfig.json
+!packages/deck-builder/vite.config.ts
+!packages/deck-builder/scripts/
+!packages/deck-builder/scripts/container-entrypoint.sh
+!packages/deck-builder/src/
+!packages/deck-builder/src/**
+!packages/deck-builder/web/
+!packages/deck-builder/web/**
+packages/deck-builder/web/dist/
+packages/deck-builder/web/node_modules/

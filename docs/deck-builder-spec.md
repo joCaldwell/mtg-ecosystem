@@ -957,6 +957,41 @@ Checked on 2026-10-25, v3 Phase 1 identity foundation:
   Settings layouts were inspected. The owner’s live database, token file
   and client configurations were not changed. Vite production build passes.
 
+Checked on 2026-10-25, v3 Phase 3 private beta deployment:
+
+- The repo-root Docker build uses `node:26-slim`, a selected npm workspace,
+  Vite assets and production-only runtime dependencies. Railway's root-owned
+  volume is prepared by a startup helper; the serving Node PID and its jobs
+  run as UID/GID 1000. Production follows `release` initialized at Phase 2's
+  merge `3e1798d`; staging follows `main`. One replica per environment.
+- A read-only online backup of the owner's schema-10 database migrated to
+  schema 12 on production: **18 decks and 36 memories preserved**, zero FK
+  errors, no legacy token file transferred. Production becomes primary at
+  go-live; local data is an unchanged development copy.
+- A forced production refresh completed in **15.14 s**, child peak
+  **264.10 MiB**, with **148/148** concurrent health probes passing and no
+  server restart. A **73,711,616-byte** online backup reached the Railway
+  bucket and was downloaded and restored into staging in **4.961 s** for
+  the restore/open step: the same 18 decks, 36 memories and schema 12.
+  Both exact deployments reached `SUCCESS` and passed Railway healthchecks.
+- A real internal probe with Railway's healthcheck Host and a wrong Origin
+  returned only `{ok:true,schema_version:12}`, with no cookies. A temporary
+  live staging ingress probe confirmed X-Real-IP matched the caller's public
+  IPv4, and spoofed client forwarding headers were overwritten. XFF's last
+  hop was a proxy. Real IPv6 ingress remains unverified.
+- Live Discord sign-in issued a Secure, HttpOnly, SameSite=Lax state cookie
+  behind Railway TLS. Request/tool JSON logs correlate generated request IDs
+  with resolved Actors and omit credentials, bodies, queries and tool data;
+  error logs contain stack frames without potentially sensitive messages.
+  All **961 tests** and both typechecks pass. OPERATIONS.md records commands,
+  deployment IDs, remaining owner acceptance and the claim lifecycle.
+- The $25 workspace soft spending alert is configured. Railway rejected
+  native daily/weekly volume backups as Pro-only on this Hobby workspace;
+  the runbook explicitly records that unsatisfied redundancy requirement
+  and the owner upgrade/enablement steps. Nightly SQLite bucket backups are
+  configured and real bucket recovery was tested. External uptime monitor
+  setup remains an owner step because no monitor credentials were supplied.
+
 ## 16. Not verified
 
 Ownership-aware sourcing and proposal cleanup were added on 2026-10-15.

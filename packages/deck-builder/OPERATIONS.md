@@ -1,4 +1,4 @@
-# Local operations
+# Deck-builder operations
 
 Use Node 26 (`nvm use`, `.nvmrc`). The package declares Node >=24.12 for
 stable native TypeScript stripping; `src/sqlite.ts` uses the renamed Node 26
@@ -419,3 +419,458 @@ match pre-phase results by oracle ID: `-usd>5` 32,791; `t:dragon -usd<1` 153;
 `t:dragon (usd>100 or -usd>0)` 34. No live database was opened for these checks.
 The scheduler regression migrates a populated v12 fixture and checks missing,
 old and current price-store markers one hour after a successful refresh.
+
+## Railway private beta: topology and releases
+
+The beta uses project **deck-builder** (`2c9c40a2-4b69-4d5e-a2c4-188a6f5894b8`),
+service **deck-builder** (`94e7ffb1-12ce-4fd0-a8cc-afad081d9881`).
+Never run project mutations against another linked project.
+
+| Environment | Source branch | Public origin | Volume / bucket |
+| --- | --- | --- | --- |
+| production | `release` | `https://deck-builder-production-00d7.up.railway.app` | `production-data`, 5000 MB at `/data`; `backups-production` |
+| staging | `main` | `https://deck-builder-staging.up.railway.app` | `staging-data`, 5000 MB at `/data`; `backups-staging` |
+
+Exactly **one replica per environment**, no sleep/serverless: SQLite has one
+writer and rate limiting is in memory. The web process schedules refresh and
+backup children against the same volume. From go-live, **production is the
+primary database**; the owner's unchanged laptop data becomes development
+input. Never redeploy a local database over hosted user data. From the first
+invited account, migrations must preserve/backfill all user content (D19).
+
+`release` was created at **3e1798d**, the merge commit of Phase 2 PR #5,
+before Phase 3. Initial provisioning uploads the Phase 3 container/logging
+assets alongside that predecessor's product code because the predecessor
+has no Dockerfile. The owner must merge Phase 3 and promote its merge commit
+before relying on push builds. This bootstrap does not advance `release` to
+unmerged feature commits. Subsequent production releases come only from
+`release`; parallel 1b/4a migrations land on `main`/staging first.
+
+From the repository root, build exactly:
+
+```sh
+docker build -f packages/deck-builder/Dockerfile -t deck-builder .
+```
+
+The Dockerfile uses `node:26-slim`, the root npm lockfile with a selected
+workspace, a Vite build stage, production dependencies only in the runtime,
+and `node src/server.ts` as PID 1. No server TypeScript compilation. The
+allowlist `.dockerignore` excludes `.env`, all database/token/cache files,
+tests, `.git`, other packages and downloaded assets. Docker's `HEALTHCHECK`
+uses `/api/health`; Railway separately checks that path on target port 8787.
+The local Docker daemon was unavailable during this phase; Railway performs
+and verifies the actual Docker build from the same repo-root context.
+
+The image defaults to `USER node`. Railway requires `RAILWAY_RUN_UID=0` for
+its root-owned volume; the entrypoint prepares only the data directory,
+then `exec setpriv --reuid=node --regid=node --init-groups ...`. Node and
+all scheduler children run as UID/GID 1000; SSH operator commands run as
+root, so use the same `setpriv` prefix for database commands. Do not leave
+a root-running Node service. [Railway volume permissions](https://docs.railway.com/volumes/reference)
+explain why Dockerfile ownership alone does not prepare a mounted volume.
+
+Infrastructure is reviewable in `.railway/railway.ts` (CLI 5.63.1, isolated
+`railway@3.16.0` authoring dependency in `.railway/package-lock.json`). Install
+with `npm ci --prefix .railway`. It chooses `release`/`main` from the linked
+environment, retains secrets using `preserve()`, and never stores identities,
+credentials or generated domains in the authoring file. Each environment
+has a separately scoped graph. Live setup uses scoped CLI/API config edits;
+plan the resulting graph before changing it:
+
+```sh
+railway link --project 2c9c40a2-4b69-4d5e-a2c4-188a6f5894b8 --environment staging --service deck-builder
+railway config plan
+railway link --project 2c9c40a2-4b69-4d5e-a2c4-188a6f5894b8 --environment production --service deck-builder
+railway config plan
+```
+
+Review every plan, especially deletes. Do not use `config pull
+--include-variables`: it writes non-sealed secret values to source. Claim
+codes are bootstrap state: production's code is deliberately absent from
+the desired graph after claiming; staging preserves its independent code.
+Config-as-code does not express billing alerts or native backup schedules;
+those use the CLI/API below.
+
+The owner promotes after staging smoke tests and a fresh production backup:
+
+```sh
+git fetch origin
+git push origin main:release
+# Or a specific staging-verified commit:
+git push origin <commit-sha>:release
+railway deployment list --project 2c9c40a2-4b69-4d5e-a2c4-188a6f5894b8 --environment production --service deck-builder --json
+curl --fail https://deck-builder-production-00d7.up.railway.app/api/health
+```
+
+Use an up-to-date local `main` for the first form. Follow the exact resulting
+deployment ID to `SUCCESS`; upload/build acceptance alone is not success.
+Volumes imply brief deployment downtime. Do not bypass staging for a schema
+change. Secrets, backups and monitoring are independent of Git promotion.
+
+## Logs, health and monitoring
+
+Request and MCP tool logs are one JSON object per line with `ts`, `level`,
+`req_id`, resolved `user_id`, `via`, `label`, `method`, `path` or `tool`,
+`status` and elapsed `ms`. `X-Request-ID` correlates the two records. Requests
+log once on finish/close; open SSE requests log when closed (499 if aborted).
+Errors include stack frames, excluding the message because provider/validation
+messages can contain credentials or submitted text. Query strings, headers,
+cookies, request bodies, tool arguments/results and raw IPs are never logged.
+Dynamic URL segments are replaced with placeholders; MCP paths log `/mcp`.
+Hosted child output records only stream/byte counts, plus job completion;
+Settings and `meta` retain job status. Better Auth's own logger stays disabled.
+For example, grepping Railway's structured output:
+
+```sh
+railway logs --environment production --service deck-builder --lines 200 --json | jq 'select(.user_id == 1 or (.message // "" | contains("user_id")))'
+```
+
+Railway can parse application JSON into log fields; use its `user_id` filter
+or inspect `.message` if a CLI version keeps the inner JSON as text. Request
+IDs are generated by the app, not trusted from the caller. Logs preserve
+actor attribution without granting any capability.
+
+`GET /api/health` remains public and returns exactly `{ok,schema_version}`.
+It ignores Host/Origin only for that GET path, never resolves a session, and
+sets no cookie. Railway probes send `Host: healthcheck.railway.app`; successful
+platform deployments plus an internal request with that Host verify the
+exception. All other routes retain their configured Host/Origin boundary.
+
+Set up an external monitor in UptimeRobot (no credentials supplied to the
+agent): Add New Monitor → HTTP(s) → Friendly Name `deck-builder production`
+→ URL `https://deck-builder-production-00d7.up.railway.app/api/health`
+→ interval 5 minutes → select the owner's alert contact → Create Monitor.
+Repeat for staging if wanted. Alert on HTTP failure; the health payload does
+not prove Scryfall/bucket availability. Inspect Settings job failures and
+backup timestamps as well. No Sentry SDK or `SENTRY_DSN` integration is added;
+optional error aggregation is deferred instead of installing an unused SDK.
+
+## Rollback and restore safety
+
+For a code-only regression, Railway → production → deck-builder → Deployments
+→ the previous known-good deployment → menu → Redeploy. Or use
+`railway redeploy --environment production --service deck-builder --yes`
+for the latest uploaded artifact (not `--from-source` if the source is bad).
+Recheck its exact deployment ID and health. `railway down --environment
+production --service deck-builder --yes` removes the running deployment but
+retains the volume; use it to halt a broken instance, not as a data rollback.
+Do not delete the service, project, volume or bucket.
+
+Before running old code against a database, confirm it supports the current
+schema. There are no down migrations. A data rollback means maintenance
+mode, restore a pre-change online backup, and deploy compatible code. It
+loses all changes since the snapshot, so reconcile user data and repeat any
+account deletions/revocations. Do not force-reset `release` casually; select
+a fix-forward commit or deliberately coordinate a history rollback with the
+owner. Platform deployment rollback alone never rewinds SQLite.
+
+## Secret rotation and owner claim lifecycle
+
+Secrets are sealed Railway variables; don't print `railway variable list`
+or bucket-credential output. Feed sensitive values on stdin:
+
+```sh
+# Read the value inside the same command that sets it. No argv expansion.
+railway variable set DECKBUILDER_CLAIM_CODE --stdin --environment production --service deck-builder < ~/.config/deck-builder/claim-code
+```
+
+The initial bootstrap normalized the file's trailing newline before setting
+it. For subsequent stdin use, store the file without a trailing newline, or
+strip it in a small private process that pipes directly to Railway. Never
+paste a production claim code into the repository, shell argv, logs or chat.
+The owner's production file is `~/.config/deck-builder/claim-code`, mode 600;
+staging has a distinct random file at `~/.config/deck-builder/claim-code-staging`,
+mode 600. Auth secrets are distinct random values per environment. Discord
+credentials are shared by explicit owner choice; add both exact redirect URLs.
+Legal identity values are required public environment configuration, not
+source-controlled personal information.
+
+Owner bootstrap: open `https://deck-builder-production-00d7.up.railway.app/signin`,
+paste the production file contents into **Invite or owner claim code**, and
+sign in with Discord. Confirm user 1 has a non-null auth_id, remains admin,
+and owns all 18 decks and 36 memories. After the `owner_claimed` event:
+
+```sh
+railway variable delete DECKBUILDER_CLAIM_CODE --environment production --service deck-builder
+railway redeploy --environment production --service deck-builder --yes
+```
+
+The code is already unusable once claimed. Removing it and redeploying closes
+the operational lifecycle. Do not reset `auth_id`, re-enable claims or reuse
+production's code in staging. A staging restore of a claimed production owner
+can be signed in with the same Discord identity without a claim code; its
+sessions use staging's own origin/secret. Restoring auth/provider rows does
+not make their encrypted provider tokens portable across secrets; re-sign-in
+on staging and never copy its credentials back to production.
+
+Rotate a personal token in hosted Settings → Agent connection: create a new
+labelled token, update the client, verify `start_session`, then revoke the old
+one. Nothing reads the laptop's legacy token into hosted mode. For Discord,
+regenerate the provider secret in the Developer Portal, set the sealed variable
+in **both** environments via a private process, and redeploy both. Keep
+`BETTER_AUTH_SECRET` stable; rotation invalidates sessions and encrypted
+provider tokens, requires fresh sign-ins and OAuth reconnects, and must be
+planned with a fresh backup. Generate the replacement in memory and pipe it
+to `railway variable set BETTER_AUTH_SECRET --stdin`; don't save it in a file.
+For bucket rotation, reset credentials only for that environment's bucket,
+capture the response privately, set both `BACKUP_S3_ACCESS_KEY` and
+`BACKUP_S3_SECRET_KEY` sealed, redeploy, run a backup and verify its object.
+
+Mint an invite as the signed-in admin: Settings → Admin → Create invite.
+Give the single-use code privately to one tester. They open `/signin`, enter
+it, sign in with Discord, and should see zero decks; requests for owner decks
+must return 404. Existing accounts sign in with an empty code field. Account
+delete/export stay self-service; never impersonate a tester or manually link
+a new identity to user 1.
+
+## Spending alert and native volume snapshots
+
+The workspace **soft email alert is $25**, verified with CLI 5.63.1; no hard
+cap or other project's settings were changed:
+
+```sh
+railway usage limit status --workspace 51a41279-bc88-41a9-b0d5-4ef13a0f1a9d --target workspace --json
+railway usage limit set --workspace 51a41279-bc88-41a9-b0d5-4ef13a0f1a9d --target workspace --soft 25 --json
+railway usage projects --workspace 51a41279-bc88-41a9-b0d5-4ef13a0f1a9d --project deck-builder --json
+```
+
+The alert counts the entire workspace, including the two pre-existing
+projects. It is not a $25 per-project cap. Dashboard equivalent: workspace
+Settings → Usage → Usage Limits → set the email/soft threshold to $25 and
+save; leave any existing hard cap alone.
+
+**Native volume backups are blocked on Hobby.** For both production and staging,
+`volumeInstanceBackupScheduleUpdate(kinds:[DAILY,WEEKLY])` returned:
+`Manual backups and backup schedules are only available for Pro workspaces`.
+No upgrade was made. Nightly online SQLite snapshots to the Railway bucket
+remain configured and independently tested. To satisfy native snapshot
+redundancy, the owner chooses a Pro upgrade in workspace Settings → Plans →
+Pro, then project → each environment → deck-builder → Backups → select Daily
+and Weekly → Save. Verify both schedules appear. Native retention is six
+days daily / 27 days weekly; see [Railway backups](https://docs.railway.com/volumes/backups).
+Native snapshots do not replace the consistent online backups or restore drill.
+
+## Move an instance and rehearse a bucket restore
+
+Never copy a bare database from a running instance and never change the
+laptop's live `data/`. Use SQLite's online backup API with a read-only source,
+then validate/migrate only the destination. For the initial move, the server
+was stopped, but the same online API was still used:
+
+```sh
+# Run from the repository root; destination is ignored/private, never data/.
+mkdir -p packages/deck-builder/.dev/phase3
+chmod 700 packages/deck-builder/.dev/phase3
+python3 - <<'PY'
+import sqlite3
+src = sqlite3.connect('file:/home/josh/Code/mtg-ecosystem/packages/deck-builder/data/deck-builder.db?mode=ro', uri=True)
+dst = sqlite3.connect('packages/deck-builder/.dev/phase3/owner-online.db')
+src.backup(dst)
+dst.close()
+src.close()
+PY
+chmod 600 packages/deck-builder/.dev/phase3/owner-online.db
+```
+
+Create the destination with its own volume, public origin and secrets; do not
+copy token files or `.env`. Before replacing an existing destination, back it
+up, warn users about maintenance, and stop its web process and jobs. On Railway,
+use a maintenance deployment that holds the volume but does not open SQLite:
+
+```sh
+# Set the destination environment explicitly. This example is STAGING.
+railway environment edit --project 2c9c40a2-4b69-4d5e-a2c4-188a6f5894b8 --environment staging --json <<'JSON'
+{"services":{"94e7ffb1-12ce-4fd0-a8cc-afad081d9881":{"deploy":{"startCommand":"node -e 'require(\"node:http\").createServer((q,s)=>{s.writeHead(q.url===\"/api/health\"?200:503);s.end(\"maintenance\")}).listen(8787,\"0.0.0.0\")'"}}}}
+JSON
+```
+
+Deploy the correct branch and wait for that exact deployment's `SUCCESS`.
+Confirm `/api/health` now says `maintenance` (the maintenance probe is not
+normal application health). For initial bootstrap, before the Dockerfile
+exists on the remote branches, upload the selected checkout with `railway
+up --environment staging --service deck-builder --detach --json`; for normal
+operation deploy `main` to staging or `release` to production. Do not use an
+old image rollback for maintenance: it restores that image's original startup
+configuration, not the newly edited command. If a container is still stopping,
+wait for the new instance before SSH/SFTP. Use `railway api` to inspect a
+specific deployment's `instances { id status }` when necessary.
+
+For initial production import, upload the read-only source snapshot; for a
+restore drill, take the source from the production **bucket**, not its live
+file. Take the online production backup as UID 1000:
+
+```sh
+railway ssh --project 2c9c40a2-4b69-4d5e-a2c4-188a6f5894b8 --environment production --service deck-builder -- 'setpriv --reuid=node --regid=node --init-groups node src/cli.ts backup'
+railway bucket --environment production info --bucket backups-production --json
+```
+
+Download the backup with S3 credentials captured in process memory (nothing
+is printed or written to a credential file). This uses the already installed
+ops dependency. Run at the repository root and select the actual UTC date:
+
+```sh
+node --input-type=module <<'JS'
+import { execFileSync } from 'node:child_process';
+import { createWriteStream } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+const c = JSON.parse(execFileSync('railway', ['bucket', '--environment', 'production', 'credentials', '--bucket', 'backups-production', '--json'], { encoding: 'utf8' }));
+const s3 = new S3Client({ endpoint:c.endpoint, region:'auto', forcePathStyle:true,
+  credentials:{accessKeyId:c.accessKeyId, secretAccessKey:c.secretAccessKey} });
+const object = await s3.send(new GetObjectCommand({Bucket:c.bucketName, Key:'backups/deck-builder-2026-10-25.db'}));
+await pipeline(object.Body, createWriteStream('packages/deck-builder/.dev/phase3/production-bucket-backup.db', { mode:0o600, flags:'wx' }));
+s3.destroy();
+JS
+railway volume --environment staging --service deck-builder files --volume staging-data upload packages/deck-builder/.dev/phase3/production-bucket-backup.db /restore-production.db --json
+railway ssh --project 2c9c40a2-4b69-4d5e-a2c4-188a6f5894b8 --environment staging --service deck-builder -- 'setpriv --reuid=node --regid=node --init-groups node src/cli.ts restore /data/restore-production.db'
+```
+
+For initial production import the corresponding upload was `files --volume
+production-data upload .../owner-online.db /owner-online.db`, and restore
+used `/data/owner-online.db` in the production maintenance instance. `restore`
+checks integrity/FKs, migrates a temporary online copy, clears stale job
+leases and atomically swaps the stopped destination. It refuses an active
+server. If a process lock remains after a crash, verify the previous server
+and workers are gone before removing the stale lock; PID 1 can be reused
+across containers. Never bypass a live lock.
+
+Open the restored file read-only and compare deck/memory counts, owner ids,
+schema and `PRAGMA foreign_key_check` before serving. Return the environment
+to the normal start command, deploy, then wait for `SUCCESS` and health:
+
+```sh
+railway environment edit --project 2c9c40a2-4b69-4d5e-a2c4-188a6f5894b8 --environment staging --json <<'JSON'
+{"services":{"94e7ffb1-12ce-4fd0-a8cc-afad081d9881":{"deploy":{"startCommand":"sh /usr/local/bin/deck-builder-entrypoint node src/server.ts"}}}}
+JSON
+curl --fail https://deck-builder-staging.up.railway.app/api/health
+```
+
+Verify UID 1000 in `/proc/1/status`. If restoring with root-owned operator
+files, only the upload needs to be readable; run restore as node so the new
+database and sidecars stay writable by the service. If an operator previously
+ran Node as root, repair the volume's file ownership before starting again.
+Remove uploaded restore inputs after verification; keep dated backups in the
+bucket. Repeat restores/deletions/revocations deliberately; a backup restores
+authentication state as well as deck data. A different public origin needs
+provider redirects and OAuth client reconnects.
+
+### Phase 3 live evidence, 2026-10-25
+
+- Source: **schema 10, 18 decks, 36 memories**. Online backup: **0.056 s**;
+  SHA-256 comparisons of every original local data file found no changes.
+- Production migration: **schema 12, 18 decks, 36 memories**, zero FK errors,
+  user 1 unclaimed before owner sign-in, **zero personal tokens**. No local
+  legacy credential was uploaded; hosted Settings creates new credentials.
+- Production forced refresh: **15.14 s**, child peak **264.10 MiB**, server
+  peak **179.55 MiB**; **148/148** concurrent health probes succeeded, slowest
+  **36.72 ms**, server process/start time unchanged, UID 1000. Persistent
+  `job:refresh` recorded success; daily scheduling remains the web child's job.
+- Online production backup uploaded to `backups-production`; object
+  `backups/deck-builder-2026-10-25.db`, **73,711,616 bytes**. Downloaded from
+  that bucket in **3.205 s**, uploaded to staging, then restored/opened in
+  **4.961 s**. Restored staging: **18 decks, 36 memories, schema 12**, zero
+  FK errors. Deployment `279a5657-7a39-4032-87e5-d94a30197f7f` reached
+  `SUCCESS` and passed Railway's native healthcheck.
+- Production deployment `bd39f6e9-57c3-4304-838c-48b14544ef77` reached
+  `SUCCESS`; native `/api/health` check passed. Internal request with
+  `Host: healthcheck.railway.app` plus a wrong Origin returned HTTP 200,
+  exactly `{ok:true,schema_version:12}`, no Set-Cookie. UID/GID both 1000.
+- Temporary staging ingress probe (removed immediately afterwards) observed
+  `X-Real-IP` equal to the caller's independently measured public IPv4.
+  `X-Forwarded-For` contained that address followed by a Railway proxy;
+  supplying fake X-Real-IP `203.0.113.9` and XFF
+  `198.51.100.7, 203.0.113.8` did not change the forwarded client. Host was
+  the staging domain, protocol HTTPS. This confirms **X-Real-IP first**;
+  rightmost XFF would identify a proxy on this path. No raw client IP is
+  retained in logs/runbook. The Railway domain had no resolvable IPv6 address from the caller, so a
+  real IPv6 ingress request remains unverified.
+- Live Discord `/api/auth/sign-in/social` returned 200 and
+  `__Secure-better-auth.state` with **Secure, HttpOnly, SameSite=Lax**.
+  Cookie values and OAuth responses were suppressed. PUBLIC_ORIGIN is HTTPS
+  in both environments, and HSTS is enabled.
+- The production sign-in UI rendered the invite/claim field, Discord button,
+  legal links and Fan Content footer. T3 DOM evaluation worked; its snapshot
+  endpoint timed out twice. The alternate browser lacked an installed Chrome,
+  so no screenshot-based visual acceptance is claimed.
+- `npm run check`: **961/961**, including the new concurrent request/tool
+  logging and secret-redaction test; both source and web typechecks passed.
+  IaC staging plan: **No changes**, no destructive operations applied.
+- Initial push-build attempts against `main`/`release` correctly failed while
+  those branches still lacked this PR's Dockerfile. The initial uploaded
+  container assets supply the live beta; merge then promote this phase before
+  relying on GitHub push builds. One upload hit a Railway snapshot-fetch
+  failure; it was cancelled and a fresh upload reached `SUCCESS`.
+
+## Connect the owner's clients to hosted production
+
+The agent does **not** edit `~/.claude.json` or `~/.codex/config.toml`.
+After the owner claim, open hosted Settings → Agent connection → create a
+new labelled token for each CLI. Save each once-shown value privately. Do
+not reuse the local legacy token. The examples use a distinct server name
+so the owner can test hosted access before removing the old local entry.
+Disable/remove the local `deck-builder` connection when using hosted as the
+primary copy, to avoid sending writes to the development database.
+
+Claude Code, from the owner's zsh terminal (syntax checked against the
+installed `claude mcp add --help`):
+
+```sh
+read -rs 'DECKBUILDER_HOSTED_TOKEN?Paste the Claude Code token from hosted Settings: '
+printf '\n'
+claude mcp add --scope user --transport http deck-builder-hosted \
+  https://deck-builder-production-00d7.up.railway.app/mcp/claude-code \
+  --header "Authorization: Bearer ${DECKBUILDER_HOSTED_TOKEN}"
+unset DECKBUILDER_HOSTED_TOKEN
+```
+
+Restart Claude Code, use `/mcp` to confirm Connected, then ask it to call
+`start_session` and check it reports the claimed identity and 18 decks.
+The CLI saves the bearer header in its own private configuration. Keep
+normal tool approvals unless the owner deliberately changes them.
+
+Codex CLI, with a **separate** hosted Settings token (syntax checked against
+installed `codex mcp add --help`):
+
+```sh
+read -rs 'DECKBUILDER_HOSTED_TOKEN?Paste the Codex token from hosted Settings: '
+printf '\n'
+export DECKBUILDER_HOSTED_TOKEN
+codex mcp add deck-builder-hosted \
+  --url https://deck-builder-production-00d7.up.railway.app/mcp/codex \
+  --bearer-token-env-var DECKBUILDER_HOSTED_TOKEN
+```
+
+Launch Codex from that environment, call `start_session` and check identity
+and roster. The config stores only the environment variable's name; the
+variable must be present whenever the CLI, desktop or extension starts.
+For an owner-managed static header instead, manually add this to their
+private `~/.codex/config.toml` and restart that client:
+
+```toml
+[mcp_servers.deck-builder-hosted]
+url = "https://deck-builder-production-00d7.up.railway.app/mcp/codex"
+http_headers = { Authorization = "Bearer <new Codex token from hosted Settings>" }
+default_tools_approval_mode = "writes"
+```
+
+Claude.ai: Settings → Connectors → Add custom connector → name
+`Deck builder` → URL `https://deck-builder-production-00d7.up.railway.app/mcp`
+→ Add/Connect → sign in with the claimed Discord account → verify the
+connector identity/redirect on consent → approve deck-builder access. Team
+or Enterprise users may need an organization owner to add/enable it first.
+Select the connector in a conversation and call `start_session`. See
+[Claude's remote connector instructions](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp).
+
+ChatGPT web: Settings → Apps → Advanced settings → Developer mode (or,
+for workspace admins, Workspace settings → Apps → Create). Choose Create
+app, set MCP URL to
+`https://deck-builder-production-00d7.up.railway.app/mcp`, choose **OAuth**
+and CIMD/automatic discovery, then Scan Tools/Connect. Sign in with the
+claimed account and review consent; finish Create, select the app in a chat,
+and call `start_session`. Availability/actions depend on the plan/workspace;
+OpenAI currently documents full write MCP access for Business/Enterprise/Edu,
+with more restricted Pro read/fetch access. See
+[OpenAI's current developer-mode instructions](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-connectors-in-chatgpt).
+Do not enter the Discord client secret or a personal bearer token in either
+web connector: each uses deck-builder OAuth with the connecting client's
+published CIMD document. Reconnect after changing the public domain.

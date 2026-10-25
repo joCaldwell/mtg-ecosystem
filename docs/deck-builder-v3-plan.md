@@ -183,6 +183,26 @@ backups, Railway's own volume backups enabled, the Railway-provided domain for
 the beta and a custom domain when the owner supplies one. Staging environment
 mirrors production with its own volume. Hobby plan is sufficient (see review).
 
+Phase 3 deployment decisions (2026-10-25): production follows **`release`**;
+staging follows **`main`**. The owner promotes with `git push origin
+main:release` (or an explicitly selected, staging-verified commit). `release`
+was initialized at **`3e1798d`**, the merge of Phase 2 PR #5 and this phase's
+predecessor. Parallel 1b/4a migrations must reach staging before production.
+Exactly **one replica in each environment**: one SQLite writer and in-memory
+rate limits. From go-live the hosted database is the owner's primary copy;
+the untouched local database becomes development data and is never synced
+back over production. The initial deployment packages the Phase 3 container
+and observability assets with that predecessor's product code; after this PR
+merges the owner promotes its merge commit to put those assets on `release`.
+
+Railway's live API rejected daily/weekly native volume backup schedules on
+the owner's Hobby workspace: **"Manual backups and backup schedules are only
+available for Pro workspaces"**. Both environments still have nightly online
+SQLite backups uploaded to their separate Railway buckets. Native snapshots
+remain an explicit owner action requiring a plan upgrade; Phase 3 does not
+silently change the workspace subscription. See OPERATIONS.md for the exact
+enablement procedure and live evidence.
+
 **D13. Legal posture.** Free, donations at most, no paid tiers (WotC Fan
 Content Policy). Public deck pages and card search work with no account.
 Accounts are required only to save decks. Footer carries the Fan Content

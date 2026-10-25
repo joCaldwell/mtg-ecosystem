@@ -8,6 +8,7 @@ import { createJobs } from "./jobs.ts";
 import { acquireProcessLock } from "./process-lock.ts";
 import { migrateLegacyToken } from "./tokens.ts";
 import { getMode } from "./mode.ts";
+import { logging } from "./logging.ts";
 
 const PORT = Number(process.env.DECKBUILDER_PORT ?? 8787);
 
@@ -34,17 +35,15 @@ const shutdown = async () => {
 };
 process.on("SIGTERM", () => void shutdown());
 process.on("SIGINT", () => void shutdown());
-app.server.on("error", error => { console.error(error); void shutdown().then(() => { process.exitCode = 1; }); });
+app.server.on("error", () => { logging.event("server_error", { level: "error" }); void shutdown().then(() => { process.exitCode = 1; }); });
 
 // Local remains loopback-only; hosted uses all interfaces. Both modes check
 // Host/Origin, MCP resolves a bearer, and hosted UI requests await sessions.
 app.server.listen(PORT, mode === "local" ? "127.0.0.1" : "0.0.0.0", () => {
   jobs.start();
-  console.log(`Deck builder running at http://localhost:${PORT}`);
-  console.log(`Agent endpoint (MCP): http://127.0.0.1:${PORT}${MCP_PATH} — token and client setup are on the Settings page`);
-  console.log(`Database: ${DEFAULT_DB_PATH}`);
+  logging.event("server_started", { mode, port: PORT, mcp: MCP_PATH, pid: process.pid });
   const cards = (db.prepare("SELECT COUNT(*) n FROM cards").get() as { n: number }).n;
-  if (!cards) console.log("The card database is empty — a background refresh has been queued to download card data.");
+  if (!cards) logging.event("empty_cards_refresh_queued");
   if (!existsSync(join(PKG_ROOT, "web", "dist")))
-    console.log("(web/dist not found — run 'npm run app' to build the UI, or 'npm run dev:web' for the dev server)");
+    logging.event("web_build_missing");
 });

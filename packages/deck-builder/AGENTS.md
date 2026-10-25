@@ -158,6 +158,10 @@ no OAuth endpoints and never shows sign-in. `DECKBUILDER_PORT`,
 
 See [OPERATIONS.md](OPERATIONS.md) for scheduled jobs, backup/restore drills,
 job/process locks and environment variables. Never copy a live `.db` alone.
+The Railway runbook there covers the private beta: repo-root Docker context,
+production `release` versus staging `main`, one replica per environment,
+claim-code removal, bucket restores and the Hobby native-backup limitation.
+Hosted data is primary after go-live; laptop `data/` is development-only.
 
 ### Connecting an agent
 

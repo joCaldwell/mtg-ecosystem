@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { Database } from "./sqlite.ts";
 import { DATA_DIR, DEFAULT_DB_PATH, PKG_ROOT, withTransaction } from "./db.ts";
+import { logging } from "./logging.ts";
 
 export type JobName = "refresh" | "backup";
 export interface JobRun {
@@ -104,7 +105,7 @@ export function createJobs(db: Database, opts: {
         const persist=()=>write(db, `job:${name}`, JSON.stringify({ last_run: lastRun, finished_at: new Date().toISOString(), result: "error", error: error?.message ?? `Child exited ${code}` }));
         if(opts.writeFailure) await opts.writeFailure(persist);else persist();
       }
-      console.log(`Job ${name} finished (${code ?? "error"})`);
+      logging.event("job_finished", { job: name, status: code ?? "error" });
       active = null; child = null;
       opts.onChange?.();
       pump();
@@ -114,11 +115,16 @@ export function createJobs(db: Database, opts: {
         cwd: PKG_ROOT, env: { ...process.env, DECKBUILDER_DB: opts.dbPath ?? DEFAULT_DB_PATH, DECKBUILDER_DATA: opts.dataDir ?? DATA_DIR },
         stdio: ["ignore", "pipe", "pipe"],
       });
-      child.stdout?.on("data", chunk => process.stdout.write(chunk));
-      child.stderr?.on("data", chunk => process.stderr.write(chunk));
-      child.once("error", error => { void finish(null,error).catch(()=>console.error("Could not record failed job")); });
-      child.once("close", code => { void finish(code).catch(()=>console.error("Could not record failed job")); });
-    } catch (error) { void finish(null,error as Error).catch(()=>console.error("Could not record failed job")); }
+      const output = (stream: "stdout" | "stderr", chunk: Buffer) => {
+        if (process.env.DECKBUILDER_MODE === "hosted")
+          logging.event("job_output", { job: name, stream, bytes: chunk.length });
+        else process[stream].write(chunk);
+      };
+      child.stdout?.on("data", chunk => output("stdout", chunk));
+      child.stderr?.on("data", chunk => output("stderr", chunk));
+      child.once("error", error => { void finish(null,error).catch(()=>logging.event("job_record_failed", { level: "error", job: name })); });
+      child.once("close", code => { void finish(code).catch(()=>logging.event("job_record_failed", { level: "error", job: name })); });
+    } catch (error) { void finish(null,error as Error).catch(()=>logging.event("job_record_failed", { level: "error", job: name })); }
     opts.onChange?.();
   }
   const enqueue = (name: JobName) => { if (active !== name) pending.add(name); pump(); return status(); };

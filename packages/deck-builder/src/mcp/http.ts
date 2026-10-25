@@ -29,6 +29,7 @@ import { AppError } from "../errors.ts";
 import { verifyToken } from "../tokens.ts";
 import { INSTRUCTIONS } from "./playbook.ts";
 import { TOOLS, runTool } from "./tools.ts";
+import { logging } from "../logging.ts";
 
 export const MCP_PATH = "/mcp";
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -83,10 +84,7 @@ export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
       if (!seen.has(who)) {
         if (seen.size >= 256) seen.clear();
         seen.add(who);
-        console.log(
-          `[mcp] "${ctx.authInfo?.clientId ?? "agent"}" connected, speaking the ` +
-            (ctx.era === "modern" ? "2026-07-28 protocol" : "2025 protocol (served statelessly)"),
-        );
+        logging.event("mcp_connected", { user_id: actor.user_id, via: actor.via, label: actor.label, era: ctx.era });
       }
       const server = new McpServer(
         { name: "deck-builder", version: opts.version },
@@ -96,17 +94,19 @@ export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
       // cache the list (the spec asks for a deterministic order).
       for (const tool of TOOLS) {
         const run = async (args: unknown) => {
+          const start = performance.now();
           try {
             const result = runTool({ db, actor }, tool, args ?? {});
             if (result.changed) opts.onChange?.(actor.user_id, { kind: tool.name });
+            logging.tool(actor, tool.name, start, 200);
             return { content: [{ type: "text" as const, text: result.text }],
               ...(result.structuredContent ? { structuredContent: result.structuredContent } : {}) };
           } catch (e) {
+            logging.tool(actor, tool.name, start, e instanceof AppError ? e.status : 500, e);
             // A failure the agent can act on is a tool result, not a protocol
             // error: the message says how to fix the call.
             if (e instanceof AppError)
               return { content: [{ type: "text" as const, text: e.message }], isError: true };
-            console.error(`[mcp] ${tool.name} failed`, e);
             return {
               content: [{ type: "text" as const, text: "The app hit an internal error handling that call. Nothing was changed." }],
               isError: true,
@@ -129,7 +129,7 @@ export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
       }
       return server;
     },
-    { onerror: (e) => console.error("[mcp]", e.message) },
+    { onerror: (e) => logging.error(e) },
   );
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -188,6 +188,7 @@ export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
       if (tool === "compare_decks" || tool === "compare_deck_sources") opts.rateLimit?.("compare", `mcp:${authenticated.user_id}`);
     } catch (e) { if (e instanceof RateLimitError) return respond(res,429,e.message,{"Retry-After":String(e.retryAfter)}); throw e; }
     const actor: Actor = { ...authenticated, label: name };
+    logging.actor(actor);
     const response = await handler.fetch(request, {
       authInfo: { token: presented, clientId: name, scopes: [], extra: { actor } },
       parsedBody: parsed,
