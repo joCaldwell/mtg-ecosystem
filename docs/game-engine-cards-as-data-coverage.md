@@ -117,15 +117,18 @@ aliases map to their existing runtime keywords; JSON field ordering already
 works. The archive uses canonical forms for those implemented keywords, so
 there is no additional coverage gain. Ward, flash, protection, conditional
 hexproof and other unimplemented keyword shapes remain explicit rejections.
-All 71 compiler tests pass.
+All 71 compiler tests passed before the excluded-record reporting correction.
 
 ## D2a final coverage
 
 **1,820 / 32,116 Commander-legal records (5.66696%)**, an increase of **101 cards
 and 0.31448 percentage points** over the reproducible baseline. Final legal
-statuses: 1,820 lowered/validated, 27,814 Unsupported, 2,481 unparsed, 1 Invalid.
-The remaining Invalid is a source-backed empty-AST/nonempty-creature-text
-integrity rejection; it is not accepted by this work.
+statuses: 1,820 lowered/validated, 27,814 Unsupported, 2,482 unparsed, 0 Invalid.
+The final reporter also handles archive-excluded rows, which have no AST or
+binding. One legal row, `"Name Sticker" Goblin`, is excluded by the archive for
+`no-eligible-paper-printing`: it is unparsed with that specific reason. Earlier
+stage outputs faithfully retain the initial reporter's Invalid classification
+for this row. This reporting correction changes no lowering count.
 
 Top 15 remaining first-failure reasons (including unparsed records):
 

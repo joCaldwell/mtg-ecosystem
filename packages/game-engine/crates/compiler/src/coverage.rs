@@ -180,6 +180,20 @@ fn escape_tsv(s: &str) -> String {
         .replace('\n', "\\n")
 }
 
+fn archive_exclusion(row: &Value) -> Option<(&'static str, String)> {
+    // Excluded archive records have no faces, binding or AST. They are valid
+    // archive rows but were never parsed, including one Commander-legal row.
+    (row["status"] == "excluded").then(|| {
+        (
+            "unparsed",
+            format!(
+                "archive_excluded:{}",
+                row["reason"].as_str().unwrap_or("missing_reason")
+            ),
+        )
+    })
+}
+
 pub fn coverage(archive: &Path, out: &Path) -> Result<CoverageSummary, CoverageError> {
     let bytes = fs::read(archive).map_err(io)?;
     let text = std::str::from_utf8(&bytes).map_err(|e| CoverageError::InvalidRecord {
@@ -208,7 +222,10 @@ pub fn coverage(archive: &Path, out: &Path) -> Result<CoverageSummary, CoverageE
         commander_legal: 0,
         lowered_validated: 0,
         lowered_validated_percent: 0.0,
-        statuses: BTreeMap::new(),
+        statuses: ["lowered_validated", "unsupported", "invalid", "unparsed"]
+            .into_iter()
+            .map(|s| (s.to_owned(), 0))
+            .collect(),
         reasons: vec![],
     };
     let mut reasons: BTreeMap<(String, String), (usize, Vec<String>)> = BTreeMap::new();
@@ -244,19 +261,23 @@ pub fn coverage(archive: &Path, out: &Path) -> Result<CoverageSummary, CoverageE
             })?
             == "legal";
         let ast = &row["faces"][0]["result"]["abilities"];
-        let (status, reason) = match compile(header, raw) {
-            CompileResult::Lowered { definition } => match definition.validate() {
-                Ok(()) => ("lowered_validated", String::new()),
-                Err(e) => ("invalid", reason_code("ir", &e, ast)),
-            },
-            CompileResult::Unsupported { path, reason: _ } if path == "status" => {
-                ("unparsed", "status:unparsed".into())
-            }
-            CompileResult::Unsupported { path, reason } => {
-                ("unsupported", reason_code(&path, &reason, ast))
-            }
-            CompileResult::Invalid { path, reason } => {
-                ("invalid", reason_code(&path, &reason, ast))
+        let (status, reason) = if let Some(excluded) = archive_exclusion(&row) {
+            excluded
+        } else {
+            match compile(header, raw) {
+                CompileResult::Lowered { definition } => match definition.validate() {
+                    Ok(()) => ("lowered_validated", String::new()),
+                    Err(e) => ("invalid", reason_code("ir", &e, ast)),
+                },
+                CompileResult::Unsupported { path, reason: _ } if path == "status" => {
+                    ("unparsed", "status:unparsed".into())
+                }
+                CompileResult::Unsupported { path, reason } => {
+                    ("unsupported", reason_code(&path, &reason, ast))
+                }
+                CompileResult::Invalid { path, reason } => {
+                    ("invalid", reason_code(&path, &reason, ast))
+                }
             }
         };
         summary.total += 1;
@@ -322,6 +343,21 @@ pub fn coverage(archive: &Path, out: &Path) -> Result<CoverageSummary, CoverageE
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn excluded_archive_rows_are_unparsed_not_malformed_compiler_records() {
+        let row = serde_json::json!({"status":"excluded", "reason":"no-eligible-paper-printing"});
+        assert_eq!(
+            archive_exclusion(&row),
+            Some((
+                "unparsed",
+                "archive_excluded:no-eligible-paper-printing".into()
+            ))
+        );
+        assert_eq!(
+            archive_exclusion(&serde_json::json!({"status":"parsed"})),
+            None
+        );
+    }
     #[test]
     fn archive_acceptance_and_raw_bytes_are_required_before_outputs() {
         let dir = std::env::temp_dir().join(format!("mtg-coverage-{}", std::process::id()));
