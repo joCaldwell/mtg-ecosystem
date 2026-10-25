@@ -1,0 +1,16 @@
+{
+  "schema_version": 4,
+  "provenance": "../provenance.json",
+  "records": [
+    "../grizzly-bears.json",
+    "../time-ebb.json",
+    "../unsummon.json",
+    "../island.json",
+    "../forest.json",
+    "../plains.json",
+    "../isamaru.json"
+  ],
+  "expected_ir": "../expected-library-ir.json",
+  "expected_digest": "library.sha256",
+  "output_order": "struct"
+}

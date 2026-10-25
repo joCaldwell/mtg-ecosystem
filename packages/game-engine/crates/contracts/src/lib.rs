@@ -6,14 +6,13 @@ use serde::{Deserialize, Serialize, de};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, fmt, str::FromStr};
 
+mod archives;
+pub use archives::*;
 mod strict_io;
 pub use strict_io::strict_read_seekable;
 
 pub const RULES_EDITION: &str = "2026-09-25";
 pub const RULES_SHA256: &str = "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca";
-pub const PARSER_SHA256: &str = "98980a967a70d57008847ce0952edf0cc277af9ad26b8cb8739a555d97082b8d";
-pub const ARCHIVE_MANIFEST_SHA256: &str =
-    "b20406acec7b9af4610324af8848c76a2966315f1bb4043de2b03d53aa1a6f1b";
 pub const SCENARIO_PROFILE: &str = "land-return-departure-scenario-v2";
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
@@ -1021,9 +1020,10 @@ impl Definition {
         {
             return Err("invalid identity, characteristics, or capability closure".into());
         }
-        if self.provenance.parser_sha256 != PARSER_SHA256
-            || self.provenance.archive_manifest_sha256 != ARCHIVE_MANIFEST_SHA256
-            || sha256(self.provenance.source_json.as_bytes()) != self.provenance.source_sha256
+        if !accepted_provenance(
+            &self.provenance.archive_manifest_sha256,
+            &self.provenance.parser_sha256,
+        ) || sha256(self.provenance.source_json.as_bytes()) != self.provenance.source_sha256
             || sha256(format!("[{}]", self.provenance.abilities_json).as_bytes())
                 != self.provenance.ast_sha256
         {

@@ -2,40 +2,41 @@
 //! CR903.3–.7: https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use std::fmt;
+include!(concat!(env!("OUT_DIR"), "/catalog_sizes.rs"));
 
 pub const MATCH_PROFILE: &str = "commander-foundations-v1";
 pub const MATCH_CATALOG_SHA256: &str =
-    "fc4bd3390e63ea352e129ac370fa848dbee11cf0700e7e6781d449fd49244a7f";
+    include_str!("../../../../tests/fixtures/catalogs/match.sha256");
 pub const KEYWORDS_PROFILE: &str = "commander-keywords-v1";
 pub const KEYWORDS_CATALOG_SHA256: &str =
-    "72691c17b1bc73b5735f1ced8c5217b51df4daae0f42c9c883665933cfcdf550";
+    include_str!("../../../../tests/fixtures/catalogs/keywords.sha256");
 pub const COMBAT_KEYWORDS_PROFILE: &str = "commander-combat-keywords-v1";
 pub const COMBAT_KEYWORDS_CATALOG_SHA256: &str =
-    "ae5779a29b61fabe147a6ffd7dde6122442201a778e6b36eb9b0992a38ede55c";
+    include_str!("../../../../tests/fixtures/catalogs/combat-keywords.sha256");
 pub const TOKENS_PROFILE: &str = "commander-tokens-v1";
 pub const TOKENS_CATALOG_SHA256: &str =
-    "44ca001781d3109d713f9df037d83a74f8f854a0d179a053c34a7dcb82326120";
+    include_str!("../../../../tests/fixtures/catalogs/tokens.sha256");
 pub const STAPLES_PROFILE: &str = "commander-staples-v1";
 pub const STAPLES_CATALOG_SHA256: &str =
-    "c0c9d9d238c60d00f3cad4b40e6f95b65225e67244b526f4a188b0faf33fff2a";
+    include_str!("../../../../tests/fixtures/catalogs/staples.sha256");
 pub const MANA_PROFILE: &str = "commander-mana-v1";
 pub const MANA_CATALOG_SHA256: &str =
-    "1df5823602dd4aacea6ab8e69766dc750e425686ba02221857b443c415b37794";
+    include_str!("../../../../tests/fixtures/catalogs/mana.sha256");
 pub const WIPES_PROFILE: &str = "commander-wipes-v1";
 pub const WIPES_CATALOG_SHA256: &str =
-    "4d9c719ef61fdd901ea6182bb2d22e72ceb89dcd9c0213cc8e88e4087ad59e16";
+    include_str!("../../../../tests/fixtures/catalogs/wipes.sha256");
 pub const SACRIFICE_PROFILE: &str = "commander-sacrifice-v1";
 pub const SACRIFICE_CATALOG_SHA256: &str =
-    "9ae8605e83e6538ff900227bde4f43b91d06cb6acbc8afd22fd35ef2388c0a88";
+    include_str!("../../../../tests/fixtures/catalogs/sacrifice.sha256");
 pub const REMOVAL_PROFILE: &str = "commander-removal-v1";
 pub const REMOVAL_CATALOG_SHA256: &str =
-    "0ff60a7e1dc37cd0a76dbdb6b6d01ea0303d7c29ed0f6c2df20229484e6ea3c6";
+    include_str!("../../../../tests/fixtures/catalogs/removal.sha256");
 pub const ATTACHMENTS_PROFILE: &str = "commander-attachments-v1";
 pub const ATTACHMENTS_CATALOG_SHA256: &str =
-    "56affddedfe7b2482ad48238b95b3f8c30bfc39c701125cff883fa6ea9c404df";
+    include_str!("../../../../tests/fixtures/catalogs/attachments.sha256");
 pub const FOUR_COLORS_PROFILE: &str = "commander-four-colors-v1";
 pub const FOUR_COLORS_CATALOG_SHA256: &str =
-    "0ca81434d87be618d60f1267783fe3d89983f397a01bed7c0640ade57a4dd93b";
+    include_str!("../../../../tests/fixtures/catalogs/four-colors.sha256");
 /// All reviewed legal-profile identity and construction inputs live here.
 /// MATCH_PROFILES is an ordered lineage: each entry inherits earlier mechanics.
 pub struct MatchProfile {
@@ -626,28 +627,18 @@ pub fn validate_pod(
             != profile.catalog_sha256
     {
         return Err(MatchAdmissionError::InvalidCatalog {
-            detail: if profile.name == WIPES_PROFILE {
-                "requires the reviewed one-hundred-sixty-eight-definition wipes catalog"
-            } else if profile.name == SACRIFICE_PROFILE {
-                "catalog differs from reviewed one-hundred-fifty-three-definition sacrifice pool"
-            } else if profile.name == REMOVAL_PROFILE {
-                "catalog differs from reviewed one-hundred-thirty-five-definition removal pool"
-            } else if profile.name == MATCH_PROFILE {
-                "catalog differs from reviewed thirty-four-definition pool"
-            } else if profile.name == FOUR_COLORS_PROFILE {
-                "catalog differs from reviewed 106-definition four-colors pool"
-            } else if profile.name == STAPLES_PROFILE {
-                "catalog differs from reviewed eighty-one-definition staples pool"
-            } else if profile.name == TOKENS_PROFILE {
-                "catalog differs from reviewed seventy-two-definition tokens pool"
-            } else if profile.name == MANA_PROFILE {
-                "catalog differs from reviewed ninety-definition mana pool"
-            } else if profile.name == COMBAT_KEYWORDS_PROFILE {
-                "catalog differs from reviewed fifty-nine-definition combat keywords pool"
-            } else {
-                "catalog differs from reviewed fifty-definition keywords pool"
-            }
-            .into(),
+            detail: format!(
+                "catalog differs from reviewed {} pool: expected {} definitions at IR v{}, received {} at IR v{}",
+                profile.name,
+                reviewed_catalog_size(profile.catalog_sha256).ok_or_else(|| {
+                    MatchAdmissionError::InvalidCatalog {
+                        detail: "missing reviewed catalog metadata".into(),
+                    }
+                })?,
+                profile.ir_version,
+                catalog.definitions.len(),
+                catalog.schema_version,
+            ),
         });
     }
     let definitions = catalog

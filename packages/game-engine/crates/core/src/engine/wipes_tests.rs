@@ -786,7 +786,6 @@ fn trigger_count(g: &Game, name: &str) -> usize {
 fn wipes_profile_catalog_decks_policy_bounds_and_prior_catalog_rejection() {
     let c = catalog();
     assert_eq!(digest(&c).unwrap(), WIPES_CATALOG_SHA256);
-    assert_eq!(c.definitions.len(), 168);
     for p in MATCH_PROFILES.iter().take(10) {
         assert!(profile_at_least(WIPES_PROFILE, p.name));
     }
@@ -806,8 +805,21 @@ fn wipes_profile_catalog_decks_policy_bounds_and_prior_catalog_rejection() {
         "../../../../tests/fixtures/expected-sacrifice-ir.json"
     ))
     .unwrap();
-    let error = Prepared::admit_pod(old, config).err().unwrap();
-    assert!(format!("{error:?}").contains("one-hundred-sixty-eight-definition"));
+    let received = format!(
+        "received {} at IR v{}",
+        old.definitions.len(),
+        old.schema_version
+    );
+    let MatchAdmissionError::InvalidCatalog { detail } =
+        Prepared::admit_pod(old, config).err().unwrap()
+    else {
+        panic!("expected typed catalog rejection")
+    };
+    assert!(detail.contains(&format!(
+        "expected {} definitions",
+        super::match_admission::reviewed_catalog_size(WIPES_CATALOG_SHA256).unwrap()
+    )));
+    assert!(detail.contains(&received));
 }
 #[test]
 fn wipes_fumigate_counts_token_commander_and_simultaneous_payoffs() {

@@ -346,7 +346,7 @@ fn activated(g: &mut Game, id: u32, targets: Vec<TargetEntity>) {
 #[test]
 fn removal_profile_decks_policy_and_reviewed_capacities() {
     let c = catalog();
-    assert_eq!((c.schema_version, c.definitions.len()), (18, 135));
+    assert_eq!(c.schema_version, 18);
     assert_eq!(digest(&c).unwrap(), REMOVAL_CATALOG_SHA256);
     let cfg = MatchConfig::for_profile(REMOVAL_PROFILE, [9; 32], PlayerId(0)).unwrap();
     assert_eq!(validate_pod(&c, &cfg).unwrap().config.cards.len(), 400);

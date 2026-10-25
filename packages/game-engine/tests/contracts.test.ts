@@ -19,14 +19,32 @@ function run(command: string, ...args: string[]) {
 
 test("retained archive hashes agree with JavaScript and source parser", () => {
   const provenance = JSON.parse(read("provenance.json"));
-  assert.equal(sha(read("archive-manifest.json").trimEnd()), provenance.archive_manifest_sha256);
+  const archives = JSON.parse(read("accepted-archives.json"));
+  for (const archive of archives) {
+    const raw = read(archive.manifest_file);
+    const header = JSON.parse(raw);
+    assert.equal(sha(raw.trimEnd()), archive.manifest_sha256);
+    assert.equal(header.parser.revision, archive.parser_revision);
+    assert.equal(header.parser.sourceSha256, archive.parser_source_sha256);
+    assert.equal(header.corpus.sha256, archive.corpus_sha256);
+  }
   for (const witness of provenance.records) {
+    const archive = archives.find((a: any) => a.manifest_file === witness.archive);
+    assert.ok(archive, witness.file);
     const raw = read(witness.file);
     const record = JSON.parse(raw);
     assert.equal(sha(raw.trimEnd()), witness.record_sha256);
     assert.equal(sha(JSON.stringify(record.source)), record.sourceSha256);
-    assert.equal(sha(JSON.stringify(record.binding)), record.bindingSha256);
-    assert.equal(sha(JSON.stringify(record.faces.map((face: any) => face.result.abilities))), record.astSha256);
+    if (record.binding != null) assert.equal(sha(JSON.stringify(record.binding)), record.bindingSha256);
+    else assert.equal(record.bindingSha256, undefined);
+    assert.equal(record.sourceSha256, witness.source_sha256);
+    assert.equal(record.astSha256 ?? null, witness.ast_sha256);
+    if (record.astSha256 != null) {
+      assert.equal(sha(JSON.stringify(record.faces.map((face: any) => face.result.abilities))), record.astSha256);
+    }
+    // Extraction also preserves unparsed records for rejection witnesses. They
+    // never become executable catalog definitions without complete lowering.
+    if (record.status !== "parsed") continue;
     const parsed = parseOracleText(record.source.oracle_text, record.source.name, {
       layout: record.source.layout, typeLine: record.source.type_line, includeSourceProvenance: true,
     });
@@ -101,7 +119,7 @@ test("Commander catalog adds exact archived Plains without changing card costs",
   const catalog = run("compile-commander");
   assert.deepEqual(catalog, JSON.parse(read("expected-commander-ir.json")));
   assert.equal(catalog.schema_version, original.schema_version);
-  assert.equal(catalog.definitions.length, original.definitions.length + 1);
+
   for (const definition of original.definitions) {
     assert.deepEqual(catalog.definitions.find((d: any) => d.oracle_id === definition.oracle_id), definition);
   }
@@ -135,7 +153,7 @@ test("library and damage catalogs retain exact source semantics and explicit IR 
   assert.equal(library.schema_version, 4);
   assert.equal(damage.schema_version, 3);
   for (const catalog of [library, damage]) {
-    assert.equal(catalog.definitions.length, previous.definitions.length + 1);
+
     for (const definition of previous.definitions) {
       assert.deepEqual(catalog.definitions.find((d: any) => d.oracle_id === definition.oracle_id), definition);
     }
@@ -184,7 +202,6 @@ test("action catalog preserves complete activated costs, opponent choice and sch
   const catalog = run("compile-action");
   assert.deepEqual(catalog, JSON.parse(read("expected-action-ir.json")));
   assert.equal(catalog.schema_version, 5);
-  assert.equal(catalog.definitions.length, 11);
   for (const name of ["expected-ir.json", "expected-commander-ir.json", "expected-damage-ir.json", "expected-library-ir.json"]) {
     for (const definition of JSON.parse(read(name)).definitions) {
       assert.deepEqual(catalog.definitions.find((d: any) => d.oracle_id === definition.oracle_id), definition);
@@ -234,7 +251,6 @@ test("stack catalog preserves complete counter domains and distinct tap and mana
   const previous = run("compile-action");
   assert.deepEqual(catalog, JSON.parse(read("expected-stack-ir.json")));
   assert.equal(catalog.schema_version, 6);
-  assert.equal(catalog.definitions.length, 15);
   for (const definition of previous.definitions) {
     assert.deepEqual(catalog.definitions.find((d: any) => d.oracle_id === definition.oracle_id), definition);
   }
@@ -297,7 +313,6 @@ test("damage and life catalog preserves complete sources and explicit IR7 target
   const catalog = run("compile-damage-life");
   assert.deepEqual(catalog, JSON.parse(read("expected-damage-life-ir.json")));
   assert.equal(catalog.schema_version,7);
-  assert.equal(catalog.definitions.length,21);
   for (const old of run("compile-stack").definitions) assert.deepEqual(catalog.definitions.find((d: any) => d.oracle_id === old.oracle_id),old);
   for (const name of ["lightning-bolt","prodigal-sorcerer","soul-feast","healing-hands","sacred-nectar","mountain"]) {
     const source=JSON.parse(read(`${name}.json`));
@@ -364,7 +379,7 @@ test("trigger catalog binds mandatory self and other events without trusting arc
   const catalog=run("compile-triggers");
   const previous=run("compile-damage-life");
   assert.deepEqual(catalog,JSON.parse(read("expected-trigger-ir.json")));
-  assert.equal(catalog.schema_version,8);assert.equal(catalog.definitions.length,24);
+  assert.equal(catalog.schema_version,8);
   for (const d of previous.definitions) {
     assert.equal(d.triggered,undefined);
     assert.deepEqual(catalog.definitions.find((next: any) => next.oracle_id===d.oracle_id),d);
@@ -428,7 +443,7 @@ test("trigger catalog binds mandatory self and other events without trusting arc
 test("effects catalog preserves signed modifiers and complete prevention/replacement scopes", () => {
   const catalog=run("compile-effects");
   assert.deepEqual(catalog,JSON.parse(read("expected-effects-ir.json")));
-  assert.equal(catalog.schema_version,9);assert.equal(catalog.definitions.length,30);
+  assert.equal(catalog.schema_version,9);
   for (const d of run("compile-triggers").definitions) {
     assert.equal(d.static_abilities,undefined);
     assert.deepEqual(catalog.definitions.find((next: any) => next.oracle_id===d.oracle_id),d);
@@ -500,7 +515,7 @@ test("effects catalog preserves signed modifiers and complete prevention/replace
 test("choices catalog preserves separate occurrences, complete modal programs and intervening-if semantics", () => {
   const catalog=run("compile-choices");
   assert.deepEqual(catalog,JSON.parse(read("expected-choices-ir.json")));
-  assert.equal(catalog.schema_version,10);assert.equal(catalog.definitions.length,33);
+  assert.equal(catalog.schema_version,10);
   for (const d of run("compile-effects").definitions) assert.deepEqual(catalog.definitions.find((n: any)=>n.oracle_id===d.oracle_id),d);
   const get=(name: string)=>catalog.definitions.find((d: any)=>d.name===name);
   for(const [file,name,generic,colored] of [["seeds-of-strength","Seeds of Strength","0",["G","W"]],["healing-salve","Healing Salve","0",["W"]],["slaughterhouse-bouncer","Slaughterhouse Bouncer","4",["B"]]] as const){
@@ -546,7 +561,7 @@ test("choices catalog preserves separate occurrences, complete modal programs an
 test("match catalog binds sole defender and the current finite Commander policy", () => {
   const catalog=run("compile-match");
   assert.deepEqual(catalog,JSON.parse(read("expected-match-ir.json")));
-  assert.equal(catalog.schema_version,11);assert.equal(catalog.definitions.length,34);
+  assert.equal(catalog.schema_version,11);
   for(const d of run("compile-choices").definitions){assert.equal(d.keywords,undefined);assert.deepEqual(catalog.definitions.find((n: any)=>n.oracle_id===d.oracle_id),d);}
   const wall=catalog.definitions.find((d: any)=>d.name==="Wall of Wood");assert.deepEqual(wall.keywords,["defender"]);assert.ok(wall.capabilities.includes("defender_v1"));
   assert.deepEqual(wall.characteristics.mana_cost,{generic:"0",colored:["G"]});assert.deepEqual([wall.characteristics.power,wall.characteristics.toughness],["0","3"]);assert.deepEqual(wall.characteristics.subtypes,["Wall"]);
@@ -1378,7 +1393,7 @@ test("Commander damage and library witnesses expose actual results without hidde
 test("keywords IR v12 preserves foundations and rejects vocabulary downgrades", () => {
   const catalog = run("compile-keywords");
   assert.deepEqual(catalog, JSON.parse(read("expected-keywords-ir.json")));
-  assert.equal(catalog.schema_version, 12); assert.equal(catalog.definitions.length, 50);
+  assert.equal(catalog.schema_version, 12);
   const old = JSON.parse(read("expected-match-ir.json"));
   for (const d of old.definitions) assert.deepEqual(catalog.definitions.find((n:any)=>n.oracle_id===d.oracle_id),d);
   const validate = new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
@@ -1403,7 +1418,7 @@ test("keywords IR v12 preserves foundations and rejects vocabulary downgrades", 
 test("combat keywords IR v13 preserves v12 and enforces vocabulary and policy", () => {
   const catalog=run("compile-combat-keywords");
   assert.deepEqual(catalog,JSON.parse(read("expected-combat-keywords-ir.json")));
-  assert.equal(catalog.schema_version,13); assert.equal(catalog.definitions.length,59);
+  assert.equal(catalog.schema_version,13);
   const old=JSON.parse(read("expected-keywords-ir.json"));
   for(const d of old.definitions) assert.deepEqual(catalog.definitions.find((n:any)=>n.oracle_id===d.oracle_id),d);
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
@@ -1423,7 +1438,7 @@ test("combat keywords IR v13 preserves v12 and enforces vocabulary and policy", 
 test("tokens IR v14 preserves earlier definitions and rejects v13 instruction downgrades", () => {
   const catalog = run("compile-tokens");
   assert.deepEqual(catalog, JSON.parse(read("expected-tokens-ir.json")));
-  assert.equal(catalog.schema_version, 14); assert.equal(catalog.definitions.length, 72);
+  assert.equal(catalog.schema_version, 14);
   const old = JSON.parse(read("expected-combat-keywords-ir.json"));
   for (const d of old.definitions) assert.deepEqual(catalog.definitions.find((n:any) => n.oracle_id === d.oracle_id), d);
   const validate = new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
@@ -1442,7 +1457,7 @@ test("tokens IR v14 preserves earlier definitions and rejects v13 instruction do
 test("staples IR v15 preserves earlier definitions, complete scopes and policy", () => {
   const catalog = run("compile-staples");
   assert.deepEqual(catalog, JSON.parse(read("expected-staples-ir.json")));
-  assert.equal(catalog.schema_version,15); assert.equal(catalog.definitions.length,81);
+  assert.equal(catalog.schema_version,15);
   const old = JSON.parse(read("expected-tokens-ir.json"));
   for (const d of old.definitions) assert.deepEqual(catalog.definitions.find((n:any)=>n.oracle_id===d.oracle_id),d);
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
@@ -1461,7 +1476,7 @@ test("staples IR v15 preserves earlier definitions, complete scopes and policy",
 test("mana IR v16 preserves earlier catalogs and enforces complete costs and policy", () => {
   const catalog=run("compile-mana");
   assert.deepEqual(catalog,JSON.parse(read("expected-mana-ir.json")));
-  assert.equal(catalog.schema_version,16);assert.equal(catalog.definitions.length,90);
+  assert.equal(catalog.schema_version,16);
   const old=JSON.parse(read("expected-staples-ir.json"));
   for(const d of old.definitions) assert.deepEqual(catalog.definitions.find((x:any)=>x.oracle_id===d.oracle_id),d);
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
@@ -1486,7 +1501,7 @@ test("mana IR v16 preserves earlier catalogs and enforces complete costs and pol
 
 test("four colors adds sixteen exact v16 records and separately reviews policy", () => {
   const catalog=run("compile-four-colors");
-  assert.equal(catalog.schema_version,16); assert.equal(catalog.definitions.length,106);
+  assert.equal(catalog.schema_version,16);
   assert.deepEqual(catalog,JSON.parse(read("expected-four-colors-ir.json")));
   for(const d of run("compile-mana").definitions) assert.deepEqual(catalog.definitions.find((x:any)=>x.oracle_id===d.oracle_id),d);
   const policy=JSON.parse(read("commander-four-colors-policy.json"));
@@ -1511,7 +1526,7 @@ test("four colors adds sixteen exact v16 records and separately reviews policy",
 
 test("attachments IR v17 preserves prior definitions, policy and strict downgrade rejection", () => {
   const catalog=run("compile-attachments");
-  assert.equal(catalog.schema_version,17); assert.equal(catalog.definitions.length,118);
+  assert.equal(catalog.schema_version,17);
   assert.deepEqual(catalog,JSON.parse(read("expected-attachments-ir.json")));
   for(const old of run("compile-four-colors").definitions) assert.deepEqual(catalog.definitions.find((d:any)=>d.oracle_id===old.oracle_id),old);
   const policy=JSON.parse(read("commander-attachments-policy.json"));
@@ -1534,7 +1549,7 @@ test("attachments IR v17 preserves prior definitions, policy and strict downgrad
 
 test("removal IR v18 preserves inherited bytes, policy and complete downgrade guards", () => {
   const catalog=run("compile-removal");
-  assert.equal(catalog.schema_version,18);assert.equal(catalog.definitions.length,135);
+  assert.equal(catalog.schema_version,18);
   assert.deepEqual(catalog,JSON.parse(read("expected-removal-ir.json")));
   for(const old of run("compile-attachments").definitions) assert.deepEqual(catalog.definitions.find((d:any)=>d.oracle_id===old.oracle_id),old);
   const policy=JSON.parse(read("commander-removal-policy.json")), prior=JSON.parse(read("commander-attachments-policy.json"));
@@ -1552,7 +1567,7 @@ test("removal IR v18 preserves inherited bytes, policy and complete downgrade gu
 
 test("sacrifice IR v19 preserves the v18 closure and rejects complete downgrades", () => {
   const catalog=run("compile-sacrifice");
-  assert.equal(catalog.schema_version,19);assert.equal(catalog.definitions.length,153);
+  assert.equal(catalog.schema_version,19);
   assert.deepEqual(catalog,JSON.parse(read("expected-sacrifice-ir.json")));
   for(const old of run("compile-removal").definitions) assert.deepEqual(catalog.definitions.find((d:any)=>d.oracle_id===old.oracle_id),old);
   const policy=JSON.parse(read("commander-sacrifice-policy.json")), prior=JSON.parse(read("commander-removal-policy.json"));
@@ -1570,7 +1585,7 @@ test("sacrifice IR v19 preserves the v18 closure and rejects complete downgrades
 
 test("wipes v20 preserves inherited IR and rejects new operations in v19", () => {
   const catalog=run("compile-wipes");
-  assert.equal(catalog.schema_version,20);assert.equal(catalog.definitions.length,168);
+  assert.equal(catalog.schema_version,20);
   assert.deepEqual(catalog,JSON.parse(read("expected-wipes-ir.json")));
   for(const old of run("compile-sacrifice").definitions) assert.deepEqual(catalog.definitions.find((d:any)=>d.oracle_id===old.oracle_id),old);
   const policy=JSON.parse(read("commander-wipes-policy.json")), prior=JSON.parse(read("commander-sacrifice-policy.json"));
@@ -1583,5 +1598,17 @@ test("wipes v20 preserves inherited IR and rejects new operations in v19", () =>
     if(!d.capabilities.includes("board_wipes_v1")) continue;
     const bad={...catalog,schema_version:19,definitions:[structuredClone(d)]};assert.equal(validate(bad),false,d.name);
     bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,d.name);
+  }
+});
+
+// Membership and output identities are generated from manifests, including
+// earlier catalog versions. No copied definition count or digest belongs here.
+test("all data catalog manifests regenerate their committed IR and digests", () => {
+  for (const name of fs.readdirSync(new URL("catalogs/", fixtureDir)).filter(n => n.endsWith(".json"))) {
+    const path = fileURLToPath(new URL(`catalogs/${name}`, fixtureDir));
+    const manifest = JSON.parse(fs.readFileSync(path, "utf8"));
+    const report = run("catalog", "build", path);
+    assert.equal(report.definitions, manifest.records.length);
+    assert.equal(report.schema_version, manifest.schema_version);
   }
 });

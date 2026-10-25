@@ -1,0 +1,30 @@
+{
+  "schema_version": 7,
+  "provenance": "../provenance.json",
+  "records": [
+    "../cruel-edict.json",
+    "../grizzly-bears.json",
+    "../hapless-researcher.json",
+    "../sacred-nectar.json",
+    "../time-ebb.json",
+    "../healing-hands.json",
+    "../lightning-bolt.json",
+    "../swamp.json",
+    "../prodigal-sorcerer.json",
+    "../merfolk-looter.json",
+    "../soul-feast.json",
+    "../unsummon.json",
+    "../yargle-and-multani.json",
+    "../mountain.json",
+    "../island.json",
+    "../forest.json",
+    "../stifle.json",
+    "../azure-mage.json",
+    "../plains.json",
+    "../counterspell.json",
+    "../isamaru.json"
+  ],
+  "expected_ir": "../expected-damage-life-ir.json",
+  "expected_digest": "damage-life.sha256",
+  "output_order": "struct"
+}
