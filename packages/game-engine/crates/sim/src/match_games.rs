@@ -1162,12 +1162,10 @@ pub(super) fn batch(
     }
     let profile = profile_spec.name.as_str();
     fs::create_dir(directory).map_err(|e| e.to_string())?;
-    let manifest = serde_json::json!({"profile":profile,"policy":"develop-v1","seed_domain":format!("{profile}/completion-batch/"),"seed_indices":(0..16).collect::<Vec<u32>>(),"starting_seat":"index modulo4","mulligans":"(index+seat) modulo3","additional":"index16 all-white;index17 all-black-green","decision_limit":DECISION_LIMIT,"turn_limit":TURN_LIMIT,"shared_work_limit":WORK_LIMIT,"quantum":1024,"required_complete":18,"allowed_faults":0,"allowed_truncations":0,"build_id":BUILD_ID,"catalog_sha256":mtg_contracts::digest(catalog)?});
+    let manifest = serde_json::json!({"profile":profile,"policy":"develop-v1","seed_domain":format!("{profile}/completion-batch/"),"seed_indices":(0..16).collect::<Vec<u32>>(),"starting_seat":"index modulo4","mulligans":"(index+seat) modulo3","additional":{"homogeneous_seats":profile_spec.completion.homogeneous_seats},"decision_limit":DECISION_LIMIT,"turn_limit":TURN_LIMIT,"shared_work_limit":WORK_LIMIT,"quantum":1024,"required_complete":18,"allowed_faults":0,"allowed_truncations":0,"build_id":BUILD_ID,"catalog_sha256":mtg_contracts::digest(catalog)?});
     let mut manifest = manifest;
-    // The frozen four-colors suite has its own pod manifest; later suites use theirs.
+    // The optional rotation layout and extra homogeneous decks come from data.
     if profile_spec.completion.rotate {
-        manifest["additional"] =
-            serde_json::json!({"homogeneous_seats":profile_spec.completion.homogeneous_seats});
         manifest["seat_rotation"] =
             serde_json::json!("default decks rotate left by floor(index/4), indices0..15");
     }
