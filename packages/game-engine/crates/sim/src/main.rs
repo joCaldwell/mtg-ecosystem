@@ -1566,6 +1566,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match args.first().map(String::as_str) {
         Some("catalog") => {
             let report = match args.get(1).map(String::as_str) {
+                Some("coverage") if args.len() == 3 || (args.len() == 5 && args[3] == "--out") => {
+                    let out = args.get(4).map_or(Path::new("generated/cards-as-data-coverage"), Path::new);
+                    serde_json::to_value(mtg_compiler::coverage::coverage(Path::new(&args[2]), out)?)?
+                }
                 Some("build") if args.len() == 3 || (args.len() == 4 && args[3] == "--write") => {
                     mtg_compiler::generate_catalog(Path::new(&args[2]), args.len() == 4)?
                 }
