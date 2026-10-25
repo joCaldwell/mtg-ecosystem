@@ -1,3 +1,4 @@
+import { removeIdentity } from "./legacy-db.ts";
 // A proposed cut that parks the card on the maybe list instead of removing it
 // (spec §8.1). Off unless the agent asks for it.
 
@@ -6,7 +7,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { OWNER } from "../src/actor.ts";
+import { OWNER } from "./actors.ts";
 import { openDb } from "../src/db.ts";
 import { undo } from "../src/deck/membership.ts";
 import { acceptItems, createProposal, getProposal, pendingItemIds, rejectItems } from "../src/deck/proposals.ts";
@@ -17,7 +18,7 @@ import { FIXTURES } from "./fixtures.ts";
 import { AGENT, add, newDeck, testDb } from "./helpers.ts";
 
 const db = testDb();
-const cardIn = (deck: number, oracleId: string) => getDeck(db, deck).cards.find((c) => c.oracle_id === oracleId);
+const cardIn = (deck: number, oracleId: string) => getDeck(db, OWNER, deck).cards.find((c) => c.oracle_id === oracleId);
 
 function seeded() {
   const id = newDeck(db);
@@ -32,30 +33,30 @@ describe("a cut to the maybe list (spec §8.1)", () => {
     const pid = createProposal(db, AGENT, deck, {
       items: [{ action: "cut", oracle_id: "id-counterspell", reason: "Too reactive." }],
     });
-    assert.equal(getProposal(db, pid)!.items[0].to_maybe, 0);
-    acceptItems(db, OWNER, pendingItemIds(db, pid));
+    assert.equal(getProposal(db, OWNER, pid)!.items[0].to_maybe, 0);
+    acceptItems(db, OWNER, pendingItemIds(db, OWNER, pid));
     assert.equal(cardIn(deck, "id-counterspell"), undefined);
   });
 
   test("with to_maybe, accepting moves the card to the maybe list with its slot and tags", () => {
     const deck = seeded();
-    const slot = createSlot(db, deck, "Interaction");
-    const tag = createTag(db, deck, "Stack");
-    organizeCard(db, deck, "id-counterspell", { slotId: slot, tagIds: [tag] });
+    const slot = createSlot(db, OWNER, deck, "Interaction");
+    const tag = createTag(db, OWNER, deck, "Stack");
+    organizeCard(db, OWNER, deck, "id-counterspell", { slotId: slot, tagIds: [tag] });
 
     const pid = createProposal(db, AGENT, deck, {
       items: [{ action: "cut", oracle_id: "id-counterspell", to_maybe: true, reason: "Worth revisiting." }],
     });
-    assert.equal(getProposal(db, pid)!.items[0].to_maybe, 1);
+    assert.equal(getProposal(db, OWNER, pid)!.items[0].to_maybe, 1);
     // Nothing moves until the owner rules.
     assert.equal(cardIn(deck, "id-counterspell")!.maybe, 0);
 
-    const before = getDeck(db, deck).computed.card_count;
-    const logId = acceptItems(db, OWNER, pendingItemIds(db, pid));
+    const before = getDeck(db, OWNER, deck).computed.card_count;
+    const logId = acceptItems(db, OWNER, pendingItemIds(db, OWNER, pid));
     const parked = cardIn(deck, "id-counterspell")!;
     assert.deepEqual([parked.maybe, parked.slot_id, parked.tag_ids], [1, slot, [tag]]);
-    assert.equal(getDeck(db, deck).computed.card_count, before - 1);
-    assert.equal(getDeck(db, deck).computed.maybe_count, 1);
+    assert.equal(getDeck(db, OWNER, deck).computed.card_count, before - 1);
+    assert.equal(getDeck(db, OWNER, deck).computed.maybe_count, 1);
 
     undo(db, OWNER, logId);
     assert.equal(cardIn(deck, "id-counterspell")!.maybe, 0);
@@ -69,7 +70,7 @@ describe("a cut to the maybe list (spec §8.1)", () => {
         { action: "add", oracle_id: "id-solring", reason: "Swap in.", group: "swap" },
       ],
     });
-    acceptItems(db, OWNER, pendingItemIds(db, pid).slice(0, 1));
+    acceptItems(db, OWNER, pendingItemIds(db, OWNER, pid).slice(0, 1));
     assert.equal(cardIn(deck, "id-counterspell")!.maybe, 1);
     assert.equal(cardIn(deck, "id-solring")!.maybe, 0);
   });
@@ -79,7 +80,7 @@ describe("a cut to the maybe list (spec §8.1)", () => {
     const pid = createProposal(db, AGENT, deck, {
       items: [{ action: "cut", oracle_id: "id-counterspell", to_maybe: true, reason: "Worth revisiting." }],
     });
-    rejectItems(db, OWNER, pendingItemIds(db, pid));
+    rejectItems(db, OWNER, pendingItemIds(db, OWNER, pid));
     assert.equal(cardIn(deck, "id-counterspell")!.maybe, 0);
   });
 
@@ -128,13 +129,14 @@ describe("a database made before the option existed", () => {
     const pid = createProposal(old, AGENT, deck, {
       items: [{ action: "cut", oracle_id: "id-counterspell", reason: "Too reactive." }],
     });
-    old.exec("ALTER TABLE proposal_items DROP COLUMN to_maybe");
+    removeIdentity(old);
+    old.exec("ALTER TABLE proposal_items DROP COLUMN to_maybe; UPDATE meta SET value = '10' WHERE key = 'schema_version'");
     old.close();
 
     const reopened = openDb(path);
-    assert.equal(getProposal(reopened, pid)!.items[0].to_maybe, 0);
-    acceptItems(reopened, OWNER, pendingItemIds(reopened, pid));
-    assert.equal(getDeck(reopened, deck).cards.length, 0);
+    assert.equal(getProposal(reopened, OWNER, pid)!.items[0].to_maybe, 0);
+    acceptItems(reopened, OWNER, pendingItemIds(reopened, OWNER, pid));
+    assert.equal(getDeck(reopened, OWNER, deck).cards.length, 0);
     reopened.close();
   });
 });

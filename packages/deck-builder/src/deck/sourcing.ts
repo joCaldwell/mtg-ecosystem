@@ -1,6 +1,7 @@
+import { requireDeckOwner } from "../actor.ts";
 import type { Database } from "../sqlite.ts";
 import type { Actor } from "../actor.ts";
-import { authorOf } from "../actor.ts";
+import { authorOf, displayAuthor, type Attribution } from "../actor.ts";
 import { recordActivity } from "../activity.ts";
 import { lintProse, requireCardById } from "../cards.ts";
 import { withTransaction } from "../db.ts";
@@ -18,7 +19,7 @@ export interface OwnershipInput {
   /** Optimistic concurrency for this card's evidence; null means none read. */
   expected_evidence_id?: number | null;
 }
-export interface OwnershipEvidence {
+export interface OwnershipEvidence extends Attribution {
   id: number;
   oracle_id: string;
   status: OwnershipStatus;
@@ -31,15 +32,17 @@ export interface OwnershipEvidence {
   created_at: string;
 }
 
-export function ownershipEvidence(db: Database, oracleId: string): OwnershipEvidence[] {
-  return db.prepare("SELECT * FROM ownership_evidence WHERE oracle_id = ? ORDER BY id DESC").all(oracleId) as unknown as OwnershipEvidence[];
+export function ownershipEvidence(db: Database, actor: Actor, oracleId: string): OwnershipEvidence[] {
+  const rows = db.prepare("SELECT * FROM ownership_evidence WHERE oracle_id = ? AND user_id = ? ORDER BY id DESC").all(oracleId, actor.user_id) as unknown as OwnershipEvidence[];
+  return rows.map(row => ({ ...row, author_display: displayAuthor(db, row) }));
 }
 
 /** A statement of evidence, not an inferred inventory. Latest statement wins;
  * all earlier statements stay available for audit. Deck removal never edits it. */
 export function recordOwnership(db: Database, actor: Actor, deckId: number, inputs: OwnershipInput[], expectedRevision?: number): void {
-  requireEditableDeck(db, deckId);
-  requireRevision(db, deckId, expectedRevision);
+  requireDeckOwner(db, actor, deckId);
+  requireEditableDeck(db, actor, deckId);
+  requireRevision(db, actor, deckId, expectedRevision);
   if (!inputs.length) throw new ServiceError("Record at least one ownership statement");
   withTransaction(db, () => {
     const seen = new Set<string>();
@@ -47,7 +50,7 @@ export function recordOwnership(db: Database, actor: Actor, deckId: number, inpu
       requireCardById(db, input.oracle_id);
       if (seen.has(input.oracle_id)) throw new ServiceError("Record each card's ownership once per batch");
       seen.add(input.oracle_id);
-      const latest = ownershipEvidence(db, input.oracle_id)[0];
+      const latest = ownershipEvidence(db, actor, input.oracle_id)[0];
       if (input.expected_evidence_id !== undefined && input.expected_evidence_id !== (latest?.id ?? null))
         throw new ServiceError("Ownership evidence changed; compare again before recording it", 409);
       if (!["owned", "unowned", "unknown"].includes(input.status)) throw new ServiceError("Invalid ownership status");
@@ -62,10 +65,10 @@ export function recordOwnership(db: Database, actor: Actor, deckId: number, inpu
           (input.status === "owned" && quantity === 0) ||
           (quantity != null && available != null && available > quantity))
         throw new ServiceError("Ownership quantities contradict the status or available quantity exceeds owned quantity; unowned requires quantity 0");
-      const deck = requireDeck(db, deckId);
+      const deck = requireDeck(db, actor, deckId);
       db.prepare(`INSERT INTO ownership_evidence
-        (oracle_id, status, quantity, available_quantity, basis, author, source_deck_id, source_deck_name)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(input.oracle_id, input.status, quantity, available, input.basis.trim(), authorOf(actor), deckId, deck.name);
+        (oracle_id, status, quantity, available_quantity, basis, author, source_deck_id, source_deck_name, user_id, author_user_id, author_via, author_label)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(input.oracle_id, input.status, quantity, available, input.basis.trim(), authorOf(actor), deckId, deck.name, actor.user_id, actor.user_id, actor.via, actor.label);
     }
     recordActivity(db, actor, "record_ownership", deckId, `Recorded explicit ownership evidence for ${inputs.length} card(s)`);
   });
@@ -87,17 +90,18 @@ export function compareDeckSources(db: Database, actor: Actor, targetId: number,
   return withTransaction(db, () => {
     const ids = [...new Set(sourceIds)];
     if (!ids.length || ids.includes(targetId)) throw new ServiceError("Name at least one source deck, different from the target");
-    requireRevision(db, targetId, opts.expected_revision);
-    const target = getDeck(db, targetId);
-    const sources = ids.map(id => getDeck(db, id));
-    for (const source of sources) requireRevision(db, source.deck.id, opts.expected_source_revisions?.[source.deck.id]);
+    if (opts.apply_source_tags) requireEditableDeck(db, actor, targetId);
+    requireRevision(db, actor, targetId, opts.expected_revision);
+    const target = getDeck(db, actor, targetId);
+    const sources = ids.map(id => getDeck(db, actor, id));
+    for (const source of sources) requireRevision(db, actor, source.deck.id, opts.expected_source_revisions?.[source.deck.id]);
     const asOf = pricesAsOf(db);
     const all = target.cards.filter(c => !c.maybe).map(c => {
       const source_decks = sources.flatMap(s => {
         const match = s.cards.find(card => !card.maybe && card.oracle_id === c.oracle_id);
         return match ? [{ id: s.deck.id, name: s.deck.name, revision: s.deck.revision, quantity: match.quantity, tag: `From ${s.deck.name}` }] : [];
       });
-      const evidence = ownershipEvidence(db, c.oracle_id);
+      const evidence = ownershipEvidence(db, actor, c.oracle_id);
       const latest = evidence[0];
       const available = latest?.available_quantity ?? null;
       return {
@@ -110,11 +114,11 @@ export function compareDeckSources(db: Database, actor: Actor, targetId: number,
     });
     let tagged = 0;
     if (opts.apply_source_tags) {
-      requireEditableDeck(db, targetId);
+      requireEditableDeck(db, actor, targetId);
       if (opts.expected_revision === undefined || sources.some(s => opts.expected_source_revisions?.[s.deck.id] === undefined))
         throw new ServiceError("Applying source tags requires expected_revision and expected_source_revisions for every source");
       const filings = all.filter(c => c.source_decks.length).map(c => ({ oracle_id: c.oracle_id, add_tags: c.source_decks.map(s => s.tag) }));
-      fileCards(db, targetId, filings, [], actor);
+      fileCards(db, actor, targetId, filings, []);
       tagged = filings.length;
       recordActivity(db, actor, "compare_deck_sources", targetId, `Applied source tags to ${tagged} shared card(s)`);
     }

@@ -8,8 +8,10 @@ use WAL, foreign keys and a 5-second SQLite busy timeout.
 Run commands from `packages/deck-builder`. No build is needed for server
 TypeScript. `npm start` builds the browser assets and starts the local server;
 `npm stop`, `npm run status`, and `npm run logs` manage the laptop launcher.
-The server binds only to `127.0.0.1`. Authentication and hosting are later v3
-phases.
+Local mode (the default) binds `127.0.0.1` and builds implicit user 1 for UI
+requests without a login. `DECKBUILDER_MODE=hosted` binds all interfaces and
+requires `DECKBUILDER_PUBLIC_ORIGIN`; its UI APIs return 401 until Phase 2
+adds sessions. Hosted mode is not deployable yet. MCP always needs a token.
 
 ## Card refresh and scheduled jobs
 
@@ -105,7 +107,10 @@ checkpoints the stopped destination, and atomically renames the validated
 copy into place. A running server or active refresh/backup blocks restore.
 The database-specific `.server-lock` file is shared by startup and restore;
 a dead PID is reclaimable. Restored job leases are cleared and interrupted
-job statuses are marked failed. The token lives outside SQLite and is kept.
+job statuses are marked failed. Tokens now live hashed inside SQLite: restoring
+a snapshot restores its credential/revocation state too. Revoke credentials
+again after an older restore when necessary; a once-shown secret cannot be
+recovered from a backup.
 
 ```sh
 npm run backup
@@ -131,19 +136,56 @@ older versions that predate the process-lock mechanism before restoring.
 
 | Variable | Default / meaning |
 | --- | --- |
-| `DECKBUILDER_DATA` | Package `data/`; cache, token and backups live here |
+| `DECKBUILDER_DATA` | Package `data/`; cache and backups live here |
 | `DECKBUILDER_DB` | `DATA_DIR/deck-builder.db`; also determines server lock path |
 | `DECKBUILDER_PORT` | `8787` |
 | `DECKBUILDER_WEB_PORT` | `5173` in the dev script |
-| `DECKBUILDER_TOKEN` | Optional fixed agent token; disables in-app rotation |
+| `DECKBUILDER_MODE` | `local`; or `hosted` to await session authentication |
+| `DECKBUILDER_PUBLIC_ORIGIN` | Required in hosted mode, e.g. `https://decks.example` (no trailing slash) |
 | `BACKUP_S3_*` | Optional off-box backup credentials above |
 
-Server startup explicitly creates a missing token with owner-only file
-permissions. Reading it never creates or changes anything. The stdio shim
-fails with a clear message if none is configured. Without an environment
-override, Settings can rotate the token and closes the previous MCP handler.
-Settings omits the data-directory path but returns an absolute path to
-`src/mcp/stdio.ts`, so launch-a-command clients work from any directory.
+`DECKBUILDER_TOKEN` has been removed. Settings creates per-user tokens with
+labels, shows each secret exactly once, lists prefix/last-used/revoked state,
+and revokes individually. Newly minted secrets use `dbk_` plus 32 random
+bytes in base64url. SQLite stores SHA-256 hashes only. Verification reads the
+prefix, compares hashes with `timingSafeEqual`, and updates last-used at most
+once a minute. Revocation takes effect on the next MCP request; other clients
+keep working. Neither Settings reads nor server boot mint a token.
+
+On **first local boot**, the server imports an existing `DATA_DIR/agent-token`
+file into `agent_tokens` for user 1, labelled “Migrated local token”. It commits
+the hash before deleting the file, and retries safely by hash after a crash.
+The old secret remains valid, so existing Claude Code and Codex HTTP configs
+keep working. Existing user-1 agent proposals/edits bind to that credential
+within the import transaction, so their amendments continue to work too.
+New drafts record the verified token id; changing a URL label grants no rights. This migration preserves the old secret format; new tokens use
+`dbk_`. Back up before upgrading; never run the migration against a live file
+for a rehearsal. Use an online SQLite backup to a temporary destination, copy
+the legacy file privately there, and set both `DECKBUILDER_DB` and
+`DECKBUILDER_DATA` to that copy.
+
+The stdio shim cannot recover a secret from its hash. Create a token in
+Settings, save the once-shown value in a private file (`chmod 600`), then use:
+
+```sh
+node /absolute/path/to/packages/deck-builder/src/mcp/stdio.ts --name my-agent --token-file /private/path/to/token
+```
+
+`--token <value>` is also supported for command-launching clients, though a
+private file keeps the value out of process arguments. Missing credentials
+fail clearly; reads never create or rotate anything. Settings returns an
+absolute shim path, uses placeholders until creation, and clears the secret
+from its component after “I saved it” or leaving the page. No browser storage
+holds it. The `/mcp/<label>` suffix remains attribution only, never a
+principal selector or a way to become UI. Missing bearers receive a 401
+resource-metadata challenge; Phase 2 supplies OAuth metadata/JWT verification.
+
+Schema 11 creates `users` and assigns all old records to user 1 (`owner`,
+`Owner`, admin, no auth id). Card data/jobs remain global; personal documents,
+memories, settings, focus, inbox, review queue, activity and evidence are scoped
+to that user. The migrations run as ordered steps within one transaction,
+check foreign keys before commit and refuse unsupported databases. See spec
+§17 for the account-claim handoff to Phase 2.
 
 ## Phase 0 verification (2026-10-25)
 

@@ -1,3 +1,4 @@
+import { requireDeckOwner } from "../actor.ts";
 // The deck brief (spec §6): thesis and constraints as freeform markdown,
 // engines as structured records whose pieces are card references — so "is
 // every piece of this engine in the deck" is a check, not a judgement.
@@ -6,7 +7,7 @@
 
 import type { Database } from "../sqlite.ts";
 import { ServiceError } from "../errors.ts";
-import { type Actor, requireOwner } from "../actor.ts";
+import { type Actor, requireUi } from "../actor.ts";
 import { withTransaction } from "../db.ts";
 import { requireCardById } from "../cards.ts";
 import { requireDeck, requireEditableDeck } from "./service.ts";
@@ -25,8 +26,8 @@ export interface BriefView {
   updated_at: string | null;
 }
 
-export function getBrief(db: Database, deckId: number): BriefView {
-  requireDeck(db, deckId);
+export function getBrief(db: Database, actor: Actor, deckId: number): BriefView {
+  requireDeck(db, actor, deckId);
   const row = db
     .prepare("SELECT thesis, constraints_md, updated_at FROM briefs WHERE deck_id = ?")
     .get(deckId) as { thesis: string; constraints_md: string; updated_at: string } | undefined;
@@ -66,9 +67,10 @@ export function updateBrief(
   deckId: number,
   patch: { thesis?: string; constraints_md?: string },
 ): void {
-  requireOwner(actor, "edit a deck brief directly (use propose_brief_edit)");
-  requireEditableDeck(db, deckId);
-  const current = getBrief(db, deckId);
+  requireDeckOwner(db, actor, deckId);
+  requireUi(actor, "edit a deck brief directly (use propose_brief_edit)");
+  requireEditableDeck(db, actor, deckId);
+  const current = getBrief(db, actor, deckId);
   db.prepare(
     `INSERT INTO briefs (deck_id, thesis, constraints_md, updated_at)
      VALUES (?, ?, ?, datetime('now'))
@@ -91,8 +93,9 @@ export function setEngine(
   description: string,
   pieces: EnginePieceInput[],
 ): number {
-  requireOwner(actor, "edit a deck brief directly (use propose_brief_edit)");
-  requireEditableDeck(db, deckId);
+  requireDeckOwner(db, actor, deckId);
+  requireUi(actor, "edit a deck brief directly (use propose_brief_edit)");
+  requireEditableDeck(db, actor, deckId);
   const trimmed = name.trim();
   if (!trimmed) throw new ServiceError("Engine name cannot be empty");
   for (const p of pieces) requireCardById(db, p.oracle_id);
@@ -129,20 +132,22 @@ export function setEngine(
 }
 
 export function removeEngine(db: Database, actor: Actor, deckId: number, engineId: number): void {
-  requireOwner(actor, "edit a deck brief directly (use propose_brief_edit)");
-  requireEditableDeck(db, deckId);
+  requireDeckOwner(db, actor, deckId);
+  requireUi(actor, "edit a deck brief directly (use propose_brief_edit)");
+  requireEditableDeck(db, actor, deckId);
   const r = db.prepare("DELETE FROM engines WHERE id = ? AND deck_id = ?").run(engineId, deckId);
   if (!r.changes) throw new ServiceError(`Engine ${engineId} not found in deck ${deckId}`, 404);
 }
 
 export function removeEngineByName(db: Database, actor: Actor, deckId: number, name: string): void {
-  requireOwner(actor, "edit a deck brief directly (use propose_brief_edit)");
-  requireEditableDeck(db, deckId);
+  requireDeckOwner(db, actor, deckId);
+  requireUi(actor, "edit a deck brief directly (use propose_brief_edit)");
+  requireEditableDeck(db, actor, deckId);
   const engine = db
     .prepare("SELECT id FROM engines WHERE deck_id = ? AND name = ? COLLATE NOCASE")
     .get(deckId, name.trim()) as { id: number } | undefined;
   if (!engine) {
-    const names = getBrief(db, deckId).engines.map((e) => e.name);
+    const names = getBrief(db, actor, deckId).engines.map((e) => e.name);
     throw new ServiceError(
       `This deck has no engine named '${name}'.` +
         (names.length ? ` Its engines are: ${names.join(", ")}.` : " It defines none."),

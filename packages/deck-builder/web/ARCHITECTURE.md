@@ -45,7 +45,7 @@ import that the table forbids, the code is in the wrong layer.
 The server is the source of truth and the client never merges.
 
 1. **Reads.** `useQuery(() => api.something(), [deps])` fetches, and refetches
-   whenever the server's event stream says anything changed (`useLive`). That
+   whenever that user’s event stream names a change (`useLive`). That
    is what makes an agent's proposal appear without a reload.
 2. **The open deck.** `features/deck/DeckStore.tsx` holds the `DeckState`
    composite. Every mutation endpoint returns a fresh composite under
@@ -126,3 +126,25 @@ keeps all fork descendants in the roster; `ui/Pill` owns selectable filter
 pills. Proposal history uses Section/Box/Stack/Chip and human-readable dates
 and edit titles, without approval controls. The Memories scope-reset effect
 depends only on the scope and unfiltered memory response.
+
+
+## Identity foundation (v3 Phase 1)
+
+The browser calls the same actor-scoped capabilities as MCP. Local mode builds
+implicit user 1 without a login; hosted APIs return 401 while Phase 2 adds
+sessions. No login page or account selection exists in this phase.
+
+`api/live.tsx` consumes `{ kind, deck_id? }` events on a per-user SSE stream.
+It initially invalidates all queries for that stream; the typed payload is
+available for later selective refetch. Another principal's mutations never
+reach the stream. Attribution uses structured user/via/label fields and
+`author_display` (`handle via label`), while compact MCP author text stays
+stable. UI/agent distinctions must use `author_via`, not an agent's name.
+
+The Settings connection card manages labelled per-user tokens: create, show
+once, copy, list with last use, and revoke through ConfirmDialog. Secrets
+stay only in component state until dismissed or unmounted, never browser
+storage. Client snippets use a placeholder outside that one-time display.
+Reachability copy follows server mode. Revoke actions align at the row edge;
+labels and metadata stay grouped and long labels wrap. Existing generic
+primitives and design tokens supply the form and dialogs.

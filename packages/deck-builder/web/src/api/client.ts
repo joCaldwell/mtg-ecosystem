@@ -1,3 +1,4 @@
+import type { AgentToken } from "../../../src/tokens.ts";
 import type { PlaytestView, PlaytestAction, PlaytestUiPatch, TableCard, TableObject, CardFace, Zone, Row as TableRow, Mode } from "../../../src/playtest/service.ts";
 export type { PlaytestView, PlaytestAction, PlaytestUiPatch, TableCard, TableObject, CardFace, Zone, TableRow, Mode };
 // Typed client. Wire types are imported from the server source (type-only,
@@ -66,7 +67,7 @@ export interface Settings {
   jobs: ReturnType<Jobs["status"]> | null;
   budgets: { global: number; deck: number };
   cards: { count: number; updated_at: string | null; prices: PriceStatus };
-  agent: { url: string; token: string; stdio_command: string };
+  agent: { url: string; mode: "local" | "hosted"; tokens: AgentToken[]; stdio_command: string };
 }
 
 export interface MemoryList {
@@ -238,7 +239,8 @@ export const api = {
   getSettings: () => request<Settings>("GET", "/api/settings"),
   updateSettings: (patch: { budgets?: { global?: number; deck?: number } }) =>
     request<Settings>("PUT", "/api/settings", patch),
-  rotateToken: () => request<Settings>("POST", "/api/settings/rotate-token"),
+  createToken: (label: string) => request<{ token: string; credential: AgentToken }>("POST", "/api/settings/tokens", { label }),
+  revokeToken: (id: number) => request<{ ok: true }>("DELETE", `/api/settings/tokens/${id}`),
   refreshCards: () => request<Settings>("POST", "/api/cards/refresh"),
 
   // ---------- Archidekt interop (spec §12) ----------

@@ -1,8 +1,9 @@
+import { requireDeckOwner } from "../actor.ts";
 // Spec §5.7: power is a declared profile, not an algorithm that evaluates cards.
 // The app maps the profile to bracket guidance and computes Game Changers.
 import type { Database } from "../sqlite.ts";
 import * as z from "zod/v4";
-import { type Actor, authorOf, PermissionError, requireOwner } from "../actor.ts";
+import { type Actor, type Attribution, displayAuthor, authorOf, PermissionError, requireUi } from "../actor.ts";
 import { recordActivity } from "../activity.ts";
 import { lintProse } from "../cards.ts";
 import { withTransaction } from "../db.ts";
@@ -173,26 +174,28 @@ function parseAssessment(input: unknown) {
   return r.data;
 }
 
-export function getPowerTarget(db: Database, deckId: number): PowerTarget | null {
-  requireDeck(db, deckId);
+export function getPowerTarget(db: Database, actor: Actor, deckId: number): PowerTarget | null {
+  requireDeck(db, actor, deckId);
   const row = db.prepare("SELECT target_json FROM power_targets WHERE deck_id = ?").get(deckId) as { target_json: string } | undefined;
   return row ? parseTarget(JSON.parse(row.target_json)) : null;
 }
 
 /** Internal document write; agents reach it through proposeDocumentEdit. */
 export function writePowerTarget(db: Database, actor: Actor, deckId: number, input: unknown, author = authorOf(actor)) {
-  requireEditableDeck(db, deckId);
-  requireOwner(actor, "apply a power target directly (use propose_power_target)");
+  requireDeckOwner(db, actor, deckId);
+  requireEditableDeck(db, actor, deckId);
+  requireUi(actor, "apply a power target directly (use propose_power_target)");
   const target = input === null ? null : parseTarget(input);
   if (target) lintProse(db, target.notes);
   if (target == null) db.prepare("DELETE FROM power_targets WHERE deck_id = ?").run(deckId);
-  else db.prepare(`INSERT INTO power_targets (deck_id, target_json, author) VALUES (?, ?, ?)
-    ON CONFLICT(deck_id) DO UPDATE SET target_json = excluded.target_json, author = excluded.author, updated_at = datetime('now')`)
-    .run(deckId, JSON.stringify(target), author);
+  else db.prepare(`INSERT INTO power_targets (deck_id, target_json, author, author_user_id, author_via, author_label) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(deck_id) DO UPDATE SET target_json = excluded.target_json, author = excluded.author, author_user_id = excluded.author_user_id, author_via = excluded.author_via, author_label = excluded.author_label, updated_at = datetime('now')`)
+    .run(deckId, JSON.stringify(target), author, actor.user_id, actor.via, actor.label);
 }
 
 export function setPowerTarget(db: Database, actor: Actor, deckId: number, input: unknown) {
-  requireOwner(actor, "set the power target directly");
+  requireDeckOwner(db, actor, deckId);
+  requireUi(actor, "set the power target directly");
   writePowerTarget(db, actor, deckId, input);
 }
 
@@ -209,32 +212,34 @@ export function targetText(target: PowerTarget | null): string {
   return [...profileLines(target.profile), `Game Changers: ${target.game_changers_max == null ? "No limit set" : `at most ${target.game_changers_max}`}`, target.notes].filter(Boolean).join("\n");
 }
 
-interface AssessmentRow {
+interface AssessmentRow extends Attribution {
   id: number; profile_json: string; revision: number; evidence: "list" | "goldfish" | "games";
   confidence: "tentative" | "supported"; game_changers_json: string; notes: string; author: string; owner_touched: number; created_at: string;
 }
-function assessmentRows(db: Database, deckId: number) {
+function assessmentRows(db: Database, actor: Actor, deckId: number) {
   return db.prepare("SELECT * FROM power_assessments WHERE deck_id = ? ORDER BY id DESC LIMIT 20").all(deckId) as unknown as AssessmentRow[];
 }
 export function recordPowerAssessment(db: Database, actor: Actor, deckId: number, input: unknown): number {
-  requireEditableDeck(db, deckId);
-  const deck = requireDeck(db, deckId);
+  requireDeckOwner(db, actor, deckId);
+  requireEditableDeck(db, actor, deckId);
+  const deck = requireDeck(db, actor, deckId);
   const value = parseAssessment(input);
   if (value.revision !== deck.revision)
     throw new ServiceError(`The deck is now at revision ${deck.revision}; re-read it and assess that revision. Nothing was recorded.`, 409);
-  const current = assessmentRows(db, deckId)[0];
-  if (actor.kind === "agent" && current?.owner_touched && current.revision === deck.revision)
+  const current = assessmentRows(db, actor, deckId)[0];
+  if (actor.via === "agent" && current?.owner_touched && current.revision === deck.revision)
     throw new PermissionError("The owner has assessed this revision. Their correction takes precedence; discuss a different assessment with them instead of overwriting it.");
   lintProse(db, value.notes);
   return withTransaction(db, () => {
-    const row = db.prepare(`INSERT INTO power_assessments (deck_id, profile_json, revision, evidence, confidence, notes, author, owner_touched, game_changers_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(deckId, JSON.stringify(value.profile), value.revision, value.evidence, value.confidence, value.notes, authorOf(actor), Number(actor.kind === "owner"), JSON.stringify(gameChangerFacts(db, deckId)));
+    const row = db.prepare(`INSERT INTO power_assessments (deck_id, profile_json, revision, evidence, confidence, notes, author, owner_touched, game_changers_json, author_user_id, author_via, author_label)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(deckId, JSON.stringify(value.profile), value.revision, value.evidence, value.confidence, value.notes, authorOf(actor), Number(actor.via === "ui"), JSON.stringify(gameChangerFacts(db, actor, deckId)), actor.user_id, actor.via, actor.label);
     recordActivity(db, actor, "assess_deck_power", deckId, `Assessed power at r${value.revision} (${value.confidence}, ${value.evidence}): ${value.notes}`);
     return Number(row.lastInsertRowid);
   });
 }
 
-export function gameChangerFacts(db: Database, deckId: number) {
+export function gameChangerFacts(db: Database, actor: Actor, deckId: number) {
+  requireDeck(db, actor, deckId);
   // Nullable Scryfall game_changer: missing metadata is unknown, not false.
   // https://scryfall.com/docs/api/cards (game_changer, nullable boolean)
   const rows = db.prepare(`SELECT c.oracle_id, c.name, c.game_changer, dc.quantity FROM deck_cards dc
@@ -246,21 +251,21 @@ export function gameChangerFacts(db: Database, deckId: number) {
   };
 }
 
-export function getPower(db: Database, deckId: number) {
-  const deck = requireDeck(db, deckId);
-  const targetValue = getPowerTarget(db, deckId);
-  const targetMeta = db.prepare("SELECT author, updated_at FROM power_targets WHERE deck_id = ?").get(deckId) as { author: string; updated_at: string } | undefined;
-  const facts = gameChangerFacts(db, deckId);
-  const history = assessmentRows(db, deckId).map(({ profile_json, owner_touched, game_changers_json, ...row }) => {
+export function getPower(db: Database, actor: Actor, deckId: number) {
+  const deck = requireDeck(db, actor, deckId);
+  const targetValue = getPowerTarget(db, actor, deckId);
+  const targetMeta = db.prepare("SELECT author, author_user_id, author_via, author_label, updated_at FROM power_targets WHERE deck_id = ?").get(deckId) as (Attribution & { author: string; updated_at: string }) | undefined;
+  const facts = gameChangerFacts(db, actor, deckId);
+  const history = assessmentRows(db, actor, deckId).map(({ profile_json, owner_touched, game_changers_json, ...row }) => {
     const profile = PowerProfileSchema.parse(JSON.parse(profile_json));
     const stale = row.revision !== deck.revision;
     const captured = JSON.parse(game_changers_json) as ReturnType<typeof gameChangerFacts>;
     const gameChangers = stale ? captured : facts;
-    return { ...row, profile, game_changers: gameChangers, owner_touched: !!owner_touched, stale,
+    return { ...row, author_display: displayAuthor(db, row), profile, game_changers: gameChangers, owner_touched: !!owner_touched, stale,
       // Historical mappings use the facts captured with the assessed list.
       mapping: mapBracket(profile, gameChangers.count, { incompleteGameChangers: gameChangers.unknown_cards > 0 }) };
   });
-  const target = targetValue ? { ...targetValue, ...targetMeta!, mapping: mapBracket(targetValue.profile, targetValue.game_changers_max, { target: true }) } : null;
+  const target = targetValue ? { ...targetValue, ...targetMeta!, author_display: displayAuthor(db, targetMeta!), mapping: mapBracket(targetValue.profile, targetValue.game_changers_max, { target: true }) } : null;
   const assessment: (typeof history)[number] | null = history.length ? history[0] : null;
   const differences: { field: string; target: string; current: string }[] = [];
   if (target && assessment && !assessment.stale) {
@@ -285,8 +290,9 @@ export function getPower(db: Database, deckId: number) {
 }
 
 /** Forks inherit the target; a fresh assessment must describe the new deck. */
-export function copyPowerTarget(db: Database, parentId: number, forkId: number) {
-  requireEditableDeck(db, forkId);
-  db.prepare(`INSERT INTO power_targets (deck_id, target_json, author)
-    SELECT ?, target_json, author FROM power_targets WHERE deck_id = ?`).run(forkId, parentId);
+export function copyPowerTarget(db: Database, actor: Actor, parentId: number, forkId: number) {
+  requireDeckOwner(db, actor, parentId);
+  requireEditableDeck(db, actor, forkId);
+  db.prepare(`INSERT INTO power_targets (deck_id, target_json, author, author_user_id, author_via, author_label)
+    SELECT ?, target_json, author, author_user_id, author_via, author_label FROM power_targets WHERE deck_id = ?`).run(forkId, parentId);
 }

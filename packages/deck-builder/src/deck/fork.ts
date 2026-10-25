@@ -1,3 +1,4 @@
+import { requireDeckOwner } from "../actor.ts";
 // Forks and comparison (spec §5.3). A fork copies a deck's list,
 // organization, brief and deck memories into a new Theorycrafted deck and records the
 // parent. The copies then diverge; the link exists so the two can be compared.
@@ -13,7 +14,8 @@ import { writeLog } from "./log.ts";
 import { createDeck, getDeck, recomputeIdentity, requireDeck } from "./service.ts";
 
 export function forkDeck(db: Database, actor: Actor, deckId: number, name: string): number {
-  const parent = requireDeck(db, deckId);
+  requireDeckOwner(db, actor, deckId);
+  const parent = requireDeck(db, actor, deckId);
   return withTransaction(db, () => {
     const forkId = createDeck(db, actor, name, { parentId: deckId });
 
@@ -98,9 +100,9 @@ export function forkDeck(db: Database, actor: Actor, deckId: number, name: strin
       .all(deckId) as unknown as Array<{ id: number; name: string; description: string }>)
       insPiece.run(Number(insEngine.run(forkId, e.name, e.description).lastInsertRowid), e.id);
 
-    copyPowerTarget(db, deckId, forkId);
-    recomputeIdentity(db, forkId);
-    const memories = copyDeckMemories(db, deckId, forkId);
+    copyPowerTarget(db, actor, deckId, forkId);
+    recomputeIdentity(db, actor, forkId);
+    const memories = copyDeckMemories(db, actor, deckId, forkId);
     writeLog(db, actor, {
       deck_id: forkId,
       kind: "edit",
@@ -134,8 +136,8 @@ export interface DeckComparison {
 }
 
 /** Compare two decks' lists (maybe lists excluded). With no second deck, compares against the parent. */
-export function compareDecks(db: Database, aId: number, bId?: number): DeckComparison {
-  const a = getDeck(db, aId);
+export function compareDecks(db: Database, actor: Actor, aId: number, bId?: number): DeckComparison {
+  const a = getDeck(db, actor, aId);
   let other = bId;
   if (other === undefined) {
     if (!a.deck.parent)
@@ -145,7 +147,7 @@ export function compareDecks(db: Database, aId: number, bId?: number): DeckCompa
     other = a.deck.parent.id;
   }
   if (other === aId) throw new ServiceError("Compare a deck with a different deck");
-  const b = getDeck(db, other);
+  const b = getDeck(db, actor, other);
 
   const main = (view: typeof a) => new Map(view.cards.filter((c) => !c.maybe).map((c) => [c.oracle_id, c]));
   const inA = main(a);

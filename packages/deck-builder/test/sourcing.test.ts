@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { OWNER, PermissionError } from "../src/actor.ts";
+import { PermissionError } from "../src/actor.ts";
+import { OWNER } from "./actors.ts";
 import { ingestCards } from "../src/ingest.ts";
 import { compareDeckSources, ownershipEvidence, recordOwnership } from "../src/deck/sourcing.ts";
 import { createSlot, fileCards, getDeck, setDeckCategory, deleteDeck } from "../src/deck/service.ts";
@@ -21,10 +22,10 @@ function setup() {
   for (const source of [ramp, chaos]) add(db, source, moon);
   add(db, ramp, "id-forest", { quantity: 2 });
   add(db, chaos, "id-forest", { quantity: 3 });
-  fileCards(db, target, [{ oracle_id: heroic, add_tags: ["Have"] }, { oracle_id: descent, add_tags: ["Keep"] }]);
-  const slot = createSlot(db, target, "Control");
-  createSlot(db, target, "Disruption");
-  fileCards(db, target, [{ oracle_id: moon, slot: "Control", secondary_slots: ["Disruption"], add_tags: ["Keep", "Ordered"] }]);
+  fileCards(db, OWNER, target, [{ oracle_id: heroic, add_tags: ["Have"] }, { oracle_id: descent, add_tags: ["Keep"] }]);
+  const slot = createSlot(db, OWNER, target, "Control");
+  createSlot(db, OWNER, target, "Disruption");
+  fileCards(db, OWNER, target, [{ oracle_id: moon, slot: "Control", secondary_slots: ["Disruption"], add_tags: ["Keep", "Ordered"] }]);
   const price = db.prepare("INSERT INTO card_prices (oracle_id, usd_cents, set_code, collector_number, finish) VALUES (?, ?, 'test', '1', 'nonfoil')");
   price.run(moon, 800); price.run(heroic, 2000); price.run(descent, 700); price.run("id-forest", 10);
   db.exec("INSERT INTO meta (key, value) VALUES ('prices_as_of', '2026-10-15T12:00:00Z')");
@@ -34,10 +35,10 @@ function setup() {
 test("multi-source overlaps return actual cards, both sources, list quantities and timestamped estimates without inferred physical copies", () => {
   const { db, target, ramp, chaos, moon, slot } = setup();
   try {
-    const before = getDeck(db, target);
+    const before = getDeck(db, OWNER, target);
     const result = compareDeckSources(db, AGENT, target, [ramp, chaos, ramp], {
       apply_source_tags: true, expected_revision: before.deck.revision,
-      expected_source_revisions: { [ramp]: getDeck(db, ramp).deck.revision, [chaos]: getDeck(db, chaos).deck.revision },
+      expected_source_revisions: { [ramp]: getDeck(db, OWNER, ramp).deck.revision, [chaos]: getDeck(db, OWNER, chaos).deck.revision },
     });
     const card = result.shared_cards.find(c => c.oracle_id === moon)!;
     assert.equal(card.name, "Winter Moon");
@@ -50,7 +51,7 @@ test("multi-source overlaps return actual cards, both sources, list quantities a
     assert.equal(result.summary.shared.cards, 2);
     assert.equal(result.summary.shared.copies, 4);
     assert.deepEqual(result.summary.shared.cost, { usd_cents: 830, unpriced: 0 });
-    const after = getDeck(db, target);
+    const after = getDeck(db, OWNER, target);
     const filed = after.cards.find(c => c.oracle_id === moon)!;
     assert.equal(filed.slot_id, slot);
     assert.deepEqual(filed.secondary_slot_ids, before.cards.find(c => c.oracle_id === moon)!.secondary_slot_ids);
@@ -60,7 +61,7 @@ test("multi-source overlaps return actual cards, both sources, list quantities a
     const tagCount = after.tags.length;
     compareDeckSources(db, AGENT, target, [ramp, chaos], { apply_source_tags: true, expected_revision: before.deck.revision,
       expected_source_revisions: { [ramp]: 2, [chaos]: 2 } });
-    assert.equal(getDeck(db, target).tags.length, tagCount);
+    assert.equal(getDeck(db, OWNER, target).tags.length, tagCount);
   } finally { db.close(); }
 });
 
@@ -76,20 +77,20 @@ test("Have excludes Heroic Intervention; Keep is not ownership; unknowns stay di
     assert.equal(compareDeckSources(db, AGENT, target, [ramp], { ownership: "unowned" }).cards.length, 0);
     recordOwnership(db, AGENT, target, [{ oracle_id: descent, status: "unowned", quantity: 0, basis: "Owner explicitly confirmed no copy." }]);
     assert.deepEqual(compareDeckSources(db, AGENT, target, [ramp], { ownership: "unowned" }).cards.map(c => c.oracle_id), [descent]);
-    assert.equal(ownershipEvidence(db, heroic)[0].quantity, null);
+    assert.equal(ownershipEvidence(db, OWNER, heroic)[0].quantity, null);
   } finally { db.close(); }
 });
 
 test("ownership survives cutting, moving, untagging, forks, and deleting its source deck", () => {
   const { db, target, ramp, heroic } = setup();
   try {
-    const evidence = ownershipEvidence(db, heroic);
-    fileCards(db, target, [{ oracle_id: heroic, remove_tags: ["Have"] }]);
+    const evidence = ownershipEvidence(db, OWNER, heroic);
+    fileCards(db, OWNER, target, [{ oracle_id: heroic, remove_tags: ["Have"] }]);
     cut(db, target, heroic);
     add(db, ramp, heroic);
     const fork = forkDeck(db, AGENT, ramp, "Other list, same physical collection");
     deleteDeck(db, OWNER, target);
-    assert.deepEqual(ownershipEvidence(db, heroic), evidence);
+    assert.deepEqual(ownershipEvidence(db, OWNER, heroic), evidence);
     const card = compareDeckSources(db, AGENT, ramp, [fork]).shared_cards.find(c => c.oracle_id === heroic)!;
     assert.equal(card.ownership.status, "owned");
     assert.equal(card.ownership.quantity, null);
@@ -101,12 +102,12 @@ test("explicit available quantity is separate from deck appearances and updates 
   const { db, target, ramp, chaos, moon } = setup();
   try {
     recordOwnership(db, AGENT, target, [{ oracle_id: moon, status: "owned", quantity: 1, available_quantity: 0, basis: "Owner confirms one copy committed elsewhere.", expected_evidence_id: null }]);
-    const evidence = ownershipEvidence(db, moon)[0];
+    const evidence = ownershipEvidence(db, OWNER, moon)[0];
     assert.throws(() => recordOwnership(db, AGENT, target, [{ oracle_id: moon, status: "owned", basis: "Stale", expected_evidence_id: null }]), /evidence changed/);
     assert.equal(compareDeckSources(db, AGENT, target, [ramp, chaos], { availability: "insufficient" }).cards[0].oracle_id, moon);
     recordOwnership(db, AGENT, target, [{ oracle_id: moon, status: "owned", quantity: 1, available_quantity: 1, basis: "Owner made the copy available.", expected_evidence_id: evidence.id }]);
     assert.equal(compareDeckSources(db, AGENT, target, [ramp, chaos], { availability: "available" }).cards[0].oracle_id, moon);
-    assert.equal(ownershipEvidence(db, moon).length, 2);
+    assert.equal(ownershipEvidence(db, OWNER, moon).length, 2);
     assert.throws(() => recordOwnership(db, AGENT, target, [{ oracle_id: moon, status: "owned", quantity: 1, available_quantity: 2, basis: "Invalid" }]), /contradict/);
   } finally { db.close(); }
 });
@@ -114,10 +115,10 @@ test("explicit available quantity is separate from deck appearances and updates 
 test("source tagging guards all revisions, rolls back, and preserves Legacy read-only behavior", () => {
   const { db, target, ramp, chaos, moon } = setup();
   try {
-    const before = getDeck(db, target);
+    const before = getDeck(db, OWNER, target);
     assert.throws(() => compareDeckSources(db, AGENT, target, [ramp], { apply_source_tags: true }), /requires expected_revision/);
     assert.throws(() => compareDeckSources(db, AGENT, target, [ramp], { apply_source_tags: true, expected_revision: before.deck.revision, expected_source_revisions: { [ramp]: 0 } }), /revision changed/);
-    assert.deepEqual(getDeck(db, target), before);
+    assert.deepEqual(getDeck(db, OWNER, target), before);
     setDeckCategory(db, OWNER, target, "legacy");
     assert.equal(compareDeckSources(db, AGENT, target, [ramp, chaos]).shared_cards.length, 2);
     assert.throws(() => compareDeckSources(db, AGENT, target, [ramp], { apply_source_tags: true }), PermissionError);
@@ -140,10 +141,10 @@ test("reapplying Have after a move preserves more precise physical evidence", ()
   const { db, target, ramp, heroic } = setup();
   try {
     recordOwnership(db, AGENT, target, [{ oracle_id: heroic, status: "owned", quantity: 1, available_quantity: 1, basis: "Owner confirmed the available copy." }]);
-    const evidence = ownershipEvidence(db, heroic);
+    const evidence = ownershipEvidence(db, OWNER, heroic);
     cut(db, target, heroic);
     add(db, ramp, heroic);
-    fileCards(db, ramp, [{ oracle_id: heroic, add_tags: ["Have"] }]);
-    assert.deepEqual(ownershipEvidence(db, heroic), evidence);
+    fileCards(db, OWNER, ramp, [{ oracle_id: heroic, add_tags: ["Have"] }]);
+    assert.deepEqual(ownershipEvidence(db, OWNER, heroic), evidence);
   } finally { db.close(); }
 });

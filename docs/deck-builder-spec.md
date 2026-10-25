@@ -373,7 +373,7 @@ Sources: [Scryfall card objects](https://scryfall.com/docs/api/cards),
 Two documents, both short, both the owner's voice, both always in context at
 their scope.
 
-**Player profile** (one, global): tastes, playgroup and power level, budget
+**Player profile** (one per user, global within their account): tastes, playgroup and power level, budget
 stance, standing dislikes, anything durably true about the owner as a
 builder. Freeform markdown with a soft cap of about 600 words; over the cap,
 the app flags it.
@@ -409,7 +409,7 @@ as a row:
 | `scope` | `global` or `deck` (with the deck) |
 | `cards` | Optional links to cards |
 | `basis` | `stated` (the owner said it, including in a ruling reason) or `inferred` (the agent concluded it) |
-| `author` | The owner, or the agent's self-reported client name |
+| `author` | Compact author text, with `author_user_id`, `author_via`, `author_label` and UI `author_display` (§17.3) |
 | `source` | Optional: the ruling that prompted it, and the deck revision if deck-scoped |
 | `status` | `active`, `superseded` (with a link to the replacement), or `retired` |
 | timestamps | Created, last revised |
@@ -419,14 +419,19 @@ surface it without relying on the agent to go looking.
 
 ### 7.2 Scope and surfacing
 
-- **Global** memories load at session start.
+- **Global** memories belong to one principal and load at their session start.
 - **Deck** memories load with the deck.
-- **Card-linked** memories, of either scope, are attached to that card wherever it appears: search results, card lookups, and the response to a proposal that includes it. A global memory linked to a card follows the card into every deck.
+- **Card-linked** memories, of either scope, are attached to that card wherever it appears: search results, card lookups, and the response to a proposal that includes it. A global memory linked to a card follows the card into every deck that principal owns.
 - Everything else is reached with `search_memories` (full-text, filterable by scope, deck and card).
 
 ### 7.3 Writing
 
-- **No approval.** `remember` writes immediately.
+- **No approval.** `remember` writes immediately for the authenticated
+  principal. Global, deck, FTS, similarity and card-linked reads are tenant
+  scoped; a source ruling and any replacement deck must belong to that same
+  principal. Another principal cannot revise, supersede, retire, restore or
+  confirm the memory, regardless of label. Human/agent semantics use
+  `actor.via`; `owner_touched` remains the human-control flag.
 - **Revise before adding.** `remember` returns existing memories that resemble the new one, so the agent can update or supersede instead of duplicating. Similarity search filters to reachable scopes before taking its top results; unrelated decks cannot crowd out duplicates.
 - **Nothing is deleted by an agent.** Superseding keeps the old row, marked and linked. Retiring hides a memory from loading and search but keeps it on disk.
 - **The owner outranks the agent.** An agent cannot edit, supersede, retire, restore **or confirm** a memory the owner wrote or edited. Confirm changes its epistemic basis, so it is subject to the same owner-control check as an edit. It may write a new memory that disagrees and say so.
@@ -510,7 +515,8 @@ prior ruling and say what changed.
 
 ### 8.4 The review queue
 
-The owner often rules while no agent is running. Each ruling therefore has a
+Each principal has their own review queue. The owner often rules while no
+agent is running. Each ruling therefore has a
 `reviewed` mark, unset until an agent has read it. *(As built: the queue holds
 every ruling on a proposal or a proposed edit, and every direct change the
 owner makes to a Paper deck. What an agent did itself, and the owner
@@ -519,7 +525,9 @@ many rulings are unreviewed, `list_rulings` returns them, and
 `mark_rulings_reviewed` clears them once the agent has decided what, if
 anything, is worth a memory. A reason given in the app is never lost for lack
 of a listener. `through` clears only the deck (or profile scope) of the
-anchor ruling; a cross-deck result gives explicit IDs to mark instead.
+anchor ruling, within the authenticated principal. Explicit ID batches
+validate every tenant before changing any row; a foreign anchor or ID is
+forbidden. A cross-deck result gives explicit IDs to mark instead.
 
 ---
 
@@ -599,7 +607,7 @@ every request resolves its bearer and every tool names its deck.
 
 | Group | Tool | Purpose |
 | --- | --- | --- |
-| Orient | `start_session` | Playbook, profile, global memories, deck roster (one line each), the owner's focus, unreviewed-ruling count, memory budget state |
+| Orient | `start_session` | User handle/display name, playbook, profile, global memories, deck roster (one line each), the owner's focus, unreviewed-ruling count, memory budget state |
 | | `player_stats` | Computed across Paper decks only: colours, commander types, curves, slot habits, most-reused cards |
 | Read | `get_deck` | Brief, list grouped by slot with oracle text, computed state, checks, deck memories, pending proposals, recent rulings; `sections` selects parts |
 | | `compare_decks` | Cards only in one, only in the other, and shared; defaults to a fork's parent |
@@ -814,6 +822,31 @@ Checked on 2026-10-25, v3 Phase 0 hardening:
   image/retirement columns and missing proposal baselines upgrade on open.
   Phase 1 owns the ordered migration framework and schema 11 tenant rewrite.
 
+Checked on 2026-10-25, v3 Phase 1 identity foundation:
+
+- `npm run check` passes 759 tests on Node 26.12.1. The permission matrix
+  discovers and classifies every exported capability and all 30 MCP tools,
+  and covers all 58 registered HTTP routes, tenant feeds and FTS, creator
+  credentials, archived reads/writes, hosted API 401s and per-user SSE.
+  Historical migration fixtures reconstruct pre-identity tables; v10
+  preservation and complete rollback are tested explicitly.
+- An online read-only snapshot of the owner’s v10 database migrated to v11:
+  **18 decks → 18; 36 memories → 36**, with roster IDs/names/revisions,
+  memory text/scopes and profile identical. The copied legacy token file
+  imported and was deleted only in the copy. Its secret authenticated MCP;
+  both existing Claude Code and Codex HTTP configurations were checked to
+  use that same credential, without displaying their secrets.
+- The official MCP client, launching the stdio shim from `/tmp`, called
+  `start_session` and `get_deck` against both the Phase 0 baseline and the
+  migrated copy. `get_deck` was byte-identical; `start_session` was
+  byte-identical after removing the new `# Identity` block. This is a
+  scripted transport/text check, not a new model-quality evaluation.
+- Seeded browser QA on the isolated copy exercised token creation, the
+  once-shown value, dismissal, placeholder snippets, reload and confirmed
+  revocation. Browser storage contained no credentials; desktop and narrow
+  Settings layouts were inspected. The owner’s live database, token file
+  and client configurations were not changed. Vite production build passes.
+
 ## 16. Not verified
 
 Ownership-aware sourcing and proposal cleanup were added on 2026-10-15.
@@ -825,7 +858,9 @@ browser QA could not complete because preview automation failed. Phase 0
 subsequently verified the current approval/history controls on an isolated
 copy (see §15); the live owner database was not upgraded during that drill.
 
-Everything in §1–§14 is built. What has not been checked:
+The original local capabilities in §1–§14 and the Phase 1 identity foundation
+are built. Hosted login, sessions, OAuth, visibility and public pages are
+future v3 phases, not verified features. What has not been checked:
 
 - Any client other than Claude Code and Codex.
 - How agents use prices. The price beside each card, the deck's estimated cost and the playbook's rule about them are pinned by tests, but no real transcript has been read since they were added.
@@ -905,8 +940,8 @@ boundaries. Missing IDs never permit global/profile scope to bypass tenancy.
 Every existing `author` column gains `author_user_id` (FK users),
 `author_via` (`ui` or `agent`) and `author_label`, all NOT NULL. Old `owner`
 authors backfill to user 1/ui/ui; other labels to user 1/agent/original label.
-The existing author string remains for wire compatibility; principal/via/label
-are authoritative for permission checks. Attribution renders the human's
+The existing author string remains for wire compatibility; structured
+principal/via fields and credential ownership govern permissions. Attribution renders the human's
 handle for UI and `handle via label` for agents; a future external author
 renders `@handle`. The local `owner` handle preserves existing UI attribution.
 Activity records the owning `user_id` plus `actor_user_id`, `actor_via` and
@@ -916,8 +951,11 @@ Activity records the owning `user_id` plus `actor_user_id`, `actor_via` and
 stores hashes only. Token create/list/revoke require the principal's UI;
 revocation takes effect on the next request, including an already-created MCP
 handler. URL labels cannot grant another token's amendment rights: attribution
-checks include principal and agent label, with the token's configured label
-as fallback. Token credentials resolve to an Actor before tools execute.
+checks use principal, via and `author_token_id` on proposals/document edits.
+The token’s configured label is the attribution fallback; URL labels never
+grant draft-amendment rights. Token credentials resolve to an Actor before
+tools execute. Trusted in-process actors without a credential retain label
+identity (fixtures and the operator’s demo seed).
 
 SSE listeners use `Map<user_id,Set<response>>`; changes emit
 `notify(user_id,{deck_id?,kind})`. UI and MCP writes notify only that user.
@@ -927,7 +965,35 @@ all connected users with `kind: "jobs"` and reveal no tenant data.
 
 ### 17.4 Phase 1 choices and handoff
 
-Profile rows are created lazily for new users (empty profile reads remain
+**Credential ownership of pending work.** Proposals and document edits also
+store nullable `author_token_id` (FK to `agent_tokens`). The canonical three
+author fields alone cannot distinguish credentials when a client changes its
+URL hint; letting a hint authorize amendments would violate D7. New MCP
+proposals bind to the verified credential. Legacy-file import binds existing
+user-1 agent proposals/edits to that migrated credential in the same durable
+transaction, preserving outstanding work for existing CLI configurations.
+UI-authored proposals remain UI-only for amendments by agents. Changing a
+label cannot grant or remove a verified token’s rights; cross-principal
+checks always precede these creator checks.
+
+**Read/error contract.** Individual proposal/edit/log lookups, like deck and
+memory lookups, return 404 when unreadable or absent. Collection reads are
+filtered by principal; a memory list for a deleted deck remains empty (the
+existing cleanup behavior). Numeric write references reach owner guards and
+return PermissionError/403 on foreign data. Names resolve only in the
+principal’s roster, so an unknown name is 404 without searching other users.
+
+**Local text and attribution.** The existing compact `author` and `actor`
+strings stay stable in MCP prose; UI wire views add `author_display` or
+`actor_display` derived from the canonical fields and current handle. This
+preserves the agent playbook and deck transcript while giving UI attribution
+a principal. Focus and resumable playtest-table state remain usable on Legacy
+lists; observations that write deck memories still require an editable deck.
+Audit recording can follow lifecycle changes; it is not a second deck-edit
+path. Pure calculations/card-fact utilities and operator migration/backup/
+ingest utilities are classified separately from tenant capabilities.
+
+Profile rows are created on first write for new users (empty profile reads remain
 valid); user 1 is seeded on migration. This avoids an identity-registration
 API before sessions exist. Shared card ingestion/backup functions are operator
 utilities rather than tenant capabilities; HTTP refresh additionally requires
@@ -937,9 +1003,13 @@ then file deletion follows the committed insert, so a crash cannot lose access.
 No fresh token is minted at boot: the human explicitly creates and saves it
 once in Settings.
 
-Phase 2 plugs its session resolver into the UI Actor-building function in
-`app.ts` and its OAuth access-token verifier alongside `verifyToken` in
-`tokens.ts`/`mcp/http.ts`. It inherits per-user data and streams, with no
+Phase 2 plugs its session resolver into
+`resolveUiActor(req, mode): Actor | null` in `app.ts` (the async-capable
+`AppOptions.resolveUiActor` hook is called before API routes and SSE). Local
+mode keeps `localActor()`; hosted mode replaces the current `null` with the
+session’s principal. OAuth access-token verification goes beside
+`verifyToken(db, secret, now?): Actor | null` in `tokens.ts`; `mcp/http.ts`
+passes the verified Actor through the SDK’s `authInfo.extra.actor`. It inherits per-user data and streams, with no
 login, sessions, Better Auth, visibility, public pages or renames in Phase 1.
 Hosted signup will be invite-gated (D14); the invite table and UI arrive with
 Phase 2 account creation, not in this identity-only phase.

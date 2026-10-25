@@ -7,19 +7,20 @@
 // message by message because the endpoint is stateless — it holds nothing
 // between requests for the shim to preserve.
 //
-//   node src/mcp/stdio.ts [--name <label>]
+//   node src/mcp/stdio.ts --token-file <private-file> [--name <label>]
 //
 // stdio transport framing: one JSON-RPC message per line, no embedded
 // newlines (https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio).
 
 import { createInterface } from "node:readline";
-import { getAgentToken } from "../token.ts";
+import { readFileSync } from "node:fs";
 import { MCP_PATH } from "./http.ts";
 
-if (!getAgentToken()) {
-  console.error("No agent token is configured. Start the deck builder app first, or configure DECKBUILDER_TOKEN.");
-  process.exit(1);
-}
+const arg = (key: string) => { const i = process.argv.indexOf(key); return i < 0 ? undefined : process.argv[i + 1]; };
+const readToken = () => arg("--token-file") ? readFileSync(arg("--token-file")!, "utf8").trim() : arg("--token");
+try {
+  if (!readToken()) throw new Error("No agent token is configured. Create one in Settings, save it privately and pass --token-file <file>.");
+} catch (e) { console.error((e as Error).message); process.exit(1); }
 
 const PORT = Number(process.env.DECKBUILDER_PORT ?? 8787);
 const nameArg = process.argv.indexOf("--name");
@@ -44,8 +45,8 @@ async function forward(line: string): Promise<void> {
   const first = Array.isArray(message) ? message[0] : message;
   const expectsReply = first && "id" in first && "method" in first;
 
-  const token = getAgentToken();
-  if (!token) throw new Error("No agent token is configured; start the deck builder app first");
+  const token = readToken();
+  if (!token) throw new Error("No agent token is configured; pass --token-file <file>");
   let res: Response;
   try {
     res = await fetch(ENDPOINT, {

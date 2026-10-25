@@ -1,3 +1,4 @@
+import { displayAuthor } from "./actor.ts";
 // Memories (spec §7): short notes about preferences, reasons and outcomes.
 // Agents write them without approval; the owner can always see, edit and
 // retire them. They are rows, not files, so the app can attach one to a card
@@ -9,7 +10,7 @@
 import type { Database } from "./sqlite.ts";
 import { ServiceError } from "./errors.ts";
 import { getSetting, setSetting, withTransaction } from "./db.ts";
-import { type Actor, PermissionError, authorOf } from "./actor.ts";
+import { type Actor, requireSelf, requireDeckOwner, PermissionError, authorOf } from "./actor.ts";
 import { lintProse, requireCardById } from "./cards.ts";
 import { requireDeck, requireEditableDeck } from "./deck/service.ts";
 
@@ -18,6 +19,11 @@ export type MemoryBasis = "stated" | "inferred";
 export type MemoryStatus = "active" | "superseded" | "retired";
 
 export interface MemoryView {
+  user_id: number;
+  author_user_id: number;
+  author_via: "ui" | "agent";
+  author_label: string;
+  author_display?: string;
   id: number;
   text: string;
   scope: MemoryScope;
@@ -36,39 +42,40 @@ export interface MemoryView {
   cards: Array<{ oracle_id: string; name: string }>;
 }
 
-const SELECT = `SELECT m.id, m.text, m.scope, m.deck_id, d.name AS deck_name, (d.category = 'legacy') AS read_only, m.basis, m.author,
+const SELECT = `SELECT m.user_id, m.author_user_id, m.author_via, m.author_label, m.id, m.text, m.scope, m.deck_id, d.name AS deck_name, (d.category = 'legacy') AS read_only, m.basis, m.author,
        m.owner_touched, m.source_log_id, m.deck_revision, m.status, m.superseded_by,
        m.created_at, m.revised_at
   FROM memories m LEFT JOIN decks d ON d.id = m.deck_id`;
 
 type Row = Omit<MemoryView, "cards" | "owner_touched"> & { owner_touched: number };
 
-function toViews(db: Database, rows: Row[]): MemoryView[] {
+function toViews(db: Database, actor: Actor, rows: Row[]): MemoryView[] {
   const cards = db.prepare(
     `SELECT mc.oracle_id, c.name FROM memory_cards mc JOIN cards c ON c.oracle_id = mc.oracle_id
      WHERE mc.memory_id = ? ORDER BY c.name`,
   );
   return rows.map((r) => ({
     ...r,
+    author_display: displayAuthor(db, r),
     owner_touched: !!r.owner_touched,
     read_only: !!r.read_only,
     cards: cards.all(r.id) as unknown as Array<{ oracle_id: string; name: string }>,
   }));
 }
 
-export function getMemory(db: Database, id: number): MemoryView {
-  const row = db.prepare(`${SELECT} WHERE m.id = ?`).get(id) as Row | undefined;
+export function getMemory(db: Database, actor: Actor, id: number): MemoryView {
+  const row = db.prepare(`${SELECT} WHERE m.id = ? AND m.user_id = ?`).get(id, actor.user_id) as Row | undefined;
   if (!row) throw new ServiceError(`There is no memory ${id}`, 404);
-  return toViews(db, [row])[0];
+  return toViews(db, actor, [row])[0];
 }
 
 // ---------- budgets (spec §7.4) ----------
 
 export const DEFAULT_BUDGETS = { global: 1500, deck: 1000 };
 
-export function getBudgets(db: Database): { global: number; deck: number } {
+export function getBudgets(db: Database, actor: Actor): { global: number; deck: number } {
   const read = (key: string, fallback: number) => {
-    const n = Number(getSetting(db, key));
+    const n = Number(getSetting(db, actor, key));
     return Number.isFinite(n) && n > 0 ? n : fallback;
   };
   return {
@@ -77,12 +84,12 @@ export function getBudgets(db: Database): { global: number; deck: number } {
   };
 }
 
-export function setBudgets(db: Database, budgets: { global?: number; deck?: number }): void {
+export function setBudgets(db: Database, actor: Actor, budgets: { global?: number; deck?: number }): void {
   for (const [key, value] of Object.entries(budgets)) {
     if (value === undefined) continue;
     if (!Number.isFinite(value) || value < 100 || value > 20000)
       throw new ServiceError("A memory budget is between 100 and 20000 estimated tokens");
-    setSetting(db, `memory_budget_${key}`, String(Math.floor(value)));
+    setSetting(db, actor, `memory_budget_${key}`, String(Math.floor(value)));
   }
 }
 
@@ -103,9 +110,9 @@ export interface LoadedScope {
 
 // What loads with a scope (spec §7.2, §7.4): the most recently revised active
 // memories that fit the budget, and a count of what was left out.
-export function loadScope(db: Database, scope: MemoryScope, deckId?: number): LoadedScope {
-  const all = listMemories(db, { scope, deckId, limit: 1000 });
-  const budget = getBudgets(db)[scope];
+export function loadScope(db: Database, actor: Actor, scope: MemoryScope, deckId?: number): LoadedScope {
+  const all = listMemories(db, actor, { scope, deckId, limit: 1000 });
+  const budget = getBudgets(db, actor)[scope];
   const memories: MemoryView[] = [];
   let used = 0;
   for (const m of all) {
@@ -149,9 +156,10 @@ const STOPWORDS = new Set([
 ]);
 
 /** Most recently revised first; with a query, best match first. */
-export function listMemories(db: Database, q: MemoryQuery = {}): MemoryView[] {
-  const where: string[] = [];
-  const params: Array<string | number> = [];
+export function listMemories(db: Database, actor: Actor, q: MemoryQuery = {}): MemoryView[] {
+  if (q.deckId !== undefined && db.prepare("SELECT 1 FROM decks WHERE id = ?").get(q.deckId)) requireDeck(db, actor, q.deckId);
+  const where: string[] = ["m.user_id = ?"];
+  const params: Array<string | number> = [actor.user_id];
   const status = q.status ?? "active";
   if (status !== "any") {
     where.push("m.status = ?");
@@ -181,7 +189,7 @@ export function listMemories(db: Database, q: MemoryQuery = {}): MemoryView[] {
          ORDER BY bm25(memories_fts) LIMIT ?`,
       )
       .all(match, ...params, limit) as unknown as Row[];
-    return toViews(db, rows);
+    return toViews(db, actor, rows);
   }
   const rows = db
     .prepare(
@@ -189,39 +197,40 @@ export function listMemories(db: Database, q: MemoryQuery = {}): MemoryView[] {
        ORDER BY m.revised_at DESC, m.id DESC LIMIT ?`,
     )
     .all(...params, limit) as unknown as Row[];
-  return toViews(db, rows);
+  return toViews(db, actor, rows);
 }
 
 // Spec §7.2: memories linked to a card are attached wherever the card
 // appears. A global one follows the card into every deck; a deck-scoped one
 // surfaces only in its own deck.
 export function memoriesForCards(
-  db: Database,
+  db: Database, actor: Actor,
   oracleIds: string[],
   deckId?: number,
 ): Map<string, MemoryView[]> {
+  if (deckId !== undefined) requireDeck(db, actor, deckId);
   const out = new Map<string, MemoryView[]>();
   const stmt = db.prepare(
     `${SELECT} JOIN memory_cards mc ON mc.memory_id = m.id
-     WHERE mc.oracle_id = ? AND m.status = 'active'
+     WHERE mc.oracle_id = ? AND m.status = 'active' AND m.user_id = ?
        AND (m.scope = 'global' OR m.deck_id = ?)
      ORDER BY m.revised_at DESC LIMIT 5`,
   );
   for (const id of new Set(oracleIds)) {
-    const rows = stmt.all(id, deckId ?? -1) as unknown as Row[];
-    if (rows.length) out.set(id, toViews(db, rows));
+    const rows = stmt.all(id, actor.user_id, deckId ?? -1) as unknown as Row[];
+    if (rows.length) out.set(id, toViews(db, actor, rows));
   }
   return out;
 }
 
 // ---------- writing ----------
 
-function indexText(db: Database, id: number, text: string) {
+function indexText(db: Database, actor: Actor, id: number, text: string) {
   db.prepare("DELETE FROM memories_fts WHERE memory_id = ?").run(id);
   db.prepare("INSERT INTO memories_fts (text, memory_id) VALUES (?, ?)").run(text, id);
 }
 
-function setCards(db: Database, id: number, oracleIds: string[]) {
+function setCards(db: Database, actor: Actor, id: number, oracleIds: string[]) {
   db.prepare("DELETE FROM memory_cards WHERE memory_id = ?").run(id);
   const ins = db.prepare("INSERT OR IGNORE INTO memory_cards (memory_id, oracle_id) VALUES (?, ?)");
   for (const oid of new Set(oracleIds)) ins.run(id, oid);
@@ -229,7 +238,7 @@ function setCards(db: Database, id: number, oracleIds: string[]) {
 
 // Cards a memory is linked to: the ones named explicitly plus every
 // [[Card Name]] in the text, so mentioning a card is enough to attach to it.
-function linkedCards(db: Database, text: string, explicit: string[] = []): string[] {
+function linkedCards(db: Database, actor: Actor, text: string, explicit: string[] = []): string[] {
   for (const id of explicit) requireCardById(db, id);
   return [...new Set([...explicit, ...lintProse(db, text).map((c) => c.oracle_id)])];
 }
@@ -239,7 +248,7 @@ const fold = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " 
 // Existing memories that resemble a new one: same words, or the same linked
 // cards, within the scopes a reader of the new one would also see.
 function findSimilar(
-  db: Database,
+  db: Database, actor: Actor,
   text: string,
   scope: MemoryScope,
   deckId: number | null,
@@ -252,18 +261,18 @@ function findSimilar(
   const match = ftsQuery(text, 4);
   if (match)
     for (const m of toViews(
-      db,
+      db, actor,
       db
         .prepare(
           `${SELECT} JOIN memories_fts ON memories_fts.memory_id = m.id
-           WHERE memories_fts MATCH ? AND m.status = 'active'
+           WHERE memories_fts MATCH ? AND m.status = 'active' AND m.user_id = ?
              AND (m.scope = 'global' OR (? = 'deck' AND m.deck_id = ?)) AND m.id != ?
            ORDER BY bm25(memories_fts) LIMIT 12`,
         )
-        .all(match, scope, deckId, excludeId ?? -1) as unknown as Row[],
+        .all(match, actor.user_id, scope, deckId, excludeId ?? -1) as unknown as Row[],
     ))
       if (inReach(m) && found.size < 4) found.set(m.id, m);
-  for (const [, linked] of memoriesForCards(db, cardIds, deckId ?? undefined))
+  for (const [, linked] of memoriesForCards(db, actor, cardIds, deckId ?? undefined))
     for (const m of linked) if (inReach(m)) found.set(m.id, m);
   return [...found.values()].slice(0, 6);
 }
@@ -301,22 +310,25 @@ function validateText(text: string): string {
 
 /** Write a memory. No approval; always visible to the owner (spec §7.3, §7.5). */
 export function remember(db: Database, actor: Actor, input: RememberInput): RememberResult {
+  if (input.deck_id != null) requireEditableDeck(db, actor, input.deck_id);
+  if (input.source_log_id != null && !db.prepare("SELECT 1 FROM log WHERE id = ? AND user_id = ?").get(input.source_log_id, actor.user_id))
+    throw new PermissionError("A memory source must be one of your own rulings");
   const text = validateText(input.text);
   if (input.scope !== "global" && input.scope !== "deck")
     throw new ServiceError("A memory's scope is 'global' or 'deck'");
   const deckId = input.scope === "deck" ? (input.deck_id ?? null) : null;
   if (input.scope === "deck" && deckId == null)
     throw new ServiceError("A deck-scoped memory needs the deck it belongs to");
-  const deck = deckId == null ? null : requireEditableDeck(db, deckId);
+  const deck = deckId == null ? null : requireEditableDeck(db, actor, deckId);
   if (input.deck_revision !== undefined && (!deck || !Number.isInteger(input.deck_revision) || input.deck_revision < 0 || input.deck_revision > deck.revision))
     throw new ServiceError("The tested revision must be a revision of this deck");
-  const cardIds = linkedCards(db, text, input.cards);
+  const cardIds = linkedCards(db, actor, text, input.cards);
   // What an agent concludes is a hypothesis until the owner says so.
-  const basis: MemoryBasis = input.basis ?? (actor.kind === "owner" ? "stated" : "inferred");
+  const basis: MemoryBasis = input.basis ?? (actor.via === "ui" ? "stated" : "inferred");
   if (basis !== "stated" && basis !== "inferred")
     throw new ServiceError("A memory's basis is 'stated' or 'inferred'");
 
-  const similar = findSimilar(db, text, input.scope, deckId, cardIds);
+  const similar = findSimilar(db, actor, text, input.scope, deckId, cardIds);
   const duplicate = similar.find(
     (m) => fold(m.text) === fold(text) && m.scope === input.scope && m.deck_id === deckId,
   );
@@ -329,8 +341,8 @@ export function remember(db: Database, actor: Actor, input: RememberInput): Reme
   return withTransaction(db, () => {
     const r = db
       .prepare(
-        `INSERT INTO memories (text, scope, deck_id, basis, author, owner_touched, source_log_id, deck_revision)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO memories (text, scope, deck_id, basis, author, owner_touched, source_log_id, deck_revision, user_id, author_user_id, author_via, author_label)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         text,
@@ -338,21 +350,22 @@ export function remember(db: Database, actor: Actor, input: RememberInput): Reme
         deckId,
         basis,
         authorOf(actor),
-        actor.kind === "owner" ? 1 : 0,
+        actor.via === "ui" ? 1 : 0,
         input.source_log_id ?? null,
         input.deck_revision ?? deck?.revision ?? null,
+        actor.user_id, actor.user_id, actor.via, actor.label,
       );
     const id = Number(r.lastInsertRowid);
-    setCards(db, id, cardIds);
-    indexText(db, id, text);
-    return { memory: getMemory(db, id), similar };
+    setCards(db, actor, id, cardIds);
+    indexText(db, actor, id, text);
+    return { memory: getMemory(db, actor, id), similar };
   });
 }
 
 // Spec §7.3: the owner outranks the agent. Once the owner has written or
 // edited a memory, an agent can no longer change it.
 function assertMayChange(actor: Actor, memory: MemoryView) {
-  if (actor.kind === "agent" && memory.owner_touched)
+  if (actor.via === "agent" && memory.owner_touched)
     throw new PermissionError(
       `Memory #${memory.id} was written or edited by the owner, so it cannot be changed by an agent. ` +
         `If you believe it is out of date, write a new memory that says so and tell the owner.`,
@@ -381,9 +394,11 @@ export function reviseMemory(
   id: number,
   revision: Revision,
 ): MemoryView {
-  const memory = getMemory(db, id);
-  if (memory.deck_id != null) requireEditableDeck(db, memory.deck_id);
-  const touched = actor.kind === "owner" ? 1 : memory.owner_touched ? 1 : 0;
+  const tenant = db.prepare("SELECT user_id FROM memories WHERE id = ?").get(id) as { user_id: number } | undefined;
+  if (tenant) requireSelf(actor, tenant.user_id);
+  const memory = getMemory(db, actor, id);
+  if (memory.deck_id != null) requireEditableDeck(db, actor, memory.deck_id);
+  const touched = actor.via === "ui" ? 1 : memory.owner_touched ? 1 : 0;
 
   switch (revision.action) {
     case "update": {
@@ -392,7 +407,7 @@ export function reviseMemory(
         throw new ServiceError(`Memory #${id} is ${memory.status}; restore it before editing`);
       const text = revision.text !== undefined ? validateText(revision.text) : memory.text;
       const cards = linkedCards(
-        db,
+        db, actor,
         text,
         revision.cards ?? memory.cards.map((c) => c.oracle_id),
       );
@@ -401,9 +416,9 @@ export function reviseMemory(
           `UPDATE memories SET text = ?, basis = ?, owner_touched = ?, revised_at = datetime('now')
            WHERE id = ?`,
         ).run(text, revision.basis ?? memory.basis, touched, id);
-        setCards(db, id, cards);
-        indexText(db, id, text);
-        return getMemory(db, id);
+        setCards(db, actor, id, cards);
+        indexText(db, actor, id, text);
+        return getMemory(db, actor, id);
       });
     }
     case "supersede": {
@@ -431,14 +446,14 @@ export function reviseMemory(
       db.prepare(
         "UPDATE memories SET status = 'retired', owner_touched = ?, revised_at = datetime('now') WHERE id = ?",
       ).run(touched, id);
-      return getMemory(db, id);
+      return getMemory(db, actor, id);
     case "restore":
       assertMayChange(actor, memory);
       db.prepare(
         `UPDATE memories SET status = 'active', superseded_by = NULL, owner_touched = ?,
            revised_at = datetime('now') WHERE id = ?`,
       ).run(touched, id);
-      return getMemory(db, id);
+      return getMemory(db, actor, id);
     case "confirm":
       assertMayChange(actor, memory);
       // The owner said so, in the app or in conversation: a hypothesis
@@ -447,7 +462,7 @@ export function reviseMemory(
       db.prepare(
         "UPDATE memories SET basis = 'stated', revised_at = datetime('now') WHERE id = ?",
       ).run(id);
-      return getMemory(db, id);
+      return getMemory(db, actor, id);
     default:
       throw new ServiceError(
         "A revision's action is one of: update, supersede, retire, restore, confirm",
@@ -457,13 +472,15 @@ export function reviseMemory(
 
 // A fork starts with its parent's deck memories (spec §5.3). They are copies:
 // the two decks diverge, and so does what is known about each.
-export function copyDeckMemories(db: Database, fromDeckId: number, toDeckId: number): number {
-  const source = listMemories(db, { scope: "deck", deckId: fromDeckId, limit: 1000 });
-  const revision = requireEditableDeck(db, toDeckId).revision;
+export function copyDeckMemories(db: Database, actor: Actor, fromDeckId: number, toDeckId: number): number {
+  requireEditableDeck(db, actor, toDeckId);
+  requireDeckOwner(db, actor, fromDeckId);
+  const source = listMemories(db, actor, { scope: "deck", deckId: fromDeckId, limit: 1000 });
+  const revision = requireEditableDeck(db, actor, toDeckId).revision;
   const ins = db.prepare(
     `INSERT INTO memories (text, scope, deck_id, basis, author, owner_touched, source_log_id,
-                           deck_revision, created_at, revised_at)
-     VALUES (?, 'deck', ?, ?, ?, ?, NULL, ?, ?, ?)`,
+                           deck_revision, created_at, revised_at, user_id, author_user_id, author_via, author_label)
+     VALUES (?, 'deck', ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`,
   );
   // Oldest first, so the copies keep the originals' relative order.
   for (const m of source.reverse()) {
@@ -475,11 +492,11 @@ export function copyDeckMemories(db: Database, fromDeckId: number, toDeckId: num
       m.owner_touched ? 1 : 0,
       revision,
       m.created_at,
-      m.revised_at,
+      m.revised_at, actor.user_id, m.author_user_id, m.author_via, m.author_label,
     );
     const id = Number(r.lastInsertRowid);
-    setCards(db, id, m.cards.map((c) => c.oracle_id));
-    indexText(db, id, m.text);
+    setCards(db, actor, id, m.cards.map((c) => c.oracle_id));
+    indexText(db, actor, id, m.text);
   }
   return source.length;
 }

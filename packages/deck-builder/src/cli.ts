@@ -1,3 +1,4 @@
+import { localActor } from "./mode.ts";
 import { backupDatabase, restoreDatabase } from "./backups.ts";
 import { runJob } from "./jobs.ts";
 import { openDb, DEFAULT_DB_PATH } from "./db.ts";
@@ -64,7 +65,7 @@ async function main() {
         process.exit(1);
       }
       try {
-        const results = search(db, query, { limit: 20 });
+        const results = search(db, localActor(), query, { limit: 20 });
         for (const c of results) console.log(formatCard(c) + "\n");
         console.log(`${results.length} result(s)${results.length === 20 ? " (limit 20)" : ""}`);
       } catch (e) {

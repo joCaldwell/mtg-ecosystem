@@ -1,3 +1,5 @@
+import { requireDeckOwner } from "../actor.ts";
+import { requireDeck } from "./service.ts";
 // Archidekt interop (spec §12). Deck construction happens here; playtesting
 // and goldfishing happen in Archidekt. One-way export, one-way import. There
 // is deliberately NO sync layer — Archidekt never silently becomes the source
@@ -44,7 +46,7 @@
 
 import type { Database } from "../sqlite.ts";
 import { ServiceError } from "../errors.ts";
-import { type Actor, requireOwner } from "../actor.ts";
+import { type Actor, requireUi } from "../actor.ts";
 import { type CardRow, CardResolutionError, type ResolutionFailure, tryResolveCard } from "../cards.ts";
 import { type Change, applyChanges } from "./membership.ts";
 import { type Role, getDeck, shortlistCard } from "./service.ts";
@@ -81,11 +83,12 @@ export interface ExportResult {
 
 /** The deck as Archidekt-importable text, optionally restricted to a selection. */
 export function exportDeck(
-  db: Database,
+  db: Database, actor: Actor,
   deckId: number,
   opts: ExportOptions = {},
 ): ExportResult {
-  const { deck, slots, cards } = getDeck(db, deckId);
+  requireDeck(db, actor, deckId);
+  const { deck, slots, cards } = getDeck(db, actor, deckId);
   const slotName = new Map(slots.map((s) => [s.id, s.name]));
   const selected = opts.oracleIds === undefined ? null : new Set(opts.oracleIds);
 
@@ -298,8 +301,9 @@ export interface ImportDiff {
   revision: number;
 }
 
-export function diffImport(db: Database, deckId: number, text: string): ImportDiff {
-  const { deck, slots, cards } = getDeck(db, deckId);
+export function diffImport(db: Database, actor: Actor, deckId: number, text: string): ImportDiff {
+  requireDeck(db, actor, deckId);
+  const { deck, slots, cards } = getDeck(db, actor, deckId);
   const { entries, unparsed } = parseArchidektList(text);
 
   const slotByName = new Map(slots.map((s) => [s.name.toLowerCase(), s]));
@@ -489,8 +493,8 @@ function land(
       (applied.role_changed ? `, ${applied.role_changed} role change(s)` : "");
   const logId = applyChanges(db, actor, deckId, changesFor(diff), { kind, summary });
   for (const c of diff.set_aside) {
-    const existing = getDeck(db, deckId).cards.find((x) => x.oracle_id === c.oracle_id);
-    if (!existing) shortlistCard(db, deckId, c.oracle_id, `From the pasted list's ${c.category}`);
+    const existing = getDeck(db, actor, deckId).cards.find((x) => x.oracle_id === c.oracle_id);
+    if (!existing) shortlistCard(db, actor, deckId, c.oracle_id, `From the pasted list's ${c.category}`);
   }
   return { applied, log_id: logId, diff };
 }
@@ -506,8 +510,9 @@ export function applyImport(
   text: string,
   note?: string,
 ): ImportResult {
-  requireOwner(actor, "import a list over an existing deck");
-  return land(db, actor, deckId, diffImport(db, deckId, text), "import", note);
+  requireDeckOwner(db, actor, deckId);
+  requireUi(actor, "import a list over an existing deck");
+  return land(db, actor, deckId, diffImport(db, actor, deckId, text), "import", note);
 }
 
 // Filling a deck from a pasted list on an agent's behalf (create_deck). The
@@ -519,7 +524,8 @@ export function fillFromList(
   deckId: number,
   text: string,
 ): ImportResult {
-  const diff = diffImport(db, deckId, text);
+  requireDeckOwner(db, actor, deckId);
+  const diff = diffImport(db, actor, deckId, text);
   if (diff.unresolved.length || diff.ambiguous.length)
     throw new CardResolutionError([
       ...diff.unresolved.map((u) => ({

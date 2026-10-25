@@ -1,3 +1,5 @@
+import { requireDeck } from "../deck/service.ts";
+import type { Actor } from "../actor.ts";
 import type { Database } from "../sqlite.ts";
 import { parse, SearchError } from "./parse.ts";
 import { compile } from "./compile.ts";
@@ -40,7 +42,8 @@ export interface SearchOptions {
   filterByDeckIdentity?: boolean;
 }
 
-export function search(db: Database, query: string, opts: SearchOptions = {}): SearchResult[] {
+export function search(db: Database, actor: Actor, query: string, opts: SearchOptions = {}): SearchResult[] {
+  if (opts.deckId !== undefined) requireDeck(db, actor, opts.deckId);
   const { sql, params } = compile(parse(query), { deckId: opts.deckId });
   const clauses = [sql, opts.deckId === undefined ? "retired = 0" :
     "(retired = 0 OR oracle_id IN (SELECT oracle_id FROM deck_cards WHERE deck_id = ?))"];

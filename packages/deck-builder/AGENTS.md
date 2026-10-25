@@ -19,8 +19,10 @@ design intent.
 ## 🎯 The rules that explain most of the design
 
 1.  **One capability layer, two front doors.** The UI's HTTP API and the MCP
-    tools call the same service functions, each passing an `Actor` (`OWNER`,
-    or the calling agent). Every permission is enforced *below* both doors.
+    tools call the same service functions, each passing an `Actor` with a
+    `user_id` principal, `via` (`ui` or `agent`) and attribution `label`.
+    Ownership is a relation to the deck, never a kind of actor. Every
+    permission and tenant filter is enforced *below* both doors.
     Nothing in `src/mcp/` or `src/app.ts` decides what an agent may do.
 2.  **Lifecycle controls editing.** Agents edit Theorycrafted cards directly;
     Paper card changes and all brief/power-target edits require proposals.
@@ -33,8 +35,14 @@ design intent.
     own chat window is outside the app and is not covered.
 4.  **If the app can compute it, nobody else derives it.** Counts, deltas and
     checks are returned with every read and every write.
-5.  **Everything an agent writes is attributed and visible.** Unapproved
-    writes (memories, filing, Theorycrafted card edits) land in the activity feed.
+5.  **Everything an agent writes is attributed and visible to its principal.**
+    Store the author user, via and label beside the compact author string;
+    UI attribution reads `handle via label`. Unapproved writes (memories,
+    filing, Theorycrafted card edits) land in that user’s activity feed.
+    A URL label grants no identity or UI privileges. Pending card/document
+    proposals record `author_token_id`; amendment rights follow the verified
+    credential, never its URL hint. Legacy import binds existing agent drafts
+    to the migrated credential so outstanding local work stays editable.
 
 ---
 
@@ -53,8 +61,8 @@ configured. Keep product dependencies to the original set.
 ```
 src/
   errors.ts          AppError base — every user-facing failure carries its HTTP status
-  actor.ts           Actor (owner | agent), requireOwner, PermissionError
-  db.ts              schema, withTransaction (savepoints — they nest), settings
+  actor.ts           Actor with principal; requireDeckOwner, requireSelf, requireUi, PermissionError
+  db.ts              ordered migrations through v11, nested savepoints, per-user settings
   cards.ts           ⭐ exact card resolution, suggestions, prose linting
   ingest.ts          Scryfall bulk → SQLite            search/  Scryfall-syntax subset
   prices.ts          the cheapest playable printing of each card (spec §4.4)
@@ -77,10 +85,11 @@ src/
   playtest/          owner-only manual session service and action model; snapshot, undo, resume
   stats.ts           player statistics across Paper decks only
   activity.ts        the activity feed          focus.ts   what the owner has open
-  token.ts           the agent bearer token
+  tokens.ts          per-user hashed personal credentials; create/list/revoke/verify, legacy import
+  mode.ts            local/hosted mode, local actor, Host/Origin boundary
   state.ts           deckState() — the composite the UI gets from every mutation
-  app.ts             createApp(): UI API (as owner), event stream, static files, /mcp
-  server.ts          entry point: binds 127.0.0.1
+  app.ts             request-to-Actor seam, UI API, per-user event streams, static files, /mcp
+  server.ts          entry point: loopback in local mode, all interfaces in hosted mode
   mcp/
     playbook.ts      INSTRUCTIONS (short) and PLAYBOOK (returned by start_session)
     render.ts        text for agents — compact, grouped, counts stated
@@ -122,16 +131,20 @@ Run from this directory (`packages/deck-builder/`):
 | `npm run search '<query>'` | Scryfall-syntax search from the CLI |
 | `npm run mcp` | The stdio shim, for clients that only launch a command |
 
-`DECKBUILDER_PORT`, `DECKBUILDER_DB`, `DECKBUILDER_DATA` and `DECKBUILDER_TOKEN`
-override the port, database file, data folder and agent token.
+`DECKBUILDER_MODE` defaults to `local`: loopback, implicit UI user 1, no login.
+`hosted` binds all interfaces and requires `DECKBUILDER_PUBLIC_ORIGIN`; UI
+APIs return 401 until Phase 2 supplies sessions. `DECKBUILDER_PORT`,
+`DECKBUILDER_DB` and `DECKBUILDER_DATA` override port, database and data folder.
+`DECKBUILDER_TOKEN` is removed; credentials live hashed in `agent_tokens`.
 
 See [OPERATIONS.md](OPERATIONS.md) for scheduled jobs, backup/restore drills,
 job/process locks and environment variables. Never copy a live `.db` alone.
 
 ### Connecting an agent
 
-The Settings page shows the endpoint, the token, and ready-to-paste
-configuration. For Claude Code:
+The Settings page shows the endpoint and token list, creates labelled tokens
+(shown once), and revokes them. Save a new token before dismissing it;
+configuration snippets use a placeholder until creation. For Claude Code:
 
 ```
 claude mcp add --transport http deck-builder http://127.0.0.1:8787/mcp/claude-code \
@@ -173,17 +186,26 @@ Vite proxy follows the API port.
 ## ⚠️ Constraints — these are load-bearing, not style
 
 *   **Permissions live in the capability layer.** If a new capability must be
-    owner-only, call `requireOwner` inside it. Never guard it only in a tool
-    or a route. Owner-only today: ruling, undo, lifecycle,
-    importing over a deck, editing the profile directly.
+    deck-owner-only, call `requireDeckOwner(db, actor, deckId)` inside it,
+    or `requireSelf` for a user-scoped record. `requireEditableDeck` includes
+    the ownership check. Reads use `requireDeck(db, actor, deckId)` and return
+    the caller role; unreadable decks are 404, foreign writes PermissionError
+    (403). Never guard only in a tool or route. Human-only actions additionally
+    use `requireUi`: ruling, undo, lifecycle, import, direct brief/target/profile
+    edits. An agent acting for the deck owner still needs Paper proposals.
     Owners and agents may rename and delete editable decks. Only the owner
     classifies decks (`paper` / `theorycrafted` / `legacy`, spec §5.6), since
     lifecycle governs permissions. Agent actions are attributed in Activity.
 *   **A deck's contents change only through `applyChanges`.** It applies a
     batch atomically, bumps the revision once, and writes one log entry. Do
     not add a second write path to `deck_cards` for membership.
+*   **Every tenant capability takes an explicit Actor.** Global card facts
+    are shared; profile, global memories, settings/budgets, focus, stats, inbox,
+    review queue, activity and ownership evidence are per principal. Never
+    provide a default actor in a service. A parent/fork source must belong to
+    the caller; lineage stops at unreadable boundaries.
 *   **Cross-deck membership in search is off** unless the call sets
-    `include_my_decks`.
+    `include_my_decks`; that always means the principal’s own decks.
 *   **Card facts come from the database, never from model memory.** This
     applies to you: do not type a card name into code, a fixture, or a seed
     without checking it resolves.
@@ -207,7 +229,18 @@ Vite proxy follows the API port.
     2025-protocol fallback both rely on its absence.
 *   **Host, Origin and token are checked in front of the SDK.** The SDK's
     handler validates none of them. `app.ts` applies the Host/Origin check to
-    the UI API as well, which has no token.
+    the UI API as well. Local UI requests build implicit user 1; hosted UI
+    requests await the session resolver. MCP resolves a per-user bearer on
+    every request, with revoked/deleted-user credentials rejected immediately.
+*   **Personal tokens are secrets shown once.** `dbk_` + 32 random bytes,
+    SHA-256 at rest, prefix lookup and timing-safe hash comparison. Label,
+    last-used (updated at most once a minute) and revoke live in Settings;
+    token CRUD is UI-only. Local boot commits the legacy file’s hash for user
+    1 before deleting the file. The stdio shim takes `--token-file <file>`;
+    reading it never creates credentials.
+*   **Streams are per user.** `notify(user_id, { kind, deck_id? })` reaches
+    only that principal. Global job invalidations may notify all users and
+    contain no tenant payload; HTTP refresh additionally requires admin.
 *   **No model calls, including embeddings.** Memory search is FTS5 plus
     scope and card links.
 *   **External formats get verified against their own documentation first.**

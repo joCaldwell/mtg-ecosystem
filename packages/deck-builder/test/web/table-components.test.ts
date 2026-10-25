@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { createServer } from "vite";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
-import { OWNER } from "../../src/actor.ts";
+import { OWNER } from "../actors.ts";
 import { startPlaytest } from "../../src/playtest/service.ts";
 import { add, newDeck, testDb } from "../helpers.ts";
 test("table components render actual wire facts, readable state and anonymous hidden observations", async (t) => {

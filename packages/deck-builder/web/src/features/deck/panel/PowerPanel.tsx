@@ -25,11 +25,11 @@ export function PowerPanel() {
       <Row justify="between"><Eyebrow>Deck power</Eyebrow><Button size="sm" variant="ghost" disabled={readOnly} onClick={() => setEditing("assessment")}>{a ? "Reassess" : "Assess deck"}</Button></Row>
       <div className={styles.summary}>
         <Stack gap={2}><Text size="xs" tone="muted">Current assessment</Text><Text size="xl" mono tone={a?.stale ? "warn" : "soft"}>{a ? bracketLabel(a.mapping) : "Not assessed"}</Text>
-          {a && <Text size="xs" tone={a.owner_touched ? "muted" : "agent"}>{a.author} · r{a.revision} · {ago(a.created_at)}</Text>}
+          {a && <Text size="xs" tone={a.owner_touched ? "muted" : "agent"}>{a.author_display ?? a.author} · r{a.revision} · {ago(a.created_at)}</Text>}
         </Stack>
         <Stack gap={2}><Text size="xs" tone="muted">Target</Text><Text size="xl" mono>{t ? bracketLabel(t.mapping) : "Not set"}</Text>
           <Button size="sm" variant="ghost" disabled={readOnly} onClick={() => setEditing("target")}>{t ? "Edit target" : "Set target"}</Button>
-          {t && <Text size="xs" tone={t.author === "owner" ? "muted" : "agent"}>{t.author} · {ago(t.updated_at)}</Text>}
+          {t && <Text size="xs" tone={t.author_via === "ui" ? "muted" : "agent"}>{t.author_display ?? t.author} · {ago(t.updated_at)}</Text>}
         </Stack>
       </div>
       <Text size="sm" tone="muted">A profile describes how the deck plays. The bracket is a suggested translation for pregame discussion; “?” marks gaps or conflicts.</Text>
@@ -57,7 +57,7 @@ export function PowerPanel() {
     {state.document_edits.filter(e => e.kind === "power_target").map(edit => <DocumentEditCard key={edit.id} edit={edit} onRuled={r => { apply(r); inbox.apply(r.inbox); }} />)}
     {power.history.length > 1 && <details className={styles.details}><summary>Previous assessments</summary><Stack gap={5}>
       {power.history.slice(1).map(old => <Stack key={old.id} gap={2}>
-        <Text size="sm" tone={old.owner_touched ? "muted" : "agent"}>{old.author} · r{old.revision} · {bracketLabel(old.mapping)} · {old.confidence} · {old.evidence} · {ago(old.created_at)}</Text>
+        <Text size="sm" tone={old.owner_touched ? "muted" : "agent"}>{old.author_display ?? old.author} · r{old.revision} · {bracketLabel(old.mapping)} · {old.confidence} · {old.evidence} · {ago(old.created_at)}</Text>
         <details><summary>View this assessment</summary><Stack gap={2}>{powerRows({ ...power, assessment: old }).map(row => <Text key={row.field} size="sm" tone="muted">{row.field}: {row.current}</Text>)}</Stack></details>
         <RichText text={old.notes} />
       </Stack>)}

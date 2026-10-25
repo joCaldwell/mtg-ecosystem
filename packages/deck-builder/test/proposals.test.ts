@@ -1,6 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { OWNER, PermissionError } from "../src/actor.ts";
+import { PermissionError } from "../src/actor.ts";
+import { OWNER } from "./actors.ts";
 import { cardHistory, getLogEntry, listLog, unreviewedCount } from "../src/deck/log.ts";
 import { undo } from "../src/deck/membership.ts";
 import {
@@ -15,7 +16,7 @@ import { createSlot, deleteSlot, getDeck } from "../src/deck/service.ts";
 import { AGENT, add, newDeck, testDb } from "./helpers.ts";
 
 const db = testDb();
-const names = (id: number) => getDeck(db, id).cards.filter((c) => !c.maybe).map((c) => c.name);
+const names = (id: number) => getDeck(db, OWNER, id).cards.filter((c) => !c.maybe).map((c) => c.name);
 
 function seeded() {
   const id = newDeck(db);
@@ -31,10 +32,10 @@ describe("creating a proposal (spec §8.1)", () => {
       (oracle_id) => ({ action: "add" as const, oracle_id, reason: "Fills the curve." }),
     );
     const pid = createProposal(db, AGENT, id, { summary: "Seven adds", items });
-    const proposal = getProposal(db, pid)!;
+    const proposal = getProposal(db, OWNER, pid)!;
     assert.equal(proposal.items.length, 7);
     assert.equal(proposal.author, "test-agent");
-    assert.equal(getDeck(db, id).computed.pending.projected_count, 9);
+    assert.equal(getDeck(db, OWNER, id).computed.pending.projected_count, 9);
     assert.throws(
       () => createProposal(db, AGENT, id, { items: [{ action: "add", oracle_id: "id-ball", reason: " " }] }),
       /needs a reason/,
@@ -77,7 +78,7 @@ describe("creating a proposal (spec §8.1)", () => {
         }),
       /is not a card name/,
     );
-    assert.equal(listProposals(db, { deckId: id }).length, 0);
+    assert.equal(listProposals(db, OWNER, { deckId: id }).length, 0);
   });
 });
 
@@ -87,48 +88,48 @@ describe("ruling (spec §8.2)", () => {
     const pid = createProposal(db, AGENT, id, {
       items: [{ action: "add", oracle_id: "id-solring", reason: "Ramp." }],
     });
-    const ids = pendingItemIds(db, pid);
+    const ids = pendingItemIds(db, OWNER, pid);
     assert.throws(() => acceptItems(db, AGENT, ids), PermissionError);
     assert.throws(() => rejectItems(db, AGENT, ids), PermissionError);
   });
   test("accepting applies the change as one logged act that carries both reasons", () => {
     const id = seeded();
-    const slot = createSlot(db, id, "Ramp");
+    const slot = createSlot(db, OWNER, id, "Ramp");
     const pid = createProposal(db, AGENT, id, {
       items: [{ action: "add", oracle_id: "id-solring", slot_id: slot, reason: "Cheap ramp." }],
     });
-    const logId = acceptItems(db, OWNER, pendingItemIds(db, pid), "Yes, obviously.");
+    const logId = acceptItems(db, OWNER, pendingItemIds(db, OWNER, pid), "Yes, obviously.");
     assert.ok(names(id).includes("Sol Ring"));
-    assert.equal(getDeck(db, id).cards.find((c) => c.oracle_id === "id-solring")!.slot_id, slot);
-    const entry = getLogEntry(db, logId)!;
+    assert.equal(getDeck(db, OWNER, id).cards.find((c) => c.oracle_id === "id-solring")!.slot_id, slot);
+    const entry = getLogEntry(db, OWNER, logId)!;
     assert.deepEqual(
       [entry.kind, entry.ruling_reason, entry.proposal_id, entry.cards[0].reason],
       ["accept", "Yes, obviously.", pid, "Cheap ramp."],
     );
-    assert.equal(getProposal(db, pid)!.status, "resolved");
+    assert.equal(getProposal(db, OWNER, pid)!.status, "resolved");
   });
   test("a rejection changes nothing, needs no reason, and is logged against the card", () => {
     const id = seeded();
-    const before = getDeck(db, id).deck.revision;
+    const before = getDeck(db, OWNER, id).deck.revision;
     const pid = createProposal(db, AGENT, id, {
       items: [
         { action: "add", oracle_id: "id-solring", reason: "Ramp." },
         { action: "cut", oracle_id: "id-counterspell", reason: "Too reactive." },
       ],
     });
-    const [addItem, cutItem] = pendingItemIds(db, pid);
+    const [addItem, cutItem] = pendingItemIds(db, OWNER, pid);
     rejectItems(db, OWNER, [cutItem]);
     rejectItems(db, OWNER, [addItem], "Too slow for this list.");
-    assert.equal(getDeck(db, id).deck.revision, before);
+    assert.equal(getDeck(db, OWNER, id).deck.revision, before);
     assert.deepEqual(names(id), ["Counterspell", "Teferi, Temporal Archmage"]);
 
-    const history = cardHistory(db, id, "id-solring");
+    const history = cardHistory(db, OWNER, id, "id-solring");
     assert.deepEqual(
       [history[0].kind, history[0].action, history[0].ruling_reason, history[0].reason],
       ["reject", "add", "Too slow for this list.", "Ramp."],
     );
-    assert.equal(cardHistory(db, id, "id-counterspell")[0].ruling_reason, "");
-    assert.equal(getProposal(db, pid)!.status, "resolved");
+    assert.equal(cardHistory(db, OWNER, id, "id-counterspell")[0].ruling_reason, "");
+    assert.equal(getProposal(db, OWNER, pid)!.status, "resolved");
   });
   test("a group is ruled on as a unit", () => {
     const id = seeded();
@@ -139,18 +140,18 @@ describe("ruling (spec §8.2)", () => {
         { action: "add", oracle_id: "id-forest", reason: "A land." },
       ],
     });
-    const [cutItem, addItem, lone] = pendingItemIds(db, pid);
+    const [cutItem, addItem, lone] = pendingItemIds(db, OWNER, pid);
     const logId = acceptItems(db, OWNER, [addItem]);
     assert.deepEqual(names(id), ["Sol Ring", "Teferi, Temporal Archmage"]);
-    assert.equal(getDeck(db, id).deck.revision, 3);
-    assert.equal(getLogEntry(db, logId)!.cards.length, 2);
+    assert.equal(getDeck(db, OWNER, id).deck.revision, 3);
+    assert.equal(getLogEntry(db, OWNER, logId)!.cards.length, 2);
     assert.throws(() => rejectItems(db, OWNER, [cutItem]), /already accepted/);
-    assert.deepEqual(pendingItemIds(db, pid), [lone]);
-    assert.equal(getProposal(db, pid)!.status, "open");
+    assert.deepEqual(pendingItemIds(db, OWNER, pid), [lone]);
+    assert.equal(getProposal(db, OWNER, pid)!.status, "open");
   });
   test("accepting the whole proposal at once is one act and one revision", () => {
     const id = seeded();
-    const before = getDeck(db, id).deck.revision;
+    const before = getDeck(db, OWNER, id).deck.revision;
     const pid = createProposal(db, AGENT, id, {
       items: ["id-solring", "id-forest", "id-bog"].map((oracle_id) => ({
         action: "add" as const,
@@ -158,9 +159,9 @@ describe("ruling (spec §8.2)", () => {
         reason: "Needed.",
       })),
     });
-    const logId = acceptItems(db, OWNER, pendingItemIds(db, pid));
-    assert.equal(getDeck(db, id).deck.revision, before + 1);
-    assert.equal(getLogEntry(db, logId)!.summary, "+3 cards");
+    const logId = acceptItems(db, OWNER, pendingItemIds(db, OWNER, pid));
+    assert.equal(getDeck(db, OWNER, id).deck.revision, before + 1);
+    assert.equal(getLogEntry(db, OWNER, logId)!.summary, "+3 cards");
     // The log entry is undone like any other.
     undo(db, OWNER, logId);
     assert.deepEqual(names(id), ["Counterspell", "Teferi, Temporal Archmage"]);
@@ -176,19 +177,19 @@ describe("ruling (spec §8.2)", () => {
     // The owner cuts the card by hand before ruling.
     add(db, id, "id-forest");
     db.prepare("DELETE FROM deck_cards WHERE deck_id = ? AND oracle_id = 'id-counterspell'").run(id);
-    assert.throws(() => acceptItems(db, OWNER, pendingItemIds(db, pid)), /stale/);
+    assert.throws(() => acceptItems(db, OWNER, pendingItemIds(db, OWNER, pid)), /stale/);
     assert.ok(!names(id).includes("Sol Ring"));
-    assert.equal(pendingItemIds(db, pid).length, 2);
+    assert.equal(pendingItemIds(db, OWNER, pid).length, 2);
   });
   test("a slot deleted after proposing does not fail the accept", () => {
     const id = seeded();
-    const slot = createSlot(db, id, "Ramp");
+    const slot = createSlot(db, OWNER, id, "Ramp");
     const pid = createProposal(db, AGENT, id, {
       items: [{ action: "add", oracle_id: "id-solring", slot_id: slot, reason: "Ramp." }],
     });
-    deleteSlot(db, id, slot);
-    acceptItems(db, OWNER, pendingItemIds(db, pid));
-    assert.equal(getDeck(db, id).cards.find((c) => c.oracle_id === "id-solring")!.slot_id, null);
+    deleteSlot(db, OWNER, id, slot);
+    acceptItems(db, OWNER, pendingItemIds(db, OWNER, pid));
+    assert.equal(getDeck(db, OWNER, id).cards.find((c) => c.oracle_id === "id-solring")!.slot_id, null);
   });
 });
 
@@ -199,12 +200,12 @@ describe("rulings and the review queue (spec §8.4)", () => {
     const pid = createProposal(fresh, AGENT, id, {
       items: [{ action: "add", oracle_id: "id-solring", reason: "Ramp." }],
     });
-    assert.equal(unreviewedCount(fresh), 0);
-    rejectItems(fresh, OWNER, pendingItemIds(fresh, pid), "I never play fast mana.");
-    const queue = listLog(fresh, { unreviewedOnly: true });
+    assert.equal(unreviewedCount(fresh, OWNER), 0);
+    rejectItems(fresh, OWNER, pendingItemIds(fresh, OWNER, pid), "I never play fast mana.");
+    const queue = listLog(fresh, OWNER, { unreviewedOnly: true });
     assert.equal(queue.length, 1);
     assert.equal(queue[0].ruling_reason, "I never play fast mana.");
-    assert.equal(queue[0].deck_name, getDeck(fresh, id).deck.name);
+    assert.equal(queue[0].deck_name, getDeck(fresh, OWNER, id).deck.name);
   });
   test("the inbox lists open proposals across decks", () => {
     const fresh = testDb();
@@ -212,7 +213,7 @@ describe("rulings and the review queue (spec §8.4)", () => {
     const b = newDeck(fresh);
     createProposal(fresh, AGENT, a, { items: [{ action: "add", oracle_id: "id-solring", reason: "x" }] });
     createProposal(fresh, AGENT, b, { items: [{ action: "add", oracle_id: "id-forest", reason: "y" }] });
-    assert.equal(listProposals(fresh, { status: "open" }).length, 2);
-    assert.equal(listProposals(fresh, { deckId: a }).length, 1);
+    assert.equal(listProposals(fresh, OWNER, { status: "open" }).length, 2);
+    assert.equal(listProposals(fresh, OWNER, { deckId: a }).length, 1);
   });
 });

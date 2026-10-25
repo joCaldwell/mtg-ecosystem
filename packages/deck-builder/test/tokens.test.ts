@@ -1,0 +1,74 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { createToken, listTokens, migrateLegacyToken, revokeToken, verifyToken } from "../src/tokens.ts";
+import { createProposal, getProposal, withdrawProposal } from "../src/deck/proposals.ts";
+import { createDeck } from "../src/deck/service.ts";
+import { PermissionError } from "../src/actor.ts";
+import { testDb, AGENT } from "./helpers.ts";
+import { OWNER } from "./actors.ts";
+import { getMode } from "../src/mode.ts";
+
+test("tokens are per-user, random, hashed, returned once, throttled and immediately revoked", () => {
+  const db = testDb();
+  try {
+    db.exec("INSERT INTO users(id,handle,display_name) VALUES (2,'second','Second')");
+    const second = { ...OWNER, user_id: 2 };
+    const a = createToken(db, OWNER, "CLI"), b = createToken(db, second, "CLI");
+    assert.match(a.token, /^dbk_[A-Za-z0-9_-]{43}$/);
+    assert.notEqual(a.token, b.token);
+    assert.deepEqual(listTokens(db, OWNER), [a.credential]);
+    const stored = db.prepare("SELECT token_hash FROM agent_tokens WHERE id = ?").get(a.credential.id) as { token_hash: string };
+    assert.match(stored.token_hash, /^[a-f0-9]{64}$/); assert.notEqual(stored.token_hash, a.token);
+    assert.ok(!JSON.stringify(listTokens(db, OWNER)).includes(a.token));
+    const now = Date.parse("2026-10-25T12:00:00Z");
+    assert.deepEqual(verifyToken(db, a.token, now), { user_id: 1, via: "agent", label: "CLI", token_id: a.credential.id });
+    assert.equal(verifyToken(db, b.token, now)?.user_id, 2);
+    verifyToken(db, a.token, now + 59_999);
+    assert.equal(listTokens(db, OWNER)[0].last_used_at, new Date(now).toISOString());
+    verifyToken(db, a.token, now + 60_000);
+    assert.equal(listTokens(db, OWNER)[0].last_used_at, new Date(now + 60_000).toISOString());
+    assert.equal(verifyToken(db, a.token.slice(0, -1) + "!"), null);
+    assert.throws(() => revokeToken(db, second, a.credential.id), PermissionError);
+    assert.throws(() => createToken(db, AGENT, "escalate"), PermissionError);
+    assert.throws(() => listTokens(db, AGENT), PermissionError);
+    revokeToken(db, OWNER, a.credential.id);
+    assert.equal(verifyToken(db, a.token), null);
+    assert.equal(verifyToken(db, b.token)?.user_id, 2);
+    db.exec("UPDATE users SET deleted_at = datetime('now') WHERE id = 2");
+    assert.equal(verifyToken(db, b.token), null);
+  } finally { db.close(); }
+});
+
+test("legacy import preserves the secret's access, commits before unlink and retries by hash", () => {
+  const dir = mkdtempSync(join(tmpdir(), "deck-token-")), file = join(dir, "agent-token"), db = testDb();
+  try {
+    migrateLegacyToken(db, file); assert.equal(existsSync(file), false);
+    const deck = createDeck(db, OWNER, "Legacy pending work");
+    const pending = createProposal(db, AGENT, deck, {items:[{action:"add",oracle_id:"id-solring",reason:"Existing work"}]});
+    const secret = "old-local-client-token";
+    writeFileSync(file, secret, { mode: 0o600 });
+    migrateLegacyToken(db, file);
+    assert.equal(existsSync(file), false);
+    const actor = verifyToken(db, secret)!;
+    assert.equal(actor.user_id, 1);
+    assert.equal(getProposal(db, OWNER, pending)!.author_token_id, actor.token_id);
+    assert.doesNotThrow(() => withdrawProposal(db, {...actor,label:"another hint"},pending,"Continue old work"));
+    writeFileSync(file, secret); migrateLegacyToken(db, file);
+    assert.equal(listTokens(db, OWNER).length, 1);
+    writeFileSync(file, "must-survive-failure");
+    db.exec("CREATE TRIGGER fail_import BEFORE INSERT ON agent_tokens BEGIN SELECT RAISE(ABORT, 'disk failure'); END");
+    assert.throws(() => migrateLegacyToken(db, file), /disk failure/);
+    assert.equal(readFileSync(file, "utf8"), "must-survive-failure");
+  } finally { db.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("modes are explicit and invalid hosted configuration fails closed", () => {
+  assert.equal(getMode({}), "local");
+  assert.equal(getMode({ DECKBUILDER_MODE: "local" }), "local");
+  assert.throws(() => getMode({ DECKBUILDER_MODE: "typo" }), /must be local or hosted/);
+  assert.throws(() => getMode({ DECKBUILDER_MODE: "hosted" }), /PUBLIC_ORIGIN/);
+  assert.equal(getMode({ DECKBUILDER_MODE: "hosted", DECKBUILDER_PUBLIC_ORIGIN: "https://decks.example" }), "hosted");
+});

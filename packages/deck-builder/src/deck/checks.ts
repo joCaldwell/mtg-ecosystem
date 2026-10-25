@@ -1,3 +1,5 @@
+import { requireDeck } from "./service.ts";
+import type { Actor } from "../actor.ts";
 // Deterministic checks (spec §9): computed on request from the current list,
 // never stored, never a model's arithmetic. Judgement about a deck is an
 // agent's work and reaches the app as proposals and memories, not here.
@@ -35,8 +37,9 @@ export function isDoctorPair(cards: { type_line: string; oracle_text: string }[]
   );
 }
 
-export function checkDeck(db: Database, deckId: number): Finding[] {
-  const { deck, cards, computed } = getDeck(db, deckId);
+export function checkDeck(db: Database, actor: Actor, deckId: number): Finding[] {
+  requireDeck(db, actor, deckId);
+  const { deck, cards, computed } = getDeck(db, actor, deckId);
   const inDeck = cards.filter((c) => !c.maybe);
   const findings: Finding[] = [];
 
@@ -139,7 +142,7 @@ export function checkDeck(db: Database, deckId: number): Finding[] {
   }
 
   // Spec §6: an engine's pieces are card references so this is a lookup.
-  for (const engine of getBrief(db, deckId).engines) {
+  for (const engine of getBrief(db, actor, deckId).engines) {
     const missing = engine.pieces.filter((p) => !p.in_deck);
     if (missing.length)
       findings.push({
@@ -161,7 +164,7 @@ export function checkDeck(db: Database, deckId: number): Finding[] {
     });
   }
 
-  const power = getPower(db, deckId);
+  const power = getPower(db, actor, deckId);
   if (power.assessment?.stale) findings.push({
     key: "power_assessment_stale", severity: "warn", title: "Power assessment needs review",
     detail: `Assessed at r${power.assessment.revision}; the current list is r${deck.revision}. Reassess before comparing it with the target.`,

@@ -1,3 +1,5 @@
+import { removeIdentity } from "./legacy-db.ts";
+import { existsSync } from "node:fs";
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -5,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import type { AddressInfo } from "node:net";
-import { OWNER } from "../src/actor.ts";
+import { OWNER } from "./actors.ts";
 import { createApp } from "../src/app.ts";
 import { backupDatabase, restoreDatabase } from "../src/backups.ts";
 import { resolveCard } from "../src/cards.ts";
@@ -20,7 +22,7 @@ import { remember, reviseMemory } from "../src/memory.ts";
 import { callTool } from "../src/mcp/tools.ts";
 import { acquireProcessLock } from "../src/process-lock.ts";
 import { search } from "../src/search/index.ts";
-import { ensureAgentToken, getAgentToken, rotateAgentToken } from "../src/token.ts";
+
 import { FIXTURES } from "./fixtures.ts";
 import { AGENT, add, newDeck, testDb } from "./helpers.ts";
 
@@ -32,7 +34,7 @@ mkdirSync(join(web, "assets"), { recursive: true });
 writeFileSync(join(web, "index.html"), "<!doctype html><title>app</title>");
 writeFileSync(join(web, "assets", "bundle.js"), "export {};");
 writeFileSync(join(web, "assets", "font.woff2"), "font");
-const app = createApp(db, { token: "test-token", webDist: web });
+const app = createApp(db, { webDist: web });
 let base: string;
 before(async () => {
   await new Promise<void>(resolve => app.server.listen(0, "127.0.0.1", resolve));
@@ -61,12 +63,12 @@ test("HTTP rejects NaN, infinite, negative and fractional numeric inputs", async
 test("items/rule requires integer arrays and rejects items and proposals from another deck", async () => {
   const a = newDeck(db), b = newDeck(db);
   const proposalId = createProposal(db, AGENT, b, { items: [{ action: "add", oracle_id: FIXTURES[0].oracle_id, reason: "Test" }] });
-  const ids = getProposal(db, proposalId)!.items.map(i => i.id);
+  const ids = getProposal(db, OWNER, proposalId)!.items.map(i => i.id);
   for (const item_ids of [null, "1", {}, ["1"], [1.5], []])
     assert.equal((await post(`/api/decks/${a}/items/rule`, { item_ids, outcome: "reject" })).status, 400);
   assert.equal((await post(`/api/decks/${a}/items/rule`, { item_ids: ids, outcome: "reject" })).status, 400);
   assert.equal((await post(`/api/decks/${a}/proposals/${proposalId}/rule`, { outcome: "reject" })).status, 400);
-  assert.equal(getProposal(db, proposalId)!.items[0].status, "pending");
+  assert.equal(getProposal(db, OWNER, proposalId)!.items[0].status, "pending");
   assert.equal((await post(`/api/decks/${b}/items/rule`, { item_ids: ids, outcome: "reject" })).status, 200);
 });
 
@@ -106,7 +108,7 @@ test("streaming ingest stores top-level and front-face image URLs on all read in
     await ingestFromFile(fresh, path);
     assert.equal(resolveCard(fresh, first.name).image_small, first.image_uris.small);
     assert.equal(resolveCard(fresh, faced.name).image_normal, faced.card_faces![0].image_uris.normal);
-    assert.equal(search(fresh, "cmc>=0", { limit: 1000 }).find(c => c.oracle_id === first.oracle_id)!.image_art_crop, first.image_uris.art_crop);
+    assert.equal(search(fresh, OWNER, "cmc>=0", { limit: 1000 }).find(c => c.oracle_id === first.oracle_id)!.image_art_crop, first.image_uris.art_crop);
     const tool = callTool({ db: fresh, actor: AGENT }, "get_cards", { cards: [first.name] });
     assert.equal((tool.structuredContent!.cards as any[])[0].image_normal, first.image_uris.normal);
   } finally { fresh.close(); }
@@ -131,9 +133,9 @@ test("retired referenced cards remain resolvable, searchable only in their deck,
   try {
     ingestCards(fresh, FIXTURES.filter(c => c.oracle_id !== card.oracle_id));
     assert.equal(resolveCard(fresh, card.name).retired, 1);
-    assert.ok(!search(fresh, "cmc>=0", { limit: 1000 }).some(c => c.oracle_id === card.oracle_id));
-    assert.ok(search(fresh, "cmc>=0", { deckId: deck, limit: 1000 }).some(c => c.oracle_id === card.oracle_id));
-    assert.ok(checkDeck(fresh, deck).some(f => f.key === `retired:${card.oracle_id}`));
+    assert.ok(!search(fresh, OWNER, "cmc>=0", { limit: 1000 }).some(c => c.oracle_id === card.oracle_id));
+    assert.ok(search(fresh, OWNER, "cmc>=0", { deckId: deck, limit: 1000 }).some(c => c.oracle_id === card.oracle_id));
+    assert.ok(checkDeck(fresh, OWNER, deck).some(f => f.key === `retired:${card.oracle_id}`));
     assert.deepEqual(fresh.prepare("PRAGMA foreign_key_check").all(), []);
     ingestCards(fresh, FIXTURES);
     assert.equal(resolveCard(fresh, card.name).retired, 0);
@@ -177,7 +179,7 @@ test("job locks exclude overlap, reclaim stale leases and keep newer holders saf
 test("scheduler runs one child at a time and coalesces queued refresh requests", async () => {
   const fresh = openDb(":memory:"), names: string[] = [];
   const jobs = createJobs(fresh, { spawnJob(name) { names.push(name); return spawn(process.execPath, ["-e", "setTimeout(()=>{}, 100)"], { stdio: "pipe" }); } });
-  const service = createApp(fresh, { token: "x", jobs });
+  const service = createApp(fresh, { jobs });
   await new Promise<void>(resolve => service.server.listen(0, "127.0.0.1", resolve));
   try {
     const url = `http://127.0.0.1:${(service.server.address() as AddressInfo).port}/api/cards/refresh`;
@@ -215,7 +217,7 @@ test("review-through is deck-scoped and memory confirmation respects owner contr
   try {
     const one = writeLog(fresh, OWNER, { deck_id: a, kind: "reject", summary: "One" });
     const two = writeLog(fresh, OWNER, { deck_id: b, kind: "reject", summary: "Two" });
-    assert.equal(markReviewed(fresh, { through: two }), 1);
+    assert.equal(markReviewed(fresh, OWNER, { through: two }), 1);
     assert.equal((fresh.prepare("SELECT reviewed_at FROM log WHERE id = ?").get(one) as { reviewed_at: string | null }).reviewed_at, null);
     const owner = remember(fresh, OWNER, { text: "Owner preference", scope: "global" }).memory;
     assert.throws(() => reviseMemory(fresh, AGENT, owner.id, { action: "confirm" }), /owner/);
@@ -237,23 +239,13 @@ test("agent deck creation is attributed in the capability and unique errors rema
   } finally { fresh.close(); }
 });
 
-test("reading tokens never creates a file, environment tokens refuse rotation, shim fails clearly", async () => {
-  const file = join(dir, "tokens", "agent-token"), saved = process.env.DECKBUILDER_TOKEN;
-  delete process.env.DECKBUILDER_TOKEN;
-  try {
-    assert.equal(getAgentToken(file), null);
-    const token = ensureAgentToken(file); assert.equal(getAgentToken(file), token);
-    assert.notEqual(rotateAgentToken(file), token);
-    const before = readFileSync(file, "utf8");
-    process.env.DECKBUILDER_TOKEN = "environment-token";
-    assert.equal(getAgentToken(file), "environment-token");
-    assert.throws(() => rotateAgentToken(file), /DECKBUILDER_TOKEN/);
-    assert.equal(readFileSync(file, "utf8"), before);
-    const child = spawn(process.execPath, [join(import.meta.dirname, "../src/mcp/stdio.ts")], { env: { ...process.env, DECKBUILDER_TOKEN: "", DECKBUILDER_DATA: join(dir, "missing-token") } });
-    let error = ""; child.stderr.on("data", chunk => error += chunk);
-    const code = await new Promise(resolve => child.on("exit", resolve));
-    assert.equal(code, 1); assert.match(error, /No agent token is configured/);
-  } finally { if (saved === undefined) delete process.env.DECKBUILDER_TOKEN; else process.env.DECKBUILDER_TOKEN = saved; }
+test("shim without a saved token fails clearly without creating credentials", async () => {
+  const missing = join(dir, "missing-token");
+  const child = spawn(process.execPath, [join(import.meta.dirname, "../src/mcp/stdio.ts")], { env: { ...process.env, DECKBUILDER_DATA: missing } });
+  let error = ""; child.stderr.on("data", chunk => error += chunk);
+  const code = await new Promise(resolve => child.on("exit", resolve));
+  assert.equal(code, 1); assert.match(error, /No agent token is configured/);
+  assert.equal(existsSync(join(missing, "agent-token")), false);
 });
 
 test("accept-all validates original stale acknowledgements and rolls back conflicts atomically", async () => {
@@ -268,7 +260,7 @@ test("accept-all validates original stale acknowledgements and rolls back confli
   const fresh = createProposal(db, AGENT, deck, { items: [{ action: "cut", oracle_id: FIXTURES[1].oracle_id, reason: "Fourth" }] });
   const proposals = [{ proposal_id: fresh }, { proposal_id: third }];
   const conflict = await post(`/api/decks/${deck}/proposals/rule`, { expected_revision: 3, proposals });
-  assert.equal(conflict.status, 409); assert.equal(getProposal(db, fresh)!.items[0].status, "pending");
+  assert.equal(conflict.status, 409); assert.equal(getProposal(db, OWNER, fresh)!.items[0].status, "pending");
   const acknowledged = await post(`/api/decks/${deck}/proposals/rule`, { expected_revision: 3, proposals: [{ proposal_id: fresh }, { proposal_id: third, acknowledge_stale: true }] });
   assert.equal(acknowledged.status, 200);
 });
@@ -279,16 +271,18 @@ test("schema 10 gains image/retirement fields and baselines once without rebasin
   const deck = newDeck(old), proposal = createProposal(old, AGENT, deck, { items: [{ action: "add", oracle_id: FIXTURES[0].oracle_id, reason: "Migration" }] });
   old.exec("UPDATE proposals SET base_revision = NULL");
   for (const column of ["image_small", "image_normal", "image_art_crop", "retired"]) old.exec(`ALTER TABLE cards DROP COLUMN ${column}`);
+  removeIdentity(old);
+  old.exec("UPDATE meta SET value = '10' WHERE key = 'schema_version'");
   old.close();
   const upgraded = openDb(file);
   assert.equal(resolveCard(upgraded, FIXTURES[0].name).image_normal, null);
   assert.equal(resolveCard(upgraded, FIXTURES[0].name).retired, 0);
-  assert.equal(getProposal(upgraded, proposal)!.base_revision, 0);
-  assert.equal(getProposal(upgraded, proposal)!.stale, false);
+  assert.equal(getProposal(upgraded, OWNER, proposal)!.base_revision, 0);
+  assert.equal(getProposal(upgraded, OWNER, proposal)!.stale, false);
   add(upgraded, deck, FIXTURES[1].oracle_id); upgraded.close();
   const reopened = openDb(file);
-  assert.equal(getProposal(reopened, proposal)!.base_revision, 0);
-  assert.equal(getProposal(reopened, proposal)!.stale, true); reopened.close();
+  assert.equal(getProposal(reopened, OWNER, proposal)!.base_revision, 0);
+  assert.equal(getProposal(reopened, OWNER, proposal)!.stale, true); reopened.close();
 });
 
 test("optional S3 backup uploads the SQLite snapshot through the SDK and keeps local data on failure", async () => {

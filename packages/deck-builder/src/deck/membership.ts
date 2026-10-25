@@ -1,3 +1,4 @@
+import { requireDeckOwner } from "../actor.ts";
 // Membership: the one place the contents of a deck change. Accepted
 // proposals, direct edits, imports and undos all arrive here as a list of
 // changes, are applied together, bump the revision once, and leave one log
@@ -9,7 +10,7 @@
 import type { Database } from "../sqlite.ts";
 import { ServiceError } from "../errors.ts";
 import { withTransaction } from "../db.ts";
-import { type Actor, PermissionError, requireOwner } from "../actor.ts";
+import { type Actor, PermissionError, requireUi } from "../actor.ts";
 import { requireCardById } from "../cards.ts";
 import { type LogCardInput, type LogKind, getLogEntry, writeLog } from "./log.ts";
 import {
@@ -65,7 +66,7 @@ interface CutBefore {
   parked: boolean;
 }
 
-function tagIdsOf(db: Database, deckId: number, oracleId: string): number[] {
+function tagIdsOf(db: Database, actor: Actor, deckId: number, oracleId: string): number[] {
   return (
     db
       .prepare("SELECT tag_id FROM deck_card_tags WHERE deck_id = ? AND oracle_id = ?")
@@ -73,11 +74,11 @@ function tagIdsOf(db: Database, deckId: number, oracleId: string): number[] {
   ).map((t) => t.tag_id);
 }
 
-function slotExists(db: Database, deckId: number, slotId: number): boolean {
+function slotExists(db: Database, actor: Actor, deckId: number, slotId: number): boolean {
   return !!db.prepare("SELECT 1 FROM slots WHERE id = ? AND deck_id = ?").get(slotId, deckId);
 }
 
-function assertRoleCapacity(db: Database, deckId: number, role: "commander" | "companion") {
+function assertRoleCapacity(db: Database, actor: Actor, deckId: number, role: "commander" | "companion") {
   const { n } = db
     .prepare("SELECT COUNT(*) n FROM deck_cards WHERE deck_id = ? AND role = ? AND maybe = 0")
     .get(deckId, role) as { n: number };
@@ -91,15 +92,15 @@ function assertRoleCapacity(db: Database, deckId: number, role: "commander" | "c
     );
 }
 
-function setRole(db: Database, deckId: number, oracleId: string, role: Role) {
-  if (role !== "card") assertRoleCapacity(db, deckId, role);
+function setRole(db: Database, actor: Actor, deckId: number, oracleId: string, role: Role) {
+  if (role !== "card") assertRoleCapacity(db, actor, deckId, role);
   // Zone and purpose are independent; becoming a commander keeps its roles.
   db.prepare("UPDATE deck_cards SET role = ? WHERE deck_id = ? AND oracle_id = ?")
     .run(role, deckId, oracleId);
 }
 
 function applyAdd(
-  db: Database,
+  db: Database, actor: Actor,
   deckId: number,
   c: Extract<Change, { action: "add" }>,
 ): LogCardInput {
@@ -107,13 +108,13 @@ function applyAdd(
   const quantity = c.quantity ?? 1;
   if (!Number.isInteger(quantity) || quantity < 1)
     throw new ServiceError(`Cannot add ${quantity} copies of ${card.name}`);
-  if (c.slot_id != null && !slotExists(db, deckId, c.slot_id))
+  if (c.slot_id != null && !slotExists(db, actor, deckId, c.slot_id))
     throw new ServiceError(`Slot ${c.slot_id} not found in deck ${deckId}`, 404);
 
-  const existing = findDeckCard(db, deckId, c.oracle_id);
+  const existing = findDeckCard(db, actor, deckId, c.oracle_id);
   const primary = c.slot_id !== undefined ? c.slot_id : existing?.slot_id ?? null;
   const secondary = c.secondary_slot_ids !== undefined ? c.secondary_slot_ids : (existing?.secondary_slot_ids ?? []).filter(id => id !== primary);
-  validateSlotAssignments(db, deckId, primary, secondary);
+  validateSlotAssignments(db, actor, deckId, primary, secondary);
   let wasMaybe = false;
   if (existing?.maybe) {
     // Promoting a shortlisted card keeps the slot and tags it was parked with.
@@ -121,8 +122,8 @@ function applyAdd(
     db.prepare(
       "UPDATE deck_cards SET maybe = 0, maybe_note = '', quantity = ? WHERE deck_id = ? AND oracle_id = ?",
     ).run(quantity, deckId, c.oracle_id);
-    organizeCard(db, deckId, c.oracle_id, { slotId: primary, secondarySlotIds: secondary });
-    if (c.role && c.role !== "card") setRole(db, deckId, c.oracle_id, c.role);
+    organizeCard(db, actor, deckId, c.oracle_id, { slotId: primary, secondarySlotIds: secondary });
+    if (c.role && c.role !== "card") setRole(db, actor, deckId, c.oracle_id, c.role);
   } else if (existing) {
     // A second add is another copy (basics need it). Whether the count is
     // legal is a check's job, not a gate here.
@@ -131,7 +132,7 @@ function applyAdd(
     ).run(quantity, deckId, c.oracle_id);
   } else {
     const role = c.role ?? "card";
-    if (role !== "card") assertRoleCapacity(db, deckId, role);
+    if (role !== "card") assertRoleCapacity(db, actor, deckId, role);
     db.prepare(
       `INSERT INTO deck_cards (deck_id, oracle_id, slot_id, role, quantity)
        VALUES (?, ?, ?, ?, ?)`,
@@ -142,7 +143,7 @@ function applyAdd(
       role,
       quantity,
     );
-    organizeCard(db, deckId, c.oracle_id, { secondarySlotIds: secondary });
+    organizeCard(db, actor, deckId, c.oracle_id, { secondarySlotIds: secondary });
     if (c.tag_ids?.length) {
       const live = new Set(
         (db.prepare("SELECT id FROM tags WHERE deck_id = ?").all(deckId) as unknown as {
@@ -167,12 +168,12 @@ function applyAdd(
 }
 
 function applyCut(
-  db: Database,
+  db: Database, actor: Actor,
   deckId: number,
   c: Extract<Change, { action: "cut" }>,
 ): LogCardInput {
   const card = requireCardById(db, c.oracle_id);
-  const row = findDeckCard(db, deckId, c.oracle_id);
+  const row = findDeckCard(db, actor, deckId, c.oracle_id);
   if (!row || row.maybe)
     throw new ServiceError(`${card.name} is not in the deck, so it cannot be cut`);
 
@@ -185,7 +186,7 @@ function applyCut(
     slot_id: row.slot_id,
     secondary_slot_ids: row.secondary_slot_ids,
     role: row.role,
-    tag_ids: tagIdsOf(db, deckId, c.oracle_id),
+    tag_ids: tagIdsOf(db, actor, deckId, c.oracle_id),
     parked: !!c.park,
   };
 
@@ -216,16 +217,16 @@ function applyCut(
 }
 
 function applyRole(
-  db: Database,
+  db: Database, actor: Actor,
   deckId: number,
   c: Extract<Change, { action: "role" }>,
 ): LogCardInput | null {
   const card = requireCardById(db, c.oracle_id);
-  const row = findDeckCard(db, deckId, c.oracle_id);
+  const row = findDeckCard(db, actor, deckId, c.oracle_id);
   if (!row || row.maybe)
     throw new ServiceError(`${card.name} is not in the deck, so its role cannot change`);
   if (row.role === c.role) return null;
-  setRole(db, deckId, c.oracle_id, c.role);
+  setRole(db, actor, deckId, c.oracle_id, c.role);
   return {
     oracle_id: c.oracle_id,
     card_name: card.name,
@@ -247,8 +248,9 @@ export function applyChanges(
   changes: Change[],
   entry: ChangeEntry,
 ): number | null {
+  requireDeckOwner(db, actor, deckId);
   requireDirectCardEdit(db, actor, deckId);
-  if (actor.kind === "agent" && entry.kind !== "edit")
+  if (actor.via === "agent" && entry.kind !== "edit")
     throw new PermissionError("Only the owner can rule on proposals, import over a deck, or undo.");
 
   return withTransaction(db, () => {
@@ -256,16 +258,16 @@ export function applyChanges(
     for (const c of changes) {
       const row =
         c.action === "add"
-          ? applyAdd(db, deckId, c)
+          ? applyAdd(db, actor, deckId, c)
           : c.action === "cut"
-            ? applyCut(db, deckId, c)
-            : applyRole(db, deckId, c);
+            ? applyCut(db, actor, deckId, c)
+            : applyRole(db, actor, deckId, c);
       if (row) logged.push(row);
     }
     if (!logged.length) return null;
 
     // Any of these can move a card into or out of the command zone.
-    recomputeIdentity(db, deckId);
+    recomputeIdentity(db, actor, deckId);
     db.prepare("UPDATE decks SET revision = revision + 1 WHERE id = ?").run(deckId);
     return writeLog(
       db,
@@ -309,10 +311,12 @@ export interface UndoResult {
 }
 
 export function undo(db: Database, actor: Actor, logId: number): UndoResult {
-  requireOwner(actor, "undo a change");
-  const entry = getLogEntry(db, logId);
+  const tenant = db.prepare("SELECT deck_id FROM log WHERE id = ?").get(logId) as { deck_id: number | null } | undefined;
+  if (tenant?.deck_id != null) requireDeckOwner(db, actor, tenant.deck_id, "undo this change");
+  requireUi(actor, "undo a change");
+  const entry = getLogEntry(db, actor, logId);
   if (!entry || entry.deck_id == null) throw new ServiceError(`Log entry ${logId} not found`, 404);
-  requireEditableDeck(db, entry.deck_id);
+  requireEditableDeck(db, actor, entry.deck_id);
   if (entry.kind === "reject")
     throw new ServiceError("A rejection changed nothing, so there is nothing to undo");
   if (entry.kind === "undo") throw new ServiceError("An undo cannot itself be undone");
@@ -341,7 +345,7 @@ export function undo(db: Database, actor: Actor, logId: number): UndoResult {
 
   for (const r of rows) {
     const before = r.before_json ? JSON.parse(r.before_json) : {};
-    const current = findDeckCard(db, deckId, r.oracle_id);
+    const current = findDeckCard(db, actor, deckId, r.oracle_id);
     if (r.action === "add") {
       if (!current || current.maybe) {
         skipped.push(`${r.card_name} is no longer in the deck`);
@@ -369,8 +373,8 @@ export function undo(db: Database, actor: Actor, logId: number): UndoResult {
           action: "add",
           oracle_id: r.oracle_id,
           quantity: r.quantity,
-          slot_id: b.slot_id != null && slotExists(db, deckId, b.slot_id) ? b.slot_id : null,
-          secondary_slot_ids: (b.secondary_slot_ids ?? []).filter(id => slotExists(db, deckId, id) && id !== b.slot_id),
+          slot_id: b.slot_id != null && slotExists(db, actor, deckId, b.slot_id) ? b.slot_id : null,
+          secondary_slot_ids: (b.secondary_slot_ids ?? []).filter(id => slotExists(db, actor, deckId, id) && id !== b.slot_id),
           tag_ids: b.tag_ids ?? [],
         });
         if (b.role && b.role !== "card")
@@ -416,9 +420,10 @@ export function setQuantity(
   oracleId: string,
   quantity: number,
 ): number | null {
+  requireDeckOwner(db, actor, deckId);
   if (!Number.isInteger(quantity) || quantity < 1)
     throw new ServiceError("Quantity must be a whole number, at least 1");
-  const row = findDeckCard(db, deckId, oracleId) as DeckCardRow | undefined;
+  const row = findDeckCard(db, actor, deckId, oracleId) as DeckCardRow | undefined;
   if (!row || row.maybe)
     throw new ServiceError(`${requireCardById(db, oracleId).name} is not in the deck`);
   if (quantity === row.quantity) return null;

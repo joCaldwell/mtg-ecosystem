@@ -23,7 +23,7 @@ export function ProposalSummary({ proposal }: { proposal: Proposal }) {
       <Stack gap={2}>
         <Eyebrow className={styles.eyebrow}>
           <span className={styles.agent}>Proposal {proposal.id}</span>
-          <span className={styles.agent}>{proposal.author}</span>
+          <span className={styles.agent}>{proposal.author_display ?? proposal.author}</span>
           <span>{ago(proposal.created_at)}</span>
           <span>{proposal.deck_name}</span>
         </Eyebrow>

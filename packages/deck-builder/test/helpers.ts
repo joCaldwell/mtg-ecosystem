@@ -1,7 +1,7 @@
 import type { Database } from "../src/sqlite.ts";
 import { openDb } from "../src/db.ts";
 import { ingestCards } from "../src/ingest.ts";
-import { OWNER, agent } from "../src/actor.ts";
+import { OWNER, agent } from "./actors.ts";
 import { type Change, applyChanges } from "../src/deck/membership.ts";
 import { type DeckCategory, type Role, createDeck } from "../src/deck/service.ts";
 import { FIXTURES } from "./fixtures.ts";
