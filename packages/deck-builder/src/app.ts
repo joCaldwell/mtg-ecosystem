@@ -4,13 +4,13 @@
 // calling agent; both call the same capability layer.
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { existsSync, readFileSync } from "node:fs";
-import { extname, join, normalize } from "node:path";
-import type { DatabaseSync } from "node:sqlite";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { extname, join, resolve, sep } from "node:path";
+import type { Database } from "./sqlite.ts";
 import { OWNER } from "./actor.ts";
 import { listActivity } from "./activity.ts";
 import { cardsNamed, requireCardById, suggestNames } from "./cards.ts";
-import { PKG_ROOT, withTransaction } from "./db.ts";
+import { PKG_ROOT, SCHEMA_VERSION, withTransaction } from "./db.ts";
 import { AppError, ServiceError } from "./errors.ts";
 import { getFocus, setFocus } from "./focus.ts";
 import { removeEngine, setEngine, updateBrief } from "./deck/brief.ts";
@@ -21,6 +21,7 @@ import { applyChanges, setQuantity, undo } from "./deck/membership.ts";
 import { getPower, setPowerTarget, recordPowerAssessment } from "./deck/power.ts";
 import {
   acceptItems,
+  acceptProposals,
   listProposals,
   pendingItemIds,
   rejectItems,
@@ -57,7 +58,7 @@ import {
   setBudgets,
 } from "./memory.ts";
 import { priceStatus } from "./prices.ts";
-import { refreshCardData } from "./refresh.ts";
+import type { Jobs } from "./jobs.ts";
 import { SearchError, search } from "./search/index.ts";
 import { deckState } from "./state.ts";
 import { getPlaytest, startPlaytest, changePlaytest, savePlaytestUi, saveObservation, tableCard } from "./playtest/service.ts";
@@ -73,6 +74,9 @@ export interface AppOptions {
   rotateToken?: () => string;
   /** The port the server listens on, for the connection details shown in Settings. */
   port?: number;
+  jobs?: Jobs;
+  /** Testable static root; production uses the Vite output. */
+  webDist?: string;
 }
 
 type Handler = (params: string[], body: any, url: URL) => unknown | Promise<unknown>;
@@ -95,7 +99,26 @@ function sameMachine(req: IncomingMessage): boolean {
   }
 }
 
-export function createApp(db: DatabaseSync, opts: AppOptions) {
+/** Reject invalid numeric input before it reaches SQLite or arithmetic. */
+function num(value: unknown, name = "number", min = 0): number {
+  if ((typeof value !== "number" && typeof value !== "string") || String(value).trim() === "")
+    throw new ServiceError(`${name} must be an integer`);
+  const n = Number(value);
+  if (!Number.isSafeInteger(n) || n < min) throw new ServiceError(`${name} must be an integer >= ${min}`);
+  return n;
+}
+
+function validateNumbers(body: Record<string, any>) {
+  for (const key of ["quantity", "slot_id", "deck_id", "parent_id", "target_min", "target_max", "expected_revision"])
+    if (body[key] != null) body[key] = num(body[key], key, key === "quantity" ? 1 : 0);
+  for (const key of ["tag_ids", "secondary_slot_ids"])
+    if (body[key] !== undefined) {
+      if (!Array.isArray(body[key])) throw new ServiceError(`${key} must be an array of integers`);
+      body[key] = body[key].map((v: unknown) => num(v, key, 1));
+    }
+}
+
+export function createApp(db: Database, opts: AppOptions) {
   let token = opts.token;
   const routes: Array<{ method: string; pattern: RegExp; handler: Handler; mutates: boolean }> = [];
   const route = (method: string, pattern: RegExp, handler: Handler) =>
@@ -119,43 +142,48 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
   const state = (id: number) => deckState(db, id);
 
   // ---------- decks ----------
+  route("GET", /^\/api\/health$/, () => ({
+    ok: true, schema_version: SCHEMA_VERSION,
+    cards: (db.prepare("SELECT COUNT(*) n FROM cards").get() as { n: number }).n,
+    last_ingest: (db.prepare("SELECT value FROM meta WHERE key = 'last_ingest'").get() as { value: string } | undefined)?.value ?? null,
+  }));
   route("GET", /^\/api\/decks$/, () => listDecks(db));
   route("POST", /^\/api\/decks$/, (_p, body) => withTransaction(db, () => {
-    const id = createDeck(db, String(body.name ?? ""), { category: body.category });
+    const id = createDeck(db, OWNER, String(body.name ?? ""), { category: body.category });
     if (body.category !== undefined) setDeckCategory(db, OWNER, id, body.category);
     return { state: state(id) };
   }));
-  route("GET", /^\/api\/decks\/(\d+)$/, ([id]) => ({ state: state(Number(id)) }));
+  route("GET", /^\/api\/decks\/(\d+)$/, ([id]) => ({ state: state(num(id)) }));
   route("PATCH", /^\/api\/decks\/(\d+)$/, ([id], body) => withTransaction(db, () => {
-    if (body.name !== undefined) renameDeck(db, OWNER, Number(id), String(body.name));
-    if (body.category !== undefined) setDeckCategory(db, OWNER, Number(id), body.category);
+    if (body.name !== undefined) renameDeck(db, OWNER, num(id), String(body.name));
+    if (body.category !== undefined) setDeckCategory(db, OWNER, num(id), body.category);
     if (body.parent_id !== undefined)
-      setDeckParent(db, OWNER, Number(id), body.parent_id == null ? null : Number(body.parent_id));
-    return { state: state(Number(id)) };
+      setDeckParent(db, OWNER, num(id), body.parent_id == null ? null : num(body.parent_id));
+    return { state: state(num(id)) };
   }));
   route("DELETE", /^\/api\/decks\/(\d+)$/, ([id]) => {
-    deleteDeck(db, OWNER, Number(id));
+    deleteDeck(db, OWNER, num(id));
     return { ok: true };
   });
   route("POST", /^\/api\/decks\/(\d+)\/fork$/, ([id], body) => ({
-    state: state(forkDeck(db, OWNER, Number(id), String(body.name ?? ""))),
+    state: state(forkDeck(db, OWNER, num(id), String(body.name ?? ""))),
   }));
   route("GET", /^\/api\/decks\/(\d+)\/compare$/, ([id], _b, url) => {
     const other = url.searchParams.get("other");
-    return compareDecks(db, Number(id), other ? Number(other) : undefined);
+    return compareDecks(db, num(id), other ? num(other) : undefined);
   });
 
   route("GET", /^\/api\/cards\/([0-9a-z-]+)\/table$/, ([id]) => ({ card: tableCard(db, id) }));
   // Owner's private solo table: capability-layer permissions and validation.
-  route("GET", /^\/api\/decks\/(\d+)\/playtest$/, ([id]) => ({ playtest: getPlaytest(db, OWNER, Number(id)) }));
-  route("POST", /^\/api\/decks\/(\d+)\/playtest$/, ([id], body) => ({ playtest: startPlaytest(db, OWNER, Number(id), body) }));
-  route("POST", /^\/api\/decks\/(\d+)\/playtest\/actions$/, ([id], body) => ({ playtest: changePlaytest(db, OWNER, Number(id), body) }));
-  route("PATCH", /^\/api\/decks\/(\d+)\/playtest\/ui$/, ([id], body) => ({ playtest: savePlaytestUi(db, OWNER, Number(id), body) }));
-  route("POST", /^\/api\/decks\/(\d+)\/playtest\/observations$/, ([id], body) => ({ memory: saveObservation(db, OWNER, Number(id), body) }));
+  route("GET", /^\/api\/decks\/(\d+)\/playtest$/, ([id]) => ({ playtest: getPlaytest(db, OWNER, num(id)) }));
+  route("POST", /^\/api\/decks\/(\d+)\/playtest$/, ([id], body) => ({ playtest: startPlaytest(db, OWNER, num(id), body) }));
+  route("POST", /^\/api\/decks\/(\d+)\/playtest\/actions$/, ([id], body) => ({ playtest: changePlaytest(db, OWNER, num(id), body) }));
+  route("PATCH", /^\/api\/decks\/(\d+)\/playtest\/ui$/, ([id], body) => ({ playtest: savePlaytestUi(db, OWNER, num(id), body) }));
+  route("POST", /^\/api\/decks\/(\d+)\/playtest\/observations$/, ([id], body) => ({ memory: saveObservation(db, OWNER, num(id), body) }));
 
   // ---------- cards in a deck ----------
   route("POST", /^\/api\/decks\/(\d+)\/cards$/, ([id], body) => withTransaction(db, () => {
-    const deckId = Number(id);
+    const deckId = num(id);
     const oracleId = String(body.oracle_id);
     if (body.maybe) {
       shortlistCard(db, deckId, oracleId, String(body.maybe_note ?? ""));
@@ -172,7 +200,7 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
     return { state: state(deckId) };
   }));
   route("PATCH", /^\/api\/decks\/(\d+)\/cards\/([0-9a-z-]+)$/, ([id, oid], body) => withTransaction(db, () => {
-    const deckId = Number(id);
+    const deckId = num(id);
     if (body.maybe !== undefined) {
       const row = findDeckCard(db, deckId, oid);
       if (!row) throw new ServiceError(`${requireCardById(db, oid).name} is not in this deck`, 404);
@@ -184,51 +212,51 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
     if (body.maybe_note !== undefined) shortlistCard(db, deckId, oid, String(body.maybe_note));
     if (body.role !== undefined)
       applyChanges(db, OWNER, deckId, [{ action: "role", oracle_id: oid, role: body.role }], { kind: "edit" });
-    if (body.quantity !== undefined) setQuantity(db, OWNER, deckId, oid, Number(body.quantity));
+    if (body.quantity !== undefined) setQuantity(db, OWNER, deckId, oid, num(body.quantity));
     if (body.slot_id !== undefined || body.secondary_slot_ids !== undefined || body.tag_ids !== undefined)
       organizeCard(db, deckId, oid, { slotId: body.slot_id, secondarySlotIds: body.secondary_slot_ids, tagIds: body.tag_ids });
     return { state: state(deckId) };
   }));
   route("DELETE", /^\/api\/decks\/(\d+)\/cards\/([0-9a-z-]+)$/, ([id, oid]) => {
-    const deckId = Number(id);
+    const deckId = num(id);
     const row = findDeckCard(db, deckId, oid);
     if (row?.maybe) unshortlistCard(db, deckId, oid);
     else applyChanges(db, OWNER, deckId, [{ action: "cut", oracle_id: oid, quantity: "all" }], { kind: "edit" });
     return { state: state(deckId) };
   });
   route("GET", /^\/api\/decks\/(\d+)\/cards\/([0-9a-z-]+)\/history$/, ([id, oid]) => ({
-    rulings: cardHistory(db, Number(id), oid, 20),
-    memories: memoriesForCards(db, [oid], Number(id)).get(oid) ?? [],
+    rulings: cardHistory(db, num(id), oid, 20),
+    memories: memoriesForCards(db, [oid], num(id)).get(oid) ?? [],
   }));
 
   // ---------- slots and tags ----------
   route("POST", /^\/api\/decks\/(\d+)\/slots$/, ([id], body) => {
-    createSlot(db, Number(id), String(body.name ?? ""), body.target_min ?? null, body.target_max ?? null);
-    return { state: state(Number(id)) };
+    createSlot(db, num(id), String(body.name ?? ""), body.target_min ?? null, body.target_max ?? null);
+    return { state: state(num(id)) };
   });
   route("PATCH", /^\/api\/decks\/(\d+)\/slots\/(\d+)$/, ([id, sid], body) => {
-    updateSlot(db, Number(id), Number(sid), {
+    updateSlot(db, num(id), num(sid), {
       name: body.name,
       targetMin: body.target_min,
       targetMax: body.target_max,
     });
-    return { state: state(Number(id)) };
+    return { state: state(num(id)) };
   });
   route("DELETE", /^\/api\/decks\/(\d+)\/slots\/(\d+)$/, ([id, sid]) => {
-    deleteSlot(db, Number(id), Number(sid));
-    return { state: state(Number(id)) };
+    deleteSlot(db, num(id), num(sid));
+    return { state: state(num(id)) };
   });
   route("POST", /^\/api\/decks\/(\d+)\/tags$/, ([id], body) => {
-    createTag(db, Number(id), String(body.name ?? ""));
-    return { state: state(Number(id)) };
+    createTag(db, num(id), String(body.name ?? ""));
+    return { state: state(num(id)) };
   });
   route("PATCH", /^\/api\/decks\/(\d+)\/tags\/(\d+)$/, ([id, tid], body) => {
-    renameTag(db, Number(id), Number(tid), String(body.name ?? ""));
-    return { state: state(Number(id)) };
+    renameTag(db, num(id), num(tid), String(body.name ?? ""));
+    return { state: state(num(id)) };
   });
   route("DELETE", /^\/api\/decks\/(\d+)\/tags\/(\d+)$/, ([id, tid]) => {
-    deleteTag(db, Number(id), Number(tid));
-    return { state: state(Number(id)) };
+    deleteTag(db, num(id), num(tid));
+    return { state: state(num(id)) };
   });
 
   // ---------- proposals and rulings (spec §8) ----------
@@ -249,59 +277,77 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
         : (() => {
             throw new ServiceError("A ruling's outcome is 'accept' or 'reject'");
           })();
+  const assertItemsInDeck = (deckId: number, ids: number[]) => {
+    requireDeck(db, deckId);
+    const belongs = db.prepare("SELECT 1 FROM proposal_items i JOIN proposals p ON p.id = i.proposal_id WHERE i.id = ? AND p.deck_id = ?");
+    if (ids.some(id => !belongs.get(id, deckId))) throw new ServiceError("Every proposal item must belong to this deck");
+  };
   route("POST", /^\/api\/decks\/(\d+)\/items\/rule$/, ([id], body) => {
-    rule((body.item_ids ?? []).map(Number), body);
-    return { state: state(Number(id)), inbox: inbox() };
+    if (!Array.isArray(body.item_ids) || !body.item_ids.length || !body.item_ids.every((v: unknown) => typeof v === "number" && Number.isSafeInteger(v) && v > 0))
+      throw new ServiceError("item_ids must be a non-empty array of integers");
+    assertItemsInDeck(num(id), body.item_ids);
+    rule(body.item_ids, body);
+    return { state: state(num(id)), inbox: inbox() };
+  });
+  route("POST", /^\/api\/decks\/(\d+)\/proposals\/rule$/, ([id], body) => {
+    if (!Array.isArray(body.proposals) || !body.proposals.every((p: any) => p && typeof p === "object" && Number.isSafeInteger(p.proposal_id) && p.proposal_id > 0 && (p.acknowledge_stale === undefined || typeof p.acknowledge_stale === "boolean")))
+      throw new ServiceError("proposals must be an array of proposal IDs and optional stale acknowledgements");
+    acceptProposals(db, OWNER, num(id), body.proposals, num(body.expected_revision, "expected_revision"));
+    return { state: state(num(id)), inbox: inbox() };
   });
   route("POST", /^\/api\/decks\/(\d+)\/proposals\/(\d+)\/rule$/, ([id, pid], body) => {
-    rule(pendingItemIds(db, Number(pid)), body);
-    return { state: state(Number(id)), inbox: inbox() };
+    const ids = pendingItemIds(db, num(pid));
+    assertItemsInDeck(num(id), ids);
+    rule(ids, body);
+    return { state: state(num(id)), inbox: inbox() };
   });
   route("POST", /^\/api\/document-edits\/(\d+)\/rule$/, ([editId], body) => {
     if (body.outcome !== "accept" && body.outcome !== "reject")
       throw new ServiceError("A ruling's outcome is 'accept' or 'reject'");
-    const edit = getDocumentEdit(db, Number(editId));
-    ruleDocumentEdit(db, OWNER, Number(editId), body.outcome, String(body.reason ?? ""), { expected_revision: body.expected_revision, acknowledge_stale: body.acknowledge_stale, expected_documents: body.expected_documents });
+    const edit = getDocumentEdit(db, num(editId));
+    ruleDocumentEdit(db, OWNER, num(editId), body.outcome, String(body.reason ?? ""), { expected_revision: body.expected_revision, acknowledge_stale: body.acknowledge_stale, expected_documents: body.expected_documents });
     return {
       ...(edit?.deck_id != null ? { state: state(edit.deck_id) } : { profile: getProfile(db) }),
       inbox: inbox(),
     };
   });
   route("POST", /^\/api\/decks\/(\d+)\/log\/(\d+)\/undo$/, ([id, logId]) => {
-    const result = undo(db, OWNER, Number(logId));
-    return { state: state(Number(id)), skipped: result.skipped };
+    if (!db.prepare("SELECT 1 FROM log WHERE id = ? AND deck_id = ?").get(num(logId), num(id)))
+      throw new ServiceError("Log entry does not belong to this deck");
+    const result = undo(db, OWNER, num(logId));
+    return { state: state(num(id)), skipped: result.skipped };
   });
   route("GET", /^\/api\/log$/, (_p, _b, url) =>
     listLog(db, {
-      deckId: url.searchParams.get("deck") ? Number(url.searchParams.get("deck")) : undefined,
+      deckId: url.searchParams.get("deck") ? num(url.searchParams.get("deck")) : undefined,
       unreviewedOnly: url.searchParams.get("unreviewed") === "1",
-      limit: Number(url.searchParams.get("limit") ?? 100),
+      limit: num(url.searchParams.get("limit") ?? 100),
     }),
   );
 
   // ---------- deck power (spec §5.7) ----------
-  route("GET", /^\/api\/decks\/(\d+)\/power$/, ([id]) => getPower(db, Number(id)));
+  route("GET", /^\/api\/decks\/(\d+)\/power$/, ([id]) => getPower(db, num(id)));
   route("PUT", /^\/api\/decks\/(\d+)\/power\/target$/, ([id], body) => {
-    setPowerTarget(db, OWNER, Number(id), body.target);
-    return { state: state(Number(id)) };
+    setPowerTarget(db, OWNER, num(id), body.target);
+    return { state: state(num(id)) };
   });
   route("POST", /^\/api\/decks\/(\d+)\/power\/assessments$/, ([id], body) => {
-    const assessmentId = recordPowerAssessment(db, OWNER, Number(id), body);
-    return { assessment_id: assessmentId, state: state(Number(id)) };
+    const assessmentId = recordPowerAssessment(db, OWNER, num(id), body);
+    return { assessment_id: assessmentId, state: state(num(id)) };
   });
 
   // ---------- documents (spec §6) ----------
   route("PUT", /^\/api\/decks\/(\d+)\/brief$/, ([id], body) => {
-    updateBrief(db, OWNER, Number(id), { thesis: body.thesis, constraints_md: body.constraints_md });
-    return { state: state(Number(id)) };
+    updateBrief(db, OWNER, num(id), { thesis: body.thesis, constraints_md: body.constraints_md });
+    return { state: state(num(id)) };
   });
   route("POST", /^\/api\/decks\/(\d+)\/engines$/, ([id], body) => {
-    setEngine(db, OWNER, Number(id), String(body.name ?? ""), String(body.description ?? ""), body.pieces ?? []);
-    return { state: state(Number(id)) };
+    setEngine(db, OWNER, num(id), String(body.name ?? ""), String(body.description ?? ""), body.pieces ?? []);
+    return { state: state(num(id)) };
   });
   route("DELETE", /^\/api\/decks\/(\d+)\/engines\/(\d+)$/, ([id, engineId]) => {
-    removeEngine(db, OWNER, Number(id), Number(engineId));
-    return { state: state(Number(id)) };
+    removeEngine(db, OWNER, num(id), num(engineId));
+    return { state: state(num(id)) };
   });
   route("GET", /^\/api\/profile$/, () => ({ profile: getProfile(db) }));
   route("PUT", /^\/api\/profile$/, (_p, body) => {
@@ -316,7 +362,7 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
     return {
       memories: listMemories(db, {
         scope: (q.get("scope") as "global" | "deck" | null) ?? undefined,
-        deckId: q.get("deck") ? Number(q.get("deck")) : undefined,
+        deckId: q.get("deck") ? num(q.get("deck")) : undefined,
         cardId: q.get("card") ?? undefined,
         query: q.get("q") ?? undefined,
         status: (q.get("status") as any) ?? "active",
@@ -336,13 +382,13 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
     }).memory,
   }));
   route("PATCH", /^\/api\/memories\/(\d+)$/, ([id], body) => ({
-    memory: reviseMemory(db, OWNER, Number(id), body),
+    memory: reviseMemory(db, OWNER, num(id), body),
   }));
-  route("GET", /^\/api\/memories\/(\d+)$/, ([id]) => ({ memory: getMemory(db, Number(id)) }));
+  route("GET", /^\/api\/memories\/(\d+)$/, ([id]) => ({ memory: getMemory(db, num(id)) }));
 
   // ---------- activity, stats, focus, settings ----------
   route("GET", /^\/api\/activity$/, (_p, _b, url) =>
-    listActivity(db, Number(url.searchParams.get("limit") ?? 200)),
+    listActivity(db, num(url.searchParams.get("limit") ?? 200)),
   );
   route("GET", /^\/api\/stats$/, () => playerStats(db));
   route("GET", /^\/api\/focus$/, () => ({ focus: getFocus(db) }));
@@ -352,12 +398,12 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
       | { value: string }
       | undefined;
     return {
+      jobs: opts.jobs?.status() ?? null,
       budgets: getBudgets(db),
       cards: { count: cards.n, updated_at: ingested?.value ?? null, prices: priceStatus(db) },
       agent: {
         url: `http://127.0.0.1:${opts.port ?? 8787}${MCP_PATH}`,
         token,
-        // The stdio shim, by absolute path, so it runs from anywhere.
         stdio_command: `node ${join(PKG_ROOT, "src", "mcp", "stdio.ts")}`,
       },
     };
@@ -367,31 +413,34 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
     if (body.budgets) setBudgets(db, body.budgets);
     return settings();
   });
-  route("POST", /^\/api\/settings\/rotate-token$/, () => {
+  route("POST", /^\/api\/settings\/rotate-token$/, async () => {
     if (!opts.rotateToken) throw new ServiceError("This server cannot rotate its token");
-    token = opts.rotateToken();
+    const nextToken = opts.rotateToken();
+    await agents.close();
+    token = nextToken;
     agents = createAgentEndpoint(db, { token, version: APP_VERSION, onChange: notify });
     return settings();
   });
-  route("POST", /^\/api\/cards\/refresh$/, async () => {
-    await refreshCardData(db, { force: true });
+  route("POST", /^\/api\/cards\/refresh$/, () => {
+    if (!opts.jobs) throw new ServiceError("Background jobs are not configured", 503);
+    opts.jobs.enqueue("refresh");
     return settings();
   });
 
   // ---------- Archidekt interop (spec §12) ----------
   route("GET", /^\/api\/decks\/(\d+)\/export$/, ([id], _b, url) =>
-    exportDeck(db, Number(id), {
+    exportDeck(db, num(id), {
       categories: url.searchParams.get("categories") !== "off",
       oracleIds: url.searchParams.has("oracle_ids") ? url.searchParams.get("oracle_ids")!.split(",").filter(Boolean) : undefined,
       includeMaybe: url.searchParams.get("include_maybe") === "on",
     }),
   );
   route("POST", /^\/api\/decks\/(\d+)\/import\/preview$/, ([id], body) =>
-    diffImport(db, Number(id), String(body.text ?? "")),
+    diffImport(db, num(id), String(body.text ?? "")),
   );
   route("POST", /^\/api\/decks\/(\d+)\/import$/, ([id], body) => {
-    const r = applyImport(db, OWNER, Number(id), String(body.text ?? ""), body.note);
-    return { import: r, state: state(Number(id)) };
+    const r = applyImport(db, OWNER, num(id), String(body.text ?? ""), body.note);
+    return { import: r, state: state(num(id)) };
   });
 
   // ---------- card search ----------
@@ -405,8 +454,8 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
     const deckParam = url.searchParams.get("deck");
     try {
       return search(db, q, {
-        limit: Math.min(Number(url.searchParams.get("limit") ?? 30), 100),
-        deckId: deckParam ? Number(deckParam) : undefined,
+        limit: Math.min(num(url.searchParams.get("limit") ?? 30), 100),
+        deckId: deckParam ? num(deckParam) : undefined,
         filterByDeckIdentity: url.searchParams.get("filter") !== "off",
       });
     } catch (e) {
@@ -431,33 +480,54 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
     ".css": "text/css",
     ".svg": "image/svg+xml",
     ".ico": "image/x-icon",
+    ".woff2": "font/woff2",
+    ".png": "image/png",
   };
 
   function serveStatic(pathname: string, res: ServerResponse): boolean {
-    if (!existsSync(WEB_DIST)) return false;
-    const rel = pathname === "/" ? "index.html" : pathname.slice(1);
-    const file = normalize(join(WEB_DIST, rel));
-    if (!file.startsWith(WEB_DIST)) return false;
-    const target = existsSync(file) ? file : join(WEB_DIST, "index.html");
+    const root = resolve(opts.webDist ?? WEB_DIST);
+    if (pathname.startsWith("/mcp") || /^\/(api|\.well-known)(\/|$)/.test(pathname)) return false;
+    const file = resolve(root, pathname === "/" ? "index.html" : pathname.slice(1));
+    if (!file.startsWith(root + sep)) return false;
+    const appRoute = /^\/(?:decks|inbox|memories|profile|activity|settings|design|signin|privacy|terms|deck\/[^/]+(?:\/(?:review|playtest))?|[du]\/[^/]+)?$/.test(pathname);
+    const target = existsSync(file) && statSync(file).isFile() ? file :
+      appRoute && !extname(pathname) ? join(root, "index.html") : null;
+    if (!target || !existsSync(target)) return false;
     try {
       const content = readFileSync(target);
-      res.writeHead(200, { "Content-Type": MIME[extname(target)] ?? "application/octet-stream" });
+      res.writeHead(200, {
+        "Content-Type": MIME[extname(target)] ?? "application/octet-stream",
+        "Cache-Control": pathname.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache",
+      });
       res.end(content);
       return true;
-    } catch {
-      return false;
-    }
+    } catch { return false; }
   }
 
-  async function readJson(req: IncomingMessage): Promise<any> {
-    const chunks: Buffer[] = [];
-    for await (const chunk of req) chunks.push(chunk as Buffer);
-    if (!chunks.length) return {};
-    try {
-      return JSON.parse(Buffer.concat(chunks).toString("utf-8"));
-    } catch {
-      throw new ServiceError("Invalid JSON body");
-    }
+  function readJson(req: IncomingMessage): Promise<Record<string, any>> {
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      let size = 0, failed = false;
+      const fail = (error: Error) => { failed = true; chunks.length = 0; reject(error); };
+      req.on("data", (chunk: Buffer) => {
+        if (failed) return;
+        size += chunk.length;
+        if (size > 1024 * 1024) return fail(new ServiceError("JSON body exceeds 1 MiB", 413));
+        const type = req.headers["content-type"]?.split(";")[0].trim().toLowerCase();
+        if (type !== "application/json") return fail(new ServiceError("Content-Type must be application/json", 415));
+        chunks.push(chunk);
+      });
+      req.on("error", reject);
+      req.on("end", () => {
+        if (failed) return;
+        if (!chunks.length) return resolve({});
+        try {
+          const value: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+          if (!value || typeof value !== "object" || Array.isArray(value)) throw Error();
+          resolve(value as Record<string, any>);
+        } catch { reject(new ServiceError("JSON body must be a valid object")); }
+      });
+    });
   }
 
   const server: Server = createServer(async (req, res) => {
@@ -478,10 +548,13 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",
           Connection: "keep-alive",
+          "X-Accel-Buffering": "no",
         });
         res.write(`data: ${version}\n\n`);
         listeners.add(res);
-        req.on("close", () => listeners.delete(res));
+        const heartbeat = setInterval(() => res.write(": heartbeat\n\n"), 25_000);
+        heartbeat.unref();
+        res.on("close", () => { clearInterval(heartbeat); listeners.delete(res); });
         return;
       }
 
@@ -490,6 +563,7 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
         const m = url.pathname.match(r.pattern);
         if (!m) continue;
         const body = req.method === "GET" ? {} : await readJson(req);
+        validateNumbers(body);
         const result = await r.handler(m.slice(1), body, url);
         if (r.mutates && !quiet.has(url.pathname)) notify();
         return json(200, result);
@@ -508,11 +582,13 @@ export function createApp(db: DatabaseSync, opts: AppOptions) {
   return {
     server,
     notify,
-    close: () =>
-      new Promise<void>((resolve) => {
+    close: async () => {
+      await agents.close();
+      await new Promise<void>((resolve) => {
         for (const res of listeners) res.end();
         server.close(() => resolve());
         server.closeAllConnections?.();
-      }),
+      });
+    },
   };
 }

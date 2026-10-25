@@ -3,7 +3,7 @@
 // filing, shortlists, draft edits — so "silent when written" never means
 // hidden.
 
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "./sqlite.ts";
 import type { Actor } from "./actor.ts";
 
 export interface ActivityEntry {
@@ -18,7 +18,7 @@ export interface ActivityEntry {
 
 /** Record an agent's write. The owner's own actions are not activity. */
 export function recordActivity(
-  db: DatabaseSync,
+  db: Database,
   actor: Actor,
   action: string,
   deckId: number | null,
@@ -33,7 +33,7 @@ export function recordActivity(
   );
 }
 
-export function listActivity(db: DatabaseSync, limit = 100): ActivityEntry[] {
+export function listActivity(db: Database, limit = 100): ActivityEntry[] {
   return db
     .prepare(
       `SELECT a.id, a.ts, a.actor, a.action, a.deck_id, d.name AS deck_name, a.summary

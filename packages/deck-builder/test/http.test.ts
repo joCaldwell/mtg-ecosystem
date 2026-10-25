@@ -1,6 +1,9 @@
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { request } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { PKG_ROOT } from "../src/db.ts";
 import type { AddressInfo } from "node:net";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
@@ -467,7 +470,7 @@ describe("the UI's API", () => {
     const settings = await (await api("/api/settings")).json();
     assert.equal(settings.agent.token, TOKEN);
     assert.match(settings.agent.url, /^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
-    assert.match(settings.agent.stdio_command, /^node \/.*\/src\/mcp\/stdio\.ts$/);
+    assert.equal(settings.agent.stdio_command, `node ${join(PKG_ROOT, "src", "mcp", "stdio.ts")}`);
     assert.deepEqual(settings.budgets, { global: 1500, deck: 1000 });
   });
 });
@@ -476,7 +479,8 @@ describe("the stdio shim (spec §10.1)", () => {
   const shim = (extraEnv: Record<string, string> = {}) =>
     new StdioClientTransport({
       command: process.execPath,
-      args: ["src/mcp/stdio.ts", "--name", "desktop-app"],
+      args: [join(PKG_ROOT, "src", "mcp", "stdio.ts"), "--name", "desktop-app"],
+      cwd: tmpdir(),
       env: {
         ...(process.env as Record<string, string>),
         DECKBUILDER_PORT: String((app.server.address() as AddressInfo).port),
@@ -484,7 +488,7 @@ describe("the stdio shim (spec §10.1)", () => {
         ...extraEnv,
       },
     });
-  test("a stdio client reaches the running app through it, under its label", async () => {
+  test("a stdio client launched outside the package reaches the app under its label", async () => {
     const client = new Client({ name: "stdio-client", version: "1.0.0" });
     await client.connect(shim());
     assert.equal((await client.listTools()).tools.length, TOOLS.length);

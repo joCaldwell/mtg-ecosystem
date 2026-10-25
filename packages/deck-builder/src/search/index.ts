@@ -1,4 +1,4 @@
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "../sqlite.ts";
 import { parse, SearchError } from "./parse.ts";
 import { compile } from "./compile.ts";
 import { USD_CENTS_COLUMN } from "../prices.ts";
@@ -19,11 +19,15 @@ export interface SearchResult {
   commander_legality: string;
   is_commander: number;
   usd_cents: number | null;
+  image_small: string | null;
+  image_normal: string | null;
+  image_art_crop: string | null;
+  retired: number;
 }
 
 const RESULT_COLUMNS =
   "oracle_id, name, mana_cost, cmc, type_line, oracle_text, power, toughness, loyalty, color_identity, " +
-  `commander_legality, is_commander, ${USD_CENTS_COLUMN}`;
+  `commander_legality, is_commander, image_small, image_normal, image_art_crop, retired, ${USD_CENTS_COLUMN}`;
 
 export interface SearchOptions {
   limit?: number;
@@ -36,9 +40,11 @@ export interface SearchOptions {
   filterByDeckIdentity?: boolean;
 }
 
-export function search(db: DatabaseSync, query: string, opts: SearchOptions = {}): SearchResult[] {
+export function search(db: Database, query: string, opts: SearchOptions = {}): SearchResult[] {
   const { sql, params } = compile(parse(query), { deckId: opts.deckId });
-  const clauses = [sql];
+  const clauses = [sql, opts.deckId === undefined ? "retired = 0" :
+    "(retired = 0 OR oracle_id IN (SELECT oracle_id FROM deck_cards WHERE deck_id = ?))"];
+  if (opts.deckId !== undefined) params.push(opts.deckId);
   let ciMask = opts.colorIdentityMask;
   if (ciMask === undefined && opts.deckId !== undefined && opts.filterByDeckIdentity !== false) {
     const deck = db.prepare("SELECT ci_mask FROM decks WHERE id = ?").get(opts.deckId) as

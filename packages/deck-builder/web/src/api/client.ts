@@ -17,6 +17,7 @@ import type { ProposalView } from "../../../src/deck/proposals.ts";
 import type { DeckCategory, DeckSummary } from "../../../src/deck/service.ts";
 import type { DocumentEditView, ProfileView } from "../../../src/documents.ts";
 import type { MemoryView, Revision } from "../../../src/memory.ts";
+import type { Jobs } from "../../../src/jobs.ts";
 import type { PriceStatus } from "../../../src/prices.ts";
 import type { SearchResult } from "../../../src/search/index.ts";
 import type { PlayerStats } from "../../../src/stats.ts";
@@ -62,6 +63,7 @@ export interface Inbox {
 }
 
 export interface Settings {
+  jobs: ReturnType<Jobs["status"]> | null;
   budgets: { global: number; deck: number };
   cards: { count: number; updated_at: string | null; prices: PriceStatus };
   agent: { url: string; token: string; stdio_command: string };
@@ -81,7 +83,11 @@ export interface Envelope {
   profile?: Profile;
 }
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  status: number;
+  error: string;
+  constructor(status: number, error: string) { super(error); this.status = status; this.error = error; }
+}
 
 async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(path, {
@@ -90,8 +96,13 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
     body: body !== undefined ? JSON.stringify(body) : undefined,
     signal,
   });
-  const data = await res.json();
-  if (!res.ok) throw new ApiError(data.error ?? `HTTP ${res.status}`);
+  const json = res.headers.get("content-type")?.split(";")[0].trim() === "application/json";
+  if (!res.ok) {
+    const data = json ? await res.json().catch(() => null) : null;
+    throw new ApiError(res.status, typeof data?.error === "string" ? data.error : `HTTP ${res.status}`);
+  }
+  if (!json) throw new ApiError(res.status, "The server returned an unexpected response. Please retry.");
+  const data = await res.json().catch(() => { throw new ApiError(res.status, "The server returned invalid JSON. Please retry."); });
   return data as T;
 }
 
@@ -120,6 +131,9 @@ export const api = {
   forkDeck: (id: number, name: string) => request<StateResponse>("POST", `/api/decks/${id}/fork`, { name }),
   compareDecks: (id: number, other?: number) =>
     request<DeckComparison>("GET", `/api/decks/${id}/compare${other ? `?other=${other}` : ""}`),
+
+  acceptProposals: (deckId: number, proposals: Array<{ proposal_id: number; acknowledge_stale?: boolean }>, expected_revision: number) =>
+    request<{ state: DeckState; inbox: Inbox }>("POST", `/api/decks/${deckId}/proposals/rule`, { proposals, expected_revision }),
 
   // ---------- cards in a deck ----------
   addCard: (deckId: number, oracleId: string, opts: { slotId?: number | null; secondarySlotIds?: number[]; role?: string; maybe?: boolean } = {}) =>

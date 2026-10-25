@@ -9,7 +9,7 @@ import { InlineText } from "../../mtg/index.ts";
 import { Banner, Button, Dot, Kbd, Text } from "../../ui/index.ts";
 import { useDeckState } from "./DeckStore.tsx";
 import { useDeckUi } from "./DeckUi.tsx";
-import type { Review } from "./useReview.ts";
+import type { Review } from "./useReview.tsx";
 import styles from "./ProposalBanner.module.css";
 
 export function ProposalBanner({ units, review }: { units: ReviewUnit[]; review: Review }) {

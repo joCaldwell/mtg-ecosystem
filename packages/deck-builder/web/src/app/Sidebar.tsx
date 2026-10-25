@@ -1,3 +1,4 @@
+import { familyOrder } from "../domain/familyOrder.ts";
 // The left rail: where to go, which decks exist, and what an agent connected
 // right now would be told. Decks are one click away from anywhere, and a deck
 // with something waiting on the owner carries the agent colour.
@@ -21,15 +22,6 @@ const NAV: Array<{ page: PageName; label: string; icon: "inbox" | "decks" | "mem
   { page: "settings", label: "Settings", icon: "settings" },
 ];
 
-/** Forks listed directly under the deck they came from. */
-function familyOrder(decks: DeckSummary[]): Array<{ deck: DeckSummary; fork: boolean }> {
-  const ids = new Set(decks.map((d) => d.id));
-  const roots = decks.filter((d) => d.parent_id == null || !ids.has(d.parent_id));
-  return roots.flatMap((root) => [
-    { deck: root, fork: false },
-    ...decks.filter((d) => d.parent_id === root.id).map((deck) => ({ deck, fork: true })),
-  ]);
-}
 
 export function Sidebar({ route }: { route: Route }) {
   const { waiting } = useInbox();

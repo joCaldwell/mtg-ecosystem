@@ -3,17 +3,18 @@
 // three cannot drift: the ruling goes to the server, the fresh deck and inbox
 // are applied, and the owner is told what happened with a way back.
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { api } from "../../api/client.ts";
 import { useInbox } from "../../app/Inbox.tsx";
 import type { ReviewUnit } from "../../domain/review.ts";
-import { useToast } from "../../ui/index.ts";
+import { ConfirmDialog, useToast } from "../../ui/index.ts";
 import { useDeck } from "./DeckStore.tsx";
 import { useDeckUi } from "./DeckUi.tsx";
 
 export interface Review {
   /** The unit under the cursor, or null when nothing is pending. */
   current: ReviewUnit | null;
+  confirmation: ReactNode;
   accept: (unit: ReviewUnit) => Promise<void>;
   reject: (unit: ReviewUnit, reason: string) => Promise<void>;
   /** Accept every pending item of every open proposal on this deck. */
@@ -25,6 +26,8 @@ export function useReview(units: ReviewUnit[]): Review {
   const ui = useDeckUi();
   const inbox = useInbox();
   const { toast } = useToast();
+
+  const [confirm, setConfirm] = useState<{ message: string; action: () => Promise<void> } | null>(null);
 
   const current = units.length ? units[Math.min(ui.cursor, units.length - 1)] : null;
 
@@ -45,17 +48,20 @@ export function useReview(units: ReviewUnit[]): Review {
   const accept = useCallback(
     async (unit: ReviewUnit) => {
       const proposal = state?.proposals.find(p => p.id === unit.proposalId);
-      if (proposal?.stale && !window.confirm(`This proposal was based on r${proposal.base_revision ?? "unknown"}; the deck is now r${state!.deck.revision}. Have you reviewed those changes and want to accept this item/group?`)) return;
-      const result = await run(() => api.ruleItems(deckId, unit.itemIds, "accept", "", {
-        expected_revision: state?.deck.revision, acknowledge_stale: proposal?.stale === true,
-      }));
-      if (!result) return;
-      inbox.apply(result.inbox);
-      const entry = result.state.log.find((e) => e.kind === "accept");
-      toast(
-        `Accepted. The deck is at r${result.state.deck.revision}.`,
-        entry ? { action: { label: "Undo", onAction: () => undo(entry.id) } } : undefined,
-      );
+      const submit = async () => {
+        const result = await run(() => api.ruleItems(deckId, unit.itemIds, "accept", "", {
+          expected_revision: state?.deck.revision, ...(proposal?.stale ? { acknowledge_stale: true } : {}),
+        }));
+        if (!result) return;
+        inbox.apply(result.inbox);
+        const entry = result.state.log.find((e) => e.kind === "accept");
+        toast(
+          `Accepted. The deck is at r${result.state.deck.revision}.`,
+          entry ? { action: { label: "Undo", onAction: () => undo(entry.id) } } : undefined,
+        );
+      };
+      if (proposal?.stale) setConfirm({ message: `This proposal was based on r${proposal.base_revision ?? "unknown"}; the deck is now r${state!.deck.revision}. Review the changed list before accepting.`, action: submit });
+      else await submit();
     },
     [deckId, state, run, inbox, toast, undo],
   );
@@ -77,19 +83,22 @@ export function useReview(units: ReviewUnit[]): Review {
 
   const acceptAll = useCallback(async () => {
     const open = (state?.proposals ?? []).filter((p) => p.items.some((i) => i.status === "pending"));
-    let revision: number | null = null;
-    if (open.some(p => p.stale) && !window.confirm("Some proposals were based on an older deck revision. Have you reviewed the changed list and want to accept all current proposals?")) return;
-    for (const proposal of open) {
-      const expected: number = revision ?? state!.deck.revision;
-      const result = await run(() => api.ruleProposal(deckId, proposal.id, "accept", "", {
-        expected_revision: expected, acknowledge_stale: proposal.stale || proposal.base_revision !== expected,
-      }));
+    const submit = async () => {
+      if (!state || !open.length) return;
+      const result = await run(() => api.acceptProposals(deckId, open.map(proposal => ({
+        proposal_id: proposal.id,
+        ...(proposal.stale ? { acknowledge_stale: true } : {}),
+      })), state.deck.revision));
       if (!result) return;
       inbox.apply(result.inbox);
-      revision = result.state.deck.revision;
-    }
-    if (revision != null) toast(`Accepted everything that was open. The deck is at r${revision}.`);
+      toast(`Accepted everything that was open. The deck is at r${result.state.deck.revision}.`);
+    };
+    if (open.some(p => p.stale)) setConfirm({ message: "Some proposals were based on an older deck revision. Review the changed list before accepting all current proposals.", action: submit });
+    else await submit();
   }, [deckId, state, run, inbox, toast]);
 
-  return { current, accept, reject, acceptAll };
+  const confirmation = confirm && <ConfirmDialog title="Accept older proposals?" confirmLabel="Accept reviewed changes" onClose={() => setConfirm(null)} onConfirm={() => { setConfirm(null); void confirm.action(); }}>
+    {confirm.message}
+  </ConfirmDialog>;
+  return { current, accept, reject, acceptAll, confirmation };
 }

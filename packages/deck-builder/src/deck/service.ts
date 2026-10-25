@@ -3,8 +3,8 @@
 // lifecycle, organization (spec §5.4 — slots, tags, the maybe list, none of
 // which touches the 100), or reading.
 
-import type { DatabaseSync } from "node:sqlite";
-import { ServiceError } from "../errors.ts";
+import type { Database } from "../sqlite.ts";
+import { isUniqueViolation, ServiceError } from "../errors.ts";
 import { withTransaction } from "../db.ts";
 import { type Actor, OWNER, authorOf, PermissionError, requireOwner } from "../actor.ts";
 import { recordActivity } from "../activity.ts";
@@ -89,7 +89,8 @@ export interface DeckRow {
 }
 
 export function createDeck(
-  db: DatabaseSync,
+  db: Database,
+  actor: Actor,
   name: string,
   opts: { category?: DeckCategory; parentId?: number | null } = {},
 ): number {
@@ -97,19 +98,23 @@ export function createDeck(
   if (!trimmed) throw new ServiceError("Deck name cannot be empty");
   if (opts.category !== undefined && !["paper", "theorycrafted", "legacy"].includes(opts.category))
     throw new ServiceError("Deck category must be 'paper', 'theorycrafted' or 'legacy'");
+  if (opts.category !== undefined && opts.category !== "theorycrafted") requireOwner(actor, "classify a new deck");
   try {
-    const r = db
-      .prepare("INSERT INTO decks (name, category, parent_id) VALUES (?, ?, ?)")
-      .run(trimmed, opts.category ?? "theorycrafted", opts.parentId ?? null);
-    return Number(r.lastInsertRowid);
+    return withTransaction(db, () => {
+      const r = db.prepare("INSERT INTO decks (name, category, parent_id) VALUES (?, ?, ?)")
+        .run(trimmed, opts.category ?? "theorycrafted", opts.parentId ?? null);
+      const id = Number(r.lastInsertRowid);
+      recordActivity(db, actor, "create_deck", id, `Created "${trimmed}"`);
+      return id;
+    });
   } catch (e: any) {
-    if (String(e.message).includes("UNIQUE"))
+    if (isUniqueViolation(e))
       throw new ServiceError(`A deck named '${trimmed}' already exists. Choose another name.`, 409);
     throw e;
   }
 }
 
-export function renameDeck(db: DatabaseSync, actor: Actor, deckId: number, name: string): void {
+export function renameDeck(db: Database, actor: Actor, deckId: number, name: string): void {
   const deck = requireEditableDeck(db, deckId);
   const trimmed = name.trim();
   if (!trimmed) throw new ServiceError("Deck name cannot be empty");
@@ -119,13 +124,13 @@ export function renameDeck(db: DatabaseSync, actor: Actor, deckId: number, name:
       recordActivity(db, actor, "rename_deck", deckId, `Renamed "${deck.name}" to "${trimmed}"`);
     });
   } catch (e: any) {
-    if (String(e.message).includes("UNIQUE"))
+    if (isUniqueViolation(e))
       throw new ServiceError(`A deck named '${trimmed}' already exists`, 409);
     throw e;
   }
 }
 
-export function deleteDeck(db: DatabaseSync, actor: Actor, deckId: number): void {
+export function deleteDeck(db: Database, actor: Actor, deckId: number): void {
   const deck = requireEditableDeck(db, deckId);
   withTransaction(db, () => {
     db.prepare("DELETE FROM decks WHERE id = ?").run(deckId);
@@ -136,7 +141,7 @@ export function deleteDeck(db: DatabaseSync, actor: Actor, deckId: number): void
 
 /** Only the owner changes lifecycle: it controls agent permissions. */
 export function setDeckCategory(
-  db: DatabaseSync,
+  db: Database,
   actor: Actor,
   deckId: number,
   category: DeckCategory,
@@ -155,7 +160,7 @@ export function setDeckCategory(
 // deck that was copied by hand before forks existed, this is how it gets the
 // link that lets the two be compared and read as one family.
 export function setDeckParent(
-  db: DatabaseSync,
+  db: Database,
   actor: Actor,
   deckId: number,
   parentId: number | null,
@@ -194,7 +199,7 @@ export interface DeckSummary {
 }
 
 /** The roster: one line per deck, enough to choose which one to open. */
-export function listDecks(db: DatabaseSync): DeckSummary[] {
+export function listDecks(db: Database): DeckSummary[] {
   const rows = db
     .prepare(
       `SELECT d.id, d.name, d.category, d.parent_id, p.name AS parent_name, d.color_identity,
@@ -218,7 +223,7 @@ export function listDecks(db: DatabaseSync): DeckSummary[] {
   }));
 }
 
-export function requireDeck(db: DatabaseSync, deckId: number): DeckRow {
+export function requireDeck(db: Database, deckId: number): DeckRow {
   const deck = db.prepare("SELECT * FROM decks WHERE id = ?").get(deckId) as DeckRow | undefined;
   if (!deck)
     throw new ServiceError(
@@ -229,14 +234,14 @@ export function requireDeck(db: DatabaseSync, deckId: number): DeckRow {
 }
 
 /** Guard a membership revision before a dependent mutation. */
-export function requireRevision(db: DatabaseSync, deckId: number, expected?: number): void {
+export function requireRevision(db: Database, deckId: number, expected?: number): void {
   const deck = requireDeck(db, deckId);
   if (expected !== undefined && expected !== deck.revision)
     throw new ServiceError(`Deck revision changed: expected ${expected}, current ${deck.revision}. Read the deck again.`, 409);
 }
 
 /** All writes to an archived deck pass this guard, including organization. */
-export function requireEditableDeck(db: DatabaseSync, deckId: number): DeckRow {
+export function requireEditableDeck(db: Database, deckId: number): DeckRow {
   const deck = requireDeck(db, deckId);
   if (deck.category === "legacy")
     throw new PermissionError(`"${deck.name}" is a Legacy deck and is read-only. Fork it to explore changes, or have the owner restore it to Paper or Theorycrafted.`);
@@ -244,7 +249,7 @@ export function requireEditableDeck(db: DatabaseSync, deckId: number): DeckRow {
 }
 
 /** The shared permission gate for direct membership changes. */
-export function requireDirectCardEdit(db: DatabaseSync, actor: Actor, deckId: number): DeckRow {
+export function requireDirectCardEdit(db: Database, actor: Actor, deckId: number): DeckRow {
   const deck = requireEditableDeck(db, deckId);
   if (actor.kind === "agent" && deck.category === "paper")
     throw new PermissionError(`"${deck.name}" is a Paper deck, so its cards change only through a proposal the owner accepts. Use propose_changes. Agents edit Theorycrafted cards directly with edit_cards; only the owner can change lifecycle.`);
@@ -252,7 +257,7 @@ export function requireDirectCardEdit(db: DatabaseSync, actor: Actor, deckId: nu
 }
 
 // Deck identity = union of commander identities (spec §5.1, denormalized).
-export function recomputeIdentity(db: DatabaseSync, deckId: number): void {
+export function recomputeIdentity(db: Database, deckId: number): void {
   requireEditableDeck(db, deckId);
   const commanders = db
     .prepare(
@@ -290,7 +295,7 @@ export interface DeckCardRow {
 }
 
 export function findDeckCard(
-  db: DatabaseSync,
+  db: Database,
   deckId: number,
   oracleId: string,
 ): DeckCardRow | undefined {
@@ -304,12 +309,12 @@ export function findDeckCard(
   return row;
 }
 
-export function secondarySlotsOf(db: DatabaseSync, deckId: number, oracleId: string): number[] {
+export function secondarySlotsOf(db: Database, deckId: number, oracleId: string): number[] {
   return (db.prepare("SELECT slot_id FROM deck_card_secondary_slots WHERE deck_id = ? AND oracle_id = ? ORDER BY slot_id")
     .all(deckId, oracleId) as unknown as { slot_id: number }[]).map(r => r.slot_id);
 }
 
-function requireDeckCard(db: DatabaseSync, deckId: number, oracleId: string): DeckCardRow {
+function requireDeckCard(db: Database, deckId: number, oracleId: string): DeckCardRow {
   const row = findDeckCard(db, deckId, oracleId);
   if (!row) {
     const name = requireCardById(db, oracleId).name;
@@ -328,7 +333,7 @@ export interface SlotRow {
   position: number;
 }
 
-export function listSlots(db: DatabaseSync, deckId: number): SlotRow[] {
+export function listSlots(db: Database, deckId: number): SlotRow[] {
   return db
     .prepare(
       "SELECT id, name, target_min, target_max, position FROM slots WHERE deck_id = ? ORDER BY position, id",
@@ -336,7 +341,7 @@ export function listSlots(db: DatabaseSync, deckId: number): SlotRow[] {
     .all(deckId) as unknown as SlotRow[];
 }
 
-function requireSlot(db: DatabaseSync, deckId: number, slotId: number): SlotRow {
+function requireSlot(db: Database, deckId: number, slotId: number): SlotRow {
   const slot = db
     .prepare("SELECT id, name, target_min, target_max, position FROM slots WHERE id = ? AND deck_id = ?")
     .get(slotId, deckId) as SlotRow | undefined;
@@ -344,7 +349,7 @@ function requireSlot(db: DatabaseSync, deckId: number, slotId: number): SlotRow 
   return slot;
 }
 
-export function findSlotByName(db: DatabaseSync, deckId: number, name: string): SlotRow | null {
+export function findSlotByName(db: Database, deckId: number, name: string): SlotRow | null {
   return (
     (db
       .prepare(
@@ -356,7 +361,7 @@ export function findSlotByName(db: DatabaseSync, deckId: number, name: string): 
 }
 
 /** A slot by name, or an error that lists the slots that do exist. */
-export function requireSlotByName(db: DatabaseSync, deckId: number, name: string): SlotRow {
+export function requireSlotByName(db: Database, deckId: number, name: string): SlotRow {
   const slot = findSlotByName(db, deckId, name);
   if (slot) return slot;
   const existing = listSlots(db, deckId).map((s) => s.name);
@@ -378,7 +383,7 @@ function validateTargets(min: number | null, max: number | null) {
 }
 
 export function createSlot(
-  db: DatabaseSync,
+  db: Database,
   deckId: number,
   name: string,
   targetMin: number | null = null,
@@ -398,14 +403,14 @@ export function createSlot(
       .run(deckId, valid, targetMin, targetMax, p);
     return Number(r.lastInsertRowid);
   } catch (e: any) {
-    if (String(e.message).includes("UNIQUE"))
+    if (isUniqueViolation(e))
       throw new ServiceError(`Slot '${valid}' already exists in this deck`, 409);
     throw e;
   }
 }
 
 export function updateSlot(
-  db: DatabaseSync,
+  db: Database,
   deckId: number,
   slotId: number,
   patch: { name?: string; targetMin?: number | null; targetMax?: number | null },
@@ -424,13 +429,13 @@ export function updateSlot(
       slotId,
     );
   } catch (e: any) {
-    if (String(e.message).includes("UNIQUE"))
+    if (isUniqueViolation(e))
       throw new ServiceError(`Slot '${name}' already exists in this deck`, 409);
     throw e;
   }
 }
 
-export function deleteSlot(db: DatabaseSync, deckId: number, slotId: number): void {
+export function deleteSlot(db: Database, deckId: number, slotId: number): void {
   requireEditableDeck(db, deckId);
   requireSlot(db, deckId, slotId);
   db.prepare("DELETE FROM slots WHERE id = ?").run(slotId);
@@ -443,13 +448,13 @@ export interface TagRow {
   name: string;
 }
 
-export function listTags(db: DatabaseSync, deckId: number): TagRow[] {
+export function listTags(db: Database, deckId: number): TagRow[] {
   return db
     .prepare("SELECT id, name FROM tags WHERE deck_id = ? ORDER BY name")
     .all(deckId) as unknown as TagRow[];
 }
 
-function requireTag(db: DatabaseSync, deckId: number, tagId: number) {
+function requireTag(db: Database, deckId: number, tagId: number) {
   const tag = db.prepare("SELECT * FROM tags WHERE id = ? AND deck_id = ?").get(tagId, deckId);
   if (!tag) throw new ServiceError(`Tag ${tagId} not found in deck ${deckId}`, 404);
   return tag;
@@ -476,7 +481,7 @@ export function similarTag(existing: string[], candidate: string): string | null
   return existing.find((e) => tagKey(e) === key) ?? null;
 }
 
-export function createTag(db: DatabaseSync, deckId: number, name: string): number {
+export function createTag(db: Database, deckId: number, name: string): number {
   requireEditableDeck(db, deckId);
   const valid = validateVocabName(name);
   const clash = similarTag(
@@ -494,7 +499,7 @@ export function createTag(db: DatabaseSync, deckId: number, name: string): numbe
 
 // Have adds evidence of ownership only. Reapplying it must not erase a more
 // precise current physical/available count or create extra physical copies.
-function recordHaveEvidence(db: DatabaseSync, deckId: number, oracleId: string, actor: Actor): void {
+function recordHaveEvidence(db: Database, deckId: number, oracleId: string, actor: Actor): void {
   const latest = db.prepare("SELECT status FROM ownership_evidence WHERE oracle_id = ? ORDER BY id DESC LIMIT 1").get(oracleId) as { status: string } | undefined;
   if (latest?.status === "owned") return;
   db.prepare(`INSERT INTO ownership_evidence
@@ -503,7 +508,7 @@ function recordHaveEvidence(db: DatabaseSync, deckId: number, oracleId: string, 
     .run(oracleId, authorOf(actor), deckId, requireDeck(db, deckId).name);
 }
 
-export function renameTag(db: DatabaseSync, deckId: number, tagId: number, name: string, actor: Actor = OWNER): void {
+export function renameTag(db: Database, deckId: number, tagId: number, name: string, actor: Actor = OWNER): void {
   requireEditableDeck(db, deckId);
   requireTag(db, deckId, tagId);
   const valid = validateVocabName(name);
@@ -522,19 +527,19 @@ export function renameTag(db: DatabaseSync, deckId: number, tagId: number, name:
       }
     });
   } catch (e: any) {
-    if (String(e.message).includes("UNIQUE"))
+    if (isUniqueViolation(e))
       throw new ServiceError(`Tag '${valid}' already exists in this deck`, 409);
     throw e;
   }
 }
 
-export function deleteTag(db: DatabaseSync, deckId: number, tagId: number): void {
+export function deleteTag(db: Database, deckId: number, tagId: number): void {
   requireEditableDeck(db, deckId);
   requireTag(db, deckId, tagId);
   db.prepare("DELETE FROM tags WHERE id = ?").run(tagId);
 }
 
-function findOrCreateTag(db: DatabaseSync, deckId: number, name: string): number {
+function findOrCreateTag(db: Database, deckId: number, name: string): number {
   const existing = listTags(db, deckId);
   const exact = existing.find((t) => t.name.toLowerCase() === name.trim().toLowerCase());
   return exact ? exact.id : createTag(db, deckId, name);
@@ -551,7 +556,7 @@ export interface OrganizePatch {
   tagIds?: number[];
 }
 
-export function validateSlotAssignments(db: DatabaseSync, deckId: number, primary: number | null, secondary: number[]): void {
+export function validateSlotAssignments(db: Database, deckId: number, primary: number | null, secondary: number[]): void {
   if (primary != null && (!Number.isSafeInteger(primary) || primary < 1))
     throw new ServiceError("Primary slot ID must be a positive integer or null");
   if (!Array.isArray(secondary) || secondary.some(id => !Number.isSafeInteger(id) || id < 1))
@@ -564,7 +569,7 @@ export function validateSlotAssignments(db: DatabaseSync, deckId: number, primar
 
 /** File one card's purposes and management tags. Changes no membership. */
 export function organizeCard(
-  db: DatabaseSync,
+  db: Database,
   deckId: number,
   oracleId: string,
   patch: OrganizePatch,
@@ -620,7 +625,7 @@ export interface FilingInput {
 
 // Bulk filing by name, for agents: every entry lands or none does. Tags named
 // here are created if the deck lacks them, subject to the near-duplicate rule.
-export function fileCards(db: DatabaseSync, deckId: number, filings: FilingInput[], removeUnusedTags: string[] = [], actor: Actor = OWNER): void {
+export function fileCards(db: Database, deckId: number, filings: FilingInput[], removeUnusedTags: string[] = [], actor: Actor = OWNER): void {
   requireEditableDeck(db, deckId);
   if (!Array.isArray(removeUnusedTags) || removeUnusedTags.some(name => typeof name !== "string"))
     throw new ServiceError("Unused tags to remove must be an array of tag names");
@@ -678,7 +683,7 @@ export interface SlotSpec {
 
 // Create, rename, retarget and remove slots in one transactional call. A slot
 // named here that does not exist is created; one that exists is updated.
-export function defineSlots(db: DatabaseSync, deckId: number, specs: SlotSpec[]): void {
+export function defineSlots(db: Database, deckId: number, specs: SlotSpec[]): void {
   requireEditableDeck(db, deckId);
   withTransaction(db, () => {
     for (const s of specs) {
@@ -708,7 +713,7 @@ export function defineSlots(db: DatabaseSync, deckId: number, specs: SlotSpec[])
 // outside the 100 and bumps no revision. Moving a card between the 100 and
 // the maybe list is membership and goes through deck/membership.ts.
 export function shortlistCard(
-  db: DatabaseSync,
+  db: Database,
   deckId: number,
   oracleId: string,
   note = "",
@@ -731,7 +736,7 @@ export function shortlistCard(
   ).run(deckId, oracleId, note.trim());
 }
 
-export function unshortlistCard(db: DatabaseSync, deckId: number, oracleId: string): void {
+export function unshortlistCard(db: Database, deckId: number, oracleId: string): void {
   requireEditableDeck(db, deckId);
   const row = requireDeckCard(db, deckId, oracleId);
   if (!row.maybe)
@@ -760,6 +765,10 @@ export interface DeckCardView {
   is_commander: number;
   /** Spec §4.4: the cheapest printing's price; null when no printing has one. */
   usd_cents: number | null;
+  image_small: string | null;
+  image_normal: string | null;
+  image_art_crop: string | null;
+  retired: number;
   slot_id: number | null;
   secondary_slot_ids: number[];
   role: Role;
@@ -770,7 +779,7 @@ export interface DeckCardView {
   tag_ids: number[];
 }
 
-export function getDeck(db: DatabaseSync, deckId: number) {
+export function getDeck(db: Database, deckId: number) {
   const deck = requireDeck(db, deckId);
   const slots = listSlots(db, deckId);
   const tags = listTags(db, deckId);
@@ -779,7 +788,7 @@ export function getDeck(db: DatabaseSync, deckId: number) {
     .prepare(
       `SELECT c.oracle_id, c.name, c.mana_cost, c.cmc, c.type_line, c.oracle_text,
               c.power, c.toughness, c.loyalty, c.color_identity, c.ci_mask,
-              c.commander_legality, c.is_commander, p.usd_cents,
+              c.commander_legality, c.is_commander, p.usd_cents, c.image_small, c.image_normal, c.image_art_crop, c.retired,
               dc.slot_id, dc.role, dc.maybe, dc.maybe_note, dc.quantity
        FROM deck_cards dc JOIN cards c ON c.oracle_id = dc.oracle_id
        LEFT JOIN card_prices p ON p.oracle_id = dc.oracle_id

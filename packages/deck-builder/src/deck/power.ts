@@ -1,6 +1,6 @@
 // Spec §5.7: power is a declared profile, not an algorithm that evaluates cards.
 // The app maps the profile to bracket guidance and computes Game Changers.
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "../sqlite.ts";
 import * as z from "zod/v4";
 import { type Actor, authorOf, PermissionError, requireOwner } from "../actor.ts";
 import { recordActivity } from "../activity.ts";
@@ -173,14 +173,14 @@ function parseAssessment(input: unknown) {
   return r.data;
 }
 
-export function getPowerTarget(db: DatabaseSync, deckId: number): PowerTarget | null {
+export function getPowerTarget(db: Database, deckId: number): PowerTarget | null {
   requireDeck(db, deckId);
   const row = db.prepare("SELECT target_json FROM power_targets WHERE deck_id = ?").get(deckId) as { target_json: string } | undefined;
   return row ? parseTarget(JSON.parse(row.target_json)) : null;
 }
 
 /** Internal document write; agents reach it through proposeDocumentEdit. */
-export function writePowerTarget(db: DatabaseSync, actor: Actor, deckId: number, input: unknown, author = authorOf(actor)) {
+export function writePowerTarget(db: Database, actor: Actor, deckId: number, input: unknown, author = authorOf(actor)) {
   requireEditableDeck(db, deckId);
   requireOwner(actor, "apply a power target directly (use propose_power_target)");
   const target = input === null ? null : parseTarget(input);
@@ -191,7 +191,7 @@ export function writePowerTarget(db: DatabaseSync, actor: Actor, deckId: number,
     .run(deckId, JSON.stringify(target), author);
 }
 
-export function setPowerTarget(db: DatabaseSync, actor: Actor, deckId: number, input: unknown) {
+export function setPowerTarget(db: Database, actor: Actor, deckId: number, input: unknown) {
   requireOwner(actor, "set the power target directly");
   writePowerTarget(db, actor, deckId, input);
 }
@@ -213,10 +213,10 @@ interface AssessmentRow {
   id: number; profile_json: string; revision: number; evidence: "list" | "goldfish" | "games";
   confidence: "tentative" | "supported"; game_changers_json: string; notes: string; author: string; owner_touched: number; created_at: string;
 }
-function assessmentRows(db: DatabaseSync, deckId: number) {
+function assessmentRows(db: Database, deckId: number) {
   return db.prepare("SELECT * FROM power_assessments WHERE deck_id = ? ORDER BY id DESC LIMIT 20").all(deckId) as unknown as AssessmentRow[];
 }
-export function recordPowerAssessment(db: DatabaseSync, actor: Actor, deckId: number, input: unknown): number {
+export function recordPowerAssessment(db: Database, actor: Actor, deckId: number, input: unknown): number {
   requireEditableDeck(db, deckId);
   const deck = requireDeck(db, deckId);
   const value = parseAssessment(input);
@@ -234,7 +234,7 @@ export function recordPowerAssessment(db: DatabaseSync, actor: Actor, deckId: nu
   });
 }
 
-export function gameChangerFacts(db: DatabaseSync, deckId: number) {
+export function gameChangerFacts(db: Database, deckId: number) {
   // Nullable Scryfall game_changer: missing metadata is unknown, not false.
   // https://scryfall.com/docs/api/cards (game_changer, nullable boolean)
   const rows = db.prepare(`SELECT c.oracle_id, c.name, c.game_changer, dc.quantity FROM deck_cards dc
@@ -246,7 +246,7 @@ export function gameChangerFacts(db: DatabaseSync, deckId: number) {
   };
 }
 
-export function getPower(db: DatabaseSync, deckId: number) {
+export function getPower(db: Database, deckId: number) {
   const deck = requireDeck(db, deckId);
   const targetValue = getPowerTarget(db, deckId);
   const targetMeta = db.prepare("SELECT author, updated_at FROM power_targets WHERE deck_id = ?").get(deckId) as { author: string; updated_at: string } | undefined;
@@ -285,7 +285,7 @@ export function getPower(db: DatabaseSync, deckId: number) {
 }
 
 /** Forks inherit the target; a fresh assessment must describe the new deck. */
-export function copyPowerTarget(db: DatabaseSync, parentId: number, forkId: number) {
+export function copyPowerTarget(db: Database, parentId: number, forkId: number) {
   requireEditableDeck(db, forkId);
   db.prepare(`INSERT INTO power_targets (deck_id, target_json, author)
     SELECT ?, target_json, author FROM power_targets WHERE deck_id = ?`).run(forkId, parentId);

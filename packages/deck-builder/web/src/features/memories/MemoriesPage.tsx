@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
-import { Box, EmptyState, ErrorNote, Eyebrow, Loading, Meter, Page, PageHeader, Section, Stack, TextField } from "../../ui/index.ts";
+import { Pill, Box, EmptyState, ErrorNote, Eyebrow, Loading, Meter, Page, PageHeader, Section, Stack, TextField } from "../../ui/index.ts";
 import { AddMemory } from "./AddMemory.tsx";
 import { MemoryCard } from "./MemoryCard.tsx";
 import styles from "./MemoriesPage.module.css";
@@ -9,13 +9,6 @@ import styles from "./MemoriesPage.module.css";
 type ScopeFilter = "all" | "global" | number;
 type BasisFilter = "any" | "stated" | "inferred";
 
-function Pill({ on, onClick, children }: { on: boolean; onClick: () => void; children: string }) {
-  return (
-    <button type="button" aria-pressed={on} className={`${styles.pill} ${on ? styles.pillOn : ""}`} onClick={onClick}>
-      {children}
-    </button>
-  );
-}
 
 /** Every memory (spec §7.4, §7.5): browse by scope, basis and status, search, correct, retire. */
 export function MemoriesPage() {
@@ -53,8 +46,8 @@ export function MemoriesPage() {
 
   // If the selected deck's last memory disappears the pill goes with it; fall back to all.
   useEffect(() => {
-    if (typeof scope === "number" && overview.data && !decks.has(scope)) setScope("all");
-  });
+    if (typeof scope === "number" && overview.data && !overview.data.memories.some(m => m.deck_id === scope)) setScope("all");
+  }, [scope, overview.data]);
 
   const shown = (list.data?.memories ?? []).filter((m) => basis === "any" || m.basis === basis);
   const g = overview.data?.global_budget;

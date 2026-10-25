@@ -3,7 +3,7 @@
 // rulings on proposals and document edits, direct edits, imports, undos — and
 // the cards an act touched are queryable per card (§8.3).
 
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "../sqlite.ts";
 import { ServiceError } from "../errors.ts";
 import { type Actor, authorOf } from "../actor.ts";
 
@@ -42,7 +42,7 @@ function awaitsReview(actor: Actor, kind: LogKind, deckCategory: string | null):
 }
 
 export function writeLog(
-  db: DatabaseSync,
+  db: Database,
   actor: Actor,
   entry: LogInput,
   cards: LogCardInput[] = [],
@@ -132,7 +132,7 @@ const ENTRY_SELECT = `SELECT l.id, l.deck_id, (d.category = 'legacy') AS read_on
        l.reviewed_at, l.ts
   FROM log l LEFT JOIN decks d ON d.id = l.deck_id`;
 
-function withCards(db: DatabaseSync, rows: Array<Omit<LogEntry, "cards">>): LogEntry[] {
+function withCards(db: Database, rows: Array<Omit<LogEntry, "cards">>): LogEntry[] {
   const stmt = db.prepare(
     "SELECT oracle_id, card_name, action, quantity, item_id, reason FROM log_cards WHERE log_id = ? ORDER BY id",
   );
@@ -148,7 +148,7 @@ export interface LogQuery {
 }
 
 /** Newest first. */
-export function listLog(db: DatabaseSync, query: LogQuery = {}): LogEntry[] {
+export function listLog(db: Database, query: LogQuery = {}): LogEntry[] {
   const where: string[] = [];
   const params: Array<string | number> = [];
   if (query.deckId !== undefined) {
@@ -170,7 +170,7 @@ export function listLog(db: DatabaseSync, query: LogQuery = {}): LogEntry[] {
   return withCards(db, rows);
 }
 
-export function getLogEntry(db: DatabaseSync, logId: number): LogEntry | null {
+export function getLogEntry(db: Database, logId: number): LogEntry | null {
   const row = db.prepare(`${ENTRY_SELECT} WHERE l.id = ?`).get(logId) as
     | Omit<LogEntry, "cards">
     | undefined;
@@ -194,7 +194,7 @@ export interface CardRuling {
 }
 
 // A deck and the decks it was forked from, nearest first.
-function lineage(db: DatabaseSync, deckId: number): number[] {
+function lineage(db: Database, deckId: number): number[] {
   const chain: number[] = [];
   const parentOf = db.prepare("SELECT parent_id FROM decks WHERE id = ?");
   for (let cur: number | null = deckId; cur != null && !chain.includes(cur); ) {
@@ -214,7 +214,7 @@ function lineage(db: DatabaseSync, deckId: number): number[] {
 // they were made in. (As built: the first real-agent run on a fork had no
 // rulings to read, and said so.)
 export function cardHistory(
-  db: DatabaseSync,
+  db: Database,
   deckId: number,
   oracleId: string,
   limit = 5,
@@ -245,7 +245,7 @@ export function cardHistory(
 
 /** The same lookup for many cards at once, keyed by oracle_id; cards with no history are absent. */
 export function cardHistories(
-  db: DatabaseSync,
+  db: Database,
   deckId: number,
   oracleIds: string[],
   limit = 3,
@@ -260,21 +260,24 @@ export function cardHistories(
 
 // ---------- the review queue (spec §8.4) ----------
 
-export function unreviewedCount(db: DatabaseSync): number {
+export function unreviewedCount(db: Database): number {
   return (db.prepare("SELECT COUNT(*) n FROM log WHERE reviewed_at IS NULL").get() as { n: number })
     .n;
 }
 
-// Mark entries read. `through` clears everything up to and including an id,
+// Mark entries read. `through` clears that entry's deck up to and including its id,
 // which is what an agent that has just read the whole queue wants.
 export function markReviewed(
-  db: DatabaseSync,
+  db: Database,
   which: { ids?: number[]; through?: number },
 ): number {
   if (which.through != null) {
+    if (which.through === 0) return 0;
+    const entry = db.prepare("SELECT deck_id FROM log WHERE id = ?").get(which.through) as { deck_id: number | null } | undefined;
+    if (!entry) throw new ServiceError("The ruling to review through does not exist", 404);
     const r = db
-      .prepare("UPDATE log SET reviewed_at = datetime('now') WHERE reviewed_at IS NULL AND id <= ?")
-      .run(which.through);
+      .prepare("UPDATE log SET reviewed_at = datetime('now') WHERE reviewed_at IS NULL AND id <= ? AND deck_id IS ?")
+      .run(which.through, entry.deck_id);
     return Number(r.changes);
   }
   const ids = which.ids ?? [];

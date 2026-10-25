@@ -3,7 +3,7 @@
 // directly, and an agent proposes an edit the owner sees as a diff and rules
 // on. This applies to all editable decks; Legacy decks are read-only.
 
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "./sqlite.ts";
 import { recordActivity } from "./activity.ts";
 import { type PowerTarget, getPowerTarget, parseTarget, targetText, writePowerTarget } from "./deck/power.ts";
 import { ServiceError } from "./errors.ts";
@@ -32,7 +32,7 @@ export interface ProfileView {
   over_cap: boolean;
 }
 
-export function getProfile(db: DatabaseSync): ProfileView {
+export function getProfile(db: Database): ProfileView {
   const row = db.prepare("SELECT body_md, updated_at FROM profile WHERE id = 1").get() as {
     body_md: string;
     updated_at: string;
@@ -41,12 +41,12 @@ export function getProfile(db: DatabaseSync): ProfileView {
   return { ...row, word_count: words, over_cap: words > PROFILE_WORD_CAP };
 }
 
-export function setProfile(db: DatabaseSync, actor: Actor, bodyMd: string): void {
+export function setProfile(db: Database, actor: Actor, bodyMd: string): void {
   requireOwner(actor, "edit the profile directly");
   writeProfile(db, bodyMd);
 }
 
-function writeProfile(db: DatabaseSync, bodyMd: string) {
+function writeProfile(db: Database, bodyMd: string) {
   db.prepare("UPDATE profile SET body_md = ?, updated_at = datetime('now') WHERE id = 1").run(
     bodyMd.trim(),
   );
@@ -97,7 +97,7 @@ export interface DocumentEditView {
   current_engine: ReturnType<typeof getBrief>["engines"][number] | null;
 }
 
-function currentText(db: DatabaseSync, kind: DocumentEditKind, deckId: number | null, engineName?: string): string {
+function currentText(db: Database, kind: DocumentEditKind, deckId: number | null, engineName?: string): string {
   if (kind === "profile") return getProfile(db).body_md;
   if (kind === "power_target") return targetText(getPowerTarget(db, deckId!));
   const brief = getBrief(db, deckId!);
@@ -110,7 +110,7 @@ function currentText(db: DatabaseSync, kind: DocumentEditKind, deckId: number | 
 }
 
 function validateEdit(
-  db: DatabaseSync,
+  db: Database,
   kind: DocumentEditKind,
   deckId: number | null,
   payload: DocumentEditPayload,
@@ -141,7 +141,7 @@ function validateEdit(
 }
 
 function applyEdit(
-  db: DatabaseSync,
+  db: Database,
   actor: Actor,
   kind: DocumentEditKind,
   deckId: number | null,
@@ -176,7 +176,7 @@ export interface ProposeResult {
  * is required: it is what the owner rules on.
  */
 export function proposeDocumentEdit(
-  db: DatabaseSync,
+  db: Database,
   actor: Actor,
   deckId: number | null,
   kind: DocumentEditKind,
@@ -237,7 +237,7 @@ const EDIT_SELECT = `SELECT e.id, e.deck_id, d.name AS deck_name, e.kind, e.payl
        e.author, e.status, e.created_at, e.base_revision, e.disposition, e.superseded_by, e.group_id
   FROM document_edits e LEFT JOIN decks d ON d.id = e.deck_id`;
 
-function toView(db: DatabaseSync, row: EditRow, includeGroup = true): DocumentEditView {
+function toView(db: Database, row: EditRow, includeGroup = true): DocumentEditView {
   const { payload_json, ...rest } = row;
   const payload = JSON.parse(payload_json) as DocumentEditPayload;
   const currentRevision = row.deck_id == null ? null : requireDeck(db, row.deck_id).revision;
@@ -266,14 +266,14 @@ function toView(db: DatabaseSync, row: EditRow, includeGroup = true): DocumentEd
   };
 }
 
-export function getDocumentEdit(db: DatabaseSync, editId: number): DocumentEditView | null {
+export function getDocumentEdit(db: Database, editId: number): DocumentEditView | null {
   const row = db.prepare(`${EDIT_SELECT} WHERE e.id = ?`).get(editId) as EditRow | undefined;
   return row ? toView(db, row) : null;
 }
 
 /** Pending edits for one deck, for the profile ("profile"), or everywhere (omit scope). */
 export function listDocumentEdits(
-  db: DatabaseSync,
+  db: Database,
   opts: { deckId?: number; profileOnly?: boolean; status?: string } = {},
 ): DocumentEditView[] {
   const where: string[] = [];
@@ -319,7 +319,7 @@ function editKey(kind: DocumentEditKind, payload: DocumentEditPayload): string {
 
 export interface DocumentChangeInput { kind: DocumentEditKind; payload: DocumentEditPayload; reason: string }
 
-function editablePendingGroup(db: DatabaseSync, actor: Actor, editId: number): EditRow[] {
+function editablePendingGroup(db: Database, actor: Actor, editId: number): EditRow[] {
   const row = db.prepare(`${EDIT_SELECT} WHERE e.id = ?`).get(editId) as EditRow | undefined;
   if (!row) throw new ServiceError(`Proposed edit ${editId} not found`, 404);
   const rows = row.group_id == null ? [row] : db.prepare(`${EDIT_SELECT} WHERE e.group_id = ? ORDER BY e.id`).all(row.group_id) as unknown as EditRow[];
@@ -335,7 +335,7 @@ function editablePendingGroup(db: DatabaseSync, actor: Actor, editId: number): E
 
 /** Replacements are new immutable proposals, linked in both directions on read.
  * Naming any grouped edit replaces/withdraws the entire group, never half a plan. */
-export function proposeDocumentGroup(db: DatabaseSync, actor: Actor, deckId: number | null,
+export function proposeDocumentGroup(db: Database, actor: Actor, deckId: number | null,
   changes: DocumentChangeInput[], options: { supersedes?: number[]; expected_revision?: number } = {}) {
   if (deckId != null) {
     requireEditableDeck(db, deckId);
@@ -361,7 +361,7 @@ export function proposeDocumentGroup(db: DatabaseSync, actor: Actor, deckId: num
   });
 }
 
-export function withdrawDocumentEdit(db: DatabaseSync, actor: Actor, editId: number, reason: string, expectedRevision?: number): void {
+export function withdrawDocumentEdit(db: Database, actor: Actor, editId: number, reason: string, expectedRevision?: number): void {
   if (!reason?.trim()) throw new ServiceError("Withdrawing a proposal needs a reason");
   lintProse(db, reason);
   withTransaction(db, () => {
@@ -376,7 +376,7 @@ export function withdrawDocumentEdit(db: DatabaseSync, actor: Actor, editId: num
  * before applying anything. Stale acceptance requires deliberate acknowledgment
  * against the current revision; it can never silently overwrite newer work. */
 export function ruleDocumentEdit(
-  db: DatabaseSync, actor: Actor, editId: number, outcome: "accept" | "reject", reason = "",
+  db: Database, actor: Actor, editId: number, outcome: "accept" | "reject", reason = "",
   options: { expected_revision?: number; acknowledge_stale?: boolean; expected_documents?: Record<string, string> } = {},
 ): number {
   requireOwner(actor, "rule on a proposed edit");

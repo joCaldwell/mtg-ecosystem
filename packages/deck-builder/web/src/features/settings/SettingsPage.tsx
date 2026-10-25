@@ -23,7 +23,7 @@ export function SettingsPage() {
         <div className={styles.cards}>
           <AgentConnectionCard agent={data.agent} onChanged={settings.reload} />
           <BudgetsCard budgets={data.budgets} onSaved={settings.reload} />
-          <CardDataCard cards={data.cards} onChanged={settings.reload} />
+          <CardDataCard cards={data.cards} jobs={data.jobs} onChanged={settings.reload} />
           <Text tone="faint" size="sm">
             Colours, type and every component are on the <a href={href({ page: "design" })}>design reference</a>.
           </Text>

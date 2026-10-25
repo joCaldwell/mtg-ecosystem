@@ -52,7 +52,7 @@ for (const name of [FORK_NAME, DECK_NAME]) {
 }
 
 // Built as Theorycrafted, classified as Paper at the end: that is the life of a real deck.
-const deckId = createDeck(db, DECK_NAME, {});
+const deckId = createDeck(db, OWNER, DECK_NAME, {});
 
 // Global memories outlive the demo decks, so a second run finds them already
 // written. The server refuses an exact duplicate; that refusal is the

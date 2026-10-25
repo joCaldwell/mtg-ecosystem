@@ -1,7 +1,7 @@
 // The composite deck view: one payload with everything the deck page needs,
 // returned by every mutation so the client never reconciles partial updates.
 
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "./sqlite.ts";
 import { getPower } from "./deck/power.ts";
 import { getBrief } from "./deck/brief.ts";
 import { checkDeck } from "./deck/checks.ts";
@@ -11,7 +11,7 @@ import { getDeck } from "./deck/service.ts";
 import { listDocumentEdits } from "./documents.ts";
 import { loadScope } from "./memory.ts";
 
-export function deckState(db: DatabaseSync, deckId: number) {
+export function deckState(db: Database, deckId: number) {
   const memories = loadScope(db, "deck", deckId);
   return {
     ...getDeck(db, deckId),

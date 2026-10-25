@@ -3,7 +3,7 @@
 // the whole proposal, with an optional free-text reason. There are no reason
 // types and no cap on items.
 
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "../sqlite.ts";
 import { ServiceError } from "../errors.ts";
 import { withTransaction } from "../db.ts";
 import { type Actor, authorOf, requireOwner, PermissionError } from "../actor.ts";
@@ -30,7 +30,7 @@ export interface ProposalItemInput {
 // ---------- creation ----------
 
 export function createProposal(
-  db: DatabaseSync,
+  db: Database,
   actor: Actor,
   deckId: number,
   input: { summary?: string; items: ProposalItemInput[]; expected_revision?: number },
@@ -140,6 +140,9 @@ export interface ProposalItemView {
   toughness: string | null;
   loyalty: string | null;
   usd_cents: number | null;
+  image_small: string | null;
+  image_normal: string | null;
+  image_art_crop: string | null;
   slot_id: number | null;
   slot_name: string | null;
   secondary_slot_ids: number[];
@@ -170,7 +173,7 @@ export interface ProposalView {
 }
 
 const ITEM_SELECT = `SELECT pi.id, pi.proposal_id, pi.action, pi.oracle_id, c.name AS card_name,
-       c.mana_cost, c.type_line, c.oracle_text, c.power, c.toughness, c.loyalty, pr.usd_cents,
+       c.mana_cost, c.type_line, c.oracle_text, c.power, c.toughness, c.loyalty, pr.usd_cents, c.image_small, c.image_normal, c.image_art_crop,
        pi.slot_id, s.name AS slot_name, pi.secondary_slot_ids_json, pi.to_maybe, pi.reason, pi.group_id, pi.status
   FROM proposal_items pi JOIN cards c ON c.oracle_id = pi.oracle_id
   LEFT JOIN card_prices pr ON pr.oracle_id = pi.oracle_id
@@ -180,7 +183,7 @@ const ITEM_SELECT = `SELECT pi.id, pi.proposal_id, pi.action, pi.oracle_id, c.na
 const PROPOSAL_SELECT = `SELECT p.id, p.deck_id, d.name AS deck_name, p.summary, p.author, p.status, p.created_at, p.base_revision, p.disposition, p.superseded_by
   FROM proposals p JOIN decks d ON d.id = p.deck_id`;
 
-function withItems(db: DatabaseSync, rows: Array<Omit<ProposalView, "items">>): ProposalView[] {
+function withItems(db: Database, rows: Array<Omit<ProposalView, "items">>): ProposalView[] {
   const stmt = db.prepare(ITEM_SELECT);
   return rows.map(p => {
     const slots = new Map(listSlots(db, p.deck_id).map(s => [s.id, s.name]));
@@ -204,7 +207,7 @@ function withItems(db: DatabaseSync, rows: Array<Omit<ProposalView, "items">>): 
 
 /** Proposals for one deck, or across every deck when deckId is omitted (the inbox). */
 export function listProposals(
-  db: DatabaseSync,
+  db: Database,
   opts: { deckId?: number; status?: "open" | "resolved" } = {},
 ): ProposalView[] {
   const where: string[] = [];
@@ -225,7 +228,7 @@ export function listProposals(
   return withItems(db, rows);
 }
 
-export function getProposal(db: DatabaseSync, proposalId: number): ProposalView | null {
+export function getProposal(db: Database, proposalId: number): ProposalView | null {
   const row = db.prepare(`${PROPOSAL_SELECT} WHERE p.id = ?`).get(proposalId) as
     | Omit<ProposalView, "items">
     | undefined;
@@ -254,7 +257,7 @@ const ITEM_ROW = `SELECT pi.id, pi.proposal_id, p.deck_id, pi.action, pi.oracle_
 
 // The items a ruling covers: the ones named, widened to whole groups — a
 // group is ruled on as a unit so a swap cannot be half-accepted (spec §8.1).
-function itemsToRule(db: DatabaseSync, itemIds: number[]): ItemRow[] {
+function itemsToRule(db: Database, itemIds: number[]): ItemRow[] {
   if (!itemIds.length) throw new ServiceError("Name at least one item to rule on");
   const byId = new Map<number, ItemRow>();
   for (const id of itemIds) {
@@ -281,7 +284,7 @@ function itemsToRule(db: DatabaseSync, itemIds: number[]): ItemRow[] {
   return items;
 }
 
-function resolveProposalIfDone(db: DatabaseSync, proposalId: number) {
+function resolveProposalIfDone(db: Database, proposalId: number) {
   const { n } = db
     .prepare("SELECT COUNT(*) n FROM proposal_items WHERE proposal_id = ? AND status = 'pending'")
     .get(proposalId) as { n: number };
@@ -289,7 +292,7 @@ function resolveProposalIfDone(db: DatabaseSync, proposalId: number) {
     db.prepare("UPDATE proposals SET status = 'resolved' WHERE id = ?").run(proposalId);
 }
 
-function markItems(db: DatabaseSync, items: ItemRow[], status: "accepted" | "rejected") {
+function markItems(db: Database, items: ItemRow[], status: "accepted" | "rejected") {
   const stmt = db.prepare(
     "UPDATE proposal_items SET status = ?, resolved_at = datetime('now') WHERE id = ?",
   );
@@ -298,7 +301,7 @@ function markItems(db: DatabaseSync, items: ItemRow[], status: "accepted" | "rej
 
 /** Accept items: the changes are applied and logged as one act. Returns the log id. */
 export function acceptItems(
-  db: DatabaseSync,
+  db: Database,
   actor: Actor,
   itemIds: number[],
   reason = "",
@@ -345,9 +348,39 @@ export function acceptItems(
   });
 }
 
+/** Validate the click's entire revision/acknowledgement snapshot before any
+ * membership changes. Subsequent revisions are produced only by this batch. */
+export function acceptProposals(
+  db: Database, actor: Actor, deckId: number,
+  approvals: Array<{ proposal_id: number; acknowledge_stale?: boolean }>, expectedRevision: number,
+): void {
+  requireOwner(actor, "rule on proposals");
+  requireEditableDeck(db, deckId);
+  withTransaction(db, () => {
+    requireRevision(db, deckId, expectedRevision);
+    if (!approvals.length || new Set(approvals.map(a => a.proposal_id)).size !== approvals.length)
+      throw new ServiceError("Select each open proposal once");
+    const pending = approvals.map(approval => {
+      const proposal = getProposal(db, approval.proposal_id);
+      if (!proposal || proposal.deck_id !== deckId) throw new ServiceError("Every proposal must belong to this deck");
+      if (proposal.stale && approval.acknowledge_stale !== true)
+        throw new ServiceError("Proposal is stale; review changes and acknowledge_stale with expected_revision, or amend it", 409);
+      const ids = pendingItemIds(db, proposal.id);
+      if (!ids.length) throw new ServiceError("Proposal has no pending items", 409);
+      return ids;
+    });
+    for (const ids of pending) acceptItems(db, actor, ids, "", {
+      expected_revision: requireDeck(db, deckId).revision,
+      // All original bases were checked above, within this transaction. Only
+      // this batch can have advanced the revision since that check.
+      acknowledge_stale: true,
+    });
+  });
+}
+
 /** Reject items. Nothing changes; the ruling and its optional reason are logged. */
 export function rejectItems(
-  db: DatabaseSync,
+  db: Database,
   actor: Actor,
   itemIds: number[],
   reason = "",
@@ -387,7 +420,7 @@ export function rejectItems(
 }
 
 /** Every item of a proposal that is still pending. */
-export function pendingItemIds(db: DatabaseSync, proposalId: number): number[] {
+export function pendingItemIds(db: Database, proposalId: number): number[] {
   return (
     db
       .prepare("SELECT id FROM proposal_items WHERE proposal_id = ? AND status = 'pending' ORDER BY id")
@@ -397,7 +430,7 @@ export function pendingItemIds(db: DatabaseSync, proposalId: number): number[] {
 
 /** Only current pending work can be revised. Items already ruled on remain
  * immutable in the previous proposal; the replacement describes remaining work. */
-function requireOwnPending(db: DatabaseSync, actor: Actor, id: number): ProposalView {
+function requireOwnPending(db: Database, actor: Actor, id: number): ProposalView {
   const proposal = getProposal(db, id);
   if (!proposal) throw new ServiceError(`Proposal ${id} not found`, 404);
   requireEditableDeck(db, proposal.deck_id);
@@ -408,7 +441,7 @@ function requireOwnPending(db: DatabaseSync, actor: Actor, id: number): Proposal
   return proposal;
 }
 
-export function withdrawProposal(db: DatabaseSync, actor: Actor, id: number, reason: string, expectedRevision?: number): void {
+export function withdrawProposal(db: Database, actor: Actor, id: number, reason: string, expectedRevision?: number): void {
   withTransaction(db, () => {
     const proposal = requireOwnPending(db, actor, id);
     requireRevision(db, proposal.deck_id, expectedRevision);
@@ -419,7 +452,7 @@ export function withdrawProposal(db: DatabaseSync, actor: Actor, id: number, rea
   });
 }
 
-export function amendProposal(db: DatabaseSync, actor: Actor, id: number,
+export function amendProposal(db: Database, actor: Actor, id: number,
   input: { summary?: string; items: ProposalItemInput[]; expected_revision?: number }): number {
   return withTransaction(db, () => {
     const proposal = requireOwnPending(db, actor, id);

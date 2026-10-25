@@ -6,7 +6,7 @@
 // Nothing here calls a model. Search is SQLite full-text plus scope and card
 // links; consolidation is the agent's work, prompted by the budget signal.
 
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "./sqlite.ts";
 import { ServiceError } from "./errors.ts";
 import { getSetting, setSetting, withTransaction } from "./db.ts";
 import { type Actor, PermissionError, authorOf } from "./actor.ts";
@@ -43,7 +43,7 @@ const SELECT = `SELECT m.id, m.text, m.scope, m.deck_id, d.name AS deck_name, (d
 
 type Row = Omit<MemoryView, "cards" | "owner_touched"> & { owner_touched: number };
 
-function toViews(db: DatabaseSync, rows: Row[]): MemoryView[] {
+function toViews(db: Database, rows: Row[]): MemoryView[] {
   const cards = db.prepare(
     `SELECT mc.oracle_id, c.name FROM memory_cards mc JOIN cards c ON c.oracle_id = mc.oracle_id
      WHERE mc.memory_id = ? ORDER BY c.name`,
@@ -56,7 +56,7 @@ function toViews(db: DatabaseSync, rows: Row[]): MemoryView[] {
   }));
 }
 
-export function getMemory(db: DatabaseSync, id: number): MemoryView {
+export function getMemory(db: Database, id: number): MemoryView {
   const row = db.prepare(`${SELECT} WHERE m.id = ?`).get(id) as Row | undefined;
   if (!row) throw new ServiceError(`There is no memory ${id}`, 404);
   return toViews(db, [row])[0];
@@ -66,7 +66,7 @@ export function getMemory(db: DatabaseSync, id: number): MemoryView {
 
 export const DEFAULT_BUDGETS = { global: 1500, deck: 1000 };
 
-export function getBudgets(db: DatabaseSync): { global: number; deck: number } {
+export function getBudgets(db: Database): { global: number; deck: number } {
   const read = (key: string, fallback: number) => {
     const n = Number(getSetting(db, key));
     return Number.isFinite(n) && n > 0 ? n : fallback;
@@ -77,7 +77,7 @@ export function getBudgets(db: DatabaseSync): { global: number; deck: number } {
   };
 }
 
-export function setBudgets(db: DatabaseSync, budgets: { global?: number; deck?: number }): void {
+export function setBudgets(db: Database, budgets: { global?: number; deck?: number }): void {
   for (const [key, value] of Object.entries(budgets)) {
     if (value === undefined) continue;
     if (!Number.isFinite(value) || value < 100 || value > 20000)
@@ -103,7 +103,7 @@ export interface LoadedScope {
 
 // What loads with a scope (spec §7.2, §7.4): the most recently revised active
 // memories that fit the budget, and a count of what was left out.
-export function loadScope(db: DatabaseSync, scope: MemoryScope, deckId?: number): LoadedScope {
+export function loadScope(db: Database, scope: MemoryScope, deckId?: number): LoadedScope {
   const all = listMemories(db, { scope, deckId, limit: 1000 });
   const budget = getBudgets(db)[scope];
   const memories: MemoryView[] = [];
@@ -149,7 +149,7 @@ const STOPWORDS = new Set([
 ]);
 
 /** Most recently revised first; with a query, best match first. */
-export function listMemories(db: DatabaseSync, q: MemoryQuery = {}): MemoryView[] {
+export function listMemories(db: Database, q: MemoryQuery = {}): MemoryView[] {
   const where: string[] = [];
   const params: Array<string | number> = [];
   const status = q.status ?? "active";
@@ -196,7 +196,7 @@ export function listMemories(db: DatabaseSync, q: MemoryQuery = {}): MemoryView[
 // appears. A global one follows the card into every deck; a deck-scoped one
 // surfaces only in its own deck.
 export function memoriesForCards(
-  db: DatabaseSync,
+  db: Database,
   oracleIds: string[],
   deckId?: number,
 ): Map<string, MemoryView[]> {
@@ -216,12 +216,12 @@ export function memoriesForCards(
 
 // ---------- writing ----------
 
-function indexText(db: DatabaseSync, id: number, text: string) {
+function indexText(db: Database, id: number, text: string) {
   db.prepare("DELETE FROM memories_fts WHERE memory_id = ?").run(id);
   db.prepare("INSERT INTO memories_fts (text, memory_id) VALUES (?, ?)").run(text, id);
 }
 
-function setCards(db: DatabaseSync, id: number, oracleIds: string[]) {
+function setCards(db: Database, id: number, oracleIds: string[]) {
   db.prepare("DELETE FROM memory_cards WHERE memory_id = ?").run(id);
   const ins = db.prepare("INSERT OR IGNORE INTO memory_cards (memory_id, oracle_id) VALUES (?, ?)");
   for (const oid of new Set(oracleIds)) ins.run(id, oid);
@@ -229,7 +229,7 @@ function setCards(db: DatabaseSync, id: number, oracleIds: string[]) {
 
 // Cards a memory is linked to: the ones named explicitly plus every
 // [[Card Name]] in the text, so mentioning a card is enough to attach to it.
-function linkedCards(db: DatabaseSync, text: string, explicit: string[] = []): string[] {
+function linkedCards(db: Database, text: string, explicit: string[] = []): string[] {
   for (const id of explicit) requireCardById(db, id);
   return [...new Set([...explicit, ...lintProse(db, text).map((c) => c.oracle_id)])];
 }
@@ -239,7 +239,7 @@ const fold = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " 
 // Existing memories that resemble a new one: same words, or the same linked
 // cards, within the scopes a reader of the new one would also see.
 function findSimilar(
-  db: DatabaseSync,
+  db: Database,
   text: string,
   scope: MemoryScope,
   deckId: number | null,
@@ -256,9 +256,11 @@ function findSimilar(
       db
         .prepare(
           `${SELECT} JOIN memories_fts ON memories_fts.memory_id = m.id
-           WHERE memories_fts MATCH ? AND m.status = 'active' ORDER BY bm25(memories_fts) LIMIT 12`,
+           WHERE memories_fts MATCH ? AND m.status = 'active'
+             AND (m.scope = 'global' OR (? = 'deck' AND m.deck_id = ?)) AND m.id != ?
+           ORDER BY bm25(memories_fts) LIMIT 12`,
         )
-        .all(match) as unknown as Row[],
+        .all(match, scope, deckId, excludeId ?? -1) as unknown as Row[],
     ))
       if (inReach(m) && found.size < 4) found.set(m.id, m);
   for (const [, linked] of memoriesForCards(db, cardIds, deckId ?? undefined))
@@ -298,7 +300,7 @@ function validateText(text: string): string {
 }
 
 /** Write a memory. No approval; always visible to the owner (spec §7.3, §7.5). */
-export function remember(db: DatabaseSync, actor: Actor, input: RememberInput): RememberResult {
+export function remember(db: Database, actor: Actor, input: RememberInput): RememberResult {
   const text = validateText(input.text);
   if (input.scope !== "global" && input.scope !== "deck")
     throw new ServiceError("A memory's scope is 'global' or 'deck'");
@@ -374,7 +376,7 @@ export type Revision =
 
 /** Revise a memory. Nothing is deleted: superseding and retiring both keep the row. */
 export function reviseMemory(
-  db: DatabaseSync,
+  db: Database,
   actor: Actor,
   id: number,
   revision: Revision,
@@ -438,6 +440,7 @@ export function reviseMemory(
       ).run(touched, id);
       return getMemory(db, id);
     case "confirm":
+      assertMayChange(actor, memory);
       // The owner said so, in the app or in conversation: a hypothesis
       // becomes a stated fact. Confirming does not hand the memory to the
       // owner; only their own edit does that.
@@ -454,7 +457,7 @@ export function reviseMemory(
 
 // A fork starts with its parent's deck memories (spec §5.3). They are copies:
 // the two decks diverge, and so does what is known about each.
-export function copyDeckMemories(db: DatabaseSync, fromDeckId: number, toDeckId: number): number {
+export function copyDeckMemories(db: Database, fromDeckId: number, toDeckId: number): number {
   const source = listMemories(db, { scope: "deck", deckId: fromDeckId, limit: 1000 });
   const revision = requireEditableDeck(db, toDeckId).revision;
   const ins = db.prepare(

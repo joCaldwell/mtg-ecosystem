@@ -3,7 +3,7 @@
 // parent. The copies then diverge; the link exists so the two can be compared.
 // Forks replace named checkpoints: there is no snapshot system and no DAG.
 
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "../sqlite.ts";
 import { ServiceError } from "../errors.ts";
 import { withTransaction } from "../db.ts";
 import type { Actor } from "../actor.ts";
@@ -12,10 +12,10 @@ import { copyDeckMemories } from "../memory.ts";
 import { writeLog } from "./log.ts";
 import { createDeck, getDeck, recomputeIdentity, requireDeck } from "./service.ts";
 
-export function forkDeck(db: DatabaseSync, actor: Actor, deckId: number, name: string): number {
+export function forkDeck(db: Database, actor: Actor, deckId: number, name: string): number {
   const parent = requireDeck(db, deckId);
   return withTransaction(db, () => {
-    const forkId = createDeck(db, name, { parentId: deckId });
+    const forkId = createDeck(db, actor, name, { parentId: deckId });
 
     const slotMap = new Map<number, number>();
     const insSlot = db.prepare(
@@ -134,7 +134,7 @@ export interface DeckComparison {
 }
 
 /** Compare two decks' lists (maybe lists excluded). With no second deck, compares against the parent. */
-export function compareDecks(db: DatabaseSync, aId: number, bId?: number): DeckComparison {
+export function compareDecks(db: Database, aId: number, bId?: number): DeckComparison {
   const a = getDeck(db, aId);
   let other = bId;
   if (other === undefined) {

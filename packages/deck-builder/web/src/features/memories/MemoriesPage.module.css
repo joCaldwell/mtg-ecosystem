@@ -48,26 +48,6 @@
 }
 
 /* Pill toggles: a Chip cannot show "selected", and these are state, not tags. */
-.pill {
-  height: var(--h-sm);
-  padding: 0 var(--s-4);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-pill);
-  background: none;
-  color: var(--muted);
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
-
-.pill:hover {
-  color: var(--text);
-}
-
-.pillOn {
-  background: var(--raised);
-  border-color: var(--faint);
-  color: var(--text);
-}
 
 .search {
   width: 240px;

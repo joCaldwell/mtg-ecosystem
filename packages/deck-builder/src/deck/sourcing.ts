@@ -1,4 +1,4 @@
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "../sqlite.ts";
 import type { Actor } from "../actor.ts";
 import { authorOf } from "../actor.ts";
 import { recordActivity } from "../activity.ts";
@@ -31,13 +31,13 @@ export interface OwnershipEvidence {
   created_at: string;
 }
 
-export function ownershipEvidence(db: DatabaseSync, oracleId: string): OwnershipEvidence[] {
+export function ownershipEvidence(db: Database, oracleId: string): OwnershipEvidence[] {
   return db.prepare("SELECT * FROM ownership_evidence WHERE oracle_id = ? ORDER BY id DESC").all(oracleId) as unknown as OwnershipEvidence[];
 }
 
 /** A statement of evidence, not an inferred inventory. Latest statement wins;
  * all earlier statements stay available for audit. Deck removal never edits it. */
-export function recordOwnership(db: DatabaseSync, actor: Actor, deckId: number, inputs: OwnershipInput[], expectedRevision?: number): void {
+export function recordOwnership(db: Database, actor: Actor, deckId: number, inputs: OwnershipInput[], expectedRevision?: number): void {
   requireEditableDeck(db, deckId);
   requireRevision(db, deckId, expectedRevision);
   if (!inputs.length) throw new ServiceError("Record at least one ownership statement");
@@ -83,7 +83,7 @@ export interface SourcingOptions {
   expected_source_revisions?: Record<string, number>;
 }
 
-export function compareDeckSources(db: DatabaseSync, actor: Actor, targetId: number, sourceIds: number[], opts: SourcingOptions = {}) {
+export function compareDeckSources(db: Database, actor: Actor, targetId: number, sourceIds: number[], opts: SourcingOptions = {}) {
   return withTransaction(db, () => {
     const ids = [...new Set(sourceIds)];
     if (!ids.length || ids.includes(targetId)) throw new ServiceError("Name at least one source deck, different from the target");

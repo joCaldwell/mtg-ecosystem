@@ -60,10 +60,11 @@ function HoverCard({ shown }: { shown: Shown }) {
       role="tooltip"
       style={{ left: pos?.left ?? 0, top: pos?.top ?? 0, visibility: pos ? "visible" : "hidden" }}
     >
-      {image !== "failed" && (
+      {image !== "failed" && cardImageUrl(card) && (
         <img
           className={image === "loaded" ? styles.image : styles.pending}
-          src={cardImageUrl(card.name)}
+          src={cardImageUrl(card)}
+          loading="lazy"
           alt=""
           onLoad={() => setImage("loaded")}
           onError={() => setImage("failed")}

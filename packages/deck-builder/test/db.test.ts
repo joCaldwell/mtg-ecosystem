@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { Database } from "../src/sqlite.ts";
 import { SCHEMA_VERSION, SchemaError, openDb } from "../src/db.ts";
 import { proposeDocumentEdit, listDocumentEdits } from "../src/documents.ts";
 import { getPower, parseTarget } from "../src/deck/power.ts";
@@ -24,7 +24,7 @@ describe("opening a database", () => {
     const old = openDb(path);
     ingestCards(old, FIXTURES);
     const ids = (["paper", "theorycrafted", "legacy"] as const).map((category, index) => {
-      const id = createDeck(old, `Lifecycle ${index}`);
+      const id = createDeck(old, OWNER, `Lifecycle ${index}`);
       const slot = createSlot(old, id, "Utility");
       const tag = createTag(old, id, "Have");
       add(old, id, "id-solring", { slotId: slot });
@@ -40,7 +40,7 @@ describe("opening a database", () => {
     assert.deepEqual(ids.map(id => getDeck(migrated, id)), before);
     assert.ok(!migrated.prepare("PRAGMA table_info(decks)").all().some((c: any) => c.name === "status"));
     assert.deepEqual(migrated.prepare("PRAGMA foreign_key_check").all(), []);
-    assert.ok(createDeck(migrated, "Next lifecycle deck") > ids[2]);
+    assert.ok(createDeck(migrated, OWNER, "Next lifecycle deck") > ids[2]);
     migrated.close();
     const reopened = openDb(path);
     assert.deepEqual(ids.map(id => getDeck(reopened, id)), before);
@@ -50,7 +50,7 @@ describe("opening a database", () => {
     const path = join(dir, "v7.db");
     const old = openDb(path);
     ingestCards(old, FIXTURES);
-    const deck = createDeck(old, "Existing purposes");
+    const deck = createDeck(old, OWNER, "Existing purposes");
     const primary = createSlot(old, deck, "Ramp", 1, 2);
     const tag = createTag(old, deck, "Have");
     add(old, deck, "id-solring", { slotId: primary });
@@ -87,7 +87,7 @@ describe("opening a database", () => {
     const path = join(dir, "v5.db");
     const old = openDb(path);
     ingestCards(old, FIXTURES);
-    const deck = createDeck(old, "Existing assembled deck", { category: "paper" });
+    const deck = createDeck(old, OWNER, "Existing assembled deck", { category: "paper" });
     setDeckCategory(old, OWNER, deck, "paper");
     const slot = createSlot(old, deck, "Ramp");
     const tag = createTag(old, deck, "Need to get");
@@ -126,7 +126,7 @@ describe("opening a database", () => {
   // tables beside a stranger's and leave a file nothing can read.
   test("a file with another shape is refused and left byte-for-byte as it was", () => {
     const path = join(dir, "other.db");
-    const other = new DatabaseSync(path);
+    const other = new Database(path);
     other.exec("CREATE TABLE decks (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO decks (name) VALUES ('mine');");
     other.close();
     const before = readFileSync(path);
@@ -136,7 +136,7 @@ describe("opening a database", () => {
   test("a file from another schema version is refused too", () => {
     const path = join(dir, "future.db");
     openDb(path).close();
-    const db = new DatabaseSync(path);
+    const db = new Database(path);
     db.exec("UPDATE meta SET value = '99' WHERE key = 'schema_version'");
     db.close();
     assert.throws(() => openDb(path), new RegExp(`reports schema 99; this version uses ${SCHEMA_VERSION}`));
@@ -145,7 +145,7 @@ describe("opening a database", () => {
     const path = join(dir, "v4.db");
     const old = openDb(path);
     ingestCards(old, FIXTURES);
-    const id = createDeck(old, "Power migration", { category: "paper" });
+    const id = createDeck(old, OWNER, "Power migration", { category: "paper" });
     add(old, id, "id-solring");
     const edit = proposeDocumentEdit(old, AGENT, id, "thesis", { content: "Existing thesis" }, "Owner requested it.");
     old.exec("UPDATE sqlite_sequence SET seq = 100 WHERE name = 'document_edits'; ALTER TABLE cards DROP COLUMN game_changer; DROP TABLE power_assessments; DROP TABLE power_targets; UPDATE meta SET value = '4' WHERE key = 'schema_version'");
@@ -168,7 +168,7 @@ describe("opening a database", () => {
     const path = join(dir, "v2.db");
     const old = openDb(path);
     ingestCards(old, FIXTURES);
-    const id = createDeck(old, "Existing deck", { category: "paper" });
+    const id = createDeck(old, OWNER, "Existing deck", { category: "paper" });
     add(old, id, "id-solring");
     const before = getDeck(old, id);
     old.exec("ALTER TABLE decks DROP COLUMN category; UPDATE meta SET value = '2' WHERE key = 'schema_version'");
@@ -194,8 +194,8 @@ describe("opening a database", () => {
     const path = join(dir, "v3.db");
     const old = openDb(path);
     ingestCards(old, FIXTURES);
-    const deck = createDeck(old, "Tagged deck");
-    const other = createDeck(old, "Other deck");
+    const deck = createDeck(old, OWNER, "Tagged deck");
+    const other = createDeck(old, OWNER, "Other deck");
     const tag = createTag(old, deck, "Engine");
     const foreign = createTag(old, other, "Engine");
     add(old, deck, "id-solring");
@@ -230,8 +230,8 @@ describe("opening a database", () => {
     const path = join(dir, "invalid-tags.db");
     const old = openDb(path);
     ingestCards(old, FIXTURES);
-    const deck = createDeck(old, "Invalid tag deck");
-    const other = createDeck(old, "Tag owner");
+    const deck = createDeck(old, OWNER, "Invalid tag deck");
+    const other = createDeck(old, OWNER, "Tag owner");
     const tag = createTag(old, other, "Engine");
     add(old, deck, "id-solring");
     old.exec(`DROP TABLE deck_card_tags;
@@ -245,7 +245,7 @@ describe("opening a database", () => {
     old.prepare("INSERT INTO deck_card_tags VALUES (?, ?, ?)").run(deck, "id-solring", tag);
     old.close();
     assert.throws(() => openDb(path), /FOREIGN KEY/);
-    const unchanged = new DatabaseSync(path);
+    const unchanged = new Database(path);
     assert.equal((unchanged.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value, "3");
     assert.equal((unchanged.prepare("SELECT tag_id FROM deck_card_tags WHERE deck_id = ?").get(deck) as { tag_id: number }).tag_id, tag);
     assert.equal(unchanged.prepare("SELECT 1 FROM sqlite_master WHERE name = 'deck_card_tags_v4'").get(), undefined);
@@ -257,7 +257,7 @@ test("schema 9 migrates Have evidence and proposal bases conservatively, preserv
   const path = join(dir, "v9-sourcing-proposals.db");
   const old = openDb(path);
   ingestCards(old, FIXTURES);
-  const id = createDeck(old, "Old sourcing list");
+  const id = createDeck(old, OWNER, "Old sourcing list");
   add(old, id, "id-solring");
   const have = createTag(old, id, "Have");
   organizeCard(old, id, "id-solring", { tagIds: [have] });
@@ -282,8 +282,8 @@ test("schema 9 migrates Have evidence and proposal bases conservatively, preserv
   assert.equal(evidence[0].available_quantity, null);
   const [edit] = listDocumentEdits(migrated, { deckId: id });
   assert.equal(edit.id, editId);
-  assert.equal(edit.base_revision, null);
-  assert.equal(edit.stale, true);
+  assert.equal(edit.base_revision, before.deck.revision);
+  assert.equal(edit.stale, false);
   cut(migrated, id, "id-solring");
   assert.deepEqual(migrated.prepare("SELECT * FROM ownership_evidence").all(), evidence);
   assert.deepEqual(migrated.prepare("PRAGMA foreign_key_check").all(), []);

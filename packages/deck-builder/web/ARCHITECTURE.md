@@ -98,3 +98,31 @@ has to follow.
 tests and the layering test. `npm run dev` serves the UI with hot reload;
 seed the demo deck first (`npm run seed:demo`) so every panel has content.
 `#/design` shows every primitive in every state.
+
+## Recovery and background work
+
+`api/client.ts` checks HTTP status and content type before decoding JSON.
+`ApiError` retains both the status and server error text. `DeckStore` treats
+404 as missing, 403 as forbidden, and network/5xx failures as retryable load
+errors; `DeckGate` renders each state and offers Retry. A top-level
+`app/ErrorBoundary` catches render failures and offers Reload.
+
+`useReview.tsx` renders the existing `ConfirmDialog` for older proposals.
+Accept-all sends one atomic batch at the revision visible when clicked,
+acknowledging only proposals already stale then. All original baselines are
+validated before the server applies any changes.
+
+Images are ingested card facts (`image_small`, `image_normal`,
+`image_art_crop`); `mtg/cardImage.ts` selects a stored URL. `CardImage`
+uses a supplied card's stored image URL directly, or resolves through
+`CardLookup` (shared with hover cards) when no URL is known. Every image uses
+lazy loading. Missing image data retains the placeholder. Never construct a
+Scryfall API image URL in the client.
+
+Settings enqueues refresh jobs and displays last/next run and result for
+refresh and backup. The server's SSE has a 25-second comment heartbeat;
+job completion emits a normal invalidation. The shared `domain/familyOrder`
+keeps all fork descendants in the roster; `ui/Pill` owns selectable filter
+pills. Proposal history uses Section/Box/Stack/Chip and human-readable dates
+and edit titles, without approval controls. The Memories scope-reset effect
+depends only on the scope and unfiltered memory response.

@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "../src/sqlite.ts";
 import { OWNER, PermissionError } from "../src/actor.ts";
 import { listActivity } from "../src/activity.ts";
 import { CardResolutionError } from "../src/cards.ts";
@@ -20,11 +20,11 @@ import { PLAYBOOK } from "../src/mcp/playbook.ts";
 import { TOOLS, callTool } from "../src/mcp/tools.ts";
 import { AGENT, add, newDeck, testDb } from "./helpers.ts";
 
-const call = (db: DatabaseSync, name: string, args: unknown = {}) =>
+const call = (db: Database, name: string, args: unknown = {}) =>
   callTool({ db, actor: AGENT }, name, args);
-const text = (db: DatabaseSync, name: string, args: unknown = {}) => call(db, name, args).text;
+const text = (db: Database, name: string, args: unknown = {}) => call(db, name, args).text;
 
-function seeded(db: DatabaseSync, status: "theorycrafted" | "paper" = "paper") {
+function seeded(db: Database, status: "theorycrafted" | "paper" = "paper") {
   const id = newDeck(db, status, `Teferi ${status} ${Math.random().toString(36).slice(2, 7)}`);
   add(db, id, "id-teferi", { role: "commander" });
   add(db, id, "id-counterspell");

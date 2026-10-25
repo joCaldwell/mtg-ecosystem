@@ -6,7 +6,7 @@
 // The permission rule of the whole app lives in applyChanges (spec §5.2): an
 // agent may change membership directly only on a Theorycrafted deck.
 
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "../sqlite.ts";
 import { ServiceError } from "../errors.ts";
 import { withTransaction } from "../db.ts";
 import { type Actor, PermissionError, requireOwner } from "../actor.ts";
@@ -65,7 +65,7 @@ interface CutBefore {
   parked: boolean;
 }
 
-function tagIdsOf(db: DatabaseSync, deckId: number, oracleId: string): number[] {
+function tagIdsOf(db: Database, deckId: number, oracleId: string): number[] {
   return (
     db
       .prepare("SELECT tag_id FROM deck_card_tags WHERE deck_id = ? AND oracle_id = ?")
@@ -73,11 +73,11 @@ function tagIdsOf(db: DatabaseSync, deckId: number, oracleId: string): number[] 
   ).map((t) => t.tag_id);
 }
 
-function slotExists(db: DatabaseSync, deckId: number, slotId: number): boolean {
+function slotExists(db: Database, deckId: number, slotId: number): boolean {
   return !!db.prepare("SELECT 1 FROM slots WHERE id = ? AND deck_id = ?").get(slotId, deckId);
 }
 
-function assertRoleCapacity(db: DatabaseSync, deckId: number, role: "commander" | "companion") {
+function assertRoleCapacity(db: Database, deckId: number, role: "commander" | "companion") {
   const { n } = db
     .prepare("SELECT COUNT(*) n FROM deck_cards WHERE deck_id = ? AND role = ? AND maybe = 0")
     .get(deckId, role) as { n: number };
@@ -91,7 +91,7 @@ function assertRoleCapacity(db: DatabaseSync, deckId: number, role: "commander" 
     );
 }
 
-function setRole(db: DatabaseSync, deckId: number, oracleId: string, role: Role) {
+function setRole(db: Database, deckId: number, oracleId: string, role: Role) {
   if (role !== "card") assertRoleCapacity(db, deckId, role);
   // Zone and purpose are independent; becoming a commander keeps its roles.
   db.prepare("UPDATE deck_cards SET role = ? WHERE deck_id = ? AND oracle_id = ?")
@@ -99,7 +99,7 @@ function setRole(db: DatabaseSync, deckId: number, oracleId: string, role: Role)
 }
 
 function applyAdd(
-  db: DatabaseSync,
+  db: Database,
   deckId: number,
   c: Extract<Change, { action: "add" }>,
 ): LogCardInput {
@@ -167,7 +167,7 @@ function applyAdd(
 }
 
 function applyCut(
-  db: DatabaseSync,
+  db: Database,
   deckId: number,
   c: Extract<Change, { action: "cut" }>,
 ): LogCardInput {
@@ -216,7 +216,7 @@ function applyCut(
 }
 
 function applyRole(
-  db: DatabaseSync,
+  db: Database,
   deckId: number,
   c: Extract<Change, { action: "role" }>,
 ): LogCardInput | null {
@@ -241,7 +241,7 @@ function applyRole(
  * Returns the id of the log entry, or null if nothing actually changed.
  */
 export function applyChanges(
-  db: DatabaseSync,
+  db: Database,
   actor: Actor,
   deckId: number,
   changes: Change[],
@@ -308,7 +308,7 @@ export interface UndoResult {
   skipped: string[];
 }
 
-export function undo(db: DatabaseSync, actor: Actor, logId: number): UndoResult {
+export function undo(db: Database, actor: Actor, logId: number): UndoResult {
   requireOwner(actor, "undo a change");
   const entry = getLogEntry(db, logId);
   if (!entry || entry.deck_id == null) throw new ServiceError(`Log entry ${logId} not found`, 404);
@@ -410,7 +410,7 @@ export function undo(db: DatabaseSync, actor: Actor, logId: number): UndoResult 
 
 /** Set a card's quantity as one logged act. */
 export function setQuantity(
-  db: DatabaseSync,
+  db: Database,
   actor: Actor,
   deckId: number,
   oracleId: string,

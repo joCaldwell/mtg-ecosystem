@@ -3,7 +3,7 @@
 // the app's card data current" — whether they run the command or press the
 // button in Settings.
 
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "./sqlite.ts";
 import { ingestFromFile } from "./ingest.ts";
 import { cheapestPrintings, ingestPrices, priceStatus, pricesAsOf } from "./prices.ts";
 import { bulkEntry, ensureBulkFile, streamPrintings } from "./scryfall.ts";
@@ -18,10 +18,10 @@ export interface RefreshResult {
 }
 
 export async function refreshCardData(
-  db: DatabaseSync,
+  db: Database,
   opts: { force?: boolean } = {},
 ): Promise<RefreshResult> {
-  const cards = ingestFromFile(db, await ensureBulkFile(opts.force)).inserted;
+  const cards = (await ingestFromFile(db, await ensureBulkFile(opts.force))).inserted;
 
   const entry = await bulkEntry("default_cards");
   const current = !opts.force && pricesAsOf(db) === entry.updated_at;

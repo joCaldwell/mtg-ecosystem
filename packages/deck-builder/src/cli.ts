@@ -1,3 +1,5 @@
+import { backupDatabase, restoreDatabase } from "./backups.ts";
+import { runJob } from "./jobs.ts";
 import { openDb, DEFAULT_DB_PATH } from "./db.ts";
 import { formatUsd } from "./prices.ts";
 import { refreshCardData } from "./refresh.ts";
@@ -33,8 +35,20 @@ async function main() {
   switch (cmd) {
     case "refresh": {
       const db = openDb();
-      await refreshCardData(db, { force: rest.includes("--force") });
-      db.close();
+      try { await runJob(db, "refresh", () => refreshCardData(db, { force: rest.includes("--force") })); }
+      finally { db.close(); }
+      break;
+    }
+    case "backup": {
+      const db = openDb();
+      try { console.log(await runJob(db, "backup", () => backupDatabase(db))); }
+      finally { db.close(); }
+      break;
+    }
+    case "restore": {
+      if (rest.length !== 1) throw new Error("Usage: cli.ts restore <backup-file>");
+      const result = await restoreDatabase(rest[0]);
+      console.log(`Restored ${result.decks} decks to ${DEFAULT_DB_PATH}`);
       break;
     }
     case "search": {
@@ -64,9 +78,9 @@ async function main() {
       break;
     }
     default:
-      console.error("Usage: cli.ts <refresh [--force] | search <query>>");
+      console.error("Usage: cli.ts <refresh [--force] | backup | restore <file> | search <query>>");
       process.exit(1);
   }
 }
 
-main();
+main().catch(error => { console.error(error); process.exitCode = 1; });

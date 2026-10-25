@@ -4,7 +4,7 @@ import { ago } from "../../domain/time.ts";
 import { Box, Button, ErrorNote, Row, Spacer, Stack, Text } from "../../ui/index.ts";
 
 /** The card database and its prices, ingested from Scryfall's bulk files (spec §4.1, §4.4). */
-export function CardDataCard({ cards, onChanged }: { cards: Settings["cards"]; onChanged: () => void }) {
+export function CardDataCard({ cards, jobs, onChanged }: { cards: Settings["cards"]; jobs: Settings["jobs"]; onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
@@ -16,7 +16,7 @@ export function CardDataCard({ cards, onChanged }: { cards: Settings["cards"]; o
     try {
       const next = await api.refreshCards();
       setResult(
-        `Loaded ${next.cards.count.toLocaleString()} cards and ${next.cards.prices.priced.toLocaleString()} prices.`,
+        `Refresh ${next.jobs?.active === "refresh" ? "started" : "queued"}. You can keep using the app while it runs.`,
       );
       onChanged();
     } catch (e) {
@@ -39,8 +39,8 @@ export function CardDataCard({ cards, onChanged }: { cards: Settings["cards"]; o
           </Text>
           <Text tone="faint">refreshed {cards.updated_at ? ago(cards.updated_at) : "never"}</Text>
           <Spacer />
-          <Button size="sm" onClick={refresh} disabled={busy}>
-            {busy ? "Refreshing…" : "Refresh now"}
+          <Button size="sm" onClick={refresh} disabled={busy || jobs?.active === "refresh" || jobs?.queued.includes("refresh")}>
+            {busy ? "Queuing…" : jobs?.active === "refresh" ? "Refreshing…" : "Refresh now"}
           </Button>
         </Row>
         <Text tone="muted" size="sm" as="p">
@@ -49,9 +49,16 @@ export function CardDataCard({ cards, onChanged }: { cards: Settings["cards"]; o
               `prices, published ${ago(cards.prices.as_of)}. Scryfall updates them daily, and they are estimates.`
             : "No prices loaded yet. Refresh to load them."}
         </Text>
+        {jobs && <Stack gap={2}>
+          {(["refresh", "backup"] as const).map(name => <Text key={name} tone={jobs[name].result === "error" ? "cut" : "muted"} size="sm">
+            {name === "refresh" ? "Card refresh" : "Backup"}: {jobs.active === name ? "running" : jobs[name].result ?? "not run yet"}
+            {jobs[name].last_run ? ` · last run ${ago(jobs[name].last_run!)}` : ""}
+            {` · next ${new Date(jobs[name].next_run).toLocaleString()}`}
+          </Text>)}
+        </Stack>}
         {busy && (
           <Text tone="muted" size="sm" role="status">
-            Downloading Scryfall's cards and every printing's price, then loading them. This can take a minute.
+            Queuing the background refresh.
           </Text>
         )}
         {result && (

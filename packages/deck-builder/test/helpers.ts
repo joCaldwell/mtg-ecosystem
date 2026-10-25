@@ -1,4 +1,4 @@
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "../src/sqlite.ts";
 import { openDb } from "../src/db.ts";
 import { ingestCards } from "../src/ingest.ts";
 import { OWNER, agent } from "../src/actor.ts";
@@ -9,20 +9,20 @@ import { FIXTURES } from "./fixtures.ts";
 export const AGENT = agent("test-agent");
 
 /** A fresh in-memory database with the fixture cards. */
-export function testDb(): DatabaseSync {
+export function testDb(): Database {
   const db = openDb(":memory:");
   ingestCards(db, FIXTURES);
   return db;
 }
 
 let n = 0;
-export function newDeck(db: DatabaseSync, category: DeckCategory = "paper", name?: string): number {
-  return createDeck(db, name ?? `Deck ${++n}`, { category });
+export function newDeck(db: Database, category: DeckCategory = "paper", name?: string): number {
+  return createDeck(db, OWNER, name ?? `Deck ${++n}`, { category });
 }
 
 /** The owner adding one card directly, as the UI does. */
 export function add(
-  db: DatabaseSync,
+  db: Database,
   deckId: number,
   oracleId: string,
   opts: { slotId?: number | null; role?: Role; quantity?: number } = {},
@@ -36,7 +36,7 @@ export function add(
   );
 }
 
-export function cut(db: DatabaseSync, deckId: number, oracleId: string, opts: Partial<Extract<Change, { action: "cut" }>> = {}) {
+export function cut(db: Database, deckId: number, oracleId: string, opts: Partial<Extract<Change, { action: "cut" }>> = {}) {
   return applyChanges(db, OWNER, deckId, [{ action: "cut", oracle_id: oracleId, ...opts }], {
     kind: "edit",
   });
