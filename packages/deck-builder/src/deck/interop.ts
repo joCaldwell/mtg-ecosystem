@@ -68,6 +68,8 @@ import { requireDeck } from "./service.ts";
 //    Scryfall uses ("Spider-Punk"); "Copy for MTGO" uses MTGO's own name where
 //    it differs ("Kraza, the Swarm as One"), which then fails to resolve and
 //    is reported like any unknown name. Plain Text is the one to paste.
+//    Every variant writes a flavor-named printing by its flavor name ("The
+//    Ball" for Fellwar Stone); those are reported unresolved too (spec §12).
 //  * The commander: "Copy for MTGO", "Download for MTGO" and "Copy Plain
 //    Text" put it in a final block after a blank line, with no header (all
 //    12 decks). "Copy for Moxfield" lists it first with no marker at all, so

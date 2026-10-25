@@ -42,12 +42,14 @@ export function DeckList({ view }: { view: DeckViewModel }) {
   const current = unit ? new Set(unit.items.map((i) => i.oracle_id)) : NONE;
   const cuts = reviewing ? overlay.cuts : undefined;
 
-  // J and K move the cursor; keep the decision it lands on in view.
+  // J and K move the cursor; keep the decision it lands on in view. A
+  // read-only list (the phone view) has no keyboard review, and scrolling
+  // there would carry the reader past the decisions drawn above the list.
   const unitKey = unit?.key;
   useEffect(() => {
-    if (!unitKey) return;
+    if (!unitKey || readOnly) return;
     scroll.current?.querySelector('[data-current="true"]')?.scrollIntoView({ block: "nearest" });
-  }, [unitKey]);
+  }, [unitKey, readOnly]);
 
   const nothingToShow = state.cards.length === 0 && !(reviewing && overlay.addsByGroup.size > 0);
 

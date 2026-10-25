@@ -1,7 +1,7 @@
 # Design system
 
 A dark, dense tool for long sessions of reading card text and making
-decisions. The live reference is the style guide at `#/design`; this file is
+decisions. The live reference is the style guide at `/design`; this file is
 the rules behind it.
 
 ## Principles
@@ -24,22 +24,43 @@ the rules behind it.
 
 ## Narrow screens and public pages
 
-These were decided on 2026-10-25 and are built in v3 phases 4a/4b
-([plan](../../../docs/deck-builder-v3-plan.md) D17, D20). Until then, the app
-is laid out for 1024 px and wider.
+Decided on 2026-10-25 ([plan](../../../docs/deck-builder-v3-plan.md) D17,
+D20) and built in phase 4a; phase 4b makes the full app hold up between
+720 px and 1024 px.
 
 - **Phones (under 720 px) read and rule.** The deck list, a read-only deck,
   the inbox, and accept/reject with a reason. Nothing else writes. A screen
   that cannot work there says "Open on a larger screen" rather than
-  squeezing in.
+  squeezing in. The breakpoint is `PHONE_MAX_WIDTH` in `app/breakpoints.ts`
+  (CSS: `@media (max-width: 719px)`); there is no other width query.
 - **720 px and wider is the full app.** The sidebar becomes a drawer under
-  960 px, and the deck panel becomes a bottom sheet under 1100 px.
-- **Touch replaces hover.** On touch, the hover card opens on tap as a sheet.
-  Tap targets are at least 44 px; the dense 24px rows of principle 4 are a
-  desktop rule.
-- **Public pages show the commander's art** in the header and as the link
-  preview image, with the artist line. The card list itself stays text.
+  960 px, and the deck panel becomes a bottom sheet under 1100 px (4b).
+- **Touch replaces hover.** On touch (`hover: none`) the hover card never
+  opens; a tapped card opens `CardSheet`, a bottom sheet on a phone. Tap
+  targets are at least `--tap` (44 px): `Button size="touch"`,
+  `IconButton size="touch"`, and list rows grow to it under 720 px. The
+  dense 24px rows of principle 4 are a desktop rule.
+- **Nothing scrolls sideways at 375 px.** Names wrap (`overflow-wrap:
+  anywhere`), action rows wrap, two-column grids collapse, and a table
+  scrolls inside its own box, never the page.
+- **Public pages show the commander's art** in the header, faded into the
+  page (`--art-h`, `--art-fade`), with "Art by …" over it, and as the link
+  preview image. Without a stored artist the art is left out. The card list
+  itself stays text.
+- **Sharing has no colour.** Public is the globe icon, unlisted the link
+  icon, both grey: visibility is not one of the meanings below.
 - **The playtester is desktop-only.**
+
+### The patterns
+
+| Pattern | Where | Notes |
+| --- | --- | --- |
+| `Dialog placement="sheet"` | `ui/` | Bottom edge, full width, `--sheet-max-h`; header one tap tall |
+| `CardSheet` | `mtg/` | The hover card's facts in a dialog, opened by tap; sheet on phones |
+| `ReadOnlyDeck` | `features/deck` | List beside price, power, brief, checks, decisions; one column under 720 px |
+| Shared deck header | `features/public` | Art, name, owner, commander, target; Copy link, Export, Fork, Compare |
+| Share dialog | `features/deck/dialogs` | Segmented visibility with its consequence in words; link; publish decisions |
+| Phone shell | `features/phone` | 48 px top bar; one decision per card with reason, Accept, Reject; Accept all |
 
 ## What each colour means
 
@@ -89,7 +110,7 @@ Component CSS uses tokens only. If you reach for a literal, add a token.
 
 `ui/` holds the generic primitives and `mtg/` the card-specific ones. The
 inventory, with every variant and state, is the style guide page at
-`#/design`; keep it complete, because it is how a new page is made to match.
+`/design`; keep it complete, because it is how a new page is made to match.
 
 <!-- inventory:start -->
 Everything below is exported from `ui/index.ts`. None of it knows about Magic
@@ -97,9 +118,9 @@ or about this app.
 
 | Component | For | Variants |
 | --- | --- | --- |
-| `Button` | Any action | `default` `ghost` `primary` `accept` `reject` `agent`; `sm` `md`; `kbd` hint |
-| `IconButton` | An action with only an icon; `label` is required | `sm` `md` |
-| `Icon` | The 15 line icons (inbox, decks, memories, activity, profile, settings, back, close, check, plus, chevronDown, undo, redo, search, more) | `size` |
+| `Button` | Any action | `default` `ghost` `primary` `accept` `reject` `agent`; `sm` `md` `touch`; `kbd` hint |
+| `IconButton` | An action with only an icon; `label` is required | `sm` `md` `touch` |
+| `Icon` | The 17 line icons (inbox, decks, memories, activity, profile, settings, back, close, check, plus, chevronDown, undo, redo, search, more, globe, link) | `size` |
 | `Kbd` | A key cap | |
 | `Chip` | A small tag or filter; a button when given `onClick` | tone `neutral` `agent` `warn` `add` `cut`; `dashed` for unconfirmed |
 | `Badge` | A count pill | `neutral` `agent` `warn` |
@@ -120,7 +141,7 @@ or about this app.
 | `Text` | Text with a tone, size and weight from the tokens | tone: 8; size `xs` to `xl`; `mono`; weight 3 |
 | `Banner` | A full-width strip under a header | `agent` `warn` `error` `neutral`; `actions` |
 | `ErrorNote`, `EmptyState`, `Loading` | An inline error, "nothing here yet", and a loading line | |
-| `Dialog` | A modal: focus trap, Esc, backdrop click, focus restore, `data-autofocus` | width `md` `lg`; `footer` |
+| `Dialog` | A modal: focus trap, Esc, backdrop click, focus restore, `data-autofocus` | width `md` `lg`; placement `center` `sheet`; `footer` |
 | `ConfirmDialog` | A question with Cancel and a confirm button | tone `default` `danger` |
 | `Popover`, `placeNear` | A panel anchored to an element, kept inside the viewport | placement `below` `right` `above` `left`; `align` |
 | `ToastProvider`, `useToast` | One toast at a time, bottom centre, with an optional action | `duration`; `action` with `kbd` |
@@ -142,7 +163,7 @@ The playtester deliberately uses larger rules text (`--text-rules`, 15px,
 `--leading-rules`, 1.6) without changing the dense deck-list typography.
 `mtg/table` contains text cards, zone containers, player summaries and card
 inspection with host-supplied contextual tools. Full, compact, hidden, selected,
-tapped, targeted and disabled observations are shown at `#/design`.
+tapped, targeted and disabled observations are shown at `/design`.
 
 The table surface (`--table-bg`) is a step darker than the app's panels so
 cards lift off it. Battlefield cards end in one line: fact chips (token,

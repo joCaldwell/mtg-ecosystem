@@ -91,7 +91,7 @@ src/
     power.ts         target, revision-bound assessments, explained bracket suggestions
     checks.ts        deterministic checks
     fork.ts          forkDeck, compareDecks
-    interop.ts       Archidekt export/import
+    interop.ts       Archidekt export; Archidekt and Moxfield import (formats cited inline)
   documents.ts       profile + proposed edits to profile and brief, and their rulings
   memory.ts          ⭐ memories: scopes, card links, budgets, supersede/retire
   playtest/          owner-only manual session service and action model; snapshot, undo, resume
@@ -104,7 +104,9 @@ src/
   ratelimit.ts       single-instance in-memory sliding windows
   cimd-transport.ts  resolve once, check all DNS answers, pin IPv4-preferred address
   mode.ts            local/hosted mode, local actor, Host/Origin and proxy boundary
-  state.ts           deckState() — the composite the UI gets from every mutation
+  state.ts           deckState() — the composite the UI gets from every mutation; publicDeckState() — what a viewer gets
+  sharing.ts         visibility, slugs, publishing, public profiles (spec §18)
+  preview.ts         link-preview tags injected into index.html for /d/:slug and /u/:handle
   app.ts             request-to-Actor seam, UI API, per-user event streams, static files, /mcp
   server.ts          entry point: loopback in local mode, all interfaces in hosted mode
   mcp/
@@ -122,8 +124,8 @@ web/                 React UI. web/ARCHITECTURE.md is its manual; web/DESIGN.md 
   src/api/           client.ts (typed client — wire types imported from src/, erased at build),
                      live.tsx (event stream), useQuery.ts
   src/app/           routes, sidebar shell, app-wide providers
-  src/features/      one folder per screen: deck/, inbox/, rulings/, memories/, activity/,
-                     decks/, profile/, settings/, styleguide/
+  src/features/      one folder per screen: deck/ (incl. ReadOnlyDeck), inbox/, rulings/, memories/,
+                     activity/, decks/, profile/, settings/, styleguide/, public/, phone/
 ```
 
 ---
@@ -197,14 +199,14 @@ Local clients retain their HTTP and stdio configurations.
 ### Doing frontend work
 
 Run `npm run dev`, then `npm run seed:demo` once, then open
-`http://localhost:5173/#/deck/<id>`. **Seed the demo before judging any
+`http://localhost:5173/deck/<id>`. **Seed the demo before judging any
 layout** — against an empty deck most panels render nothing.
 
 **Read [web/ARCHITECTURE.md](web/ARCHITECTURE.md) first.** The UI is layered
 (`design` → `ui` → `mtg` → `domain` → `api` → `app` → `features`) with
 one-way imports, and `test/web-architecture.test.ts` fails the build on an
 import that goes the wrong way or a hex colour in a component's CSS. Every
-primitive is shown in every state at `#/design`; a new screen is assembled
+primitive is shown in every state at `/design`; a new screen is assembled
 from those, so it matches without new CSS for the basics. The rules behind
 the look are in [web/DESIGN.md](web/DESIGN.md).
 
@@ -220,7 +222,11 @@ Vite proxy follows the API port.
     or `requireSelf` for a user-scoped record. `requireEditableDeck` includes
     the ownership check. Reads use `requireDeck(db, actor, deckId)` and return
     the caller role; unreadable records are 404 for reads and writes.
-    PermissionError (403) is for forbidden actions on readable targets. Never guard only in a tool or route. Human-only actions additionally
+    PermissionError (403) is for forbidden actions on readable targets. Never guard only in a tool or route.
+    Viewers (other users, their agents, anonymous) read a shared deck only by
+    slug through `requireViewableDeck` and get only `publicDeckState`, an
+    allow-list; every id-addressed capability stays the owner's (spec §18.3).
+    Visibility, publishing and hiding log entries are owner + `requireUi`. Human-only actions additionally
     use `requireUi`: ruling, undo, lifecycle, import, direct brief/target/profile
     edits. An agent acting for the deck owner still needs Paper proposals.
     Owners and agents may rename and delete editable decks. Only the owner

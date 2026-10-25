@@ -901,6 +901,12 @@ and [implementation guide](playtester.md). Archidekt interop remains available.
   Scryfall uses, where "Copy for MTGO" may use MTGO's own. A Moxfield list
   and the equivalent Archidekt text import to the same deck. Paste only: no
   URL fetching, no Moxfield API, no sync. Export stays Archidekt.
+  *Known gap:* every Moxfield variant writes a flavor-named printing by its
+  flavor name ("The Ball" for Fellwar Stone). Exact resolution knows oracle
+  and face names only, so such a line is reported as unresolved for the owner
+  to fix, never guessed; 3 of the 6 sampled decks had one. Resolving
+  Scryfall's per-printing `flavor_name` exactly would need it ingested from
+  the `default-cards` file and is left for later.
 
 Verify Archidekt's and Moxfield's text formats against their own
 documentation (or, where none exists, a real export) and cite the sources in
