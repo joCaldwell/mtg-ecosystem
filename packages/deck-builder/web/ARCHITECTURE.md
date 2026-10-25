@@ -114,7 +114,8 @@ validated before the server applies any changes.
 
 Images are ingested card facts (`image_small`, `image_normal`,
 `image_art_crop`); `mtg/cardImage.ts` selects a stored URL. `CardImage`
-resolves through `CardLookup`, shared with hover cards, and every image uses
+uses a supplied card's stored image URL directly, or resolves through
+`CardLookup` (shared with hover cards) when no URL is known. Every image uses
 lazy loading. Missing image data retains the placeholder. Never construct a
 Scryfall API image URL in the client.
 

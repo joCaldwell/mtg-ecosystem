@@ -9,7 +9,7 @@ import { OWNER } from "../src/actor.ts";
 import { createApp } from "../src/app.ts";
 import { backupDatabase, restoreDatabase } from "../src/backups.ts";
 import { resolveCard } from "../src/cards.ts";
-import { openDb, SCHEMA_VERSION } from "../src/db.ts";
+import { DATA_DIR, openDb, PKG_ROOT, SCHEMA_VERSION } from "../src/db.ts";
 import { checkDeck } from "../src/deck/checks.ts";
 import { markReviewed, writeLog } from "../src/deck/log.ts";
 import { createProposal, getProposal } from "../src/deck/proposals.ts";
@@ -80,8 +80,8 @@ test("health is plain JSON and static fallback preserves 404s and asset caching"
   const asset = await fetch(base + "/assets/bundle.js"); assert.match(asset.headers.get("cache-control")!, /immutable/);
   assert.equal((await fetch(base + "/assets/font.woff2")).headers.get("content-type"), "font/woff2");
   const settings = await (await fetch(base + "/api/settings")).json();
-  assert.equal(settings.agent.stdio_command, "node src/mcp/stdio.ts");
-  assert.ok(!JSON.stringify(settings).includes(process.cwd()));
+  assert.equal(settings.agent.stdio_command, `node ${join(PKG_ROOT, "src", "mcp", "stdio.ts")}`);
+  assert.ok(!JSON.stringify(settings).includes(DATA_DIR));
 });
 
 test("SSE disables proxy buffering and sends heartbeats", async t => {
@@ -188,6 +188,26 @@ test("scheduler runs one child at a time and coalesces queued refresh requests",
     await new Promise(resolve => setTimeout(resolve, 350));
     assert.deepEqual(names, ["refresh", "backup"]);
   } finally { await service.close(); await jobs.close(); fresh.close(); }
+});
+
+test("scheduler retries failed refreshes within an hour and keeps successful runs daily", async t => {
+  const now = Date.UTC(2026, 9, 25, 12);
+  t.mock.method(Date, "now", () => now);
+  const fresh = openDb(":memory:");
+  const jobs = createJobs(fresh);
+  const setMeta = fresh.prepare("INSERT INTO meta VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value");
+  try {
+    for (const dataTime of [now - 48 * 60 * 60 * 1000, now]) {
+      setMeta.run("last_ingest", new Date(dataTime).toISOString());
+      setMeta.run("prices_as_of", new Date(dataTime).toISOString());
+      const last = { last_run: new Date(now).toISOString(), finished_at: new Date(now).toISOString() };
+      setMeta.run("job:refresh", JSON.stringify({ ...last, result: "error" }));
+      const retryAt = Date.parse(jobs.status().refresh.next_run);
+      assert.ok(retryAt > now && retryAt <= now + 60 * 60 * 1000);
+      setMeta.run("job:refresh", JSON.stringify({ ...last, result: "success" }));
+      assert.equal(Date.parse(jobs.status().refresh.next_run), now + 24 * 60 * 60 * 1000);
+    }
+  } finally { await jobs.close(); fresh.close(); }
 });
 
 test("review-through is deck-scoped and memory confirmation respects owner control", () => {

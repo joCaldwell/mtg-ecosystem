@@ -24,8 +24,10 @@ The serving process schedules work; it never ingests bulk data itself.
   are reused for 24 hours. This cache is independent of the parser's cache.
   Default-printing prices stream from the download and are not kept on disk.
 - Refresh runs on boot when card or price data is stale/missing and daily
-  thereafter. Backup runs at 02:00 in the server's local timezone; an overdue
-  backup runs on the next scheduler tick (30 seconds). Only one job runs at
+  thereafter. A failed refresh retries one hour after its last run, still
+  respecting the active-job and shared-lease checks. Backup runs at 02:00 in
+  the server's local timezone; an overdue backup runs on the next scheduler
+  tick (30 seconds). Only one job runs at
   a time; repeated queued requests coalesce.
 - `GET /api/settings` and Settings show each job's last run, result, next run,
   active job and queue. Child stdout/stderr go to the server log. CLI jobs
@@ -69,6 +71,14 @@ the same UTC day replaces that day's snapshot. Keep the newest 14 dated
 files, then optionally upload the new snapshot. Never copy only
 `deck-builder.db` while the server is running: committed data may be in its
 WAL sidecar.
+
+At roughly 60 MB per snapshot, 14 local backups use about 840 MB (roughly
+850 MB allowing for growth); stored image URLs will increase that as the
+card database grows. Allow space for another snapshot while one is being
+written, plus the live database, WAL and download cache. Retention remains
+14 for all modes; operators who need less local disk use can prune older
+local snapshots between runs. The next backup still keeps at most 14 dated
+files. This does not change off-box bucket lifecycle policies.
 
 To upload each snapshot to an S3-compatible bucket, configure all four:
 
@@ -132,8 +142,8 @@ Server startup explicitly creates a missing token with owner-only file
 permissions. Reading it never creates or changes anything. The stdio shim
 fails with a clear message if none is configured. Without an environment
 override, Settings can rotate the token and closes the previous MCP handler.
-Settings never exposes an absolute server filesystem path: run its relative
-stdio command from the package directory.
+Settings omits the data-directory path but returns an absolute path to
+`src/mcp/stdio.ts`, so launch-a-command clients work from any directory.
 
 ## Phase 0 verification (2026-10-25)
 

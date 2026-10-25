@@ -404,7 +404,7 @@ export function createApp(db: Database, opts: AppOptions) {
       agent: {
         url: `http://127.0.0.1:${opts.port ?? 8787}${MCP_PATH}`,
         token,
-        stdio_command: "node src/mcp/stdio.ts",
+        stdio_command: `node ${join(PKG_ROOT, "src", "mcp", "stdio.ts")}`,
       },
     };
   };

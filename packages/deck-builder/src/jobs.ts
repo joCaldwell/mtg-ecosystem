@@ -11,7 +11,8 @@ export interface JobRun {
   result: "running" | "success" | "error";
   error?: string;
 }
-const DAY = 24 * 60 * 60 * 1000;
+const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
 export const LOCK_MAX_AGE = 2 * 60 * 60 * 1000;
 const read = (db: Database, key: string) => (db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | undefined)?.value;
 const write = (db: Database, key: string, value: string) => db.prepare("INSERT INTO meta VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
@@ -72,6 +73,7 @@ export function createJobs(db: Database, opts: {
   const next = (name: JobName) => {
     const last = run(name);
     if (name === "backup") return last ? nextNight(Date.parse(last.last_run)) : initialNight;
+    if (last?.result === "error") return Date.parse(last.last_run) + HOUR;
     const dates = [read(db, "last_ingest"), read(db, "prices_as_of")].map(v => v ? Date.parse(v) : 0);
     const freshUntil = Math.min(...dates) + DAY;
     return Math.max(freshUntil, last ? Date.parse(last.last_run) + DAY : 0);

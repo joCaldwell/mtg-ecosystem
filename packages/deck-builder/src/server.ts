@@ -36,7 +36,7 @@ app.server.listen(PORT, "127.0.0.1", () => {
   console.log(`Agent endpoint (MCP): http://127.0.0.1:${PORT}${MCP_PATH} — token and client setup are on the Settings page`);
   console.log(`Database: ${DEFAULT_DB_PATH}`);
   const cards = (db.prepare("SELECT COUNT(*) n FROM cards").get() as { n: number }).n;
-  if (!cards) console.log("The card database is empty — run 'npm run refresh' to download card data.");
+  if (!cards) console.log("The card database is empty — a background refresh has been queued to download card data.");
   if (!existsSync(join(PKG_ROOT, "web", "dist")))
     console.log("(web/dist not found — run 'npm run app' to build the UI, or 'npm run dev:web' for the dev server)");
 });
