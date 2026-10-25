@@ -3539,3 +3539,190 @@ deferred mechanics: modal wipes, cycling/flashback/miracle, X activation costs,
 cost increases, land untap restrictions, regeneration and linked exile returns.
 Wipes is natively playable and remains unhosted; hosting stays foundations and
 attachments only, and search stays foundations-only.
+
+## D1a — accepted archives and catalog generation as data (2026-10-24)
+
+Scope is archive acceptance, catalog membership, expected-IR generation and raw
+record extraction. Profile tables, lineage gates, capacities, gameplay rules,
+search/hosting flags and simulator policies retain their previous boundaries.
+`BUILD_ID` still covers source and fixtures; the new `.sha256` files are included
+in its source closure and retention manifest. Scoping it to code is D1b.
+
+`tests/fixtures/accepted-archives.json` now supplies both accepted identities to
+compiler lowering and contracts validation. The historical manifest-line SHA-256
+is `b20406acec7b9af4610324af8848c76a2966315f1bb4043de2b03d53aa1a6f1b`;
+its full JSONL file identity is **unknown**, represented by `file_sha256: null`.
+Josh confirmed there is no retained copy or recorded full-file hash. Existing
+fixtures remain valid through the committed manifest and individual record
+hashes. Historical extraction is explicitly disabled. No hash was invented and
+no old evidence was changed.
+
+The second committed manifest line is `archive-manifest-current.json`, SHA-256
+`994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a`.
+Its full archive SHA-256 is
+`d705222b280a71cb5a5362f657d530b22402ca51687bac3227c1d6db403d0282`,
+parser revision `327b3360ea8e5cffb75b136223e75a348e903cbe`, parser source SHA-256
+`316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a`,
+and corpus SHA-256
+`f8cb9da28e34b01dbd72504f059e012bda62db7d332acd2e3b43e75570e92738`.
+The archive was read only from the preserved copy under
+`/home/josh/.local/share/mtg-ecosystem/engine-evidence/archives/`; neither the
+live parser checkout nor its generated archive was modified or used.
+
+Every committed record's provenance row names its archive. The loader checks
+raw record hashes, declared Oracle identity, source/AST hashes and exact accepted
+manifest identity, then compiles and validates the complete catalog. Duplicate
+record files, duplicate provenance files, missing witnesses and unsupported
+lowering fail explicitly. Mixed accepted archives validate in one catalog.
+Extraction itself is independent of lowering: it can preserve unparsed records
+with a null AST hash for rejection witnesses; they cannot enter an executable
+catalog without complete lowering.
+
+All 21 existing catalogs now have manifests in
+`packages/game-engine/tests/fixtures/catalogs/`. The per-slice record arrays and
+Rust construction/filtering chains have been replaced by a generic loader.
+Build-generated compatibility arrays derive only from `record-groups.json` for
+existing mutation tests and retained evidence. The former group-membership
+invariants asserting that every record must require that slice's new IR version
+are deleted; IR's capability validation remains enforced. Hard-coded definition
+counts in catalog tests and profile error messages are deleted. Admission errors
+report the expected count computed from reviewed data and the actual received
+count/version. All eleven named `*_CATALOG_SHA256` exports now read generated
+committed digest files, and the scenario definition digest pins are derived
+from the appropriate catalog's expected IR during the build. No new cross-catalog
+identity-equality invariant is imposed: different catalogs may carry different
+accepted records for the same Oracle ID.
+
+### Demonstration 1: regenerate every existing catalog
+
+With the pinned Rust 1.99.0 / Node 26.11.1 toolchain:
+
+```sh
+T=/home/josh/.local/share/mtg-ecosystem/engine-toolchains/rust1990-node26111-v1/usr
+export PATH=$T/bin:$PATH LD_LIBRARY_PATH=$T/lib
+cargo build --locked -p mtg-sim
+for manifest in packages/game-engine/tests/fixtures/catalogs/*.json; do
+  target/debug/mtg-sim catalog build "$manifest" --write
+done
+```
+
+All **21** expected IR files regenerated **byte-identically** to the starting
+commit. This includes base, commander, damage, library, action, stack,
+damage-life, trigger, effects, choices, match, keywords, combat-keywords,
+tokens, staples, mana, four-colors, attachments, removal, sacrifice and wipes.
+The wipes result remains **168 definitions, IR v20**, canonical SHA-256
+`4d9c719ef61fdd901ea6182bb2d22e72ceb89dcd9c0213cc8e88e4087ad59e16`.
+There are **no re-baseline differences**: neither IR content nor its historical
+pretty/compact and field-order encodings changed. Each manifest records its
+output encoding. All committed digests are checked against freshly lowered IR;
+Rust and Node tests exercise every manifest. The regeneration report is retained
+locally at `generated/cards-as-data-d1a/regeneration.json` (ignored).
+A fresh-manifest bootstrap check also passed: a temporary manifest inside the
+catalog directory, with neither expected IR nor digest present, generated its
+first output through `cargo run --locked -p mtg-sim -- catalog build ... --write`.
+The temporary manifest and outputs were removed afterwards. Core metadata is
+derived only from outputs that already exist, so the generator can build before
+a new catalog's first output exists; existing named profile digest pins remain
+required.
+
+### Demonstration 2: three cards from the current archive
+
+```sh
+cargo run --locked -p mtg-sim -- catalog extract \
+  /home/josh/.local/share/mtg-ecosystem/engine-evidence/archives/oracle-ast-d705222b280a71cb.jsonl \
+  packages/game-engine/tests/fixtures/provenance.json \
+  'Canyon Minotaur' 'Open Fire' 'Flesh to Dust'
+```
+
+Extraction verified the full-file SHA-256 before writing. A separate read of the
+preserved archive verified each exact source name and Oracle ID and compared the
+raw archive line to the new fixture bytes:
+
+- Canyon Minotaur: line **1893**, Oracle ID
+  `0c7163e6-f5a1-45a5-88c2-19dd9ef0a587`.
+- Open Fire: line **20975**, Oracle ID
+  `8b218023-50b8-4d9d-b17b-9647479d3675`.
+- Flesh to Dust: line **6976**, Oracle ID
+  `2f05f3ed-e3b7-4225-b3f2-c12eda335237`.
+
+The three raw fixture files and their archive-specific provenance rows are
+committed. The following scratch manifest was written only as data at
+`generated/cards-as-data-d1a/three-card.json`:
+
+```json
+{
+  "schema_version": 20,
+  "output_order": "sorted",
+  "provenance": "../../packages/game-engine/tests/fixtures/provenance.json",
+  "records": [
+    "../../packages/game-engine/tests/fixtures/0c7163e6-f5a1-45a5-88c2-19dd9ef0a587.json",
+    "../../packages/game-engine/tests/fixtures/2f05f3ed-e3b7-4225-b3f2-c12eda335237.json",
+    "../../packages/game-engine/tests/fixtures/8b218023-50b8-4d9d-b17b-9647479d3675.json"
+  ],
+  "expected_ir": "three-card-ir.json",
+  "expected_digest": "three-card.sha256"
+}
+```
+
+```sh
+cargo run --locked -p mtg-sim -- catalog build generated/cards-as-data-d1a/three-card.json --write
+cargo run --locked -p mtg-sim -- catalog build generated/cards-as-data-d1a/three-card.json
+```
+
+Result: **3 definitions, IR v20**, lower-and-validate success, canonical SHA-256
+`d60212f8d44de77632c33bad6ab27d478d2f180949eda502bfffe5a20d68ee66`.
+Canyon Minotaur has a permanent-resolution spell with no instructions; Open Fire
+lowers `deal_damage`; Flesh to Dust lowers `destroy_permanent`. All three use the
+current manifest/parser provenance, without a Rust source change for the cards.
+No profile, deck, gameplay batch or simulator heuristic was added for them.
+Scratch IR and extraction output remain ignored under
+`generated/cards-as-data-d1a/`. The final CLI repeated extraction into
+`generated/cards-as-data-d1a/reextracted/`, supplying all three exact names and
+all three Oracle IDs together. It deduplicated these selectors to the same
+three raw records, matched every committed fixture byte, generated the same
+digest, and passed check mode (`written: false`). A subsequent extraction was
+rejected for existing fixtures without changing provenance. A separate scratch
+negative witness extracted the real excluded record at archive line 3
+(`000492bf-7eaa-4939-a51c-4eef74e4c1d1`, Mine Security). Its source line was copied
+byte-for-byte despite absent binding/face data, provenance retained a null AST
+hash, and catalog generation rejected it without writing IR. This witness is
+ignored under `generated/cards-as-data-d1a/excluded-witness/`; it adds no admitted
+card, profile or deck.
+
+### Verification and handoff
+
+The release server build passed with
+`cargo build --release --locked -p mtg-server`. SDK verification passed using
+`MTG_SERVER_BIN=$PWD/target/release/mtg-server npm --prefix packages/game-server/sdk run verify --workspaces=false`:
+**47 Node tests**, strict TypeScript, and all **32** player-response variants.
+Its reported status was `preliminary-sdk-checks-passed` (schema, generated types
+and mock HTTP scope). `packages/game-server/sdk/generated` was removed afterwards.
+
+On implementation commit `6da231b10f45c49ce0906710ab9d1c54dc05a228`,
+`npm run check:engine` returned **exit 0**: pinned-toolchain verification,
+formatting, Clippy with warnings denied, **874 passed Rust tests**, **12
+pre-existing ignored host diagnostics** (4 core, 8 simulator), and **56 passed
+Node tests**. The compiler portion includes **61** tests. The release server
+build and SDK commands above also returned **exit 0** on that implementation.
+
+An earlier run passed **873 Rust tests** with **12 pre-existing ignored tests**,
+then stopped because this fresh worktree lacked
+`ajv`. `npm ci --ignore-scripts --workspace @mtg-ecosystem/game-engine --include-workspace-root`
+and `npm --prefix packages/game-server/sdk ci --ignore-scripts --workspaces=false`
+installed the locked dependencies without changing source or lockfiles. That
+attempt is preserved as a failed Node phase, not counted as a successful engine
+gate. Final logs and an aggregate result record are retained locally at
+`generated/cards-as-data-d1a/verification/`; generated evidence remains ignored.
+The earlier failure is retained separately from the passing final run.
+
+D1b still owns profile/deck data, lineage-gate removal, generic capacities and
+code-only `BUILD_ID`. D1c still owns per-profile batch commands and policy count
+fingerprints (106/118/135 remain intentionally in those policies). The SDK's
+three mock-manifest tests still embed the historical foundations digest in
+TypeScript; a D1b re-baseline should derive those mock values from catalog data.
+D2 still owns exact-template lowering, the strict AST mirror, source-line normalization and
+multi-face classification. The current archive is now admitted without
+substituting historical headers; rejection/coverage measurements should use its
+real manifest. Coverage tooling should distinguish excluded envelopes (which
+omit binding/face data) from in-scope unsupported records. This step makes no
+new corpus-coverage or gameplay claim.
