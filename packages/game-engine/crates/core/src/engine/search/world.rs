@@ -134,7 +134,9 @@ impl SampleBuildWork {
         {
             return Err(invalid("proposal version, capture identity or sampler"));
         }
-        if profile.reconstruction_schema != SEARCH_RECONSTRUCTION
+        if match_profile(&profile.match_profile)
+            .is_none_or(|p| !p.search || p.catalog_sha256 != profile.catalog_digest)
+            || profile.reconstruction_schema != SEARCH_RECONSTRUCTION
             || profile.information_policy != SEARCH_INFORMATION
             || profile.engine_build_id != BUILD_ID
             || profile.rules_digest != RULES_SHA256

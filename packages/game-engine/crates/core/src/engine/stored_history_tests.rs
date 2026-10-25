@@ -290,7 +290,7 @@ fn real_state_wire_hash_and_owned_search_export_stay_complete_after_sharing() {
             "../../../../tests/fixtures/expected-match-ir.json"
         ))
         .unwrap(),
-        MatchConfig::foundations([13; 32], PlayerId(0)),
+        MatchConfig::for_profile("commander-foundations-v1", [13; 32], PlayerId(0)).unwrap(),
     )
     .unwrap();
     let mut game = Game::new(prepared.clone());
@@ -551,7 +551,7 @@ fn reflexive_history_real_legal_firstwrites_keep_parent_siblings_and_partition_o
             "../../../../tests/fixtures/expected-match-ir.json"
         ))
         .unwrap(),
-        MatchConfig::foundations([13; 32], PlayerId(0)),
+        MatchConfig::for_profile("commander-foundations-v1", [13; 32], PlayerId(0)).unwrap(),
     )
     .unwrap();
     let mut root = Game::new(prepared);

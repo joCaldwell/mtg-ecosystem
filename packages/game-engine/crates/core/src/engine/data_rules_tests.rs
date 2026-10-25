@@ -3,29 +3,10 @@ use super::*;
 
 #[test]
 fn all_catalogs_share_the_same_capacity_policy() {
-    let fixtures = [
-        "match",
-        "keywords",
-        "combat-keywords",
-        "tokens",
-        "staples",
-        "mana",
-        "four-colors",
-        "attachments",
-        "removal",
-        "sacrifice",
-        "wipes",
-    ];
-    assert_eq!(fixtures.len(), MATCH_PROFILES.len());
-    for (profile, fixture) in MATCH_PROFILES.iter().zip(fixtures) {
-        let raw = std::fs::read_to_string(format!(
-            "{}/../../tests/fixtures/expected-{fixture}-ir.json",
-            env!("CARGO_MANIFEST_DIR")
-        ))
-        .unwrap();
+    for profile in MATCH_PROFILES.iter() {
         let prepared = Prepared::admit_pod(
-            Catalog::read(&raw).unwrap(),
-            MatchConfig::for_profile(profile.name, [0; 32], PlayerId(0)).unwrap(),
+            profile.catalog().clone(),
+            MatchConfig::for_profile(&profile.name, [0; 32], PlayerId(0)).unwrap(),
         )
         .unwrap();
         let game = Game::new(prepared);
@@ -58,10 +39,14 @@ fn cost_reduction_is_driven_by_static_ir_under_any_catalog_label() {
     if expected.generic.is_negative() {
         expected.generic = Quantity::zero();
     }
-    for label in ["independent-catalog", MATCH_PROFILE, WIPES_PROFILE] {
+    for label in [
+        "independent-catalog",
+        "commander-foundations-v1",
+        "commander-wipes-v1",
+    ] {
         let mut prepared = Prepared::admit_pod(
             catalog.clone(),
-            MatchConfig::for_profile(WIPES_PROFILE, [0; 32], PlayerId(0)).unwrap(),
+            MatchConfig::for_profile("commander-wipes-v1", [0; 32], PlayerId(0)).unwrap(),
         )
         .unwrap();
         prepared.config.profile = label.into();
@@ -90,5 +75,25 @@ fn cost_reduction_is_driven_by_static_ir_under_any_catalog_label() {
             game.casting_cost(id, owner, Zone::Hand { owner }).unwrap(),
             expected
         );
+    }
+}
+
+#[test]
+fn profile_data_is_strict_and_every_default_pod_is_admitted() {
+    for profile in MATCH_PROFILES.iter() {
+        validate_pod(
+            profile.catalog(),
+            &MatchConfig::for_profile(&profile.name, [0; 32], PlayerId(0)).unwrap(),
+        )
+        .unwrap();
+        let mut raw = serde_json::to_value(profile).unwrap();
+        raw["commander_policy"]["eligibility"] = "any_card".into();
+        assert!(strict_read::<MatchProfile>(&raw.to_string()).is_err());
+        raw = serde_json::to_value(profile).unwrap();
+        raw["commander_policy"]["color_identity"] = "ignore".into();
+        assert!(strict_read::<MatchProfile>(&raw.to_string()).is_err());
+        raw = serde_json::to_value(profile).unwrap();
+        raw["unexpected"] = true.into();
+        assert!(strict_read::<MatchProfile>(&raw.to_string()).is_err());
     }
 }

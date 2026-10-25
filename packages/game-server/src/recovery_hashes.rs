@@ -212,7 +212,11 @@ mod tests {
         ))
         .unwrap();
         Game::new(
-            Prepared::admit_pod(catalog, MatchConfig::foundations([3; 32], PlayerId(0))).unwrap(),
+            Prepared::admit_pod(
+                catalog,
+                MatchConfig::for_profile("commander-foundations-v1", [3; 32], PlayerId(0)).unwrap(),
+            )
+            .unwrap(),
         )
     }
     fn job(game: &Game, sequence: u64) -> AfterHashJob {

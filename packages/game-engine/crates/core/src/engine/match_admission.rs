@@ -4,244 +4,69 @@ use super::*;
 use std::fmt;
 include!(concat!(env!("OUT_DIR"), "/catalog_sizes.rs"));
 
-pub const MATCH_PROFILE: &str = "commander-foundations-v1";
-pub const MATCH_CATALOG_SHA256: &str =
-    include_str!("../../../../tests/fixtures/catalogs/match.sha256");
-pub const KEYWORDS_PROFILE: &str = "commander-keywords-v1";
-pub const KEYWORDS_CATALOG_SHA256: &str =
-    include_str!("../../../../tests/fixtures/catalogs/keywords.sha256");
-pub const COMBAT_KEYWORDS_PROFILE: &str = "commander-combat-keywords-v1";
-pub const COMBAT_KEYWORDS_CATALOG_SHA256: &str =
-    include_str!("../../../../tests/fixtures/catalogs/combat-keywords.sha256");
-pub const TOKENS_PROFILE: &str = "commander-tokens-v1";
-pub const TOKENS_CATALOG_SHA256: &str =
-    include_str!("../../../../tests/fixtures/catalogs/tokens.sha256");
-pub const STAPLES_PROFILE: &str = "commander-staples-v1";
-pub const STAPLES_CATALOG_SHA256: &str =
-    include_str!("../../../../tests/fixtures/catalogs/staples.sha256");
-pub const MANA_PROFILE: &str = "commander-mana-v1";
-pub const MANA_CATALOG_SHA256: &str =
-    include_str!("../../../../tests/fixtures/catalogs/mana.sha256");
-pub const WIPES_PROFILE: &str = "commander-wipes-v1";
-pub const WIPES_CATALOG_SHA256: &str =
-    include_str!("../../../../tests/fixtures/catalogs/wipes.sha256");
-pub const SACRIFICE_PROFILE: &str = "commander-sacrifice-v1";
-pub const SACRIFICE_CATALOG_SHA256: &str =
-    include_str!("../../../../tests/fixtures/catalogs/sacrifice.sha256");
-pub const REMOVAL_PROFILE: &str = "commander-removal-v1";
-pub const REMOVAL_CATALOG_SHA256: &str =
-    include_str!("../../../../tests/fixtures/catalogs/removal.sha256");
-pub const ATTACHMENTS_PROFILE: &str = "commander-attachments-v1";
-pub const ATTACHMENTS_CATALOG_SHA256: &str =
-    include_str!("../../../../tests/fixtures/catalogs/attachments.sha256");
-pub const FOUR_COLORS_PROFILE: &str = "commander-four-colors-v1";
-pub const FOUR_COLORS_CATALOG_SHA256: &str =
-    include_str!("../../../../tests/fixtures/catalogs/four-colors.sha256");
-/// All reviewed legal-profile identity and construction inputs live here.
-/// Admission registry only. Runtime mechanics never depend on its ordering.
-pub struct MatchProfile {
-    pub name: &'static str,
-    pub catalog_sha256: &'static str,
-    pub ir_version: u32,
-    pub policy_json: &'static str,
-    pub commanders: &'static [&'static str],
-    pub white_deck: fn() -> Decklist,
-    pub black_green_deck: fn() -> Decklist,
-    pub default_pod: [fn() -> Decklist; 4],
+/// Data is discovered and embedded at build time; core performs no filesystem I/O.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CommanderPolicy {
+    pub color_identity: ColorIdentityPolicy,
+    pub eligibility: CommanderEligibility,
+    pub banned_list: String,
 }
-pub static MATCH_PROFILES: [MatchProfile; 11] = [
-    MatchProfile {
-        name: MATCH_PROFILE,
-        catalog_sha256: MATCH_CATALOG_SHA256,
-        ir_version: 11,
-        policy_json: super::commander_policy::COMMANDER_POLICY_JSON,
-        commanders: &[ISAMARU, YARGLE],
-        white_deck,
-        black_green_deck,
-        default_pod: [white_deck, black_green_deck, white_deck, black_green_deck],
-    },
-    MatchProfile {
-        name: KEYWORDS_PROFILE,
-        catalog_sha256: KEYWORDS_CATALOG_SHA256,
-        ir_version: 12,
-        policy_json: include_str!("../../../../tests/fixtures/commander-keywords-policy.json"),
-        commanders: &[ISAMARU, YARGLE],
-        white_deck: keywords_white_deck,
-        black_green_deck: keywords_black_green_deck,
-        default_pod: [
-            keywords_white_deck,
-            keywords_black_green_deck,
-            keywords_white_deck,
-            keywords_black_green_deck,
-        ],
-    },
-    MatchProfile {
-        name: COMBAT_KEYWORDS_PROFILE,
-        catalog_sha256: COMBAT_KEYWORDS_CATALOG_SHA256,
-        ir_version: 13,
-        policy_json: include_str!(
-            "../../../../tests/fixtures/commander-combat-keywords-policy.json"
-        ),
-        commanders: &[ISAMARU, YARGLE],
-        white_deck: combat_keywords_white_deck,
-        black_green_deck: combat_keywords_black_green_deck,
-        default_pod: [
-            combat_keywords_white_deck,
-            combat_keywords_black_green_deck,
-            combat_keywords_white_deck,
-            combat_keywords_black_green_deck,
-        ],
-    },
-    MatchProfile {
-        name: TOKENS_PROFILE,
-        catalog_sha256: TOKENS_CATALOG_SHA256,
-        ir_version: 14,
-        policy_json: include_str!("../../../../tests/fixtures/commander-tokens-policy.json"),
-        commanders: &[ISAMARU, YARGLE],
-        white_deck: tokens_white_deck,
-        black_green_deck: tokens_black_green_deck,
-        default_pod: [
-            tokens_white_deck,
-            tokens_black_green_deck,
-            tokens_white_deck,
-            tokens_black_green_deck,
-        ],
-    },
-    MatchProfile {
-        name: STAPLES_PROFILE,
-        catalog_sha256: STAPLES_CATALOG_SHA256,
-        ir_version: 15,
-        policy_json: include_str!("../../../../tests/fixtures/commander-staples-policy.json"),
-        commanders: &[ISAMARU, YARGLE],
-        white_deck: staples_white_deck,
-        black_green_deck: staples_black_green_deck,
-        default_pod: [
-            staples_white_deck,
-            staples_black_green_deck,
-            staples_white_deck,
-            staples_black_green_deck,
-        ],
-    },
-    MatchProfile {
-        name: MANA_PROFILE,
-        catalog_sha256: MANA_CATALOG_SHA256,
-        ir_version: 16,
-        policy_json: include_str!("../../../../tests/fixtures/commander-mana-policy.json"),
-        commanders: &[ISAMARU, YARGLE],
-        white_deck: mana_white_deck,
-        black_green_deck: mana_black_green_deck,
-        default_pod: [
-            mana_white_deck,
-            mana_black_green_deck,
-            mana_white_deck,
-            mana_black_green_deck,
-        ],
-    },
-    MatchProfile {
-        name: FOUR_COLORS_PROFILE,
-        catalog_sha256: FOUR_COLORS_CATALOG_SHA256,
-        ir_version: 16,
-        policy_json: include_str!("../../../../tests/fixtures/commander-four-colors-policy.json"),
-        commanders: &[
-            ISAMARU,
-            YARGLE,
-            "4bbc5df9-60d7-46c1-8856-91c9c74abf18",
-            "48fe0f52-1676-49d5-acf6-5476081e8e1b",
-        ],
-        white_deck: mana_white_deck,
-        black_green_deck: mana_black_green_deck,
-        default_pod: [
-            mana_white_deck,
-            mana_black_green_deck,
-            four_colors_blue_deck,
-            four_colors_red_deck,
-        ],
-    },
-    MatchProfile {
-        name: ATTACHMENTS_PROFILE,
-        catalog_sha256: ATTACHMENTS_CATALOG_SHA256,
-        ir_version: 17,
-        policy_json: include_str!("../../../../tests/fixtures/commander-attachments-policy.json"),
-        commanders: &[
-            ISAMARU,
-            YARGLE,
-            "4bbc5df9-60d7-46c1-8856-91c9c74abf18",
-            "48fe0f52-1676-49d5-acf6-5476081e8e1b",
-        ],
-        white_deck: attachments_white_deck,
-        black_green_deck: attachments_black_green_deck,
-        default_pod: [
-            attachments_white_deck,
-            attachments_black_green_deck,
-            attachments_blue_deck,
-            attachments_red_deck,
-        ],
-    },
-    MatchProfile {
-        name: REMOVAL_PROFILE,
-        catalog_sha256: REMOVAL_CATALOG_SHA256,
-        ir_version: 18,
-        policy_json: include_str!("../../../../tests/fixtures/commander-removal-policy.json"),
-        commanders: &[
-            ISAMARU,
-            YARGLE,
-            "4bbc5df9-60d7-46c1-8856-91c9c74abf18",
-            "48fe0f52-1676-49d5-acf6-5476081e8e1b",
-        ],
-        white_deck: removal_white_deck,
-        black_green_deck: removal_black_green_deck,
-        default_pod: [
-            removal_white_deck,
-            removal_black_green_deck,
-            removal_blue_deck,
-            removal_red_deck,
-        ],
-    },
-    MatchProfile {
-        name: SACRIFICE_PROFILE,
-        catalog_sha256: SACRIFICE_CATALOG_SHA256,
-        ir_version: 19,
-        policy_json: include_str!("../../../../tests/fixtures/commander-sacrifice-policy.json"),
-        commanders: &[
-            ISAMARU,
-            YARGLE,
-            "4bbc5df9-60d7-46c1-8856-91c9c74abf18",
-            "48fe0f52-1676-49d5-acf6-5476081e8e1b",
-        ],
-        white_deck: sacrifice_white_deck,
-        black_green_deck: sacrifice_black_green_deck,
-        default_pod: [
-            sacrifice_white_deck,
-            sacrifice_black_green_deck,
-            removal_blue_deck,
-            sacrifice_red_deck,
-        ],
-    },
-    MatchProfile {
-        name: WIPES_PROFILE,
-        catalog_sha256: WIPES_CATALOG_SHA256,
-        ir_version: 20,
-        policy_json: include_str!("../../../../tests/fixtures/commander-wipes-policy.json"),
-        commanders: &[
-            ISAMARU,
-            YARGLE,
-            "4bbc5df9-60d7-46c1-8856-91c9c74abf18",
-            "48fe0f52-1676-49d5-acf6-5476081e8e1b",
-        ],
-        white_deck: wipes_white_deck,
-        black_green_deck: wipes_black_green_deck,
-        default_pod: [
-            wipes_white_deck,
-            wipes_black_green_deck,
-            wipes_blue_deck,
-            wipes_red_deck,
-        ],
-    },
-];
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ColorIdentityPolicy {
+    CommanderSubset,
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommanderEligibility {
+    LegendaryCreature,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompletionLayout {
+    pub rotate: bool,
+    pub homogeneous_seats: [usize; 2],
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MatchProfile {
+    pub name: String,
+    pub catalog_manifest: String,
+    pub decks: [Decklist; 4],
+    pub commanders: Vec<String>,
+    pub commander_policy: CommanderPolicy,
+    pub hosted: bool,
+    pub search: bool,
+    pub completion: CompletionLayout,
+    #[serde(skip)]
+    pub catalog_sha256: String,
+    #[serde(skip)]
+    pub ir_version: u32,
+    #[serde(skip)]
+    pub catalog: Option<Catalog>,
+}
+impl MatchProfile {
+    fn load(raw: &str, catalog_raw: &str) -> Self {
+        let mut profile: Self = strict_read(raw).expect("profile data");
+        let catalog = Catalog::read(catalog_raw).expect("profile catalog");
+        profile.catalog_sha256 = digest(&catalog).expect("catalog digest");
+        profile.ir_version = catalog.schema_version;
+        assert!(
+            profile.completion.homogeneous_seats.iter().all(|i| *i < 4),
+            "completion deck index"
+        );
+        profile.catalog = Some(catalog);
+        profile
+    }
+    pub fn catalog(&self) -> &Catalog {
+        self.catalog.as_ref().expect("loaded catalog")
+    }
+}
+include!(concat!(env!("OUT_DIR"), "/match_profiles.rs"));
 pub fn match_profile(name: &str) -> Option<&'static MatchProfile> {
     MATCH_PROFILES.iter().find(|p| p.name == name)
 }
-const WALL_OF_WOOD: &str = "aa5e6894-8c97-46f8-a0fd-07c6db51e9a7";
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DeckEntry {
@@ -265,18 +90,6 @@ pub struct MatchConfig {
     pub seed: [u8; 32],
 }
 impl MatchConfig {
-    pub fn foundations(seed: [u8; 32], starting_player: PlayerId) -> Self {
-        Self::for_profile(MATCH_PROFILE, seed, starting_player).expect("reviewed profile")
-    }
-    pub fn combat_keywords(seed: [u8; 32], starting_player: PlayerId) -> Self {
-        Self::for_profile(COMBAT_KEYWORDS_PROFILE, seed, starting_player).expect("reviewed profile")
-    }
-    pub fn tokens(seed: [u8; 32], starting_player: PlayerId) -> Self {
-        Self::for_profile(TOKENS_PROFILE, seed, starting_player).expect("reviewed profile")
-    }
-    pub fn keywords(seed: [u8; 32], starting_player: PlayerId) -> Self {
-        Self::for_profile(KEYWORDS_PROFILE, seed, starting_player).expect("reviewed profile")
-    }
     pub fn for_profile(
         name: &str,
         seed: [u8; 32],
@@ -284,198 +97,12 @@ impl MatchConfig {
     ) -> Result<Self, MatchAdmissionError> {
         let p = match_profile(name).ok_or(MatchAdmissionError::UnsupportedProfile)?;
         Ok(Self {
-            profile: p.name.into(),
-            decks: p.default_pod.map(|deck| deck()),
+            profile: p.name.clone(),
+            decks: p.decks.clone(),
             starting_player,
             seed,
         })
     }
-}
-fn entries(rows: &[(&str, u32)]) -> Vec<DeckEntry> {
-    let mut result = rows
-        .iter()
-        .map(|(id, count)| DeckEntry {
-            oracle_id: (*id).into(),
-            count: *count,
-        })
-        .collect::<Vec<_>>();
-    result.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    result
-}
-pub fn white_deck() -> Decklist {
-    Decklist {
-        commander: ISAMARU.into(),
-        cards: entries(&[
-            (ISAMARU, 1),
-            (OX, 1),
-            (HEALER, 1),
-            (NECTAR, 1),
-            (HEALING_HANDS, 1),
-            (SALVE, 1),
-            (PLAINS, 94),
-        ]),
-    }
-}
-pub fn black_green_deck() -> Decklist {
-    Decklist {
-        commander: YARGLE.into(),
-        cards: entries(&[
-            (YARGLE, 1),
-            (EDICT, 1),
-            (BEARS, 1),
-            (FOG, 1),
-            (BLOOD_ARTIST, 1),
-            (GROWTH, 1),
-            (WARDEN, 1),
-            (DISFIGURE, 1),
-            (SOUL_FEAST, 1),
-            (BOUNCER, 1),
-            (VISIONARY, 1),
-            (WALL_OF_WOOD, 1),
-            (FOREST, 44),
-            (SWAMP, 44),
-        ]),
-    }
-}
-pub fn keywords_white_deck() -> Decklist {
-    let mut deck = white_deck();
-    for row in &mut deck.cards {
-        if row.count > 1 {
-            row.count = 89;
-        }
-    }
-    deck.cards.push(DeckEntry {
-        oracle_id: "4b7ac066-e5c7-43e6-9e7e-2739b24a905d".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "28a52ba1-95da-44e1-8ac5-0dc23c902394".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "31009c45-afba-45f4-a6ca-9dfdb9990e72".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "6a0419c3-4bfa-46c1-932b-fe10f2fa2ad7".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "4502b24f-604b-4e36-9168-31c1a1ab4dab".into(),
-        count: 1,
-    });
-    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    deck
-}
-pub fn keywords_black_green_deck() -> Decklist {
-    let mut deck = black_green_deck();
-    for row in &mut deck.cards {
-        if row.count > 1 {
-            row.count = if row.oracle_id == FOREST { 39 } else { 38 };
-        }
-    }
-    deck.cards.push(DeckEntry {
-        oracle_id: "feb244f8-bcb1-44cf-9940-2719221a7309".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "d6ee6cc1-902d-4f56-afa5-6fa4813bfbbc".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "63d846e2-4bef-4911-9508-273c75a4a040".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "72a53d9e-0645-4024-a90f-73b05c2284c6".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "c650a7bc-e350-44a0-a698-d4a233d66156".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "e740ce2f-2134-473c-afa1-1b6d2d1e38ef".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "37f3733e-cc4e-4d84-b29b-d474f6e254a2".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "6b941291-1802-4ced-9869-39fa43825550".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "8178c546-84f8-4563-a804-6489ec016660".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "913dbce2-6805-453f-a9c3-64f1cc658627".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "51ce0158-c9a5-4fa5-9704-46ab02f01b86".into(),
-        count: 1,
-    });
-    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    deck
-}
-pub fn staples_white_deck() -> Decklist {
-    let mut deck = tokens_white_deck();
-    for row in &mut deck.cards {
-        if row.count > 1 {
-            row.count = 76;
-        }
-    }
-    deck.cards.push(DeckEntry {
-        oracle_id: "d057289d-5e28-43d5-8ff3-4a1bc723477d".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "e3886fe8-9b76-4613-8891-4ec74657c087".into(),
-        count: 1,
-    });
-    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    deck
-}
-pub fn staples_black_green_deck() -> Decklist {
-    let mut deck = tokens_black_green_deck();
-    for row in &mut deck.cards {
-        if row.count > 1 {
-            row.count = if row.oracle_id == FOREST { 29 } else { 30 };
-        }
-    }
-    deck.cards.push(DeckEntry {
-        oracle_id: "938b4e2c-88d9-4637-bc00-e228920c9a78".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "cbc9c731-181a-4f00-a7b0-eb7e56eac2ea".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "1a2030cc-d7ee-4059-b2d7-fb95ea8e267b".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "7ffae8f8-3006-4969-a339-6d30678f87ea".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "c6207f6a-a624-4754-88f5-dbe700c841ff".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "8539f295-5d58-4436-a73a-b9277c4c7795".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "a0abd957-01a0-4aa9-8fc8-0e6840d21606".into(),
-        count: 1,
-    });
-    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    deck
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "reason", rename_all = "snake_case", deny_unknown_fields)]
@@ -547,9 +174,10 @@ impl ValidatedPod {
     pub fn identity_digest(&self) -> Result<String, String> {
         let p = match_profile(&self.match_config.profile).ok_or("unknown profile")?;
         digest(&(
-            p.name,
-            p.catalog_sha256,
-            sha256(p.policy_json.as_bytes()),
+            &p.name,
+            &p.catalog_sha256,
+            p,
+            policy_digest(),
             &self.match_config,
         ))
     }
@@ -613,7 +241,7 @@ pub fn validate_pod(
             detail: format!(
                 "catalog differs from reviewed {} pool: expected {} definitions at IR v{}, received {} at IR v{}",
                 profile.name,
-                reviewed_catalog_size(profile.catalog_sha256).ok_or_else(|| {
+                reviewed_catalog_size(&profile.catalog_sha256).ok_or_else(|| {
                     MatchAdmissionError::InvalidCatalog {
                         detail: "missing reviewed catalog metadata".into(),
                     }
@@ -633,7 +261,7 @@ pub fn validate_pod(
     for (seat, deck) in config.decks.iter().enumerate() {
         let player = PlayerId(seat as u8);
         known_ban(player, &deck.commander)?;
-        if !profile.commanders.contains(&deck.commander.as_str()) {
+        if !profile.commanders.contains(&deck.commander) {
             // A different rule-eligible commander (including some legendary
             // Vehicles under903.3) is unsupported here, not universally illegal.
             return Err(MatchAdmissionError::UnsupportedCommander {
@@ -647,6 +275,18 @@ pub fn validate_pod(
                 oracle_id: deck.commander.clone(),
             }
         })?;
+        match profile.commander_policy.eligibility {
+            CommanderEligibility::LegendaryCreature => {
+                if !commander.characteristics.legendary
+                    || commander.characteristics.kind != CardKind::Creature
+                {
+                    return Err(MatchAdmissionError::UnsupportedCommander {
+                        player,
+                        oracle_id: deck.commander.clone(),
+                    });
+                }
+            }
+        }
         let mut total = 0u64;
         let mut counts = BTreeMap::<String, u32>::new();
         for row in &deck.cards {
@@ -696,7 +336,14 @@ pub fn validate_pod(
                     name: d.name.clone(),
                 });
             }
-            validate_deck_colors(player, id, &d.characteristics, &commander.characteristics)?;
+            match profile.commander_policy.color_identity {
+                ColorIdentityPolicy::CommanderSubset => validate_deck_colors(
+                    player,
+                    id,
+                    &d.characteristics,
+                    &commander.characteristics,
+                )?,
+            }
         }
         normalized.decks[seat].cards = counts
             .into_iter()
@@ -742,566 +389,12 @@ pub fn validate_pod(
             },
             mode: Mode::CommanderMatch,
             players: 4,
-            profile: profile.name.into(),
+            profile: profile.name.clone(),
             commanders,
             cards,
         },
         match_config: normalized,
     })
-}
-
-pub fn combat_keywords_white_deck() -> Decklist {
-    let mut deck = keywords_white_deck();
-    deck.cards
-        .iter_mut()
-        .find(|r| r.oracle_id == "bc71ebf6-2056-41f7-be35-b2e5c34afa99")
-        .unwrap()
-        .count = 85;
-    deck.cards.push(DeckEntry {
-        oracle_id: "ef2a24f5-ce5e-4054-843a-2cae0c66318a".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "4e6c71e8-aeaf-404e-84c2-c79f2a1cbe4b".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "2f810936-2ba6-4c2b-84a0-ff4c1deb026b".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "0c07d09e-e127-4573-b827-6c50246f7a31".into(),
-        count: 1,
-    });
-    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    deck
-}
-
-pub fn combat_keywords_black_green_deck() -> Decklist {
-    let mut deck = keywords_black_green_deck();
-    deck.cards
-        .iter_mut()
-        .find(|r| r.oracle_id == "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6")
-        .unwrap()
-        .count = 37;
-    deck.cards
-        .iter_mut()
-        .find(|r| r.oracle_id == "56719f6a-1a6c-4c0a-8d21-18f7d7350b68")
-        .unwrap()
-        .count = 35;
-    deck.cards.push(DeckEntry {
-        oracle_id: "fc1256e9-eb92-43b6-abfc-ce19d910a929".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "88b50194-bc39-47a6-968b-983553d89cf9".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "fb9af562-7384-4575-93bb-34f1ada23735".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "08c7db90-c0cf-4482-b7ee-bb033e5996d2".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "9a74a1dd-c36f-4900-b835-fc39dd725bde".into(),
-        count: 1,
-    });
-    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    deck
-}
-
-pub fn tokens_white_deck() -> Decklist {
-    let mut deck = combat_keywords_white_deck();
-    deck.cards
-        .iter_mut()
-        .find(|r| r.oracle_id == PLAINS)
-        .unwrap()
-        .count = 78;
-    deck.cards.push(DeckEntry {
-        oracle_id: "5b2364d7-a811-4595-a1b4-224c70555ffa".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "5e4c02c2-2e54-4e8d-8d94-6b2454027e7e".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "87e4c6ff-f83f-412b-9d23-aac7a57ef6db".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "a79e21fc-89bd-4547-8bef-5510554e1431".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "b3eb8f65-5eba-42a9-a1b4-4f37b14d03d9".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "b500c460-2814-47a4-b307-17ca519f3565".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "fab5f694-4a9c-4e72-b164-f236e8212ff7".into(),
-        count: 1,
-    });
-    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    deck
-}
-
-pub fn tokens_black_green_deck() -> Decklist {
-    let mut deck = combat_keywords_black_green_deck();
-    deck.cards
-        .iter_mut()
-        .find(|r| r.oracle_id == FOREST)
-        .unwrap()
-        .count = 31;
-    deck.cards.push(DeckEntry {
-        oracle_id: "3b1f8108-6911-49e9-8f78-f950bb58cb6c".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "49f3bd5a-9c2a-45b8-aa10-9c6471028a0f".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "650bf82e-7f83-470c-bf4a-34281bfe9341".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "86c0ddaa-6926-450d-949a-6c89f43c71c2".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "8fb599a7-2c61-446b-a7a7-cd5367f9b796".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "a1112750-8d38-49e0-ab1c-77110b2bbc4d".into(),
-        count: 1,
-    });
-    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    deck
-}
-
-pub fn mana_white_deck() -> Decklist {
-    let mut deck = staples_white_deck();
-    for row in &mut deck.cards {
-        if row.count > 1 {
-            row.count = 71;
-        }
-    }
-    deck.cards.push(DeckEntry {
-        oracle_id: "0895c9b7-ae7d-4bb3-af17-3b75deb50a25".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "0b67c4e2-f88b-4e01-85a1-9d5f5b8db13b".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "0bc7f093-bef0-4f1a-852c-4b75ebf54838".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "6ad8011d-3471-4369-9d68-b264cc027487".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "c97361b5-af16-4a7b-af85-a429dbaf4ad2".into(),
-        count: 1,
-    });
-    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    deck
-}
-
-pub fn mana_black_green_deck() -> Decklist {
-    let mut deck = staples_black_green_deck();
-    for row in &mut deck.cards {
-        if row.count > 1 {
-            row.count = if row.oracle_id == FOREST { 24 } else { 26 };
-        }
-    }
-    deck.cards.push(DeckEntry {
-        oracle_id: "0895c9b7-ae7d-4bb3-af17-3b75deb50a25".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "0b67c4e2-f88b-4e01-85a1-9d5f5b8db13b".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "0bc7f093-bef0-4f1a-852c-4b75ebf54838".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "1cf51f50-24e4-48d0-95b3-1dad3ffa4bf5".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "3f3b2c10-21f8-4e13-be83-4ef3fa36e123".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "68954295-54e3-4303-a6bc-fc4547a4e3a3".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "6ad8011d-3471-4369-9d68-b264cc027487".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "c97361b5-af16-4a7b-af85-a429dbaf4ad2".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "d3a0b660-358c-41bd-9cd2-41fbf3491b1a".into(),
-        count: 1,
-    });
-    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    deck
-}
-
-pub fn four_colors_blue_deck() -> Decklist {
-    Decklist {
-        commander: "4bbc5df9-60d7-46c1-8856-91c9c74abf18".into(),
-        cards: entries(&[
-            ("4bbc5df9-60d7-46c1-8856-91c9c74abf18", 1), // Caelorna, Coral Tyrant
-            ("cc187110-1148-4090-bbb8-e205694a39f5", 1), // Counterspell
-            ("b3b00911-ece7-4484-bc36-f211ce72b6cc", 1), // Stifle
-            ("837182db-1bf3-4a2c-bd01-1af9d9873561", 1), // Unsummon
-            ("30cc8f7b-3c28-40f5-8f8f-157e8212280b", 1), // Time Ebb
-            ("67362406-b1ca-49e2-800d-9050bfe8742a", 1), // Merfolk Looter
-            ("bbf9fd47-10e1-4749-b06f-4fe72200afc7", 1), // Azure Mage
-            ("5e961d15-5972-4e4b-9385-1cd7cd7c6bbe", 1), // Prodigal Sorcerer
-            ("240a349a-79f8-4e11-9a05-a78148e70a62", 1), // Hapless Researcher
-            ("000d5588-5a4c-434e-988d-396632ade42c", 1), // Storm Crow
-            ("11f77158-0240-4882-94a4-6bd6b3d94bcc", 1), // Zephyr Sprite
-            ("73115500-4468-43b3-9151-13e3da9050c5", 1), // Goliath Sphinx
-            ("b2d3da40-e2f7-4480-9da9-33019d6f4071", 1), // Wall of Air
-            ("a09cce6f-c957-49d7-af99-a7b2bce786e8", 1), // Hover Barrier
-            ("f328012f-4696-47bb-ab43-247bdcb13f03", 1), // Dragoon's Wyvern
-            ("6ad8011d-3471-4369-9d68-b264cc027487", 1), // Sol Ring
-            ("0bc7f093-bef0-4f1a-852c-4b75ebf54838", 1), // Arcane Signet
-            ("0b67c4e2-f88b-4e01-85a1-9d5f5b8db13b", 1), // Commander's Sphere
-            ("c97361b5-af16-4a7b-af85-a429dbaf4ad2", 1), // Mind Stone
-            ("0895c9b7-ae7d-4bb3-af17-3b75deb50a25", 1), // Command Tower
-            ("b2c6aa39-2d2a-459c-a555-fb48ba993373", 80), // Island
-        ]),
-    }
-}
-
-pub fn four_colors_red_deck() -> Decklist {
-    Decklist {
-        commander: "48fe0f52-1676-49d5-acf6-5476081e8e1b".into(),
-        cards: entries(&[
-            ("48fe0f52-1676-49d5-acf6-5476081e8e1b", 1), // Rorix Bladewing
-            ("4457ed35-7c10-48c8-9776-456485fdf070", 1), // Lightning Bolt
-            ("68715465-6cf9-4006-87e9-31f227fe9ed3", 1), // Furnace of Rath
-            ("30997b43-fc13-41d3-8064-1ccc2cb6fd2b", 1), // Raging Goblin
-            ("38f66ef9-6afc-478b-a1d4-a9d42c31dfc9", 1), // Goblin Trailblazer
-            ("21dd60d5-76c8-469e-8c4e-112e377d2d59", 1), // Charging Monstrosaur
-            ("6fbaa853-48d4-4a3b-b22d-27415cc266d7", 1), // Quaketusk Boar
-            ("8b022754-6d16-470e-b754-4df6e4f4709e", 1), // Goblin Instigator
-            ("f5c5f64c-6911-430c-a825-b32b96d39c7d", 1), // Beetleback Chief
-            ("f6b499d5-0e39-46ce-9de9-f64a2cc2cb32", 1), // Chimney Rabble
-            ("328a0691-9453-4f2d-a9c3-5c69da252d20", 1), // Dragon Trainer
-            ("6ad8011d-3471-4369-9d68-b264cc027487", 1), // Sol Ring
-            ("0bc7f093-bef0-4f1a-852c-4b75ebf54838", 1), // Arcane Signet
-            ("0b67c4e2-f88b-4e01-85a1-9d5f5b8db13b", 1), // Commander's Sphere
-            ("c97361b5-af16-4a7b-af85-a429dbaf4ad2", 1), // Mind Stone
-            ("0895c9b7-ae7d-4bb3-af17-3b75deb50a25", 1), // Command Tower
-            ("a3fb7228-e76b-4e96-a40e-20b5fed75685", 84), // Mountain
-        ]),
-    }
-}
-
-fn add_attachments(mut deck: Decklist, additions: &[&str], basics: &[(&str, u32)]) -> Decklist {
-    for (id, count) in basics {
-        deck.cards
-            .iter_mut()
-            .find(|r| r.oracle_id == *id)
-            .unwrap()
-            .count = *count;
-    }
-    for id in additions {
-        deck.cards.push(DeckEntry {
-            oracle_id: (*id).into(),
-            count: 1,
-        });
-    }
-    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    deck
-}
-pub fn attachments_white_deck() -> Decklist {
-    add_attachments(
-        mana_white_deck(),
-        &[
-            "452e3f5f-ce17-4682-966b-5cc100210aee",
-            "e842a4e5-ea0b-43ae-9ed8-93e30f4e7b8a",
-            "12a8adc4-927f-4314-b2ef-9c647ace68d5",
-            "dba35ac5-7ad3-488a-a006-6b9a1d54eea5",
-            "c8b143ad-43ec-4e0d-a440-e348daa31391",
-            "ca204b66-8d0c-431a-8d34-282f7c2d17da",
-            "9ad4f730-a18e-4a7c-a468-a926c718c741",
-            "9357de36-f8be-4f49-b2c8-9fe9eaf82b07",
-            "5f5e0b10-c8cf-450c-bfd3-bcb0528ec330",
-        ],
-        &[(PLAINS, 62)],
-    )
-}
-pub fn attachments_black_green_deck() -> Decklist {
-    add_attachments(
-        mana_black_green_deck(),
-        &[
-            "452e3f5f-ce17-4682-966b-5cc100210aee",
-            "e842a4e5-ea0b-43ae-9ed8-93e30f4e7b8a",
-            "12a8adc4-927f-4314-b2ef-9c647ace68d5",
-            "dba35ac5-7ad3-488a-a006-6b9a1d54eea5",
-            "c8b143ad-43ec-4e0d-a440-e348daa31391",
-            "ca204b66-8d0c-431a-8d34-282f7c2d17da",
-            "9ad4f730-a18e-4a7c-a468-a926c718c741",
-            "090d88a9-7f2d-4bd1-a30a-7c48d05068be",
-            "9d2d6479-531c-4ce1-b52b-00e36fa63b64",
-            "ad73e5eb-197c-45a3-9d20-a406ba126c79",
-        ],
-        &[(FOREST, 20), (SWAMP, 20)],
-    )
-}
-pub fn attachments_blue_deck() -> Decklist {
-    add_attachments(
-        four_colors_blue_deck(),
-        &[
-            "452e3f5f-ce17-4682-966b-5cc100210aee",
-            "e842a4e5-ea0b-43ae-9ed8-93e30f4e7b8a",
-            "12a8adc4-927f-4314-b2ef-9c647ace68d5",
-            "dba35ac5-7ad3-488a-a006-6b9a1d54eea5",
-            "c8b143ad-43ec-4e0d-a440-e348daa31391",
-            "ca204b66-8d0c-431a-8d34-282f7c2d17da",
-            "9ad4f730-a18e-4a7c-a468-a926c718c741",
-        ],
-        &[(ISLAND, 73)],
-    )
-}
-pub fn attachments_red_deck() -> Decklist {
-    add_attachments(
-        four_colors_red_deck(),
-        &[
-            "452e3f5f-ce17-4682-966b-5cc100210aee",
-            "e842a4e5-ea0b-43ae-9ed8-93e30f4e7b8a",
-            "12a8adc4-927f-4314-b2ef-9c647ace68d5",
-            "dba35ac5-7ad3-488a-a006-6b9a1d54eea5",
-            "c8b143ad-43ec-4e0d-a440-e348daa31391",
-            "ca204b66-8d0c-431a-8d34-282f7c2d17da",
-            "9ad4f730-a18e-4a7c-a468-a926c718c741",
-        ],
-        &[("a3fb7228-e76b-4e96-a40e-20b5fed75685", 77)],
-    )
-}
-
-pub fn removal_white_deck() -> Decklist {
-    add_attachments(
-        attachments_white_deck(),
-        &[
-            "289e1a7c-b301-4395-baf8-e9a1c6d38aab",
-            "a7e97fa9-4b72-4548-b854-5be5f18a6f1a",
-            "b1544f21-7e98-461b-aed5-e748b0168c52",
-            "fae37e28-e137-4177-b973-fa8b4dd8f409",
-        ],
-        &[(PLAINS, 58)],
-    )
-}
-
-pub fn removal_black_green_deck() -> Decklist {
-    add_attachments(
-        attachments_black_green_deck(),
-        &[
-            "032ec6e2-6cc3-4a97-9cc7-3233f5e11904",
-            "2f092562-9e17-43cd-aeb8-d0567f99363e",
-            "5825997b-10d7-4a36-972c-a80ddd90b8ed",
-            "59e7f2ae-4535-4191-98be-3e65b6b2befa",
-            "6d4e558e-9109-4918-a082-fdcbaffd516b",
-            "7735eeba-693b-47e2-bd51-414379cf1016",
-            "7b459306-149b-4f43-abc1-2dd70c748c0e",
-            "9410ae41-b6db-47c6-ae0a-4e33aad1d3ce",
-            "bdb3ca68-ec1f-4e16-81cc-d23f8f52c728",
-        ],
-        &[(FOREST, 16), (SWAMP, 15)],
-    )
-}
-
-pub fn removal_blue_deck() -> Decklist {
-    add_attachments(
-        attachments_blue_deck(),
-        &[
-            "05849bd6-8f38-4031-be2b-e2aa03beb8cc",
-            "8ddfc283-c9b4-41a5-af88-cf0068e986cc",
-        ],
-        &[(ISLAND, 71)],
-    )
-}
-
-pub fn removal_red_deck() -> Decklist {
-    add_attachments(
-        attachments_red_deck(),
-        &[
-            "84d32e68-72b9-432d-a023-7bc6a26b8ad0",
-            "e0583f29-c344-4b56-b0dc-bef1089a95c7",
-        ],
-        &[("a3fb7228-e76b-4e96-a40e-20b5fed75685", 75)],
-    )
-}
-
-pub fn sacrifice_white_deck() -> Decklist {
-    add_attachments(
-        removal_white_deck(),
-        &["59f10ddb-8287-4d2c-8c60-1080b108fa78"],
-        &[(PLAINS, 57)],
-    )
-}
-
-pub fn sacrifice_black_green_deck() -> Decklist {
-    add_attachments(
-        removal_black_green_deck(),
-        &[
-            "0c936582-d4c0-4da8-bc7e-49da5a433939",
-            "11ad664e-36d3-4d5b-8a87-59ea715877e0",
-            "11cb509d-21af-48f1-b355-135ebd3e4bd1",
-            "365548fb-5acc-4a8a-b20b-26d28b7d029f",
-            "76b003e0-15af-4f22-bdf2-1ade5430964a",
-            "8cdfd9df-4783-4138-a286-828a97f516aa",
-            "a1cc5e37-b09a-4b7f-afd5-77c1c35aa425",
-            "a85197ab-dc94-4b72-9716-8dbdbbe90ff8",
-            "aa76cc50-5be0-4844-b3a4-fb33fca3cdd3",
-            "c7f33cea-2ec8-4081-9208-a5b1d86721b3",
-            "e3afc704-220f-498f-9eaa-0821b17dc24c",
-            "e8c7566d-7cc0-48af-a986-83223ec7e06c",
-        ],
-        &[(FOREST, 9), (SWAMP, 10)],
-    )
-}
-
-pub fn sacrifice_red_deck() -> Decklist {
-    add_attachments(
-        removal_red_deck(),
-        &[
-            "24227761-b50e-4b9e-93a2-e82d053b3e3d",
-            "7efd5d62-6da2-428a-98e3-5b842f668656",
-            "c1177f22-a1cf-4da3-a68d-ff954e878403",
-            "ddc7f59a-bbb1-4ba1-82c8-6813fd191940",
-            "edad60c6-80de-4033-af1b-a703ac332983",
-        ],
-        &[("a3fb7228-e76b-4e96-a40e-20b5fed75685", 70)],
-    )
-}
-
-pub fn wipes_white_deck() -> Decklist {
-    let mut deck = sacrifice_white_deck();
-    deck.cards
-        .iter_mut()
-        .find(|c| c.oracle_id == "bc71ebf6-2056-41f7-be35-b2e5c34afa99")
-        .unwrap()
-        .count = 54;
-    deck.cards.push(DeckEntry {
-        oracle_id: "b17ea905-0696-4e58-b564-557e87236e27".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "a98c2d81-4add-4292-bbdd-e1b69ff936d4".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "69ef9308-bc25-4f3c-a5fd-1ebaed6e4842".into(),
-        count: 1,
-    });
-    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    deck
-}
-pub fn wipes_black_green_deck() -> Decklist {
-    let mut deck = sacrifice_black_green_deck();
-    deck.cards
-        .iter_mut()
-        .find(|c| c.oracle_id == "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6")
-        .unwrap()
-        .count = 8;
-    deck.cards
-        .iter_mut()
-        .find(|c| c.oracle_id == "56719f6a-1a6c-4c0a-8d21-18f7d7350b68")
-        .unwrap()
-        .count = 7;
-    deck.cards.push(DeckEntry {
-        oracle_id: "d6850616-7db5-4141-9ab0-ae8d1f08114f".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "6791ec3c-c397-4087-8c8c-84d3797df415".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "93cf50cf-0ecc-4d3e-abea-778c1ebacec4".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "f671e3c3-cd59-4d06-a1af-5d04892cf74d".into(),
-        count: 1,
-    });
-    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    deck
-}
-pub fn wipes_blue_deck() -> Decklist {
-    let mut deck = removal_blue_deck();
-    deck.cards
-        .iter_mut()
-        .find(|c| c.oracle_id == "b2c6aa39-2d2a-459c-a555-fb48ba993373")
-        .unwrap()
-        .count = 69;
-    deck.cards.push(DeckEntry {
-        oracle_id: "fdd94383-b573-439a-8e1c-925af887c5a6".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "7c779721-cd1b-4696-9ae9-68ccc284ed2a".into(),
-        count: 1,
-    });
-    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    deck
-}
-pub fn wipes_red_deck() -> Decklist {
-    let mut deck = sacrifice_red_deck();
-    deck.cards
-        .iter_mut()
-        .find(|c| c.oracle_id == "a3fb7228-e76b-4e96-a40e-20b5fed75685")
-        .unwrap()
-        .count = 64;
-    deck.cards.push(DeckEntry {
-        oracle_id: "e4bcd4ea-e7cd-4471-8f3b-18bb51d3d70c".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "3a7fe095-8278-4b1d-bec4-19b35bdcdd1b".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "bd6ce147-c991-40ac-b276-65b630fad8b6".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "086b2564-9114-4ba2-94fd-b490f98f38a7".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "9a40614b-50a3-422c-849e-53c8b7d3d204".into(),
-        count: 1,
-    });
-    deck.cards.push(DeckEntry {
-        oracle_id: "7a2484a9-04fd-41a0-8224-610c1c07ed10".into(),
-        count: 1,
-    });
-    deck.cards.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    deck
 }
 
 #[cfg(test)]
@@ -1316,7 +409,8 @@ mod tests {
     #[test]
     fn default_pod_is_canonical_four_legal_hundred_card_decks() {
         let c = catalog();
-        let input = MatchConfig::foundations([7; 32], PlayerId(3));
+        let input =
+            MatchConfig::for_profile("commander-foundations-v1", [7; 32], PlayerId(3)).unwrap();
         let pod = validate_pod(&c, &input).unwrap();
         assert_eq!(pod.config.cards.len(), 400);
         assert_eq!(
@@ -1383,7 +477,10 @@ mod tests {
                 .identity_digest()
                 .unwrap()
         );
-        for all in [white_deck(), black_green_deck()] {
+        for all in [
+            match_profile("commander-foundations-v1").unwrap().decks[0].clone(),
+            match_profile("commander-foundations-v1").unwrap().decks[1].clone(),
+        ] {
             let mut x = input.clone();
             x.decks = std::array::from_fn(|_| all.clone());
             assert!(validate_pod(&c, &x).is_ok());
@@ -1392,7 +489,8 @@ mod tests {
     #[test]
     fn construction_rejects_bad_counts_singletons_colors_and_unsupported_cards() {
         let c = catalog();
-        let input = MatchConfig::foundations([0; 32], PlayerId(0));
+        let input =
+            MatchConfig::for_profile("commander-foundations-v1", [0; 32], PlayerId(0)).unwrap();
         let mut x = input.clone();
         x.decks[0].cards[0].count = 0;
         assert!(matches!(
@@ -1528,7 +626,8 @@ mod tests {
     #[test]
     fn known_bans_are_distinct_from_unknown_or_unsupported_pool_and_policy_is_bound() {
         let c = catalog();
-        let input = MatchConfig::foundations([1; 32], PlayerId(0));
+        let input =
+            MatchConfig::for_profile("commander-foundations-v1", [1; 32], PlayerId(0)).unwrap();
         let policy: serde_json::Value =
             serde_json::from_str(super::super::commander_policy::COMMANDER_POLICY_JSON).unwrap();
         let named = policy["named_bans"].as_array().unwrap();

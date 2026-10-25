@@ -52,7 +52,7 @@ fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
         },
         mode: Mode::CommanderMatch,
         players: 4,
-        profile: FOUR_COLORS_PROFILE.into(),
+        profile: "commander-four-colors-v1".into(),
         commanders: rows
             .iter()
             .enumerate()
@@ -348,15 +348,15 @@ fn edit_setup(mut p: Prepared, id: u32, zone: Zone) -> Prepared {
 #[test]
 fn profile_decks_admission_and_compiled_pool_resource_proof() {
     let c = catalog();
-    let cfg = MatchConfig::for_profile(FOUR_COLORS_PROFILE, [9; 32], PlayerId(0)).unwrap();
+    let cfg = MatchConfig::for_profile("commander-four-colors-v1", [9; 32], PlayerId(0)).unwrap();
     validate_pod(&c, &cfg).unwrap();
     assert_eq!(
         cfg.decks,
         [
-            mana_white_deck(),
-            mana_black_green_deck(),
-            four_colors_blue_deck(),
-            four_colors_red_deck()
+            match_profile("commander-mana-v1").unwrap().decks[0].clone(),
+            match_profile("commander-mana-v1").unwrap().decks[1].clone(),
+            match_profile("commander-four-colors-v1").unwrap().decks[2].clone(),
+            match_profile("commander-four-colors-v1").unwrap().decks[3].clone()
         ]
     );
     for deck in &cfg.decks {

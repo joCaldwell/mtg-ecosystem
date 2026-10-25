@@ -69,12 +69,27 @@ fn fixed_case(index: usize) -> Result<(MatchConfig, [u8; 4]), String> {
     if index >= 18 {
         return Err("fixed pod index0..17 required".into());
     }
-    let mut config = MatchConfig::foundations(seed(index as u32), PlayerId((index % 4) as u8));
+    let mut config = MatchConfig::for_profile(
+        "commander-foundations-v1",
+        seed(index as u32),
+        PlayerId((index % 4) as u8),
+    )
+    .unwrap();
     if index == 16 {
-        config.decks = std::array::from_fn(|_| mtg_core::white_deck());
+        config.decks = std::array::from_fn(|_| {
+            mtg_core::match_profile("commander-foundations-v1")
+                .unwrap()
+                .decks[0]
+                .clone()
+        });
     }
     if index == 17 {
-        config.decks = std::array::from_fn(|_| mtg_core::black_green_deck());
+        config.decks = std::array::from_fn(|_| {
+            mtg_core::match_profile("commander-foundations-v1")
+                .unwrap()
+                .decks[1]
+                .clone()
+        });
     }
     Ok((config, std::array::from_fn(|p| ((index + p) % 3) as u8)))
 }

@@ -154,12 +154,24 @@ fn profile_config() -> MatchConfig {
     let seed = std::array::from_fn(|i| {
         u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).expect("SHA256 hex")
     });
-    let mut config = MatchConfig::foundations(seed, P0);
+    let mut config = MatchConfig::for_profile("commander-foundations-v1", seed, P0).unwrap();
     config.decks = [
-        mtg_core::black_green_deck(),
-        mtg_core::white_deck(),
-        mtg_core::black_green_deck(),
-        mtg_core::white_deck(),
+        mtg_core::match_profile("commander-foundations-v1")
+            .unwrap()
+            .decks[1]
+            .clone(),
+        mtg_core::match_profile("commander-foundations-v1")
+            .unwrap()
+            .decks[0]
+            .clone(),
+        mtg_core::match_profile("commander-foundations-v1")
+            .unwrap()
+            .decks[1]
+            .clone(),
+        mtg_core::match_profile("commander-foundations-v1")
+            .unwrap()
+            .decks[0]
+            .clone(),
     ];
     config
 }
@@ -1383,10 +1395,22 @@ fn choice_profile_is_one_fixed_admitted400_card_pod_and_archived_edict() {
     assert_eq!(
         config.decks,
         [
-            mtg_core::black_green_deck(),
-            mtg_core::white_deck(),
-            mtg_core::black_green_deck(),
-            mtg_core::white_deck()
+            mtg_core::match_profile("commander-foundations-v1")
+                .unwrap()
+                .decks[1]
+                .clone(),
+            mtg_core::match_profile("commander-foundations-v1")
+                .unwrap()
+                .decks[0]
+                .clone(),
+            mtg_core::match_profile("commander-foundations-v1")
+                .unwrap()
+                .decks[1]
+                .clone(),
+            mtg_core::match_profile("commander-foundations-v1")
+                .unwrap()
+                .decks[0]
+                .clone()
         ]
     );
     assert_eq!(config, profile_config());

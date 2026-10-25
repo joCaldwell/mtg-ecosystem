@@ -6,7 +6,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { retainPolicySources, verifyRetainedPolicySources, type NativeSourceFile } from "./retain-policy-sources.ts";
 const sha = (bytes: string | Buffer) => createHash("sha256").update(bytes).digest("hex");
-const fixturePath = "packages/game-engine/tests/fixtures/commander-policy.json";
+const fixturePath = "packages/game-engine/tests/fixtures/commander-banned-2026-10-15.json";
 function fixture(value: unknown): NativeSourceFile {
   const contents = JSON.stringify(value);
   return { path: fixturePath, contents, sha256: sha(contents) };

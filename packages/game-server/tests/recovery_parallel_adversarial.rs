@@ -115,7 +115,7 @@ fn prefix() -> (Directory, Worker, u8, String) {
     let mut worker = Worker::create(
         &directory.0,
         catalog(),
-        MatchConfig::foundations([77; 32], PlayerId(1)),
+        MatchConfig::for_profile("commander-foundations-v1", [77; 32], PlayerId(1)).unwrap(),
         "a1",
         Instant::now(),
     )

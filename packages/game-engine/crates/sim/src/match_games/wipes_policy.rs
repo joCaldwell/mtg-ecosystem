@@ -422,7 +422,7 @@ mod tests {
     fn view(c: &Catalog) -> PermittedView {
         let p = Prepared::admit_pod(
             c.clone(),
-            MatchConfig::for_profile(mtg_core::WIPES_PROFILE, [3; 32], PlayerId(3)).unwrap(),
+            MatchConfig::for_profile("commander-wipes-v1", [3; 32], PlayerId(3)).unwrap(),
         )
         .unwrap();
         let mut g = Game::new(p);

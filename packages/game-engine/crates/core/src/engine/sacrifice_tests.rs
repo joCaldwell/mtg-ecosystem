@@ -423,7 +423,7 @@ fn natural(label: &str, rows: &[(&str, u8)], colors: [u8; 4], run: impl Fn(&mut 
         Decklist { commander, cards }
     });
     let mut config = MatchConfig {
-        profile: SACRIFICE_PROFILE.into(),
+        profile: "commander-sacrifice-v1".into(),
         decks,
         starting_player: PlayerId(0),
         seed: [0; 32],
@@ -548,7 +548,13 @@ fn natural(label: &str, rows: &[(&str, u8)], colors: [u8; 4], run: impl Fn(&mut 
 #[test]
 fn sacrifice_profile_catalog_decks_policy_and_bounds() {
     let c = catalog();
-    assert_eq!(digest(&c).unwrap(), SACRIFICE_CATALOG_SHA256);
+    assert_eq!(
+        digest(&c).unwrap(),
+        match_profile("commander-sacrifice-v1")
+            .unwrap()
+            .catalog_sha256
+            .as_str()
+    );
     for (colors, expected) in [
         (vec![Color::W], 17),
         (vec![Color::B, Color::G], 42),
@@ -607,7 +613,7 @@ fn sacrifice_profile_catalog_decks_policy_and_bounds() {
     };
     let p = Prepared::admit_pod(
         c,
-        MatchConfig::for_profile(SACRIFICE_PROFILE, [7; 32], PlayerId(0)).unwrap(),
+        MatchConfig::for_profile("commander-sacrifice-v1", [7; 32], PlayerId(0)).unwrap(),
     )
     .unwrap();
     let g = Game::new(p);
@@ -1298,7 +1304,8 @@ fn double_strike_in_sacrifice_profile() {
         .oracle_id
         .clone();
     assert!(
-        sacrifice_white_deck()
+        match_profile("commander-sacrifice-v1").unwrap().decks[0]
+            .clone()
             .cards
             .iter()
             .any(|e| e.oracle_id == ace_id)

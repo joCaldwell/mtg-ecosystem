@@ -63,7 +63,7 @@ fn prepared(rows: &[(&str, u8, bool)], haste_healer: bool) -> Prepared {
         },
         mode: Mode::CommanderMatch,
         players: 4,
-        profile: KEYWORDS_PROFILE.into(),
+        profile: "commander-keywords-v1".into(),
         commanders: vec![],
         cards,
     };
@@ -680,14 +680,17 @@ fn healer_fully_prevented_deathtouch_never_marks_or_destroys() {
 #[test]
 fn keyword_profile_admission_policy_and_historical_identity_are_separate() {
     let c = catalog();
-    let config = MatchConfig::keywords([5; 32], PlayerId(2));
+    let config = MatchConfig::for_profile("commander-keywords-v1", [5; 32], PlayerId(2)).unwrap();
     let p = Prepared::admit_pod(c.clone(), config.clone()).unwrap();
     assert_eq!(p.config.cards.len(), 400);
     assert_eq!(p.catalog.schema_version, 12);
     for deck in &config.decks {
         assert_eq!(deck.cards.iter().map(|r| r.count).sum::<u32>(), 100);
     }
-    for deck in [keywords_white_deck(), keywords_black_green_deck()] {
+    for deck in [
+        match_profile("commander-keywords-v1").unwrap().decks[0].clone(),
+        match_profile("commander-keywords-v1").unwrap().decks[1].clone(),
+    ] {
         let mut x = config.clone();
         x.decks = std::array::from_fn(|_| deck.clone());
         assert!(Prepared::admit_pod(c.clone(), x).is_ok());
@@ -696,18 +699,25 @@ fn keyword_profile_admission_policy_and_historical_identity_are_separate() {
         "../../../../tests/fixtures/expected-match-ir.json"
     ))
     .unwrap();
-    assert_eq!(digest(&old).unwrap(), MATCH_CATALOG_SHA256);
     assert_eq!(
-        policy_digest(),
-        "cfe83bd72e477756a7b4f778e22c6ec8e901489671d84d122574ecdc7b90caad"
+        digest(&old).unwrap(),
+        match_profile("commander-foundations-v1")
+            .unwrap()
+            .catalog_sha256
+            .as_str()
     );
     assert!(Prepared::admit_pod(old, config).is_err());
-    assert!(Prepared::admit_pod(c, MatchConfig::foundations([5; 32], PlayerId(2))).is_err());
-    let profile = match_profile(KEYWORDS_PROFILE).unwrap();
-    let policy: serde_json::Value = strict_read(profile.policy_json).unwrap();
+    assert!(
+        Prepared::admit_pod(
+            c,
+            MatchConfig::for_profile("commander-foundations-v1", [5; 32], PlayerId(2)).unwrap()
+        )
+        .is_err()
+    );
+    let profile = match_profile("commander-keywords-v1").unwrap();
     assert_eq!(
-        policy["admitted_pool_review"].as_array().unwrap().len(),
-        super::match_admission::reviewed_catalog_size(profile.catalog_sha256).unwrap()
+        profile.catalog().definitions.len(),
+        super::match_admission::reviewed_catalog_size(&profile.catalog_sha256).unwrap()
     );
 }
 #[test]

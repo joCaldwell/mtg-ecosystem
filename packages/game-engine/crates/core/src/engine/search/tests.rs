@@ -7,7 +7,11 @@ fn catalog() -> Catalog {
 }
 fn root(takes: u8) -> Game {
     let mut game = Game::with_trace(
-        Prepared::admit_pod(catalog(), MatchConfig::foundations([0; 32], PlayerId(0))).unwrap(),
+        Prepared::admit_pod(
+            catalog(),
+            MatchConfig::for_profile("commander-foundations-v1", [0; 32], PlayerId(0)).unwrap(),
+        )
+        .unwrap(),
         TraceMode::Off,
     );
     for _ in 0..100 {
@@ -502,4 +506,60 @@ fn sampler_identity_ignores_only_build_binding() {
         super::capture::capture_identity(data, history, false).unwrap(),
         super::capture::capture_identity(data, "reordered-history", false).unwrap()
     );
+}
+
+#[test]
+fn search_admission_uses_flags_and_retains_the_catalog_pin() {
+    for profile in MATCH_PROFILES.iter() {
+        let mut game = Game::with_trace(
+            Prepared::admit_pod(
+                profile.catalog().clone(),
+                MatchConfig::for_profile(&profile.name, [0; 32], PlayerId(0)).unwrap(),
+            )
+            .unwrap(),
+            TraceMode::Off,
+        );
+        loop {
+            let Advance::AwaitingDecision(r) = game.advance(Budget::new(1024)) else {
+                panic!("opening decision")
+            };
+            if matches!(
+                r,
+                Request::Priority {
+                    player: PlayerId(0),
+                    ..
+                }
+            ) && game.turn().step == TurnStep::PrecombatMain
+            {
+                break;
+            }
+            let response = match &r {
+                Request::Mulligan { .. } => Response::Mulligan { take: false },
+                Request::BottomOpening {
+                    count, candidates, ..
+                } => Response::BottomOpening {
+                    objects: candidates[..*count].to_vec(),
+                },
+                Request::Priority { .. } => Response::Pass,
+                _ => panic!("unexpected opening request"),
+            };
+            game.respond(r.player(), r.decision_id(), response).unwrap();
+        }
+        assert_eq!(
+            matches!(
+                game.capture_search(PlayerId(0), Budget::new(0)),
+                CaptureOutcome::Incomplete { .. }
+            ),
+            profile.search,
+            "{}",
+            profile.name
+        );
+        if profile.search {
+            Arc::make_mut(&mut game.prepared).catalog_digest = "changed".into();
+            assert!(matches!(
+                game.capture_search(PlayerId(0), Budget::new(0)),
+                CaptureOutcome::Rejected(_)
+            ));
+        }
+    }
 }

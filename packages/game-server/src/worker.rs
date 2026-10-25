@@ -1576,7 +1576,7 @@ mod tests {
         let worker = Worker::create(
             &temp.pod(),
             catalog(),
-            MatchConfig::foundations([3; 32], PlayerId(0)),
+            MatchConfig::for_profile("commander-foundations-v1", [3; 32], PlayerId(0)).unwrap(),
             "a1",
             Instant::now(),
         )

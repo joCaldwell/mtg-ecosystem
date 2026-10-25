@@ -5,7 +5,7 @@ fn prepared() -> Prepared {
             "../../../../tests/fixtures/expected-match-ir.json"
         ))
         .unwrap(),
-        MatchConfig::foundations([0; 32], PlayerId(2)),
+        MatchConfig::for_profile("commander-foundations-v1", [0; 32], PlayerId(2)).unwrap(),
     )
     .unwrap()
 }

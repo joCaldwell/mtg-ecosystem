@@ -487,7 +487,7 @@ fn natural(label: &str, rows: &[(&str, u8)], colors: [u8; 4], run: impl Fn(&mut 
         Decklist { commander, cards }
     });
     let mut config = MatchConfig {
-        profile: WIPES_PROFILE.into(),
+        profile: "commander-wipes-v1".into(),
         decks,
         starting_player: PlayerId(0),
         seed: [0; 32],
@@ -651,7 +651,8 @@ fn double_strike_in_wipes_profile() {
         .oracle_id
         .clone();
     assert!(
-        wipes_white_deck()
+        match_profile("commander-wipes-v1").unwrap().decks[0]
+            .clone()
             .cards
             .iter()
             .any(|e| e.oracle_id == ace_id)
@@ -785,11 +786,17 @@ fn trigger_count(g: &Game, name: &str) -> usize {
 #[test]
 fn wipes_profile_catalog_decks_policy_bounds_and_prior_catalog_rejection() {
     let c = catalog();
-    assert_eq!(digest(&c).unwrap(), WIPES_CATALOG_SHA256);
+    assert_eq!(
+        digest(&c).unwrap(),
+        match_profile("commander-wipes-v1")
+            .unwrap()
+            .catalog_sha256
+            .as_str()
+    );
     for p in MATCH_PROFILES.iter().take(10) {
-        assert!(match_profile(p.name).is_some());
+        assert!(match_profile(&p.name).is_some());
     }
-    let config = MatchConfig::for_profile(WIPES_PROFILE, [7; 32], PlayerId(0)).unwrap();
+    let config = MatchConfig::for_profile("commander-wipes-v1", [7; 32], PlayerId(0)).unwrap();
     let g = Game::new(Prepared::admit_pod(c, config.clone()).unwrap());
     assert_eq!(
         (
@@ -822,9 +829,15 @@ fn wipes_profile_catalog_decks_policy_bounds_and_prior_catalog_rejection() {
         panic!("expected typed catalog rejection")
     };
     assert!(detail.contains(&format!(
-        "expected {} definitions",
-        super::match_admission::reviewed_catalog_size(WIPES_CATALOG_SHA256).unwrap()
-    )));
+            "expected {} definitions",
+            super::match_admission::reviewed_catalog_size(
+                match_profile("commander-wipes-v1")
+                    .unwrap()
+                    .catalog_sha256
+                    .as_str()
+            )
+            .unwrap()
+        )));
     assert!(detail.contains(&received));
 }
 #[test]

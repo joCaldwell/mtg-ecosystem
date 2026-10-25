@@ -431,7 +431,8 @@ fn ordinary_prefix(catalog: &Catalog, count: usize, quantum: u64) -> Result<Run,
     if count == 0 || count > PREFIX_INPUTS || quantum == 0 {
         return Err("ordinary diagnostic count/quantum out of range".into());
     }
-    let config = MatchConfig::foundations(seed(1), PlayerId(1));
+    let config =
+        MatchConfig::for_profile("commander-foundations-v1", seed(1), PlayerId(1)).unwrap();
     let clock = Instant::now();
     let prepared = Prepared::admit_pod(catalog.clone(), config).map_err(|e| format!("{e:?}"))?;
     let admission_ns = clock.elapsed().as_nanos();
@@ -1054,7 +1055,7 @@ fn raw_core_prefix(
 fn raw_fixture(catalog: &Catalog) -> Result<(Game, Advance), String> {
     let prepared = Prepared::admit_pod(
         catalog.clone(),
-        MatchConfig::foundations(seed(1), PlayerId(1)),
+        MatchConfig::for_profile("commander-foundations-v1", seed(1), PlayerId(1)).unwrap(),
     )
     .map_err(|e| format!("{e:?}"))?;
     let mut game = Game::with_trace(prepared, TraceMode::Off);

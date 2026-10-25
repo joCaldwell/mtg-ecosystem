@@ -52,7 +52,7 @@ fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
         },
         mode: Mode::CommanderMatch,
         players: 4,
-        profile: ATTACHMENTS_PROFILE.into(),
+        profile: "commander-attachments-v1".into(),
         commanders: rows
             .iter()
             .enumerate()
@@ -343,7 +343,7 @@ fn activated(g: &mut Game, id: u32, targets: Vec<TargetEntity>) {
 #[test]
 fn profile_decks_policy_and_bounds_are_separate() {
     let c = catalog();
-    let cfg = MatchConfig::for_profile(ATTACHMENTS_PROFILE, [9; 32], PlayerId(0)).unwrap();
+    let cfg = MatchConfig::for_profile("commander-attachments-v1", [9; 32], PlayerId(0)).unwrap();
     let pod = validate_pod(&c, &cfg).unwrap();
     assert_eq!(pod.config.cards.len(), 400);
     for (deck, basics) in cfg.decks.iter().zip([62, 40, 73, 77]) {
@@ -363,7 +363,13 @@ fn profile_decks_policy_and_bounds_are_separate() {
             basics
         );
     }
-    assert_eq!(digest(&c).unwrap(), ATTACHMENTS_CATALOG_SHA256);
+    assert_eq!(
+        digest(&c).unwrap(),
+        match_profile("commander-attachments-v1")
+            .unwrap()
+            .catalog_sha256
+            .as_str()
+    );
     let g = Game::new(prepared(&[("Grizzly Bears", 0, false)]));
     assert_eq!(g.stack_limit(), capacities::STACK_LIMIT);
     assert_eq!(g.damage_limit(), capacities::DAMAGE_LIMIT);
@@ -371,7 +377,7 @@ fn profile_decks_policy_and_bounds_are_separate() {
     assert!(
         validate_pod(
             &c,
-            &MatchConfig::for_profile(FOUR_COLORS_PROFILE, [9; 32], PlayerId(0)).unwrap()
+            &MatchConfig::for_profile("commander-four-colors-v1", [9; 32], PlayerId(0)).unwrap()
         )
         .is_err()
     );

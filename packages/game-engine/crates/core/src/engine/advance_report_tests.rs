@@ -290,7 +290,7 @@ fn setup_and_commander_nested_departure_removals_are_captured_at_commit() {
             "../../../../tests/fixtures/expected-match-ir.json"
         ))
         .unwrap(),
-        MatchConfig::foundations([0; 32], PlayerId(0)),
+        MatchConfig::for_profile("commander-foundations-v1", [0; 32], PlayerId(0)).unwrap(),
     )
     .unwrap();
     let mut setup = Game::with_trace(p, TraceMode::Off);

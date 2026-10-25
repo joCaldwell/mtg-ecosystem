@@ -1045,7 +1045,7 @@ pub(super) fn run(
 }
 pub(super) fn seed(index: u32) -> [u8; 32] {
     // Domain and index are fixed before running the acceptance batch.
-    seed_for(mtg_core::MATCH_PROFILE, index)
+    seed_for("commander-foundations-v1", index)
 }
 pub(super) fn seed_for(profile: &str, index: u32) -> [u8; 32] {
     let hex = sha256(format!("{profile}/completion-batch/{index}").as_bytes());
@@ -1148,19 +1148,26 @@ fn verify_terminal_result(game: &Game, e: &Evidence) -> Result<(), String> {
     }
     Ok(())
 }
-pub(super) fn batch(catalog: &Catalog, directory: &Path) -> Result<serde_json::Value, String> {
+pub(super) fn batch(
+    catalog: &Catalog,
+    profile_name: &str,
+    directory: &Path,
+) -> Result<serde_json::Value, String> {
     let catalog_sha256 = mtg_contracts::digest(catalog)?;
-    let profile_spec = mtg_core::MATCH_PROFILES
-        .iter()
-        .find(|p| p.catalog_sha256 == catalog_sha256 && p.ir_version == catalog.schema_version)
-        .ok_or("unknown batch catalog")?;
-    let profile = profile_spec.name;
+    let profile_spec = mtg_core::match_profile(profile_name).ok_or("unknown batch profile")?;
+    if profile_spec.catalog_sha256 != catalog_sha256
+        || profile_spec.ir_version != catalog.schema_version
+    {
+        return Err("batch catalog mismatch".into());
+    }
+    let profile = profile_spec.name.as_str();
     fs::create_dir(directory).map_err(|e| e.to_string())?;
     let manifest = serde_json::json!({"profile":profile,"policy":"develop-v1","seed_domain":format!("{profile}/completion-batch/"),"seed_indices":(0..16).collect::<Vec<u32>>(),"starting_seat":"index modulo4","mulligans":"(index+seat) modulo3","additional":"index16 all-white;index17 all-black-green","decision_limit":DECISION_LIMIT,"turn_limit":TURN_LIMIT,"shared_work_limit":WORK_LIMIT,"quantum":1024,"required_complete":18,"allowed_faults":0,"allowed_truncations":0,"build_id":BUILD_ID,"catalog_sha256":mtg_contracts::digest(catalog)?});
     let mut manifest = manifest;
     // The frozen four-colors suite has its own pod manifest; later suites use theirs.
-    if profile == mtg_core::FOUR_COLORS_PROFILE {
-        manifest["additional"] = serde_json::json!("index16 all-blue;index17 all-red");
+    if profile_spec.completion.rotate {
+        manifest["additional"] =
+            serde_json::json!({"homogeneous_seats":profile_spec.completion.homogeneous_seats});
         manifest["seat_rotation"] =
             serde_json::json!("default decks rotate left by floor(index/4), indices0..15");
     }
@@ -1174,21 +1181,7 @@ pub(super) fn batch(catalog: &Catalog, directory: &Path) -> Result<serde_json::V
             PlayerId((index % 4) as u8),
         )
         .map_err(|e| e.to_string())?;
-        if profile == mtg_core::FOUR_COLORS_PROFILE {
-            config.decks.rotate_left((index / 4) as usize);
-            if index == 16 {
-                config.decks = std::array::from_fn(|_| mtg_core::four_colors_blue_deck());
-            }
-            if index == 17 {
-                config.decks = std::array::from_fn(|_| mtg_core::four_colors_red_deck());
-            }
-        }
-        if index == 16 && profile != mtg_core::FOUR_COLORS_PROFILE {
-            config.decks = std::array::from_fn(|_| (profile_spec.white_deck)());
-        }
-        if index == 17 && profile != mtg_core::FOUR_COLORS_PROFILE {
-            config.decks = std::array::from_fn(|_| (profile_spec.black_green_deck)());
-        }
+        apply_completion_layout(profile_spec, index as usize, &mut config);
         eprintln!("running legal Commander batch seed{index}");
         let e = match run(
             catalog,
@@ -1510,7 +1503,7 @@ pub(super) fn suite(catalog: &Catalog) -> Result<(Vec<Evidence>, serde_json::Val
         .map(|i| parent.join(format!("capture-{}-{i}", std::process::id())))
         .find(|p| !p.exists())
         .ok_or("no fresh batch directory")?;
-    let report = batch(catalog, &directory)?;
+    let report = batch(catalog, "commander-foundations-v1", &directory)?;
     let evidence = (0..18)
         .map(|i| {
             fs::read_to_string(directory.join(format!("game-{i:02}.json")))
@@ -1543,29 +1536,28 @@ pub(super) fn verify_suite(catalog: &Catalog, evidence: &[Evidence]) -> Result<(
     }
     Ok(())
 }
+fn apply_completion_layout(
+    profile: &mtg_core::MatchProfile,
+    index: usize,
+    config: &mut MatchConfig,
+) {
+    if profile.completion.rotate {
+        config.decks.rotate_left((index / 4) % 4);
+    }
+    if (16..18).contains(&index) {
+        let deck = &profile.decks[profile.completion.homogeneous_seats[index - 16]];
+        config.decks = std::array::from_fn(|_| deck.clone());
+    }
+}
 fn verify_suite_entry(index: usize, e: &Evidence) -> Result<(), String> {
     let profile = mtg_core::match_profile(&e.config.profile).ok_or("unknown completion profile")?;
     let mut config = MatchConfig::for_profile(
-        profile.name,
-        seed_for(profile.name, index as u32),
+        &profile.name,
+        seed_for(&profile.name, index as u32),
         PlayerId((index % 4) as u8),
     )
     .map_err(|e| e.to_string())?;
-    if profile.name == mtg_core::FOUR_COLORS_PROFILE {
-        config.decks.rotate_left(index / 4);
-        if index == 16 {
-            config.decks = std::array::from_fn(|_| mtg_core::four_colors_blue_deck());
-        }
-        if index == 17 {
-            config.decks = std::array::from_fn(|_| mtg_core::four_colors_red_deck());
-        }
-    }
-    if index == 16 && profile.name != mtg_core::FOUR_COLORS_PROFILE {
-        config.decks = std::array::from_fn(|_| (profile.white_deck)());
-    }
-    if index == 17 && profile.name != mtg_core::FOUR_COLORS_PROFILE {
-        config.decks = std::array::from_fn(|_| (profile.black_green_deck)());
-    }
+    apply_completion_layout(profile, index, &mut config);
     let trace_mode = if index == 0 {
         TraceMode::Detailed
     } else {
@@ -1602,15 +1594,27 @@ fn losses(game: &Game) -> Vec<(PlayerId, mtg_core::PlayerLossReason)> {
         .collect()
 }
 pub(super) fn draw_failure(catalog: &Catalog) -> Result<Evidence, String> {
-    let mut config = MatchConfig::foundations(seed(18), PlayerId(2));
-    config.decks = std::array::from_fn(|_| mtg_core::white_deck());
+    let mut config =
+        MatchConfig::for_profile("commander-foundations-v1", seed(18), PlayerId(2)).unwrap();
+    config.decks = std::array::from_fn(|_| {
+        mtg_core::match_profile("commander-foundations-v1")
+            .unwrap()
+            .decks[0]
+            .clone()
+    });
     let e = run(catalog, config, Policy::DrawOnly, [0; 4], 1024)?;
     verify_draw_failure(catalog, &e)?;
     Ok(e)
 }
 pub(super) fn verify_draw_failure(catalog: &Catalog, e: &Evidence) -> Result<(), String> {
-    let mut config = MatchConfig::foundations(seed(18), PlayerId(2));
-    config.decks = std::array::from_fn(|_| mtg_core::white_deck());
+    let mut config =
+        MatchConfig::for_profile("commander-foundations-v1", seed(18), PlayerId(2)).unwrap();
+    config.decks = std::array::from_fn(|_| {
+        mtg_core::match_profile("commander-foundations-v1")
+            .unwrap()
+            .decks[0]
+            .clone()
+    });
     if !e.journal.concessions.is_empty()
         || e.config != config
         || e.policy != Policy::DrawOnly
@@ -1948,7 +1952,10 @@ mod admission_and_host_tests {
     #[test]
     fn frozen_completion_suite_cannot_substitute_host_concessions() {
         let (_, _, _, game) = initial();
-        let mut e = evidence(&game, MatchConfig::foundations(seed(1), PlayerId(1)));
+        let mut e = evidence(
+            &game,
+            MatchConfig::for_profile("commander-foundations-v1", seed(1), PlayerId(1)).unwrap(),
+        );
         e.policy = Policy::Develop;
         e.mulligans = [1, 2, 0, 1];
         e.quantum = 1024;
@@ -1969,7 +1976,8 @@ mod admission_and_host_tests {
 
     fn initial() -> (Catalog, MatchConfig, Prepared, Game) {
         let catalog = mtg_compiler::match_fixture_catalog().unwrap();
-        let config = MatchConfig::foundations([31; 32], PlayerId(0));
+        let config =
+            MatchConfig::for_profile("commander-foundations-v1", [31; 32], PlayerId(0)).unwrap();
         let prepared = Prepared::admit_pod(catalog.clone(), config.clone()).unwrap();
         let game = Game::with_trace(prepared.clone(), TraceMode::Off);
         (catalog, config, prepared, game)
@@ -2272,13 +2280,27 @@ mod admission_and_host_tests {
     fn fixed_batch_manifest_cannot_drop_seed_zero_trace_or_enable_unselected_traces() {
         let (_, _, _, game) = initial();
         for index in [0, 1, 16, 17] {
-            let mut config =
-                MatchConfig::foundations(seed(index as u32), PlayerId((index % 4) as u8));
+            let mut config = MatchConfig::for_profile(
+                "commander-foundations-v1",
+                seed(index as u32),
+                PlayerId((index % 4) as u8),
+            )
+            .unwrap();
             if index == 16 {
-                config.decks = std::array::from_fn(|_| mtg_core::white_deck());
+                config.decks = std::array::from_fn(|_| {
+                    mtg_core::match_profile("commander-foundations-v1")
+                        .unwrap()
+                        .decks[0]
+                        .clone()
+                });
             }
             if index == 17 {
-                config.decks = std::array::from_fn(|_| mtg_core::black_green_deck());
+                config.decks = std::array::from_fn(|_| {
+                    mtg_core::match_profile("commander-foundations-v1")
+                        .unwrap()
+                        .decks[1]
+                        .clone()
+                });
             }
             let mut retained = evidence(&game, config);
             retained.quantum = 1024;

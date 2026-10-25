@@ -82,6 +82,115 @@ fn main() {
         sizes,
     )
     .unwrap();
+    // Profile files select catalogs, decks and admission policy. Generated code
+    // contains data only and is excluded from the engine code identity.
+    let fixtures = data.parent().unwrap();
+    let banned_path = fixtures.join("commander-banned-2026-10-15.json");
+    let banned: serde_json::Value =
+        serde_json::from_slice(&fs::read(&banned_path).unwrap()).unwrap();
+    let mut paths = fs::read_dir(fixtures.join("profiles"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|x| x == "json"))
+        .collect::<Vec<_>>();
+    paths.sort();
+    let mut generated = String::from(
+        "pub static MATCH_PROFILES: std::sync::LazyLock<Vec<MatchProfile>> = std::sync::LazyLock::new(|| { let mut profiles = vec![\n",
+    );
+    for path in paths {
+        let raw = fs::read_to_string(&path).unwrap();
+        let profile: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let manifest_path = path
+            .parent()
+            .unwrap()
+            .join(profile["catalog_manifest"].as_str().unwrap());
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+        let catalog_raw = fs::read_to_string(
+            manifest_path
+                .parent()
+                .unwrap()
+                .join(manifest["expected_ir"].as_str().unwrap()),
+        )
+        .unwrap();
+        let ir: serde_json::Value = serde_json::from_str(&catalog_raw).unwrap();
+        assert_eq!(
+            ir["schema_version"], manifest["schema_version"],
+            "manifest IR version"
+        );
+        let catalog_hash = format!("{:x}", Sha256::digest(serde_json::to_vec(&ir).unwrap()));
+        assert_eq!(
+            catalog_hash,
+            fs::read_to_string(
+                manifest_path
+                    .parent()
+                    .unwrap()
+                    .join(manifest["expected_digest"].as_str().unwrap())
+            )
+            .unwrap()
+            .trim(),
+            "manifest catalog digest"
+        );
+        assert_eq!(
+            fs::canonicalize(
+                path.parent()
+                    .unwrap()
+                    .join(profile["commander_policy"]["banned_list"].as_str().unwrap())
+            )
+            .unwrap(),
+            fs::canonicalize(&banned_path).unwrap(),
+            "one shared banned list"
+        );
+        // Derive the old pool review from each authentic archive source record.
+        for record in manifest["records"].as_array().unwrap() {
+            let card: serde_json::Value = serde_json::from_slice(
+                &fs::read(
+                    manifest_path
+                        .parent()
+                        .unwrap()
+                        .join(record.as_str().unwrap()),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            let source = &card["source"];
+            let id = card["oracleIdentity"].as_str().unwrap();
+            assert_eq!(
+                source["legalities"]["commander"], "legal",
+                "Commander legality: {id}"
+            );
+            assert!(
+                !source["type_line"]
+                    .as_str()
+                    .unwrap()
+                    .split_whitespace()
+                    .any(|x| x == "Conspiracy")
+            );
+            assert!(
+                !source["oracle_text"]
+                    .as_str()
+                    .unwrap_or("")
+                    .split(|c: char| !c.is_alphabetic())
+                    .any(|x| x.eq_ignore_ascii_case("ante"))
+            );
+            assert!(
+                !banned["named_bans"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .chain(banned["offensive_policy"]["records"].as_array().unwrap())
+                    .any(|b| b["oracle_id"] == id),
+                "banned card: {id}"
+            );
+        }
+        generated += &format!("MatchProfile::load({raw:?}, {catalog_raw:?}),\n");
+    }
+    generated += "]; profiles.sort_by_key(|p| p.ir_version); let mut names = std::collections::BTreeSet::new(); for p in &profiles { assert!(names.insert(&p.name), \"duplicate profile\"); } profiles });\n";
+    fs::write(
+        PathBuf::from(env::var("OUT_DIR").unwrap()).join("match_profiles.rs"),
+        generated,
+    )
+    .unwrap();
     let mut files = vec![
         root.join("Cargo.toml"),
         root.join("Cargo.lock"),

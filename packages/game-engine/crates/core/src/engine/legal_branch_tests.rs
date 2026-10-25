@@ -292,7 +292,7 @@ fn config(family: Family) -> MatchConfig {
     for (i, b) in seed.iter_mut().enumerate() {
         *b = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap()
     }
-    let mut c = MatchConfig::foundations(seed, PlayerId(0));
+    let mut c = MatchConfig::for_profile("commander-foundations-v1", seed, PlayerId(0)).unwrap();
     if family == Family::Dense {
         c.decks = std::array::from_fn(|_| Decklist {
             commander: ISAMARU.into(),

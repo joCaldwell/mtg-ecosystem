@@ -1639,203 +1639,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )?)?
             );
         }
-        Some("wipes-match-batch") if args.len() == 2 => {
+        Some("match-batch") if args.len() == 3 => {
+            let profile = mtg_core::match_profile(&args[1]).ok_or("unknown match profile")?;
+            let manifest_name = Path::new(&profile.catalog_manifest)
+                .file_stem()
+                .and_then(|n| n.to_str())
+                .ok_or("catalog manifest name")?;
+            let catalog = mtg_compiler::catalog::embedded_catalog(manifest_name)?;
             println!(
                 "{}",
                 canonical(&match_games::batch(
-                    &mtg_compiler::wipes_fixture_catalog()?,
-                    Path::new(&args[1])
+                    &catalog,
+                    &args[1],
+                    Path::new(&args[2])
                 )?)?
             );
         }
-        Some("wipes-match-replay") if args.len() == 2 => {
-            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
-            match_games::verify(&mtg_compiler::wipes_fixture_catalog()?, &e)?;
+        Some("match-replay") if args.len() == 3 => {
+            let profile = mtg_core::match_profile(&args[1]).ok_or("unknown match profile")?;
+            let manifest_name = Path::new(&profile.catalog_manifest)
+                .file_stem()
+                .and_then(|n| n.to_str())
+                .ok_or("catalog manifest name")?;
+            let catalog = mtg_compiler::catalog::embedded_catalog(manifest_name)?;
+            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[2])?)?;
+            if e.config.profile != args[1] {
+                return Err("replay profile mismatch".into());
+            }
+            match_games::verify(&catalog, &e)?;
             println!(
                 "{}",
                 canonical(
-                    &serde_json::json!({"status":"wipes_match_replay_verified","state_sha256":e.final_state_sha256})
+                    &serde_json::json!({"status":"match_replay_verified","profile":args[1],"state_sha256":e.final_state_sha256})
                 )?
-            );
-        }
-        Some("sacrifice-match-batch") if args.len() == 2 => {
-            println!(
-                "{}",
-                canonical(&match_games::batch(
-                    &mtg_compiler::sacrifice_fixture_catalog()?,
-                    Path::new(&args[1])
-                )?)?
-            );
-        }
-        Some("sacrifice-match-replay") if args.len() == 2 => {
-            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
-            match_games::verify(&mtg_compiler::sacrifice_fixture_catalog()?, &e)?;
-            println!(
-                "{}",
-                canonical(
-                    &serde_json::json!({"status":"sacrifice_match_replay_verified","state_sha256":e.final_state_sha256})
-                )?
-            );
-        }
-        Some("removal-match-batch") if args.len() == 2 => {
-            println!(
-                "{}",
-                canonical(&match_games::batch(
-                    &mtg_compiler::removal_fixture_catalog()?,
-                    Path::new(&args[1])
-                )?)?
-            );
-        }
-        Some("removal-match-replay") if args.len() == 2 => {
-            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
-            match_games::verify(&mtg_compiler::removal_fixture_catalog()?, &e)?;
-            println!(
-                "{}",
-                canonical(
-                    &serde_json::json!({"status":"removal_match_replay_verified","state_sha256":e.final_state_sha256})
-                )?
-            );
-        }
-        Some("attachments-match-batch") if args.len() == 2 => {
-            println!(
-                "{}",
-                canonical(&match_games::batch(
-                    &mtg_compiler::attachments_fixture_catalog()?,
-                    Path::new(&args[1])
-                )?)?
-            );
-        }
-        Some("attachments-match-replay") if args.len() == 2 => {
-            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
-            match_games::verify(&mtg_compiler::attachments_fixture_catalog()?, &e)?;
-            println!(
-                "{}",
-                canonical(
-                    &serde_json::json!({"status":"attachments_match_replay_verified","state_sha256":e.final_state_sha256})
-                )?
-            );
-        }
-        Some("four-colors-match-batch") if args.len() == 2 => {
-            println!(
-                "{}",
-                canonical(&match_games::batch(
-                    &mtg_compiler::four_colors_fixture_catalog()?,
-                    Path::new(&args[1])
-                )?)?
-            );
-        }
-        Some("four-colors-match-replay") if args.len() == 2 => {
-            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
-            match_games::verify(&mtg_compiler::four_colors_fixture_catalog()?, &e)?;
-            println!(
-                "{}",
-                canonical(
-                    &serde_json::json!({"status":"four_colors_match_replay_verified","state_sha256":e.final_state_sha256})
-                )?
-            );
-        }
-        Some("mana-match-batch") if args.len() == 2 => {
-            println!(
-                "{}",
-                canonical(&match_games::batch(
-                    &mtg_compiler::mana_fixture_catalog()?,
-                    Path::new(&args[1])
-                )?)?
-            );
-        }
-        Some("mana-match-replay") if args.len() == 2 => {
-            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
-            match_games::verify(&mtg_compiler::mana_fixture_catalog()?, &e)?;
-            println!(
-                "{}",
-                canonical(
-                    &serde_json::json!({"status":"mana_match_replay_verified","state_sha256":e.final_state_sha256})
-                )?
-            );
-        }
-        Some("staples-match-batch") if args.len() == 2 => {
-            println!(
-                "{}",
-                canonical(&match_games::batch(
-                    &mtg_compiler::staples_fixture_catalog()?,
-                    Path::new(&args[1])
-                )?)?
-            );
-        }
-        Some("staples-match-replay") if args.len() == 2 => {
-            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
-            match_games::verify(&mtg_compiler::staples_fixture_catalog()?, &e)?;
-            println!(
-                "{}",
-                canonical(
-                    &serde_json::json!({"status":"staples_match_replay_verified","state_sha256":e.final_state_sha256})
-                )?
-            );
-        }
-        Some("tokens-match-batch") if args.len() == 2 => {
-            println!(
-                "{}",
-                canonical(&match_games::batch(
-                    &mtg_compiler::tokens_fixture_catalog()?,
-                    Path::new(&args[1])
-                )?)?
-            );
-        }
-        Some("tokens-match-replay") if args.len() == 2 => {
-            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
-            match_games::verify(&mtg_compiler::tokens_fixture_catalog()?, &e)?;
-            println!(
-                "{}",
-                canonical(
-                    &serde_json::json!({"status":"tokens_match_replay_verified","state_sha256":e.final_state_sha256})
-                )?
-            );
-        }
-        Some("combat-keywords-match-batch") if args.len() == 2 => {
-            println!(
-                "{}",
-                canonical(&match_games::batch(
-                    &mtg_compiler::combat_keywords_fixture_catalog()?,
-                    Path::new(&args[1])
-                )?)?
-            );
-        }
-        Some("combat-keywords-match-replay") if args.len() == 2 => {
-            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
-            match_games::verify(&mtg_compiler::combat_keywords_fixture_catalog()?, &e)?;
-            println!(
-                "{}",
-                canonical(
-                    &serde_json::json!({"status":"combat_keywords_match_replay_verified","state_sha256":e.final_state_sha256})
-                )?
-            );
-        }
-        Some("keywords-match-batch") if args.len() == 2 => {
-            println!(
-                "{}",
-                canonical(&match_games::batch(
-                    &mtg_compiler::keywords_fixture_catalog()?,
-                    Path::new(&args[1])
-                )?)?
-            );
-        }
-        Some("keywords-match-replay") if args.len() == 2 => {
-            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
-            match_games::verify(&mtg_compiler::keywords_fixture_catalog()?, &e)?;
-            println!(
-                "{}",
-                canonical(
-                    &serde_json::json!({"status":"keywords_match_replay_verified","state_sha256":e.final_state_sha256})
-                )?
-            );
-        }
-        Some("match-batch") if args.len() == 2 => {
-            println!(
-                "{}",
-                canonical(&match_games::batch(
-                    &mtg_compiler::match_fixture_catalog()?,
-                    Path::new(&args[1])
-                )?)?
             );
         }
         Some("match-replay-live") if args.len() == 2 => {
@@ -1847,22 +1683,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )?)?
             );
         }
-        Some("match-replay") if args.len() == 2 => {
-            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
-            match_games::verify(&mtg_compiler::match_fixture_catalog()?, &e)?;
-            println!(
-                "{}",
-                canonical(
-                    &serde_json::json!({"status":"match_replay_verified","state_sha256":e.final_state_sha256})
-                )?
-            );
-        }
+
         Some("match-game") if args.len() == 2 => {
             let index: u32 = args[1].parse()?;
-            let config = mtg_core::MatchConfig::foundations(
+            let config = mtg_core::MatchConfig::for_profile(
+                "commander-foundations-v1",
                 match_games::seed(index),
                 PlayerId((index % 4) as u8),
-            );
+            )
+            .unwrap();
             let evidence = match_games::run(
                 &mtg_compiler::match_fixture_catalog()?,
                 config,

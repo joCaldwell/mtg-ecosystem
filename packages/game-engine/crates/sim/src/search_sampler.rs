@@ -246,8 +246,11 @@ mod tests {
         let hex = sha256(format!("p7-independent-capture/{index}").as_bytes());
         let seed = std::array::from_fn(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap());
         let catalog = mtg_compiler::match_fixture_catalog().unwrap();
-        let prepared =
-            Prepared::admit_pod(catalog, MatchConfig::foundations(seed, PlayerId(0))).unwrap();
+        let prepared = Prepared::admit_pod(
+            catalog,
+            MatchConfig::for_profile("commander-foundations-v1", seed, PlayerId(0)).unwrap(),
+        )
+        .unwrap();
         let mut game = Game::with_trace(prepared, TraceMode::Off);
         for _ in 0..100_000 {
             match game.advance(Budget::new(1024)) {

@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-const FIXTURE = "packages/game-engine/tests/fixtures/commander-policy.json";
+const FIXTURE = "packages/game-engine/tests/fixtures/commander-banned-2026-10-15.json";
 const sha = (bytes: string | Buffer) => createHash("sha256").update(bytes).digest("hex");
 export interface NativeSourceFile { path: string; contents: string; sha256: string }
 export interface RetainedPolicySource {

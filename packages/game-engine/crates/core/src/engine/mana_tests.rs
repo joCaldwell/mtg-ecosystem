@@ -52,7 +52,7 @@ fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
         },
         mode: Mode::CommanderMatch,
         players: 4,
-        profile: MANA_PROFILE.into(),
+        profile: "commander-mana-v1".into(),
         commanders: rows
             .iter()
             .enumerate()
@@ -451,11 +451,17 @@ fn sphere_and_mind_stone_draw_use_stack_and_survive_murder_response() {
 #[test]
 fn mana_decks_identity_singleton_and_capacity_bounds() {
     let c = catalog();
-    let config = MatchConfig::for_profile(MANA_PROFILE, [0; 32], PlayerId(0)).unwrap();
+    let config = MatchConfig::for_profile("commander-mana-v1", [0; 32], PlayerId(0)).unwrap();
     validate_pod(&c, &config).unwrap();
     let counts = |deck: Decklist| deck.cards.iter().map(|r| r.count).sum::<u32>();
-    assert_eq!(counts(mana_white_deck()), 100);
-    assert_eq!(counts(mana_black_green_deck()), 100);
+    assert_eq!(
+        counts(match_profile("commander-mana-v1").unwrap().decks[0].clone()),
+        100
+    );
+    assert_eq!(
+        counts(match_profile("commander-mana-v1").unwrap().decks[1].clone()),
+        100
+    );
     let tower = c
         .definitions
         .iter()
@@ -496,25 +502,28 @@ fn mana_decks_identity_singleton_and_capacity_bounds() {
         validate_pod(&c, &bad),
         Err(MatchAdmissionError::SingletonName { .. })
     ));
-    let creature_max = [mana_white_deck(), mana_black_green_deck()]
-        .iter()
-        .map(|d| {
-            d.cards
-                .iter()
-                .filter(|r| {
-                    c.definitions
-                        .iter()
-                        .find(|x| x.oracle_id == r.oracle_id)
-                        .unwrap()
-                        .characteristics
-                        .kind
-                        == CardKind::Creature
-                })
-                .map(|r| r.count as usize)
-                .sum::<usize>()
-        })
-        .max()
-        .unwrap();
+    let creature_max = [
+        match_profile("commander-mana-v1").unwrap().decks[0].clone(),
+        match_profile("commander-mana-v1").unwrap().decks[1].clone(),
+    ]
+    .iter()
+    .map(|d| {
+        d.cards
+            .iter()
+            .filter(|r| {
+                c.definitions
+                    .iter()
+                    .find(|x| x.oracle_id == r.oracle_id)
+                    .unwrap()
+                    .characteristics
+                    .kind
+                    == CardKind::Creature
+            })
+            .map(|r| r.count as usize)
+            .sum::<usize>()
+    })
+    .max()
+    .unwrap();
     assert_eq!(creature_max, 31);
     let g = Game::new(prepared(&[]));
     assert_eq!(g.damage_limit(), capacities::DAMAGE_LIMIT);

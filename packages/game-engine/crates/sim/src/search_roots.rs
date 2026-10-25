@@ -41,7 +41,7 @@ impl RootCase {
         };
         Ok(Self {
             index,
-            config: MatchConfig::foundations(seed, viewer),
+            config: MatchConfig::for_profile("commander-foundations-v1", seed, viewer).unwrap(),
             viewer,
             mulligans: std::array::from_fn(|seat| ((index / 4 + seat) % 4) as u8),
             departures_before_setup,
