@@ -278,12 +278,9 @@ function toView(db: Database, actor: Actor, row: EditRow, includeGroup = true): 
 }
 
 export function getDocumentEdit(db: Database, actor: Actor, editId: number, forWrite = false): DocumentEditView | null {
-  if (forWrite) {
-    const scope = db.prepare("SELECT user_id FROM document_edits WHERE id = ?").get(editId) as { user_id: number } | undefined;
-    if (scope) requireSelf(actor, scope.user_id);
-  }
   const row = db.prepare(`${EDIT_SELECT} WHERE e.id = ? AND e.user_id = ?`).get(editId, actor.user_id) as EditRow | undefined;
   if (!row) throw new ServiceError(`Proposed edit ${editId} not found`, 404);
+  if (forWrite && row.deck_id != null) requireEditableDeck(db, actor, row.deck_id);
   return toView(db, actor, row);
 }
 
@@ -337,7 +334,7 @@ function editKey(kind: DocumentEditKind, payload: DocumentEditPayload): string {
 export interface DocumentChangeInput { kind: DocumentEditKind; payload: DocumentEditPayload; reason: string }
 
 function editablePendingGroup(db: Database, actor: Actor, editId: number): EditRow[] {
-  const row = db.prepare(`${EDIT_SELECT} WHERE e.id = ?`).get(editId) as EditRow | undefined;
+  const row = db.prepare(`${EDIT_SELECT} WHERE e.id = ? AND e.user_id = ?`).get(editId, actor.user_id) as EditRow | undefined;
   if (!row) throw new ServiceError(`Proposed edit ${editId} not found`, 404);
   requireSelf(actor, row.author_user_id);
   const rows = row.group_id == null ? [row] : db.prepare(`${EDIT_SELECT} WHERE e.group_id = ? AND e.user_id = ? ORDER BY e.id`).all(row.group_id, actor.user_id) as unknown as EditRow[];
@@ -397,6 +394,7 @@ export function ruleDocumentEdit(
   db: Database, actor: Actor, editId: number, outcome: "accept" | "reject", reason = "",
   options: { expected_revision?: number; acknowledge_stale?: boolean; expected_documents?: Record<string, string> } = {},
 ): number {
+  getDocumentEdit(db, actor, editId);
   requireUi(actor, "rule on a proposed edit");
   if (outcome !== "accept" && outcome !== "reject") throw new ServiceError("A ruling's outcome is 'accept' or 'reject'");
   return withTransaction(db, () => {

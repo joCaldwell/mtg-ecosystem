@@ -1,5 +1,9 @@
 // Phase 1 of the §4 matrix: all decks are private. Visibility/suggestions
 // extend this dimension in Phase 4a; anonymous access is tested at both doors.
+import { globSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -24,17 +28,37 @@ import * as state from "../src/state.ts";
 import * as playtest from "../src/playtest/service.ts";
 import * as search from "../src/search/index.ts";
 import * as tokens from "../src/tokens.ts";
-import { getSetting, setSetting } from "../src/db.ts";
+import { PKG_ROOT, getSetting, setSetting } from "../src/db.ts";
 import { TOOLS, callTool } from "../src/mcp/tools.ts";
 import { testDb } from "./helpers.ts";
 import { OWNER, agent } from "./actors.ts";
 
-const modules = { decks, brief, checks, fork, interop, log, membership, power, proposals, sourcing, documents, memory, activity, focus, stats, state, playtest, search, tokens, settings: {getSetting,setSetting} };
-const functions = Object.fromEntries(Object.values(modules).flatMap(m => Object.entries(m).filter(([, v]) => typeof v === "function"))) as Record<string, (...args: any[]) => any>;
+// Executable front doors are tested through their tool/route registries below;
+// operator modules intentionally open files, spawn children or download shared
+// card facts. They are not tenant capabilities. Everything else, including new
+// modules, renderers, cards and prices, is discovered and must be classified.
+const excludedModules: Record<string,string> = {
+  "server.ts":"server entry point", "cli.ts":"operator CLI entry point", "mcp/stdio.ts":"stdio entry point",
+  "app.ts":"HTTP registry tested below", "mcp/http.ts":"authenticated MCP transport tested below", "mcp/tools.ts":"tool registry tested below",
+  "sqlite.ts":"SQLite constructor/backup primitives", "backups.ts":"operator backup/restore",
+  "ingest.ts":"shared card ingest", "jobs.ts":"operator scheduler", "json-array.ts":"stream parser",
+  "process-lock.ts":"operator process locks", "refresh.ts":"operator refresh", "scryfall.ts":"shared bulk downloads",
+};
+const functions: Record<string,any> = {};
+const sourceRoot=join(PKG_ROOT,"src");
+for(const file of [...globSync("**/*.ts",{cwd:sourceRoot})].sort()) {
+  if(file.endsWith(".d.ts") || excludedModules[file]) continue; // declaration files have no runtime exports
+  const module=await import(pathToFileURL(join(sourceRoot,file)).href);
+  for(const [name,fn] of Object.entries(module)) if(typeof fn === "function") {
+    assert.ok(!functions[name] || functions[name] === fn,`${file} duplicates ${name}; qualify the matrix keys before adding it`);
+    functions[name]=fn;
+  }
+}
+const notFound = (error: any) => error.status === 404;
 type Classification = "read" | "write" | "owner-only" | "suggest" | "public-read";
 type Target = { id: number; ui: Actor; ag: Actor; slot: number; tag: number; engine: number; memory: number; proposal: number; item: number; edit: number; log: number; session: ReturnType<typeof playtest.startPlaytest>; category: decks.DeckCategory; token: number };
 type Fixture = ReturnType<typeof fixture>;
-type Case = { kind: Classification; run: (db: Database, actor: Actor, t: Target, f: Fixture) => unknown; agentBlocked?: "all" | "paper"; archived?: boolean; global?: boolean };
+type Case = { kind: Classification; run: (db: Database, actor: Actor, t: Target, f: Fixture) => unknown; agentBlocked?: "all" | "paper"; archived?: boolean; global?: boolean; probe?: GlobalProbe };
 const deckCase = (kind: Classification, args: (t: Target, f: Fixture) => any[] = () => [], more: Partial<Case> = {}) => ({ kind, args, ...more });
 const defs = {
   createSlot: deckCase("write", () => ["New purpose"]), createTag: deckCase("write", () => ["New tag"]),
@@ -114,22 +138,24 @@ scoped("deckState", "read", (db,a,t) => state.deckState(db,a,t.id));
 scoped("search", "read", (db,a,t) => search.search(db,a,"t:land",{deckId:t.id}));
 scoped("recordActivity", "write", (db,a,t) => activity.recordActivity(db,a,"matrix",t.id,"Visible write"), {archived:true});
 
-// These touch only the principal, so isolation assertions below inspect their
-// results instead of supplying another user's deck id.
-for (const [name,kind] of Object.entries({getSetting:"read",setSetting:"write",createDeck:"write",listDecks:"read",getProfile:"read",setProfile:"owner-only",getBudgets:"read",setBudgets:"write",unreviewedCount:"read",getFocus:"read",playerStats:"read",listActivity:"read",ownershipEvidence:"read",createToken:"owner-only",listTokens:"owner-only",revokeToken:"owner-only"}) as [string, Classification][]) {
-  cases[name] = { kind, global:true, run:()=>{} };
-}
-// Pure calculations and operator/authentication utilities have no tenant data.
-const publicFunctions = ["copyLimit","similarTag","validateVocabName","isDoctorPair","parseArchidektList","mapBracket","parseTarget","profileLines","targetText","estimateTokens","tableCard","SearchError","verifyToken","migrateLegacyToken"];
-for(const name of publicFunctions) cases[name] = {kind:"public-read",global:true,run:()=>{}};
+scoped("renderDeck","read",(db,a,t)=>functions.renderDeck(db,a,t.id));
+scoped("afterWrite","read",(db,a,t)=>functions.afterWrite(db,a,t.id));
+scoped("isDeckOwner","read",(db,a,t)=>{const own=functions.isDeckOwner(db,a,t.id);assert.equal(own,a.user_id===t.ui.user_id);if(!own)throw Object.assign(new Error("unreadable"),{status:404});return own;});
+scoped("requireDeckOwner","write",(db,a,t)=>functions.requireDeckOwner(db,a,t.id),{archived:true});
 
-test("every exported capability is explicitly classified; new exports fail until reviewed", () => {
-  assert.deepEqual(Object.keys(cases).sort(), Object.keys(functions).sort());
-  for(const [name,c] of Object.entries(cases)) {
-    assert.ok(["read","write","owner-only","suggest","public-read"].includes(c.kind),name);
-    if(c.kind !== "public-read") assert.match(functions[name].toString(), /\bactor\b/,name);
-  }
-});
+type GlobalProbe = (invoke:any,f:Fixture,a:Actor,t:Target)=>unknown|Promise<unknown>;
+function globalCase(name:string,kind:Classification,probe:GlobalProbe) {
+  cases[name]={kind,global:true,probe,run:async(_db,a,t,f)=>{
+    let calls=0;
+    const invoke=new Proxy(functions[name],{
+      apply(fn,self,args){calls++;return Reflect.apply(fn,self,args);},
+      construct(fn,args){calls++;return Reflect.construct(fn,args);},
+    });
+    const result=await probe(invoke,f,a,t);
+    assert.ok(calls>0,`${name}: its global probe must actually invoke the export`);
+    return result;
+  }};
+}
 
 function fixture() {
   const db=testDb();
@@ -157,6 +183,7 @@ function fixture() {
     }
     focus.setFocus(db,ui,targets.find(t=>t.ui.user_id===ui.user_id)!.id);
     memory.setBudgets(db,ui,{global:1000+ui.user_id});
+    activity.recordActivity(db,agent("test-agent",ui.user_id),"fixture",targets.find(t=>t.ui.user_id===ui.user_id)!.id,`Private activity ${ui.user_id}`);
   }
   return {db,users,targets,otherOwn:(a:Actor,t:Target)=>targets.find(x=>x.ui.user_id===a.user_id&&x.id!==t.id)!};
 }
@@ -170,8 +197,7 @@ for(const [name,c] of Object.entries(cases).filter(([,c])=>!c.global)) {
           if(category==="legacy") decks.setDeckCategory(f.db,t.ui,t.id,"legacy");
           const other={user_id:2,via,label:via==="ui"?"ui":"test-agent"} as Actor;
           const foreign=()=>c.run(f.db,other,t,f);
-          if(c.kind==="read") assert.throws(foreign,(e:any)=>e.status===404,`${name} foreign read`);
-          else assert.throws(foreign,PermissionError,`${name} foreign write`);
+          assert.throws(foreign,notFound,`${name} foreign target`);
           const own=via==="ui"?t.ui:t.ag;
           const blocked=(via==="agent"&&(c.agentBlocked==="all"||(category==="paper"&&c.agentBlocked==="paper"))) ||
             (category==="legacy"&&c.kind!=="read"&&!c.archived);
@@ -214,10 +240,10 @@ test("all per-user feeds, searches, settings and credentials exclude the other p
       assert.ok(log.listLog(db,ag).every(e=>own.some(t=>t.id===e.deck_id)));
       assert.ok(activity.listActivity(db,ag).every(e=>e.user_id===ui.user_id&&e.actor_user_id===ui.user_id&&e.actor_via==="agent"));
       assert.ok(sourcing.ownershipEvidence(db,ag,"id-forest").every(e=>e.source_deck_id!=null&&own.some(t=>t.id===e.source_deck_id)));
-      assert.throws(()=>decks.setDeckParent(db,ui,own[0].id,other[0].id),PermissionError);
-      assert.throws(()=>decks.createDeck(db,ag,"Bad parent",{parentId:other[0].id}),PermissionError);
-      assert.throws(()=>memory.remember(db,ag,{scope:"global",text:"Bad source",source_log_id:other[0].log}),PermissionError);
-      assert.throws(()=>log.markReviewed(db,ag,{ids:[own[0].log,other[0].log]}),PermissionError);
+      assert.throws(()=>decks.setDeckParent(db,ui,own[0].id,other[0].id),notFound);
+      assert.throws(()=>decks.createDeck(db,ag,"Bad parent",{parentId:other[0].id}),notFound);
+      assert.throws(()=>memory.remember(db,ag,{scope:"global",text:"Bad source",source_log_id:other[0].log}),notFound);
+      assert.throws(()=>log.markReviewed(db,ag,{ids:[own[0].log,other[0].log]}),notFound);
       assert.equal(log.unreviewedCount(db,ag),1,"mixed review IDs cannot partially write");
       const credential=tokens.createToken(db,ui,"test-agent");
       assert.equal(tokens.verifyToken(db,credential.token)!.user_id,ui.user_id);
@@ -232,7 +258,7 @@ test("all per-user feeds, searches, settings and credentials exclude the other p
     assert.ok(log.cardHistory(db,a.ag,a.id,"id-forest").every(r=>r.log_id!==b.log));
     assert.equal(decks.getDeck(db,a.ag,a.id).deck.parent,null);
     assert.equal(isDeckOwner(db,a.ag,a.id),true);assert.equal(isDeckOwner(db,b.ag,a.id),false);
-    assert.throws(()=>requireDeckOwner(db,b.ag,a.id),PermissionError);assert.throws(()=>requireSelf(a.ag,2),PermissionError);
+    assert.throws(()=>requireDeckOwner(db,b.ag,a.id),notFound);assert.throws(()=>requireSelf(a.ag,2),notFound);
   } finally {db.close();}
 });
 
@@ -270,7 +296,7 @@ for(const [name,c] of Object.entries(toolCases)) {
     for(const userId of [1,2]) for(const category of ["paper","theorycrafted"]) {
       const f=fixture(), t=f.targets.find(t=>t.ui.user_id===userId&&t.category===category)!,other=f.targets.find(t=>t.ui.user_id!==userId&&t.category===category)!;
       try {
-        if(!c.global) assert.throws(()=>callTool({db:f.db,actor:t.ag},name,c.args(other,f)),c.kind==="read"?(e:any)=>e.status===404:PermissionError,`${name} other deck`);
+        if(!c.global) assert.throws(()=>callTool({db:f.db,actor:t.ag},name,c.args(other,f)),notFound,`${name} other deck`);
         const run=()=>callTool({db:f.db,actor:t.ag},name,c.args(t,f));
         if(c.paperBlocked&&category==="paper") assert.throws(run,PermissionError);
         else { const result=run();assert.ok(result.text.length>0); }
@@ -396,7 +422,7 @@ test("every HTTP API route is classified and reachable only with the right princ
         const other=f.targets.find(t=>t.ui.user_id===2&&t.category===category)!;
         if(!c.global) {
           const res=await send(base,c,other,f);
-          assert.equal(res.status,c.kind==="read"?404:403,`${c.method} ${c.path(other,f)} cross-user: ${await res.text()}`);
+          assert.equal(res.status,404,`${c.method} ${c.path(other,f)} cross-user: ${await res.text()}`);
         }
         const res=await send(base,c,own,f);
         assert.equal(res.status,c.ownStatus??200,`${c.method} ${c.path(own,f)} own: ${await res.text()}`);
@@ -440,7 +466,7 @@ test("per-user tokens and SSE isolate both doors; URL labels cannot become UI; r
     const foreign=await clients[0].callTool({name:"get_deck",arguments:{deck:b.id}});
     assert.equal(foreign.isError,true);assert.match(JSON.stringify(foreign.content),/There is no deck/);
     const forbidden=await clients[0].callTool({name:"remember",arguments:{deck:b.id,scope:"deck",text:"Cross user"}});
-    assert.equal(forbidden.isError,true);assert.match(JSON.stringify(forbidden.content),/Only the deck owner/);
+    assert.equal(forbidden.isError,true);assert.match(JSON.stringify(forbidden.content),/There is no deck/);
     const saved=await clients[0].callTool({name:"remember",arguments:{scope:"global",text:"From authenticated user A"}});
     assert.ok(!saved.isError);
     assert.equal(new TextDecoder().decode((await readers[0].read()).value),'data: {"kind":"remember"}\n\n');
@@ -471,4 +497,223 @@ test("per-user tokens and SSE isolate both doors; URL labels cannot become UI; r
     const session=await clients[1].callTool({name:"start_session",arguments:{}});
     assert.ok(!session.isError);assert.match(JSON.stringify(session.content),/second — Second/);
   } finally {for(const reader of readers)await reader.cancel();for(const c of clients)await c.close();await app.close();f.db.close();}
+});
+
+/** Snapshot all personal tables (including FTS shadows and sequences), not
+ * just the requested deck. A rejected call must have no partial side effects. */
+function personalSnapshot(db: Database) {
+  const tables=db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as {name:string}[];
+  return Object.fromEntries(tables.filter(({name})=>!name.startsWith("cards")&&!['card_names','card_prices','meta'].includes(name))
+    .map(({name})=>[name,db.prepare(`SELECT * FROM "${name.replaceAll('"','""')}"`).all().sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)))]));
+}
+type MixedProbe={name:string;run:(f:Fixture,a:Actor,own:Target,foreign:Target)=>unknown;human?:boolean};
+const mixedProbes:MixedProbe[]=[
+  {name:"updateSlot slotId",run:(f,a,o,x)=>decks.updateSlot(f.db,a,o.id,x.slot,{name:"Wrong slot"})},
+  {name:"deleteSlot slotId",run:(f,a,o,x)=>decks.deleteSlot(f.db,a,o.id,x.slot)},
+  {name:"renameTag tagId",run:(f,a,o,x)=>decks.renameTag(f.db,a,o.id,x.tag,"Wrong tag")},
+  {name:"deleteTag tagId",run:(f,a,o,x)=>decks.deleteTag(f.db,a,o.id,x.tag)},
+  {name:"organizeCard primary slot",run:(f,a,o,x)=>decks.organizeCard(f.db,a,o.id,"id-forest",{slotId:x.slot})},
+  {name:"organizeCard secondary slot",run:(f,a,o,x)=>decks.organizeCard(f.db,a,o.id,"id-forest",{secondarySlotIds:[x.slot]})},
+  {name:"organizeCard tags",run:(f,a,o,x)=>decks.organizeCard(f.db,a,o.id,"id-forest",{tagIds:[o.tag,x.tag]})},
+  {name:"validateSlotAssignments primary",run:(f,a,o,x)=>decks.validateSlotAssignments(f.db,a,o.id,x.slot,[])},
+  {name:"validateSlotAssignments secondary",run:(f,a,o,x)=>decks.validateSlotAssignments(f.db,a,o.id,null,[x.slot])},
+  {name:"removeEngine engineId",human:true,run:(f,a,o,x)=>brief.removeEngine(f.db,a,o.id,x.engine)},
+  ...["primary","secondary"].flatMap(kind=>[
+    {name:`applyChanges ${kind} slot`,run:(f:Fixture,a:Actor,o:Target,x:Target)=>membership.applyChanges(f.db,a,o.id,[{action:"add",oracle_id:"id-solring",...(kind==="primary"?{slot_id:x.slot}:{secondary_slot_ids:[x.slot]})}],{kind:"edit"})},
+    {name:`createProposal ${kind} slot`,run:(f:Fixture,a:Actor,o:Target,x:Target)=>proposals.createProposal(f.db,a,o.id,{items:[{action:"cut",oracle_id:"id-forest",reason:"Valid first item"},{action:"add",oracle_id:"id-solring",reason:"Foreign slot",...(kind==="primary"?{slot_id:x.slot}:{secondary_slot_ids:[x.slot]})}]})},
+  ]),
+  {name:"memory id read",run:(f,a,_o,x)=>memory.getMemory(f.db,a,x.memory)},
+  ...["update","retire","restore","confirm"].map(action=>({name:`reviseMemory ${action} foreign id`,run:(f:Fixture,a:Actor,_o:Target,x:Target)=>memory.reviseMemory(f.db,a,x.memory,{action:action as "retire"})})),
+  {name:"reviseMemory replacement deck",run:(f,a,o,x)=>memory.reviseMemory(f.db,a,o.memory,{action:"supersede",scope:"deck",deck_id:x.id,text:"Wrong replacement scope"})},
+  {name:"remember source log",run:(f,a,o,x)=>memory.remember(f.db,a,{scope:"deck",deck_id:o.id,source_log_id:x.log,text:"Wrong source"})},
+  {name:"undo logId",human:true,run:(f,a,_o,x)=>membership.undo(f.db,a,x.log)},
+  {name:"getLogEntry logId",run:(f,a,_o,x)=>log.getLogEntry(f.db,a,x.log)},
+  {name:"markReviewed mixed IDs",run:(f,a,o,x)=>log.markReviewed(f.db,a,{ids:[o.log,x.log]})},
+  {name:"markReviewed through",run:(f,a,_o,x)=>log.markReviewed(f.db,a,{through:x.log})},
+  {name:"writeLog proposal link",run:(f,a,o,x)=>log.writeLog(f.db,a,{deck_id:o.id,kind:"edit",proposal_id:x.proposal})},
+  {name:"writeLog edit link",run:(f,a,o,x)=>log.writeLog(f.db,a,{deck_id:o.id,kind:"edit",document_edit_id:x.edit})},
+  {name:"writeLog undo link",run:(f,a,o,x)=>log.writeLog(f.db,a,{deck_id:o.id,kind:"edit",undo_of:x.log})},
+  {name:"acceptItems mixed IDs",human:true,run:(f,a,o,x)=>proposals.acceptItems(f.db,a,[o.item,x.item])},
+  {name:"rejectItems mixed IDs",human:true,run:(f,a,o,x)=>proposals.rejectItems(f.db,a,[o.item,x.item])},
+  {name:"acceptProposals foreign proposal",human:true,run:(f,a,o,x)=>proposals.acceptProposals(f.db,a,o.id,[{proposal_id:o.proposal},{proposal_id:x.proposal}],1)},
+  {name:"getProposal forWrite",run:(f,a,_o,x)=>proposals.getProposal(f.db,a,x.proposal,true)},
+  {name:"withdrawProposal foreign id",run:(f,a,_o,x)=>proposals.withdrawProposal(f.db,a,x.proposal,"Wrong owner")},
+  {name:"amendProposal foreign id",run:(f,a,_o,x)=>proposals.amendProposal(f.db,a,x.proposal,{items:[{action:"cut",oracle_id:"id-forest",reason:"Wrong owner"}]})},
+  {name:"getDocumentEdit forWrite",run:(f,a,_o,x)=>documents.getDocumentEdit(f.db,a,x.edit,true)},
+  {name:"withdrawDocumentEdit foreign id",run:(f,a,_o,x)=>documents.withdrawDocumentEdit(f.db,a,x.edit,"Wrong owner")},
+  {name:"ruleDocumentEdit foreign id",human:true,run:(f,a,_o,x)=>documents.ruleDocumentEdit(f.db,a,x.edit,"reject")},
+  {name:"proposeDocumentGroup foreign supersedes",run:(f,a,o,x)=>documents.proposeDocumentGroup(f.db,a,o.id,[{kind:"constraints",payload:{content:"Wrong supersession"},reason:"Wrong owner"}],{supersedes:[x.edit]})},
+  {name:"compareDecks other",run:(f,a,o,x)=>fork.compareDecks(f.db,a,o.id,x.id)},
+  {name:"compareDeckSources sources",run:(f,a,o,x)=>sourcing.compareDeckSources(f.db,a,o.id,[x.id])},
+  {name:"compareDeckSources source tags",run:(f,a,o,x)=>sourcing.compareDeckSources(f.db,a,o.id,[x.id],{apply_source_tags:true,expected_revision:1,expected_source_revisions:{[x.id]:1}})},
+  {name:"copyPowerTarget destination",run:(f,a,o,x)=>power.copyPowerTarget(f.db,a,o.id,x.id)},
+  {name:"copyDeckMemories destination",run:(f,a,o,x)=>memory.copyDeckMemories(f.db,a,o.id,x.id)},
+  {name:"revokeToken foreign credential",human:true,run:(f,a,_o,x)=>tokens.revokeToken(f.db,a,x.token)},
+];
+for(const probe of mixedProbes) test(`mixed IDs: ${probe.name}, own deck with foreign child; every tenant table unchanged`,()=>{
+  const f=fixture();
+  try {
+    for(const userId of [1,2]) for(const via of ["ui","agent"] as const) {
+      const own=f.targets.find(t=>t.ui.user_id===userId&&t.category==="theorycrafted")!,foreign=f.targets.find(t=>t.ui.user_id!==userId&&t.category==="theorycrafted")!;
+      const a=via==="ui"?own.ui:own.ag,before=personalSnapshot(f.db);
+      assert.throws(()=>probe.run(f,a,own,foreign),via==="agent"&&probe.human?(e:any)=>e.status===403||e.status===404:notFound);
+      assert.deepEqual(personalSnapshot(f.db),before,`${probe.name}: no tenant, FTS or sequence changes`);
+    }
+  } finally {f.db.close();}
+});
+
+test("MCP and HTTP reject own-deck/foreign-child combinations without partial writes",async()=>{
+  const f=fixture(),own=f.targets[1],foreign=f.targets[3];
+  const app=createApp(f.db),base=await listening(app);
+  const requests=[
+    {method:"PATCH",path:`/api/decks/${own.id}/slots/${foreign.slot}`,body:{name:"Cross slot"}},
+    {method:"DELETE",path:`/api/decks/${own.id}/slots/${foreign.slot}`},
+    {method:"PATCH",path:`/api/decks/${own.id}/tags/${foreign.tag}`,body:{name:"Cross tag"}},
+    {method:"DELETE",path:`/api/decks/${own.id}/tags/${foreign.tag}`},
+    ...[{slot_id:foreign.slot},{secondary_slot_ids:[foreign.slot]},{tag_ids:[own.tag,foreign.tag]}].map(body=>({method:"PATCH",path:`/api/decks/${own.id}/cards/id-forest`,body})),
+    {method:"DELETE",path:`/api/decks/${own.id}/engines/${foreign.engine}`},
+    {method:"POST",path:`/api/decks/${own.id}/cards`,body:{oracle_id:"id-solring",slot_id:foreign.slot}},
+    {method:"POST",path:`/api/decks/${own.id}/items/rule`,body:{item_ids:[own.item,foreign.item],outcome:"accept"}},
+    {method:"POST",path:`/api/decks/${own.id}/proposals/${foreign.proposal}/rule`,body:{outcome:"reject"}},
+    {method:"POST",path:`/api/decks/${own.id}/log/${foreign.log}/undo`},
+    {method:"GET",path:`/api/decks/${own.id}/compare?other=${foreign.id}`},
+  ];
+  try {
+    for(const req of requests){
+      const before=personalSnapshot(f.db),res=await fetch(base+req.path,{method:req.method,headers:req.body?{"Content-Type":"application/json"}:{},...(req.body?{body:JSON.stringify(req.body)}:{})});
+      assert.equal(res.status,404,`${req.method} ${req.path}: ${await res.text()}`);
+      assert.deepEqual(personalSnapshot(f.db),before);
+    }
+    for(const [name,args] of [["compare_decks",{deck:own.id,other:foreign.id}],["compare_deck_sources",{deck:own.id,sources:[foreign.id]}],["propose_document_changes",{deck:own.id,changes:[{kind:"constraints",text:"Wrong replacement",reason:"Wrong owner"}],supersedes:[foreign.edit]}]] as const){
+      const before=personalSnapshot(f.db);assert.throws(()=>callTool({db:f.db,actor:own.ag},name,args),notFound);assert.deepEqual(personalSnapshot(f.db),before);
+    }
+  } finally {await app.close();f.db.close();}
+});
+
+// Every non-deck export has a concrete user-2 probe. The invocation proxy
+// rejects a no-op probe, and output/owner snapshots verify the privacy claim.
+const globalProbes:Record<string,GlobalProbe>={
+  getSetting:(fn,f,a)=>{setSetting(f.db,a,"probe","second setting");return fn(f.db,a,"probe");},
+  setSetting:(fn,f,a)=>{fn(f.db,a,"probe","second setting");assert.equal(getSetting(f.db,a,"probe"),"second setting");return getSetting(f.db,a,"probe");},
+  createDeck:(fn,f,a)=>{const id=fn(f.db,a,"Second new list");return decks.requireDeck(f.db,a,id);},
+  listDecks:(fn,f,a)=>{const rows=fn(f.db,a);assert.deepEqual(rows.map((r:any)=>r.id),f.targets.filter(t=>t.ui.user_id===2).map(t=>t.id));return rows;},
+  getProfile:(fn,f,a)=>{const p=fn(f.db,a);assert.equal(p.body_md,"Private profile 2");return p;},
+  setProfile:(fn,f,a)=>{fn(f.db,a,"Second changed profile");return documents.getProfile(f.db,a);},
+  getBudgets:(fn,f,a)=>{const b=fn(f.db,a);assert.equal(b.global,1002);return b;},
+  setBudgets:(fn,f,a)=>{fn(f.db,a,{global:1900});return memory.getBudgets(f.db,a);},
+  unreviewedCount:(fn,f,a)=>{log.markReviewed(f.db,OWNER,{through:f.targets[0].log});assert.equal(fn(f.db,a),1);return fn(f.db,a);},
+  getFocus:(fn,f,a)=>{const focus=fn(f.db,a);assert.equal(focus.deck_id,f.targets[2].id);return focus;},
+  playerStats:(fn,f,a)=>{
+    const paper=f.targets[2];
+    // Different counts, slot names, commander colors/types and reuse make
+    // accidental aggregation detectable beyond the coarse deck_count.
+    membership.applyChanges(f.db,a,paper.id,[{action:"add",oracle_id:"id-teferi",role:"commander"},{action:"add",oracle_id:"id-counterspell"}],{kind:"edit"});
+    decks.createSlot(f.db,a,paper.id,"Second distinctive slot");
+    const result=fn(f.db,a),v=decks.getDeck(f.db,a,paper.id);
+    assert.deepEqual(result.decks.map((d:any)=>d.id),[paper.id]);
+    assert.equal(result.decks[0].card_count,v.computed.card_count);
+    assert.deepEqual(result.decks[0].commanders,v.cards.filter(c=>c.role==="commander").map(c=>c.name));
+    assert.equal(result.families,1);assert.equal(result.averages.lands,7);
+    assert.deepEqual(result.colors,{W:0,U:1,B:0,R:0,G:0});
+    assert.deepEqual(result.identities,[{identity:"U",decks:1}]);
+    assert.ok(result.slots.some((s:any)=>s.name==="Second distinctive slot"));
+    assert.deepEqual(result.reused_cards,[]);
+    return result;
+  },
+  listActivity:(fn,f,a)=>{const rows=fn(f.db,a);assert.ok(rows.length);assert.ok(rows.every((r:any)=>r.user_id===2));return rows;},
+  ownershipEvidence:(fn,f,a)=>{const rows=fn(f.db,a,"id-forest");assert.ok(rows.length);assert.ok(rows.every((r:any)=>r.user_id===2));return rows;},
+  createToken:(fn,f,a)=>{const row=fn(f.db,a,"second credential");assert.equal(row.credential.user_id,2);return row;},
+  listTokens:(fn,f,a)=>{const rows=fn(f.db,a);assert.ok(rows.length);assert.ok(rows.every((r:any)=>r.user_id===2));return rows;},
+  revokeToken:(fn,f,a,t)=>{fn(f.db,a,t.token);const row=tokens.listTokens(f.db,a).find(r=>r.id===t.token)!;assert.ok(row.revoked_at);return row;},
+  verifyToken:(fn,f,a)=>{const token=tokens.createToken(f.db,a,"verify second");const actor=fn(f.db,token.token);assert.equal(actor.user_id,2);return actor;},
+  migrateLegacyToken:(fn,f)=>{
+    // Operator-only import explicitly targets user 1; probe an isolated fresh
+    // database instead of relabelling it as a tenant-capability authorization.
+    const isolated=functions.openDb(":memory:"),dir=mkdtempSync(join(tmpdir(),"import-probe-"));
+    try {
+      const file=join(dir,"agent-token");writeFileSync(file,"isolated-existing-credential",{mode:0o600});
+      const result=fn(isolated,file);assert.equal(result,undefined);
+      assert.equal(isolated.prepare("SELECT count(*) n FROM agent_tokens").get().n,1);
+      assert.equal(readFileSync(join(dir,"stdio-token"),"utf8"),"isolated-existing-credential");return result;
+    }finally{isolated.close();rmSync(dir,{recursive:true,force:true});}
+  },
+  tableCard:(fn,f,a)=>fn(f.db,a,"id-forest"),
+  cardsNamed:(fn,f)=>fn(f.db,"Forest"),requireCardById:(fn,f)=>fn(f.db,"id-forest"),
+  resolveCard:(fn,f)=>fn(f.db,"Forest"),resolveCards:(fn,f)=>fn(f.db,["Forest"]),tryResolveCard:(fn,f)=>fn(f.db,"Forest"),
+  suggestNames:(fn,f)=>fn(f.db,"Fores"),extractCardRefs:fn=>fn("Uses [[Forest]]"),lintProse:(fn,f)=>fn(f.db,"Uses [[Forest]]"),
+  copyLimit:(fn,f)=>fn(functions.requireCardById(f.db,"id-forest")),similarTag:fn=>fn(["Have"],"have"),validateVocabName:fn=>fn("Utility"),
+  isDoctorPair:fn=>fn([]),parseArchidektList:fn=>fn("7 Forest"),
+  parseTarget:fn=>fn({profile:{}}),mapBracket:fn=>fn(power.parseTarget({profile:{}}).profile,0),
+  profileLines:fn=>fn(power.parseTarget({profile:{}}).profile),targetText:fn=>fn(null),estimateTokens:fn=>fn("Second preference"),
+  authorOf:(fn,_f,a)=>fn(a),displayAuthor:(fn,f)=>{const s=fn(f.db,{author_user_id:2,author_via:"agent",author_label:"second agent"});assert.equal(s,"second via second agent");return s;},
+  isAuthor:(fn,_f,a)=>{assert.equal(fn(a,{author_user_id:1,author_via:"ui",author_label:"ui"}),false);return fn(a,{author_user_id:2,author_via:"ui",author_label:"ui"});},
+  requireSelf:(fn,_f,a)=>{assert.throws(()=>fn(a,1),notFound);return fn(a,2);},
+  requireUi:(fn,_f,a)=>fn(a,"perform a human action"),requireAdmin:(fn,f,a)=>{assert.throws(()=>fn(f.db,a),PermissionError);return false;},
+  normalizeName:fn=>fn("Second"),isUniqueViolation:fn=>fn(Object.assign(new Error("unique"),{errcode:2067})),
+  getMode:fn=>fn({DECKBUILDER_MODE:"local"}),publicOrigin:fn=>fn({DECKBUILDER_PUBLIC_ORIGIN:"https://second.example"}),
+  localActor:fn=>{const actor=fn();assert.deepEqual(actor,{user_id:1,via:"ui",label:"ui"});return undefined;}, // explicit local-mode policy, no stored rows
+  allowedRequest:fn=>fn({headers:{host:"127.0.0.1:8787"}},"local"),
+  openDb:fn=>{const db=fn(":memory:");try{assert.equal(db.prepare("SELECT count(*) n FROM decks").get().n,0);return [];}finally{db.close();}},
+  withTransaction:(fn,f,a)=>fn(f.db,()=>documents.getProfile(f.db,a)),
+  pricesAsOf:(fn,f)=>fn(f.db),priceStatus:(fn,f)=>fn(f.db),
+  formatUsd:fn=>fn(100),estimateCost:fn=>fn([{quantity:2,usd_cents:100}]),cheapestPrintings:fn=>fn([]),
+  ingestPrices:(fn,f)=>fn(f.db,new Map(),"2026-10-25T00:00:00Z"),
+  parse:fn=>fn("t:land"),compile:fn=>fn(functions.parse("t:land")),
+  cardLine:(fn,f)=>fn(functions.requireCardById(f.db,"id-forest")),cardWithContext:(fn,f)=>fn(functions.requireCardById(f.db,"id-forest")),
+  memoryLine:(fn,f,a,t)=>fn(memory.getMemory(f.db,a,t.memory)),renderMemories:(fn,f,a)=>fn(memory.listMemories(f.db,a)),
+  rulingLine:(fn,f,a,t)=>fn(log.cardHistory(f.db,a,t.id,"id-forest")[0]),
+  findingLines:(fn,f,a,t)=>fn(checks.checkDeck(f.db,a,t.id)),
+  logLines:(fn,f,a)=>fn(log.listLog(f.db,a)),proposalLines:(fn,f,a)=>fn(proposals.listProposals(f.db,a),documents.listDocumentEdits(f.db,a)),
+  renderActivity:(fn,f,a)=>fn(activity.listActivity(f.db,a)),renderStats:(fn,f,a)=>fn(stats.playerStats(f.db,a)),
+  rosterLines:(fn,f,a)=>fn(decks.listDecks(f.db,a)),renderScope:(fn,f,a)=>fn(memory.loadScope(f.db,a,"global"),"global"),
+  renderPower:(fn,f,a,t)=>fn(power.getPower(f.db,a,t.id)),stateLines:(fn,f,a,t)=>fn(decks.getDeck(f.db,a,t.id)),
+  renderCompare:(fn,f,a,t)=>fn(fork.compareDecks(f.db,a,t.id,f.otherOwn(a,t).id)),
+  resolutionFailureLine:fn=>fn({ref:"missing",problem:"unknown",suggestions:[],candidates:[]}),
+  shuffle:fn=>fn(["second"]),defaultRow:(fn,f,a)=>fn(playtest.tableCard(f.db,a,"id-forest")),
+  makeObject:(fn,f,a)=>fn(playtest.tableCard(f.db,a,"id-forest")),bottomRequired:(fn,_f,_a,t)=>fn(t.session.session.frame),
+  view:(fn,_f,_a,t)=>fn(t.session.session),zoneOf:(fn,_f,_a,t)=>fn(t.session.session.frame,t.session.session.frame.zones.hand[0]),
+  applyAction:(fn,_f,_a,t)=>{const session=structuredClone(t.session.session);fn(session,{type:"keep"});return session;},
+};
+for(const name of ["AppError","ServiceError","SchemaError","PermissionError","SearchError"])globalProbes[name]=fn=>new fn("Second probe");
+globalProbes.CardResolutionError=fn=>new fn([{ref:"missing",problem:"unknown",suggestions:[],candidates:[]}]);
+const globalKinds:Record<string,Classification>={getSetting:"read",setSetting:"write",createDeck:"write",listDecks:"read",getProfile:"read",setProfile:"owner-only",getBudgets:"read",setBudgets:"write",unreviewedCount:"read",getFocus:"read",playerStats:"read",listActivity:"read",ownershipEvidence:"read",createToken:"owner-only",listTokens:"owner-only",revokeToken:"owner-only",requireUi:"owner-only",requireAdmin:"owner-only",ingestPrices:"write"};
+for(const [name,probe] of Object.entries(globalProbes))globalCase(name,globalKinds[name]??"public-read",probe);
+
+function ownerSnapshot(f:Fixture) {
+  const owned=new Set(f.targets.filter(t=>t.ui.user_id===1).map(t=>t.id));
+  const memoryIds=new Set((f.db.prepare("SELECT id FROM memories WHERE user_id=1").all() as {id:number}[]).map(r=>r.id));
+  const proposalsIds=new Set((f.db.prepare("SELECT p.id FROM proposals p JOIN decks d ON d.id=p.deck_id WHERE d.user_id=1").all() as {id:number}[]).map(r=>r.id));
+  const engines=new Set(f.targets.filter(t=>t.ui.user_id===1).map(t=>t.engine));
+  return Object.fromEntries(Object.entries(personalSnapshot(f.db)).filter(([name])=>!name.startsWith("memories_fts_")&&name!=="sqlite_sequence").map(([name,rows])=>[name,rows.filter((r:any)=>{
+    if(name==="users")return r.id===1;
+    if(r.user_id!=null)return r.user_id===1;
+    if(r.deck_id!=null)return owned.has(r.deck_id);
+    if(r.memory_id!=null)return memoryIds.has(Number(r.memory_id));
+    if(r.proposal_id!=null)return proposalsIds.has(r.proposal_id);
+    if(r.engine_id!=null)return engines.has(r.engine_id);
+    return false;
+  })]));
+}
+function assertNoOwnerRows(value:unknown,f:Fixture) {
+  if(value instanceof Map){for(const v of value.values())assertNoOwnerRows(v,f);return;}
+  if(Array.isArray(value)){for(const v of value)assertNoOwnerRows(v,f);return;}
+  if(value&&typeof value==="object") {
+    const row=value as Record<string,unknown>;
+    for(const key of ["user_id","author_user_id","actor_user_id"])if(row[key]!=null)assert.notEqual(row[key],1,key);
+    for(const v of Object.values(row))assertNoOwnerRows(v,f);
+  }
+  if(typeof value==="string")for(const privateText of ["Private profile 1","Private activity 1","Private global preference 1","Private deck preference 1","Private deck preference 2"])assert.ok(!value.includes(privateText),privateText);
+}
+test("glob discovery classifies every runtime export, including renderers/cards/prices and future modules",()=>{
+  assert.deepEqual(Object.keys(cases).sort(),Object.keys(functions).sort());
+  for(const [name,c]of Object.entries(cases))if(c.global)assert.equal(typeof c.probe,"function",`${name} requires a real user-2 probe`);
+});
+for(const [name,c]of Object.entries(cases).filter(([,c])=>c.global))test(`global probe ${name}: runs export as user 2, returns no user-1 rows`,async()=>{
+  const f=fixture(),a=f.users[1],t=f.targets[3];
+  try {
+    // Review queues differ to make count leaks visible without modifying user 1 during the probe.
+    log.markReviewed(f.db,OWNER,{through:f.targets[0].log});
+    const before=ownerSnapshot(f),result=await c.run(f.db,a,t,f);
+    assertNoOwnerRows(result,f);assert.deepEqual(ownerSnapshot(f),before,`${name} changed user 1`);
+  } finally {f.db.close();}
 });

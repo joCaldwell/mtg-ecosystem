@@ -21,7 +21,7 @@ export class PermissionError extends AppError {
 }
 
 export function requireSelf(actor: Actor, userId: number): void {
-  if (actor.user_id !== userId) throw new PermissionError("You can access only your own account data");
+  if (actor.user_id !== userId) throw new ServiceError("Account record not found", 404);
 }
 
 export function isDeckOwner(db: Database, actor: Actor, deckId: number): boolean {
@@ -30,8 +30,7 @@ export function isDeckOwner(db: Database, actor: Actor, deckId: number): boolean
 
 export function requireDeckOwner(db: Database, actor: Actor, deckId: number, what = "change this deck"): DeckRow {
   const deck = db.prepare("SELECT * FROM decks WHERE id = ?").get(deckId) as DeckRow | undefined;
-  if (!deck) throw new ServiceError(`There is no deck ${deckId}. List the decks to see which ids exist.`, 404);
-  if (deck.user_id !== actor.user_id) throw new PermissionError(`Only the deck owner can ${what}.`);
+  if (!deck || deck.user_id !== actor.user_id) throw new ServiceError(`There is no deck ${deckId}. List the decks to see which ids exist.`, 404);
   return { ...deck, role: "owner" };
 }
 

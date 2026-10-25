@@ -182,7 +182,6 @@ export function getPowerTarget(db: Database, actor: Actor, deckId: number): Powe
 
 /** Internal document write; agents reach it through proposeDocumentEdit. */
 export function writePowerTarget(db: Database, actor: Actor, deckId: number, input: unknown, author = authorOf(actor)) {
-  requireDeckOwner(db, actor, deckId);
   requireEditableDeck(db, actor, deckId);
   requireUi(actor, "apply a power target directly (use propose_power_target)");
   const target = input === null ? null : parseTarget(input);
@@ -220,7 +219,6 @@ function assessmentRows(db: Database, actor: Actor, deckId: number) {
   return db.prepare("SELECT * FROM power_assessments WHERE deck_id = ? ORDER BY id DESC LIMIT 20").all(deckId) as unknown as AssessmentRow[];
 }
 export function recordPowerAssessment(db: Database, actor: Actor, deckId: number, input: unknown): number {
-  requireDeckOwner(db, actor, deckId);
   requireEditableDeck(db, actor, deckId);
   const deck = requireDeck(db, actor, deckId);
   const value = parseAssessment(input);

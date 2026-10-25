@@ -31,7 +31,7 @@ test("tokens are per-user, random, hashed, returned once, throttled and immediat
     verifyToken(db, a.token, now + 60_000);
     assert.equal(listTokens(db, OWNER)[0].last_used_at, new Date(now + 60_000).toISOString());
     assert.equal(verifyToken(db, a.token.slice(0, -1) + "!"), null);
-    assert.throws(() => revokeToken(db, second, a.credential.id), PermissionError);
+    assert.throws(() => revokeToken(db, second, a.credential.id), (e: any) => e.status === 404);
     assert.throws(() => createToken(db, AGENT, "escalate"), PermissionError);
     assert.throws(() => listTokens(db, AGENT), PermissionError);
     revokeToken(db, OWNER, a.credential.id);

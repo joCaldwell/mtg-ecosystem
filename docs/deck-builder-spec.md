@@ -527,7 +527,7 @@ anything, is worth a memory. A reason given in the app is never lost for lack
 of a listener. `through` clears only the deck (or profile scope) of the
 anchor ruling, within the authenticated principal. Explicit ID batches
 validate every tenant before changing any row; a foreign anchor or ID is
-forbidden. A cross-deck result gives explicit IDs to mark instead.
+404. A cross-deck result gives explicit IDs to mark instead.
 
 ---
 
@@ -914,8 +914,9 @@ export type Actor = {
 Ownership is a relation: `actor.user_id === decks.user_id`.
 `requireDeckOwner(db,actor,deckId,what)`, `requireSelf(actor,userId)` and
 `isDeckOwner` enforce it below both front doors. `requireDeck` returns the
-deck and caller role; an unreadable deck is 404. Writes on another user's
-deck throw `PermissionError` (403). Every exported capability requires an
+deck and caller role; an unreadable deck is 404. Writes on an unreadable deck also return 404, with the same missing-target
+behavior as reads. `PermissionError` (403) is reserved for readable targets
+whose action is forbidden (human-only, admin-only, or Legacy writes). Every exported capability requires an
 actor. Shared card-only utilities remain global, but any deck or memory
 context is authorized. No implicit actor is supplied by a service.
 
@@ -982,7 +983,8 @@ checks always precede these creator checks.
 memory lookups, return 404 when unreadable or absent. Collection reads are
 filtered by principal; a memory list for a deleted deck remains empty (the
 existing cleanup behavior). Numeric write references reach owner guards and
-return PermissionError/403 on foreign data. Names resolve only in the
+return 404 on foreign/unreadable data, including memory, log, proposal, edit
+and credential IDs. Human/admin action gates remain 403. Names resolve only in the
 principal’s roster, so an unknown name is 404 without searching other users.
 
 **Local text and attribution.** The existing compact `author` and `actor`
@@ -1016,3 +1018,13 @@ passes the verified Actor through the SDK’s `authInfo.extra.actor`. It inherit
 login, sessions, Better Auth, visibility, public pages or renames in Phase 1.
 Hosted signup will be invite-gated (D14); the invite table and UI arrive with
 Phase 2 account creation, not in this identity-only phase.
+
+
+Phase 1 review follow-up: the permission suite discovers `src/**/*.ts` exports
+with a documented exclusion list for executable front doors and operator-only
+modules. Every global classification has a real, invocation-counted user-2
+probe; outputs and user-1 snapshots are checked. Mixed-ID rows pair an owned
+deck with foreign slots/tags/engines and linked records, snapshotting all
+personal tables, FTS shadows and sequences before/after rejection. Child SQL
+writes bind both child and deck IDs. All private foreign targets return 404,
+including writes; this resolves the plan §3/§4 contradiction in favor of §4.

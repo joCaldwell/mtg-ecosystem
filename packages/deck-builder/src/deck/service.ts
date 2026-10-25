@@ -118,7 +118,6 @@ export function createDeck(
 }
 
 export function renameDeck(db: Database, actor: Actor, deckId: number, name: string): void {
-  requireDeckOwner(db, actor, deckId);
   const deck = requireEditableDeck(db, actor, deckId);
   const trimmed = name.trim();
   if (!trimmed) throw new ServiceError("Deck name cannot be empty");
@@ -135,7 +134,6 @@ export function renameDeck(db: Database, actor: Actor, deckId: number, name: str
 }
 
 export function deleteDeck(db: Database, actor: Actor, deckId: number): void {
-  requireDeckOwner(db, actor, deckId);
   const deck = requireEditableDeck(db, actor, deckId);
   withTransaction(db, () => {
     db.prepare("DELETE FROM decks WHERE id = ?").run(deckId);
@@ -151,10 +149,8 @@ export function setDeckCategory(
   deckId: number,
   category: DeckCategory,
 ): void {
-  requireDeckOwner(db, actor, deckId);
-  requireDeckOwner(db, actor, deckId, "change a deck’s lifecycle");
+  const deck = requireDeckOwner(db, actor, deckId);
   requireUi(actor, "change a deck’s lifecycle");
-  const deck = requireDeck(db, actor, deckId);
   if (category !== "paper" && category !== "theorycrafted" && category !== "legacy")
     throw new ServiceError("Deck category must be 'paper', 'theorycrafted' or 'legacy'");
   withTransaction(db, () => {
@@ -172,7 +168,6 @@ export function setDeckParent(
   deckId: number,
   parentId: number | null,
 ): void {
-  requireDeckOwner(db, actor, deckId);
   requireEditableDeck(db, actor, deckId);
   requireUi(actor, "change which deck a deck was forked from");
   const deck = requireDeck(db, actor, deckId);
@@ -211,7 +206,7 @@ export interface DeckSummary {
 export function listDecks(db: Database, actor: Actor): DeckSummary[] {
   const rows = db
     .prepare(
-      `SELECT d.id, d.name, d.category, d.parent_id, p.name AS parent_name, d.color_identity,
+      `SELECT d.id, d.name, d.category, CASE WHEN p.id IS NOT NULL THEN d.parent_id END AS parent_id, p.name AS parent_name, d.color_identity,
               d.revision, d.created_at,
               COALESCE((SELECT SUM(quantity) FROM deck_cards dc
                         WHERE dc.deck_id = d.id AND dc.role != 'companion' AND dc.maybe = 0), 0) AS card_count,
@@ -267,7 +262,6 @@ export function requireDirectCardEdit(db: Database, actor: Actor, deckId: number
 
 // Deck identity = union of commander identities (spec §5.1, denormalized).
 export function recomputeIdentity(db: Database, actor: Actor, deckId: number): void {
-  requireDeckOwner(db, actor, deckId);
   requireEditableDeck(db, actor, deckId);
   const commanders = db
     .prepare(
@@ -404,7 +398,6 @@ export function createSlot(
   targetMin: number | null = null,
   targetMax: number | null = null,
 ): number {
-  requireDeckOwner(db, actor, deckId);
   requireEditableDeck(db, actor, deckId);
   const valid = validateVocabName(name);
   validateTargets(targetMin, targetMax);
@@ -431,7 +424,6 @@ export function updateSlot(
   slotId: number,
   patch: { name?: string; targetMin?: number | null; targetMax?: number | null },
 ): void {
-  requireDeckOwner(db, actor, deckId);
   requireEditableDeck(db, actor, deckId);
   const slot = requireSlot(db, actor, deckId, slotId);
   const name = patch.name !== undefined ? validateVocabName(patch.name) : slot.name;
@@ -439,11 +431,11 @@ export function updateSlot(
   const max = patch.targetMax !== undefined ? patch.targetMax : slot.target_max;
   validateTargets(min, max);
   try {
-    db.prepare("UPDATE slots SET name = ?, target_min = ?, target_max = ? WHERE id = ?").run(
+    db.prepare("UPDATE slots SET name = ?, target_min = ?, target_max = ? WHERE id = ? AND deck_id = ?").run(
       name,
       min,
       max,
-      slotId,
+      slotId, deckId,
     );
   } catch (e: any) {
     if (isUniqueViolation(e))
@@ -453,10 +445,9 @@ export function updateSlot(
 }
 
 export function deleteSlot(db: Database, actor: Actor, deckId: number, slotId: number): void {
-  requireDeckOwner(db, actor, deckId);
   requireEditableDeck(db, actor, deckId);
   requireSlot(db, actor, deckId, slotId);
-  db.prepare("DELETE FROM slots WHERE id = ?").run(slotId);
+  db.prepare("DELETE FROM slots WHERE id = ? AND deck_id = ?").run(slotId, deckId);
 }
 
 // ---------- tags ----------
@@ -501,7 +492,6 @@ export function similarTag(existing: string[], candidate: string): string | null
 }
 
 export function createTag(db: Database, actor: Actor, deckId: number, name: string): number {
-  requireDeckOwner(db, actor, deckId);
   requireEditableDeck(db, actor, deckId);
   const valid = validateVocabName(name);
   const clash = similarTag(
@@ -529,7 +519,6 @@ function recordHaveEvidence(db: Database, actor: Actor, deckId: number, oracleId
 }
 
 export function renameTag(db: Database, actor: Actor, deckId: number, tagId: number, name: string): void {
-  requireDeckOwner(db, actor, deckId);
   requireEditableDeck(db, actor, deckId);
   requireTag(db, actor, deckId, tagId);
   const valid = validateVocabName(name);
@@ -541,7 +530,7 @@ export function renameTag(db: Database, actor: Actor, deckId: number, tagId: num
     );
   try {
     withTransaction(db, () => {
-      db.prepare("UPDATE tags SET name = ? WHERE id = ?").run(valid, tagId);
+      db.prepare("UPDATE tags SET name = ? WHERE id = ? AND deck_id = ?").run(valid, tagId, deckId);
       if (valid.trim().toLowerCase() === "have") {
         for (const row of db.prepare("SELECT oracle_id FROM deck_card_tags WHERE deck_id = ? AND tag_id = ?").all(deckId, tagId) as unknown as { oracle_id: string }[])
           recordHaveEvidence(db, actor, deckId, row.oracle_id);
@@ -555,10 +544,9 @@ export function renameTag(db: Database, actor: Actor, deckId: number, tagId: num
 }
 
 export function deleteTag(db: Database, actor: Actor, deckId: number, tagId: number): void {
-  requireDeckOwner(db, actor, deckId);
   requireEditableDeck(db, actor, deckId);
   requireTag(db, actor, deckId, tagId);
-  db.prepare("DELETE FROM tags WHERE id = ?").run(tagId);
+  db.prepare("DELETE FROM tags WHERE id = ? AND deck_id = ?").run(tagId, deckId);
 }
 
 function findOrCreateTag(db: Database, actor: Actor, deckId: number, name: string): number {
@@ -597,7 +585,6 @@ export function organizeCard(
   oracleId: string,
   patch: OrganizePatch,
 ): void {
-  requireDeckOwner(db, actor, deckId);
   requireEditableDeck(db, actor, deckId);
   withTransaction(db, () => {
     const row = requireDeckCard(db, actor, deckId, oracleId);
@@ -649,7 +636,6 @@ export interface FilingInput {
 // Bulk filing by name, for agents: every entry lands or none does. Tags named
 // here are created if the deck lacks them, subject to the near-duplicate rule.
 export function fileCards(db: Database, actor: Actor, deckId: number, filings: FilingInput[], removeUnusedTags: string[] = []): void {
-  requireDeckOwner(db, actor, deckId);
   requireEditableDeck(db, actor, deckId);
   if (!Array.isArray(removeUnusedTags) || removeUnusedTags.some(name => typeof name !== "string"))
     throw new ServiceError("Unused tags to remove must be an array of tag names");
@@ -708,7 +694,6 @@ export interface SlotSpec {
 // Create, rename, retarget and remove slots in one transactional call. A slot
 // named here that does not exist is created; one that exists is updated.
 export function defineSlots(db: Database, actor: Actor, deckId: number, specs: SlotSpec[]): void {
-  requireDeckOwner(db, actor, deckId);
   requireEditableDeck(db, actor, deckId);
   withTransaction(db, () => {
     for (const s of specs) {
@@ -743,7 +728,6 @@ export function shortlistCard(
   oracleId: string,
   note = "",
 ): void {
-  requireDeckOwner(db, actor, deckId);
   requireEditableDeck(db, actor, deckId);
   const card = requireCardById(db, oracleId);
   const existing = findDeckCard(db, actor, deckId, oracleId);
@@ -763,7 +747,6 @@ export function shortlistCard(
 }
 
 export function unshortlistCard(db: Database, actor: Actor, deckId: number, oracleId: string): void {
-  requireDeckOwner(db, actor, deckId);
   requireEditableDeck(db, actor, deckId);
   const row = requireDeckCard(db, actor, deckId, oracleId);
   if (!row.maybe)

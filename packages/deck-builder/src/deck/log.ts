@@ -289,10 +289,8 @@ export function markReviewed(
 ): number {
   if (which.through != null) {
     if (which.through === 0) return 0;
-    const entry = db.prepare("SELECT deck_id FROM log WHERE id = ?").get(which.through) as { deck_id: number | null } | undefined;
+    const entry = db.prepare("SELECT deck_id FROM log WHERE id = ? AND user_id = ?").get(which.through, actor.user_id) as { deck_id: number | null } | undefined;
     if (!entry) throw new ServiceError("The ruling to review through does not exist", 404);
-    const tenant = db.prepare("SELECT user_id FROM log WHERE id = ?").get(which.through) as { user_id: number };
-    requireSelf(actor, tenant.user_id);
     const r = db
       .prepare("UPDATE log SET reviewed_at = datetime('now') WHERE reviewed_at IS NULL AND id <= ? AND deck_id IS ? AND user_id = ?")
       .run(which.through, entry.deck_id, actor.user_id);
@@ -301,8 +299,8 @@ export function markReviewed(
   const ids = which.ids ?? [];
   if (!ids.length) throw new ServiceError("Give the ids of the rulings you have read, or 'through'");
   for (const id of ids) {
-    const tenant = db.prepare("SELECT user_id FROM log WHERE id = ?").get(id) as { user_id: number } | undefined;
-    if (tenant) requireSelf(actor, tenant.user_id);
+    const tenant = db.prepare("SELECT user_id FROM log WHERE id = ? AND user_id = ?").get(id, actor.user_id) as { user_id: number } | undefined;
+    if (!tenant) throw new ServiceError(`Log entry ${id} not found`, 404);
   }
   const stmt = db.prepare(
     "UPDATE log SET reviewed_at = datetime('now') WHERE reviewed_at IS NULL AND id = ? AND user_id = ?",

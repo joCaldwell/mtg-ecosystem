@@ -14,8 +14,7 @@ import { writeLog } from "./log.ts";
 import { createDeck, getDeck, recomputeIdentity, requireDeck } from "./service.ts";
 
 export function forkDeck(db: Database, actor: Actor, deckId: number, name: string): number {
-  requireDeckOwner(db, actor, deckId);
-  const parent = requireDeck(db, actor, deckId);
+  const parent = requireDeckOwner(db, actor, deckId);
   return withTransaction(db, () => {
     const forkId = createDeck(db, actor, name, { parentId: deckId });
 

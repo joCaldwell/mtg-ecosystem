@@ -37,7 +37,6 @@ export function createProposal(
   deckId: number,
   input: { summary?: string; items: ProposalItemInput[]; expected_revision?: number },
 ): number {
-  requireDeckOwner(db, actor, deckId);
   requireEditableDeck(db, actor, deckId);
   requireRevision(db, actor, deckId, input.expected_revision);
   const items = input.items ?? [];
@@ -238,14 +237,11 @@ export function listProposals(
 }
 
 export function getProposal(db: Database, actor: Actor, proposalId: number, forWrite = false): ProposalView | null {
-  if (forWrite) {
-    const scope = db.prepare("SELECT deck_id FROM proposals WHERE id = ?").get(proposalId) as { deck_id: number } | undefined;
-    if (scope) requireDeckOwner(db, actor, scope.deck_id);
-  }
   const row = db.prepare(`${PROPOSAL_SELECT} WHERE p.id = ? AND d.user_id = ?`).get(proposalId, actor.user_id) as
     | Omit<ProposalView, "items">
     | undefined;
   if (!row) throw new ServiceError(`Proposal ${proposalId} not found`, 404);
+  if (forWrite) requireDeckOwner(db, actor, row.deck_id);
   return withItems(db, actor, [row])[0];
 }
 
@@ -309,9 +305,9 @@ function resolveProposalIfDone(db: Database, actor: Actor, proposalId: number) {
 
 function markItems(db: Database, actor: Actor, items: ItemRow[], status: "accepted" | "rejected") {
   const stmt = db.prepare(
-    "UPDATE proposal_items SET status = ?, resolved_at = datetime('now') WHERE id = ?",
+    "UPDATE proposal_items SET status = ?, resolved_at = datetime('now') WHERE id = ? AND proposal_id = ?",
   );
-  for (const i of items) stmt.run(status, i.id);
+  for (const i of items) stmt.run(status, i.id, i.proposal_id);
 }
 
 /** Accept items: the changes are applied and logged as one act. Returns the log id. */
@@ -322,8 +318,8 @@ export function acceptItems(
   reason = "",
   options: { expected_revision?: number; acknowledge_stale?: boolean } = {},
 ): number {
-  requireUi(actor, "rule on a proposal");
   const items = itemsToRule(db, actor, itemIds);
+  requireUi(actor, "rule on a proposal");
   const deckId = items[0].deck_id;
   requireEditableDeck(db, actor, deckId);
   requireRevision(db, actor, deckId, options.expected_revision);
@@ -369,9 +365,8 @@ export function acceptProposals(
   db: Database, actor: Actor, deckId: number,
   approvals: Array<{ proposal_id: number; acknowledge_stale?: boolean }>, expectedRevision: number,
 ): void {
-  requireDeckOwner(db, actor, deckId);
-  requireUi(actor, "rule on proposals");
   requireEditableDeck(db, actor, deckId);
+  requireUi(actor, "rule on proposals");
   withTransaction(db, () => {
     requireRevision(db, actor, deckId, expectedRevision);
     if (!approvals.length || new Set(approvals.map(a => a.proposal_id)).size !== approvals.length)
@@ -401,8 +396,8 @@ export function rejectItems(
   itemIds: number[],
   reason = "",
 ): number {
-  requireUi(actor, "rule on a proposal");
   const items = itemsToRule(db, actor, itemIds);
+  requireUi(actor, "rule on a proposal");
   const deckId = items[0].deck_id;
   requireEditableDeck(db, actor, deckId);
 
@@ -448,9 +443,7 @@ export function pendingItemIds(db: Database, actor: Actor, proposalId: number): 
 /** Only current pending work can be revised. Items already ruled on remain
  * immutable in the previous proposal; the replacement describes remaining work. */
 function requireOwnPending(db: Database, actor: Actor, id: number): ProposalView {
-  const tenant = db.prepare("SELECT deck_id FROM proposals WHERE id = ?").get(id) as { deck_id: number } | undefined;
-  if (tenant) requireDeckOwner(db, actor, tenant.deck_id);
-  const proposal = getProposal(db, actor, id);
+  const proposal = getProposal(db, actor, id, true);
   if (!proposal) throw new ServiceError(`Proposal ${id} not found`, 404);
   requireEditableDeck(db, actor, proposal.deck_id);
   if (actor.via !== "ui" && !isAuthor(actor, proposal))

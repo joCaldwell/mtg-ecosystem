@@ -189,8 +189,8 @@ Vite proxy follows the API port.
     deck-owner-only, call `requireDeckOwner(db, actor, deckId)` inside it,
     or `requireSelf` for a user-scoped record. `requireEditableDeck` includes
     the ownership check. Reads use `requireDeck(db, actor, deckId)` and return
-    the caller role; unreadable decks are 404, foreign writes PermissionError
-    (403). Never guard only in a tool or route. Human-only actions additionally
+    the caller role; unreadable records are 404 for reads and writes.
+    PermissionError (403) is for forbidden actions on readable targets. Never guard only in a tool or route. Human-only actions additionally
     use `requireUi`: ruling, undo, lifecycle, import, direct brief/target/profile
     edits. An agent acting for the deck owner still needs Paper proposals.
     Owners and agents may rename and delete editable decks. Only the owner

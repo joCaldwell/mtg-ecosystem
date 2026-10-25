@@ -33,7 +33,7 @@ export function listTokens(db: Database, actor: Actor): AgentToken[] {
 
 export function revokeToken(db: Database, actor: Actor, id: number): void {
   requireUi(actor, "revoke an agent token");
-  const row = db.prepare("SELECT user_id FROM agent_tokens WHERE id = ?").get(id) as { user_id: number } | undefined;
+  const row = db.prepare("SELECT user_id FROM agent_tokens WHERE id = ? AND user_id = ?").get(id, actor.user_id) as { user_id: number } | undefined;
   if (!row) throw new ServiceError("Agent token not found", 404);
   requireSelf(actor, row.user_id);
   db.prepare("UPDATE agent_tokens SET revoked_at = COALESCE(revoked_at, datetime('now')) WHERE id = ? AND user_id = ?").run(id, actor.user_id);

@@ -66,8 +66,8 @@ test("items/rule requires integer arrays and rejects items and proposals from an
   const ids = getProposal(db, OWNER, proposalId)!.items.map(i => i.id);
   for (const item_ids of [null, "1", {}, ["1"], [1.5], []])
     assert.equal((await post(`/api/decks/${a}/items/rule`, { item_ids, outcome: "reject" })).status, 400);
-  assert.equal((await post(`/api/decks/${a}/items/rule`, { item_ids: ids, outcome: "reject" })).status, 400);
-  assert.equal((await post(`/api/decks/${a}/proposals/${proposalId}/rule`, { outcome: "reject" })).status, 400);
+  assert.equal((await post(`/api/decks/${a}/items/rule`, { item_ids: ids, outcome: "reject" })).status, 404);
+  assert.equal((await post(`/api/decks/${a}/proposals/${proposalId}/rule`, { outcome: "reject" })).status, 404);
   assert.equal(getProposal(db, OWNER, proposalId)!.items[0].status, "pending");
   assert.equal((await post(`/api/decks/${b}/items/rule`, { item_ids: ids, outcome: "reject" })).status, 200);
 });

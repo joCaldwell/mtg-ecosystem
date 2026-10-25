@@ -7,7 +7,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, join, resolve, sep } from "node:path";
 import type { Database } from "./sqlite.ts";
-import { type Actor, requireAdmin, requireDeckOwner } from "./actor.ts";
+import { type Actor, requireAdmin } from "./actor.ts";
 import { allowedRequest, getMode, localActor, publicOrigin, type Mode } from "./mode.ts";
 import { createToken, listTokens, revokeToken } from "./tokens.ts";
 import { listActivity } from "./activity.ts";
@@ -268,7 +268,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
   const assertItemsInDeck = (actor: Actor, deckId: number, ids: number[]) => {
     requireDeck(db, actor, deckId);
     const belongs = db.prepare("SELECT 1 FROM proposal_items i JOIN proposals p ON p.id = i.proposal_id WHERE i.id = ? AND p.deck_id = ?");
-    if (ids.some(id => !belongs.get(id, deckId))) throw new ServiceError("Every proposal item must belong to this deck");
+    if (ids.some(id => !belongs.get(id, deckId))) throw new ServiceError("Every proposal item must belong to this deck", 404);
   };
   route("POST", /^\/api\/decks\/(\d+)\/items\/rule$/, (actor, [id], body) => {
     if (!Array.isArray(body.item_ids) || !body.item_ids.length || !body.item_ids.every((v: unknown) => typeof v === "number" && Number.isSafeInteger(v) && v > 0))
@@ -301,7 +301,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
   });
   route("POST", /^\/api\/decks\/(\d+)\/log\/(\d+)\/undo$/, (actor, [id, logId]) => {
     if (!db.prepare("SELECT 1 FROM log WHERE id = ? AND deck_id = ?").get(num(logId), num(id)))
-      throw new ServiceError("Log entry does not belong to this deck");
+      throw new ServiceError("Log entry does not belong to this deck", 404);
     const result = undo(db, actor, num(logId));
     return { state: state(actor, num(id)), skipped: result.skipped };
   });
@@ -558,8 +558,6 @@ export function createApp(db: Database, opts: AppOptions = {}) {
         if (!m) continue;
         const body = req.method === "GET" ? {} : await readJson(req);
         validateNumbers(body);
-        const target = url.pathname.match(/^\/api\/decks\/(\d+)/);
-        if (r.mutates && target) requireDeckOwner(db, actor!, num(target[1]));
         const result = await r.handler(actor!, m.slice(1), body, url);
         if (r.mutates && !quiet.has(url.pathname)) notify(actor!.user_id, { kind: url.pathname.split("/")[2] ?? "change", ...(url.pathname.match(/^\/api\/decks\/(\d+)/) ? { deck_id: Number(url.pathname.match(/^\/api\/decks\/(\d+)/)![1]) } : {}) });
         return json(200, result);

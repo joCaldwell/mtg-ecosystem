@@ -395,8 +395,9 @@ stands, so it ships with a permission matrix test that later phases extend.
 10. **Permission matrix test.** `test/permissions.test.ts`: two users, each
     with a Paper and a Theorycrafted deck; for every capability function and
     every MCP tool, assert: own deck behaves as before; other user's deck is
-    `404` for reads (not `403`, to avoid existence leaks), `PermissionError`
-    for writes; tokens of user A never touch user B's rows; memory search,
+    `404` for every unreadable target, on reads and writes alike (never
+    `403`, to avoid existence leaks); `PermissionError` is reserved for an
+    action forbidden on a readable target; tokens of user A never touch user B's rows; memory search,
     inbox, activity, stats and `include_my_decks` never return the other
     user's rows. Generate the capability list from the exports so new
     functions fail the test until classified.
@@ -828,7 +829,7 @@ verified, what is not), AGENTS.md status line (v3 hosted).
 live in the database).
 
 **Error statuses:** 400 malformed; 401 no session/token (hosted); 403
-authenticated but forbidden (writes on others' decks, blocked, rate-limited
+authenticated but forbidden on a readable target (blocked, rate-limited
 suggesters); 404 deck not readable by this actor (never 403, to avoid
 existence leaks); 409 revision conflicts; 413 body too large; 429 rate
 limited with `Retry-After`.

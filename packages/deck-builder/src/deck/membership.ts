@@ -248,7 +248,6 @@ export function applyChanges(
   changes: Change[],
   entry: ChangeEntry,
 ): number | null {
-  requireDeckOwner(db, actor, deckId);
   requireDirectCardEdit(db, actor, deckId);
   if (actor.via === "agent" && entry.kind !== "edit")
     throw new PermissionError("Only the owner can rule on proposals, import over a deck, or undo.");
@@ -311,10 +310,8 @@ export interface UndoResult {
 }
 
 export function undo(db: Database, actor: Actor, logId: number): UndoResult {
-  const tenant = db.prepare("SELECT deck_id FROM log WHERE id = ?").get(logId) as { deck_id: number | null } | undefined;
-  if (tenant?.deck_id != null) requireDeckOwner(db, actor, tenant.deck_id, "undo this change");
-  requireUi(actor, "undo a change");
   const entry = getLogEntry(db, actor, logId);
+  requireUi(actor, "undo a change");
   if (!entry || entry.deck_id == null) throw new ServiceError(`Log entry ${logId} not found`, 404);
   requireEditableDeck(db, actor, entry.deck_id);
   if (entry.kind === "reject")

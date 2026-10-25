@@ -312,7 +312,7 @@ function validateText(text: string): string {
 export function remember(db: Database, actor: Actor, input: RememberInput): RememberResult {
   if (input.deck_id != null) requireEditableDeck(db, actor, input.deck_id);
   if (input.source_log_id != null && !db.prepare("SELECT 1 FROM log WHERE id = ? AND user_id = ?").get(input.source_log_id, actor.user_id))
-    throw new PermissionError("A memory source must be one of your own rulings");
+    throw new ServiceError("Source ruling not found", 404);
   const text = validateText(input.text);
   if (input.scope !== "global" && input.scope !== "deck")
     throw new ServiceError("A memory's scope is 'global' or 'deck'");
@@ -394,8 +394,6 @@ export function reviseMemory(
   id: number,
   revision: Revision,
 ): MemoryView {
-  const tenant = db.prepare("SELECT user_id FROM memories WHERE id = ?").get(id) as { user_id: number } | undefined;
-  if (tenant) requireSelf(actor, tenant.user_id);
   const memory = getMemory(db, actor, id);
   if (memory.deck_id != null) requireEditableDeck(db, actor, memory.deck_id);
   const touched = actor.via === "ui" ? 1 : memory.owner_touched ? 1 : 0;

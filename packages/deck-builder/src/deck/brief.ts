@@ -67,9 +67,8 @@ export function updateBrief(
   deckId: number,
   patch: { thesis?: string; constraints_md?: string },
 ): void {
-  requireDeckOwner(db, actor, deckId);
-  requireUi(actor, "edit a deck brief directly (use propose_brief_edit)");
   requireEditableDeck(db, actor, deckId);
+  requireUi(actor, "edit a deck brief directly (use propose_brief_edit)");
   const current = getBrief(db, actor, deckId);
   db.prepare(
     `INSERT INTO briefs (deck_id, thesis, constraints_md, updated_at)
@@ -93,9 +92,8 @@ export function setEngine(
   description: string,
   pieces: EnginePieceInput[],
 ): number {
-  requireDeckOwner(db, actor, deckId);
-  requireUi(actor, "edit a deck brief directly (use propose_brief_edit)");
   requireEditableDeck(db, actor, deckId);
+  requireUi(actor, "edit a deck brief directly (use propose_brief_edit)");
   const trimmed = name.trim();
   if (!trimmed) throw new ServiceError("Engine name cannot be empty");
   for (const p of pieces) requireCardById(db, p.oracle_id);
@@ -107,10 +105,10 @@ export function setEngine(
     let engineId: number;
     if (existing) {
       engineId = existing.id;
-      db.prepare("UPDATE engines SET name = ?, description = ? WHERE id = ?").run(
+      db.prepare("UPDATE engines SET name = ?, description = ? WHERE id = ? AND deck_id = ?").run(
         trimmed,
         description,
-        engineId,
+        engineId, deckId,
       );
       db.prepare("DELETE FROM engine_pieces WHERE engine_id = ?").run(engineId);
     } else {
@@ -132,17 +130,15 @@ export function setEngine(
 }
 
 export function removeEngine(db: Database, actor: Actor, deckId: number, engineId: number): void {
-  requireDeckOwner(db, actor, deckId);
-  requireUi(actor, "edit a deck brief directly (use propose_brief_edit)");
   requireEditableDeck(db, actor, deckId);
+  requireUi(actor, "edit a deck brief directly (use propose_brief_edit)");
   const r = db.prepare("DELETE FROM engines WHERE id = ? AND deck_id = ?").run(engineId, deckId);
   if (!r.changes) throw new ServiceError(`Engine ${engineId} not found in deck ${deckId}`, 404);
 }
 
 export function removeEngineByName(db: Database, actor: Actor, deckId: number, name: string): void {
-  requireDeckOwner(db, actor, deckId);
-  requireUi(actor, "edit a deck brief directly (use propose_brief_edit)");
   requireEditableDeck(db, actor, deckId);
+  requireUi(actor, "edit a deck brief directly (use propose_brief_edit)");
   const engine = db
     .prepare("SELECT id FROM engines WHERE deck_id = ? AND name = ? COLLATE NOCASE")
     .get(deckId, name.trim()) as { id: number } | undefined;

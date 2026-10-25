@@ -40,7 +40,6 @@ export function ownershipEvidence(db: Database, actor: Actor, oracleId: string):
 /** A statement of evidence, not an inferred inventory. Latest statement wins;
  * all earlier statements stay available for audit. Deck removal never edits it. */
 export function recordOwnership(db: Database, actor: Actor, deckId: number, inputs: OwnershipInput[], expectedRevision?: number): void {
-  requireDeckOwner(db, actor, deckId);
   requireEditableDeck(db, actor, deckId);
   requireRevision(db, actor, deckId, expectedRevision);
   if (!inputs.length) throw new ServiceError("Record at least one ownership statement");
