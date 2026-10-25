@@ -3022,6 +3022,18 @@ mod tests {
             compile(fixtures::MANIFEST, &raw),
             CompileResult::Lowered { .. }
         ));
+        // Spell subtypes are retained metadata. Their printed abilities still
+        // have to lower; Arcane/Lesson do not add an implicit runtime action.
+        for subtype in ["Arcane", "Lesson"] {
+            let raw = changed_record(3, |r| {
+                r["source"]["type_line"] = format!("Instant — {subtype}").into();
+            });
+            let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, &raw) else {
+                panic!("inert spell subtype {subtype}");
+            };
+            assert_eq!(definition.characteristics.subtypes, [subtype]);
+            definition.validate().unwrap();
+        }
         for (line, reason) in [
             ("Planeswalker — Ada", "Planeswalker"),
             ("Battle — Siege", "Battle"),

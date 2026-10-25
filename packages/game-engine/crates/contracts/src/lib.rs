@@ -1441,7 +1441,6 @@ impl Definition {
             CardKind::Instant | CardKind::Sorcery => {
                 if c.legendary
                     || c.basic
-                    || !c.subtypes.is_empty()
                     || c.power.is_some()
                     || c.toughness.is_some()
                     || self.intrinsic_zone.is_some()

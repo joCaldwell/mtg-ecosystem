@@ -67,7 +67,8 @@ are sequential and count newly lowered **and validated** legal records.
 | Multi-face classification (`02-multi-face`) | 1,719 | +0 | 5.35247% |
 | Compositional types (`03-type-lines`) | 1,820 | +101 | 5.66696% |
 | Strict keyword/node diagnostics (`04-keyword-reader`) | 1,820 | +0 | 5.66696% |
-| Accepted archive (already implemented by D1a) | 1,820 | +0 | 5.66696% |
+| Inert spell subtypes (`05-spell-subtypes`) | 1,828 | +8 | 5.69187% |
+| Accepted archive (already implemented by D1a) | 1,828 | +0 | 5.69187% |
 
 The source adapter now uses case-sensitive Unicode word boundaries, punctuation
 canonicalization, full and source-established legendary short names in all
@@ -119,11 +120,18 @@ there is no additional coverage gain. Ward, flash, protection, conditional
 hexproof and other unimplemented keyword shapes remain explicit rejections.
 All 71 compiler tests passed before the excluded-record reporting correction.
 
+A final type-line review removed the remaining blanket rejection of spell
+subtypes (`05-spell-subtypes`): **1,828 (5.69187%), +8**. Subtypes such as Arcane
+and Lesson are preserved in IR; they do not introduce an implicit action.
+Their entire printed ability list still must lower. The full type-line intake
+delta is therefore **+109** (+101 combined/permanent types, +8 spell subtypes).
+No subtype-based targeting, splice, learn or alternate casting rule is added.
+
 ## D2a final coverage
 
-**1,820 / 32,116 Commander-legal records (5.66696%)**, an increase of **101 cards
-and 0.31448 percentage points** over the reproducible baseline. Final legal
-statuses: 1,820 lowered/validated, 27,814 Unsupported, 2,482 unparsed, 0 Invalid.
+**1,828 / 32,116 Commander-legal records (5.69187%)**, an increase of **109 cards
+and 0.33939 percentage points** over the reproducible baseline. Final legal
+statuses: 1,828 lowered/validated, 27,806 Unsupported, 2,482 unparsed, 0 Invalid.
 The final reporter also handles archive-excluded rows, which have no AST or
 binding. One legal row, `"Name Sticker" Goblin`, is excluded by the archive for
 `no-eligible-paper-printing`: it is unparsed with that specific reason. Earlier
