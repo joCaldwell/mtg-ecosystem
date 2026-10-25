@@ -195,13 +195,19 @@ impl Strategy<'_> {
                 ..
             } => {
                 let (_, p) = self.top_program(v).ok_or("missing damage program")?;
-                let entities = occurrences
-                    .iter()
-                    .map(|_| {
-                        self.damage_target(v, p, candidates)
-                            .ok_or("empty entity targets".into())
-                    })
-                    .collect::<Result<Vec<_>, String>>()?;
+                let mut entities: Vec<PlayerTargetEntity> = vec![];
+                for _ in occurrences {
+                    let distinct: Vec<_> = candidates
+                        .iter()
+                        .filter(|c| !entities.contains(*c))
+                        .cloned()
+                        .collect();
+                    entities.push(
+                        self.damage_target(v, p, &distinct)
+                            .or_else(|| self.damage_target(v, p, candidates))
+                            .ok_or("empty entity targets")?,
+                    );
+                }
                 PlayerResponse::EntityTargets { entities }
             }
             PlayerRequest::StackTargets {

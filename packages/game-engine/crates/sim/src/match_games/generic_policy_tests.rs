@@ -452,3 +452,492 @@ fn tap_loot_is_used_before_combat_can_tap_the_source() {
         expected
     );
 }
+
+fn strategy(c: &Catalog) -> Strategy<'_> {
+    Strategy {
+        catalog: c,
+        policy: Policy::Develop,
+        mulligans: [0; 4],
+        mana_plan: Default::default(),
+        mana_color: None,
+    }
+}
+fn observation(view: PermittedView) -> Observation {
+    Observation {
+        observation_version: 16,
+        decision: None,
+        view,
+    }
+}
+fn stack_spell(v: &mut PermittedView, c: &Catalog, name: &str, controller: u8) {
+    let o = wipe_tests::card(c, name, controller, Zone::Stack);
+    v.stack.push(VisibleStackEntry {
+        x: None,
+        mana_value: None,
+        mode: None,
+        triggered: None,
+        entity_targets: vec![],
+        handle: Some(StackHandle(name.into())),
+        stack_targets: vec![],
+        spell: Some(o.handle.clone()),
+        ability: None,
+        player_targets: vec![],
+        controller: PlayerId(controller),
+        cast_complete: true,
+        targets: vec![],
+    });
+    v.objects.push(o);
+}
+
+#[test]
+fn prevention_ability_responds_to_attacks_and_announced_damage() {
+    let c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+    let mut v = wipe_tests::view(&c);
+    let own = v.viewer.0;
+    v.active = Some(PlayerId(0));
+    v.turn.step = TurnStep::DeclareBlockers;
+    v.objects = vec![
+        wipe_tests::card(&c, "Samite Healer", own, Zone::Battlefield),
+        wipe_tests::card(&c, "Serra Angel", 0, Zone::Battlefield),
+    ];
+    v.combat = vec![mtg_core::VisibleAttacker {
+        attacker: ObjectHandle("Serra Angel".into()),
+        defender: v.viewer,
+        blocked: false,
+        blockers: vec![],
+    }];
+    let expected = PlayerResponse::ActivateAbility {
+        object: ObjectHandle("Samite Healer".into()),
+        ability: 0,
+    };
+    assert_eq!(
+        strategy(&c).priority(&observation(v.clone())).unwrap(),
+        expected
+    );
+    // Ordinary damage has already happened at this priority boundary.
+    v.turn.step = TurnStep::CombatDamage;
+    assert_eq!(
+        strategy(&c).priority(&observation(v.clone())).unwrap(),
+        PlayerResponse::Pass
+    );
+    v.combat.clear();
+    v.turn.step = TurnStep::PrecombatMain;
+    stack_spell(&mut v, &c, "Lightning Bolt", 0);
+    v.stack.last_mut().unwrap().entity_targets = vec![VisibleEntityTarget::Object {
+        object: mtg_core::VisibleTarget {
+            announced: ObjectHandle("Samite Healer".into()),
+            current: Some(ObjectHandle("Samite Healer".into())),
+        },
+    }];
+    let s = strategy(&c);
+    assert_eq!(
+        s.damage_target(
+            &v,
+            &c.definitions
+                .iter()
+                .find(|d| d.name == "Samite Healer")
+                .unwrap()
+                .activated[0]
+                .program,
+            &s.friendly_entities(&v)
+        ),
+        Some(PlayerTargetEntity::Object {
+            object: ObjectHandle("Samite Healer".into())
+        })
+    );
+    assert_eq!(
+        strategy(&c).priority(&observation(v.clone())).unwrap(),
+        expected
+    );
+    v.stack.last_mut().unwrap().entity_targets =
+        vec![VisibleEntityTarget::Player { player: v.viewer }];
+    assert_eq!(
+        strategy(&c).priority(&observation(v.clone())).unwrap(),
+        expected
+    );
+    v.objects[0].tapped = true;
+    assert_eq!(
+        strategy(&c).priority(&observation(v)).unwrap(),
+        PlayerResponse::Pass
+    );
+}
+
+#[test]
+fn reactive_modal_spell_selects_prevention_instead_of_ready_life_mode() {
+    let c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+    let mut v = wipe_tests::view(&c);
+    v.active = Some(PlayerId(0));
+    v.turn.step = TurnStep::DeclareBlockers;
+    v.objects = vec![
+        wipe_tests::card(
+            &c,
+            "Healing Salve",
+            v.viewer.0,
+            Zone::Hand { owner: v.viewer },
+        ),
+        wipe_tests::card(&c, "Serra Angel", 0, Zone::Battlefield),
+    ];
+    v.players
+        .iter_mut()
+        .find(|r| r.player == v.viewer)
+        .unwrap()
+        .mana
+        .insert(Color::W, 1.into());
+    assert!(strategy(&c).reactive_spells(&v).unwrap().is_none());
+    v.combat = vec![mtg_core::VisibleAttacker {
+        attacker: ObjectHandle("Serra Angel".into()),
+        defender: v.viewer,
+        blocked: false,
+        blockers: vec![],
+    }];
+    assert_eq!(
+        strategy(&c).priority(&observation(v.clone())).unwrap(),
+        PlayerResponse::Cast {
+            card: ObjectHandle("Healing Salve".into())
+        }
+    );
+    stack_spell(&mut v, &c, "Healing Salve", 3);
+    // The caster has not selected a mode yet; both modes are otherwise usable.
+    v.stack.last_mut().unwrap().cast_complete = false;
+    assert_eq!(strategy(&c).choose_mode(&v, &[0, 1]), Some(1));
+    v.combat.clear();
+    v.stack.pop();
+    stack_spell(&mut v, &c, "Lightning Bolt", 0);
+    v.stack.last_mut().unwrap().entity_targets =
+        vec![VisibleEntityTarget::Player { player: v.viewer }];
+    assert!(strategy(&c).reactive_spells(&v).unwrap().is_some());
+    stack_spell(&mut v, &c, "Healing Salve", 3);
+    v.stack.last_mut().unwrap().cast_complete = false;
+    assert_eq!(strategy(&c).choose_mode(&v, &[0, 1]), Some(1));
+}
+
+#[test]
+fn sacrifice_costs_use_tokens_doomed_creatures_and_lethal_payoffs() {
+    let c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+    let mut v = wipe_tests::view(&c);
+    v.active = Some(PlayerId(0));
+    v.turn.step = TurnStep::PrecombatMain;
+    v.objects = vec![
+        wipe_tests::card(&c, "Goblin Bombardment", v.viewer.0, Zone::Battlefield),
+        wipe_tests::card(&c, "Serra Angel", v.viewer.0, Zone::Battlefield),
+    ];
+    assert_eq!(
+        strategy(&c).priority(&observation(v.clone())).unwrap(),
+        PlayerResponse::Pass
+    );
+    v.objects[1].token = Some(mtg_core::VisibleToken {
+        name: "anonymous".into(),
+        keywords: vec![],
+    });
+    let expected = PlayerResponse::ActivateAbility {
+        object: ObjectHandle("Goblin Bombardment".into()),
+        ability: 0,
+    };
+    assert_eq!(
+        strategy(&c).priority(&observation(v.clone())).unwrap(),
+        expected
+    );
+    v.objects[1].token = None;
+    stack_spell(&mut v, &c, "Day of Judgment", 0);
+    assert_eq!(
+        strategy(&c).priority(&observation(v.clone())).unwrap(),
+        expected
+    );
+    v.stack.clear();
+    stack_spell(&mut v, &c, "Lightning Bolt", 0);
+    // Two damage already marked makes the announced Bolt lethal to the Angel.
+    v.objects[1].marked_damage = 2.into();
+    v.stack.last_mut().unwrap().entity_targets = vec![VisibleEntityTarget::Object {
+        object: mtg_core::VisibleTarget {
+            announced: v.objects[1].handle.clone(),
+            current: Some(v.objects[1].handle.clone()),
+        },
+    }];
+    assert_eq!(
+        strategy(&c).priority(&observation(v.clone())).unwrap(),
+        expected
+    );
+    v.stack.clear();
+    v.objects[1].marked_damage = 0.into();
+    v.objects.push(wipe_tests::card(
+        &c,
+        "Fling",
+        v.viewer.0,
+        Zone::Hand { owner: v.viewer },
+    ));
+    let fling = c.definitions.iter().find(|d| d.name == "Fling").unwrap();
+    assert!(!strategy(&c).definition_ready(&v, fling));
+    v.players
+        .iter_mut()
+        .find(|r| r.player == PlayerId(0))
+        .unwrap()
+        .life = 4.into();
+    assert!(strategy(&c).definition_ready(&v, fling));
+    v.players
+        .iter_mut()
+        .find(|r| r.player == v.viewer)
+        .unwrap()
+        .mana
+        .insert(Color::R, 2.into());
+    assert_eq!(
+        strategy(&c).priority(&observation(v)).unwrap(),
+        PlayerResponse::Cast {
+            card: ObjectHandle("Fling".into())
+        }
+    );
+}
+
+#[test]
+fn death_payoffs_and_ramp_develop_before_commander_recasts() {
+    let c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+    let mut v = wipe_tests::view(&c);
+    v.active = Some(v.viewer);
+    v.turn.step = TurnStep::PrecombatMain;
+    v.turn.lands_played = 1;
+    v.objects = vec![
+        wipe_tests::card(
+            &c,
+            "Yargle and Multani",
+            v.viewer.0,
+            Zone::Command { owner: v.viewer },
+        ),
+        wipe_tests::card(
+            &c,
+            "Butcher of Malakir",
+            v.viewer.0,
+            Zone::Hand { owner: v.viewer },
+        ),
+    ];
+    let row = v.players.iter_mut().find(|r| r.player == v.viewer).unwrap();
+    row.mana.insert(Color::B, 7.into());
+    row.mana.insert(Color::G, 1.into());
+    assert_eq!(
+        strategy(&c).priority(&observation(v)).unwrap(),
+        PlayerResponse::Cast {
+            card: ObjectHandle("Butcher of Malakir".into())
+        }
+    );
+}
+
+#[test]
+fn mana_planner_preserves_flexible_source_for_the_second_color() {
+    let c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+    let mut v = wipe_tests::view(&c);
+    v.objects = vec![
+        wipe_tests::card(&c, "Birds of Paradise", v.viewer.0, Zone::Battlefield),
+        wipe_tests::card(&c, "Plains", v.viewer.0, Zone::Battlefield),
+    ];
+    let plan = mana_policy::plan(
+        &c,
+        &v,
+        &ManaCost {
+            generic: 0.into(),
+            colored: vec![Color::W, Color::U],
+        },
+        None,
+    )
+    .unwrap();
+    assert_eq!(plan.len(), 2);
+    assert_eq!(plan[0].source, ObjectHandle("Plains".into()));
+    assert_eq!(plan[1].source, ObjectHandle("Birds of Paradise".into()));
+    assert_eq!(plan[1].color, Some(Color::U));
+}
+
+#[test]
+fn optional_effect_uses_the_bound_target_slot_and_entity_targets_spread() {
+    let mut c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+    let mut v = wipe_tests::view(&c);
+    v.objects = vec![wipe_tests::card(&c, "Storm Crow", 0, Zone::Battlefield)];
+    stack_spell(&mut v, &c, "Lightning Bolt", 3);
+    let bolt = c
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Lightning Bolt")
+        .unwrap();
+    let p = bolt.spell.as_mut().unwrap();
+    p.instructions = vec![
+        I::ModifyPowerToughness {
+            target_slot: 0,
+            power: 1.into(),
+            toughness: 1.into(),
+            duration: mtg_contracts::Duration::UntilEndOfTurn,
+            source_block: 0,
+        },
+        I::DestroyPermanent {
+            target_slot: 1,
+            optional: true,
+            regeneration_forbidden: false,
+            source_block: 0,
+        },
+    ];
+    v.stack.last_mut().unwrap().targets = vec![
+        mtg_core::VisibleTarget {
+            announced: ObjectHandle("gone".into()),
+            current: None,
+        },
+        mtg_core::VisibleTarget {
+            announced: ObjectHandle("Storm Crow".into()),
+            current: Some(ObjectHandle("Storm Crow".into())),
+        },
+    ];
+    assert!(strategy(&c).optional_effect(&v));
+    let bolt = c
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Lightning Bolt")
+        .unwrap();
+    let p = bolt.spell.as_mut().unwrap();
+    p.instructions = vec![
+        I::DealDamage {
+            target_slot: 0,
+            amount: 3.into(),
+            source_block: 0,
+        },
+        I::DealDamage {
+            target_slot: 1,
+            amount: 3.into(),
+            source_block: 0,
+        },
+    ];
+    let mut second = p.targets[0].clone();
+    second.slot = 1;
+    second.selection_id = "second".into();
+    p.targets.push(second);
+    let candidates = vec![
+        PlayerTargetEntity::Player {
+            player: PlayerId(0),
+        },
+        PlayerTargetEntity::Player {
+            player: PlayerId(1),
+        },
+    ];
+    let request = PlayerRequest::EntityTargets {
+        token: mtg_core::DecisionToken("policy-fixture".into()),
+        player: v.viewer,
+        occurrences: p.targets.clone(),
+        candidates: candidates.clone(),
+    };
+    let mut o = observation(v);
+    o.decision = Some(request);
+    let PlayerResponse::EntityTargets { entities } = strategy(&c).choose(&o).unwrap() else {
+        panic!("entity response")
+    };
+    assert_eq!(entities.len(), 2);
+    assert_ne!(entities[0], entities[1]);
+    assert!(entities.iter().all(|e| candidates.contains(e)));
+}
+
+#[test]
+fn sacrifice_pump_is_used_before_combat_and_damage_trades_for_value() {
+    let c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+    let mut v = wipe_tests::view(&c);
+    v.active = Some(v.viewer);
+    v.turn.step = TurnStep::PrecombatMain;
+    v.turn.lands_played = 1;
+    v.objects = vec![
+        wipe_tests::card(&c, "Bloodthrone Vampire", v.viewer.0, Zone::Battlefield),
+        wipe_tests::card(&c, "Grizzly Bears", v.viewer.0, Zone::Battlefield),
+    ];
+    v.objects[1].token = Some(mtg_core::VisibleToken {
+        name: "anonymous".into(),
+        keywords: vec![],
+    });
+    assert_eq!(
+        strategy(&c).priority(&observation(v.clone())).unwrap(),
+        PlayerResponse::ActivateAbility {
+            object: ObjectHandle("Bloodthrone Vampire".into()),
+            ability: 0
+        }
+    );
+    v.objects = vec![
+        wipe_tests::card(&c, "Serra Angel", v.viewer.0, Zone::Battlefield),
+        wipe_tests::card(&c, "Goliath Sphinx", 0, Zone::Battlefield),
+    ];
+    v.objects[1].marked_damage = 3.into();
+    let fling = c.definitions.iter().find(|d| d.name == "Fling").unwrap();
+    assert!(
+        strategy(&c).definition_ready(&v, fling),
+        "four damage trades the smaller creature for the marked Sphinx"
+    );
+    v.objects[1].marked_damage = 0.into();
+    assert!(!strategy(&c).definition_ready(&v, fling));
+}
+
+#[test]
+fn sacrifice_estimate_matches_the_profitable_candidate_and_spells_use_precombat_mana() {
+    let c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+    let mut v = wipe_tests::view(&c);
+    v.active = Some(v.viewer);
+    v.turn.step = TurnStep::PrecombatMain;
+    v.turn.lands_played = 1;
+    v.objects = vec![
+        wipe_tests::card(&c, "Serra Angel", v.viewer.0, Zone::Battlefield),
+        wipe_tests::card(&c, "Goliath Sphinx", v.viewer.0, Zone::Battlefield),
+        wipe_tests::card(&c, "Giant Spider", 0, Zone::Battlefield),
+    ];
+    // Synthetic public characteristics: only the larger sacrifice can kill this
+    // valuable target. The chooser and prepayment damage estimate must agree.
+    let target = v.objects[2].characteristics.as_mut().unwrap();
+    target.toughness = Some(6.into());
+    target.mana_cost.generic = 30.into();
+    let fling = c
+        .definitions
+        .iter()
+        .find(|d| d.name == "Fling")
+        .unwrap()
+        .spell
+        .as_ref()
+        .unwrap();
+    let s = strategy(&c);
+    assert!(s.program_ready(
+        &v,
+        c.definitions.iter().find(|d| d.name == "Fling").unwrap(),
+        fling
+    ));
+    assert_eq!(
+        s.damage_amount(&v, fling),
+        v.objects[1]
+            .characteristics
+            .as_ref()
+            .unwrap()
+            .power
+            .clone()
+            .unwrap()
+    );
+    assert_eq!(
+        s.damage_target(
+            &v,
+            fling,
+            &[
+                PlayerTargetEntity::Player {
+                    player: PlayerId(0)
+                },
+                PlayerTargetEntity::Object {
+                    object: v.objects[2].handle.clone()
+                }
+            ]
+        ),
+        Some(PlayerTargetEntity::Object {
+            object: v.objects[2].handle.clone()
+        })
+    );
+    v.objects.clear();
+    v.objects.push(wipe_tests::card(
+        &c,
+        "Night's Whisper",
+        v.viewer.0,
+        Zone::Hand { owner: v.viewer },
+    ));
+    v.players
+        .iter_mut()
+        .find(|p| p.player == v.viewer)
+        .unwrap()
+        .mana
+        .insert(Color::B, 2.into());
+    assert_eq!(
+        strategy(&c).priority(&observation(v)).unwrap(),
+        PlayerResponse::Cast {
+            card: ObjectHandle("Night's Whisper".into())
+        }
+    );
+}
