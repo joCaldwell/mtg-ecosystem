@@ -10,6 +10,7 @@ pub mod fixtures {
 pub mod catalog;
 pub mod coverage;
 mod normalization;
+mod type_line;
 pub use catalog::*;
 use normalization::source_lines;
 
@@ -687,6 +688,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     if source.oracle_id != r.oracle_identity || source.id.is_empty() || source.name.is_empty() {
         return Err(invalid("source", "missing or mismatched card identity"));
     }
+    if source.loyalty.is_some() {
+        return Err(unsupported("source.type_line.card_type", "Planeswalker"));
+    }
+    if source.defense.is_some() {
+        return Err(unsupported("source.type_line.card_type", "Battle"));
+    }
     if source.layout != "normal"
         || source.card_faces.is_some()
         || source.loyalty.is_some()
@@ -737,26 +744,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             return Err(invalid("lines", "line and aggregate ability disagree"));
         }
     }
-    let (types, subtypes) = source
-        .type_line
-        .split_once(" — ")
-        .unwrap_or((&source.type_line, ""));
-    let (kind, basic) = match types {
-        "Artifact" => (CardKind::Artifact, false),
-        "Land" => (CardKind::Land, false),
-        "Basic Land" => (CardKind::Land, true),
-        "Creature" => (CardKind::Creature, false),
-        "Legendary Creature" => (CardKind::Creature, false),
-        "Instant" => (CardKind::Instant, false),
-        "Sorcery" => (CardKind::Sorcery, false),
-        "Enchantment" => (CardKind::Enchantment, false),
-        _ => {
-            return Err(unsupported(
-                "source.type_line",
-                "unsupported intrinsic type/supertype family",
-            ));
-        }
-    };
+    let types = type_line::parse(&source.type_line)?;
+    let kind = types.kind;
+    let basic = types.basic;
     let power = source
         .power
         .map(|s| s.parse::<Quantity>())
@@ -779,9 +769,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         name: source.name,
         characteristics: Characteristics {
             kind,
+            additional_types: types.additional_types,
             basic,
-            legendary: types == "Legendary Creature",
-            subtypes: subtypes.split_whitespace().map(str::to_owned).collect(),
+            legendary: types.legendary,
+            subtypes: types.subtypes,
             mana_cost: mana_cost(&source.mana_cost.replace("{X}", ""))?,
             colors: source.colors,
             color_identity: source.color_identity,
@@ -814,11 +805,6 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     };
     match kind {
         CardKind::Land | CardKind::Creature | CardKind::Artifact | CardKind::Enchantment => {
-            if kind == CardKind::Enchantment
-                && (source.oracle_text.is_empty() || abilities.is_empty())
-            {
-                return Err(unsupported("abilities", "empty enchantment behavior"));
-            }
             if kind == CardKind::Land && basic && !abilities.is_empty() {
                 return Err(unsupported(
                     "abilities",
@@ -2909,6 +2895,68 @@ fn lower_activation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn combined_types_preserve_all_types_and_reject_missing_runtime_types() {
+        for line in [
+            "Artifact Creature — Bear",
+            "Legendary Artifact Creature — Bear",
+            "Enchantment Creature — Bear",
+            "Legendary Enchantment Creature — Bear",
+            "Artifact Enchantment Creature — Bear",
+            "Creature Artifact — Bear",
+        ] {
+            let raw = changed_record(1, |r| {
+                r["source"]["type_line"] = line.into();
+            });
+            let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, &raw) else {
+                panic!("{line}");
+            };
+            definition.validate().unwrap();
+            assert!(definition.characteristics.has_type(CardKind::Creature));
+            assert_eq!(
+                definition.characteristics.has_type(CardKind::Artifact),
+                line.contains("Artifact")
+            );
+            assert_eq!(
+                definition.characteristics.has_type(CardKind::Enchantment),
+                line.contains("Enchantment")
+            );
+            assert_eq!(
+                definition.characteristics.legendary,
+                line.contains("Legendary")
+            );
+            let mut bad = *definition;
+            bad.characteristics.additional_types.push(CardKind::Land);
+            bad.capabilities = bad.requirements();
+            assert!(bad.validate().is_err());
+        }
+        let raw = fixtures::EFFECT_RECORDS
+            .iter()
+            .find(|(name, _)| *name == "furnace-of-rath")
+            .unwrap()
+            .1;
+        let raw = changed_source(raw, |r| {
+            r["source"]["type_line"] = "Legendary Enchantment".into();
+        });
+        assert!(matches!(
+            compile(fixtures::MANIFEST, &raw),
+            CompileResult::Lowered { .. }
+        ));
+        for (line, reason) in [
+            ("Planeswalker — Ada", "Planeswalker"),
+            ("Battle — Siege", "Battle"),
+            ("Snow Creature — Bear", "Snow"),
+            ("World Enchantment", "World"),
+        ] {
+            let raw = changed_record(1, |r| {
+                r["source"]["type_line"] = line.into();
+            });
+            assert!(
+                matches!(compile(fixtures::MANIFEST, &raw), CompileResult::Unsupported { reason: actual, .. } if actual == reason)
+            );
+        }
+    }
+
     #[test]
     fn multi_face_layout_is_unsupported_without_single_face_defaults() {
         let raw = changed_record(1, |r| {
@@ -6480,9 +6528,6 @@ mod tests {
         let mutations: Vec<Mutation> = vec![
             |r| {
                 r["source"]["oracle_text"] = "(Flying)".into();
-            },
-            |r| {
-                r["source"]["type_line"] = "Artifact Creature — Bear".into();
             },
             |r| {
                 r["source"]["mana_cost"] = "{X}{G}".into();

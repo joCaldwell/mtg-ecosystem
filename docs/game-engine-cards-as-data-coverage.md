@@ -78,3 +78,20 @@ All 766 legal records formerly failing single-face required fields now report
 Unsupported: transform 341, adventure 147, split 113, modal_dfc 83, prepare 66,
 flip 16. Source and binding hashes are checked before layout inspection; absent
 single-face fields are never filled with defaults. One legal Invalid remains.
+
+Type-line composition (`03-type-lines`): **1,820 (5.66696%), +101**.
+`Basic` and `Legendary` are parsed independently of card types and subtypes.
+A canonical execution kind (creature, then land, then artifact, then enchantment)
+plus sorted `additional_types` retains all supported simultaneous permanent
+types. Empty additional types are omitted, preserving existing IR/digest bytes.
+The IR remains v20. Combined types add the corresponding existing capabilities.
+Removal's positive/negative type predicates, spell-counter type predicates,
+sacrifice filters and enchantment wipes all use complete type membership.
+Creature casting, combat and summoning sickness use the canonical creature kind.
+Legendary noncreature permanents and inert permanent subtypes no longer hit
+closed presentation whitelists; their entire AST still has to lower.
+Planeswalkers, battles, unsupported card types/supertypes (including Snow and
+World), mixed spell/permanent types and land-creatures retain explicit failures.
+No new keyword, trigger, snow-cost, world-rule or planeswalker behavior is added.
+All 68 compiler tests passed, including exact freshness of every committed
+catalog: no expected IR or digest needed regeneration.
