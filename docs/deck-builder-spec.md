@@ -1,4 +1,4 @@
-# MTG Commander Deck Builder — Build Spec (v2)
+# MTG Commander Deck Builder — Build Spec (v3)
 
 > Rewritten 2026-10-10. This replaces the 2026-07-26 spec, which is in git
 > history. It was designed as if no code existed. `packages/deck-builder` was
@@ -7,7 +7,7 @@
 >
 > **Decisions settled with Josh on 2026-10-10:**
 > - The app makes no AI model calls. Agents are external and reach it through a documented interface (§10).
-> - Local only. No hosting, no remote access.
+> - Local mode remains the daily product. Hosted accounts and remote access are v3 goals (§17).
 > - Typed rejections, hard filters and the 3–5 item proposal cap are gone. A rejection carries an optional free-text reason (§8).
 > - Memories replace card notes, hard filters and playtest notes. They are written by agents without approval and are always visible to the owner (§7).
 > - The player profile and deck briefs are the owner's documents; agent edits to them are proposed (§6).
@@ -20,8 +20,8 @@
 
 ## 1. What this is
 
-A local, single-user application for building Magic: The Gathering Commander
-decks, designed to be driven by a person and by external AI agents through the
+An application for building Magic: The Gathering Commander decks, with a
+local implicit user and a hosted multi-user mode (§17), designed to be driven by a person and by external AI agents through the
 same capabilities.
 
 The app is the source of truth. It stores structured data, enforces
@@ -50,7 +50,13 @@ to do** (its brief), **what the owner has decided and why** (rulings), and
 
 - No model calls inside the app. This includes embeddings and any "smart" ranking that needs a model.
 - No chat UI, no transcript storage, no context management. Those belong to the agent's own harness.
-- No hosting, deployment, accounts or multi-user support.
+- Hosting, deployment, accounts and multi-user support are v3 goals (§17).
+  Phase 1 establishes identity and tenancy; login, sessions, Better Auth and
+  OAuth arrive in Phase 2, hosting in Phase 3, and visibility/public pages
+  in Phase 4a. Phase 1 exposes no cross-owner decks.
+- No collaborators, co-owners, shared memories, chat, paid tiers or formats
+  beyond Commander. Forks and later suggestions are the collaboration unit.
+- No lifecycle or rulings terminology changes in the identity phase.
 - No external knowledge sources (EDHREC, Commander Spellbook, vendor sites). An agent may consult them itself; whatever it finds must resolve through the app's card search before it can be proposed. Scryfall's bulk data is the one source the app reads (§4.1, §4.4).
 - No collection or inventory management; ordinary deck tags can record organization such as cards to obtain (§5.5).
 - No live sync with any external service.
@@ -545,13 +551,39 @@ memories and proposed brief edits, not as a stored report.
 
 ### 10.1 Transport and security
 
-- One process owns the database and serves the UI, its HTTP API, and an **MCP endpoint over Streamable HTTP** on the same local port.
-- Bound to `127.0.0.1`. That is not an authentication boundary: the endpoint also requires a bearer token (generated on first run) and validates the `Origin` header, so a web page in the owner's browser cannot call it.
-- A small **stdio shim** proxies to the endpoint for clients that only launch stdio servers.
-- The settings page shows the token and ready-to-paste configuration for common clients.
-- Use the official MCP TypeScript SDK. The protocol had a breaking revision in July 2026 (stateless requests, no `initialize` handshake) and clients will speak a mix of revisions for some time; that is not worth hand-rolling. *(As built: the SDK's v2 line, `@modelcontextprotocol/server`, which implements the 2026-07-28 revision and serves 2025-revision clients statelessly from the same handler. The older `@modelcontextprotocol/sdk` package stops at 2025-11-25.)*
-- The UI's own API has no token, so it is closed to other sites the same way: a request whose Host is not loopback, or whose Origin is present and not loopback, is refused.
-- **Attribution.** A 2026-07-28 client names itself on every request. A 2025-revision client named itself only in its handshake, which a stateless server does not keep, so the endpoint also accepts a label in the URL (`/mcp/claude-code`); the Settings page generates configuration with one.
+One process serves the UI, HTTP API and Streamable HTTP MCP endpoint. Both
+front doors pass an authenticated `Actor` to the same capability layer (§17).
+Local mode binds loopback and builds the implicit user-1 UI actor without a
+login. Hosted mode binds all interfaces; until Phase 2 supplies sessions its
+UI API returns 401. Health remains unauthenticated.
+
+MCP always requires a bearer token. Personal agent tokens are per user,
+`dbk_` plus 32 random bytes in base64url, hashed at rest, and shown exactly
+once when created. Settings lists labels, prefixes and last-used timestamps,
+creates tokens and revokes them. It never returns stored secrets. Verification
+looks up the prefix and compares hashes with `timingSafeEqual`; usage updates
+at most once per minute. `DECKBUILDER_TOKEN` is removed. On first local boot,
+the old `data/agent-token` file is imported, hashed for user 1 and deleted only
+after durable insertion; existing HTTP client configurations remain valid.
+The migrated credential is the deliberate exception to the new `dbk_` format.
+
+The stdio shim proxies to the running endpoint. Because hashes cannot recover
+a token, its command accepts `--token-file <private-file>` (or `--token <token>`
+for clients that supply arguments); users save the once-shown token privately.
+No shim read creates or rotates credentials. Missing credentials fail clearly.
+Configuration snippets use a placeholder until creation, then the once-shown
+value. Existing HTTP Claude Code and Codex configurations need no changes.
+
+Host and Origin checks precede the SDK. Local requests require loopback
+Host/Origin; hosted requests require the configured public origin. Unauthenticated
+MCP requests return 401 and `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp"`;
+Phase 2 implements metadata and the OAuth JWT path beside personal-token
+verification. A URL suffix (`/mcp/claude-code`) is an attribution hint only:
+it never changes the principal or token ownership and cannot impersonate UI.
+
+Use the official MCP TypeScript SDK v2: the same stateless handler supports
+2026-07-28 and 2025-revision clients. No connection carries tenant state;
+every request resolves its bearer and every tool names its deck.
 
 ### 10.2 Design principles
 
@@ -799,3 +831,115 @@ Everything in §1–§14 is built. What has not been checked:
 - How agents use prices. The price beside each card, the deck's estimated cost and the playbook's rule about them are pinned by tests, but no real transcript has been read since they were added.
 - ChatGPT on the web or phone. Its servers cannot reach a loopback address. The route is OpenAI's Secure MCP Tunnel running the stdio shim; the Settings page gives the commands from OpenAI's guide, but they have not been run, because they need a tunnel created in the owner's OpenAI Platform organization.
 - The evaluation was run once per task, on one model, with tasks written by the same hand as the tools. It shows the interface works; it does not measure how often.
+
+
+## 17. Accounts, modes and roles
+
+### 17.1 Modes and users
+
+`DECKBUILDER_MODE=local` is the default. It binds `127.0.0.1`, has no login
+page, and uses implicit user 1 for the UI while MCP requires a token. This is
+the owner's daily product. `DECKBUILDER_MODE=hosted` binds all interfaces and
+requires `DECKBUILDER_PUBLIC_ORIGIN`; authentication secrets and sessions are
+Phase 2 work. Phase 1 rejects hosted UI API access with 401. Invalid modes
+fail startup instead of falling back to local.
+
+One SQLite file holds shared card facts and tenant data. `users` has
+`id INTEGER PRIMARY KEY AUTOINCREMENT`, unique case-insensitive `handle`
+(`[a-z0-9_-]{3,24}`), `display_name`, unique nullable `auth_id`, `is_admin`
+(default 0), `created_at` and nullable `deleted_at`. Migration creates user 1
+(`owner`, `Owner`, admin, no auth id). Phase 2's first hosted sign-in claims
+that user when it is the instance's sole unclaimed account, assigning the
+provider identity, handle and display name without export/import.
+
+Schema 11 uses ordered `{ version, up(db) }` migration steps, all within one
+transaction after database identity validation. It preserves old migration
+steps, Phase 0 image/retirement facts and proposal baselines. All existing
+rows backfill to user 1. `decks` names are unique within a user, case
+insensitively; decks, memories, document edits, log, activity and ownership
+evidence carry `user_id`. Deck-child tables inherit tenancy through their
+validated deck. Profile has one row per user; playtest sessions use
+`(deck_id, user_id)`. `user_settings(user_id,key,value)` replaces `meta`
+`setting:*` keys (focus and memory budgets); card freshness and jobs remain
+global. Deleted users cannot authenticate.
+
+### 17.2 Actor and permissions
+
+```ts
+export type Actor = {
+  user_id: number;            // principal: whose data is being touched
+  via: "ui" | "agent";
+  label: string;              // "ui" or agent attribution label
+  token_id?: number;          // authenticated personal token, when present
+};
+```
+
+Ownership is a relation: `actor.user_id === decks.user_id`.
+`requireDeckOwner(db,actor,deckId,what)`, `requireSelf(actor,userId)` and
+`isDeckOwner` enforce it below both front doors. `requireDeck` returns the
+deck and caller role; an unreadable deck is 404. Writes on another user's
+deck throw `PermissionError` (403). Every exported capability requires an
+actor. Shared card-only utilities remain global, but any deck or memory
+context is authorized. No implicit actor is supplied by a service.
+
+V3 roles are owner, viewer (visibility admits them), and suggester (signed
+in on a deck accepting suggestions). No collaborators, co-owners or members
+table. Phase 1 admits only owners; visibility and suggestions arrive later.
+Lifecycle, rulings, undo, import, deletion and visibility belong to the deck
+owner; existing human-only actions additionally require `via === "ui"`.
+Agents retain attributed rename/delete on their principal's editable decks.
+No suggester may rule on their own proposal, including agent-via proposals;
+the existing owner-agent proposal reviewed by that owner's UI remains the
+local workflow. Paper membership always needs human approval. All current
+`owner_touched`, memory basis and review semantics distinguish `via`, never
+ownership or a self-asserted label.
+
+Profile edits, global memories, budgets, focus, stats, inbox, review queue,
+activity, ownership evidence and token management are per principal.
+`include_my_decks` means that principal's decks. Parent and fork sources must
+belong to that principal in Phase 1; card-history lineage stops at unreadable
+boundaries. Missing IDs never permit global/profile scope to bypass tenancy.
+
+### 17.3 Attribution, tokens and live updates
+
+Every existing `author` column gains `author_user_id` (FK users),
+`author_via` (`ui` or `agent`) and `author_label`, all NOT NULL. Old `owner`
+authors backfill to user 1/ui/ui; other labels to user 1/agent/original label.
+The existing author string remains for wire compatibility; principal/via/label
+are authoritative for permission checks. Attribution renders the human's
+handle for UI and `handle via label` for agents; a future external author
+renders `@handle`. The local `owner` handle preserves existing UI attribution.
+Activity records the owning `user_id` plus `actor_user_id`, `actor_via` and
+`actor_label` for every agent write.
+
+`agent_tokens(id,user_id,label,prefix,token_hash,created_at,last_used_at,revoked_at)`
+stores hashes only. Token create/list/revoke require the principal's UI;
+revocation takes effect on the next request, including an already-created MCP
+handler. URL labels cannot grant another token's amendment rights: attribution
+checks include principal and agent label, with the token's configured label
+as fallback. Token credentials resolve to an Actor before tools execute.
+
+SSE listeners use `Map<user_id,Set<response>>`; changes emit
+`notify(user_id,{deck_id?,kind})`. UI and MCP writes notify only that user.
+The browser initially refetches all queries for its own stream; the payload
+names what changed for later selective refetch. Global job changes may notify
+all connected users with `kind: "jobs"` and reveal no tenant data.
+
+### 17.4 Phase 1 choices and handoff
+
+Profile rows are created lazily for new users (empty profile reads remain
+valid); user 1 is seeded on migration. This avoids an identity-registration
+API before sessions exist. Shared card ingestion/backup functions are operator
+utilities rather than tenant capabilities; HTTP refresh additionally requires
+`users.is_admin=1`. Token management is UI-only to avoid granting an agent a
+way to mint durable credentials. Legacy token import is idempotent by hash,
+then file deletion follows the committed insert, so a crash cannot lose access.
+No fresh token is minted at boot: the human explicitly creates and saves it
+once in Settings.
+
+Phase 2 plugs its session resolver into the UI Actor-building function in
+`app.ts` and its OAuth access-token verifier alongside `verifyToken` in
+`tokens.ts`/`mcp/http.ts`. It inherits per-user data and streams, with no
+login, sessions, Better Auth, visibility, public pages or renames in Phase 1.
+Hosted signup will be invite-gated (D14); the invite table and UI arrive with
+Phase 2 account creation, not in this identity-only phase.
