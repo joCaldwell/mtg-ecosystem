@@ -583,8 +583,9 @@ memories and proposed brief edits, not as a stored report.
 One process serves the UI, HTTP API and Streamable HTTP MCP endpoint. Both
 front doors pass an authenticated `Actor` to the same capability layer (§17).
 Local mode binds loopback and builds the implicit user-1 UI actor without a
-login. Hosted mode binds all interfaces; until Phase 2 supplies sessions its
-UI API returns 401. Health remains unauthenticated.
+login. Hosted mode binds all interfaces and resolves cookie sessions through Better
+Auth to `users.auth_id`. Unauthenticated UI APIs return 401. Health remains
+unauthenticated, behind the same Host/Origin boundary.
 
 MCP always requires a bearer token. Personal agent tokens are per user,
 `dbk_` plus 32 random bytes in base64url, hashed at rest, and shown exactly
@@ -608,8 +609,35 @@ value. Existing HTTP Claude Code and Codex configurations need no changes.
 Host and Origin checks precede the SDK. Local requests require loopback
 Host/Origin; hosted requests require the configured public origin. Unauthenticated
 MCP requests return 401 and `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp"`;
-Phase 2 implements metadata and the OAuth JWT path beside personal-token
-verification. A URL suffix (`/mcp/claude-code`) is an attribution hint only:
+Hosted mode serves RFC 9728 resource metadata and RFC 8414 authorization
+server metadata. Better Auth 1.7.13 with JWT, MCP and CIMD plugins implements
+authorization code + S256 PKCE, resource-bound JWTs, refresh rotation, consent,
+CIMD (MCP 2026-07-28 profile) and explicit DCR fallback for older clients.
+The api-key plugin is omitted: existing `agent_tokens` satisfies D7. Local
+mode exposes no OAuth endpoints.
+
+OAuth tokens are verified against this issuer’s JWKS, signature, expiry and
+the exact `<public-origin>/mcp` audience; another resource’s token is 401.
+Subjects map through `users.auth_id`; the OAuth client name is the agent
+label. Deleted identities and disconnected grants cannot use MCP. Both
+credential kinds yield the same agent Actor and capability checks. Consent
+identifies the client and the single application scope `deck-builder`;
+`offline_access` permits renewal. Protocol reference:
+https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization.
+Pinned library reference:
+https://github.com/better-auth/better-auth/tree/v1.7.13/docs/content/docs/plugins.
+
+Hosted mode allows only `DECKBUILDER_PUBLIC_ORIGIN`. Forwarded host, protocol
+and client IP are trusted only with `DECKBUILDER_TRUST_PROXY=1`, intended for
+one trusted ingress and one service instance. Headers include CSP (own
+scripts/styles, Scryfall images), nosniff, Referrer-Policy and HSTS on HTTPS.
+Mutating browser routes retain same-origin CSRF checks. Sessions use
+HttpOnly, SameSite=Lax cookies, Secure on HTTPS; explicit loopback HTTP
+development uses non-Secure cookies for the documented Discord callback.
+In-memory sliding-window limits apply by unauthenticated IP, UI principal
+and MCP credential, with stricter auth/search/compare limits. Rejection is
+429 with Retry-After. Unreadable targets stay 404; 403 is reserved for
+forbidden actions on readable targets. A URL suffix (`/mcp/claude-code`) is an attribution hint only:
 it never changes the principal or token ownership and cannot impersonate UI.
 
 Use the official MCP TypeScript SDK v2: the same stateless handler supports
@@ -907,17 +935,37 @@ future v3 phases, not verified features. What has not been checked:
 `DECKBUILDER_MODE=local` is the default. It binds `127.0.0.1`, has no login
 page, and uses implicit user 1 for the UI while MCP requires a token. This is
 the owner's daily product. `DECKBUILDER_MODE=hosted` binds all interfaces and
-requires `DECKBUILDER_PUBLIC_ORIGIN`; authentication secrets and sessions are
-Phase 2 work. Phase 1 rejects hosted UI API access with 401. Invalid modes
+requires `DECKBUILDER_PUBLIC_ORIGIN`, `BETTER_AUTH_SECRET`, and at least one
+configured provider. Discord activates when both credentials are set; Google
+activates only when both of its credentials are set. Invalid modes
 fail startup instead of falling back to local.
 
 One SQLite file holds shared card facts and tenant data. `users` has
 `id INTEGER PRIMARY KEY AUTOINCREMENT`, unique case-insensitive `handle`
 (`[a-z0-9_-]{3,24}`), `display_name`, unique nullable `auth_id`, `is_admin`
 (default 0), `created_at` and nullable `deleted_at`. Migration creates user 1
-(`owner`, `Owner`, admin, no auth id). Phase 2's first hosted sign-in claims
-that user when it is the instance's sole unclaimed account, assigning the
-provider identity, handle and display name without export/import.
+(`owner`, `Owner`, admin, no auth id). Claiming user 1 requires `DECKBUILDER_CLAIM_CODE`, entered on sign-in in the
+same field as an invite. Compare code hashes timing-safely and link only
+while user 1 has `auth_id IS NULL`, in one transaction. A successful claim
+makes the code dead even if still configured; log one secret-free line
+telling the owner to remove the variable. Unset disables claims. Wrong or
+already-used claim codes confer no access; new identities must independently
+present a valid unused invite. This owner amendment replaces D5’s unsafe
+first-sign-in rule.
+
+New identities need an unused invite unless claiming (or the operator sets
+`DECKBUILDER_INVITES_REQUIRED=0`). Existing identities need no code. A short
+lived, browser-bound registration intent carries the validated code through
+the redirect; revalidate and consume it atomically at identity linkage.
+Handles derive from provider identity, lowercase/sanitised to
+`[a-z0-9_-]{3,24}`, padded/truncated as needed. Collisions get a unique
+suffix and require a first-run handle picker. Display names stay separate.
+No email/password sign-up or implicit provider-account linking is exposed.
+
+Better Auth 1.7.13 uses the existing built-in node:sqlite connection, with
+no native dependency. Its CLI-generated SQL is committed as the ordered
+v12 migration, in our single migration transaction; never auto-migrate at
+runtime.
 
 Schema 11 uses ordered `{ version, up(db) }` migration steps, all within one
 `BEGIN IMMEDIATE` transaction after database identity validation. The schema
@@ -1075,3 +1123,35 @@ exercise bounded FK diagnostics/rollback, and run concurrent process openers
 behind a held SQLite writer lock. An INSERT audit requires every runtime
 personal-table insertion to name its tenant and attribution columns, so the
 migration-only defaults cannot silently authorize a future runtime write.
+
+### 17.5 Account lifecycle and hosted UI
+
+`SessionProvider` wraps `LiveProvider`. Hosted sign-in offers configured
+providers and one invite/claim field; local mode never shows sign-in. Cookies
+automatically accompany requests and EventSource. `request()` maps 401 to
+sign-in, 403 to a readable-action toast, 429 to a slowdown toast with retry
+time. `/privacy` and `/terms` are public, identify <OPERATOR NAME>, contact
+<CONTACT EMAIL>, stored data, cookies, retention, Railway, Scryfall browser
+requests, export/deletion and no warranty. The footer carries the WotC Fan
+Content notice and current daily Scryfall estimate/as-of wording until 1b.
+
+Settings has hosted connection steps for Claude Code, Codex, Claude.ai and
+ChatGPT, inline CLI token creation and last-seen personal/OAuth usage. Remove
+Secure MCP Tunnel instructions. Local HTTP and stdio configs remain valid.
+
+`GET /api/account/export` is UI-only: all owned/attributed rows, deck
+children and Archidekt text per deck. Auth exports exclude all secrets
+(session/provider tokens, credentials, signing keys). `DELETE /api/account`
+requires UI and typed-handle confirmation, atomically removing all personal
+rows, FTS entries, tokens, sessions, linked providers, OAuth grants and owned
+clients. Write no activity afterwards. Shared card/price/job data remain.
+A sqlite_master inventory test verifies every tenant table participates, so
+a new table cannot silently escape export/deletion. Backups expire under
+14-day local retention; off-box retention follows bucket policy. The last
+admin cannot delete their account because nobody would remain to manage
+invites/jobs; Settings explains why.
+
+Admins have a Settings card for jobs/enqueue, invite creation/listing, user
+count and database size. Invites are random and single-use. UI/admin guards
+live in the capability layer. No impersonation. Public deck visibility,
+profiles, suggestions, path routing and renames remain later phases.
