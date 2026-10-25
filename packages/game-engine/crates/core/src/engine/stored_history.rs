@@ -80,6 +80,140 @@ impl<'de> Deserialize<'de> for StoredObject {
     }
 }
 
+// Persistent bottom-prefix stack. A push allocates one node; a pop retains
+// its predecessor. Priority-only views retain the same root. Nodes never cross
+// viewers. Full typed prefix equality is required, including order/duplicates.
+#[derive(Clone, Default)]
+pub(super) struct StoredStack {
+    tail: Option<Arc<StackNode>>,
+    len: usize,
+}
+struct StackNode {
+    value: VisibleStackEntry,
+    previous: StoredStack,
+    bytes: OnceLock<Result<Box<[u8]>, String>>,
+}
+impl Drop for StoredStack {
+    fn drop(&mut self) {
+        // Deep legal stacks must not recurse through Arc destructors.
+        while let Some(tail) = self.tail.take() {
+            let Ok(mut node) = Arc::try_unwrap(tail) else {
+                break;
+            };
+            self.tail = node.previous.tail.take();
+        }
+    }
+}
+impl StoredStack {
+    fn rows(&self) -> Vec<&StackNode> {
+        let mut rows = Vec::with_capacity(self.len);
+        let mut next = self.tail.as_deref();
+        while let Some(node) = next {
+            rows.push(node);
+            next = node.previous.tail.as_deref();
+        }
+        rows.reverse();
+        rows
+    }
+    fn from_rows(rows: Vec<VisibleStackEntry>, previous: Option<&Self>) -> Self {
+        let old = previous.map(Self::rows).unwrap_or_default();
+        let mut stack = Self::default();
+        let mut prefix = true;
+        for (i, value) in rows.into_iter().enumerate() {
+            if prefix && old.get(i).is_some_and(|n| n.value == value) {
+                // The next node's predecessor owns precisely this prefix.
+                stack = if i + 1 < old.len() {
+                    old[i + 1].previous.clone()
+                } else {
+                    previous.unwrap().clone()
+                };
+            } else {
+                prefix = false;
+                stack = Self {
+                    len: stack.len + 1,
+                    tail: Some(Arc::new(StackNode {
+                        value,
+                        previous: stack,
+                        bytes: OnceLock::new(),
+                    })),
+                };
+            }
+        }
+        stack
+    }
+    fn to_public(&self) -> Vec<VisibleStackEntry> {
+        self.rows().into_iter().map(|n| n.value.clone()).collect()
+    }
+    fn matches_public(&self, rows: &[VisibleStackEntry]) -> bool {
+        self.len == rows.len() && self.rows().iter().zip(rows).all(|(n, r)| n.value == *r)
+    }
+    fn write_canonical<W: Write>(&self, writer: &mut W) -> Result<(), String> {
+        for (i, row) in self.rows().into_iter().enumerate() {
+            if i != 0 {
+                writer.write_all(b",").map_err(|e| e.to_string())?;
+            }
+            let bytes = row
+                .bytes
+                .get_or_init(|| canonical(&row.value).map(|s| s.into_bytes().into_boxed_slice()));
+            writer
+                .write_all(bytes.as_deref().map_err(Clone::clone)?)
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+    #[cfg(test)]
+    pub(super) fn node_pointers(&self) -> Vec<usize> {
+        self.rows()
+            .iter()
+            .map(|n| *n as *const StackNode as usize)
+            .collect()
+    }
+}
+impl PartialEq for StoredStack {
+    fn eq(&self, other: &Self) -> bool {
+        if self.len != other.len {
+            return false;
+        }
+        let (mut a, mut b) = (&self.tail, &other.tail);
+        loop {
+            match (a, b) {
+                (Some(x), Some(y)) => {
+                    if Arc::ptr_eq(x, y) {
+                        return true;
+                    }
+                    if x.value != y.value {
+                        return false;
+                    }
+                    (a, b) = (&x.previous.tail, &y.previous.tail);
+                }
+                (None, None) => return true,
+                _ => return false,
+            }
+        }
+    }
+}
+impl Eq for StoredStack {}
+impl fmt::Debug for StoredStack {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.to_public().fmt(f)
+    }
+}
+impl Serialize for StoredStack {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let mut seq = s.serialize_seq(Some(self.len))?;
+        for row in self.rows() {
+            seq.serialize_element(&row.value)?;
+        }
+        seq.end()
+    }
+}
+impl<'de> Deserialize<'de> for StoredStack {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Vec::<VisibleStackEntry>::deserialize(d).map(|rows| Self::from_rows(rows, None))
+    }
+}
+
 // Same serialized field order and serde omission rules as public PermittedView;
 // exhaustive conversions below force future public fields to be accounted for.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,7 +238,7 @@ pub(super) struct StoredViewData {
     pub(super) players: Arc<Vec<VisiblePlayer>>,
     #[serde(with = "shared_vec")]
     pub(super) objects: Arc<Vec<StoredObject>>,
-    pub(super) stack: Vec<VisibleStackEntry>,
+    pub(super) stack: StoredStack,
 }
 // Private ownership only: no Arc marker/identity is added to the public array.
 // Keep serde's workspace feature set unchanged (no generic rc feature needed).
@@ -122,20 +256,33 @@ mod shared_vec {
         Vec::<T>::deserialize(deserializer).map(Arc::new)
     }
 }
+#[derive(Clone, Copy)]
+enum StreamedRows {
+    Commanders,
+    Objects,
+    Players,
+    Stack,
+}
 struct Segments {
-    before: Box<[u8]>,
+    parts: Vec<(Box<[u8]>, StreamedRows)>,
     after: Box<[u8]>,
 }
+type CollectionBytes = Arc<OnceLock<Result<Box<[u8]>, String>>>;
 pub(super) struct StoredPermittedView {
     data: StoredViewData,
-    // Only metadata/punctuation around objects, never a whole object array.
+    // Metadata excludes every shared collection. Collection canonical bytes
+    // follow the same immutable allocation as their typed values.
     segments: OnceLock<Result<Segments, String>>,
+    players_bytes: CollectionBytes,
+    commanders_bytes: CollectionBytes,
 }
 impl Clone for StoredPermittedView {
     fn clone(&self) -> Self {
         Self {
             data: self.data.clone(),
             segments: OnceLock::new(),
+            players_bytes: self.players_bytes.clone(),
+            commanders_bytes: self.commanders_bytes.clone(),
         }
     }
 }
@@ -166,6 +313,8 @@ impl<'de> Deserialize<'de> for StoredPermittedView {
         StoredViewData::deserialize(d).map(|data| Self {
             data,
             segments: OnceLock::new(),
+            players_bytes: Arc::new(OnceLock::new()),
+            commanders_bytes: Arc::new(OnceLock::new()),
         })
     }
 }
@@ -211,9 +360,11 @@ impl From<PermittedView> for StoredPermittedView {
                 priority,
                 players: Arc::new(players),
                 objects: Arc::new(stored_objects),
-                stack,
+                stack: StoredStack::from_rows(stack, None),
             },
             segments: OnceLock::new(),
+            players_bytes: Arc::new(OnceLock::new()),
+            commanders_bytes: Arc::new(OnceLock::new()),
         }
     }
 }
@@ -249,7 +400,7 @@ impl StoredPermittedView {
             priority: *priority,
             players: players.as_ref().clone(),
             objects: objects.iter().map(|r| r.0.value.clone()).collect(),
-            stack: stack.clone(),
+            stack: stack.to_public(),
         }
     }
     pub(super) fn matches_public(&self, view: &PermittedView) -> bool {
@@ -297,7 +448,7 @@ impl StoredPermittedView {
             && d.as_ref() == commanders
             && p == priority
             && u.as_ref() == players
-            && k == stack
+            && k.matches_public(stack)
             && r.len() == objects.len()
             && r.iter().zip(objects).all(|(r, o)| r.0.value == *o)
     }
@@ -305,14 +456,21 @@ impl StoredPermittedView {
         let Some(previous) = previous.filter(|p| p.viewer == self.viewer) else {
             return;
         };
+        self.data.stack = if self.data.stack == previous.data.stack {
+            previous.data.stack.clone()
+        } else {
+            StoredStack::from_rows(self.data.stack.to_public(), Some(&previous.data.stack))
+        };
         // Complete ordered typed equality, never a hash or handle-only test.
         // All three element types are Eq; pointer identity cannot bypass an
         // irreflexive PartialEq value. Sharing is ONLY this same-viewer predecessor.
         if self.data.players.as_ref() == previous.data.players.as_ref() {
             self.data.players = previous.data.players.clone();
+            self.players_bytes = previous.players_bytes.clone();
         }
         if self.data.commanders.as_ref() == previous.data.commanders.as_ref() {
             self.data.commanders = previous.data.commanders.clone();
+            self.commanders_bytes = previous.commanders_bytes.clone();
         }
         if self.data.objects.as_ref() == previous.data.objects.as_ref() {
             self.data.objects = previous.data.objects.clone();
@@ -336,84 +494,87 @@ impl StoredPermittedView {
     fn metadata_segments(&self) -> Result<&Segments, String> {
         self.segments
             .get_or_init(|| {
-                let StoredViewData {
-                    sacrifice_choices,
-                    setup,
-                    effects,
-                    combat,
-                    viewer,
-                    active,
-                    turn_owner,
-                    turn,
-                    live_turn_order,
-                    commanders,
-                    priority,
-                    players,
-                    objects: _,
-                    stack,
-                } = &self.data;
-                let skeleton = PermittedView {
-                    sacrifice_choices: sacrifice_choices.clone(),
-                    setup: setup.clone(),
-                    effects: effects.clone(),
-                    combat: combat.clone(),
-                    viewer: *viewer,
-                    active: *active,
-                    turn_owner: *turn_owner,
-                    turn: turn.clone(),
-                    live_turn_order: live_turn_order.clone(),
-                    commanders: commanders.as_ref().clone(),
-                    priority: *priority,
-                    players: players.as_ref().clone(),
-                    objects: vec![],
-                    stack: stack.clone(),
-                };
-                let value = serde_json::to_value(skeleton).map_err(|e| e.to_string())?;
+                let mut skeleton = self.data.clone();
+                skeleton.objects = Arc::new(vec![]);
+                skeleton.stack = StoredStack::default();
+                skeleton.players = Arc::new(vec![]);
+                skeleton.commanders = Arc::new(vec![]);
+                let value = serde_json::to_value(&skeleton).map_err(|e| e.to_string())?;
                 let map = value.as_object().ok_or("stored View metadata object")?;
                 let mut entries = map.iter().collect::<Vec<_>>();
                 entries.sort_unstable_by(|a, b| a.0.cmp(b.0));
-                let (mut before, mut after) = (vec![b'{'], vec![]);
-                let mut seen = false;
+                let mut out = vec![b'{'];
+                let mut parts = vec![];
                 for (index, (key, value)) in entries.into_iter().enumerate() {
-                    let out = if seen { &mut after } else { &mut before };
                     if index != 0 {
                         out.push(b',');
                     }
-                    serde_json::to_writer(&mut *out, key).map_err(|e| e.to_string())?;
+                    serde_json::to_writer(&mut out, key).map_err(|e| e.to_string())?;
                     out.push(b':');
-                    if key == "objects" {
+                    let stream = match key.as_str() {
+                        "commanders" => Some(StreamedRows::Commanders),
+                        "objects" => Some(StreamedRows::Objects),
+                        "players" => Some(StreamedRows::Players),
+                        "stack" => Some(StreamedRows::Stack),
+                        _ => None,
+                    };
+                    if let Some(stream) = stream {
                         if !value.as_array().is_some_and(Vec::is_empty) {
-                            return Err("stored metadata contains object rows".into());
+                            return Err("stored metadata contains shared rows".into());
                         }
                         out.push(b'[');
-                        seen = true;
-                        after.push(b']');
+                        parts.push((std::mem::take(&mut out).into_boxed_slice(), stream));
+                        out.push(b']');
                     } else {
-                        serde_json::to_writer(&mut *out, value).map_err(|e| e.to_string())?;
+                        serde_json::to_writer(&mut out, value).map_err(|e| e.to_string())?;
                     }
                 }
-                if !seen {
-                    return Err("stored metadata missing objects".into());
+                if parts.len() != 4 {
+                    return Err("stored metadata missing shared collections".into());
                 }
-                after.push(b'}');
+                out.push(b'}');
                 Ok(Segments {
-                    before: before.into_boxed_slice(),
-                    after: after.into_boxed_slice(),
+                    parts,
+                    after: out.into_boxed_slice(),
                 })
             })
             .as_ref()
             .map_err(Clone::clone)
     }
     pub(super) fn write_canonical<W: Write>(&self, writer: &mut W) -> Result<(), String> {
+        fn collection<W: Write, T: Serialize>(
+            writer: &mut W,
+            rows: &[T],
+            memo: &CollectionBytes,
+        ) -> Result<(), String> {
+            let bytes =
+                memo.get_or_init(|| canonical(&rows).map(|s| s.into_bytes().into_boxed_slice()));
+            let bytes = bytes.as_deref().map_err(Clone::clone)?;
+            // Metadata supplies the array brackets, including for empty arrays.
+            writer
+                .write_all(&bytes[1..bytes.len() - 1])
+                .map_err(|e| e.to_string())
+        }
         let segments = self.metadata_segments()?;
-        writer
-            .write_all(&segments.before)
-            .map_err(|e| e.to_string())?;
-        for (index, row) in self.data.objects.iter().enumerate() {
-            if index != 0 {
-                writer.write_all(b",").map_err(|e| e.to_string())?;
+        for (prefix, rows) in &segments.parts {
+            writer.write_all(prefix).map_err(|e| e.to_string())?;
+            match rows {
+                StreamedRows::Commanders => {
+                    collection(writer, self.commanders.as_slice(), &self.commanders_bytes)?
+                }
+                StreamedRows::Players => {
+                    collection(writer, self.players.as_slice(), &self.players_bytes)?
+                }
+                StreamedRows::Stack => self.stack.write_canonical(writer)?,
+                StreamedRows::Objects => {
+                    for (index, row) in self.objects.iter().enumerate() {
+                        if index != 0 {
+                            writer.write_all(b",").map_err(|e| e.to_string())?;
+                        }
+                        writer.write_all(row.bytes()?).map_err(|e| e.to_string())?;
+                    }
+                }
             }
-            writer.write_all(row.bytes()?).map_err(|e| e.to_string())?;
         }
         writer.write_all(&segments.after).map_err(|e| e.to_string())
     }
@@ -440,8 +601,86 @@ impl StoredPermittedView {
     }
 }
 
+// Conservative retention charge, independent of memo warmth and allocator.
+// Four times serialized payload plus fixed allocation/inline allowances covers
+// typed rows, canonical memos, collection slots and Arc/allocator overhead.
+// This is a resource policy unit, not a claim about exact process RSS.
+pub(super) fn payload_charge(value: &impl Serialize) -> usize {
+    struct Count(usize);
+    impl Write for Count {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 = self.0.saturating_add(bytes.len());
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut count = Count(0);
+    if serde_json::to_writer(&mut count, value).is_err() {
+        return usize::MAX;
+    }
+    count.0.saturating_mul(4)
+}
+impl StoredPermittedView {
+    fn retention_charge(&self, previous: Option<&Self>) -> usize {
+        let previous = previous.filter(|p| p.viewer == self.viewer);
+        let mut metadata = self.data.clone();
+        metadata.objects = Arc::new(vec![]);
+        metadata.stack = StoredStack::default();
+        metadata.players = Arc::new(vec![]);
+        metadata.commanders = Arc::new(vec![]);
+        // The view itself is inline in HistoryEntry. Reserve another 512
+        // bytes for its entry/Arc/chunk slots, four segment descriptors and
+        // allocator headers. Canonical metadata payload is charged separately.
+        let mut charge = payload_charge(&metadata)
+            .saturating_add(std::mem::size_of::<Self>())
+            .saturating_add(512);
+        if !previous.is_some_and(|p| Arc::ptr_eq(&self.players, &p.players)) {
+            charge = charge
+                .saturating_add(payload_charge(self.players.as_ref()))
+                .saturating_add(2048);
+        }
+        if !previous.is_some_and(|p| Arc::ptr_eq(&self.commanders, &p.commanders)) {
+            charge = charge
+                .saturating_add(payload_charge(self.commanders.as_ref()))
+                .saturating_add(2048);
+        }
+        if !previous.is_some_and(|p| Arc::ptr_eq(&self.objects, &p.objects)) {
+            charge = charge.saturating_add(self.objects.len().saturating_mul(32));
+            let old = previous
+                .map(|p| {
+                    p.objects
+                        .iter()
+                        .map(|r| (r.handle.0.as_str(), r))
+                        .collect::<BTreeMap<_, _>>()
+                })
+                .unwrap_or_default();
+            for row in self.objects.iter() {
+                if !old
+                    .get(row.handle.0.as_str())
+                    .is_some_and(|r| Arc::ptr_eq(&r.0, &row.0))
+                {
+                    charge = charge
+                        .saturating_add(payload_charge(&row.0.value))
+                        .saturating_add(1024);
+                }
+            }
+        }
+        let old = previous.map(|p| p.stack.rows()).unwrap_or_default();
+        for (i, row) in self.stack.rows().into_iter().enumerate() {
+            if !old.get(i).is_some_and(|r| std::ptr::eq(*r, row)) {
+                charge = charge
+                    .saturating_add(payload_charge(&row.value))
+                    .saturating_add(1024);
+            }
+        }
+        charge
+    }
+}
+
 #[derive(Clone, Debug, Default)]
-pub(super) struct StoredHistory(History<StoredPermittedView>);
+pub(super) struct StoredHistory(History<StoredPermittedView>, usize);
 impl PartialEq for StoredHistory {
     fn eq(&self, other: &Self) -> bool {
         // StoredPermittedView is Eq, with complete typed fallback for entries
@@ -452,6 +691,9 @@ impl PartialEq for StoredHistory {
 }
 impl Eq for StoredHistory {}
 impl StoredHistory {
+    pub(super) fn retention_charge(&self) -> usize {
+        self.1
+    }
     pub(super) fn len(&self) -> usize {
         self.0.len()
     }
@@ -461,6 +703,7 @@ impl StoredHistory {
     }
     pub(super) fn clear(&mut self) {
         self.0.clear();
+        self.1 = 0;
     }
     pub(super) fn last(&self) -> Option<&StoredPermittedView> {
         self.0.last()
@@ -472,6 +715,7 @@ impl StoredHistory {
     }
     pub(super) fn push(&mut self, mut view: StoredPermittedView) {
         view.reuse_previous(self.last());
+        self.1 = self.1.saturating_add(view.retention_charge(self.last()));
         self.0.push(view);
     }
     pub(super) fn push_public(&mut self, view: PermittedView) {
@@ -526,3 +770,7 @@ impl<'de> Deserialize<'de> for StoredHistory {
 #[cfg(test)]
 #[path = "stored_history_tests.rs"]
 mod tests;
+
+pub(super) fn is_zero_charge(n: &usize) -> bool {
+    *n == 0
+}

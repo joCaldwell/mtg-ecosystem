@@ -2139,7 +2139,7 @@ mod tests {
     fn bundle_contains_replayable_source_to_runtime_evidence() {
         let (bundle, report) = demo().unwrap();
         let baseline: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../tests/fixtures/d1b2-scenario-digests.json"
+            "../../../tests/fixtures/d1b3-history-scenario-digests.json"
         ))
         .unwrap();
         for family in [

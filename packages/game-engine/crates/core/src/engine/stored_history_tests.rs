@@ -202,7 +202,12 @@ fn canonical_memos_retain_unique_rows_and_metadata_not_repeated_object_arrays() 
         let actual = write_view(view);
         assert_eq!(actual, canonical(&view.to_public()).unwrap().as_bytes());
         let segments = view.metadata_segments().unwrap();
-        metadata_bytes += segments.before.len() + segments.after.len();
+        metadata_bytes += segments
+            .parts
+            .iter()
+            .map(|(bytes, _)| bytes.len())
+            .sum::<usize>()
+            + segments.after.len();
         for row in view.objects.iter() {
             if unique.insert(row_pointer(row)) {
                 row_bytes += row.bytes().unwrap().len();
@@ -1146,5 +1151,95 @@ fn stored_collections_report_actual_distinct_capacity_bytes_without_rss_estimate
     println!(
         "STORED_COLLECTION_CAPACITY_PROOF={}",
         canonical(&proof).unwrap()
+    );
+}
+
+#[test]
+fn persistent_stack_preserves_exact_order_fields_memos_and_restore_sharing() {
+    let mut base = public_fixture();
+    let row: VisibleStackEntry = serde_json::from_value(serde_json::json!({
+        "mode":1,"handle":"s","spell":"a","ability":null,"controller":0,
+        "cast_complete":true,"targets":[{"announced":"old","current":null}],
+        "entity_targets":[{"entity":"player","player":2}],
+        "stack_targets":[{"announced":"s2","current":null}],"player_targets":[3]
+    }))
+    .unwrap();
+    base.stack = vec![row.clone(); 3]; // duplicates must remain distinct ordered entries
+    let mut changed = base.clone();
+    changed.stack[2].controller = PlayerId(2);
+    let mut reordered = changed.clone();
+    reordered.stack.reverse();
+    let mut popped = changed.clone();
+    popped.stack.pop();
+    let mut other = base.clone();
+    other.viewer = PlayerId(3);
+    let public = vec![base.clone(), base, changed, popped, reordered, other];
+    let mut history = StoredHistory::default();
+    for view in &public {
+        history.push_public(view.clone());
+    }
+    assert_views(&history, &public); // warms row and metadata canonical memos
+    let pointers = |i: usize| history[i].stack.node_pointers();
+    assert_eq!(pointers(0), pointers(1));
+    assert_eq!(pointers(1)[..2], pointers(2)[..2]);
+    assert_ne!(pointers(1)[2], pointers(2)[2]);
+    assert_eq!(pointers(2)[..2], pointers(3));
+    assert!(pointers(5).iter().all(|p| !pointers(4).contains(p)));
+    let restored: StoredHistory =
+        serde_json::from_str(&serde_json::to_string(&history).unwrap()).unwrap();
+    assert_views(&restored, &public);
+    assert_eq!(restored.retention_charge(), history.retention_charge());
+    assert_eq!(
+        restored[0].stack.node_pointers(),
+        restored[1].stack.node_pointers()
+    );
+    let mut sibling = history.clone();
+    sibling[1].update_public(|v| v.stack[0].player_targets = vec![PlayerId(1)]);
+    let mut edited = public.clone();
+    edited[1].stack[0].player_targets = vec![PlayerId(1)];
+    assert_views(&sibling, &edited);
+    assert_views(&history, &public);
+}
+
+#[test]
+fn collection_canonical_memos_follow_shared_values_instead_of_views() {
+    let first = collection_fixture();
+    let mut history = StoredHistory::default();
+    for number in 1..65 {
+        let mut view = first.clone();
+        view.turn.number = number;
+        history.push_public(view);
+    }
+    for view in history.iter() {
+        assert_eq!(
+            write_view(view),
+            canonical(&view.to_public()).unwrap().as_bytes()
+        );
+        assert!(Arc::ptr_eq(&history[0].players_bytes, &view.players_bytes));
+        assert!(Arc::ptr_eq(
+            &history[0].commanders_bytes,
+            &view.commanders_bytes
+        ));
+    }
+    let mut branch = history.clone();
+    branch[32].update_public(|v| {
+        v.players[0].life.add(&1.into());
+        v.commanders[0].designation.push_str("changed");
+    });
+    assert!(!Arc::ptr_eq(
+        &history[32].players_bytes,
+        &branch[32].players_bytes
+    ));
+    assert!(!Arc::ptr_eq(
+        &history[32].commanders_bytes,
+        &branch[32].commanders_bytes
+    ));
+    assert_eq!(
+        write_view(&history[32]),
+        canonical(&history[32].to_public()).unwrap().as_bytes()
+    );
+    assert_eq!(
+        write_view(&branch[32]),
+        canonical(&branch[32].to_public()).unwrap().as_bytes()
     );
 }

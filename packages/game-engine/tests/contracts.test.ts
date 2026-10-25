@@ -592,7 +592,7 @@ test("match catalog binds sole defender and the current finite Commander policy"
 // Full historical reports remain immutable. Current runs retain independent
 // replay checks and pin compact current semantic digests per witness.
 function assertScenarioDigests(family: string, reports: any[]) {
-  assert.deepEqual(reports.map(r => r.state_sha256), JSON.parse(read("d1b2-scenario-digests.json"))[family]);
+  assert.deepEqual(reports.map(r => r.state_sha256), JSON.parse(read("d1b3-history-scenario-digests.json"))[family]);
 }
 
 // The deterministic CLI demo verifies all retained families; share that expensive
@@ -1268,7 +1268,7 @@ test("turn progression and permanent casting expose only permitted public state"
     assert.equal(view.players.every((p: any) => p.library_count === 0 && Object.keys(p.mana).length === 0 && p.life === "40"), true);
     assert.equal(JSON.stringify(view).includes('"incarnation"'), false);
   }
-  assert.equal(turns.state_sha256, JSON.parse(read("d1b2-scenario-digests.json")).turns);
+  assert.equal(turns.state_sha256, JSON.parse(read("d1b3-history-scenario-digests.json")).turns);
 });
 
 test("complete scenario games retain rules outcomes and private combat projections", () => {

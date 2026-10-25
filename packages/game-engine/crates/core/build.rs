@@ -1,3 +1,6 @@
+#[path = "src/engine/capacities.rs"]
+#[allow(dead_code)]
+mod capacities;
 #[path = "src/profile_data.rs"]
 #[allow(dead_code)]
 mod profile_data;
@@ -213,6 +216,30 @@ fn main() {
         // Same typed loader and exact bytes were validated above. Runtime errors
         // are unreachable without a build-script defect; no user I/O is parsed.
         assert_eq!(validated.catalog_sha256, catalog_hash);
+        let catalog = validated.catalog();
+        assert!(
+            catalog
+                .definitions
+                .iter()
+                .filter(|d| d.characteristics.basic)
+                .all(|d| d.triggered.is_empty()),
+            "{}: basic triggered sources invalidate singleton sizing",
+            path.display()
+        );
+        let sources = 4 * catalog
+            .definitions
+            .iter()
+            .map(|d| d.triggered.len())
+            .sum::<usize>();
+        let wave = (400 + capacities::TOKEN_CAPACITY as usize)
+            .checked_mul(sources)
+            .expect("trigger sizing overflow");
+        assert!(
+            wave < capacities::STACK_LIMIT / 2,
+            "{}: simultaneous trigger bound {wave} exceeds shared stack policy; revisit capacities",
+            path.display()
+        );
+
         let banned_index = banned_files.keys().position(|p| p == &banned_path).unwrap();
         generated += &format!(
             "MatchProfile::load({raw:?}, {catalog_raw:?}, BANNED_LISTS[{banned_index}]).expect(\"build-validated profile\"),\n"

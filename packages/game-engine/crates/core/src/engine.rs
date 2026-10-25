@@ -1811,6 +1811,10 @@ pub enum Event {
 struct State {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     tokens: BTreeMap<CardId, tokens::TokenIdentity>,
+    // Deterministic conservative charge for inputs and potential detailed
+    // evidence, even in Off/Compact modes. Replay proves the counter.
+    #[serde(default, skip_serializing_if = "stored_history::is_zero_charge")]
+    retained_auxiliary_charge: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     typed_fault: Option<RuleFault>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1964,6 +1968,7 @@ impl Game {
             .collect();
         let state = State {
             tokens: BTreeMap::new(),
+            retained_auxiliary_charge: 0,
             typed_fault: None,
             match_state: prepared.match_config.as_ref().map(MatchState::new),
             effects: vec![],
@@ -2045,6 +2050,26 @@ impl Game {
             executor: Arc::new(()),
             state_token: Arc::new(()),
         }
+    }
+    fn history_charge(&self) -> usize {
+        // Charge actual retained allocations, independently of trace mode.
+        self.state
+            .visibility
+            .iter()
+            .fold(self.state.retained_auxiliary_charge, |n, k| {
+                n.saturating_add(k.history.retention_charge())
+            })
+            .saturating_add(self.state.external_inputs.len().saturating_mul(1024))
+    }
+    fn check_history_capacity(&mut self) -> Result<(), String> {
+        let requested = self.history_charge();
+        if requested > capacities::HISTORY_LIMIT {
+            return Err(self.capacity_error(RuleFault::HistoryCapacityExceeded {
+                capacity: capacities::HISTORY_LIMIT,
+                requested,
+            }));
+        }
+        Ok(())
     }
     /// Trusted host execution boundary; never a player-facing identifier.
     pub fn rule_boundary(&self) -> u64 {
@@ -2465,6 +2490,10 @@ impl Game {
             .checked_add(1)
             .ok_or("structural revision resource limit")?;
         let mut next = self.fork();
+        next.state.retained_auxiliary_charge = next
+            .state
+            .retained_auxiliary_charge
+            .saturating_add(stored_history::payload_charge(&receipt.input));
         next.state.journal.push(receipt.input.clone());
         next.state.pending = Some(receipt.input);
         next.state.revision = revision;
@@ -2519,7 +2548,7 @@ impl Game {
             // its pre-step state and become faults, never wins/losses/draws.
             let input_report = REPORT.then(|| advance_report::StepInputCapture::capture(self));
             let mut next = self.fork();
-            if let Err(reason) = next.step() {
+            if let Err(reason) = next.check_history_capacity().and_then(|()| next.step()) {
                 self.state.typed_fault = next.state.typed_fault;
                 self.state.frame = Frame::Fault {
                     reason: reason.clone(),
@@ -2531,7 +2560,15 @@ impl Game {
                 return Advance::Fault("execution boundary resource limit".into());
             };
             next.state.rule_steps = steps;
-            if let Err(reason) = next.refresh_visibility() {
+            if let Err(reason) = next
+                .refresh_visibility()
+                .and_then(|()| next.check_history_capacity())
+            {
+                self.state.typed_fault = next.state.typed_fault;
+                self.state.frame = Frame::Fault {
+                    reason: reason.clone(),
+                };
+                self.state_token = Arc::new(());
                 return Advance::Fault(reason);
             }
             self.state = next.state;
@@ -2543,6 +2580,9 @@ impl Game {
         }
     }
     fn step(&mut self) -> Result<(), String> {
+        self.state.retained_auxiliary_charge =
+            self.state.retained_auxiliary_charge.saturating_add(2048);
+        self.check_history_capacity()?;
         if let Some(player) = self.state.pending_concessions.first().copied() {
             self.state.pending_concessions.remove(0);
             return self.apply_departure(player);

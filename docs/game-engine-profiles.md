@@ -55,3 +55,8 @@ their original source, catalog, policy and build qualifications.
 mismatch. `catalog build MANIFEST [--write]` replaces the old per-catalog
 `compile-*` commands. Malformed profile JSON, duplicate names, invalid completion
 indices and unsupported feature requests fail the build with the input path.
+
+`Definition::requirements` exhaustively maps enum variants to capabilities, but
+Rust exhaustiveness does not cover new IR struct fields. Whenever an IR field
+is added, the reviewer must re-check this capability mapping and the hosted and
+search capability sets before admitting catalogs that use the field.

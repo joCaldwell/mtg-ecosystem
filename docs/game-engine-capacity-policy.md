@@ -15,6 +15,7 @@ qualified by their original release in the progress ledger and slice documents.
 | Event-group nesting depth | 4 | Checked before recursive collection |
 | Event-group occurrences | 1,024 | Total leaves across ordered and simultaneous groups |
 | Temporary effects | 256 | Current retained effects, before insertion |
+| Retained history charge | 512 MiB | Shared public rows/nodes, per-view metadata/slots, inputs, potential detailed evidence and step allowances |
 
 `engine/capacities.rs` is the runtime authority. Catalog names, schema versions,
 card identities and historical publication order never select a capacity.
@@ -34,9 +35,11 @@ per pod, hence at most **656 × 132 = 86,592** triggers for a simultaneous event
 
 The single stack/pending ceiling is **262,144**, more than three times that
 conservative wave bound, leaving space for preexisting spells/abilities, enters
-triggers and subsequent terminal token waves. The regression
-`generic_simultaneous_trigger_bound_fits_shared_stack_policy` recomputes the same
-rule for every catalog, independent of names, lineage and default deck allocation.
+triggers and subsequent terminal token waves. `core/build.rs` recomputes this
+rule for every profile catalog and rejects a build unless the wave fits below
+half the shared stack ceiling and basic definitions have no triggers. The
+`generic_simultaneous_trigger_bound_fits_shared_stack_policy` regression independently
+checks the same rule, without names, lineage or default deck allocation.
 A future catalog with more trigger sources must revisit this shared ceiling;
 setting a profile flag never bypasses the rules' capacity checks.
 
@@ -135,9 +138,9 @@ The updated release probes and their exact measurements are recorded below.
 
 The whole-state fork per step and per simultaneous occurrence remains a known
 P7 performance limitation. This change makes structural exhaustion practical;
-it does not optimize that copying or bound the duration of every game, arbitrary
-exact-integer arithmetic, retained accepted-input journals, or every future
-search workload. Any broader P7 performance claim requires fresh measurements
+it does not optimize that copying or bound arbitrary exact-integer arithmetic
+or every future search workload. The history policy below now bounds retained
+accepted-input journals and accumulated public/evidence histories. Any broader P7 performance claim requires fresh measurements
 of its actual build and workload. Historical finite-pool hand proofs no longer
 set runtime limits or establish current admission guarantees.
 
@@ -190,9 +193,137 @@ for the combined-ceiling stabilization step, and 4.11 GB peak RSS. They do not
 establish a low-memory hosting guarantee. Immutable token-definition sharing,
 whole-state forks and public-history retention remain P7 performance work.
 
-The passing private 96-death regression excludes visibility-history capture.
-An exploratory run through full public `advance`/`respond` history capture grew
-past 11 GiB observed RSS and was stopped before completion; it is **not a passed
-public-path measurement**. The private rule-step and ceiling measurements above
-do not hide or resolve that limitation. Existing natural-game tests retain
-accepted-input, public-history and restore/replay coverage at their own sizes.
+## D1b-3 public-history correction
+
+Retained stack observations now use immutable `Arc` nodes with shared bottom
+prefixes, scoped to the same viewer and its immediate predecessor. A priority
+pass retains the root; pushing allocates a new node, and popping reuses the
+predecessor. A changed row or non-top removal rebuilds the changed suffix after
+complete typed prefix comparison. The common trigger cascade therefore retains
+O(K) nodes for K triggers, instead of O(K²) wide stack rows. Removed/reordered
+rows and duplicate handles keep their exact serialized order and values.
+Canonical-byte memos stream stack nodes separately from view metadata, so a
+snapshot/hash cannot reintroduce repeated full-stack byte buffers. Player and
+commander canonical-array memos likewise follow their shared immutable values,
+rather than embedding their growing graveyard/history arrays in each view. Deserialization
+reconstructs sharing incrementally. Public JSON arrays, projection/SDK fields and
+viewer permissions are unchanged; internal snapshots additionally retain the
+auxiliary history charge, proved by accepted-input replay and build identity.
+The current Rust/Node snapshot baselines are in
+`packages/game-engine/tests/fixtures/d1b3-history-scenario-digests.json`; the original D1b-2 fixture is
+preserved. The retained `rebaseline.py` and `baseline-byte-proof.json` first
+verify each new snapshot's complete canonical hash, then remove only the new
+charge field and reproduce **all 173 original historical state hashes**. No
+card facts, outcomes or public-history bytes were rebaselined to mask a change.
+
+
+The ordinary K=100 hosted-attachments regression drives the complete cascade
+through public `advance`/`respond`, retains over 100,000 logical stack entries,
+and asserts at most 12K + 16 distinct stack nodes across all viewers. Separate
+serialization tests cover complete fields, duplicates, order, target changes,
+viewer isolation, warmed memos, fork edits and identical restore charges.
+The manual `public_history_release_probe` measures the reviewer's K=480 workload:
+a real admitted four-Yargle attachments pod, four Blood Artists plus 116
+source-defined creature tokens, simultaneous destruction, then public target,
+ordering and priority responses until every trigger resolves. Hosting capability
+admission is checked. Battlefield injection is diagnostic setup, not a claim
+that the setup was reached through accepted gameplay inputs. Tracing is off.
+
+Pinned Rust 1.99.0 release, overflow checks enabled. The isolated child probe
+completed with no typed fault. No task build or verification ran concurrently
+with this child. Builds are excluded from its kernel resource measurement.
+Engine build ID: `b204d8ea8291ab7e6323859e69feb3d6d315d2185816c6ba825f0f694529406d`.
+Test executable SHA-256:
+`40a6ee80f81371e3b3c7e0051ad8c5cb728ba859f636e25a1e48df3a2578f73c`.
+Raw output, kernel child resources and the measurement script are retained under
+`generated/final-engine-verification/d1b3-history/`.
+
+| Public-path K=480 probe | Result |
+| --- | ---: |
+| Retained views, all four viewers | 24,972 |
+| Logical stack entries across those views | 6,000,960 |
+| Distinct retained stack nodes, all viewers | 3,840 (8K) |
+| Conservative final history charge | 101,253,152 bytes |
+| Cascade setup, public execution and allocation-count check | 7,675,645 µs |
+| Whole child elapsed time | 7.682438 s |
+| Kernel whole-child peak RSS | 64,757,760 bytes |
+| `/proc/self/status` baseline / final VmRSS | 5,750,784 / 65,155,072 bytes |
+| Observed VmRSS growth | 59,404,288 bytes |
+
+The independent review's pre-fix K=480 run retained approximately six million
+wide stack rows and grew by **about 3.9 GB**. The corrected probe retains the
+same order of logical history with **about 59 MB growth**. The prior growth is
+the reviewer's measurement, not a new run of the defective executable; peak
+kernel RSS and sampled VmRSS are separate Linux measurements. This replaces
+the incomplete exploratory public-path run with a completed measured workload.
+It is diagnostic retention evidence, not a quiet-machine P7 throughput claim.
+
+### Remaining retention and the fault boundary
+
+Sharing does not bound the length of a game. Per-view metadata and changed
+object/player/commander rows, changed stack suffixes, viewer-handle maps,
+accepted-input journals and detailed event/batch evidence can keep accumulating.
+Object collection slots are shared when unchanged, but changed collections still
+retain their full slot lists. Full public history and snapshot **output bytes**
+can still be quadratic in maximum stack depth; streaming avoids retaining those
+bytes internally, but exporting to a native `String` remains caller-owned memory.
+Whole-state forks, event preparation, arbitrary exact quantities and native
+query/export buffers remain separate allocation costs. The old synthetic
+combined-ceiling probe above bypasses ordinary history generation and is not a
+4 GiB hosting guarantee.
+
+The ignored `history_draw_release_probe` also runs a complete admitted four-seat
+foundations pod using only keeps, passes, empty combat declarations and required
+discards. It finishes naturally on turn **371**, winner Player 1, with **no
+fault**: 32,949 rules steps, 38,122 evidence records, 112,344 retained views and a
+final charge of **495,502,436 bytes**. This longer ordinary game is separate from
+the injected K=480 cascade and keeps the historical draw-failure outcome intact.
+
+A catalog-independent **512 MiB history charge** now stops accumulated retention
+with `RuleFault::HistoryCapacityExceeded { capacity, requested }`. It is a
+conservative deterministic policy measure, not measured RSS: four times encoded
+payload plus fixed row/node/view and collection-slot allowances. Shared object rows, player/commander collections and stack prefixes are charged
+once; per-view scalar metadata and changing collection slots are charged every
+time. Potential detailed evidence (including the duplicate Event array) is
+charged in **every trace mode**, even Off, so tracing cannot change the resource
+boundary. Accepted inputs, external-input slots and a 2,048-byte allowance per
+committed rules step cover journals, history chunk/handle overhead and cumulative
+small allocations. Charge arithmetic saturates toward exhaustion. No allocator
+capacity, pointer address, canonical memo warmth or host clock selects the fault. Per-view fixed overhead
+uses the compiled inline view size plus 512 bytes for entry/Arc/chunk slots,
+four segment descriptors and allocator headers; canonical metadata payload is
+charged separately. This avoids treating a 256-byte inline view as a separate
+2 KiB allocation before its payload charge.
+
+The guard checks evidence before retention and each staged public rules step
+before and after mutation/visibility refresh. Exhaustion retains the entire
+pre-step state plus the typed fault/frame; staged event, life, stack, journal and
+visibility mutations do not leak. A submitted input remains accepted and pending
+until `advance` processes it, so replay reaches the same attempted step and
+fault. An individual accepted input/refresh can temporarily exceed the charge;
+only one input can be pending. Hosted command/IPC limits bound that increment.
+The 512 MiB policy leaves substantial headroom below the worker's 4 GiB limit
+for live tables, staging and serialization; it does not equate an estimate to an
+absolute RSS proof for arbitrary trusted native allocations or future IR fields.
+A fault has no winner/draw and never silently replaces a rules outcome. Atomic
+rollback and identical fault boundaries are tested in all three trace modes;
+normal snapshot/restore and accepted-input replay tests remain in force.
+
+### Verification scope
+
+The final release build passed SDK generation, **47 Node SDK tests** and strict
+TypeScript. The attachments and wipes `match-batch` suites each passed **18/18**
+games, including independent replay, with **zero faults or truncations**. Both
+reports bind release engine build `b204d8ea8291ab7e6323859e69feb3d6d315d2185816c6ba825f0f694529406d`.
+The K=480 and long draw-only release probes each passed. Exact raw logs,
+per-game reports, baseline-byte proof and the workspace check log are retained
+in `generated/final-engine-verification/d1b3-history/`. The ten optional other
+profile batches were not rerun; catalog admission and sizing still run across
+all twelve profiles in the workspace gate.
+
+`npm run check:engine` passed formatting, Clippy with warnings denied,
+**895 Rust tests** (16 intentionally ignored probes) and **56 Node checks**,
+with **zero failures**. The final `summary.json` records these counts alongside
+the SDK, release probes, historical-byte proof and batch results. Earlier
+failed/interrupted attempts remain separately qualified in the same evidence
+directory; they are not counted as passed phases.

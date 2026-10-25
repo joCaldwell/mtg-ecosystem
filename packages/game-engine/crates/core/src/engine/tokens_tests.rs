@@ -1538,3 +1538,266 @@ fn death_payoff_release_probe() {
         serde_json::json!({"deaths":deaths,"pending_triggers":triggers,"wipe_us":wipe_us,"fork_us":fork_us})
     );
 }
+
+// Admitted hosted catalog/pod, with diagnostic battlefield injection. The wipe
+// is private setup; the entire trigger cascade uses public advance/respond.
+fn public_history_cascade(tokens: u32) -> (Game, usize, usize, usize) {
+    let p = match_profile("commander-attachments-v1").unwrap();
+    p.require_feature(p.catalog(), crate::Feature::Hosting)
+        .unwrap();
+    let mut config = MatchConfig::for_profile(&p.name, [7; 32], PlayerId(0)).unwrap();
+    let deck = config
+        .decks
+        .iter()
+        .find(|d| {
+            p.catalog()
+                .definitions
+                .iter()
+                .any(|c| c.oracle_id == d.commander && c.name == "Yargle and Multani")
+        })
+        .unwrap()
+        .clone();
+    config.decks = std::array::from_fn(|_| deck.clone());
+    let mut g = Game::with_trace(
+        Prepared::admit_pod(p.catalog().clone(), config).unwrap(),
+        TraceMode::Off,
+    );
+    for player in &mut g.state.players {
+        player.life = 1_000_000.into();
+    }
+    let artists = g
+        .state
+        .cards
+        .keys()
+        .copied()
+        .filter(|id| g.definition(*id).unwrap().name == "Blood Artist")
+        .collect::<Vec<_>>();
+    assert_eq!(artists.len(), 4);
+    for card in artists {
+        g.commit(
+            ProposedEvent::Move {
+                object: g.object_id(card).unwrap(),
+                destination: Zone::Battlefield,
+            },
+            BatchCause::StateBased,
+        )
+        .unwrap();
+    }
+    let source = *g
+        .state
+        .cards
+        .keys()
+        .find(|id| g.definition(**id).unwrap().name == "Hornet Queen")
+        .unwrap();
+    let token = match &g.definition(source).unwrap().triggered[0]
+        .program
+        .instructions[0]
+    {
+        Instruction::CreateCreatureTokens { token, .. } => token.clone(),
+        _ => panic!("source-backed token instruction"),
+    };
+    g.commit(
+        ProposedEvent::CreateCreatureTokens {
+            controller: PlayerId(0),
+            source: g.object_id(source).unwrap(),
+            count: tokens,
+            token: Box::new(token),
+        },
+        BatchCause::StateBased,
+    )
+    .unwrap();
+    g.state.pending_triggers.clear();
+    g.state.frame = Frame::Priority;
+    g.state.turn.step = TurnStep::PrecombatMain;
+    g.refresh_visibility().unwrap();
+    let (deaths, triggers) = wipe_death_payoff_board(&mut g);
+    assert_eq!(deaths, tokens as usize + 4);
+    assert_eq!(triggers, deaths * 4);
+    g.state.frame = Frame::Stabilize {
+        resume: Box::new(Frame::Priority),
+        cleanup: false,
+        changed: true,
+    };
+    for _ in 0..30_000 {
+        match g.advance(Budget::new(1)) {
+            Advance::Suspended { .. } => (),
+            Advance::AwaitingDecision(r) => {
+                if g.state.stack.is_empty()
+                    && g.state.pending_triggers.is_empty()
+                    && matches!(r, Request::Priority { .. })
+                {
+                    break;
+                }
+                let response = match &r {
+                    Request::Priority { .. } => Response::Pass,
+                    Request::OrderTriggers { candidates, .. } => Response::OrderTriggers {
+                        order: candidates.clone(),
+                    },
+                    Request::PlayerTargets { candidates, .. } => Response::PlayerTargets {
+                        players: vec![candidates[0]],
+                    },
+                    other => panic!("cascade request: {other:?}"),
+                };
+                g.respond(r.player(), r.decision_id(), response).unwrap();
+            }
+            other => panic!("public cascade: {other:?}, {:?}", g.typed_fault()),
+        }
+    }
+    assert!(g.state.stack.is_empty() && g.state.pending_triggers.is_empty());
+    assert!(g.typed_fault().is_none());
+    let mut nodes = BTreeSet::new();
+    let mut entries = 0;
+    for k in &g.state.visibility {
+        for view in k.history.iter() {
+            let pointers = view.stack.node_pointers();
+            entries += pointers.len();
+            nodes.extend(pointers);
+        }
+    }
+    (g, triggers, nodes.len(), entries)
+}
+#[test]
+fn public_death_cascade_retains_linear_stack_nodes() {
+    let (_, triggers, nodes, logical) = public_history_cascade(21);
+    assert_eq!(triggers, 100);
+    assert!(
+        logical > 100_000,
+        "must exercise deep retained stacks: {logical}"
+    );
+    assert!(
+        nodes <= 12 * triggers + 16,
+        "quadratic allocation regression: {nodes} for {triggers}"
+    );
+}
+#[test]
+#[ignore = "manual release public-history memory measurement"]
+fn public_history_release_probe() {
+    fn rss_bytes() -> usize {
+        std::fs::read_to_string("/proc/self/status")
+            .unwrap()
+            .lines()
+            .find_map(|line| {
+                line.strip_prefix("VmRSS:").map(|v| {
+                    v.split_whitespace()
+                        .next()
+                        .unwrap()
+                        .parse::<usize>()
+                        .unwrap()
+                        * 1024
+                })
+            })
+            .unwrap()
+    }
+    let baseline_rss = rss_bytes();
+    let start = std::time::Instant::now();
+    let (g, triggers, nodes, logical) = public_history_cascade(116);
+    assert_eq!(triggers, 480);
+    let views = g
+        .state
+        .visibility
+        .iter()
+        .map(|k| k.history.len())
+        .sum::<usize>();
+    eprintln!(
+        "public_history_probe {}",
+        serde_json::json!({
+            "triggers": triggers, "deaths":120, "views":views, "stack_nodes":nodes,
+            "logical_stack_entries":logical, "history_charge":g.history_charge(),
+            "elapsed_us":start.elapsed().as_micros(), "build_id":BUILD_ID,
+        "baseline_rss_bytes":baseline_rss, "final_rss_bytes":rss_bytes(),
+        "rss_growth_bytes":rss_bytes().saturating_sub(baseline_rss)
+        })
+    );
+}
+
+#[test]
+fn history_capacity_fault_rolls_back_the_entire_public_step_in_all_traces() {
+    let mut states = vec![];
+    for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
+        let mut g = Game::with_trace(prepared(&[]), mode);
+        // Set up an ordinary priority input, then inject a near-boundary charge.
+        g.state.frame = Frame::Priority;
+        g.refresh_visibility().unwrap();
+        let r = g.decision_for(g.state.priority).unwrap().unwrap();
+        g.respond(r.player(), r.decision_id(), Response::Pass)
+            .unwrap();
+        let charge = g.history_charge();
+        let mut probe = g.fork();
+        probe.step().unwrap();
+        let after_step = probe.history_charge();
+        probe.state.rule_steps += 1;
+        probe.refresh_visibility().unwrap();
+        let complete_charge = probe.history_charge();
+        assert!(
+            complete_charge > after_step,
+            "exercise post-mutation visibility overflow"
+        );
+        let headroom = complete_charge - charge - 1;
+        g.state.retained_auxiliary_charge += capacities::HISTORY_LIMIT - charge - headroom;
+        let mut expected = g.state.clone();
+        assert_eq!(g.history_charge(), capacities::HISTORY_LIMIT - headroom);
+        assert!(matches!(g.advance(Budget::new(1)), Advance::Fault(_)));
+        let fault = g.typed_fault().cloned().unwrap();
+        assert!(
+            matches!(fault, RuleFault::HistoryCapacityExceeded { capacity: capacities::HISTORY_LIMIT, requested } if requested > capacities::HISTORY_LIMIT)
+        );
+        expected.typed_fault = Some(fault.clone());
+        expected.frame = Frame::Fault {
+            reason: "history capacity exceeded".into(),
+        };
+        assert_eq!(g.state, expected);
+        g.validate_tokens_state().unwrap();
+        let roundtrip: RuleFault =
+            serde_json::from_str(&serde_json::to_string(&fault).unwrap()).unwrap();
+        assert_eq!(fault, roundtrip);
+        states.push(g.state);
+    }
+    assert_eq!(states[0], states[1]);
+    assert_eq!(states[0], states[2]);
+}
+
+#[test]
+#[ignore = "manual release long-game history accounting measurement"]
+fn history_draw_release_probe() {
+    let p = match_profile("commander-foundations-v1").unwrap();
+    let mut config = MatchConfig::for_profile(&p.name, [7; 32], PlayerId(2)).unwrap();
+    config.decks = std::array::from_fn(|_| p.decks[0].clone());
+    let mut g = Game::with_trace(
+        Prepared::admit_pod(p.catalog().clone(), config).unwrap(),
+        TraceMode::Off,
+    );
+    let result = loop {
+        match g.advance(Budget::new(1024)) {
+            Advance::AwaitingDecision(r) => {
+                let response = match &r {
+                    Request::Mulligan { .. } => Response::Mulligan { take: false },
+                    Request::Priority { .. } => Response::Pass,
+                    Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
+                    Request::Blockers { .. } => Response::Blockers { blocks: vec![] },
+                    Request::Discard {
+                        candidates, count, ..
+                    } => Response::Discard {
+                        objects: candidates.iter().take(*count).copied().collect(),
+                    },
+                    other => panic!("draw-only request {other:?}"),
+                };
+                g.respond(r.player(), r.decision_id(), response).unwrap();
+            }
+            Advance::Suspended { .. } => (),
+            other => break other,
+        }
+    };
+    eprintln!(
+        "history_draw_probe {}",
+        serde_json::json!({
+            "turn":g.turn().number,"result":format!("{result:?}"),"fault":g.typed_fault(),
+            "charge":g.history_charge(),"auxiliary_charge":g.state.retained_auxiliary_charge,
+            "view_charge":g.state.visibility.iter().map(|k| k.history.retention_charge()).collect::<Vec<_>>(),
+            "views":g.state.visibility.iter().map(|k| k.history.len()).collect::<Vec<_>>(),
+            "rule_steps":g.state.rule_steps, "event_sequence":g.state.next_event_sequence,
+            "view_inline_bytes":std::mem::size_of::<super::stored_history::StoredPermittedView>(),
+            "event_inline_bytes":std::mem::size_of::<Event>()
+        })
+    );
+    assert!(matches!(result, Advance::Finished { .. }));
+}
