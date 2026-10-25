@@ -1579,7 +1579,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some("extract") if args.len() >= 5 => {
                     mtg_compiler::extract_records(Path::new(&args[2]), Path::new(&args[3]), &args[4..])?
                 }
-                _ => return Err("usage: catalog build MANIFEST [--write] | catalog extract ARCHIVE PROVENANCE EXACT_NAME_OR_ORACLE_ID... | catalog verify ARCHIVE PROVENANCE".into()),
+                _ => return Err("usage: catalog coverage ARCHIVE [--out DIR] | catalog build MANIFEST [--write] | catalog extract ARCHIVE PROVENANCE EXACT_NAME_OR_ORACLE_ID... | catalog verify ARCHIVE PROVENANCE".into()),
             };
             println!("{}", canonical(&report)?);
         }

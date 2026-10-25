@@ -1053,7 +1053,6 @@ impl Definition {
                     c.kind,
                     CardKind::Creature | CardKind::Land | CardKind::Artifact
                 ))
-            || (c.kind == CardKind::Artifact && c.additional_types.contains(&CardKind::Artifact))
         {
             return Err("unsupported or noncanonical combined card types".into());
         }

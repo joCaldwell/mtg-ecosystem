@@ -14,6 +14,13 @@ cargo run --locked --release -p mtg-sim -- catalog coverage \
   --out generated/cards-as-data-coverage/d2a/final
 ```
 
+For compiler-only iterations, the same implementation is available without
+building core/sim:
+
+```sh
+cargo run --locked --release -p mtg-compiler --example coverage -- ARCHIVE OUTPUT_DIR
+```
+
 The accepted-archives data must pin both the exact manifest and full archive
 SHA-256. Unknown archives and changed bytes produce typed errors. No manifest
 substitution occurs. The input is read-only. Output defaults to
@@ -57,6 +64,10 @@ are sequential and count newly lowered **and validated** legal records.
 | --- | ---: | ---: | ---: |
 | Baseline (`00-baseline`) | 1,719 | — | 5.35247% |
 | Source normalization (`01-normalization`) | 1,719 | +0 | 5.35247% |
+| Multi-face classification (`02-multi-face`) | 1,719 | +0 | 5.35247% |
+| Compositional types (`03-type-lines`) | 1,820 | +101 | 5.66696% |
+| Strict keyword/node diagnostics (`04-keyword-reader`) | 1,820 | +0 | 5.66696% |
+| Accepted archive (already implemented by D1a) | 1,820 | +0 | 5.66696% |
 
 The source adapter now uses case-sensitive Unicode word boundaries, punctuation
 canonicalization, full and source-established legendary short names in all
@@ -95,3 +106,48 @@ World), mixed spell/permanent types and land-creatures retain explicit failures.
 No new keyword, trigger, snow-cost, world-rule or planeswalker behavior is added.
 All 68 compiler tests passed, including exact freshness of every committed
 catalog: no expected IR or digest needed regeneration.
+
+Strict keyword/node diagnostics (`04-keyword-reader`): **1,820 (5.66696%), +0**.
+Unknown discriminator values and keywords now appear in `CompileResult` itself,
+with concrete field paths. Array positions become `[*]` in coverage codes so
+moving a clause does not split one rejection family. Serde offsets and expected
+variant lists never enter the codes. The mirror still rejects every unknown
+node, field, parameter and duplicate key. Hyphenated first-strike/double-strike
+aliases map to their existing runtime keywords; JSON field ordering already
+works. The archive uses canonical forms for those implemented keywords, so
+there is no additional coverage gain. Ward, flash, protection, conditional
+hexproof and other unimplemented keyword shapes remain explicit rejections.
+All 71 compiler tests pass.
+
+## D2a final coverage
+
+**1,820 / 32,116 Commander-legal records (5.66696%)**, an increase of **101 cards
+and 0.31448 percentage points** over the reproducible baseline. Final legal
+statuses: 1,820 lowered/validated, 27,814 Unsupported, 2,481 unparsed, 1 Invalid.
+The remaining Invalid is a source-backed empty-AST/nonempty-creature-text
+integrity rejection; it is not accepted by this work.
+
+Top 15 remaining first-failure reasons (including unparsed records):
+
+| Reason | Commander-legal records |
+| --- | ---: |
+| `status:unparsed` | 2481 |
+| `trigger:phase` | 1116 |
+| `trigger:attacks` | 897 |
+| `effect:gain-abilities` | 866 |
+| `trigger:cast` | 789 |
+| `static:enters-tapped` | 597 |
+| `keyword:flash` | 545 |
+| `abilities[*].condition` | 540 |
+| `trigger:deals-damage` | 526 |
+| `ref:self` | 489 |
+| `abilities[*].abilityWord` | 477 |
+| `static.scope:unsupported_modifier_scope` | 441 |
+| `effects.steps:unsupported_activated_operator_controller_or_cardinality` | 403 |
+| `static:conditional` | 403 |
+| `multi_face_layout:transform` | 341 |
+
+Full results and examples are retained under
+`generated/cards-as-data-coverage/d2a/`; downloaded and generated artifacts stay
+ignored. Coverage is a compiler metric. The remaining semantic families above
+are future D2 work, and lowering alone does not establish full rules support.

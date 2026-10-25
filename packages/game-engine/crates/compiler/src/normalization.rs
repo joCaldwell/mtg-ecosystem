@@ -298,10 +298,7 @@ pub(super) fn source_lines(
     let normalized = normalize_self_names(&normalized, &name, type_line);
     let lines: Vec<String> = normalized
         .lines()
-        .map(|line| {
-            let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
-            line
-        })
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
         .filter(|line| !line.is_empty())
         .collect();
     // Block boundaries match parseAbilityBlocks in parser/index.ts at 327b3360.

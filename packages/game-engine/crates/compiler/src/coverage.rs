@@ -54,6 +54,7 @@ pub struct CoverageSummary {
 /// lists. Unknown discriminants retain their AST tag; other boundaries retain
 /// their compiler field path and a stable, punctuation-free detail.
 pub(crate) fn reason_code(path: &str, reason: &str, abilities: &Value) -> String {
+    let reason = reason.split(" at line ").next().unwrap_or(reason);
     for prefix in ["unknown variant `", "unknown field `"] {
         if let Some(rest) = reason.strip_prefix(prefix)
             && let Some((value, _)) = rest.split_once('`')
@@ -63,8 +64,23 @@ pub(crate) fn reason_code(path: &str, reason: &str, abilities: &Value) -> String
                     Value::Array(a) => a.iter().find_map(|v| tag(v, value)),
                     Value::Object(o) => {
                         for key in [
-                            "kind", "trigger", "effect", "keyword", "amount", "ref", "cost",
-                            "player", "modifier",
+                            "kind",
+                            "trigger",
+                            "effect",
+                            "keyword",
+                            "amount",
+                            "ref",
+                            "cost",
+                            "player",
+                            "modifier",
+                            "static",
+                            "event",
+                            "replacement",
+                            "mana",
+                            "shield",
+                            "prevent",
+                            "to",
+                            "cls",
                         ] {
                             if o.get(key).and_then(Value::as_str) == Some(value) {
                                 return Some(format!("{key}:{value}"));
@@ -75,7 +91,8 @@ pub(crate) fn reason_code(path: &str, reason: &str, abilities: &Value) -> String
                     _ => None,
                 }
             }
-            return tag(abilities, value).unwrap_or_else(|| format!("{path}.{value}"));
+            return tag(abilities, value)
+                .unwrap_or_else(|| format!("{}.{value}", stable_path(path)));
         }
     }
     if reason.starts_with("unsupported complete keyword shape") {
@@ -104,7 +121,31 @@ pub(crate) fn reason_code(path: &str, reason: &str, abilities: &Value) -> String
             return k;
         }
     }
-    if reason.starts_with("multi_face_layout:") || reason.starts_with("keyword:") {
+    if [
+        "multi_face_layout:",
+        "keyword:",
+        "kind:",
+        "trigger:",
+        "effect:",
+        "ref:",
+        "amount:",
+        "static:",
+        "cost:",
+        "player:",
+        "modifier:",
+        "event:",
+        "replacement:",
+        "mana:",
+        "shield:",
+        "prevent:",
+        "to:",
+        "cls:",
+        "abilities[",
+        "abilities.",
+    ]
+    .iter()
+    .any(|prefix| reason.starts_with(prefix))
+    {
         return reason.into();
     }
     let detail = reason.split(" at line ").next().unwrap_or(reason);
@@ -114,7 +155,23 @@ pub(crate) fn reason_code(path: &str, reason: &str, abilities: &Value) -> String
         .collect::<Vec<_>>()
         .join("_")
         .to_lowercase();
+    let path = stable_path(path);
     format!("{path}:{slug}")
+}
+fn stable_path(path: &str) -> String {
+    let mut out = String::new();
+    let mut inside = false;
+    for c in path.chars() {
+        if c == '[' {
+            inside = true;
+            out.push_str("[*]");
+        } else if c == ']' {
+            inside = false;
+        } else if !inside {
+            out.push(c);
+        }
+    }
+    out
 }
 fn escape_tsv(s: &str) -> String {
     s.replace('\\', "\\\\")
@@ -260,4 +317,58 @@ pub fn coverage(archive: &Path, out: &Path) -> Result<CoverageSummary, CoverageE
     )
     .map_err(io)?;
     Ok(summary)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn archive_acceptance_and_raw_bytes_are_required_before_outputs() {
+        let dir = std::env::temp_dir().join(format!("mtg-coverage-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let archive = dir.join("input.jsonl");
+        let out = dir.join("out");
+        fs::write(&archive, "{}\n").unwrap();
+        assert!(matches!(
+            coverage(&archive, &out),
+            Err(CoverageError::UnknownArchive { .. })
+        ));
+        assert!(!out.exists());
+        fs::write(
+            &archive,
+            include_str!("../../../tests/fixtures/archive-manifest-current.json"),
+        )
+        .unwrap();
+        assert!(matches!(
+            coverage(&archive, &out),
+            Err(CoverageError::ArchiveHashMismatch)
+        ));
+        assert!(!out.exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn reason_codes_do_not_depend_on_serde_locations_or_array_offsets() {
+        let ast = serde_json::json!([{"kind":"triggered","trigger":{"trigger":"phase"}}]);
+        assert_eq!(
+            reason_code(
+                "abilities[2]",
+                "unknown variant `phase`, expected `enters` at line 1 column 19",
+                &ast
+            ),
+            "trigger:phase"
+        );
+        assert_eq!(
+            reason_code(
+                "abilities[12]",
+                "unknown field `condition` at line 1 column 99",
+                &ast
+            ),
+            "abilities[*].condition"
+        );
+        assert_eq!(
+            reason_code("abilities[1]", "keyword:ward at line 1 column 123", &ast),
+            "keyword:ward"
+        );
+        assert_eq!(escape_tsv("A\tB\nC\\D"), "A\\tB\\nC\\\\D");
+    }
 }

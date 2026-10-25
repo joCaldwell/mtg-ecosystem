@@ -149,13 +149,29 @@ impl<'de> Deserialize<'de> for SourceKeyword {
             .and_then(|k| k.as_str())
             .ok_or_else(|| D::Error::custom("missing keyword"))?
             .to_owned();
+        let keyword = match keyword.as_str() {
+            "first-strike" => "first strike".to_owned(),
+            "double-strike" => "double strike".to_owned(),
+            _ => keyword,
+        };
+        if !matches!(keyword.as_str(), "equip" | "enchant")
+            && serde_json::from_value::<KeywordAbility>(serde_json::Value::String(keyword.clone()))
+                .is_err()
+        {
+            return Err(D::Error::custom(format!("keyword:{keyword}")));
+        }
         let allowed = match keyword.as_str() {
             "equip" => ["keyword", "cost"].as_slice(),
             "enchant" => ["keyword", "filter"].as_slice(),
             _ => ["keyword"].as_slice(),
         };
         if object.len() != allowed.len() || object.keys().any(|k| !allowed.contains(&k.as_str())) {
-            return Err(D::Error::custom("unsupported complete keyword shape"));
+            let field = object
+                .keys()
+                .find(|k| !allowed.contains(&k.as_str()))
+                .map(String::as_str)
+                .unwrap_or("missing_parameter");
+            return Err(D::Error::custom(format!("keyword:{keyword}:field:{field}")));
         }
         let cost = object
             .get("cost")
@@ -636,6 +652,20 @@ fn mana_cost(text: &str) -> Result<ManaCost, Failure> {
     Ok(cost)
 }
 
+fn read_abilities(raw: &str) -> Result<Vec<Ability>, Failure> {
+    // Keep the duplicate-key pass before serde's internally tagged mirrors.
+    // serde_path_to_error reports context without accepting unknown fields.
+    let tree: serde_json::Value = decode(raw, "abilities")?;
+    let mut de = serde_json::Deserializer::from_str(raw);
+    let abilities = serde_path_to_error::deserialize(&mut de).map_err(|e| {
+        let path = format!("abilities{}", e.path());
+        let code = coverage::reason_code(&path, &e.inner().to_string(), &tree);
+        unsupported(&path, code)
+    })?;
+    de.end().map_err(|e| invalid("abilities", e.to_string()))?;
+    Ok(abilities)
+}
+
 pub fn compile(manifest: &str, record: &str) -> CompileResult {
     match lower(manifest, record) {
         Ok(definition) => CompileResult::Lowered {
@@ -717,8 +747,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     if sha256(format!("[{}]", result.abilities.get()).as_bytes()) != ast_sha256 {
         return Err(invalid("astSha256", "successful AST hash mismatch"));
     }
-    let abilities: Vec<Ability> =
-        strict_read(result.abilities.get()).map_err(|e| unsupported("abilities", e))?;
+    let abilities: Vec<Ability> = read_abilities(result.abilities.get())?;
     // Only understood whole-card ASTs reach source normalization. Unsupported
     // nodes are rejected first; every candidate for admission still proves the
     // exact complete normalized source and line/aggregate mirror below.
@@ -908,7 +937,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                             if keyword.cost.is_some() || keyword.filter.is_some() {
                                 return Err(unsupported(
                                     "keyword",
-                                    "unsupported keyword parameters",
+                                    format!("keyword:{}:parameters", keyword.keyword),
                                 ));
                             }
                             match keyword.keyword.as_str() {
@@ -934,7 +963,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                 _ => {
                                     return Err(unsupported(
                                         "abilities.keywords",
-                                        "unsupported whole-card keyword family",
+                                        format!("keyword:{}", keyword.keyword),
                                     ));
                                 }
                             }
@@ -2895,6 +2924,57 @@ fn lower_activation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn strict_mirror_reports_specific_nodes_keywords_and_fields() {
+        for (raw, expected) in [
+            (
+                r#"[{"kind":"future-ability","payload":{}}]"#,
+                "kind:future-ability",
+            ),
+            (
+                r#"[{"kind":"triggered","trigger":{"trigger":"phase"},"effects":[]}]"#,
+                "trigger:phase",
+            ),
+            (
+                r#"[{"kind":"spell","effects":[{"steps":[{"effect":"gain-abilities"}]}]}]"#,
+                "effect:gain-abilities",
+            ),
+            (
+                r#"[{"kind":"keywords","keywords":[{"keyword":"ward","cost":[]}]}]"#,
+                "keyword:ward",
+            ),
+            (
+                r#"[{"kind":"keywords","keywords":[{"keyword":"flying","extra":true}]}]"#,
+                "keyword:flying:field:extra",
+            ),
+        ] {
+            let failure = read_abilities(raw).unwrap_err();
+            assert!(failure.unsupported);
+            assert_eq!(failure.reason, expected);
+        }
+        let failure =
+            read_abilities(r#"[{"kind":"spell","effects":[],"unknownClause":true}]"#).unwrap_err();
+        assert!(failure.unsupported && failure.reason.contains("unknownClause"));
+        let failure =
+            read_abilities(r#"[{"kind":"keywords","keywords":[],"keywords":[]}]"#).unwrap_err();
+        assert!(!failure.unsupported, "duplicates remain invalid");
+        let raw = fixtures::COMBAT_KEYWORD_RECORDS
+            .iter()
+            .find(|(name, _)| *name == "youthful-knight")
+            .unwrap()
+            .1;
+        let alias = changed_source(raw, |r| {
+            r["faces"][0]["result"]["abilities"][0]["keywords"][0]["keyword"] =
+                "first-strike".into();
+            r["faces"][0]["result"]["lines"][0]["ability"] =
+                r["faces"][0]["result"]["abilities"][0].clone();
+        });
+        let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, &alias) else {
+            panic!("implemented keyword alias must lower");
+        };
+        assert_eq!(definition.keywords, [KeywordAbility::FirstStrike]);
+    }
+
     #[test]
     fn combined_types_preserve_all_types_and_reject_missing_runtime_types() {
         for line in [
