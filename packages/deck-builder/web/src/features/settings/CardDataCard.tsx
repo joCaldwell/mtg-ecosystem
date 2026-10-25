@@ -4,7 +4,7 @@ import { ago } from "../../domain/time.ts";
 import { Box, Button, ErrorNote, Row, Spacer, Stack, Text } from "../../ui/index.ts";
 
 /** The card database and its prices, ingested from Scryfall's bulk files (spec §4.1, §4.4). */
-export function CardDataCard({ cards, jobs, onChanged }: { cards: Settings["cards"]; jobs: Settings["jobs"]; onChanged: () => void }) {
+export function CardDataCard({ cards, jobs, onChanged, canRefresh = true }: { cards: Settings["cards"]; jobs: Settings["jobs"]; onChanged: () => void; canRefresh?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
@@ -39,7 +39,7 @@ export function CardDataCard({ cards, jobs, onChanged }: { cards: Settings["card
           </Text>
           <Text tone="faint">refreshed {cards.updated_at ? ago(cards.updated_at) : "never"}</Text>
           <Spacer />
-          <Button size="sm" onClick={refresh} disabled={busy || jobs?.active === "refresh" || jobs?.queued.includes("refresh")}>
+          <Button size="sm" onClick={refresh} disabled={!canRefresh || busy || jobs?.active === "refresh" || jobs?.queued.includes("refresh")}>
             {busy ? "Queuing…" : jobs?.active === "refresh" ? "Refreshing…" : "Refresh now"}
           </Button>
         </Row>

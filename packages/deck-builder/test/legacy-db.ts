@@ -4,6 +4,8 @@ import type { Database } from "../src/sqlite.ts";
  * file before applying their historical schema edits. Never just relabel v11. */
 export function removeIdentity(db: Database): void {
   db.exec("PRAGMA foreign_keys = OFF; PRAGMA legacy_alter_table = ON");
+  // Strip phase-2 additions too: historical fixtures must be real old shapes.
+  for (const name of ["user","session","account","verification","jwks","oauthClient","oauthResource","oauthClientResource","oauthRefreshToken","oauthAccessToken","oauthConsent","oauthClientAssertion","invites","signup_intents","oauth_usage"]) db.exec(`DROP TABLE IF EXISTS "${name}"`);
   const decks = (db.prepare("SELECT sql FROM sqlite_master WHERE name = 'decks'").get() as { sql: string }).sql;
   const columns = (db.prepare("PRAGMA table_info(decks)").all() as { name: string }[]).map(r => r.name).filter(n => n !== "user_id");
   const legacy = decks.replace(/CREATE TABLE (?:"decks"|decks)/, "CREATE TABLE decks_old")
@@ -21,7 +23,7 @@ export function removeIdentity(db: Database): void {
     DROP TABLE user_settings; DROP TABLE agent_tokens;`);
   for (const table of ["memories", "document_edits", "log", "activity", "ownership_evidence", "power_targets", "power_assessments", "proposals"]) {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
-    for (const name of ["user_id", "author_user_id", "author_via", "author_label", "actor_user_id", "actor_via", "actor_label", "author_token_id"]) {
+    for (const name of ["user_id", "author_user_id", "author_via", "author_label", "actor_user_id", "actor_via", "actor_label", "author_token_id", "author_oauth_client_id"]) {
       if (!cols.some(c => c.name === name)) continue;
       db.exec(`DROP INDEX IF EXISTS idx_${table}_user; ALTER TABLE ${table} DROP COLUMN ${name}`);
     }

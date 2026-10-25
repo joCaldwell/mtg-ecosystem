@@ -182,7 +182,7 @@ describe("who may reach the agent endpoint", () => {
     for (const auth of ["", "Bearer nope", `Basic ${TOKEN}`]) {
       const res = await rpc(list, { Authorization: auth });
       assert.equal(res.status, 401, auth);
-      assert.equal(res.headers.get("www-authenticate"), `Bearer resource_metadata="${base}/.well-known/oauth-protected-resource/mcp"`);
+      assert.equal(res.headers.get("www-authenticate"), `Bearer resource_metadata="${base}/.well-known/oauth-protected-resource/mcp"${auth === "Bearer nope" ? ", error=\"invalid_token\"" : ""}`);
       assert.match((await res.json()).error.message, /Settings page/);
     }
   });

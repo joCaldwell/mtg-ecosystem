@@ -62,6 +62,9 @@ function nextNight(now: number) {
 export function createJobs(db: Database, opts: {
   dbPath?: string; dataDir?: string; onChange?: () => void;
   spawnJob?: (name: JobName) => ChildProcess;
+  /** Hosted auth shares this connection; delayed failure writes must queue
+   * behind its async transaction rather than accidentally joining it. */
+  writeFailure?: (write: () => void) => Promise<void>;
 } = {}) {
   const pending = new Set<JobName>();
   let active: JobName | null = null, child: ChildProcess | null = null, stopped = false;
@@ -92,10 +95,13 @@ export function createJobs(db: Database, opts: {
     active = name;
     const lastRun = new Date().toISOString();
     let finished = false;
-    const finish = (code: number | null, error?: Error) => {
+    const finish = async (code: number | null, error?: Error) => {
       if (finished) return;
       finished = true;
-      if (code !== 0) write(db, `job:${name}`, JSON.stringify({ last_run: lastRun, finished_at: new Date().toISOString(), result: "error", error: error?.message ?? `Child exited ${code}` }));
+      if (code !== 0) {
+        const persist=()=>write(db, `job:${name}`, JSON.stringify({ last_run: lastRun, finished_at: new Date().toISOString(), result: "error", error: error?.message ?? `Child exited ${code}` }));
+        if(opts.writeFailure) await opts.writeFailure(persist);else persist();
+      }
       console.log(`Job ${name} finished (${code ?? "error"})`);
       active = null; child = null;
       opts.onChange?.();
@@ -108,9 +114,9 @@ export function createJobs(db: Database, opts: {
       });
       child.stdout?.on("data", chunk => process.stdout.write(chunk));
       child.stderr?.on("data", chunk => process.stderr.write(chunk));
-      child.once("error", error => finish(null, error));
-      child.once("close", code => finish(code));
-    } catch (error) { finish(null, error as Error); }
+      child.once("error", error => { void finish(null,error).catch(()=>console.error("Could not record failed job")); });
+      child.once("close", code => { void finish(code).catch(()=>console.error("Could not record failed job")); });
+    } catch (error) { void finish(null,error as Error).catch(()=>console.error("Could not record failed job")); }
     opts.onChange?.();
   }
   const enqueue = (name: JobName) => { if (active !== name) pending.add(name); pump(); return status(); };

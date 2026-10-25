@@ -1,3 +1,4 @@
+import type { accountInfo, adminInfo } from "../../../src/accounts.ts";
 import type { AgentToken } from "../../../src/tokens.ts";
 import type { PlaytestView, PlaytestAction, PlaytestUiPatch, TableCard, TableObject, CardFace, Zone, Row as TableRow, Mode } from "../../../src/playtest/service.ts";
 export type { PlaytestView, PlaytestAction, PlaytestUiPatch, TableCard, TableObject, CardFace, Zone, TableRow, Mode };
@@ -63,11 +64,13 @@ export interface Inbox {
   unreviewed: number;
 }
 
+export interface Session { mode: "local" | "hosted"; providers: string[]; legal: {operator_name:string;contact_email:string}|null; invites_required:boolean; user: ReturnType<typeof accountInfo> | null }
+
 export interface Settings {
   jobs: ReturnType<Jobs["status"]> | null;
   budgets: { global: number; deck: number };
   cards: { count: number; updated_at: string | null; prices: PriceStatus };
-  agent: { url: string; mode: "local" | "hosted"; tokens: AgentToken[]; stdio_command?: string };
+  agent: { url: string; mode: "local" | "hosted"; tokens: AgentToken[]; oauth_clients?: {client_id:string;label:string|null;last_used_at:string|null}[]; oauth_usage?: { client_id:string; label:string; last_used_at:string }[]; stdio_command?: string };
 }
 
 export interface MemoryList {
@@ -93,6 +96,7 @@ export class ApiError extends Error {
 async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(path, {
     method,
+    credentials: "same-origin",
     headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
     signal,
@@ -100,6 +104,7 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
   const json = res.headers.get("content-type")?.split(";")[0].trim() === "application/json";
   if (!res.ok) {
     const data = json ? await res.json().catch(() => null) : null;
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("api-error", { detail: { status: res.status, retryAfter: Number(res.headers.get("Retry-After") ?? 60), message: data?.error } }));
     throw new ApiError(res.status, typeof data?.error === "string" ? data.error : `HTTP ${res.status}`);
   }
   if (!json) throw new ApiError(res.status, "The server returned an unexpected response. Please retry.");
@@ -111,6 +116,17 @@ type StateResponse = { state: DeckState };
 export type Outcome = "accept" | "reject";
 
 export const api = {
+  disconnectClient: (client_id:string) => request<{ok:boolean}>("DELETE","/api/account/oauth",{client_id}),
+  session: () => request<Session>("GET","/api/session"),
+  signup: (code:string) => request("POST","/api/signup",{code}),
+  signIn: (provider:string, oauth_query:string) => request<{url:string}>("POST","/api/auth/sign-in/social",{provider,callbackURL:location.origin + "/",errorCallbackURL:location.origin + "/signin",...(oauth_query && new URLSearchParams(oauth_query).has("sig") ? {oauth_query} : {})}),
+  signOut: () => request("POST","/api/auth/sign-out",{}),
+  chooseHandle: (handle:string) => request("PATCH","/api/account/handle",{handle}),
+  exportAccount: () => request<unknown>("GET","/api/account/export"),
+  deleteAccount: (handle:string) => request("DELETE","/api/account",{handle}),
+  admin: () => request<ReturnType<typeof adminInfo> & { jobs:Settings["jobs"] }>("GET","/api/admin"),
+  createInvite: () => request<{code:string}>("POST","/api/admin/invites",{}),
+  enqueueJob: (job:"refresh"|"backup") => request("POST","/api/admin/jobs",{job}),
   tableCard: (oracleId: string) => request<{ card: TableCard }>("GET", `/api/cards/${oracleId}/table`),
   getPlaytest: (deckId: number) => request<{ playtest: PlaytestView | null }>("GET", `/api/decks/${deckId}/playtest`),
   startPlaytest: (deckId: number, mode: Mode, previous?: PlaytestView, replace = false) => request<{ playtest: PlaytestView }>("POST", `/api/decks/${deckId}/playtest`, { mode, replace, session_id: previous?.session.id, expected_version: previous?.session.version }),

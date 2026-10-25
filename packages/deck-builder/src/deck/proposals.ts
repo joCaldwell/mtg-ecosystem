@@ -105,8 +105,8 @@ export function createProposal(
 
   return withTransaction(db, () => {
     const r = db
-      .prepare("INSERT INTO proposals (deck_id, summary, author, base_revision, author_user_id, author_via, author_label, author_token_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(deckId, (input.summary ?? "").trim(), authorOf(actor), requireDeck(db, actor, deckId).revision, actor.user_id, actor.via, actor.label, actor.token_id ?? null);
+      .prepare("INSERT INTO proposals (deck_id, summary, author, base_revision, author_user_id, author_via, author_label, author_token_id, author_oauth_client_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(deckId, (input.summary ?? "").trim(), authorOf(actor), requireDeck(db, actor, deckId).revision, actor.user_id, actor.via, actor.label, actor.token_id ?? null, actor.oauth_client_id ?? null);
     const proposalId = Number(r.lastInsertRowid);
     const ins = db.prepare(
       `INSERT INTO proposal_items (proposal_id, action, oracle_id, slot_id, secondary_slot_ids_json, to_maybe, reason, group_id)
@@ -167,6 +167,7 @@ export interface ProposalView {
   author_label: string;
   author_display?: string;
   author_token_id: number | null;
+  author_oauth_client_id: string | null;
   status: "open" | "resolved";
   created_at: string;
   items: ProposalItemView[];
@@ -187,7 +188,7 @@ const ITEM_SELECT = `SELECT pi.id, pi.proposal_id, pi.action, pi.oracle_id, c.na
   LEFT JOIN slots s ON s.id = pi.slot_id
   WHERE pi.proposal_id = ? ORDER BY pi.id`;
 
-const PROPOSAL_SELECT = `SELECT p.id, p.deck_id, d.name AS deck_name, p.summary, p.author, p.author_user_id, p.author_via, p.author_label, p.author_token_id, p.status, p.created_at, p.base_revision, p.disposition, p.superseded_by
+const PROPOSAL_SELECT = `SELECT p.id, p.deck_id, d.name AS deck_name, p.summary, p.author, p.author_user_id, p.author_via, p.author_label, p.author_token_id, p.author_oauth_client_id, p.status, p.created_at, p.base_revision, p.disposition, p.superseded_by
   FROM proposals p JOIN decks d ON d.id = p.deck_id`;
 
 function withItems(db: Database, actor: Actor, rows: Array<Omit<ProposalView, "items">>): ProposalView[] {

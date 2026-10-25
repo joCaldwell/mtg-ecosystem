@@ -8,6 +8,7 @@ export type Actor = {
   via: "ui" | "agent";
   label: string;
   token_id?: number;
+  oauth_client_id?: string;
 };
 export type DeckRole = "owner" | "viewer" | "suggester";
 
@@ -40,9 +41,9 @@ export function requireUi(actor: Actor, what: string): void {
     throw new PermissionError(`Only the owner can ${what}. Ask them to do it in the app.`);
 }
 
-export function requireAdmin(db: Database, actor: Actor): void {
+export function requireAdmin(db: Database, actor: Actor, what = "refresh card data"): void {
   const user = db.prepare("SELECT is_admin FROM users WHERE id = ? AND deleted_at IS NULL").get(actor.user_id) as { is_admin: number } | undefined;
-  if (!user?.is_admin) throw new PermissionError("Only an administrator can refresh card data");
+  if (!user?.is_admin) throw new PermissionError(`Only an administrator can ${what}`);
 }
 
 export interface Attribution {
@@ -51,6 +52,7 @@ export interface Attribution {
   author_label: string;
   author_display?: string;
   author_token_id?: number | null;
+  author_oauth_client_id?: string | null;
 }
 /** Human-readable UI attribution; compact MCP author strings remain stable. */
 export function displayAuthor(db: Database, row: Attribution): string {
@@ -63,5 +65,5 @@ export function displayAuthor(db: Database, row: Attribution): string {
  * credential; trusted in-process actors without credentials retain label identity. */
 export function isAuthor(actor: Actor, row: Attribution): boolean {
   return row.author_user_id === actor.user_id && row.author_via === actor.via &&
-    (actor.via === "ui" || (actor.token_id != null ? row.author_token_id === actor.token_id : row.author_label === actor.label));
+    (actor.via === "ui" || (actor.token_id != null ? row.author_token_id === actor.token_id : actor.oauth_client_id != null ? row.author_oauth_client_id === actor.oauth_client_id : row.author_label === actor.label));
 }

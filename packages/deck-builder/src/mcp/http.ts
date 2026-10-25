@@ -21,6 +21,9 @@ import {
   createMcpHandler,
 } from "@modelcontextprotocol/server";
 import type { Actor } from "../actor.ts";
+import { readRequestBody } from "../http-body.ts";
+import { createRateLimiter, RateLimitError } from "../ratelimit.ts";
+import { clientIp } from "../mode.ts";
 import { allowedRequest, getMode, type Mode, publicOrigin } from "../mode.ts";
 import { AppError } from "../errors.ts";
 import { verifyToken } from "../tokens.ts";
@@ -37,6 +40,9 @@ const CLIENT_INFO_KEY = "io.modelcontextprotocol/clientInfo";
 export interface AgentEndpointOptions {
   mode?: Mode;
   version: string;
+  verifyOAuth?: (token: string) => Promise<Actor | null>;
+  rateLimit?: ReturnType<typeof createRateLimiter>;
+  withDatabase?: <T>(work:()=>T|Promise<T>)=>Promise<T>;
   /** Called after any tool wrote something, so the UI can refresh. */
   onChange?: (userId: number, change: { kind: string; deck_id?: number }) => void;
 }
@@ -46,7 +52,8 @@ export interface AgentEndpointOptions {
 // and wins; otherwise the client's self-reported name; otherwise its
 // User-Agent product; otherwise "agent".
 export function agentName(pathname: string, body: unknown, userAgent: string | undefined): string {
-  const fromPath = decodeURIComponent(pathname.slice(MCP_PATH.length).replace(/^\/+|\/+$/g, ""));
+  let fromPath = "";
+  try { fromPath = decodeURIComponent(pathname.slice(MCP_PATH.length).replace(/^\/+|\/+$/g, "")); } catch { /* malformed hint carries no authority */ }
   if (fromPath) return clean(fromPath);
   const first = Array.isArray(body) ? body[0] : body;
   const params = (first as any)?.params;
@@ -62,21 +69,6 @@ const clean = (name: string) => name.replace(/[^\w .@-]/g, "").trim().slice(0, 4
 function respond(res: ServerResponse, status: number, message: string, headers: Record<string, string> = {}) {
   res.writeHead(status, { "Content-Type": "application/json", ...headers });
   res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message }, id: null }));
-}
-
-function readBody(req: IncomingMessage): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let size = 0, oversized = false;
-    req.on("data", (chunk: Buffer) => {
-      if (oversized) return;
-      size += chunk.length;
-      if (size > MAX_BODY_BYTES) { oversized = true; chunks.length = 0; reject(new AppError("Request body too large", 413)); }
-      else chunks.push(chunk);
-    });
-    req.on("end", () => { if (!oversized) resolve(Buffer.concat(chunks)); });
-    req.on("error", reject);
-  });
 }
 
 export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
@@ -142,14 +134,15 @@ export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
   );
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
+    if (!allowedRequest(req, mode)) return respond(res, 403, "Host or Origin is not allowed");
+    const url = new URL(req.url ?? "/", mode === "hosted" ? publicOrigin() : "http://127.0.0.1");
     const headers = new Headers();
     for (const [k, v] of Object.entries(req.headers))
       if (v !== undefined) headers.set(k, Array.isArray(v) ? v.join(", ") : v);
 
     let body: Buffer;
     try {
-      body = req.method === "GET" || req.method === "HEAD" ? Buffer.alloc(0) : await readBody(req);
+      body = req.method === "GET" || req.method === "HEAD" ? Buffer.alloc(0) : await readRequestBody(req);
     } catch (e: any) {
       return respond(res, e.status ?? 400, e.message);
     }
@@ -164,16 +157,20 @@ export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
     // if present, must be too.
     if (!allowedRequest(req, mode)) return respond(res, 403, "Host or Origin is not allowed");
 
+    const dispatch = async () => {
     const auth = req.headers.authorization ?? "";
     const presented = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-    const authenticated = verifyToken(db, presented);
-    if (!authenticated)
+    const authenticated = verifyToken(db, presented) ?? (mode === "hosted" && presented ? await opts.verifyOAuth?.(presented) : null);
+    if (!authenticated) {
+      if (mode === "hosted") try { opts.rateLimit?.("unauthenticated", clientIp(req)); }
+      catch(e) { if(e instanceof RateLimitError) return respond(res,429,e.message,{"Retry-After":String(e.retryAfter)});throw e; }
       return respond(
         res,
         401,
         "Missing or wrong bearer token. Copy the agent token from the app's Settings page into this client's configuration.",
-        { "WWW-Authenticate": `Bearer resource_metadata="${mode === "hosted" ? publicOrigin() : url.origin}/.well-known/oauth-protected-resource/mcp"` },
+        { "WWW-Authenticate": `Bearer resource_metadata="${mode === "hosted" ? publicOrigin() : `http://${req.headers.host}`}/.well-known/oauth-protected-resource/mcp"${mode === "hosted" ? ", scope=\"deck-builder\"" : ""}${presented ? ", error=\"invalid_token\"" : ""}` },
       );
+    }
 
     let parsed: unknown;
     if (body.length) {
@@ -184,13 +181,22 @@ export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
       }
     }
     const hint = agentName(url.pathname, parsed, req.headers["user-agent"]);
-    const name = hint === "agent" ? authenticated.label : hint;
+    const name = mode === "hosted" || authenticated.oauth_client_id || hint === "agent" ? authenticated.label : hint;
+    if (mode === "hosted") try {
+      opts.rateLimit?.("mcp", authenticated.oauth_client_id ? `${authenticated.user_id}:${authenticated.oauth_client_id}` : `personal:${authenticated.token_id}`);
+      const tool = (parsed as any)?.params?.name;
+      if (tool === "search_cards" || tool === "search_memories") opts.rateLimit?.("search", `mcp:${authenticated.user_id}`);
+      if (tool === "compare_decks" || tool === "compare_deck_sources") opts.rateLimit?.("compare", `mcp:${authenticated.user_id}`);
+    } catch (e) { if (e instanceof RateLimitError) return respond(res,429,e.message,{"Retry-After":String(e.retryAfter)}); throw e; }
     const actor: Actor = { ...authenticated, label: name };
     const response = await handler.fetch(request, {
       authInfo: { token: presented, clientId: name, scopes: [], extra: { actor } },
       parsedBody: parsed,
     });
-    return send(res, response);
+    return response;
+    };
+    const response = await (opts.withDatabase ? opts.withDatabase(dispatch) : dispatch());
+    if (response) return send(res, response);
   }
 
   return { handle, close: () => handler.close?.() };

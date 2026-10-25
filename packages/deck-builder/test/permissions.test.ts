@@ -42,6 +42,13 @@ const excludedModules: Record<string,string> = {
   "app.ts":"HTTP registry tested below", "mcp/http.ts":"authenticated MCP transport tested below", "mcp/tools.ts":"tool registry tested below",
   "sqlite.ts":"SQLite constructor/backup primitives", "backups.ts":"operator backup/restore",
   "ingest.ts":"shared card ingest", "jobs.ts":"operator scheduler", "json-array.ts":"stream parser",
+  "auth.ts":"authentication boundary, including registration transactions, exercised in hosted-auth.test.ts",
+  "http-body.ts":"bounded transport parser, exercised through both HTTP doors",
+  "cimd-transport.ts":"pinned DNS transport security, exercised in hosted-auth.test.ts",
+  "auth-database.ts":"shared connection reservation and native dialect, covered by hosted security regressions",
+  "oauth-policy.ts":"signed authorization identity boundary, covered by hosted security regressions",
+  "auth-config.ts":"pinned library configuration, not a tenant capability",
+  "ratelimit.ts":"HTTP boundary limiter, exercised in hosted-auth.test.ts",
   "process-lock.ts":"operator process locks", "refresh.ts":"operator refresh", "scryfall.ts":"shared bulk downloads",
 };
 const functions: Record<string,any> = {};
@@ -598,6 +605,19 @@ test("MCP and HTTP reject own-deck/foreign-child combinations without partial wr
 // Every non-deck export has a concrete user-2 probe. The invocation proxy
 // rejects a no-op probe, and output/owner snapshots verify the privacy claim.
 const globalProbes:Record<string,GlobalProbe>={
+  accountInfo:(fn,f,a)=>{const info=fn(f.db,a);assert.equal(info.id,2);return info;},
+  chooseHandle:(fn,f,a)=>{f.db.prepare("UPDATE users SET needs_handle=1 WHERE id=?").run(a.user_id);return fn(f.db,a,"second_chosen");},
+  connectedClients:(fn,f,a)=>fn(f.db,a),
+  disconnectClient:(fn,f,a)=>{assert.throws(()=>fn(f.db,a,"missing"),{status:404});return null;},
+  ipBucket:fn=>fn("2001:db8::1"),
+  exportAccount:(fn,f,a)=>{const data=fn(f.db,a);assert.ok(data.tables.decks.every((d:any)=>d.user_id===2));return data;},
+  deleteAccount:(fn,f,a)=>{const handle=f.db.prepare("SELECT handle FROM users WHERE id=2").get()!.handle;fn(f.db,a,handle);assert.equal(f.db.prepare("SELECT id FROM users WHERE id=2").get(),undefined);return null;},
+  createInvite:(fn,f,a)=>{assert.throws(()=>fn(f.db,a),{status:403});return null;},
+  adminInfo:(fn,f,a)=>{assert.throws(()=>fn(f.db,a),{status:403});return null;},
+  accountScopes:(fn,f)=>{const rows=fn(f.db);assert.ok(rows.some((r:any)=>r.table==="decks"));return rows;},
+  clientIp:fn=>fn({headers:{"x-forwarded-for":"attacker"},socket:{remoteAddress:"127.0.0.1"}},{}),
+  securityHeaders:fn=>{const headers:Record<string,string>={};fn({setHeader:(k:string,v:string)=>{headers[k]=v;}},"local");assert.deepEqual(headers,{});return headers;},
+  consentHtml:fn=>{const html=fn({name:"<script>bad</script>",identityHost:null,redirectHost:"127.0.0.1",redirectUri:"http://127.0.0.1/cb",loopback:true});assert.ok(html.includes("&lt;script&gt;"));return html;},
   getSetting:(fn,f,a)=>{setSetting(f.db,a,"probe","second setting");return fn(f.db,a,"probe");},
   setSetting:(fn,f,a)=>{fn(f.db,a,"probe","second setting");assert.equal(getSetting(f.db,a,"probe"),"second setting");return getSetting(f.db,a,"probe");},
   createDeck:(fn,f,a)=>{const id=fn(f.db,a,"Second new list");return decks.requireDeck(f.db,a,id);},
@@ -681,7 +701,7 @@ const globalProbes:Record<string,GlobalProbe>={
 };
 for(const name of ["AppError","ServiceError","SchemaError","PermissionError","SearchError"])globalProbes[name]=fn=>new fn("Second probe");
 globalProbes.CardResolutionError=fn=>new fn([{ref:"missing",problem:"unknown",suggestions:[],candidates:[]}]);
-const globalKinds:Record<string,Classification>={getSetting:"read",setSetting:"write",createDeck:"write",listDecks:"read",getProfile:"read",setProfile:"owner-only",getBudgets:"read",setBudgets:"write",unreviewedCount:"read",getFocus:"read",playerStats:"read",listActivity:"read",ownershipEvidence:"read",createToken:"owner-only",listTokens:"owner-only",revokeToken:"owner-only",requireUi:"owner-only",requireAdmin:"owner-only",ingestPrices:"write"};
+const globalKinds:Record<string,Classification>={connectedClients:"owner-only",disconnectClient:"owner-only",accountInfo:"owner-only",chooseHandle:"owner-only",exportAccount:"owner-only",deleteAccount:"owner-only",createInvite:"owner-only",adminInfo:"owner-only",accountScopes:"public-read",getSetting:"read",setSetting:"write",createDeck:"write",listDecks:"read",getProfile:"read",setProfile:"owner-only",getBudgets:"read",setBudgets:"write",unreviewedCount:"read",getFocus:"read",playerStats:"read",listActivity:"read",ownershipEvidence:"read",createToken:"owner-only",listTokens:"owner-only",revokeToken:"owner-only",requireUi:"owner-only",requireAdmin:"owner-only",ingestPrices:"write"};
 for(const [name,probe] of Object.entries(globalProbes))globalCase(name,globalKinds[name]??"public-read",probe);
 
 function ownerSnapshot(f:Fixture) {

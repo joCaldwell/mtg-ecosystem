@@ -3,6 +3,7 @@ import { api } from "../api/client.ts";
 import { LiveProvider } from "../api/live.tsx";
 import { CardHoverProvider, CardLookupProvider, type CardInfo } from "../mtg/index.ts";
 import { ToastProvider } from "../ui/index.ts";
+import { SessionProvider } from "./Session.tsx";
 import { FocusProvider } from "./Focus.tsx";
 import { InboxProvider } from "./Inbox.tsx";
 
@@ -14,8 +15,8 @@ const lookupCard = (name: string): Promise<CardInfo | null> =>
 /** Everything app-wide a screen may reach for through context, in one place. */
 export function AppProviders({ children }: { children: ReactNode }) {
   return (
-    <LiveProvider>
-      <ToastProvider>
+    <ToastProvider>
+      <SessionProvider><LiveProvider>
         <CardLookupProvider lookup={lookupCard}>
           <CardHoverProvider>
             <InboxProvider>
@@ -23,7 +24,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
             </InboxProvider>
           </CardHoverProvider>
         </CardLookupProvider>
-      </ToastProvider>
-    </LiveProvider>
+      </LiveProvider></SessionProvider>
+    </ToastProvider>
   );
 }

@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { createHostedAuth } from "./auth.ts";
 import { createApp } from "./app.ts";
 import { DEFAULT_DB_PATH, PKG_ROOT, openDb } from "./db.ts";
 import { MCP_PATH } from "./mcp/http.ts";
@@ -15,8 +16,13 @@ process.once("exit", release);
 const mode = getMode();
 const db = openDb();
 if (mode === "local") migrateLegacyToken(db);
-const jobs = createJobs(db, { onChange: () => app.notifyAll({ kind: "jobs" }) });
-const app = createApp(db, { mode, port: PORT, jobs });
+const jobs = createJobs(db, {
+  onChange: () => app.notifyAll({ kind: "jobs" }),
+  ...(mode === "hosted" ? { writeFailure: (write: () => void) => app.withDatabase(write) } : {}),
+});
+const auth = mode === "hosted" ? createHostedAuth(db) : undefined;
+await auth?.ready;
+const app = createApp(db, { mode, port: PORT, jobs, auth });
 let closing = false;
 const shutdown = async () => {
   if (closing) return;

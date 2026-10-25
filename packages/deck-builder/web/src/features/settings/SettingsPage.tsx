@@ -1,3 +1,8 @@
+import { useEffect } from "react";
+import { useSession } from "../../app/Session.tsx";
+import { LegalFooter } from "../auth/index.ts";
+import { AccountCard } from "./AccountCard.tsx";
+import { AdminCard } from "./AdminCard.tsx";
 import { api } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
 import { href } from "../../app/routes.ts";
@@ -9,8 +14,10 @@ import styles from "./SettingsPage.module.css";
 
 /** Connection details for agents, memory budgets, and card data (spec §10.1, §7.4). */
 export function SettingsPage() {
+  const {session} = useSession();
   const settings = useQuery(() => api.getSettings(), []);
   const data = settings.data;
+  useEffect(() => { const timer=setInterval(settings.reload,30_000); return () => clearInterval(timer); },[settings.reload]);
 
   return (
     <Page
@@ -23,7 +30,10 @@ export function SettingsPage() {
         <div className={styles.cards}>
           <AgentConnectionCard agent={data.agent} onChanged={settings.reload} />
           <BudgetsCard budgets={data.budgets} onSaved={settings.reload} />
-          <CardDataCard cards={data.cards} jobs={data.jobs} onChanged={settings.reload} />
+          <CardDataCard cards={data.cards} jobs={data.jobs} onChanged={settings.reload} canRefresh={session.mode === "local" || !!session.user?.is_admin} />
+          {session.mode === "hosted" && <AccountCard />}
+          {session.mode === "hosted" && !!session.user?.is_admin && <AdminCard />}
+          {session.mode === "hosted" && <LegalFooter asOf={data.cards.prices.as_of} />}
           <Text tone="faint" size="sm">
             Colours, type and every component are on the <a href={href({ page: "design" })}>design reference</a>.
           </Text>

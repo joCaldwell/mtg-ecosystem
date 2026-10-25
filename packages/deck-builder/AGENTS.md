@@ -55,17 +55,26 @@ step for `src/`**. `node:sqlite` (built in, has FTS5) means no native deps. Use 
 from `src/sqlite.ts` (Node 26 rename; the same constructor on Node 24).
 Connections have a 5-second busy timeout.
 Runtime dependencies: React, `@modelcontextprotocol/server` (the official MCP
-TypeScript SDK, v2 line) and `zod`. `@aws-sdk/client-s3` is the ops-only
+TypeScript SDK, v2 line) and `zod` (minimum 4.6.7 for the collection-validation
+security patch). `@aws-sdk/client-s3` is the ops-only
 exception for optional S3-compatible backup uploads; it is loaded only when
 configured. A new runtime dependency needs a stated reason in the PR and an
-entry here. The planned ones are Better Auth (phase 2) and whatever its
-plugins require. Prefer the platform and the existing set otherwise.
+entry here. Hosted authentication adds exact pins: `better-auth@1.7.13` for social
+sign-in and cookie sessions; `@better-auth/mcp@1.7.13` for the OAuth 2.1
+provider and RFC 9728 metadata; `@better-auth/cimd@1.7.13` for client
+document registration; `@better-auth/oauth-provider@1.7.13` to pin the MCP
+plugin’s provider peer to the documented version; `@better-auth/core@1.7.13`
+for the canonical public-address policy used by the DNS-pinned CIMD
+transport; `@better-auth/kysely-adapter@1.7.13` and `kysely@0.29.7`
+for the official native dialect with query/transaction-scoped reservations; `jose@6.2.3` for JWKS JWT verification. The existing personal
+tokens satisfy D7, so do not install the api-key plugin. No native deps.
+The auth CLI is an offline schema-generation tool, not a runtime dependency. Prefer the platform and the existing set otherwise.
 
 ```
 src/
   errors.ts          AppError base — every user-facing failure carries its HTTP status
   actor.ts           Actor with principal; requireDeckOwner, requireSelf, requireUi, PermissionError
-  db.ts              ordered migrations through v11, nested savepoints, per-user settings
+  db.ts              ordered migrations through v12, nested savepoints, per-user settings
   cards.ts           ⭐ exact card resolution, suggestions, prose linting
   ingest.ts          Scryfall bulk → SQLite            search/  Scryfall-syntax subset
   prices.ts          the cheapest playable printing of each card (spec §4.4)
@@ -89,7 +98,12 @@ src/
   stats.ts           player statistics across Paper decks only
   activity.ts        the activity feed          focus.ts   what the owner has open
   tokens.ts          per-user hashed personal credentials; create/list/revoke/verify, legacy import
-  mode.ts            local/hosted mode, local actor, Host/Origin boundary
+  auth.ts            hosted sessions, safe claim/invite registration and OAuth verification
+  auth-config.ts     pinned Better Auth configuration (same config for schema generation)
+  accounts.ts        UI account/export/delete/handle and admin capabilities
+  ratelimit.ts       single-instance in-memory sliding windows
+  cimd-transport.ts  resolve once, check all DNS answers, pin IPv4-preferred address
+  mode.ts            local/hosted mode, local actor, Host/Origin and proxy boundary
   state.ts           deckState() — the composite the UI gets from every mutation
   app.ts             request-to-Actor seam, UI API, per-user event streams, static files, /mcp
   server.ts          entry point: loopback in local mode, all interfaces in hosted mode
@@ -135,8 +149,10 @@ Run from this directory (`packages/deck-builder/`):
 | `npm run mcp` | The stdio shim, for clients that only launch a command |
 
 `DECKBUILDER_MODE` defaults to `local`: loopback, implicit UI user 1, no login.
-`hosted` binds all interfaces and requires `DECKBUILDER_PUBLIC_ORIGIN`; UI
-APIs return 401 until Phase 2 supplies sessions. `DECKBUILDER_PORT`,
+`hosted` binds all interfaces and requires `DECKBUILDER_PUBLIC_ORIGIN`,
+`BETTER_AUTH_SECRET` and a configured provider. UI APIs resolve Better Auth
+sessions to `users.auth_id`; missing sessions return 401. Local mode exposes
+no OAuth endpoints and never shows sign-in. `DECKBUILDER_PORT`,
 `DECKBUILDER_DB` and `DECKBUILDER_DATA` override port, database and data folder.
 `DECKBUILDER_TOKEN` is removed; credentials live hashed in `agent_tokens`.
 
@@ -164,8 +180,9 @@ default_tools_approval_mode = "approve"
 ```
 
 The name after `/mcp/` is a label for attribution in the activity feed.
-ChatGPT on the web cannot reach a loopback address; the Settings page describes
-the route through OpenAI's Secure MCP Tunnel and the stdio shim.
+Hosted Settings also describes Claude Code OAuth, Claude.ai and ChatGPT
+connections to the public `/mcp` URL. Browser connectors require public HTTPS.
+Local clients retain their HTTP and stdio configurations.
 
 ### Doing frontend work
 
@@ -233,7 +250,9 @@ Vite proxy follows the API port.
 *   **Host, Origin and token are checked in front of the SDK.** The SDK's
     handler validates none of them. `app.ts` applies the Host/Origin check to
     the UI API as well. Local UI requests build implicit user 1; hosted UI
-    requests await the session resolver. MCP resolves a per-user bearer on
+    requests resolve the cookie session. Hosted mutating UI requests require
+    the configured Origin. Forwarded headers are trusted only with
+    `DECKBUILDER_TRUST_PROXY=1`. MCP resolves a per-user bearer on
     every request, with revoked/deleted-user credentials rejected immediately.
 *   **Personal tokens are secrets shown once.** `dbk_` + 32 random bytes,
     SHA-256 at rest, prefix lookup and timing-safe hash comparison. Label,
@@ -261,3 +280,42 @@ Vite proxy follows the API port.
 *   **Tool text is an interface.** `tools.test.ts` pins the wording agents see.
     Change a description or a rendered line deliberately, then read a real
     transcript (spec §14, phase 6) before trusting it.
+
+## Hosted accounts and environment
+
+See spec §17 and OPERATIONS.md for the complete policy. `DISCORD_CLIENT_ID`
+and `DISCORD_CLIENT_SECRET` enable Discord; `GOOGLE_CLIENT_ID` and
+`GOOGLE_CLIENT_SECRET` together enable Google. `BETTER_AUTH_SECRET` is a
+secret of at least 32 characters, generated with cryptographic randomness.
+`DECKBUILDER_CLAIM_CODE` is a separate one-time owner bootstrap secret; it
+must be at least 32 characters when set and only claims user 1 while auth_id is NULL. Remove it after the success log.
+`DECKBUILDER_INVITES_REQUIRED` defaults to gated; only `0` disables the gate.
+Hosted startup also requires non-secret `DECKBUILDER_OPERATOR_NAME` and
+`DECKBUILDER_CONTACT_EMAIL`, served to legal pages from session bootstrap.
+Secrets belong in the environment or ignored `.env`, never code or logs.
+Use `node --env-file=.env src/server.ts` for explicit local env-file loading;
+set DB/DATA to an ignored `.dev/` copy when testing hosted mode. Never migrate
+or test against the owner's live data.
+
+Better Auth schema comes from `npx auth@1.7.13 generate`, committed in
+`src/migrations/auth-v12.sql` and executed by v12 in our migration transaction.
+Never run its migrate command or runtime auto-migration. Native SQLite is
+shared with the capability layer. Its official native dialect reserves the
+connection per SQL query/transaction; service batches use the same reentrant
+gate. Never hold that gate around an auth HTTP handler or outbound I/O.
+
+Account lifecycle derives selectors from sqlite_master and grouped composite
+foreign keys. Unknown tables fail closed unless explicitly global or linked
+to a tenant. Add lifecycle coverage with any table. Export redacts credentials;
+deletion removes owned records, OAuth state/grants and sessions without
+writing new activity. Retain foreign content/spent invites with tombstone
+user 0 attribution, never delete based on author/used_by. UI-only guards apply below HTTP. The last admin cannot
+delete their account. OAuth drafts bind to `author_oauth_client_id` just as
+personal-token drafts bind to `author_token_id`. URL labels never grant rights.
+
+Hosted GET /api/health alone bypasses Host/Origin for Railway probes and
+returns only ok/schema_version with no cookies/auth. Other hosted routes
+keep the configured-origin boundary; local health remains loopback-only.
+Local mode exposes neither legal pages nor their footer. OAuth disconnect
+must remove refresh grants and preserve JWT issuance cutoffs on re-consent.
+Handles reserve route words and may change only during the first-run picker.
