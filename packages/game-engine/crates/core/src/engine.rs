@@ -2059,7 +2059,6 @@ impl Game {
             .fold(self.state.retained_auxiliary_charge, |n, k| {
                 n.saturating_add(k.history.retention_charge())
             })
-            .saturating_add(self.state.external_inputs.len().saturating_mul(1024))
     }
     fn check_history_capacity(&mut self) -> Result<(), String> {
         let requested = self.history_charge();
@@ -2580,8 +2579,6 @@ impl Game {
         }
     }
     fn step(&mut self) -> Result<(), String> {
-        self.state.retained_auxiliary_charge =
-            self.state.retained_auxiliary_charge.saturating_add(2048);
         self.check_history_capacity()?;
         if let Some(player) = self.state.pending_concessions.first().copied() {
             self.state.pending_concessions.remove(0);

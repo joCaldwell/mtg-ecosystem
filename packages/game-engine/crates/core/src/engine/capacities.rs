@@ -8,5 +8,6 @@ pub(super) const EVENT_GROUP_LIMIT: usize = 1_024;
 // Snapshot/wipe validation only; Commander deck size is enforced by admission.
 pub(super) const OWNED_LIMIT: usize = 100;
 pub(super) const EVENT_GROUP_DEPTH: u32 = 4;
-// Conservative history charge; leave worker headroom for staging/live tables.
-pub(super) const HISTORY_LIMIT: usize = 512 * 1024 * 1024;
+// Encoded retained content + fixed view/reference overhead (all targets).
+// Measured long games use <25%; boundary probe leaves 4 GiB worker headroom.
+pub(super) const HISTORY_LIMIT: usize = 768 * 1024 * 1024;

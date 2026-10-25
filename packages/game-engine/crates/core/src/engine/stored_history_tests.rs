@@ -1215,7 +1215,7 @@ fn collection_canonical_memos_follow_shared_values_instead_of_views() {
             write_view(view),
             canonical(&view.to_public()).unwrap().as_bytes()
         );
-        assert!(Arc::ptr_eq(&history[0].players_bytes, &view.players_bytes));
+        assert!(Arc::ptr_eq(&history[0].players[0].0, &view.players[0].0));
         assert!(Arc::ptr_eq(
             &history[0].commanders_bytes,
             &view.commanders_bytes
@@ -1227,8 +1227,8 @@ fn collection_canonical_memos_follow_shared_values_instead_of_views() {
         v.commanders[0].designation.push_str("changed");
     });
     assert!(!Arc::ptr_eq(
-        &history[32].players_bytes,
-        &branch[32].players_bytes
+        &history[32].players[0].0,
+        &branch[32].players[0].0
     ));
     assert!(!Arc::ptr_eq(
         &history[32].commanders_bytes,
@@ -1242,4 +1242,58 @@ fn collection_canonical_memos_follow_shared_values_instead_of_views() {
         write_view(&branch[32]),
         canonical(&branch[32].to_public()).unwrap().as_bytes()
     );
+}
+
+#[test]
+fn player_rows_share_individually_charge_only_new_rows_and_decode_identically() {
+    let mut first = collection_fixture();
+    assert!(first.players.len() >= 2);
+    // Large unchanged nested zone in another player, serialization domain only.
+    first.players[1].exile = (0..1000)
+        .map(|i| ObjectHandle(format!("exile-{i}")))
+        .collect();
+    let mut public = vec![first.clone()];
+    let mut history = StoredHistory::default();
+    history.push_public(first);
+    let before = history.retention_charge();
+    for turn in 10..30 {
+        let mut next = public.last().unwrap().clone();
+        next.turn.number = turn;
+        next.players[0].life.add(&1.into());
+        history.push_public(next.clone());
+        public.push(next);
+    }
+    assert_views(&history, &public);
+    for index in 1..history.len() {
+        assert!(Arc::ptr_eq(
+            &history[0].players[1].0,
+            &history[index].players[1].0
+        ));
+        assert!(!Arc::ptr_eq(
+            &history[index - 1].players[0].0,
+            &history[index].players[0].0
+        ));
+    }
+    assert!(
+        history.retention_charge() - before < 20 * 1500,
+        "unchanged exile rows recharged"
+    );
+    let restored: StoredHistory = serde_json::from_str(&canonical(&history).unwrap()).unwrap();
+    assert_eq!(restored.retention_charge(), history.retention_charge());
+    assert_views(&restored, &public);
+    let mut other = public.last().unwrap().clone();
+    other.viewer = PlayerId(3);
+    history.push_public(other);
+    for old in &*history[20].players {
+        for new in &*history[21].players {
+            assert!(!Arc::ptr_eq(&old.0, &new.0));
+        }
+    }
+}
+#[test]
+fn payload_charge_is_canonical_length_without_target_layout_or_multipliers() {
+    let mut view = collection_fixture();
+    view.objects[0].oracle_id = "雪\n\0\"".into();
+    assert_eq!(payload_charge(&view), canonical(&view).unwrap().len());
+    assert_eq!(payload_charge(&vec!["a", "b"]), 9);
 }

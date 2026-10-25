@@ -1756,48 +1756,202 @@ fn history_capacity_fault_rolls_back_the_entire_public_step_in_all_traces() {
     assert_eq!(states[0], states[2]);
 }
 
-#[test]
-#[ignore = "manual release long-game history accounting measurement"]
-fn history_draw_release_probe() {
-    let p = match_profile("commander-foundations-v1").unwrap();
+fn history_rss_bytes() -> usize {
+    std::fs::read_to_string("/proc/self/status")
+        .unwrap()
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("VmRSS:").map(|v| {
+                v.split_whitespace()
+                    .next()
+                    .unwrap()
+                    .parse::<usize>()
+                    .unwrap()
+                    * 1024
+            })
+        })
+        .unwrap()
+}
+fn history_long_game(profile: &str) -> Game {
+    let p = match_profile(profile).unwrap();
     let mut config = MatchConfig::for_profile(&p.name, [7; 32], PlayerId(2)).unwrap();
     config.decks = std::array::from_fn(|_| p.decks[0].clone());
-    let mut g = Game::with_trace(
+    Game::with_trace(
         Prepared::admit_pod(p.catalog().clone(), config).unwrap(),
         TraceMode::Off,
+    )
+}
+fn history_long_response(g: &Game, r: &Request, lands: bool) -> Response {
+    match r {
+        Request::Mulligan { .. } => Response::Mulligan { take: false },
+        Request::Priority { .. } => {
+            if lands {
+                for object in g
+                    .state
+                    .objects
+                    .values()
+                    .filter(|o| o.zone == Zone::Hand { owner: r.player() })
+                {
+                    let response = Response::PlayLand {
+                        card: object.id.card,
+                    };
+                    if g.check_response(r.player(), r.decision_id(), response.clone())
+                        .is_ok()
+                    {
+                        return response;
+                    }
+                }
+            }
+            Response::Pass
+        }
+        Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
+        Request::Blockers { .. } => Response::Blockers { blocks: vec![] },
+        Request::Discard {
+            candidates, count, ..
+        } => Response::Discard {
+            objects: candidates.iter().take(*count).copied().collect(),
+        },
+        other => panic!("long-game request {other:?}"),
+    }
+}
+#[test]
+fn land_play_history_charge_grows_linearly_and_snapshot_restores_identically() {
+    let mut g = history_long_game("commander-foundations-v1");
+    let mut charges = vec![];
+    let mut next_turn = 16;
+    for _ in 0..20_000 {
+        let r = match g.advance(Budget::new(1024)) {
+            Advance::AwaitingDecision(r) => r,
+            Advance::Suspended { .. } => continue,
+            other => panic!("short land-play game {other:?}"),
+        };
+        if g.turn().number >= next_turn {
+            charges.push(g.history_charge());
+            if next_turn == 32 {
+                let restored =
+                    Game::restore((*g.prepared).clone(), &g.snapshot().unwrap()).unwrap();
+                assert_eq!(restored.history_charge(), g.history_charge());
+                assert_eq!(restored.state_digest().unwrap(), g.state_digest().unwrap());
+            }
+            next_turn += 16;
+            if charges.len() == 3 {
+                break;
+            }
+        }
+        g.respond(
+            r.player(),
+            r.decision_id(),
+            history_long_response(&g, &r, true),
+        )
+        .unwrap();
+    }
+    assert_eq!(charges.len(), 3);
+    let first = charges[1] - charges[0];
+    let second = charges[2] - charges[1];
+    assert!(
+        second * 100 < first * 125,
+        "superlinear history growth: {charges:?}"
     );
+    assert!(
+        g.turn().lands_played > 0
+            || g.state
+                .objects
+                .values()
+                .any(|o| o.zone == Zone::Battlefield)
+    );
+}
+fn history_decking_probe(lands: bool) {
+    let profile =
+        std::env::var("MTG_HISTORY_PROFILE").unwrap_or_else(|_| "commander-foundations-v1".into());
+    let baseline_rss = history_rss_bytes();
+    let start = std::time::Instant::now();
+    let mut g = history_long_game(&profile);
     let result = loop {
         match g.advance(Budget::new(1024)) {
             Advance::AwaitingDecision(r) => {
-                let response = match &r {
-                    Request::Mulligan { .. } => Response::Mulligan { take: false },
-                    Request::Priority { .. } => Response::Pass,
-                    Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
-                    Request::Blockers { .. } => Response::Blockers { blocks: vec![] },
-                    Request::Discard {
-                        candidates, count, ..
-                    } => Response::Discard {
-                        objects: candidates.iter().take(*count).copied().collect(),
-                    },
-                    other => panic!("draw-only request {other:?}"),
-                };
-                g.respond(r.player(), r.decision_id(), response).unwrap();
+                g.respond(
+                    r.player(),
+                    r.decision_id(),
+                    history_long_response(&g, &r, lands),
+                )
+                .unwrap();
             }
             Advance::Suspended { .. } => (),
             other => break other,
         }
     };
     eprintln!(
-        "history_draw_probe {}",
+        "history_decking_probe {}",
         serde_json::json!({
-            "turn":g.turn().number,"result":format!("{result:?}"),"fault":g.typed_fault(),
-            "charge":g.history_charge(),"auxiliary_charge":g.state.retained_auxiliary_charge,
+            "profile":profile,"lands":lands,"turn":g.turn().number,
+            "result":format!("{result:?}"),"fault":g.typed_fault(),
+            "charge":g.history_charge(),"budget":capacities::HISTORY_LIMIT,
+            "auxiliary_charge":g.state.retained_auxiliary_charge,
             "view_charge":g.state.visibility.iter().map(|k| k.history.retention_charge()).collect::<Vec<_>>(),
             "views":g.state.visibility.iter().map(|k| k.history.len()).collect::<Vec<_>>(),
-            "rule_steps":g.state.rule_steps, "event_sequence":g.state.next_event_sequence,
-            "view_inline_bytes":std::mem::size_of::<super::stored_history::StoredPermittedView>(),
-            "event_inline_bytes":std::mem::size_of::<Event>()
+            "rule_steps":g.state.rule_steps,"event_sequence":g.state.next_event_sequence,
+            "baseline_rss_bytes":baseline_rss,"final_rss_bytes":history_rss_bytes(),
+            "elapsed_us":start.elapsed().as_micros(),"build_id":BUILD_ID
         })
     );
-    assert!(matches!(result, Advance::Finished { .. }));
+    assert!(matches!(
+        result,
+        Advance::Finished {
+            winner: PlayerId(1)
+        }
+    ));
+    assert_eq!(g.turn().number, 371);
+    assert!(g.typed_fault().is_none());
+    assert!(g.history_charge() < capacities::HISTORY_LIMIT / 4);
+}
+#[test]
+#[ignore = "manual release long-game history accounting measurement"]
+fn history_draw_release_probe() {
+    history_decking_probe(false);
+}
+#[test]
+#[ignore = "manual release land-play game to natural decking"]
+fn history_land_play_release_probe() {
+    history_decking_probe(true);
+}
+
+#[test]
+#[ignore = "manual release retained-history policy boundary RSS measurement"]
+fn history_budget_release_probe() {
+    let baseline_rss = history_rss_bytes();
+    let mut g = history_long_game("commander-foundations-v1");
+    assert!(matches!(
+        g.advance(Budget::new(1024)),
+        Advance::AwaitingDecision(_)
+    ));
+    // Diagnostic retention only, not accepted-input reachability. Small views
+    // maximize per-view/Arc/metadata overhead relative to encoded payload.
+    let mut view = g.state.visibility[0].history.last().unwrap().to_public();
+    view.objects.clear();
+    view.players.clear();
+    view.commanders.clear();
+    view.setup = None;
+    while g.history_charge() <= capacities::HISTORY_LIMIT {
+        view.turn.number += 1;
+        g.state.visibility[0].history.push_public(view.clone());
+        g.state.visibility[0]
+            .history
+            .last()
+            .unwrap()
+            .write_canonical(&mut std::io::sink())
+            .unwrap();
+    }
+    assert!(g.check_history_capacity().is_err());
+    assert!(matches!(
+        g.typed_fault(),
+        Some(RuleFault::HistoryCapacityExceeded { .. })
+    ));
+    eprintln!(
+        "history_budget_probe {}",
+        serde_json::json!({
+            "charge":g.history_charge(),"budget":capacities::HISTORY_LIMIT,
+            "views":g.state.visibility[0].history.len(),
+            "baseline_rss_bytes":baseline_rss,"final_rss_bytes":history_rss_bytes(),"build_id":BUILD_ID
+        })
+    );
 }

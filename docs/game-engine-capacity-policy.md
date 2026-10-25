@@ -15,7 +15,7 @@ qualified by their original release in the progress ledger and slice documents.
 | Event-group nesting depth | 4 | Checked before recursive collection |
 | Event-group occurrences | 1,024 | Total leaves across ordered and simultaneous groups |
 | Temporary effects | 256 | Current retained effects, before insertion |
-| Retained history charge | 512 MiB | Shared public rows/nodes, per-view metadata/slots, inputs, potential detailed evidence and step allowances |
+| Retained history charge | 768 MiB | Newly retained encoded rows/nodes, metadata, fixed view/reference overhead, inputs and potential detailed evidence |
 
 `engine/capacities.rs` is the runtime authority. Catalog names, schema versions,
 card identities and historical publication order never select a capacity.
@@ -279,7 +279,7 @@ fault**: 32,949 rules steps, 38,122 evidence records, 112,344 retained views and
 final charge of **495,502,436 bytes**. This longer ordinary game is separate from
 the injected K=480 cascade and keeps the historical draw-failure outcome intact.
 
-A catalog-independent **512 MiB history charge** now stops accumulated retention
+The historical d652368 implementation used a catalog-independent **512 MiB history charge** to stop accumulated retention
 with `RuleFault::HistoryCapacityExceeded { capacity, requested }`. It is a
 conservative deterministic policy measure, not measured RSS: four times encoded
 payload plus fixed row/node/view and collection-slot allowances. Shared object rows, player/commander collections and stack prefixes are charged
@@ -305,7 +305,7 @@ only one input can be pending. Hosted command/IPC limits bound that increment.
 The 512 MiB policy leaves substantial headroom below the worker's 4 GiB limit
 for live tables, staging and serialization; it does not equate an estimate to an
 absolute RSS proof for arbitrary trusted native allocations or future IR fields.
-A fault has no winner/draw and never silently replaces a rules outcome. Atomic
+A fault has no winner/draw. Atomic
 rollback and identical fault boundaries are tested in all three trace modes;
 normal snapshot/restore and accepted-input replay tests remain in force.
 
@@ -327,3 +327,141 @@ with **zero failures**. The final `summary.json` records these counts alongside
 the SDK, release probes, historical-byte proof and batch results. Earlier
 failed/interrupted attempts remain separately qualified in the same evidence
 directory; they are not counted as passed phases.
+
+## D1b-3 history2 accounting correction
+
+The preceding public-history measurements describe d652368. Review found that
+its fourfold payload multiplier, whole-player-array charging and 2 KiB step/
+evidence allowances exhausted 512 MiB during ordinary land play at turn 238.
+The pass-only game reached turn 371 but used 92.3% of that policy budget. Those
+charges were poorly calibrated to actual retention.
+
+History2 shares each `VisiblePlayer` row independently, including its canonical
+memo, after complete typed equality with the same viewer's immediate predecessor.
+Changing one player's counts, life or mana retains only that player's new row.
+Unchanged other players, including nested exile lists, are not retained again
+or recharged. Graveyard objects already use individual shared object rows. New
+player and object collection slots use fresh narrow allocations; unchanged whole
+collections still reuse their allocation. Stack prefix sharing is unchanged.
+No interning crosses viewers or skips the typed comparison. Public JSON fields,
+array order and secrecy boundaries are unchanged.
+
+The policy now counts the canonical encoded length of each newly retained row,
+stack node, commander collection and view metadata, plus **256 fixed bytes per
+view** and **8 fixed bytes per newly retained player/object reference slot**.
+These are policy constants on every target, including wasm32 and x86_64; no
+`size_of`, allocator capacity or pointer width enters the charge. Pointer identity
+only recognizes sharing already established by typed equality. Decoding history
+rebuilds that same sharing through `push`/`reuse_previous`, so restoring cold
+memos reproduces the same charge. Saturating arithmetic exhausts the policy;
+the 768 MiB boundary lies below either target's integer limit.
+
+Accepted and external inputs use their exact encoded lengths. There is no
+per-step retention allowance. Evidence reserves the exact encoded `TraceRecord`
+and, for event records only, Detailed's duplicate `Event`. That same reservation
+runs in Off, Compact and Detailed so tracing cannot change a rules result or
+capacity boundary. The policy unit is encoded retained content, not an allocator
+or RSS prediction; typed storage, canonical memos, staging and live tables need
+separate measured headroom.
+
+With the fixed card/live-token/retained-identity ceilings, per-view metadata and
+collection slots are bounded. Unchanged rows are retained once; new content,
+views, inputs and evidence accumulate linearly with game length. A changed
+player row still owns its complete exile list; unchanged subfields inside that
+changed row are not independently interned. Changed commander rows are likewise
+stored as complete new values, and a changed object collection retains its
+complete reference list. This does not provide persistent sharing of arbitrary growing subfields or make native export
+strings linear in stack depth. Those limits are distinct from repeatedly storing
+and charging every player's unchanged rows.
+
+### Atomic terminal-step boundary
+
+The history guard remains before the staged step and after visibility refresh.
+**A step that would finish with a win or draw can exceed the budget during its
+final visibility refresh. The entire step, including that provisional rules
+outcome, then rolls back to the pre-step state with a typed history fault.**
+The host must expose that resource fault, with no winner/draw; it must not report
+the provisional result. Already committed terminal states are returned before
+another step is attempted. This limitation applies to any finite atomic
+retention cap. The ordinary decking regressions ensure these particular natural
+games have ample headroom, rather than exempting terminal steps from the guard.
+
+### Current release measurements
+
+Raw logs and per-child `wait4` resource records are kept
+under `generated/final-engine-verification/d1b3-history2/` (ignored artifacts).
+
+The selected history budget is **768 MiB (805,306,368 policy bytes)**. The
+512 MiB candidate completed the measured natural games but failed the unchanged
+under-25% headroom assertion for foundations, combat-keywords and data-admission
+land play (about 145–148 MB). Increasing the measured budget to 768 MiB leaves
+these games at approximately 18.4%, without changing the guard, excluding evidence,
+or exempting terminal steps. The old failed headroom assertions and interrupted
+calibration jobs are retained separately and are not final passes.
+
+Pinned Rust 1.99.0, release overflow checks enabled, tracing Off. Current engine
+build: `b819f4b073e5de926376cd7283f6e14b11352070fcee834d71fe45b097a07d76`.
+Probe executable SHA-256:
+`eba883b986f9985b70c9b01beb35d1df008765617870d4887069f034a09f7869`.
+The cascade and budget probes ran before the other final verification processes.
+Natural-game probes ran four independent child processes at a time alongside
+verification; elapsed times are diagnostic only. Kernel peak RSS comes from each
+child's own `wait4` resource record, excluding compilation. Sampled VmRSS is a
+separate Linux measurement.
+
+| Current release workload | Final history charge (bytes) | Kernel child peak RSS (bytes) |
+| --- | ---: | ---: |
+| Foundations, pass-only to turn 371, Player 1 wins | 81,658,151 | 101,720,064 |
+| Foundations, play a land whenever legal, turn 371, Player 1 wins | 148,016,519 | 103,153,664 |
+| Hosted-attachments K=480 Blood Artist cascade | 16,223,891 | 61,063,168 |
+| Warmed metadata/view retention at the 768 MiB boundary | 805,306,466 | 1,372,422,144 |
+
+The K=480 cascade retains the same **24,972 views, 6,000,960 logical stack
+entries and 3,840 distinct stack nodes**. Sampled VmRSS rises from 5,636,096 to
+62,447,616 bytes, a **56,811,520-byte** increase. It completes without fault.
+The boundary probe incrementally retains and warms **1,745,745** small views,
+then proves the typed history-capacity fault at the actual selected limit. Small
+views emphasize per-view allocation/memo overhead relative to payload. This is
+synthetic retention, not an accepted-input reachable match or a snapshot export.
+Its 1.37 GB peak is approximately **32% of the worker's 4 GiB `MEMORY_MAX`**, leaving
+about 2.9 GB for live tables, staging and other worker costs. The budget is a
+measured retention policy, not an absolute RSS guarantee for arbitrary native
+export buffers, trusted injections or future IR layouts.
+
+Both pass-only and land-play policies passed on **all twelve registered profiles**:
+**24/24** natural games, turn 371, Player 1 wins, zero typed faults. Each uses
+homogeneous copies of that profile's first admitted default deck, seed `[7; 32]`,
+starting seat 2, keeps, empty combat and required discards. Land play adds each
+legal land play while otherwise passing. The largest final charge is the
+foundations land-play result above, **148,016,519 bytes (18.38% of budget)**.
+Across profiles, pass-only charges range from 81,656,975 to 81,675,721 bytes;
+land-play charges range from 124,020,649 to 148,016,519 bytes. The largest kernel
+peak RSS among all 24 natural-game children is **104,853,504 bytes**.
+The cheaper ordinary debug regression checks near-linear incremental charge over
+16/32/48 turns and exact charge plus state-digest equality after snapshot restore.
+The serialization-domain regression separately proves a large unchanged other
+player's exile row is shared and charged once, including after incremental decode.
+
+The current release's `baseline-byte-proof.json` verifies **173/173** complete
+canonical snapshot hashes against their execution reports, then removes only
+`retained_auxiliary_charge` and reproduces every frozen D1b-2 state hash. Only
+after that proof was the intermediate `d1b3-history-scenario-digests.json` fixture
+updated. The original `d1b2-scenario-digests.json` remains unchanged. Public
+history fields, order, card facts and rules outcomes were not rebaselined.
+
+All twelve final release `match-batch` suites passed **18/18** games each:
+**216/216 complete games and independent replays**, with **zero faults and zero
+truncations**. Every batch manifest binds the current engine build above. Exact
+per-game evidence and reports are under `d1b3-history2/batches/` in the retained
+output directory.
+
+The final `npm run check:engine` passed formatting, Clippy with warnings denied,
+**898 Rust tests** and **56 Node checks**, with **zero failures** and **18
+intentionally ignored Rust probes**. The separately executed release probes
+passed **26/26**: 24 natural games, K=480 and the warmed history boundary.
+The final release `mtg-server` build and SDK verification also passed: **47 SDK
+Node tests**, strict TypeScript and all **32 response variants**. SDK verification
+logs/manifests are retained under `d1b3-history2/sdk/`; the SDK's own `generated/`
+directory was removed afterward as requested. The final `summary.json` binds
+these counts, probes, original-byte proof and batch results. Earlier calibration
+failures/interrupted attempts remain separate and are excluded from final passes.
