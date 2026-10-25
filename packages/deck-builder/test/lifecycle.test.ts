@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { OWNER, PermissionError } from "../src/actor.ts";
+import { PermissionError } from "../src/actor.ts";
+import { OWNER } from "./actors.ts";
 import { applyChanges, undo } from "../src/deck/membership.ts";
 import { getBrief, updateBrief, setEngine, removeEngine } from "../src/deck/brief.ts";
 import { forkDeck } from "../src/deck/fork.ts";
@@ -28,9 +29,9 @@ test("lifecycle gates card edits, while every agent brief edit needs approval", 
       assert.throws(() => setEngine(db, AGENT, id, "Plan", "", []), PermissionError);
       const proposed = proposeDocumentEdit(db, AGENT, id, "thesis", { content: "Owner-approved plan" }, "Owner requested a plan.");
       assert.equal(proposed.applied, false);
-      assert.equal(getBrief(db, id).thesis, "");
+      assert.equal(getBrief(db, OWNER, id).thesis, "");
       ruleDocumentEdit(db, OWNER, proposed.edit_id!, "accept");
-      assert.equal(getBrief(db, id).thesis, "Owner-approved plan");
+      assert.equal(getBrief(db, OWNER, id).thesis, "Owner-approved plan");
     }
   } finally { db.close(); }
 });
@@ -39,17 +40,17 @@ test("Legacy blocks owner and agent writes, preserves pending work, and restores
   const db = testDb();
   try {
     const id = newDeck(db, "paper");
-    const slot = createSlot(db, id, "Utility");
-    const tag = createTag(db, id, "Have");
+    const slot = createSlot(db, OWNER, id, "Utility");
+    const tag = createTag(db, OWNER, id, "Have");
     const log = add(db, id, "id-solring", { slotId: slot })!;
-    shortlistCard(db, id, "id-counterspell", "Later");
+    shortlistCard(db, OWNER, id, "id-counterspell", "Later");
     const engine = setEngine(db, OWNER, id, "Plan", "", [{ oracle_id: "id-solring" }]);
     const memory = remember(db, AGENT, { scope: "deck", deck_id: id, text: "Prefers slower games.", basis: "stated" }).memory;
     const proposal = createProposal(db, AGENT, id, { items: [{ action: "cut", oracle_id: "id-solring", reason: "Owner wants less ramp." }] });
-    const items = pendingItemIds(db, proposal);
+    const items = pendingItemIds(db, OWNER, proposal);
     const brief = proposeDocumentEdit(db, AGENT, id, "thesis", { content: "New plan" }, "Owner requested a plan.");
     setDeckCategory(db, OWNER, id, "legacy");
-    const before = getDeck(db, id);
+    const before = getDeck(db, OWNER, id);
     const name = before.cards.find(c => !c.maybe)!.name;
 
     for (const actor of [OWNER, AGENT]) {
@@ -73,29 +74,29 @@ test("Legacy blocks owner and agent writes, preserves pending work, and restores
       () => undo(db, OWNER, log), () => applyImport(db, OWNER, id, `1 ${name}`),
       () => setDeckParent(db, OWNER, id, null), () => setPowerTarget(db, OWNER, id, null),
       () => setEngine(db, OWNER, id, "New plan", "", []), () => removeEngine(db, OWNER, id, engine),
-      () => createSlot(db, id, "Ramp"), () => updateSlot(db, id, slot, { name: "Ramp" }),
-      () => deleteSlot(db, id, slot), () => createTag(db, id, "Ordered"),
-      () => renameTag(db, id, tag, "Ordered"), () => deleteTag(db, id, tag),
-      () => organizeCard(db, id, "id-solring", { tagIds: [tag] }),
-      () => fileCards(db, id, []), () => defineSlots(db, id, []),
-      () => shortlistCard(db, id, "id-forest"), () => unshortlistCard(db, id, "id-counterspell"),
+      () => createSlot(db, OWNER, id, "Ramp"), () => updateSlot(db, OWNER, id, slot, { name: "Ramp" }),
+      () => deleteSlot(db, OWNER, id, slot), () => createTag(db, OWNER, id, "Ordered"),
+      () => renameTag(db, OWNER, id, tag, "Ordered"), () => deleteTag(db, OWNER, id, tag),
+      () => organizeCard(db, OWNER, id, "id-solring", { tagIds: [tag] }),
+      () => fileCards(db, OWNER, id, []), () => defineSlots(db, OWNER, id, []),
+      () => shortlistCard(db, OWNER, id, "id-forest"), () => unshortlistCard(db, OWNER, id, "id-counterspell"),
     ];
     for (const write of ownerWrites) assert.throws(write, PermissionError);
-    assert.deepEqual(getDeck(db, id), before);
-    assert.equal(getMemory(db, memory.id).read_only, true);
-    assert.equal(listDocumentEdits(db, { deckId: id })[0].read_only, true);
-    assert.deepEqual(pendingItemIds(db, proposal), items);
-    assert.ok(exportDeck(db, id).text.includes(name));
+    assert.deepEqual(getDeck(db, OWNER, id), before);
+    assert.equal(getMemory(db, OWNER, memory.id).read_only, true);
+    assert.equal(listDocumentEdits(db, OWNER, { deckId: id })[0].read_only, true);
+    assert.deepEqual(pendingItemIds(db, OWNER, proposal), items);
+    assert.ok(exportDeck(db, OWNER, id).text.includes(name));
     assert.match(callTool({ db, actor: AGENT }, "get_deck", { deck: id, sections: [] }).text, /Legacy: read-only/);
     const fork = forkDeck(db, AGENT, id, "Editable fork");
-    assert.equal(getDeck(db, fork).deck.category, "theorycrafted");
+    assert.equal(getDeck(db, OWNER, fork).deck.category, "theorycrafted");
     applyChanges(db, AGENT, fork, [{ action: "cut", oracle_id: "id-solring" }], { kind: "edit" });
-    assert.deepEqual(getDeck(db, id), before);
+    assert.deepEqual(getDeck(db, OWNER, id), before);
     assert.throws(() => setDeckCategory(db, AGENT, id, "paper"), PermissionError);
     setDeckCategory(db, OWNER, id, "paper");
     ruleDocumentEdit(db, OWNER, brief.edit_id!, "accept");
     acceptItems(db, OWNER, items);
-    assert.equal(getDeck(db, id).computed.card_count, 0);
-    assert.equal(getBrief(db, id).thesis, "New plan");
+    assert.equal(getDeck(db, OWNER, id).computed.card_count, 0);
+    assert.equal(getBrief(db, OWNER, id).thesis, "New plan");
   } finally { db.close(); }
 });

@@ -8,7 +8,7 @@ test("playtest HTTP workflows return persisted composites, validate actions and 
   const db = testDb(),
     deck = newDeck(db);
   add(db, deck, "id-forest", { quantity: 20 });
-  const app = createApp(db, { token: "test-token" });
+  const app = createApp(db, {});
   await new Promise<void>((resolve) =>
     app.server.listen(0, "127.0.0.1", resolve),
   );

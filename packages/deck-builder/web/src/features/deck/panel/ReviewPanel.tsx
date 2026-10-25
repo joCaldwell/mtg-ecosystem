@@ -32,7 +32,7 @@ export function ReviewPanel({ view, review }: { view: DeckViewModel; review: Rev
             <Eyebrow className={styles.eyebrow}>
               <span className={styles.id}>Proposal {proposal.id}</span>
               <span>
-                {proposal.author} · {ago(proposal.created_at)}
+                {proposal.author_display ?? proposal.author} · {ago(proposal.created_at)}
               </span>
             </Eyebrow>
             <p className={styles.summary}>

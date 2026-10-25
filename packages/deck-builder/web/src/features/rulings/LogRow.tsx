@@ -3,7 +3,7 @@ import type { LogEntry } from "../../api/client.ts";
 import { ago } from "../../domain/time.ts";
 import { CardRef, InlineText } from "../../mtg/index.ts";
 import { Button, Text } from "../../ui/index.ts";
-import { canUndo, documentEditLabel, isAgentAuthor } from "./logText.ts";
+import { canUndo, documentEditLabel } from "./logText.ts";
 import styles from "./LogRow.module.css";
 
 /** Past this many cards a sentence of names stops being readable; the entry's own summary takes over. */
@@ -131,7 +131,7 @@ export function LogRow({
         {entry.ruling_reason && <q className={styles.quote}>{entry.ruling_reason}</q>}
         <CardReasons cards={entry.cards} />
         <div className={styles.faint}>
-          <span className={isAgentAuthor(entry.author) ? styles.agentAuthor : undefined}>{entry.author}</span>
+          <span className={entry.author_via === "agent" ? styles.agentAuthor : undefined}>{entry.author_display ?? entry.author}</span>
           {entry.proposal_id != null && ` · via proposal ${entry.proposal_id}`}
           {entry.document_edit_id != null && ` · via edit ${entry.document_edit_id}`}
           {` · ${ago(entry.ts)}`}

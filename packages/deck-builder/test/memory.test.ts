@@ -1,6 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { OWNER, PermissionError } from "../src/actor.ts";
+import { PermissionError } from "../src/actor.ts";
+import { OWNER } from "./actors.ts";
 import { forkDeck } from "../src/deck/fork.ts";
 import {
   getBudgets,
@@ -83,13 +84,13 @@ describe("revising (spec §7.3)", () => {
       action: "supersede",
       text: "Budget is one hundred dollars a deck.",
     });
-    const kept = getMemory(db, old.id);
+    const kept = getMemory(db, OWNER, old.id);
     assert.deepEqual([kept.status, kept.superseded_by], ["superseded", replacement.id]);
-    assert.deepEqual(listMemories(db, { scope: "global" }).map((m) => m.id), [replacement.id]);
+    assert.deepEqual(listMemories(db, OWNER, { scope: "global" }).map((m) => m.id), [replacement.id]);
 
     reviseMemory(db, AGENT, replacement.id, { action: "retire" });
-    assert.equal(listMemories(db, { scope: "global" }).length, 0);
-    assert.equal(listMemories(db, { scope: "global", status: "any" }).length, 2);
+    assert.equal(listMemories(db, OWNER, { scope: "global" }).length, 0);
+    assert.equal(listMemories(db, OWNER, { scope: "global", status: "any" }).length, 2);
     assert.equal(reviseMemory(db, OWNER, replacement.id, { action: "restore" }).status, "active");
   });
   test("superseding can promote a deck memory to global", () => {
@@ -114,7 +115,7 @@ describe("revising (spec §7.3)", () => {
     // An agent memory the owner edits becomes the owner's too.
     const theirs = remember(db, AGENT, { text: "Seems to like tribal decks.", scope: "global" }).memory;
     reviseMemory(db, OWNER, theirs.id, { action: "update", text: "Likes tribal decks, especially elves." });
-    assert.equal(getMemory(db, theirs.id).owner_touched, true);
+    assert.equal(getMemory(db, OWNER, theirs.id).owner_touched, true);
     assert.throws(() => reviseMemory(db, AGENT, theirs.id, { action: "retire" }), /cannot be changed by an agent/);
   });
   test("confirming turns a hypothesis into a stated fact without changing who may edit it", () => {
@@ -133,41 +134,41 @@ describe("surfacing (spec §7.2)", () => {
   remember(db, AGENT, { text: "[[Sol Ring]] was dead in three of five opens here.", scope: "deck", deck_id: a });
 
   test("a global card memory follows the card everywhere; a deck one stays in its deck", () => {
-    assert.equal(memoriesForCards(db, ["id-solring"], a).get("id-solring")!.length, 2);
-    assert.equal(memoriesForCards(db, ["id-solring"], b).get("id-solring")!.length, 1);
-    assert.equal(memoriesForCards(db, ["id-solring"]).get("id-solring")!.length, 1);
-    assert.equal(memoriesForCards(db, ["id-forest"], a).size, 0);
+    assert.equal(memoriesForCards(db, OWNER, ["id-solring"], a).get("id-solring")!.length, 2);
+    assert.equal(memoriesForCards(db, OWNER, ["id-solring"], b).get("id-solring")!.length, 1);
+    assert.equal(memoriesForCards(db, OWNER, ["id-solring"]).get("id-solring")!.length, 1);
+    assert.equal(memoriesForCards(db, OWNER, ["id-forest"], a).size, 0);
   });
   test("search is full-text, filterable by scope, deck and card", () => {
-    assert.equal(listMemories(db, { query: "playgroup banned" }).length, 1);
-    assert.equal(listMemories(db, { query: "opens", scope: "global" }).length, 0);
-    assert.equal(listMemories(db, { cardId: "id-solring" }).length, 2);
-    assert.equal(listMemories(db, { deckId: a }).length, 1);
-    assert.deepEqual(listMemories(db, { query: "the and" }), []);
+    assert.equal(listMemories(db, OWNER, { query: "playgroup banned" }).length, 1);
+    assert.equal(listMemories(db, OWNER, { query: "opens", scope: "global" }).length, 0);
+    assert.equal(listMemories(db, OWNER, { cardId: "id-solring" }).length, 2);
+    assert.equal(listMemories(db, OWNER, { deckId: a }).length, 1);
+    assert.deepEqual(listMemories(db, OWNER, { query: "the and" }), []);
   });
 });
 
 describe("budgets (spec §7.4)", () => {
   test("a scope loads the newest that fit and says how many it left out", () => {
     const db = testDb();
-    setBudgets(db, { global: 100 });
-    assert.deepEqual(getBudgets(db), { global: 100, deck: 1000 });
+    setBudgets(db, OWNER, { global: 100 });
+    assert.deepEqual(getBudgets(db, OWNER), { global: 100, deck: 1000 });
     for (let i = 0; i < 8; i++)
       remember(db, AGENT, { text: `Preference number ${i}: ${"detail ".repeat(12)}`, scope: "global" });
-    const loaded = loadScope(db, "global");
+    const loaded = loadScope(db, OWNER, "global");
     assert.ok(loaded.memories.length > 0 && loaded.memories.length < 8);
     assert.equal(loaded.omitted, 8 - loaded.memories.length);
     assert.equal(loaded.over, true);
     assert.ok(loaded.used <= 100);
     // Newest first.
     assert.match(loaded.memories[0].text, /number 7/);
-    assert.throws(() => setBudgets(db, { deck: 5 }), /between 100 and 20000/);
+    assert.throws(() => setBudgets(db, OWNER, { deck: 5 }), /between 100 and 20000/);
   });
   test("a scope within budget is not flagged", () => {
     const db = testDb();
     remember(db, AGENT, { text: "Short.", scope: "global" });
     assert.deepEqual(
-      (({ omitted, over }) => ({ omitted, over }))(loadScope(db, "global")),
+      (({ omitted, over }) => ({ omitted, over }))(loadScope(db, OWNER, "global")),
       { omitted: 0, over: false },
     );
   });
@@ -184,12 +185,12 @@ describe("forks copy deck memories (spec §5.3)", () => {
       deck_id: parent,
     }).memory;
     const fork = forkDeck(db, AGENT, parent, "Fork");
-    const [copy] = listMemories(db, { deckId: fork });
+    const [copy] = listMemories(db, OWNER, { deckId: fork });
     assert.notEqual(copy.id, original.id);
     assert.equal(copy.text, original.text);
     assert.deepEqual(copy.cards.map((c) => c.name), ["Sol Ring"]);
     reviseMemory(db, AGENT, copy.id, { action: "retire" });
-    assert.equal(listMemories(db, { deckId: parent }).length, 1);
-    assert.equal(listMemories(db, { deckId: fork }).length, 0);
+    assert.equal(listMemories(db, OWNER, { deckId: parent }).length, 1);
+    assert.equal(listMemories(db, OWNER, { deckId: fork }).length, 0);
   });
 });

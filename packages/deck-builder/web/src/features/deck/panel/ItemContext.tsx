@@ -22,7 +22,7 @@ export function ItemContext({ item }: { item: ProposalItem }) {
     <div className={styles.context}>
       {memories.map((m) => (
         <div key={`m${m.id}`} className={`${styles.line} ${styles.memory}`}>
-          <Text tone="agent">Memory {m.id}</Text> · {m.basis} · {m.author} · <InlineText text={m.text} />
+          <Text tone="agent">Memory {m.id}</Text> · {m.basis} · {m.author_display ?? m.author} · <InlineText text={m.text} />
         </div>
       ))}
       {rulings.map((r) => (

@@ -1,3 +1,4 @@
+import { OWNER } from "./actors.ts";
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { openDb } from "../src/db.ts";
@@ -12,7 +13,7 @@ const db = openDb(":memory:");
 ingestCards(db, FIXTURES);
 
 function names(query: string, opts = {}): string[] {
-  return search(db, query, opts).map((r) => r.name);
+  return search(db, OWNER, query, opts).map((r) => r.name);
 }
 
 describe("ingest", () => {
@@ -20,7 +21,7 @@ describe("ingest", () => {
     assert.equal(names("soldier").length, 0);
   });
   test("MDFC gets combined text, front-face P/T, joined mana cost", () => {
-    const [witch] = search(db, '!"Witch Enchanter"');
+    const [witch] = search(db, OWNER, '!"Witch Enchanter"');
     assert.ok(witch, "MDFC resolves by face name");
     assert.match(witch.oracle_text, /destroy up to one target artifact/);
     assert.match(witch.oracle_text, /enters tapped/);

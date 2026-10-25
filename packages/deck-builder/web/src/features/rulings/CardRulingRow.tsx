@@ -2,12 +2,11 @@ import type { CardRuling } from "../../api/client.ts";
 import { ago } from "../../domain/time.ts";
 import { InlineText } from "../../mtg/index.ts";
 import { Text } from "../../ui/index.ts";
-import { isAgentAuthor } from "./logText.ts";
 import styles from "./CardRulingRow.module.css";
 
 /** What happened to this one card, as a clause that follows "r95 · ". */
 function clause(r: CardRuling): string {
-  const who = isAgentAuthor(r.author) ? r.author : "you";
+  const who = r.author_via === "agent" ? (r.author_display ?? r.author) : "you";
   const verb = r.action === "add" ? "adding" : r.action === "cut" ? "cutting" : "changing the role of";
   switch (r.kind) {
     case "accept":
@@ -43,7 +42,7 @@ export function CardRulingRow({ ruling }: { ruling: CardRuling }) {
         </div>
       )}
       <div className={styles.meta}>
-        {ruling.author} · {ago(ruling.ts)}
+        {ruling.author_display ?? ruling.author} · {ago(ruling.ts)}
         {ruling.undone && " · undone"}
         {ruling.from_deck != null && ` · in ${ruling.from_deck}`}
       </div>

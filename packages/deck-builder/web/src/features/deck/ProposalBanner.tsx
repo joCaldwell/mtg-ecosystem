@@ -70,7 +70,7 @@ export function ProposalBanner({ units, review }: { units: ReviewUnit[]; review:
       <div className={styles.line}>
         <Dot tone="agent" pulse />
         <span className={styles.who}>
-          <Text tone="agent" weight="medium">{newest.author}</Text>{" "}
+          <Text tone="agent" weight="medium">{newest.author_display ?? newest.author}</Text>{" "}
           {waiting.size > 1
             ? `proposes ${changes} changes across ${waiting.size} proposals`
             : `proposes ${changes} ${changes === 1 ? "change" : "changes"}`}

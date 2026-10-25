@@ -1,3 +1,5 @@
+import { requireDeckOwner } from "./actor.ts";
+import type { Actor } from "./actor.ts";
 // Focus (spec §10.3): what the owner has open in the app. The interface is
 // stateless and every call names its deck, so this is how "this deck" in
 // conversation comes to mean the one on screen.
@@ -14,16 +16,17 @@ export interface Focus {
   age_minutes: number;
 }
 
-export function setFocus(db: Database, deckId: number | null, selected: string[] = []): void {
+export function setFocus(db: Database, actor: Actor, deckId: number | null, selected: string[] = []): void {
+  if (deckId != null) requireDeckOwner(db, actor, deckId);
   setSetting(
-    db,
+    db, actor,
     "focus",
     JSON.stringify({ deck_id: deckId, selected: selected.slice(0, 50), at: Date.now() }),
   );
 }
 
-export function getFocus(db: Database): Focus | null {
-  const raw = getSetting(db, "focus");
+export function getFocus(db: Database, actor: Actor): Focus | null {
+  const raw = getSetting(db, actor, "focus");
   if (!raw) return null;
   let parsed: { deck_id: number | null; selected: string[]; at: number };
   try {
@@ -32,7 +35,7 @@ export function getFocus(db: Database): Focus | null {
     return null;
   }
   if (parsed.deck_id == null) return null;
-  const deck = db.prepare("SELECT id, name FROM decks WHERE id = ?").get(parsed.deck_id) as
+  const deck = db.prepare("SELECT id, name FROM decks WHERE id = ? AND user_id = ?").get(parsed.deck_id, actor.user_id) as
     | { id: number; name: string }
     | undefined;
   if (!deck) return null;

@@ -16,7 +16,8 @@
 //   node scripts/seed-demo.mjs [--keep]     (--keep: fail instead of replacing)
 
 import { openDb } from "../src/db.ts";
-import { OWNER, agent } from "../src/actor.ts";
+import { localActor } from "../src/mode.ts";
+const OWNER = localActor();
 import { tryResolveCard } from "../src/cards.ts";
 import { setEngine, updateBrief } from "../src/deck/brief.ts";
 import { forkDeck } from "../src/deck/fork.ts";
@@ -37,11 +38,11 @@ import { remember } from "../src/memory.ts";
 
 const DECK_NAME = "Demo — Atraxa Superfriends";
 const FORK_NAME = "Demo — Atraxa, rebuilt (fork)";
-const AGENT = agent("demo-agent");
+const AGENT = { user_id: 1, via: "agent", label: "demo-agent" };
 const db = openDb();
 
 for (const name of [FORK_NAME, DECK_NAME]) {
-  const existing = db.prepare("SELECT id FROM decks WHERE name = ?").get(name);
+  const existing = db.prepare("SELECT id FROM decks WHERE name = ? AND user_id = ?").get(name, OWNER.user_id);
   if (!existing) continue;
   if (process.argv.includes("--keep")) {
     console.error(`"${name}" already exists (id ${existing.id}). Drop --keep to replace it.`);
@@ -76,19 +77,19 @@ function oracle(name) {
 }
 
 const slots = {
-  manaBase: createSlot(db, deckId, "mana base", 36, 38),
-  ramp: createSlot(db, deckId, "ramp", 10, 12),
-  walkers: createSlot(db, deckId, "walkers", 8, 12),
-  proliferate: createSlot(db, deckId, "proliferate", 6, 10),
-  interaction: createSlot(db, deckId, "interaction", 6, 10),
-  draw: createSlot(db, deckId, "draw", 5, 8),
-  defense: createSlot(db, deckId, "defense", 3, 5),
+  manaBase: createSlot(db, OWNER, deckId, "mana base", 36, 38),
+  ramp: createSlot(db, OWNER, deckId, "ramp", 10, 12),
+  walkers: createSlot(db, OWNER, deckId, "walkers", 8, 12),
+  proliferate: createSlot(db, OWNER, deckId, "proliferate", 6, 10),
+  interaction: createSlot(db, OWNER, deckId, "interaction", 6, 10),
+  draw: createSlot(db, OWNER, deckId, "draw", 5, 8),
+  defense: createSlot(db, OWNER, deckId, "defense", 3, 5),
 };
 const tags = {
-  proliferate: createTag(db, deckId, "proliferate"),
-  removal: createTag(db, deckId, "removal"),
-  ultimate: createTag(db, deckId, "ultimate"),
-  wincon: createTag(db, deckId, "wincon"),
+  proliferate: createTag(db, OWNER, deckId, "proliferate"),
+  removal: createTag(db, OWNER, deckId, "removal"),
+  ultimate: createTag(db, OWNER, deckId, "ultimate"),
+  wincon: createTag(db, OWNER, deckId, "wincon"),
 };
 
 // One logged act for the whole first build, as an import or an agent's
@@ -141,7 +142,7 @@ for (const [name, tagIds] of [
   ["Assassin's Trophy", [tags.removal]],
 ]) {
   const oid = oracle(name);
-  if (oid) organizeCard(db, deckId, oid, { tagIds });
+  if (oid) organizeCard(db, OWNER, deckId, oid, { tagIds });
 }
 
 updateBrief(db, OWNER, deckId, {
@@ -182,7 +183,7 @@ function propose(summary, items) {
   const pid = propose("Loyalty doubling", [
     itemFor("Doubling Season", "add", "Doubles loyalty counters — every walker arrives one activation from its ultimate.", { slot_id: slots.walkers }),
   ]);
-  if (pid) acceptItems(db, OWNER, pendingItemIds(db, pid), "Yes. This is the deck.");
+  if (pid) acceptItems(db, OWNER, pendingItemIds(db, OWNER, pid), "Yes. This is the deck.");
 }
 
 // Two rejections with reasons. The ruling follows the card from now on, and
@@ -192,7 +193,7 @@ function propose(summary, items) {
     itemFor("Counterspell", "add", "Cheapest possible answer to a combo turn.", { slot_id: slots.interaction }),
   ]);
   if (pid) {
-    const log = rejectItems(db, OWNER, pendingItemIds(db, pid), "The playgroup hates counterspells. Never suggest one.");
+    const log = rejectItems(db, OWNER, pendingItemIds(db, OWNER, pid), "The playgroup hates counterspells. Never suggest one.");
     rememberGlobal(db, AGENT, {
       text: "The owner's playgroup dislikes counterspells; they rejected [[Counterspell]] for that reason and do not want counterspells suggested.",
       scope: "global",
@@ -207,7 +208,7 @@ function propose(summary, items) {
     itemFor("Static Orb", "add", "Slows the table down while walkers tick up.", { slot_id: slots.defense }),
   ]);
   if (pid) {
-    const log = rejectItems(db, OWNER, pendingItemIds(db, pid), "Tried it — symmetrical enough that it cost me the games I was ahead in.");
+    const log = rejectItems(db, OWNER, pendingItemIds(db, OWNER, pid), "Tried it — symmetrical enough that it cost me the games I was ahead in.");
     remember(db, AGENT, {
       text: "[[Static Orb]] was tried here and cut: its symmetry cost games the deck was already winning.",
       scope: "deck",
@@ -263,7 +264,7 @@ proposeDocumentEdit(
 // A shortlisted candidate, and a fork an agent is free to rework.
 {
   const oid = oracle("The Chain Veil");
-  if (oid) shortlistCard(db, deckId, oid, "Extra activations if the walker count goes up.");
+  if (oid) shortlistCard(db, OWNER, deckId, oid, "Extra activations if the walker count goes up.");
 }
 const forkId = forkDeck(db, AGENT, deckId, FORK_NAME);
 recordActivity(db, AGENT, "fork_deck", forkId, `Forked "${DECK_NAME}"`);

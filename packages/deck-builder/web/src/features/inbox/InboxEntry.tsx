@@ -13,7 +13,7 @@ function parts(entry: Entry) {
     return {
       chip: "Proposal",
       where: proposal.deck_name,
-      author: proposal.author,
+      author: proposal.author_display ?? proposal.author,
       title: proposal.summary ? plainText(proposal.summary) : "No summary given",
       sub: `${changes} ${changes === 1 ? "change" : "changes"} in ${units.length} ${units.length === 1 ? "decision" : "decisions"}`,
     };
@@ -22,7 +22,7 @@ function parts(entry: Entry) {
   return {
     chip: edit.kind === "profile" ? "Profile edit" : "Brief edit",
     where: edit.deck_name ?? "Your profile",
-    author: edit.author,
+    author: edit.author_display ?? edit.author,
     title: editTitle(edit),
     sub: describeEdit(edit),
   };
@@ -46,7 +46,7 @@ export function InboxEntry({ entry, selected, onSelect }: { entry: Entry; select
       </span>
       <span className={styles.title}>{p.title}</span>
       <span className={styles.top}>
-        <span className={styles.author}>{p.author}</span>
+        <span className={styles.author_display ?? styles.author}>{p.author}</span>
         <span className={styles.sub}>· {p.sub}</span>
       </span>
     </button>

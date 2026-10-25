@@ -1,3 +1,4 @@
+import { displayAuthor } from "./actor.ts";
 // The two documents (spec §6) and the gate in front of them. The player
 // profile and each deck's brief are the owner's voice: the owner edits either
 // directly, and an agent proposes an edit the owner sees as a diff and rules
@@ -8,7 +9,7 @@ import { recordActivity } from "./activity.ts";
 import { type PowerTarget, getPowerTarget, parseTarget, targetText, writePowerTarget } from "./deck/power.ts";
 import { ServiceError } from "./errors.ts";
 import { withTransaction } from "./db.ts";
-import { type Actor, authorOf, requireOwner, PermissionError } from "./actor.ts";
+import { type Actor, authorOf, isAuthor, requireUi, requireSelf, PermissionError } from "./actor.ts";
 import { lintProse, requireCardById } from "./cards.ts";
 import { writeLog } from "./deck/log.ts";
 import { requireDeck, requireEditableDeck, requireRevision } from "./deck/service.ts";
@@ -32,24 +33,23 @@ export interface ProfileView {
   over_cap: boolean;
 }
 
-export function getProfile(db: Database): ProfileView {
-  const row = db.prepare("SELECT body_md, updated_at FROM profile WHERE id = 1").get() as {
+export function getProfile(db: Database, actor: Actor): ProfileView {
+  const row = db.prepare("SELECT body_md, updated_at FROM profile WHERE user_id = ?").get(actor.user_id) as {
     body_md: string;
     updated_at: string;
   };
-  const words = row.body_md.trim() ? row.body_md.trim().split(/\s+/).length : 0;
-  return { ...row, word_count: words, over_cap: words > PROFILE_WORD_CAP };
+  const value = row ?? { body_md: "", updated_at: "" };
+  const words = value.body_md.trim() ? value.body_md.trim().split(/\s+/).length : 0;
+  return { ...value, word_count: words, over_cap: words > PROFILE_WORD_CAP };
 }
 
 export function setProfile(db: Database, actor: Actor, bodyMd: string): void {
-  requireOwner(actor, "edit the profile directly");
-  writeProfile(db, bodyMd);
+  requireUi(actor, "edit the profile directly");
+  writeProfile(db, actor, bodyMd);
 }
 
-function writeProfile(db: Database, bodyMd: string) {
-  db.prepare("UPDATE profile SET body_md = ?, updated_at = datetime('now') WHERE id = 1").run(
-    bodyMd.trim(),
-  );
+function writeProfile(db: Database, actor: Actor, bodyMd: string) {
+  db.prepare("INSERT INTO profile (user_id, body_md) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET body_md = excluded.body_md, updated_at = datetime('now')").run(actor.user_id, bodyMd.trim());
 }
 
 // ---------- proposed edits ----------
@@ -77,6 +77,11 @@ export interface DocumentEditView {
   payload: DocumentEditPayload;
   reason: string;
   author: string;
+  author_user_id: number;
+  author_via: "ui" | "agent";
+  author_label: string;
+  author_display?: string;
+  author_token_id: number | null;
   status: "pending" | "accepted" | "rejected";
   created_at: string;
   /** The document changed after this was proposed; accepting overwrites that. */
@@ -97,10 +102,10 @@ export interface DocumentEditView {
   current_engine: ReturnType<typeof getBrief>["engines"][number] | null;
 }
 
-function currentText(db: Database, kind: DocumentEditKind, deckId: number | null, engineName?: string): string {
-  if (kind === "profile") return getProfile(db).body_md;
-  if (kind === "power_target") return targetText(getPowerTarget(db, deckId!));
-  const brief = getBrief(db, deckId!);
+function currentText(db: Database, actor: Actor, kind: DocumentEditKind, deckId: number | null, engineName?: string): string {
+  if (kind === "profile") return getProfile(db, actor).body_md;
+  if (kind === "power_target") return targetText(getPowerTarget(db, actor, deckId!));
+  const brief = getBrief(db, actor, deckId!);
   if (kind === "engine_set" || kind === "engine_remove") {
     const engine = brief.engines.find(e => e.name.toLowerCase() === engineName?.trim().toLowerCase());
     return JSON.stringify(engine ? { name: engine.name, description: engine.description,
@@ -110,7 +115,7 @@ function currentText(db: Database, kind: DocumentEditKind, deckId: number | null
 }
 
 function validateEdit(
-  db: Database,
+  db: Database, actor: Actor,
   kind: DocumentEditKind,
   deckId: number | null,
   payload: DocumentEditPayload,
@@ -132,7 +137,7 @@ function validateEdit(
     for (const p of payload.pieces ?? []) lintProse(db, p.note ?? "");
   } else if (kind === "engine_remove") {
     if (!payload.engine_name?.trim()) throw new ServiceError("Name the engine to remove");
-    const names = getBrief(db, deckId!).engines.map((e) => e.name.toLowerCase());
+    const names = getBrief(db, actor, deckId!).engines.map((e) => e.name.toLowerCase());
     if (!names.includes(payload.engine_name.trim().toLowerCase()))
       throw new ServiceError(`This deck has no engine named '${payload.engine_name}'`, 404);
   } else {
@@ -151,7 +156,7 @@ function applyEdit(
     case "power_target":
       return writePowerTarget(db, actor, deckId!, payload.target);
     case "profile":
-      return writeProfile(db, payload.content ?? "");
+      return writeProfile(db, actor, payload.content ?? "");
     case "thesis":
       return updateBrief(db, actor, deckId!, { thesis: payload.content ?? "" });
     case "constraints":
@@ -186,15 +191,15 @@ export function proposeDocumentEdit(
 ): ProposeResult {
   if ((kind === "profile") !== (deckId == null))
     throw new ServiceError("A profile edit has no deck; a brief edit needs one");
-  if (deckId != null) requireEditableDeck(db, deckId);
-  if (deckId != null) requireRevision(db, deckId, options.expected_revision);
-  validateEdit(db, kind, deckId, payload);
+  if (deckId != null) requireEditableDeck(db, actor, deckId);
+  if (deckId != null) requireRevision(db, actor, deckId, options.expected_revision);
+  validateEdit(db, actor, kind, deckId, payload);
   if (kind === "power_target") {
-    if (actor.kind === "agent" && !reason?.trim()) throw new ServiceError("A power target needs a reason grounded in the owner's preferences");
+    if (actor.via === "agent" && !reason?.trim()) throw new ServiceError("A power target needs a reason grounded in the owner's preferences");
     lintProse(db, reason);
   }
 
-  if (actor.kind === "owner" && !options.proposal_only) {
+  if (actor.via === "ui" && !options.proposal_only) {
     applyEdit(db, actor, kind, deckId, payload);
     if (kind === "power_target") recordActivity(db, actor, "propose_power_target", deckId, `Set power target: ${reason}`);
     return { applied: true, edit_id: null };
@@ -204,15 +209,15 @@ export function proposeDocumentEdit(
     throw new ServiceError("A proposed edit needs a reason citing what prompted it");
   lintProse(db, reason);
   const stored: DocumentEditPayload = { ...payload };
-  stored.base = currentText(db, kind, deckId, payload.engine_name);
-  const conflict = listDocumentEdits(db, { status: "pending", ...(deckId == null ? { profileOnly: true } : { deckId }) })
-    .find(e => e.author === authorOf(actor) && editKey(e.kind, e.payload) === editKey(kind, payload));
+  stored.base = currentText(db, actor, kind, deckId, payload.engine_name);
+  const conflict = listDocumentEdits(db, actor, { status: "pending", ...(deckId == null ? { profileOnly: true } : { deckId }) })
+    .find(e => isAuthor(actor, e) && editKey(e.kind, e.payload) === editKey(kind, payload));
   if (conflict) throw new ServiceError(`Edit #${conflict.id} is already current for this document. Amend or explicitly supersede it.`);
   const r = db
     .prepare(
-      "INSERT INTO document_edits (deck_id, kind, payload_json, reason, author, base_revision) VALUES (?, ?, ?, ?, ?, ?)",
+      "INSERT INTO document_edits (deck_id, kind, payload_json, reason, author, base_revision, user_id, author_user_id, author_via, author_label, author_token_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
-    .run(deckId, kind, JSON.stringify(stored), reason.trim(), authorOf(actor), deckId == null ? null : requireDeck(db, deckId).revision);
+    .run(deckId, kind, JSON.stringify(stored), reason.trim(), authorOf(actor), deckId == null ? null : requireDeck(db, actor, deckId).revision, actor.user_id, actor.user_id, actor.via, actor.label, actor.token_id ?? null);
   if (kind === "power_target") recordActivity(db, actor, "propose_power_target", deckId, `Proposed power target edit #${r.lastInsertRowid}: ${reason}`);
   return { applied: false, edit_id: Number(r.lastInsertRowid) };
 }
@@ -225,6 +230,11 @@ interface EditRow {
   payload_json: string;
   reason: string;
   author: string;
+  author_user_id: number;
+  author_via: "ui" | "agent";
+  author_label: string;
+  author_display?: string;
+  author_token_id: number | null;
   status: "pending" | "accepted" | "rejected";
   created_at: string;
   base_revision: number | null;
@@ -234,50 +244,54 @@ interface EditRow {
 }
 
 const EDIT_SELECT = `SELECT e.id, e.deck_id, d.name AS deck_name, e.kind, e.payload_json, e.reason,
-       e.author, e.status, e.created_at, e.base_revision, e.disposition, e.superseded_by, e.group_id
+       e.author, e.author_user_id, e.author_via, e.author_label, e.author_token_id, e.status, e.created_at, e.base_revision, e.disposition, e.superseded_by, e.group_id
   FROM document_edits e LEFT JOIN decks d ON d.id = e.deck_id`;
 
-function toView(db: Database, row: EditRow, includeGroup = true): DocumentEditView {
+function toView(db: Database, actor: Actor, row: EditRow, includeGroup = true): DocumentEditView {
   const { payload_json, ...rest } = row;
   const payload = JSON.parse(payload_json) as DocumentEditPayload;
-  const currentRevision = row.deck_id == null ? null : requireDeck(db, row.deck_id).revision;
+  const currentRevision = row.deck_id == null ? null : requireDeck(db, actor, row.deck_id).revision;
   const stale =
     row.status === "pending" &&
-    (payload.base === undefined || payload.base !== currentText(db, row.kind, row.deck_id, payload.engine_name) ||
+    (payload.base === undefined || payload.base !== currentText(db, actor, row.kind, row.deck_id, payload.engine_name) ||
       (row.deck_id != null && row.base_revision !== currentRevision));
   const nameOf = db.prepare("SELECT name FROM cards WHERE oracle_id = ?");
   return {
     ...rest,
+    author_display: displayAuthor(db, row),
     current_revision: currentRevision,
     current_engine: row.kind.startsWith("engine_") && row.deck_id != null
-      ? getBrief(db, row.deck_id).engines.find(e => e.name.toLowerCase() === payload.engine_name?.trim().toLowerCase()) ?? null : null,
+      ? getBrief(db, actor, row.deck_id).engines.find(e => e.name.toLowerCase() === payload.engine_name?.trim().toLowerCase()) ?? null : null,
     is_current: row.status === "pending" && row.disposition === "current",
     group_edits: includeGroup && row.group_id != null
-      ? (db.prepare(`${EDIT_SELECT} WHERE e.group_id = ? ORDER BY e.id`).all(row.group_id) as unknown as EditRow[]).map(e => toView(db, e, false)) : [],
-    supersedes: (db.prepare("SELECT id FROM document_edits WHERE superseded_by = ? ORDER BY id").all(row.id) as unknown as { id: number }[]).map(e => e.id),
-    group_edit_ids: row.group_id == null ? [row.id] : (db.prepare("SELECT id FROM document_edits WHERE group_id = ? ORDER BY id").all(row.group_id) as unknown as { id: number }[]).map(e => e.id),
-    read_only: row.deck_id != null && requireDeck(db, row.deck_id).category === "legacy",
+      ? (db.prepare(`${EDIT_SELECT} WHERE e.group_id = ? AND e.user_id = ? ORDER BY e.id`).all(row.group_id, actor.user_id) as unknown as EditRow[]).map(e => toView(db, actor, e, false)) : [],
+    supersedes: (db.prepare("SELECT id FROM document_edits WHERE superseded_by = ? AND user_id = ? ORDER BY id").all(row.id, actor.user_id) as unknown as { id: number }[]).map(e => e.id),
+    group_edit_ids: row.group_id == null ? [row.id] : (db.prepare("SELECT id FROM document_edits WHERE group_id = ? AND user_id = ? ORDER BY id").all(row.group_id, actor.user_id) as unknown as { id: number }[]).map(e => e.id),
+    read_only: row.deck_id != null && requireDeck(db, actor, row.deck_id).category === "legacy",
     payload,
     stale,
-    current: currentText(db, row.kind, row.deck_id, payload.engine_name),
+    current: currentText(db, actor, row.kind, row.deck_id, payload.engine_name),
     piece_names: (payload.pieces ?? []).map(
       (p) => (nameOf.get(p.oracle_id) as { name: string } | undefined)?.name ?? p.oracle_id,
     ),
   };
 }
 
-export function getDocumentEdit(db: Database, editId: number): DocumentEditView | null {
-  const row = db.prepare(`${EDIT_SELECT} WHERE e.id = ?`).get(editId) as EditRow | undefined;
-  return row ? toView(db, row) : null;
+export function getDocumentEdit(db: Database, actor: Actor, editId: number, forWrite = false): DocumentEditView | null {
+  const row = db.prepare(`${EDIT_SELECT} WHERE e.id = ? AND e.user_id = ?`).get(editId, actor.user_id) as EditRow | undefined;
+  if (!row) throw new ServiceError(`Proposed edit ${editId} not found`, 404);
+  if (forWrite && row.deck_id != null) requireEditableDeck(db, actor, row.deck_id);
+  return toView(db, actor, row);
 }
 
 /** Pending edits for one deck, for the profile ("profile"), or everywhere (omit scope). */
 export function listDocumentEdits(
-  db: Database,
+  db: Database, actor: Actor,
   opts: { deckId?: number; profileOnly?: boolean; status?: string } = {},
 ): DocumentEditView[] {
-  const where: string[] = [];
-  const params: Array<string | number> = [];
+  if (opts.deckId !== undefined) requireDeck(db, actor, opts.deckId);
+  const where: string[] = ["e.user_id = ?"];
+  const params: Array<string | number> = [actor.user_id];
   if (opts.deckId !== undefined) {
     where.push("e.deck_id = ?");
     params.push(opts.deckId);
@@ -293,7 +307,7 @@ export function listDocumentEdits(
         `${EDIT_SELECT} ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY e.id DESC LIMIT 200`,
       )
       .all(...params) as unknown as EditRow[]
-  ).map((r) => toView(db, r));
+  ).map((r) => toView(db, actor, r));
 }
 
 function describe(edit: EditRow, payload: DocumentEditPayload): string {
@@ -320,12 +334,13 @@ function editKey(kind: DocumentEditKind, payload: DocumentEditPayload): string {
 export interface DocumentChangeInput { kind: DocumentEditKind; payload: DocumentEditPayload; reason: string }
 
 function editablePendingGroup(db: Database, actor: Actor, editId: number): EditRow[] {
-  const row = db.prepare(`${EDIT_SELECT} WHERE e.id = ?`).get(editId) as EditRow | undefined;
+  const row = db.prepare(`${EDIT_SELECT} WHERE e.id = ? AND e.user_id = ?`).get(editId, actor.user_id) as EditRow | undefined;
   if (!row) throw new ServiceError(`Proposed edit ${editId} not found`, 404);
-  const rows = row.group_id == null ? [row] : db.prepare(`${EDIT_SELECT} WHERE e.group_id = ? ORDER BY e.id`).all(row.group_id) as unknown as EditRow[];
+  requireSelf(actor, row.author_user_id);
+  const rows = row.group_id == null ? [row] : db.prepare(`${EDIT_SELECT} WHERE e.group_id = ? AND e.user_id = ? ORDER BY e.id`).all(row.group_id, actor.user_id) as unknown as EditRow[];
   for (const edit of rows) {
-    if (edit.deck_id != null) requireEditableDeck(db, edit.deck_id);
-    if (actor.kind !== "owner" && (edit.author !== authorOf(actor) || edit.author === "owner"))
+    if (edit.deck_id != null) requireEditableDeck(db, actor, edit.deck_id);
+    if (actor.via !== "ui" && !isAuthor(actor, edit))
       throw new PermissionError("Agents can amend or withdraw only their own pending proposals");
     if (edit.status !== "pending" || edit.disposition !== "current")
       throw new ServiceError(`Proposed edit ${edit.id} is already ${edit.disposition === "current" ? edit.status : edit.disposition}`);
@@ -338,8 +353,8 @@ function editablePendingGroup(db: Database, actor: Actor, editId: number): EditR
 export function proposeDocumentGroup(db: Database, actor: Actor, deckId: number | null,
   changes: DocumentChangeInput[], options: { supersedes?: number[]; expected_revision?: number } = {}) {
   if (deckId != null) {
-    requireEditableDeck(db, deckId);
-    requireRevision(db, deckId, options.expected_revision);
+    requireEditableDeck(db, actor, deckId);
+    requireRevision(db, actor, deckId, options.expected_revision);
   }
   if (!changes.length) throw new ServiceError("A document proposal needs at least one change");
   if (new Set(changes.map(c => editKey(c.kind, c.payload))).size !== changes.length)
@@ -366,7 +381,7 @@ export function withdrawDocumentEdit(db: Database, actor: Actor, editId: number,
   lintProse(db, reason);
   withTransaction(db, () => {
     const rows = editablePendingGroup(db, actor, editId);
-    if (rows[0].deck_id != null) requireRevision(db, rows[0].deck_id, expectedRevision);
+    if (rows[0].deck_id != null) requireRevision(db, actor, rows[0].deck_id, expectedRevision);
     for (const row of rows) db.prepare("UPDATE document_edits SET status = 'rejected', disposition = 'withdrawn', resolved_at = datetime('now') WHERE id = ?").run(row.id);
     recordActivity(db, actor, "withdraw_document_edit", rows[0].deck_id, `Withdrew edits ${rows.map(r => r.id).join(", ")}: ${reason}`);
   });
@@ -379,15 +394,16 @@ export function ruleDocumentEdit(
   db: Database, actor: Actor, editId: number, outcome: "accept" | "reject", reason = "",
   options: { expected_revision?: number; acknowledge_stale?: boolean; expected_documents?: Record<string, string> } = {},
 ): number {
-  requireOwner(actor, "rule on a proposed edit");
+  getDocumentEdit(db, actor, editId);
+  requireUi(actor, "rule on a proposed edit");
   if (outcome !== "accept" && outcome !== "reject") throw new ServiceError("A ruling's outcome is 'accept' or 'reject'");
   return withTransaction(db, () => {
     const rows = editablePendingGroup(db, actor, editId);
     const deckId = rows[0].deck_id;
-    if (deckId != null) requireRevision(db, deckId, options.expected_revision);
-    if (outcome === "accept" && options.expected_documents && rows.some(row => options.expected_documents![row.id] !== toView(db, row).current))
+    if (deckId != null) requireRevision(db, actor, deckId, options.expected_revision);
+    if (outcome === "accept" && options.expected_documents && rows.some(row => options.expected_documents![row.id] !== toView(db, actor, row).current))
       throw new ServiceError("The document changed since it was reviewed. Reload and review the current group.", 409);
-    if (outcome === "accept" && rows.some(row => toView(db, row).stale) &&
+    if (outcome === "accept" && rows.some(row => toView(db, actor, row).stale) &&
         (options.acknowledge_stale !== true || (deckId != null && options.expected_revision === undefined)))
       throw new ServiceError("Proposal is stale: the deck or document changed. Review current state, then explicitly acknowledge_stale with expected_revision, or request an amended proposal.", 409);
     let logId = 0;

@@ -8,7 +8,7 @@
 
 import type { Database } from "../sqlite.ts";
 import * as z from "zod/v4";
-import { type Actor } from "../actor.ts";
+import { type Actor, requireDeckOwner } from "../actor.ts";
 import { recordActivity } from "../activity.ts";
 import { type CardRow, lintProse, resolveCard, resolveCards, tryResolveCard } from "../cards.ts";
 import { withTransaction } from "../db.ts";
@@ -98,21 +98,22 @@ const cardRef = z
   .string()
   .describe("A card: its exact name as a tool returned it, or its oracle_id. Never a guess.");
 
-function deckId(db: Database, ref: number | string): number {
-  if (typeof ref === "number") return requireDeck(db, ref).id;
+function deckId(db: Database, actor: Actor, ref: number | string, forWrite = false): number {
+  const resolve = (id: number) => forWrite ? requireDeckOwner(db, actor, id).id : requireDeck(db, actor, id).id;
+  if (typeof ref === "number") return resolve(ref);
   const text = ref.trim();
-  if (/^\d+$/.test(text)) return requireDeck(db, Number(text)).id;
+  if (/^\d+$/.test(text)) return resolve(Number(text));
   if (text.toLowerCase() === "focus") {
-    const focus = getFocus(db);
+    const focus = getFocus(db, actor);
     if (!focus)
       throw new ServiceError(
-        `The owner has no deck open in the app, so "focus" names nothing. Use a deck id:\n${rosterLines(listDecks(db))}`,
+        `The owner has no deck open in the app, so "focus" names nothing. Use a deck id:\n${rosterLines(listDecks(db, actor))}`,
       );
     return focus.deck_id;
   }
-  const named = listDecks(db).filter((d) => d.name.toLowerCase() === text.toLowerCase());
+  const named = listDecks(db, actor).filter((d) => d.name.toLowerCase() === text.toLowerCase());
   if (named.length === 1) return named[0].id;
-  throw new ServiceError(`There is no deck named "${ref}". The decks are:\n${rosterLines(listDecks(db))}`);
+  throw new ServiceError(`There is no deck named "${ref}". The decks are:\n${rosterLines(listDecks(db, actor))}`, 404);
 }
 
 const done = (text: string): ToolResult => ({ text, changed: true });
@@ -128,7 +129,7 @@ const proposalItem = z.object({
   slot: z.string().optional(), secondary_slots: z.array(z.string()).optional(),
   to_maybe: z.boolean().optional(), group: z.string().optional(),
 });
-function documentChanges(db: Database, changes: z.infer<typeof documentChange>[]) {
+function documentChanges(db: Database, actor: Actor, changes: z.infer<typeof documentChange>[]) {
   return changes.map(c => ({ kind: c.kind, reason: c.reason, payload: {
     content: c.text, engine_name: c.engine_name, description: c.description, target: c.target,
     pieces: c.pieces?.map(p => ({ oracle_id: resolveCard(db, p.card).oracle_id, note: p.note })),
@@ -136,14 +137,14 @@ function documentChanges(db: Database, changes: z.infer<typeof documentChange>[]
 }
 
 
-function myDecksFor(db: Database, oracleIds: string[], exceptDeck?: number): Map<string, string[]> {
+function myDecksFor(db: Database, actor: Actor, oracleIds: string[], exceptDeck?: number): Map<string, string[]> {
   const stmt = db.prepare(
     `SELECT d.name FROM deck_cards dc JOIN decks d ON d.id = dc.deck_id
-     WHERE dc.oracle_id = ? AND dc.maybe = 0 AND dc.deck_id != ? ORDER BY d.name`,
+     WHERE dc.oracle_id = ? AND dc.maybe = 0 AND dc.deck_id != ? AND d.user_id = ? ORDER BY d.name`,
   );
   const out = new Map<string, string[]>();
   for (const id of new Set(oracleIds)) {
-    const names = (stmt.all(id, exceptDeck ?? -1) as unknown as { name: string }[]).map((r) => r.name);
+    const names = (stmt.all(id, exceptDeck ?? -1, actor.user_id) as unknown as { name: string }[]).map((r) => r.name);
     if (names.length) out.set(id, names);
   }
   return out;
@@ -153,17 +154,17 @@ function myDecksFor(db: Database, oracleIds: string[], exceptDeck?: number): Map
 // §8.3): linked memories always, prior rulings and membership when a deck is
 // named, other decks only when the call asked (§4.2).
 function contextFor(
-  db: Database,
+  db: Database, actor: Actor,
   cards: CardRow[],
   deck: number | undefined,
   includeMyDecks: boolean,
 ) {
   const ids = cards.map((c) => c.oracle_id);
-  const memories = memoriesForCards(db, ids, deck);
-  const rulings = deck === undefined ? new Map() : cardHistories(db, deck, ids);
-  const mine = includeMyDecks ? myDecksFor(db, ids, deck) : new Map<string, string[]>();
+  const memories = memoriesForCards(db, actor, ids, deck);
+  const rulings = deck === undefined ? new Map() : cardHistories(db, actor, deck, ids);
+  const mine = includeMyDecks ? myDecksFor(db, actor, ids, deck) : new Map<string, string[]>();
   return (card: CardRow) => {
-    const row = deck === undefined ? undefined : findDeckCard(db, deck, card.oracle_id);
+    const row = deck === undefined ? undefined : findDeckCard(db, actor, deck, card.oracle_id);
     return {
       memories: memories.get(card.oracle_id),
       rulings: rulings.get(card.oracle_id),
@@ -185,18 +186,20 @@ export const TOOLS: ToolDef[] = [
       "the owner's profile, your global memories, the deck roster with ids, the deck the owner has open " +
       "(the focus), and how many of the owner's rulings you have not read yet.",
     input: {},
-    run: ({ db }) => {
-      const profile = getProfile(db);
-      const focus = getFocus(db);
-      const unreviewed = unreviewedCount(db);
+    run: ({ db, actor }) => {
+      const identity = db.prepare("SELECT handle, display_name FROM users WHERE id = ?").get(actor.user_id) as { handle: string; display_name: string };
+      const profile = getProfile(db, actor);
+      const focus = getFocus(db, actor);
+      const unreviewed = unreviewedCount(db, actor);
       return [
         PLAYBOOK,
+        `# Identity\n${identity.handle} — ${identity.display_name}`,
         `# The owner's profile\n${profile.body_md || "(empty — the owner has not written one. If you learn durable things about them, propose a profile with propose_profile_edit.)"}` +
           (profile.over_cap
             ? `\n(The profile is ${profile.word_count} words, over its soft cap. Suggest tightening it.)`
             : ""),
-        `# Your global memories\n${renderScope(loadScope(db, "global"), "global")}`,
-        `# Decks\n${rosterLines(listDecks(db))}`,
+        `# Your global memories\n${renderScope(loadScope(db, actor, "global"), "global")}`,
+        `# Decks\n${rosterLines(listDecks(db, actor))}`,
         `# Focus\n${
           focus
             ? `The owner has deck ${focus.deck_id} "${focus.deck_name}" open` +
@@ -222,7 +225,7 @@ export const TOOLS: ToolDef[] = [
       "Use this for questions about the owner's tastes or what to build next. These are facts the app " +
       "computes; never store them as memories.",
     input: {},
-    run: ({ db }) => renderStats(playerStats(db)),
+    run: ({ db, actor }) => renderStats(playerStats(db, actor)),
   },
   {
     name: "get_deck",
@@ -244,7 +247,7 @@ export const TOOLS: ToolDef[] = [
         .optional()
         .describe("Include each card's oracle text (default true)."),
     },
-    run: ({ db }, a) => renderDeck(db, deckId(db, a.deck), a.sections ?? DECK_SECTIONS, a.card_text ?? true),
+    run: ({ db, actor }, a) => renderDeck(db, actor, deckId(db, actor, a.deck), a.sections ?? DECK_SECTIONS, a.card_text ?? true),
   },
   {
     name: "propose_power_target",
@@ -263,9 +266,9 @@ export const TOOLS: ToolDef[] = [
       reason: z.string().trim().min(1).describe("Why this target fits what the owner wants; card references as [[Card Name]]."),
     },
     run: ({ db, actor }, a) => {
-      const id = deckId(db, a.deck);
+      const id = deckId(db, actor, a.deck, true);
       const r = proposeDocumentEdit(db, actor, id, "power_target", { target: a.target }, a.reason, { expected_revision: a.expected_revision });
-      return done(`${r.applied ? "Set the power target." : `Proposed power target edit #${r.edit_id}; awaiting the owner.`}\n${renderPower(getPower(db, id))}\n${afterWrite(db, id)}`);
+      return done(`${r.applied ? "Set the power target." : `Proposed power target edit #${r.edit_id}; awaiting the owner.`}\n${renderPower(getPower(db, actor, id))}\n${afterWrite(db, actor, id)}`);
     },
   },
   {
@@ -280,9 +283,9 @@ export const TOOLS: ToolDef[] = [
       "An agent cannot overwrite the owner's assessment of the same revision. This never changes the target or cards.",
     input: { deck: deckRef, assessment: PowerAssessmentSchema.describe("Gameplay judgments, not card counts. Unknown profile fields may be omitted. Explain evidence in notes, with cards as [[Card Name]].") },
     run: ({ db, actor }, a) => {
-      const id = deckId(db, a.deck);
+      const id = deckId(db, actor, a.deck, true);
       const assessmentId = recordPowerAssessment(db, actor, id, a.assessment);
-      return done(`Recorded power assessment #${assessmentId}.\n${renderPower(getPower(db, id))}\n${afterWrite(db, id)}`);
+      return done(`Recorded power assessment #${assessmentId}.\n${renderPower(getPower(db, actor, id))}\n${afterWrite(db, actor, id)}`);
     },
   },
   {
@@ -302,7 +305,7 @@ export const TOOLS: ToolDef[] = [
       expected_source_revisions: z.record(z.string(), z.number().int().nonnegative()).optional(),
     },
     run: ({ db, actor }, a) => {
-      const result = compareDeckSources(db, actor, deckId(db, a.deck), a.sources.map((s: string | number) => deckId(db, s)), a);
+      const result = compareDeckSources(db, actor, deckId(db, actor, a.deck, !!a.apply_source_tags), a.sources.map((s: string | number) => deckId(db, actor, s, !!a.apply_source_tags)), a);
       const s = result.summary;
       const price = (cents: number | null) => cents == null ? "price unknown" : `$${(cents / 100).toFixed(2)} est.`;
       return {
@@ -326,10 +329,10 @@ export const TOOLS: ToolDef[] = [
       })).min(1),
     },
     run: ({ db, actor }, a) => {
-      const id = deckId(db, a.deck);
+      const id = deckId(db, actor, a.deck, true);
       const cards = resolveCards(db, a.cards.map((c: { card: string }) => c.card));
       recordOwnership(db, actor, id, a.cards.map((c: object, i: number) => ({ ...c, oracle_id: cards[i].oracle_id })), a.expected_revision);
-      return done(`Recorded explicit ownership evidence for ${cards.length} card(s).\n${afterWrite(db, id)}`);
+      return done(`Recorded explicit ownership evidence for ${cards.length} card(s).\n${afterWrite(db, actor, id)}`);
     },
   },
   {
@@ -344,8 +347,8 @@ export const TOOLS: ToolDef[] = [
       deck: deckRef,
       other: deckRef.optional().describe("The deck to compare against. Omit to use the first deck's parent."),
     },
-    run: ({ db }, a) =>
-      renderCompare(compareDecks(db, deckId(db, a.deck), a.other === undefined ? undefined : deckId(db, a.other))),
+    run: ({ db, actor }, a) =>
+      renderCompare(compareDecks(db, actor, deckId(db, actor, a.deck), a.other === undefined ? undefined : deckId(db, actor, a.other))),
   },
   {
     name: "search_cards",
@@ -378,12 +381,12 @@ export const TOOLS: ToolDef[] = [
         .describe("With a deck named, do not limit results to its colour identity."),
       limit: z.number().int().min(1).max(50).optional().describe("How many results (default 20, max 50)."),
     },
-    run: ({ db }, a) => {
-      const deck = a.deck === undefined ? undefined : deckId(db, a.deck);
+    run: ({ db, actor }, a) => {
+      const deck = a.deck === undefined ? undefined : deckId(db, actor, a.deck);
       const limit = a.limit ?? 20;
       let results: CardRow[];
       try {
-        results = search(db, a.query, {
+        results = search(db, actor, a.query, {
           deckId: deck,
           filterByDeckIdentity: !a.ignore_identity,
           limit: limit + 1,
@@ -405,7 +408,7 @@ export const TOOLS: ToolDef[] = [
             ? ` within this deck's colour identity. If the card may be outside it, search again with ignore_identity: true.`
             : `. Loosen the query, or check the syntax.`)
         );
-      const ctx = contextFor(db, shown, deck, !!a.include_my_decks);
+      const ctx = contextFor(db, actor, shown, deck, !!a.include_my_decks);
       return [
         `${shown.length} result(s) for "${a.query}"${deck !== undefined ? ` in the context of deck ${deck}` : ""}` +
           (more ? ` — there are more; narrow the query to see them.` : "."),
@@ -430,11 +433,11 @@ export const TOOLS: ToolDef[] = [
         .optional()
         .describe("Also say which of the owner's other decks contain each card. Off by default."),
     },
-    run: ({ db }, a) => {
-      const deck = a.deck === undefined ? undefined : deckId(db, a.deck);
+    run: ({ db, actor }, a) => {
+      const deck = a.deck === undefined ? undefined : deckId(db, actor, a.deck);
       const resolved = (a.cards as string[]).map((ref) => tryResolveCard(db, ref));
       const found = resolved.filter((r): r is CardRow => !("problem" in r));
-      const ctx = contextFor(db, found, deck, !!a.include_my_decks);
+      const ctx = contextFor(db, actor, found, deck, !!a.include_my_decks);
       return {
         text: resolved.map(r => "problem" in r ? resolutionFailureLine(r) : cardWithContext(r, ctx(r))).join("\n"),
         structuredContent: { cards: found, failures: resolved.filter(r => "problem" in r) },
@@ -455,14 +458,14 @@ export const TOOLS: ToolDef[] = [
       since: z.string().optional().describe("Only entries on or after this date (YYYY-MM-DD)."),
       limit: z.number().int().min(1).max(200).optional().describe("Default 30."),
     },
-    run: ({ db }, a) => {
-      const entries = listLog(db, {
-        deckId: a.deck === undefined ? undefined : deckId(db, a.deck),
+    run: ({ db, actor }, a) => {
+      const entries = listLog(db, actor, {
+        deckId: a.deck === undefined ? undefined : deckId(db, actor, a.deck),
         unreviewedOnly: a.unreviewed_only,
         since: a.since,
         limit: a.limit ?? 30,
       });
-      const waiting = unreviewedCount(db);
+      const waiting = unreviewedCount(db, actor);
       const unread = entries.filter((e) => e.reviewed_at == null);
       return (
         `${entries.length} entr${entries.length === 1 ? "y" : "ies"}` +
@@ -499,12 +502,12 @@ export const TOOLS: ToolDef[] = [
         .describe("Also return superseded and retired memories (the history)."),
       limit: z.number().int().min(1).max(100).optional().describe("Default 25."),
     },
-    run: ({ db }, a) =>
+    run: ({ db, actor }, a) =>
       renderMemories(
-        listMemories(db, {
+        listMemories(db, actor, {
           query: a.query,
           scope: a.scope,
-          deckId: a.deck === undefined ? undefined : deckId(db, a.deck),
+          deckId: a.deck === undefined ? undefined : deckId(db, actor, a.deck),
           cardId: a.card ? resolveCard(db, a.card).oracle_id : undefined,
           status: a.include_retired ? "any" : "active",
           limit: a.limit ?? 25,
@@ -522,8 +525,8 @@ export const TOOLS: ToolDef[] = [
       deck: deckRef,
       categories: z.boolean().optional().describe("Include [Category] from slots (default true)."),
     },
-    run: ({ db }, a) => {
-      const r = exportDeck(db, deckId(db, a.deck), {
+    run: ({ db, actor }, a) => {
+      const r = exportDeck(db, actor, deckId(db, actor, a.deck), {
         categories: a.categories,
       });
       return `${r.card_count} card(s) at revision ${r.revision}:\n\n${r.text}`;
@@ -537,13 +540,13 @@ export const TOOLS: ToolDef[] = [
     title: "Rename a deck",
     readOnly: false,
     description:
-      "Rename a Paper or Theorycrafted deck. The name must be nonempty and unique across decks. " +
+      "Rename a Paper or Theorycrafted deck. The name must be nonempty and unique across your decks. " +
       "Its cards, revision, category and editing permissions stay the same. The change is attributed in Activity.",
     input: { deck: deckRef, name: z.string().describe("The new deck name.") },
     run: ({ db, actor }, a) => {
-      const id = deckId(db, a.deck);
+      const id = deckId(db, actor, a.deck, true);
       renameDeck(db, actor, id, a.name);
-      return done(`Renamed deck ${id} to "${requireDeck(db, id).name}".\n${afterWrite(db, id)}`);
+      return done(`Renamed deck ${id} to "${requireDeck(db, actor, id).name}".\n${afterWrite(db, actor, id)}`);
     },
   },
   {
@@ -557,10 +560,10 @@ export const TOOLS: ToolDef[] = [
       "Use only when the owner asks to delete this deck. The deletion stays attributed in Activity.",
     input: { deck: deckRef },
     run: ({ db, actor }, a) => {
-      const id = deckId(db, a.deck);
-      const name = requireDeck(db, id).name;
+      const id = deckId(db, actor, a.deck, true);
+      const name = requireDeck(db, actor, id).name;
       deleteDeck(db, actor, id);
-      return done(`Deleted deck ${id} "${name}" and its associated records. This cannot be undone.\n${rosterLines(listDecks(db))}`);
+      return done(`Deleted deck ${id} "${name}" and its associated records. This cannot be undone.\n${rosterLines(listDecks(db, actor))}`);
     },
   },
 
@@ -573,7 +576,7 @@ export const TOOLS: ToolDef[] = [
       "commanders or paste a whole list. A supplied thesis becomes a proposed brief edit for the owner’s approval. " +
       "Only the owner changes lifecycle. If any card name does not resolve, nothing is created.",
     input: {
-      name: z.string().describe("A name not already used by another deck."),
+      name: z.string().describe("A name not already used by one of your decks."),
       commanders: z.array(cardRef).max(2).optional().describe("One commander, or two that may be paired."),
       list: z
         .string()
@@ -591,7 +594,7 @@ export const TOOLS: ToolDef[] = [
         const deck = createDeck(db, actor, a.name);
         if (a.list?.trim()) fillFromList(db, actor, deck, a.list);
         const changes: Change[] = commanders.map((c) => {
-          const row = findDeckCard(db, deck, c.oracle_id);
+          const row = findDeckCard(db, actor, deck, c.oracle_id);
           return row && !row.maybe
             ? { action: "role", oracle_id: c.oracle_id, role: "commander" }
             : { action: "add", oracle_id: c.oracle_id, role: "commander" };
@@ -603,7 +606,7 @@ export const TOOLS: ToolDef[] = [
         }
         return deck;
       });
-      return done(`Created Theorycrafted deck ${id} "${a.name.trim()}" (lifecycle ${requireDeck(db, id).category}).\n${thesisProposal != null ? `Initial thesis proposed as edit #${thesisProposal}; awaiting the owner.\n` : ""}${afterWrite(db, id)}`);
+      return done(`Created Theorycrafted deck ${id} "${a.name.trim()}" (lifecycle ${requireDeck(db, actor, id).category}).\n${thesisProposal != null ? `Initial thesis proposed as edit #${thesisProposal}; awaiting the owner.\n` : ""}${afterWrite(db, actor, id)}`);
     },
   },
   {
@@ -616,13 +619,13 @@ export const TOOLS: ToolDef[] = [
       "original. The original is untouched; compare_decks shows how the two diverge.",
     input: { deck: deckRef, name: z.string().describe("The new deck's name.") },
     run: ({ db, actor }, a) => {
-      const parent = deckId(db, a.deck);
+      const parent = deckId(db, actor, a.deck, true);
       const id = forkDeck(db, actor, parent, a.name);
-      recordActivity(db, actor, "fork_deck", id, `Forked "${requireDeck(db, parent).name}" as "${a.name}"`);
+      recordActivity(db, actor, "fork_deck", id, `Forked "${requireDeck(db, actor, parent).name}" as "${a.name}"`);
       return done(
         `Forked into Theorycrafted deck ${id} "${a.name.trim()}". Edit its cards with edit_cards.\n` +
           `It starts with the original's brief, memories and rulings history. If the fork has a different ` +
-          `aim, propose a new thesis first (propose_brief_edit), then change the cards.\n${afterWrite(db, id)}`,
+          `aim, propose a new thesis first (propose_brief_edit), then change the cards.\n${afterWrite(db, actor, id)}`,
       );
     },
   },
@@ -672,7 +675,7 @@ export const TOOLS: ToolDef[] = [
       note: z.string().optional().describe("One line for the log saying what this edit was."),
     },
     run: ({ db, actor }, a) => {
-      const deck = deckId(db, a.deck);
+      const deck = deckId(db, actor, a.deck, true);
       requireDirectCardEdit(db, actor, deck);
       const adds = (a.add ?? []) as Array<{ card: string; quantity?: number; slot?: string; secondary_slots?: string[] }>;
       const removes = (a.remove ?? []) as Array<{ card: string; quantity?: number; to_maybe?: boolean }>;
@@ -683,7 +686,7 @@ export const TOOLS: ToolDef[] = [
       const changes: Change[] = [];
       if (commanders) {
         const keep = new Set(commanders.map((c) => c.oracle_id));
-        for (const c of getDeck(db, deck).cards)
+        for (const c of getDeck(db, actor, deck).cards)
           if (c.role === "commander" && !c.maybe && !keep.has(c.oracle_id))
             changes.push({ action: "role", oracle_id: c.oracle_id, role: "card" });
       }
@@ -700,12 +703,12 @@ export const TOOLS: ToolDef[] = [
           action: "add",
           oracle_id: addCards[i].oracle_id,
           quantity: x.quantity,
-          slot_id: x.slot ? requireSlotByName(db, deck, x.slot).id : undefined,
-          secondary_slot_ids: x.secondary_slots?.map(name => requireSlotByName(db, deck, name).id),
+          slot_id: x.slot ? requireSlotByName(db, actor, deck, x.slot).id : undefined,
+          secondary_slot_ids: x.secondary_slots?.map(name => requireSlotByName(db, actor, deck, name).id),
         }),
       );
       for (const c of commanders ?? []) {
-        const row = findDeckCard(db, deck, c.oracle_id);
+        const row = findDeckCard(db, actor, deck, c.oracle_id);
         const beingAdded = addCards.some((x) => x.oracle_id === c.oracle_id);
         changes.push(
           (row && !row.maybe) || beingAdded
@@ -725,7 +728,7 @@ export const TOOLS: ToolDef[] = [
       ].filter(Boolean);
       if (!did.length) throw new ServiceError("Nothing to do: give cards to add or remove, or commanders");
       recordActivity(db, actor, "edit_cards", deck, `${did.join(", ")}${a.note ? ` — ${a.note}` : ""}`);
-      return done(`Done (${did.join(", ")}).\n${afterWrite(db, deck)}`);
+      return done(`Done (${did.join(", ")}).\n${afterWrite(db, actor, deck)}`);
     },
   },
   {
@@ -752,10 +755,10 @@ export const TOOLS: ToolDef[] = [
         .min(1),
     },
     run: ({ db, actor }, a) => {
-      const deck = deckId(db, a.deck);
-      defineSlots(db, deck, a.slots);
+      const deck = deckId(db, actor, a.deck, true);
+      defineSlots(db, actor, deck, a.slots);
       recordActivity(db, actor, "define_slots", deck, `Slots: ${a.slots.map((s: any) => (s.remove ? `removed ${s.name}` : s.rename_to ?? s.name)).join(", ")}`);
-      return done(`Slots updated.\n${renderDeck(db, deck, ["state"])}`);
+      return done(`Slots updated.\n${renderDeck(db, actor, deck, ["state"])}`);
     },
   },
   {
@@ -784,18 +787,17 @@ export const TOOLS: ToolDef[] = [
         .min(1),
     },
     run: ({ db, actor }, a) => {
-      const deck = deckId(db, a.deck);
+      const deck = deckId(db, actor, a.deck, true);
       const filings = a.filings as Array<{ card: string; slot?: string | null; secondary_slots?: string[]; add_tags?: string[]; remove_tags?: string[] }>;
       const cards = resolveCards(db, filings.map((f) => f.card));
       fileCards(
-        db,
+        db, actor,
         deck,
         filings.map((f, i) => ({ ...f, oracle_id: cards[i].oracle_id })),
         a.remove_unused_tags,
-        actor,
       );
       recordActivity(db, actor, "file_cards", deck, `Filed ${cards.length} card(s)${a.remove_unused_tags?.length ? `; removed unused tags: ${a.remove_unused_tags.join(", ")}` : ""}`);
-      return done(`Filed ${cards.length} card(s).\n${renderDeck(db, deck, ["state"])}`);
+      return done(`Filed ${cards.length} card(s).\n${renderDeck(db, actor, deck, ["state"])}`);
     },
   },
   {
@@ -815,7 +817,7 @@ export const TOOLS: ToolDef[] = [
       remove: z.array(cardRef).optional(),
     },
     run: ({ db, actor }, a) => {
-      const deck = deckId(db, a.deck);
+      const deck = deckId(db, actor, a.deck, true);
       const adds = (a.add ?? []) as Array<{ card: string; note?: string }>;
       const addCards = resolveCards(db, adds.map((x) => x.card));
       const removeCards = resolveCards(db, a.remove ?? []);
@@ -823,9 +825,9 @@ export const TOOLS: ToolDef[] = [
       withTransaction(db, () => {
         adds.forEach((x, i) => {
           if (x.note) lintProse(db, x.note);
-          shortlistCard(db, deck, addCards[i].oracle_id, x.note ?? "");
+          shortlistCard(db, actor, deck, addCards[i].oracle_id, x.note ?? "");
         });
-        for (const c of removeCards) unshortlistCard(db, deck, c.oracle_id);
+        for (const c of removeCards) unshortlistCard(db, actor, deck, c.oracle_id);
       });
       recordActivity(
         db,
@@ -839,7 +841,7 @@ export const TOOLS: ToolDef[] = [
           .filter(Boolean)
           .join("; "),
       );
-      return done(`Maybe list updated.\n${renderDeck(db, deck, ["maybe"], false)}`);
+      return done(`Maybe list updated.\n${renderDeck(db, actor, deck, ["maybe"], false)}`);
     },
   },
   {
@@ -864,7 +866,7 @@ export const TOOLS: ToolDef[] = [
       source_ruling: z.number().int().optional().describe("The id of the ruling that prompted this, if one did."),
     },
     run: ({ db, actor }, a) => {
-      const deck = a.scope === "deck" ? (a.deck === undefined ? null : deckId(db, a.deck)) : null;
+      const deck = a.scope === "deck" ? (a.deck === undefined ? null : deckId(db, actor, a.deck, true)) : null;
       const { memory, similar } = remember(db, actor, {
         text: a.text,
         scope: a.scope,
@@ -874,7 +876,7 @@ export const TOOLS: ToolDef[] = [
         source_log_id: a.source_ruling,
       });
       recordActivity(db, actor, "remember", deck, `Memory #${memory.id}: ${memory.text}`);
-      const loaded = loadScope(db, memory.scope, deck ?? undefined);
+      const loaded = loadScope(db, actor, memory.scope, deck ?? undefined);
       return done(
         [
           `Saved.\n${memoryLine(memory)}`,
@@ -922,7 +924,7 @@ export const TOOLS: ToolDef[] = [
           cards,
           basis: a.basis,
           scope: a.scope,
-          deck_id: a.deck === undefined ? undefined : deckId(db, a.deck),
+          deck_id: a.deck === undefined ? undefined : deckId(db, actor, a.deck, true),
         });
       } else {
         result = reviseMemory(db, actor, a.id, { action: a.action });
@@ -945,9 +947,9 @@ export const TOOLS: ToolDef[] = [
       through: z.number().int().optional(),
     },
     run: ({ db, actor }, a) => {
-      const n = markReviewed(db, { ids: a.ids, through: a.through });
+      const n = markReviewed(db, actor, { ids: a.ids, through: a.through });
       recordActivity(db, actor, "mark_rulings_reviewed", null, `Reviewed ${n} ruling(s)`);
-      return done(`Marked ${n} as reviewed. ${unreviewedCount(db)} still unreviewed.`);
+      return done(`Marked ${n} as reviewed. ${unreviewedCount(db, actor)} still unreviewed.`);
     },
   },
 
@@ -987,7 +989,7 @@ export const TOOLS: ToolDef[] = [
         .min(1),
     },
     run: ({ db, actor }, a) => {
-      const deck = deckId(db, a.deck);
+      const deck = deckId(db, actor, a.deck, true);
       const items = a.items as Array<{
         action: "add" | "cut";
         card: string;
@@ -1005,20 +1007,20 @@ export const TOOLS: ToolDef[] = [
           action: i.action,
           oracle_id: cards[n].oracle_id,
           reason: i.reason,
-          slot_id: i.slot ? requireSlotByName(db, deck, i.slot).id : undefined,
-          secondary_slot_ids: i.secondary_slots?.map(name => requireSlotByName(db, deck, name).id),
+          slot_id: i.slot ? requireSlotByName(db, actor, deck, i.slot).id : undefined,
+          secondary_slot_ids: i.secondary_slots?.map(name => requireSlotByName(db, actor, deck, name).id),
           to_maybe: i.to_maybe,
           group: i.group,
         })),
       });
-      const proposal = getProposal(db, id)!;
+      const proposal = getProposal(db, actor, id, true)!;
       recordActivity(db, actor, "propose_changes", deck, `Proposal #${id}: ${proposal.items.length} item(s)${a.summary ? ` — ${a.summary}` : ""}`);
 
-      const view = getDeck(db, deck);
+      const view = getDeck(db, actor, deck);
       const c = view.computed;
       const ids = cards.map((x) => x.oracle_id);
-      const rulings = cardHistories(db, deck, ids);
-      const memories = memoriesForCards(db, ids, deck);
+      const rulings = cardHistories(db, actor, deck, ids);
+      const memories = memoriesForCards(db, actor, ids, deck);
       const context = cards
         .filter((x) => rulings.has(x.oracle_id) || memories.has(x.oracle_id))
         .map((x) =>
@@ -1048,10 +1050,10 @@ export const TOOLS: ToolDef[] = [
     readOnly: true,
     description: "Read card and document proposals with current status, supersession links, revision bases, stale flags, and full preserved drafts. Defaults to current pending work; include_history returns resolved, withdrawn and superseded versions. No approval or mutation is performed.",
     input: { deck: deckRef.optional(), include_history: z.boolean().optional() },
-    run: ({ db }, a) => {
-      const id = a.deck === undefined ? undefined : deckId(db, a.deck);
-      const proposals = listProposals(db, { deckId: id, status: a.include_history ? undefined : "open" });
-      const document_edits = listDocumentEdits(db, { deckId: id, status: a.include_history ? undefined : "pending" });
+    run: ({ db, actor }, a) => {
+      const id = a.deck === undefined ? undefined : deckId(db, actor, a.deck);
+      const proposals = listProposals(db, actor, { deckId: id, status: a.include_history ? undefined : "open" });
+      const document_edits = listDocumentEdits(db, actor, { deckId: id, status: a.include_history ? undefined : "pending" });
       return { structuredContent: { proposals, document_edits }, text:
         [...proposals.map(p => `Card proposal #${p.id}: ${p.is_current ? "current open" : p.disposition === "current" ? p.status : p.disposition}, based on r${p.base_revision ?? "unknown"}${p.stale ? ", stale" : ""}${p.superseded_by ? ` → #${p.superseded_by}` : ""}`),
           ...document_edits.map(e => `Document edit #${e.id}${e.group_id ? ` (group #${e.group_id})` : ""}: ${e.kind}, ${e.is_current ? "current pending" : e.disposition === "current" ? e.status : e.disposition}, based on r${e.base_revision ?? "unknown"}${e.stale ? ", stale" : ""}${e.superseded_by ? ` → #${e.superseded_by}` : ""}`)].join("\n") || "No proposals.",
@@ -1066,9 +1068,9 @@ export const TOOLS: ToolDef[] = [
     input: { deck: deckRef.optional(), changes: z.array(documentChange).min(1),
       supersedes: z.array(z.number().int().positive()).optional(), expected_revision: z.number().int().nonnegative().optional() },
     run: ({ db, actor }, a) => {
-      const id = a.deck === undefined ? null : deckId(db, a.deck);
-      const result = proposeDocumentGroup(db, actor, id, documentChanges(db, a.changes), a);
-      return { changed: true, structuredContent: { ...result, document_edits: listDocumentEdits(db, id == null ? { profileOnly: true } : { deckId: id }) },
+      const id = a.deck === undefined ? null : deckId(db, actor, a.deck, true);
+      const result = proposeDocumentGroup(db, actor, id, documentChanges(db, actor, a.changes), a);
+      return { changed: true, structuredContent: { ...result, document_edits: listDocumentEdits(db, actor, id == null ? { profileOnly: true } : { deckId: id }) },
         text: `Document group #${result.group_id}: edits ${result.edit_ids.join(", ")}; awaiting the owner's grouped approval. Superseded drafts remain in history.` };
     },
   },
@@ -1082,32 +1084,32 @@ export const TOOLS: ToolDef[] = [
       summary: z.string().optional(), items: z.array(proposalItem).min(1).optional(), changes: z.array(documentChange).min(1).optional() },
     run: ({ db, actor }, a) => {
       if (a.action === "withdraw") {
-        const scope = a.type === "cards" ? getProposal(db, a.id)?.deck_id : getDocumentEdit(db, a.id)?.deck_id;
+        const scope = a.type === "cards" ? getProposal(db, actor, a.id, true)?.deck_id : getDocumentEdit(db, actor, a.id, true)?.deck_id;
         if (a.type === "cards") withdrawProposal(db, actor, a.id, a.reason, a.expected_revision);
         else withdrawDocumentEdit(db, actor, a.id, a.reason, a.expected_revision);
-        return done(`Withdrew ${a.type} proposal #${a.id}; history retained.${scope == null ? "" : `\n${afterWrite(db, scope)}`}`);
+        return done(`Withdrew ${a.type} proposal #${a.id}; history retained.${scope == null ? "" : `\n${afterWrite(db, actor, scope)}`}`);
       }
       if (a.type === "document") {
-        const edit = getDocumentEdit(db, a.id);
+        const edit = getDocumentEdit(db, actor, a.id, true);
         if (!edit) throw new ServiceError(`Proposed edit ${a.id} not found`, 404);
         if (!a.changes) throw new ServiceError("A document amendment needs the complete replacement changes");
         lintProse(db, a.reason);
-        const result = proposeDocumentGroup(db, actor, edit.deck_id, documentChanges(db, a.changes), { supersedes: [a.id], expected_revision: a.expected_revision });
+        const result = proposeDocumentGroup(db, actor, edit.deck_id, documentChanges(db, actor, a.changes), { supersedes: [a.id], expected_revision: a.expected_revision });
         recordActivity(db, actor, "amend_document_proposal", edit.deck_id, `Amended edit #${a.id} with group #${result.group_id}: ${a.reason}`);
         return { changed: true, structuredContent: result, text: `Current document group #${result.group_id} supersedes #${a.id}; awaiting owner approval.` };
       }
-      const old = getProposal(db, a.id);
+      const old = getProposal(db, actor, a.id, true);
       if (!old) throw new ServiceError(`Proposal ${a.id} not found`, 404);
       if (!a.items) throw new ServiceError("A card amendment needs the complete replacement items");
       lintProse(db, a.reason);
       const items = (a.items as z.infer<typeof proposalItem>[]).map(i => ({ ...i,
         oracle_id: resolveCard(db, i.card).oracle_id,
-        slot_id: i.slot ? requireSlotByName(db, old.deck_id, i.slot).id : undefined,
-        secondary_slot_ids: i.secondary_slots?.map(name => requireSlotByName(db, old.deck_id, name).id),
+        slot_id: i.slot ? requireSlotByName(db, actor, old.deck_id, i.slot).id : undefined,
+        secondary_slot_ids: i.secondary_slots?.map(name => requireSlotByName(db, actor, old.deck_id, name).id),
       }));
       const id = amendProposal(db, actor, a.id, { summary: a.summary, items, expected_revision: a.expected_revision });
       recordActivity(db, actor, "amend_card_proposal", old.deck_id, `Amended #${a.id} as #${id}: ${a.reason}`);
-      return { changed: true, structuredContent: { proposal: getProposal(db, id) }, text: `Current card proposal #${id} supersedes #${a.id}; awaiting owner approval.\n${afterWrite(db, old.deck_id)}` };
+      return { changed: true, structuredContent: { proposal: getProposal(db, actor, id, true) }, text: `Current card proposal #${id} supersedes #${a.id}; awaiting owner approval.\n${afterWrite(db, actor, old.deck_id)}` };
     },
   },
   {
@@ -1133,7 +1135,7 @@ export const TOOLS: ToolDef[] = [
       reason: z.string().trim().min(1).describe("What prompted this (rulings, memories). Required for every brief proposal."),
     },
     run: ({ db, actor }, a) => {
-      const deck = deckId(db, a.deck);
+      const deck = deckId(db, actor, a.deck, true);
       const pieces = (a.pieces ?? []) as Array<{ card: string; note?: string }>;
       const cards = resolveCards(db, pieces.map((p) => p.card));
       const r = proposeDocumentEdit(
@@ -1153,7 +1155,7 @@ export const TOOLS: ToolDef[] = [
       recordActivity(db, actor, "propose_brief_edit", deck, r.applied ? `Wrote the brief (${a.kind})` : `Proposed brief edit #${r.edit_id} (${a.kind})`);
       return done(
         r.applied
-          ? `Applied the brief edit.\n${renderDeck(db, deck, ["brief"])}`
+          ? `Applied the brief edit.\n${renderDeck(db, actor, deck, ["brief"])}`
           : `Proposed edit #${r.edit_id} is waiting for the owner's ruling in the app.`,
       );
     },

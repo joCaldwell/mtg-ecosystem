@@ -1,6 +1,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { OWNER, PermissionError } from "../src/actor.ts";
+import { PermissionError } from "../src/actor.ts";
+import { OWNER } from "./actors.ts";
 import { listActivity } from "../src/activity.ts";
 import { checkDeck } from "../src/deck/checks.ts";
 import { forkDeck } from "../src/deck/fork.ts";
@@ -18,7 +19,7 @@ const profile = (patch: object = {}) => PowerProfileSchema.parse({
 });
 const target = (patch: object = {}) => ({ profile: profile(patch), game_changers_max: 0, notes: "Low pressure games with room to develop." });
 const assessment = (db: ReturnType<typeof testDb>, id: number, patch: object = {}) => ({
-  profile: profile(patch), revision: getDeck(db, id).deck.revision,
+  profile: profile(patch), revision: getDeck(db, OWNER, id).deck.revision,
   evidence: "list", confidence: "tentative", notes: "Untested list estimate; validate timing with actual games.",
 });
 
@@ -61,26 +62,26 @@ describe("power capabilities and document permissions", () => {
     assert.throws(() => setPowerTarget(db, AGENT, id, target()), PermissionError);
     const r = proposeDocumentEdit(db, AGENT, id, "power_target", { target: target() }, "Owner requested low pressure games.");
     assert.equal(r.applied, false);
-    assert.equal(getPower(db, id).target, null);
+    assert.equal(getPower(db, OWNER, id).target, null);
     ruleDocumentEdit(db, OWNER, r.edit_id!, "accept");
-    assert.equal(getPower(db, id).target!.mapping.bracket, 2);
-    assert.equal(getDeck(db, id).deck.revision, 0);
+    assert.equal(getPower(db, OWNER, id).target!.mapping.bracket, 2);
+    assert.equal(getDeck(db, OWNER, id).deck.revision, 0);
     setDeckCategory(db, OWNER, id, "paper");
     assert.throws(() => writePowerTarget(db, AGENT, id, target()), PermissionError);
     const next = target({ intent: "synergy" });
     const pending = proposeDocumentEdit(db, AGENT, id, "power_target", { target: next }, "Owner asked for more synergy.");
     assert.equal(pending.applied, false);
-    const edit = listDocumentEdits(db, { deckId: id })[0];
+    const edit = listDocumentEdits(db, OWNER, { deckId: id })[0];
     assert.match(edit.payload.base!, /Intent: Social/);
     assert.match(edit.payload.content!, /Intent: Strong synergy/);
-    assert.equal(getPower(db, id).target!.profile.intent, "social");
+    assert.equal(getPower(db, OWNER, id).target!.profile.intent, "social");
     setPowerTarget(db, OWNER, id, target({ intent: "optimized" }));
-    assert.equal(listDocumentEdits(db, { deckId: id })[0].stale, true);
+    assert.equal(listDocumentEdits(db, OWNER, { deckId: id })[0].stale, true);
     assert.throws(() => ruleDocumentEdit(db, OWNER, pending.edit_id!, "accept"), /stale/);
     ruleDocumentEdit(db, OWNER, pending.edit_id!, "accept", "Reviewed changed target", { acknowledge_stale: true, expected_revision: 0 });
-    assert.equal(getPower(db, id).target!.profile.intent, "synergy");
-    assert.deepEqual(listActivity(db).map(a => a.action), ["propose_power_target", "propose_power_target"]);
-    assert.equal(getDeck(db, id).deck.revision, 0);
+    assert.equal(getPower(db, OWNER, id).target!.profile.intent, "synergy");
+    assert.deepEqual(listActivity(db, OWNER).map(a => a.action), ["propose_power_target", "propose_power_target"]);
+    assert.equal(getDeck(db, OWNER, id).deck.revision, 0);
     db.close();
   });
   test("targets can be rejected or cleared, without changing the assessment", () => {
@@ -88,42 +89,42 @@ describe("power capabilities and document permissions", () => {
     recordPowerAssessment(db, AGENT, id, assessment(db, id));
     const r = proposeDocumentEdit(db, AGENT, id, "power_target", { target: target() }, "A tentative target.");
     ruleDocumentEdit(db, OWNER, r.edit_id!, "reject");
-    assert.equal(getPower(db, id).target, null);
+    assert.equal(getPower(db, OWNER, id).target, null);
     setPowerTarget(db, OWNER, id, target());
     setPowerTarget(db, OWNER, id, null);
-    assert.equal(getPower(db, id).target, null);
-    assert.equal(getPower(db, id).assessment!.id, 1);
+    assert.equal(getPower(db, OWNER, id).target, null);
+    assert.equal(getPower(db, OWNER, id).assessment!.id, 1);
     db.close();
   });
   test("agent assessments are attributed, owner corrections prevail, and changed lists need review", () => {
     const db = testDb(); const id = newDeck(db);
     add(db, id, "id-solring");
-    const rev = getDeck(db, id).deck.revision;
+    const rev = getDeck(db, OWNER, id).deck.revision;
     recordPowerAssessment(db, AGENT, id, assessment(db, id));
-    assert.equal(getPower(db, id).assessment!.author, "test-agent");
+    assert.equal(getPower(db, OWNER, id).assessment!.author, "test-agent");
     recordPowerAssessment(db, OWNER, id, assessment(db, id, { consistency: "variable" }));
     assert.throws(() => recordPowerAssessment(db, AGENT, id, assessment(db, id)), PermissionError);
-    assert.equal(getPower(db, id).history.length, 2);
+    assert.equal(getPower(db, OWNER, id).history.length, 2);
     add(db, id, "id-counterspell");
-    assert.equal(getPower(db, id).assessment!.stale, true);
-    assert.ok(checkDeck(db, id).some(f => f.key === "power_assessment_stale"));
+    assert.equal(getPower(db, OWNER, id).assessment!.stale, true);
+    assert.ok(checkDeck(db, OWNER, id).some(f => f.key === "power_assessment_stale"));
     assert.throws(() => recordPowerAssessment(db, AGENT, id, { ...assessment(db, id), revision: rev }), /re-read/);
     recordPowerAssessment(db, AGENT, id, assessment(db, id));
-    assert.equal(getPower(db, id).assessment!.stale, false);
-    assert.equal(getPower(db, id).history.length, 3);
-    assert.equal(listActivity(db).filter(a => a.action === "assess_deck_power").length, 2);
+    assert.equal(getPower(db, OWNER, id).assessment!.stale, false);
+    assert.equal(getPower(db, OWNER, id).history.length, 3);
+    assert.equal(listActivity(db, OWNER).filter(a => a.action === "assess_deck_power").length, 2);
     db.close();
   });
   test("differences are computed only for a current assessment; a range inside the target fits", () => {
     const db = testDb(); const id = newDeck(db);
     setPowerTarget(db, OWNER, id, target());
     recordPowerAssessment(db, AGENT, id, assessment(db, id, { win_turn: { min: 9, max: 10 } }));
-    assert.deepEqual(getPower(db, id).differences, []);
+    assert.deepEqual(getPower(db, OWNER, id).differences, []);
     recordPowerAssessment(db, AGENT, id, assessment(db, id, { resilience: "fragile", win_turn: { min: 7, max: 9 } }));
-    assert.deepEqual(getPower(db, id).differences.map(d => d.field), ["Resilience", "Usual win range"]);
-    assert.ok(checkDeck(db, id).some(f => f.key === "power_target_gap"));
+    assert.deepEqual(getPower(db, OWNER, id).differences.map(d => d.field), ["Resilience", "Usual win range"]);
+    assert.ok(checkDeck(db, OWNER, id).some(f => f.key === "power_target_gap"));
     add(db, id, "id-solring");
-    assert.deepEqual(getPower(db, id).differences, []);
+    assert.deepEqual(getPower(db, OWNER, id).differences, []);
     db.close();
   });
   test("strict validation and prose linting fail atomically below both front doors", () => {
@@ -134,9 +135,9 @@ describe("power capabilities and document permissions", () => {
     assert.throws(() => recordPowerAssessment(db, AGENT, id, { ...assessment(db, id), game_changers: 0 }), /Invalid power assessment/);
     assert.throws(() => recordPowerAssessment(db, AGENT, id, { ...assessment(db, id), notes: "" }), /Invalid power assessment/);
     assert.throws(() => proposeDocumentEdit(db, AGENT, id, "power_target", { target: target() }, "[[Imaginary Power Card]]"), /did not resolve/);
-    assert.equal(getPower(db, id).assessment, null);
-    assert.equal(getPower(db, id).target, null);
-    assert.deepEqual(listActivity(db), []);
+    assert.equal(getPower(db, OWNER, id).assessment, null);
+    assert.equal(getPower(db, OWNER, id).target, null);
+    assert.deepEqual(listActivity(db, OWNER), []);
     db.close();
   });
   test("forks inherit the target, start unassessed, and delete cascades preserve the fork", () => {
@@ -144,12 +145,12 @@ describe("power capabilities and document permissions", () => {
     setPowerTarget(db, OWNER, id, target());
     recordPowerAssessment(db, OWNER, id, assessment(db, id));
     const fork = forkDeck(db, AGENT, id, "Power fork");
-    assert.equal(getPower(db, fork).target!.profile.intent, "social");
-    assert.equal(getPower(db, fork).assessment, null);
+    assert.equal(getPower(db, OWNER, fork).target!.profile.intent, "social");
+    assert.equal(getPower(db, OWNER, fork).assessment, null);
     setPowerTarget(db, OWNER, fork, target({ intent: "synergy" }));
-    assert.equal(getPower(db, id).target!.profile.intent, "social");
+    assert.equal(getPower(db, OWNER, id).target!.profile.intent, "social");
     deleteDeck(db, OWNER, id);
-    assert.equal(getPower(db, fork).target!.profile.intent, "synergy");
+    assert.equal(getPower(db, OWNER, fork).target!.profile.intent, "synergy");
     assert.equal(db.prepare("SELECT COUNT(*) n FROM power_assessments").get()!.n, 0);
     db.close();
   });
@@ -163,18 +164,18 @@ describe("computed Game Changers and power tools", () => {
     const metadata = FIXTURES.filter(c => ["id-seedborn", "id-solring", "id-counterspell"].includes(c.oracle_id))
       .map(c => ({ ...c, game_changer: c.oracle_id === "id-seedborn" }));
     ingestCards(db, FIXTURES.map(c => metadata.find(m => m.oracle_id === c.oracle_id) ?? c));
-    shortlistCard(db, id, "id-seedborn");
+    shortlistCard(db, OWNER, id, "id-seedborn");
     add(db, id, "id-solring");
-    assert.equal(gameChangerFacts(db, id).count, 0);
+    assert.equal(gameChangerFacts(db, OWNER, id).count, 0);
     add(db, id, "id-seedborn", { role: "commander" });
-    assert.equal(gameChangerFacts(db, id).count, 1);
+    assert.equal(gameChangerFacts(db, OWNER, id).count, 1);
     recordPowerAssessment(db, AGENT, id, assessment(db, id));
-    assert.equal(getPower(db, id).assessment!.mapping.bracket, 3);
+    assert.equal(getPower(db, OWNER, id).assessment!.mapping.bracket, 3);
     add(db, id, "id-counterspell");
-    assert.equal(getPower(db, id).assessment!.mapping.bracket, 3);
-    assert.equal(getPower(db, id).assessment!.game_changers.count, 1);
+    assert.equal(getPower(db, OWNER, id).assessment!.mapping.bracket, 3);
+    assert.equal(getPower(db, OWNER, id).assessment!.game_changers.count, 1);
     const unknown = newDeck(db); add(db, unknown, "id-forest");
-    assert.equal(gameChangerFacts(db, unknown).unknown_cards, 1);
+    assert.equal(gameChangerFacts(db, OWNER, unknown).unknown_cards, 1);
     db.close();
   });
   test("tools return profiles, computed deltas and actionable errors without obsolete assembly state", () => {

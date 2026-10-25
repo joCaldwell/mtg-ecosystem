@@ -1,3 +1,5 @@
+import { displayAuthor } from "../actor.ts";
+import { requireDeckOwner } from "../actor.ts";
 // Proposals and rulings (spec §8). On a Paper deck an agent changes
 // membership only by proposing; the owner rules per item, per group, or on
 // the whole proposal, with an optional free-text reason. There are no reason
@@ -6,7 +8,7 @@
 import type { Database } from "../sqlite.ts";
 import { ServiceError } from "../errors.ts";
 import { withTransaction } from "../db.ts";
-import { type Actor, authorOf, requireOwner, PermissionError } from "../actor.ts";
+import { type Actor, authorOf, isAuthor, requireUi, PermissionError } from "../actor.ts";
 import { lintProse, requireCardById } from "../cards.ts";
 import { recordActivity } from "../activity.ts";
 import { type LogCardInput, writeLog } from "./log.ts";
@@ -35,8 +37,8 @@ export function createProposal(
   deckId: number,
   input: { summary?: string; items: ProposalItemInput[]; expected_revision?: number },
 ): number {
-  requireEditableDeck(db, deckId);
-  requireRevision(db, deckId, input.expected_revision);
+  requireEditableDeck(db, actor, deckId);
+  requireRevision(db, actor, deckId, input.expected_revision);
   const items = input.items ?? [];
   if (!items.length) throw new ServiceError("A proposal needs at least one item");
 
@@ -54,7 +56,7 @@ export function createProposal(
       throw new ServiceError(`${card.name} appears twice as '${item.action}' in this proposal`);
     seen.add(key);
 
-    const row = findDeckCard(db, deckId, item.oracle_id);
+    const row = findDeckCard(db, actor, deckId, item.oracle_id);
     const inDeck = !!row && !row.maybe;
     if (item.action === "cut" && !inDeck)
       throw new ServiceError(`${card.name} is not in the deck, so it cannot be proposed as a cut`);
@@ -84,7 +86,7 @@ export function createProposal(
       throw new ServiceError("Only an add can name secondary slots; a cut keeps the card's purposes");
     if (item.action === "add") {
       const primary = item.slot_id ?? (row?.maybe ? row.slot_id : null);
-      validateSlotAssignments(db, deckId, primary, item.secondary_slot_ids !== undefined ? item.secondary_slot_ids : (row?.maybe ? row.secondary_slot_ids.filter(id => id !== primary) : []));
+      validateSlotAssignments(db, actor, deckId, primary, item.secondary_slot_ids !== undefined ? item.secondary_slot_ids : (row?.maybe ? row.secondary_slot_ids.filter(id => id !== primary) : []));
     }
 
     const pending = db
@@ -103,8 +105,8 @@ export function createProposal(
 
   return withTransaction(db, () => {
     const r = db
-      .prepare("INSERT INTO proposals (deck_id, summary, author, base_revision) VALUES (?, ?, ?, ?)")
-      .run(deckId, (input.summary ?? "").trim(), authorOf(actor), requireDeck(db, deckId).revision);
+      .prepare("INSERT INTO proposals (deck_id, summary, author, base_revision, author_user_id, author_via, author_label, author_token_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(deckId, (input.summary ?? "").trim(), authorOf(actor), requireDeck(db, actor, deckId).revision, actor.user_id, actor.via, actor.label, actor.token_id ?? null);
     const proposalId = Number(r.lastInsertRowid);
     const ins = db.prepare(
       `INSERT INTO proposal_items (proposal_id, action, oracle_id, slot_id, secondary_slot_ids_json, to_maybe, reason, group_id)
@@ -160,6 +162,11 @@ export interface ProposalView {
   deck_name: string;
   summary: string;
   author: string;
+  author_user_id: number;
+  author_via: "ui" | "agent";
+  author_label: string;
+  author_display?: string;
+  author_token_id: number | null;
   status: "open" | "resolved";
   created_at: string;
   items: ProposalItemView[];
@@ -180,16 +187,16 @@ const ITEM_SELECT = `SELECT pi.id, pi.proposal_id, pi.action, pi.oracle_id, c.na
   LEFT JOIN slots s ON s.id = pi.slot_id
   WHERE pi.proposal_id = ? ORDER BY pi.id`;
 
-const PROPOSAL_SELECT = `SELECT p.id, p.deck_id, d.name AS deck_name, p.summary, p.author, p.status, p.created_at, p.base_revision, p.disposition, p.superseded_by
+const PROPOSAL_SELECT = `SELECT p.id, p.deck_id, d.name AS deck_name, p.summary, p.author, p.author_user_id, p.author_via, p.author_label, p.author_token_id, p.status, p.created_at, p.base_revision, p.disposition, p.superseded_by
   FROM proposals p JOIN decks d ON d.id = p.deck_id`;
 
-function withItems(db: Database, rows: Array<Omit<ProposalView, "items">>): ProposalView[] {
+function withItems(db: Database, actor: Actor, rows: Array<Omit<ProposalView, "items">>): ProposalView[] {
   const stmt = db.prepare(ITEM_SELECT);
   return rows.map(p => {
-    const slots = new Map(listSlots(db, p.deck_id).map(s => [s.id, s.name]));
+    const slots = new Map(listSlots(db, actor, p.deck_id).map(s => [s.id, s.name]));
     const items = (stmt.all(p.id) as unknown as (ProposalItemView & { secondary_slot_ids_json: string | null })[]).map(raw => {
       const { secondary_slot_ids_json: json, ...item } = raw;
-      const current = findDeckCard(db, p.deck_id, item.oracle_id);
+      const current = findDeckCard(db, actor, p.deck_id, item.oracle_id);
       const proposedPrimary = item.slot_id != null && slots.has(item.slot_id) ? item.slot_id : null;
       const primary = item.action === "add" && item.status === "pending"
         ? (current && !current.maybe ? current.slot_id : proposedPrimary ?? (current?.maybe ? current.slot_id : null))
@@ -198,20 +205,21 @@ function withItems(db: Database, rows: Array<Omit<ProposalView, "items">>): Prop
       const secondary_slot_ids = ids.filter(id => slots.has(id) && id !== primary);
       return { ...item, slot_id: primary, slot_name: primary == null ? null : slots.get(primary)!, secondary_slot_ids, secondary_slot_names: secondary_slot_ids.map(id => slots.get(id)!) };
     });
-    const currentRevision = requireDeck(db, p.deck_id).revision;
-    return { ...p, items, current_revision: currentRevision, stale: p.base_revision !== currentRevision,
+    const currentRevision = requireDeck(db, actor, p.deck_id).revision;
+    return { ...p, author_display: displayAuthor(db, p), items, current_revision: currentRevision, stale: p.base_revision !== currentRevision,
       is_current: p.status === "open" && p.disposition === "current",
-      supersedes: (db.prepare("SELECT id FROM proposals WHERE superseded_by = ? ORDER BY id").all(p.id) as unknown as { id: number }[]).map(r => r.id) };
+      supersedes: (db.prepare("SELECT p.id FROM proposals p JOIN decks d ON d.id = p.deck_id WHERE p.superseded_by = ? AND d.user_id = ? ORDER BY p.id").all(p.id, actor.user_id) as unknown as { id: number }[]).map(r => r.id) };
   });
 }
 
 /** Proposals for one deck, or across every deck when deckId is omitted (the inbox). */
 export function listProposals(
-  db: Database,
+  db: Database, actor: Actor,
   opts: { deckId?: number; status?: "open" | "resolved" } = {},
 ): ProposalView[] {
-  const where: string[] = [];
-  const params: Array<string | number> = [];
+  if (opts.deckId !== undefined) requireDeck(db, actor, opts.deckId);
+  const where: string[] = ["d.user_id = ?"];
+  const params: Array<string | number> = [actor.user_id];
   if (opts.deckId !== undefined) {
     where.push("p.deck_id = ?");
     params.push(opts.deckId);
@@ -225,14 +233,16 @@ export function listProposals(
       `${PROPOSAL_SELECT} ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY p.id DESC LIMIT 200`,
     )
     .all(...params) as unknown as Array<Omit<ProposalView, "items">>;
-  return withItems(db, rows);
+  return withItems(db, actor, rows);
 }
 
-export function getProposal(db: Database, proposalId: number): ProposalView | null {
-  const row = db.prepare(`${PROPOSAL_SELECT} WHERE p.id = ?`).get(proposalId) as
+export function getProposal(db: Database, actor: Actor, proposalId: number, forWrite = false): ProposalView | null {
+  const row = db.prepare(`${PROPOSAL_SELECT} WHERE p.id = ? AND d.user_id = ?`).get(proposalId, actor.user_id) as
     | Omit<ProposalView, "items">
     | undefined;
-  return row ? withItems(db, [row])[0] : null;
+  if (!row) throw new ServiceError(`Proposal ${proposalId} not found`, 404);
+  if (forWrite) requireDeckOwner(db, actor, row.deck_id);
+  return withItems(db, actor, [row])[0];
 }
 
 // ---------- ruling ----------
@@ -257,13 +267,14 @@ const ITEM_ROW = `SELECT pi.id, pi.proposal_id, p.deck_id, pi.action, pi.oracle_
 
 // The items a ruling covers: the ones named, widened to whole groups — a
 // group is ruled on as a unit so a swap cannot be half-accepted (spec §8.1).
-function itemsToRule(db: Database, itemIds: number[]): ItemRow[] {
+function itemsToRule(db: Database, actor: Actor, itemIds: number[]): ItemRow[] {
   if (!itemIds.length) throw new ServiceError("Name at least one item to rule on");
   const byId = new Map<number, ItemRow>();
   for (const id of itemIds) {
     const item = db.prepare(`${ITEM_ROW} WHERE pi.id = ?`).get(id) as ItemRow | undefined;
     if (!item) throw new ServiceError(`Proposal item ${id} not found`, 404);
-    const proposal = getProposal(db, item.proposal_id)!;
+    requireDeckOwner(db, actor, item.deck_id, "rule on this proposal");
+    const proposal = getProposal(db, actor, item.proposal_id)!;
     if (!proposal.is_current) throw new ServiceError(`Proposal #${proposal.id} is ${proposal.disposition === "current" ? proposal.status : proposal.disposition}`);
     const group = item.group_id
       ? (db
@@ -284,7 +295,7 @@ function itemsToRule(db: Database, itemIds: number[]): ItemRow[] {
   return items;
 }
 
-function resolveProposalIfDone(db: Database, proposalId: number) {
+function resolveProposalIfDone(db: Database, actor: Actor, proposalId: number) {
   const { n } = db
     .prepare("SELECT COUNT(*) n FROM proposal_items WHERE proposal_id = ? AND status = 'pending'")
     .get(proposalId) as { n: number };
@@ -292,11 +303,11 @@ function resolveProposalIfDone(db: Database, proposalId: number) {
     db.prepare("UPDATE proposals SET status = 'resolved' WHERE id = ?").run(proposalId);
 }
 
-function markItems(db: Database, items: ItemRow[], status: "accepted" | "rejected") {
+function markItems(db: Database, actor: Actor, items: ItemRow[], status: "accepted" | "rejected") {
   const stmt = db.prepare(
-    "UPDATE proposal_items SET status = ?, resolved_at = datetime('now') WHERE id = ?",
+    "UPDATE proposal_items SET status = ?, resolved_at = datetime('now') WHERE id = ? AND proposal_id = ?",
   );
-  for (const i of items) stmt.run(status, i.id);
+  for (const i of items) stmt.run(status, i.id, i.proposal_id);
 }
 
 /** Accept items: the changes are applied and logged as one act. Returns the log id. */
@@ -307,12 +318,12 @@ export function acceptItems(
   reason = "",
   options: { expected_revision?: number; acknowledge_stale?: boolean } = {},
 ): number {
-  requireOwner(actor, "rule on a proposal");
-  const items = itemsToRule(db, itemIds);
+  const items = itemsToRule(db, actor, itemIds);
+  requireUi(actor, "rule on a proposal");
   const deckId = items[0].deck_id;
-  requireEditableDeck(db, deckId);
-  requireRevision(db, deckId, options.expected_revision);
-  if (getProposal(db, items[0].proposal_id)!.stale && (options.acknowledge_stale !== true || options.expected_revision === undefined))
+  requireEditableDeck(db, actor, deckId);
+  requireRevision(db, actor, deckId, options.expected_revision);
+  if (getProposal(db, actor, items[0].proposal_id)!.stale && (options.acknowledge_stale !== true || options.expected_revision === undefined))
     throw new ServiceError("Proposal is stale; review changes and acknowledge_stale with expected_revision, or amend it", 409);
 
   return withTransaction(db, () => {
@@ -342,8 +353,8 @@ export function acceptItems(
       ruling_reason: reason,
       proposal_id: items[0].proposal_id,
     });
-    markItems(db, items, "accepted");
-    resolveProposalIfDone(db, items[0].proposal_id);
+    markItems(db, actor, items, "accepted");
+    resolveProposalIfDone(db, actor, items[0].proposal_id);
     return logId!;
   });
 }
@@ -354,23 +365,23 @@ export function acceptProposals(
   db: Database, actor: Actor, deckId: number,
   approvals: Array<{ proposal_id: number; acknowledge_stale?: boolean }>, expectedRevision: number,
 ): void {
-  requireOwner(actor, "rule on proposals");
-  requireEditableDeck(db, deckId);
+  requireEditableDeck(db, actor, deckId);
+  requireUi(actor, "rule on proposals");
   withTransaction(db, () => {
-    requireRevision(db, deckId, expectedRevision);
+    requireRevision(db, actor, deckId, expectedRevision);
     if (!approvals.length || new Set(approvals.map(a => a.proposal_id)).size !== approvals.length)
       throw new ServiceError("Select each open proposal once");
     const pending = approvals.map(approval => {
-      const proposal = getProposal(db, approval.proposal_id);
+      const proposal = getProposal(db, actor, approval.proposal_id);
       if (!proposal || proposal.deck_id !== deckId) throw new ServiceError("Every proposal must belong to this deck");
       if (proposal.stale && approval.acknowledge_stale !== true)
         throw new ServiceError("Proposal is stale; review changes and acknowledge_stale with expected_revision, or amend it", 409);
-      const ids = pendingItemIds(db, proposal.id);
+      const ids = pendingItemIds(db, actor, proposal.id);
       if (!ids.length) throw new ServiceError("Proposal has no pending items", 409);
       return ids;
     });
     for (const ids of pending) acceptItems(db, actor, ids, "", {
-      expected_revision: requireDeck(db, deckId).revision,
+      expected_revision: requireDeck(db, actor, deckId).revision,
       // All original bases were checked above, within this transaction. Only
       // this batch can have advanced the revision since that check.
       acknowledge_stale: true,
@@ -385,10 +396,10 @@ export function rejectItems(
   itemIds: number[],
   reason = "",
 ): number {
-  requireOwner(actor, "rule on a proposal");
-  const items = itemsToRule(db, itemIds);
+  const items = itemsToRule(db, actor, itemIds);
+  requireUi(actor, "rule on a proposal");
   const deckId = items[0].deck_id;
-  requireEditableDeck(db, deckId);
+  requireEditableDeck(db, actor, deckId);
 
   return withTransaction(db, () => {
     const cards: LogCardInput[] = items.map((i) => ({
@@ -413,14 +424,15 @@ export function rejectItems(
       },
       cards,
     );
-    markItems(db, items, "rejected");
-    resolveProposalIfDone(db, items[0].proposal_id);
+    markItems(db, actor, items, "rejected");
+    resolveProposalIfDone(db, actor, items[0].proposal_id);
     return logId;
   });
 }
 
 /** Every item of a proposal that is still pending. */
-export function pendingItemIds(db: Database, proposalId: number): number[] {
+export function pendingItemIds(db: Database, actor: Actor, proposalId: number): number[] {
+  if (!getProposal(db, actor, proposalId)) throw new ServiceError(`Proposal ${proposalId} not found`, 404);
   return (
     db
       .prepare("SELECT id FROM proposal_items WHERE proposal_id = ? AND status = 'pending' ORDER BY id")
@@ -431,10 +443,10 @@ export function pendingItemIds(db: Database, proposalId: number): number[] {
 /** Only current pending work can be revised. Items already ruled on remain
  * immutable in the previous proposal; the replacement describes remaining work. */
 function requireOwnPending(db: Database, actor: Actor, id: number): ProposalView {
-  const proposal = getProposal(db, id);
+  const proposal = getProposal(db, actor, id, true);
   if (!proposal) throw new ServiceError(`Proposal ${id} not found`, 404);
-  requireEditableDeck(db, proposal.deck_id);
-  if (actor.kind !== "owner" && (proposal.author !== authorOf(actor) || proposal.author === "owner"))
+  requireEditableDeck(db, actor, proposal.deck_id);
+  if (actor.via !== "ui" && !isAuthor(actor, proposal))
     throw new PermissionError("Agents can amend or withdraw only their own pending proposals");
   if (!proposal.is_current || !proposal.items.some(i => i.status === "pending"))
     throw new ServiceError("Only a current proposal with pending items can be amended or withdrawn");
@@ -444,7 +456,7 @@ function requireOwnPending(db: Database, actor: Actor, id: number): ProposalView
 export function withdrawProposal(db: Database, actor: Actor, id: number, reason: string, expectedRevision?: number): void {
   withTransaction(db, () => {
     const proposal = requireOwnPending(db, actor, id);
-    requireRevision(db, proposal.deck_id, expectedRevision);
+    requireRevision(db, actor, proposal.deck_id, expectedRevision);
     if (!reason?.trim()) throw new ServiceError("Withdrawing a proposal needs a reason");
     lintProse(db, reason);
     db.prepare("UPDATE proposals SET status = 'resolved', disposition = 'withdrawn' WHERE id = ?").run(id);
@@ -456,7 +468,7 @@ export function amendProposal(db: Database, actor: Actor, id: number,
   input: { summary?: string; items: ProposalItemInput[]; expected_revision?: number }): number {
   return withTransaction(db, () => {
     const proposal = requireOwnPending(db, actor, id);
-    requireRevision(db, proposal.deck_id, input.expected_revision);
+    requireRevision(db, actor, proposal.deck_id, input.expected_revision);
     db.prepare("UPDATE proposals SET status = 'resolved', disposition = 'superseded' WHERE id = ?").run(id);
     const replacement = createProposal(db, actor, proposal.deck_id, input);
     db.prepare("UPDATE proposals SET superseded_by = ? WHERE id = ?").run(replacement, id);

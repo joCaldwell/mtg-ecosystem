@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { OWNER, agent, PermissionError } from "../src/actor.ts";
+import { PermissionError } from "../src/actor.ts";
+import { OWNER, agent } from "./actors.ts";
 import { getBrief, setEngine, updateBrief } from "../src/deck/brief.ts";
 import { amendProposal, createProposal, getProposal, listProposals, pendingItemIds, acceptItems, withdrawProposal } from "../src/deck/proposals.ts";
 import { getDeck, listDecks, setDeckCategory } from "../src/deck/service.ts";
@@ -28,12 +29,12 @@ test("a replacement plan supersedes the entire old group, preserves history, and
       { kind: "engine_set", payload: { engine_name: "Budget finish", pieces: [{ oracle_id: "id-llanowar" }] }, reason: "Owner reduced the budget." },
       { kind: "thesis", payload: { content: "Budget finish" }, reason: "Matches the replacement engine." },
     ], { supersedes: [old.edit_ids[1]], expected_revision: 2 });
-    const pending = listDocumentEdits(db, { deckId: id, status: "pending" });
+    const pending = listDocumentEdits(db, OWNER, { deckId: id, status: "pending" });
     assert.equal(pending.length, 3);
     assert.ok(pending.every(e => e.group_id === result.group_id && e.is_current));
     assert.equal(pending[0].group_edits.length, 3);
     assert.equal(pending[0].base_revision, 2);
-    const history = listDocumentEdits(db, { deckId: id });
+    const history = listDocumentEdits(db, OWNER, { deckId: id });
     for (const oldId of old.edit_ids) {
       const row = history.find(e => e.id === oldId)!;
       assert.equal(row.disposition, "superseded");
@@ -42,16 +43,16 @@ test("a replacement plan supersedes the entire old group, preserves history, and
       assert.throws(() => ruleDocumentEdit(db, OWNER, oldId, "accept"), /superseded/);
     }
     assert.deepEqual(history.find(e => e.id === result.group_id)!.supersedes, old.edit_ids);
-    assert.equal(getBrief(db, id).thesis, "Old thesis");
+    assert.equal(getBrief(db, OWNER, id).thesis, "Old thesis");
     assert.throws(() => ruleDocumentEdit(db, AGENT, result.group_id!, "accept"), PermissionError);
     ruleDocumentEdit(db, OWNER, result.edit_ids[2], "accept", "Use the budget plan.", { expected_revision: 2 });
-    const state = deckState(db, id);
+    const state = deckState(db, OWNER, id);
     assert.equal(state.brief.thesis, "Budget finish");
     assert.deepEqual(state.brief.engines.map(e => e.name), ["Budget finish"]);
     assert.ok(state.checks.some(c => c.key.startsWith("engine_incomplete")));
     assert.equal(state.document_edits.length, 0);
     assert.throws(() => ruleDocumentEdit(db, OWNER, old.edit_ids[0], "accept"), /superseded/);
-    assert.equal(getBrief(db, id).thesis, "Budget finish");
+    assert.equal(getBrief(db, OWNER, id).thesis, "Budget finish");
   } finally { db.close(); }
 });
 
@@ -61,12 +62,12 @@ test("stale membership revisions block approval until reviewed; mismatched expec
     const id = newDeck(db);
     const proposal = proposeDocumentEdit(db, AGENT, id, "thesis", { content: "Proposed plan" }, "Owner asked.");
     add(db, id, "id-solring");
-    assert.equal(listDocumentEdits(db)[0].stale, true);
+    assert.equal(listDocumentEdits(db, OWNER)[0].stale, true);
     assert.throws(() => ruleDocumentEdit(db, OWNER, proposal.edit_id!, "accept"), /stale/);
     assert.throws(() => ruleDocumentEdit(db, OWNER, proposal.edit_id!, "accept", "", { acknowledge_stale: true, expected_revision: 0 }), /revision changed/);
-    assert.equal(getBrief(db, id).thesis, "");
+    assert.equal(getBrief(db, OWNER, id).thesis, "");
     ruleDocumentEdit(db, OWNER, proposal.edit_id!, "accept", "Reviewed", { acknowledge_stale: true, expected_revision: 1 });
-    assert.equal(getBrief(db, id).thesis, "Proposed plan");
+    assert.equal(getBrief(db, OWNER, id).thesis, "Proposed plan");
   } finally { db.close(); }
 });
 
@@ -77,10 +78,10 @@ test("engine edits and removals detect changed engine contents, even with unchan
     setEngine(db, OWNER, id, "Mana", "Before", [{ oracle_id: "id-solring" }]);
     const edit = proposeDocumentEdit(db, AGENT, id, "engine_remove", { engine_name: "Mana" }, "Obsolete.");
     setEngine(db, OWNER, id, "Mana", "Owner replaced the engine", [{ oracle_id: "id-llanowar" }]);
-    assert.equal(getDeck(db, id).deck.revision, 0);
-    assert.equal(listDocumentEdits(db)[0].stale, true);
+    assert.equal(getDeck(db, OWNER, id).deck.revision, 0);
+    assert.equal(listDocumentEdits(db, OWNER)[0].stale, true);
     assert.throws(() => ruleDocumentEdit(db, OWNER, edit.edit_id!, "accept"), /stale/);
-    assert.equal(getBrief(db, id).engines[0].description, "Owner replaced the engine");
+    assert.equal(getBrief(db, OWNER, id).engines[0].description, "Owner replaced the engine");
   } finally { db.close(); }
 });
 
@@ -92,7 +93,7 @@ test("another agent's newer accepted text makes the older draft stale, rather th
     const newer = proposeDocumentEdit(db, other, id, "thesis", { content: "New direction" }, "Latest request");
     ruleDocumentEdit(db, OWNER, newer.edit_id!, "accept");
     assert.throws(() => ruleDocumentEdit(db, OWNER, old.edit_id!, "accept"), /stale/);
-    assert.equal(getBrief(db, id).thesis, "New direction");
+    assert.equal(getBrief(db, OWNER, id).thesis, "New direction");
   } finally { db.close(); }
 });
 
@@ -103,8 +104,8 @@ test("failed replacement rolls back supersession and duplicate pending fields re
     const first = proposeDocumentEdit(db, AGENT, id, "thesis", { content: "First" }, "Request");
     assert.throws(() => proposeDocumentEdit(db, AGENT, id, "thesis", { content: "Duplicate" }, "Request"), /supersede/);
     assert.throws(() => proposeDocumentGroup(db, AGENT, id, [{ kind: "engine_remove", payload: { engine_name: "Missing engine" }, reason: "Bad edit" }], { supersedes: [first.edit_id!] }), /no engine/);
-    assert.equal(listDocumentEdits(db, { status: "pending" })[0].id, first.edit_id);
-    assert.equal(listDocumentEdits(db)[0].disposition, "current");
+    assert.equal(listDocumentEdits(db, OWNER, { status: "pending" })[0].id, first.edit_id);
+    assert.equal(listDocumentEdits(db, OWNER)[0].disposition, "current");
   } finally { db.close(); }
 });
 
@@ -119,12 +120,12 @@ test("group rejection and withdrawal affect the whole group, preserving proposed
     const first = proposeDocumentGroup(db, AGENT, id, changes);
     assert.throws(() => withdrawDocumentEdit(db, other, first.group_id!, "No"), PermissionError);
     withdrawDocumentEdit(db, AGENT, first.edit_ids[1], "Budget changed");
-    assert.ok(listDocumentEdits(db).every(e => e.disposition === "withdrawn"));
+    assert.ok(listDocumentEdits(db, OWNER).every(e => e.disposition === "withdrawn"));
     assert.throws(() => ruleDocumentEdit(db, OWNER, first.group_id!, "accept"), /withdrawn/);
     const next = proposeDocumentGroup(db, AGENT, id, changes);
     ruleDocumentEdit(db, OWNER, next.edit_ids[1], "reject");
-    assert.equal(listDocumentEdits(db, { status: "pending" }).length, 0);
-    assert.equal(getBrief(db, id).thesis, "");
+    assert.equal(listDocumentEdits(db, OWNER, { status: "pending" }).length, 0);
+    assert.equal(getBrief(db, OWNER, id).thesis, "");
   } finally { db.close(); }
 });
 
@@ -139,8 +140,8 @@ test("group application is atomic if a later member fails validation at approval
     ]);
     db.prepare("DELETE FROM engines WHERE deck_id = ?").run(id);
     assert.throws(() => ruleDocumentEdit(db, OWNER, proposal.group_id!, "accept", "Reviewed", { acknowledge_stale: true, expected_revision: 0 }), /no engine/);
-    assert.equal(getBrief(db, id).thesis, "");
-    assert.equal(listDocumentEdits(db, { status: "pending" }).length, 2);
+    assert.equal(getBrief(db, OWNER, id).thesis, "");
+    assert.equal(listDocumentEdits(db, OWNER, { status: "pending" }).length, 2);
   } finally { db.close(); }
 });
 
@@ -151,15 +152,15 @@ test("card amendments preserve the draft and remove superseded items from app-co
     const first = createProposal(db, AGENT, id, { items: [{ action: "add", oracle_id: "id-solring", reason: "Ramp" }] });
     assert.throws(() => amendProposal(db, other, first, { items: [{ action: "add", oracle_id: "id-solring", reason: "No" }] }), PermissionError);
     const next = amendProposal(db, AGENT, first, { expected_revision: 0, items: [{ action: "add", oracle_id: "id-solring", reason: "New reasoning" }, { action: "add", oracle_id: "id-llanowar", reason: "More ramp" }] });
-    assert.equal(getProposal(db, first)!.superseded_by, next);
-    assert.deepEqual(getProposal(db, next)!.supersedes, [first]);
-    assert.equal(getDeck(db, id).computed.pending.adds, 2);
-    assert.equal(listDecks(db)[0].pending_items, 2);
-    assert.equal(listProposals(db, { status: "open" }).length, 1);
-    assert.throws(() => acceptItems(db, OWNER, pendingItemIds(db, first)), /superseded/);
-    acceptItems(db, OWNER, pendingItemIds(db, next));
-    assert.equal(getDeck(db, id).computed.card_count, 2);
-    assert.equal(getProposal(db, first)!.items[0].reason, "Ramp");
+    assert.equal(getProposal(db, OWNER, first)!.superseded_by, next);
+    assert.deepEqual(getProposal(db, OWNER, next)!.supersedes, [first]);
+    assert.equal(getDeck(db, OWNER, id).computed.pending.adds, 2);
+    assert.equal(listDecks(db, OWNER)[0].pending_items, 2);
+    assert.equal(listProposals(db, OWNER, { status: "open" }).length, 1);
+    assert.throws(() => acceptItems(db, OWNER, pendingItemIds(db, OWNER, first)), /superseded/);
+    acceptItems(db, OWNER, pendingItemIds(db, OWNER, next));
+    assert.equal(getDeck(db, OWNER, id).computed.card_count, 2);
+    assert.equal(getProposal(db, OWNER, first)!.items[0].reason, "Ramp");
     assert.throws(() => withdrawProposal(db, AGENT, next, "Changed mind"), /with pending items/);
   } finally { db.close(); }
 });
@@ -170,11 +171,11 @@ test("card withdrawal and failed amendments retain history and don't invent owne
     const id = newDeck(db);
     const first = createProposal(db, AGENT, id, { items: [{ action: "add", oracle_id: "id-solring", reason: "Ramp" }] });
     assert.throws(() => amendProposal(db, AGENT, first, { items: [{ action: "cut", oracle_id: "id-solring", reason: "Not present" }] }), /not in the deck/);
-    assert.equal(getProposal(db, first)!.is_current, true);
+    assert.equal(getProposal(db, OWNER, first)!.is_current, true);
     withdrawProposal(db, AGENT, first, "No longer needed", 0);
-    assert.equal(getProposal(db, first)!.disposition, "withdrawn");
-    assert.equal(getDeck(db, id).computed.pending.adds, 0);
-    assert.equal(deckState(db, id).log.length, 0);
+    assert.equal(getProposal(db, OWNER, first)!.disposition, "withdrawn");
+    assert.equal(getDeck(db, OWNER, id).computed.pending.adds, 0);
+    assert.equal(deckState(db, OWNER, id).log.length, 0);
   } finally { db.close(); }
 });
 
@@ -193,7 +194,7 @@ test("Legacy and owner-only lifecycle/approval permissions hold for every cleanu
       assert.throws(() => ruleDocumentEdit(db, actor, doc, "accept"), PermissionError);
     }
     assert.throws(() => setDeckCategory(db, AGENT, id, "paper"), PermissionError);
-    assert.equal(listDocumentEdits(db)[0].read_only, true);
+    assert.equal(listDocumentEdits(db, OWNER)[0].read_only, true);
   } finally { db.close(); }
 });
 
@@ -211,7 +212,7 @@ test("MCP document amendment exposes one current group with history and no agent
     const current = callTool(ctx, "list_proposals", { deck: id });
     assert.equal((current.structuredContent!.document_edits as unknown[]).length, 1);
     assert.equal((callTool(ctx, "list_proposals", { deck: id, include_history: true }).structuredContent!.document_edits as unknown[]).length, 3);
-    assert.equal(getBrief(db, id).thesis, "");
+    assert.equal(getBrief(db, OWNER, id).thesis, "");
     assert.throws(() => callTool(ctx, "ruleDocumentEdit", {}), /Unknown tool/);
   } finally { db.close(); }
 });
@@ -224,14 +225,14 @@ test("amending partially ruled cards preserves accepted items and replaces only 
       { action: "add", oracle_id: "id-solring", reason: "Ramp" },
       { action: "add", oracle_id: "id-llanowar", reason: "More ramp" },
     ] });
-    acceptItems(db, OWNER, [pendingItemIds(db, first)[0]]);
+    acceptItems(db, OWNER, [pendingItemIds(db, OWNER, first)[0]]);
     const next = amendProposal(db, AGENT, first, { expected_revision: 1,
       items: [{ action: "add", oracle_id: "id-seedborn", reason: "Revised remaining work" }] });
-    assert.equal(getProposal(db, first)!.items[0].status, "accepted");
-    assert.equal(getDeck(db, id).computed.card_count, 1);
-    assert.equal(getDeck(db, id).computed.pending.adds, 1);
-    acceptItems(db, OWNER, pendingItemIds(db, next));
-    assert.deepEqual(getDeck(db, id).cards.map(c => c.name).sort(), ["Seedborn Muse", "Sol Ring"]);
+    assert.equal(getProposal(db, OWNER, first)!.items[0].status, "accepted");
+    assert.equal(getDeck(db, OWNER, id).computed.card_count, 1);
+    assert.equal(getDeck(db, OWNER, id).computed.pending.adds, 1);
+    acceptItems(db, OWNER, pendingItemIds(db, OWNER, next));
+    assert.deepEqual(getDeck(db, OWNER, id).cards.map(c => c.name).sort(), ["Seedborn Muse", "Sol Ring"]);
   } finally { db.close(); }
 });
 
@@ -241,12 +242,12 @@ test("reviewed document snapshots guard a second text change at the same members
     const id = newDeck(db);
     const editId = proposeDocumentEdit(db, AGENT, id, "thesis", { content: "Proposed" }, "Request").edit_id!;
     updateBrief(db, OWNER, id, { thesis: "First owner change" });
-    const reviewed = listDocumentEdits(db)[0].current;
+    const reviewed = listDocumentEdits(db, OWNER)[0].current;
     updateBrief(db, OWNER, id, { thesis: "Second owner change" });
     assert.throws(() => ruleDocumentEdit(db, OWNER, editId, "accept", "Reviewed", {
       acknowledge_stale: true, expected_revision: 0, expected_documents: { [editId]: reviewed },
     }), /changed since it was reviewed/);
-    assert.equal(getBrief(db, id).thesis, "Second owner change");
+    assert.equal(getBrief(db, OWNER, id).thesis, "Second owner change");
   } finally { db.close(); }
 });
 
@@ -259,10 +260,10 @@ test("brief and power-target changes in one group both await owner approval", ()
       { kind: "thesis", text: "Social games", reason: "Owner request" },
       { kind: "power_target", target: { profile: { intent: "social" } }, reason: "Owner wants social games." },
     ] });
-    assert.equal(deckState(db, id).power.target, null);
-    assert.equal(getBrief(db, id).thesis, "");
+    assert.equal(deckState(db, OWNER, id).power.target, null);
+    assert.equal(getBrief(db, OWNER, id).thesis, "");
     ruleDocumentEdit(db, OWNER, result.structuredContent!.group_id as number, "accept", "Agreed", { expected_revision: 0 });
-    assert.equal(getBrief(db, id).thesis, "Social games");
-    assert.equal(deckState(db, id).power.target!.profile.intent, "social");
+    assert.equal(getBrief(db, OWNER, id).thesis, "Social games");
+    assert.equal(deckState(db, OWNER, id).power.target!.profile.intent, "social");
   } finally { db.close(); }
 });

@@ -1,9 +1,10 @@
+import { requireDeckOwner } from "../actor.ts";
 // The solo table owns a private membership/card-fact snapshot. It never writes
 // deck_cards, and its undo history contains game frames only (design brief).
 import { randomUUID } from "node:crypto";
 import type { Database } from "../sqlite.ts";
 import { z } from "zod";
-import { type Actor, requireOwner } from "../actor.ts";
+import { type Actor, requireUi } from "../actor.ts";
 import { CARD_COLUMNS } from "../cards.ts";
 import { withTransaction } from "../db.ts";
 import { getDeck, requireDeck } from "../deck/service.ts";
@@ -32,7 +33,7 @@ export type {
   Mode,
 } from "./model.ts";
 
-export function tableCard(db: Database, oracleId: string): TableCard {
+export function tableCard(db: Database, actor: Actor, oracleId: string): TableCard {
   const c = db
     .prepare(
       `SELECT ${CARD_COLUMNS}, faces_json FROM cards WHERE oracle_id = ?`,
@@ -52,11 +53,11 @@ export function tableCard(db: Database, oracleId: string): TableCard {
     faces: c.faces_json ? JSON.parse(c.faces_json) : [],
   };
 }
-function read(db: Database, deckId: number): PlaytestSession | null {
-  requireDeck(db, deckId);
+function read(db: Database, actor: Actor, deckId: number): PlaytestSession | null {
+  requireDeck(db, actor, deckId);
   const row = db
-    .prepare("SELECT payload_json FROM playtest_sessions WHERE deck_id = ?")
-    .get(deckId) as { payload_json: string } | undefined;
+    .prepare("SELECT payload_json FROM playtest_sessions WHERE deck_id = ? AND user_id = ?")
+    .get(deckId, actor.user_id) as { payload_json: string } | undefined;
   if (!row) return null;
   try {
     const s = JSON.parse(row.payload_json) as PlaytestSession;
@@ -110,17 +111,18 @@ function read(db: Database, deckId: number): PlaytestSession | null {
     );
   }
 }
-function write(db: Database, session: PlaytestSession) {
+function write(db: Database, actor: Actor, session: PlaytestSession) {
   session.updated_at = new Date().toISOString();
   db.prepare(
-    `INSERT INTO playtest_sessions (deck_id, payload_json) VALUES (?, ?)
-    ON CONFLICT(deck_id) DO UPDATE SET payload_json = excluded.payload_json`,
-  ).run(session.deck_id, JSON.stringify(session));
+    `INSERT INTO playtest_sessions (deck_id, user_id, payload_json) VALUES (?, ?, ?)
+    ON CONFLICT(deck_id, user_id) DO UPDATE SET payload_json = excluded.payload_json`,
+  ).run(session.deck_id, actor.user_id, JSON.stringify(session));
   return view(session);
 }
 export function getPlaytest(db: Database, actor: Actor, deckId: number) {
-  requireOwner(actor, "Read the owner's playtest");
-  const session = read(db, deckId);
+  requireDeck(db, actor, deckId);
+  requireUi(actor, "Read the owner's playtest");
+  const session = read(db, actor, deckId);
   return session ? view(session) : null;
 }
 const startSchema = z.object({
@@ -135,7 +137,8 @@ export function startPlaytest(
   deckId: number,
   input: unknown,
 ) {
-  requireOwner(actor, "Start a playtest");
+  requireDeckOwner(db, actor, deckId);
+  requireUi(actor, "Start a playtest");
   const parsed = startSchema.safeParse(input);
   if (!parsed.success)
     throw new ServiceError(
@@ -143,8 +146,8 @@ export function startPlaytest(
     );
   return withTransaction(db, () => {
     const existingRow = db
-      .prepare("SELECT payload_json FROM playtest_sessions WHERE deck_id = ?")
-      .get(deckId) as { payload_json: string } | undefined;
+      .prepare("SELECT payload_json FROM playtest_sessions WHERE deck_id = ? AND user_id = ?")
+      .get(deckId, actor.user_id) as { payload_json: string } | undefined;
     if (existingRow && !parsed.data.replace)
       throw new ServiceError(
         "A session already exists. Resume it or confirm replacing it.",
@@ -153,7 +156,7 @@ export function startPlaytest(
     let previous: PlaytestSession | null = null;
     if (existingRow) {
       try {
-        previous = read(db, deckId);
+        previous = read(db, actor, deckId);
       } catch (error) {
         if (!(error instanceof ServiceError) || error.status !== 422)
           throw error;
@@ -165,7 +168,7 @@ export function startPlaytest(
           parsed.data.expected_version,
         );
     }
-    const deck = getDeck(db, deckId),
+    const deck = getDeck(db, actor, deckId),
       cards: Record<string, TableCard> = {};
     const frame: Frame = {
       objects: {},
@@ -182,7 +185,7 @@ export function startPlaytest(
       },
     };
     for (const entry of deck.cards.filter((c) => !c.maybe)) {
-      const card = tableCard(db, entry.oracle_id);
+      const card = tableCard(db, actor, entry.oracle_id);
       cards[card.oracle_id] = card;
       for (let i = 0; i < entry.quantity; i++) {
         const obj = makeObject(card, entry.role);
@@ -236,7 +239,7 @@ export function startPlaytest(
       if (oid && previous.cards[oid])
         session.cards[oid] ??= previous.cards[oid];
     }
-    return write(db, session);
+    return write(db, actor, session);
   });
 }
 function checkVersion(
@@ -256,14 +259,15 @@ export function changePlaytest(
   deckId: number,
   input: { session_id?: unknown; expected_version?: unknown; action?: unknown },
 ) {
-  requireOwner(actor, "Change a playtest");
+  requireDeckOwner(db, actor, deckId);
+  requireUi(actor, "Change a playtest");
   const parsed = actionSchema.safeParse(input?.action);
   if (!parsed.success)
     throw new ServiceError(
       parsed.error.issues.map((i) => i.message).join("; "),
     );
   return withTransaction(db, () => {
-    const s = read(db, deckId);
+    const s = read(db, actor, deckId);
     if (!s) throw new ServiceError("Start a session first", 404);
     checkVersion(s, input.session_id, input.expected_version);
     const action = parsed.data;
@@ -271,13 +275,13 @@ export function changePlaytest(
       s,
       action,
       action.type === "token" && action.oracle_id
-        ? tableCard(db, action.oracle_id)
+        ? tableCard(db, actor, action.oracle_id)
         : undefined,
     );
     s.ui.selected = s.ui.selected.filter((id) => !!s.frame.objects[id]);
     if (s.ui.pinned && !s.frame.objects[s.ui.pinned]) s.ui.pinned = null;
     s.version++;
-    return write(db, s);
+    return write(db, actor, s);
   });
 }
 export function savePlaytestUi(
@@ -286,12 +290,13 @@ export function savePlaytestUi(
   deckId: number,
   input: { session_id?: unknown; expected_version?: unknown; ui?: unknown },
 ) {
-  requireOwner(actor, "Save playtest selection and draft");
+  requireDeckOwner(db, actor, deckId);
+  requireUi(actor, "Save playtest selection and draft");
   const parsed = uiSchema.safeParse(input?.ui);
   if (!parsed.success)
     throw new ServiceError("Invalid playtest selection or draft");
   return withTransaction(db, () => {
-    const s = read(db, deckId);
+    const s = read(db, actor, deckId);
     if (!s) throw new ServiceError("Start a session first", 404);
     checkVersion(s, input.session_id, input.expected_version);
     const patch = parsed.data;
@@ -311,14 +316,14 @@ export function savePlaytestUi(
           (s.ui.draft.text ? s.ui.draft.deck_revision : undefined) ??
           s.deck_revision)
         : s.deck_revision;
-      if (patch.draft.deck_revision > requireDeck(db, deckId).revision)
+      if (patch.draft.deck_revision > requireDeck(db, actor, deckId).revision)
         throw new ServiceError(
           "The observation revision is newer than this deck",
         );
     }
     Object.assign(s.ui, patch);
     s.version++;
-    return write(db, s);
+    return write(db, actor, s);
   });
 }
 const observationSchema = z.object({
@@ -334,7 +339,8 @@ export function saveObservation(
   deckId: number,
   input: unknown,
 ) {
-  requireOwner(actor, "Save a playtest observation");
+  requireDeckOwner(db, actor, deckId);
+  requireUi(actor, "Save a playtest observation");
   const parsed = observationSchema.safeParse(input);
   if (!parsed.success)
     throw new ServiceError("An observation needs text and a session");
@@ -354,9 +360,9 @@ export function saveObservation(
           "This save already has different text; start a new observation",
           409,
         );
-      return getMemory(db, prior.memory_id);
+      return getMemory(db, actor, prior.memory_id);
     }
-    const s = read(db, deckId);
+    const s = read(db, actor, deckId);
     if (!s || data.session_id !== s.id)
       throw new ServiceError(
         "The playtest was replaced. Your text is still in the editor; reload before saving.",

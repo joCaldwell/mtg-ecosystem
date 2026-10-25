@@ -19,14 +19,11 @@ import * as z from "zod/v4";
 import {
   McpServer,
   createMcpHandler,
-  hostHeaderValidationResponse,
-  localhostAllowedHostnames,
-  localhostAllowedOrigins,
-  originValidationResponse,
 } from "@modelcontextprotocol/server";
-import { agent } from "../actor.ts";
+import type { Actor } from "../actor.ts";
+import { allowedRequest, getMode, type Mode, publicOrigin } from "../mode.ts";
 import { AppError } from "../errors.ts";
-import { tokenMatches } from "../token.ts";
+import { verifyToken } from "../tokens.ts";
 import { INSTRUCTIONS } from "./playbook.ts";
 import { TOOLS } from "./tools.ts";
 
@@ -38,10 +35,10 @@ const MAX_BODY_BYTES = 1024 * 1024;
 const CLIENT_INFO_KEY = "io.modelcontextprotocol/clientInfo";
 
 export interface AgentEndpointOptions {
-  token: string;
+  mode?: Mode;
   version: string;
   /** Called after any tool wrote something, so the UI can refresh. */
-  onChange?: () => void;
+  onChange?: (userId: number, change: { kind: string; deck_id?: number }) => void;
 }
 
 // Who is calling, for attribution only (spec §1, rule 5) — it grants nothing.
@@ -85,12 +82,14 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
 export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
   // Which protocol era each client speaks, logged once per client: the
   // question spec §15 leaves to be answered by what actually connects.
+  const mode = opts.mode ?? getMode();
   const seen = new Set<string>();
   const handler = createMcpHandler(
     (ctx) => {
-      const actor = agent(ctx.authInfo?.clientId ?? "agent");
+      const actor = ctx.authInfo!.extra!.actor as Actor;
       const who = `${ctx.authInfo?.clientId ?? "agent"}/${ctx.era}`;
       if (!seen.has(who)) {
+        if (seen.size >= 256) seen.clear();
         seen.add(who);
         console.log(
           `[mcp] "${ctx.authInfo?.clientId ?? "agent"}" connected, speaking the ` +
@@ -108,7 +107,7 @@ export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
           try {
             const out = tool.run({ db, actor }, args ?? {});
             const result = typeof out === "string" ? { text: out } : out;
-            if (result.changed) opts.onChange?.();
+            if (result.changed) opts.onChange?.(actor.user_id, { kind: tool.name });
             return { content: [{ type: "text" as const, text: result.text }],
               ...(result.structuredContent ? { structuredContent: result.structuredContent } : {}) };
           } catch (e) {
@@ -163,19 +162,17 @@ export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
     // DNS rebinding and cross-site requests: a page in the owner's browser
     // can reach a loopback port, so the Host must be loopback and an Origin,
     // if present, must be too.
-    const rejected =
-      hostHeaderValidationResponse(request, localhostAllowedHostnames()) ??
-      originValidationResponse(request, localhostAllowedOrigins());
-    if (rejected) return send(res, rejected);
+    if (!allowedRequest(req, mode)) return respond(res, 403, "Host or Origin is not allowed");
 
     const auth = req.headers.authorization ?? "";
     const presented = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-    if (!presented || !tokenMatches(presented, opts.token))
+    const authenticated = verifyToken(db, presented);
+    if (!authenticated)
       return respond(
         res,
         401,
         "Missing or wrong bearer token. Copy the agent token from the app's Settings page into this client's configuration.",
-        { "WWW-Authenticate": "Bearer" },
+        { "WWW-Authenticate": `Bearer resource_metadata="${mode === "hosted" ? publicOrigin() : url.origin}/.well-known/oauth-protected-resource/mcp"` },
       );
 
     let parsed: unknown;
@@ -186,9 +183,11 @@ export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
         return respond(res, 400, "Request body is not valid JSON");
       }
     }
-    const name = agentName(url.pathname, parsed, req.headers["user-agent"]);
+    const hint = agentName(url.pathname, parsed, req.headers["user-agent"]);
+    const name = hint === "agent" ? authenticated.label : hint;
+    const actor: Actor = { ...authenticated, label: name };
     const response = await handler.fetch(request, {
-      authInfo: { token: presented, clientId: name, scopes: [] },
+      authInfo: { token: presented, clientId: name, scopes: [], extra: { actor } },
       parsedBody: parsed,
     });
     return send(res, response);

@@ -1,3 +1,4 @@
+import type { Actor } from "../actor.ts";
 // Text for agents (spec §10.2): compact, meant to be read, grouped the way
 // the deck is organized. No JSON blobs and no ids the agent will not need.
 // Counts are always the app's, stated outright, so the reader never counts.
@@ -218,10 +219,10 @@ export function findingLines(findings: Finding[]): string {
 }
 
 /** One line after a write: the numbers an agent would otherwise go and count. */
-export function afterWrite(db: Database, deckId: number): string {
-  const view = getDeck(db, deckId);
+export function afterWrite(db: Database, actor: Actor, deckId: number): string {
+  const view = getDeck(db, actor, deckId);
   const c = view.computed;
-  const problems = checkDeck(db, deckId);
+  const problems = checkDeck(db, actor, deckId);
   const off = c.slot_deltas
     .filter((s) => s.status === "under" || s.status === "over")
     .map((s) => `${s.name} ${s.status} by ${Math.abs(s.delta)}`);
@@ -345,17 +346,17 @@ export function logLines(entries: LogEntry[]): string {
 }
 
 export function renderDeck(
-  db: Database,
+  db: Database, actor: Actor,
   deckId: number,
   sections: readonly DeckSection[] = DECK_SECTIONS,
   withText = true,
 ): string {
-  const view = getDeck(db, deckId);
+  const view = getDeck(db, actor, deckId);
   const want = new Set(sections);
   const out: string[] = [header(view)];
 
   if (want.has("brief")) {
-    const brief = getBrief(db, deckId);
+    const brief = getBrief(db, actor, deckId);
     const engines = brief.engines.map((e) => {
       const pieces = e.pieces
         .map((p) => `${p.name}${p.in_deck ? "" : " (NOT in the deck)"}${p.note ? ` — ${p.note}` : ""}`)
@@ -368,7 +369,7 @@ export function renderDeck(
       }\n### Engines\n${engines.join("\n") || "(none defined)"}`,
     );
   }
-  if (want.has("power")) out.push(renderPower(getPower(db, deckId)));
+  if (want.has("power")) out.push(renderPower(getPower(db, actor, deckId)));
   if (want.has("list")) out.push(listSection(view, withText));
   if (want.has("maybe")) {
     const maybe = view.cards.filter((c) => c.maybe);
@@ -385,18 +386,18 @@ export function renderDeck(
       );
   }
   if (want.has("state")) out.push(`## Computed state (the app's counts; do not recount)\n${stateLines(view)}`);
-  if (want.has("checks")) out.push(`## Checks\n${findingLines(checkDeck(db, deckId))}`);
+  if (want.has("checks")) out.push(`## Checks\n${findingLines(checkDeck(db, actor, deckId))}`);
   if (want.has("memories"))
-    out.push(`## Memories for this deck\n${renderScope(loadScope(db, "deck", deckId), "deck")}`);
+    out.push(`## Memories for this deck\n${renderScope(loadScope(db, actor, "deck", deckId), "deck")}`);
   if (want.has("proposals"))
     out.push(
       `## Awaiting the owner's ruling\n${proposalLines(
-        listProposals(db, { deckId, status: "open" }),
-        listDocumentEdits(db, { deckId, status: "pending" }),
+        listProposals(db, actor, { deckId, status: "open" }),
+        listDocumentEdits(db, actor, { deckId, status: "pending" }),
       )}`,
     );
   if (want.has("rulings"))
-    out.push(`## Recent rulings and changes (newest first)\n${logLines(listLog(db, { deckId, limit: 15 }))}`);
+    out.push(`## Recent rulings and changes (newest first)\n${logLines(listLog(db, actor, { deckId, limit: 15 }))}`);
   return out.join("\n\n");
 }
 

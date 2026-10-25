@@ -1,6 +1,9 @@
+import { createToken } from "../src/tokens.ts";
+import { OWNER } from "./actors.ts";
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { request } from "node:http";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PKG_ROOT } from "../src/db.ts";
@@ -14,19 +17,22 @@ import { INSTRUCTIONS } from "../src/mcp/playbook.ts";
 import { TOOLS } from "../src/mcp/tools.ts";
 import { add, newDeck, testDb } from "./helpers.ts";
 
-const TOKEN = "test-token-0123456789";
 const db = testDb();
+const TOKEN = createToken(db, OWNER, "agent").token;
+const tokenDir = mkdtempSync(join(tmpdir(), "http-token-"));
+const tokenFile = join(tokenDir, "token");
+writeFileSync(tokenFile, TOKEN, {mode:0o600});
 const deck = newDeck(db, "paper", "Served deck");
 add(db, deck, "id-teferi", { role: "commander" });
 
-const app = createApp(db, { token: TOKEN });
+const app = createApp(db, {});
 let base = "";
 
 before(async () => {
   await new Promise<void>((resolve) => app.server.listen(0, "127.0.0.1", resolve));
   base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
 });
-after(() => app.close());
+after(async () => { await app.close(); rmSync(tokenDir, { recursive:true, force:true }); });
 
 // The official client speaks the 2025 protocol unless told otherwise, as most
 // deployed clients still do; `modern` pins it to the 2026-07-28 revision.
@@ -117,8 +123,8 @@ describe("the agent endpoint, through the official MCP client (spec §10.1)", ()
     await run("rename_deck", { deck: "MCP managed deck", name: "MCP renamed deck" });
     assert.match(await run("get_deck", { deck: "MCP renamed deck", sections: ["state"] }), /lifecycle theorycrafted/);
     assert.match(await run("delete_deck", { deck: "MCP renamed deck" }), /This cannot be undone/);
-    assert.equal(listActivity(db)[0].actor, "deck-manager");
-    assert.equal(listActivity(db)[0].action, "delete_deck");
+    assert.equal(listActivity(db, OWNER)[0].actor, "deck-manager");
+    assert.equal(listActivity(db, OWNER)[0].action, "delete_deck");
     await client.close();
   });
   test("a write is attributed to the client's label and reaches the open page", async () => {
@@ -126,7 +132,7 @@ describe("the agent endpoint, through the official MCP client (spec §10.1)", ()
     const events = await fetch(`${base}/api/events`);
     const reader = events.body!.getReader();
     const first = new TextDecoder().decode((await reader.read()).value);
-    assert.match(first, /^data: \d+\n\n$/);
+    assert.equal(first, 'data: {"kind":"connected"}\n\n');
 
     const client = await connect("/mcp/claude-code");
     const saved = await client.callTool({
@@ -135,11 +141,11 @@ describe("the agent endpoint, through the official MCP client (spec §10.1)", ()
     });
     assert.match(textOf(saved), /Saved\./);
     const pushed = new TextDecoder().decode((await reader.read()).value);
-    assert.match(pushed, /^data: \d+\n\n$/);
+    assert.equal(pushed, 'data: {"kind":"remember"}\n\n');
     assert.notEqual(pushed, first);
     await reader.cancel();
 
-    assert.equal(listActivity(db)[0].actor, "claude-code");
+    assert.equal(listActivity(db, OWNER)[0].actor, "claude-code");
     await client.close();
   });
   // A 2026-07-28 client names itself on every request; a 2025 client only
@@ -149,10 +155,10 @@ describe("the agent endpoint, through the official MCP client (spec §10.1)", ()
     const write = { name: "mark_rulings_reviewed", arguments: { through: 0 } };
     const modern = await connect("/mcp", true);
     await modern.callTool(write);
-    assert.equal(listActivity(db)[0].actor, "test-client");
+    assert.equal(listActivity(db, OWNER)[0].actor, "test-client");
     const legacy = await connect();
     await legacy.callTool(write);
-    assert.equal(listActivity(db)[0].actor, "agent");
+    assert.equal(listActivity(db, OWNER)[0].actor, "agent");
     await modern.close();
     await legacy.close();
   });
@@ -176,7 +182,7 @@ describe("who may reach the agent endpoint", () => {
     for (const auth of ["", "Bearer nope", `Basic ${TOKEN}`]) {
       const res = await rpc(list, { Authorization: auth });
       assert.equal(res.status, 401, auth);
-      assert.equal(res.headers.get("www-authenticate"), "Bearer");
+      assert.equal(res.headers.get("www-authenticate"), `Bearer resource_metadata="${base}/.well-known/oauth-protected-resource/mcp"`);
       assert.match((await res.json()).error.message, /Settings page/);
     }
   });
@@ -468,7 +474,10 @@ describe("the UI's API", () => {
   });
   test("settings show how to connect an agent", async () => {
     const settings = await (await api("/api/settings")).json();
-    assert.equal(settings.agent.token, TOKEN);
+    assert.equal(settings.agent.token, undefined);
+    assert.equal(settings.agent.mode, "local");
+    assert.equal(settings.agent.tokens[0].label, "agent");
+    assert.equal(settings.agent.tokens[0].token_hash, undefined);
     assert.match(settings.agent.url, /^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
     assert.equal(settings.agent.stdio_command, `node ${join(PKG_ROOT, "src", "mcp", "stdio.ts")}`);
     assert.deepEqual(settings.budgets, { global: 1500, deck: 1000 });
@@ -479,12 +488,11 @@ describe("the stdio shim (spec §10.1)", () => {
   const shim = (extraEnv: Record<string, string> = {}) =>
     new StdioClientTransport({
       command: process.execPath,
-      args: [join(PKG_ROOT, "src", "mcp", "stdio.ts"), "--name", "desktop-app"],
+      args: [join(PKG_ROOT, "src", "mcp", "stdio.ts"), "--name", "desktop-app", "--token-file", tokenFile],
       cwd: tmpdir(),
       env: {
         ...(process.env as Record<string, string>),
         DECKBUILDER_PORT: String((app.server.address() as AddressInfo).port),
-        DECKBUILDER_TOKEN: TOKEN,
         ...extraEnv,
       },
     });
@@ -497,7 +505,7 @@ describe("the stdio shim (spec §10.1)", () => {
       arguments: { text: "Came in over stdio.", scope: "global" },
     });
     assert.match(textOf(result), /Saved\./);
-    assert.equal(listActivity(db)[0].actor, "desktop-app");
+    assert.equal(listActivity(db, OWNER)[0].actor, "desktop-app");
     await client.close();
   });
   test("when the app is not running it says so instead of hanging", async () => {

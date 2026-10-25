@@ -1,0 +1,30 @@
+import type { Database } from "../src/sqlite.ts";
+
+/** Tests seed through current services, then reconstruct a real pre-identity
+ * file before applying their historical schema edits. Never just relabel v11. */
+export function removeIdentity(db: Database): void {
+  db.exec("PRAGMA foreign_keys = OFF; PRAGMA legacy_alter_table = ON");
+  const decks = (db.prepare("SELECT sql FROM sqlite_master WHERE name = 'decks'").get() as { sql: string }).sql;
+  const columns = (db.prepare("PRAGMA table_info(decks)").all() as { name: string }[]).map(r => r.name).filter(n => n !== "user_id");
+  const legacy = decks.replace(/CREATE TABLE (?:"decks"|decks)/, "CREATE TABLE decks_old")
+    .replace(/\s*user_id INTEGER NOT NULL REFERENCES users\(id\),/, "")
+    .replace(/UNIQUE\(user_id, name\)/, "UNIQUE(name)");
+  db.exec(`${legacy}; INSERT INTO decks_old (${columns.join(',')}) SELECT ${columns.join(',')} FROM decks;
+    DROP TABLE decks; ALTER TABLE decks_old RENAME TO decks;
+    CREATE TABLE profile_old (id INTEGER PRIMARY KEY CHECK(id = 1), body_md TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')));
+    INSERT INTO profile_old SELECT 1, body_md, updated_at FROM profile WHERE user_id = 1;
+    DROP TABLE profile; ALTER TABLE profile_old RENAME TO profile;
+    CREATE TABLE playtest_sessions_old (deck_id INTEGER PRIMARY KEY REFERENCES decks(id) ON DELETE CASCADE, payload_json TEXT NOT NULL);
+    INSERT INTO playtest_sessions_old SELECT deck_id, payload_json FROM playtest_sessions;
+    DROP TABLE playtest_sessions; ALTER TABLE playtest_sessions_old RENAME TO playtest_sessions;
+    INSERT INTO meta SELECT 'setting:' || key, value FROM user_settings;
+    DROP TABLE user_settings; DROP TABLE agent_tokens;`);
+  for (const table of ["memories", "document_edits", "log", "activity", "ownership_evidence", "power_targets", "power_assessments", "proposals"]) {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    for (const name of ["user_id", "author_user_id", "author_via", "author_label", "actor_user_id", "actor_via", "actor_label", "author_token_id"]) {
+      if (!cols.some(c => c.name === name)) continue;
+      db.exec(`DROP INDEX IF EXISTS idx_${table}_user; ALTER TABLE ${table} DROP COLUMN ${name}`);
+    }
+  }
+  db.exec("DROP TABLE users; PRAGMA legacy_alter_table = OFF; PRAGMA foreign_keys = ON");
+}

@@ -32,7 +32,7 @@ export function MemoryCard({
   const [busy, setBusy] = useState(false);
 
   // The server writes the owner as "owner"; the v1 migration left "owner (from v1)".
-  const byOwner = memory.author === "owner" || memory.author.startsWith("owner ");
+  const byOwner = memory.author_via === "ui";
   const active = memory.status === "active";
   const inferred = memory.basis === "inferred";
   const named = namedInText(memory.text);
@@ -97,7 +97,7 @@ export function MemoryCard({
         )}
         {memory.status === "retired" && <Chip>Retired</Chip>}
         <span>
-          {byOwner ? <span title={memory.author}>you</span> : <Text tone="agent">{memory.author}</Text>}
+          {byOwner ? <span title={memory.author_display ?? memory.author}>you</span> : <Text tone="agent">{memory.author_display ?? memory.author}</Text>}
         </span>
         {memory.source_log_id != null && <span>from ruling {memory.source_log_id}</span>}
         {memory.deck_revision != null && <span className={styles.mono}>at r{memory.deck_revision}</span>}

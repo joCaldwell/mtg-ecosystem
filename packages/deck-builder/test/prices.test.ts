@@ -1,7 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import type { Database } from "../src/sqlite.ts";
-import { OWNER } from "../src/actor.ts";
+import { OWNER } from "./actors.ts";
 import { resolveCard } from "../src/cards.ts";
 import { createSlot, getDeck, shortlistCard } from "../src/deck/service.ts";
 import { ingestCards } from "../src/ingest.ts";
@@ -137,7 +137,7 @@ describe("stored prices", () => {
 
 describe("searching by price", () => {
   const db = testDb();
-  const names = (q: string) => search(db, q).map((c) => c.name);
+  const names = (q: string) => search(db, OWNER, q).map((c) => c.name);
 
   test("usd compares the cheapest printing, in dollars", async () => {
     await priced(db, [
@@ -149,17 +149,17 @@ describe("searching by price", () => {
     assert.deepEqual(names("usd<=1.19"), ["Llanowar Elves", "Sol Ring"]);
     assert.deepEqual(names("usd>=10"), ["Seedborn Muse"]);
     assert.deepEqual(names("t:creature usd<5"), ["Llanowar Elves"]);
-    assert.equal(search(db, "usd=1.19")[0].usd_cents, 119);
+    assert.equal(search(db, OWNER, "usd=1.19")[0].usd_cents, 119);
   });
   test("a card with no price matches no price comparison", () => {
     assert.ok(!names("usd<1000").includes("Counterspell"));
     assert.ok(!names("usd>=0").includes("Counterspell"));
   });
   test("a value that is not an amount is a search error", () => {
-    assert.throws(() => search(db, "usd<cheap"), SearchError);
+    assert.throws(() => search(db, OWNER, "usd<cheap"), SearchError);
   });
   test("usd cannot be a slot name, or usd: would stop parsing", () => {
-    assert.throws(() => createSlot(db, newDeck(db), "usd"), /reserved/);
+    assert.throws(() => createSlot(db, OWNER, newDeck(db), "usd"), /reserved/);
   });
 });
 
@@ -177,14 +177,14 @@ describe("what a deck costs", () => {
     add(db, deck, "id-solring");
     add(db, deck, "id-forest", { quantity: 3 });
     add(db, deck, "id-counterspell");
-    shortlistCard(db, deck, "id-seedborn");
+    shortlistCard(db, OWNER, deck, "id-seedborn");
     return { db, deck };
   }
 
   test("copies count, the maybe list does not, and unpriced cards are reported", async () => {
     const { db, deck } = await build();
-    assert.deepEqual(getDeck(db, deck).computed.cost, { usd_cents: 250 + 119 + 15, unpriced: 1, as_of: AS_OF });
-    assert.equal(getDeck(db, deck).cards.find((c) => c.name === "Sol Ring")?.usd_cents, 119);
+    assert.deepEqual(getDeck(db, OWNER, deck).computed.cost, { usd_cents: 250 + 119 + 15, unpriced: 1, as_of: AS_OF });
+    assert.equal(getDeck(db, OWNER, deck).cards.find((c) => c.name === "Sol Ring")?.usd_cents, 119);
   });
 
 

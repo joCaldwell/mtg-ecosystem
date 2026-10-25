@@ -1,10 +1,11 @@
+import { removeIdentity } from "./legacy-db.ts";
 import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { OWNER } from "../src/actor.ts";
+import { OWNER } from "./actors.ts";
 import { openDb } from "../src/db.ts";
 import {
   deleteDeck,
@@ -32,7 +33,7 @@ function setup(t: TestContext) {
   add(db, deck, "id-forest", { quantity: 40 });
   add(db, deck, "id-witch");
   add(db, deck, "id-solring");
-  shortlistCard(db, deck, "id-counterspell");
+  shortlistCard(db, OWNER, deck, "id-counterspell");
   let current = startPlaytest(db, OWNER, deck, { mode: "commander" });
   const act = (action: PlaytestAction) =>
     (current = changePlaytest(db, OWNER, deck, {
@@ -61,7 +62,7 @@ test("snapshot separates commanders, companion and maybe; preserves quantities a
   const snapshot = structuredClone(x.v.session);
   cut(x.db, x.deck, "id-solring");
   assert.deepEqual(getPlaytest(x.db, OWNER, x.deck)?.session, snapshot);
-  assert.ok(getDeck(x.db, x.deck).deck.revision > snapshot.deck_revision);
+  assert.ok(getDeck(x.db, OWNER, x.deck).deck.revision > snapshot.deck_revision);
   assert.throws(
     () => startPlaytest(x.db, OWNER, x.deck, { mode: "commander" }),
     /Resume|confirm/,
@@ -274,11 +275,11 @@ test("UI draft and selection survive game undo; observation records tested revis
 test("tags remain outside game undo and owner permission / stale-window conflicts are enforced below HTTP", (t) => {
   const x = setup(t);
   x.act({ type: "keep" });
-  const tag = createTag(x.db, x.deck, "early setup");
-  organizeCard(x.db, x.deck, "id-forest", { tagIds: [tag] });
+  const tag = createTag(x.db, OWNER, x.deck, "early setup");
+  organizeCard(x.db, OWNER, x.deck, "id-forest", { tagIds: [tag] });
   x.act({ type: "undo" });
   assert.deepEqual(
-    getDeck(x.db, x.deck).cards.find((c) => c.oracle_id === "id-forest")
+    getDeck(x.db, OWNER, x.deck).cards.find((c) => c.oracle_id === "id-forest")
       ?.tag_ids,
     [tag],
   );
@@ -320,6 +321,7 @@ test("schema 6 upgrades additively; table resumes from disk and corrupt payloads
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const path = join(dir, "test.db");
   const db = openDb(path);
+  removeIdentity(db);
   db.exec(
     "UPDATE meta SET value = '6' WHERE key = 'schema_version'; DROP TABLE playtest_sessions; DROP TABLE playtest_observations;",
   );
@@ -340,7 +342,7 @@ test("schema 6 upgrades additively; table resumes from disk and corrupt payloads
   snapshot.deck_id = deck;
   live
     .prepare(
-      "INSERT INTO playtest_sessions (deck_id, payload_json) VALUES (?, ?)",
+      "INSERT INTO playtest_sessions (deck_id, user_id, payload_json) VALUES (?, 1, ?)",
     )
     .run(deck, JSON.stringify(snapshot));
   live.close();

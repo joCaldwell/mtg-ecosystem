@@ -418,7 +418,7 @@ export function InspectionPanel({
             <div key={m.id} className={styles.memory}>
               <RichText text={m.text} />
               <small>
-                {m.author} ·{" "}
+                {m.author_display ?? m.author} ·{" "}
                 {m.deck_revision === null ? "global" : `r${m.deck_revision}`} ·
                 #{m.id}
               </small>

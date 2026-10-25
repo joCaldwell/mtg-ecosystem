@@ -11,7 +11,7 @@ test("the comparison preserves unknowns and uses historical Game Changers for a 
   const mapping = mapBracket(profile, 0);
   assert.equal(bracketLabel(mapping), "B2?");
   assert.equal(bracketLabel(mapBracket(PowerProfileSchema.parse({}), null)), "undetermined");
-  power.assessment = { id: 1, profile, revision: 1, author: "owner", owner_touched: true, created_at: "2026-10-11 12:00:00", stale: true,
+  power.assessment = { id: 1, profile, revision: 1, author: "owner", author_display: "owner", author_user_id: 1, author_via: "ui", author_label: "ui", owner_touched: true, created_at: "2026-10-11 12:00:00", stale: true,
     evidence: "list", confidence: "tentative", notes: "Estimate", mapping, game_changers: { count: 0, unknown_cards: 0, cards: [] } };
   power.game_changers = { count: 3, unknown_cards: 0, cards: [] };
   const rows = powerRows(power);

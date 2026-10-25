@@ -38,7 +38,7 @@ export function groupSessions(entries: ActivityEntry[], gapMinutes = 30): Activi
     for (const e of oldestFirst) if (e.deck_name && !deckNames.includes(e.deck_name)) deckNames.push(e.deck_name);
     return {
       key: `${oldestFirst[0].actor}:${oldestFirst[0].id}`,
-      actor: oldestFirst[0].actor,
+      actor: oldestFirst[0].actor_display ?? oldestFirst[0].actor,
       deckNames,
       start: oldestFirst[0].ts,
       end: oldestFirst[oldestFirst.length - 1].ts,

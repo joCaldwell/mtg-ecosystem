@@ -354,7 +354,9 @@ stands, so it ships with a permission matrix test that later phases extend.
    `agent_tokens(id, user_id, label, prefix, token_hash, created_at,
    last_used_at, revoked_at)`; `author_user_id`, `author_via`,
    `author_label` beside every existing `author` column, backfilled
-   (`"owner"` → user 1 / `ui`; anything else → user 1 / `agent` / label).
+   (`"owner"` and `"owner (from v1)"` → user 1 / `ui` / `ui`;
+   system `"migration"` → user 1 / `ui` / `migration`, displayed as
+   “System migration”; other labels → user 1 / `agent` / label; spec §17.3).
    Backfill everything to user 1. Migration tests construct a v10 file and
    assert the result, following `test/db.test.ts`.
 4. **Actor (D3).** Rewrite `src/actor.ts`; `requireDeckOwner`,
@@ -379,7 +381,9 @@ stands, so it ships with a permission matrix test that later phases extend.
    the bearer to `{ user_id, token_id, label }` and builds the Actor; the URL
    label is attribution only. In local mode the legacy `data/agent-token`
    file is migrated into an `agent_tokens` row for user 1 on first boot so
-   existing client configs keep working; the file is then deleted. Settings
+   existing client configs keep working; after commit the file is renamed to
+   `stdio-token` (0600), the local shim’s default. Explicit private files use
+   `--token-file` or `DECKBUILDER_TOKEN_FILE`; secrets in argv are rejected. Settings
    API: list/create/revoke tokens; the token value is returned exactly once,
    from create.
 8. **Local mode (D1).** `src/mode.ts` reads `DECKBUILDER_MODE`; in local
@@ -395,8 +399,9 @@ stands, so it ships with a permission matrix test that later phases extend.
 10. **Permission matrix test.** `test/permissions.test.ts`: two users, each
     with a Paper and a Theorycrafted deck; for every capability function and
     every MCP tool, assert: own deck behaves as before; other user's deck is
-    `404` for reads (not `403`, to avoid existence leaks), `PermissionError`
-    for writes; tokens of user A never touch user B's rows; memory search,
+    `404` for every unreadable target, on reads and writes alike (never
+    `403`, to avoid existence leaks); `PermissionError` is reserved for an
+    action forbidden on a readable target; tokens of user A never touch user B's rows; memory search,
     inbox, activity, stats and `include_my_decks` never return the other
     user's rows. Generate the capability list from the exports so new
     functions fail the test until classified.
@@ -819,7 +824,8 @@ verified, what is not), AGENTS.md status line (v3 hosted).
 ## 4. Canonical shapes (so phases agree)
 
 **Env vars (final set):** `DECKBUILDER_MODE`, `DECKBUILDER_PORT`,
-`DECKBUILDER_DATA`, `DECKBUILDER_DB`, `DECKBUILDER_PUBLIC_ORIGIN`,
+`DECKBUILDER_DATA`, `DECKBUILDER_DB`, `DECKBUILDER_TOKEN_FILE` (stdio only),
+`DECKBUILDER_PUBLIC_ORIGIN`,
 `DECKBUILDER_TRUST_PROXY`, `DECKBUILDER_INVITES_REQUIRED`,
 `BETTER_AUTH_SECRET`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`,
 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `BACKUP_S3_ENDPOINT`,
@@ -828,7 +834,7 @@ verified, what is not), AGENTS.md status line (v3 hosted).
 live in the database).
 
 **Error statuses:** 400 malformed; 401 no session/token (hosted); 403
-authenticated but forbidden (writes on others' decks, blocked, rate-limited
+authenticated but forbidden on a readable target (blocked, rate-limited
 suggesters); 404 deck not readable by this actor (never 403, to avoid
 existence leaks); 409 revision conflicts; 413 body too large; 429 rate
 limited with `Retry-After`.
