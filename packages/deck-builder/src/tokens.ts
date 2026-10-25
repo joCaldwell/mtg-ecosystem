@@ -1,8 +1,8 @@
 // Personal credentials (§10.1, §17). Raw secrets leave this module only on create.
 import type { Database } from "./sqlite.ts";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, existsSync, readFileSync, renameSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { DATA_DIR, withTransaction } from "./db.ts";
 import { type Actor, requireSelf, requireUi } from "./actor.ts";
 import { ServiceError } from "./errors.ts";
@@ -57,10 +57,13 @@ export function verifyToken(db: Database, secret: string, now = Date.now()): Act
   return null;
 }
 
-/** Local boot only: commit before unlink; a crash/retry cannot mint duplicates. */
+/** Local boot: commit before renaming the existing plaintext shim credential.
+ * A saved stdio file also rehydrates credentials after restoring a v10 backup. */
 export function migrateLegacyToken(db: Database, file = join(DATA_DIR, "agent-token")): void {
-  if (!existsSync(file)) return;
-  const secret = readFileSync(file, "utf8").trim();
+  const saved = join(dirname(file), "stdio-token");
+  const source = existsSync(file) ? file : saved;
+  if (!existsSync(source)) return;
+  const secret = readFileSync(source, "utf8").trim();
   if (!secret) throw new Error("Legacy agent-token file is empty; it was preserved");
   withTransaction(db, () => {
     const digest = hash(secret);
@@ -70,5 +73,6 @@ export function migrateLegacyToken(db: Database, file = join(DATA_DIR, "agent-to
     for (const table of ["proposals", "document_edits"])
       db.prepare(`UPDATE ${table} SET author_token_id = ? WHERE author_user_id = 1 AND author_via = 'agent' AND author_token_id IS NULL`).run(token.id);
   });
-  unlinkSync(file);
+  chmodSync(source, 0o600);
+  if (source !== saved) renameSync(source, saved);
 }

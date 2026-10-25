@@ -67,7 +67,7 @@ export interface Settings {
   jobs: ReturnType<Jobs["status"]> | null;
   budgets: { global: number; deck: number };
   cards: { count: number; updated_at: string | null; prices: PriceStatus };
-  agent: { url: string; mode: "local" | "hosted"; tokens: AgentToken[]; stdio_command: string };
+  agent: { url: string; mode: "local" | "hosted"; tokens: AgentToken[]; stdio_command?: string };
 }
 
 export interface MemoryList {

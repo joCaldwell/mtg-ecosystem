@@ -14,11 +14,22 @@
 
 import { createInterface } from "node:readline";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { DATA_DIR } from "../db.ts";
+import { getMode } from "../mode.ts";
 import { MCP_PATH } from "./http.ts";
 
 const arg = (key: string) => { const i = process.argv.indexOf(key); return i < 0 ? undefined : process.argv[i + 1]; };
-const readToken = () => arg("--token-file") ? readFileSync(arg("--token-file")!, "utf8").trim() : arg("--token");
+const readToken = () => {
+  const file = arg("--token-file") || process.env.DECKBUILDER_TOKEN_FILE ||
+    (getMode() === "local" ? join(DATA_DIR, "stdio-token") : undefined);
+  if (!file) return undefined;
+  try { return readFileSync(file, "utf8").trim(); }
+  catch (e: any) { if (e.code === "ENOENT") return undefined; throw e; }
+};
 try {
+  if (process.argv.includes("--token")) throw new Error("--token is not supported; save the secret privately and use --token-file <file>.");
+  if (process.argv.includes("--token-file") && !arg("--token-file")) throw new Error("--token-file needs a file path");
   if (!readToken()) throw new Error("No agent token is configured. Create one in Settings, save it privately and pass --token-file <file>.");
 } catch (e) { console.error((e as Error).message); process.exit(1); }
 

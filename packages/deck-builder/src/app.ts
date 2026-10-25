@@ -393,7 +393,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
         url: `${mode === "hosted" ? publicOrigin() : `http://127.0.0.1:${opts.port ?? 8787}`}${MCP_PATH}`,
         mode,
         tokens: listTokens(db, actor),
-        stdio_command: `node ${join(PKG_ROOT, "src", "mcp", "stdio.ts")}`,
+        ...(mode === "local" ? { stdio_command: `node ${join(PKG_ROOT, "src", "mcp", "stdio.ts")}` } : {}),
       },
     };
   };

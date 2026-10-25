@@ -571,13 +571,15 @@ once when created. Settings lists labels, prefixes and last-used timestamps,
 creates tokens and revokes them. It never returns stored secrets. Verification
 looks up the prefix and compares hashes with `timingSafeEqual`; usage updates
 at most once per minute. `DECKBUILDER_TOKEN` is removed. On first local boot,
-the old `data/agent-token` file is imported, hashed for user 1 and deleted only
+the old `data/agent-token` file is imported, hashed for user 1 and renamed to `data/stdio-token` (0600) only
 after durable insertion; existing HTTP client configurations remain valid.
 The migrated credential is the deliberate exception to the new `dbk_` format.
 
 The stdio shim proxies to the running endpoint. Because hashes cannot recover
-a token, its command accepts `--token-file <private-file>` (or `--token <token>`
-for clients that supply arguments); users save the once-shown token privately.
+a token, its command accepts `--token-file <private-file>` or
+`DECKBUILDER_TOKEN_FILE`; local mode defaults to `data/stdio-token`. The old
+no-argument stdio configuration therefore survives migration. New tokens are
+saved privately by the user. Secrets in `--token` argv are rejected.
 No shim read creates or rotates credentials. Missing credentials fail clearly.
 Configuration snippets use a placeholder until creation, then the once-shown
 value. Existing HTTP Claude Code and Codex configurations need no changes.
@@ -999,8 +1001,9 @@ API before sessions exist. Shared card ingestion/backup functions are operator
 utilities rather than tenant capabilities; HTTP refresh additionally requires
 `users.is_admin=1`. Token management is UI-only to avoid granting an agent a
 way to mint durable credentials. Legacy token import is idempotent by hash,
-then file deletion follows the committed insert, so a crash cannot lose access.
-No fresh token is minted at boot: the human explicitly creates and saves it
+then file rename follows the committed insert, so a crash cannot lose access.
+A missing credential after a pre-v11 restore is re-imported from the saved
+`stdio-token`; existing revoked rows stay revoked. No fresh token is minted at boot: the human explicitly creates and saves it
 once in Settings.
 
 Phase 2 plugs its session resolver into

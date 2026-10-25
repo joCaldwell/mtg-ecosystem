@@ -98,7 +98,7 @@ export function clientConfigs(url: string, token: string, stdio: string | undefi
             "  --sample sample_mcp_stdio_local \\",
             "  --profile deck-builder \\",
             "  --tunnel-id <your tunnel id> \\",
-            `  --mcp-command "${stdio} --token-file <private-token-file> --name chatgpt"`,
+            `  --mcp-command "${stdio} --name chatgpt"`,
             "tunnel-client doctor --profile deck-builder --explain",
             "tunnel-client run --profile deck-builder",
           ].join("\n"),
@@ -144,11 +144,11 @@ export function clientConfigs(url: string, token: string, stdio: string | undefi
           prose: (
             <>
               For a client that only launches a command. The command is a pipe to this running app, so the app must be
-              started first. Save your once-shown token in a private file and give its path below.
+              started first. In local mode it reads data/stdio-token, preserved from the previous token on upgrade. For a new token, save it in a private file and add --token-file /private/path/to/token (or set DECKBUILDER_TOKEN_FILE).
             </>
           ),
         },
-        { label: "stdio command", code: `${stdio} --token-file <private-token-file> --name my-agent` },
+        { label: "stdio command", code: `${stdio} --name my-agent` },
       ],
     });
   }

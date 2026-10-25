@@ -236,7 +236,8 @@ Vite proxy follows the API port.
     SHA-256 at rest, prefix lookup and timing-safe hash comparison. Label,
     last-used (updated at most once a minute) and revoke live in Settings;
     token CRUD is UI-only. Local boot commits the legacy file’s hash for user
-    1 before deleting the file. The stdio shim takes `--token-file <file>`;
+    1 before renaming the file to `stdio-token` (0600). The local stdio shim
+    defaults to that file, or takes `--token-file` / `DECKBUILDER_TOKEN_FILE`;
     reading it never creates credentials.
 *   **Streams are per user.** `notify(user_id, { kind, deck_id? })` reaches
     only that principal. Global job invalidations may notify all users and

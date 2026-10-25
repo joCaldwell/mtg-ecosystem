@@ -140,6 +140,7 @@ older versions that predate the process-lock mechanism before restoring.
 | `DECKBUILDER_DB` | `DATA_DIR/deck-builder.db`; also determines server lock path |
 | `DECKBUILDER_PORT` | `8787` |
 | `DECKBUILDER_WEB_PORT` | `5173` in the dev script |
+| `DECKBUILDER_TOKEN_FILE` | Optional private credential file for the stdio shim |
 | `DECKBUILDER_MODE` | `local`; or `hosted` to await session authentication |
 | `DECKBUILDER_PUBLIC_ORIGIN` | Required in hosted mode, e.g. `https://decks.example` (no trailing slash) |
 | `BACKUP_S3_*` | Optional off-box backup credentials above |
@@ -154,7 +155,7 @@ keep working. Neither Settings reads nor server boot mint a token.
 
 On **first local boot**, the server imports an existing `DATA_DIR/agent-token`
 file into `agent_tokens` for user 1, labelled “Migrated local token”. It commits
-the hash before deleting the file, and retries safely by hash after a crash.
+the hash before renaming the file to `DATA_DIR/stdio-token` with mode 0600, and retries safely by hash after a crash.
 The old secret remains valid, so existing Claude Code and Codex HTTP configs
 keep working. Existing user-1 agent proposals/edits bind to that credential
 within the import transaction, so their amendments continue to work too.
@@ -164,6 +165,13 @@ for a rehearsal. Use an online SQLite backup to a temporary destination, copy
 the legacy file privately there, and set both `DECKBUILDER_DB` and
 `DECKBUILDER_DATA` to that copy.
 
+In local mode, no-argument stdio clients read `DATA_DIR/stdio-token`, preserving
+existing configurations on first v11 boot. After restoring a pre-v11 backup,
+local boot re-imports that saved file into the newly migrated token table;
+existing v11 revoked records are never reactivated. If neither file exists,
+create a token in Settings and save it privately. Hosted Settings omits local
+stdio/tunnel snippets.
+
 The stdio shim cannot recover a secret from its hash. Create a token in
 Settings, save the once-shown value in a private file (`chmod 600`), then use:
 
@@ -171,8 +179,9 @@ Settings, save the once-shown value in a private file (`chmod 600`), then use:
 node /absolute/path/to/packages/deck-builder/src/mcp/stdio.ts --name my-agent --token-file /private/path/to/token
 ```
 
-`--token <value>` is also supported for command-launching clients, though a
-private file keeps the value out of process arguments. Missing credentials
+Secrets in `--token` argv are rejected. `--token-file` takes precedence over
+`DECKBUILDER_TOKEN_FILE`, then local mode defaults to `DATA_DIR/stdio-token`.
+Missing credentials
 fail clearly; reads never create or rotate anything. Settings returns an
 absolute shim path, uses placeholders until creation, and clears the secret
 from its component after “I saved it” or leaving the page. No browser storage

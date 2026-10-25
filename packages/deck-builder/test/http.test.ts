@@ -3,6 +3,7 @@ import { OWNER } from "./actors.ts";
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { request } from "node:http";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PKG_ROOT } from "../src/db.ts";
@@ -18,6 +19,9 @@ import { add, newDeck, testDb } from "./helpers.ts";
 
 const db = testDb();
 const TOKEN = createToken(db, OWNER, "agent").token;
+const tokenDir = mkdtempSync(join(tmpdir(), "http-token-"));
+const tokenFile = join(tokenDir, "token");
+writeFileSync(tokenFile, TOKEN, {mode:0o600});
 const deck = newDeck(db, "paper", "Served deck");
 add(db, deck, "id-teferi", { role: "commander" });
 
@@ -28,7 +32,7 @@ before(async () => {
   await new Promise<void>((resolve) => app.server.listen(0, "127.0.0.1", resolve));
   base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
 });
-after(() => app.close());
+after(async () => { await app.close(); rmSync(tokenDir, { recursive:true, force:true }); });
 
 // The official client speaks the 2025 protocol unless told otherwise, as most
 // deployed clients still do; `modern` pins it to the 2026-07-28 revision.
@@ -484,7 +488,7 @@ describe("the stdio shim (spec §10.1)", () => {
   const shim = (extraEnv: Record<string, string> = {}) =>
     new StdioClientTransport({
       command: process.execPath,
-      args: [join(PKG_ROOT, "src", "mcp", "stdio.ts"), "--name", "desktop-app", "--token", TOKEN],
+      args: [join(PKG_ROOT, "src", "mcp", "stdio.ts"), "--name", "desktop-app", "--token-file", tokenFile],
       cwd: tmpdir(),
       env: {
         ...(process.env as Record<string, string>),
