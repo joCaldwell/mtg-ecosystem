@@ -375,7 +375,7 @@ impl Game {
                         object: visible.handle.clone(),
                     });
                 }
-                if self.removal_enabled() && visible.zone == Zone::Exile {
+                if visible.zone == Zone::Exile {
                     b.view.players[visible.owner.0 as usize]
                         .exile
                         .push(visible.handle.clone());

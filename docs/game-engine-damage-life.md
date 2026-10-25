@@ -1,5 +1,9 @@
 # Noncombat damage and direct life changes
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 Contract frozen October 15, 2026 after independent archived-source and rules
 review. This bounded continuation adds Lightning Bolt, Prodigal Sorcerer,
 Soul Feast, Healing Hands, Sacred Nectar and intrinsic red mana. It retains

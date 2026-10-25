@@ -1,5 +1,9 @@
 # Commander staples — `commander-staples-v1`
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 P6.4 slice, following `commander-tokens-v1`
 (docs/game-engine-tokens-counters.md). Adds the effects that most Commander
 decks are built around: targeted removal, a board wipe, graveyard recursion,

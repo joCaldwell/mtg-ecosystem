@@ -46,6 +46,10 @@ fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
         }
     }
     let config = ScenarioConfig {
+        initial: ScenarioInitial {
+            turn_step: TurnStep::Untap,
+            ..ScenarioInitial::default()
+        },
         mode: Mode::CommanderMatch,
         players: 4,
         profile: REMOVAL_PROFILE.into(),
@@ -385,7 +389,13 @@ fn removal_profile_decks_policy_and_reviewed_capacities() {
             g.event_group_limit(),
             g.effect_limit()
         ),
-        (512, 1296, 6381, 916, 32)
+        (
+            capacities::TOKEN_CAPACITY,
+            capacities::DAMAGE_LIMIT,
+            capacities::STACK_LIMIT,
+            capacities::EVENT_GROUP_LIMIT,
+            capacities::EFFECT_LIMIT
+        )
     );
     assert!(
         validate_pod(
@@ -1056,7 +1066,7 @@ fn removal_token_capacity_fault_is_typed_atomic_and_replayable_private_domain() 
     else {
         panic!()
     };
-    *count = removal::LIVE_TOKEN_CAPACITY + 1;
+    *count = capacities::TOKEN_CAPACITY + 1;
     c.validate().unwrap();
     p.catalog_digest = digest(c).unwrap();
     traces(p, |g| {
@@ -1070,17 +1080,17 @@ fn removal_token_capacity_fault_is_typed_atomic_and_replayable_private_domain() 
         assert_eq!(
             g.typed_fault(),
             Some(&RuleFault::TokenCapacityExceeded {
-                capacity: 512,
+                capacity: capacities::TOKEN_CAPACITY,
                 created: 0,
-                requested: 513
+                requested: capacities::TOKEN_CAPACITY + 1
             })
         );
         assert!(g.state.tokens.is_empty());
     });
 }
 #[test]
-fn removal_effect_capacity_is_typed_atomic_and_replayable_private_domain() {
-    // Private IR-domain capacity probe; not a supported-pool gameplay witness.
+fn removal_effect_capacity_is_typed_and_atomic_in_private_state_domain() {
+    // Private state-domain probe: it does not claim an accepted-input replay.
     let mut p = prepared(&[
         ("Giant Growth", 0, true),
         ("Grizzly Bears", 0, false),
@@ -1092,27 +1102,41 @@ fn removal_effect_capacity_is_typed_atomic_and_replayable_private_domain() {
         .iter_mut()
         .find(|d| d.name == "Giant Growth")
         .unwrap();
-    let p0 = d.spell.as_mut().unwrap();
-    p0.instructions = vec![p0.instructions[0].clone(); 33];
+    let program = d.spell.as_mut().unwrap();
+    program.instructions = vec![program.instructions[0].clone(); 2];
     c.validate().unwrap();
     p.catalog_digest = digest(c).unwrap();
-    traces(p, |g| {
-        announce(g, 0, target(object(g, 1)));
+    for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
+        let mut g = Game::with_trace(p.clone(), mode);
+        let victim = object(&g, 1);
+        announce(&mut g, 0, target(victim));
         for _ in 0..4 {
-            answer(g, Response::Pass);
+            answer(&mut g, Response::Pass);
         }
-        assert!(
-            matches!(g.advance(Budget::unlimited()),Advance::Fault(ref reason) if reason=="effect capacity exceeded")
-        );
+        while g.state.effects.is_empty() {
+            assert!(matches!(
+                g.advance(Budget::new(1)),
+                Advance::Suspended { .. }
+            ));
+        }
+        let effect = g.state.effects[0].clone();
+        g.state.effects = vec![effect; capacities::EFFECT_LIMIT];
+        let mut expected = g.state.clone();
+        let trace = g.trace.clone();
         assert_eq!(
-            g.typed_fault(),
-            Some(&RuleFault::EffectCapacityExceeded {
-                capacity: 32,
-                requested: 33
-            })
+            g.advance(Budget::new(1)),
+            Advance::Fault("effect capacity exceeded".into())
         );
-        assert_eq!(g.state.effects.len(), 32);
-    });
+        expected.typed_fault = Some(RuleFault::EffectCapacityExceeded {
+            capacity: capacities::EFFECT_LIMIT,
+            requested: capacities::EFFECT_LIMIT + 1,
+        });
+        expected.frame = Frame::Fault {
+            reason: "effect capacity exceeded".into(),
+        };
+        assert_eq!(g.state, expected);
+        assert_eq!(g.trace, trace);
+    }
 }
 #[test]
 fn swan_mixed_stack_rejects_wrong_typed_response_without_mutation() {

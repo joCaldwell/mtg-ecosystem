@@ -1,5 +1,9 @@
 # Evergreen creature keywords — `commander-keywords-v1`
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 P6.1 slice. Adds six intrinsic creature keywords to the compiler, IR and
 runtime, and releases a second finite legal Commander profile whose decks use
 them. `commander-foundations-v1` stays byte-for-byte reproducible: its IR v11

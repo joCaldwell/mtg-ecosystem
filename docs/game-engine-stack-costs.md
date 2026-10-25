@@ -1,5 +1,9 @@
 # Stack targets, counters and additional activated costs
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 Contract frozen October 15, 2026 after independent source, rules and profile
 review. This continues the exact action/payment
 profiles with card-spell and nonmana-ability stack targets, countering, a tap

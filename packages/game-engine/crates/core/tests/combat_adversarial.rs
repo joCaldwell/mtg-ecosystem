@@ -1,5 +1,6 @@
 //! Independent black-box checks for the frozen G/I configurations. Decisions use
 //! player projections; physical IDs are used only by trusted test assertions.
+mod support;
 use mtg_contracts::{Catalog, Quantity};
 use mtg_core::*;
 
@@ -82,7 +83,11 @@ fn submit(game: &mut Game, response: PlayerResponse) {
     game.submit(receipt).unwrap();
 }
 fn input(game: &mut Game, prepared: &Prepared, response: PlayerResponse) {
+    let finish = matches!(response, PlayerResponse::FinishMana { .. });
     submit(game, response);
+    if finish {
+        support::complete_mana(game);
+    }
     recovery(game, prepared);
     assert!(matches!(
         settle(game, prepared, 1, true),
@@ -242,7 +247,7 @@ fn current_rules_allow_nonlethal_split_and_simultaneous_multiplayer_losses() {
             assert_eq!(view.view.priority, Some(PlayerId(0)));
             if mode == TraceMode::Detailed {
                 assert!(game.events().iter().any(|event| matches!(event,
-                    Event::Committed { actual: EventOutcome::DamageDealt { results, .. }, .. }
+                    Event::Committed { actual: EventOutcome::DamageCommitted { results, .. }, .. }
                     if results.iter().any(|result| matches!(result.recipient, DamageRecipient::Creature { object } if object.card == CardId(0))
                         && result.previous == Quantity::zero() && result.current == Quantity::from(4))
                 )), "both blockers' simultaneous damage must accumulate against common pre-state");

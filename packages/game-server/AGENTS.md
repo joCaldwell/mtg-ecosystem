@@ -1,5 +1,12 @@
 # Local Rust hosting and generated clients
 
+D1b-2 gives the host a separate `SERVER_BUILD_ID`, binding its own Rust source and
+manifest/build script to engine `BUILD_ID`. Registry metadata, worker bootstrap
+and the process identity handshake pin both. Public manifests publish both;
+recovery rejects changed or missing host identity before opening durable state.
+Engine `BUILD_ID` remains engine-code-only.
+
+
 This package implements milestone P8 for `commander-foundations-v1`. Read
 `docs/game-engine-plan.md` P8 and `docs/game-engine-spec.md` §§5–7 first.
 Protocol scaffolding does not establish a playable or durable server.

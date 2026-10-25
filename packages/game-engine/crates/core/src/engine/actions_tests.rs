@@ -211,7 +211,7 @@ fn sacrifice_source_ability_has_own_stack_identity_and_historical_reference() {
     let ability = entry.ability.as_ref().unwrap();
     assert_eq!(ability.source.announced, before_source);
     assert!(ability.source.current.is_none());
-    assert!(ability.handle.0.starts_with("v1-a"));
+    assert!(ability.handle.0.starts_with("v1-s"));
     assert!(
         g.resolve_handle(PlayerId(1), &ability.source.announced)
             .is_err()

@@ -1,4 +1,5 @@
 //! Independent player-facing regression evidence for damage and hidden draws.
+mod support;
 use mtg_contracts::{Catalog, Quantity};
 use mtg_core::*;
 
@@ -90,7 +91,11 @@ fn submit(game: &mut Game, response: PlayerResponse) {
     game.submit(receipt).unwrap();
 }
 fn input(game: &mut Game, prepared: &Prepared, response: PlayerResponse) {
+    let finish = matches!(response, PlayerResponse::FinishMana { .. });
     submit(game, response);
+    if finish {
+        support::complete_mana(game);
+    }
     verify(game, prepared);
     assert!(matches!(
         settle(game, prepared),

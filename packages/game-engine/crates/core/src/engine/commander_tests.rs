@@ -27,8 +27,12 @@ fn settle(g: &mut Game) -> Request {
     panic!("no request")
 }
 fn answer(g: &mut Game, response: Response) {
+    let finish = matches!(response, Response::FinishMana { .. });
     let r = settle(g);
     g.respond(r.player(), r.decision_id(), response).unwrap();
+    if finish {
+        g.complete_test_mana();
+    }
     recover(g);
 }
 fn mana(g: &mut Game, card: u32) {
@@ -283,9 +287,8 @@ fn departure_exile_chooses_owner_and_owner_departure_never_resurrects_commander(
     assert!(g.commander_ledger().history(CardId(0)).is_some());
 }
 #[test]
-fn commander_damage_is_an_atomic_explicit_unsupported_boundary() {
+fn commander_damage_uses_the_ledger_in_earliest_commander_catalog() {
     let mut g = game(ScenarioConfig::commander_lifecycle());
-    let before = g.snapshot().unwrap();
     let result = g.commit(
         ProposedEvent::CombatDamage {
             damage: vec![
@@ -309,11 +312,17 @@ fn commander_damage_is_an_atomic_explicit_unsupported_boundary() {
         },
         BatchCause::Combat,
     );
-    assert_eq!(
-        result.unwrap_err(),
-        "unsupported commander combat damage to player"
-    );
-    assert_eq!(g.snapshot().unwrap(), before);
+    let EventOutcome::DamageDealt {
+        commander_damage, ..
+    } = result.unwrap()
+    else {
+        panic!("damage outcome")
+    };
+    assert_eq!(commander_damage.len(), 1);
+    assert_eq!(commander_damage[0].commander, CardId(0));
+    assert_eq!(commander_damage[0].current, Quantity::from(2));
+    assert_eq!(g.state.players[1].life, Quantity::from(38));
+    assert_eq!(g.state.players[2].life, Quantity::from(38));
 }
 #[test]
 fn exact_commander_profiles_reject_changes_and_cross_catalog_admission() {

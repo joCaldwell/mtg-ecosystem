@@ -66,16 +66,16 @@ impl Policy {
         };
         Ok(match request {
             PlayerRequest::AnnounceX { .. } => {
-                return Err("X request outside historical profile".into());
+                return Err("X request unsupported by this completion policy".into());
             }
             PlayerRequest::SacrificeCost { .. } | PlayerRequest::ForcedSacrifice { .. } => {
-                return Err("sacrifice request outside historical profile".into());
+                return Err("sacrifice request unsupported by this completion policy".into());
             }
             PlayerRequest::ManaColor { .. }
             | PlayerRequest::SearchLands { .. }
             | PlayerRequest::OptionalEffect { .. }
             | PlayerRequest::OptionalRecursion { .. } => {
-                return Err("staples request outside historical policy".into());
+                return Err("staples request unsupported by this completion policy".into());
             }
             PlayerRequest::Mulligan { .. } | PlayerRequest::BottomOpening { .. } => {
                 return Err("opening setup is not admitted by this historical scenario".into());
@@ -84,16 +84,17 @@ impl Policy {
             | PlayerRequest::DamageAllocation { .. }
             | PlayerRequest::DamageEffect { .. }
             | PlayerRequest::OrderTriggers { .. } => {
-                return Err("ordinary trigger ordering outside historical profile".into());
+                return Err(
+                    "ordinary trigger ordering unsupported by this completion policy".into(),
+                );
             }
             PlayerRequest::EntityTargets { .. } => {
-                return Err("mixed targets outside damage/life profile".into());
+                return Err("unsupported completion-policy target request".into());
             }
             PlayerRequest::StackTargets { .. }
             | PlayerRequest::PlayerTargets { .. }
             | PlayerRequest::Sacrifice { .. }
-            | PlayerRequest::ResolveDiscard { .. }
-            | PlayerRequest::SpendMana { .. } => {
+            | PlayerRequest::ResolveDiscard { .. } => {
                 return Err("action/payment request outside the frozen combat policy".into());
             }
             PlayerRequest::Priority { .. } => {
@@ -134,6 +135,12 @@ impl Policy {
                 }
                 PlayerResponse::Pass
             }
+            PlayerRequest::SpendMana {
+                cost, available, ..
+            } => PlayerResponse::SpendMana {
+                spending: crate::match_games::spend(cost, available)
+                    .ok_or("unpayable spending request")?,
+            },
             PlayerRequest::Mana { cost, .. } => {
                 let pool = &v.players[v.viewer.0 as usize].mana;
                 let mut required = cost.generic.clone();

@@ -55,9 +55,6 @@ pub struct CommanderDamageResult {
 }
 
 impl Game {
-    pub(super) fn combat_enabled(&self) -> bool {
-        self.prepared.config.combat_profile()
-    }
     pub(super) fn combat_decision_player(&self) -> Option<PlayerId> {
         match &self.state.frame {
             Frame::Attackers => self.state.active,
@@ -400,14 +397,7 @@ impl Game {
                 self.state.frame = Frame::CleanupClear;
             }
             Frame::CleanupClear => {
-                self.commit(
-                    if self.prepared.config.effects_profile() {
-                        ProposedEvent::CleanupEffects
-                    } else {
-                        ProposedEvent::ClearDamage
-                    },
-                    BatchCause::Cleanup,
-                )?;
+                self.commit(ProposedEvent::CleanupEffects, BatchCause::Cleanup)?;
                 self.schedule_stabilization(Frame::Transition, true);
             }
             Frame::Stabilize {
@@ -419,7 +409,7 @@ impl Game {
         }
         Ok(())
     }
-    /// CR510.4/702.7b/702.4b. Only this profile can introduce a second step.
+    /// CR510.4/702.7b/702.4b: actual first/double strike determines the extra step.
     pub(super) fn first_strikers(&self) -> BTreeSet<ObjectId> {
         self.state
             .combat
@@ -569,11 +559,8 @@ impl Game {
                 }
             }
         }
-        if self.prepared.config.effects_profile() && !damage.is_empty() {
-            return self.prepare_combat_damage(damage);
-        }
         if !damage.is_empty() {
-            self.commit(ProposedEvent::CombatDamage { damage }, BatchCause::Combat)?;
+            return self.prepare_combat_damage(damage);
         }
         self.state.damage_choices.clear();
         self.state.player_damage_choices.clear();
@@ -633,9 +620,7 @@ impl Game {
                     Some((p, PlayerLossReason::Life))
                 } else if x.failed_draw {
                     Some((p, PlayerLossReason::FailedDraw))
-                } else if self.commander_damage_enabled()
-                    && self.state.commanders.combat_loss_candidates().contains(&p)
-                {
+                } else if self.state.commanders.combat_loss_candidates().contains(&p) {
                     Some((p, PlayerLossReason::CommanderDamage))
                 } else {
                     None
@@ -772,14 +757,6 @@ impl Game {
         Ok(())
     }
     pub(super) fn validate_combat_state(&self) -> Result<(), String> {
-        if !self.profile_at_least(COMBAT_KEYWORDS_PROFILE)
-            && (self.state.turn.step == TurnStep::FirstStrikeDamage
-                || !self.state.first_strike_participants.is_empty()
-                || !self.state.orphan_first_strike_blockers.is_empty()
-                || !self.state.player_damage_choices.is_empty())
-        {
-            return Err("combat keyword continuation outside reviewed profile".into());
-        }
         for (p, library) in &self.state.libraries {
             let actual = self
                 .state

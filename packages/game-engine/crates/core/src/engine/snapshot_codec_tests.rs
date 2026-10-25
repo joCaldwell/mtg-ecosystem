@@ -65,7 +65,7 @@ fn ready(game: &mut Game) {
 #[test]
 fn snapshot_codec_payment_pending_and_each_rule_boundary_restore_and_replay_all_trace_modes() {
     let raw: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../tests/fixtures/expected-payment-scenario.json"
+        "../../../../tests/fixtures/d1b2-payment-inputs.json"
     ))
     .unwrap();
     let inputs: Vec<AcceptedInput> =
@@ -325,9 +325,9 @@ fn snapshot_codec_queued_departures_terminal_and_reachable_fault_keep_all_trace_
         let boundary = game.rule_boundary();
         assert!(matches!(
             game.advance(Budget::unlimited()),
-            Advance::Fault(_)
+            Advance::AwaitingDecision(_)
         ));
-        assert_eq!(boundary, game.rule_boundary());
+        assert!(game.rule_boundary() > boundary);
         let json = exact(&game);
         let restored = verifier.verify(&json).unwrap();
         assert_eq!(restored.state, game.state);

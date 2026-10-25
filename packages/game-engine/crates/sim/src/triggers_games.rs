@@ -264,16 +264,16 @@ impl Strategy {
             .ok_or("missing trigger policy request")?;
         Ok(match request {
             PlayerRequest::AnnounceX { .. } => {
-                return Err("X request outside historical profile".into());
+                return Err("X request unsupported by this completion policy".into());
             }
             PlayerRequest::SacrificeCost { .. } | PlayerRequest::ForcedSacrifice { .. } => {
-                return Err("sacrifice request outside historical profile".into());
+                return Err("sacrifice request unsupported by this completion policy".into());
             }
             PlayerRequest::ManaColor { .. }
             | PlayerRequest::SearchLands { .. }
             | PlayerRequest::OptionalEffect { .. }
             | PlayerRequest::OptionalRecursion { .. } => {
-                return Err("staples request outside historical policy".into());
+                return Err("staples request unsupported by this completion policy".into());
             }
             PlayerRequest::Mulligan { .. } | PlayerRequest::BottomOpening { .. } => {
                 return Err("opening setup is not admitted by this historical scenario".into());
@@ -281,7 +281,7 @@ impl Strategy {
             PlayerRequest::Modes { .. }
             | PlayerRequest::DamageAllocation { .. }
             | PlayerRequest::DamageEffect { .. } => {
-                return Err("damage effects outside historical trigger profile".into());
+                return Err("unsupported completion-policy damage request".into());
             }
             PlayerRequest::Priority { .. } => {
                 let has_triggers = v.stack.iter().any(|s| s.triggered.is_some());

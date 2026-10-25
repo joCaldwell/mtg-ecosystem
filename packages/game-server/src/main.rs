@@ -56,6 +56,7 @@ fn native_info() -> Result<(), Box<dyn std::error::Error>> {
         "{}",
         serde_json::to_string(&serde_json::json!({
             "engine_build_id":mtg_core::BUILD_ID,
+            "server_build_id":mtg_server::SERVER_BUILD_ID.as_str(),
             "rustc":mtg_core::BUILD_RUSTC,
             "target":mtg_core::BUILD_TARGET,
             "profile":mtg_core::BUILD_PROFILE,
@@ -86,6 +87,7 @@ async fn serve(root: &Path, address: SocketAddr) -> Result<(), Box<dyn std::erro
             expected_identity: mtg_server::worker::WorkerIdentity {
                 match_id: item.match_id.clone(),
                 engine_build_id: item.metadata.engine_build_id.clone(),
+                server_build_id: item.metadata.server_build_id.clone(),
                 catalog_sha256: item.metadata.catalog_sha256.clone(),
                 profile_sha256: item.metadata.profile_sha256.clone(),
             },

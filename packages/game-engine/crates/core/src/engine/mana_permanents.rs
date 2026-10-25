@@ -2,12 +2,8 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-pub(super) const CREATURE_CARDS: usize = 4 * 31;
-pub(super) const CREATURES: usize = CREATURE_CARDS + staples::LIVE_TOKEN_CAPACITY as usize;
-pub(super) const DAMAGE_BOUND: usize = 2 * CREATURES;
 // Four Healers plus eight once-only sacrifice-draw artifact activations.
 // Mana activations add no stack entries (605.3b). No recursion returns artifacts.
-pub(super) const STACK_BOUND: usize = 400 + 12 + 8 * (CREATURES + 36) + CREATURE_CARDS + 4;
 
 pub(super) fn zero_mana_cost() -> ManaCost {
     ManaCost {
@@ -50,14 +46,9 @@ pub struct PermanentManaUndo {
     pub cost_triggers: Vec<TriggerId>,
 }
 impl Game {
-    pub(super) fn mana_enabled(&self) -> bool {
-        self.profile_at_least(MANA_PROFILE)
-    }
     pub(super) fn is_permanent_mana(&self, object: ObjectId) -> bool {
-        self.mana_enabled()
-            && self
-                .definition(object.card)
-                .is_ok_and(|d| !d.mana_abilities.is_empty())
+        self.definition(object.card)
+            .is_ok_and(|d| !d.mana_abilities.is_empty())
     }
     pub(super) fn mana_colors(&self, player: PlayerId, production: &ManaProduction) -> Vec<Color> {
         match production {
@@ -126,8 +117,7 @@ impl Game {
     ) -> Result<(), String> {
         let o = self.current(source)?;
         let d = self.definition(source.card)?;
-        if !self.mana_enabled()
-            || self.reserved_mana_source(source)
+        if self.reserved_mana_source(source)
             || d.mana_abilities.len() != 1
             || o.zone != Zone::Battlefield
             || o.controller != player
@@ -607,8 +597,7 @@ impl Game {
         let mut f = frame;
         let mut sources = BTreeSet::new();
         while let Frame::ManaAbility { activation: a } = f {
-            if !self.mana_enabled()
-                || !self.is_live(a.player)
+            if !self.is_live(a.player)
                 || !sources.insert(a.source)
                 || self.definition(a.source.card)?.mana_abilities.first() != Some(&a.ability)
                 || (a.stage == ManaStage::Color) != a.paid.is_some()

@@ -155,8 +155,7 @@ impl Game {
         }
         // CR 611.3a-c/613.4c: a static source continuously defines its affected
         // set. Source/controller/zone changes therefore need no cached grants.
-        if self.prepared.catalog.schema_version >= 15
-            && c.kind == CardKind::Creature
+        if c.kind == CardKind::Creature
             && let Ok(o) = self.current(object)
             && o.zone == Zone::Battlefield
         {
@@ -177,7 +176,7 @@ impl Game {
                 }
             }
         }
-        if self.attachments_enabled() && self.target_is_creature(object) {
+        if self.target_is_creature(object) {
             for a in self.creature_modifications(object) {
                 if let StaticEffect::ModifyCreatures {
                     power, toughness, ..
@@ -248,9 +247,6 @@ impl Game {
         frame: Resolving,
         instruction: Instruction,
     ) -> Result<(), String> {
-        if !self.prepared.config.effects_profile() {
-            return Err("unsupported continuous effect profile".into());
-        }
         let (kind, block) = match instruction {
             Instruction::ModifySourcePowerToughness {
                 power,
@@ -259,7 +255,7 @@ impl Game {
                 ..
             } => {
                 let target = frame.spell.source;
-                if !self.sacrifice_enabled() || !self.target_is_creature(target) {
+                if !self.target_is_creature(target) {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
                 }
@@ -505,7 +501,7 @@ impl Game {
         cause: BatchCause,
         continuation: DamageContinuation,
     ) -> Result<(), String> {
-        if self.tokens_enabled() && entries.len() > self.damage_limit() {
+        if entries.len() > self.damage_limit() {
             return Err(self.capacity_error(RuleFault::DamageCapacityExceeded {
                 capacity: self.damage_limit(),
                 requested: entries.len(),
@@ -798,12 +794,9 @@ impl Game {
         &mut self,
         event: &ProposedEvent,
     ) -> Result<EventOutcome, String> {
-        if !self.prepared.config.effects_profile() {
-            return Err("unsupported effects event".into());
-        }
         match event {
             ProposedEvent::CreateEffect { effect } => {
-                if self.removal_enabled() && self.state.effects.len() >= self.effect_limit() {
+                if self.state.effects.len() >= self.effect_limit() {
                     return Err(self.capacity_error(RuleFault::EffectCapacityExceeded {
                         capacity: self.effect_limit(),
                         requested: self.state.effects.len() + 1,
@@ -847,8 +840,7 @@ impl Game {
                             toughness: t,
                         },
                     ) => {
-                        self.wipes_enabled()
-                            && *targets == self.objects_in_set(set, frame.spell.controller)
+                        *targets == self.objects_in_set(set, frame.spell.controller)
                             && p == power
                             && t == toughness
                             && *source_block == effect.origin.source_block
@@ -857,8 +849,7 @@ impl Game {
                         Instruction::ExileDamagedThisTurn { source_block },
                         ResolvedEffectKind::ExileDamaged { targets },
                     ) => {
-                        self.wipes_enabled()
-                            && *targets == self.anger_targets(frame)
+                        *targets == self.anger_targets(frame)
                             && *source_block == effect.origin.source_block
                     }
                     (
@@ -874,8 +865,7 @@ impl Game {
                             toughness: t,
                         },
                     ) => {
-                        self.sacrifice_enabled()
-                            && *target == frame.spell.source
+                        *target == frame.spell.source
                             && self.target_is_creature(*target)
                             && power == p
                             && toughness == t
@@ -1166,19 +1156,6 @@ impl Game {
         })
     }
     pub(super) fn validate_effect_state(&self) -> Result<(), String> {
-        if !self.prepared.config.effects_profile() {
-            if !self.state.effects.is_empty()
-                || self.state.next_effect_id != 0
-                || self.state.next_damage_transaction_id != 0
-                || matches!(
-                    self.state.frame,
-                    Frame::DamageEffects { .. } | Frame::DamageAllocation { .. }
-                )
-            {
-                return Err("effects outside admitted profile".into());
-            }
-            return Ok(());
-        }
         let mut ids = BTreeSet::new();
         if self.state.effects.len() > self.effect_limit() {
             return Err("effect capacity".into());
@@ -1216,8 +1193,7 @@ impl Game {
                             toughness: t,
                         },
                     ) => {
-                        self.wipes_enabled()
-                            && p == power
+                        p == power
                             && t == toughness
                             && *source_block == e.origin.source_block
                             && self.valid_set_effect_targets(e, targets)
@@ -1226,8 +1202,7 @@ impl Game {
                         Instruction::ExileDamagedThisTurn { source_block },
                         ResolvedEffectKind::ExileDamaged { targets },
                     ) => {
-                        self.wipes_enabled()
-                            && *source_block == e.origin.source_block
+                        *source_block == e.origin.source_block
                             && self.valid_set_effect_targets(e, targets)
                     }
                     (
@@ -1243,8 +1218,7 @@ impl Game {
                             toughness: t,
                         },
                     ) => {
-                        self.sacrifice_enabled()
-                            && *target == e.origin.source
+                        *target == e.origin.source
                             && power == p
                             && toughness == t
                             && *source_block == e.origin.source_block
@@ -1319,8 +1293,7 @@ impl Game {
             else {
                 return Err("allocation requires live shield".into());
             };
-            if !self.prepared.config.choices_profile()
-                || remaining <= &Quantity::from(1)
+            if remaining <= &Quantity::from(1)
                 || transaction
                     .entries
                     .iter()
@@ -1338,7 +1311,10 @@ impl Game {
             if tx.id.0 >= self.state.next_damage_transaction_id
                 || tx.entries.is_empty()
                 || tx.entries.len() > self.damage_limit()
-                || tx.applications.len() > self.damage_limit() * (self.effect_limit() + 2)
+                || tx.applications.len()
+                    > self
+                        .damage_limit()
+                        .saturating_mul(self.effect_limit().saturating_add(2))
             {
                 return Err("damage transaction capacity invariant".into());
             }
@@ -1788,9 +1764,6 @@ impl Game {
         frozen: &ObjectBefore,
         current: ObjectBefore,
     ) -> bool {
-        if !self.attachments_enabled() {
-            return current == *frozen;
-        }
         ObjectBefore {
             characteristics: frozen.characteristics.clone(),
             keywords: frozen.keywords.clone(),
@@ -1800,7 +1773,10 @@ impl Game {
     pub(super) fn validate_damage_transaction(&self, tx: &DamageTransaction) -> Result<(), String> {
         if tx.entries.is_empty()
             || tx.entries.len() > self.damage_limit()
-            || tx.applications.len() > self.damage_limit() * (self.effect_limit() + 2)
+            || tx.applications.len()
+                > self
+                    .damage_limit()
+                    .saturating_mul(self.effect_limit().saturating_add(2))
             || tx.allocation_groups.len() > self.effect_limit()
             || tx.id.0 >= self.state.next_damage_transaction_id
         {
@@ -1825,12 +1801,8 @@ impl Game {
                 return Err("damage source identity/quantity invariant".into());
             }
             self.validate_characteristic_identity(d.source.object, &d.source.characteristics)?;
-            let expected_keywords = if self.prepared.catalog.schema_version >= 12 {
-                self.definition(d.source.object.card)?.keywords.as_slice()
-            } else {
-                &[]
-            };
-            let keywords_valid = if self.attachments_enabled() {
+            let expected_keywords = { self.definition(d.source.object.card)?.keywords.as_slice() };
+            let keywords_valid = {
                 let can_have_grants = d.source.zone == Zone::Battlefield
                     && d.source.characteristics.kind == CardKind::Creature;
                 expected_keywords.iter().all(|k|d.source.keywords.contains(k))
@@ -1839,8 +1811,6 @@ impl Game {
                             && (expected_keywords.contains(k) || (can_have_grants && self.prepared.catalog.definitions.iter()
                                 .flat_map(|d| &d.static_abilities).any(|a|matches!(&a.effect,StaticEffect::ModifyCreatures {keywords,..} if keywords.contains(k)))))
                     })
-            } else {
-                d.source.keywords == expected_keywords
             };
             if !keywords_valid {
                 return Err(
@@ -1919,7 +1889,7 @@ impl Game {
                             target_slot,
                             amount,
                             source_block,
-                        } if self.removal_enabled() => (
+                        } => (
                             *target_slot,
                             amount,
                             *source_block,
@@ -2109,9 +2079,6 @@ impl Game {
         tx: &DamageTransaction,
         frame: &Resolving,
     ) -> Result<(), String> {
-        if !self.sacrifice_enabled() {
-            return Err("sacrifice damage profile".into());
-        }
         let (amount, block, mut targets) = self.sacrifice_damage_spec(frame)?;
         if matches!(
             self.program_for(&frame.spell)?

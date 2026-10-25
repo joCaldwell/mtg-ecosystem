@@ -8,7 +8,7 @@ fn prepared() -> Prepared {
 }
 fn inputs() -> Vec<AcceptedInput> {
     let expected: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../tests/fixtures/expected-payment-scenario.json"
+        "../../../../tests/fixtures/d1b2-payment-inputs.json"
     ))
     .unwrap();
     serde_json::from_value(expected["accepted_inputs"].clone()).unwrap()
@@ -337,7 +337,7 @@ fn player_handles_tokens_receipts_and_empty_domains_are_checked() {
 #[test]
 fn query_work_invalidates_during_automatic_execution_even_without_input_revision_change() {
     let mut game = Game::new(prepared());
-    for i in inputs().iter().take(4) {
+    for i in inputs().iter().take(5) {
         let _ = game.advance(Budget::unlimited());
         game.respond(i.player, i.decision_id, i.response.clone())
             .unwrap();

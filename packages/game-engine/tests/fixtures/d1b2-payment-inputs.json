@@ -1,0 +1,169 @@
+{
+  "accepted_inputs": [
+    {
+      "decision_id": 0,
+      "player": 0,
+      "response": {
+        "object": {
+          "card": 0,
+          "incarnation": 0
+        },
+        "response": "activate_mana"
+      }
+    },
+    {
+      "decision_id": 1,
+      "player": 0,
+      "response": {
+        "card": 1,
+        "response": "cast"
+      }
+    },
+    {
+      "decision_id": 2,
+      "player": 0,
+      "response": {
+        "objects": [
+          {
+            "card": 2,
+            "incarnation": 0
+          }
+        ],
+        "response": "targets"
+      }
+    },
+    {
+      "decision_id": 3,
+      "player": 0,
+      "response": {
+        "response": "finish_mana",
+        "undo_mana": false
+      }
+    },
+    {
+      "decision_id": 4,
+      "player": 0,
+      "response": {
+        "response": "spend_mana",
+        "spending": {
+          "U": "1"
+        }
+      }
+    },
+    {
+      "decision_id": 5,
+      "player": 0,
+      "response": {
+        "response": "pass"
+      }
+    },
+    {
+      "decision_id": 6,
+      "player": 1,
+      "response": {
+        "response": "pass"
+      }
+    },
+    {
+      "decision_id": 7,
+      "player": 2,
+      "response": {
+        "response": "pass"
+      }
+    },
+    {
+      "decision_id": 8,
+      "player": 3,
+      "response": {
+        "response": "pass"
+      }
+    }
+  ],
+  "departure_journal": {
+    "concessions": [
+      {
+        "after_decisions": 6,
+        "boundary": 8,
+        "player": 2
+      },
+      {
+        "after_decisions": 7,
+        "boundary": 11,
+        "player": 3
+      },
+      {
+        "after_decisions": 7,
+        "boundary": 13,
+        "player": 0
+      }
+    ],
+    "decisions": [
+      {
+        "decision_id": 0,
+        "player": 0,
+        "response": {
+          "object": {
+            "card": 0,
+            "incarnation": 0
+          },
+          "response": "activate_mana"
+        }
+      },
+      {
+        "decision_id": 1,
+        "player": 0,
+        "response": {
+          "card": 1,
+          "response": "cast"
+        }
+      },
+      {
+        "decision_id": 2,
+        "player": 0,
+        "response": {
+          "objects": [
+            {
+              "card": 2,
+              "incarnation": 0
+            }
+          ],
+          "response": "targets"
+        }
+      },
+      {
+        "decision_id": 3,
+        "player": 0,
+        "response": {
+          "response": "finish_mana",
+          "undo_mana": false
+        }
+      },
+      {
+        "decision_id": 4,
+        "player": 0,
+        "response": {
+          "response": "spend_mana",
+          "spending": {
+            "U": "1"
+          }
+        }
+      },
+      {
+        "decision_id": 5,
+        "player": 0,
+        "response": {
+          "response": "pass"
+        }
+      },
+      {
+        "decision_id": 7,
+        "player": 1,
+        "response": {
+          "response": "pass"
+        }
+      }
+    ]
+  },
+  "departure_state_sha256": "ec8ac1d0d2b5ec5390b4bae0b9f6078229dc65ef442b2927a51b27a2c75a1018",
+  "final_state_sha256": "4adff636df6b671d1e45f52aad90d8a87377ae4c93201d4a01be7103c8ced78d"
+}

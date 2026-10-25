@@ -207,47 +207,16 @@ pub enum SetupOutcome {
     },
 }
 impl ScenarioConfig {
-    pub(super) fn match_profile(&self) -> bool {
-        self.mode == Mode::CommanderMatch && match_profile(&self.profile).is_some()
-    }
     pub(super) fn owned_limit(&self) -> usize {
-        if self.match_profile() { 100 } else { 16 }
+        capacities::OWNED_LIMIT
     }
 }
 impl Game {
     pub(super) fn damage_limit(&self) -> usize {
-        if self.wipes_enabled() {
-            wipes::DAMAGE_BOUND
-        } else if self.sacrifice_enabled() {
-            sacrifice::DAMAGE_BOUND
-        } else if self.removal_enabled() {
-            removal::DAMAGE_BOUND
-        } else if self.four_colors_enabled() {
-            four_colors::DAMAGE_BOUND
-        } else if self.mana_enabled() {
-            mana_permanents::DAMAGE_BOUND
-        } else if self.staples_enabled() {
-            staples::DAMAGE_BOUND
-        } else if self.tokens_enabled() {
-            tokens::DAMAGE_BOUND
-        } else if self.prepared.config.match_profile() {
-            64
-        } else {
-            24
-        }
+        capacities::DAMAGE_LIMIT
     }
     pub(super) fn effect_limit(&self) -> usize {
-        if self.wipes_enabled() {
-            return wipes::EFFECT_BOUND;
-        }
-        if self.sacrifice_enabled() {
-            return sacrifice::EFFECT_BOUND;
-        }
-        if self.prepared.config.match_profile() {
-            32
-        } else {
-            16
-        }
+        capacities::EFFECT_LIMIT
     }
     fn opening(&self) -> Result<&OpeningSetup, String> {
         self.state
@@ -718,9 +687,6 @@ impl Game {
         match (&self.prepared.match_config, &self.state.match_state) {
             (None, None) => Ok(()),
             (Some(config), Some(s)) => {
-                if !no_library_shuffles(&s.library_shuffles) && !self.staples_enabled() {
-                    return Err("snapshot public shuffle counts invariant".into());
-                }
                 if s.random.version != 1
                     || s.random.seed != config.seed
                     || s.random.stream != 0

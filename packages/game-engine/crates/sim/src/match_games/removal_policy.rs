@@ -3,10 +3,6 @@ use super::*;
 use mtg_contracts::{Definition, PermanentFilter, TargetDomain};
 use mtg_core::{PermittedView, StackHandle, VisibleObject};
 impl Strategy<'_> {
-    pub(super) fn removal(&self) -> bool {
-        self.sacrifice()
-            || (self.catalog.schema_version == 18 && self.catalog.definitions.len() == 135)
-    }
     fn removal_candidate(&self, v: &PermittedView, o: &VisibleObject, f: &PermanentFilter) -> bool {
         o.zone == Zone::Battlefield
             && self.targetable(v, o)

@@ -20,6 +20,12 @@ contracts remain in [oracle_parser.md](oracle_parser.md) and
 [data_schemas.md](data_schemas.md). This plan does not resume the interrupted
 parser drafts or count their provisional gains as completed support.
 
+D1b-2 supersedes all profile-specific runtime behavior and resource limits in the
+historical slice contracts below. Rules execute from validated catalog IR and
+the Comprehensive Rules; names and schema versions remain admission identities.
+The current mechanical limits and typed atomic exhaustion policy are documented
+once in [engine capacity policy](game-engine-capacity-policy.md).
+
 ## 1. Current position and completion vocabulary
 
 The reproducible historical baseline is the

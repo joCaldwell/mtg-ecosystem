@@ -57,6 +57,10 @@ fn prepared(rows: &[(&str, u8, bool)], haste_healer: bool) -> Prepared {
         }
     }
     let config = ScenarioConfig {
+        initial: ScenarioInitial {
+            turn_step: TurnStep::Untap,
+            ..ScenarioInitial::default()
+        },
         mode: Mode::CommanderMatch,
         players: 4,
         profile: KEYWORDS_PROFILE.into(),
@@ -721,6 +725,7 @@ fn two_life_defender_survives_simultaneous_three_damage_and_two_lifelink() {
     );
     p.config.mode = Mode::Scenario;
     p.config.profile = "four-seat-effects-low-v1".into();
+    p.config.initial.life = std::array::from_fn(|_| 4.into());
     p.profile_digest = digest(&p.config).unwrap();
     traces(p, |g| {
         attackers(g);

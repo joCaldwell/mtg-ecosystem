@@ -342,9 +342,9 @@ fn borrowed_damage_source_survives_owner_departure_and_uses_historical_source() 
     assert_eq!(life(&game, PlayerId(1)), Quantity::from(39));
     assert!(game.events().iter().any(|e| match e {
         Event::Committed {
-            actual: EventOutcome::NoncombatDamageDealt { damage, .. },
+            actual: EventOutcome::DamageCommitted { actual, .. },
             ..
-        } => damage.source.object == source,
+        } => actual.iter().any(|damage| damage.source.object == source),
         _ => false,
     }));
     replay_equal(&game, &p);
@@ -915,9 +915,9 @@ fn started_damage_invocation_retains_source_after_controller_departure_and_skips
             .iter()
             .filter_map(|e| match e {
                 Event::Committed {
-                    actual: EventOutcome::NoncombatDamageDealt { damage, .. },
+                    actual: EventOutcome::DamageCommitted { actual, .. },
                     ..
-                } => Some(damage),
+                } => actual.first(),
                 _ => None,
             })
             .collect::<Vec<_>>();

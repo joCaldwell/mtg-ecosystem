@@ -48,6 +48,10 @@ impl ScenarioConfig {
             })
             .collect();
         Self {
+            initial: ScenarioInitial {
+                turn_step: TurnStep::PrecombatMain,
+                ..ScenarioInitial::default()
+            },
             mode: Mode::Scenario,
             players: 4,
             profile: "four-seat-effects-v1".into(),
@@ -76,19 +80,9 @@ impl ScenarioConfig {
     }
     pub fn effects_low() -> Self {
         let mut c = Self::effects_furnace();
+        c.initial.life = std::array::from_fn(|_| Quantity::from(4));
         c.profile = "four-seat-effects-low-v1".into();
         c
-    }
-    pub(super) fn effects_profile(&self) -> bool {
-        self.choices_profile()
-            || matches!(
-                self.profile.as_str(),
-                "four-seat-effects-v1"
-                    | "four-seat-effects-furnace-v1"
-                    | "four-seat-effects-two-furnaces-v1"
-                    | "four-seat-effects-borrowed-v1"
-                    | "four-seat-effects-low-v1"
-            )
     }
 
     pub fn triggers() -> Self {
@@ -132,6 +126,10 @@ impl ScenarioConfig {
             })
             .collect();
         Self {
+            initial: ScenarioInitial {
+                turn_step: TurnStep::PrecombatMain,
+                ..ScenarioInitial::default()
+            },
             mode: Mode::Scenario,
             players: 4,
             profile: "four-seat-triggers-v1".into(),
@@ -141,6 +139,7 @@ impl ScenarioConfig {
     }
     pub fn triggers_low() -> Self {
         let mut c = Self::triggers();
+        c.initial.life = std::array::from_fn(|_| Quantity::from(2));
         c.profile = "four-seat-triggers-low-v1".into();
         c
     }
@@ -163,17 +162,7 @@ impl ScenarioConfig {
         c.cards[5].controller = PlayerId(1);
         c
     }
-    pub(super) fn triggers_profile(&self) -> bool {
-        self.effects_profile()
-            || matches!(
-                self.profile.as_str(),
-                "four-seat-triggers-v1"
-                    | "four-seat-triggers-low-v1"
-                    | "four-seat-triggers-borrowed-v1"
-                    | "four-seat-triggers-empty-library-v1"
-                    | "four-seat-triggers-nonactive-v1"
-            )
-    }
+
     pub fn damage_life() -> Self {
         let cards = (0..35)
             .map(|id| {
@@ -214,6 +203,10 @@ impl ScenarioConfig {
             })
             .collect();
         Self {
+            initial: ScenarioInitial {
+                turn_step: TurnStep::PrecombatMain,
+                ..ScenarioInitial::default()
+            },
             mode: Mode::Scenario,
             players: 4,
             profile: "four-seat-damage-life-v1".into(),
@@ -223,6 +216,7 @@ impl ScenarioConfig {
     }
     pub fn damage_life_low() -> Self {
         let mut c = Self::damage_life();
+        c.initial.life = std::array::from_fn(|_| Quantity::from(4));
         c.profile = "four-seat-damage-life-low-v1".into();
         c
     }
@@ -253,17 +247,7 @@ impl ScenarioConfig {
         });
         c
     }
-    pub(super) fn damage_life_profile(&self) -> bool {
-        self.triggers_profile()
-            || matches!(
-                self.profile.as_str(),
-                "four-seat-damage-life-v1"
-                    | "four-seat-damage-life-low-v1"
-                    | "four-seat-damage-life-borrowed-v1"
-                    | "four-seat-damage-life-empty-library-v1"
-                    | "four-seat-damage-life-library-v1"
-            )
-    }
+
     pub fn stack_costs() -> Self {
         let cards = (0..33)
             .map(|id| {
@@ -302,6 +286,10 @@ impl ScenarioConfig {
             })
             .collect();
         Self {
+            initial: ScenarioInitial {
+                turn_step: TurnStep::PrecombatMain,
+                ..ScenarioInitial::default()
+            },
             mode: Mode::Scenario,
             players: 4,
             profile: "four-seat-stack-costs-v1".into(),
@@ -332,16 +320,6 @@ impl ScenarioConfig {
         config.profile = "four-seat-stack-costs-library-v1".into();
         config.cards[0].zone = Zone::Battlefield;
         config
-    }
-    pub(super) fn stack_costs_profile(&self) -> bool {
-        self.damage_life_profile()
-            || matches!(
-                self.profile.as_str(),
-                "four-seat-stack-costs-v1"
-                    | "four-seat-stack-costs-borrowed-v1"
-                    | "four-seat-stack-costs-empty-library-v1"
-                    | "four-seat-stack-costs-library-v1"
-            )
     }
 
     pub fn actions() -> Self {
@@ -379,6 +357,10 @@ impl ScenarioConfig {
             })
             .collect();
         Self {
+            initial: ScenarioInitial {
+                turn_step: TurnStep::PrecombatMain,
+                ..ScenarioInitial::default()
+            },
             mode: Mode::Scenario,
             players: 4,
             profile: "four-seat-actions-v1".into(),
@@ -435,22 +417,16 @@ impl ScenarioConfig {
             })
             .collect();
         Self {
+            initial: ScenarioInitial {
+                turn_step: TurnStep::PrecombatMain,
+                ..ScenarioInitial::default()
+            },
             mode: Mode::Scenario,
             players: 4,
             profile: "four-seat-mixed-mana-v1".into(),
             commanders: vec![CardId(0), CardId(11)],
             cards,
         }
-    }
-    pub(super) fn actions_profile(&self) -> bool {
-        self.stack_costs_profile()
-            || matches!(
-                self.profile.as_str(),
-                "four-seat-actions-v1"
-                    | "four-seat-actions-borrowed-v1"
-                    | "four-seat-actions-empty-library-v1"
-                    | "four-seat-mixed-mana-v1"
-            )
     }
 
     pub fn commander_damage() -> Self {
@@ -482,6 +458,10 @@ impl ScenarioConfig {
             })
             .collect();
         Self {
+            initial: ScenarioInitial {
+                turn_step: TurnStep::PrecombatMain,
+                ..ScenarioInitial::default()
+            },
             mode: Mode::Scenario,
             players: 4,
             profile: "four-seat-commander-damage-v1".into(),
@@ -525,21 +505,16 @@ impl ScenarioConfig {
             })
             .collect();
         Self {
+            initial: ScenarioInitial {
+                turn_step: TurnStep::PrecombatMain,
+                ..ScenarioInitial::default()
+            },
             mode: Mode::Scenario,
             players: 4,
             profile: "four-seat-commander-library-v1".into(),
             commanders: vec![CardId(4)],
             cards,
         }
-    }
-    pub(super) fn damage_profile(&self) -> bool {
-        matches!(
-            self.profile.as_str(),
-            "four-seat-commander-damage-v1" | "four-seat-commander-damage-borrowed-v1"
-        )
-    }
-    pub(super) fn library_profile(&self) -> bool {
-        self.profile == "four-seat-commander-library-v1"
     }
 
     pub fn command_casting() -> Self {
@@ -572,6 +547,10 @@ impl ScenarioConfig {
             })
             .collect();
         Self {
+            initial: ScenarioInitial {
+                turn_step: TurnStep::PrecombatMain,
+                ..ScenarioInitial::default()
+            },
             mode: Mode::Scenario,
             players: 4,
             profile: "four-seat-commander-casting-v1".into(),
@@ -597,17 +576,6 @@ impl ScenarioConfig {
         config.profile = "four-seat-commander-exile-v1".into();
         config.cards[0].controller = PlayerId(1);
         config
-    }
-    pub(super) fn commander_profile(&self) -> bool {
-        self.actions_profile()
-            || self.damage_profile()
-            || self.library_profile()
-            || matches!(
-                self.profile.as_str(),
-                "four-seat-commander-casting-v1"
-                    | "four-seat-commander-lifecycle-v1"
-                    | "four-seat-commander-exile-v1"
-            )
     }
 
     pub fn combat_game() -> Self {
@@ -640,6 +608,16 @@ impl ScenarioConfig {
             })
             .collect();
         Self {
+            initial: ScenarioInitial {
+                life: [6, 2, 2, 2].map(Quantity::from),
+                turn_step: TurnStep::PrecombatMain,
+                libraries: Some(BTreeMap::from([
+                    (PlayerId(0), vec![CardId(6), CardId(4), CardId(5)]),
+                    (PlayerId(1), vec![CardId(10)]),
+                    (PlayerId(2), vec![CardId(16), CardId(15)]),
+                    (PlayerId(3), vec![CardId(26)]),
+                ])),
+            },
             mode: Mode::Scenario,
             players: 4,
             profile: "four-seat-combat-game-v1".into(),
@@ -676,6 +654,11 @@ impl ScenarioConfig {
             })
             .collect();
         Self {
+            initial: ScenarioInitial {
+                life: [6, 2, 2, 2].map(Quantity::from),
+                turn_step: TurnStep::PrecombatMain,
+                ..ScenarioInitial::default()
+            },
             mode: Mode::Scenario,
             players: 4,
             profile: "four-seat-combat-interactions-v1".into(),
@@ -684,50 +667,17 @@ impl ScenarioConfig {
         }
     }
 
-    pub(super) fn combat_profile(&self) -> bool {
-        self.commander_profile()
-            || matches!(
-                self.profile.as_str(),
-                "four-seat-combat-game-v1"
-                    | "four-seat-combat-interactions-v1"
-                    | "four-seat-commander-casting-v1"
-                    | "four-seat-commander-lifecycle-v1"
-                    | "four-seat-commander-exile-v1"
-            )
-    }
-
     pub(super) fn initial_life(&self, player: PlayerId) -> Quantity {
-        Quantity::from(if self.profile == "four-seat-triggers-low-v1" {
-            2
-        } else if self.profile == "four-seat-damage-life-low-v1"
-            || self.profile == "four-seat-effects-low-v1"
-        {
-            4
-        } else if self.combat_profile() && !self.commander_profile() {
-            if player == PlayerId(0) { 6 } else { 2 }
-        } else {
-            40
-        })
+        self.initial.life[player.0 as usize].clone()
     }
 
     pub(super) fn initial_turn_step(&self) -> TurnStep {
-        if self.match_profile() {
-            TurnStep::Untap
-        } else if self.combat_profile() {
-            TurnStep::PrecombatMain
-        } else {
-            TurnStep::PostcombatMain
-        }
+        self.initial.turn_step
     }
 
     pub(super) fn initial_libraries(&self) -> BTreeMap<PlayerId, Vec<CardId>> {
-        if self.profile == "four-seat-combat-game-v1" {
-            return BTreeMap::from([
-                (PlayerId(0), vec![CardId(6), CardId(4), CardId(5)]),
-                (PlayerId(1), vec![CardId(10)]),
-                (PlayerId(2), vec![CardId(16), CardId(15)]),
-                (PlayerId(3), vec![CardId(26)]),
-            ]);
+        if let Some(libraries) = &self.initial.libraries {
+            return libraries.clone();
         }
         // Older exact configurations have at most one card in each library;
         // iteration order therefore cannot choose their next draw. The new

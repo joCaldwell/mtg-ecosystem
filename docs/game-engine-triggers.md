@@ -1,5 +1,9 @@
 # Ordinary triggers, APNAP placement and source history
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 Contract frozen October 15, 2026 for five exact four-seat scenarios. This P4
 slice adds three mandatory ordinary creature triggers through the existing typed
 event path. It closes their collection, SBA scheduling, ordering, targeting,

@@ -1,5 +1,9 @@
 # Permanent removal and exile — `commander-removal-v1`
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 P6.8 slice, following `commander-attachments-v1` (docs/game-engine-attachments.md).
 Since P6.5 and P6.7, the pool contains artifacts, Equipment, Auras and
 enchantments, but the only removal is creature-only (Murder, Lightning Bolt, Day

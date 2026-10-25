@@ -46,6 +46,10 @@ fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
         }
     }
     let config = ScenarioConfig {
+        initial: ScenarioInitial {
+            turn_step: TurnStep::Untap,
+            ..ScenarioInitial::default()
+        },
         mode: Mode::CommanderMatch,
         players: 4,
         profile: MANA_PROFILE.into(),
@@ -513,10 +517,10 @@ fn mana_decks_identity_singleton_and_capacity_bounds() {
         .unwrap();
     assert_eq!(creature_max, 31);
     let g = Game::new(prepared(&[]));
-    assert_eq!(g.damage_limit(), 760);
-    assert_eq!(g.stack_limit(), 3868);
-    assert_eq!(g.event_group_limit(), 660);
-    assert_eq!(g.token_capacity(), 256);
+    assert_eq!(g.damage_limit(), capacities::DAMAGE_LIMIT);
+    assert_eq!(g.stack_limit(), capacities::STACK_LIMIT);
+    assert_eq!(g.event_group_limit(), capacities::EVENT_GROUP_LIMIT);
+    assert_eq!(g.token_capacity(), capacities::TOKEN_CAPACITY);
 }
 
 #[test]

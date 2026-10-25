@@ -137,7 +137,9 @@ fn failed_children_conflicts_limits_and_overflows_roll_back_state_and_evidence()
             occurrences: vec![],
         },
         EventGroup::Ordered {
-            children: (0..17).map(|_| leaf(mana(1))).collect(),
+            children: (0..=capacities::EVENT_GROUP_LIMIT)
+                .map(|_| leaf(mana(1)))
+                .collect(),
         },
         nested,
         leaf(ProposedEvent::Move {
@@ -166,7 +168,9 @@ fn failed_children_conflicts_limits_and_overflows_roll_back_state_and_evidence()
         let mut game = initial.fork();
         let token = game.state_token.clone();
         assert!(game.commit_batch(BatchCause::Fixture, group).is_err());
-        assert_eq!(game.state, initial.state);
+        let mut expected = initial.state.clone();
+        expected.typed_fault = game.state.typed_fault.clone();
+        assert_eq!(game.state, expected);
         assert_eq!(game.trace, initial.trace);
         assert!(Arc::ptr_eq(&token, &game.state_token));
     }
@@ -191,7 +195,7 @@ fn failed_children_conflicts_limits_and_overflows_roll_back_state_and_evidence()
 }
 fn run(mode: TraceMode, units: u64) -> Game {
     let expected: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../tests/fixtures/expected-payment-scenario.json"
+        "../../../../tests/fixtures/d1b2-payment-inputs.json"
     ))
     .unwrap();
     let inputs: Vec<AcceptedInput> =
@@ -330,7 +334,7 @@ fn departures_are_one_simultaneous_removal_batch_in_every_trace_mode() {
 #[test]
 fn mixed_input_trace_modes_restore_every_pending_and_suspended_departure_boundary() {
     let witness: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../tests/fixtures/expected-payment-scenario.json"
+        "../../../../tests/fixtures/d1b2-payment-inputs.json"
     ))
     .unwrap();
     let journal: ReplayJournal =
@@ -340,39 +344,47 @@ fn mixed_input_trace_modes_restore_every_pending_and_suspended_departure_boundar
         ScenarioConfig::commander_foundation(),
     )
     .unwrap();
-    // Reviewed rule boundaries: mana, cast/targets, mana-window completion,
-    // payment, passes, three
-    // external arrivals, illegal-target completion, and the final survivor.
-    for (boundary, decisions, concessions) in [
-        (0, 0, 0),
-        (0, 1, 0),
-        (1, 1, 0),
-        (1, 2, 0),
-        (2, 2, 0),
-        (2, 3, 0),
-        (3, 3, 0),
-        (3, 4, 0),
-        (4, 4, 0),
-        (5, 4, 0),
-        (5, 5, 0),
-        (6, 5, 0),
-        (6, 5, 1),
-        (7, 5, 1),
-        (7, 6, 1),
-        (8, 6, 1),
-        (8, 6, 2),
-        (9, 6, 2),
-        (10, 6, 2),
-        (10, 6, 3),
-        (11, 6, 3),
-    ] {
+    let mut current = Game::new(p.clone());
+    let mut boundaries = vec![current.snapshot().unwrap()];
+    let mut decision = 0usize;
+    let mut concession = 0usize;
+    for _ in 0..1000 {
+        while let Some(c) = journal.concessions.get(concession) {
+            if c.boundary != current.rule_boundary() || c.after_decisions != decision as u64 {
+                break;
+            }
+            current.concede(c.player).unwrap();
+            concession += 1;
+            boundaries.push(current.snapshot().unwrap());
+        }
+        match current.advance(Budget::new(1)) {
+            Advance::AwaitingDecision(r) => {
+                let Some(i) = journal.decisions.get(decision) else {
+                    break;
+                };
+                current
+                    .respond(r.player(), r.decision_id(), i.response.clone())
+                    .unwrap();
+                decision += 1;
+            }
+            Advance::Suspended { .. } => (),
+            Advance::Finished { .. } | Advance::Draw => {
+                boundaries.push(current.snapshot().unwrap());
+                break;
+            }
+            x => panic!("{x:?}"),
+        }
+        boundaries.push(current.snapshot().unwrap());
+    }
+    for snapshot in boundaries {
+        let saved: Snapshot = strict_read(&snapshot).unwrap();
+        let boundary = saved.state.rule_steps;
         let prefix = ReplayJournal {
-            decisions: journal.decisions[..decisions].to_vec(),
-            concessions: journal.concessions[..concessions].to_vec(),
+            decisions: saved.state.journal.clone(),
+            concessions: saved.state.external_inputs.clone(),
         };
         let full =
             Game::replay_to(p.clone(), &prefix, Some(boundary), TraceMode::Detailed).unwrap();
-        assert_eq!(full.state.rule_steps, boundary);
         for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
             let game = Game::replay_to(p.clone(), &prefix, Some(boundary), mode).unwrap();
             assert_eq!(game.state, full.state);

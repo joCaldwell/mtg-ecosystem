@@ -65,11 +65,7 @@ impl Game {
             sacrificed: None,
             mode: None,
             effect_source_handles: vec![],
-            source_facts: if self.prepared.config.damage_life_profile() {
-                Some(self.object_before(object)?)
-            } else {
-                None
-            },
+            source_facts: { Some(self.object_before(object)?) },
             entity_targets: vec![],
             announced_entity_targets: vec![],
             kind: StackKind::Activated {
@@ -233,8 +229,7 @@ impl Game {
                 Frame::Fault { .. } | Frame::Finished { .. }
             ),
         };
-        if !self.prepared.config.actions_profile()
-            || source_handles.len() != 4
+        if source_handles.len() != 4
             || (!entry.targets.is_empty()
                 && activated.program.targets.first().is_none_or(|t| {
                     !matches!(
@@ -257,8 +252,7 @@ impl Game {
                                 | ActivationCost::Composite { .. }
                                 | ActivationCost::SacrificePermanent { .. }
                                 | ActivationCost::SacrificeSource
-                        ) || (!activated.program.targets.is_empty()
-                            && self.prepared.config.damage_life_profile()))
+                        ) || (!activated.program.targets.is_empty()))
                 }
             }
         {
@@ -272,7 +266,6 @@ impl Game {
         let announcing =
             matches!(&self.state.frame,Frame::AnnounceX {cast} if cast.stack_id==entry.id);
         if entry.x.as_ref().is_some_and(|q| q.is_negative())
-            || (x_spell && !self.wipes_enabled())
             || (entry.x.is_some() != x_spell && !announcing)
             || (announcing && (!x_spell || entry.x.is_some()))
             || entry.death_controller.is_some_and(|p| p.0 >= 4)
@@ -289,8 +282,7 @@ impl Game {
             )
         });
         if !entry.stack_targets.is_empty() {
-            if !self.prepared.config.stack_costs_profile()
-                || !stack_domain
+            if !stack_domain
                 || !entry.targets.is_empty()
                 || !entry.player_targets.is_empty()
                 || entry.stack_targets.len() > program.targets.len()
@@ -347,8 +339,7 @@ impl Game {
     ) -> Result<(), String> {
         let top = self.top()?;
         let program = self.program_for(top)?;
-        if !self.prepared.config.stack_costs_profile()
-            || top.controller != player
+        if top.controller != player
             || entries.len() != program.targets.len()
             || entries.iter().enumerate().any(|(slot, target)| {
                 !self

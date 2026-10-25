@@ -6,22 +6,6 @@ use super::*;
 use mtg_contracts::{EffectRecipient, PermanentFilter, TargetAmount, TargetAttribute};
 
 // Reviewed derivation: docs/game-engine-removal.md. Earlier limits are intact.
-pub(super) const LIVE_TOKEN_CAPACITY: u32 = 512;
-pub(super) const CREATURE_CARDS: usize = 4 * 34;
-pub(super) const CREATURES: usize = CREATURE_CARDS + LIVE_TOKEN_CAPACITY as usize;
-pub(super) const NEW_TOKENS: usize = 36 + 4 * 4;
-pub(super) const DAMAGE_BOUND: usize = 2 * CREATURES;
-pub(super) const STACK_BOUND: usize = 400
-    + 24
-    + 4
-    + four_colors::MAGE_ACTIVATIONS
-    + 8 * (CREATURES + NEW_TOKENS)
-    + CREATURE_CARDS
-    + 4
-    + 8
-    + 1
-    + 4;
-pub(super) const EVENT_GROUP_BOUND: usize = 400 + LIVE_TOKEN_CAPACITY as usize + 4;
 
 /// Resolution-start facts survive removal, token cessation, controller departure
 /// and commander return. They never derive from the successor incarnation.
@@ -33,9 +17,6 @@ pub(super) struct TargetFacts {
     mana_value: Quantity,
 }
 impl Game {
-    pub(super) fn removal_enabled(&self) -> bool {
-        self.profile_at_least(REMOVAL_PROFILE)
-    }
     fn matches_permanent_filter(
         &self,
         object: ObjectId,
@@ -58,8 +39,7 @@ impl Game {
         controller: PlayerId,
         spec: &TargetSpec,
     ) -> bool {
-        self.removal_enabled()
-            && self.targetable_by(object, controller)
+        self.targetable_by(object, controller)
             && spec
                 .filter
                 .as_ref()
@@ -74,16 +54,14 @@ impl Game {
             .into_iter()
             .filter(|id| {
                 spec.filter.as_ref().is_none_or(|f| {
-                    self.removal_enabled()
-                        && self
-                            .state
-                            .stack
-                            .iter()
-                            .find(|e| e.id == *id)
-                            .is_some_and(|e| {
-                                self.definition(e.source.card)
-                                    .is_ok_and(|d| f.types.contains(&d.characteristics.kind))
-                            })
+                    self.state
+                        .stack
+                        .iter()
+                        .find(|e| e.id == *id)
+                        .is_some_and(|e| {
+                            self.definition(e.source.card)
+                                .is_ok_and(|d| f.types.contains(&d.characteristics.kind))
+                        })
                 })
             })
             .collect()
@@ -94,7 +72,7 @@ impl Game {
         legal: &[bool],
     ) -> Result<Vec<Option<TargetFacts>>, String> {
         let p = self.program_for(entry)?;
-        if !self.removal_enabled() || !p.targets.iter().any(|t| t.filter.is_some()) {
+        if !p.targets.iter().any(|t| t.filter.is_some()) {
             return Ok(vec![]);
         }
         p.targets
@@ -147,12 +125,11 @@ impl Game {
             .collect()
     }
     pub(super) fn validate_target_facts(&self, frame: &Resolving) -> Result<(), String> {
-        let expected = self.removal_enabled()
-            && self
-                .program_for(&frame.spell)?
-                .targets
-                .iter()
-                .any(|t| t.filter.is_some());
+        let expected = self
+            .program_for(&frame.spell)?
+            .targets
+            .iter()
+            .any(|t| t.filter.is_some());
         if (!expected && !frame.target_facts.is_empty())
             || (expected
                 && (frame.target_facts.len() != frame.legal_targets.len()
@@ -207,9 +184,6 @@ impl Game {
         frame: Resolving,
         instruction: Instruction,
     ) -> Result<(), String> {
-        if !self.removal_enabled() {
-            return Err("unsupported removal profile".into());
-        }
         let (event, block) = match instruction {
             Instruction::DestroyPermanent {
                 target_slot,

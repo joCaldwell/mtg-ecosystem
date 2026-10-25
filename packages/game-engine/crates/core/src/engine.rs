@@ -1,4 +1,7 @@
 mod advance_report;
+mod capacities;
+#[cfg(test)]
+mod data_rules_tests;
 mod search;
 // Missing/malformed generated outputs remain runtime admission failures rather
 // than making the catalog diagnostic CLI impossible to compile.
@@ -33,7 +36,6 @@ use removal::TargetFacts;
 mod attachments;
 #[cfg(test)]
 mod attachments_tests;
-mod four_colors;
 #[cfg(test)]
 mod four_colors_tests;
 mod staples;
@@ -371,10 +373,29 @@ pub struct ScenarioConfig {
     pub profile: String,
     pub commanders: Vec<CardId>,
     pub cards: Vec<CardSetup>,
+    pub initial: ScenarioInitial,
+}
+/// Scenario inputs; these facts do not enable or disable rules.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScenarioInitial {
+    pub life: [Quantity; 4],
+    pub turn_step: TurnStep,
+    pub libraries: Option<BTreeMap<PlayerId, Vec<CardId>>>,
+}
+impl Default for ScenarioInitial {
+    fn default() -> Self {
+        Self {
+            life: std::array::from_fn(|_| Quantity::from(40)),
+            turn_step: TurnStep::PostcombatMain,
+            libraries: None,
+        }
+    }
 }
 impl ScenarioConfig {
     pub fn turns_permanents() -> Self {
         Self {
+            initial: ScenarioInitial::default(),
             mode: Mode::Scenario,
             players: 4,
             profile: "four-seat-turns-permanents-v1".into(),
@@ -452,6 +473,7 @@ impl ScenarioConfig {
     }
     pub fn land_return() -> Self {
         Self {
+            initial: ScenarioInitial::default(),
             mode: Mode::Scenario,
             players: 4,
             profile: SCENARIO_PROFILE.into(),
@@ -511,102 +533,186 @@ impl Prepared {
     }
     pub fn admit(catalog: Catalog, config: ScenarioConfig) -> Result<Self, String> {
         catalog.validate()?;
-        if config != ScenarioConfig::land_return()
-            && config != ScenarioConfig::commander_foundation()
-            && config != ScenarioConfig::stack_response()
-            && config != ScenarioConfig::casting_reversal()
-            && config != ScenarioConfig::turns_permanents()
-            && config != ScenarioConfig::combat_game()
-            && config != ScenarioConfig::combat_interactions()
-            && config != ScenarioConfig::command_casting()
-            && config != ScenarioConfig::commander_lifecycle()
-            && config != ScenarioConfig::commander_exile()
-            && config != ScenarioConfig::commander_damage()
-            && config != ScenarioConfig::commander_damage_borrowed()
-            && config != ScenarioConfig::commander_library()
-            && config != ScenarioConfig::actions()
-            && config != ScenarioConfig::actions_borrowed()
-            && config != ScenarioConfig::actions_empty_library()
-            && config != ScenarioConfig::mixed_mana()
-            && config != ScenarioConfig::choices()
-            && config != ScenarioConfig::choices_furnace()
-            && config != ScenarioConfig::conditions()
-            && config != ScenarioConfig::conditions_nonempty()
-            && config != ScenarioConfig::conditions_borrowed()
-            && config != ScenarioConfig::conditions_no_targets()
-            && config != ScenarioConfig::effects()
-            && config != ScenarioConfig::effects_furnace()
-            && config != ScenarioConfig::effects_two_furnaces()
-            && config != ScenarioConfig::effects_borrowed()
-            && config != ScenarioConfig::effects_low()
-            && config != ScenarioConfig::triggers()
-            && config != ScenarioConfig::triggers_low()
-            && config != ScenarioConfig::triggers_borrowed()
-            && config != ScenarioConfig::triggers_empty_library()
-            && config != ScenarioConfig::triggers_nonactive()
-            && config != ScenarioConfig::damage_life()
-            && config != ScenarioConfig::damage_life_low()
-            && config != ScenarioConfig::damage_life_borrowed()
-            && config != ScenarioConfig::damage_life_empty_library()
-            && config != ScenarioConfig::damage_life_library()
-            && config != ScenarioConfig::stack_costs()
-            && config != ScenarioConfig::stack_costs_borrowed()
-            && config != ScenarioConfig::stack_costs_empty_library()
-            && config != ScenarioConfig::stack_costs_library()
-        {
-            return Err(
-                "configuration is outside the reviewed four-seat scenario; no match admission"
-                    .into(),
-            );
-        }
-        if catalog.schema_version
-            != if config.choices_profile() {
-                10
-            } else if config.effects_profile() {
-                9
-            } else if config.triggers_profile() {
-                8
-            } else if config.damage_life_profile() {
-                7
-            } else if config.stack_costs_profile() {
-                6
-            } else if config.actions_profile() {
-                5
-            } else if config.library_profile() {
-                4
-            } else {
-                3
-            }
-        {
-            return Err("catalog version is not admitted by this exact profile".into());
-        }
-        let mut allowed = ALLOWED.to_vec();
-        if config.commander_profile() {
-            allowed.push((PLAINS, PLAINS_DIGEST));
-        }
-        if config.damage_profile() || config.actions_profile() {
-            allowed.push((YARGLE, YARGLE_DIGEST));
-        }
-        if config.library_profile() || config.actions_profile() {
-            allowed.push((TIME_EBB, TIME_EBB_DIGEST));
-        }
-        if config.actions_profile() {
-            allowed.extend(ACTION_EXTRA);
-        }
-        if config.stack_costs_profile() {
-            allowed.extend(STACK_EXTRA);
-        }
-        if config.damage_life_profile() {
-            allowed.extend(DAMAGE_LIFE_EXTRA);
-        }
-        if config.triggers_profile() {
-            allowed.extend(TRIGGER_EXTRA);
-        }
-        if config.effects_profile() {
-            allowed.extend(EFFECT_EXTRA);
-        }
-        if config.choices_profile() {
-            allowed.extend(CHOICE_EXTRA);
+        // Admission-only exact fixture/pin table. It never selects runtime rules.
+        let (version, allowed) = [
+            (
+                vec![
+                    ScenarioConfig::land_return(),
+                    ScenarioConfig::commander_foundation(),
+                    ScenarioConfig::stack_response(),
+                    ScenarioConfig::casting_reversal(),
+                    ScenarioConfig::turns_permanents(),
+                    ScenarioConfig::combat_game(),
+                    ScenarioConfig::combat_interactions(),
+                ],
+                3,
+                [ALLOWED.as_slice()].concat(),
+            ),
+            (
+                vec![
+                    ScenarioConfig::command_casting(),
+                    ScenarioConfig::commander_lifecycle(),
+                    ScenarioConfig::commander_exile(),
+                ],
+                3,
+                [ALLOWED.as_slice(), &[(PLAINS, PLAINS_DIGEST)]].concat(),
+            ),
+            (
+                vec![
+                    ScenarioConfig::commander_damage(),
+                    ScenarioConfig::commander_damage_borrowed(),
+                ],
+                3,
+                [
+                    ALLOWED.as_slice(),
+                    &[(PLAINS, PLAINS_DIGEST)],
+                    &[(YARGLE, YARGLE_DIGEST)],
+                ]
+                .concat(),
+            ),
+            (
+                vec![ScenarioConfig::commander_library()],
+                4,
+                [
+                    ALLOWED.as_slice(),
+                    &[(PLAINS, PLAINS_DIGEST)],
+                    &[(TIME_EBB, TIME_EBB_DIGEST)],
+                ]
+                .concat(),
+            ),
+            (
+                vec![
+                    ScenarioConfig::actions(),
+                    ScenarioConfig::actions_borrowed(),
+                    ScenarioConfig::actions_empty_library(),
+                    ScenarioConfig::mixed_mana(),
+                ],
+                5,
+                [
+                    ALLOWED.as_slice(),
+                    &[(PLAINS, PLAINS_DIGEST)],
+                    &[(YARGLE, YARGLE_DIGEST)],
+                    &[(TIME_EBB, TIME_EBB_DIGEST)],
+                    ACTION_EXTRA.as_slice(),
+                ]
+                .concat(),
+            ),
+            (
+                vec![
+                    ScenarioConfig::choices(),
+                    ScenarioConfig::choices_furnace(),
+                    ScenarioConfig::conditions(),
+                    ScenarioConfig::conditions_nonempty(),
+                    ScenarioConfig::conditions_borrowed(),
+                    ScenarioConfig::conditions_no_targets(),
+                ],
+                10,
+                [
+                    ALLOWED.as_slice(),
+                    &[(PLAINS, PLAINS_DIGEST)],
+                    &[(YARGLE, YARGLE_DIGEST)],
+                    &[(TIME_EBB, TIME_EBB_DIGEST)],
+                    ACTION_EXTRA.as_slice(),
+                    STACK_EXTRA.as_slice(),
+                    DAMAGE_LIFE_EXTRA.as_slice(),
+                    TRIGGER_EXTRA.as_slice(),
+                    EFFECT_EXTRA.as_slice(),
+                    CHOICE_EXTRA.as_slice(),
+                ]
+                .concat(),
+            ),
+            (
+                vec![
+                    ScenarioConfig::effects(),
+                    ScenarioConfig::effects_furnace(),
+                    ScenarioConfig::effects_two_furnaces(),
+                    ScenarioConfig::effects_borrowed(),
+                    ScenarioConfig::effects_low(),
+                ],
+                9,
+                [
+                    ALLOWED.as_slice(),
+                    &[(PLAINS, PLAINS_DIGEST)],
+                    &[(YARGLE, YARGLE_DIGEST)],
+                    &[(TIME_EBB, TIME_EBB_DIGEST)],
+                    ACTION_EXTRA.as_slice(),
+                    STACK_EXTRA.as_slice(),
+                    DAMAGE_LIFE_EXTRA.as_slice(),
+                    TRIGGER_EXTRA.as_slice(),
+                    EFFECT_EXTRA.as_slice(),
+                ]
+                .concat(),
+            ),
+            (
+                vec![
+                    ScenarioConfig::triggers(),
+                    ScenarioConfig::triggers_low(),
+                    ScenarioConfig::triggers_borrowed(),
+                    ScenarioConfig::triggers_empty_library(),
+                    ScenarioConfig::triggers_nonactive(),
+                ],
+                8,
+                [
+                    ALLOWED.as_slice(),
+                    &[(PLAINS, PLAINS_DIGEST)],
+                    &[(YARGLE, YARGLE_DIGEST)],
+                    &[(TIME_EBB, TIME_EBB_DIGEST)],
+                    ACTION_EXTRA.as_slice(),
+                    STACK_EXTRA.as_slice(),
+                    DAMAGE_LIFE_EXTRA.as_slice(),
+                    TRIGGER_EXTRA.as_slice(),
+                ]
+                .concat(),
+            ),
+            (
+                vec![
+                    ScenarioConfig::damage_life(),
+                    ScenarioConfig::damage_life_low(),
+                    ScenarioConfig::damage_life_borrowed(),
+                    ScenarioConfig::damage_life_empty_library(),
+                    ScenarioConfig::damage_life_library(),
+                ],
+                7,
+                [
+                    ALLOWED.as_slice(),
+                    &[(PLAINS, PLAINS_DIGEST)],
+                    &[(YARGLE, YARGLE_DIGEST)],
+                    &[(TIME_EBB, TIME_EBB_DIGEST)],
+                    ACTION_EXTRA.as_slice(),
+                    STACK_EXTRA.as_slice(),
+                    DAMAGE_LIFE_EXTRA.as_slice(),
+                ]
+                .concat(),
+            ),
+            (
+                vec![
+                    ScenarioConfig::stack_costs(),
+                    ScenarioConfig::stack_costs_borrowed(),
+                    ScenarioConfig::stack_costs_empty_library(),
+                    ScenarioConfig::stack_costs_library(),
+                ],
+                6,
+                [
+                    ALLOWED.as_slice(),
+                    &[(PLAINS, PLAINS_DIGEST)],
+                    &[(YARGLE, YARGLE_DIGEST)],
+                    &[(TIME_EBB, TIME_EBB_DIGEST)],
+                    ACTION_EXTRA.as_slice(),
+                    STACK_EXTRA.as_slice(),
+                ]
+                .concat(),
+            ),
+        ]
+        .into_iter()
+        .find_map(|(candidate, version, allowed)| {
+            candidate
+                .iter()
+                .any(|candidate| candidate == &config)
+                .then_some((version, allowed))
+        })
+        .ok_or("configuration is outside the reviewed four-seat scenario; no match admission")?;
+        if catalog.schema_version != version {
+            return Err("catalog version is not admitted by this exact configuration".into());
         }
         if catalog.definitions.len() != allowed.len() {
             return Err("definition pool is not the closed reviewed scenario pool".into());
@@ -1984,7 +2090,7 @@ impl Game {
     pub fn mana_abilities(&self, object: ObjectId) -> Result<Vec<Color>, String> {
         let o = self.current(object)?;
         let d = self.definition(object.card)?;
-        if self.mana_enabled() && o.zone == Zone::Battlefield && !d.mana_abilities.is_empty() {
+        if o.zone == Zone::Battlefield && !d.mana_abilities.is_empty() {
             return Ok(self.mana_colors(o.controller, &d.mana_abilities[0].production));
         }
         if o.zone != Zone::Battlefield || d.intrinsic_zone != Some(FunctioningZone::Battlefield) {
@@ -2269,12 +2375,10 @@ impl Game {
             (Frame::Priority, Response::Cast { card }) if self.state.priority == player => {
                 let o = self.state.objects.get(card).ok_or("invalid cast")?;
                 if !(o.zone == (Zone::Hand { owner: player })
-                    || (self.commander_enabled()
-                        && o.zone == (Zone::Command { owner: player })
+                    || (o.zone == (Zone::Command { owner: player })
                         && self.state.commanders.history(*card).is_some()))
                     || self.state.cards[card].owner != player
                     || self.definition(*card)?.spell.is_none()
-                    || self.state.stack.len() >= self.stack_limit()
                 {
                     return Err("invalid or unsupported cast".into());
                 }
@@ -2283,16 +2387,16 @@ impl Game {
                     .spell
                     .as_ref()
                     .ok_or("missing cast program")?;
-                if program.timing == SpellTiming::MainPhase
-                    && (!self.turns_enabled() || !self.main_phase_action(player))
-                {
+                if program.timing == SpellTiming::MainPhase && (!self.main_phase_action(player)) {
                     return Err("main-phase spell casting requires active-player main-phase priority and empty stack".into());
                 }
                 // Restrict targeted proposals to spells with an eligible target;
                 // the target-stage request never waits for an impossible choice.
-                if program.additional_sacrifice.as_ref().is_some_and(|f| {
-                    !self.sacrifice_enabled() || self.sacrifice_candidates(player, f).is_empty()
-                }) {
+                if program
+                    .additional_sacrifice
+                    .as_ref()
+                    .is_some_and(|f| self.sacrifice_candidates(player, f).is_empty())
+                {
                     return Err("no payable sacrifice cost".into());
                 }
                 if !self.has_target_domain(program, player) {
@@ -2477,6 +2581,7 @@ impl Game {
                         }
                     }
                     Response::Cast { card } => {
+                        self.check_stack_capacity(1)?;
                         let cast_from = self
                             .state
                             .objects
@@ -2508,22 +2613,15 @@ impl Game {
                                 },
                             )?
                             .successor;
-                        let effect_source_handles = if self.prepared.config.effects_profile() {
-                            self.capture_trigger_source_handles(source)?
-                        } else {
-                            vec![]
-                        };
+                        let effect_source_handles =
+                            { self.capture_trigger_source_handles(source)? };
                         self.state.stack.push(StackInstance {
                             x: None,
                             death_controller: None,
                             sacrificed: None,
                             mode: None,
                             effect_source_handles,
-                            source_facts: if self.prepared.config.damage_life_profile() {
-                                Some(self.object_before(source)?)
-                            } else {
-                                None
-                            },
+                            source_facts: { Some(self.object_before(source)?) },
                             entity_targets: vec![],
                             announced_entity_targets: vec![],
                             stack_targets: vec![],
@@ -2690,9 +2788,7 @@ impl Game {
                                 } else {
                                     Zone::Hand { owner }
                                 };
-                                if self.commander_enabled()
-                                    && self.state.commanders.history(target.card).is_some()
-                                {
+                                if self.state.commanders.history(target.card).is_some() {
                                     self.state.frame = Frame::CommanderReturn {
                                         object: target,
                                         destination,
@@ -2840,41 +2936,12 @@ impl Game {
         Ok(pool)
     }
     fn stabilize(&mut self) -> Result<(), String> {
-        if self.combat_enabled() {
-            if matches!(self.state.frame, Frame::Priority) {
-                self.schedule_stabilization(Frame::Priority, false);
-            }
-            return Ok(());
-        }
-        self.validate_legacy_stability()
-    }
-    fn validate_legacy_stability(&self) -> Result<(), String> {
-        // CR 704.3: this entry point runs before granting priority. The closed
-        // scenario has no life changes, marked damage, counters, or triggers.
-        // Unsupported reachable conditions fault instead of being skipped.
-        if self
-            .state
-            .players
-            .iter()
-            .any(|p| p.life != Quantity::from(40))
-        {
-            return Err("unsupported reachable life/SBA state".into());
-        }
-        for o in self
-            .state
-            .objects
-            .values()
-            .filter(|o| o.zone == Zone::Battlefield)
-        {
-            let c = self.characteristics(o.id)?;
-            if c.kind == CardKind::Creature
-                && c.toughness.as_ref().is_none_or(|n| n <= &Quantity::zero())
-            {
-                return Err("unsupported reachable creature SBA state".into());
-            }
+        if matches!(self.state.frame, Frame::Priority) {
+            self.schedule_stabilization(Frame::Priority, false);
         }
         Ok(())
     }
+
     pub fn snapshot(&self) -> Result<String, String> {
         self.snapshot_with_digest().map(|(json, _)| json)
     }
@@ -2964,14 +3031,6 @@ impl Game {
             || s.turn_owner.0 >= 4
             || s.turn.number == 0
             || s.turn.lands_played > 1
-            || (!self.turns_enabled()
-                && (s.turn_owner != PlayerId(0)
-                    || s.turn
-                        != TurnState {
-                            number: 1,
-                            step: TurnStep::PostcombatMain,
-                            lands_played: 0,
-                        }))
             || s.active.is_some_and(|p| !self.is_live(p))
             || s.original_seating != (0..4).map(PlayerId).collect::<Vec<_>>()
             || s.priority.0 >= 4
@@ -3004,8 +3063,7 @@ impl Game {
                 || o.default_controller.0 >= 4
                 || !self.is_live(o.controller)
                 || (o.tapped && o.zone != Zone::Battlefield)
-                || (o.deathtouch_damage
-                    && (o.zone != Zone::Battlefield || self.prepared.catalog.schema_version < 12))
+                || (o.deathtouch_damage && (o.zone != Zone::Battlefield))
             {
                 return Err("snapshot object invariant".into());
             }
@@ -3017,8 +3075,7 @@ impl Game {
         }
         for o in s.objects.values() {
             if let Some(target) = o.attached_to
-                && (!self.attachments_enabled()
-                    || o.zone != Zone::Battlefield
+                && (o.zone != Zone::Battlefield
                     || o.id == target
                     || !self
                         .definition(o.id.card)?
@@ -3201,14 +3258,36 @@ impl Game {
                 self.validate_response(pending.player, &pending.response)?;
             }
         }
-        if self.combat_enabled() {
-            self.validate_combat_state()
-        } else {
-            self.validate_legacy_stability()
-        }
+        self.validate_combat_state()
     }
     pub fn replay(prepared: Prepared, journal: &ReplayJournal) -> Result<Self, String> {
         Self::replay_to(prepared, journal, None, TraceMode::Detailed)
+    }
+}
+
+#[cfg(test)]
+impl Game {
+    /// Historical scenario drivers now answer the common explicit spending request.
+    fn complete_test_mana(&mut self) {
+        if let Advance::AwaitingDecision(Request::SpendMana {
+            player,
+            decision_id,
+            cost,
+            available,
+        }) = self.advance(Budget::unlimited())
+        {
+            let remaining = self.payment_pool(player, &cost).unwrap();
+            let spending = available
+                .into_iter()
+                .filter_map(|(color, mut amount)| {
+                    amount.subtract(&remaining.get(&color).cloned().unwrap_or_default());
+                    (amount > Quantity::zero()).then_some((color, amount))
+                })
+                .collect();
+            self.respond(player, decision_id, Response::SpendMana { spending })
+                .unwrap();
+            self.advance(Budget::unlimited());
+        }
     }
 }
 
@@ -3223,10 +3302,14 @@ mod tests {
         .unwrap()
     }
     fn respond(game: &mut Game, response: Response) {
+        let finish = matches!(response, Response::FinishMana { .. });
         let Advance::AwaitingDecision(r) = game.advance(Budget::unlimited()) else {
             panic!("expected decision")
         };
         game.respond(r.player(), r.decision_id(), response).unwrap();
+        if finish {
+            game.complete_test_mana();
+        }
     }
     fn cast(game: &mut Game) {
         respond(

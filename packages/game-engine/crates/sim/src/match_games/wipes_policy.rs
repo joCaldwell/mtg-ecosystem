@@ -3,15 +3,6 @@ use super::*;
 use mtg_contracts::{Definition, KeywordAbility, StaticEffect};
 use mtg_core::{PermittedView, VisibleObject};
 impl Strategy<'_> {
-    pub(super) fn lineage(&self, minimum: &str) -> bool {
-        mtg_core::MATCH_PROFILES
-            .iter()
-            .find(|p| p.ir_version == self.catalog.schema_version)
-            .is_some_and(|p| mtg_core::profile_at_least(p.name, minimum))
-    }
-    pub(super) fn wipes(&self) -> bool {
-        self.lineage(mtg_core::WIPES_PROFILE)
-    }
     fn wipe_creatures<'a>(&self, v: &'a PermittedView) -> Vec<&'a VisibleObject> {
         v.objects
             .iter()
@@ -500,7 +491,7 @@ mod tests {
             mana_plan: Default::default(),
             mana_color: None,
         };
-        assert!(s.sacrifice() && s.attachments() && s.four_colors());
+        assert!(!c.definitions.is_empty());
         assert_eq!(
             s.opposing_stack(&v, false, None),
             Some(mtg_core::StackHandle("Earthquake".into()))

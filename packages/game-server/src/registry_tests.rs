@@ -278,6 +278,7 @@ fn strict_read_and_all_pinned_identity_fields_reject_tampering() {
     for field in [
         "match_id",
         "engine_build_id",
+        "server_build_id",
         "catalog_sha256",
         "config_sha256",
         "rules_sha256",

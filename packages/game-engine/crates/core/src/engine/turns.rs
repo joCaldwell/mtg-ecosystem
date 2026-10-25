@@ -71,9 +71,7 @@ impl Game {
     pub fn turn(&self) -> &TurnState {
         &self.state.turn
     }
-    pub(super) fn turns_enabled(&self) -> bool {
-        self.prepared.config.profile == "four-seat-turns-permanents-v1" || self.combat_enabled()
-    }
+
     pub(super) fn main_phase_action(&self, player: PlayerId) -> bool {
         self.is_live(player)
             && self.state.active == Some(player)
@@ -89,10 +87,7 @@ impl Game {
     // the active player's main phase with priority and an empty stack.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub(super) fn validate_land_play(&self, player: PlayerId, card: CardId) -> Result<(), String> {
-        if !self.turns_enabled()
-            || !self.main_phase_action(player)
-            || self.state.turn.lands_played != 0
-        {
+        if !self.main_phase_action(player) || self.state.turn.lands_played != 0 {
             return Err(
                 "land play requires unused active-player main-phase land play and empty stack"
                     .into(),
@@ -146,7 +141,7 @@ impl Game {
     // turn actions, until cleanup advances to the next living seat.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub(super) fn transition_turn_step(&mut self) -> Result<(), String> {
-        if !self.turns_enabled() || !self.state.stack.is_empty() || self.state.pending.is_some() {
+        if !self.state.stack.is_empty() || self.state.pending.is_some() {
             return Err("unsupported phase transition boundary".into());
         }
         let (next, owner) = self.next_turn_state()?;
@@ -172,11 +167,10 @@ impl Game {
     pub(super) fn next_turn_state(&self) -> Result<(TurnState, PlayerId), String> {
         let mut next = self.state.turn.clone();
         next.step = if self.state.turn.step == TurnStep::DeclareAttackers
-            && (!self.combat_enabled() || !self.state.combat_declared)
+            && (!self.state.combat_declared)
         {
             TurnStep::EndCombat
         } else if self.state.turn.step == TurnStep::DeclareBlockers
-            && self.profile_at_least(COMBAT_KEYWORDS_PROFILE)
             && !self.first_strikers().is_empty()
         {
             TurnStep::FirstStrikeDamage
@@ -197,7 +191,7 @@ impl Game {
         Ok((next, owner))
     }
     pub(super) fn enter_turn_step(&mut self) -> Result<(), String> {
-        if !self.turns_enabled() || !self.state.stack.is_empty() || self.state.pending.is_some() {
+        if !self.state.stack.is_empty() || self.state.pending.is_some() {
             return Err("unsupported turn entry boundary".into());
         }
         match self.state.turn.step {
@@ -223,7 +217,7 @@ impl Game {
                 self.state.frame = Frame::Transition;
                 return Ok(());
             }
-            TurnStep::Draw if self.combat_enabled() => {
+            TurnStep::Draw => {
                 if let Some(player) = self.state.active {
                     if let Some(card) = self
                         .state
@@ -248,7 +242,7 @@ impl Game {
                     }
                 }
             }
-            TurnStep::BeginningCombat if self.combat_enabled() => {
+            TurnStep::BeginningCombat => {
                 self.state.combat.clear();
                 self.state.combat_declared = false;
                 self.state.first_strike_participants.clear();
@@ -256,13 +250,13 @@ impl Game {
                 self.state.damage_choices.clear();
                 self.state.player_damage_choices.clear();
             }
-            TurnStep::DeclareAttackers if self.combat_enabled() => {
+            TurnStep::DeclareAttackers => {
                 if self.state.active.is_some() {
                     self.state.frame = Frame::Attackers;
                     return Ok(());
                 }
             }
-            TurnStep::DeclareBlockers if self.combat_enabled() => {
+            TurnStep::DeclareBlockers => {
                 let remaining = (1..4)
                     .map(|n| PlayerId((self.state.turn_owner.0 + n) % 4))
                     .filter(|p| {
@@ -274,23 +268,23 @@ impl Game {
                     return Ok(());
                 }
             }
-            TurnStep::FirstStrikeDamage if self.profile_at_least(COMBAT_KEYWORDS_PROFILE) => {
+            TurnStep::FirstStrikeDamage => {
                 self.state.frame = Frame::Damage;
                 return Ok(());
             }
-            TurnStep::CombatDamage if self.combat_enabled() => {
+            TurnStep::CombatDamage => {
                 self.state.frame = Frame::Damage;
                 return Ok(());
             }
-            TurnStep::EndCombat if self.combat_enabled() => {}
-            TurnStep::PostcombatMain if self.combat_enabled() => {
+            TurnStep::EndCombat => {}
+            TurnStep::PostcombatMain => {
                 self.state.combat.clear();
                 self.state.first_strike_participants.clear();
                 self.state.orphan_first_strike_blockers.clear();
                 self.state.damage_choices.clear();
                 self.state.player_damage_choices.clear();
             }
-            TurnStep::Cleanup if self.combat_enabled() => {
+            TurnStep::Cleanup => {
                 self.state.frame = if let Some(player) = self.state.active {
                     let count = self
                         .state
@@ -309,75 +303,10 @@ impl Game {
                 };
                 return Ok(());
             }
-            TurnStep::Draw => {
-                // CR 504.1: mandatory turn-based draw before priority. Only the
-                // reviewed single-card library domain has an ordering here.
-                if let Some(player) = self.state.active {
-                    let library = self
-                        .state
-                        .objects
-                        .values()
-                        .filter(|object| object.zone == (Zone::Library { owner: player }))
-                        .map(|object| object.id)
-                        .collect::<Vec<_>>();
-                    if library.len() != 1 {
-                        return Err(
-                            "unsupported draw: library must contain exactly one card".into()
-                        );
-                    }
-                    self.move_object_for(
-                        library[0],
-                        Zone::Hand { owner: player },
-                        BatchCause::DrawStep { player },
-                    )?;
-                }
-            }
-            TurnStep::DeclareAttackers => {
-                // CR 508.1/508.8: this slice supports only forced empty
-                // declaration, skipping blockers/damage. Combat with any
-                // controlled creature rejects, even if eligibility is unknown.
-                if self.state.objects.values().any(|object| {
-                    object.zone == Zone::Battlefield
-                        && Some(object.controller) == self.state.active
-                        && self
-                            .definition(object.id.card)
-                            .is_ok_and(|d| d.characteristics.kind == CardKind::Creature)
-                }) {
-                    return Err("unsupported combat declaration with controlled creatures".into());
-                }
-            }
-            TurnStep::Cleanup => {
-                // CR 514.1/514.3: no cleanup priority in this restricted domain;
-                // discard and any damage/effect cleanup remain unsupported.
-                if let Some(player) = self.state.active {
-                    let cards = self
-                        .state
-                        .objects
-                        .values()
-                        .filter(|object| object.zone == (Zone::Hand { owner: player }))
-                        .count();
-                    if cards > 7 {
-                        return Err("unsupported cleanup discard requirement".into());
-                    }
-                }
-                self.stabilize()?;
-                self.state.frame = Frame::Transition;
-                return Ok(());
-            }
+
             _ => {}
         }
-        if self.combat_enabled() {
-            self.grant_turn_priority()
-        } else {
-            self.stabilize()?;
-            self.state.priority = self
-                .state
-                .active
-                .or_else(|| self.next_live(self.state.turn_owner))
-                .ok_or("no living priority recipient")?;
-            self.state.frame = Frame::Priority;
-            Ok(())
-        }
+        self.grant_turn_priority()
     }
 }
 

@@ -22,7 +22,9 @@ pub struct CaptureWork {
 }
 impl Game {
     fn classify_search_root(&self, viewer: PlayerId) -> Result<(), SearchRejection> {
-        if !self.prepared.config.match_profile() || self.prepared.match_config.is_none() {
+        if !(self.prepared.config.mode == Mode::CommanderMatch)
+            || self.prepared.match_config.is_none()
+        {
             return Err(unsupported("requires commander-foundations-v1"));
         }
         if viewer.0 >= 4

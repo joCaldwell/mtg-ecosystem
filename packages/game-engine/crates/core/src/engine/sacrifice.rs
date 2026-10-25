@@ -3,17 +3,12 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 // Proof and pool guards: docs/game-engine-sacrifice.md, Reviewed resource bounds.
+#[cfg(test)]
 pub(super) const LIVE_TOKEN_CAPACITY: usize = 8192;
-pub(super) const DAMAGE_BOUND: usize = 2 * (400 + LIVE_TOKEN_CAPACITY);
-pub(super) const EVENT_GROUP_BOUND: usize = 400 + LIVE_TOKEN_CAPACITY + 4;
-pub(super) const DEATH_BOUND: usize = 2 * (400 + LIVE_TOKEN_CAPACITY + 1600 + 4);
-pub(super) const STACK_BOUND: usize =
-    400 + 208 + 24 + 12 * DEATH_BOUND + 400 + 4 + 4 * (400 + 1600 + 4 + DEATH_BOUND / 2);
+
+#[cfg(test)]
 pub(super) const EFFECT_BOUND: usize = 8192;
 impl Game {
-    pub(super) fn sacrifice_enabled(&self) -> bool {
-        self.profile_at_least(SACRIFICE_PROFILE)
-    }
     pub(super) fn sacrifice_candidates(
         &self,
         player: PlayerId,
@@ -39,9 +34,6 @@ impl Game {
         &self,
         entry: &StackInstance,
     ) -> Option<SacrificeFilter> {
-        if !self.sacrifice_enabled() {
-            return None;
-        }
         match entry.kind {
             StackKind::Spell => self.program_for(entry).ok()?.additional_sacrifice.clone(),
             StackKind::Activated { ability, .. } => match &self
@@ -288,9 +280,6 @@ impl Game {
         frame: Resolving,
         instruction: Instruction,
     ) -> Result<(), String> {
-        if !self.sacrifice_enabled() {
-            return Err("unsupported sacrifice profile".into());
-        }
         match instruction {
             Instruction::EachOpponentSacrifice { source_block } => {
                 let remaining = (0..4)
@@ -387,9 +376,6 @@ impl Game {
         block: u32,
         gain: bool,
     ) -> Result<(), String> {
-        if !self.sacrifice_enabled() {
-            return Err("unsupported each-opponent life".into());
-        }
         let children = self
             .opponents(frame.spell.controller)
             .into_iter()
@@ -422,8 +408,7 @@ impl Game {
     pub(super) fn validate_sacrifice_state(&self) -> Result<(), String> {
         for e in &self.state.stack {
             if let Some(f) = &e.sacrificed {
-                if !self.sacrifice_enabled()
-                    || f.zone != Zone::Battlefield
+                if f.zone != Zone::Battlefield
                     || f.controller != e.controller
                     || self
                         .state
@@ -446,8 +431,7 @@ impl Game {
         }
         match &self.state.frame {
             Frame::SacrificeCost { cast } => {
-                if !self.sacrifice_enabled()
-                    || self.invocation_sacrifice_filter(self.top()?).is_none()
+                if self.invocation_sacrifice_filter(self.top()?).is_none()
                     || cast.spending.is_none()
                     || cast.sacrifice.is_some()
                 {
@@ -466,14 +450,12 @@ impl Game {
                     .get(frame.cursor as usize);
                 let includes_caster =
                     matches!(instruction, Some(Instruction::EachPlayerSacrifice { .. }));
-                let valid = matches!(instruction,Some(Instruction::EachOpponentSacrifice {source_block:b} | Instruction::EachPlayerSacrifice {source_block:b}) if b==source_block)
-                    && (!includes_caster || self.wipes_enabled());
+                let valid = matches!(instruction,Some(Instruction::EachOpponentSacrifice {source_block:b} | Instruction::EachPlayerSacrifice {source_block:b}) if b==source_block);
                 let all = (0..4)
                     .map(|n| PlayerId((self.state.turn_owner.0 + n) % 4))
                     .filter(|p| includes_caster || *p != frame.spell.controller)
                     .collect::<Vec<_>>();
-                if !self.sacrifice_enabled()
-                    || !valid
+                if !valid
                     || remaining.len() > all.len()
                     || choices.len() > all.len()
                     || remaining.windows(2).any(|w| {
@@ -495,13 +477,12 @@ impl Game {
                 }
             }
             Frame::OptionalDamage { frame }
-                if !self.sacrifice_enabled()
-                    || !matches!(
-                        self.program_for(&frame.spell)?
-                            .instructions
-                            .get(frame.cursor as usize),
-                        Some(Instruction::SacrificeDamage { optional: true, .. })
-                    ) =>
+                if !matches!(
+                    self.program_for(&frame.spell)?
+                        .instructions
+                        .get(frame.cursor as usize),
+                    Some(Instruction::SacrificeDamage { optional: true, .. })
+                ) =>
             {
                 return Err("snapshot optional damage invariant".into());
             }

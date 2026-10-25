@@ -25,10 +25,14 @@ fn reach_attackers(game: &mut Game) {
     panic!("no attackers")
 }
 fn answer(game: &mut Game, response: Response) {
+    let finish = matches!(response, Response::FinishMana { .. });
     let Advance::AwaitingDecision(r) = game.advance(Budget::unlimited()) else {
         panic!("decision")
     };
     game.respond(r.player(), r.decision_id(), response).unwrap();
+    if finish {
+        game.complete_test_mana();
+    }
 }
 #[test]
 fn simultaneous_all_player_loss_is_draw_without_intermediate_winner() {
@@ -267,7 +271,7 @@ fn cleanup_sba_exception_grants_priority_then_repeats_cleanup_and_clears_damage(
             .filter(|e| matches!(
                 e,
                 Event::Committed {
-                    actual: EventOutcome::DamageCleared { .. },
+                    actual: EventOutcome::EffectsCleaned { .. },
                     ..
                 }
             ))

@@ -1,5 +1,9 @@
 # Command-zone casting and Commander return choices
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 Contract frozen October 15, 2026 after independent rules, source and runtime
 review. This is a bounded continuation of the combat and complete-scenario
 kernel. It does not admit arbitrary configurations, legal Commander matches,

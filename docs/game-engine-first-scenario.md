@@ -1,5 +1,9 @@
 # First compiler and engine implementation brief
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 The follow-up [Commander/departure contract](game-engine-departure-slice.md)
 adds Isamaru to the exact reviewed catalog and advances IR to version 2 and
 snapshots to version 3. The subsequent [event slice](game-engine-event-slice.md)

@@ -1,7 +1,7 @@
 use super::*;
 
 fn prepared(config: ScenarioConfig) -> Prepared {
-    let source = if config.library_profile() {
+    let source = if config == ScenarioConfig::commander_library() {
         include_str!("../../../../tests/fixtures/expected-library-ir.json")
     } else {
         include_str!("../../../../tests/fixtures/expected-damage-ir.json")
@@ -15,8 +15,12 @@ fn settle(g: &mut Game) -> Request {
     request
 }
 fn answer(g: &mut Game, response: Response) {
+    let finish = matches!(response, Response::FinishMana { .. });
     let r = settle(g);
     g.respond(r.player(), r.decision_id(), response).unwrap();
+    if finish {
+        g.complete_test_mana();
+    }
 }
 fn recover(g: &Game) {
     let restored = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();

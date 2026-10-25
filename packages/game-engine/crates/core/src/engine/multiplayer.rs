@@ -228,7 +228,7 @@ impl Game {
     }
     pub(super) fn begin_resolution(&mut self) -> Result<(), String> {
         self.state.passes.clear();
-        if self.state.stack.is_empty() && self.turns_enabled() {
+        if self.state.stack.is_empty() {
             self.state.frame = Frame::Transition;
             return Ok(());
         }
@@ -555,7 +555,7 @@ impl Game {
         }
         self.revalidate_commander_departure()?;
         self.revalidate_actions_departure()?;
-        if self.combat_enabled() && !self.state.simultaneous_losses {
+        if !self.state.simultaneous_losses {
             self.revalidate_combat_departure()?;
         }
         self.stabilize()

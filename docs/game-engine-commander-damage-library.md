@@ -1,5 +1,9 @@
 # Commander combat damage and library return replacement
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 Contract frozen October 15, 2026 after independent rules, source and profile
 review. This extends the exact Commander casting
 profiles with separately admitted damage and sorcery/library scenarios. It does

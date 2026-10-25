@@ -1,5 +1,13 @@
 # Compiler and engine development
 
+D1b-2 removes runtime lineage gates. The historical profile descriptions below
+record earlier release boundaries; they no longer enable rules or select limits.
+All admitted catalogs execute the common rules implementation. See
+`docs/game-engine-capacity-policy.md` for current limits and typed atomic faults.
+Exact catalog/deck/commander admission, hosting and search guards remain until
+D1b-3. Historical fixture/evidence bytes remain preserved.
+
+
 Rust owns contracts, offline compilation, deterministic core, and the scenario
 CLI. Read `docs/game-engine-first-scenario.md` for frozen inputs and restrictions.
 The current follow-up contracts are `docs/game-engine-p2-slice.md` and

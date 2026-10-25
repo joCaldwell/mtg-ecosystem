@@ -1,5 +1,6 @@
 //! Independent closed-pool admission and retained-input checks. These fixtures
 //! are reviewed archive-derived IR, never a dependency on the compiler in core.
+mod support;
 use mtg_contracts::{Catalog, Color, Quantity};
 use mtg_core::*;
 
@@ -197,11 +198,15 @@ fn commander_snapshot_versions_and_physical_designations_are_validated() {
 }
 
 fn answer(game: &mut Game, response: Response) {
+    let finish = matches!(response, Response::FinishMana { .. });
     let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
         panic!("expected a decision");
     };
     game.respond(request.player(), request.decision_id(), response)
         .unwrap();
+    if finish {
+        support::complete_mana(game);
+    }
 }
 
 #[test]

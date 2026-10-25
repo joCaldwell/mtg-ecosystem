@@ -1,5 +1,9 @@
 # Four-player instant responses
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 Scope frozen October 13, 2026. Add one exact nine-card scenario configuration,
 using the existing five-definition catalog; no source/AST/IR vocabulary changes.
 P0's Island (card 0), Unsummon (1), and the borrowed Bears (2: owner P1,

@@ -1,5 +1,9 @@
 # Atomic events and nonsemantic tracing
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 The follow-up [instant-response slice](game-engine-stack-slice.md) adds a third
 exact profile, snapshot/bundle v5, and player projection v3. Earlier hashes below
 remain historical evidence.

@@ -75,11 +75,7 @@ impl Game {
     pub(super) fn object_before(&self, object: ObjectId) -> Result<ObjectBefore, String> {
         let o = self.current(object)?;
         Ok(ObjectBefore {
-            keywords: if self.prepared.catalog.schema_version >= 12 {
-                self.current_keywords(object)
-            } else {
-                vec![]
-            },
+            keywords: { self.current_keywords(object) },
             deathtouch_damage: o.deathtouch_damage,
             object,
             owner: self
@@ -101,9 +97,6 @@ impl Game {
     // leaves, including paid tap state; a successor cannot become this source.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub(super) fn retain_source_lki(&mut self, object: ObjectId) -> Result<(), String> {
-        if !self.prepared.config.damage_life_profile() {
-            return Ok(());
-        }
         let fact = self.object_before(object)?;
         self.retain_source_facts(&fact);
         Ok(())
@@ -186,8 +179,7 @@ impl Game {
     ) -> Result<(), String> {
         let top = self.top()?;
         let program = self.program_for(top)?;
-        if !self.prepared.config.damage_life_profile()
-            || player != top.controller
+        if player != top.controller
             || entities.len() != program.targets.len()
             || entities.iter().enumerate().any(|(slot, target)| {
                 program.targets[slot].domain != TargetDomain::AnyDamageTarget
@@ -240,7 +232,7 @@ impl Game {
         let StackKind::Activated { ability, .. } = entry.kind else {
             return Err("targeted activation kind".into());
         };
-        if self.sacrifice_enabled() {
+        {
             match &self.definition(entry.source.card)?.activated[ability as usize].cost {
                 ActivationCost::SacrificePermanent { mana: None, .. } => {
                     let mut cast = cast;
@@ -303,12 +295,10 @@ impl Game {
         self.stabilize()
     }
     pub(super) fn validate_damage_bindings(&self, entry: &StackInstance) -> Result<(), String> {
-        if self.prepared.config.effects_profile()
-            && let Some(fact) = &entry.source_facts
-        {
+        if let Some(fact) = &entry.source_facts {
             self.validate_characteristic_identity(entry.source, &fact.characteristics)?;
         }
-        if self.prepared.config.effects_profile() && entry.kind.is_spell() {
+        if entry.kind.is_spell() {
             if entry.effect_source_handles.len() != 4 {
                 return Err("missing public spell source references".into());
             }
@@ -320,7 +310,7 @@ impl Game {
             .targets
             .first()
             .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget);
-        if self.prepared.config.damage_life_profile() {
+        {
             let fact = entry
                 .source_facts
                 .as_ref()
@@ -334,17 +324,12 @@ impl Game {
                 || fact.owner != card.owner
                 || fact.controller.0 >= 4
                 || fact.default_controller.0 >= 4
-                || (!self.prepared.config.effects_profile()
-                    && fact.characteristics != self.definition(entry.source.card)?.characteristics)
             {
                 return Err("snapshot damage source facts invariant".into());
             }
-        } else if entry.source_facts.is_some() {
-            return Err("snapshot unexpected source facts".into());
         }
         if !entry.entity_targets.is_empty() {
-            if !self.prepared.config.damage_life_profile()
-                || !damage
+            if !damage
                 || !entry.targets.is_empty()
                 || !entry.player_targets.is_empty()
                 || !entry.stack_targets.is_empty()
@@ -384,9 +369,6 @@ impl Game {
         frame: Resolving,
         instruction: Instruction,
     ) -> Result<(), String> {
-        if !self.prepared.config.damage_life_profile() {
-            return Err("unsupported damage/life profile".into());
-        }
         let gain = matches!(instruction, Instruction::GainLife { .. });
         let (block, proposed, damage) = match instruction {
             Instruction::DealDamage {
@@ -473,9 +455,7 @@ impl Game {
             }
             _ => return Err("unexpected damage/life instruction".into()),
         };
-        if self.prepared.config.effects_profile()
-            && let ProposedEvent::NoncombatDamage { damage } = proposed
-        {
+        if let ProposedEvent::NoncombatDamage { damage } = proposed {
             return self.prepare_noncombat_damage(frame, *damage, block);
         }
         let actual = self.commit(
@@ -509,8 +489,7 @@ impl Game {
         &mut self,
         damage: &NoncombatDamageOccurrence,
     ) -> Result<EventOutcome, String> {
-        if !self.prepared.config.damage_life_profile()
-            || damage.amount <= Quantity::zero()
+        if damage.amount <= Quantity::zero()
             || damage.controller.0 >= 4
             || damage.source.controller.0 >= 4
         {
@@ -521,11 +500,7 @@ impl Game {
             .cards
             .get(&damage.source.object.card)
             .ok_or("unknown damage source card")?;
-        if source_card.owner != damage.source.owner
-            || (!self.prepared.config.effects_profile()
-                && self.definition(damage.source.object.card)?.characteristics
-                    != damage.source.characteristics)
-        {
+        if source_card.owner != damage.source.owner {
             return Err("invalid noncombat source identity".into());
         }
         let bound = self

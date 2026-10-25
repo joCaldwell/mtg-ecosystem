@@ -1,5 +1,9 @@
 # Combat damage keywords — `commander-combat-keywords-v1`
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 P6.2 slice, following `commander-keywords-v1` (docs/game-engine-keywords.md).
 Adds trample, first strike, double strike and menace, and releases a third
 finite legal Commander profile. Earlier profiles, catalogs, policies and their

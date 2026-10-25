@@ -27,11 +27,24 @@ fn settle(game: &mut Game) -> Advance {
 }
 
 fn input(game: &mut Game, response: Response) {
+    let finish = matches!(response, Response::FinishMana { .. });
     let Advance::AwaitingDecision(request) = settle(game) else {
         panic!("missing decision at {:?}", game.state.frame)
     };
+    let response = if matches!(response, Response::Pass) {
+        match &request {
+            Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
+            Request::Blockers { .. } => Response::Blockers { blocks: vec![] },
+            _ => response,
+        }
+    } else {
+        response
+    };
     game.respond(request.player(), request.decision_id(), response)
         .unwrap();
+    if finish {
+        game.complete_test_mana();
+    }
     recover(game);
 }
 
@@ -653,48 +666,22 @@ fn creature_combat_and_empty_library_are_explicit_recoverable_faults() {
     cast_bears(&mut game);
     resolve_bears(&mut game);
     until(&mut game, 5, TurnStep::BeginningCombat);
-    for _ in 0..3 {
+    for _ in 0..4 {
         pass(&mut game);
     }
-    input(&mut game, Response::Pass);
-    let Advance::Fault(reason) = settle(&mut game) else {
-        panic!()
-    };
-    assert!(
-        reason.contains("combat") || reason.contains("attack"),
-        "{reason}"
-    );
-    assert_eq!(game.state.turn.number, 5);
-    assert_eq!(
-        game.zone(game.object_id(CardId(2)).unwrap()),
-        Some(Zone::Battlefield)
-    );
-    assert!(
-        matches!(Game::replay(prepared(), &game.replay_journal()), Err(replayed) if replayed == reason)
-    );
-
+    assert!(matches!(
+        settle(&mut game),
+        Advance::AwaitingDecision(Request::Attackers { .. })
+    ));
+    recover(&game);
     let mut game = Game::new(prepared());
     until(&mut game, 6, TurnStep::Upkeep);
-    for _ in 0..3 {
+    for _ in 0..4 {
         pass(&mut game);
     }
-    input(&mut game, Response::Pass);
-    let Advance::Fault(reason) = settle(&mut game) else {
-        panic!()
-    };
-    assert!(
-        reason.contains("draw") || reason.contains("library"),
-        "{reason}"
-    );
-    assert!(
-        game.state
-            .players
-            .iter()
-            .all(|p| p.status == PlayerStatus::Live)
-    );
-    assert!(
-        matches!(Game::replay(prepared(), &game.replay_journal()), Err(replayed) if replayed == reason)
-    );
+    assert!(matches!(settle(&mut game), Advance::AwaitingDecision(_)));
+    assert_eq!(game.state.players[1].status, PlayerStatus::Left);
+    recover(&game);
 }
 
 #[test]
@@ -720,6 +707,30 @@ fn admission_does_not_accept_variants_or_enable_new_actions_in_old_profiles() {
 }
 
 fn scripted_response(game: &Game, request: &Request) -> Response {
+    match request {
+        Request::Attackers { .. } => return Response::Attackers { attacks: vec![] },
+        Request::Blockers { .. } => return Response::Blockers { blocks: vec![] },
+        Request::SpendMana {
+            player,
+            cost,
+            available,
+            ..
+        } => {
+            let remaining = game.payment_pool(*player, cost).unwrap();
+            return Response::SpendMana {
+                spending: available
+                    .iter()
+                    .filter_map(|(color, amount)| {
+                        let mut n = amount.clone();
+                        n.subtract(&remaining.get(color).cloned().unwrap_or_default());
+                        (n > Quantity::zero()).then_some((*color, n))
+                    })
+                    .collect(),
+            };
+        }
+        _ => (),
+    }
+
     if let Request::Mana { .. } = request {
         for card in [CardId(0), CardId(1)] {
             let object = &game.state.objects[&card];
@@ -748,7 +759,7 @@ fn scripted_response(game: &Game, request: &Request) -> Response {
 
 fn run_script(mode: TraceMode, budget: u64, recover_each: bool) -> Game {
     let mut game = Game::with_trace(prepared(), mode);
-    for _ in 0..600 {
+    for _ in 0..6000 {
         let outcome = game.advance(Budget::new(budget));
         if recover_each {
             recover(&game);
@@ -797,7 +808,7 @@ fn turn_loop_is_budget_partition_and_trace_invariant_with_recovery() {
 fn concessions_at_each_casting_and_scheduler_stage_remain_recoverable() {
     let mut game = Game::new(prepared());
     let mut samples = BTreeMap::new();
-    for _ in 0..600 {
+    for _ in 0..6000 {
         // Distinct pending/automatic stages for each step; one representative
         // seat rotation suffices here, with all four possible departing seats.
         let frame = serde_json::to_value(&game.state.frame).unwrap();
@@ -883,7 +894,7 @@ fn zero_budget_and_forks_leave_pending_land_and_turn_work_independent() {
 }
 
 #[test]
-fn unsupported_cleanup_discard_and_library_order_fault_without_partial_actions() {
+fn generic_cleanup_discard_and_ordered_library_draw_are_available() {
     for cleanup in [false, true] {
         // Private interpreter fixtures prove defensive runtime rejection; the
         // exact production admission rejects either larger configuration.
@@ -914,29 +925,33 @@ fn unsupported_cleanup_discard_and_library_order_fault_without_partial_actions()
             pass(&mut game);
         }
         input(&mut game, Response::Pass);
-        let Advance::Fault(reason) = settle(&mut game) else {
-            panic!()
-        };
-        assert!(
-            reason.contains(if cleanup { "cleanup" } else { "library" }),
-            "{reason}"
-        );
-        let zone = if cleanup {
-            Zone::Hand { owner: PlayerId(0) }
+        let outcome = settle(&mut game);
+        if cleanup {
+            assert!(matches!(
+                outcome,
+                Advance::AwaitingDecision(Request::Discard { count: 1, .. })
+            ));
+            assert_eq!(
+                game.state
+                    .objects
+                    .values()
+                    .filter(|o| o.zone == Zone::Hand { owner: PlayerId(0) })
+                    .count(),
+                8
+            );
         } else {
-            Zone::Library { owner: PlayerId(1) }
-        };
-        assert_eq!(
-            game.state
-                .objects
-                .values()
-                .filter(|o| o.zone == zone)
-                .count(),
-            if cleanup { 8 } else { 2 }
-        );
-        assert!(
-            matches!(Game::replay(p, &game.replay_journal()), Err(replayed) if replayed == reason)
-        );
+            assert!(matches!(outcome, Advance::AwaitingDecision(_)));
+            assert_eq!(
+                game.state
+                    .objects
+                    .values()
+                    .filter(|o| o.zone == Zone::Library { owner: PlayerId(1) })
+                    .count(),
+                1
+            );
+        }
+        let replay = Game::replay(p, &game.replay_journal()).unwrap();
+        assert_eq!(replay.state, game.state);
     }
 }
 

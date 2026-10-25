@@ -465,14 +465,14 @@ fn detached_paid_damage_uses_exact_last_known_facts_and_rejects_rehashed_forgery
     let damage = g
         .events()
         .iter()
-        .filter_map(|event| match event {
+        .find_map(|event| match event {
             Event::Committed {
-                actual: EventOutcome::NoncombatDamageDealt { damage, .. },
+                actual: EventOutcome::DamageCommitted { actual, .. },
                 ..
-            } => Some(damage),
+            } => Some(actual),
             _ => None,
         })
-        .collect::<Vec<_>>();
+        .unwrap();
     assert_eq!(damage.len(), 1);
     assert_eq!(damage[0].source, fact);
     assert_eq!(g.state.players[1].life, 39.into());

@@ -3,9 +3,6 @@ use super::*;
 use mtg_contracts::{ActivationCost, Definition, SacrificeFilter};
 use mtg_core::{PermittedView, VisibleObject};
 impl Strategy<'_> {
-    pub(super) fn sacrifice(&self) -> bool {
-        self.lineage(mtg_core::SACRIFICE_PROFILE)
-    }
     fn sacrifice_permanents<'a>(
         &self,
         v: &'a PermittedView,

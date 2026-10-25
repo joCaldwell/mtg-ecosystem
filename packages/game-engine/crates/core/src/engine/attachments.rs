@@ -4,11 +4,8 @@
 use super::*;
 // One equip can begin an otherwise empty-stack episode. Four Rancors can
 // each enter the graveyard once per episode; recasting requires an empty stack.
-pub(super) const STACK_BOUND: usize = four_colors::STACK_BOUND + 8 + 1 + 4;
+
 impl Game {
-    pub(super) fn attachments_enabled(&self) -> bool {
-        self.profile_at_least(ATTACHMENTS_PROFILE)
-    }
     pub(super) fn target_is_creature(&self, object: ObjectId) -> bool {
         self.current(object)
             .is_ok_and(|o| o.zone == Zone::Battlefield)
@@ -17,7 +14,7 @@ impl Game {
                 .is_ok_and(|d| d.characteristics.kind == CardKind::Creature)
     }
     pub(super) fn creature_modifications(&self, target: ObjectId) -> Vec<&StaticEffect> {
-        if !self.attachments_enabled() || !self.target_is_creature(target) {
+        if !self.target_is_creature(target) {
             return vec![];
         }
         let Ok(creature) = self.current(target) else {
@@ -97,9 +94,6 @@ impl Game {
         &self,
         occurrences: &mut Vec<ProposedEvent>,
     ) -> Result<(), String> {
-        if !self.attachments_enabled() {
-            return Ok(());
-        }
         for o in self
             .state
             .objects
@@ -131,9 +125,6 @@ impl Game {
         frame: Resolving,
         instruction: Instruction,
     ) -> Result<(), String> {
-        if !self.attachments_enabled() {
-            return Err("unsupported attachment instruction".into());
-        }
         let block = match instruction {
             Instruction::AttachEquipment { source_block, .. }
             | Instruction::ReturnAuraFromGraveyard { source_block } => source_block,

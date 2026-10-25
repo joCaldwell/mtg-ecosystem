@@ -3,10 +3,6 @@ use super::*;
 use mtg_core::{PermittedView, StackHandle, VisibleObject};
 
 impl Strategy<'_> {
-    pub(super) fn four_colors(&self) -> bool {
-        (self.catalog.schema_version == 16 && self.catalog.definitions.len() == 106)
-            || self.attachments()
-    }
     pub(super) fn opposing_creature<'a>(&self, v: &'a PermittedView) -> Option<&'a VisibleObject> {
         v.objects
             .iter()

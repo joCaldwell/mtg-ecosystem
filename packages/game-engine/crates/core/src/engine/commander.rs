@@ -63,14 +63,7 @@ impl Game {
             })
             .collect()
     }
-    pub(super) fn commander_enabled(&self) -> bool {
-        self.prepared.config.commander_profile()
-    }
-    pub(super) fn commander_damage_enabled(&self) -> bool {
-        self.prepared.config.damage_profile()
-            || self.prepared.config.library_profile()
-            || self.prepared.config.actions_profile()
-    }
+
     pub(super) fn commander_designation(
         &self,
         viewer: PlayerId,
@@ -94,12 +87,11 @@ impl Game {
         from: Zone,
     ) -> Result<ManaCost, String> {
         let mut cost = self.definition(card)?.characteristics.mana_cost.clone();
-        if self.wipes_enabled()
-            && self
-                .definition(card)?
-                .static_abilities
-                .iter()
-                .any(|a| a.effect == StaticEffect::ReduceGenericByCreatureCount)
+        if self
+            .definition(card)?
+            .static_abilities
+            .iter()
+            .any(|a| a.effect == StaticEffect::ReduceGenericByCreatureCount)
         {
             cost.generic.subtract(&Quantity::from(
                 self.objects_in_set(&ObjectSet::Creatures, caster).len() as i64,
@@ -109,7 +101,7 @@ impl Game {
             }
         }
         if matches!(from, Zone::Command { .. }) {
-            if !self.commander_enabled() || from != (Zone::Command { owner: caster }) {
+            if from != (Zone::Command { owner: caster }) {
                 return Err("unsupported command-zone casting permission".into());
             }
             cost.generic.add(&self.state.commanders.tax(card, caster)?);
@@ -126,10 +118,7 @@ impl Game {
                 .is_ok_and(|o| matches!(o.zone, Zone::Graveyard { .. } | Zone::Exile))
                 && self.is_live(self.state.cards[&id.card].owner)
         });
-        if self.state.commander_returns.len() > 1 && !self.prepared.config.match_profile() {
-            return Err("unsupported simultaneous multiple Commander return opportunities".into());
-        }
-        if self.prepared.config.match_profile() && self.state.commander_returns.len() > 1 {
+        if self.state.commander_returns.len() > 1 {
             let mut objects = self
                 .state
                 .commander_returns
@@ -182,7 +171,7 @@ impl Game {
         player: PlayerId,
         card: CardId,
     ) -> Result<bool, String> {
-        if !self.commander_enabled() || self.state.commanders.history(card).is_none() {
+        if self.state.commanders.history(card).is_none() {
             return Ok(false);
         }
         let object = self
@@ -409,8 +398,7 @@ impl Game {
     }
     pub(super) fn validate_commander_state(&self) -> Result<(), String> {
         for id in &self.state.commander_returns {
-            if !self.commander_enabled()
-                || self.state.commanders.history(id.card).is_none()
+            if self.state.commanders.history(id.card).is_none()
                 || !matches!(
                     self.current(*id)?.zone,
                     Zone::Graveyard { .. } | Zone::Exile
@@ -431,10 +419,7 @@ impl Game {
                 .get(&object.card)
                 .ok_or("snapshot commander physical identity invariant")?
                 .owner;
-            if !self.commander_enabled()
-                || self.state.commanders.history(object.card).is_none()
-                || !self.is_live(owner)
-            {
+            if self.state.commanders.history(object.card).is_none() || !self.is_live(owner) {
                 return Err("snapshot commander choice designation invariant".into());
             }
             let current = self.current(*object)?;
@@ -462,9 +447,7 @@ impl Game {
                                 target_slot,
                                 source_block,
                                 ..
-                            }) if self.staples_enabled() => {
-                                (*target_slot, Zone::Hand { owner }, *source_block)
-                            }
+                            }) => (*target_slot, Zone::Hand { owner }, *source_block),
                             Some(Instruction::ReturnToOwnerHand {
                                 target_slot,
                                 source_block,
@@ -472,11 +455,7 @@ impl Game {
                             Some(Instruction::PutOnTopOwnerLibrary {
                                 target_slot,
                                 source_block,
-                            }) if self.prepared.config.library_profile()
-                                || self.prepared.config.actions_profile() =>
-                            {
-                                (*target_slot, Zone::Library { owner }, *source_block)
-                            }
+                            }) => (*target_slot, Zone::Library { owner }, *source_block),
                             _ => {
                                 return Err(
                                     "snapshot commander instruction continuation invariant".into(),
@@ -505,8 +484,7 @@ impl Game {
                     source_block,
                 } => {
                     self.validate_resolving(frame)?;
-                    if !self.prepared.config.actions_profile()
-                        || *player != owner
+                    if *player != owner
                         || !self
                             .resolution_draw_player(frame)
                             .is_ok_and(|p| p == *player)
@@ -552,8 +530,7 @@ impl Game {
                         .chain(std::iter::once(*object))
                         .chain(remaining.iter().copied())
                         .collect::<Vec<_>>();
-                    if !self.prepared.config.match_profile()
-                        || ids.len() > 4
+                    if ids.len() > 4
                         || ids.iter().collect::<BTreeSet<_>>().len() != ids.len()
                         || !matches!(resume, Frame::Stabilize { .. })
                         || current.zone != *destination

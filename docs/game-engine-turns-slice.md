@@ -1,5 +1,9 @@
 # Turns, land plays, and targetless creatures
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 Scope frozen October 13, 2026, before implementation. This bounded P3 slice adds
 one exact eight-card scenario, not legal Commander matches or general combat.
 The parent agent owns integration; separate agents own core implementation,

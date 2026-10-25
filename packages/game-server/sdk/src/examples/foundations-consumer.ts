@@ -128,7 +128,7 @@ function canonical(value: unknown): string {
 async function checkManifest(value: PublicManifest, matchId: string, expectedProfile: string): Promise<string> {
   const hex = (text: string): boolean => text.length === 64 && !/[^0-9a-f]/.test(text);
   if (value.match_id !== matchId || value.protocol_version !== PROTOCOL_VERSION
-    || value.profile !== expectedProfile || !hex(value.engine_build_id) || !hex(value.catalog_sha256)
+    || value.profile !== expectedProfile || !hex(value.engine_build_id) || !hex(value.server_build_id) || !hex(value.catalog_sha256)
     || !Number.isInteger(value.starting_player) || value.starting_player < 0 || value.starting_player > 3) throw new ConsumerFailure('manifest_identity');
   const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical(value.catalog)));
   const actual = Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('');

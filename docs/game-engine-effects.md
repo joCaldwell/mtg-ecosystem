@@ -1,5 +1,9 @@
 # Temporary characteristics and damage replacement/prevention
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 Frozen contract for the next bounded P4 slice, prepared October 15, 2026.
 The parent, runtime and independent rules review approve the six source-backed
 positives, three paired negatives, exact five configurations, data/decision

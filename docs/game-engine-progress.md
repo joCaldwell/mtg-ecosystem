@@ -3836,3 +3836,172 @@ while source edits invalidated their compiled source closure; their failed logs
 are retained separately from the final frozen-source passing gate. No historical
 catalog, snapshot or batch evidence was overwritten. There is no new-profile
 full-game result or thirteen-card data-only exit proof in this subset.
+
+## D1b-2 — catalog-driven rules and generic capacities (2026-10-24)
+
+This completes the narrowed D1b-2 scope. Profile/deck/policy/hosting/search data
+migration remains D1b-3; generic simulator command and card-heuristic cleanup
+remain D1c. No historical evidence is overwritten or requalified.
+
+### Identity and rules
+
+The server now publishes and pins `server_build_id` independently of
+`engine_build_id`. Its build script hashes sorted, framed server Rust source,
+`Cargo.toml` and `build.rs`; a domain-separated SHA-256 combines that code hash
+with engine `BUILD_ID`. The latter still selects engine code/toolchain/build
+settings only. Registry records, worker bootstrap and process identity checks
+require both IDs. Missing or mismatched host identity fails recovery before
+SQLite is opened. Public manifests and generated SDK types include both IDs;
+the SDK consumer validates the host hash. The retained native source closure
+now includes the server build script. Recovery tests change only the host hash,
+prove the database bytes remain untouched, and recover successfully after
+restoring the original identity; registry and IPC malformed/mismatch tests also
+cover the new field.
+
+Against merge base `7622e42`, the recorded textual inventory removes **26 core
+lineage helpers**, **249 core helper calls**, **7 simulator ordering-helper
+calls**, and **6 simulator family helpers with 27 calls**: **32 helpers and 283
+calls in total**. Direct schema/name conditions selecting rules are also removed.
+First/double strike, blocker hints, effective keywords/characteristics, targeting,
+mana abilities, static cost reduction, triggers, tokens/counters, attachments,
+replacement/prevention, Commander damage/returns, turn progression, draws and
+cleanup now use the same implementation for every admitted catalog. Explicit
+mana spending applies to every payable announcement. Legacy unsupported-rule
+faults and profile-specific runtime error text are gone. Every currently
+validated IR shape executes its common semantics; no additional unsupported
+shape is admitted silently.
+
+Historical scenario life totals, starting steps and ordered library overrides
+are explicit `ScenarioInitial` facts, pinned by complete configuration admission
+and the profile digest. They no longer select rules through a profile string.
+Private catalog-domain regressions exercise first strike and blocker hints
+under unrelated labels at valid IR v13/v20, cost reduction under unrelated
+labels, and identical capacities across all eleven legal catalogs. These are
+label/IR-mechanics proofs, not widened public admission claims.
+
+### Capacity and re-baseline
+
+The [capacity policy](game-engine-capacity-policy.md) is the single runtime
+policy: 100 owned physical cards per seat, 65,536 live token objects, 262,144
+damage occurrences, 4,194,304 combined stack/pending entries, 131,072 event leaves,
+65,536 temporary effects and event nesting depth four. Exhaustion retains typed,
+serializable faults and staged atomic rollback. Stack insertion checks the
+combined pending/live count. Event depth now also has a typed fault. Derived
+validation products saturate at the platform's structural integer maximum,
+avoiding arithmetic overflow on 32-bit targets. Historical slice hand proofs
+are explicitly labelled historical; remaining source arithmetic is test-only.
+
+Re-baseline differences by class:
+
+- **Catalogs:** no source record, expected IR byte, schema version, catalog digest,
+  Commander policy or admitted deck changes. All 21 manifests pass CLI check mode.
+- **Setup/profile identity:** explicit initial facts change private configuration
+  digests. Historical setup facts themselves are preserved.
+- **Decisions/history:** older drivers now answer explicit spending; decision IDs,
+  journals, rule boundaries, projected histories and resulting state digests
+  change. Stack/ability references consistently use the stack-handle namespace;
+  blocker hints and effective keyword/characteristic/exile projections are common.
+- **Events/rules:** older damage instructions use prepared/final damage transaction
+  events; payments use selected-mana events; cleanup uses complete effect cleanup.
+  Older scenarios now have ordinary combat, ordered/failed draws, Commander damage,
+  simultaneous return choices and ordinary cleanup instead of lineage faults.
+  The common damage pipeline adds one prepared/final boundary to six trigger
+  witnesses, changing their combined checkpoint count from 2,960 to 2,966;
+  APNAP, trigger completion/countering, historical sources and life quantities
+  retain their separately asserted semantics.
+- **Simulator:** all compatible heuristics and interaction counters operate from
+  the public IR/observation. The old schema/count family fingerprints are removed.
+  This changes completion decisions and report content; D1c still owns the
+  remaining card-name heuristics and per-profile CLI commands.
+- **Expected evidence:** historical JSON reports remain untouched. A fresh small
+  payment/departure input fixture and compact current per-witness state digests
+  replace historical byte-comparison tests. Detailed fresh outputs, replay
+  checkpoints and batch journals remain ignored under
+  `generated/cards-data-d1b2/`. Semantic assertions, independent replay,
+  snapshot/source integrity and rehashed-forgery rejection remain enforced.
+
+### Verification
+
+Implementation commits: server identity `ceb243f`; rule/capacity/baseline
+implementation `6663631`. The following results use the same
+frozen runtime source; documentation and Node baseline follow-ups do not enter
+native code identity. Toolchain: pinned Rust 1.99.0 / Node 26.11.1.
+
+- `npm run check:engine`: **exit 0**, formatting and Clippy with warnings denied,
+  **883 passed Rust tests**, **12 pre-existing ignored diagnostics**, and
+  **56 passed Node checks**.
+- `cargo test --locked -p mtg-server`: **exit 0**, **96 passed**, zero ignored.
+- `cargo build --release --locked -p mtg-server`: **exit 0**.
+- `MTG_SERVER_BIN=$PWD/target/release/mtg-server npm --prefix packages/game-server/sdk run verify --workspaces=false`:
+  **exit 0**, **47 Node tests**, strict TypeScript and **32 response variants**;
+  reported `preliminary-sdk-checks-passed` (schema/generated types/mock HTTP).
+  Verification metadata was retained and SDK `generated` removed afterwards.
+- All **21** catalog manifests passed CLI check mode with unchanged expected IR.
+- Fresh release `demo` passed its internal independent bundle verification,
+  including all **540 retained trace runs**, replay/snapshot checkpoints, nine
+  report families (**172 witnesses**), turns and the complete foundations/draw
+  suites. The compact new hashes match this independently verified output.
+- Release `native-source-manifest` reported `compiled-source-closure-verified`,
+  including the new server build script. Release `native-info` pins:
+  engine `39c4d9da402e237728b06fc0c85e32f49eb14c06c70f57a98405121c7e51bea7`;
+  server `c16b1dcaff0e309036278f58e32b8c91fb081116ec8f0262596010db1db305ae`.
+
+Every existing completion batch passed its full 18-game suite and independent
+replay with no faults, unfinished games or batch failures: **198 finished games**.
+Foundations uses `match-batch`; the other ten use `<short-name>-match-batch`.
+
+| Profile | Finished games | Faults |
+| --- | ---: | ---: |
+| commander-foundations-v1 | 18 | 0 |
+| commander-keywords-v1 | 18 | 0 |
+| commander-combat-keywords-v1 | 18 | 0 |
+| commander-tokens-v1 | 18 | 0 |
+| commander-staples-v1 | 18 | 0 |
+| commander-mana-v1 | 18 | 0 |
+| commander-four-colors-v1 | 18 | 0 |
+| commander-attachments-v1 | 18 | 0 |
+| commander-removal-v1 | 18 | 0 |
+| commander-sacrifice-v1 | 18 | 0 |
+| commander-wipes-v1 | 18 | 0 |
+
+Ignored fresh evidence, aggregate results, per-profile journals/reports and
+verification logs are under `generated/cards-data-d1b2/`. Failed development
+runs, missing-dependency attempts, the cancelled test attempt and its subsequent
+incremental-link failure remain separately retained; the affected test cache was
+cleaned before passing runs. The first full Node run passed 55 of 56 checks and
+exposed the stale 2,960 checkpoint assertion described above; its failed log is
+retained separately from the final result. A standalone demo's shell wrapper
+failed *after* successful CLI verification because it assigned zsh's read-only
+`status` variable; only the CLI report, independently checked hashes and the
+final full gate establish its passing semantics. None of these attempts is
+upgraded into a passing log. These results establish the finite existing
+batches and checks, not a new search-performance or all-Commander claim.
+
+### Grep proof and remaining admission
+
+The final source scan has **zero matches** (ripgrep exit 1, meaning no matches):
+
+```sh
+rg -n -e 'profile_at_least|[A-Za-z_]+_enabled\(' \
+  -e '(choices|effects|triggers|damage_life|stack_costs|actions|damage|library|commander|combat)_profile\(' \
+  packages/game-engine/crates/core/src \
+  packages/game-engine/crates/sim/src packages/game-server/src
+```
+
+This scan includes inline and separate test sources as well as production code.
+The broader profile/schema-condition review leaves only admission/evidence
+selection: exact scenario configuration/version/definition pins; legal catalog
+and deck/Commander-policy admission; foundations-only search admission;
+foundations/attachments hosting admission; catalog/source-fixture coverage
+validation; and the frozen completion suite's deck/seed/rotation construction
+and identity checks. None selects rules, resource limits or projection/request
+shapes. Diagnostic functions named `*_with_profile` refer to performance
+profiling, not Commander profile inheritance.
+
+D1b-3 still owns profile and deck files, one dated banned list and derived pool
+reviews, commander-policy data, hosting/search flags and their loaders. The
+thirteen-or-more-card data-only playable-profile demonstration remains the D1
+exit, not a claim made by this narrower step. D1c still owns a generic batch/
+replay command and the remaining identity-specific completion heuristics; D2
+still owns generic/compositional IR and lowering, corpus coverage and capability
+witness expansion.

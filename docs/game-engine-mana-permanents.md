@@ -1,5 +1,9 @@
 # Mana rocks, dorks and Command Tower — `commander-mana-v1`
 
+> Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
+> with the [generic capacity policy](game-engine-capacity-policy.md). The original
+> arithmetic and evidence below describe the historical release only.
+
 P6.5 slice, following `commander-staples-v1` (docs/game-engine-staples.md).
 Adds artifacts, colorless mana, and mana abilities on nonland permanents:
 fixed, any-color and commander-identity mana, including a mana ability that
