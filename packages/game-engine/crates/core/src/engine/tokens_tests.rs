@@ -63,7 +63,7 @@ fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
         },
         mode: Mode::CommanderMatch,
         players: 4,
-        profile: TOKENS_PROFILE.into(),
+        profile: "commander-tokens-v1".into(),
         commanders: vec![],
         cards,
     };
@@ -966,7 +966,7 @@ fn maximal_pool_capacity_derivation_and_earlier_limits() {
     let g = Game::new(prepared(&[]));
     assert_eq!(g.damage_limit(), capacities::DAMAGE_LIMIT);
     assert_eq!(g.stack_limit(), capacities::STACK_LIMIT);
-    let config = MatchConfig::tokens([1; 32], PlayerId(0));
+    let config = MatchConfig::for_profile("commander-tokens-v1", [1; 32], PlayerId(0)).unwrap();
     let pod = Prepared::admit_pod(c.clone(), config.clone()).unwrap();
     assert_eq!(pod.config.cards.len(), 400);
     let white = &config.decks[0];
@@ -1008,7 +1008,7 @@ fn maximal_pool_capacity_derivation_and_earlier_limits() {
                 "../../../../tests/fixtures/expected-match-ir.json"
             ))
             .unwrap(),
-            MatchConfig::foundations([0; 32], PlayerId(0)),
+            MatchConfig::for_profile("commander-foundations-v1", [0; 32], PlayerId(0)).unwrap(),
         )
         .unwrap(),
     );
@@ -1109,4 +1109,251 @@ fn detached_enters_token_program_survives_source_destruction() {
         assert_eq!(g.state.cards[&token.card].owner, PlayerId(0));
         assert_eq!(g.current(token).unwrap().controller, PlayerId(0));
     });
+}
+
+/// Reproducible release-only cost probe, not a gameplay/admission witness.
+#[test]
+#[ignore = "manual release capacity measurement"]
+fn capacity_release_probe() {
+    let profile = match_profile("commander-wipes-v1").unwrap();
+    let prepared = Prepared::admit_pod(
+        profile.catalog().clone(),
+        MatchConfig::for_profile(&profile.name, [7; 32], PlayerId(0)).unwrap(),
+    )
+    .unwrap();
+    let mut g = Game::with_trace(prepared, TraceMode::Off);
+    let source = g
+        .state
+        .cards
+        .iter()
+        .find(|(id, _)| g.definition(**id).unwrap().name == "Hornet Queen")
+        .map(|(id, _)| *id)
+        .unwrap();
+    let source = g.object_id(source).unwrap();
+    let spec = match &g.definition(source.card).unwrap().triggered[0]
+        .program
+        .instructions[0]
+    {
+        Instruction::CreateCreatureTokens { token, .. } => token.clone(),
+        _ => panic!("token producer"),
+    };
+    let create = ProposedEvent::CreateCreatureTokens {
+        controller: PlayerId(0),
+        source,
+        count: TOKEN_CAPACITY,
+        token: Box::new(spec),
+    };
+    let started = std::time::Instant::now();
+    g.commit(create, BatchCause::StateBased).unwrap();
+    let create_us = started.elapsed().as_micros();
+    let snapshot_bytes = g.snapshot().unwrap().len();
+    let started = std::time::Instant::now();
+    for _ in 0..20 {
+        std::hint::black_box(g.fork());
+    }
+    let fork_us = started.elapsed().as_micros() / 20;
+    let occurrences = g
+        .state
+        .objects
+        .values()
+        .filter(|o| {
+            o.zone == Zone::Battlefield
+                && g.definition(o.id.card).unwrap().characteristics.kind == CardKind::Creature
+        })
+        .map(|o| ProposedEvent::DestroyCreature { object: o.id })
+        .collect::<Vec<_>>();
+    let wipe_count = occurrences.len();
+    let started = std::time::Instant::now();
+    g.commit_batch(
+        BatchCause::StateBased,
+        EventGroup::Simultaneous { occurrences },
+    )
+    .unwrap();
+    let wipe_us = started.elapsed().as_micros();
+    let mut history_wipe_us = 0;
+    for round in 0..4 {
+        let ceased = g
+            .state
+            .objects
+            .values()
+            .filter(|o| g.state.tokens.contains_key(&o.id.card))
+            .map(|o| o.id)
+            .collect::<Vec<_>>();
+        g.commit_batch(
+            BatchCause::StateBased,
+            EventGroup::Simultaneous {
+                occurrences: ceased
+                    .iter()
+                    .map(|o| ProposedEvent::CeaseToken { object: *o })
+                    .collect(),
+            },
+        )
+        .unwrap();
+        if round == 3 {
+            break;
+        }
+        let spec = match &g.definition(source.card).unwrap().triggered[0]
+            .program
+            .instructions[0]
+        {
+            Instruction::CreateCreatureTokens { token, .. } => token.clone(),
+            _ => unreachable!(),
+        };
+        g.commit(
+            ProposedEvent::CreateCreatureTokens {
+                controller: PlayerId(0),
+                source,
+                count: TOKEN_CAPACITY,
+                token: Box::new(spec),
+            },
+            BatchCause::StateBased,
+        )
+        .unwrap();
+        let occurrences = g
+            .state
+            .objects
+            .values()
+            .filter(|o| o.zone == Zone::Battlefield && g.state.tokens.contains_key(&o.id.card))
+            .map(|o| ProposedEvent::DestroyCreature { object: o.id })
+            .collect();
+        let started = std::time::Instant::now();
+        g.commit_batch(
+            BatchCause::StateBased,
+            EventGroup::Simultaneous { occurrences },
+        )
+        .unwrap();
+        history_wipe_us = started.elapsed().as_micros();
+    }
+    assert_eq!(g.state.tokens.len(), capacities::TOKEN_HISTORY_LIMIT);
+    let history_snapshot_bytes = g.snapshot().unwrap().len();
+    // Stack payload deliberately includes a full supported program via its source.
+    let entry: StackInstance = strict_read(&serde_json::json!({"id":1,"source":source,"controller":0,"targets":[],"announced_targets":[],"player_targets":[],"paid":null,"total_cost":{"generic":"0","colored":[]},"cast_from":{"zone":"hand","owner":0}}).to_string()).unwrap();
+    g.state.stack = (0..capacities::STACK_LIMIT)
+        .map(|i| {
+            let mut e = entry.clone();
+            e.id = StackId(i as u32);
+            e
+        })
+        .collect();
+    let started = std::time::Instant::now();
+    for _ in 0..20 {
+        std::hint::black_box(g.fork());
+    }
+    let stack_fork_us = started.elapsed().as_micros() / 20;
+    let started = std::time::Instant::now();
+    assert!(g.check_stack_capacity(1).is_err());
+    let stack_fault_us = started.elapsed().as_micros();
+    assert!(matches!(
+        g.typed_fault(),
+        Some(RuleFault::StackCapacityExceeded { .. })
+    ));
+    g.state.typed_fault = None;
+    g.state.frame = Frame::Stabilize {
+        resume: Box::new(Frame::Priority),
+        cleanup: false,
+        changed: false,
+    };
+    let started = std::time::Instant::now();
+    let mut staged = g.fork();
+    staged.step().unwrap();
+    let stack_step_us = started.elapsed().as_micros();
+    eprintln!(
+        "capacity_probe {}",
+        serde_json::json!({"tokens":TOKEN_CAPACITY,"owned_cards":400,"create_us":create_us,"snapshot_bytes":snapshot_bytes,"fork_us":fork_us,"wipe_creatures":wipe_count,"wipe_us":wipe_us,"stack_entries":capacities::STACK_LIMIT,"stack_fork_us":stack_fork_us,"stack_fault_us":stack_fault_us,"stack_step_us":stack_step_us,"history_wipe_us":history_wipe_us,"history_snapshot_bytes":history_snapshot_bytes,"token_history":g.state.tokens.len()})
+    );
+}
+
+#[test]
+fn retained_token_history_capacity_faults_before_allocating_more_identities() {
+    let mut g = Game::with_trace(prepared(&[("Raise the Alarm", 0, true)]), TraceMode::Off);
+    let source = object(&g, 0);
+    let spec = match &g
+        .definition(source.card)
+        .unwrap()
+        .spell
+        .as_ref()
+        .unwrap()
+        .instructions[0]
+    {
+        Instruction::CreateCreatureTokens { token, .. } => token.clone(),
+        _ => panic!("token producer"),
+    };
+    for _ in 0..capacities::TOKEN_HISTORY_LIMIT / TOKEN_CAPACITY as usize {
+        g.commit(
+            ProposedEvent::CreateCreatureTokens {
+                controller: PlayerId(0),
+                source,
+                count: TOKEN_CAPACITY,
+                token: Box::new(spec.clone()),
+            },
+            BatchCause::StateBased,
+        )
+        .unwrap();
+        let objects = g
+            .state
+            .objects
+            .values()
+            .filter(|o| g.state.tokens.contains_key(&o.id.card))
+            .map(|o| o.id)
+            .collect::<Vec<_>>();
+        g.commit_batch(
+            BatchCause::StateBased,
+            EventGroup::Simultaneous {
+                occurrences: objects
+                    .iter()
+                    .map(|o| ProposedEvent::Move {
+                        object: *o,
+                        destination: Zone::Graveyard { owner: PlayerId(0) },
+                    })
+                    .collect(),
+            },
+        )
+        .unwrap();
+        g.commit_batch(
+            BatchCause::StateBased,
+            EventGroup::Simultaneous {
+                occurrences: objects
+                    .iter()
+                    .map(|o| ProposedEvent::CeaseToken {
+                        object: g.object_id(o.card).unwrap(),
+                    })
+                    .collect(),
+            },
+        )
+        .unwrap();
+    }
+    assert_eq!(g.allocated_capacity_count(), 0);
+    let before = g.state.tokens.clone();
+    assert!(
+        g.commit(
+            ProposedEvent::CreateCreatureTokens {
+                controller: PlayerId(0),
+                source,
+                count: 1,
+                token: Box::new(spec)
+            },
+            BatchCause::StateBased
+        )
+        .is_err()
+    );
+    assert_eq!(g.state.tokens, before);
+    assert_eq!(
+        g.typed_fault(),
+        Some(&RuleFault::TokenHistoryCapacityExceeded {
+            capacity: capacities::TOKEN_HISTORY_LIMIT,
+            created: capacities::TOKEN_HISTORY_LIMIT,
+            requested: 1
+        })
+    );
+    g.state.frame = Frame::Fault {
+        reason: "token history capacity exceeded".into(),
+    };
+    g.validate_tokens_state().unwrap();
+    let raw = serde_json::to_string(&g.typed_fault()).unwrap();
+    assert_eq!(
+        serde_json::from_str::<Option<RuleFault>>(&raw)
+            .unwrap()
+            .as_ref(),
+        g.typed_fault()
+    );
 }
