@@ -545,8 +545,8 @@ function migrateIdentity(db: Database) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN author_user_id INTEGER NOT NULL DEFAULT 1 REFERENCES users(id);
       ALTER TABLE ${table} ADD COLUMN author_via TEXT NOT NULL DEFAULT 'ui' CHECK (author_via IN ('ui','agent'));
       ALTER TABLE ${table} ADD COLUMN author_label TEXT NOT NULL DEFAULT 'ui';
-      UPDATE ${table} SET author_via = CASE WHEN author = 'owner' THEN 'ui' ELSE 'agent' END,
-        author_label = CASE WHEN author = 'owner' THEN 'ui' ELSE author END;`);
+      UPDATE ${table} SET author_via = CASE WHEN author IN ('owner','owner (from v1)','migration') THEN 'ui' ELSE 'agent' END,
+        author_label = CASE WHEN author IN ('owner','owner (from v1)') THEN 'ui' ELSE author END;`);
   }
   db.exec(`ALTER TABLE activity ADD COLUMN actor_user_id INTEGER NOT NULL DEFAULT 1 REFERENCES users(id);
     ALTER TABLE activity ADD COLUMN actor_via TEXT NOT NULL DEFAULT 'agent' CHECK (actor_via IN ('ui','agent'));
@@ -587,25 +587,33 @@ function migrateIdentity(db: Database) {
 export function openDb(path: string = DEFAULT_DB_PATH): Database {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path, { timeout: 5000 });
-  const version = assertOurs(db, path);
-  db.exec("PRAGMA journal_mode = WAL");
-  // Rebuild referenced tables without cascading deletes. Foreign keys are
-  // verified before the single transaction commits, then enforced on use.
-  // https://www.sqlite.org/lang_altertable.html#making_other_kinds_of_table_schema_changes
-  db.exec("PRAGMA foreign_keys = OFF; PRAGMA legacy_alter_table = ON");
   try {
-    withTransaction(db, () => {
+    // Reject unrelated files before changing journal mode. This is validation
+    // only: the version used for migration is re-read under the write lock.
+    assertOurs(db, path);
+    db.exec("PRAGMA journal_mode = WAL");
+    // Rebuilding referenced tables must not cascade deletes. Check all FKs
+    // before committing, then re-enable enforcement for normal operations.
+    // https://www.sqlite.org/lang_altertable.html#making_other_kinds_of_table_schema_changes
+    db.exec("PRAGMA foreign_keys = OFF; PRAGMA legacy_alter_table = ON");
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const version = assertOurs(db, path);
       if (version !== String(SCHEMA_VERSION)) {
         db.exec(SCHEMA);
         for (const step of MIGRATIONS) {
           if (step.version > Number(version ?? 10)) step.up(db);
         }
-        if (db.prepare("PRAGMA foreign_key_check").all().length)
-          throw new SchemaError("Migration found broken FOREIGN KEY references; all changes were rolled back");
+        const broken = db.prepare("PRAGMA foreign_key_check").all() as { table: string; rowid: number | null; parent: string }[];
+        if (broken.length) {
+          const first = broken.slice(0, 5).map(({ table, rowid, parent }) => ({ table, rowid, parent }));
+          throw new SchemaError(`Migration found broken FOREIGN KEY references (first ${first.length} of ${broken.length}): ${JSON.stringify(first)}; all changes were rolled back`);
+        }
         db.prepare("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
           .run(String(SCHEMA_VERSION));
       }
-    });
+      db.exec("COMMIT");
+    } catch (error) { db.exec("ROLLBACK"); throw error; }
     db.exec("PRAGMA legacy_alter_table = OFF; PRAGMA foreign_keys = ON");
   } catch (error) { db.close(); throw error; }
   return db;
@@ -630,7 +638,6 @@ function assertOurs(db: Database, path: string) {
     /* no meta table at all */
   }
   if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5" || found === "6" || found === "7" || found === "8" || found === "9" || found === "10") return found;
-  db.close();
   throw new SchemaError(
     `${path} is not a database this version of the deck builder can open ` +
       `(it reports schema ${found ?? "unknown"}; this version uses ${SCHEMA_VERSION}). ` +

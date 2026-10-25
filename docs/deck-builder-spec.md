@@ -826,21 +826,26 @@ Checked on 2026-10-25, v3 Phase 0 hardening:
 
 Checked on 2026-10-25, v3 Phase 1 identity foundation:
 
-- `npm run check` passes 759 tests on Node 26.12.1. The permission matrix
-  discovers and classifies every exported capability and all 30 MCP tools,
+- `npm run check` passes 910 tests on Node 26.12.1 after PR review. The permission matrix
+  globs `src/**/*.ts` with explicit exclusions, classifies every discovered
+  runtime function and all 30 MCP tools, requires real user-2 global probes,
   and covers all 58 registered HTTP routes, tenant feeds and FTS, creator
   credentials, archived reads/writes, hosted API 401s and per-user SSE.
-  Historical migration fixtures reconstruct pre-identity tables; v10
-  preservation and complete rollback are tested explicitly.
+  Mixed-ID probes snapshot every personal table, FTS shadow and sequence.
+  Weakening `requireSlot` to ignore `deck_id` failed eight probes; adding an
+  unclassified export in a new module failed discovery. Both temporary
+  mutations were removed. The frozen actual main-v10 schema, preservation,
+  concurrent openers and complete rollback are tested explicitly.
 - An online read-only snapshot of the owner’s v10 database migrated to v11:
   **18 decks → 18; 36 memories → 36**, with roster IDs/names/revisions,
   memory text/scopes and profile identical. The copied legacy token file
-  imported and was deleted only in the copy. Its secret authenticated MCP;
+  imported and was renamed to `stdio-token` (0600) only in the copy. Its secret authenticated MCP;
   both existing Claude Code and Codex HTTP configurations were checked to
   use that same credential, without displaying their secrets.
 - The official MCP client, launching the stdio shim from `/tmp`, called
   `start_session` and `get_deck` against both the Phase 0 baseline and the
-  migrated copy. `get_deck` was byte-identical; `start_session` was
+  migrated copy. The new shim used its default credential path, with no
+  token arguments. `get_deck` was byte-identical; `start_session` was
   byte-identical after removing the new `# Identity` block. This is a
   scripted transport/text check, not a new model-quality evaluation.
 - Seeded browser QA on the isolated copy exercised token creation, the
@@ -890,8 +895,11 @@ that user when it is the instance's sole unclaimed account, assigning the
 provider identity, handle and display name without export/import.
 
 Schema 11 uses ordered `{ version, up(db) }` migration steps, all within one
-transaction after database identity validation. It preserves old migration
-steps, Phase 0 image/retirement facts and proposal baselines. All existing
+`BEGIN IMMEDIATE` transaction after database identity validation. The schema
+version is re-read under that write reservation, so concurrent openers
+serialize migration rather than racing with an old version. Failed FK checks
+report the first five `{ table, rowid, parent }` rows before rolling back.
+It preserves old migration steps, Phase 0 image/retirement facts and proposal baselines. All existing
 rows backfill to user 1. `decks` names are unique within a user, case
 insensitively; decks, memories, document edits, log, activity and ownership
 evidence carry `user_id`. Deck-child tables inherit tenancy through their
@@ -914,10 +922,11 @@ export type Actor = {
 Ownership is a relation: `actor.user_id === decks.user_id`.
 `requireDeckOwner(db,actor,deckId,what)`, `requireSelf(actor,userId)` and
 `isDeckOwner` enforce it below both front doors. `requireDeck` returns the
-deck and caller role; an unreadable deck is 404. Writes on an unreadable deck also return 404, with the same missing-target
-behavior as reads. `PermissionError` (403) is reserved for readable targets
-whose action is forbidden (human-only, admin-only, or Legacy writes). Every exported capability requires an
-actor. Shared card-only utilities remain global, but any deck or memory
+deck and caller role; an unreadable deck is 404. Writes on an unreadable deck
+also return 404, with the same missing-target behavior as reads.
+`PermissionError` (403) is reserved for readable targets whose action is
+forbidden (human-only, admin-only, or Legacy writes). Every exported tenant
+capability requires an actor. Shared card-only utilities remain global, but any deck or memory
 context is authorized. No implicit actor is supplied by a service.
 
 V3 roles are owner, viewer (visibility admits them), and suggester (signed
@@ -942,7 +951,12 @@ boundaries. Missing IDs never permit global/profile scope to bypass tenancy.
 
 Every existing `author` column gains `author_user_id` (FK users),
 `author_via` (`ui` or `agent`) and `author_label`, all NOT NULL. Old `owner`
-authors backfill to user 1/ui/ui; other labels to user 1/agent/original label.
+and `owner (from v1)` authors backfill to user 1/ui/ui,
+preserving their compact author string. System-authored `migration` rows use
+user 1/ui/`migration` and display **System migration**, avoiding an invented
+agent or a claim that the human performed the import. All remaining labels
+backfill to user 1/agent/original label. An actual agent choosing the label
+`migration` still displays `handle via migration`; via disambiguates them.
 The existing author string remains for wire compatibility; structured
 principal/via fields and credential ownership govern permissions. Attribution renders the human's
 handle for UI and `handle via label` for agents; a future external author
@@ -1028,3 +1042,11 @@ deck with foreign slots/tags/engines and linked records, snapshotting all
 personal tables, FTS shadows and sequences before/after rejection. Child SQL
 writes bind both child and deck IDs. All private foreign targets return 404,
 including writes; this resolves the plan §3/§4 contradiction in favor of §4.
+
+The review migration fixture is frozen from the actual main v10 `openDb` at
+`8b6c012`, independently of v11. Tests compare its migrated `sqlite_master`
+with a fresh v11, verify historical human/system attribution and sequences,
+exercise bounded FK diagnostics/rollback, and run concurrent process openers
+behind a held SQLite writer lock. An INSERT audit requires every runtime
+personal-table insertion to name its tenant and attribution columns, so the
+migration-only defaults cannot silently authorize a future runtime write.

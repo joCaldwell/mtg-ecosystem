@@ -354,7 +354,9 @@ stands, so it ships with a permission matrix test that later phases extend.
    `agent_tokens(id, user_id, label, prefix, token_hash, created_at,
    last_used_at, revoked_at)`; `author_user_id`, `author_via`,
    `author_label` beside every existing `author` column, backfilled
-   (`"owner"` → user 1 / `ui`; anything else → user 1 / `agent` / label).
+   (`"owner"` and `"owner (from v1)"` → user 1 / `ui` / `ui`;
+   system `"migration"` → user 1 / `ui` / `migration`, displayed as
+   “System migration”; other labels → user 1 / `agent` / label; spec §17.3).
    Backfill everything to user 1. Migration tests construct a v10 file and
    assert the result, following `test/db.test.ts`.
 4. **Actor (D3).** Rewrite `src/actor.ts`; `requireDeckOwner`,
@@ -379,7 +381,9 @@ stands, so it ships with a permission matrix test that later phases extend.
    the bearer to `{ user_id, token_id, label }` and builds the Actor; the URL
    label is attribution only. In local mode the legacy `data/agent-token`
    file is migrated into an `agent_tokens` row for user 1 on first boot so
-   existing client configs keep working; the file is then deleted. Settings
+   existing client configs keep working; after commit the file is renamed to
+   `stdio-token` (0600), the local shim’s default. Explicit private files use
+   `--token-file` or `DECKBUILDER_TOKEN_FILE`; secrets in argv are rejected. Settings
    API: list/create/revoke tokens; the token value is returned exactly once,
    from create.
 8. **Local mode (D1).** `src/mode.ts` reads `DECKBUILDER_MODE`; in local
@@ -820,7 +824,8 @@ verified, what is not), AGENTS.md status line (v3 hosted).
 ## 4. Canonical shapes (so phases agree)
 
 **Env vars (final set):** `DECKBUILDER_MODE`, `DECKBUILDER_PORT`,
-`DECKBUILDER_DATA`, `DECKBUILDER_DB`, `DECKBUILDER_PUBLIC_ORIGIN`,
+`DECKBUILDER_DATA`, `DECKBUILDER_DB`, `DECKBUILDER_TOKEN_FILE` (stdio only),
+`DECKBUILDER_PUBLIC_ORIGIN`,
 `DECKBUILDER_TRUST_PROXY`, `DECKBUILDER_INVITES_REQUIRED`,
 `BETTER_AUTH_SECRET`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`,
 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `BACKUP_S3_ENDPOINT`,

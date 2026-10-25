@@ -192,8 +192,13 @@ resource-metadata challenge; Phase 2 supplies OAuth metadata/JWT verification.
 Schema 11 creates `users` and assigns all old records to user 1 (`owner`,
 `Owner`, admin, no auth id). Card data/jobs remain global; personal documents,
 memories, settings, focus, inbox, review queue, activity and evidence are scoped
-to that user. The migrations run as ordered steps within one transaction,
-check foreign keys before commit and refuse unsupported databases. See spec
+to that user. The migrations run as ordered steps within one `BEGIN IMMEDIATE` transaction,
+re-reading the schema version under the write reservation so concurrent
+server/CLI openers serialize. Foreign keys are checked before commit; failures
+name the first five offending tables/rowids/parents and roll back all steps.
+Unsupported databases are refused before changing journal/schema state.
+Historical `owner (from v1)` attribution is UI; `migration` displays as
+“System migration”, with the original compact author text retained. See spec
 §17 for the account-claim handoff to Phase 2.
 
 ## Phase 0 verification (2026-10-25)

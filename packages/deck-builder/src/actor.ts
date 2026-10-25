@@ -55,6 +55,7 @@ export interface Attribution {
 /** Human-readable UI attribution; compact MCP author strings remain stable. */
 export function displayAuthor(db: Database, row: Attribution): string {
   const user = db.prepare("SELECT handle FROM users WHERE id = ?").get(row.author_user_id) as { handle: string };
+  if (row.author_via === "ui" && row.author_label === "migration") return "System migration";
   return row.author_via === "ui" ? user.handle : `${user.handle} via ${row.author_label}`;
 }
 

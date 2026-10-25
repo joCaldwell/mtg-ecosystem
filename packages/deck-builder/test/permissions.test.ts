@@ -257,6 +257,7 @@ test("all per-user feeds, searches, settings and credentials exclude the other p
     db.prepare("UPDATE decks SET parent_id = ? WHERE id = ?").run(b.id,a.id);
     assert.ok(log.cardHistory(db,a.ag,a.id,"id-forest").every(r=>r.log_id!==b.log));
     assert.equal(decks.getDeck(db,a.ag,a.id).deck.parent,null);
+    assert.equal(decks.listDecks(db,a.ag).find(d=>d.id===a.id)!.parent_id,null);
     assert.equal(isDeckOwner(db,a.ag,a.id),true);assert.equal(isDeckOwner(db,b.ag,a.id),false);
     assert.throws(()=>requireDeckOwner(db,b.ag,a.id),notFound);assert.throws(()=>requireSelf(a.ag,2),notFound);
   } finally {db.close();}
@@ -435,15 +436,19 @@ test("every HTTP API route is classified and reachable only with the right princ
   } finally {await app.close();f.db.close();}
 });
 
-test("hosted UI APIs await sessions; health stays public; no bearer may select UI data",async()=>{
+test("hosted UI APIs await sessions; health stays public; settings omit local stdio commands",async()=>{
   const f=fixture(),saved=process.env.DECKBUILDER_PUBLIC_ORIGIN;
-  const app=createApp(f.db,{mode:"hosted"}),base=await listening(app);
+  let principal:Actor|null=null;
+  const app=createApp(f.db,{mode:"hosted",resolveUiActor:()=>principal}),base=await listening(app);
   process.env.DECKBUILDER_PUBLIC_ORIGIN=base;
   try {
     const token=tokens.createToken(f.db,OWNER,"Hosted agent").token;
     assert.equal((await fetch(base+"/api/health")).status,200);
     for(const path of ["/api/decks","/api/settings","/api/events"]) assert.equal((await fetch(base+path,{headers:{Authorization:`Bearer ${token}`}})).status,401);
     assert.equal((await fetch(base+"/mcp")).status,401);
+    principal=f.users[1]; // exercise the Phase 2 session seam in hosted mode
+    const settings=await fetch(base+"/api/settings");assert.equal(settings.status,200);
+    assert.equal("stdio_command" in await settings.json(),false);
   } finally {await app.close();f.db.close();if(saved===undefined)delete process.env.DECKBUILDER_PUBLIC_ORIGIN;else process.env.DECKBUILDER_PUBLIC_ORIGIN=saved;}
 });
 
