@@ -4005,3 +4005,211 @@ exit, not a claim made by this narrower step. D1c still owns a generic batch/
 replay command and the remaining identity-specific completion heuristics; D2
 still owns generic/compositional IR and lowering, corpus coverage and capability
 witness expansion.
+
+## D1b-3 — data-driven admission and practical capacities (2026-10-24–25)
+
+Implementation is on `feat/cards-data-d1b3`, without a merge. Admission migration
+is `6ef9b4e`, measured capacity correction `52782f3`, generic completion metadata
+`57562e3`, and the data-only demonstration `17da3a1`. Historical evidence and
+failed attempts remain preserved; no historical result is requalified.
+
+### Admission format and removed selectors
+
+[Profile data](game-engine-profiles.md) is discovered at build time and embedded
+without core filesystem I/O. Each strict JSON file contains its name, catalog
+manifest reference, four decks of Oracle ID/count rows, commander list, explicit
+color-identity/eligibility policy, shared banned-list reference, hosted/search
+flags and deterministic completion layout. Catalog version/count/digest derive
+from the referenced manifest and expected IR, with digest checks and independent
+source regeneration. Complete profile data, catalog digest, shared ban digest
+and normalized private configuration bind pod identity. Engine code identity
+excludes profile/catalog data, preserving unrelated catalog identities.
+
+Deleted: **44 Rust deck constructors**, **two deck-construction helpers**,
+**four identity-specific MatchConfig constructors**, **11 profile-name constants**,
+**11 catalog-digest constants**, **11 Rust commander lists**, and **two Rust ban
+arrays containing 49 entries**. The old 22 batch/replay selector arms become two
+commands, removing 20 redundant paths. The 11 copied policy fixtures become one
+shared dated list; per-profile `admitted_pool_review` copies are gone. Historical
+policy bytes are additionally retained under
+`generated/cards-data-d1b3/historical-policies/` and remain in Git history.
+
+The shared `commander-banned-2026-10-15.json` retains official URLs, HTML hashes,
+complete hashed archive records for 42 named bans and seven offensive exclusions,
+and Lutri's companion-only distinction. Pool review derives Commander legality,
+Conspiracy type, ante references and named/offensive exclusions from each card's
+record and this single list. Source/provenance integrity checks remain enforced.
+
+Hosting reads `hosted: true`: foundations and attachments remain the only hosted
+profiles. Search reads `search: true`: foundations remains the only search profile.
+Search retains its exact catalog digest and reconstruction/root-shape checks.
+Tests enumerate the flags and reject changed catalog identity. The simulator's
+`match-batch PROFILE OUTPUT` and `match-replay PROFILE FILE` select catalog/pod
+from data and retain current Develop dispatch; replay rejects a different profile.
+
+### Capacity correction
+
+The [capacity policy](game-engine-capacity-policy.md) now states the actual cost:
+a whole owned-state fork per rules step and another fork per simultaneous
+occurrence. It preserves the review's release measurements (2,000-token creation
+3.2 s, wipe 35.8 s, snapshot 83 MB) as a separate historical workload.
+
+Current ceilings are **256 live tokens**, **1,024 retained token identities**,
+**1,024 combined stack/pending entries**, **2,048 damage occurrences**, **1,024
+event leaves**, **256 temporary effects**, and nesting depth four. The retained
+identity bound matters even after tokens cease. Its distinct typed
+`TokenHistoryCapacityExceeded` fault is serialized, snapshot-validated and checked
+before allocation; regression tests preserve atomic failure and existing live
+capacity replay proofs. No per-step copying optimization was attempted.
+
+The ignored release cardinality probe passed with tracing off and 400 physical
+cards: creation **808 µs**, 256-token wipe **61,411 µs**, wipe at 1,024 retained
+identities **204,294 µs**, snapshots **2,070,202 / 7,796,414 bytes** at 256/1,024
+identities, and mean forks **191 / 808 µs** at 256 tokens / 1,024 stack entries
+plus 1,024 retained identities. Fork plus one private rules step was **510 µs**;
+the overflow check was below the microsecond timer's resolution. Whole child
+process peak RSS was **75,608,064 bytes**, excluding builds. This synthetic stack
+probe excludes visibility refresh and is not an accepted-input game witness or
+a quiet-machine P7 benchmark. Full probe runtime was 1.10 s. Raw results and
+`getrusage` metadata are retained under `generated/cards-data-d1b3/`.
+
+`OWNED_LIMIT` is a snapshot/wipe validation bound. Exactly 100 deck cards,
+including the commander, are enforced separately by admission (CR 903.5a).
+Oversized player declarations are bounded by available/request-domain objects,
+these limits and server caps of 65,536 command bytes / 3 MiB IPC frames. The
+per-step/per-occurrence fork remains an explicit P7 performance limitation;
+these ceilings do not claim to bound all game duration, exact-integer work or
+retained journal size.
+
+### Data-only demonstration
+
+`catalog extract` selected records from the preserved current archive with full
+file hash `d705222b280a71cb5a5362f657d530b22402ca51687bac3227c1d6db403d0282`.
+`catalog build` verified complete lowering at IR v20. The 20-definition catalog
+contains 13 demonstration cards plus three commanders and four basic lands.
+Its canonical digest is
+`7e2b9084af33b7ef681b8f874612e0c55057498235c64784b2ddf8308a821837`.
+
+All thirteen demonstration cards were cast in the naturally completed 18-game
+batch (these counts are accepted cast inputs, not a replacement for instruction
+correctness witnesses):
+
+| Card | Accepted casts |
+| --- | ---: |
+| Canyon Minotaur | 6 |
+| Open Fire | 3 |
+| Flesh to Dust | 1 |
+| Dakmor Scorpion | 4 |
+| Minotaur Abomination | 2 |
+| Borderland Minotaur | 6 |
+| Lowland Giant | 5 |
+| Shock | 2 |
+| Lightning Strike | 4 |
+| Lich's Caress | 2 |
+| Sovereign's Bite | 3 |
+| Demon's Grasp | 2 |
+| Gaea's Anthem | 1 |
+
+The catalog reuses existing creature, mana, burn, destruction, temporary P/T,
+life-change and anthem capabilities. Existing capability witnesses in the
+core's damage/life, effects, staples and removal suites remain the correctness
+proofs; no new IR operation was added for these cards.
+
+`commander-data-admission-v1` completed **18/18 games**, with **zero faults,
+failures or truncations**, and independent replay. Game 00 ended naturally on
+turn **35**, winner seat **1**, after **1,376 accepted decisions / 4,262 rules
+steps**. Losses were seat 2 by Commander damage and seats 0/3 by life. Final
+state digest:
+`2d2af4085499d26327ed83b5b3ac449949c776ba8a04b31bffea1bf686f94f62`.
+
+The exact no-code proof is:
+
+```sh
+git diff --stat 57562e3 17da3a1
+# 28 files changed, 1761 insertions(+)
+git diff --name-only 57562e3 17da3a1 -- '*.rs' '*.ts'
+# no output
+```
+
+Every file in that commit is fixture data, provenance/archive metadata, a catalog
+manifest/digest/expected IR, or the profile file. No Rust or TypeScript change
+was required for the selected profile. Fresh journals/reports are ignored under
+`generated/cards-data-d1b3/batches-data-final/`.
+
+An earlier optional-card selection used Bull Rush and Throttle. Its first game
+completed and replayed, but a later Develop proposal attempted a cheap
+creature-target spell before a creature was available, producing a policy/query
+failure. The diagnostic replay's terminal-only assertion then stopped that batch.
+Those failed records remain under `generated/cards-data-d1b3/batches/`; they are
+not counted as passing. Replacing those two optional instants with Shock and
+Lightning Strike and selecting homogeneous white/red suite cases was data-only.
+This exposes a **D1c policy limitation**, not an admission or rules failure.
+
+### Verification and remaining scope
+
+Pinned toolchain: Rust 1.99.0 / Node 26.11.1. The final settled-file checks
+passed:
+
+- `npm run check:engine`: **exit 0**; formatting, Clippy with warnings denied,
+  **886 Rust tests passed**, **13 ignored** (12 pre-existing diagnostics plus
+  the separately passed manual release capacity probe), and **56 Node checks**.
+- `cargo test --locked -p mtg-server`: **exit 0**, **96 passed**, zero ignored.
+- `cargo build --release --locked -p mtg-server`: **exit 0**.
+- `MTG_SERVER_BIN=$PWD/target/release/mtg-server npm --prefix packages/game-server/sdk run verify --workspaces=false`:
+  **exit 0**, **47 Node tests**, strict TypeScript and **32 response variants**;
+  reported `preliminary-sdk-checks-passed`. Verification artifacts were copied
+  into ignored evidence and `packages/game-server/sdk/generated` removed.
+- All **22 catalog manifests** passed CLI check mode; the 21 earlier expected
+  catalogs remain unchanged. Final-data admission/capacity tests and the
+  compiler's all-committed-catalog freshness test also passed.
+- Generic new-profile replay passed; supplying foundations for that same file
+  correctly rejected with `replay profile mismatch` (expected negative exit 1).
+- Release native source manifest reported `compiled-source-closure-verified`.
+  Final release engine identity is
+  `746cf0f8cd938ac66c40315550178732811fc46153a12ed5bf8be4a5ec6ff3aa`; server identity is
+  `2ec30faa08673a00710eeb7a8308c788263b47487764c631e0c8dbf82d89d211`.
+
+Every existing profile's full 18-game batch and independent replay passed:
+**198 existing-profile games**, plus **18 new-profile games**, for **216 finished
+games**, **zero draws, faults, truncations, unfinished games or batch failures**.
+
+| Profile | Finished games | Faults |
+| --- | ---: | ---: |
+| commander-attachments-v1 | 18 | 0 |
+| commander-combat-keywords-v1 | 18 | 0 |
+| commander-data-admission-v1 | 18 | 0 |
+| commander-foundations-v1 | 18 | 0 |
+| commander-four-colors-v1 | 18 | 0 |
+| commander-keywords-v1 | 18 | 0 |
+| commander-mana-v1 | 18 | 0 |
+| commander-removal-v1 | 18 | 0 |
+| commander-sacrifice-v1 | 18 | 0 |
+| commander-staples-v1 | 18 | 0 |
+| commander-tokens-v1 | 18 | 0 |
+| commander-wipes-v1 | 18 | 0 |
+
+Raw logs, batch journals, source-closure output, SDK verification copies and
+aggregate results are ignored under `generated/cards-data-d1b3/`; the final
+engine gate is `check-engine-frozen.log`, and successful completion aggregation
+is `completion-results-final.json`. These are finite acceptance results, not a
+new search-performance, all-Commander or worst-case throughput claim.
+
+The first full gate retains three source-identity failures: its binaries were
+built before the last simulator metadata edit, and the integrity checks correctly
+rejected the changed source closure. The settled-file rerun preserved those
+checks and passed. Early compiler/test harness failures and the capacity probe's
+initial synthetic full-advance assertion failure also remain separate from the
+passing logs. The successful probe measures the explicitly described private
+fork-plus-step path; it does not claim synthetic stack projection validity.
+No failed attempt or historical evidence is upgraded into a pass.
+
+
+D1c still owns card-name completion heuristics, including target-availability
+readiness for cheap creature-target spells, strategic target selection and the
+diagnostic assumption that interaction summaries receive terminal evidence.
+Historical scenario/evidence adapters also retain named catalogs/configurations;
+they do not select legal-match rules. The generic batch/replay commands and
+completion layout metadata are complete here. D2 still owns compositional IR
+and lowering, literal/template restrictions, broader type-line/layout coverage,
+corpus coverage reporting and expanded capability witnesses. No admission
+selector or code registration was required by the demonstrated new profile.

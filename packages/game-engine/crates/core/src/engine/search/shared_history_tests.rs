@@ -7,7 +7,11 @@ fn root() -> Game {
     ))
     .unwrap();
     let mut g = Game::with_trace(
-        Prepared::admit_pod(catalog, MatchConfig::foundations([0; 32], PlayerId(0))).unwrap(),
+        Prepared::admit_pod(
+            catalog,
+            MatchConfig::for_profile("commander-foundations-v1", [0; 32], PlayerId(0)).unwrap(),
+        )
+        .unwrap(),
         TraceMode::Off,
     );
     for _ in 0..100 {

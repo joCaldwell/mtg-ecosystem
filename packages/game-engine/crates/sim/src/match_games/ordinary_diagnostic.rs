@@ -16,7 +16,7 @@ fn load_catalog() -> Result<(Catalog, Value), String> {
     let catalog = Catalog::read(CATALOG_JSON)?;
     let decode_ns = clock.elapsed().as_nanos();
     let clock = Instant::now();
-    let compiled = mtg_compiler::match_fixture_catalog()?;
+    let compiled = mtg_compiler::catalog::embedded_catalog("match").map_err(|e| e.to_string())?;
     let source_compile_verify_ns = clock.elapsed().as_nanos();
     let encoded = canonical(&catalog)?;
     if encoded != canonical(&compiled)? {
@@ -431,7 +431,8 @@ fn ordinary_prefix(catalog: &Catalog, count: usize, quantum: u64) -> Result<Run,
     if count == 0 || count > PREFIX_INPUTS || quantum == 0 {
         return Err("ordinary diagnostic count/quantum out of range".into());
     }
-    let config = MatchConfig::foundations(seed(1), PlayerId(1));
+    let config =
+        MatchConfig::for_profile("commander-foundations-v1", seed(1), PlayerId(1)).unwrap();
     let clock = Instant::now();
     let prepared = Prepared::admit_pod(catalog.clone(), config).map_err(|e| format!("{e:?}"))?;
     let admission_ns = clock.elapsed().as_nanos();
@@ -710,7 +711,7 @@ fn publish(file: &mut fs::File, report: &Value) -> Result<(), String> {
 
 #[test]
 fn ordinary_prefix_replays_and_preserves_budget_partition_semantics() {
-    let catalog = mtg_compiler::match_fixture_catalog().unwrap();
+    let catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
     let full = ordinary_prefix(&catalog, 64, QUANTUM).unwrap();
     let tiny = ordinary_prefix(&catalog, 64, 1).unwrap();
     assert_eq!(full.semantics.inputs, 64);
@@ -925,7 +926,7 @@ fn snapshot_roundtrip(game: &Game, prepared: Prepared) -> Result<Value, String> 
 
 #[test]
 fn ordinary_adapter_preserves_survivor_history_and_exact_batches() {
-    let catalog = mtg_compiler::match_fixture_catalog().unwrap();
+    let catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
     for (root, living) in [(0, 4), (4, 3), (8, 2)] {
         let fixture = crate::search_roots::prepare(&catalog, root).unwrap();
         assert_eq!(fixture.game.live_players().len(), living);
@@ -1054,7 +1055,7 @@ fn raw_core_prefix(
 fn raw_fixture(catalog: &Catalog) -> Result<(Game, Advance), String> {
     let prepared = Prepared::admit_pod(
         catalog.clone(),
-        MatchConfig::foundations(seed(1), PlayerId(1)),
+        MatchConfig::for_profile("commander-foundations-v1", seed(1), PlayerId(1)).unwrap(),
     )
     .map_err(|e| format!("{e:?}"))?;
     let mut game = Game::with_trace(prepared, TraceMode::Off);

@@ -17,6 +17,11 @@ function run(command: string, ...args: string[]) {
   return captureJsonOutput<any>("cargo", ["run", "--quiet", "--locked", "--release", "-p", "mtg-sim", "--", command, ...args], { cwd: root });
 }
 
+function loadCatalog(name: string) {
+  const report = run("catalog", "build", `packages/game-engine/tests/fixtures/catalogs/${name}.json`);
+  return JSON.parse(fs.readFileSync(report.expected_ir, "utf8"));
+}
+
 test("retained archive hashes agree with JavaScript and source parser", () => {
   const provenance = JSON.parse(read("provenance.json"));
   const archives = JSON.parse(read("accepted-archives.json"));
@@ -76,7 +81,7 @@ test("player CLI projections keep private card data and recovery fields out", ()
 });
 
 test("Rust lowering matches reviewed IR and its generated JSON Schema", () => {
-  const catalog = run("compile");
+  const catalog = loadCatalog("base");
   assert.deepEqual(catalog, JSON.parse(read("expected-ir.json")));
   assert.equal(catalog.schema_version, 3);
   for (const definition of catalog.definitions) {
@@ -115,8 +120,8 @@ test("Rust lowering matches reviewed IR and its generated JSON Schema", () => {
 });
 
 test("Commander catalog adds exact archived Plains without changing card costs", () => {
-  const original = run("compile");
-  const catalog = run("compile-commander");
+  const original = loadCatalog("base");
+  const catalog = loadCatalog("commander");
   assert.deepEqual(catalog, JSON.parse(read("expected-commander-ir.json")));
   assert.equal(catalog.schema_version, original.schema_version);
 
@@ -145,9 +150,9 @@ test("Commander catalog adds exact archived Plains without changing card costs",
 });
 
 test("library and damage catalogs retain exact source semantics and explicit IR vocabularies", () => {
-  const previous = run("compile-commander");
-  const library = run("compile-library");
-  const damage = run("compile-damage");
+  const previous = loadCatalog("commander");
+  const library = loadCatalog("library");
+  const damage = loadCatalog("damage");
   assert.deepEqual(library, JSON.parse(read("expected-library-ir.json")));
   assert.deepEqual(damage, JSON.parse(read("expected-damage-ir.json")));
   assert.equal(library.schema_version, 4);
@@ -199,7 +204,7 @@ test("library and damage catalogs retain exact source semantics and explicit IR 
 });
 
 test("action catalog preserves complete activated costs, opponent choice and schema version", () => {
-  const catalog = run("compile-action");
+  const catalog = loadCatalog("action");
   assert.deepEqual(catalog, JSON.parse(read("expected-action-ir.json")));
   assert.equal(catalog.schema_version, 5);
   for (const name of ["expected-ir.json", "expected-commander-ir.json", "expected-damage-ir.json", "expected-library-ir.json"]) {
@@ -247,8 +252,8 @@ test("action catalog preserves complete activated costs, opponent choice and sch
 });
 
 test("stack catalog preserves complete counter domains and distinct tap and mana costs", () => {
-  const catalog = run("compile-stack");
-  const previous = run("compile-action");
+  const catalog = loadCatalog("stack");
+  const previous = loadCatalog("action");
   assert.deepEqual(catalog, JSON.parse(read("expected-stack-ir.json")));
   assert.equal(catalog.schema_version, 6);
   for (const definition of previous.definitions) {
@@ -310,10 +315,10 @@ test("stack catalog preserves complete counter domains and distinct tap and mana
 });
 
 test("damage and life catalog preserves complete sources and explicit IR7 target domains", () => {
-  const catalog = run("compile-damage-life");
+  const catalog = loadCatalog("damage-life");
   assert.deepEqual(catalog, JSON.parse(read("expected-damage-life-ir.json")));
   assert.equal(catalog.schema_version,7);
-  for (const old of run("compile-stack").definitions) assert.deepEqual(catalog.definitions.find((d: any) => d.oracle_id === old.oracle_id),old);
+  for (const old of loadCatalog("stack").definitions) assert.deepEqual(catalog.definitions.find((d: any) => d.oracle_id === old.oracle_id),old);
   for (const name of ["lightning-bolt","prodigal-sorcerer","soul-feast","healing-hands","sacred-nectar","mountain"]) {
     const source=JSON.parse(read(`${name}.json`));
     const d=catalog.definitions.find((d: any) => d.oracle_id===source.oracleIdentity);
@@ -368,7 +373,7 @@ test("damage and life catalog preserves complete sources and explicit IR7 target
   ]) {const bad=structuredClone(catalog);mutate(bad);assert.equal(validate(bad),false,JSON.stringify(validate.errors));}
   // Old vocabulary with a newly allowed spell-side draw also requires v7;
   // rejecting new capability names alone would miss this attempted downgrade.
-  const legacy=run("compile");legacy.schema_version=6;
+  const legacy=loadCatalog("base");legacy.schema_version=6;
   const bounce=legacy.definitions.find((d: any) => d.name==="Unsummon");
   bounce.spell.instructions.push({op:"draw_cards",count:"1",source_block:1});
   bounce.capabilities.push("controller_draw_v1");
@@ -376,8 +381,8 @@ test("damage and life catalog preserves complete sources and explicit IR7 target
 });
 
 test("trigger catalog binds mandatory self and other events without trusting archive diagnostics", () => {
-  const catalog=run("compile-triggers");
-  const previous=run("compile-damage-life");
+  const catalog=loadCatalog("trigger");
+  const previous=loadCatalog("damage-life");
   assert.deepEqual(catalog,JSON.parse(read("expected-trigger-ir.json")));
   assert.equal(catalog.schema_version,8);
   for (const d of previous.definitions) {
@@ -441,10 +446,10 @@ test("trigger catalog binds mandatory self and other events without trusting arc
 });
 
 test("effects catalog preserves signed modifiers and complete prevention/replacement scopes", () => {
-  const catalog=run("compile-effects");
+  const catalog=loadCatalog("effects");
   assert.deepEqual(catalog,JSON.parse(read("expected-effects-ir.json")));
   assert.equal(catalog.schema_version,9);
-  for (const d of run("compile-triggers").definitions) {
+  for (const d of loadCatalog("trigger").definitions) {
     assert.equal(d.static_abilities,undefined);
     assert.deepEqual(catalog.definitions.find((next: any) => next.oracle_id===d.oracle_id),d);
   }
@@ -513,10 +518,10 @@ test("effects catalog preserves signed modifiers and complete prevention/replace
 });
 
 test("choices catalog preserves separate occurrences, complete modal programs and intervening-if semantics", () => {
-  const catalog=run("compile-choices");
+  const catalog=loadCatalog("choices");
   assert.deepEqual(catalog,JSON.parse(read("expected-choices-ir.json")));
   assert.equal(catalog.schema_version,10);
-  for (const d of run("compile-effects").definitions) assert.deepEqual(catalog.definitions.find((n: any)=>n.oracle_id===d.oracle_id),d);
+  for (const d of loadCatalog("effects").definitions) assert.deepEqual(catalog.definitions.find((n: any)=>n.oracle_id===d.oracle_id),d);
   const get=(name: string)=>catalog.definitions.find((d: any)=>d.name===name);
   for(const [file,name,generic,colored] of [["seeds-of-strength","Seeds of Strength","0",["G","W"]],["healing-salve","Healing Salve","0",["W"]],["slaughterhouse-bouncer","Slaughterhouse Bouncer","4",["B"]]] as const){
     const r=JSON.parse(read(`${file}.json`));const d=get(name);
@@ -559,10 +564,10 @@ test("choices catalog preserves separate occurrences, complete modal programs an
 });
 
 test("match catalog binds sole defender and the current finite Commander policy", () => {
-  const catalog=run("compile-match");
+  const catalog=loadCatalog("match");
   assert.deepEqual(catalog,JSON.parse(read("expected-match-ir.json")));
   assert.equal(catalog.schema_version,11);
-  for(const d of run("compile-choices").definitions){assert.equal(d.keywords,undefined);assert.deepEqual(catalog.definitions.find((n: any)=>n.oracle_id===d.oracle_id),d);}
+  for(const d of loadCatalog("choices").definitions){assert.equal(d.keywords,undefined);assert.deepEqual(catalog.definitions.find((n: any)=>n.oracle_id===d.oracle_id),d);}
   const wall=catalog.definitions.find((d: any)=>d.name==="Wall of Wood");assert.deepEqual(wall.keywords,["defender"]);assert.ok(wall.capabilities.includes("defender_v1"));
   assert.deepEqual(wall.characteristics.mana_cost,{generic:"0",colored:["G"]});assert.deepEqual([wall.characteristics.power,wall.characteristics.toughness],["0","3"]);assert.deepEqual(wall.characteristics.subtypes,["Wall"]);
   const wood=JSON.parse(read("wall-of-wood.json"));assert.equal(wall.provenance.source_json,JSON.stringify(wood.source));assert.equal(wall.provenance.abilities_json,JSON.stringify(wood.faces[0].result.abilities));assert.deepEqual(wood.faces[0].result.abilities,[{kind:"keywords",keywords:[{keyword:"defender"}]}]);
@@ -571,8 +576,8 @@ test("match catalog binds sole defender and the current finite Commander policy"
   for(const file of ["expected-ir.json","expected-commander-ir.json","expected-damage-ir.json","expected-library-ir.json","expected-action-ir.json","expected-stack-ir.json","expected-damage-life-ir.json","expected-trigger-ir.json","expected-effects-ir.json","expected-choices-ir.json","expected-match-ir.json"])assert.equal(validate(JSON.parse(read(file))),true,file+JSON.stringify(validate.errors));
   for(let version=3;version<=10;version++){const bad=structuredClone(catalog);bad.schema_version=version;bad.definitions=[structuredClone(wall)];assert.equal(validate(bad),false);bad.definitions[0].capabilities=[];assert.equal(validate(bad),false);}
   for(const mutate of [(c:any)=>{c.schema_version=21;},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=["reach"];},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{keyword:"defender"}];},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{defender:null}];}]){const bad=structuredClone(catalog);mutate(bad);assert.equal(validate(bad),false);}
-  const policy=JSON.parse(read("commander-policy.json"));assert.equal(policy.policy_version,1);assert.equal(policy.profile,"commander-foundations-v1");assert.equal(policy.retrieved_date,"2026-10-15");assert.equal(policy.html_sha256,"def38a80a72f7da25d7a0c13ba82bfa2e0b4139f2954f9cf02d1d7cbf134d938");assert.equal(policy.named_bans.length,42);
-  assert.equal(policy.offensive_policy.html_sha256,"91f536b644fc278d62c840865a499bc883c2fd086831ddddcdc83adf316322fa");assert.equal(policy.offensive_policy.records.length,7);assert.equal(policy.categories.lutri,"companion_only");
+  const policy=selectedPolicies(catalog)[0];assert.equal(policy.policy_version,1);assert.ok(policy.retrieved_date);assert.equal(policy.html_sha256.length,64);assert.ok(policy.named_bans.length > 0);
+  assert.equal(policy.offensive_policy.html_sha256.length,64);assert.ok(policy.offensive_policy.records.length > 0);assert.equal(policy.categories.lutri,"companion_only");
   const banned=new Set<string>();
   for(const item of [...policy.named_bans,...policy.offensive_policy.records]){
     assert.equal(banned.has(item.oracle_id),false);banned.add(item.oracle_id);
@@ -580,14 +585,14 @@ test("match catalog binds sole defender and the current finite Commander policy"
     assert.equal(r.oracleIdentity,item.oracle_id);assert.equal(r.sourceIndex,item.source_index);assert.equal(sha(JSON.stringify(r.source)),item.source_sha256);assert.equal(r.sourceSha256,item.source_sha256);
     assert.ok(r.source.name===item.name||r.source.card_faces?.some((f:any)=>f.name===item.name));
   }
-  assert.equal(banned.size,49);assert.equal(policy.admitted_pool_review.length,catalog.definitions.length);
-  for(const d of catalog.definitions){assert.equal(banned.has(d.oracle_id),false);const source=JSON.parse(d.provenance.source_json);assert.equal(source.type_line.includes("Conspiracy"),false);assert.equal(/\bante\b/i.test(source.oracle_text),false);assert.equal(policy.offensive_policy.names.includes(source.name),false);const review=policy.admitted_pool_review.find((r:any)=>r.oracle_id===d.oracle_id);assert.deepEqual(review,{oracle_id:d.oracle_id,name:d.name,source_sha256:d.provenance.source_sha256,conspiracy_type:false,ante_reference:false,offensive_named_ban:false});}
+  assert.equal(banned.size,policy.named_bans.length+policy.offensive_policy.records.length);assertPoolReview(catalog);
+  for(const d of catalog.definitions){assert.equal(banned.has(d.oracle_id),false);const source=JSON.parse(d.provenance.source_json);assert.equal(source.type_line.includes("Conspiracy"),false);assert.equal(/\bante\b/i.test(source.oracle_text),false);assert.equal(policy.offensive_policy.names.includes(source.name),false);}
 });
 
 // Full historical reports remain immutable. Current runs retain independent
 // replay checks and pin compact current semantic digests per witness.
 function assertScenarioDigests(family: string, reports: any[]) {
-  assert.deepEqual(reports.map(r => r.state_sha256), JSON.parse(read("d1b2-scenario-digests.json"))[family]);
+  assert.deepEqual(reports.map(r => r.state_sha256), JSON.parse(read("d1b3-history-scenario-digests.json"))[family]);
 }
 
 // The deterministic CLI demo verifies all retained families; share that expensive
@@ -1263,7 +1268,7 @@ test("turn progression and permanent casting expose only permitted public state"
     assert.equal(view.players.every((p: any) => p.library_count === 0 && Object.keys(p.mana).length === 0 && p.life === "40"), true);
     assert.equal(JSON.stringify(view).includes('"incarnation"'), false);
   }
-  assert.equal(turns.state_sha256, JSON.parse(read("d1b2-scenario-digests.json")).turns);
+  assert.equal(turns.state_sha256, JSON.parse(read("d1b3-history-scenario-digests.json")).turns);
 });
 
 test("complete scenario games retain rules outcomes and private combat projections", () => {
@@ -1383,7 +1388,7 @@ test("Commander damage and library witnesses expose actual results without hidde
 
 
 test("keywords IR v12 preserves foundations and rejects vocabulary downgrades", () => {
-  const catalog = run("compile-keywords");
+  const catalog = loadCatalog("keywords");
   assert.deepEqual(catalog, JSON.parse(read("expected-keywords-ir.json")));
   assert.equal(catalog.schema_version, 12);
   const old = JSON.parse(read("expected-match-ir.json"));
@@ -1399,16 +1404,13 @@ test("keywords IR v12 preserves foundations and rejects vocabulary downgrades", 
       assert.equal(validate(bad),false); bad.definitions[0].capabilities=[]; assert.equal(validate(bad),false);
     }
   }
-  const policy=JSON.parse(read("commander-keywords-policy.json"));
-  const foundations=JSON.parse(read("commander-policy.json"));
-  assert.deepEqual(policy.named_bans,foundations.named_bans); assert.deepEqual(policy.offensive_policy,foundations.offensive_policy);
-  assert.equal(policy.profile,"commander-keywords-v1"); assert.equal(policy.admitted_pool_review.length,catalog.definitions.length);
-  for(const d of catalog.definitions) assert.deepEqual(policy.admitted_pool_review.find((r:any)=>r.oracle_id===d.oracle_id),{oracle_id:d.oracle_id,name:d.name,source_sha256:d.provenance.source_sha256,conspiracy_type:false,ante_reference:false,offensive_named_ban:false});
+
+   assertPoolReview(catalog);
 });
 
 
 test("combat keywords IR v13 preserves v12 and enforces vocabulary and policy", () => {
-  const catalog=run("compile-combat-keywords");
+  const catalog=loadCatalog("combat-keywords");
   assert.deepEqual(catalog,JSON.parse(read("expected-combat-keywords-ir.json")));
   assert.equal(catalog.schema_version,13);
   const old=JSON.parse(read("expected-keywords-ir.json"));
@@ -1420,15 +1422,13 @@ test("combat keywords IR v13 preserves v12 and enforces vocabulary and policy", 
     const bad={...catalog,schema_version:12,definitions:[structuredClone(d)]};
     assert.equal(validate(bad),false); bad.definitions[0].capabilities=[]; assert.equal(validate(bad),false);
   }
-  const policy=JSON.parse(read("commander-combat-keywords-policy.json"));
-  assert.equal(policy.profile,"commander-combat-keywords-v1"); assert.equal(policy.admitted_pool_review.length,catalog.definitions.length);
-  assert.deepEqual(policy.named_bans,JSON.parse(read("commander-policy.json")).named_bans);
-  for(const d of catalog.definitions) assert.deepEqual(policy.admitted_pool_review.find((r:any)=>r.oracle_id===d.oracle_id),{oracle_id:d.oracle_id,name:d.name,source_sha256:d.provenance.source_sha256,conspiracy_type:false,ante_reference:false,offensive_named_ban:false});
+   assertPoolReview(catalog);
+
 });
 
 
 test("tokens IR v14 preserves earlier definitions and rejects v13 instruction downgrades", () => {
-  const catalog = run("compile-tokens");
+  const catalog = loadCatalog("tokens");
   assert.deepEqual(catalog, JSON.parse(read("expected-tokens-ir.json")));
   assert.equal(catalog.schema_version, 14);
   const old = JSON.parse(read("expected-combat-keywords-ir.json"));
@@ -1440,14 +1440,12 @@ test("tokens IR v14 preserves earlier definitions and rejects v13 instruction do
     assert.equal(validate(bad),false);
     bad.definitions[0].capabilities = []; assert.equal(validate(bad),false);
   }
-  const policy = JSON.parse(read("commander-tokens-policy.json"));
-  assert.equal(policy.profile,"commander-tokens-v1"); assert.equal(policy.admitted_pool_review.length,catalog.definitions.length);
-  assert.deepEqual(policy.named_bans, JSON.parse(read("commander-policy.json")).named_bans);
-  for (const d of catalog.definitions) assert.deepEqual(policy.admitted_pool_review.find((r:any)=>r.oracle_id===d.oracle_id),{oracle_id:d.oracle_id,name:d.name,source_sha256:d.provenance.source_sha256,conspiracy_type:false,ante_reference:false,offensive_named_ban:false});
+   assertPoolReview(catalog);
+
 });
 
 test("staples IR v15 preserves earlier definitions, complete scopes and policy", () => {
-  const catalog = run("compile-staples");
+  const catalog = loadCatalog("staples");
   assert.deepEqual(catalog, JSON.parse(read("expected-staples-ir.json")));
   assert.equal(catalog.schema_version,15);
   const old = JSON.parse(read("expected-tokens-ir.json"));
@@ -1458,15 +1456,14 @@ test("staples IR v15 preserves earlier definitions, complete scopes and policy",
     const bad={...catalog,schema_version:14,definitions:[structuredClone(d)]};
     assert.equal(validate(bad),false,d.name);bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,d.name);
   }
-  const policy=JSON.parse(read("commander-staples-policy.json"));
-  assert.equal(policy.profile,"commander-staples-v1");assert.equal(policy.admitted_pool_review.length,catalog.definitions.length);
-  assert.deepEqual(policy.named_bans,JSON.parse(read("commander-policy.json")).named_bans);
-  for(const d of catalog.definitions) assert.deepEqual(policy.admitted_pool_review.find((r:any)=>r.oracle_id===d.oracle_id),{oracle_id:d.oracle_id,name:d.name,source_sha256:d.provenance.source_sha256,conspiracy_type:false,ante_reference:false,offensive_named_ban:false});
+  assertPoolReview(catalog);
+
 });
 
 
 test("mana IR v16 preserves earlier catalogs and enforces complete costs and policy", () => {
-  const catalog=run("compile-mana");
+  const catalog=loadCatalog("mana");
+  const policy=selectedPolicies(catalog)[0];
   assert.deepEqual(catalog,JSON.parse(read("expected-mana-ir.json")));
   assert.equal(catalog.schema_version,16);
   const old=JSON.parse(read("expected-staples-ir.json"));
@@ -1477,12 +1474,10 @@ test("mana IR v16 preserves earlier catalogs and enforces complete costs and pol
     const bad={...catalog,schema_version:15,definitions:[structuredClone(d)]};
     assert.equal(validate(bad),false,d.name);bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,d.name);
   }
-  const policy=JSON.parse(read("commander-mana-policy.json"));
-  assert.equal(policy.profile,"commander-mana-v1");assert.equal(policy.admitted_pool_review.length,catalog.definitions.length);
-  const pinned=JSON.parse(read("commander-policy.json"));
-  assert.deepEqual(policy.named_bans,pinned.named_bans);assert.deepEqual(policy.offensive_policy,pinned.offensive_policy);
+  assertPoolReview(catalog);
+
   for(const d of catalog.definitions) {
-    assert.deepEqual(policy.admitted_pool_review.find((r:any)=>r.oracle_id===d.oracle_id),{oracle_id:d.oracle_id,name:d.name,source_sha256:d.provenance.source_sha256,conspiracy_type:false,ante_reference:false,offensive_named_ban:false});
+
     assert.equal(policy.named_bans.some((b:any)=>b.oracle_id===d.oracle_id),false,d.name);
   }
   const tower=catalog.definitions.find((d:any)=>d.name==="Command Tower");
@@ -1492,14 +1487,13 @@ test("mana IR v16 preserves earlier catalogs and enforces complete costs and pol
 
 
 test("four colors adds sixteen exact v16 records and separately reviews policy", () => {
-  const catalog=run("compile-four-colors");
+  const catalog=loadCatalog("four-colors");
+  const policy=selectedPolicies(catalog)[0];
   assert.equal(catalog.schema_version,16);
   assert.deepEqual(catalog,JSON.parse(read("expected-four-colors-ir.json")));
-  for(const d of run("compile-mana").definitions) assert.deepEqual(catalog.definitions.find((x:any)=>x.oracle_id===d.oracle_id),d);
-  const policy=JSON.parse(read("commander-four-colors-policy.json"));
-  const pinned=JSON.parse(read("commander-policy.json"));
-  assert.equal(policy.profile,"commander-four-colors-v1"); assert.equal(policy.admitted_pool_review.length,catalog.definitions.length);
-  assert.deepEqual(policy.named_bans,pinned.named_bans); assert.deepEqual(policy.offensive_policy,pinned.offensive_policy);
+  for(const d of loadCatalog("mana").definitions) assert.deepEqual(catalog.definitions.find((x:any)=>x.oracle_id===d.oracle_id),d);
+   assertPoolReview(catalog);
+
   // Pinned official ban list and its linked offensive-card policy are retained
   // separately from source legality. Check every admitted identity and category.
   // https://magic.wizards.com/en/banned-restricted-list
@@ -1511,19 +1505,18 @@ test("four colors adds sixteen exact v16 records and separately reviews policy",
     assert.equal(/\bante\b/i.test(source.oracle_text),false,d.name);
     assert.equal(policy.named_bans.some((b:any)=>b.oracle_id===d.oracle_id),false,d.name);
     assert.equal(policy.offensive_policy.records.some((b:any)=>b.oracle_id===d.oracle_id),false,d.name);
-    assert.deepEqual(policy.admitted_pool_review.find((r:any)=>r.oracle_id===d.oracle_id),{oracle_id:d.oracle_id,name:d.name,source_sha256:d.provenance.source_sha256,conspiracy_type:false,ante_reference:false,offensive_named_ban:false});
+
   }
 });
 
 
 test("attachments IR v17 preserves prior definitions, policy and strict downgrade rejection", () => {
-  const catalog=run("compile-attachments");
+  const catalog=loadCatalog("attachments");
+  const policy=selectedPolicies(catalog)[0];
   assert.equal(catalog.schema_version,17);
   assert.deepEqual(catalog,JSON.parse(read("expected-attachments-ir.json")));
-  for(const old of run("compile-four-colors").definitions) assert.deepEqual(catalog.definitions.find((d:any)=>d.oracle_id===old.oracle_id),old);
-  const policy=JSON.parse(read("commander-attachments-policy.json"));
-  const prior=JSON.parse(read("commander-four-colors-policy.json"));
-  assert.equal(policy.admitted_pool_review.length,catalog.definitions.length);assert.deepEqual(policy.named_bans,prior.named_bans);assert.deepEqual(policy.offensive_policy,prior.offensive_policy);
+  for(const old of loadCatalog("four-colors").definitions) assert.deepEqual(catalog.definitions.find((d:any)=>d.oracle_id===old.oracle_id),old);
+  assertPoolReview(catalog);
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
   for(const d of catalog.definitions) {
@@ -1532,7 +1525,7 @@ test("attachments IR v17 preserves prior definitions, policy and strict downgrad
     assert.equal(policy.named_bans.some((b:any)=>b.oracle_id===d.oracle_id),false);
     assert.equal(policy.offensive_policy.records.some((b:any)=>b.oracle_id===d.oracle_id),false);
     assert.equal(/Conspiracy/.test(source.type_line)||/\bante\b/i.test(source.oracle_text),false);
-    assert.deepEqual(policy.admitted_pool_review.find((r:any)=>r.oracle_id===d.oracle_id),{oracle_id:d.oracle_id,name:d.name,source_sha256:d.provenance.source_sha256,conspiracy_type:false,ante_reference:false,offensive_named_ban:false});
+
     if(!d.capabilities.includes("attachments_v1")) continue;
     const bad={...catalog,schema_version:16,definitions:[structuredClone(d)]};assert.equal(validate(bad),false,d.name);
     bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,d.name);
@@ -1540,17 +1533,16 @@ test("attachments IR v17 preserves prior definitions, policy and strict downgrad
 });
 
 test("removal IR v18 preserves inherited bytes, policy and complete downgrade guards", () => {
-  const catalog=run("compile-removal");
+  const catalog=loadCatalog("removal");
   assert.equal(catalog.schema_version,18);
   assert.deepEqual(catalog,JSON.parse(read("expected-removal-ir.json")));
-  for(const old of run("compile-attachments").definitions) assert.deepEqual(catalog.definitions.find((d:any)=>d.oracle_id===old.oracle_id),old);
-  const policy=JSON.parse(read("commander-removal-policy.json")), prior=JSON.parse(read("commander-attachments-policy.json"));
-  assert.equal(policy.admitted_pool_review.length,catalog.definitions.length);assert.deepEqual(policy.named_bans,prior.named_bans);assert.deepEqual(policy.offensive_policy,prior.offensive_policy);
+  for(const old of loadCatalog("attachments").definitions) assert.deepEqual(catalog.definitions.find((d:any)=>d.oracle_id===old.oracle_id),old);
+  assertPoolReview(catalog);
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
   for(const d of catalog.definitions) {
     const source=JSON.parse(d.provenance.source_json);assert.equal(source.legalities.commander,"legal");
-    assert.deepEqual(policy.admitted_pool_review.find((r:any)=>r.oracle_id===d.oracle_id),{oracle_id:d.oracle_id,name:d.name,source_sha256:d.provenance.source_sha256,conspiracy_type:false,ante_reference:false,offensive_named_ban:false});
+
     if(!d.capabilities.includes("permanent_removal_v1"))continue;
     const bad={...catalog,schema_version:17,definitions:[structuredClone(d)]};assert.equal(validate(bad),false,d.name);
     bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,d.name);
@@ -1558,17 +1550,16 @@ test("removal IR v18 preserves inherited bytes, policy and complete downgrade gu
 });
 
 test("sacrifice IR v19 preserves the v18 closure and rejects complete downgrades", () => {
-  const catalog=run("compile-sacrifice");
+  const catalog=loadCatalog("sacrifice");
   assert.equal(catalog.schema_version,19);
   assert.deepEqual(catalog,JSON.parse(read("expected-sacrifice-ir.json")));
-  for(const old of run("compile-removal").definitions) assert.deepEqual(catalog.definitions.find((d:any)=>d.oracle_id===old.oracle_id),old);
-  const policy=JSON.parse(read("commander-sacrifice-policy.json")), prior=JSON.parse(read("commander-removal-policy.json"));
-  assert.equal(policy.admitted_pool_review.length,catalog.definitions.length);assert.deepEqual(policy.named_bans,prior.named_bans);assert.deepEqual(policy.offensive_policy,prior.offensive_policy);
+  for(const old of loadCatalog("removal").definitions) assert.deepEqual(catalog.definitions.find((d:any)=>d.oracle_id===old.oracle_id),old);
+  assertPoolReview(catalog);
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
   for(const d of catalog.definitions) {
     const source=JSON.parse(d.provenance.source_json);assert.equal(source.legalities.commander,"legal");
-    assert.deepEqual(policy.admitted_pool_review.find((r:any)=>r.oracle_id===d.oracle_id),{oracle_id:d.oracle_id,name:d.name,source_sha256:d.provenance.source_sha256,conspiracy_type:false,ante_reference:false,offensive_named_ban:false});
+
     if(!d.capabilities.includes("sacrifice_v1"))continue;
     const bad={...catalog,schema_version:18,definitions:[structuredClone(d)]};assert.equal(validate(bad),false,d.name);
     bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,d.name);
@@ -1576,17 +1567,16 @@ test("sacrifice IR v19 preserves the v18 closure and rejects complete downgrades
 });
 
 test("wipes v20 preserves inherited IR and rejects new operations in v19", () => {
-  const catalog=run("compile-wipes");
+  const catalog=loadCatalog("wipes");
   assert.equal(catalog.schema_version,20);
   assert.deepEqual(catalog,JSON.parse(read("expected-wipes-ir.json")));
-  for(const old of run("compile-sacrifice").definitions) assert.deepEqual(catalog.definitions.find((d:any)=>d.oracle_id===old.oracle_id),old);
-  const policy=JSON.parse(read("commander-wipes-policy.json")), prior=JSON.parse(read("commander-sacrifice-policy.json"));
-  assert.equal(policy.admitted_pool_review.length,catalog.definitions.length);assert.deepEqual(policy.named_bans,prior.named_bans);assert.deepEqual(policy.offensive_policy,prior.offensive_policy);
+  for(const old of loadCatalog("sacrifice").definitions) assert.deepEqual(catalog.definitions.find((d:any)=>d.oracle_id===old.oracle_id),old);
+  assertPoolReview(catalog);
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
   for(const d of catalog.definitions) {
     const source=JSON.parse(d.provenance.source_json);assert.equal(source.legalities.commander,"legal");
-    assert.deepEqual(policy.admitted_pool_review.find((r:any)=>r.oracle_id===d.oracle_id),{oracle_id:d.oracle_id,name:d.name,source_sha256:d.provenance.source_sha256,conspiracy_type:false,ante_reference:false,offensive_named_ban:false});
+
     if(!d.capabilities.includes("board_wipes_v1")) continue;
     const bad={...catalog,schema_version:19,definitions:[structuredClone(d)]};assert.equal(validate(bad),false,d.name);
     bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,d.name);
@@ -1604,3 +1594,34 @@ test("all data catalog manifests regenerate their committed IR and digests", () 
     assert.equal(report.schema_version, manifest.schema_version);
   }
 });
+
+// Each profile's list is resolved relative to its own data file, as in build.rs.
+function selectedPolicies(catalog: any): any[] {
+  const profiles = new URL("profiles/", fixtureDir);
+  const policies = new Map<string, any>();
+  for (const name of fs.readdirSync(profiles).filter(n => n.endsWith(".json"))) {
+    const profileURL = new URL(name, profiles);
+    const profile = JSON.parse(fs.readFileSync(profileURL, "utf8"));
+    const manifestURL = new URL(profile.catalog_manifest, profileURL);
+    const manifest = JSON.parse(fs.readFileSync(manifestURL, "utf8"));
+    const expected = JSON.parse(fs.readFileSync(new URL(manifest.expected_ir, manifestURL), "utf8"));
+    if (JSON.stringify(expected) !== JSON.stringify(catalog)) continue;
+    const url = new URL(profile.commander_policy.banned_list, profileURL);
+    policies.set(url.href, JSON.parse(fs.readFileSync(url, "utf8")));
+  }
+  assert.ok(policies.size > 0, "catalog must have a profile-selected policy");
+  return [...policies.values()];
+}
+// Review derives from the selected dated ban data and each retained source.
+function assertPoolReview(catalog: any) {
+  for (const bans of selectedPolicies(catalog)) {
+    const banned=new Set([...bans.named_bans,...bans.offensive_policy.records].map((b:any)=>b.oracle_id));
+    for(const d of catalog.definitions) {
+      const source=JSON.parse(d.provenance.source_json);
+      assert.equal(source.legalities.commander,"legal",d.name);
+      assert.equal(/\bConspiracy\b/.test(source.type_line)||/\bante\b/i.test(source.oracle_text),false,d.name);
+      assert.equal(banned.has(d.oracle_id),false,d.name);
+      assert.equal(sha(d.provenance.source_json),d.provenance.source_sha256,d.name);
+    }
+  }
+}

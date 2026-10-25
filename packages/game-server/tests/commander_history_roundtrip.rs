@@ -55,8 +55,13 @@ fn naturally_paid_cast_and_combat_histories_survive_store_ipc_and_recovery() {
         .oracle_id
         .clone();
     let config = MatchConfig {
-        decks: std::array::from_fn(|_| mtg_core::white_deck()),
-        ..MatchConfig::foundations([3; 32], PlayerId(0))
+        decks: std::array::from_fn(|_| {
+            mtg_core::match_profile("commander-foundations-v1")
+                .unwrap()
+                .decks[0]
+                .clone()
+        }),
+        ..MatchConfig::for_profile("commander-foundations-v1", [3; 32], PlayerId(0)).unwrap()
     };
     let commander = config.decks[0].commander.clone();
     let mut worker =

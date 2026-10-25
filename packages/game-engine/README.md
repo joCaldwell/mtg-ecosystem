@@ -21,7 +21,7 @@ window after targets, immediate intrinsic mana activation, and keep-all/undo-all
 choices on failed payment. A fourth exact profile uses two source-backed Forests
 to demonstrate unpayable U costs and preservation of pre-cast mana.
 
-The compiler now emits five frozen source definitions and runs a four-seat
+The compiler now verifies five frozen source definitions and runs a four-seat
 land-mana / targeted return-to-hand scenario with strict admission, serializable
 announcement, owned/incarnation identities, events, restore, fork, and replay.
 The [turns slice](../../docs/game-engine-turns-slice.md) adds a deterministic
@@ -75,9 +75,10 @@ cargo run --locked --release -p mtg-sim -- damage-library-games --recover
 cargo run --locked --release -p mtg-sim -- demo --bundle generated/p2-bundles
 ```
 
-`mtg-sim compile` emits the historical fixture catalog; `compile-commander` emits
-that six-definition catalog. `compile-damage` and `compile-library` emit the
-separate seven-definition catalogs. The damage catalog remains IR v3; the library
+`mtg-sim catalog build packages/game-engine/tests/fixtures/catalogs/NAME.json`
+compiles and verifies any catalog manifest; `--write` regenerates its expected IR
+and digest. The emitted report names the IR output file. This replaces all
+historical per-catalog compile commands. The damage catalog remains IR v3; the library
 catalog uses IR v4 for sorcery timing and explicit top placement. `schema` exports their generated
 JSON Schema; `report` includes the paired unsupported source definition;
 `verify-bundle <file>` recompiles retained records and checks recovery/replay
@@ -130,8 +131,8 @@ branch mutations remain independent.
 The [action/payment slice](../../docs/game-engine-actions-payments.md) adds four
 exact configurations, explicit mixed-color spending and real taxed Yargle
 recasting, Cruel Edict opponent/sacrifice decisions, and Hapless Researcher
-source-sacrifice activation with draw/discard continuation. `compile-action`
-emits its eleven-definition IR v5 catalog. `actions-payments-games --recover`
+source-sacrifice activation with draw/discard continuation. `catalog build …/catalogs/action.json`
+verifies its eleven-definition IR v5 catalog. `actions-payments-games --recover`
 verifies fourteen source-backed policies and all 1,120 new recovery boundaries.
 Together the five catalogs cover seventeen exact configurations, 5,741
 combat/Commander/action recovery boundaries, and the historical checkpoints.
@@ -141,7 +142,7 @@ These remain closed scenarios, not arbitrary decks or legal Commander matches.
 
 The [stack/cost slice](../../docs/game-engine-stack-costs.md) adds four exact
 configurations with Counterspell, Stifle, Merfolk Looter and Azure Mage.
-`compile-stack` emits its fifteen-definition IR v6 catalog;
+`catalog build …/catalogs/stack.json` verifies its fifteen-definition IR v6 catalog;
 `stack-costs-games --recover` verifies eighteen player-facing policies and all
 1,707 new recovery boundaries. Its stack handles distinguish different abilities
 from the same source. Tap costs enforce continuous control; mana-cost abilities
@@ -151,7 +152,7 @@ and 7,448 combat/Commander/action/stack recovery boundaries, plus legacy checkpo
 
 The [damage/life slice](../../docs/game-engine-damage-life.md) adds five exact
 configurations with Lightning Bolt, Prodigal Sorcerer, Soul Feast, Healing Hands,
-Sacred Nectar and Mountain. `compile-damage-life` emits its twenty-one-definition
+Sacred Nectar and Mountain. `catalog build …/catalogs/damage-life.json` verifies its twenty-one-definition
 IR v7 catalog; `damage-life-games --recover` verifies twenty-eight player-facing
 policies and 1,198 new recovery boundaries. Mixed target selections distinguish creature handles from player seats;
 targeted tap abilities retain independent source identity after departure. Ordered
@@ -161,8 +162,8 @@ by this historical catalog. The seven catalogs cover 26 exact configurations, 25
 trace-mode executions and 8,646 recovery boundaries, plus legacy checkpoints.
 
 The [ordinary-trigger slice](../../docs/game-engine-triggers.md) adds five exact
-profiles with Blood Artist, Elvish Visionary and Essence Warden. `compile-triggers`
-emits its twenty-four-definition IR v8 catalog; `trigger-games --recover` verifies
+profiles with Blood Artist, Elvish Visionary and Essence Warden. `catalog build …/catalogs/trigger.json`
+verifies its twenty-four-definition IR v8 catalog; `trigger-games --recover` verifies
 23 player-facing policies and 2,960 new recovery boundaries. Actual typed events
 capture simultaneous death lookback and ETB source incarnations. Pending triggers
 wait through SBAs and Commander returns, then use APNAP/controller ordering and
@@ -171,7 +172,7 @@ Stifle and active-player elimination retain their distinct outcomes. Deathgreete
 optional effect and Flame Rift's aggregate scope remain explicit unsupported sources.
 The [effects slice](../../docs/game-engine-effects.md) adds five exact profiles
 with Giant Growth, Disfigure, Fog, Samite Healer, Furnace of Rath and Yoked Ox.
-`compile-effects` emits thirty definitions in IR v9; `effects-games --recover`
+`catalog build …/catalogs/effects.json` verifies thirty definitions in IR v9; `effects-games --recover`
 checks 41 policies across temporary characteristics, cleanup, finite prevention,
 affected-recipient ordering and applied damage prefixes. Final damage remains
 simultaneous, and distinct Furnace identities apply once per original occurrence.
@@ -180,7 +181,7 @@ and 15,100 recovery boundaries, plus legacy checkpoints.
 
 The [choices slice](../../docs/game-engine-choices.md) adds six exact profiles
 with complete Healing Salve modes, three Seeds of Strength target occurrences
-and Slaughterhouse Bouncer intervening conditions. `compile-choices` emits
+and Slaughterhouse Bouncer intervening conditions. `catalog build …/catalogs/choices.json` verifies
 33 definitions from 39 source records in IR v10; `choices-games --recover`
 checks 30 player-facing policies and 2,527 new recovery boundaries, including
 complete three-point prevention allocations. Together all ten catalogs cover

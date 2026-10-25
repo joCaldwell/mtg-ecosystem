@@ -52,7 +52,7 @@ fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
         },
         mode: Mode::CommanderMatch,
         players: 4,
-        profile: COMBAT_KEYWORDS_PROFILE.into(),
+        profile: "commander-combat-keywords-v1".into(),
         commanders: vec![],
         cards,
     };
@@ -536,23 +536,42 @@ fn no_extra_step_without_first_or_double_strike() {
 #[test]
 fn combat_keywords_admission_is_separate() {
     let c = catalog();
-    let cfg = MatchConfig::combat_keywords([5; 32], PlayerId(0));
+    let cfg =
+        MatchConfig::for_profile("commander-combat-keywords-v1", [5; 32], PlayerId(0)).unwrap();
     let p = Prepared::admit_pod(c.clone(), cfg.clone()).unwrap();
     assert_eq!(p.config.cards.len(), 400);
-    assert_eq!(digest(&c).unwrap(), COMBAT_KEYWORDS_CATALOG_SHA256);
+    assert_eq!(
+        digest(&c).unwrap(),
+        match_profile("commander-combat-keywords-v1")
+            .unwrap()
+            .catalog_sha256
+            .as_str()
+    );
     for deck in &cfg.decks {
         assert_eq!(deck.cards.iter().map(|r| r.count).sum::<u32>(), 100);
     }
     for deck in [
-        combat_keywords_white_deck(),
-        combat_keywords_black_green_deck(),
+        match_profile("commander-combat-keywords-v1").unwrap().decks[0].clone(),
+        match_profile("commander-combat-keywords-v1").unwrap().decks[1].clone(),
     ] {
         let mut x = cfg.clone();
         x.decks = std::array::from_fn(|_| deck.clone());
         Prepared::admit_pod(c.clone(), x).unwrap();
     }
-    assert!(Prepared::admit_pod(c.clone(), MatchConfig::keywords([5; 32], PlayerId(0))).is_err());
-    assert!(Prepared::admit_pod(c, MatchConfig::foundations([5; 32], PlayerId(0))).is_err());
+    assert!(
+        Prepared::admit_pod(
+            c.clone(),
+            MatchConfig::for_profile("commander-keywords-v1", [5; 32], PlayerId(0)).unwrap()
+        )
+        .is_err()
+    );
+    assert!(
+        Prepared::admit_pod(
+            c,
+            MatchConfig::for_profile("commander-foundations-v1", [5; 32], PlayerId(0)).unwrap()
+        )
+        .is_err()
+    );
 }
 #[test]
 fn blood_artist_sbas_triggers_and_priority_between_steps() {
@@ -754,7 +773,11 @@ fn first_strike_blocker_of_departed_attacker_still_starts_first_step() {
 
 #[test]
 fn catalog_instructions_and_cr_drive_combat_under_any_label_or_schema() {
-    for label in ["independent-catalog", MATCH_PROFILE, WIPES_PROFILE] {
+    for label in [
+        "independent-catalog",
+        "commander-foundations-v1",
+        "commander-wipes-v1",
+    ] {
         for version in [13, 20] {
             let mut p = prepared(&[("Grizzly Bears", 0, false), ("Youthful Knight", 1, false)]);
             Arc::make_mut(&mut p.catalog).schema_version = version;

@@ -39,7 +39,7 @@ fn catalog() -> Catalog {
     .unwrap()
 }
 fn config() -> MatchConfig {
-    MatchConfig::foundations([17; 32], mtg_core::PlayerId(0))
+    MatchConfig::for_profile("commander-foundations-v1", [17; 32], mtg_core::PlayerId(0)).unwrap()
 }
 fn init(path: &Path, _: &Catalog, _: &MatchConfig) -> Result<(), String> {
     fs::create_dir(path).map_err(error)?;
@@ -95,7 +95,7 @@ fn private_bound_capacity_lock_and_restart() {
     assert_eq!(record.metadata.config_sha256, digest(&config()).unwrap());
     assert_eq!(
         record.metadata.commander_policy_sha256,
-        mtg_core::policy_digest()
+        mtg_core::policy_digest("commander-foundations-v1").unwrap()
     );
     assert_eq!(record.worker_directory, r.worker_path("a1").unwrap());
     let keys = keys(&a.out("a1"));
@@ -425,36 +425,16 @@ fn actual_worker_closes_before_rename_and_recovers_at_final_path() {
     );
 }
 #[test]
-fn exactly_foundations_and_attachments_are_hosted() {
+fn registry_hosts_exactly_the_profiles_flagged_in_data() {
     for profile in mtg_core::MATCH_PROFILES.iter() {
         let config =
-            MatchConfig::for_profile(profile.name, [17; 32], mtg_core::PlayerId(0)).unwrap();
-        let fixture = match profile.name {
-            mtg_core::MATCH_PROFILE => "expected-match-ir.json",
-            mtg_core::ATTACHMENTS_PROFILE => "expected-attachments-ir.json",
-            mtg_core::KEYWORDS_PROFILE => "expected-keywords-ir.json",
-            mtg_core::COMBAT_KEYWORDS_PROFILE => "expected-combat-keywords-ir.json",
-            mtg_core::TOKENS_PROFILE => "expected-tokens-ir.json",
-            mtg_core::STAPLES_PROFILE => "expected-staples-ir.json",
-            mtg_core::MANA_PROFILE => "expected-mana-ir.json",
-            mtg_core::FOUR_COLORS_PROFILE => "expected-four-colors-ir.json",
-            mtg_core::REMOVAL_PROFILE => "expected-removal-ir.json",
-            mtg_core::SACRIFICE_PROFILE => "expected-sacrifice-ir.json",
-            mtg_core::WIPES_PROFILE => "expected-wipes-ir.json",
-            _ => panic!("review new legal profile hosting scope"),
-        };
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../game-engine/tests/fixtures")
-            .join(fixture);
-        let catalog = Catalog::read(&fs::read_to_string(path).unwrap()).unwrap();
+            MatchConfig::for_profile(&profile.name, [17; 32], mtg_core::PlayerId(0)).unwrap();
+        let catalog = profile.catalog().clone();
         Prepared::admit_pod(catalog.clone(), config.clone()).unwrap();
         let area = Area::new();
         let mut registry = MatchRegistry::open(&area.root()).unwrap();
         let result = registry.create("cafe", &catalog, &config, &area.out("cafe"), init);
-        if matches!(
-            profile.name,
-            mtg_core::MATCH_PROFILE | mtg_core::ATTACHMENTS_PROFILE
-        ) {
+        if profile.hosted {
             let registered = result.unwrap();
             assert_eq!(registered.config, config);
             drop(registry);
@@ -468,7 +448,13 @@ fn exactly_foundations_and_attachments_are_hosted() {
             let Err(error) = result else {
                 panic!("unexpected hosted profile")
             };
-            assert!(error.contains("registry hosts only"), "{error}");
+            assert!(error.contains("FeatureNotRequested"), "{error}");
+            assert!(matches!(
+                profile.require_feature(&catalog, mtg_core::Feature::Hosting),
+                Err(mtg_core::ProfileError::FeatureNotRequested {
+                    feature: mtg_core::Feature::Hosting
+                })
+            ));
             assert!(!area.out("cafe").exists());
         }
     }

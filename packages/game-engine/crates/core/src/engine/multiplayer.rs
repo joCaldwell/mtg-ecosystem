@@ -279,6 +279,12 @@ impl Game {
             boundary: next.state.rule_steps,
             player,
         });
+        next.state.retained_auxiliary_charge =
+            next.state
+                .retained_auxiliary_charge
+                .saturating_add(stored_history::payload_charge(
+                    next.state.external_inputs.last().unwrap(),
+                ));
         next.state.pending_concessions.push(player);
         next.state.revision = revision;
         next.refresh_visibility()?;

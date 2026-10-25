@@ -9,8 +9,11 @@ fn prepared() -> Prepared {
         "../../../tests/fixtures/expected-match-ir.json"
     ))
     .unwrap();
-    let mut config = MatchConfig::foundations([201; 32], PlayerId(0));
-    config.decks = std::array::from_fn(|_| white_deck());
+    let mut config =
+        MatchConfig::for_profile("commander-foundations-v1", [201; 32], PlayerId(0)).unwrap();
+    config.decks = std::array::from_fn(|_| {
+        match_profile("commander-foundations-v1").unwrap().decks[0].clone()
+    });
     Prepared::admit_pod(catalog, config).unwrap()
 }
 

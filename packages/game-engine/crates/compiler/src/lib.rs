@@ -2967,96 +2967,12 @@ fn lower_activation(
     })
 }
 
-pub fn fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("base").map_err(|e| e.to_string())
-}
-
-pub fn commander_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("commander").map_err(|e| e.to_string())
-}
-
-pub fn library_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("library").map_err(|e| e.to_string())
-}
-
-pub fn damage_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("damage").map_err(|e| e.to_string())
-}
-
-pub fn action_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("action").map_err(|e| e.to_string())
-}
-
-pub fn stack_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("stack").map_err(|e| e.to_string())
-}
-
-pub fn damage_life_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("damage-life").map_err(|e| e.to_string())
-}
-
-pub fn trigger_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("trigger").map_err(|e| e.to_string())
-}
-
-pub fn effects_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("effects").map_err(|e| e.to_string())
-}
-
-pub fn choices_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("choices").map_err(|e| e.to_string())
-}
-
-pub fn match_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("match").map_err(|e| e.to_string())
-}
-
-pub fn keywords_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("keywords").map_err(|e| e.to_string())
-}
-
-pub fn combat_keywords_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("combat-keywords").map_err(|e| e.to_string())
-}
-
-pub fn tokens_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("tokens").map_err(|e| e.to_string())
-}
-
-pub fn staples_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("staples").map_err(|e| e.to_string())
-}
-
-pub fn mana_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("mana").map_err(|e| e.to_string())
-}
-
-pub fn wipes_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("wipes").map_err(|e| e.to_string())
-}
-
-pub fn sacrifice_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("sacrifice").map_err(|e| e.to_string())
-}
-
-pub fn removal_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("removal").map_err(|e| e.to_string())
-}
-
-pub fn attachments_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("attachments").map_err(|e| e.to_string())
-}
-
-pub fn four_colors_fixture_catalog() -> Result<Catalog, String> {
-    embedded_catalog("four-colors").map_err(|e| e.to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
     fn wipes_v20_complete_source_pairs_and_historical_bytes() {
-        let c = wipes_fixture_catalog().unwrap();
+        let c = embedded_catalog("wipes").unwrap();
         assert_eq!(c.schema_version, 20);
         assert_eq!(
             c,
@@ -3065,7 +2981,7 @@ mod tests {
             ))
             .unwrap()
         );
-        for old in sacrifice_fixture_catalog().unwrap().definitions {
+        for old in embedded_catalog("sacrifice").unwrap().definitions {
             assert_eq!(
                 c.definitions.iter().find(|d| d.oracle_id == old.oracle_id),
                 Some(&old)
@@ -3091,7 +3007,7 @@ mod tests {
     }
     #[test]
     fn sacrifice_v19_complete_sources_whole_card_negatives_and_downgrades() {
-        let c = sacrifice_fixture_catalog().unwrap();
+        let c = embedded_catalog("sacrifice").unwrap();
         assert_eq!(c.schema_version, 19);
         assert_eq!(
             c,
@@ -3100,7 +3016,7 @@ mod tests {
             ))
             .unwrap()
         );
-        for old in removal_fixture_catalog().unwrap().definitions {
+        for old in embedded_catalog("removal").unwrap().definitions {
             assert_eq!(
                 c.definitions.iter().find(|d| d.oracle_id == old.oracle_id),
                 Some(&old)
@@ -3185,7 +3101,7 @@ mod tests {
     }
     #[test]
     fn removal_v18_source_pairs_and_unchanged_inherited_definitions() {
-        let c = removal_fixture_catalog().unwrap();
+        let c = embedded_catalog("removal").unwrap();
         assert_eq!(c.schema_version, 18);
         assert_eq!(
             c,
@@ -3194,7 +3110,7 @@ mod tests {
             ))
             .unwrap()
         );
-        for old in attachments_fixture_catalog().unwrap().definitions {
+        for old in embedded_catalog("attachments").unwrap().definitions {
             assert_eq!(
                 c.definitions.iter().find(|d| d.oracle_id == old.oracle_id),
                 Some(&old)
@@ -3292,7 +3208,7 @@ mod tests {
                 "{name}"
             );
         }
-        let c = removal_fixture_catalog().unwrap();
+        let c = embedded_catalog("removal").unwrap();
         let mut raw = serde_json::to_value(
             c.definitions
                 .iter()
@@ -3305,7 +3221,7 @@ mod tests {
     }
     #[test]
     fn attachments_v17_complete_sources_and_strict_downgrades() {
-        let c = attachments_fixture_catalog().unwrap();
+        let c = embedded_catalog("attachments").unwrap();
         assert_eq!(c.schema_version, 17);
         assert_eq!(
             c,
@@ -3314,7 +3230,7 @@ mod tests {
             ))
             .unwrap()
         );
-        for old in four_colors_fixture_catalog().unwrap().definitions {
+        for old in embedded_catalog("four-colors").unwrap().definitions {
             assert_eq!(
                 c.definitions.iter().find(|d| d.oracle_id == old.oracle_id),
                 Some(&old)
@@ -3403,7 +3319,7 @@ mod tests {
     }
     #[test]
     fn four_colors_v16_complete_sources_and_whole_card_negative() {
-        let c = four_colors_fixture_catalog().unwrap();
+        let c = embedded_catalog("four-colors").unwrap();
         assert_eq!(c.schema_version, 16);
         assert_eq!(
             c,
@@ -3412,7 +3328,7 @@ mod tests {
             ))
             .unwrap()
         );
-        for old in mana_fixture_catalog().unwrap().definitions {
+        for old in embedded_catalog("mana").unwrap().definitions {
             assert_eq!(
                 c.definitions.iter().find(|d| d.oracle_id == old.oracle_id),
                 Some(&old)
@@ -3454,7 +3370,7 @@ mod tests {
 
     #[test]
     fn mana_v16_complete_sources_negatives_and_downgrades() {
-        let catalog = mana_fixture_catalog().unwrap();
+        let catalog = embedded_catalog("mana").unwrap();
         assert_eq!(catalog.schema_version, 16);
         assert_eq!(
             catalog,
@@ -3463,7 +3379,7 @@ mod tests {
             ))
             .unwrap()
         );
-        for old in staples_fixture_catalog().unwrap().definitions {
+        for old in embedded_catalog("staples").unwrap().definitions {
             assert_eq!(
                 catalog
                     .definitions
@@ -3553,7 +3469,7 @@ mod tests {
 
     #[test]
     fn staples_v15_source_pairs_and_historical_identity() {
-        let catalog = staples_fixture_catalog().unwrap();
+        let catalog = embedded_catalog("staples").unwrap();
         assert_eq!(catalog.schema_version, 15);
         assert_eq!(
             catalog,
@@ -3562,7 +3478,7 @@ mod tests {
             ))
             .unwrap()
         );
-        for d in tokens_fixture_catalog().unwrap().definitions {
+        for d in embedded_catalog("tokens").unwrap().definitions {
             assert_eq!(
                 catalog
                     .definitions
@@ -3678,7 +3594,7 @@ mod tests {
                 }
             })
         }
-        let catalog = tokens_fixture_catalog().unwrap();
+        let catalog = embedded_catalog("tokens").unwrap();
         assert_eq!(catalog.schema_version, 14);
         assert_eq!(
             catalog,
@@ -3687,7 +3603,7 @@ mod tests {
             ))
             .unwrap()
         );
-        for old in combat_keywords_fixture_catalog().unwrap().definitions {
+        for old in embedded_catalog("combat-keywords").unwrap().definitions {
             assert_eq!(
                 catalog
                     .definitions
@@ -3779,7 +3695,7 @@ mod tests {
     }
     #[test]
     fn combat_keywords_v13_sources_and_downgrade_pairs() {
-        let catalog = combat_keywords_fixture_catalog().unwrap();
+        let catalog = embedded_catalog("combat-keywords").unwrap();
         assert_eq!(catalog.schema_version, 13);
         assert_eq!(
             catalog,
@@ -3788,7 +3704,7 @@ mod tests {
             ))
             .unwrap()
         );
-        for old in keywords_fixture_catalog().unwrap().definitions {
+        for old in embedded_catalog("keywords").unwrap().definitions {
             assert_eq!(
                 catalog
                     .definitions
@@ -3817,9 +3733,9 @@ mod tests {
     }
     #[test]
     fn keywords_v12_complete_sources_and_downgrade_pairs() {
-        let catalog = keywords_fixture_catalog().unwrap();
+        let catalog = embedded_catalog("keywords").unwrap();
         assert_eq!(catalog.schema_version, 12);
-        for old in match_fixture_catalog().unwrap().definitions {
+        for old in embedded_catalog("match").unwrap().definitions {
             assert_eq!(
                 catalog
                     .definitions
@@ -3865,7 +3781,7 @@ mod tests {
     }
     #[test]
     fn defender_lowers_complete_keyword_without_widening_previous_catalog() {
-        let c = match_fixture_catalog().unwrap();
+        let c = embedded_catalog("match").unwrap();
         assert_eq!(c.schema_version, 11);
         assert_eq!(
             c,
@@ -3874,7 +3790,7 @@ mod tests {
             ))
             .unwrap()
         );
-        for previous in choices_fixture_catalog().unwrap().definitions {
+        for previous in embedded_catalog("choices").unwrap().definitions {
             assert_eq!(
                 c.definitions
                     .iter()
@@ -3947,7 +3863,7 @@ mod tests {
                 CompileResult::Lowered { .. }
             ));
         }
-        let c = match_fixture_catalog().unwrap();
+        let c = embedded_catalog("match").unwrap();
         let wall = c
             .definitions
             .iter()
@@ -3983,7 +3899,7 @@ mod tests {
     }
     #[test]
     fn complete_choices_sources_preserve_occurrences_modes_conditions_and_old_catalogs() {
-        let c = choices_fixture_catalog().unwrap();
+        let c = embedded_catalog("choices").unwrap();
         assert_eq!(
             c,
             Catalog::read(include_str!(
@@ -3992,7 +3908,7 @@ mod tests {
             .unwrap()
         );
         assert_eq!(c.schema_version, 10);
-        for d in effects_fixture_catalog().unwrap().definitions {
+        for d in embedded_catalog("effects").unwrap().definitions {
             assert_eq!(
                 c.definitions.iter().find(|n| n.oracle_id == d.oracle_id),
                 Some(&d)
@@ -4086,7 +4002,7 @@ mod tests {
             );
         }
         assert!(
-            effects_fixture_catalog()
+            embedded_catalog("effects")
                 .unwrap()
                 .definitions
                 .iter()
@@ -4173,7 +4089,7 @@ mod tests {
     }
     #[test]
     fn choices_ir_rejects_downgrades_nested_modes_and_inconsistent_children() {
-        let c = choices_fixture_catalog().unwrap();
+        let c = embedded_catalog("choices").unwrap();
         for name in ["Healing Salve", "Slaughterhouse Bouncer"] {
             let d = c.definitions.iter().find(|d| d.name == name).unwrap();
             for v in 3..10 {
@@ -4242,7 +4158,7 @@ mod tests {
     }
     #[test]
     fn complete_effects_catalog_binds_all_six_sources_and_preserves_historical_definitions() {
-        let c = effects_fixture_catalog().unwrap();
+        let c = embedded_catalog("effects").unwrap();
         assert_eq!(c.schema_version, 9);
         for (name, power, toughness) in [("Giant Growth", 3, 3), ("Disfigure", -2, -2)] {
             let d = c.definitions.iter().find(|d| d.name == name).unwrap();
@@ -4308,7 +4224,7 @@ mod tests {
             ),
             (Some(Quantity::from(0)), Some(Quantity::from(4)))
         );
-        let old = trigger_fixture_catalog().unwrap();
+        let old = embedded_catalog("trigger").unwrap();
         for d in old.definitions {
             assert_eq!(
                 c.definitions.iter().find(|n| n.oracle_id == d.oracle_id),
@@ -4377,7 +4293,7 @@ mod tests {
     }
     #[test]
     fn effects_vocabulary_and_capabilities_cannot_downgrade_into_historical_ir() {
-        let c = effects_fixture_catalog().unwrap();
+        let c = embedded_catalog("effects").unwrap();
         for d in c.definitions.iter().filter(|d| {
             d.capabilities.iter().any(|c| {
                 matches!(
@@ -4636,7 +4552,7 @@ mod tests {
     }
     #[test]
     fn effects_ir_rejects_unbound_targets_invalid_budgets_and_static_zones() {
-        let c = effects_fixture_catalog().unwrap();
+        let c = embedded_catalog("effects").unwrap();
         type Mutation = (&'static str, fn(&mut serde_json::Value));
         let mutations: Vec<Mutation> = vec![
             ("Giant Growth", |d| {
@@ -4700,7 +4616,7 @@ mod tests {
     }
     #[test]
     fn complete_trigger_pool_binds_exact_source_roles_and_preserves_historical_catalogs() {
-        let catalog = trigger_fixture_catalog().unwrap();
+        let catalog = embedded_catalog("trigger").unwrap();
         assert_eq!(catalog.schema_version, 8);
         assert_eq!(
             Catalog::read(include_str!(
@@ -4711,31 +4627,31 @@ mod tests {
         );
         for (old, expected) in [
             (
-                fixture_catalog().unwrap(),
+                embedded_catalog("base").unwrap(),
                 include_str!("../../../tests/fixtures/expected-ir.json"),
             ),
             (
-                commander_fixture_catalog().unwrap(),
+                embedded_catalog("commander").unwrap(),
                 include_str!("../../../tests/fixtures/expected-commander-ir.json"),
             ),
             (
-                damage_fixture_catalog().unwrap(),
+                embedded_catalog("damage").unwrap(),
                 include_str!("../../../tests/fixtures/expected-damage-ir.json"),
             ),
             (
-                library_fixture_catalog().unwrap(),
+                embedded_catalog("library").unwrap(),
                 include_str!("../../../tests/fixtures/expected-library-ir.json"),
             ),
             (
-                action_fixture_catalog().unwrap(),
+                embedded_catalog("action").unwrap(),
                 include_str!("../../../tests/fixtures/expected-action-ir.json"),
             ),
             (
-                stack_fixture_catalog().unwrap(),
+                embedded_catalog("stack").unwrap(),
                 include_str!("../../../tests/fixtures/expected-stack-ir.json"),
             ),
             (
-                damage_life_fixture_catalog().unwrap(),
+                embedded_catalog("damage-life").unwrap(),
                 include_str!("../../../tests/fixtures/expected-damage-life-ir.json"),
             ),
         ] {
@@ -5006,7 +4922,7 @@ mod tests {
 
     #[test]
     fn triggered_ir_requires_v8_exact_capability_closure_and_mandatory_stack_programs() {
-        let c = trigger_fixture_catalog().unwrap();
+        let c = embedded_catalog("trigger").unwrap();
         for name in ["Elvish Visionary", "Essence Warden", "Blood Artist"] {
             for version in 3..=7 {
                 let mut old = c.clone();
@@ -5067,7 +4983,7 @@ mod tests {
 
     #[test]
     fn damage_life_pool_retains_all_source_blocks_targets_quantities_and_printed_costs() {
-        let c = damage_life_fixture_catalog().unwrap();
+        let c = embedded_catalog("damage-life").unwrap();
         assert_eq!(c.schema_version, 7);
         assert_eq!(
             Catalog::read(include_str!(
@@ -5076,7 +4992,7 @@ mod tests {
             .unwrap(),
             c
         );
-        for prior in stack_fixture_catalog().unwrap().definitions {
+        for prior in embedded_catalog("stack").unwrap().definitions {
             assert_eq!(
                 c.definitions
                     .iter()
@@ -5306,7 +5222,7 @@ mod tests {
 
     #[test]
     fn damage_life_programs_require_ir7_and_strict_target_recipient_quantity_closure() {
-        let catalog = damage_life_fixture_catalog().unwrap();
+        let catalog = embedded_catalog("damage-life").unwrap();
         for name in [
             "Lightning Bolt",
             "Prodigal Sorcerer",
@@ -5408,7 +5324,7 @@ mod tests {
 
     #[test]
     fn legacy_spell_and_activation_shapes_cannot_hide_ir7_relaxations() {
-        let mut c = fixture_catalog().unwrap();
+        let mut c = embedded_catalog("base").unwrap();
         c.schema_version = 7;
         let d = c
             .definitions
@@ -5431,7 +5347,7 @@ mod tests {
             old.schema_version = v;
             assert!(old.validate().is_err());
         }
-        let mut c = damage_life_fixture_catalog().unwrap();
+        let mut c = embedded_catalog("damage-life").unwrap();
         let d = c
             .definitions
             .iter_mut()
@@ -5448,7 +5364,7 @@ mod tests {
 
     #[test]
     fn stack_pool_retains_complete_counter_domains_costs_and_prior_definitions() {
-        let catalog = stack_fixture_catalog().unwrap();
+        let catalog = embedded_catalog("stack").unwrap();
         assert_eq!(catalog.schema_version, 6);
         assert_eq!(
             Catalog::read(include_str!(
@@ -5457,7 +5373,7 @@ mod tests {
             .unwrap(),
             catalog
         );
-        for previous in action_fixture_catalog().unwrap().definitions {
+        for previous in embedded_catalog("action").unwrap().definitions {
             assert_eq!(
                 catalog
                     .definitions
@@ -5635,7 +5551,7 @@ mod tests {
 
     #[test]
     fn stack_vocabulary_requires_ir6_and_rejects_bad_binding_and_capability_closure() {
-        let catalog = stack_fixture_catalog().unwrap();
+        let catalog = embedded_catalog("stack").unwrap();
         for version in [3, 4, 5, 21] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
@@ -5750,7 +5666,7 @@ mod tests {
     }
     #[test]
     fn lowers_intrinsics_and_complete_spell_without_name_dispatch() {
-        let c = fixture_catalog().unwrap();
+        let c = embedded_catalog("base").unwrap();
         let island = c.definitions.iter().find(|d| d.name == "Island").unwrap();
         assert!(island.spell.is_none());
         assert_eq!(island.intrinsic_zone, Some(FunctioningZone::Battlefield));
@@ -5802,10 +5718,10 @@ mod tests {
         );
         assert!(definition.activated.is_empty());
         for catalog in [
-            fixture_catalog().unwrap(),
-            commander_fixture_catalog().unwrap(),
-            damage_fixture_catalog().unwrap(),
-            library_fixture_catalog().unwrap(),
+            embedded_catalog("base").unwrap(),
+            embedded_catalog("commander").unwrap(),
+            embedded_catalog("damage").unwrap(),
+            embedded_catalog("library").unwrap(),
         ] {
             assert!(
                 !catalog
@@ -5838,7 +5754,7 @@ mod tests {
     }
     #[test]
     fn semantic_ir_is_strict_and_capability_checked() {
-        let c = fixture_catalog().unwrap();
+        let c = embedded_catalog("base").unwrap();
         let raw = canonical(&c).unwrap();
         for bad in [
             raw.replace("\"schema_version\":3", "\"schema_version\":21"),
@@ -5855,7 +5771,7 @@ mod tests {
     }
     #[test]
     fn vanilla_creature_spells_and_land_permissions_are_explicit() {
-        let catalog = fixture_catalog().unwrap();
+        let catalog = embedded_catalog("base").unwrap();
         assert_eq!(catalog.schema_version, 3);
         for d in &catalog.definitions {
             match d.characteristics.kind {
@@ -5913,8 +5829,8 @@ mod tests {
 
     #[test]
     fn commander_pool_adds_only_exact_source_backed_white_mana() {
-        let original = fixture_catalog().unwrap();
-        let catalog = commander_fixture_catalog().unwrap();
+        let original = embedded_catalog("base").unwrap();
+        let catalog = embedded_catalog("commander").unwrap();
         assert_eq!(catalog.schema_version, 3);
         for definition in &original.definitions {
             assert!(catalog.definitions.contains(definition));
@@ -6009,8 +5925,8 @@ mod tests {
 
     #[test]
     fn library_catalog_lowers_complete_source_with_explicit_top_and_sorcery_timing() {
-        let previous = commander_fixture_catalog().unwrap();
-        let catalog = library_fixture_catalog().unwrap();
+        let previous = embedded_catalog("commander").unwrap();
+        let catalog = embedded_catalog("library").unwrap();
         assert_eq!(catalog.schema_version, 4);
         for definition in &previous.definitions {
             assert!(catalog.definitions.contains(definition));
@@ -6091,8 +6007,8 @@ mod tests {
 
     #[test]
     fn damage_pool_is_exact_empty_text_legendary_without_new_ability_vocabulary() {
-        let previous = commander_fixture_catalog().unwrap();
-        let catalog = damage_fixture_catalog().unwrap();
+        let previous = embedded_catalog("commander").unwrap();
+        let catalog = embedded_catalog("damage").unwrap();
         assert_eq!(catalog.schema_version, 3);
         for definition in &previous.definitions {
             assert!(catalog.definitions.contains(definition));
@@ -6181,13 +6097,13 @@ mod tests {
 
     #[test]
     fn action_pool_retains_printed_costs_and_complete_distinct_activation_program() {
-        let catalog = action_fixture_catalog().unwrap();
+        let catalog = embedded_catalog("action").unwrap();
         assert_eq!(catalog.schema_version, 5);
         for prior in [
-            fixture_catalog().unwrap(),
-            commander_fixture_catalog().unwrap(),
-            damage_fixture_catalog().unwrap(),
-            library_fixture_catalog().unwrap(),
+            embedded_catalog("base").unwrap(),
+            embedded_catalog("commander").unwrap(),
+            embedded_catalog("damage").unwrap(),
+            embedded_catalog("library").unwrap(),
         ] {
             for definition in prior.definitions {
                 assert!(catalog.definitions.contains(&definition));
@@ -6372,7 +6288,7 @@ mod tests {
 
     #[test]
     fn action_ir_version_shapes_and_target_domains_are_strict() {
-        let catalog = action_fixture_catalog().unwrap();
+        let catalog = embedded_catalog("action").unwrap();
         for version in [3, 4, 21] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
@@ -6494,7 +6410,7 @@ mod tests {
 
     #[test]
     fn library_vocabulary_requires_ir_v4_and_valid_program_shape() {
-        let catalog = library_fixture_catalog().unwrap();
+        let catalog = embedded_catalog("library").unwrap();
         let mut old = catalog.clone();
         old.schema_version = 3;
         assert!(old.validate().is_err());
@@ -6597,7 +6513,7 @@ mod tests {
 
     #[test]
     fn ordinary_combat_pool_reuses_complete_vanilla_ir_and_rejects_extra_mechanics() {
-        let catalog = fixture_catalog().unwrap();
+        let catalog = embedded_catalog("base").unwrap();
         let bears = catalog
             .definitions
             .iter()
@@ -6659,7 +6575,7 @@ mod tests {
     #[test]
     fn ir_reader_rejects_mismatched_spell_timing_resolution_and_shape() {
         type Mutation = fn(&mut Definition);
-        let catalog = fixture_catalog().unwrap();
+        let catalog = embedded_catalog("base").unwrap();
         let creature = catalog
             .definitions
             .iter()

@@ -1,7 +1,7 @@
 //! A valid private worker is insufficient unless it is the registered game.
 //! These checks use real admitted Workers, without requiring a cgroup runner.
 use mtg_contracts::{Catalog, digest};
-use mtg_core::{MatchConfig, PlayerId, Prepared, white_deck};
+use mtg_core::{MatchConfig, PlayerId, Prepared};
 use mtg_server::{
     process::verify_identity,
     worker::{Worker, WorkerIdentity},
@@ -52,7 +52,8 @@ fn expected(catalog: &Catalog, config: &MatchConfig) -> WorkerIdentity {
 #[test]
 fn actual_admitted_worker_identity_survives_close_rename_and_recovery() {
     let catalog = catalog();
-    let config = MatchConfig::foundations([41; 32], PlayerId(2));
+    let config =
+        MatchConfig::for_profile("commander-foundations-v1", [41; 32], PlayerId(2)).unwrap();
     let expected = expected(&catalog, &config);
     let initial = Directory::new();
     let final_path = Directory::new();
@@ -69,14 +70,20 @@ fn actual_admitted_worker_identity_survives_close_rename_and_recovery() {
 #[test]
 fn different_valid_seed_start_and_decks_cannot_recover_as_registered_game() {
     let catalog = catalog();
-    let registered = MatchConfig::foundations([41; 32], PlayerId(2));
+    let registered =
+        MatchConfig::for_profile("commander-foundations-v1", [41; 32], PlayerId(2)).unwrap();
     let expected = expected(&catalog, &registered);
     let mut wrong_seed = registered.clone();
     wrong_seed.seed[31] ^= 1;
     let mut wrong_start = registered.clone();
     wrong_start.starting_player = PlayerId(1);
     let mut wrong_decks = registered;
-    wrong_decks.decks = std::array::from_fn(|_| white_deck());
+    wrong_decks.decks = std::array::from_fn(|_| {
+        mtg_core::match_profile("commander-foundations-v1")
+            .unwrap()
+            .decks[0]
+            .clone()
+    });
     for actual_config in [wrong_seed, wrong_start, wrong_decks] {
         let directory = Directory::new();
         let worker = Worker::create(
@@ -104,7 +111,8 @@ fn different_valid_seed_start_and_decks_cannot_recover_as_registered_game() {
 #[test]
 fn identical_config_copied_under_a_different_registered_match_id_rejects() {
     let catalog = catalog();
-    let config = MatchConfig::foundations([41; 32], PlayerId(2));
+    let config =
+        MatchConfig::for_profile("commander-foundations-v1", [41; 32], PlayerId(2)).unwrap();
     let original = Directory::new();
     let copied = Directory::new();
     let worker = Worker::create(
@@ -152,7 +160,10 @@ fn identical_config_copied_under_a_different_registered_match_id_rejects() {
 
 #[test]
 fn every_required_binding_and_canonical_hash_encoding_is_checked() {
-    let expected = expected(&catalog(), &MatchConfig::foundations([41; 32], PlayerId(2)));
+    let expected = expected(
+        &catalog(),
+        &MatchConfig::for_profile("commander-foundations-v1", [41; 32], PlayerId(2)).unwrap(),
+    );
     for index in 0..4 {
         for malformed in [
             String::new(),
@@ -188,7 +199,8 @@ fn every_required_binding_and_canonical_hash_encoding_is_checked() {
 #[test]
 fn changed_server_identity_rejects_recovery_before_opening_database() {
     let catalog = catalog();
-    let config = MatchConfig::foundations([41; 32], PlayerId(2));
+    let config =
+        MatchConfig::for_profile("commander-foundations-v1", [41; 32], PlayerId(2)).unwrap();
     let directory = Directory::new();
     let worker =
         Worker::create(&directory.0, catalog.clone(), config, "a1", Instant::now()).unwrap();

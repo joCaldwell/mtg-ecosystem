@@ -1,0 +1,157 @@
+{
+  "name": "commander-data-admission-v1",
+  "catalog_manifest": "../catalogs/data-admission.json",
+  "decks": [
+    {
+      "commander": "cfb756dd-6fe1-430a-8f04-8b10cac62a86",
+      "cards": [
+        {
+          "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99",
+          "count": 99
+        },
+        {
+          "oracle_id": "cfb756dd-6fe1-430a-8f04-8b10cac62a86",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "commander": "980e1721-3717-4425-95a4-938dbf2ac661",
+      "cards": [
+        {
+          "oracle_id": "008290c2-499d-425b-9a6c-c4aeb47c33ff",
+          "count": 1
+        },
+        {
+          "oracle_id": "017568ea-613f-4057-9a8d-61b087d6dc92",
+          "count": 1
+        },
+        {
+          "oracle_id": "01b3af6d-ab7d-4137-a94a-1cf2cbfd9d44",
+          "count": 1
+        },
+        {
+          "oracle_id": "13228a22-d63a-4952-a482-4f84da696e88",
+          "count": 1
+        },
+        {
+          "oracle_id": "13718d93-fe46-4a18-a511-88649ef1c9de",
+          "count": 1
+        },
+        {
+          "oracle_id": "2f05f3ed-e3b7-4225-b3f2-c12eda335237",
+          "count": 1
+        },
+        {
+          "oracle_id": "3754dce0-3e97-406f-8807-a4942a222c41",
+          "count": 1
+        },
+        {
+          "oracle_id": "56719f6a-1a6c-4c0a-8d21-18f7d7350b68",
+          "count": 47
+        },
+        {
+          "oracle_id": "980e1721-3717-4425-95a4-938dbf2ac661",
+          "count": 1
+        },
+        {
+          "oracle_id": "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6",
+          "count": 45
+        }
+      ]
+    },
+    {
+      "commander": "48fe0f52-1676-49d5-acf6-5476081e8e1b",
+      "cards": [
+        {
+          "oracle_id": "03a9ac3f-f6e4-4ade-9770-cf723434b7e8",
+          "count": 1
+        },
+        {
+          "oracle_id": "041cc2d0-eb67-484e-8da1-e91ddb2b3f70",
+          "count": 1
+        },
+        {
+          "oracle_id": "0c7163e6-f5a1-45a5-88c2-19dd9ef0a587",
+          "count": 1
+        },
+        {
+          "oracle_id": "48fe0f52-1676-49d5-acf6-5476081e8e1b",
+          "count": 1
+        },
+        {
+          "oracle_id": "8b218023-50b8-4d9d-b17b-9647479d3675",
+          "count": 1
+        },
+        {
+          "oracle_id": "a3fb7228-e76b-4e96-a40e-20b5fed75685",
+          "count": 93
+        },
+        {
+          "oracle_id": "a9d288b8-cdc1-4e55-a0c9-d6edfc95e65d",
+          "count": 1
+        },
+        {
+          "oracle_id": "f34b9bc4-7bfe-47fd-ba23-4eeeb46026eb",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "commander": "48fe0f52-1676-49d5-acf6-5476081e8e1b",
+      "cards": [
+        {
+          "oracle_id": "03a9ac3f-f6e4-4ade-9770-cf723434b7e8",
+          "count": 1
+        },
+        {
+          "oracle_id": "041cc2d0-eb67-484e-8da1-e91ddb2b3f70",
+          "count": 1
+        },
+        {
+          "oracle_id": "0c7163e6-f5a1-45a5-88c2-19dd9ef0a587",
+          "count": 1
+        },
+        {
+          "oracle_id": "48fe0f52-1676-49d5-acf6-5476081e8e1b",
+          "count": 1
+        },
+        {
+          "oracle_id": "8b218023-50b8-4d9d-b17b-9647479d3675",
+          "count": 1
+        },
+        {
+          "oracle_id": "a3fb7228-e76b-4e96-a40e-20b5fed75685",
+          "count": 93
+        },
+        {
+          "oracle_id": "a9d288b8-cdc1-4e55-a0c9-d6edfc95e65d",
+          "count": 1
+        },
+        {
+          "oracle_id": "f34b9bc4-7bfe-47fd-ba23-4eeeb46026eb",
+          "count": 1
+        }
+      ]
+    }
+  ],
+  "commanders": [
+    "cfb756dd-6fe1-430a-8f04-8b10cac62a86",
+    "980e1721-3717-4425-95a4-938dbf2ac661",
+    "48fe0f52-1676-49d5-acf6-5476081e8e1b"
+  ],
+  "commander_policy": {
+    "color_identity": "commander_subset",
+    "eligibility": "legendary_creature",
+    "banned_list": "../commander-banned-2026-10-15.json"
+  },
+  "hosted": false,
+  "search": false,
+  "completion": {
+    "rotate": false,
+    "homogeneous_seats": [
+      0,
+      2
+    ]
+  }
+}

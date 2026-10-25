@@ -1,3 +1,9 @@
+#[path = "src/engine/capacities.rs"]
+#[allow(dead_code)]
+mod capacities;
+#[path = "src/profile_data.rs"]
+#[allow(dead_code)]
+mod profile_data;
 use sha2::{Digest, Sha256};
 use std::{
     env, fs,
@@ -80,6 +86,174 @@ fn main() {
     fs::write(
         PathBuf::from(env::var("OUT_DIR").unwrap()).join("catalog_sizes.rs"),
         sizes,
+    )
+    .unwrap();
+    // Profile files select catalogs, decks and admission policy. Generated code
+    // contains data only and is excluded from the engine code identity.
+    let fixtures = data.parent().unwrap();
+    let mut banned_files = std::collections::BTreeMap::new();
+    for entry in fs::read_dir(fixtures).unwrap() {
+        let path = entry.unwrap().path();
+        if path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("commander-banned-")
+            && path.extension().is_some_and(|e| e == "json")
+        {
+            banned_files.insert(
+                fs::canonicalize(&path).unwrap(),
+                fs::read_to_string(path).unwrap(),
+            );
+        }
+    }
+    let mut names = std::collections::BTreeSet::new();
+    let mut paths = fs::read_dir(fixtures.join("profiles"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|x| x == "json"))
+        .collect::<Vec<_>>();
+    paths.sort();
+    let mut generated = String::from(
+        "pub static MATCH_PROFILES: std::sync::LazyLock<Vec<MatchProfile>> = std::sync::LazyLock::new(|| { let mut profiles = vec![\n",
+    );
+    for path in paths {
+        let raw = fs::read_to_string(&path).unwrap();
+        let profile: profile_data::MatchProfile = mtg_contracts::strict_read(&raw)
+            .unwrap_or_else(|e| panic!("invalid profile {}: {e}", path.display()));
+        assert!(
+            names.insert(profile.name.clone()),
+            "duplicate profile name {:?} in {}",
+            profile.name,
+            path.display()
+        );
+        let manifest_path = path.parent().unwrap().join(&profile.catalog_manifest);
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+        let catalog_raw = fs::read_to_string(
+            manifest_path
+                .parent()
+                .unwrap()
+                .join(manifest["expected_ir"].as_str().unwrap()),
+        )
+        .unwrap();
+        let ir: serde_json::Value = serde_json::from_str(&catalog_raw).unwrap();
+        assert_eq!(
+            ir["schema_version"], manifest["schema_version"],
+            "manifest IR version"
+        );
+        let catalog_hash = format!("{:x}", Sha256::digest(serde_json::to_vec(&ir).unwrap()));
+        assert_eq!(
+            catalog_hash,
+            fs::read_to_string(
+                manifest_path
+                    .parent()
+                    .unwrap()
+                    .join(manifest["expected_digest"].as_str().unwrap())
+            )
+            .unwrap()
+            .trim(),
+            "manifest catalog digest"
+        );
+        let banned_path = fs::canonicalize(
+            path.parent()
+                .unwrap()
+                .join(&profile.commander_policy.banned_list),
+        )
+        .unwrap_or_else(|e| panic!("banned list for {}: {e}", path.display()));
+        let banned_raw = banned_files.get(&banned_path).unwrap_or_else(|| {
+            panic!(
+                "profile {} selects a file outside the banned-list data: {}",
+                path.display(),
+                banned_path.display()
+            )
+        });
+        let validated = profile_data::MatchProfile::load(&raw, &catalog_raw, banned_raw)
+            .unwrap_or_else(|e| panic!("invalid profile {}: {e}", path.display()));
+        let banned: serde_json::Value = serde_json::from_str(banned_raw).unwrap();
+        // Derive the old pool review from each authentic archive source record.
+        for record in manifest["records"].as_array().unwrap() {
+            let card: serde_json::Value = serde_json::from_slice(
+                &fs::read(
+                    manifest_path
+                        .parent()
+                        .unwrap()
+                        .join(record.as_str().unwrap()),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            let source = &card["source"];
+            let id = card["oracleIdentity"].as_str().unwrap();
+            assert_eq!(
+                source["legalities"]["commander"], "legal",
+                "Commander legality: {id}"
+            );
+            assert!(
+                !source["type_line"]
+                    .as_str()
+                    .unwrap()
+                    .split_whitespace()
+                    .any(|x| x == "Conspiracy")
+            );
+            assert!(
+                !source["oracle_text"]
+                    .as_str()
+                    .unwrap_or("")
+                    .split(|c: char| !c.is_alphabetic())
+                    .any(|x| x.eq_ignore_ascii_case("ante"))
+            );
+            assert!(
+                !banned["named_bans"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .chain(banned["offensive_policy"]["records"].as_array().unwrap())
+                    .any(|b| b["oracle_id"] == id),
+                "banned card: {id}"
+            );
+        }
+        // Same typed loader and exact bytes were validated above. Runtime errors
+        // are unreachable without a build-script defect; no user I/O is parsed.
+        assert_eq!(validated.catalog_sha256, catalog_hash);
+        let catalog = validated.catalog();
+        assert!(
+            catalog
+                .definitions
+                .iter()
+                .filter(|d| d.characteristics.basic)
+                .all(|d| d.triggered.is_empty()),
+            "{}: basic triggered sources invalidate singleton sizing",
+            path.display()
+        );
+        let sources = 4 * catalog
+            .definitions
+            .iter()
+            .map(|d| d.triggered.len())
+            .sum::<usize>();
+        let wave = (400 + capacities::TOKEN_CAPACITY as usize)
+            .checked_mul(sources)
+            .expect("trigger sizing overflow");
+        assert!(
+            wave < capacities::STACK_LIMIT / 2,
+            "{}: simultaneous trigger bound {wave} exceeds shared stack policy; revisit capacities",
+            path.display()
+        );
+
+        let banned_index = banned_files.keys().position(|p| p == &banned_path).unwrap();
+        generated += &format!(
+            "MatchProfile::load({raw:?}, {catalog_raw:?}, BANNED_LISTS[{banned_index}]).expect(\"build-validated profile\"),\n"
+        );
+    }
+    generated += "]; profiles.sort_by_key(|p| p.ir_version); profiles });\n";
+    generated += "pub(crate) const BANNED_LISTS: &[&str] = &[\n";
+    for raw in banned_files.values() {
+        generated += &format!("{raw:?},\n");
+    }
+    generated += "];\n";
+    fs::write(
+        PathBuf::from(env::var("OUT_DIR").unwrap()).join("match_profiles.rs"),
+        generated,
     )
     .unwrap();
     let mut files = vec![

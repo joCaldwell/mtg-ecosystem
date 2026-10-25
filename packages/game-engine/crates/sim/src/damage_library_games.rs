@@ -685,8 +685,8 @@ mod tests {
 
     #[test]
     fn retained_coverage_rejects_reordered_policies_missing_boundaries_and_forged_roots() {
-        let damage = damage_fixture_catalog().unwrap();
-        let library = library_fixture_catalog().unwrap();
+        let damage = mtg_compiler::catalog::embedded_catalog("damage").unwrap();
+        let library = mtg_compiler::catalog::embedded_catalog("library").unwrap();
         let (evidence, _, _) = suite(&damage, &library, false).unwrap();
         let original = serde_json::to_value(&evidence).unwrap();
         for mutation in 0..3 {

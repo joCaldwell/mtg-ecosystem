@@ -63,7 +63,7 @@ fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
         },
         mode: Mode::CommanderMatch,
         players: 4,
-        profile: TOKENS_PROFILE.into(),
+        profile: "commander-tokens-v1".into(),
         commanders: vec![],
         cards,
     };
@@ -954,19 +954,16 @@ fn maximal_pool_capacity_derivation_and_earlier_limits() {
     }
     assert_eq!(most_creatures, 27);
     assert_eq!(most_tokens, 9);
-    assert_eq!(tokens::CREATURE_CARD_BOUND, 4 * most_creatures);
-    assert!(4 * most_tokens < 64usize);
-    let creatures = 4 * most_creatures + 64usize;
-    assert_eq!(creatures, 172);
-    assert_eq!(tokens::DAMAGE_BOUND, 2 * creatures);
-    let maximal_stack = 400 + 4 + creatures * 4 + creatures * 4 + 4 * most_creatures + 4;
-    assert_eq!(maximal_stack, 1892);
-    assert_eq!(tokens::STACK_BOUND, maximal_stack);
-    assert_eq!(tokens::EVENT_GROUP_BOUND, 400 + 64usize + 4);
+
+    assert!(4 * most_tokens < capacities::TOKEN_CAPACITY as usize);
+    let creatures = 4 * most_creatures + capacities::TOKEN_CAPACITY as usize;
+    assert!(2 * creatures < capacities::DAMAGE_LIMIT);
+    assert!(400 + 4 + creatures * 8 + 4 * most_creatures + 4 < capacities::STACK_LIMIT);
+    assert!(400 + capacities::TOKEN_CAPACITY as usize + 4 < capacities::EVENT_GROUP_LIMIT);
     let g = Game::new(prepared(&[]));
     assert_eq!(g.damage_limit(), capacities::DAMAGE_LIMIT);
     assert_eq!(g.stack_limit(), capacities::STACK_LIMIT);
-    let config = MatchConfig::tokens([1; 32], PlayerId(0));
+    let config = MatchConfig::for_profile("commander-tokens-v1", [1; 32], PlayerId(0)).unwrap();
     let pod = Prepared::admit_pod(c.clone(), config.clone()).unwrap();
     assert_eq!(pod.config.cards.len(), 400);
     let white = &config.decks[0];
@@ -1008,7 +1005,7 @@ fn maximal_pool_capacity_derivation_and_earlier_limits() {
                 "../../../../tests/fixtures/expected-match-ir.json"
             ))
             .unwrap(),
-            MatchConfig::foundations([0; 32], PlayerId(0)),
+            MatchConfig::for_profile("commander-foundations-v1", [0; 32], PlayerId(0)).unwrap(),
         )
         .unwrap(),
     );
@@ -1109,4 +1106,852 @@ fn detached_enters_token_program_survives_source_destruction() {
         assert_eq!(g.state.cards[&token.card].owner, PlayerId(0));
         assert_eq!(g.current(token).unwrap().controller, PlayerId(0));
     });
+}
+
+/// Reproducible release-only cost probe, not a gameplay/admission witness.
+#[test]
+#[ignore = "manual release capacity measurement"]
+fn capacity_release_probe() {
+    let profile = match_profile("commander-wipes-v1").unwrap();
+    let prepared = Prepared::admit_pod(
+        profile.catalog().clone(),
+        MatchConfig::for_profile(&profile.name, [7; 32], PlayerId(0)).unwrap(),
+    )
+    .unwrap();
+    let mut g = Game::with_trace(prepared, TraceMode::Off);
+    let source = g
+        .state
+        .cards
+        .iter()
+        .find(|(id, _)| g.definition(**id).unwrap().name == "Hornet Queen")
+        .map(|(id, _)| *id)
+        .unwrap();
+    let source = g.object_id(source).unwrap();
+    let spec = match &g.definition(source.card).unwrap().triggered[0]
+        .program
+        .instructions[0]
+    {
+        Instruction::CreateCreatureTokens { token, .. } => token.clone(),
+        _ => panic!("token producer"),
+    };
+    let create = ProposedEvent::CreateCreatureTokens {
+        controller: PlayerId(0),
+        source,
+        count: TOKEN_CAPACITY,
+        token: Box::new(spec),
+    };
+    let started = std::time::Instant::now();
+    g.commit(create, BatchCause::StateBased).unwrap();
+    let create_us = started.elapsed().as_micros();
+    let snapshot_bytes = g.snapshot().unwrap().len();
+    let started = std::time::Instant::now();
+    for _ in 0..20 {
+        std::hint::black_box(g.fork());
+    }
+    let fork_us = started.elapsed().as_micros() / 20;
+    let occurrences = g
+        .state
+        .objects
+        .values()
+        .filter(|o| {
+            o.zone == Zone::Battlefield
+                && g.definition(o.id.card).unwrap().characteristics.kind == CardKind::Creature
+        })
+        .map(|o| ProposedEvent::DestroyCreature { object: o.id })
+        .collect::<Vec<_>>();
+    let wipe_count = occurrences.len();
+    let started = std::time::Instant::now();
+    g.commit_batch(
+        BatchCause::StateBased,
+        EventGroup::Simultaneous { occurrences },
+    )
+    .unwrap();
+    let wipe_us = started.elapsed().as_micros();
+    let ceased = g
+        .state
+        .objects
+        .values()
+        .filter(|o| g.state.tokens.contains_key(&o.id.card))
+        .map(|o| o.id)
+        .collect::<Vec<_>>();
+    g.commit_batch(
+        BatchCause::StateBased,
+        EventGroup::Simultaneous {
+            occurrences: ceased
+                .iter()
+                .map(|o| ProposedEvent::CeaseToken { object: *o })
+                .collect(),
+        },
+    )
+    .unwrap();
+    let identity = g.state.tokens.values().next().unwrap().clone();
+    let first = *g.state.tokens.keys().next().unwrap();
+    for i in g.state.tokens.len()..capacities::TOKEN_HISTORY_LIMIT - TOKEN_CAPACITY as usize {
+        let id = CardId(first.0 + i as u32);
+        let mut token = identity.clone();
+        token.definition.oracle_id = format!("token:{}", id.0);
+        g.state.cards.insert(
+            id,
+            Card {
+                owner: PlayerId(0),
+                oracle_id: token.definition.oracle_id.clone(),
+            },
+        );
+        g.state.tokens.insert(id, token);
+    }
+    let spec = identity.spec.clone();
+    g.commit(
+        ProposedEvent::CreateCreatureTokens {
+            controller: PlayerId(0),
+            source,
+            count: TOKEN_CAPACITY,
+            token: Box::new(spec),
+        },
+        BatchCause::StateBased,
+    )
+    .unwrap();
+    let occurrences = g
+        .state
+        .objects
+        .values()
+        .filter(|o| o.zone == Zone::Battlefield && g.state.tokens.contains_key(&o.id.card))
+        .map(|o| ProposedEvent::DestroyCreature { object: o.id })
+        .collect();
+    let started = std::time::Instant::now();
+    g.commit_batch(
+        BatchCause::StateBased,
+        EventGroup::Simultaneous { occurrences },
+    )
+    .unwrap();
+    let history_wipe_us = started.elapsed().as_micros();
+    assert_eq!(g.state.tokens.len(), capacities::TOKEN_HISTORY_LIMIT);
+    let history_snapshot_bytes = g.snapshot().unwrap().len();
+    // Stack payload deliberately includes a full supported program via its source.
+    let entry: StackInstance = strict_read(&serde_json::json!({"id":1,"source":source,"controller":0,"targets":[],"announced_targets":[],"player_targets":[],"paid":null,"total_cost":{"generic":"0","colored":[]},"cast_from":{"zone":"hand","owner":0}}).to_string()).unwrap();
+    g.state.stack = (0..capacities::STACK_LIMIT)
+        .map(|i| {
+            let mut e = entry.clone();
+            e.id = StackId(i as u32);
+            e
+        })
+        .collect();
+    let started = std::time::Instant::now();
+    for _ in 0..20 {
+        std::hint::black_box(g.fork());
+    }
+    let stack_fork_us = started.elapsed().as_micros() / 20;
+    let started = std::time::Instant::now();
+    assert!(g.check_stack_capacity(1).is_err());
+    let stack_fault_us = started.elapsed().as_micros();
+    assert!(matches!(
+        g.typed_fault(),
+        Some(RuleFault::StackCapacityExceeded { .. })
+    ));
+    g.state.typed_fault = None;
+    g.state.frame = Frame::Stabilize {
+        resume: Box::new(Frame::Priority),
+        cleanup: false,
+        changed: false,
+    };
+    let started = std::time::Instant::now();
+    let mut staged = g.fork();
+    staged.step().unwrap();
+    let stack_step_us = started.elapsed().as_micros();
+    eprintln!(
+        "capacity_probe {}",
+        serde_json::json!({"tokens":TOKEN_CAPACITY,"owned_cards":400,"create_us":create_us,"snapshot_bytes":snapshot_bytes,"fork_us":fork_us,"wipe_creatures":wipe_count,"wipe_us":wipe_us,"stack_entries":capacities::STACK_LIMIT,"stack_fork_us":stack_fork_us,"stack_fault_us":stack_fault_us,"stack_step_us":stack_step_us,"history_wipe_us":history_wipe_us,"history_snapshot_bytes":history_snapshot_bytes,"token_history":g.state.tokens.len()})
+    );
+}
+
+#[test]
+fn retained_token_history_capacity_faults_before_allocating_more_identities() {
+    let mut g = Game::with_trace(prepared(&[("Raise the Alarm", 0, true)]), TraceMode::Off);
+    let source = object(&g, 0);
+    let spec = match &g
+        .definition(source.card)
+        .unwrap()
+        .spell
+        .as_ref()
+        .unwrap()
+        .instructions[0]
+    {
+        Instruction::CreateCreatureTokens { token, .. } => token.clone(),
+        _ => panic!("token producer"),
+    };
+    g.commit(
+        ProposedEvent::CreateCreatureTokens {
+            controller: PlayerId(0),
+            source,
+            count: 1,
+            token: Box::new(spec.clone()),
+        },
+        BatchCause::StateBased,
+    )
+    .unwrap();
+    let token = g.state.tokens.values().next().unwrap().clone();
+    let first = *g.state.tokens.keys().next().unwrap();
+    let id = g.object_id(first).unwrap();
+    g.commit(
+        ProposedEvent::Move {
+            object: id,
+            destination: Zone::Graveyard { owner: PlayerId(0) },
+        },
+        BatchCause::StateBased,
+    )
+    .unwrap();
+    g.commit(
+        ProposedEvent::CeaseToken {
+            object: g.object_id(first).unwrap(),
+        },
+        BatchCause::StateBased,
+    )
+    .unwrap();
+    for i in 1..capacities::TOKEN_HISTORY_LIMIT {
+        let id = CardId(first.0 + i as u32);
+        let mut identity = token.clone();
+        identity.definition.oracle_id = format!("token:{}", id.0);
+        g.state.cards.insert(
+            id,
+            Card {
+                owner: PlayerId(0),
+                oracle_id: identity.definition.oracle_id.clone(),
+            },
+        );
+        g.state.tokens.insert(id, identity);
+    }
+    assert_eq!(g.allocated_capacity_count(), 0);
+    let before = g.state.tokens.clone();
+    assert!(
+        g.commit(
+            ProposedEvent::CreateCreatureTokens {
+                controller: PlayerId(0),
+                source,
+                count: 1,
+                token: Box::new(spec)
+            },
+            BatchCause::StateBased
+        )
+        .is_err()
+    );
+    assert_eq!(g.state.tokens, before);
+    assert_eq!(
+        g.typed_fault(),
+        Some(&RuleFault::TokenHistoryCapacityExceeded {
+            capacity: capacities::TOKEN_HISTORY_LIMIT,
+            created: capacities::TOKEN_HISTORY_LIMIT,
+            requested: 1
+        })
+    );
+    g.state.frame = Frame::Fault {
+        reason: "token history capacity exceeded".into(),
+    };
+    g.validate_tokens_state().unwrap();
+    let raw = serde_json::to_string(&g.typed_fault()).unwrap();
+    assert_eq!(
+        serde_json::from_str::<Option<RuleFault>>(&raw)
+            .unwrap()
+            .as_ref(),
+        g.typed_fault()
+    );
+}
+
+// Private stress injection into a genuinely admitted all-Yargle pod. It tests
+// cardinality and trigger resolution, not accepted-input reachability/replay.
+fn death_payoff_board(tokens: u32) -> Game {
+    let p = match_profile("commander-wipes-v1").unwrap();
+    let mut config = MatchConfig::for_profile(&p.name, [7; 32], PlayerId(0)).unwrap();
+    let deck = config
+        .decks
+        .iter()
+        .find(|d| {
+            p.catalog()
+                .definitions
+                .iter()
+                .any(|c| c.oracle_id == d.commander && c.name == "Yargle and Multani")
+        })
+        .unwrap()
+        .clone();
+    config.decks = std::array::from_fn(|_| deck.clone());
+    let mut g = Game::with_trace(
+        Prepared::admit_pod(p.catalog().clone(), config).unwrap(),
+        TraceMode::Off,
+    );
+    for player in &mut g.state.players {
+        player.life = 1_000_000.into();
+    }
+    let payoffs = [
+        "Blood Artist",
+        "Zulaport Cutthroat",
+        "Vindictive Vampire",
+        "Butcher of Malakir",
+        "Bastion of Remembrance",
+        "Massacre Wurm",
+    ];
+    let cards = g
+        .state
+        .cards
+        .keys()
+        .copied()
+        .filter(|id| payoffs.contains(&g.definition(*id).unwrap().name.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(cards.len(), 24);
+    for card in cards {
+        g.commit(
+            ProposedEvent::Move {
+                object: g.object_id(card).unwrap(),
+                destination: Zone::Battlefield,
+            },
+            BatchCause::StateBased,
+        )
+        .unwrap();
+    }
+    // Each token belongs to a different seat in round-robin groups.
+    let source = *g
+        .state
+        .cards
+        .keys()
+        .find(|id| g.definition(**id).unwrap().name == "Hornet Queen")
+        .unwrap();
+    let spec = match &g.definition(source).unwrap().triggered[0]
+        .program
+        .instructions[0]
+    {
+        Instruction::CreateCreatureTokens { token, .. } => token.clone(),
+        _ => panic!("token source"),
+    };
+    for seat in 0..4 {
+        let count = tokens / 4 + u32::from((seat as u32) < tokens % 4);
+        if count > 0 {
+            g.commit(
+                ProposedEvent::CreateCreatureTokens {
+                    controller: PlayerId(seat),
+                    source: g.object_id(source).unwrap(),
+                    count,
+                    token: Box::new(spec.clone()),
+                },
+                BatchCause::StateBased,
+            )
+            .unwrap();
+        }
+    }
+    g.state.pending_triggers.clear();
+    g.state.frame = Frame::Priority;
+    g.state.turn.step = TurnStep::PrecombatMain;
+    g.refresh_visibility().unwrap();
+    g
+}
+fn wipe_death_payoff_board(g: &mut Game) -> (usize, usize) {
+    let occurrences = g
+        .state
+        .objects
+        .values()
+        .filter(|o| {
+            o.zone == Zone::Battlefield
+                && g.definition(o.id.card).unwrap().characteristics.kind == CardKind::Creature
+        })
+        .map(|o| ProposedEvent::DestroyCreature { object: o.id })
+        .collect::<Vec<_>>();
+    let deaths = occurrences.len();
+    g.commit_batch(
+        BatchCause::StateBased,
+        EventGroup::Simultaneous { occurrences },
+    )
+    .unwrap();
+    (deaths, g.state.pending_triggers.len())
+}
+#[test]
+fn ninety_six_simultaneous_deaths_with_four_yargle_payoffs_resolve() {
+    let mut g = death_payoff_board(76); // 20 physical payoff creatures + 76 tokens.
+    let (deaths, triggers) = wipe_death_payoff_board(&mut g);
+    assert_eq!(deaths, 96);
+    assert!(
+        triggers > 1024,
+        "regression must exceed old ceiling: {triggers}"
+    );
+    g.state.frame = Frame::Stabilize {
+        resume: Box::new(Frame::Priority),
+        cleanup: false,
+        changed: true,
+    };
+    let mut steps = 0;
+    loop {
+        let r = g
+            .live_players()
+            .into_iter()
+            .find_map(|p| g.decision_for(p).unwrap());
+        if let Some(r) = r {
+            if g.state.pending_triggers.is_empty()
+                && g.state.stack.is_empty()
+                && matches!(r, Request::Priority { .. })
+            {
+                break;
+            }
+            let response = match &r {
+                Request::Priority { .. } => Response::Pass,
+                Request::OrderTriggers { candidates, .. } => Response::OrderTriggers {
+                    order: candidates.clone(),
+                },
+                Request::PlayerTargets { candidates, .. } => Response::PlayerTargets {
+                    players: vec![candidates[0]],
+                },
+                other => panic!("unexpected payoff decision: {other:?}"),
+            };
+            // Use the ordinary response validator but skip public-history capture
+            // in this private cardinality witness. Accepted-input/replay coverage
+            // belongs to the existing natural gameplay tests.
+            let checked = g
+                .check_response(r.player(), r.decision_id(), response)
+                .unwrap();
+            g.state.pending = Some(checked.input);
+            g.state.revision += 1;
+        }
+        let mut staged = g.fork();
+        staged.step().unwrap();
+        g = staged;
+        steps += 1;
+        assert!(steps < 50_000);
+    }
+    assert!(g.typed_fault().is_none());
+    assert_eq!(g.allocated_capacity_count(), 0);
+    assert!(
+        g.state
+            .players
+            .iter()
+            .any(|p| p.life != Quantity::from(1_000_000))
+    );
+}
+#[test]
+#[ignore = "manual release capacity measurement"]
+fn death_payoff_release_probe() {
+    let mut g = death_payoff_board(TOKEN_CAPACITY);
+    let started = std::time::Instant::now();
+    let (deaths, triggers) = wipe_death_payoff_board(&mut g);
+    let wipe_us = started.elapsed().as_micros();
+    let started = std::time::Instant::now();
+    for _ in 0..20 {
+        std::hint::black_box(g.fork());
+    }
+    let fork_us = started.elapsed().as_micros() / 20;
+    assert!(g.typed_fault().is_none());
+    eprintln!(
+        "death_payoff_probe {}",
+        serde_json::json!({"deaths":deaths,"pending_triggers":triggers,"wipe_us":wipe_us,"fork_us":fork_us})
+    );
+}
+
+// Admitted hosted catalog/pod, with diagnostic battlefield injection. The wipe
+// is private setup; the entire trigger cascade uses public advance/respond.
+fn public_history_cascade(tokens: u32) -> (Game, usize, usize, usize) {
+    let p = match_profile("commander-attachments-v1").unwrap();
+    p.require_feature(p.catalog(), crate::Feature::Hosting)
+        .unwrap();
+    let mut config = MatchConfig::for_profile(&p.name, [7; 32], PlayerId(0)).unwrap();
+    let deck = config
+        .decks
+        .iter()
+        .find(|d| {
+            p.catalog()
+                .definitions
+                .iter()
+                .any(|c| c.oracle_id == d.commander && c.name == "Yargle and Multani")
+        })
+        .unwrap()
+        .clone();
+    config.decks = std::array::from_fn(|_| deck.clone());
+    let mut g = Game::with_trace(
+        Prepared::admit_pod(p.catalog().clone(), config).unwrap(),
+        TraceMode::Off,
+    );
+    for player in &mut g.state.players {
+        player.life = 1_000_000.into();
+    }
+    let artists = g
+        .state
+        .cards
+        .keys()
+        .copied()
+        .filter(|id| g.definition(*id).unwrap().name == "Blood Artist")
+        .collect::<Vec<_>>();
+    assert_eq!(artists.len(), 4);
+    for card in artists {
+        g.commit(
+            ProposedEvent::Move {
+                object: g.object_id(card).unwrap(),
+                destination: Zone::Battlefield,
+            },
+            BatchCause::StateBased,
+        )
+        .unwrap();
+    }
+    let source = *g
+        .state
+        .cards
+        .keys()
+        .find(|id| g.definition(**id).unwrap().name == "Hornet Queen")
+        .unwrap();
+    let token = match &g.definition(source).unwrap().triggered[0]
+        .program
+        .instructions[0]
+    {
+        Instruction::CreateCreatureTokens { token, .. } => token.clone(),
+        _ => panic!("source-backed token instruction"),
+    };
+    g.commit(
+        ProposedEvent::CreateCreatureTokens {
+            controller: PlayerId(0),
+            source: g.object_id(source).unwrap(),
+            count: tokens,
+            token: Box::new(token),
+        },
+        BatchCause::StateBased,
+    )
+    .unwrap();
+    g.state.pending_triggers.clear();
+    g.state.frame = Frame::Priority;
+    g.state.turn.step = TurnStep::PrecombatMain;
+    g.refresh_visibility().unwrap();
+    let (deaths, triggers) = wipe_death_payoff_board(&mut g);
+    assert_eq!(deaths, tokens as usize + 4);
+    assert_eq!(triggers, deaths * 4);
+    g.state.frame = Frame::Stabilize {
+        resume: Box::new(Frame::Priority),
+        cleanup: false,
+        changed: true,
+    };
+    for _ in 0..30_000 {
+        match g.advance(Budget::new(1)) {
+            Advance::Suspended { .. } => (),
+            Advance::AwaitingDecision(r) => {
+                if g.state.stack.is_empty()
+                    && g.state.pending_triggers.is_empty()
+                    && matches!(r, Request::Priority { .. })
+                {
+                    break;
+                }
+                let response = match &r {
+                    Request::Priority { .. } => Response::Pass,
+                    Request::OrderTriggers { candidates, .. } => Response::OrderTriggers {
+                        order: candidates.clone(),
+                    },
+                    Request::PlayerTargets { candidates, .. } => Response::PlayerTargets {
+                        players: vec![candidates[0]],
+                    },
+                    other => panic!("cascade request: {other:?}"),
+                };
+                g.respond(r.player(), r.decision_id(), response).unwrap();
+            }
+            other => panic!("public cascade: {other:?}, {:?}", g.typed_fault()),
+        }
+    }
+    assert!(g.state.stack.is_empty() && g.state.pending_triggers.is_empty());
+    assert!(g.typed_fault().is_none());
+    let mut nodes = BTreeSet::new();
+    let mut entries = 0;
+    for k in &g.state.visibility {
+        for view in k.history.iter() {
+            let pointers = view.stack.node_pointers();
+            entries += pointers.len();
+            nodes.extend(pointers);
+        }
+    }
+    (g, triggers, nodes.len(), entries)
+}
+#[test]
+fn public_death_cascade_retains_linear_stack_nodes() {
+    let (_, triggers, nodes, logical) = public_history_cascade(21);
+    assert_eq!(triggers, 100);
+    assert!(
+        logical > 100_000,
+        "must exercise deep retained stacks: {logical}"
+    );
+    assert!(
+        nodes <= 12 * triggers + 16,
+        "quadratic allocation regression: {nodes} for {triggers}"
+    );
+}
+#[test]
+#[ignore = "manual release public-history memory measurement"]
+fn public_history_release_probe() {
+    fn rss_bytes() -> usize {
+        std::fs::read_to_string("/proc/self/status")
+            .unwrap()
+            .lines()
+            .find_map(|line| {
+                line.strip_prefix("VmRSS:").map(|v| {
+                    v.split_whitespace()
+                        .next()
+                        .unwrap()
+                        .parse::<usize>()
+                        .unwrap()
+                        * 1024
+                })
+            })
+            .unwrap()
+    }
+    let baseline_rss = rss_bytes();
+    let start = std::time::Instant::now();
+    let (g, triggers, nodes, logical) = public_history_cascade(116);
+    assert_eq!(triggers, 480);
+    let views = g
+        .state
+        .visibility
+        .iter()
+        .map(|k| k.history.len())
+        .sum::<usize>();
+    eprintln!(
+        "public_history_probe {}",
+        serde_json::json!({
+            "triggers": triggers, "deaths":120, "views":views, "stack_nodes":nodes,
+            "logical_stack_entries":logical, "history_charge":g.history_charge(),
+            "elapsed_us":start.elapsed().as_micros(), "build_id":BUILD_ID,
+        "baseline_rss_bytes":baseline_rss, "final_rss_bytes":rss_bytes(),
+        "rss_growth_bytes":rss_bytes().saturating_sub(baseline_rss)
+        })
+    );
+}
+
+#[test]
+fn history_capacity_fault_rolls_back_the_entire_public_step_in_all_traces() {
+    let mut states = vec![];
+    for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
+        let mut g = Game::with_trace(prepared(&[]), mode);
+        // Set up an ordinary priority input, then inject a near-boundary charge.
+        g.state.frame = Frame::Priority;
+        g.refresh_visibility().unwrap();
+        let r = g.decision_for(g.state.priority).unwrap().unwrap();
+        g.respond(r.player(), r.decision_id(), Response::Pass)
+            .unwrap();
+        let charge = g.history_charge();
+        let mut probe = g.fork();
+        probe.step().unwrap();
+        let after_step = probe.history_charge();
+        probe.state.rule_steps += 1;
+        probe.refresh_visibility().unwrap();
+        let complete_charge = probe.history_charge();
+        assert!(
+            complete_charge > after_step,
+            "exercise post-mutation visibility overflow"
+        );
+        let headroom = complete_charge - charge - 1;
+        g.state.retained_auxiliary_charge += capacities::HISTORY_LIMIT - charge - headroom;
+        let mut expected = g.state.clone();
+        assert_eq!(g.history_charge(), capacities::HISTORY_LIMIT - headroom);
+        assert!(matches!(g.advance(Budget::new(1)), Advance::Fault(_)));
+        let fault = g.typed_fault().cloned().unwrap();
+        assert!(
+            matches!(fault, RuleFault::HistoryCapacityExceeded { capacity: capacities::HISTORY_LIMIT, requested } if requested > capacities::HISTORY_LIMIT)
+        );
+        expected.typed_fault = Some(fault.clone());
+        expected.frame = Frame::Fault {
+            reason: "history capacity exceeded".into(),
+        };
+        assert_eq!(g.state, expected);
+        g.validate_tokens_state().unwrap();
+        let roundtrip: RuleFault =
+            serde_json::from_str(&serde_json::to_string(&fault).unwrap()).unwrap();
+        assert_eq!(fault, roundtrip);
+        states.push(g.state);
+    }
+    assert_eq!(states[0], states[1]);
+    assert_eq!(states[0], states[2]);
+}
+
+fn history_rss_bytes() -> usize {
+    std::fs::read_to_string("/proc/self/status")
+        .unwrap()
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("VmRSS:").map(|v| {
+                v.split_whitespace()
+                    .next()
+                    .unwrap()
+                    .parse::<usize>()
+                    .unwrap()
+                    * 1024
+            })
+        })
+        .unwrap()
+}
+fn history_long_game(profile: &str) -> Game {
+    let p = match_profile(profile).unwrap();
+    let mut config = MatchConfig::for_profile(&p.name, [7; 32], PlayerId(2)).unwrap();
+    config.decks = std::array::from_fn(|_| p.decks[0].clone());
+    Game::with_trace(
+        Prepared::admit_pod(p.catalog().clone(), config).unwrap(),
+        TraceMode::Off,
+    )
+}
+fn history_long_response(g: &Game, r: &Request, lands: bool) -> Response {
+    match r {
+        Request::Mulligan { .. } => Response::Mulligan { take: false },
+        Request::Priority { .. } => {
+            if lands {
+                for object in g
+                    .state
+                    .objects
+                    .values()
+                    .filter(|o| o.zone == Zone::Hand { owner: r.player() })
+                {
+                    let response = Response::PlayLand {
+                        card: object.id.card,
+                    };
+                    if g.check_response(r.player(), r.decision_id(), response.clone())
+                        .is_ok()
+                    {
+                        return response;
+                    }
+                }
+            }
+            Response::Pass
+        }
+        Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
+        Request::Blockers { .. } => Response::Blockers { blocks: vec![] },
+        Request::Discard {
+            candidates, count, ..
+        } => Response::Discard {
+            objects: candidates.iter().take(*count).copied().collect(),
+        },
+        other => panic!("long-game request {other:?}"),
+    }
+}
+#[test]
+fn land_play_history_charge_grows_linearly_and_snapshot_restores_identically() {
+    let mut g = history_long_game("commander-foundations-v1");
+    let mut charges = vec![];
+    let mut next_turn = 16;
+    for _ in 0..20_000 {
+        let r = match g.advance(Budget::new(1024)) {
+            Advance::AwaitingDecision(r) => r,
+            Advance::Suspended { .. } => continue,
+            other => panic!("short land-play game {other:?}"),
+        };
+        if g.turn().number >= next_turn {
+            charges.push(g.history_charge());
+            if next_turn == 32 {
+                let restored =
+                    Game::restore((*g.prepared).clone(), &g.snapshot().unwrap()).unwrap();
+                assert_eq!(restored.history_charge(), g.history_charge());
+                assert_eq!(restored.state_digest().unwrap(), g.state_digest().unwrap());
+            }
+            next_turn += 16;
+            if charges.len() == 3 {
+                break;
+            }
+        }
+        g.respond(
+            r.player(),
+            r.decision_id(),
+            history_long_response(&g, &r, true),
+        )
+        .unwrap();
+    }
+    assert_eq!(charges.len(), 3);
+    let first = charges[1] - charges[0];
+    let second = charges[2] - charges[1];
+    assert!(
+        second * 100 < first * 125,
+        "superlinear history growth: {charges:?}"
+    );
+    assert!(
+        g.turn().lands_played > 0
+            || g.state
+                .objects
+                .values()
+                .any(|o| o.zone == Zone::Battlefield)
+    );
+}
+fn history_decking_probe(lands: bool) {
+    let profile =
+        std::env::var("MTG_HISTORY_PROFILE").unwrap_or_else(|_| "commander-foundations-v1".into());
+    let baseline_rss = history_rss_bytes();
+    let start = std::time::Instant::now();
+    let mut g = history_long_game(&profile);
+    let result = loop {
+        match g.advance(Budget::new(1024)) {
+            Advance::AwaitingDecision(r) => {
+                g.respond(
+                    r.player(),
+                    r.decision_id(),
+                    history_long_response(&g, &r, lands),
+                )
+                .unwrap();
+            }
+            Advance::Suspended { .. } => (),
+            other => break other,
+        }
+    };
+    eprintln!(
+        "history_decking_probe {}",
+        serde_json::json!({
+            "profile":profile,"lands":lands,"turn":g.turn().number,
+            "result":format!("{result:?}"),"fault":g.typed_fault(),
+            "charge":g.history_charge(),"budget":capacities::HISTORY_LIMIT,
+            "auxiliary_charge":g.state.retained_auxiliary_charge,
+            "view_charge":g.state.visibility.iter().map(|k| k.history.retention_charge()).collect::<Vec<_>>(),
+            "views":g.state.visibility.iter().map(|k| k.history.len()).collect::<Vec<_>>(),
+            "rule_steps":g.state.rule_steps,"event_sequence":g.state.next_event_sequence,
+            "baseline_rss_bytes":baseline_rss,"final_rss_bytes":history_rss_bytes(),
+            "elapsed_us":start.elapsed().as_micros(),"build_id":BUILD_ID
+        })
+    );
+    assert!(matches!(
+        result,
+        Advance::Finished {
+            winner: PlayerId(1)
+        }
+    ));
+    assert_eq!(g.turn().number, 371);
+    assert!(g.typed_fault().is_none());
+    assert!(g.history_charge() < capacities::HISTORY_LIMIT / 4);
+}
+#[test]
+#[ignore = "manual release long-game history accounting measurement"]
+fn history_draw_release_probe() {
+    history_decking_probe(false);
+}
+#[test]
+#[ignore = "manual release land-play game to natural decking"]
+fn history_land_play_release_probe() {
+    history_decking_probe(true);
+}
+
+#[test]
+#[ignore = "manual release retained-history policy boundary RSS measurement"]
+fn history_budget_release_probe() {
+    let baseline_rss = history_rss_bytes();
+    let mut g = history_long_game("commander-foundations-v1");
+    assert!(matches!(
+        g.advance(Budget::new(1024)),
+        Advance::AwaitingDecision(_)
+    ));
+    // Diagnostic retention only, not accepted-input reachability. Small views
+    // maximize per-view/Arc/metadata overhead relative to encoded payload.
+    let mut view = g.state.visibility[0].history.last().unwrap().to_public();
+    view.objects.clear();
+    view.players.clear();
+    view.commanders.clear();
+    view.setup = None;
+    while g.history_charge() <= capacities::HISTORY_LIMIT {
+        view.turn.number += 1;
+        g.state.visibility[0].history.push_public(view.clone());
+        g.state.visibility[0]
+            .history
+            .last()
+            .unwrap()
+            .write_canonical(&mut std::io::sink())
+            .unwrap();
+    }
+    assert!(g.check_history_capacity().is_err());
+    assert!(matches!(
+        g.typed_fault(),
+        Some(RuleFault::HistoryCapacityExceeded { .. })
+    ));
+    eprintln!(
+        "history_budget_probe {}",
+        serde_json::json!({
+            "charge":g.history_charge(),"budget":capacities::HISTORY_LIMIT,
+            "views":g.state.visibility[0].history.len(),
+            "baseline_rss_bytes":baseline_rss,"final_rss_bytes":history_rss_bytes(),"build_id":BUILD_ID
+        })
+    );
 }

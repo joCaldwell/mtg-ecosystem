@@ -7,24 +7,6 @@ use mtg_contracts::{CounterRecipient, CreatureToken};
 // Generic live-object cap. Physical token identities are never reused,
 // including after a token ceases; history is retained independently.
 pub const TOKEN_CAPACITY: u32 = capacities::TOKEN_CAPACITY;
-// Historical tokens-slice arithmetic, test-only; it never selects runtime limits.
-// That release had at most 27 creature cards per deck.
-// Every trigger source is singleton per seat. Within a nonempty-stack episode
-// creatures enter/die at most once; commander recasts require an empty stack.
-#[cfg(test)]
-pub(super) const CREATURE_CARD_BOUND: usize = 4 * 27;
-#[cfg(test)]
-pub(super) const CREATURE_BOUND: usize = CREATURE_CARD_BOUND + 64;
-#[cfg(test)]
-pub(super) const DAMAGE_BOUND: usize = 2 * CREATURE_BOUND;
-// Reserve all 400 physical spells, 4 tap activations, C*4 Artist deaths,
-// C*4 Warden entries, 108 self-enters and 4 Bouncer self-dies triggers.
-// This deliberately overcounts mutually exclusive white/BG deck allocations.
-#[cfg(test)]
-pub(super) const STACK_BOUND: usize = 400 + 4 + CREATURE_BOUND * 8 + CREATURE_CARD_BOUND + 4;
-// All physical cards, allocated tokens and simultaneous player losses.
-#[cfg(test)]
-pub(super) const EVENT_GROUP_BOUND: usize = 400 + 64 + 4;
 const TOKEN_ID_START: u32 = 1 << 31;
 pub(super) fn quantity_is_zero(n: &Quantity) -> bool {
     *n == Quantity::zero()
@@ -32,6 +14,15 @@ pub(super) fn quantity_is_zero(n: &Quantity) -> bool {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "fault", rename_all = "snake_case", deny_unknown_fields)]
 pub enum RuleFault {
+    HistoryCapacityExceeded {
+        capacity: usize,
+        requested: usize,
+    },
+    TokenHistoryCapacityExceeded {
+        capacity: usize,
+        created: usize,
+        requested: u32,
+    },
     EventGroupDepthCapacityExceeded {
         capacity: u32,
         requested: u32,
@@ -110,6 +101,8 @@ impl Game {
 
     pub(super) fn capacity_error(&mut self, fault: RuleFault) -> String {
         let reason = match fault {
+            RuleFault::HistoryCapacityExceeded { .. } => "history capacity exceeded",
+            RuleFault::TokenHistoryCapacityExceeded { .. } => "token history capacity exceeded",
             RuleFault::EventGroupDepthCapacityExceeded { .. } => {
                 "event group depth capacity exceeded"
             }
@@ -162,6 +155,17 @@ impl Game {
                 created,
                 requested,
             }));
+        }
+        if requested as usize
+            > capacities::TOKEN_HISTORY_LIMIT.saturating_sub(self.state.tokens.len())
+        {
+            return Err(
+                self.capacity_error(RuleFault::TokenHistoryCapacityExceeded {
+                    capacity: capacities::TOKEN_HISTORY_LIMIT,
+                    created: self.state.tokens.len(),
+                    requested,
+                }),
+            );
         }
         Ok(())
     }
@@ -348,7 +352,9 @@ impl Game {
         }
     }
     pub(super) fn validate_tokens_state(&self) -> Result<(), String> {
-        if self.allocated_capacity_count() > self.token_capacity() as usize {
+        if self.allocated_capacity_count() > self.token_capacity() as usize
+            || self.state.tokens.len() > capacities::TOKEN_HISTORY_LIMIT
+        {
             return Err("snapshot token capacity invariant".into());
         }
         for (i, (id, t)) in self.state.tokens.iter().enumerate() {
@@ -409,6 +415,22 @@ impl Game {
         }
         if let Some(fault) = self.typed_fault() {
             let expected = match fault {
+                RuleFault::HistoryCapacityExceeded {
+                    capacity,
+                    requested,
+                } if *capacity == capacities::HISTORY_LIMIT && requested > capacity => {
+                    "history capacity exceeded"
+                }
+                RuleFault::TokenHistoryCapacityExceeded {
+                    capacity,
+                    created,
+                    requested,
+                } if *capacity == capacities::TOKEN_HISTORY_LIMIT
+                    && *created == self.state.tokens.len()
+                    && *requested as usize > capacity - created =>
+                {
+                    "token history capacity exceeded"
+                }
                 RuleFault::EventGroupDepthCapacityExceeded {
                     capacity,
                     requested,

@@ -4,8 +4,16 @@ D1b-2 removes runtime lineage gates. The historical profile descriptions below
 record earlier release boundaries; they no longer enable rules or select limits.
 All admitted catalogs execute the common rules implementation. See
 `docs/game-engine-capacity-policy.md` for current limits and typed atomic faults.
-Exact catalog/deck/commander admission, hosting and search guards remain until
-D1b-3. Historical fixture/evidence bytes remain preserved.
+D1b-3 now loads legal match admission from `tests/fixtures/profiles/`: catalog
+manifest references, decks, commander policy, hosting/search flags and completion
+layout. See `docs/game-engine-profiles.md`. Foundations and attachments are hosted;
+only foundations is search-enabled. `match-batch PROFILE OUTPUT` and
+`match-replay PROFILE FILE` replace per-profile CLI selectors. The capacity policy
+now uses measured shared ceilings and bounds retained token identities.
+Feature requests must fit the explicit reviewed capability sets; catalog integrity
+and the selected dated banned-list digest remain bound independently.
+`catalog build MANIFEST [--write]` replaces all per-catalog compile commands.
+Card-specific Develop heuristics remain D1c work.
 
 
 Rust owns contracts, offline compilation, deterministic core, and the scenario
@@ -328,8 +336,8 @@ actual Commander combat damage and apply the 21-damage SBA loss rule. Earlier
 Commander profiles retain their explicit damage fault. Library replacement is
 enabled only for the reviewed Time Ebb and subsequent ordinary/ability draw paths.
 Replacement ordering is limited to the reviewed effects and subsequent profiles.
-Legal match setup is available only through the eleven named foundations, keywords,
-combat-keywords, tokens, staples, mana, four-colors, attachments, removal, sacrifice and wipes profiles. Ordinary combat is enabled in the reviewed combat, Commander and action profiles.
+Legal match setup is admitted through the profile data registry; its current
+files also include the D1b-3 data-only demonstration profile. Ordinary combat is enabled in the reviewed combat, Commander and action profiles.
 
 Batch mutation is private and atomic. Capture consumed pre-event facts and use
 actual typed outcome slots. Simultaneous groups admit independent read/write

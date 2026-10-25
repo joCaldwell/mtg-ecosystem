@@ -1,0 +1,187 @@
+{
+  "fixture_version": 1,
+  "rules_edition": "2026-09-25",
+  "rules_sha256": "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca",
+  "records": [
+    {
+      "file": "008290c2-499d-425b-9a6c-c4aeb47c33ff.json",
+      "oracle_id": "008290c2-499d-425b-9a6c-c4aeb47c33ff",
+      "record_sha256": "9df52526a3ede801a13ef1573d4481693e33de69522e7b37f4ded0ff2c143a96",
+      "source_sha256": "c2a89c8418be9bb86fb3003ba7fe1d2a0dd3b2f98ea28b3310af7e583cb16b8f",
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 79
+    },
+    {
+      "file": "017568ea-613f-4057-9a8d-61b087d6dc92.json",
+      "oracle_id": "017568ea-613f-4057-9a8d-61b087d6dc92",
+      "record_sha256": "120ff90c38dd77056aa055ee0d5fa86a2dd9a2190370418f4d6f54764ae1000c",
+      "source_sha256": "c8e17038dc89b8dbc09dba70640fc276f7e070671baf14cb64ea79c5da78ba6f",
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 233
+    },
+    {
+      "file": "01b3af6d-ab7d-4137-a94a-1cf2cbfd9d44.json",
+      "oracle_id": "01b3af6d-ab7d-4137-a94a-1cf2cbfd9d44",
+      "record_sha256": "835c29c44449134ecda6730e3b82eb7a2511fdc82aed588b3a9a41619fda67e9",
+      "source_sha256": "fb140bf5435b318fdc95b7a4ba8f855040558e034db06205b31197c65ff26484",
+      "ast_sha256": "b59995b9b89f88d4cc01bbae2469838c40e0f44dd1f9a704332fb3fe4d4313e6",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 279
+    },
+    {
+      "file": "03a9ac3f-f6e4-4ade-9770-cf723434b7e8.json",
+      "oracle_id": "03a9ac3f-f6e4-4ade-9770-cf723434b7e8",
+      "record_sha256": "1e64486815b808057cace27734774cbb7d5f6b9f17cf12c9a27e640b9dd4a369",
+      "source_sha256": "8dc8a1e1920c61506cab14a6efd90bfe635ab538e51f070579c88c597749dc20",
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 580
+    },
+    {
+      "file": "041cc2d0-eb67-484e-8da1-e91ddb2b3f70.json",
+      "oracle_id": "041cc2d0-eb67-484e-8da1-e91ddb2b3f70",
+      "record_sha256": "bcd387e0c4d8421b0bbdbad9ae74af6a18c7801449562991183b562e4b7cdb76",
+      "source_sha256": "f97e811889c3d986d61cf9228b83c1dfcd833a570470a3a7657f3e93e4af039d",
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 646
+    },
+    {
+      "file": "0c7163e6-f5a1-45a5-88c2-19dd9ef0a587.json",
+      "oracle_id": "0c7163e6-f5a1-45a5-88c2-19dd9ef0a587",
+      "record_sha256": "2b3403f1fb7b25d0bb9900e6e684ffa24d569e5e5f121016b8837747ecfd9187",
+      "source_sha256": "015449fe1f872cee0bc4bb91369387397f9de6c98141aef90f6581f3466b1bcb",
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 1893
+    },
+    {
+      "file": "13228a22-d63a-4952-a482-4f84da696e88.json",
+      "oracle_id": "13228a22-d63a-4952-a482-4f84da696e88",
+      "record_sha256": "8f9b8acfb0db409d99c559a2afc7d5e7c579f7f8c66090306b286e013313e2e7",
+      "source_sha256": "ac4535f906829d93ef1da98cda91f660cdd0a8809449d5282c3146dabb8e08c7",
+      "ast_sha256": "904b9c5cd20b3444109e8cea46d3d22f3da7f41ca310466fc39fc4d9fc6e24d3",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 2919
+    },
+    {
+      "file": "13718d93-fe46-4a18-a511-88649ef1c9de.json",
+      "oracle_id": "13718d93-fe46-4a18-a511-88649ef1c9de",
+      "record_sha256": "8bffa0487053be4e66c859ee6712ed057f028f7daf5a8edcbfdff0d79226bc54",
+      "source_sha256": "e06e09386a97fdcd4db7781e4fa1cde5486523bd5dd111d6029584ff6a2a9ddd",
+      "ast_sha256": "b1b16f52201180c476fb41e5cef6b9ea5e8afe03a086e318010896a65cd07f96",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 2960
+    },
+    {
+      "file": "2f05f3ed-e3b7-4225-b3f2-c12eda335237.json",
+      "oracle_id": "2f05f3ed-e3b7-4225-b3f2-c12eda335237",
+      "record_sha256": "6da1df037e6c0ed4701f80ae91c4cda2bef9457bf3f27cdaf1235d8e41aa996b",
+      "source_sha256": "8d387241af1096b46b184c567b954fd9ff6a9f63217f90ad232190ffed954170",
+      "ast_sha256": "4ae8d9c5ab386c7ae0311ea378f5c6d5b5f464b557a23d78a3ca4862e6e70e97",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 6976
+    },
+    {
+      "file": "3754dce0-3e97-406f-8807-a4942a222c41.json",
+      "oracle_id": "3754dce0-3e97-406f-8807-a4942a222c41",
+      "record_sha256": "1101239549b8e03d08d7d2c2cc1ed75db913bd1c70fea5f22f47900d81a2e4ed",
+      "source_sha256": "e5db2e16d9bf14d17f501229dd1f1db27ffde6318d0bafc98328634a238fa75a",
+      "ast_sha256": "56b5dff17de61b7cc07bd8cdc2463eb3c5c8b5a2858aeb7745f4938ccf61111b",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 8260
+    },
+    {
+      "file": "48fe0f52-1676-49d5-acf6-5476081e8e1b.json",
+      "oracle_id": "48fe0f52-1676-49d5-acf6-5476081e8e1b",
+      "record_sha256": "fc0d30e4c1fcefd9025edf3ab38453271acfda4515a3e8e857f1bef19816a404",
+      "source_sha256": "136214424e812f9a544a106deb3cb013940d4d36e45d0fb7cabe531a6bd39726",
+      "ast_sha256": "58a50948c65287165296bfd0caa3e746ceab19fd0deca4a541ded8765421b998",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 10961
+    },
+    {
+      "file": "56719f6a-1a6c-4c0a-8d21-18f7d7350b68.json",
+      "oracle_id": "56719f6a-1a6c-4c0a-8d21-18f7d7350b68",
+      "record_sha256": "b1c75bf88c83618dd225de41896a156de5f627b095765133e7b85652b95c33a1",
+      "source_sha256": "b5261ec2b13f8ca9d8df45eaf487dc27929897ec400292fa1ebeed6617939547",
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 12988
+    },
+    {
+      "file": "8b218023-50b8-4d9d-b17b-9647479d3675.json",
+      "oracle_id": "8b218023-50b8-4d9d-b17b-9647479d3675",
+      "record_sha256": "2ccbe16609d744b8b1c357a34a18ffe294949f95c09efb9f5c0f21cedd08c821",
+      "source_sha256": "84bfadf7ce79c7e69ca09bd7c32968a1c57d8d12c4dc8d0c971f606f724afbba",
+      "ast_sha256": "ce15469a6da1d09e5416beac9b87d0c449ccaa9c1fdc58ab0303c3f962feba91",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 20975
+    },
+    {
+      "file": "980e1721-3717-4425-95a4-938dbf2ac661.json",
+      "oracle_id": "980e1721-3717-4425-95a4-938dbf2ac661",
+      "record_sha256": "a96ec68134e24240545eee0c1a4debb037ba3c24e5acba549156b1fd3dd55c1a",
+      "source_sha256": "6a270e0f70046f4f1380800e9c9714c59562bfaff97e8a0abce3d8e208ac3f6c",
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 22917
+    },
+    {
+      "file": "a3fb7228-e76b-4e96-a40e-20b5fed75685.json",
+      "oracle_id": "a3fb7228-e76b-4e96-a40e-20b5fed75685",
+      "record_sha256": "59c2fd040d55d72d746c6ad6bb6a86eccd0106f225107efe732dee2abf1e8652",
+      "source_sha256": "2dde0511e90cb9fe2ea92f74dfd3cbc00ef2def94661130509dc89b51af303f5",
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 24738
+    },
+    {
+      "file": "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6.json",
+      "oracle_id": "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6",
+      "record_sha256": "c3dbce38b66c92175c9e5789cfaeaf679f717563f89241e49649e0946543d286",
+      "source_sha256": "a4959cbed9b10560f189c3c138a23f56a14ddda63f5f4c24ad6235a4bb365e04",
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 27016
+    },
+    {
+      "file": "bc71ebf6-2056-41f7-be35-b2e5c34afa99.json",
+      "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99",
+      "record_sha256": "717b3c93651e6b06366523c7aebe997859f1741354caee851b704ccbe116b25e",
+      "source_sha256": "15426fc20bfa12701f69ae6574bc0a198d465d6cab851c36e813fa2f624211d6",
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 28345
+    },
+    {
+      "file": "cfb756dd-6fe1-430a-8f04-8b10cac62a86.json",
+      "oracle_id": "cfb756dd-6fe1-430a-8f04-8b10cac62a86",
+      "record_sha256": "a74c4229d55945ae2210653b56571ff1f5f10f86f367a702a47298478ef3e82b",
+      "source_sha256": "4d3cea46c9da092171574c5cd1b208b69518f5143b434178bf18ad5ddc554837",
+      "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 31325
+    },
+    {
+      "file": "a9d288b8-cdc1-4e55-a0c9-d6edfc95e65d.json",
+      "oracle_id": "a9d288b8-cdc1-4e55-a0c9-d6edfc95e65d",
+      "record_sha256": "87f8fa6a41de69f8b9796be909e6966f7042be2e30b565d2c70c7f8fecf44942",
+      "source_sha256": "57a2a6962463288d998ed4897e9eff8a7ff117f9779d09cc438b85985ba7e37b",
+      "ast_sha256": "30b4db7591b49fe4c275504caf1a0506e4c72a9ded22f33170186082ccbdd595",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 25581
+    },
+    {
+      "file": "f34b9bc4-7bfe-47fd-ba23-4eeeb46026eb.json",
+      "oracle_id": "f34b9bc4-7bfe-47fd-ba23-4eeeb46026eb",
+      "record_sha256": "c1a7dec7b02ef97d853d6f723113700001cd44ca1bf001824ea7e02bf6e06ad9",
+      "source_sha256": "8ec3e5c9a1b83d9c3f62b693626195b06f600bb32bf516ab457023fe7588d559",
+      "ast_sha256": "ce15469a6da1d09e5416beac9b87d0c449ccaa9c1fdc58ab0303c3f962feba91",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 36800
+    }
+  ]
+}

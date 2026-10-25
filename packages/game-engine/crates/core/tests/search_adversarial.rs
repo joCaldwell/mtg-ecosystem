@@ -24,7 +24,7 @@ fn oracle(name: &str) -> String {
 fn source_config(index: u16) -> MatchConfig {
     let seed = sha256(format!("p7-independent-capture/{index}").as_bytes());
     let bytes = std::array::from_fn(|i| u8::from_str_radix(&seed[2 * i..2 * i + 2], 16).unwrap());
-    MatchConfig::foundations(bytes, PlayerId(0))
+    MatchConfig::for_profile("commander-foundations-v1", bytes, PlayerId(0)).unwrap()
 }
 fn all_plains() -> Decklist {
     let commander = oracle("Isamaru, Hound of Konda");

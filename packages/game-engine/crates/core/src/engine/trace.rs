@@ -72,9 +72,6 @@ impl Game {
         self.state.next_event_sequence = sequence
             .checked_add(1)
             .ok_or("event sequence resource limit")?;
-        if self.trace.mode == TraceMode::Off {
-            return Ok(());
-        }
         let entry = TraceRecord {
             sequence,
             boundary: self.state.rule_steps,
@@ -84,6 +81,21 @@ impl Game {
                 .map_err(|_| "trace input count resource limit")?,
             record,
         };
+        // Reserve exactly Detailed's retained payload in every trace mode so
+        // trace configuration cannot move the deterministic fault boundary.
+        let duplicate = match &entry.record {
+            EvidenceRecord::Event { event } => stored_history::payload_charge(event),
+            EvidenceRecord::Batch { .. } => 0,
+        };
+        self.state.retained_auxiliary_charge = self
+            .state
+            .retained_auxiliary_charge
+            .saturating_add(stored_history::payload_charge(&entry))
+            .saturating_add(duplicate);
+        self.check_history_capacity()?;
+        if self.trace.mode == TraceMode::Off {
+            return Ok(());
+        }
         let verification = self
             .trace
             .verification

@@ -503,3 +503,13 @@ Build remained unchanged. The current benchmark's original host endpoints
 remain recorded as measured; the final release records the exact two-file
 host delta separately. These retention-tool corrections cannot be presented
 as engine performance improvements.
+
+## D1b-3 capacity qualification
+
+Whole-state staging remains a known P7 performance limitation: every rules
+step copies the owned game state, and a simultaneous event group forks again
+per occurrence. D1b-3 lowers structural ceilings and bounds retained token
+identities; it makes typed structural exhaustion practical without optimizing
+the copying. See [the capacity policy](game-engine-capacity-policy.md) and the
+D1b-3 progress measurements. Earlier finite-search timings keep their original
+build/workload qualification and are not a performance claim for this build.

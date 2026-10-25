@@ -134,11 +134,15 @@ impl SampleBuildWork {
         {
             return Err(invalid("proposal version, capture identity or sampler"));
         }
-        if profile.reconstruction_schema != SEARCH_RECONSTRUCTION
+        if match_profile(&profile.match_profile).is_none_or(|p| {
+            p.require_feature(&catalog, Feature::Search).is_err()
+                || p.catalog_sha256 != profile.catalog_digest
+        }) || profile.reconstruction_schema != SEARCH_RECONSTRUCTION
             || profile.information_policy != SEARCH_INFORMATION
             || profile.engine_build_id != BUILD_ID
             || profile.rules_digest != RULES_SHA256
-            || profile.commander_policy_digest != policy_digest()
+            || profile.commander_policy_digest
+                != policy_digest(&profile.match_profile).map_err(invariant)?
             || profile.catalog_digest != digest(&catalog).map_err(invariant)?
         {
             return Err(invalid("catalog or public profile identity"));

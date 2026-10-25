@@ -447,7 +447,7 @@ fn snapshot_codec_all_historical_families_and_real_match_setup_preserve_complete
             "../../../../tests/fixtures/expected-match-ir.json"
         ))
         .unwrap(),
-        MatchConfig::foundations([21; 32], PlayerId(0)),
+        MatchConfig::for_profile("commander-foundations-v1", [21; 32], PlayerId(0)).unwrap(),
     )
     .unwrap();
     for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {

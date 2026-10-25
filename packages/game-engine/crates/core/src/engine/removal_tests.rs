@@ -52,7 +52,7 @@ fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
         },
         mode: Mode::CommanderMatch,
         players: 4,
-        profile: REMOVAL_PROFILE.into(),
+        profile: "commander-removal-v1".into(),
         commanders: rows
             .iter()
             .enumerate()
@@ -351,8 +351,14 @@ fn activated(g: &mut Game, id: u32, targets: Vec<TargetEntity>) {
 fn removal_profile_decks_policy_and_reviewed_capacities() {
     let c = catalog();
     assert_eq!(c.schema_version, 18);
-    assert_eq!(digest(&c).unwrap(), REMOVAL_CATALOG_SHA256);
-    let cfg = MatchConfig::for_profile(REMOVAL_PROFILE, [9; 32], PlayerId(0)).unwrap();
+    assert_eq!(
+        digest(&c).unwrap(),
+        match_profile("commander-removal-v1")
+            .unwrap()
+            .catalog_sha256
+            .as_str()
+    );
+    let cfg = MatchConfig::for_profile("commander-removal-v1", [9; 32], PlayerId(0)).unwrap();
     assert_eq!(validate_pod(&c, &cfg).unwrap().config.cards.len(), 400);
     for (deck, n) in cfg.decks.iter().zip([58, 31, 71, 75]) {
         assert_eq!(deck.cards.iter().map(|r| r.count).sum::<u32>(), 100);
@@ -400,7 +406,7 @@ fn removal_profile_decks_policy_and_reviewed_capacities() {
     assert!(
         validate_pod(
             &c,
-            &MatchConfig::for_profile(ATTACHMENTS_PROFILE, [9; 32], PlayerId(0)).unwrap()
+            &MatchConfig::for_profile("commander-attachments-v1", [9; 32], PlayerId(0)).unwrap()
         )
         .unwrap_err()
         .to_string()

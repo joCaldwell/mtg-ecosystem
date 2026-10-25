@@ -2,12 +2,6 @@
 //! 603.2c/10a, 608.2h, 700.4, 701.21a, 101.4, 800.4a and 509.1b.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-// Proof and pool guards: docs/game-engine-sacrifice.md, Reviewed resource bounds.
-#[cfg(test)]
-pub(super) const LIVE_TOKEN_CAPACITY: usize = 8192;
-
-#[cfg(test)]
-pub(super) const EFFECT_BOUND: usize = 8192;
 impl Game {
     pub(super) fn sacrifice_candidates(
         &self,

@@ -482,7 +482,7 @@ impl Worker {
             server_build_id: crate::SERVER_BUILD_ID.to_string(),
             catalog_sha256: digest(&catalog)?,
             rules_sha256: catalog.rules_sha256.clone(),
-            commander_policy_sha256: mtg_core::policy_digest(),
+            commander_policy_sha256: mtg_core::policy_digest(&config.profile)?,
             config,
             checkpoint_sha256: sha256(checkpoint.as_bytes()),
             initial_state_sha256: initial_state_sha256.clone(),
@@ -534,7 +534,8 @@ impl Worker {
             || bootstrap.server_build_id != *crate::SERVER_BUILD_ID
             || bootstrap.catalog_sha256 != digest(&catalog)?
             || bootstrap.rules_sha256 != catalog.rules_sha256
-            || bootstrap.commander_policy_sha256 != mtg_core::policy_digest()
+            || bootstrap.commander_policy_sha256
+                != mtg_core::policy_digest(&bootstrap.config.profile)?
             || bootstrap.initial_clock_ns != INITIAL_CLOCK_NS
         {
             return Err("worker bootstrap identity mismatch".into());
@@ -1576,7 +1577,7 @@ mod tests {
         let worker = Worker::create(
             &temp.pod(),
             catalog(),
-            MatchConfig::foundations([3; 32], PlayerId(0)),
+            MatchConfig::for_profile("commander-foundations-v1", [3; 32], PlayerId(0)).unwrap(),
             "a1",
             Instant::now(),
         )

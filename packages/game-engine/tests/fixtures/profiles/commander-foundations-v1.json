@@ -1,0 +1,212 @@
+{
+  "catalog_manifest": "../catalogs/match.json",
+  "commander_policy": {
+    "banned_list": "../commander-banned-2026-10-15.json",
+    "color_identity": "commander_subset",
+    "eligibility": "legendary_creature"
+  },
+  "commanders": [
+    "cfb756dd-6fe1-430a-8f04-8b10cac62a86",
+    "980e1721-3717-4425-95a4-938dbf2ac661"
+  ],
+  "decks": [
+    {
+      "cards": [
+        {
+          "count": 1,
+          "oracle_id": "19b4cf0b-e1e4-4e50-80bc-673bc6ef8bb8"
+        },
+        {
+          "count": 1,
+          "oracle_id": "30870ee5-6ad7-48a9-983e-d3b018f2344f"
+        },
+        {
+          "count": 1,
+          "oracle_id": "3cc48835-3ac0-4774-b380-f9b21d2dc974"
+        },
+        {
+          "count": 1,
+          "oracle_id": "8da8644c-75a1-4fe9-8e94-900d948d631c"
+        },
+        {
+          "count": 1,
+          "oracle_id": "95a0ca48-d924-47f4-86ed-42c673ee778c"
+        },
+        {
+          "count": 94,
+          "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99"
+        },
+        {
+          "count": 1,
+          "oracle_id": "cfb756dd-6fe1-430a-8f04-8b10cac62a86"
+        }
+      ],
+      "commander": "cfb756dd-6fe1-430a-8f04-8b10cac62a86"
+    },
+    {
+      "cards": [
+        {
+          "count": 1,
+          "oracle_id": "10c585c4-bf5b-4d8f-94a9-e9a5036a688f"
+        },
+        {
+          "count": 1,
+          "oracle_id": "14c8f55d-d177-4c25-a931-ebeb9e6062a0"
+        },
+        {
+          "count": 1,
+          "oracle_id": "27e9db49-7af7-4bef-ad4c-bf5dfb92030d"
+        },
+        {
+          "count": 1,
+          "oracle_id": "310f141c-7f37-4729-aed6-dd9c09db448d"
+        },
+        {
+          "count": 44,
+          "oracle_id": "56719f6a-1a6c-4c0a-8d21-18f7d7350b68"
+        },
+        {
+          "count": 1,
+          "oracle_id": "5748ebf1-24e3-499d-ab7c-c2cebd462a24"
+        },
+        {
+          "count": 1,
+          "oracle_id": "6ca2a89e-7032-4864-b4e9-66f3178f90ab"
+        },
+        {
+          "count": 1,
+          "oracle_id": "77eafe49-b9c5-461d-89c5-cec217dd2974"
+        },
+        {
+          "count": 1,
+          "oracle_id": "8186fd80-015f-470c-9e1c-cbf45764a057"
+        },
+        {
+          "count": 1,
+          "oracle_id": "82076865-7917-4d3b-8fe8-c21bfcd64d29"
+        },
+        {
+          "count": 1,
+          "oracle_id": "980e1721-3717-4425-95a4-938dbf2ac661"
+        },
+        {
+          "count": 1,
+          "oracle_id": "aa5e6894-8c97-46f8-a0fd-07c6db51e9a7"
+        },
+        {
+          "count": 44,
+          "oracle_id": "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6"
+        },
+        {
+          "count": 1,
+          "oracle_id": "c6a3a882-a127-4590-93d7-679ef4313efe"
+        }
+      ],
+      "commander": "980e1721-3717-4425-95a4-938dbf2ac661"
+    },
+    {
+      "cards": [
+        {
+          "count": 1,
+          "oracle_id": "19b4cf0b-e1e4-4e50-80bc-673bc6ef8bb8"
+        },
+        {
+          "count": 1,
+          "oracle_id": "30870ee5-6ad7-48a9-983e-d3b018f2344f"
+        },
+        {
+          "count": 1,
+          "oracle_id": "3cc48835-3ac0-4774-b380-f9b21d2dc974"
+        },
+        {
+          "count": 1,
+          "oracle_id": "8da8644c-75a1-4fe9-8e94-900d948d631c"
+        },
+        {
+          "count": 1,
+          "oracle_id": "95a0ca48-d924-47f4-86ed-42c673ee778c"
+        },
+        {
+          "count": 94,
+          "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99"
+        },
+        {
+          "count": 1,
+          "oracle_id": "cfb756dd-6fe1-430a-8f04-8b10cac62a86"
+        }
+      ],
+      "commander": "cfb756dd-6fe1-430a-8f04-8b10cac62a86"
+    },
+    {
+      "cards": [
+        {
+          "count": 1,
+          "oracle_id": "10c585c4-bf5b-4d8f-94a9-e9a5036a688f"
+        },
+        {
+          "count": 1,
+          "oracle_id": "14c8f55d-d177-4c25-a931-ebeb9e6062a0"
+        },
+        {
+          "count": 1,
+          "oracle_id": "27e9db49-7af7-4bef-ad4c-bf5dfb92030d"
+        },
+        {
+          "count": 1,
+          "oracle_id": "310f141c-7f37-4729-aed6-dd9c09db448d"
+        },
+        {
+          "count": 44,
+          "oracle_id": "56719f6a-1a6c-4c0a-8d21-18f7d7350b68"
+        },
+        {
+          "count": 1,
+          "oracle_id": "5748ebf1-24e3-499d-ab7c-c2cebd462a24"
+        },
+        {
+          "count": 1,
+          "oracle_id": "6ca2a89e-7032-4864-b4e9-66f3178f90ab"
+        },
+        {
+          "count": 1,
+          "oracle_id": "77eafe49-b9c5-461d-89c5-cec217dd2974"
+        },
+        {
+          "count": 1,
+          "oracle_id": "8186fd80-015f-470c-9e1c-cbf45764a057"
+        },
+        {
+          "count": 1,
+          "oracle_id": "82076865-7917-4d3b-8fe8-c21bfcd64d29"
+        },
+        {
+          "count": 1,
+          "oracle_id": "980e1721-3717-4425-95a4-938dbf2ac661"
+        },
+        {
+          "count": 1,
+          "oracle_id": "aa5e6894-8c97-46f8-a0fd-07c6db51e9a7"
+        },
+        {
+          "count": 44,
+          "oracle_id": "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6"
+        },
+        {
+          "count": 1,
+          "oracle_id": "c6a3a882-a127-4590-93d7-679ef4313efe"
+        }
+      ],
+      "commander": "980e1721-3717-4425-95a4-938dbf2ac661"
+    }
+  ],
+  "hosted": true,
+  "name": "commander-foundations-v1",
+  "search": true,
+  "completion": {
+    "rotate": false,
+    "homogeneous_seats": [
+      0,
+      1
+    ]
+  }
+}

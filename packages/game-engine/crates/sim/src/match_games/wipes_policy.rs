@@ -422,7 +422,7 @@ mod tests {
     fn view(c: &Catalog) -> PermittedView {
         let p = Prepared::admit_pod(
             c.clone(),
-            MatchConfig::for_profile(mtg_core::WIPES_PROFILE, [3; 32], PlayerId(3)).unwrap(),
+            MatchConfig::for_profile("commander-wipes-v1", [3; 32], PlayerId(3)).unwrap(),
         )
         .unwrap();
         let mut g = Game::new(p);
@@ -460,7 +460,7 @@ mod tests {
     }
     #[test]
     fn wipes_counter_policy_orders_announced_x_mana_value() {
-        let c = mtg_compiler::wipes_fixture_catalog().unwrap();
+        let c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
         let mut v = view(&c);
         for (name, x, mv) in [
             ("Earthquake", Some(3.into()), Some(4.into())),
@@ -505,7 +505,7 @@ mod tests {
     }
     #[test]
     fn wipes_policy_thresholds_and_smallest_safe_earthquake_x() {
-        let c = mtg_compiler::wipes_fixture_catalog().unwrap();
+        let c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
         let mut v = view(&c);
         v.players
             .iter_mut()

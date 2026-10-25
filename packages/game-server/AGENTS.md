@@ -1,5 +1,11 @@
 # Local Rust hosting and generated clients
 
+D1b-3 hosting admission treats each profile's `hosted` flag as a request,
+validated against the explicit reviewed IR capability set at build time and admission. The current hosted
+profiles remain foundations and attachments. Registry tests iterate the data
+registry and its embedded catalogs; adding an unhosted profile needs no server
+selector or test-table edit. See `docs/game-engine-profiles.md`.
+
 D1b-2 gives the host a separate `SERVER_BUILD_ID`, binding its own Rust source and
 manifest/build script to engine `BUILD_ID`. Registry metadata, worker bootstrap
 and the process identity handshake pin both. Public manifests publish both;

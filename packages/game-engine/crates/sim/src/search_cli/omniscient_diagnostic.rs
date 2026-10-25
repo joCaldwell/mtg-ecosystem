@@ -281,7 +281,8 @@ fn same_strategy_omniscient_reference_diagnostic() {
         std::env::var("MTG_OMNISCIENT_SEARCH_OUTPUT").expect("explicit new private output path");
     let mut file = private_output(Path::new(&output)).expect("private exclusive output");
     let source = current_source_manifest().expect("exact diagnostic source identity");
-    let catalog = mtg_compiler::match_fixture_catalog().expect("frozen admitted catalog");
+    let catalog =
+        mtg_compiler::catalog::embedded_catalog("match").expect("frozen admitted catalog");
     let mut report = serde_json::json!({"schema":CONTRACT,"status":"running","engine_build_id":BUILD_ID,
         "source_manifest":source,"root_indices":(0..search_roots::ROOT_COUNT).collect::<Vec<_>>(),
         "horizon_accepted_inputs":search_jobs::HORIZON,"repeat_slots":REPEATS,"roots":[],

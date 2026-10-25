@@ -69,12 +69,27 @@ fn fixed_case(index: usize) -> Result<(MatchConfig, [u8; 4]), String> {
     if index >= 18 {
         return Err("fixed pod index0..17 required".into());
     }
-    let mut config = MatchConfig::foundations(seed(index as u32), PlayerId((index % 4) as u8));
+    let mut config = MatchConfig::for_profile(
+        "commander-foundations-v1",
+        seed(index as u32),
+        PlayerId((index % 4) as u8),
+    )
+    .unwrap();
     if index == 16 {
-        config.decks = std::array::from_fn(|_| mtg_core::white_deck());
+        config.decks = std::array::from_fn(|_| {
+            mtg_core::match_profile("commander-foundations-v1")
+                .unwrap()
+                .decks[0]
+                .clone()
+        });
     }
     if index == 17 {
-        config.decks = std::array::from_fn(|_| mtg_core::black_green_deck());
+        config.decks = std::array::from_fn(|_| {
+            mtg_core::match_profile("commander-foundations-v1")
+                .unwrap()
+                .decks[1]
+                .clone()
+        });
     }
     Ok((config, std::array::from_fn(|p| ((index + p) % 3) as u8)))
 }
@@ -267,7 +282,7 @@ fn run_profiled(
 fn current_pod_instrumentation_matches_unchanged_headless_run() {
     // Correctness only: index1 avoids the heavyweight seed0 checkpoint workload.
     // The measured batch below still includes seed0 and ALL18 unchanged cases.
-    let catalog = mtg_compiler::match_fixture_catalog().unwrap();
+    let catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
     let (config, mulls) = fixed_case(1).unwrap();
     let reference = run(&catalog, config.clone(), Policy::Develop, mulls, 1024).unwrap();
     let directory = artifact_root().join(format!("pod-profile-guard-{}", std::process::id()));
@@ -337,7 +352,7 @@ fn current_fixed18_pod_throughput_diagnostic() {
     let compiler_clock = Instant::now();
     assert_eq!(
         canonical(&catalog).unwrap(),
-        canonical(&mtg_compiler::match_fixture_catalog().unwrap()).unwrap()
+        canonical(&mtg_compiler::catalog::embedded_catalog("match").unwrap()).unwrap()
     );
     let compiler_verify_ns = compiler_clock.elapsed().as_nanos();
     let whole = Instant::now();

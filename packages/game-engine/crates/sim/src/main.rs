@@ -1,9 +1,4 @@
-use mtg_compiler::{
-    CompileResult, action_fixture_catalog, choices_fixture_catalog, commander_fixture_catalog,
-    compile, damage_fixture_catalog, damage_life_fixture_catalog, effects_fixture_catalog,
-    fixture_catalog, fixtures, library_fixture_catalog, stack_fixture_catalog,
-    trigger_fixture_catalog,
-};
+use mtg_compiler::{CompileResult, compile, fixtures};
 use mtg_contracts::{Catalog, canonical, sha256, strict_read};
 use mtg_core::{
     Advance, BUILD_DEBUG, BUILD_DEBUG_ASSERTIONS, BUILD_ID, BUILD_OPT_LEVEL, BUILD_PROFILE,
@@ -184,7 +179,10 @@ fn trace_runs(
 fn checkpoint(game: &Game, saved: &mut Vec<String>) -> Result<(), String> {
     let snapshot = game.snapshot()?;
     if Game::restore(
-        Prepared::admit(fixture_catalog()?, game.config().clone())?,
+        Prepared::admit(
+            mtg_compiler::catalog::embedded_catalog("base").map_err(|e| e.to_string())?,
+            game.config().clone(),
+        )?,
         &snapshot,
     )?
     .state_digest()?
@@ -829,7 +827,7 @@ fn source_files_from(root: &Path) -> Result<Vec<SourceFile>, String> {
     Ok(files)
 }
 fn demo() -> Result<(Bundle, serde_json::Value), String> {
-    let catalog = fixture_catalog()?;
+    let catalog = mtg_compiler::catalog::embedded_catalog("base").map_err(|e| e.to_string())?;
     let prepared = Prepared::admit(catalog.clone(), ScenarioConfig::land_return())?;
     let mut game = Game::new(prepared.clone());
     let initial_snapshot = game.snapshot()?;
@@ -934,15 +932,18 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
     ];
     trace_games.extend(combat_games.iter());
     let (mut trace_runs, trace_report) = trace_runs(&catalog, &trace_games)?;
-    let commander_catalog = commander_fixture_catalog()?;
+    let commander_catalog =
+        mtg_compiler::catalog::embedded_catalog("commander").map_err(|e| e.to_string())?;
     let (commander, commander_games, commander_report) =
         commander_games::suite(&commander_catalog, false)?;
     let commander_refs = commander_games.iter().collect::<Vec<_>>();
     let (commander_traces, commander_trace_report) =
         crate::trace_runs(&commander_catalog, &commander_refs)?;
     trace_runs.extend(commander_traces);
-    let damage_catalog = damage_fixture_catalog()?;
-    let library_catalog = library_fixture_catalog()?;
+    let damage_catalog =
+        mtg_compiler::catalog::embedded_catalog("damage").map_err(|e| e.to_string())?;
+    let library_catalog =
+        mtg_compiler::catalog::embedded_catalog("library").map_err(|e| e.to_string())?;
     let (damage_library, lifecycle_games, lifecycle_report) =
         damage_library_games::suite(&damage_catalog, &library_catalog, false)?;
     let mut lifecycle_trace_report = vec![];
@@ -962,41 +963,48 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
                 .cloned(),
         );
     }
-    let action_catalog = action_fixture_catalog()?;
+    let action_catalog =
+        mtg_compiler::catalog::embedded_catalog("action").map_err(|e| e.to_string())?;
     let (actions_payments, action_games, action_report) =
         actions_payments_games::suite(&action_catalog, false)?;
     let action_refs = action_games.iter().collect::<Vec<_>>();
     let (action_traces, action_trace_report) = crate::trace_runs(&action_catalog, &action_refs)?;
     trace_runs.extend(action_traces);
-    let stack_catalog = stack_fixture_catalog()?;
+    let stack_catalog =
+        mtg_compiler::catalog::embedded_catalog("stack").map_err(|e| e.to_string())?;
     let (stack_costs, stack_games, stack_report) = stack_costs_games::suite(&stack_catalog, false)?;
     let stack_refs = stack_games.iter().collect::<Vec<_>>();
     let (stack_traces, stack_trace_report) = crate::trace_runs(&stack_catalog, &stack_refs)?;
     trace_runs.extend(stack_traces);
-    let damage_life_catalog = damage_life_fixture_catalog()?;
+    let damage_life_catalog =
+        mtg_compiler::catalog::embedded_catalog("damage-life").map_err(|e| e.to_string())?;
     let (damage_life, damage_life_games, damage_life_report) =
         damage_life_games::suite(&damage_life_catalog, false)?;
     let damage_life_refs = damage_life_games.iter().collect::<Vec<_>>();
     let (damage_life_traces, damage_life_trace_report) =
         crate::trace_runs(&damage_life_catalog, &damage_life_refs)?;
     trace_runs.extend(damage_life_traces);
-    let trigger_catalog = trigger_fixture_catalog()?;
+    let trigger_catalog =
+        mtg_compiler::catalog::embedded_catalog("trigger").map_err(|e| e.to_string())?;
     let (triggers, trigger_games, trigger_report) = triggers_games::suite(&trigger_catalog, false)?;
     let trigger_refs = trigger_games.iter().collect::<Vec<_>>();
     let (trigger_traces, trigger_trace_report) =
         crate::trace_runs(&trigger_catalog, &trigger_refs)?;
     trace_runs.extend(trigger_traces);
-    let effect_catalog = effects_fixture_catalog()?;
+    let effect_catalog =
+        mtg_compiler::catalog::embedded_catalog("effects").map_err(|e| e.to_string())?;
     let (effects, effect_games, effect_report) = effects_games::suite(&effect_catalog, false)?;
     let effect_refs = effect_games.iter().collect::<Vec<_>>();
     let (effect_traces, effect_trace_report) = crate::trace_runs(&effect_catalog, &effect_refs)?;
     trace_runs.extend(effect_traces);
-    let choice_catalog = choices_fixture_catalog()?;
+    let choice_catalog =
+        mtg_compiler::catalog::embedded_catalog("choices").map_err(|e| e.to_string())?;
     let (choices, choice_games, choice_report) = choices_games::suite(&choice_catalog, false)?;
     let choice_refs = choice_games.iter().collect::<Vec<_>>();
     let (choice_traces, choice_trace_report) = crate::trace_runs(&choice_catalog, &choice_refs)?;
     trace_runs.extend(choice_traces);
-    let match_catalog = mtg_compiler::match_fixture_catalog()?;
+    let match_catalog =
+        mtg_compiler::catalog::embedded_catalog("match").map_err(|e| e.to_string())?;
     let (matches, match_report) = match_games::suite(&match_catalog)?;
     let draw_failure = match_games::draw_failure(&match_catalog)?;
     let draw_report = serde_json::json!({"outcome":draw_failure.outcome,"winner":draw_failure.winner,"losses":draw_failure.losses,"turns":draw_failure.turns,"decisions":draw_failure.decisions,"rule_steps":draw_failure.rule_steps,"survivor_counts":draw_failure.survivor_counts,"state_sha256":draw_failure.final_state_sha256,"elapsed_millis":draw_failure.elapsed_millis});
@@ -1575,14 +1583,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", canonical(&current_source_manifest()?)?);
         }
         Some("search-benchmark") if args.len() == 3 && args[2] == "--quiescent" => {
-            let catalog = mtg_compiler::match_fixture_catalog()?;
+            let catalog =
+                mtg_compiler::catalog::embedded_catalog("match").map_err(|e| e.to_string())?;
             println!(
                 "{}",
                 canonical(&search_cli::benchmark(&catalog, Path::new(&args[1]))?)?
             );
         }
         Some("search-diagnostic" | "search-cancel-diagnostic") if args.len() == 2 => {
-            let catalog = mtg_compiler::match_fixture_catalog()?;
+            let catalog =
+                mtg_compiler::catalog::embedded_catalog("match").map_err(|e| e.to_string())?;
             println!(
                 "{}",
                 canonical(&search_cli::diagnostic(
@@ -1593,7 +1603,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
         Some("search-replay") if args.len() == 2 => {
-            let catalog = mtg_compiler::match_fixture_catalog()?;
+            let catalog =
+                mtg_compiler::catalog::embedded_catalog("match").map_err(|e| e.to_string())?;
             println!(
                 "{}",
                 canonical(&search_cli::replay(
@@ -1603,7 +1614,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
         Some("search-roots") if args.len() == 1 => {
-            let catalog = mtg_compiler::match_fixture_catalog()?;
+            let catalog =
+                mtg_compiler::catalog::embedded_catalog("match").map_err(|e| e.to_string())?;
             let mut reports = vec![];
             for index in 0..search_roots::ROOT_COUNT {
                 let fixture = search_roots::prepare(&catalog, index)?;
@@ -1635,236 +1647,69 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!(
                 "{}",
                 canonical(&match_games::draw_failure(
-                    &mtg_compiler::match_fixture_catalog()?
+                    &mtg_compiler::catalog::embedded_catalog("match").map_err(|e| e.to_string())?
                 )?)?
             );
         }
-        Some("wipes-match-batch") if args.len() == 2 => {
+        Some("match-batch") if args.len() == 3 => {
+            let profile = mtg_core::match_profile(&args[1]).ok_or("unknown match profile")?;
+            let manifest_name = Path::new(&profile.catalog_manifest)
+                .file_stem()
+                .and_then(|n| n.to_str())
+                .ok_or("catalog manifest name")?;
+            let catalog = mtg_compiler::catalog::embedded_catalog(manifest_name)?;
             println!(
                 "{}",
                 canonical(&match_games::batch(
-                    &mtg_compiler::wipes_fixture_catalog()?,
-                    Path::new(&args[1])
+                    &catalog,
+                    &args[1],
+                    Path::new(&args[2])
                 )?)?
             );
         }
-        Some("wipes-match-replay") if args.len() == 2 => {
-            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
-            match_games::verify(&mtg_compiler::wipes_fixture_catalog()?, &e)?;
+        Some("match-replay") if args.len() == 3 => {
+            let profile = mtg_core::match_profile(&args[1]).ok_or("unknown match profile")?;
+            let manifest_name = Path::new(&profile.catalog_manifest)
+                .file_stem()
+                .and_then(|n| n.to_str())
+                .ok_or("catalog manifest name")?;
+            let catalog = mtg_compiler::catalog::embedded_catalog(manifest_name)?;
+            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[2])?)?;
+            if e.config.profile != args[1] {
+                return Err("replay profile mismatch".into());
+            }
+            match_games::verify(&catalog, &e)?;
             println!(
                 "{}",
                 canonical(
-                    &serde_json::json!({"status":"wipes_match_replay_verified","state_sha256":e.final_state_sha256})
+                    &serde_json::json!({"status":"match_replay_verified","profile":args[1],"state_sha256":e.final_state_sha256})
                 )?
             );
         }
-        Some("sacrifice-match-batch") if args.len() == 2 => {
-            println!(
-                "{}",
-                canonical(&match_games::batch(
-                    &mtg_compiler::sacrifice_fixture_catalog()?,
-                    Path::new(&args[1])
-                )?)?
-            );
-        }
-        Some("sacrifice-match-replay") if args.len() == 2 => {
-            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
-            match_games::verify(&mtg_compiler::sacrifice_fixture_catalog()?, &e)?;
-            println!(
-                "{}",
-                canonical(
-                    &serde_json::json!({"status":"sacrifice_match_replay_verified","state_sha256":e.final_state_sha256})
-                )?
-            );
-        }
-        Some("removal-match-batch") if args.len() == 2 => {
-            println!(
-                "{}",
-                canonical(&match_games::batch(
-                    &mtg_compiler::removal_fixture_catalog()?,
-                    Path::new(&args[1])
-                )?)?
-            );
-        }
-        Some("removal-match-replay") if args.len() == 2 => {
-            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
-            match_games::verify(&mtg_compiler::removal_fixture_catalog()?, &e)?;
-            println!(
-                "{}",
-                canonical(
-                    &serde_json::json!({"status":"removal_match_replay_verified","state_sha256":e.final_state_sha256})
-                )?
-            );
-        }
-        Some("attachments-match-batch") if args.len() == 2 => {
-            println!(
-                "{}",
-                canonical(&match_games::batch(
-                    &mtg_compiler::attachments_fixture_catalog()?,
-                    Path::new(&args[1])
-                )?)?
-            );
-        }
-        Some("attachments-match-replay") if args.len() == 2 => {
-            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
-            match_games::verify(&mtg_compiler::attachments_fixture_catalog()?, &e)?;
-            println!(
-                "{}",
-                canonical(
-                    &serde_json::json!({"status":"attachments_match_replay_verified","state_sha256":e.final_state_sha256})
-                )?
-            );
-        }
-        Some("four-colors-match-batch") if args.len() == 2 => {
-            println!(
-                "{}",
-                canonical(&match_games::batch(
-                    &mtg_compiler::four_colors_fixture_catalog()?,
-                    Path::new(&args[1])
-                )?)?
-            );
-        }
-        Some("four-colors-match-replay") if args.len() == 2 => {
-            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
-            match_games::verify(&mtg_compiler::four_colors_fixture_catalog()?, &e)?;
-            println!(
-                "{}",
-                canonical(
-                    &serde_json::json!({"status":"four_colors_match_replay_verified","state_sha256":e.final_state_sha256})
-                )?
-            );
-        }
-        Some("mana-match-batch") if args.len() == 2 => {
-            println!(
-                "{}",
-                canonical(&match_games::batch(
-                    &mtg_compiler::mana_fixture_catalog()?,
-                    Path::new(&args[1])
-                )?)?
-            );
-        }
-        Some("mana-match-replay") if args.len() == 2 => {
-            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
-            match_games::verify(&mtg_compiler::mana_fixture_catalog()?, &e)?;
-            println!(
-                "{}",
-                canonical(
-                    &serde_json::json!({"status":"mana_match_replay_verified","state_sha256":e.final_state_sha256})
-                )?
-            );
-        }
-        Some("staples-match-batch") if args.len() == 2 => {
-            println!(
-                "{}",
-                canonical(&match_games::batch(
-                    &mtg_compiler::staples_fixture_catalog()?,
-                    Path::new(&args[1])
-                )?)?
-            );
-        }
-        Some("staples-match-replay") if args.len() == 2 => {
-            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
-            match_games::verify(&mtg_compiler::staples_fixture_catalog()?, &e)?;
-            println!(
-                "{}",
-                canonical(
-                    &serde_json::json!({"status":"staples_match_replay_verified","state_sha256":e.final_state_sha256})
-                )?
-            );
-        }
-        Some("tokens-match-batch") if args.len() == 2 => {
-            println!(
-                "{}",
-                canonical(&match_games::batch(
-                    &mtg_compiler::tokens_fixture_catalog()?,
-                    Path::new(&args[1])
-                )?)?
-            );
-        }
-        Some("tokens-match-replay") if args.len() == 2 => {
-            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
-            match_games::verify(&mtg_compiler::tokens_fixture_catalog()?, &e)?;
-            println!(
-                "{}",
-                canonical(
-                    &serde_json::json!({"status":"tokens_match_replay_verified","state_sha256":e.final_state_sha256})
-                )?
-            );
-        }
-        Some("combat-keywords-match-batch") if args.len() == 2 => {
-            println!(
-                "{}",
-                canonical(&match_games::batch(
-                    &mtg_compiler::combat_keywords_fixture_catalog()?,
-                    Path::new(&args[1])
-                )?)?
-            );
-        }
-        Some("combat-keywords-match-replay") if args.len() == 2 => {
-            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
-            match_games::verify(&mtg_compiler::combat_keywords_fixture_catalog()?, &e)?;
-            println!(
-                "{}",
-                canonical(
-                    &serde_json::json!({"status":"combat_keywords_match_replay_verified","state_sha256":e.final_state_sha256})
-                )?
-            );
-        }
-        Some("keywords-match-batch") if args.len() == 2 => {
-            println!(
-                "{}",
-                canonical(&match_games::batch(
-                    &mtg_compiler::keywords_fixture_catalog()?,
-                    Path::new(&args[1])
-                )?)?
-            );
-        }
-        Some("keywords-match-replay") if args.len() == 2 => {
-            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
-            match_games::verify(&mtg_compiler::keywords_fixture_catalog()?, &e)?;
-            println!(
-                "{}",
-                canonical(
-                    &serde_json::json!({"status":"keywords_match_replay_verified","state_sha256":e.final_state_sha256})
-                )?
-            );
-        }
-        Some("match-batch") if args.len() == 2 => {
-            println!(
-                "{}",
-                canonical(&match_games::batch(
-                    &mtg_compiler::match_fixture_catalog()?,
-                    Path::new(&args[1])
-                )?)?
-            );
-        }
-        Some("match-replay-live") if args.len() == 2 => {
+        Some("match-replay-live") if args.len() == 3 => {
             println!(
                 "{}",
                 canonical(&match_games::replay_live(
-                    &mtg_compiler::match_fixture_catalog()?,
-                    Path::new(&args[1])
+                    mtg_core::match_profile(&args[1])
+                        .ok_or("unknown match profile")?
+                        .catalog(),
+                    &args[1],
+                    Path::new(&args[2])
                 )?)?
             );
         }
-        Some("match-replay") if args.len() == 2 => {
-            let e: match_games::Evidence = strict_read(&fs::read_to_string(&args[1])?)?;
-            match_games::verify(&mtg_compiler::match_fixture_catalog()?, &e)?;
-            println!(
-                "{}",
-                canonical(
-                    &serde_json::json!({"status":"match_replay_verified","state_sha256":e.final_state_sha256})
-                )?
-            );
-        }
-        Some("match-game") if args.len() == 2 => {
-            let index: u32 = args[1].parse()?;
-            let config = mtg_core::MatchConfig::foundations(
-                match_games::seed(index),
+
+        Some("match-game") if args.len() == 3 => {
+            let index: u32 = args[2].parse()?;
+            let config = mtg_core::MatchConfig::for_profile(
+                &args[1],
+                match_games::seed_for(&args[1], index),
                 PlayerId((index % 4) as u8),
-            );
+            )?;
             let evidence = match_games::run(
-                &mtg_compiler::match_fixture_catalog()?,
+                mtg_core::match_profile(&args[1])
+                    .ok_or("unknown match profile")?
+                    .catalog(),
                 config,
                 match_games::Policy::Develop,
                 std::array::from_fn(|p| ((index as usize + p) % 3) as u8),
@@ -1879,141 +1724,86 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("actions-payments-games")
             if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") =>
         {
-            let (_, _, report) =
-                actions_payments_games::suite(&action_fixture_catalog()?, args.len() == 2)?;
+            let (_, _, report) = actions_payments_games::suite(
+                &mtg_compiler::catalog::embedded_catalog("action").map_err(|e| e.to_string())?,
+                args.len() == 2,
+            )?;
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
         Some("stack-costs-games")
             if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") =>
         {
-            let (_, _, report) =
-                stack_costs_games::suite(&stack_fixture_catalog()?, args.len() == 2)?;
+            let (_, _, report) = stack_costs_games::suite(
+                &mtg_compiler::catalog::embedded_catalog("stack").map_err(|e| e.to_string())?,
+                args.len() == 2,
+            )?;
             println!("{}", canonical(&report)?)
         }
         Some("damage-life-games")
             if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") =>
         {
-            let (_, _, report) =
-                damage_life_games::suite(&damage_life_fixture_catalog()?, args.len() == 2)?;
+            let (_, _, report) = damage_life_games::suite(
+                &mtg_compiler::catalog::embedded_catalog("damage-life")
+                    .map_err(|e| e.to_string())?,
+                args.len() == 2,
+            )?;
             println!("{}", canonical(&report)?)
         }
         Some("choices-games") if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") => {
-            let (_, _, report) =
-                choices_games::suite(&choices_fixture_catalog()?, args.len() == 2)?;
+            let (_, _, report) = choices_games::suite(
+                &mtg_compiler::catalog::embedded_catalog("choices").map_err(|e| e.to_string())?,
+                args.len() == 2,
+            )?;
             println!("{}", canonical(&report)?);
         }
-        Some("compile-wipes") if args.len() == 1 => {
-            println!("{}", canonical(&mtg_compiler::wipes_fixture_catalog()?)?)
-        }
-        Some("compile-sacrifice") if args.len() == 1 => {
-            println!(
-                "{}",
-                canonical(&mtg_compiler::sacrifice_fixture_catalog()?)?
-            )
-        }
-        Some("compile-removal") if args.len() == 1 => {
-            println!("{}", canonical(&mtg_compiler::removal_fixture_catalog()?)?)
-        }
-        Some("compile-attachments") if args.len() == 1 => {
-            println!(
-                "{}",
-                canonical(&mtg_compiler::attachments_fixture_catalog()?)?
-            )
-        }
-        Some("compile-four-colors") if args.len() == 1 => {
-            println!(
-                "{}",
-                canonical(&mtg_compiler::four_colors_fixture_catalog()?)?
-            )
-        }
-        Some("compile-mana") if args.len() == 1 => {
-            println!("{}", canonical(&mtg_compiler::mana_fixture_catalog()?)?)
-        }
-        Some("compile-staples") if args.len() == 1 => {
-            println!("{}", canonical(&mtg_compiler::staples_fixture_catalog()?)?)
-        }
-        Some("compile-tokens") if args.len() == 1 => {
-            println!("{}", canonical(&mtg_compiler::tokens_fixture_catalog()?)?)
-        }
-        Some("compile-combat-keywords") if args.len() == 1 => {
-            println!(
-                "{}",
-                canonical(&mtg_compiler::combat_keywords_fixture_catalog()?)?
-            )
-        }
-        Some("compile-keywords") if args.len() == 1 => {
-            println!("{}", canonical(&mtg_compiler::keywords_fixture_catalog()?)?)
-        }
-        Some("compile-match") if args.len() == 1 => {
-            println!("{}", canonical(&mtg_compiler::match_fixture_catalog()?)?)
-        }
-        Some("compile-choices") if args.len() == 1 => {
-            println!("{}", canonical(&choices_fixture_catalog()?)?);
-        }
         Some("effects-games") if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") => {
-            let (_, _, report) =
-                effects_games::suite(&effects_fixture_catalog()?, args.len() == 2)?;
+            let (_, _, report) = effects_games::suite(
+                &mtg_compiler::catalog::embedded_catalog("effects").map_err(|e| e.to_string())?,
+                args.len() == 2,
+            )?;
             println!("{}", canonical(&report)?)
-        }
-        Some("compile-effects") if args.len() == 1 => {
-            println!("{}", canonical(&effects_fixture_catalog()?)?)
         }
         Some("trigger-games") if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") => {
-            let (_, _, report) =
-                triggers_games::suite(&trigger_fixture_catalog()?, args.len() == 2)?;
+            let (_, _, report) = triggers_games::suite(
+                &mtg_compiler::catalog::embedded_catalog("trigger").map_err(|e| e.to_string())?,
+                args.len() == 2,
+            )?;
             println!("{}", canonical(&report)?)
-        }
-        Some("compile-triggers") if args.len() == 1 => {
-            println!("{}", canonical(&trigger_fixture_catalog()?)?)
-        }
-        Some("compile-damage-life") if args.len() == 1 => {
-            println!("{}", canonical(&damage_life_fixture_catalog()?)?)
-        }
-        Some("compile-stack") if args.len() == 1 => {
-            println!("{}", canonical(&stack_fixture_catalog()?)?)
-        }
-        Some("compile-action") if args.len() == 1 => {
-            println!("{}", canonical(&action_fixture_catalog()?)?)
         }
         Some("damage-library-games")
             if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") =>
         {
             let (_, _, report) = damage_library_games::suite(
-                &damage_fixture_catalog()?,
-                &library_fixture_catalog()?,
+                &mtg_compiler::catalog::embedded_catalog("damage").map_err(|e| e.to_string())?,
+                &mtg_compiler::catalog::embedded_catalog("library").map_err(|e| e.to_string())?,
                 args.len() == 2,
             )?;
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
-        Some("compile-library") if args.len() == 1 => {
-            println!("{}", canonical(&library_fixture_catalog()?)?)
-        }
-        Some("compile-damage") if args.len() == 1 => {
-            println!("{}", canonical(&damage_fixture_catalog()?)?)
-        }
         Some("commander-games")
             if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") =>
         {
-            let (_, _, report) =
-                commander_games::suite(&commander_fixture_catalog()?, args.len() == 2)?;
+            let (_, _, report) = commander_games::suite(
+                &mtg_compiler::catalog::embedded_catalog("commander").map_err(|e| e.to_string())?,
+                args.len() == 2,
+            )?;
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
-        Some("compile-commander") if args.len() == 1 => {
-            println!("{}", canonical(&commander_fixture_catalog()?)?)
-        }
         Some("combat-games") if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") => {
-            let (_, _, report) = combat_games::suite(&fixture_catalog()?, args.len() == 2)?;
+            let (_, _, report) = combat_games::suite(
+                &mtg_compiler::catalog::embedded_catalog("base").map_err(|e| e.to_string())?,
+                args.len() == 2,
+            )?;
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
         Some("schema") if args.len() == 1 => println!(
             "{}",
             serde_json::to_string_pretty(&mtg_contracts::catalog_schema())?
         ),
-        Some("compile") if args.len() == 1 => println!("{}", canonical(&fixture_catalog()?)?),
         Some("observe") if args.len() == 2 => {
             let viewer = PlayerId(args[1].parse()?);
             let game = Game::new(Prepared::admit(
-                fixture_catalog()?,
+                mtg_compiler::catalog::embedded_catalog("base").map_err(|e| e.to_string())?,
                 ScenarioConfig::land_return(),
             )?);
             println!("{}", canonical(&observation(&game, viewer)?)?);
@@ -2021,7 +1811,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("context") if args.len() == 3 => {
             let viewer = PlayerId(args[1].parse()?);
             let game = Game::new(Prepared::admit(
-                fixture_catalog()?,
+                mtg_compiler::catalog::embedded_catalog("base").map_err(|e| e.to_string())?,
                 ScenarioConfig::land_return(),
             )?);
             println!(
@@ -2058,7 +1848,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {
             return Err(
-                "usage: mtg-sim choices-games [--recover]|compile-choices|effects-games [--recover]|compile-effects|trigger-games [--recover]|compile-triggers|damage-life-games [--recover]|compile-damage-life|stack-costs-games [--recover]|compile-stack|bundle-metadata FILE|actions-payments-games [--recover]|compile-action|combat-games [--recover]|commander-games [--recover]|damage-library-games [--recover]|schema|compile|compile-commander|compile-library|compile-damage|report|observe PLAYER|context PLAYER SEED|demo [--bundle DIR]|verify-bundle FILE"
+                "usage: mtg-sim choices-games [--recover]|effects-games [--recover]|trigger-games [--recover]|damage-life-games [--recover]|stack-costs-games [--recover]|bundle-metadata FILE|actions-payments-games [--recover]|combat-games [--recover]|commander-games [--recover]|damage-library-games [--recover]|schema|catalog build MANIFEST|report|observe PLAYER|context PLAYER SEED|demo [--bundle DIR]|verify-bundle FILE"
                     .into(),
             );
         }
@@ -2074,7 +1864,7 @@ mod tests {
             "bundle_version":19,"build_id":"historical-build",
             "source_files":[{"path":"Cargo.toml","sha256":"source-digest","contents":"[workspace]\n"}],
             "rustflags":"","opt_level":"3","debug":"false","debug_assertions":"false",
-            "target":"x86_64-unknown-linux-gnu","catalog":fixture_catalog().unwrap(),
+            "target":"x86_64-unknown-linux-gnu","catalog":mtg_compiler::catalog::embedded_catalog("base").unwrap(),
         });
         let raw = canonical(&metadata).unwrap();
         let unknown = canonical(&serde_json::json!([{"nested":["escaped quote: \" and slash: \\","\nUnicode: λ",{"fake":"}],\"build_id\":\"forged\""}]}])).unwrap();
@@ -2117,45 +1907,48 @@ mod tests {
             CompileResult::Lowered { .. }
         ));
         for (catalog, source) in [
-            (fixture_catalog().unwrap(), records(&fixtures::RECORDS)),
             (
-                commander_fixture_catalog().unwrap(),
+                mtg_compiler::catalog::embedded_catalog("base").unwrap(),
+                records(&fixtures::RECORDS),
+            ),
+            (
+                mtg_compiler::catalog::embedded_catalog("commander").unwrap(),
                 records(&fixtures::COMMANDER_RECORDS),
             ),
             (
-                damage_fixture_catalog().unwrap(),
+                mtg_compiler::catalog::embedded_catalog("damage").unwrap(),
                 records(&fixtures::DAMAGE_RECORDS),
             ),
             (
-                library_fixture_catalog().unwrap(),
+                mtg_compiler::catalog::embedded_catalog("library").unwrap(),
                 records(&fixtures::LIBRARY_RECORDS),
             ),
             (
-                action_fixture_catalog().unwrap(),
+                mtg_compiler::catalog::embedded_catalog("action").unwrap(),
                 records(&fixtures::ACTION_RECORDS),
             ),
             (
-                stack_fixture_catalog().unwrap(),
+                mtg_compiler::catalog::embedded_catalog("stack").unwrap(),
                 records(&fixtures::STACK_RECORDS),
             ),
             (
-                damage_life_fixture_catalog().unwrap(),
+                mtg_compiler::catalog::embedded_catalog("damage-life").unwrap(),
                 records(&fixtures::DAMAGE_LIFE_RECORDS),
             ),
             (
-                trigger_fixture_catalog().unwrap(),
+                mtg_compiler::catalog::embedded_catalog("trigger").unwrap(),
                 records(&fixtures::TRIGGER_RECORDS),
             ),
             (
-                effects_fixture_catalog().unwrap(),
+                mtg_compiler::catalog::embedded_catalog("effects").unwrap(),
                 records(&fixtures::EFFECT_RECORDS),
             ),
             (
-                choices_fixture_catalog().unwrap(),
+                mtg_compiler::catalog::embedded_catalog("choices").unwrap(),
                 records(&fixtures::CHOICE_RECORDS),
             ),
             (
-                mtg_compiler::match_fixture_catalog().unwrap(),
+                mtg_compiler::catalog::embedded_catalog("match").unwrap(),
                 records(&fixtures::MATCH_RECORDS),
             ),
         ] {
@@ -2346,7 +2139,7 @@ mod tests {
     fn bundle_contains_replayable_source_to_runtime_evidence() {
         let (bundle, report) = demo().unwrap();
         let baseline: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../tests/fixtures/d1b2-scenario-digests.json"
+            "../../../tests/fixtures/d1b3-history-scenario-digests.json"
         ))
         .unwrap();
         for family in [

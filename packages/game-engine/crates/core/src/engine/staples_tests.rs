@@ -63,7 +63,7 @@ fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
         },
         mode: Mode::CommanderMatch,
         players: 4,
-        profile: STAPLES_PROFILE.into(),
+        profile: "commander-staples-v1".into(),
         commanders: vec![],
         cards,
     };
@@ -637,7 +637,7 @@ fn search_prepared(name: &str) -> Prepared {
         .clone();
     for seed in 0..128u8 {
         let mut config =
-            MatchConfig::for_profile(STAPLES_PROFILE, [seed; 32], PlayerId(0)).unwrap();
+            MatchConfig::for_profile("commander-staples-v1", [seed; 32], PlayerId(0)).unwrap();
         config.decks = std::array::from_fn(|seat| Decklist {
             commander: YARGLE.into(),
             cards: if seat == 0 {
@@ -938,15 +938,11 @@ fn reviewed_staples_resource_bounds_live_capacity_and_deck_counts() {
         );
     }
     assert_eq!((most_creatures, most_new_tokens), (28, 9));
-    assert_eq!(staples::CREATURES, 4 * most_creatures + 256);
-    assert_eq!(staples::DAMAGE_BOUND, 736);
-    assert_eq!(
-        staples::STACK_BOUND,
-        400 + 4 + 8 * (4 * most_creatures + 256 + 4 * most_new_tokens) + 4 * most_creatures + 4
+    assert!(
+        2 * (4 * most_creatures + capacities::TOKEN_CAPACITY as usize) < capacities::DAMAGE_LIMIT
     );
-    assert_eq!(staples::STACK_BOUND, 3752);
-    assert_eq!(staples::EVENT_GROUP_BOUND, 660);
-    let config = MatchConfig::for_profile(STAPLES_PROFILE, [0; 32], PlayerId(0)).unwrap();
+    assert!(400 + capacities::TOKEN_CAPACITY as usize + 4 < capacities::EVENT_GROUP_LIMIT);
+    let config = MatchConfig::for_profile("commander-staples-v1", [0; 32], PlayerId(0)).unwrap();
     assert!(
         config
             .decks
@@ -1094,7 +1090,7 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
     // Singleton construction plus own-graveyard creature-card targets excludes
     // another seat's Gravedigger, and excludes Spore Swarm/other noncreatures.
     let c = catalog();
-    let profile = match_profile(STAPLES_PROFILE).unwrap();
+    let profile = match_profile("commander-staples-v1").unwrap();
     assert_eq!(profile.commanders, &[ISAMARU, YARGLE]);
     fn instructions(p: &SpellProgram) -> Vec<&Instruction> {
         p.instructions
@@ -1164,7 +1160,7 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
             }
         }
     }
-    for id in profile.commanders {
+    for id in &profile.commanders {
         let d = c.definitions.iter().find(|d| d.oracle_id == *id).unwrap();
         assert!(d.activated.is_empty() && d.triggered.is_empty());
         assert_eq!(

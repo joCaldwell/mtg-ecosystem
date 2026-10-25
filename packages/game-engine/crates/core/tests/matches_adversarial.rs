@@ -12,7 +12,7 @@ fn catalog() -> Catalog {
     .unwrap()
 }
 fn config() -> MatchConfig {
-    MatchConfig::foundations([17; 32], PlayerId(2))
+    MatchConfig::for_profile("commander-foundations-v1", [17; 32], PlayerId(2)).unwrap()
 }
 fn oracle(name: &str) -> String {
     catalog()
@@ -110,7 +110,10 @@ fn pod_normalization_constructs_exact_four_hundred_cards_without_scenario_overri
 #[test]
 fn all_white_and_all_black_green_are_distinct_valid_legal_compositions() {
     let cat = catalog();
-    for deck in [white_deck(), black_green_deck()] {
+    for deck in [
+        match_profile("commander-foundations-v1").unwrap().decks[0].clone(),
+        match_profile("commander-foundations-v1").unwrap().decks[1].clone(),
+    ] {
         let mut c = config();
         c.decks = std::array::from_fn(|_| deck.clone());
         let p = validate_pod(&cat, &c).unwrap();
@@ -245,10 +248,11 @@ fn oversize_underflow_unknown_and_incompatible_cards_fail_before_physical_alloca
 #[test]
 fn current_known_ban_classification_precedes_generic_unsupported_pool_errors() {
     let cat = catalog();
-    let policy: Value = serde_json::from_str(include_str!(
-        "../../../tests/fixtures/commander-policy.json"
-    ))
-    .unwrap();
+    let profile = mtg_core::match_profile(&config().profile).unwrap();
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/profiles")
+        .join(&profile.commander_policy.banned_list);
+    let policy: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     let ban = &policy["named_bans"].as_array().unwrap()[0];
     let id = ban["oracle_id"].as_str().unwrap();
     let mut c = config();
@@ -1240,7 +1244,8 @@ fn defender_seed(index: u16) -> [u8; 32] {
 fn naturally_cast_pumped_ready_defender_cannot_attack_and_later_blocks_normally() {
     // Separate witness, not a substituted completion-batch seed. Setup-only
     // deterministic search over0..255 first found index5/P3 withWall/Growth/Forest.
-    let c = MatchConfig::foundations(defender_seed(5), PlayerId(0));
+    let c = MatchConfig::for_profile("commander-foundations-v1", defender_seed(5), PlayerId(0))
+        .unwrap();
     assert_eq!(
         c.seed,
         [

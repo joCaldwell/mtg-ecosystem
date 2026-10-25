@@ -1,0 +1,29 @@
+{
+  "schema_version": 20,
+  "provenance": "../data-admission/provenance.json",
+  "records": [
+    "../data-admission/008290c2-499d-425b-9a6c-c4aeb47c33ff.json",
+    "../data-admission/017568ea-613f-4057-9a8d-61b087d6dc92.json",
+    "../data-admission/01b3af6d-ab7d-4137-a94a-1cf2cbfd9d44.json",
+    "../data-admission/03a9ac3f-f6e4-4ade-9770-cf723434b7e8.json",
+    "../data-admission/041cc2d0-eb67-484e-8da1-e91ddb2b3f70.json",
+    "../data-admission/0c7163e6-f5a1-45a5-88c2-19dd9ef0a587.json",
+    "../data-admission/13228a22-d63a-4952-a482-4f84da696e88.json",
+    "../data-admission/13718d93-fe46-4a18-a511-88649ef1c9de.json",
+    "../data-admission/2f05f3ed-e3b7-4225-b3f2-c12eda335237.json",
+    "../data-admission/3754dce0-3e97-406f-8807-a4942a222c41.json",
+    "../data-admission/48fe0f52-1676-49d5-acf6-5476081e8e1b.json",
+    "../data-admission/56719f6a-1a6c-4c0a-8d21-18f7d7350b68.json",
+    "../data-admission/8b218023-50b8-4d9d-b17b-9647479d3675.json",
+    "../data-admission/980e1721-3717-4425-95a4-938dbf2ac661.json",
+    "../data-admission/a3fb7228-e76b-4e96-a40e-20b5fed75685.json",
+    "../data-admission/b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6.json",
+    "../data-admission/bc71ebf6-2056-41f7-be35-b2e5c34afa99.json",
+    "../data-admission/cfb756dd-6fe1-430a-8f04-8b10cac62a86.json",
+    "../data-admission/a9d288b8-cdc1-4e55-a0c9-d6edfc95e65d.json",
+    "../data-admission/f34b9bc4-7bfe-47fd-ba23-4eeeb46026eb.json"
+  ],
+  "expected_ir": "../data-admission/expected-ir.json",
+  "expected_digest": "data-admission.sha256",
+  "output_order": "struct"
+}

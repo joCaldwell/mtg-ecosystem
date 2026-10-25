@@ -1,8 +1,6 @@
 //! Reachable private search, exact attachments identity and durable recovery.
 use mtg_contracts::{CardKind, Catalog, Color, canonical};
-use mtg_core::{
-    ATTACHMENTS_PROFILE, MatchConfig, Observation, PlayerId, PlayerRequest, PlayerResponse, Zone,
-};
+use mtg_core::{MatchConfig, Observation, PlayerId, PlayerRequest, PlayerResponse, Zone};
 use mtg_server::{
     protocol::{CommandBody, CommandEnvelope, Counter, Publication, SubmissionResult},
     worker::{Worker, WorkerPhase},
@@ -62,7 +60,8 @@ fn attachments_worker_recovers_private_search_without_other_seat_stream_leaks() 
     .unwrap();
     // This admitted seed opens with Rampant Growth and two lands including green;
     // the witness reaches the private choice without relying on late library draws.
-    let config = MatchConfig::for_profile(ATTACHMENTS_PROFILE, [39; 32], PlayerId(1)).unwrap();
+    let config =
+        MatchConfig::for_profile("commander-attachments-v1", [39; 32], PlayerId(1)).unwrap();
     let mut worker =
         Worker::create(&directory.0, catalog.clone(), config, "a2", Instant::now()).unwrap();
     let mut searched = false;

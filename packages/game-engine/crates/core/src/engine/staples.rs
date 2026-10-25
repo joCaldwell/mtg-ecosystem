@@ -3,24 +3,6 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-#[cfg(test)]
-pub(super) const LIVE_TOKEN_CAPACITY: u32 = 256;
-#[cfg(test)]
-pub(super) const CREATURE_CARDS: usize = 4 * 28;
-#[cfg(test)]
-pub(super) const CREATURES: usize = CREATURE_CARDS + LIVE_TOKEN_CAPACITY as usize;
-#[cfg(test)]
-pub(super) const DAMAGE_BOUND: usize = 2 * CREATURES;
-// Recursion returns creature cards to hand. All creature/recursion casts need
-// an empty stack; no flash/reanimation exists. Thus each card enters/dies at
-// most once per nonempty-stack episode. At most 36 NEW tokens can enter during
-// that episode, in addition to the initial live capacity. This allowance must
-// not be lost when dying tokens free capacity. See the contract derivation.
-#[cfg(test)]
-pub(super) const STACK_BOUND: usize = 400 + 4 + 8 * (CREATURES + 36) + CREATURE_CARDS + 4;
-#[cfg(test)]
-pub(super) const EVENT_GROUP_BOUND: usize = 400 + LIVE_TOKEN_CAPACITY as usize + 4;
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleSearchLand {
