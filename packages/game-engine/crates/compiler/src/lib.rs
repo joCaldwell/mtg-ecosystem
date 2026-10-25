@@ -670,6 +670,19 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             "source or diagnostic binding hash mismatch",
         ));
     }
+    // Multi-face Scryfall records intentionally lack single-face oracle_text,
+    // mana_cost, etc. Classify the layout before decoding that adapter. Hashes
+    // above still bind every source byte; no default fills missing fields.
+    let shape: serde_json::Value = decode(r.source.get(), "source")?;
+    if shape.get("card_faces").is_some_and(|v| !v.is_null()) {
+        let layout = shape["layout"]
+            .as_str()
+            .ok_or_else(|| invalid("source.layout", "missing layout"))?;
+        return Err(unsupported(
+            "source.layout",
+            format!("multi_face_layout:{layout}"),
+        ));
+    }
     let source: Source = decode(r.source.get(), "source")?;
     if source.oracle_id != r.oracle_identity || source.id.is_empty() || source.name.is_empty() {
         return Err(invalid("source", "missing or mismatched card identity"));
@@ -2896,6 +2909,32 @@ fn lower_activation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn multi_face_layout_is_unsupported_without_single_face_defaults() {
+        let raw = changed_record(1, |r| {
+            r["source"]["layout"] = "transform".into();
+            r["source"]["card_faces"] = serde_json::json!([{}, {}]);
+            r["source"].as_object_mut().unwrap().remove("oracle_text");
+            r["source"].as_object_mut().unwrap().remove("mana_cost");
+        });
+        assert!(
+            matches!(compile(fixtures::MANIFEST, &raw), CompileResult::Unsupported { reason, .. } if reason == "multi_face_layout:transform")
+        );
+        let mut bad: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        bad["sourceSha256"] = "0".repeat(64).into();
+        assert!(matches!(
+            compile(fixtures::MANIFEST, &bad.to_string()),
+            CompileResult::Invalid { .. }
+        ));
+        let raw = changed_record(1, |r| {
+            r["source"].as_object_mut().unwrap().remove("oracle_text");
+        });
+        assert!(matches!(
+            compile(fixtures::MANIFEST, &raw),
+            CompileResult::Invalid { .. }
+        ));
+    }
+
     #[test]
     fn source_normalization_accounts_for_every_clause_and_literal_name() {
         assert_eq!(source_lines("When Aether Bear enters, put a counter on Aether Bear. Aether Bear's power is 2.\n(Outer (nested) reminder) Flying", "Aether Bear", "Creature").unwrap(), ["When ~ enters, put a counter on ~. ~'s power is 2.", "Flying"]);

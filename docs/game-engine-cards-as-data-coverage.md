@@ -72,3 +72,9 @@ This changes the first reported boundary, not successful admission. The 2,229
 original source-line mismatches and 227 orphan modal-header failures now reach
 Unsupported reasons. Legal Invalid falls from 3,222 to 767. There is no coverage
 increase because those records still require unsupported semantics.
+
+Multi-face classification (`02-multi-face`): **1,719 (5.35247%), +0**.
+All 766 legal records formerly failing single-face required fields now report
+Unsupported: transform 341, adventure 147, split 113, modal_dfc 83, prepare 66,
+flip 16. Source and binding hashes are checked before layout inspection; absent
+single-face fields are never filled with defaults. One legal Invalid remains.
