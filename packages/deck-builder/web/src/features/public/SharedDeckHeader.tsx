@@ -3,7 +3,7 @@
 // The art is the stored Scryfall CDN URL (D10); without a stored artist the
 // picture is left out rather than shown uncredited.
 
-import { Fragment, useState } from "react";
+import { Fragment, useState, lazy, Suspense } from "react";
 import type { PublicDeckState } from "../../api/client.ts";
 import { href, signInHref } from "../../app/routes.ts";
 import { useIsPhone } from "../../app/breakpoints.ts";
@@ -12,7 +12,9 @@ import { bracketLabel } from "../../domain/power.ts";
 import { DECK_CATEGORY_LABELS } from "../../domain/deckCategory.ts";
 import { CardRef, ColorIdentity } from "../../mtg/index.ts";
 import { Button, Chip, Icon, useToast } from "../../ui/index.ts";
-import { CompareSharedDialog, ExportSharedDialog, ForkSharedDialog } from "./SharedDialogs.tsx";
+const CompareSharedDialog = lazy(() => import("./SharedDialogs.tsx").then(m => ({ default: m.CompareSharedDialog })));
+const ExportSharedDialog = lazy(() => import("./SharedDialogs.tsx").then(m => ({ default: m.ExportSharedDialog })));
+const ForkSharedDialog = lazy(() => import("./SharedDialogs.tsx").then(m => ({ default: m.ForkSharedDialog })));
 import styles from "./SharedDeckHeader.module.css";
 
 type Open = "fork" | "compare" | "export" | null;
@@ -91,9 +93,11 @@ export function SharedDeckHeader({ shared, own }: { shared: PublicDeckState; own
           )}
         </div>
       </div>
+      <Suspense fallback={null}>
       {open === "export" && <ExportSharedDialog shared={shared} onClose={() => setOpen(null)} />}
       {open === "fork" && <ForkSharedDialog shared={shared} onClose={() => setOpen(null)} />}
       {open === "compare" && <CompareSharedDialog shared={shared} onClose={() => setOpen(null)} />}
+      </Suspense>
     </header>
   );
 }

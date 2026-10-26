@@ -3,7 +3,7 @@
 > **Status: ACTIVE.** Built against
 > [docs/deck-builder-spec.md](../../docs/deck-builder-spec.md) (2026-10-10).
 > Section numbers in code comments (§5.2 lifecycle, §7 memories, §8
-> rulings, §10 agent interface) refer to that document.
+> decisions, §10 agent interface) refer to that document.
 
 An app for building Commander decks that runs locally for one person or hosted
 for many (`DECKBUILDER_MODE`, spec §17). It is designed to be used by people
@@ -27,7 +27,7 @@ design intent.
     Nothing in `src/mcp/` or `src/app.ts` decides what an agent may do.
 2.  **Lifecycle controls editing.** Agents edit Theorycrafted cards directly;
     Paper card changes and all brief/power-target edits require proposals.
-    Legacy is read-only for both actors; the owner alone changes lifecycle or
+    Archived is read-only for both actors; the owner alone changes lifecycle or
     restores an archive. Membership is enforced by `applyChanges`; all deck
     mutators use `requireEditableDeck` in `src/deck/service.ts`.
 3.  **No invented card anywhere in the app.** Card references resolve exactly
@@ -85,14 +85,14 @@ src/
   deck/
     service.ts       decks (lifecycle, parent), slots, tags, maybe list, computed state
     membership.ts    ⭐ applyChanges — the one place a deck's contents change; undo
-    log.ts           the rulings log, per-card history, the review queue
+    log.ts           the decisions log, per-card history, the review queue
     proposals.ts     proposals; accept/reject per item, group or whole proposal
     brief.ts         thesis / constraints / engines (direct writes)
     power.ts         target, revision-bound assessments, explained bracket suggestions
     checks.ts        deterministic checks
     fork.ts          forkDeck, compareDecks
     interop.ts       Archidekt export; Archidekt and Moxfield import (formats cited inline)
-  documents.ts       profile + proposed edits to profile and brief, and their rulings
+  documents.ts       profile + proposed edits to profile and brief, and their decisions
   memory.ts          ⭐ memories: scopes, card links, budgets, supersede/retire
   playtest/          owner-only manual session service and action model; snapshot, undo, resume
   stats.ts           player statistics across Paper decks only
@@ -124,7 +124,7 @@ web/                 React UI. web/ARCHITECTURE.md is its manual; web/DESIGN.md 
   src/api/           client.ts (typed client — wire types imported from src/, erased at build),
                      live.tsx (event stream), useQuery.ts
   src/app/           routes, sidebar shell, app-wide providers
-  src/features/      one folder per screen: deck/ (incl. ReadOnlyDeck), inbox/, rulings/, memories/,
+  src/features/      one folder per screen: deck/ (incl. ReadOnlyDeck), inbox/, decisions/, memories/,
                      activity/, decks/, profile/, settings/, styleguide/, public/, phone/
 ```
 
@@ -227,10 +227,10 @@ Vite proxy follows the API port.
     slug through `requireViewableDeck` and get only `publicDeckState`, an
     allow-list; every id-addressed capability stays the owner's (spec §18.3).
     Visibility, publishing and hiding log entries are owner + `requireUi`. Human-only actions additionally
-    use `requireUi`: ruling, undo, lifecycle, import, direct brief/target/profile
+    use `requireUi`: decision, undo, lifecycle, import, direct brief/target/profile
     edits. An agent acting for the deck owner still needs Paper proposals.
     Owners and agents may rename and delete editable decks. Only the owner
-    classifies decks (`paper` / `theorycrafted` / `legacy`, spec §5.6), since
+    classifies decks (`paper` / `theorycrafted` / `archived`, spec §5.6), since
     lifecycle governs permissions. Agent actions are attributed in Activity.
 *   **A deck's contents change only through `applyChanges`.** It applies a
     batch atomically, bumps the revision once, and writes one log entry. Do
@@ -340,3 +340,11 @@ keep the configured-origin boundary; local health remains loopback-only.
 Local mode exposes neither legal pages nor their footer. OAuth disconnect
 must remove refresh grants and preserve JWT issuance cutoffs on re-consent.
 Handles reserve route words and may change only during the first-run picker.
+
+Phase 4b adds human-only `createDemo` (src/demo.ts) and Advanced preferences
+(src/preferences.ts). The sample is atomic, idempotent per user, has no global
+memory/profile writes, and resolves all cards against installed data. The CLI
+is a thin adapter and never replaces an existing sample. UI components call
+only api/ clients, never fetch directly. TabletShell must call useWindowScroll;
+keep the inherited phone and public contracts intact. See DESIGN.md and
+ARCHITECTURE.md for the 720/960/1100 boundaries and lazy-route budget check.

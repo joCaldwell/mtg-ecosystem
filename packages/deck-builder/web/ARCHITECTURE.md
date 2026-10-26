@@ -146,7 +146,7 @@ instead of the side panel.
 `web-architecture.test.ts` fails on any other width query outside the
 playtester. Below it, `App` renders `PhoneApp` instead of `AppShell`: a top
 bar, `PhoneDecks`, `PhoneDeck` (the live `DeckProvider` around
-`ReadOnlyDeck`, with `PhoneRulings` drawing every decision and Accept all,
+`ReadOnlyDeck`, with `PhoneDecisions` drawing every decision and Accept all,
 each with its optional reason, through the same `useReview` as desktop) and
 `PhoneInbox` (proposals open their deck; document edits rule in place with
 `DocumentEditCard`). Every other route renders `LargerScreen`. The phone
@@ -269,3 +269,44 @@ anonymous readers. `priceResolver(db, viewer | null)` is that entry point;
 it never reads owner preferences for anonymous viewers. Both proposal cost
 compositions show store/date beside their estimates. Settings saves source and
 budgets in one transaction.
+
+## Phase 4b: first run, tablets and loading
+
+`PreferencesProvider` reads /api/settings once for the private shell. It
+supplies `has_agent_activity`, both copy voices through `useVoice`, and the
+account's shared Advanced preference. Saving that preference is UI-only below
+HTTP. Sidebar presence is absent until an agent write; /api/activity/latest
+reads one activity row. Creating a token or reading with it does not count.
+
+`TabletShell` runs from 720 through 1099 px and **calls useWindowScroll()**.
+It uses the existing sidebar in a drawer below `DRAWER_BREAKPOINT` (960), or
+keeps the rail from 960. `DeckBody` puts its unchanged panel into a requested
+Dialog sheet below `PANEL_BREAKPOINT` (1100); the list scrolls the window. At
+1100+ the existing panes scroll independently. `PHONE_MAX_WIDTH` and
+`useIsPhone()` still select 4a's read-only phone view. Tables contain their own
+horizontal overflow. Every shell provides the labelled `main-content` skip
+link target. QA must use actual wheel/touch input, never script scrolling.
+
+`App` lazily loads the signed-in routes and public pages. `SignedIn` lazily
+loads playtest, settings and the style guide. Authentication screens, shared
+action dialogs and card inspection load when requested. `CardProviders` is a
+small public provider independent of private inbox/focus/preferences. The
+reader API and HTTP transport are separate from editor API methods; wire types
+still flow through client.ts. DeckListStore is the shared read-only context;
+DeckStore owns editing and re-exports the same hooks. useDeckView receives
+memories as data instead of fetching in the read-only composition.
+
+Barrel index.ts files are re-exports only; an architecture test enforces this
+so Vite may tree-shake their unused exports without executing the editor.
+React has its own manual chunk. `node scripts/check-public-bundle.mjs` after
+`vite build` sums unique gzip JS chunks in the initial public-deck visit,
+including React and the entry, and fails at 90,000 bytes. Deferred interaction
+chunks are excluded, and CSS is reported by Vite separately.
+
+Components never call fetch. **All HTTP calls live in api/**, including
+style-guide examples. web-architecture.test.ts enforces that boundary alongside
+layer imports, token colors, the exact three width queries and the window-scroll
+contract. Activity pages request 100 rows at an offset; Memories requests one
+100-row response containing scope choices, budget metadata and has_more, with
+scope/status/basis/search applied before pagination. It no longer fetches a
+second unfiltered memory list or a deck roster just to construct its filters.

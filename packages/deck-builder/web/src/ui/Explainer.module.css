@@ -1,0 +1,7 @@
+.explainer { color: var(--muted); font-size: var(--text-sm); line-height: var(--leading-prose); }
+.learn { color: var(--text-soft); text-decoration: underline; text-underline-offset: var(--s-1); }
+.learn:hover { color: var(--text); }
+.panel { display: grid; gap: var(--s-5); max-width: min(var(--panel-w), calc(100vw - var(--s-8))); padding: var(--s-6); color: var(--text-soft); line-height: var(--leading-prose); }
+.panel h3 { color: var(--text); font-size: var(--text-md); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (max-width: 959px) { .learn { min-height: var(--tap); } }

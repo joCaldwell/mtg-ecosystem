@@ -18,7 +18,7 @@ the rules behind it.
    between groups, not between rows.
 5. **Every agent write is visibly an agent's.** Violet marks it wherever it
    shows up, with the agent's name beside it.
-6. **Reasons are cheap.** Any ruling can take a reason in one optional field,
+6. **Reasons are cheap.** Any decision can take a reason in one optional field,
    committed with Enter.
 7. **Numbers are monospaced and come from the server.**
 
@@ -32,9 +32,11 @@ D20) and built in phase 4a; phase 4b makes the full app hold up between
   the inbox, and accept/reject with a reason. Nothing else writes. A screen
   that cannot work there says "Open on a larger screen" rather than
   squeezing in. The breakpoint is `PHONE_MAX_WIDTH` in `app/breakpoints.ts`
-  (CSS: `@media (max-width: 719px)`); there is no other width query.
+  (CSS: `@media (max-width: 719px)`); the other two max-width queries are 959 px and 1099 px.
 - **720 px and wider is the full app.** The sidebar becomes a drawer under
-  960 px, and the deck panel becomes a bottom sheet under 1100 px (4b).
+  960 px (`DRAWER_BREAKPOINT`), and the deck panel becomes a bottom sheet under
+  1100 px (`PANEL_BREAKPOINT`). At 960–1099 px the rail remains visible while
+  the main content scrolls the window. Desktop panes remain pinned at 1100 px.
 - **Touch replaces hover.** On touch (`hover: none`) the hover card never
   opens; a tapped card opens `CardSheet`, a bottom sheet on a phone. Tap
   targets are at least `--tap` (44 px): `Button size="touch"`,
@@ -76,9 +78,9 @@ D20) and built in phase 4a; phase 4b makes the full app hold up between
 Mana colours (`--mana-*`) are used only inside mana symbols and the pip chart.
 
 Deck lifecycle labels use green for Paper, blue for Theorycrafted, and amber
-for Legacy through the `--lifecycle-*` aliases. Sidebar labels and All decks
+for Archived through the `--lifecycle-*` aliases. Sidebar labels and All decks
 pills share these colors; sidebar labels appear only for Theorycrafted and
-Legacy decks.
+Archived decks.
 
 ## Tokens
 
@@ -132,7 +134,7 @@ or about this app.
 | `TextField` | One-line input | `fieldSize` `md` `lg`; `invalid` |
 | `TextArea` | Multi-line input | `autosize` |
 | `Select`, `Checkbox` | Native controls, restyled | |
-| `MultiSelect` | Searchable checkbox dropdown with removable selected chips | controlled `value`, async `onChange`, empty state, `compact` trigger summary, dropdown `footer` |
+| `MultiSelect` | Searchable multiple-selection listbox with removable selected chips | controlled `value`, async `onChange`, empty state, `compact` trigger summary, dropdown `footer` |
 | `Field` | Label, control and hint, wired together | |
 | `Meter` | A bar toward a limit | `neutral` `agent` `warn` `add`; clamps to 0-100% |
 | `Box` | A bordered container | tone `neutral` `agent` `warn`; `dashed`; padding `none` `sm` `md` |
@@ -141,8 +143,10 @@ or about this app.
 | `Text` | Text with a tone, size and weight from the tokens | tone: 8; size `xs` to `xl`; `mono`; weight 3 |
 | `Banner` | A full-width strip under a header | `agent` `warn` `error` `neutral`; `actions` |
 | `ErrorNote`, `EmptyState`, `Loading` | An inline error, "nothing here yet", and a loading line | |
-| `Dialog` | A modal: focus trap, Esc, backdrop click, focus restore, `data-autofocus` | width `md` `lg`; placement `center` `sheet`; `footer` |
+| `Dialog` | A modal: focus trap, Esc, backdrop click, focus restore, `data-autofocus` | width `md` `lg`; placement `center` `sheet` `drawer`; `footer` |
 | `ConfirmDialog` | A question with Cancel and a confirm button | tone `default` `danger` |
+| `Disclosure` | Controlled Advanced reveal; caller owns persistence | collapsed, expanded, disabled while saving; `inline` |
+| `Explainer` | One sentence and a Learn more popover | closed, open, keyboard focus, close/Escape and focus return |
 | `Popover`, `placeNear` | A panel anchored to an element, kept inside the viewport | placement `below` `right` `above` `left`; `align` |
 | `ToastProvider`, `useToast` | One toast at a time, bottom centre, with an optional action | `duration`; `action` with `kbd` |
 | `DiffView` | Added and deleted lines | line kind `same` `add` `del` |
@@ -182,3 +186,62 @@ never changes the pinned selection or an unfinished observation's target.
 A hidden `CardObservation` has no card identity. Future game hosts must supply
 only permitted observations. Deck memory and tag tools belong to the playtest
 feature, never the shared card or zone presentation.
+
+## Phase 4b audit and patterns (2026-10-25)
+
+Applied the installed `design:design-system` and `design:ux-copy` skill
+checklists by reading their SKILL.md files directly; this runtime has no Skill
+tool. The audit covered tokens.css, ui/, and the existing /design examples.
+The system already had semantic colors, touch sizing, a focus-trapping Dialog,
+and CardSheet. Gaps: unreadable faint text; checkbox-group semantics for a
+multiple choice control; no disclosure, explainer or drawer pattern. Existing
+principles are preserved. On tablet only, the owner may explicitly open a
+sheet over the list (principle 1's existing requested-dialog exception).
+
+- **Advanced:** one account preference shared by the panels, persisted in
+  `user_settings.advanced_open`. Existing accounts start open; new accounts
+  closed. Enter/Space toggles; the trigger exposes expanded state and its
+  controlled region. Saving disables the trigger; a failure leaves the
+  previous state and an inline error. The inline variant keeps deck metadata
+  compact. Secondary purposes, memory budgets, agent review flags, ownership
+  evidence when shown, and revision metadata belong here. Attribution never
+  disappears with Advanced.
+- **Explainer:** a sentence about the concept in the task's context, followed
+  by “Learn more” with the concept in its accessible name. Click, Enter or
+  Space expands a labelled popover region; Close, Escape or outside click
+  dismisses it. Opening focuses the explanation; a nested popover stays within
+  its parent dialog’s focus trap and Escape dismisses only that popover. Focus returns to its trigger. Use it for lifecycle, slots vs
+  tags, brief, bracket, proposals, and memories. It does not change data.
+- **Drawer:** `Dialog placement="drawer"`, `--drawer-w`, full viewport height,
+  left edge, internal scrolling. Same focus trap/restore, Escape, close and
+  backdrop rules as Dialog. At 720–959 px it contains the normal sidebar.
+- **Bottom sheet:** existing `Dialog placement="sheet"`, now also the full
+  deck panel under 1100 px. The list stays in the window; the requested panel
+  has `--sheet-content-h` and scrolls internally. Header stats, tabs and card
+  selection open it; Close/Escape returns to the list. Playtest requires 1100 px.
+- **Listbox:** MultiSelect's filtered options have `role=option` and
+  `aria-selected` inside an `aria-multiselectable` listbox. Up/Down navigates
+  search and options; Space/Enter toggles; Escape/Done returns to the trigger.
+  The listbox shows empty and no-match states and disables writes while busy.
+- **Card inspection:** `?` on a focused card row opens the same CardSheet as
+  tapping its mana cost. Inline card names without a host action open it too.
+  The modal is named, traps focus, closes with Escape and restores focus.
+- **Text and motion:** faint is now #9aa1ab, readable on every neutral app
+  surface at small sizes. Filtered-out cards use no opacity reduction: their
+  names still need to be read. Global reduced-motion zeroes `--fast` and
+  disables transitions/animations. Inter is removed; the system font stack
+  avoids a third-party font request.
+
+Copy follows “Writing in the UI”: sentence case, outcome-led actions, useful
+empty states, no invented card facts. Agent-sensitive help, subtitles and
+empty states use `useVoice(first, connected)`, driven by the server's first
+agent-write flag; neutral loading, errors and factual hints are shared by both
+voices. New-account copy talks about decks and plans before agents. The landing
+has one optional Settings → Connect an agent pointer. The sample is labelled,
+private, and every synthetic write names sample-agent. “Archived” describes a
+lifecycle; “decisions” describes the owner's choices, avoiding MTG format and
+card-ruling terminology. Stored user prose is never renamed.
+
+The live inventory at /design includes collapsed, expanded and saving
+Advanced states, both overlays, closed/open explanation, selected/empty/busy
+listboxes, a plain archived title, accessible faint text and motion guidance.

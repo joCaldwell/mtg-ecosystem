@@ -58,7 +58,7 @@ export function fromOwner(state: DeckState): ReadOnlyDeckModel {
     },
     decisions: state.log.length
       ? state.log.map((e) => ({
-          kind: e.kind, summary: e.summary, reason: e.ruling_reason, by: e.author_via === "ui" ? "owner" : "agent", at: e.ts,
+          kind: e.kind, summary: e.summary, reason: e.decision_reason, by: e.author_via === "ui" ? "owner" : "agent", at: e.ts,
           who: e.author_display ?? e.author,
           cards: e.cards.map((c) => ({ oracle_id: c.oracle_id, card_name: c.card_name, action: c.action, quantity: c.quantity })),
         }))

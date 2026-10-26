@@ -4,7 +4,7 @@
 import { useEffect, useRef } from "react";
 import type { ReviewUnit } from "../../../domain/review.ts";
 import { cx } from "../../../ui/internal.ts";
-import { RulingControls } from "../../rulings/index.ts";
+import { DecisionControls } from "../../decisions/index.ts";
 import { useDeckUi } from "../DeckUi.tsx";
 import type { Review } from "../useReview.tsx";
 import { ReviewItemLine } from "./ReviewItemLine.tsx";
@@ -38,7 +38,7 @@ export function ReviewUnitCard({ unit, index, review }: { unit: ReviewUnit; inde
         ))}
       </div>
       <div className={styles.foot}>
-        <RulingControls
+        <DecisionControls
           rejecting={ui.rejecting === unit.key}
           onAccept={() => void review.accept(unit)}
           onStartReject={() => {

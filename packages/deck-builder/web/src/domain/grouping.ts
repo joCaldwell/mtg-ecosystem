@@ -54,7 +54,7 @@ export function formatTarget(min: number | null, max: number | null): string | n
   return null;
 }
 
-/** Every item still waiting for a ruling, across the deck's open proposals. */
+/** Every item still waiting for a decision, across the deck's open proposals. */
 export function pendingOf(state: DeckListState): ProposalItem[] {
   return state.proposals.flatMap(pendingItems);
 }

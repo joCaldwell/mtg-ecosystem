@@ -1,3 +1,4 @@
+import { OnboardingPatterns } from "./OnboardingPatterns.tsx";
 import { useState, type ReactNode } from "react";
 import {
   Badge,
@@ -523,7 +524,7 @@ function Feedback() {
           <Banner tone="agent" actions={<><Button size="sm" variant="reject">Reject all</Button><Button size="sm" variant="accept" kbd="A">Accept all</Button></>}>
             <Text weight="medium">Claude Code</Text> proposed 6 changes to this deck.
           </Banner>
-          <Banner tone="warn" actions={<Button size="sm">Fork</Button>}>This Legacy deck is read-only.</Banner>
+          <Banner tone="warn" actions={<Button size="sm">Fork</Button>}>This Archived deck is read-only.</Banner>
           <Banner tone="error">Could not reach the server.</Banner>
           <Banner tone="neutral">Nothing is waiting on you.</Banner>
         </div>
@@ -750,6 +751,7 @@ export function StyleguidePage() {
       header={<PageHeader title="Design" subtitle="Every primitive in every state. The rules are in web/DESIGN.md." />}
     >
       <div className={styles.groups}>
+        <OnboardingPatterns />
         <Colours />
         <TypeScale />
         <Buttons />

@@ -1,3 +1,4 @@
+import { usePreferences } from "../../app/Preferences.tsx";
 import type { ReactNode } from "react";
 import type { LogEntry } from "../../api/client.ts";
 import { ago } from "../../domain/time.ts";
@@ -88,7 +89,7 @@ function CardReasons({ cards }: { cards: LogCard[] }) {
   );
 }
 
-/** One entry of the rulings log (spec §8.2), compact enough to list dozens. */
+/** One entry of the decisions log (spec §8.2), compact enough to list dozens. */
 export function LogRow({
   entry,
   onUndo,
@@ -101,6 +102,7 @@ export function LogRow({
   onToggleHidden?: (entry: LogEntry) => void;
   showDeck?: boolean;
 }) {
+  const { advanced } = usePreferences();
   const lead = LEAD[entry.kind];
   const unread = entry.reviewed_at == null;
   const undone = entry.undone_by != null;
@@ -108,15 +110,15 @@ export function LogRow({
 
   return (
     <div className={styles.row}>
-      <Text mono size="xs" tone="faint" className={styles.rev}>
+      {advanced && <Text mono size="xs" tone="faint" className={styles.rev}>
         r{entry.revision}
-      </Text>
+      </Text>}
       <div className={styles.what}>
         <span className={styles[lead.tone]}>{lead.word}</span> <span className={undone ? styles.dim : undefined}>{describe(entry)}</span>
-        {unread && (
+        {advanced && unread && (
           <span
             className={styles.unread}
-            title="No agent has read this ruling yet. The next agent session will."
+            title="No agent has read this decision yet. The next agent session will."
           >
             unread by agents
           </span>
@@ -137,7 +139,7 @@ export function LogRow({
         )}
       </div>
       <div className={styles.meta}>
-        {entry.ruling_reason && <q className={styles.quote}>{entry.ruling_reason}</q>}
+        {entry.decision_reason && <q className={styles.quote}>{entry.decision_reason}</q>}
         <CardReasons cards={entry.cards} />
         <div className={styles.faint}>
           <span className={entry.author_via === "agent" ? styles.agentAuthor : undefined}>{entry.author_display ?? entry.author}</span>

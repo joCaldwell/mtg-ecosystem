@@ -24,7 +24,7 @@ describe("opening a database", () => {
     const path = join(dir, "v8-lifecycle.db");
     const old = openDb(path);
     ingestCards(old, FIXTURES);
-    const ids = (["paper", "theorycrafted", "legacy"] as const).map((category, index) => {
+    const ids = (["paper", "theorycrafted", "archived"] as const).map((category, index) => {
       const id = createDeck(old, OWNER, `Lifecycle ${index}`);
       const slot = createSlot(old, OWNER, id, "Utility");
       const tag = createTag(old, OWNER, id, "Have");
@@ -189,11 +189,11 @@ describe("opening a database", () => {
     assert.deepEqual(getDeck(migrated, OWNER, id).cards, before.cards);
     assert.equal((migrated.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value, String(SCHEMA_VERSION));
     assert.throws(() => migrated.prepare("UPDATE decks SET category = 'unknown' WHERE id = ?").run(id), /CHECK/);
-    setDeckCategory(migrated, OWNER, id, "legacy");
+    setDeckCategory(migrated, OWNER, id, "archived");
     migrated.close();
 
     const reopened = openDb(path);
-    assert.equal(getDeck(reopened, OWNER, id).deck.category, "legacy");
+    assert.equal(getDeck(reopened, OWNER, id).deck.category, "archived");
     reopened.close();
   });
   test("schema 3 preserves assignments and adds deck-scoped tag foreign keys", () => {
@@ -332,7 +332,7 @@ test("v10 identity migration preserves data, sequences and structured authors, w
   old.close();
   const db = openDb(path);
   try {
-    assert.equal((db.prepare("SELECT value FROM meta WHERE key='schema_version'").get() as { value: string }).value, "14");
+    assert.equal((db.prepare("SELECT value FROM meta WHERE key='schema_version'").get() as { value: string }).value, "15");
     assert.deepEqual(getDeck(db, OWNER, deck), before.deck);
     assert.deepEqual(getProfile(db, OWNER), before.profile);
     assert.deepEqual(listMemories(db, OWNER, { status: "any" }), before.memories);

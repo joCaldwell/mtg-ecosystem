@@ -211,18 +211,18 @@ function fixture() {
 }
 
 for(const [name,c] of Object.entries(cases).filter(([,c])=>!c.global)) {
-  for(const category of ["paper","theorycrafted","legacy"] as const) {
+  for(const category of ["paper","theorycrafted","archived"] as const) {
     test(`${name}: private ${category}, owner-ui/agent and other-ui/agent`,()=>{
       for(const via of ["ui","agent"] as const) {
-        const f=fixture(),t=f.targets.find(t=>t.ui.user_id===1&&t.category===(category==="legacy"?"theorycrafted":category))!;
+        const f=fixture(),t=f.targets.find(t=>t.ui.user_id===1&&t.category===(category==="archived"?"theorycrafted":category))!;
         try {
-          if(category==="legacy") decks.setDeckCategory(f.db,t.ui,t.id,"legacy");
+          if(category==="archived") decks.setDeckCategory(f.db,t.ui,t.id,"archived");
           const other={user_id:2,via,label:via==="ui"?"ui":"test-agent"} as Actor;
           const foreign=()=>c.run(f.db,other,t,f);
           assert.throws(foreign,notFound,`${name} foreign target`);
           const own=via==="ui"?t.ui:t.ag;
           const blocked=(via==="agent"&&(c.agentBlocked==="all"||(category==="paper"&&c.agentBlocked==="paper"))) ||
-            (category==="legacy"&&c.kind!=="read"&&!c.archived);
+            (category==="archived"&&c.kind!=="read"&&!c.archived);
           if(blocked) assert.throws(()=>c.run(f.db,own,t,f),PermissionError,`${name} preserves lifecycle/human gate`);
           else assert.doesNotThrow(()=>c.run(f.db,own,t,f),`${name} own ${via}`);
           assert.deepEqual(f.db.prepare("PRAGMA foreign_key_check").all(),[]);
@@ -249,7 +249,7 @@ for(const [name,c] of Object.entries(cases).filter(([,c])=>!c.global && c.kind!=
   test(`${name}: other-ui, other-agent and anonymous are refused on private, unlisted and public decks`,()=>{
     const f=fixture();
     try {
-      for(const t of f.targets.filter(t=>t.ui.user_id===1)) for(const category of [t.category,"legacy"]) for(const [visibility,suggestions] of VISIBILITY_ROWS) {
+      for(const t of f.targets.filter(t=>t.ui.user_id===1)) for(const category of [t.category,"archived"]) for(const [visibility,suggestions] of VISIBILITY_ROWS) {
         share(f.db,t,visibility,suggestions,category);
         for(const [who,viewer] of viewers(t)) {
           const before=personalSnapshot(f.db);
@@ -301,7 +301,7 @@ test("public-read capabilities: owner, other and anonymous across lifecycle × v
       power.recordPowerAssessment(f.db,t.ag,t.id,{profile:{},revision:decks.requireDeck(f.db,t.ui,t.id).revision,evidence:"list",confidence:"tentative",notes:"Agent guess"});
       const hidden=membership.applyChanges(f.db,t.ui,t.id,[{action:"add",oracle_id:"id-llanowar"}],{kind:"edit",summary:"Hidden entry"})!;
       log.hideLogEntry(f.db,t.ui,hidden,true);
-      for(const category of [t.category,"legacy"]) for(const [visibility,suggestions] of VISIBILITY_ROWS) for(const published of [0,1]) {
+      for(const category of [t.category,"archived"]) for(const [visibility,suggestions] of VISIBILITY_ROWS) for(const published of [0,1]) {
         share(f.db,t,visibility,suggestions,category);
         f.db.prepare("UPDATE decks SET publish_decisions=? WHERE id=?").run(published,t.id);
         const actors:Array<[string,Actor|null]>=[["owner-ui",t.ui],["owner-agent",t.ag],...viewers(t)];
@@ -388,7 +388,7 @@ test("published decisions: an undo of a hidden entry is hidden too, and no summa
     share(f.db,t,"public");f.db.prepare("UPDATE decks SET publish_decisions=1 WHERE id=?").run(t.id);
     const added=membership.applyChanges(f.db,t.ui,t.id,[{action:"add",oracle_id:"id-llanowar"}],{kind:"edit"})!;
     membership.undo(f.db,t.ui,added);log.hideLogEntry(f.db,t.ui,added,true);
-    // A brief ruling's stored summary embeds the proposal's reason; an agent may name itself in one.
+    // A brief decision's stored summary embeds the proposal's reason; an agent may name itself in one.
     const edit=documents.proposeDocumentEdit(f.db,t.ag,t.id,"constraints",{content:"No infinite combos"},"Proposed by test-agent because Secret reason").edit_id!;
     documents.ruleDocumentEdit(f.db,t.ui,edit,"accept","Owner agrees");
     membership.applyChanges(f.db,t.ag,t.id,[{action:"add",oracle_id:"id-counterspell"}],{kind:"edit",summary:"test-agent wrote this summary"});
@@ -471,12 +471,12 @@ test("a profile exists only while its person has a public deck (review S3)",()=>
   } finally {f.db.close();}
 });
 
-test("a power-target ruling's public summary names the power target (review S7)",()=>{
+test("a power-target decision's public summary names the power target (review S7)",()=>{
   assert.equal(state.publicSummary({kind:"accept",cards:[],document_edit_id:4},"power_target"),"Accepted a proposed change to the power target");
   assert.equal(state.publicSummary({kind:"reject",cards:[],document_edit_id:4},"thesis"),"Rejected a proposed change to the brief");
 });
 
-test("sharing controls: slugs are issued once, agents cannot publish, Legacy decks can be shared",()=>{
+test("sharing controls: slugs are issued once, agents cannot publish, Archived decks can be shared",()=>{
   const f=fixture();
   try {
     const t=f.targets.find(t=>t.ui.user_id===1&&t.category==="paper")!;
@@ -491,11 +491,11 @@ test("sharing controls: slugs are issued once, agents cannot publish, Legacy dec
     assert.throws(()=>functions.setPublishDecisions(f.db,t.ag,t.id,true),PermissionError);
     assert.throws(()=>log.hideLogEntry(f.db,t.ag,t.log,true),PermissionError);
     assert.throws(()=>functions.setVisibility(f.db,t.ui,t.id,"everyone"),{status:400});
-    decks.setDeckCategory(f.db,t.ui,t.id,"legacy");
+    decks.setDeckCategory(f.db,t.ui,t.id,"archived");
     assert.equal(functions.setVisibility(f.db,t.ui,t.id,"public").visibility,"public");
     assert.equal(functions.setPublishDecisions(f.db,t.ui,t.id,true).publish_decisions,true);
     assert.equal(log.hideLogEntry(f.db,t.ui,t.log,true).hidden,1);
-    assert.equal(state.publicDeckState(f.db,null,slug).deck.category,"legacy");
+    assert.equal(state.publicDeckState(f.db,null,slug).deck.category,"archived");
   } finally {f.db.close();}
 });
 
@@ -561,7 +561,7 @@ const toolCases:Record<string,ToolCase>={
   compare_deck_sources:{kind:"read",args:(t,f)=>({deck:t.id,sources:[f.otherOwn(t.ag,t).id]})},
   search_cards:{kind:"read",args:t=>({deck:t.id,query:"t:land",include_my_decks:true})},
   get_cards:{kind:"read",args:t=>({deck:t.id,cards:["Forest"],include_my_decks:true})},
-  list_rulings:{kind:"read",args:t=>({deck:t.id})}, search_memories:{kind:"read",args:t=>({deck:t.id,query:"private"})},
+  list_decisions:{kind:"read",args:t=>({deck:t.id})}, search_memories:{kind:"read",args:t=>({deck:t.id,query:"private"})},
   list_proposals:{kind:"read",args:t=>({deck:t.id,include_history:true})}, export_deck:{kind:"read",args:t=>({deck:t.id})},
   rename_deck:{kind:"write",args:t=>({deck:t.id,name:"Renamed by tool"})},delete_deck:{kind:"write",args:t=>({deck:t.id})},
   fork_deck:{kind:"write",args:t=>({deck:t.id,name:"Tool fork"})},
@@ -572,7 +572,7 @@ const toolCases:Record<string,ToolCase>={
   shortlist_cards:{kind:"write",args:t=>({deck:t.id,add:[{card:"Sol Ring",note:"Consider"}]})},
   remember:{kind:"write",args:t=>({deck:t.id,scope:"deck",text:"A new tool preference"})},
   revise_memory:{kind:"write",args:t=>({id:t.memory,action:"retire"})},
-  mark_rulings_reviewed:{kind:"write",args:t=>({through:t.log})},
+  mark_decisions_reviewed:{kind:"write",args:t=>({through:t.log})},
   propose_changes:{kind:"suggest",args:t=>({deck:t.id,items:[{action:"cut",card:"Forest",reason:"Preference"}]})},
   propose_brief_edit:{kind:"suggest",args:t=>({deck:t.id,kind:"constraints",text:"A new constraint",reason:"Preference"})},
   propose_power_target:{kind:"suggest",args:t=>({deck:t.id,target:null,reason:"Preference"})},
@@ -707,6 +707,8 @@ http("GET",t=>`/api/memories?deck=${t.id}`,"read");
 http("POST",()=>"/api/memories","write",t=>({scope:"deck",deck_id:t.id,text:"New HTTP memory"}));
 http("PATCH",t=>`/api/memories/${t.memory}`,"write",()=>({action:"retire"}));
 http("GET",t=>`/api/memories/${t.memory}`,"read");
+http("GET",()=>"/api/activity/latest","read",undefined,{global:true});
+http("POST",()=>"/api/demo","owner-only",undefined,{global:true});
 http("GET",()=>"/api/activity","read",undefined,{global:true});
 http("GET",()=>"/api/stats","read",undefined,{global:true});
 http("GET",()=>"/api/focus","read",undefined,{global:true});
@@ -948,6 +950,9 @@ const globalProbes:Record<string,GlobalProbe>={
   clientIp:fn=>fn({headers:{"x-forwarded-for":"attacker"},socket:{remoteAddress:"127.0.0.1"}},{}),
   securityHeaders:fn=>{const headers:Record<string,string>={};fn({setHeader:(k:string,v:string)=>{headers[k]=v;}},"local");assert.deepEqual(headers,{});return headers;},
   consentHtml:fn=>{const html=fn({name:"<script>bad</script>",identityHost:null,redirectHost:"127.0.0.1",redirectUri:"http://127.0.0.1/cb",loopback:true});assert.ok(html.includes("&lt;script&gt;"));return html;},
+  uiPreferences:(fn,f,a)=>{ const result=fn(f.db,a); assert.equal(result.has_agent_activity,true); return result; },
+  setAdvancedOpen:(fn,f,a)=>{ assert.throws(()=>fn(f.db,{...a,via:"agent"},true),PermissionError); fn(f.db,a,true); return getSetting(f.db,a,"advanced_open"); },
+  createDemo:(fn,f,a)=>{ assert.throws(()=>fn(f.db,{...a,via:"agent"}),PermissionError); const result=fn(f.db,a); return decks.requireDeck(f.db,a,result.deckId); },
   getSetting:(fn,f,a)=>{setSetting(f.db,a,"probe","second setting");return fn(f.db,a,"probe");},
   setSetting:(fn,f,a)=>{fn(f.db,a,"probe","second setting");assert.equal(getSetting(f.db,a,"probe"),"second setting");return getSetting(f.db,a,"probe");},
   createDeck:(fn,f,a)=>{const id=fn(f.db,a,"Second new list");return decks.requireDeck(f.db,a,id);},
@@ -1021,7 +1026,7 @@ const globalProbes:Record<string,GlobalProbe>={
   parse:fn=>fn("t:land"),compile:fn=>fn(functions.parse("t:land")),
   cardLine:(fn,f)=>fn(functions.requireCardById(f.db,"id-forest")),cardWithContext:(fn,f)=>fn(functions.requireCardById(f.db,"id-forest")),
   memoryLine:(fn,f,a,t)=>fn(memory.getMemory(f.db,a,t.memory)),renderMemories:(fn,f,a)=>fn(memory.listMemories(f.db,a)),
-  rulingLine:(fn,f,a,t)=>fn(log.cardHistory(f.db,a,t.id,"id-forest")[0]),
+  decisionLine:(fn,f,a,t)=>fn(log.cardHistory(f.db,a,t.id,"id-forest")[0]),
   findingLines:(fn,f,a,t)=>fn(checks.checkDeck(f.db,a,t.id)),
   logLines:(fn,f,a)=>fn(log.listLog(f.db,a)),proposalLines:(fn,f,a)=>fn(proposals.listProposals(f.db,a),documents.listDocumentEdits(f.db,a)),
   renderActivity:(fn,f,a)=>fn(activity.listActivity(f.db,a)),renderStats:(fn,f,a)=>fn(stats.playerStats(f.db,a)),
@@ -1037,7 +1042,7 @@ const globalProbes:Record<string,GlobalProbe>={
   withPreview:fn=>fn("<head><title>x</title></head>",{status:200,head:"<title>Second</title>"}),
   renderPublicDeck:(fn,f,a,t)=>fn(state.publicDeckState(f.db,a,slugOf(t))),
   publicParent:(fn,f,a,t)=>{f.db.prepare("UPDATE decks SET visibility='public' WHERE id=?").run(t.id);const p=fn(f.db,{owner_handle:"second",slug:slugOf(t),name:"x"});assert.equal(p.slug,slugOf(t));return p;},
-  rulingReason:fn=>{assert.equal(fn("  a reason  "),"a reason");assert.equal(fn("   "),"");assert.throws(()=>fn("x".repeat(501)),{status:400});return fn("Second");},
+  decisionReason:fn=>{assert.equal(fn("  a reason  "),"a reason");assert.equal(fn("   "),"");assert.throws(()=>fn("x".repeat(501)),{status:400});return fn("Second");},
   publicSummary:fn=>{const s=fn({kind:"accept",document_edit_id:3,cards:[]});assert.equal(s,"Accepted a proposed change to the brief");return s;},
   renderPower:(fn,f,a,t)=>fn(power.getPower(f.db,a,t.id)),stateLines:(fn,f,a,t)=>fn(decks.getDeck(f.db,a,t.id)),
   renderCompare:(fn,f,a,t)=>fn(fork.compareDecks(f.db,a,t.id,f.otherOwn(a,t).id)),
@@ -1049,7 +1054,7 @@ const globalProbes:Record<string,GlobalProbe>={
 };
 for(const name of ["AppError","ServiceError","SchemaError","PermissionError","SearchError"])globalProbes[name]=fn=>new fn("Second probe");
 globalProbes.CardResolutionError=fn=>new fn([{ref:"missing",problem:"unknown",suggestions:[],candidates:[]}]);
-const globalKinds:Record<string,Classification>={sharedCounts:"read",getPriceSource:"read",setPriceSource:"owner-only",priceResolver:"read",connectedClients:"owner-only",disconnectClient:"owner-only",accountInfo:"owner-only",chooseHandle:"owner-only",exportAccount:"owner-only",deleteAccount:"owner-only",createInvite:"owner-only",adminInfo:"owner-only",accountScopes:"public-read",getSetting:"read",setSetting:"write",createDeck:"write",listDecks:"read",getProfile:"read",setProfile:"owner-only",getBudgets:"read",setBudgets:"write",unreviewedCount:"read",getFocus:"read",playerStats:"read",listActivity:"read",ownershipEvidence:"read",createToken:"owner-only",listTokens:"owner-only",revokeToken:"owner-only",requireUi:"owner-only",requireAdmin:"owner-only",ingestPrices:"write"};
+const globalKinds:Record<string,Classification>={createDemo:"owner-only",uiPreferences:"read",setAdvancedOpen:"owner-only",sharedCounts:"read",getPriceSource:"read",setPriceSource:"owner-only",priceResolver:"read",connectedClients:"owner-only",disconnectClient:"owner-only",accountInfo:"owner-only",chooseHandle:"owner-only",exportAccount:"owner-only",deleteAccount:"owner-only",createInvite:"owner-only",adminInfo:"owner-only",accountScopes:"public-read",getSetting:"read",setSetting:"write",createDeck:"write",listDecks:"read",getProfile:"read",setProfile:"owner-only",getBudgets:"read",setBudgets:"write",unreviewedCount:"read",getFocus:"read",playerStats:"read",listActivity:"read",ownershipEvidence:"read",createToken:"owner-only",listTokens:"owner-only",revokeToken:"owner-only",requireUi:"owner-only",requireAdmin:"owner-only",ingestPrices:"write"};
 for(const [name,probe] of Object.entries(globalProbes))globalCase(name,globalKinds[name]??"public-read",probe);
 
 function ownerSnapshot(f:Fixture) {

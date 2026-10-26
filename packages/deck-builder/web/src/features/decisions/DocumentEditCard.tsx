@@ -4,7 +4,7 @@ import { editDiff, editTitle, isTextEdit } from "../../domain/documents.ts";
 import { ago } from "../../domain/time.ts";
 import { RichText } from "../../mtg/index.ts";
 import { Box, Checkbox, Chip, DiffView, ErrorNote, Eyebrow, Row, Stack, Text } from "../../ui/index.ts";
-import { RulingControls } from "./RulingControls.tsx";
+import { DecisionControls } from "./DecisionControls.tsx";
 import styles from "./DocumentEditCard.module.css";
 
 function Change({ edit }: { edit: DocumentEdit }) {
@@ -119,7 +119,7 @@ export function DocumentEditCard({
         </Stack>}
       </Stack>)}
 
-      {!edit.read_only && <RulingControls
+      {!edit.read_only && <DecisionControls
         rejecting={rejecting}
         busy={busy}
         acceptLabel={group.length > 1 ? "Accept all related edits" : "Accept the edit"}

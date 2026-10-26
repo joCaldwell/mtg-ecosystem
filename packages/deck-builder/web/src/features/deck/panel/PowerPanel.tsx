@@ -1,3 +1,5 @@
+import { Explainer } from "../../../ui/index.ts";
+import { useVoice } from "../../../app/Preferences.tsx";
 import { useState } from "react";
 import { api } from "../../../api/client.ts";
 import { useInbox } from "../../../app/Inbox.tsx";
@@ -5,22 +7,24 @@ import { bracketLabel, powerRows } from "../../../domain/power.ts";
 import { ago } from "../../../domain/time.ts";
 import { CardRef, RichText } from "../../../mtg/index.ts";
 import { Button, Eyebrow, Row, Stack, Text } from "../../../ui/index.ts";
-import { DocumentEditCard } from "../../rulings/index.ts";
+import { DocumentEditCard } from "../../decisions/index.ts";
 import { useDeck, useDeckState } from "../DeckStore.tsx";
 import { PowerEditor } from "./PowerEditor.tsx";
 import { PowerMapping } from "./PowerMapping.tsx";
 import styles from "./PowerPanel.module.css";
 
 export function PowerPanel() {
+  const voice = useVoice();
   const state = useDeckState();
   const { power, deck } = state;
   const { deckId, run, apply } = useDeck();
   const inbox = useInbox();
   const [editing, setEditing] = useState<"target" | "assessment" | null>(null);
-  const readOnly = deck.category === "legacy";
+  const readOnly = deck.category === "archived";
   const a = power.assessment;
   const t = power.target;
   return <>
+    <Explainer title="Commander bracket" summary={voice("A bracket helps you describe the game this deck is built for.", "The app maps your or your agent's assessment to a suggested bracket.")}>Set a target for the experience you want, then assess how the current list plays. The app suggests a bracket from those answers and the card data. Unknown answers stay unknown. Discuss the result with your table; it is not a certification.</Explainer>
     <Stack gap={4}>
       <Row justify="between"><Eyebrow>Deck power</Eyebrow><Button size="sm" variant="ghost" disabled={readOnly} onClick={() => setEditing("assessment")}>{a ? "Reassess" : "Assess deck"}</Button></Row>
       <div className={styles.summary}>
@@ -62,7 +66,7 @@ export function PowerPanel() {
         <RichText text={old.notes} />
       </Stack>)}
     </Stack></details>}
-    <Stack gap={3}><Text as="p" size="xs" tone="faint">{readOnly ? "Legacy decks are read-only." : "Agents propose target changes for your approval."} Assessments are attributed estimates; your corrections take precedence.</Text>
+    <Stack gap={3}><Text as="p" size="xs" tone="faint">{readOnly ? "Archived decks are read-only." : voice("Set a target or assess the list above.", "Agents propose target changes for your approval.")} Assessments are attributed estimates; your corrections take precedence.</Text>
       {t && !readOnly && <Button size="sm" variant="ghost" onClick={() => void run(() => api.setPowerTarget(deckId, null))}>Clear target</Button>}
     </Stack>
     {editing && !readOnly && <PowerEditor kind={editing} power={power} revision={deck.revision} onClose={() => setEditing(null)} />}

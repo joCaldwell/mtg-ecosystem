@@ -1,4 +1,4 @@
-// Ruling on proposals (spec §8). The owner decides in units, never in loose
+// Decision on proposals (spec §8). The owner decides in units, never in loose
 // items, and sees the list as it would look if everything pending were accepted.
 
 import type { DeckListState, Proposal, ProposalItem } from "../api/client.ts";

@@ -12,9 +12,9 @@ export function DeckActions({ deck, onAction }: { deck: DeckSummary; onAction: (
       size="sm"
       align="end"
       items={[
-        { id: "rename", label: "Rename", disabled: deck.category === "legacy", onSelect: () => onAction("rename") },
+        { id: "rename", label: "Rename", disabled: deck.category === "archived", onSelect: () => onAction("rename") },
         { id: "category", label: "Change lifecycle", onSelect: () => onAction("category") },
-        { id: "delete", label: "Delete", disabled: deck.category === "legacy", tone: "cut", onSelect: () => onAction("delete") },
+        { id: "delete", label: "Delete", disabled: deck.category === "archived", tone: "cut", onSelect: () => onAction("delete") },
       ]}
     />
   );

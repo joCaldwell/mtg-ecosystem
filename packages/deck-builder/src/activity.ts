@@ -39,12 +39,12 @@ export function recordActivity(
   );
 }
 
-export function listActivity(db: Database, actor: Actor, limit = 100): ActivityEntry[] {
+export function listActivity(db: Database, actor: Actor, limit = 100, offset = 0): ActivityEntry[] {
   const rows = db
     .prepare(
       `SELECT a.id, a.user_id, a.actor_user_id, a.actor_via, a.actor_label, a.ts, a.actor, a.action, a.deck_id, d.name AS deck_name, a.summary
-       FROM activity a LEFT JOIN decks d ON d.id = a.deck_id AND d.user_id = a.user_id WHERE a.user_id = ? ORDER BY a.id DESC LIMIT ?`,
+       FROM activity a LEFT JOIN decks d ON d.id = a.deck_id AND d.user_id = a.user_id WHERE a.user_id = ? ORDER BY a.id DESC LIMIT ? OFFSET ?`,
     )
-    .all(actor.user_id, Math.min(Math.max(limit, 1), 500)) as unknown as ActivityEntry[];
+    .all(actor.user_id, Math.min(Math.max(limit, 1), 500), Math.max(0, offset)) as unknown as ActivityEntry[];
   return rows.map(row => ({ ...row, actor_display: displayAuthor(db, { author_user_id: row.actor_user_id, author_via: row.actor_via, author_label: row.actor_label }) }));
 }

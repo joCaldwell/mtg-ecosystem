@@ -82,3 +82,8 @@
     padding: var(--s-6) var(--s-4);
   }
 }
+
+.drawerBackdrop { justify-content: flex-start; padding: 0; }
+.drawer { width: min(var(--drawer-w), 100vw); height: 100dvh; max-height: 100dvh; border-radius: 0; }
+.drawer .head { min-height: var(--tap); }
+.drawer .body { display: flex; flex: 1; min-height: 0; padding: 0; }

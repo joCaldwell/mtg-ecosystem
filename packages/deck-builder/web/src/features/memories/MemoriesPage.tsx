@@ -1,7 +1,9 @@
+import { Explainer } from "../../ui/index.ts";
+import { Advanced, useVoice } from "../../app/Preferences.tsx";
 import { useEffect, useState } from "react";
 import { api } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
-import { Pill, Box, EmptyState, ErrorNote, Eyebrow, Loading, Meter, Page, PageHeader, Section, Stack, TextField } from "../../ui/index.ts";
+import { Button, Text, Pill, Box, EmptyState, ErrorNote, Eyebrow, Loading, Meter, Page, PageHeader, Section, Stack, TextField } from "../../ui/index.ts";
 import { AddMemory } from "./AddMemory.tsx";
 import { MemoryCard } from "./MemoryCard.tsx";
 import styles from "./MemoriesPage.module.css";
@@ -12,6 +14,8 @@ type BasisFilter = "any" | "stated" | "inferred";
 
 /** Every memory (spec §7.4, §7.5): browse by scope, basis and status, search, correct, retire. */
 export function MemoriesPage() {
+  const voice = useVoice();
+  const [offset, setOffset] = useState(0);
   const [scope, setScope] = useState<ScopeFilter>("all");
   const [basis, setBasis] = useState<BasisFilter>("any");
   const [showOld, setShowOld] = useState(false);
@@ -31,27 +35,17 @@ export function MemoriesPage() {
         scope: typeof scope === "number" ? "deck" : scope === "global" ? "global" : undefined,
         deck: typeof scope === "number" ? scope : undefined,
         status: showOld ? "any" : "active",
-        q,
+        q, offset, basis: basis === "any" ? undefined : basis,
       }),
-    [scope, showOld, q],
+    [scope, showOld, q, offset, basis],
   );
-  // Unfiltered, so the scope pills and the budgets stay put while the list narrows.
-  const roster = useQuery(() => api.listDecks(), []);
-  const archived = new Set((roster.data ?? []).filter(d => d.category === "legacy").map(d => d.id));
-  const overview = useQuery(() => api.listMemories({ status: "any" }), []);
-
-  const decks = new Map<number, string>();
-  for (const m of overview.data?.memories ?? [])
-    if (m.deck_id != null && m.deck_name) decks.set(m.deck_id, m.deck_name);
-
-  // If the selected deck's last memory disappears the pill goes with it; fall back to all.
-  useEffect(() => {
-    if (typeof scope === "number" && overview.data && !overview.data.memories.some(m => m.deck_id === scope)) setScope("all");
-  }, [scope, overview.data]);
-
-  const shown = (list.data?.memories ?? []).filter((m) => basis === "any" || m.basis === basis);
-  const g = overview.data?.global_budget;
-  const budgets = overview.data?.budgets;
+  const scopes = list.data?.scopes ?? [];
+  const archived = new Set(scopes.filter(d => d.category === "archived").map(d => d.id));
+  const decks = new Map(scopes.map(d => [d.id, d.name]));
+  const shown = list.data?.memories ?? [];
+  const g = list.data?.global_budget;
+  const budgets = list.data?.budgets;
+  useEffect(() => setOffset(0), [scope, showOld, q, basis]);
   const filtered = scope !== "all" || basis !== "any" || showOld || q !== "";
   const addToDeck = typeof scope === "number" ? scope : null;
 
@@ -60,13 +54,14 @@ export function MemoriesPage() {
       header={
         <PageHeader
           title="Memories"
-          subtitle="What agents have learned about you. They write these without asking; you can read, correct or retire every one."
+          subtitle={voice("Keep the preferences and lessons you want to carry from one deck to the next.", "What agents have learned about you. They write these without asking; you can read, correct or retire every one.")}
         />
       }
     >
-      {(overview.error || list.error) && <ErrorNote>{overview.error ?? list.error}</ErrorNote>}
+      <Explainer title="Memories" summary={voice("A memory keeps a preference or lesson with its reason.", "Memories keep what your agent learns between sessions.")}>Use global memories for tastes that apply to every deck, or choose a deck for notes about that list. Stated means you said it; inferred means a conclusion you can confirm. You can correct or retire any memory. Agents cannot change one you wrote or edited.</Explainer>
+      {list.error && <ErrorNote>{list.error}</ErrorNote>}
 
-      {g && budgets && (
+      <Advanced>{g && budgets && (
         <Section title="What loads into an agent's context, in estimated tokens">
           <div className={styles.budgets}>
             <Box padding="sm">
@@ -97,7 +92,7 @@ export function MemoriesPage() {
             </Box>
           </div>
         </Section>
-      )}
+      )}</Advanced>
 
       <Stack gap={4}>
         <div className={styles.filters}>
@@ -134,11 +129,10 @@ export function MemoriesPage() {
           deckId={addToDeck ?? undefined}
           onAdded={() => {
             list.reload();
-            overview.reload();
           }}
         />}
         <span className={styles.addTo}>
-          {addToDeck != null && archived.has(addToDeck) ? "Legacy deck memories are read-only." : addToDeck != null
+          {addToDeck != null && archived.has(addToDeck) ? "Archived deck memories are read-only." : addToDeck != null
             ? `Adding to ${decks.get(addToDeck)}, because that deck is selected above.`
             : "Adding a global memory. Select a deck above to add one to that deck instead."}
         </span>
@@ -155,7 +149,7 @@ export function MemoriesPage() {
             <EmptyState title={filtered ? "No memories match these filters." : "No memories yet."}>
               {filtered
                 ? "Widen the scope or basis, include retired ones, or clear the search."
-                : "Agents write one when they learn something about how you build. You can write one above."}
+                : voice("Write a preference or a lesson above to keep it for next time.", "Agents write one when they learn something about how you build. You can write one above.")}
             </EmptyState>
           ) : (
             <div className={styles.list}>
@@ -166,8 +160,7 @@ export function MemoriesPage() {
                   showScope={scope === "all"}
                   onChanged={() => {
                     list.reload();
-                    overview.reload();
-                  }}
+                          }}
                 />
               ))}
             </div>
@@ -175,10 +168,8 @@ export function MemoriesPage() {
         </Stack>
       )}
 
-      <p className={styles.note}>
-        <b>Stated</b> means you said it, in a ruling reason or directly. <b>Inferred</b> is an agent's guess, shown
-        dashed until you confirm it. An agent can never edit or retire a memory you wrote.
-      </p>
+      <nav aria-label="Memory pages"><Button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 100))}>Previous 100</Button> <Text>Page {offset / 100 + 1}</Text> <Button disabled={!list.data?.has_more} onClick={() => setOffset(offset + 100)}>Next 100</Button></nav>
+      <p className={styles.note}>{voice("Stated memories record what you said. Inferred memories are conclusions to confirm.", "Stated means you said it, in a decision reason or directly. Inferred is an agent's guess, dashed until confirmed. An agent can never edit or retire a memory you wrote.")}</p>
     </Page>
   );
 }

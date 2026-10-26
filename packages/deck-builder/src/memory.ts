@@ -42,7 +42,7 @@ export interface MemoryView {
   cards: Array<{ oracle_id: string; name: string }>;
 }
 
-const SELECT = `SELECT m.user_id, m.author_user_id, m.author_via, m.author_label, m.id, m.text, m.scope, m.deck_id, d.name AS deck_name, (d.category = 'legacy') AS read_only, m.basis, m.author,
+const SELECT = `SELECT m.user_id, m.author_user_id, m.author_via, m.author_label, m.id, m.text, m.scope, m.deck_id, d.name AS deck_name, (d.category = 'archived') AS read_only, m.basis, m.author,
        m.owner_touched, m.source_log_id, m.deck_revision, m.status, m.superseded_by,
        m.created_at, m.revised_at
   FROM memories m LEFT JOIN decks d ON d.id = m.deck_id`;
@@ -136,6 +136,8 @@ export interface MemoryQuery {
   query?: string;
   status?: MemoryStatus | "any";
   limit?: number;
+  offset?: number;
+  basis?: "stated" | "inferred";
 }
 
 function ftsQuery(text: string, minLength = 2): string | null {
@@ -178,6 +180,8 @@ export function listMemories(db: Database, actor: Actor, q: MemoryQuery = {}): M
     where.push("m.id IN (SELECT memory_id FROM memory_cards WHERE oracle_id = ?)");
     params.push(q.cardId);
   }
+  if (q.basis) { where.push("m.basis = ?"); params.push(q.basis); }
+  const offset = Math.max(0, q.offset ?? 0);
   const limit = Math.min(Math.max(q.limit ?? 50, 1), 1000);
 
   if (q.query?.trim()) {
@@ -187,17 +191,17 @@ export function listMemories(db: Database, actor: Actor, q: MemoryQuery = {}): M
       .prepare(
         `${SELECT} JOIN memories_fts ON memories_fts.memory_id = m.id
          WHERE memories_fts MATCH ? ${where.length ? `AND ${where.join(" AND ")}` : ""}
-         ORDER BY bm25(memories_fts) LIMIT ?`,
+         ORDER BY bm25(memories_fts), m.id DESC LIMIT ? OFFSET ?`,
       )
-      .all(match, ...params, limit) as unknown as Row[];
+      .all(match, ...params, limit, offset) as unknown as Row[];
     return toViews(db, actor, rows);
   }
   const rows = db
     .prepare(
       `${SELECT} ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-       ORDER BY m.revised_at DESC, m.id DESC LIMIT ?`,
+       ORDER BY m.revised_at DESC, m.id DESC LIMIT ? OFFSET ?`,
     )
-    .all(...params, limit) as unknown as Row[];
+    .all(...params, limit, offset) as unknown as Row[];
   return toViews(db, actor, rows);
 }
 
@@ -313,7 +317,7 @@ function validateText(text: string): string {
 export function remember(db: Database, actor: Actor, input: RememberInput): RememberResult {
   if (input.deck_id != null) requireEditableDeck(db, actor, input.deck_id);
   if (input.source_log_id != null && !db.prepare("SELECT 1 FROM log WHERE id = ? AND user_id = ?").get(input.source_log_id, actor.user_id))
-    throw new ServiceError("Source ruling not found", 404);
+    throw new ServiceError("Source decision not found", 404);
   const text = validateText(input.text);
   if (input.scope !== "global" && input.scope !== "deck")
     throw new ServiceError("A memory's scope is 'global' or 'deck'");

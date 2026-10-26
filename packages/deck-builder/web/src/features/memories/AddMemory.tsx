@@ -1,3 +1,4 @@
+import { useVoice } from "../../app/Preferences.tsx";
 import { useState } from "react";
 import { api } from "../../api/client.ts";
 import { Button, ErrorNote, TextArea } from "../../ui/index.ts";
@@ -13,6 +14,7 @@ export function AddMemory({
   deckId?: number;
   onAdded: () => void;
 }) {
+  const voice = useVoice();
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -48,7 +50,7 @@ export function AddMemory({
       />
       {error && <ErrorNote>{error}</ErrorNote>}
       <div className={styles.row}>
-        <span className={styles.hint}>A memory you write is yours. Agents can read it and never change it.</span>
+        <span className={styles.hint}>{voice("Keep one preference or lesson and its reason. You can change it later.", "A memory you write is yours. Agents can read it and never change it.")}</span>
         <Button type="submit" size="sm" variant="primary" disabled={busy || !text.trim()}>
           Remember
         </Button>

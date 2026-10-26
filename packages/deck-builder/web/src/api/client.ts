@@ -15,7 +15,7 @@ import type { EngineView } from "../../../src/deck/brief.ts";
 import type { Finding } from "../../../src/deck/checks.ts";
 import type { DeckComparison } from "../../../src/deck/fork.ts";
 import type { ExportOptions, ExportResult, ImportDiff } from "../../../src/deck/interop.ts";
-import type { CardRuling, LogEntry } from "../../../src/deck/log.ts";
+import type { CardDecision, LogEntry } from "../../../src/deck/log.ts";
 import type { ProposalView } from "../../../src/deck/proposals.ts";
 import type { DeckCategory, DeckSummary } from "../../../src/deck/service.ts";
 import type { DocumentEditView, ProfileView } from "../../../src/documents.ts";
@@ -25,7 +25,7 @@ import type { Currency, Store, PriceSource, PriceStatus } from "../../../src/pri
 import type { SearchResult } from "../../../src/search/index.ts";
 import type { PlayerStats } from "../../../src/stats.ts";
 
-export type { Currency, Store, PriceSource };
+export type { Currency, Store, PriceSource, CardRow };
 
 export type {
   PowerProfile,
@@ -33,7 +33,7 @@ export type {
   PowerAssessmentInput,
   BracketMapping,
   ActivityEntry,
-  CardRuling,
+  CardDecision,
   DeckComparison,
   DeckCategory,
   DeckState,
@@ -73,13 +73,15 @@ export type Profile = ProfileView;
 export interface Inbox {
   proposals: Proposal[];
   document_edits: DocumentEdit[];
-  /** Rulings no agent has read yet. */
+  /** Decisions no agent has read yet. */
   unreviewed: number;
 }
 
 export interface Session { mode: "local" | "hosted"; providers: string[]; legal: {operator_name:string;contact_email:string}|null; invites_required:boolean; user: ReturnType<typeof accountInfo> | null }
 
 export interface Settings {
+  has_agent_activity: boolean;
+  advanced_open: boolean;
   price_source: PriceSource;
   jobs: ReturnType<Jobs["status"]> | null;
   budgets: { global: number; deck: number };
@@ -88,6 +90,8 @@ export interface Settings {
 }
 
 export interface MemoryList {
+  has_more: boolean;
+  scopes: Array<{ id: number; name: string; category: DeckCategory }>;
   memories: Memory[];
   budgets: { global: number; deck: number };
   global_budget: { budget: number; used: number; omitted: number };
@@ -101,30 +105,8 @@ export interface Envelope {
   profile?: Profile;
 }
 
-export class ApiError extends Error {
-  status: number;
-  error: string;
-  constructor(status: number, error: string) { super(error); this.status = status; this.error = error; }
-}
-
-async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(path, {
-    method,
-    credentials: "same-origin",
-    headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-    signal,
-  });
-  const json = res.headers.get("content-type")?.split(";")[0].trim() === "application/json";
-  if (!res.ok) {
-    const data = json ? await res.json().catch(() => null) : null;
-    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("api-error", { detail: { status: res.status, retryAfter: Number(res.headers.get("Retry-After") ?? 60), message: data?.error } }));
-    throw new ApiError(res.status, typeof data?.error === "string" ? data.error : `HTTP ${res.status}`);
-  }
-  if (!json) throw new ApiError(res.status, "The server returned an unexpected response. Please retry.");
-  const data = await res.json().catch(() => { throw new ApiError(res.status, "The server returned invalid JSON. Please retry."); });
-  return data as T;
-}
+export { ApiError } from "./transport.ts";
+import { request } from "./transport.ts";
 
 type StateResponse = { state: DeckState };
 export type Outcome = "accept" | "reject";
@@ -209,7 +191,7 @@ export const api = {
   removeCard: (deckId: number, oracleId: string) =>
     request<StateResponse>("DELETE", `/api/decks/${deckId}/cards/${oracleId}`),
   cardHistory: (deckId: number, oracleId: string) =>
-    request<{ rulings: CardRuling[]; memories: Memory[] }>(
+    request<{ decisions: CardDecision[]; memories: Memory[] }>(
       "GET",
       `/api/decks/${deckId}/cards/${oracleId}/history`,
     ),
@@ -231,7 +213,7 @@ export const api = {
   deleteTag: (deckId: number, tagId: number) =>
     request<StateResponse>("DELETE", `/api/decks/${deckId}/tags/${tagId}`),
 
-  // ---------- rulings (spec §8) ----------
+  // ---------- decisions (spec §8) ----------
   getInbox: () => request<Inbox>("GET", "/api/inbox"),
   proposalHistory: () => request<{ proposals: Proposal[]; document_edits: DocumentEdit[] }>("GET", "/api/proposal-history"),
   ruleItems: (deckId: number, itemIds: number[], outcome: Outcome, reason = "", options: { expected_revision?: number; acknowledge_stale?: boolean } = {}) =>
@@ -269,7 +251,7 @@ export const api = {
     request<{ state: DeckState; assessment_id: number }>("POST", `/api/decks/${deckId}/power/assessments`, assessment),
 
   // ---------- memories (spec §7.5) ----------
-  listMemories: (q: { scope?: string; deck?: number; card?: string; q?: string; status?: string } = {}) => {
+  listMemories: (q: { scope?: string; deck?: number; card?: string; q?: string; offset?: number; basis?: "stated" | "inferred"; status?: string } = {}) => {
     const params = new URLSearchParams();
     for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== "") params.set(k, String(v));
     return request<MemoryList>("GET", `/api/memories?${params}`);
@@ -280,12 +262,14 @@ export const api = {
     request<{ memory: Memory }>("PATCH", `/api/memories/${id}`, revision),
 
   // ---------- activity, stats, focus, settings ----------
-  listActivity: () => request<ActivityEntry[]>("GET", "/api/activity"),
+  latestActivity: () => request<ActivityEntry | null>("GET", "/api/activity/latest"),
+  listActivity: (offset = 0) => request<ActivityEntry[]>("GET", `/api/activity?offset=${offset}`),
+  createSample: () => request<{ state: DeckState }>("POST", "/api/demo"),
   getStats: () => request<PlayerStats>("GET", "/api/stats"),
   setFocus: (deckId: number | null, selected: string[] = []) =>
     request<{ ok: true }>("PUT", "/api/focus", { deck_id: deckId, selected }),
   getSettings: () => request<Settings>("GET", "/api/settings"),
-  updateSettings: (patch: { price_source?: PriceSource; budgets?: { global?: number; deck?: number } }) =>
+  updateSettings: (patch: { advanced_open?: boolean; price_source?: PriceSource; budgets?: { global?: number; deck?: number } }) =>
     request<Settings>("PUT", "/api/settings", patch),
   createToken: (label: string) => request<{ token: string; credential: AgentToken }>("POST", "/api/settings/tokens", { label }),
   revokeToken: (id: number) => request<{ ok: true }>("DELETE", `/api/settings/tokens/${id}`),

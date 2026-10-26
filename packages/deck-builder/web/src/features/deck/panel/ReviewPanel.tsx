@@ -1,5 +1,5 @@
 // The Review tab (spec §8): what is waiting on the owner, one card per
-// decision, with the projected deck above it. Ruling happens here, in the list
+// decision, with the projected deck above it. Decision happens here, in the list
 // (review mode) and in the banner through the same `Review` object.
 
 import { ago } from "../../../domain/time.ts";
@@ -17,7 +17,7 @@ export function ReviewPanel({ view, review }: { view: DeckViewModel; review: Rev
   const state = useDeckState();
   const ui = useDeckUi();
 
-  if (state.deck.category === "legacy") return <Text tone="muted">Pending proposals are preserved. Restore this deck to rule on them.</Text>;
+  if (state.deck.category === "archived") return <Text tone="muted">Pending proposals are preserved. Restore this deck to rule on them.</Text>;
 
   // Units come oldest proposal first, so the proposals do too.
   const proposals = state.proposals

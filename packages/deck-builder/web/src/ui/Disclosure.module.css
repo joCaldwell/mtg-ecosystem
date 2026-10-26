@@ -1,0 +1,9 @@
+.disclosure { min-width: 0; }
+.toggle { display: inline-flex; align-items: center; gap: var(--s-3); min-height: var(--h-lg); color: var(--muted); font-size: var(--text-sm); }
+.toggle:hover { color: var(--text); }
+.toggle[aria-expanded="false"] svg { transform: rotate(-90deg); }
+.content:not([hidden]) { display: grid; gap: var(--s-4); padding-block: var(--s-4); }
+@media (max-width: 959px) { .toggle { min-height: var(--tap); } }
+
+.inline { display: inline-flex; align-items: center; gap: var(--s-4); }
+.inline .content:not([hidden]) { display: inline; padding: 0; }

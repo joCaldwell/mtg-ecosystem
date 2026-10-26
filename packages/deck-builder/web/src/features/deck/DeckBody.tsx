@@ -1,3 +1,7 @@
+import { useState, useEffect } from "react";
+import { PANEL_QUERY, useMediaQuery } from "../../app/breakpoints.ts";
+import { Button, Dialog } from "../../ui/index.ts";
+import { useDeckUi } from "./DeckUi.tsx";
 // The list and the side panel, side by side. How wide the panel is belongs to
 // the owner: they drag the edge between the two, and the width is remembered
 // for every deck. The state lives here rather than on the page so a drag
@@ -17,6 +21,17 @@ const decodeWidth = (raw: string | null): number | null => {
 const encodeWidth = (width: number | null) => (width === null ? "" : String(width));
 
 export function DeckBody({ list, panel }: { list: ReactNode; panel: ReactNode }) {
+  const tablet = useMediaQuery(PANEL_QUERY);
+  const ui = useDeckUi();
+  const [sheet, setSheet] = useState(false);
+  useEffect(() => { if (ui.openCard || ui.reviewing) setSheet(true); }, [ui.openCard, ui.reviewing]);
+  // Opening a header stat can select the current tab again, so listen to
+  // the explicit details request as well as changes of tab.
+  useEffect(() => {
+    const open = () => setSheet(true);
+    window.addEventListener("deck-details", open);
+    return () => window.removeEventListener("deck-details", open);
+  }, []);
   const body = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useLocalStorage(PANEL_WIDTH_KEY, decodeWidth, encodeWidth);
   const limits = useMemo(
@@ -36,6 +51,14 @@ export function DeckBody({ list, panel }: { list: ReactNode; panel: ReactNode })
     setWidth(Math.max(limits.min, Math.min(next, room)));
   };
 
+  if (tablet) return <div className={styles.stacked}>
+    <div className={styles.panelActions}>
+      <Button onClick={() => setSheet(true)} aria-haspopup="dialog">Open deck details</Button>
+      <span>Brief, power, checks, memories and decisions</span>
+    </div>
+    {list}
+    {sheet && <Dialog title={ui.openCard ? ui.openCard.name : "Deck details"} placement="sheet" onClose={() => { setSheet(false); if (ui.openCard) ui.openCardPanel(null); }}><div className={styles.sheetPanel}>{panel}</div></Dialog>}
+  </div>;
   return (
     <div
       ref={body}

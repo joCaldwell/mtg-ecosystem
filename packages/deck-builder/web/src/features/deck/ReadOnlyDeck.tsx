@@ -6,16 +6,16 @@
 //
 // No sidebar, no focus reporting, no hotkeys. A card opens as a sheet on tap.
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { CardInfo } from "../../mtg/index.ts";
-import { CardOpenProvider, CardSheet, InlineText, RichText, useCardLookup } from "../../mtg/index.ts";
+import { CardOpenProvider, InlineText, RichText, useCardLookup } from "../../mtg/index.ts";
 import { bracketLabel } from "../../domain/power.ts";
 import { formatPrice } from "../../domain/price.ts";
 import { priceSource, type ReadOnlyDeckModel } from "../../domain/readOnlyDeck.ts";
 import { ago } from "../../domain/time.ts";
 import { Chip, Eyebrow, Segmented, Stack, Text } from "../../ui/index.ts";
 import { useIsPhone } from "../../app/breakpoints.ts";
-import { DeckListProvider } from "./DeckStore.tsx";
+import { DeckListProvider } from "./DeckListStore.tsx";
 import { DeckUiProvider, useDeckUi } from "./DeckUi.tsx";
 import { DeckList } from "./list/DeckList.tsx";
 import { BriefField } from "./panel/BriefField.tsx";
@@ -24,12 +24,14 @@ import { EngineCard } from "./panel/EngineCard.tsx";
 import { DeckViewProvider, useDeckView, type DeckViewModel } from "./useDeckView.ts";
 import styles from "./ReadOnlyDeck.module.css";
 
+const CardSheet = lazy(() => import("../../mtg/CardSheet.tsx").then(m => ({ default: m.CardSheet })));
+
 export interface ReadOnlyDeckProps {
   model: ReadOnlyDeckModel;
   /** Drawn above everything: the public page's art header, the phone's title. */
   header?: ReactNode;
-  /** The phone view's ruling controls; given the units it draws in place. */
-  rulings?: (view: DeckViewModel) => ReactNode;
+  /** The phone view's decision controls; given the units it draws in place. */
+  decisions?: (view: DeckViewModel) => ReactNode;
 }
 
 export function ReadOnlyDeck(props: ReadOnlyDeckProps) {
@@ -44,9 +46,9 @@ export function ReadOnlyDeck(props: ReadOnlyDeckProps) {
 
 const NO_SAVE = async () => false;
 
-function ReadOnlyBody({ model, header, rulings }: ReadOnlyDeckProps) {
+function ReadOnlyBody({ model, header, decisions }: ReadOnlyDeckProps) {
   const ui = useDeckUi();
-  const view = useDeckView({ memories: false });
+  const view = useDeckView();
   const phone = useIsPhone();
   const { lookup } = useCardLookup();
   const [named, setNamed] = useState<CardInfo | null>(null);
@@ -81,7 +83,7 @@ function ReadOnlyBody({ model, header, rulings }: ReadOnlyDeckProps) {
       <DeckViewProvider value={view}>
         <div className={styles.root}>
           {header}
-          {rulings?.(view)}
+          {decisions?.(view)}
           <div className={styles.body}>
             <section className={styles.list} aria-label="Deck list">
               <div className={styles.listHead}>
@@ -160,7 +162,7 @@ function ReadOnlyBody({ model, header, rulings }: ReadOnlyDeckProps) {
               )}
             </aside>
           </div>
-          {(open ?? named) && <CardSheet card={(open ?? named)!} onClose={close} sheet={phone} />}
+          <Suspense fallback={null}>{(open ?? named) && <CardSheet card={(open ?? named)!} onClose={close} sheet={phone} />}</Suspense>
         </div>
       </DeckViewProvider>
     </CardOpenProvider>

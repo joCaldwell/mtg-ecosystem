@@ -1,3 +1,4 @@
+import { useVoice } from "../../app/Preferences.tsx";
 import { useId, useState, type FormEvent } from "react";
 import { api, type DeckCategory } from "../../api/client.ts";
 import { navigate } from "../../app/routes.ts";
@@ -6,7 +7,8 @@ import { Button, Dialog, ErrorNote, Field, Select, TextField } from "../../ui/in
 import styles from "./NewDeckDialog.module.css";
 
 /** Creates a deck and opens it. The lifecycle defaults to Theorycrafted, with no slots. */
-export function NewDeckDialog({ onClose }: { onClose: () => void }) {
+export function NewDeckDialog({ onClose, importAfterCreate = false }: { onClose: () => void; importAfterCreate?: boolean }) {
+  const voice = useVoice();
   const formId = useId();
   const [name, setName] = useState("");
   const [category, setCategory] = useState<DeckCategory>("theorycrafted");
@@ -21,7 +23,7 @@ export function NewDeckDialog({ onClose }: { onClose: () => void }) {
     try {
       const { state } = await api.createDeck(name.trim(), category);
       onClose();
-      navigate({ page: "deck", deckId: state.deck.id });
+      navigate({ page: "deck", deckId: state.deck.id, importing: importAfterCreate });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setBusy(false);
@@ -30,7 +32,7 @@ export function NewDeckDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <Dialog
-      title="New deck"
+      title={importAfterCreate ? "Import a deck" : "New deck"}
       onClose={onClose}
       footer={
         <>
@@ -38,7 +40,7 @@ export function NewDeckDialog({ onClose }: { onClose: () => void }) {
             Cancel
           </Button>
           <Button type="submit" form={formId} variant="primary" disabled={!name.trim() || busy}>
-            {busy ? "Creating…" : "Create deck"}
+            {busy ? "Creating…" : importAfterCreate ? "Create and import" : "Create deck"}
           </Button>
         </>
       }
@@ -47,9 +49,9 @@ export function NewDeckDialog({ onClose }: { onClose: () => void }) {
         <Field label="Deck name" hint="Choose how this deck is used and edited.">
           <TextField data-autofocus value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />
         </Field>
-        <Field label="Lifecycle" hint="Paper requires agent card proposals; Theorycrafted allows direct agent card edits. Brief changes always need approval. You can archive this deck as Legacy later.">
+        <Field label="Lifecycle" hint={voice("Theorycrafted is a work in progress. Paper is a deck you play. You can archive either later.", "Paper requires agent card proposals; Theorycrafted allows direct agent card edits. Brief changes always need approval. You can archive either later.")}>
           <Select value={category} onChange={(e) => setCategory(e.target.value as DeckCategory)} disabled={busy}>
-            {DECK_CATEGORY_OPTIONS.filter(o => o.value !== "legacy").map((option) => (
+            {DECK_CATEGORY_OPTIONS.filter(o => o.value !== "archived").map((option) => (
               <option key={option.value} value={option.value}>{option.label}</option>
             ))}
           </Select>

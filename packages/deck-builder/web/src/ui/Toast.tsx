@@ -28,7 +28,7 @@ interface Current {
   opts: ToastOptions;
 }
 
-const ToastContext = createContext<ToastApi | null>(null);
+const ToastContext = /* @__PURE__ */ createContext<ToastApi | null>(null);
 
 let nextId = 1;
 

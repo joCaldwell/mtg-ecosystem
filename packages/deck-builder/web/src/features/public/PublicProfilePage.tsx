@@ -2,7 +2,8 @@
 // nothing else. Unlisted decks are reachable only by their own links.
 
 import { Fragment, useEffect, useState } from "react";
-import { api, ApiError, type PublicProfile } from "../../api/client.ts";
+import { api, ApiError } from "../../api/reader.ts";
+import type { PublicProfile } from "../../api/client.ts";
 import { APP_TITLE, href, useScrollRestore } from "../../app/routes.ts";
 import { DECK_CATEGORY_LABELS } from "../../domain/deckCategory.ts";
 import { ColorIdentity } from "../../mtg/index.ts";

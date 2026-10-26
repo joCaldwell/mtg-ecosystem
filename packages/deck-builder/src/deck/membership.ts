@@ -52,7 +52,7 @@ export type Change =
 export interface ChangeEntry {
   kind: Exclude<LogKind, "reject">;
   summary?: string;
-  ruling_reason?: string;
+  decision_reason?: string;
   proposal_id?: number;
   undo_of?: number;
 }
@@ -275,7 +275,7 @@ export function applyChanges(
         deck_id: deckId,
         kind: entry.kind,
         summary: entry.summary ?? summarize(logged),
-        ruling_reason: entry.ruling_reason,
+        decision_reason: entry.decision_reason,
         proposal_id: entry.proposal_id,
         undo_of: entry.undo_of,
       },

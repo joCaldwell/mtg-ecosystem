@@ -1,5 +1,5 @@
 // One card inside a review unit: what is proposed, the agent's reason, and
-// what the deck already knows about the card (spec §7.2, §8.3) so the ruling
+// what the deck already knows about the card (spec §7.2, §8.3) so the decision
 // is made with the same context an agent has.
 
 import type { ProposalItem } from "../../../api/client.ts";

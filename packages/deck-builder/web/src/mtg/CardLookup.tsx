@@ -15,7 +15,7 @@ const key = (name: string) => name.trim().toLowerCase();
 // Outside a provider nothing can be resolved: names stay plain text.
 const NONE: CardLookupApi = { lookup: async () => null, prime: () => {}, clear: () => {} };
 
-const Ctx = createContext<CardLookupApi>(NONE);
+const Ctx = /* @__PURE__ */ createContext<CardLookupApi>(NONE);
 
 /**
  * Wraps `lookup` in an in-memory cache keyed by lowercased name. The promise

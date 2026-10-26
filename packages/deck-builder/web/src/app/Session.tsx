@@ -1,9 +1,12 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { api, type Session } from "../api/client.ts";
+import { createContext, useContext, useEffect, useState, lazy, type ReactNode } from "react";
+import { api } from "../api/reader.ts";
+import type { Session } from "../api/client.ts";
 import { useToast, ErrorNote, Loading } from "../ui/index.ts";
-import { SignInPage, HandlePicker, LegalPage } from "../features/auth/index.ts";
+const SignInPage = lazy(() => import("../features/auth/index.ts").then(m => ({ default: m.SignInPage })));
+const HandlePicker = lazy(() => import("../features/auth/index.ts").then(m => ({ default: m.HandlePicker })));
+const LegalPage = lazy(() => import("../features/auth/index.ts").then(m => ({ default: m.LegalPage })));
 
-const Context = createContext<{ session: Session; reload: () => void } | null>(null);
+const Context = /* @__PURE__ */ createContext<{ session: Session; reload: () => void } | null>(null);
 /** `open`: a shared page (spec §18.5), which renders signed in or not. */
 export function SessionProvider({ children, open = false }: { children: ReactNode; open?: boolean }) {
   const [session,setSession] = useState<Session | null>(null), [error,setError] = useState<string | null>(null);

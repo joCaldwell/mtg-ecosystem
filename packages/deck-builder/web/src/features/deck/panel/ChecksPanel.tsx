@@ -7,7 +7,7 @@ import { CardRef, ColorIdentity } from "../../../mtg/index.ts";
 import { Button, Chip, Eyebrow, KeyValue, Text } from "../../../ui/index.ts";
 import { cx } from "../../../ui/internal.ts";
 import type { Finding } from "../../../api/client.ts";
-import { useDeckList } from "../DeckStore.tsx";
+import { useDeckList } from "../DeckListStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import styles from "./ChecksPanel.module.css";
 

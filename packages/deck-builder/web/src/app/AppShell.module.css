@@ -13,3 +13,9 @@
 .focused {
   grid-template-columns: minmax(0, 1fr);
 }
+
+.tablet { min-height: 100dvh; }
+.tabletRail { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr); min-height: 100dvh; }
+.rail { position: sticky; top: 0; height: 100dvh; }
+.bar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--s-6); min-height: var(--phone-bar-h); padding: var(--s-2) var(--s-6); border-bottom: 1px solid var(--line); background: var(--surface); font-weight: 600; }
+.tabletMain { min-width: 0; }

@@ -1,3 +1,4 @@
+import { Advanced } from "../../../app/Preferences.tsx";
 // The owner's own edits to a card already in this deck (or on its maybe list).
 // They apply at once and are logged; nothing here is a proposal.
 
@@ -116,11 +117,11 @@ export function CardControls({ card }: { card: DeckCard }) {
       />,
     ]);
 
-  if (deck.category === "legacy") return <KeyValue items={[
+  if (deck.category === "archived") return <KeyValue items={[
     ["Primary slot", slots.find(s => s.id === card.slot_id)?.name ?? "Unfiled"],
     ["Secondary slots", slots.filter(s => card.secondary_slot_ids.includes(s.id)).map(s => s.name).join(", ") || "None"],
     ["Tags", tags.filter(t => card.tag_ids.includes(t.id)).map(t => t.name).join(", ") || "None"],
     ["Role", card.role], ["Copies", card.quantity],
   ]} className={styles.kv} />;
-  return <KeyValue items={rows} className={styles.kv} />;
+  return <><KeyValue items={rows.filter(([label]) => label !== "Secondary slots")} className={styles.kv} /><Advanced><KeyValue items={rows.filter(([label]) => label === "Secondary slots")} className={styles.kv} /></Advanced></>;
 }

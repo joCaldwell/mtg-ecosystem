@@ -4,8 +4,8 @@
 
 import type { KeyboardEvent, MouseEvent } from "react";
 import type { CardMark } from "../../../domain/marks.ts";
-import { ManaCost, Price, useCardHover, type CardInfo } from "../../../mtg/index.ts";
-import { useDeckList } from "../DeckStore.tsx";
+import { ManaCost, Price, useCardHover, useCardInspect, type CardInfo } from "../../../mtg/index.ts";
+import { useDeckList } from "../DeckListStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import { Mark } from "./Mark.tsx";
 import styles from "./CardRow.module.css";
@@ -31,6 +31,7 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
   const ui = useDeckUi();
   const { readOnly } = useDeckList();
   const hover = useCardHover();
+  const inspect = useCardInspect();
   const selected = ui.selected.includes(card.oracle_id);
   const open = ui.openCard?.oracleId === card.oracle_id;
   // Proposed adds are not in the deck, and a read-only list has no selection.
@@ -44,6 +45,7 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
   // Enter on a focused row opens the card; it must not also reach the screen's
   // own Enter shortcut, which starts a review.
   function onKeyDown(e: KeyboardEvent) {
+    if (e.key === "?") { e.preventDefault(); e.stopPropagation(); inspect(card); }
     if (e.key === "Enter") e.stopPropagation();
   }
 
@@ -78,13 +80,13 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
         <span>{card.name}</span>
         {purpose && <span className={styles.purpose}>{purpose}</span>}
       </span>
-      {(mark?.memories || mark?.rulings) && (
+      {(mark?.memories || mark?.decisions) && (
         <span className={styles.marks}>
           {!!mark?.memories && <Mark kind="memory" />}
-          {!!mark?.rulings && <Mark kind="ruling" />}
+          {!!mark?.decisions && <Mark kind="decision" />}
         </span>
       )}
-      <span className={styles.cost}>
+      <span className={styles.cost} title="Inspect card · ? on a focused row" onClick={(e) => { e.stopPropagation(); inspect(card); }}>
         <ManaCost cost={card.mana_cost} />
       </span>
       <Price currency={card.currency} cents={card.cents} column />

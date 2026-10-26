@@ -1,7 +1,7 @@
 import { formatPrice } from "../../../domain/price.ts";
 // What the deck would be if everything still open were accepted (spec §8).
 // The numbers are the server's (`computed.pending`), so they stay right after
-// every ruling without the client recounting anything.
+// every decision without the client recounting anything.
 
 import { formatTarget } from "../../../domain/grouping.ts";
 import { Box, Eyebrow, Text } from "../../../ui/index.ts";

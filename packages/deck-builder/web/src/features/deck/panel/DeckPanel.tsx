@@ -29,7 +29,7 @@ export function DeckPanel({ view, review }: { view: DeckViewModel; review: Revie
   const state = useDeckState();
   const pending = view.units.length;
   // The Review tab exists only while there is something to rule on, and the
-  // stored tab may be left over from before the last ruling.
+  // stored tab may be left over from before the last decision.
   const tab: PanelTab = ui.tab === "review" && pending === 0 ? "brief" : ui.tab;
 
   const tabs: TabSpec[] = [

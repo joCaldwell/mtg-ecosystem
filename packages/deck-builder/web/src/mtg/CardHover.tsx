@@ -1,4 +1,5 @@
 import {
+  lazy, Suspense,
   createContext,
   useCallback,
   useContext,
@@ -11,15 +12,11 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { ptString } from "../domain/cards.ts";
-import { placeNear } from "../ui/floating.ts";
 import type { CardInfo } from "./CardInfo.ts";
-import { cardImageUrl } from "./cardImage.ts";
 import { useCardLookup } from "./CardLookup.tsx";
-import { ManaCost } from "./ManaCost.tsx";
-import { OracleText } from "./OracleText.tsx";
-import { Price } from "./Price.tsx";
-import styles from "./CardHover.module.css";
+
+const CardSheet = lazy(() => import("./CardSheet.tsx").then(m => ({ default: m.CardSheet })));
+const HoverCard = lazy(() => import("./CardHoverView.tsx").then(m => ({ default: m.HoverCard })));
 
 /** How long the pointer must rest on a card name before the hover card appears. */
 export const HOVER_DELAY_MS = 500;
@@ -30,72 +27,16 @@ interface Shown {
 }
 
 interface HoverApi {
+  inspect: (card: string | CardInfo) => void;
   show: (card: string | CardInfo, el: HTMLElement) => void;
   hide: () => void;
 }
 
-const Ctx = createContext<HoverApi | null>(null);
+const Ctx = /* @__PURE__ */ createContext<HoverApi | null>(null);
 
-type ImageStatus = "loading" | "loaded" | "failed";
-
-function HoverCard({ shown }: { shown: Shown }) {
-  const { card, anchor } = shown;
-  const box = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
-  const [image, setImage] = useState<ImageStatus>("loading");
-
-  // Placed after render because the box's size is only known once the text is
-  // in, and it grows wider when the picture arrives, so that re-places it.
-  useLayoutEffect(() => {
-    const el = box.current;
-    if (!el) return;
-    setPos(placeNear(anchor, { width: el.offsetWidth, height: el.offsetHeight }, { prefer: "right" }));
-  }, [anchor, image, card]);
-
-  const pt = ptString(card);
-  return (
-    <div
-      ref={box}
-      className={styles.card}
-      role="tooltip"
-      style={{ left: pos?.left ?? 0, top: pos?.top ?? 0, visibility: pos ? "visible" : "hidden" }}
-    >
-      {image !== "failed" && cardImageUrl(card) && (
-        <img
-          className={image === "loaded" ? styles.image : styles.pending}
-          src={cardImageUrl(card)}
-          loading="lazy"
-          alt=""
-          onLoad={() => setImage("loaded")}
-          onError={() => setImage("failed")}
-        />
-      )}
-      <div className={styles.body}>
-        <div className={styles.head}>
-          <span className={styles.name}>{card.name}</span>
-          <ManaCost cost={card.mana_cost} />
-        </div>
-        <div className={styles.type}>
-          {card.type_line}
-          {pt && <span className={styles.pt}>{pt}</span>}
-          <span className={styles.price}>
-            <Price currency={card.currency} cents={card.cents} />
-          </span>
-        </div>
-        {card.cents != null && card.store && <div className={styles.type}>
-          {card.store === "tcgplayer" ? "TCGplayer" : "Cardmarket"} · Scryfall estimate · {card.as_of?.slice(0, 10) ?? "date unknown"}
-        </div>}
-        <div className={styles.oracle}>
-          <OracleText text={card.oracle_text} bare />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** Renders the app's one floating hover card, and owns the timing for every trigger. */
 export function CardHoverProvider({ children }: { children: ReactNode }) {
   const { lookup } = useCardLookup();
+  const [inspected, setInspected] = useState<CardInfo | null>(null);
   const [shown, setShown] = useState<Shown | null>(null);
   const timer = useRef<number | undefined>(undefined);
   // Bumped on every show and hide, so a lookup that finishes late can tell it is stale.
@@ -159,11 +100,17 @@ export function CardHoverProvider({ children }: { children: ReactNode }) {
     };
   }, [hide]);
 
-  const api = useMemo(() => ({ show, hide }), [show, hide]);
+  const inspect = useCallback((card: string | CardInfo) => {
+    hide();
+    if (typeof card !== "string") setInspected(card);
+    else void lookup(card).then(info => info && setInspected(info));
+  }, [hide, lookup]);
+  const api = useMemo(() => ({ show, hide, inspect }), [show, hide, inspect]);
   return (
     <Ctx.Provider value={api}>
       {children}
-      {shown && createPortal(<HoverCard key={shown.card.name} shown={shown} />, document.body)}
+      <Suspense fallback={null}>{inspected && <CardSheet card={inspected} sheet onClose={() => setInspected(null)} />}
+      {shown && createPortal(<HoverCard key={shown.card.name} shown={shown} />, document.body)}</Suspense>
     </Ctx.Provider>
   );
 }
@@ -191,4 +138,10 @@ export function useCardHover(): (card: string | CardInfo) => {
         : NO_HANDLERS,
     [api],
   );
+}
+
+/** Explicit inspection is a modal, so its facts are read by assistive tech. */
+export function useCardInspect() {
+  const api = useContext(Ctx);
+  return (card: string | CardInfo) => api?.inspect(card);
 }

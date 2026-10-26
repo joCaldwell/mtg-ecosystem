@@ -1,3 +1,5 @@
+import { createDemo } from "./demo.ts";
+import { uiPreferences, setAdvancedOpen } from "./preferences.ts";
 // The app's one HTTP server (spec §10.1): the UI, its JSON API, the live
 // event stream, and the agent endpoint, all in the process that owns the
 // database. Every request resolves a principal and both doors call the same
@@ -274,7 +276,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     return { state: state(actor, deckId) };
   });
   route("GET", /^\/api\/decks\/(\d+)\/cards\/([0-9a-z-]+)\/history$/, (actor, [id, oid]) => ({
-    rulings: cardHistory(db, actor, num(id), oid, 20),
+    decisions: cardHistory(db, actor, num(id), oid, 20),
     memories: memoriesForCards(db, actor, [oid], num(id)).get(oid) ?? [],
   }));
 
@@ -308,10 +310,10 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     return { state: state(actor, num(id)) };
   });
 
-  // ---------- proposals and rulings (spec §8) ----------
+  // ---------- proposals and decisions (spec §8) ----------
   const inbox = (actor: Actor) => ({
-    proposals: listProposals(db, actor, { status: "open" }).filter(p => requireDeck(db, actor, p.deck_id).category !== "legacy"),
-    document_edits: listDocumentEdits(db, actor, { status: "pending" }).filter(e => e.deck_id == null || requireDeck(db, actor, e.deck_id).category !== "legacy"),
+    proposals: listProposals(db, actor, { status: "open" }).filter(p => requireDeck(db, actor, p.deck_id).category !== "archived"),
+    document_edits: listDocumentEdits(db, actor, { status: "pending" }).filter(e => e.deck_id == null || requireDeck(db, actor, e.deck_id).category !== "archived"),
     unreviewed: unreviewedCount(db, actor),
   });
   route("GET", /^\/api\/inbox$/, inbox);
@@ -324,7 +326,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
       : body.outcome === "reject"
         ? rejectItems(db, actor, ids, String(body.reason ?? ""))
         : (() => {
-            throw new ServiceError("A ruling's outcome is 'accept' or 'reject'");
+            throw new ServiceError("A decision's outcome is 'accept' or 'reject'");
           })();
   const assertItemsInDeck = (actor: Actor, deckId: number, ids: number[]) => {
     requireDeck(db, actor, deckId);
@@ -352,7 +354,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
   });
   route("POST", /^\/api\/document-edits\/(\d+)\/rule$/, (actor, [editId], body) => {
     if (body.outcome !== "accept" && body.outcome !== "reject")
-      throw new ServiceError("A ruling's outcome is 'accept' or 'reject'");
+      throw new ServiceError("A decision's outcome is 'accept' or 'reject'");
     const edit = getDocumentEdit(db, actor, num(editId), true);
     ruleDocumentEdit(db, actor, num(editId), body.outcome, String(body.reason ?? ""), { expected_revision: body.expected_revision, acknowledge_stale: body.acknowledge_stale, expected_documents: body.expected_documents });
     return {
@@ -404,19 +406,24 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     return { profile: getProfile(db, actor) };
   });
 
+  route("POST", /^\/api\/demo$/, (actor) => ({ state: state(actor, createDemo(db, actor).deckId) }));
+
   // ---------- memories (spec §7.5) ----------
   route("GET", /^\/api\/memories$/, (actor, _p, _b, url) => {
     const q = url.searchParams;
     const global = loadScope(db, actor, "global");
-    return {
-      memories: listMemories(db, actor, {
+    const memories = listMemories(db, actor, {
         scope: (q.get("scope") as "global" | "deck" | null) ?? undefined,
         deckId: q.get("deck") ? num(q.get("deck")) : undefined,
         cardId: q.get("card") ?? undefined,
         query: q.get("q") ?? undefined,
         status: (q.get("status") as any) ?? "active",
-        limit: 500,
-      }),
+        basis: q.get("basis") === "stated" || q.get("basis") === "inferred" ? q.get("basis") as "stated" | "inferred" : undefined,
+        offset: num(q.get("offset") ?? 0), limit: 101,
+      });
+    return {
+      memories: memories.slice(0, 100), has_more: memories.length > 100,
+      scopes: listDecks(db, actor).map(d => ({ id: d.id, name: d.name, category: d.category })),
       budgets: getBudgets(db, actor),
       global_budget: { budget: global.budget, used: global.used, omitted: global.omitted },
     };
@@ -436,8 +443,9 @@ export function createApp(db: Database, opts: AppOptions = {}) {
   route("GET", /^\/api\/memories\/(\d+)$/, (actor, [id]) => ({ memory: getMemory(db, actor, num(id)) }));
 
   // ---------- activity, stats, focus, settings ----------
+  route("GET", /^\/api\/activity\/latest$/, (actor) => listActivity(db, actor, 1)[0] ?? null);
   route("GET", /^\/api\/activity$/, (actor, _p, _b, url) =>
-    listActivity(db, actor, num(url.searchParams.get("limit") ?? 200)),
+    listActivity(db, actor, Math.min(100, num(url.searchParams.get("limit") ?? 100, "limit", 1)), num(url.searchParams.get("offset") ?? 0)),
   );
   route("GET", /^\/api\/stats$/, (actor) => playerStats(db, actor));
   route("GET", /^\/api\/focus$/, (actor) => ({ focus: getFocus(db, actor) }));
@@ -447,6 +455,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
       | { value: string }
       | undefined;
     return {
+      ...uiPreferences(db, actor),
       jobs: opts.jobs?.status() ?? null,
       budgets: getBudgets(db, actor),
       price_source: getPriceSource(db, actor),
@@ -463,6 +472,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
   };
   route("GET", /^\/api\/settings$/, settings);
   route("PUT", /^\/api\/settings$/, (actor, _p, body) => withTransaction(db, () => {
+    if (body.advanced_open !== undefined) setAdvancedOpen(db, actor, body.advanced_open);
     if (body.price_source) setPriceSource(db, actor, body.price_source);
     if (body.budgets) setBudgets(db, actor, body.budgets);
     return settings(actor);

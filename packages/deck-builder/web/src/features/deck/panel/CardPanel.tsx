@@ -105,7 +105,7 @@ export function CardPanel({ card: open }: { card: OpenCard }) {
         </div>
       </div>
 
-      {state.deck.category !== "legacy" && <CardActions oracleId={open.oracleId} owned={owned} />}
+      {state.deck.category !== "archived" && <CardActions oracleId={open.oracleId} owned={owned} />}
       <CardHistory oracleId={open.oracleId} />
     </>
   );

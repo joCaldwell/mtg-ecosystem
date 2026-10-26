@@ -1,8 +1,8 @@
-// Ruling on a phone (spec §8.2, §11.2): each decision — an add, a cut, a swap
+// Decision on a phone (spec §8.2, §11.2): each decision — an add, a cut, a swap
 // or a group — with Accept and Reject, and Accept all and Reject all above them. Each takes
 // the optional reason, which the agent reads at its next session. The changes
 // themselves are drawn into the list below, as on desktop, and the decision
-// last touched is the one outlined there. The rulings go through the same
+// last touched is the one outlined there. The decisions go through the same
 // useReview the desktop uses, so staleness, undo and the inbox behave alike.
 
 import { useState } from "react";
@@ -11,7 +11,7 @@ import { ago } from "../../domain/time.ts";
 import { InlineText } from "../../mtg/index.ts";
 import { Button, Eyebrow, Text, TextField } from "../../ui/index.ts";
 import { ReviewItemLine, useDeckState, useReview, type Review } from "../deck/index.ts";
-import styles from "./PhoneRulings.module.css";
+import styles from "./PhoneDecisions.module.css";
 
 const KIND: Record<ReviewUnit["kind"], string> = {
   swap: "Swap · ruled together",
@@ -20,16 +20,16 @@ const KIND: Record<ReviewUnit["kind"], string> = {
   group: "Group · ruled together",
 };
 
-export function PhoneRulings({ view }: { view: { units: ReviewUnit[] } }) {
+export function PhoneDecisions({ view }: { view: { units: ReviewUnit[] } }) {
   const state = useDeckState();
   const review = useReview(view.units, { sheet: true });
   const [reason, setReason] = useState("");
   if (!view.units.length) return null;
-  if (state.deck.category === "legacy")
-    return <p className={styles.legacy}>This Legacy deck has {view.units.length} pending decisions, kept until it is restored on a larger screen.</p>;
+  if (state.deck.category === "archived")
+    return <p className={styles.legacy}>This Archived deck has {view.units.length} pending decisions, kept until it is restored on a larger screen.</p>;
   const open = state.proposals.filter((p) => view.units.some((u) => u.proposalId === p.id)).length;
   return (
-    <section className={styles.rulings} aria-label="Waiting on you">
+    <section className={styles.decisions} aria-label="Waiting on you">
       <div className={styles.all}>
         <Eyebrow>Waiting on you · {view.units.length} decision{view.units.length === 1 ? "" : "s"}</Eyebrow>
         <Text size="sm" tone="muted" as="p">Each change is drawn into the list below. Rule on each one, or on everything{open > 1 ? ` in all ${open} proposals` : ""} at once.</Text>

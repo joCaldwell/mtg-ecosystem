@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef } from "react";
 import type { ProposalItem } from "../../../api/client.ts";
 import { costOf } from "../../../domain/price.ts";
 import { EmptyState, Text } from "../../../ui/index.ts";
-import { useDeckList } from "../DeckStore.tsx";
+import { useDeckList } from "../DeckListStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import type { DeckViewModel } from "../useDeckView.ts";
 import { GroupBlock } from "./GroupBlock.tsx";
@@ -17,7 +17,7 @@ import styles from "./DeckList.module.css";
 
 const LEGEND: Array<[MarkKind, string]> = [
   ["memory", "memory linked"],
-  ["ruling", "ruled on before"],
+  ["decision", "ruled on before"],
 ];
 
 const NONE = new Set<string>();

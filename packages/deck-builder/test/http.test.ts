@@ -152,7 +152,7 @@ describe("the agent endpoint, through the official MCP client (spec §10.1)", ()
   // did so in its handshake, which a stateless server does not keep, so it is
   // attributed by the URL label or falls back to "agent".
   test("attribution without a label depends on the protocol era", async () => {
-    const write = { name: "mark_rulings_reviewed", arguments: { through: 0 } };
+    const write = { name: "mark_decisions_reviewed", arguments: { through: 0 } };
     const modern = await connect("/mcp", true);
     await modern.callTool(write);
     assert.equal(listActivity(db, OWNER)[0].actor, "test-client");
@@ -363,10 +363,10 @@ describe("the UI's API", () => {
     const patch = (body: unknown) => api(`/api/decks/${id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
-    const updated = await (await patch({ category: "legacy" })).json();
-    assert.equal(updated.state.deck.category, "legacy");
-    assert.equal((await (await api(`/api/decks/${id}`)).json()).state.deck.category, "legacy");
-    assert.equal((await (await api("/api/decks")).json()).find((d: any) => d.id === id).category, "legacy");
+    const updated = await (await patch({ category: "archived" })).json();
+    assert.equal(updated.state.deck.category, "archived");
+    assert.equal((await (await api(`/api/decks/${id}`)).json()).state.deck.category, "archived");
+    assert.equal((await (await api("/api/decks")).json()).find((d: any) => d.id === id).category, "archived");
     await patch({ category: "paper" });
     const invalid = await patch({ name: "Should roll back", category: "unknown" });
     assert.equal(invalid.status, 400);
@@ -382,7 +382,7 @@ describe("the UI's API", () => {
     assert.equal(defaulted.state.deck.category, "theorycrafted");
   });
 
-  test("Legacy is read-only through HTTP and MCP, and owner restoration reopens pending work", async () => {
+  test("Archived is read-only through HTTP and MCP, and owner restoration reopens pending work", async () => {
     const created = await (await post("/api/decks", { name: "Archived API deck", category: "paper" })).json();
     const id = created.state.deck.id;
     await post(`/api/decks/${id}/cards`, { oracle_id: "id-solring" });
@@ -398,7 +398,7 @@ describe("the UI's API", () => {
       const patch = (body: unknown) => api(`/api/decks/${id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
-      assert.equal((await patch({ category: "legacy" })).status, 200);
+      assert.equal((await patch({ category: "archived" })).status, 200);
       for (const result of [
         await post(`/api/decks/${id}/cards`, { oracle_id: "id-forest" }),
         await api(`/api/decks/${id}/brief`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ thesis: "Changed" }) }),
@@ -445,7 +445,7 @@ describe("the UI's API", () => {
     ).json();
     assert.equal(ruled.state.computed.card_count, 3);
     assert.equal(ruled.inbox.proposals.length, 0);
-    assert.equal(ruled.state.log[0].ruling_reason, "Fine.");
+    assert.equal(ruled.state.log[0].decision_reason, "Fine.");
 
     const undone = await (await post(`/api/decks/${deck}/log/${ruled.state.log[0].id}/undo`, {})).json();
     assert.equal(undone.state.computed.card_count, 2);
@@ -565,7 +565,7 @@ describe("sourcing and proposal cleanup end to end", () => {
   });
 });
 
-for (const modern of [false, true]) test(`personal price sources reach real MCP clients without contaminating non-price tools (${modern ? "modern" : "legacy"})`, async () => {
+for (const modern of [false, true]) test(`personal price sources reach real MCP clients without contaminating non-price tools (${modern ? "modern" : "archived"})`, async () => {
   const { cheapestPrintings, ingestPrices, setPriceSource } = await import("../src/prices.ts");
   const { createDeck } = await import("../src/deck/service.ts");
   const { applyChanges } = await import("../src/deck/membership.ts");
@@ -608,7 +608,7 @@ for (const modern of [false, true]) test(`personal price sources reach real MCP 
     }
     const exported = exportDeck(fresh, euro, target);
     assert.equal(textOf(await call("export_deck", { deck: target })), `${exported.card_count} card(s) at revision ${exported.revision}:\n\n${exported.text}`);
-    for (const [name, args] of [["list_rulings", { deck: target }], ["search_memories", {}],
+    for (const [name, args] of [["list_decisions", { deck: target }], ["search_memories", {}],
       ["remember", { scope: "global", text: "Prefers careful budget estimates" }],
       ["revise_memory", { id: 1, action: "update", text: "Prefers daily budget estimates" }],
     ] as const) assert.doesNotMatch(textOf(await call(name, args)), /^Prices:/m, name);

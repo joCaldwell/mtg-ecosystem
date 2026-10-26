@@ -87,3 +87,15 @@ a {
   border-radius: var(--r-md);
   background: #2a2f36;
 }
+
+/* Motion conveys no required state; respect the reader's preference. */
+@media (prefers-reduced-motion: reduce) {
+  :root { --fast: 0ms; }
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+.skip-link { position: fixed; top: var(--s-4); left: var(--s-4); z-index: var(--z-toast); padding: var(--s-5); background: var(--raised); color: var(--text); transform: translateY(-200%); }
+.skip-link:focus { transform: none; }
+
+@media (hover: none) {
+  button, select, input:not([type="checkbox"]), a[role="button"] { min-height: var(--tap); }
+}

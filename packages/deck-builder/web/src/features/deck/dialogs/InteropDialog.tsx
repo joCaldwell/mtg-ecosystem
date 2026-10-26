@@ -16,7 +16,7 @@ import { ImportPanel, type ImportDraft } from "./ImportPanel.tsx";
 type Tab = "export" | "import";
 
 export function InteropDialog({ onClose }: { onClose: () => void }) {
-  const readOnly = useDeckState().deck.category === "legacy";
+  const readOnly = useDeckState().deck.category === "archived";
   const [tab, setTab] = useState<Tab>("export");
   const [draft, setDraft] = useState<ImportDraft>({ paste: "", note: "", diff: null });
   return (

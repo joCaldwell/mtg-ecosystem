@@ -13,7 +13,7 @@ playbook wins.
 ## Every session
 
 1. Call `start_session`. Read the profile and global memories before anything else.
-2. If it reports unread rulings, read them (`list_rulings` with `unreviewed_only`), write or revise memories for the ones that say something lasting, then `mark_rulings_reviewed`. Do this before proposing: a reason the owner gave yesterday may answer today's question.
+2. If it reports unread decisions, read them (`list_decisions` with `unreviewed_only`), write or revise memories for the ones that say something lasting, then `mark_decisions_reviewed`. Do this before proposing: a reason the owner gave yesterday may answer today's question.
 3. Work out which deck is meant. "This deck" is the focus. If nothing is in focus and the request is about a deck, ask or use the roster.
 
 ## Evaluating a deck
@@ -34,10 +34,10 @@ those, not a general tune-up.
 ## Proposing changes
 
 - Size the proposal to the request. "Fix the mana" is the mana. "Rebuild around this" on a Paper deck is a reason to suggest forking, not a sixty-item proposal.
-- Search in the deck's context (`search_cards` with `deck`) so results respect its colour identity and arrive with the owner's prior rulings on each card.
+- Search in the deck's context (`search_cards` with `deck`) so results respect its colour identity and arrive with the owner's prior decisions on each card.
 - For each add, decide what it replaces. A deck at 100 needs a cut for every add; group the pair when the argument for one depends on the other.
 - Write each reason so it stands alone when read in the app, away from this conversation: what the card does here, quoting the clause, and what it is better than.
-- Check the result of `propose_changes`. It shows what the app already knows about those cards. If a prior ruling contradicts your reason, say so to the owner at once.
+- Check the result of `propose_changes`. It shows what the app already knows about those cards. If a prior decision contradicts your reason, say so to the owner at once.
 
 ## Comparing sources and keeping proposals current
 
@@ -65,7 +65,7 @@ brief and power targets remains the owner's action.
 4. `define_slots` with targets that fit this plan. Typical starting points for a 100-card deck are roughly 36–38 lands, 10–12 ramp, 10 card advantage, 10 interaction, with the rest carrying the thesis; adjust to the curve and say why.
    File the principal purpose as `slot`, and additional purposes as `secondary_slots`. Targets count primary assignments only; read the app's separate secondary coverage before deciding a role is missing. Tags track where cards come from, ownership, assembly and status, rather than card purposes.
 5. Fill slot by slot with `edit_cards`, searching per slot. After each batch read the returned counts and checks, and steer by them.
-6. When the Theorycrafted deck is at 100 with no check problems, walk the owner through it by slot. Record engines with `propose_brief_edit`. Only the owner changes lifecycle to Paper. Brief edits always require approval; Legacy decks are read-only.
+6. When the Theorycrafted deck is at 100 with no check problems, walk the owner through it by slot. Record engines with `propose_brief_edit`. Only the owner changes lifecycle to Paper. Brief edits always require approval; Archived decks are read-only.
 
 ## Reworking a deck the owner wants to keep
 
@@ -89,7 +89,7 @@ When a scope is over budget, or the owner asks:
 
 1. Read the whole scope with `search_memories` (include retired only if history matters).
 2. Merge memories that say the same thing: supersede one with the combined text, retire the others.
-3. Supersede what a later ruling has changed.
+3. Supersede what a later decision has changed.
 4. Promote to global what has now shown up in several decks.
 5. Where a cluster has settled into something durable, propose folding it into the profile or the brief, and retire the memories once the owner accepts.
 6. Leave the owner's own memories alone. If one looks out of date, say so.

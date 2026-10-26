@@ -3,7 +3,8 @@
 // owner looking at their own link sees the same page with a note saying so.
 
 import { useEffect, useMemo, useState } from "react";
-import { api, ApiError, type PublicDeckState } from "../../api/client.ts";
+import { api, ApiError } from "../../api/reader.ts";
+import type { PublicDeckState } from "../../api/client.ts";
 import { APP_TITLE, useScrollRestore } from "../../app/routes.ts";
 import { useSession } from "../../app/Session.tsx";
 import { fromPublic } from "../../domain/readOnlyDeck.ts";

@@ -1,3 +1,4 @@
+import { usePreferences, useVoice } from "../../app/Preferences.tsx";
 import { useState } from "react";
 import { api, type Memory, type MemoryRevision } from "../../api/client.ts";
 import { ago } from "../../domain/time.ts";
@@ -27,6 +28,8 @@ export function MemoryCard({
   onChanged: () => void;
   showScope?: boolean;
 }) {
+  const voice = useVoice();
+  const { advanced } = usePreferences();
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -66,7 +69,7 @@ export function MemoryCard({
             onChange={(e) => setDraft(e.target.value)}
             aria-label={`Text of memory ${memory.id}`}
           />
-          <span className={styles.hint}>Editing a memory makes it yours. Agents can no longer change it.</span>
+          <span className={styles.hint}>{voice("Save your correction to keep this memory in your own words.", "Editing a memory makes it yours. Agents can no longer change it.")}</span>
         </div>
       )}
 
@@ -99,8 +102,8 @@ export function MemoryCard({
         <span>
           {byOwner ? <span title={memory.author_display ?? memory.author}>you</span> : <Text tone="agent">{memory.author_display ?? memory.author}</Text>}
         </span>
-        {memory.source_log_id != null && <span>from ruling {memory.source_log_id}</span>}
-        {memory.deck_revision != null && <span className={styles.mono}>at r{memory.deck_revision}</span>}
+        {memory.source_log_id != null && <span>from decision {memory.source_log_id}</span>}
+        {advanced && memory.deck_revision != null && <span className={styles.mono}>at r{memory.deck_revision}</span>}
         <span>{ago(memory.revised_at)}</span>
         {memory.owner_touched && !byOwner && <span>edited by you</span>}
 

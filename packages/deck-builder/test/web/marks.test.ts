@@ -16,8 +16,8 @@ describe("cardMarks, memories", () => {
       memory({ scope: "global", cards: [A] }),
       memory({ scope: "deck", deck_id: state.deck.id, cards: [A, B] }),
     ]);
-    assert.deepEqual(marks.get(A), { memories: 2, rulings: 0 });
-    assert.deepEqual(marks.get(B), { memories: 1, rulings: 0 });
+    assert.deepEqual(marks.get(A), { memories: 2, decisions: 0 });
+    assert.deepEqual(marks.get(B), { memories: 1, decisions: 0 });
   });
 
   test("superseded and retired memories do not count", () => {
@@ -39,7 +39,7 @@ describe("cardMarks, memories", () => {
   });
 });
 
-describe("cardMarks, rulings", () => {
+describe("cardMarks, decisions", () => {
   test("accept and reject entries count, one per entry", () => {
     const state = deckState({
       log: [
@@ -48,8 +48,8 @@ describe("cardMarks, rulings", () => {
       ],
     });
     const marks = cardMarks(state, []);
-    assert.deepEqual(marks.get(A), { memories: 0, rulings: 2 });
-    assert.deepEqual(marks.get(B), { memories: 0, rulings: 1 });
+    assert.deepEqual(marks.get(A), { memories: 0, decisions: 2 });
+    assert.deepEqual(marks.get(B), { memories: 0, decisions: 1 });
   });
 
   test("undone entries and other kinds of entry do not count", () => {
@@ -64,9 +64,9 @@ describe("cardMarks, rulings", () => {
     assert.equal(cardMarks(state, []).size, 0);
   });
 
-  test("memories and rulings combine on one card", () => {
+  test("memories and decisions combine on one card", () => {
     const state = deckState({ log: [logEntry({ kind: "reject", cards: [logCard(A)] })] });
     const marks = cardMarks(state, [memory({ cards: [A] })]);
-    assert.deepEqual(marks.get(A), { memories: 1, rulings: 1 });
+    assert.deepEqual(marks.get(A), { memories: 1, decisions: 1 });
   });
 });

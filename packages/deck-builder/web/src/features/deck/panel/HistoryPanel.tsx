@@ -1,9 +1,10 @@
-// The History tab (spec §8.2): the rulings log is the deck's version history,
+import { Advanced } from "../../../app/Preferences.tsx";
+// The History tab (spec §8.2): the decisions log is the deck's version history,
 // and any entry can be undone. Undo writes a new entry rather than erasing one.
 
 import { api, type LogEntry } from "../../../api/client.ts";
 import { Eyebrow, Text, useToast } from "../../../ui/index.ts";
-import { LogRow } from "../../rulings/index.ts";
+import { LogRow } from "../../decisions/index.ts";
 import { useDeck, useDeckState } from "../DeckStore.tsx";
 import styles from "./HistoryPanel.module.css";
 
@@ -23,7 +24,8 @@ export function HistoryPanel() {
   return (
     <>
       <section className={styles.section}>
-        <Eyebrow>Rulings log · this is the version history</Eyebrow>
+        <Eyebrow>Decisions log · this is the version history</Eyebrow>
+        <Advanced><Text size="sm" tone="muted">Revision numbers and agent review flags are visible below.</Text></Advanced>
         {log.length === 0 ? (
           <Text tone="muted" size="sm" as="p">
             Nothing yet. Every accepted or rejected proposal, edit and import lands here, with who made it.

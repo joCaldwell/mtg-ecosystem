@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, type KeyboardEvent, type Mou
 import { createPortal } from "react-dom";
 import { Icon } from "./Icon.tsx";
 import { IconButton } from "./IconButton.tsx";
-import { FOCUSABLE } from "./internal.ts";
+import { FOCUSABLE, dismissOnEscape } from "./internal.ts";
 import styles from "./Dialog.module.css";
 
 export interface DialogProps {
@@ -10,7 +10,7 @@ export interface DialogProps {
   onClose: () => void;
   width?: "md" | "lg";
   /** `sheet` rises from the bottom edge at full width: the touch form (DESIGN.md). */
-  placement?: "center" | "sheet";
+  placement?: "center" | "sheet" | "drawer";
   children: ReactNode;
   footer?: ReactNode;
 }
@@ -38,17 +38,10 @@ export function Dialog({ title, onClose, width = "md", placement = "center", chi
     const overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        closeRef.current();
-      }
-    };
-    // Capture phase: the dialog takes Escape before any page shortcut sees it.
-    document.addEventListener("keydown", onKey, true);
+    const releaseEscape = dismissOnEscape(() => closeRef.current());
 
     return () => {
-      document.removeEventListener("keydown", onKey, true);
+      releaseEscape();
       document.body.style.overflow = overflow;
       previous?.focus();
     };
@@ -79,21 +72,21 @@ export function Dialog({ title, onClose, width = "md", placement = "center", chi
   }
 
   return createPortal(
-    <div className={`${styles.backdrop} ${placement === "sheet" ? styles.sheetBackdrop : ""}`} onMouseDown={onBackdropMouseDown}>
+    <div className={`${styles.backdrop} ${placement === "sheet" ? styles.sheetBackdrop : placement === "drawer" ? styles.drawerBackdrop : ""}`} onMouseDown={onBackdropMouseDown}>
       <div
         ref={panel}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={`${styles.dialog} ${placement === "sheet" ? styles.sheet : width === "lg" ? styles.lg : styles.md}`}
+        className={`${styles.dialog} ${placement === "sheet" ? styles.sheet : placement === "drawer" ? styles.drawer : width === "lg" ? styles.lg : styles.md}`}
         onKeyDown={trapTab}
       >
         <div className={styles.head}>
           <h2 id={titleId} className={styles.title}>
             {title}
           </h2>
-          <IconButton label="Close" size={placement === "sheet" ? "touch" : "sm"} onClick={onClose}>
+          <IconButton label="Close" size={placement !== "center" ? "touch" : "sm"} onClick={onClose}>
             <Icon name="close" />
           </IconButton>
         </div>

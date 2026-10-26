@@ -251,16 +251,16 @@ describe("tokens", () => {
 // ---------- one phone breakpoint (spec §11.2) ----------
 
 describe("breakpoints", () => {
-  test("every width media query is the phone breakpoint, PHONE_MAX_WIDTH", async () => {
-    const { PHONE_MAX_WIDTH } = await import("../web/src/app/breakpoints.ts");
+  test("width queries use exactly the phone, drawer and panel breakpoints", async () => {
+    const { PHONE_MAX_WIDTH, DRAWER_BREAKPOINT, PANEL_BREAKPOINT } = await import("../web/src/app/breakpoints.ts");
     const problems: string[] = [];
     for (const f of walk(SRC)) {
       const rel = posix(relative(SRC, f));
       if (!rel.endsWith(".css")) continue;
       readFileSync(f, "utf8").split("\n").forEach((text, i) => {
-        for (const m of text.matchAll(/@media[^{]*\((?:max|min)-width:\s*(\d+)px\)/g))
-          if (Number(m[1]) !== PHONE_MAX_WIDTH && !rel.startsWith("features/playtest/"))
-            problems.push(`${rel}:${i + 1} uses ${m[1]}px; the phone breakpoint is ${PHONE_MAX_WIDTH}px (app/breakpoints.ts)`);
+        for (const m of text.matchAll(/@media[^{]*\((max|min)-width:\s*(\d+)px\)/g))
+          if ((m[1] !== "max" || ![PHONE_MAX_WIDTH, DRAWER_BREAKPOINT - 1, PANEL_BREAKPOINT - 1].includes(Number(m[2]))) && !rel.startsWith("features/playtest/"))
+            problems.push(`${rel}:${i + 1} uses ${m[1]} ${m[2]}px; allowed max widths are ${PHONE_MAX_WIDTH}, ${DRAWER_BREAKPOINT - 1}, ${PANEL_BREAKPOINT - 1} (app/breakpoints.ts)`);
       });
     }
     assert.deepEqual(problems, [], `\n${problems.join("\n")}\n`);
@@ -277,7 +277,21 @@ describe("window scrolling", () => {
     const base = readFileSync(join(SRC, "design", "base.css"), "utf8");
     assert.match(base, /body\s*\{[^}]*overflow:\s*hidden/);
     assert.match(base, /html\[data-scroll="window"\] body\s*\{[^}]*overflow:\s*visible/);
-    for (const shell of ["features/phone/PhoneShell.tsx", "features/public/PublicShell.tsx"])
+    for (const shell of ["features/phone/PhoneShell.tsx", "features/public/PublicShell.tsx", "app/TabletShell.tsx"])
       assert.match(readFileSync(join(SRC, shell), "utf8"), /^\s*useWindowScroll\(\);/m, `${shell} must call useWindowScroll()`);
   });
+});
+
+// Components use the typed client, including examples on /design.
+test("fetch stays in the API layer", () => {
+  const problems = files.filter(f => /\.tsx$/.test(f) && /\bfetch\s*\(/.test(stripComments(readFileSync(f, "utf8")))).map(f => posix(relative(SRC, f)));
+  assert.deepEqual(problems, []);
+});
+
+// vite.config.ts may skip unused re-exports without running editor modules.
+test("tree-shaken public barrels contain only re-exports", () => {
+  for (const f of files.filter(f => /(?:features\/[^/]+|mtg|ui)\/index\.ts$/.test(posix(f)))) {
+    const rest = stripComments(readFileSync(f, "utf8")).replace(/export\s+(?:type\s+)?(?:\{[^}]*\}|\*)\s+from\s+["'][^"']+["'];?/g, "").trim();
+    assert.equal(rest, "", `${relative(SRC, f)} must not have module side effects`);
+  }
 });

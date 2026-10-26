@@ -1,8 +1,8 @@
 import { displayAuthor, requireActor } from "../actor.ts";
 import { requireDeck } from "./service.ts";
-// The rulings log (spec §8.2): the deck's version history and the record of
+// The decisions log (spec §8.2): the deck's version history and the record of
 // what the owner decided and why. Every act lands here through writeLog —
-// rulings on proposals and document edits, direct edits, imports, undos — and
+// decisions on proposals and document edits, direct edits, imports, undos — and
 // the cards an act touched are queryable per card (§8.3).
 
 import type { Database } from "../sqlite.ts";
@@ -11,10 +11,10 @@ import { type Actor, authorOf, requireSelf, isDeckOwner, requireDeckOwner, requi
 
 export type LogKind = "accept" | "reject" | "edit" | "import" | "undo";
 
-/** The longest reason a ruling keeps (spec §8.2): a sentence or two, read by agents. */
+/** The longest reason a decision keeps (spec §8.2): a sentence or two, read by agents. */
 export const MAX_RULING_REASON = 500;
-/** A ruling's optional reason, trimmed; blank is no reason. */
-export function rulingReason(reason: unknown): string {
+/** A decision's optional reason, trimmed; blank is no reason. */
+export function decisionReason(reason: unknown): string {
   const text = typeof reason === "string" ? reason.trim() : "";
   if (text.length > MAX_RULING_REASON)
     throw new ServiceError(`A reason can be at most ${MAX_RULING_REASON} characters; this one is ${text.length}.`);
@@ -33,18 +33,18 @@ export interface LogCardInput {
 }
 
 export interface LogInput {
-  /** NULL only for a ruling on a profile edit. */
+  /** NULL only for a decision on a profile edit. */
   deck_id: number | null;
   kind: LogKind;
   summary?: string;
-  ruling_reason?: string;
+  decision_reason?: string;
   proposal_id?: number | null;
   document_edit_id?: number | null;
   undo_of?: number | null;
 }
 
 // Spec §8.4. An entry waits for an agent to read it when it is something the
-// owner did that an agent could learn from: every ruling, and every direct
+// owner did that an agent could learn from: every decision, and every direct
 // change to a Paper deck. What an agent did itself needs no review, and
 // neither does the owner assembling a Theorycrafted deck card by card.
 function awaitsReview(actor: Actor, kind: LogKind, deckCategory: string | null): boolean {
@@ -80,7 +80,7 @@ export function writeLog(
       deck?.revision ?? 0,
       entry.kind,
       entry.summary ?? "",
-      (entry.ruling_reason ?? "").trim(),
+      (entry.decision_reason ?? "").trim(),
       entry.proposal_id ?? null,
       entry.document_edit_id ?? null,
       authorOf(actor),
@@ -128,7 +128,7 @@ export interface LogEntry {
   revision: number;
   kind: LogKind;
   summary: string;
-  ruling_reason: string;
+  decision_reason: string;
   proposal_id: number | null;
   document_edit_id: number | null;
   author: string;
@@ -145,8 +145,8 @@ export interface LogEntry {
   cards: LogCard[];
 }
 
-const ENTRY_SELECT = `SELECT l.id, l.deck_id, (d.category = 'legacy') AS read_only, d.name AS deck_name, l.revision, l.kind, l.summary,
-       l.ruling_reason, l.proposal_id, l.document_edit_id, l.author, l.author_user_id, l.author_via, l.author_label, l.undo_of, l.undone_by,
+const ENTRY_SELECT = `SELECT l.id, l.deck_id, (d.category = 'archived') AS read_only, d.name AS deck_name, l.revision, l.kind, l.summary,
+       l.ruling_reason AS decision_reason, l.proposal_id, l.document_edit_id, l.author, l.author_user_id, l.author_via, l.author_label, l.undo_of, l.undone_by,
        l.reviewed_at, l.ts, l.hidden
   FROM log l LEFT JOIN decks d ON d.id = l.deck_id`;
 
@@ -210,15 +210,15 @@ export function getLogEntry(db: Database, actor: Actor, logId: number): LogEntry
   return withCards(db, actor, [row])[0];
 }
 
-export interface CardRuling {
+export interface CardDecision {
   log_id: number;
   kind: LogKind;
   action: "add" | "cut" | "role";
   revision: number;
   /** The proposer's reason for the item, if it came from a proposal. */
   reason: string;
-  /** The owner's reason for the ruling, if they gave one. */
-  ruling_reason: string;
+  /** The owner's reason for the decision, if they gave one. */
+  decision_reason: string;
   author: string;
   author_user_id: number;
   author_via: "ui" | "agent";
@@ -226,7 +226,7 @@ export interface CardRuling {
   author_display?: string;
   undone: boolean;
   ts: string;
-  /** Set when the ruling was made in a deck this one was forked from. */
+  /** Set when the decision was made in a deck this one was forked from. */
   from_deck: string | null;
 }
 
@@ -248,28 +248,28 @@ function lineage(db: Database, actor: Actor, deckId: number): number[] {
 //
 // A fork inherits its parents' history: "rejected from the original as too
 // slow" is exactly what someone reworking the fork needs to see, and a fork
-// starts with no rulings of its own. Those entries are labelled with the deck
+// starts with no decisions of its own. Those entries are labelled with the deck
 // they were made in. (As built: the first real-agent run on a fork had no
-// rulings to read, and said so.)
+// decisions to read, and said so.)
 export function cardHistory(
   db: Database, actor: Actor,
   deckId: number,
   oracleId: string,
   limit = 5,
-): CardRuling[] {
+): CardDecision[] {
   requireDeck(db, actor, deckId);
   const decks = lineage(db, actor, deckId);
   return (
     db
       .prepare(
-        `SELECT l.id AS log_id, l.kind, lc.action, l.revision, lc.reason, l.ruling_reason,
+        `SELECT l.id AS log_id, l.kind, lc.action, l.revision, lc.reason, l.ruling_reason AS decision_reason,
                 l.author, l.author_user_id, l.author_via, l.author_label, l.undone_by, l.ts, lc.deck_id, d.name AS deck_name
          FROM log_cards lc JOIN log l ON l.id = lc.log_id JOIN decks d ON d.id = lc.deck_id
          WHERE lc.deck_id IN (${decks.map(() => "?").join(", ")}) AND lc.oracle_id = ?
          ORDER BY l.id DESC LIMIT ?`,
       )
       .all(...decks, oracleId, limit) as unknown as Array<
-      Omit<CardRuling, "undone" | "from_deck"> & {
+      Omit<CardDecision, "undone" | "from_deck"> & {
         undone_by: number | null;
         deck_id: number;
         deck_name: string;
@@ -289,9 +289,9 @@ export function cardHistories(
   deckId: number,
   oracleIds: string[],
   limit = 3,
-): Map<string, CardRuling[]> {
+): Map<string, CardDecision[]> {
   requireDeck(db, actor, deckId);
-  const out = new Map<string, CardRuling[]>();
+  const out = new Map<string, CardDecision[]>();
   for (const id of new Set(oracleIds)) {
     const history = cardHistory(db, actor, deckId, id, limit);
     if (history.length) out.set(id, history);
@@ -316,14 +316,14 @@ export function markReviewed(
   if (which.through != null) {
     if (which.through === 0) return 0;
     const entry = db.prepare("SELECT deck_id FROM log WHERE id = ? AND user_id = ?").get(which.through, actor.user_id) as { deck_id: number | null } | undefined;
-    if (!entry) throw new ServiceError("The ruling to review through does not exist", 404);
+    if (!entry) throw new ServiceError("The decision to review through does not exist", 404);
     const r = db
       .prepare("UPDATE log SET reviewed_at = datetime('now') WHERE reviewed_at IS NULL AND id <= ? AND deck_id IS ? AND user_id = ?")
       .run(which.through, entry.deck_id, actor.user_id);
     return Number(r.changes);
   }
   const ids = which.ids ?? [];
-  if (!ids.length) throw new ServiceError("Give the ids of the rulings you have read, or 'through'");
+  if (!ids.length) throw new ServiceError("Give the ids of the decisions you have read, or 'through'");
   for (const id of ids) {
     const tenant = db.prepare("SELECT user_id FROM log WHERE id = ? AND user_id = ?").get(id, actor.user_id) as { user_id: number } | undefined;
     if (!tenant) throw new ServiceError(`Log entry ${id} not found`, 404);

@@ -9,7 +9,7 @@ export const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const DATA_DIR = resolve(process.env.DECKBUILDER_DATA ?? join(PKG_ROOT, "data"));
 export const DEFAULT_DB_PATH = resolve(process.env.DECKBUILDER_DB ?? join(DATA_DIR, "deck-builder.db"));
 
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 const SCHEMA = `
 -- Explicit physical evidence survives deck membership, forks and deletion.
@@ -510,6 +510,24 @@ const MIGRATIONS: Array<{ version: number; up: (db: Database) => void }> = [
     // The art crop's credit (D10). NULL until the next refresh supplies it.
     addColumn(db, "cards", "artist", "TEXT");
   } },
+  { version: 15, up(db) {
+    // D9/D19: change only the lifecycle value, never user prose or history.
+    // Rebuild with foreign keys disabled by openDb; validate them before COMMIT.
+    // https://www.sqlite.org/lang_altertable.html#making_other_kinds_of_table_schema_changes
+    const table = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='decks'").get() as { sql: string };
+    const sequence = db.prepare("SELECT seq FROM sqlite_sequence WHERE name='decks'").get() as { seq: number } | undefined;
+    const indexes = db.prepare("SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='decks' AND sql IS NOT NULL").all() as { sql: string }[];
+    db.exec(table.sql.replace(/CREATE TABLE [\"`]?decks[\"`]?/, "CREATE TABLE decks_v15").replace("'legacy'", "'archived'"));
+    const columns = (db.prepare("PRAGMA table_info(decks)").all() as { name: string }[]).map(c => `"${c.name}"`);
+    db.exec(`INSERT INTO decks_v15 (${columns.join(",")}) SELECT ${columns.map(c => c === '"category"' ? "CASE category WHEN 'legacy' THEN 'archived' ELSE category END" : c).join(",")} FROM decks`);
+    db.exec("DROP TABLE decks; ALTER TABLE decks_v15 RENAME TO decks");
+    if (sequence) db.prepare("UPDATE sqlite_sequence SET seq=? WHERE name='decks'").run(sequence.seq);
+    for (const index of indexes) db.exec(index.sql);
+    // Existing users keep the controls they already had visible. A newly
+    // registered account has no key and starts with Advanced closed.
+    if (db.prepare("SELECT 1 FROM meta WHERE key='schema_version'").get())
+      db.exec("INSERT OR IGNORE INTO user_settings(user_id,key,value) SELECT id,'advanced_open','true' FROM users WHERE id > 0");
+  } },
 ];
 
 function removeDeckStatus(db: Database) {
@@ -687,7 +705,7 @@ function assertOurs(db: Database, path: string) {
   } catch {
     /* no meta table at all */
   }
-  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5" || found === "6" || found === "7" || found === "8" || found === "9" || found === "10" || found === "11" || found === "12" || found === "13") return found;
+  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5" || found === "6" || found === "7" || found === "8" || found === "9" || found === "10" || found === "11" || found === "12" || found === "13" || found === "14") return found;
   throw new SchemaError(
     `${path} is not a database this version of the deck builder can open ` +
       `(it reports schema ${found ?? "unknown"}; this version uses ${SCHEMA_VERSION}). ` +

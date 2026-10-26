@@ -1,3 +1,4 @@
+import { useVoice } from "../../app/Preferences.tsx";
 import { useState } from "react";
 import { api } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
@@ -17,7 +18,7 @@ import {
   Text,
   TextArea,
 } from "../../ui/index.ts";
-import { DocumentEditCard } from "../rulings/index.ts";
+import { DocumentEditCard } from "../decisions/index.ts";
 import styles from "./ProfilePage.module.css";
 
 /** The soft cap on the profile's length, spec §6. Mirrors PROFILE_WORD_CAP in the server's documents.ts;
@@ -33,6 +34,7 @@ function wordCount(text: string): number {
 /** The player profile (spec §6): the owner's document, read by every agent first. Edited directly here;
  *  an agent can only propose a change, which shows above for the owner to rule on. */
 export function ProfilePage() {
+  const voice = useVoice();
   const profile = useQuery(() => api.getProfile(), []);
   const inbox = useInbox();
   // null means not editing. The draft lives here, not in the query, so a live refetch never overwrites it.
@@ -79,7 +81,7 @@ export function ProfilePage() {
       header={
         <PageHeader
           title="Profile"
-          subtitle="Who you are as a builder, in your words. Every agent reads this first, in every session."
+          subtitle={voice("Your tastes, your playgroup and the games you want to play, in your words.", "Who you are as a builder, in your words. Every agent reads this first, in every session.")}
           actions={
             !editing && saved ? (
               <Button onClick={startEditing}>{empty ? "Write your profile" : "Edit"}</Button>
@@ -125,8 +127,7 @@ export function ProfilePage() {
             </>
           ) : empty ? (
             <EmptyState title="Your profile is empty">
-              Write what an agent should know before it suggests anything: your tastes, your playgroup and its power
-              level, your budget stance, and what you will never play.
+              {voice("Write about your tastes, your playgroup, your budget, and what you will never play.", "Write what an agent should know before it suggests anything: your tastes, your playgroup and its power level, your budget stance, and what you will never play.")}
             </EmptyState>
           ) : (
             <div className={styles.doc}>

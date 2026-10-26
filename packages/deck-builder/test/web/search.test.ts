@@ -45,9 +45,9 @@ describe("annotateResults", () => {
     const state = deckState({
       // Newest first, as the server sends it.
       log: [
-        logEntry({ kind: "accept", revision: 9, ruling_reason: "ignored", cards: [logCard("Test Card A")] }),
-        logEntry({ kind: "reject", revision: 7, ruling_reason: "too slow", cards: [logCard("Test Card A")] }),
-        logEntry({ kind: "reject", revision: 3, ruling_reason: "older", cards: [logCard("Test Card A"), logCard("Test Card B")] }),
+        logEntry({ kind: "accept", revision: 9, decision_reason: "ignored", cards: [logCard("Test Card A")] }),
+        logEntry({ kind: "reject", revision: 7, decision_reason: "too slow", cards: [logCard("Test Card A")] }),
+        logEntry({ kind: "reject", revision: 3, decision_reason: "older", cards: [logCard("Test Card A"), logCard("Test Card B")] }),
       ],
     });
     const [a, b, c] = annotateResults(

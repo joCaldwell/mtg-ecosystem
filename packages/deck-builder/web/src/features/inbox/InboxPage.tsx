@@ -1,8 +1,9 @@
+import { Advanced, useVoice } from "../../app/Preferences.tsx";
 import { useEffect, useRef, useState } from "react";
 import { navigate } from "../../app/routes.ts";
 import { useInbox } from "../../app/Inbox.tsx";
 import { Button, EmptyState, Loading, PageHeader, SplitPane, Text, useHotkeys } from "../../ui/index.ts";
-import { DocumentEditCard } from "../rulings/index.ts";
+import { DocumentEditCard } from "../decisions/index.ts";
 import { inboxEntries } from "./entries.ts";
 import { InboxEntry } from "./InboxEntry.tsx";
 import { ProposalHistory } from "./ProposalHistory.tsx";
@@ -16,6 +17,7 @@ import styles from "./InboxPage.module.css";
  * decision.
  */
 export function InboxPage() {
+  const voice = useVoice();
   const { inbox, apply } = useInbox();
   const [history, setHistory] = useState(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -50,7 +52,7 @@ export function InboxPage() {
   const header = (
     <PageHeader
       title="Inbox"
-      subtitle="Everything an agent needs your decision on, across all decks. Nothing here has been applied."
+      subtitle={voice("Proposed changes wait here for your decision. Nothing is applied until you accept it.", "Everything an agent needs your decision on, across all decks. Nothing here has been applied.")}
     />
   );
 
@@ -85,15 +87,14 @@ export function InboxPage() {
           ) : (
             <div className={styles.empty}>
               <EmptyState title="Nothing is waiting on you.">
-                Your rulings and reasons are queued. An agent reads them the next time it starts a session,
-                whether or not it was running when you ruled.
+                {voice("There are no proposed changes to review. Keep building your decks; your decisions stay in each deck’s History.", "Your decisions and reasons are queued. An agent reads them the next time it starts a session, whether or not it was running when you ruled.")}
               </EmptyState>
-              {inbox.unreviewed > 0 && (
+              <Advanced>{inbox.unreviewed > 0 && (
                 <Text tone="muted" size="sm">
-                  {inbox.unreviewed} of your rulings {inbox.unreviewed === 1 ? "has" : "have"} not been read by an agent
+                  {inbox.unreviewed} of your decisions {inbox.unreviewed === 1 ? "has" : "have"} not been read by an agent
                   yet.
                 </Text>
-              )}
+              )}</Advanced>
             </div>
           )
         }

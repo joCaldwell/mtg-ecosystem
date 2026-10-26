@@ -2,7 +2,7 @@ import { displayAuthor, requireActor } from "./actor.ts";
 // The two documents (spec §6) and the gate in front of them. The player
 // profile and each deck's brief are the owner's voice: the owner edits either
 // directly, and an agent proposes an edit the owner sees as a diff and rules
-// on. This applies to all editable decks; Legacy decks are read-only.
+// on. This applies to all editable decks; Archived decks are read-only.
 
 import type { Database } from "./sqlite.ts";
 import { recordActivity } from "./activity.ts";
@@ -11,7 +11,7 @@ import { ServiceError } from "./errors.ts";
 import { withTransaction } from "./db.ts";
 import { type Actor, authorOf, isAuthor, requireUi, requireSelf, PermissionError } from "./actor.ts";
 import { lintProse, requireCardById } from "./cards.ts";
-import { rulingReason, writeLog } from "./deck/log.ts";
+import { decisionReason, writeLog } from "./deck/log.ts";
 import { requireDeck, requireEditableDeck, requireRevision } from "./deck/service.ts";
 import {
   type EnginePieceInput,
@@ -269,7 +269,7 @@ function toView(db: Database, actor: Actor, row: EditRow, includeGroup = true): 
       ? (db.prepare(`${EDIT_SELECT} WHERE e.group_id = ? AND e.user_id = ? ORDER BY e.id`).all(row.group_id, actor.user_id) as unknown as EditRow[]).map(e => toView(db, actor, e, false)) : [],
     supersedes: (db.prepare("SELECT id FROM document_edits WHERE superseded_by = ? AND user_id = ? ORDER BY id").all(row.id, actor.user_id) as unknown as { id: number }[]).map(e => e.id),
     group_edit_ids: row.group_id == null ? [row.id] : (db.prepare("SELECT id FROM document_edits WHERE group_id = ? AND user_id = ? ORDER BY id").all(row.group_id, actor.user_id) as unknown as { id: number }[]).map(e => e.id),
-    read_only: row.deck_id != null && requireDeck(db, actor, row.deck_id).category === "legacy",
+    read_only: row.deck_id != null && requireDeck(db, actor, row.deck_id).category === "archived",
     payload,
     stale,
     current: currentText(db, actor, row.kind, row.deck_id, payload.engine_name),
@@ -391,7 +391,7 @@ export function withdrawDocumentEdit(db: Database, actor: Actor, editId: number,
   });
 }
 
-/** The owner's ruling expands to the entire group and validates every base
+/** The owner's decision expands to the entire group and validates every base
  * before applying anything. Stale acceptance requires deliberate acknowledgment
  * against the current revision; it can never silently overwrite newer work. */
 export function ruleDocumentEdit(
@@ -400,8 +400,8 @@ export function ruleDocumentEdit(
 ): number {
   getDocumentEdit(db, actor, editId);
   requireUi(actor, "rule on a proposed edit");
-  reason = rulingReason(reason);
-  if (outcome !== "accept" && outcome !== "reject") throw new ServiceError("A ruling's outcome is 'accept' or 'reject'");
+  reason = decisionReason(reason);
+  if (outcome !== "accept" && outcome !== "reject") throw new ServiceError("A decision's outcome is 'accept' or 'reject'");
   return withTransaction(db, () => {
     const rows = editablePendingGroup(db, actor, editId);
     const deckId = rows[0].deck_id;
@@ -420,7 +420,7 @@ export function ruleDocumentEdit(
       logId = writeLog(db, actor, {
         deck_id: edit.deck_id, kind: outcome,
         summary: `${describe(edit, payload)} ${outcome === "accept" ? "accepted" : "rejected"} — proposed because: ${edit.reason}`,
-        ruling_reason: reason, document_edit_id: edit.id,
+        decision_reason: reason, document_edit_id: edit.id,
       });
     }
     return logId;

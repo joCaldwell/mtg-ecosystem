@@ -1,3 +1,4 @@
+import { api } from "../../api/client.ts";
 // Examples of every component in mtg/. Anything that shows a real card is built
 // from cards fetched at mount, never typed here: the strings that stay in this
 // file are mana-symbol notation, which is not card data.
@@ -165,8 +166,7 @@ function usePlayground(): CardInfo[] | null | "error" {
   const [cards, setCards] = useState<CardInfo[] | null | "error">(null);
   useEffect(() => {
     let live = true;
-    fetch("/api/search?q=" + encodeURIComponent("t:legendary t:creature mv=4"))
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+    api.search("t:legendary t:creature mv=4")
       .then((rows: CardInfo[]) => {
         // Alchemy rebalances ("A-" names) have no printed image on Scryfall, so they would only show the placeholder.
         const withArt = rows.filter((r) => !r.name.startsWith("A-"));

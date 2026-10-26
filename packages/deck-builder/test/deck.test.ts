@@ -67,7 +67,7 @@ describe("deck lifecycle", () => {
     add(db, id, "id-solring");
     const before = getDeck(db, OWNER, id);
     assert.equal(before.deck.category, "paper");
-    for (const category of ["paper", "legacy", "theorycrafted"] as const) {
+    for (const category of ["paper", "archived", "theorycrafted"] as const) {
       assert.throws(() => setDeckCategory(db, AGENT, id, category), PermissionError);
       setDeckCategory(db, OWNER, id, category);
       const after = getDeck(db, OWNER, id);

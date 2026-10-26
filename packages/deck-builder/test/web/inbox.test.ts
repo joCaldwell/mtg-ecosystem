@@ -18,7 +18,7 @@ describe("inbox", () => {
     );
   });
 
-  test("an empty inbox waits on nothing, and unreviewed rulings are not decisions", () => {
+  test("an empty inbox waits on nothing, and unreviewed decisions are not decisions", () => {
     assert.equal(waitingCount({ proposals: [], document_edits: [], unreviewed: 4 }), 0);
   });
 

@@ -30,8 +30,8 @@
   --text: #e4e7eb;
   --text-soft: #cfd3d9;
   --muted: #8d949e;
-  --faint: #5c636d;
-  --filter-muted-opacity: 0.45;
+  --faint: #9aa1ab;
+  --filter-muted-opacity: 1;
 
   /* Meaning. Each has a foreground, a tinted background and a border. */
   --agent: #a78bfa;
@@ -55,8 +55,8 @@
   --lifecycle-paper-bg: var(--add-bg);
   --lifecycle-theorycrafted: var(--sel);
   --lifecycle-theorycrafted-bg: var(--sel-bg);
-  --lifecycle-legacy: var(--warn);
-  --lifecycle-legacy-bg: var(--warn-bg);
+  --lifecycle-archived: var(--warn);
+  --lifecycle-archived-bg: var(--warn-bg);
 
   /* Mana. Black is a dark disc with a pale ring so it cannot be mistaken for
      the grey generic pip. */
@@ -71,7 +71,7 @@
   --mana-ink: #15171a;
 
   /* Type */
-  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   --text-2xs: 10px;
   --text-xs: 11px;
@@ -108,6 +108,8 @@
   --tap: 44px;
 
   /* Layout */
+  --drawer-w: 320px;
+  --sheet-content-h: 68dvh;
   --sidebar-w: 216px;
   --panel-w: 392px;
   /* The deck's side panel can be dragged between these, and never so wide
@@ -131,7 +133,7 @@
   /* Elevation and stacking */
   --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.55);
   --z-sticky: 5;
-  --z-pop: 30;
+  --z-pop: 70;
   --z-dialog: 50;
   --z-hover: 60;
   --z-toast: 80;

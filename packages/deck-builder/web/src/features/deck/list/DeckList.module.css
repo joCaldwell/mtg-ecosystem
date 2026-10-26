@@ -36,3 +36,5 @@
   align-items: center;
   gap: var(--s-3);
 }
+
+@media (max-width: 1099px) { .scroll { overflow: visible; } }

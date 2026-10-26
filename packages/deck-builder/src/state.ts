@@ -38,7 +38,7 @@ export type PublicActor = "owner" | "agent";
 export interface PublicDecision {
   kind: LogEntry["kind"];
   summary: string;
-  /** The owner's own reason for the ruling; empty when none was given. */
+  /** The owner's own reason for the decision; empty when none was given. */
   reason: string;
   by: PublicActor;
   at: string;
@@ -47,7 +47,7 @@ export interface PublicDecision {
 
 /** What a published entry says, written by the app from the cards it moved.
  * The stored summary is free text that can quote a proposal or an agent
- * (a brief ruling's "proposed because: …", an agent's edit summary), and
+ * (a brief decision's "proposed because: …", an agent's edit summary), and
  * proposals are never shown (§18.1); only the owner's own reason is. */
 export function publicSummary(e: Pick<LogEntry, "kind" | "cards" | "document_edit_id">, editKind?: string | null): string {
   const names = (action: LogCard["action"]) => e.cards.filter(c => c.action === action).map(c => `${c.quantity > 1 ? `${c.quantity}× ` : ""}${c.card_name}`);
@@ -121,7 +121,7 @@ export function publicDeckState(db: Database, viewer: Actor | null, slug: string
       source: view.computed.cost.source,
     },
     ...(log ? { decisions: log.map((e): PublicDecision => ({
-      kind: e.kind, summary: publicSummary(e, e.document_edit_id == null ? null : editKind.get(e.document_edit_id)), reason: e.ruling_reason, by: e.author_via === "ui" ? "owner" : "agent", at: e.ts,
+      kind: e.kind, summary: publicSummary(e, e.document_edit_id == null ? null : editKind.get(e.document_edit_id)), reason: e.decision_reason, by: e.author_via === "ui" ? "owner" : "agent", at: e.ts,
       cards: e.cards.map(c => ({ oracle_id: c.oracle_id, card_name: c.card_name, action: c.action, quantity: c.quantity })),
     })) } : {}),
     computed: view.computed,

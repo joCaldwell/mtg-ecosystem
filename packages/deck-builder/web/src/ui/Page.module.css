@@ -31,3 +31,9 @@
 .full {
   max-width: none;
 }
+
+@media (max-width: 1099px) {
+  .page { height: auto; min-height: calc(100dvh - var(--phone-bar-h)); }
+  .scroll { overflow: visible; }
+  .content { padding-inline: var(--s-6); }
+}

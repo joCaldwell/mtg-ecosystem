@@ -10,7 +10,7 @@ import { DECK_CATEGORY_LABELS } from "../../domain/deckCategory.ts";
 import { fromOwner } from "../../domain/readOnlyDeck.ts";
 import { DeckProvider, ReadOnlyDeck, useDeck } from "../deck/index.ts";
 import { Banner, Button, Chip, EmptyState, Icon, Loading } from "../../ui/index.ts";
-import { PhoneRulings } from "./PhoneRulings.tsx";
+import { PhoneDecisions } from "./PhoneDecisions.tsx";
 import styles from "./PhoneDeck.module.css";
 
 export function PhoneDeck({ deckId }: { deckId: number }) {
@@ -59,7 +59,7 @@ function Deck() {
           )}
         </header>
       }
-      rulings={(view) => <PhoneRulings view={view} />}
+      decisions={(view) => <PhoneDecisions view={view} />}
     />
   );
 }

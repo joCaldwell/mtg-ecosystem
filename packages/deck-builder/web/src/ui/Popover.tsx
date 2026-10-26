@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { placeNear } from "./floating.ts";
-import { cx } from "./internal.ts";
+import { cx, dismissOnEscape } from "./internal.ts";
 import styles from "./Popover.module.css";
 
 export interface PopoverProps extends Omit<HTMLAttributes<HTMLDivElement>, "children"> {
@@ -61,18 +61,11 @@ export function Popover({
       if (panel.current?.contains(t) || anchor?.contains(t)) return;
       closeRef.current();
     };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      // Escape closes the innermost open surface and nothing behind it, so
-      // this runs in the capture phase and stops there.
-      e.stopPropagation();
-      closeRef.current();
-    };
+    const releaseEscape = dismissOnEscape(() => closeRef.current());
     document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey, true);
     return () => {
       document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey, true);
+      releaseEscape();
     };
   }, [open, anchor]);
 
@@ -86,6 +79,6 @@ export function Popover({
     >
       {children}
     </div>,
-    document.body,
+    anchor.closest('[role="dialog"]') ?? document.body,
   );
 }

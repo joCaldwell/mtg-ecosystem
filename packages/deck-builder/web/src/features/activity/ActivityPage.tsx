@@ -1,3 +1,4 @@
+import { useVoice } from "../../app/Preferences.tsx";
 import { useState } from "react";
 import { api, type ActivityEntry } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
@@ -5,7 +6,7 @@ import { href } from "../../app/routes.ts";
 import { groupSessions } from "../../domain/activity.ts";
 import { clockTime, dayLabel } from "../../domain/time.ts";
 import { InlineText } from "../../mtg/index.ts";
-import { Pill, Chip, Dot, EmptyState, ErrorNote, Loading, Page, PageHeader, Text } from "../../ui/index.ts";
+import { Button, Pill, Chip, Dot, EmptyState, ErrorNote, Loading, Page, PageHeader, Text } from "../../ui/index.ts";
 import styles from "./ActivityPage.module.css";
 
 // The action strings recordActivity is called with (src/mcp/tools.ts), as words.
@@ -18,7 +19,7 @@ const VERB: Record<string, string> = {
   shortlist_cards: "Shortlisted",
   remember: "Remembered",
   revise_memory: "Revised",
-  mark_rulings_reviewed: "Read rulings",
+  mark_decisions_reviewed: "Read decisions",
   propose_changes: "Proposed",
   propose_brief_edit: "Brief edit",
   propose_profile_edit: "Profile edit",
@@ -43,7 +44,9 @@ function waitingOnYou(e: ActivityEntry): boolean {
 
 /** Every write an agent made (spec §11): the audit trail for what needed no approval. */
 export function ActivityPage() {
-  const feed = useQuery(() => api.listActivity(), []);
+  const voice = useVoice();
+  const [offset, setOffset] = useState(0);
+  const feed = useQuery(() => api.listActivity(offset), [offset]);
   const [agent, setAgent] = useState<string | null>(null);
 
   const entries = feed.data ?? [];
@@ -56,7 +59,7 @@ export function ActivityPage() {
       header={
         <PageHeader
           title="Activity"
-          subtitle="Every write an agent has made, grouped by session. This is the audit trail for changes that did not need your approval."
+          subtitle={voice("An optional activity trail for help you connect to your decks. Your own edits appear in each deck’s History.", "Every write an agent has made, grouped by session. This is the audit trail for changes that did not need your approval.")}
         />
       }
     >
@@ -64,8 +67,8 @@ export function ActivityPage() {
       {feed.loading ? (
         <Loading />
       ) : entries.length === 0 ? (
-        <EmptyState title="No agent has written anything yet.">
-          Connect one from <a href={href({ page: "settings" })}><Text tone="agent">Settings</Text></a>.
+        <EmptyState title={voice("No connected activity yet", "No agent has written anything on this page yet")}>
+          {voice("You can build decks without an agent. To connect one, open", "Connect or manage an agent in")} <a href={href({ page: "settings" })}><Text tone="agent">Settings</Text></a>.
         </EmptyState>
       ) : (
         <>
@@ -119,6 +122,7 @@ export function ActivityPage() {
           </div>
         </>
       )}
+      <nav aria-label="Activity pages"><Button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 100))}>Previous 100</Button> <Text>Page {offset / 100 + 1}</Text> <Button disabled={entries.length < 100} onClick={() => setOffset(offset + 100)}>Next 100</Button></nav>
     </Page>
   );
 }

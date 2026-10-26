@@ -10,7 +10,7 @@ export type PageName = "decks" | "inbox" | "memories" | "profile" | "activity" |
  *  list — the link the inbox hands a proposal off with. */
 export type Route =
   | { page: PageName }
-  | { page: "deck"; deckId: number; review?: boolean }
+  | { page: "deck"; deckId: number; review?: boolean; importing?: boolean }
   | { page: "playtest"; deckId: number }
   | { page: "shared"; slug: string }
   | { page: "user"; handle: string }
@@ -24,13 +24,13 @@ function segment(raw: string): string | null {
   try { return decodeURIComponent(raw); } catch { return null; }
 }
 
-export function parseRoute(pathname: string): Route {
+export function parseRoute(pathname: string, search = ""): Route {
   const path = pathname.replace(/\/+$/, "") || "/";
   if (path === "/") return { page: "decks" };
   const playtest = path.match(/^\/deck\/(\d+)\/playtest$/);
   if (playtest) return { page: "playtest", deckId: Number(playtest[1]) };
   const deck = path.match(/^\/deck\/(\d+)(\/review)?$/);
-  if (deck) return { page: "deck", deckId: Number(deck[1]), review: deck[2] != null };
+  if (deck) return { page: "deck", deckId: Number(deck[1]), review: deck[2] != null, ...(new URLSearchParams(search).get("import") === "1" ? { importing: true } : {}) };
   const shared = path.match(/^\/d\/([^/]+)$/);
   if (shared) { const slug = segment(shared[1]); return slug == null ? { page: "missing" } : { page: "shared", slug }; }
   const user = path.match(/^\/u\/([^/]+)$/);
@@ -43,7 +43,7 @@ export function parseRoute(pathname: string): Route {
 export function href(route: Route): string {
   switch (route.page) {
     case "decks": return "/";
-    case "deck": return `/deck/${route.deckId}${route.review ? "/review" : ""}`;
+    case "deck": return `/deck/${route.deckId}${route.review ? "/review" : ""}${route.importing ? "?import=1" : ""}`;
     case "playtest": return `/deck/${route.deckId}/playtest`;
     case "shared": return `/d/${encodeURIComponent(route.slug)}`;
     case "user": return `/u/${encodeURIComponent(route.handle)}`;
@@ -147,7 +147,7 @@ function onLinkClick(e: MouseEvent): void {
 export function useRoute(): Route {
   const [route, setRoute] = useState<Route>(() => {
     adoptHashRoute();
-    return parseRoute(location.pathname);
+    return parseRoute(location.pathname, location.search);
   });
   useEffect(() => {
     if ("scrollRestoration" in history) history.scrollRestoration = "manual";
@@ -168,7 +168,7 @@ export function useRoute(): Route {
       pendingScroll = positions.get(currentKey) ?? (typeof history.state?.scrollY === "number" ? history.state.scrollY : 0);
       update();
     };
-    const update = () => setRoute(parseRoute(location.pathname));
+    const update = () => setRoute(parseRoute(location.pathname, location.search));
 
     window.addEventListener("popstate", back);
     window.addEventListener(CHANGE, update);

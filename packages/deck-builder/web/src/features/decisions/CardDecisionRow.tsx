@@ -1,11 +1,11 @@
-import type { CardRuling } from "../../api/client.ts";
+import type { CardDecision } from "../../api/client.ts";
 import { ago } from "../../domain/time.ts";
 import { InlineText } from "../../mtg/index.ts";
 import { Text } from "../../ui/index.ts";
-import styles from "./CardRulingRow.module.css";
+import styles from "./CardDecisionRow.module.css";
 
 /** What happened to this one card, as a clause that follows "r95 · ". */
-function clause(r: CardRuling): string {
+function clause(r: CardDecision): string {
   const who = r.author_via === "agent" ? (r.author_display ?? r.author) : "you";
   const verb = r.action === "add" ? "adding" : r.action === "cut" ? "cutting" : "changing the role of";
   switch (r.kind) {
@@ -22,29 +22,29 @@ function clause(r: CardRuling): string {
   }
 }
 
-/** One ruling about one card, for the card's panel and the review context (spec §8.3). */
-export function CardRulingRow({ ruling }: { ruling: CardRuling }) {
+/** One decision about one card, for the card's panel and the review context (spec §8.3). */
+export function CardDecisionRow({ decision }: { decision: CardDecision }) {
   return (
     <div className={styles.row}>
       <div className={styles.line}>
         <Text mono size="xs" tone="faint">
-          r{ruling.revision}
+          r{decision.revision}
         </Text>
         {" · "}
-        <span className={ruling.kind === "reject" ? styles.cut : ruling.kind === "accept" ? styles.add : undefined}>
-          {clause(ruling)}
+        <span className={decision.kind === "reject" ? styles.cut : decision.kind === "accept" ? styles.add : undefined}>
+          {clause(decision)}
         </span>
-        {ruling.ruling_reason && <q className={styles.quote}>{ruling.ruling_reason}</q>}
+        {decision.decision_reason && <q className={styles.quote}>{decision.decision_reason}</q>}
       </div>
-      {ruling.reason && (
+      {decision.reason && (
         <div className={styles.reason}>
-          <InlineText text={ruling.reason} />
+          <InlineText text={decision.reason} />
         </div>
       )}
       <div className={styles.meta}>
-        {ruling.author_display ?? ruling.author} · {ago(ruling.ts)}
-        {ruling.undone && " · undone"}
-        {ruling.from_deck != null && ` · in ${ruling.from_deck}`}
+        {decision.author_display ?? decision.author} · {ago(decision.ts)}
+        {decision.undone && " · undone"}
+        {decision.from_deck != null && ` · in ${decision.from_deck}`}
       </div>
     </div>
   );

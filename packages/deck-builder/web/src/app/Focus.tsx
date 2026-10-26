@@ -16,7 +16,7 @@ interface FocusStore {
   setFocus: (focus: Focus | null) => void;
 }
 
-const FocusContext = createContext<FocusStore>({ focus: null, setFocus: () => {} });
+const FocusContext = /* @__PURE__ */ createContext<FocusStore>({ focus: null, setFocus: () => {} });
 
 export function FocusProvider({ children }: { children: ReactNode }) {
   const [focus, setFocus] = useState<Focus | null>(null);

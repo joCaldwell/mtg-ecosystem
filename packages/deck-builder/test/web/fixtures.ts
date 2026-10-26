@@ -131,7 +131,7 @@ export function logEntry(over: Partial<LogEntry> = {}): LogEntry {
     revision: 1,
     kind: "accept",
     summary: "",
-    ruling_reason: "",
+    decision_reason: "",
     proposal_id: null,
     document_edit_id: null,
     author_user_id: 1, author_via: "agent", author_label: "test-agent",

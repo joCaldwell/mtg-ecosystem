@@ -86,3 +86,6 @@
 
 .option:hover { background: var(--hover); }
 .empty { margin: var(--s-4); color: var(--muted); }
+
+.option { width: 100%; text-align: left; align-items: center; gap: var(--s-4); }
+.option[aria-selected="true"] { background: var(--sel-bg); color: var(--sel); }

@@ -12,7 +12,7 @@ import { requireCardById } from "../cards.ts";
 import { estimateCost, priceResolver, type PriceMetadata, type ResolvedPrice } from "../prices.ts";
 
 export type Role = "card" | "commander" | "companion";
-export type DeckCategory = "paper" | "theorycrafted" | "legacy";
+export type DeckCategory = "paper" | "theorycrafted" | "archived";
 export type Visibility = "private" | "unlisted" | "public";
 
 // Card types and supertypes. Slots and tags say what a card *does* — "ramp",
@@ -106,8 +106,8 @@ export function createDeck(
 ): number {
   const trimmed = name.trim();
   if (!trimmed) throw new ServiceError("Deck name cannot be empty");
-  if (opts.category !== undefined && !["paper", "theorycrafted", "legacy"].includes(opts.category))
-    throw new ServiceError("Deck category must be 'paper', 'theorycrafted' or 'legacy'");
+  if (opts.category !== undefined && !["paper", "theorycrafted", "archived"].includes(opts.category))
+    throw new ServiceError("Deck category must be 'paper', 'theorycrafted' or 'archived'");
   if (opts.category !== undefined && opts.category !== "theorycrafted") requireUi(actor, "classify a new deck");
   if (opts.parentId != null) requireDeckOwner(db, actor, opts.parentId, "fork this deck");
   try {
@@ -159,8 +159,8 @@ export function setDeckCategory(
 ): void {
   const deck = requireDeckOwner(db, actor, deckId);
   requireUi(actor, "change a deck’s lifecycle");
-  if (category !== "paper" && category !== "theorycrafted" && category !== "legacy")
-    throw new ServiceError("Deck category must be 'paper', 'theorycrafted' or 'legacy'");
+  if (category !== "paper" && category !== "theorycrafted" && category !== "archived")
+    throw new ServiceError("Deck category must be 'paper', 'theorycrafted' or 'archived'");
   withTransaction(db, () => {
     db.prepare("UPDATE decks SET category = ? WHERE id = ?").run(category, deckId);
     recordActivity(db, actor, "set_deck_category", deckId, `Changed "${deck.name}" from ${deck.category} to ${category}`);
@@ -271,8 +271,8 @@ export function requireRevision(db: Database, actor: Actor, deckId: number, expe
 /** All writes to an archived deck pass this guard, including organization. */
 export function requireEditableDeck(db: Database, actor: Actor, deckId: number): DeckRow {
   const deck = requireDeckOwner(db, actor, deckId);
-  if (deck.category === "legacy")
-    throw new PermissionError(`"${deck.name}" is a Legacy deck and is read-only. Fork it to explore changes, or have the owner restore it to Paper or Theorycrafted.`);
+  if (deck.category === "archived")
+    throw new PermissionError(`"${deck.name}" is a Archived deck and is read-only. Fork it to explore changes, or have the owner restore it to Paper or Theorycrafted.`);
   return deck;
 }
 

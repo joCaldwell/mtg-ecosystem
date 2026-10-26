@@ -1,3 +1,4 @@
+import { useVoice } from "../../app/Preferences.tsx";
 // Everything a phone does not do (D17): one screen that says what is there
 // and where to do it instead, rather than a squeezed editor.
 
@@ -15,11 +16,11 @@ const WHAT: Partial<Record<Route["page"], string>> = {
 };
 
 export function LargerScreen({ route }: { route: Route }) {
+  const voice = useVoice();
   return (
     <div className={styles.page}>
       <EmptyState title="Open on a larger screen">
-        {WHAT[route.page] ?? "This screen is on a larger screen."} On a phone you can read your decks and rule on what
-        your agents propose. To change a deck from here, ask your agent and accept or reject what it proposes.{" "}
+        {WHAT[route.page] ?? "This screen is on a larger screen."} {voice("On a phone you can read decks and accept or reject proposed changes. Create and edit decks on a larger screen.", "On a phone you can read your decks and rule on what your agents propose. To change a deck from here, ask your agent and accept or reject what it proposes.")}{" "}
         <a href={href({ page: "decks" })}>Back to your decks</a>
       </EmptyState>
     </div>

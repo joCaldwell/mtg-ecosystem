@@ -26,3 +26,8 @@
   padding: var(--s-6) var(--s-7) calc(var(--s-8) * 2);
   overflow: auto;
 }
+
+@media (max-width: 1099px) {
+  .split { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .list, .detail { overflow: visible; min-width: 0; }
+}
