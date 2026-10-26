@@ -1,20 +1,20 @@
-// One decision (spec §8.1): a swap or a group is ruled together, so it is one
+// One decision (spec §8.1): a swap or a group is decided together, so it is one
 // card with one pair of buttons, however many cards it names.
 
 import { useEffect, useRef } from "react";
 import type { ReviewUnit } from "../../../domain/review.ts";
 import { cx } from "../../../ui/internal.ts";
-import { RulingControls } from "../../rulings/index.ts";
+import { DecisionControls } from "../../decisions/index.ts";
 import { useDeckUi } from "../DeckUi.tsx";
 import type { Review } from "../useReview.tsx";
 import { ReviewItemLine } from "./ReviewItemLine.tsx";
 import styles from "./ReviewUnitCard.module.css";
 
 const KIND: Record<ReviewUnit["kind"], string> = {
-  swap: "Swap · ruled together",
+  swap: "Swap · decided together",
   add: "Add",
   cut: "Cut",
-  group: "Group · ruled together",
+  group: "Group · decided together",
 };
 
 export function ReviewUnitCard({ unit, index, review }: { unit: ReviewUnit; index: number; review: Review }) {
@@ -38,7 +38,7 @@ export function ReviewUnitCard({ unit, index, review }: { unit: ReviewUnit; inde
         ))}
       </div>
       <div className={styles.foot}>
-        <RulingControls
+        <DecisionControls
           rejecting={ui.rejecting === unit.key}
           onAccept={() => void review.accept(unit)}
           onStartReject={() => {

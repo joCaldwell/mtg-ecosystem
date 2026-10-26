@@ -8,6 +8,12 @@ import { useEffect, useState } from "react";
 
 /** The widest a viewport can be and still be a phone. */
 export const PHONE_MAX_WIDTH = 719;
+/** Full navigation becomes a drawer below this width. */
+export const DRAWER_BREAKPOINT = 960;
+/** The deck panel becomes a sheet below this width. */
+export const PANEL_BREAKPOINT = 1100;
+export const DRAWER_QUERY = `(max-width: ${DRAWER_BREAKPOINT - 1}px)`;
+export const PANEL_QUERY = `(max-width: ${PANEL_BREAKPOINT - 1}px)`;
 export const PHONE_QUERY = `(max-width: ${PHONE_MAX_WIDTH}px)`;
 
 function matches(query: string): boolean {

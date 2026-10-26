@@ -119,7 +119,7 @@ test("source tagging guards all revisions, rolls back, and preserves Legacy read
     assert.throws(() => compareDeckSources(db, AGENT, target, [ramp], { apply_source_tags: true }), /requires expected_revision/);
     assert.throws(() => compareDeckSources(db, AGENT, target, [ramp], { apply_source_tags: true, expected_revision: before.deck.revision, expected_source_revisions: { [ramp]: 0 } }), /revision changed/);
     assert.deepEqual(getDeck(db, OWNER, target), before);
-    setDeckCategory(db, OWNER, target, "legacy");
+    setDeckCategory(db, OWNER, target, "archived");
     assert.equal(compareDeckSources(db, AGENT, target, [ramp, chaos]).shared_cards.length, 2);
     assert.throws(() => compareDeckSources(db, AGENT, target, [ramp], { apply_source_tags: true }), PermissionError);
     assert.throws(() => recordOwnership(db, AGENT, target, [{ oracle_id: moon, status: "owned", basis: "Owner said so" }]), PermissionError);

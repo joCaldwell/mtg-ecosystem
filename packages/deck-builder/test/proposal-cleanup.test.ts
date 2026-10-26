@@ -165,7 +165,7 @@ test("card amendments preserve the draft and remove superseded items from app-co
   } finally { db.close(); }
 });
 
-test("card withdrawal and failed amendments retain history and don't invent owner rulings", () => {
+test("card withdrawal and failed amendments retain history and don't invent owner decisions", () => {
   const db = testDb();
   try {
     const id = newDeck(db);
@@ -185,7 +185,7 @@ test("Legacy and owner-only lifecycle/approval permissions hold for every cleanu
     const id = newDeck(db);
     const doc = proposeDocumentEdit(db, AGENT, id, "thesis", { content: "Draft" }, "Request").edit_id!;
     const cards = createProposal(db, AGENT, id, { items: [{ action: "add", oracle_id: "id-solring", reason: "Ramp" }] });
-    setDeckCategory(db, OWNER, id, "legacy");
+    setDeckCategory(db, OWNER, id, "archived");
     for (const actor of [OWNER, AGENT]) {
       assert.throws(() => withdrawDocumentEdit(db, actor, doc, "Obsolete"), PermissionError);
       assert.throws(() => proposeDocumentGroup(db, actor, id, [{ kind: "thesis", payload: { content: "New" }, reason: "Request" }], { supersedes: [doc] }), PermissionError);

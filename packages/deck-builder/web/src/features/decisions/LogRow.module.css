@@ -97,3 +97,7 @@
 .agentAuthor {
   color: var(--agent);
 }
+
+.row[data-advanced="false"] { grid-template-columns: minmax(0, 1fr) auto; }
+.row[data-advanced="false"] .action { grid-column: 2; }
+.row[data-advanced="false"] .meta { grid-column: 1 / -1; }

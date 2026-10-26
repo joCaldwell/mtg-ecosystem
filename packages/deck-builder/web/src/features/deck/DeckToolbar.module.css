@@ -63,3 +63,14 @@
 .search input::-webkit-search-cancel-button {
   display: none;
 }
+
+@media (max-width: 1099px) {
+  .view { flex-wrap: wrap; overflow: visible; }
+  .filters { flex-wrap: wrap; min-width: 0; }
+  .layout { flex-wrap: wrap; }
+}
+
+/* Touch tablets: toolbar controls are full tap targets (DESIGN.md). */
+@media (pointer: coarse) and (max-width: 1099px) {
+  .toolbar button, .toolbar input { min-height: var(--tap); }
+}

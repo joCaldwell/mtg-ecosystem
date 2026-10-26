@@ -33,7 +33,7 @@ export function AgentConnectionCard({ agent, onChanged }: { agent: Settings["age
   }
 
   return <Box><Stack gap={5}>
-    <Text as="h2" size="lg" weight="bold">Agent connection</Text>
+    <Text as="h2" size="lg" weight="bold">Connect an agent</Text>
     <Text tone="muted" size="sm">
       This app makes no AI calls itself. Each agent connects over MCP with a personal token or hosted OAuth access for your account.
       {agent.mode === "local" ? <>The name after <Text mono>/mcp/</Text> labels its writes in Activity.</> : <>Your token label or OAuth client name labels its writes in Activity.</>}

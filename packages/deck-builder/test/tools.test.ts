@@ -7,7 +7,7 @@ import { listActivity } from "../src/activity.ts";
 import { CardResolutionError } from "../src/cards.ts";
 import { listLog, unreviewedCount } from "../src/deck/log.ts";
 import { forkDeck } from "../src/deck/fork.ts";
-import { acceptItems, pendingItemIds, rejectItems } from "../src/deck/proposals.ts";
+import { acceptItems, createProposal, pendingItemIds, rejectItems } from "../src/deck/proposals.ts";
 import {
   createSlot,
   getDeck,
@@ -17,9 +17,10 @@ import {
 import { getProfile, listDocumentEdits, setProfile } from "../src/documents.ts";
 import { setFocus } from "../src/focus.ts";
 import { listMemories, remember, setBudgets } from "../src/memory.ts";
-import { PLAYBOOK } from "../src/mcp/playbook.ts";
+import { INSTRUCTIONS, PLAYBOOK } from "../src/mcp/playbook.ts";
+import * as z from "zod/v4";
 import { setVisibility } from "../src/sharing.ts";
-import { TOOLS, callTool } from "../src/mcp/tools.ts";
+import { TOOLS, callTool, inputSchema } from "../src/mcp/tools.ts";
 import { AGENT, add, newDeck, testDb } from "./helpers.ts";
 
 const call = (db: Database, name: string, args: unknown = {}) =>
@@ -41,6 +42,7 @@ describe("the tool list (spec §10.3)", () => {
     assert.ok(TOOLS.find(t => t.name === "search_cards")!.description.includes("usd<=2 or eur<=2 (cheapest playable printing in that currency, at your chosen store or lowest)"));
     assert.ok(PLAYBOOK.includes("Only the user can change their source in Settings."));
     assert.equal(TOOLS[0].name, "start_session");
+    assert.deepEqual(TOOLS.filter(t => /(?:decisions|rulings)/.test(t.name)).map(t => t.name), ["list_decisions", "mark_decisions_reviewed"]);
     assert.ok(TOOLS.find(t => t.name === "rename_deck")!.description.includes("unique across your decks."));
     const nameInput = TOOLS.find(t => t.name === "create_deck")!.input.name;
     assert.ok("description" in nameInput);
@@ -58,6 +60,46 @@ describe("the tool list (spec §10.3)", () => {
     assert.throws(() => call(db, "get_deck", {}), /Invalid arguments for get_deck: deck/);
     assert.throws(() => call(db, "remember", { text: "x", scope: "everywhere" }), /Invalid arguments/);
     assert.throws(() => call(db, "no_such_tool"), /Unknown tool/);
+    assert.throws(() => call(db, "list_rulings"), /Unknown tool/);
+    assert.throws(() => call(db, "mark_rulings_reviewed"), /Unknown tool/);
+  });
+  test("agent-facing text says the owner decides, never rules (D9)", () => {
+    const surfaces = [INSTRUCTIONS, PLAYBOOK, ...TOOLS.map((t) => `${t.title}\n${t.description}\n${JSON.stringify(z.toJSONSchema(inputSchema(t)))}`)];
+    for (const text of surfaces)
+      assert.doesNotMatch(text, /\b(?:rul(?:e|ed|es|ing)s?)\b(?! for working)/i, text.slice(0, 60));
+    const propose = TOOLS.find((t) => t.name === "propose_changes")!;
+    assert.match(propose.description, /the owner decides each item in the app/);
+    assert.match(JSON.stringify(z.toJSONSchema(inputSchema(propose))), /Why\. The owner reads this when deciding\./);
+    assert.match(JSON.stringify(z.toJSONSchema(inputSchema(propose))), /A label shared by items the owner decides together\./);
+    assert.match(TOOLS.find((t) => t.name === "revise_proposal")!.description, /For partially decided card proposals/);
+    assert.match(PLAYBOOK, /in one group so they are decided as a unit\./);
+    assert.match(PLAYBOOK, /Card items the owner has already decided keep their decisions;/);
+    assert.match(PLAYBOOK, /the owner often decides while you are not running/);
+  });
+  test("refusals use the D9 words: an Archived deck, decided as a unit", () => {
+    const db = testDb();
+    const archived = seeded(db, "theorycrafted");
+    setDeckCategory(db, OWNER, archived, "archived");
+    assert.throws(() => call(db, "edit_cards", { deck: archived, add: [{ card: "Sol Ring" }] }), /is an Archived deck and is read-only/);
+    const id = seeded(db);
+    const pid = createProposal(db, AGENT, id, { items: [
+      { action: "cut", oracle_id: "id-counterspell", reason: "Swap.", group: "swap" },
+      { action: "add", oracle_id: "id-solring", reason: "Swap.", group: "swap" },
+      { action: "add", oracle_id: "id-forest", reason: "A land." },
+    ] });
+    const [cutItem, addItem] = pendingItemIds(db, OWNER, pid);
+    rejectItems(db, OWNER, [cutItem]);
+    const items = [addItem];
+    assert.throws(() => acceptItems(db, OWNER, items), /is already rejected; its group must be decided as a unit/);
+  });
+  test("every tool rejects an unknown argument by name; a D9 rename says what it became", () => {
+    const db = testDb();
+    assert.throws(() => call(db, "remember", { text: "Strict", scope: "global", source_ruling: 1 }),
+      /^Error: Invalid arguments for remember: \(arguments\): 'source_ruling' was renamed to 'source_decision'$/);
+    assert.equal(listMemories(db, OWNER, { scope: "global" }).length, 0, "nothing was saved");
+    assert.throws(() => call(db, "get_deck", { deck: seeded(db), sections: ["rulings"] }), /sections\.0: 'rulings' was renamed to 'decisions'/);
+    for (const t of TOOLS)
+      assert.throws(() => call(db, t.name, { not_an_argument: true }), new RegExp(`'not_an_argument' is not an argument of ${t.name}`), t.name);
   });
 });
 
@@ -126,7 +168,7 @@ describe("start_session", () => {
     assert.match(out, /memory #1 \(global, inferred — a hypothesis\): Avoids fast mana\./);
     assert.match(out, new RegExp(`- deck ${id} "Teferi paper \\w+" — Teferi, Temporal Archmage · U · 3/100`));
     assert.match(out, new RegExp(`The owner has deck ${id} .* open, with these cards selected: Counterspell`));
-    assert.match(out, /# Rulings you have not read\n3\./);
+    assert.match(out, /# Decisions you have not read\n3\./);
   });
   test("an empty app reads sensibly", () => {
     const out = text(testDb(), "start_session");
@@ -134,7 +176,7 @@ describe("start_session", () => {
     assert.match(out, /\(no global memories yet\)/);
     assert.match(out, /\(no decks yet\)/);
     assert.match(out, /no deck open in the app/);
-    assert.match(out, /# Rulings you have not read\nNone\./);
+    assert.match(out, /# Decisions you have not read\nNone\./);
   });
   test("a global scope over budget says so and how to fix it", () => {
     const db = testDb();
@@ -200,11 +242,11 @@ describe("searching and looking up cards (spec §4.2, §7.2, §8.3)", () => {
   rejectItems(db, OWNER, pendingItemIds(db, OWNER, pid), "Too fast for this pod.");
   remember(db, AGENT, { text: "[[Sol Ring]] is banned in the owner's playgroup.", scope: "global", basis: "stated" });
 
-  test("with a deck, results stay inside its identity and carry rulings and memories", () => {
+  test("with a deck, results stay inside its identity and carry decisions and memories", () => {
     const out = text(db, "search_cards", { query: "mv<=2", deck: id });
     assert.ok(out.includes("Counterspell {U}{U} — Instant  (already in this deck)"));
     assert.ok(!out.includes("Llanowar Elves"));
-    assert.match(out, /- Sol Ring \{1\} — Artifact\n    \{T\}: Add \{C\}\{C\}\.\n  - ruling #\d+ at revision 2: the owner rejected adding it — the owner's reason: "Too fast for this pod\." — it was proposed because: "Ramp\."\n  - memory #1 \(global, stated\)/);
+    assert.match(out, /- Sol Ring \{1\} — Artifact\n    \{T\}: Add \{C\}\{C\}\.\n  - decision #\d+ at revision 2: the owner rejected adding it — the owner's reason: "Too fast for this pod\." — it was proposed because: "Ramp\."\n  - memory #1 \(global, stated\)/);
   });
   test("other decks are named only when the call asks", () => {
     assert.ok(!text(db, "search_cards", { query: "Sol Ring", deck: id }).includes("in your decks"));
@@ -315,12 +357,12 @@ describe("proposing on a Paper deck (spec §8)", () => {
         { action: "add", card: "Forest", reason: "A land." },
       ],
     });
-    assert.match(out, /Proposal #1 is waiting for the owner's ruling in the app \(3 item\(s\)\)\./);
-    assert.match(out, /The deck is 2\/100\. Awaiting ruling across all proposals: \+2 \/ −1; if all were accepted it would be 3\/100\./);
+    assert.match(out, /Proposal #1 is waiting for the owner's decision in the app \(3 item\(s\)\)\./);
+    assert.match(out, /The deck is 2\/100\. Awaiting decision across all proposals: \+2 \/ −1; if all were accepted it would be 3\/100\./);
     assert.equal(getDeck(db, OWNER, id).computed.card_count, 2);
     assert.match(text(db, "get_deck", { deck: id, sections: ["proposals"] }), /- cut Counterspell \(group "swap"\): Too reactive\./);
   });
-  test("re-proposing a rejected card shows the ruling back to the agent", () => {
+  test("re-proposing a rejected card shows the decision back to the agent", () => {
     const db = testDb();
     const id = seeded(db);
     text(db, "propose_changes", { deck: id, items: [{ action: "add", card: "Sol Ring", reason: "Ramp." }] });
@@ -329,7 +371,7 @@ describe("proposing on a Paper deck (spec §8)", () => {
       deck: id,
       items: [{ action: "add", card: "Sol Ring", reason: "The curve has changed." }],
     });
-    assert.match(out, /What the app already knows about these cards.*\n- Sol Ring:\n  - ruling #\d+ at revision 2: the owner rejected adding it — the owner's reason: "No fast mana\."/s);
+    assert.match(out, /What the app already knows about these cards.*\n- Sol Ring:\n  - decision #\d+ at revision 2: the owner rejected adding it — the owner's reason: "No fast mana\."/s);
   });
   test("an invented card in a reason, or a bad name, fails the whole proposal", () => {
     const db = testDb();
@@ -383,7 +425,7 @@ describe("proposing on a Paper deck (spec §8)", () => {
   });
 });
 
-describe("organization needs no ruling (spec §5.4)", () => {
+describe("organization needs no decision (spec §5.4)", () => {
   test("slots, filing, tags and the maybe list on a Paper deck", () => {
     const db = testDb();
     const id = seeded(db, "paper");
@@ -414,16 +456,16 @@ describe("organization needs no ruling (spec §5.4)", () => {
 });
 
 describe("memories and the review queue through the tools (spec §7, §8.4)", () => {
-  test("the loop: read rulings, remember what lasts, mark them read", () => {
+  test("the loop: read decisions, remember what lasts, mark them read", () => {
     const db = testDb();
     const id = seeded(db);
     text(db, "propose_changes", { deck: id, items: [{ action: "add", card: "Sol Ring", reason: "Ramp." }] });
     rejectItems(db, OWNER, pendingItemIds(db, OWNER, 1), "I never play fast mana.");
 
-    const queue = text(db, "list_rulings", { unreviewed_only: true });
+    const queue = text(db, "list_decisions", { unreviewed_only: true });
     assert.match(queue, /REJECTED: Rejected adding Sol Ring — the owner's reason: "I never play fast mana\." \[unreviewed\]\n  - add Sol Ring: Ramp\./);
-    const rulingId = Number(queue.match(/- #(\d+) · deck[^\n]*REJECTED/)![1]);
-    assert.ok(queue.endsWith(`call mark_rulings_reviewed with {"through": ${rulingId}}.`));
+    const decisionId = Number(queue.match(/- #(\d+) · deck[^\n]*REJECTED/)![1]);
+    assert.ok(queue.endsWith(`call mark_decisions_reviewed with {"through": ${decisionId}}.`));
     assert.doesNotMatch(queue, /^Prices:/m);
     // One name for a body of prose in every tool, so an agent need not guess.
     for (const tool of TOOLS) assert.ok(!("content" in tool.input), tool.name);
@@ -432,12 +474,12 @@ describe("memories and the review queue through the tools (spec §7, §8.4)", ()
       text: "Never plays fast mana such as [[Sol Ring]].",
       scope: "global",
       basis: "stated",
-      source_ruling: rulingId,
+      source_decision: decisionId,
     });
     assert.match(saved, /Saved\.\n- memory #1 \(global, stated\): Never plays fast mana/);
-    assert.equal(listMemories(db, OWNER, {})[0].source_log_id, rulingId);
+    assert.equal(listMemories(db, OWNER, {})[0].source_log_id, decisionId);
 
-    assert.match(text(db, "mark_rulings_reviewed", { through: rulingId }), /0 still unreviewed/);
+    assert.match(text(db, "mark_decisions_reviewed", { through: decisionId }), /0 still unreviewed/);
     assert.equal(unreviewedCount(db, OWNER), 0);
   });
   test("remember points at what resembles it; revise supersedes and promotes", () => {
@@ -463,7 +505,7 @@ describe("memories and the review queue through the tools (spec §7, §8.4)", ()
     const id = seeded(db);
     text(db, "propose_changes", { deck: id, items: [{ action: "add", card: "Forest", reason: "A land." }] });
     acceptItems(db, OWNER, pendingItemIds(db, OWNER, 1));
-    assert.match(text(db, "list_rulings", { deck: id, limit: 1 }), /ACCEPTED: Added Forest/);
+    assert.match(text(db, "list_decisions", { deck: id, limit: 1 }), /ACCEPTED: Added Forest/);
     setDeckCategory(db, OWNER, id, "theorycrafted");
     assert.match(text(db, "get_deck", { deck: id, sections: [] }), /Theorycrafted: edit its cards directly with edit_cards\./);
   });
@@ -508,11 +550,11 @@ describe("shared decks (spec §18.7)", () => {
   test("compare_decks and fork_deck take a link; other tools say which tools read shared decks", () => {
     const { db, slug } = sharedSetup();
     const out = callTool({ db, actor: second }, "fork_deck", { deck: `/d/${slug}`, name: "Second copy" }).text;
-    assert.match(out, /^Forked owner's shared deck "Teferi paper \w+" into your Theorycrafted deck \d+ "Second copy"\. It copied the list, slots, tags, brief and engines; it has none of the original's memories, rulings or power records\./);
+    assert.match(out, /^Forked owner's shared deck "Teferi paper \w+" into your Theorycrafted deck \d+ "Second copy"\. It copied the list, slots, tags, brief and engines; it has none of the original's memories, decisions or power records\./);
     const forkId = Number(out.match(/Theorycrafted deck (\d+)/)![1]);
     assert.match(callTool({ db, actor: second }, "compare_decks", { deck: forkId }).text, new RegExp(`compared with owner's shared deck ${slug} "Teferi paper \\w+" \\(2 cards\\) — its parent`));
     assert.throws(() => callTool({ db, actor: second }, "rename_deck", { deck: slug, name: "Taken" }),
       (e: Error) => /is a link to a shared deck\. Only get_deck, compare_decks \(as other\) and fork_deck read shared decks; it cannot be changed here\./.test(e.message));
-    assert.match(TOOLS.find(t => t.name === "fork_deck")!.description, /Another user's shared deck \(its link or slug\) forks too, without its memories, rulings or power records\.$/);
+    assert.match(TOOLS.find(t => t.name === "fork_deck")!.description, /Another user's shared deck \(its link or slug\) forks too, without its memories, decisions or power records\.$/);
   });
 });

@@ -1,3 +1,5 @@
+import { createDemo } from "./demo.ts";
+import { uiPreferences, setAdvancedOpen } from "./preferences.ts";
 // The app's one HTTP server (spec §10.1): the UI, its JSON API, the live
 // event stream, and the agent endpoint, all in the process that owns the
 // database. Every request resolves a principal and both doors call the same
@@ -17,7 +19,7 @@ import { createRateLimiter, RateLimitError } from "./ratelimit.ts";
 import { clientIp, securityHeaders } from "./mode.ts";
 import { allowedRequest, getMode, localActor, publicOrigin, type Mode } from "./mode.ts";
 import { createToken, listTokens, revokeToken } from "./tokens.ts";
-import { listActivity } from "./activity.ts";
+import { activityPage, latestActivity } from "./activity.ts";
 import { cardsNamed, requireCardById, suggestNames } from "./cards.ts";
 import { PKG_ROOT, SCHEMA_VERSION, withTransaction } from "./db.ts";
 import { AppError, ServiceError } from "./errors.ts";
@@ -103,6 +105,14 @@ export function resolveUiActor(req: IncomingMessage, mode: Mode, auth?: HostedAu
 export interface Change { kind: string; deck_id?: number }
 
 /** Reject invalid numeric input before it reaches SQLite or arithmetic. */
+/** A memory page's keyset cursor: the previous page's last revised_at and id, together. */
+function memoryCursor(q: URLSearchParams): { revised_at: string; id: number } | undefined {
+  if (!q.has("before_id") && !q.has("before_revised_at")) return undefined;
+  const revised = q.get("before_revised_at") ?? "";
+  if (!/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}/.test(revised)) throw new ServiceError("before_revised_at must be the last memory's revised_at");
+  return { revised_at: revised, id: num(q.get("before_id"), "before_id", 1) };
+}
+
 function num(value: unknown, name = "number", min = 0): number {
   if ((typeof value !== "number" && typeof value !== "string") || String(value).trim() === "")
     throw new ServiceError(`${name} must be an integer`);
@@ -274,7 +284,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     return { state: state(actor, deckId) };
   });
   route("GET", /^\/api\/decks\/(\d+)\/cards\/([0-9a-z-]+)\/history$/, (actor, [id, oid]) => ({
-    rulings: cardHistory(db, actor, num(id), oid, 20),
+    decisions: cardHistory(db, actor, num(id), oid, 20),
     memories: memoriesForCards(db, actor, [oid], num(id)).get(oid) ?? [],
   }));
 
@@ -308,10 +318,10 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     return { state: state(actor, num(id)) };
   });
 
-  // ---------- proposals and rulings (spec §8) ----------
+  // ---------- proposals and decisions (spec §8) ----------
   const inbox = (actor: Actor) => ({
-    proposals: listProposals(db, actor, { status: "open" }).filter(p => requireDeck(db, actor, p.deck_id).category !== "legacy"),
-    document_edits: listDocumentEdits(db, actor, { status: "pending" }).filter(e => e.deck_id == null || requireDeck(db, actor, e.deck_id).category !== "legacy"),
+    proposals: listProposals(db, actor, { status: "open" }).filter(p => requireDeck(db, actor, p.deck_id).category !== "archived"),
+    document_edits: listDocumentEdits(db, actor, { status: "pending" }).filter(e => e.deck_id == null || requireDeck(db, actor, e.deck_id).category !== "archived"),
     unreviewed: unreviewedCount(db, actor),
   });
   route("GET", /^\/api\/inbox$/, inbox);
@@ -324,7 +334,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
       : body.outcome === "reject"
         ? rejectItems(db, actor, ids, String(body.reason ?? ""))
         : (() => {
-            throw new ServiceError("A ruling's outcome is 'accept' or 'reject'");
+            throw new ServiceError("A decision's outcome is 'accept' or 'reject'");
           })();
   const assertItemsInDeck = (actor: Actor, deckId: number, ids: number[]) => {
     requireDeck(db, actor, deckId);
@@ -352,7 +362,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
   });
   route("POST", /^\/api\/document-edits\/(\d+)\/rule$/, (actor, [editId], body) => {
     if (body.outcome !== "accept" && body.outcome !== "reject")
-      throw new ServiceError("A ruling's outcome is 'accept' or 'reject'");
+      throw new ServiceError("A decision's outcome is 'accept' or 'reject'");
     const edit = getDocumentEdit(db, actor, num(editId), true);
     ruleDocumentEdit(db, actor, num(editId), body.outcome, String(body.reason ?? ""), { expected_revision: body.expected_revision, acknowledge_stale: body.acknowledge_stale, expected_documents: body.expected_documents });
     return {
@@ -404,19 +414,31 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     return { profile: getProfile(db, actor) };
   });
 
+  // §11.3: optional cards the installed data lacks are skipped and named.
+  route("POST", /^\/api\/demo$/, (actor) => {
+    const { deckId, missing } = createDemo(db, actor);
+    return { state: state(actor, deckId), missing };
+  });
+
   // ---------- memories (spec §7.5) ----------
   route("GET", /^\/api\/memories$/, (actor, _p, _b, url) => {
     const q = url.searchParams;
     const global = loadScope(db, actor, "global");
-    return {
-      memories: listMemories(db, actor, {
+    const memories = listMemories(db, actor, {
         scope: (q.get("scope") as "global" | "deck" | null) ?? undefined,
         deckId: q.get("deck") ? num(q.get("deck")) : undefined,
         cardId: q.get("card") ?? undefined,
         query: q.get("q") ?? undefined,
         status: (q.get("status") as any) ?? "active",
-        limit: 500,
-      }),
+        basis: q.get("basis") === "stated" || q.get("basis") === "inferred" ? q.get("basis") as "stated" | "inferred" : undefined,
+        // The page is a browse: a search filters it, newest revision first,
+        // so the keyset cursor (the last row's revised_at and id) holds.
+        byRevision: true,
+        before: memoryCursor(q), limit: 101,
+      });
+    return {
+      memories: memories.slice(0, 100), has_more: memories.length > 100,
+      scopes: listDecks(db, actor).map(d => ({ id: d.id, name: d.name, category: d.category })),
       budgets: getBudgets(db, actor),
       global_budget: { budget: global.budget, used: global.used, omitted: global.omitted },
     };
@@ -436,9 +458,17 @@ export function createApp(db: Database, opts: AppOptions = {}) {
   route("GET", /^\/api\/memories\/(\d+)$/, (actor, [id]) => ({ memory: getMemory(db, actor, num(id)) }));
 
   // ---------- activity, stats, focus, settings ----------
-  route("GET", /^\/api\/activity$/, (actor, _p, _b, url) =>
-    listActivity(db, actor, num(url.searchParams.get("limit") ?? 200)),
-  );
+  // The sidebar presence: a real agent's latest write, never the sample's.
+  route("GET", /^\/api\/activity\/latest$/, (actor) => latestActivity(db, actor));
+  // Keyset pages of 100 (§11.3); the agent filter applies before the page.
+  route("GET", /^\/api\/activity$/, (actor, _p, _b, url) => {
+    const q = url.searchParams;
+    return activityPage(db, actor, {
+      limit: Math.min(100, num(q.get("limit") ?? 100, "limit", 1)),
+      beforeId: q.has("before_id") ? num(q.get("before_id"), "before_id", 1) : undefined,
+      actorLabel: q.get("actor") || undefined,
+    });
+  });
   route("GET", /^\/api\/stats$/, (actor) => playerStats(db, actor));
   route("GET", /^\/api\/focus$/, (actor) => ({ focus: getFocus(db, actor) }));
   const settings = (actor: Actor) => {
@@ -447,6 +477,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
       | { value: string }
       | undefined;
     return {
+      ...uiPreferences(db, actor),
       jobs: opts.jobs?.status() ?? null,
       budgets: getBudgets(db, actor),
       price_source: getPriceSource(db, actor),
@@ -463,6 +494,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
   };
   route("GET", /^\/api\/settings$/, settings);
   route("PUT", /^\/api\/settings$/, (actor, _p, body) => withTransaction(db, () => {
+    if (body.advanced_open !== undefined) setAdvancedOpen(db, actor, body.advanced_open);
     if (body.price_source) setPriceSource(db, actor, body.price_source);
     if (body.budgets) setBudgets(db, actor, body.budgets);
     return settings(actor);
@@ -651,6 +683,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
           if (url.pathname === "/api/search") rateLimit("search",String(actor.user_id));
           if (url.pathname.endsWith("/compare")) rateLimit("compare",String(actor.user_id));
           if (/^\/api\/decks\/\d+\/import(\/preview)?$/.test(url.pathname)) rateLimit("import",String(actor.user_id));
+          if (url.pathname === "/api/demo") rateLimit("demo",String(actor.user_id));
         }
         if (actor && url.pathname.startsWith("/api/") && !["GET","HEAD","OPTIONS"].includes(req.method ?? "") && req.headers.origin !== publicOrigin()) return json(403,{error:"Origin is required"});
       }
@@ -693,7 +726,10 @@ export function createApp(db: Database, opts: AppOptions = {}) {
         const body = req.method === "GET" ? {} : await readJson(req);
         validateNumbers(body);
         const result = await r.handler(r.anonymous ? actor : actor!, m.slice(1), body, url);
-        if (r.mutates && url.pathname !== "/api/account" && !quiet.has(url.pathname)) notify(actor!.user_id, { kind: url.pathname.split("/")[2] ?? "change", ...(url.pathname.match(/^\/api\/decks\/(\d+)/) ? { deck_id: Number(url.pathname.match(/^\/api\/decks\/(\d+)/)![1]) } : {}) });
+        // Showing or hiding Advanced changes no data any view displays, so it
+        // must not make every open view refetch (a price-source change still does).
+        const preferenceOnly = url.pathname === "/api/settings" && Object.keys(body).length > 0 && Object.keys(body).every(k => k === "advanced_open");
+        if (r.mutates && url.pathname !== "/api/account" && !quiet.has(url.pathname) && !preferenceOnly) notify(actor!.user_id, { kind: url.pathname.split("/")[2] ?? "change", ...(url.pathname.match(/^\/api\/decks\/(\d+)/) ? { deck_id: Number(url.pathname.match(/^\/api\/decks\/(\d+)/)![1]) } : {}) });
         return json(200, result);
       }
       if ((req.method === "GET" || req.method === "HEAD") && !url.pathname.startsWith("/api/") && serveStatic(url.pathname, res, actor, req))

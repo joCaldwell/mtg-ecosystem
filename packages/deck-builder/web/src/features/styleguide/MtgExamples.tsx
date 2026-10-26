@@ -1,3 +1,4 @@
+import { api } from "../../api/client.ts";
 // Examples of every component in mtg/. Anything that shows a real card is built
 // from cards fetched at mount, never typed here: the strings that stay in this
 // file are mana-symbol notation, which is not card data.
@@ -103,7 +104,7 @@ function CardExamples({ cards }: { cards: CardInfo[] }) {
         </Labelled>
       </Example>
 
-      <Example title="CardSheet" note="The hover card's touch form: tapped open, a bottom sheet on a phone and a small dialog otherwise. Read-only decks open every card this way.">
+      <Example title="CardSheet" note="Explicit card inspection: tap a card, or focus a CardRef and press ?. Escape closes it and restores focus. Read-only decks open every card this way.">
         <Row gap={4} wrap>
           <Button onClick={() => setSheet("center")}>Open as a dialog</Button>
           <Button size="touch" onClick={() => setSheet("sheet")}>Open as a sheet</Button>
@@ -134,7 +135,7 @@ function CardExamples({ cards }: { cards: CardInfo[] }) {
 
       <Example
         title="CardRef"
-        note="A card's name inline in text. It opens the card through the nearest CardOpenProvider; without one the click does nothing."
+        note="A card's name inline in text. A host action opens it in context; without one, a click opens CardSheet. Focus a reference and press ? for inspection."
       >
         <CardOpenProvider onOpen={setOpened}>
           <p className={styles.prose}>
@@ -165,8 +166,7 @@ function usePlayground(): CardInfo[] | null | "error" {
   const [cards, setCards] = useState<CardInfo[] | null | "error">(null);
   useEffect(() => {
     let live = true;
-    fetch("/api/search?q=" + encodeURIComponent("t:legendary t:creature mv=4"))
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+    api.search("t:legendary t:creature mv=4")
       .then((rows: CardInfo[]) => {
         // Alchemy rebalances ("A-" names) have no printed image on Scryfall, so they would only show the placeholder.
         const withArt = rows.filter((r) => !r.name.startsWith("A-"));

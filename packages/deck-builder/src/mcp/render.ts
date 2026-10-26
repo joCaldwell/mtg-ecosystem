@@ -11,7 +11,7 @@ import type { PublicDeckState } from "../state.ts";
 import { getBrief } from "../deck/brief.ts";
 import { type Finding, checkDeck } from "../deck/checks.ts";
 import type { DeckComparison } from "../deck/fork.ts";
-import { type CardRuling, type LogEntry, listLog } from "../deck/log.ts";
+import { type CardDecision, type LogEntry, listLog } from "../deck/log.ts";
 import { type ProposalView, listProposals } from "../deck/proposals.ts";
 import {
   type ComputedState,
@@ -75,7 +75,7 @@ function range(min: number | null, max: number | null): string {
   return min != null ? `target ${min}+` : `target up to ${max}`;
 }
 
-// ---------- memories and rulings, as they attach to other things ----------
+// ---------- memories and decisions, as they attach to other things ----------
 
 export function memoryLine(m: MemoryView): string {
   const where = m.scope === "global" ? "global" : `deck "${m.deck_name}"`;
@@ -85,7 +85,7 @@ export function memoryLine(m: MemoryView): string {
   return `- memory #${m.id} (${flags.join(", ")}): ${m.text}`;
 }
 
-export function rulingLine(r: CardRuling): string {
+export function decisionLine(r: CardDecision): string {
   const what =
     r.kind === "reject"
       ? `the owner rejected ${r.action === "add" ? "adding" : "cutting"} it`
@@ -97,8 +97,8 @@ export function rulingLine(r: CardRuling): string {
             ? `${r.action === "add" ? "added" : "cut"} by an import`
             : `${r.action === "add" ? "added" : r.action === "cut" ? "cut" : "role changed"} directly by ${r.author}`;
   const where = r.from_deck ? `in "${r.from_deck}", which this deck was forked from` : `at revision ${r.revision}`;
-  const parts = [`- ruling #${r.log_id} ${where}: ${what}`];
-  if (r.ruling_reason) parts.push(`the owner's reason: "${r.ruling_reason}"`);
+  const parts = [`- decision #${r.log_id} ${where}: ${what}`];
+  if (r.decision_reason) parts.push(`the owner's reason: "${r.decision_reason}"`);
   if (r.reason && r.kind !== "edit") parts.push(`it was proposed because: "${r.reason}"`);
   if (r.undone) parts.push("(later undone)");
   return parts.join(" — ");
@@ -107,7 +107,7 @@ export function rulingLine(r: CardRuling): string {
 /** The context the app attaches to a card wherever it appears (spec §7.2, §8.3). */
 export interface CardContext {
   memories?: MemoryView[];
-  rulings?: CardRuling[];
+  decisions?: CardDecision[];
   /** Other decks holding the card; only present when the call asked for it (§4.2). */
   myDecks?: string[];
   /** "in the deck" / "on the maybe list", when a deck was named. */
@@ -119,7 +119,7 @@ export function cardWithContext(card: CardRow, ctx: CardContext = {}, text = tru
   const notes: string[] = [];
   if (card.commander_legality !== "legal")
     notes.push(`- ${card.commander_legality.replace("_", " ")} in Commander`);
-  for (const r of ctx.rulings ?? []) notes.push(rulingLine(r));
+  for (const r of ctx.decisions ?? []) notes.push(decisionLine(r));
   for (const m of ctx.memories ?? []) notes.push(memoryLine(m));
   if (ctx.myDecks?.length) notes.push(`- in your decks: ${ctx.myDecks.join(", ")}`);
   if (notes.length) lines.push(indent(notes.join("\n"), "  "));
@@ -148,7 +148,7 @@ export const DECK_SECTIONS = [
   "checks",
   "memories",
   "proposals",
-  "rulings",
+  "decisions",
 ] as const;
 export type DeckSection = (typeof DECK_SECTIONS)[number];
 
@@ -163,8 +163,8 @@ function header(view: DeckView): string {
   if (d.parent) bits.push(`forked from deck ${d.parent.id} "${d.parent.name}"`);
   else if (d.upstream) bits.push(`forked from ${d.upstream.owner_handle}/${d.upstream.name} (shared deck ${d.upstream.slug})`);
   if (d.visibility !== "private") bits.push(`${d.visibility}, link /d/${d.slug}`);
-  const rule = d.category === "legacy"
-    ? "Legacy: read-only. View, export or fork it; only the owner can restore it."
+  const rule = d.category === "archived"
+    ? "Archived: read-only. View, export or fork it; only the owner can restore it."
     : (d.category === "paper"
       ? "Paper: change its cards only with propose_changes."
       : "Theorycrafted: edit its cards directly with edit_cards.") + " Brief and power target changes always require proposals.";
@@ -187,7 +187,7 @@ export function stateLines(view: Pick<DeckView, "slots" | "computed">): string {
   if (c.cost.as_of) lines.push(`- Estimated cost: ${costPhrase(c.cost)}`);
   if (c.pending.adds || c.pending.cuts)
     lines.push(
-      `- Awaiting the owner's ruling: +${c.pending.adds} / −${c.pending.cuts}; if all were accepted the deck would be ${c.pending.projected_count}/100`,
+      `- Awaiting the owner's decision: +${c.pending.adds} / −${c.pending.cuts}; if all were accepted the deck would be ${c.pending.projected_count}/100`,
     );
   if ((c.pending.adds || c.pending.cuts) && c.cost.as_of)
     lines.push(`- Estimated cost if accepted: ${formatPrice(c.pending.projected_cost.cents, c.cost.currency)} (${c.pending.cost_delta.cents >= 0 ? "+" : "−"}${formatPrice(Math.abs(c.pending.cost_delta.cents), c.cost.currency)}); ${c.pending.projected_cost.unpriced} unpriced cards.`);
@@ -317,7 +317,7 @@ export function proposalLines(proposals: ProposalView[], edits: DocumentEditView
     lines.push(
       `- proposed ${e.kind === "profile" ? "profile" : `brief (${e.kind.replace("_", " ")})`} edit #${e.id} by ${e.author}: ${e.reason} [current${e.group_id ? `; approval group #${e.group_id}` : ""}; based on r${e.base_revision ?? "unknown"}${e.stale ? "; stale" : ""}]`,
     );
-  return lines.join("\n") || "(nothing is awaiting the owner's ruling)";
+  return lines.join("\n") || "(nothing is awaiting the owner's decision)";
 }
 
 export function logLines(entries: LogEntry[]): string {
@@ -331,10 +331,10 @@ export function logLines(entries: LogEntry[]): string {
       const verb =
         e.kind === "accept" ? "ACCEPTED" : e.kind === "reject" ? "REJECTED" : e.kind.toUpperCase();
       let line = `${head.join(" · ")} — ${verb}: ${e.summary}`;
-      if (e.ruling_reason) line += ` — the owner's reason: "${e.ruling_reason}"`;
+      if (e.decision_reason) line += ` — the owner's reason: "${e.decision_reason}"`;
       if (e.undone_by) line += ` (undone by #${e.undone_by})`;
       if (e.reviewed_at == null) line += " [unreviewed]";
-      // The cards of a ruling carry the proposer's reasons; a long batch is
+      // The cards of a decision carry the proposer's reasons; a long batch is
       // already summarized and is not repeated card by card.
       const cards =
         e.kind === "accept" || e.kind === "reject" || e.cards.length <= 6
@@ -396,13 +396,13 @@ export function renderDeck(
     out.push(`## Memories for this deck\n${renderScope(loadScope(db, actor, "deck", deckId), "deck")}`);
   if (want.has("proposals"))
     out.push(
-      `## Awaiting the owner's ruling\n${proposalLines(
+      `## Awaiting the owner's decision\n${proposalLines(
         listProposals(db, actor, { deckId, status: "open" }),
         listDocumentEdits(db, actor, { deckId, status: "pending" }),
       )}`,
     );
-  if (want.has("rulings"))
-    out.push(`## Recent rulings and changes (newest first)\n${logLines(listLog(db, actor, { deckId, limit: 15 }))}`);
+  if (want.has("decisions"))
+    out.push(`## Recent decisions and changes (newest first)\n${logLines(listLog(db, actor, { deckId, limit: 15 }))}`);
   return out.join("\n\n");
 }
 
@@ -419,7 +419,7 @@ export function renderPublicDeck(shared: PublicDeckState, sections: readonly Dec
   const out = [
     `# Shared deck ${d.slug} "${d.name}" — ${bits.join(" · ")}\n` +
       `${d.visibility === "public" ? "Public deck" : `Shared deck (${d.visibility})`} owned by ${d.owner.handle}; read-only. Nothing here can be changed. To build on it, fork it with fork_deck (deck: "${d.slug}"); ` +
-      `the fork is the principal's own Theorycrafted deck and starts without memories or rulings. compare_decks takes it as other.`,
+      `the fork is the principal's own Theorycrafted deck and starts without memories or decisions. compare_decks takes it as other.`,
   ];
   if (want.has("brief")) {
     const engines = shared.engines.map((e) =>
@@ -447,7 +447,7 @@ export function renderPublicDeck(shared: PublicDeckState, sections: readonly Dec
   // The cost line names the store and date (D18), priced for this viewer; nothing is pending here.
   if (want.has("state")) out.push(`## Computed state (the app's counts; do not recount)\n${stateLines(shared)}`);
   if (want.has("checks")) out.push(`## Checks\n${findingLines(shared.checks)}`);
-  if (want.has("rulings"))
+  if (want.has("decisions"))
     out.push(`## The owner's published decisions (newest first)\n${shared.decisions
       ? shared.decisions.slice(0, 15).map((e) => `- ${e.at.slice(0, 10)} ${e.kind} by the ${e.by}: ${e.summary}${e.reason ? ` — reason: ${e.reason}` : ""}`).join("\n") || "(none)"
       : "(the owner has not published this deck's decisions)"}`);
@@ -493,7 +493,7 @@ export function rosterLines(decks: DeckSummary[]): string {
       if (d.parent_name) bits.push(`fork of "${d.parent_name}"`);
       if (d.visibility !== "private") bits.push(d.visibility);
       const waiting = d.pending_items + d.pending_document_edits;
-      if (waiting) bits.push(`${waiting} awaiting ruling`);
+      if (waiting) bits.push(`${waiting} awaiting decision`);
       return `- deck ${d.id} "${d.name}" — ${bits.join(" · ")}`;
     })
     .join("\n");

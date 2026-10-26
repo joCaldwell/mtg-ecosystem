@@ -11,8 +11,9 @@ export function removeIdentity(db: Database): void {
   const columns = (db.prepare("PRAGMA table_info(decks)").all() as { name: string }[]).map(r => r.name).filter(n => n !== "user_id");
   const legacy = decks.replace(/CREATE TABLE (?:"decks"|decks)/, "CREATE TABLE decks_old")
     .replace(/\s*user_id INTEGER NOT NULL REFERENCES users\(id\),/, "")
-    .replace(/UNIQUE\(user_id, name\)/, "UNIQUE(name)");
-  db.exec(`${legacy}; INSERT INTO decks_old (${columns.join(',')}) SELECT ${columns.join(',')} FROM decks;
+    .replace(/UNIQUE\(user_id, name\)/, "UNIQUE(name)")
+    .replace("'archived'", "'legacy'");
+  db.exec(`${legacy}; INSERT INTO decks_old (${columns.join(',')}) SELECT ${columns.map(c => c === 'category' ? "CASE category WHEN 'archived' THEN 'legacy' ELSE category END" : c).join(',')} FROM decks;
     DROP TABLE decks; ALTER TABLE decks_old RENAME TO decks;
     CREATE TABLE profile_old (id INTEGER PRIMARY KEY CHECK(id = 1), body_md TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')));
     INSERT INTO profile_old SELECT 1, body_md, updated_at FROM profile WHERE user_id = 1;
@@ -26,7 +27,8 @@ export function removeIdentity(db: Database): void {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
     for (const name of ["user_id", "author_user_id", "author_via", "author_label", "actor_user_id", "actor_via", "actor_label", "author_token_id", "author_oauth_client_id"]) {
       if (!cols.some(c => c.name === name)) continue;
-      db.exec(`DROP INDEX IF EXISTS idx_${table}_user; ALTER TABLE ${table} DROP COLUMN ${name}`);
+      // v15's attribution indexes did not exist before identity either.
+      db.exec(`DROP INDEX IF EXISTS idx_${table}_user; DROP INDEX IF EXISTS idx_${table}_agent; DROP INDEX IF EXISTS idx_${table}_user_actor; ALTER TABLE ${table} DROP COLUMN ${name}`);
     }
   }
   db.exec("DROP TABLE users; PRAGMA legacy_alter_table = OFF; PRAGMA foreign_keys = ON");

@@ -24,7 +24,7 @@ export function PublicShell({ children }: { children: ReactNode }) {
             : <a href={signInHref(location.pathname)}>Sign in</a>}
         </nav>
       </header>
-      <main className={styles.main}>{children}</main>
+      <main id="main-content" tabIndex={-1} aria-label="Shared content" className={styles.main}>{children}</main>
       <footer className={styles.footer}>
         Deck builder is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards.
         Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC. Card data,

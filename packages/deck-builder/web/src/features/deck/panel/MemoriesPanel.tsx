@@ -1,3 +1,4 @@
+import { Advanced, useVoice } from "../../../app/Preferences.tsx";
 // The Memories tab (spec §7): what agents have written down about this deck,
 // and how much of it fits in what an agent is shown when it opens the deck.
 
@@ -10,6 +11,7 @@ import { useDeck, useDeckState } from "../DeckStore.tsx";
 import styles from "./MemoriesPanel.module.css";
 
 export function MemoriesPanel() {
+  const voice = useVoice();
   const { memory_budget: budget, deck } = useDeckState();
   const { deckId } = useDeck();
   const list = useQuery(() => api.listMemories({ scope: "deck", deck: deckId }), [deckId]);
@@ -17,7 +19,7 @@ export function MemoriesPanel() {
 
   return (
     <>
-      <section className={styles.section}>
+      <Advanced><section className={styles.section}>
         <Eyebrow>Loaded whenever an agent opens this deck</Eyebrow>
         <Meter
           value={budget.used}
@@ -34,7 +36,7 @@ export function MemoriesPanel() {
             to consolidate this deck's memories.
           </Text>
         )}
-      </section>
+      </section></Advanced>
 
       <section className={styles.section}>
         {list.error && <ErrorNote>{list.error}</ErrorNote>}
@@ -44,17 +46,17 @@ export function MemoriesPanel() {
         ))}
         {!list.loading && !list.error && memories.length === 0 && (
           <Text tone="muted" size="sm" as="p">
-            No memories for this deck yet. Agents add them as they learn how you play it, or you can write one below.
+            {voice("No notes for this deck yet. Write a preference or lesson below.", "No memories for this deck yet. Agents add them as they learn how you play it, or you can write one below.")}
           </Text>
         )}
-        {deck.category !== "legacy" && <AddMemory scope="deck" deckId={deckId} onAdded={list.reload} />}
+        {deck.category !== "archived" && <AddMemory scope="deck" deckId={deckId} onAdded={list.reload} />}
       </section>
 
       <a className={styles.all} href={href({ page: "memories" })}>
         All memories, including global ones →
       </a>
       <Text tone="faint" size="xs" as="p">
-        Agents write these without asking. Nothing is hidden, and nothing an agent wrote is deleted, only retired.
+        {voice("Keep lessons here as the deck changes. Retired memories remain in the history.", "Agents write these without asking. Nothing is hidden, and nothing an agent wrote is deleted, only retired.")}
       </Text>
     </>
   );

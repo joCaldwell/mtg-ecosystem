@@ -14,6 +14,8 @@ export function DeckDialogs() {
       return <ForkDialog onClose={closeDialog} />;
     case "compare":
       return <CompareDialog onClose={closeDialog} />;
+    case "import":
+      return <InteropDialog initialTab="import" onClose={closeDialog} />;
     case "interop":
       return <InteropDialog onClose={closeDialog} />;
     case "slots":

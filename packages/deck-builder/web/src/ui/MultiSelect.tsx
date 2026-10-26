@@ -1,6 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Button } from "./Button.tsx";
-import { Checkbox } from "./Checkbox.tsx";
 import { Icon } from "./Icon.tsx";
 import { Popover } from "./Popover.tsx";
 import { TextField } from "./TextField.tsx";
@@ -75,9 +74,9 @@ export function MultiSelect({ label, placeholder = "Select…", options, value, 
         ref={setAnchor}
         className={`${styles.trigger} ${compact && selected.length > 0 ? styles.active : ""}`}
         aria-label={label}
-        aria-haspopup="dialog"
+        aria-haspopup="listbox"
         aria-expanded={open}
-        aria-controls={open ? id : undefined}
+        aria-controls={open ? `${id}-choices` : undefined}
         onClick={() => setOpen((current) => !current)}
         onKeyDown={(event) => {
           if (event.key === "ArrowDown") {
@@ -113,7 +112,7 @@ export function MultiSelect({ label, placeholder = "Select…", options, value, 
         <div
           ref={panel}
           id={id}
-          role="dialog"
+          role="group"
           aria-label={label}
           className={styles.panel}
           onBlur={(event) => {
@@ -123,18 +122,18 @@ export function MultiSelect({ label, placeholder = "Select…", options, value, 
           }}
           onKeyDown={(event) => {
             if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-            const inputs = Array.from(panel.current?.querySelectorAll<HTMLInputElement>("input:not(:disabled)") ?? []);
-            const current = inputs.indexOf(document.activeElement as HTMLInputElement);
+            const inputs = Array.from(panel.current?.querySelectorAll<HTMLElement>('input:not(:disabled), [role="option"]:not([aria-disabled="true"]):not(:disabled)') ?? []);
+            const current = inputs.indexOf(document.activeElement as HTMLElement);
             event.preventDefault();
             inputs[(current + (event.key === "ArrowDown" ? 1 : inputs.length - 1)) % inputs.length]?.focus();
           }}
         >
           <TextField ref={search} type="search" aria-label={`Search ${label.toLowerCase()}`} placeholder="Search…" value={query} onChange={(event) => setQuery(event.target.value)} />
-          <div className={styles.options} role="group" aria-label="Available choices">
+          <div className={styles.options} id={`${id}-choices`} role="listbox" aria-label={label} aria-multiselectable="true">
             {visible.map((option) => (
-              <Checkbox key={option.value} className={styles.option} label={option.label} checked={value.includes(option.value)} disabled={busy} onChange={() => void toggle(option.value)} />
+              <button type="button" role="option" key={option.value} className={styles.option} aria-selected={value.includes(option.value)} disabled={busy} onClick={() => void toggle(option.value)}><span aria-hidden="true">{value.includes(option.value) ? "✓" : "○"}</span>{option.label}</button>
             ))}
-            {visible.length === 0 && <p className={styles.empty}>{options.length ? "No matching options." : emptyText}</p>}
+            {visible.length === 0 && <p role="option" aria-selected="false" aria-disabled="true" className={styles.empty}>{options.length ? "No matching options." : emptyText}</p>}
           </div>
           {footer}
           <Button size="sm" variant="ghost" onClick={close}>Done</Button>

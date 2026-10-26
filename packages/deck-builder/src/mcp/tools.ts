@@ -67,7 +67,7 @@ import {
   renderStats,
   resolutionFailureLine,
   rosterLines,
-  rulingLine,
+  decisionLine,
 } from "./render.ts";
 
 export interface ToolContext {
@@ -187,7 +187,7 @@ function myDecksFor(db: Database, actor: Actor, oracleIds: string[], exceptDeck?
 }
 
 // The context the app attaches to cards wherever they appear (spec §7.2,
-// §8.3): linked memories always, prior rulings and membership when a deck is
+// §8.3): linked memories always, prior decisions and membership when a deck is
 // named, other decks only when the call asked (§4.2).
 function contextFor(
   db: Database, actor: Actor,
@@ -197,13 +197,13 @@ function contextFor(
 ) {
   const ids = cards.map((c) => c.oracle_id);
   const memories = memoriesForCards(db, actor, ids, deck);
-  const rulings = deck === undefined ? new Map() : cardHistories(db, actor, deck, ids);
+  const decisions = deck === undefined ? new Map() : cardHistories(db, actor, deck, ids);
   const mine = includeMyDecks ? myDecksFor(db, actor, ids, deck) : new Map<string, string[]>();
   return (card: CardRow) => {
     const row = deck === undefined ? undefined : findDeckCard(db, actor, deck, card.oracle_id);
     return {
       memories: memories.get(card.oracle_id),
-      rulings: rulings.get(card.oracle_id),
+      decisions: decisions.get(card.oracle_id),
       myDecks: mine.get(card.oracle_id),
       membership: row ? (row.maybe ? "on this deck's maybe list" : "already in this deck") : undefined,
     };
@@ -221,7 +221,7 @@ export const TOOLS: ToolDef[] = [
     description:
       "Call this first, once per conversation. Returns the playbook (the rules for working with this app), " +
       "the owner's profile, your global memories, the deck roster with ids, the deck the owner has open " +
-      "(the focus), and how many of the owner's rulings you have not read yet.",
+      "(the focus), and how many of the owner's decisions you have not read yet.",
     input: {},
     run: ({ db, actor }) => {
       const identity = db.prepare("SELECT handle, display_name FROM users WHERE id = ?").get(actor.user_id) as { handle: string; display_name: string };
@@ -244,9 +244,9 @@ export const TOOLS: ToolDef[] = [
               ` (reported ${focus.age_minutes} minute(s) ago).`
             : "The owner has no deck open in the app right now."
         }`,
-        `# Rulings you have not read\n${
+        `# Decisions you have not read\n${
           unreviewed
-            ? `${unreviewed}. Read them with list_rulings (unreviewed_only: true) before proposing anything, then mark_rulings_reviewed.`
+            ? `${unreviewed}. Read them with list_decisions (unreviewed_only: true) before proposing anything, then mark_decisions_reviewed.`
             : "None."
         }`,
       ].join("\n\n");
@@ -271,14 +271,14 @@ export const TOOLS: ToolDef[] = [
     readOnly: true,
     description:
       "One deck in full: its brief, the list grouped by slot with oracle text, the maybe list, the app's " +
-      "computed counts, check results, the memories for this deck, what is awaiting the owner's ruling, " +
-      "and recent rulings. Read a deck before discussing or changing it. To re-read cheaply after a " +
+      "computed counts, check results, the memories for this deck, what is awaiting the owner's decision, " +
+      "and recent decisions. Read a deck before discussing or changing it. To re-read cheaply after a " +
       "change, pass only the sections you need, or card_text: false for names without oracle text. " +
       "Given another user's shared deck link or slug, returns what its viewers see, read-only.",
     input: {
       deck: sharedRef,
       sections: z
-        .array(z.enum(DECK_SECTIONS))
+        .array(z.enum(DECK_SECTIONS, { error: (issue) => issue.input === "rulings" ? "'rulings' was renamed to 'decisions'" : undefined }))
         .optional()
         .describe("Which parts to return. Omit for everything."),
       card_text: z
@@ -301,7 +301,7 @@ export const TOOLS: ToolDef[] = [
     description:
       "Set a deck's desired power profile: intent, usual win range, consistency, resilience, interaction, " +
       "win conditions and allowed play patterns, plus a Game Changer limit. Agents always propose targets " +
-      "for the owner to accept. Legacy is read-only. Unknown fields may be omitted. " +
+      "for the owner to accept. Archived is read-only. Unknown fields may be omitted. " +
       "This changes the target, never the current assessment or cards. Give a reason grounded in the owner's preferences. " +
       "Use get_deck sections: [power] for field anchors and the app's explained bracket mapping.",
     input: {
@@ -410,7 +410,7 @@ export const TOOLS: ToolDef[] = [
       "pow>=4, tou<3, loy=3, usd<=2 or eur<=2 (cheapest playable printing in that currency, at your chosen store or lowest), is:commander, " +
       "f:commander, banned:commander. Combine with spaces (AND), " +
       "'or', '-' or 'not', and parentheses. With a deck named, results are limited to that deck's colour " +
-      "identity, marked if already in it, and carry the owner's prior rulings on each card in that deck; " +
+      "identity, marked if already in it, and carry the owner's prior decisions on each card in that deck; " +
       "slot:ramp, slot:none and tag:name then filter to that deck's own cards. Memories linked to a card " +
       "are always attached. Results come back alphabetically, 20 at a time: make several narrow searches " +
       "rather than one broad one.",
@@ -472,7 +472,7 @@ export const TOOLS: ToolDef[] = [
     readOnly: true,
     description:
       "Exact-name lookup of up to 25 cards: full oracle text, memories linked to each card, and, with a " +
-      "deck named, whether it is in that deck and the owner's prior rulings on it there. This is also how " +
+      "deck named, whether it is in that deck and the owner's prior decisions on it there. This is also how " +
       "to check that names are real before you rely on them: a name that is not a card comes back marked " +
       "NOT A CARD with the closest real names, and the rest of the lookup still succeeds.",
     input: {
@@ -496,13 +496,13 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
-    name: "list_rulings",
-    title: "List rulings and changes",
+    name: "list_decisions",
+    title: "List decisions and changes",
     readOnly: true,
     description:
-      "The rulings log, newest first: every accept and reject with the owner's reason, plus direct edits, " +
+      "The decisions log, newest first: every accept and reject with the owner's reason, plus direct edits, " +
       "imports and undos. Use unreviewed_only: true to read what the owner decided while you were not " +
-      "running; after deciding what is worth a memory, call mark_rulings_reviewed.",
+      "running; after deciding what is worth a memory, call mark_decisions_reviewed.",
     input: {
       deck: deckRef.optional().describe("Only this deck. Omit for every deck and the profile."),
       unreviewed_only: z.boolean().optional(),
@@ -525,7 +525,7 @@ export const TOOLS: ToolDef[] = [
         // The exact follow-up, because the first agent to do this guessed at
         // the arguments.
         (unread.length
-          ? `\n\nOnce you have decided what here is worth a memory, call mark_rulings_reviewed with ` +
+          ? `\n\nOnce you have decided what here is worth a memory, call mark_decisions_reviewed with ` +
             (new Set(unread.map(e => e.deck_id)).size === 1
               ? `{"through": ${Math.max(...unread.map((e) => e.id))}}.`
               : `${JSON.stringify({ ids: unread.map(e => e.id) })}.`)
@@ -584,7 +584,7 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
-  // ---------- writes that need no ruling ----------
+  // ---------- writes that need no decision ----------
 
   {
     name: "rename_deck",
@@ -607,7 +607,7 @@ export const TOOLS: ToolDef[] = [
     readOnly: false,
     destructive: true,
     description:
-      "Permanently delete a deck and its card list, slots, tags, brief, proposals, rulings and deck-scoped " +
+      "Permanently delete a deck and its card list, slots, tags, brief, proposals, decisions and deck-scoped " +
       "memories. This cannot be undone. Global memories and fork decks remain; forks lose their parent link. " +
       "Use only when the owner asks to delete this deck. The deletion stays attributed in Activity.",
     input: { deck: deckRef },
@@ -671,7 +671,7 @@ export const TOOLS: ToolDef[] = [
       "Copy a deck — its list, slots, tags, maybe list, brief and deck memories — into a new Theorycrafted deck that " +
       "records where it came from. Use it when the owner wants to make big changes to a deck but keep the " +
       "original. The original is untouched; compare_decks shows how the two diverge. " +
-      "Another user's shared deck (its link or slug) forks too, without its memories, rulings or power records.",
+      "Another user's shared deck (its link or slug) forks too, without its memories, decisions or power records.",
     input: { deck: sharedRef, name: z.string().describe("The new deck's name.") },
     run: ({ db, actor }, a) => {
       const source = deckOrShared(db, actor, a.deck);
@@ -681,7 +681,7 @@ export const TOOLS: ToolDef[] = [
         recordActivity(db, actor, "fork_deck", id, `Forked ${from.parent_owner_handle}/${from.parent_name} as "${a.name}"`);
         return done(
           `Forked ${from.parent_owner_handle}'s shared deck "${from.parent_name}" into your Theorycrafted deck ${id} "${a.name.trim()}". ` +
-            `It copied the list, slots, tags, brief and engines; it has none of the original's memories, rulings or power records. ` +
+            `It copied the list, slots, tags, brief and engines; it has none of the original's memories, decisions or power records. ` +
             `Edit its cards with edit_cards.\n${afterWrite(db, actor, id)}`,
         );
       }
@@ -689,7 +689,7 @@ export const TOOLS: ToolDef[] = [
       recordActivity(db, actor, "fork_deck", id, `Forked "${requireDeck(db, actor, parent).name}" as "${a.name}"`);
       return done(
         `Forked into Theorycrafted deck ${id} "${a.name.trim()}". Edit its cards with edit_cards.\n` +
-          `It starts with the original's brief, memories and rulings history. If the fork has a different ` +
+          `It starts with the original's brief, memories and decisions history. If the fork has a different ` +
           `aim, propose a new thesis first (propose_brief_edit), then change the cards.\n${afterWrite(db, actor, id)}`,
       );
     },
@@ -702,7 +702,7 @@ export const TOOLS: ToolDef[] = [
     description:
       "Change a Theorycrafted deck’s cards directly: add and remove cards or set commanders. " +
       "Everything in one call lands together as one logged change, or none of it does. On a Paper deck " +
-      "use propose_changes; Legacy is read-only. Brief changes always use propose_brief_edit. " +
+      "use propose_changes; Archived is read-only. Brief changes always use propose_brief_edit. " +
       "Returns the new counts and check results.",
     input: {
       deck: deckRef,
@@ -804,7 +804,7 @@ export const TOOLS: ToolDef[] = [
     readOnly: false,
     description:
       "Create, retarget, rename and remove slots on Paper or Theorycrafted decks; this is organization and " +
-      "needs no ruling. A slot says what a card does (ramp, interaction, card advantage) and may carry a " +
+      "needs no decision. A slot says what a card does (ramp, interaction, card advantage) and may carry a " +
       "soft target count or range. A name you give that does not exist is created; one that exists is " +
       "updated. Card types (land, creatures…) cannot be slot names. All of it lands or none does.",
     input: {
@@ -835,7 +835,7 @@ export const TOOLS: ToolDef[] = [
     readOnly: false,
     description:
       "Set primary and secondary purpose slots and management tags of cards already in a deck (or on its maybe list), on Paper or Theorycrafted decks; this is " +
-      "organization and needs no ruling. File many cards in one call; if any card or slot name is wrong, " +
+      "organization and needs no decision. File many cards in one call; if any card or slot name is wrong, " +
       "nothing is filed. A tag that does not exist yet is created, unless it would duplicate an existing " +
       "tag (same words, different spelling), in which case the call fails and names the tag to use. " +
       "remove_unused_tags removes explicitly named vocabulary entries after filing, only if no card still uses them.",
@@ -874,7 +874,7 @@ export const TOOLS: ToolDef[] = [
     title: "Add to or remove from the maybe list",
     readOnly: false,
     description:
-      "Put cards on a deck's maybe list, or take them off it, on Paper or Theorycrafted decks; needs no ruling. The maybe list " +
+      "Put cards on a deck's maybe list, or take them off it, on Paper or Theorycrafted decks; needs no decision. The maybe list " +
       "is outside the 100: use it to park candidates worth considering, each with a note saying why. " +
       "Moving a card from the deck itself to the maybe list is a cut and goes through edit_cards or " +
       "propose_changes.",
@@ -918,7 +918,7 @@ export const TOOLS: ToolDef[] = [
     title: "Write a memory",
     readOnly: false,
     description:
-      "Save one thing worth knowing next time: a preference, a correction, the reason behind a ruling, a " +
+      "Save one thing worth knowing next time: a preference, a correction, the reason behind a decision, a " +
       "fact about the owner's playgroup, how a deck played. No approval is needed; the owner can see and " +
       "edit every memory. One statement and its reason per memory. Never save what a tool can tell you or " +
       "what a card says. The result lists existing memories that resemble this one: if one is the same " +
@@ -932,7 +932,7 @@ export const TOOLS: ToolDef[] = [
         .enum(["stated", "inferred"])
         .optional()
         .describe("'stated' only if the owner said it; 'inferred' (the default) for your own conclusion."),
-      source_ruling: z.number().int().optional().describe("The id of the ruling that prompted this, if one did."),
+      source_decision: z.number().int().optional().describe("The id of the decision that prompted this, if one did."),
     },
     run: ({ db, actor }, a) => {
       const deck = a.scope === "deck" ? (a.deck === undefined ? null : deckId(db, actor, a.deck, true)) : null;
@@ -942,7 +942,7 @@ export const TOOLS: ToolDef[] = [
         deck_id: deck,
         cards: resolveCards(db, a.cards ?? []).map((c) => c.oracle_id),
         basis: a.basis,
-        source_log_id: a.source_ruling,
+        source_log_id: a.source_decision,
       });
       recordActivity(db, actor, "remember", deck, `Memory #${memory.id}: ${memory.text}`);
       const loaded = loadScope(db, actor, memory.scope, deck ?? undefined);
@@ -1005,19 +1005,19 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
-    name: "mark_rulings_reviewed",
-    title: "Mark rulings as read",
+    name: "mark_decisions_reviewed",
+    title: "Mark decisions as read",
     readOnly: false,
     description:
-      "Tell the app you have read rulings from list_rulings and decided what, if anything, is worth a " +
-      "memory. Give the ids, or 'through' to clear that ruling's deck up to and including its id.",
+      "Tell the app you have read decisions from list_decisions and decided what, if anything, is worth a " +
+      "memory. Give the ids, or 'through' to clear that decision's deck up to and including its id.",
     input: {
       ids: z.array(z.number().int()).optional(),
       through: z.number().int().optional(),
     },
     run: ({ db, actor }, a) => {
       const n = markReviewed(db, actor, { ids: a.ids, through: a.through });
-      recordActivity(db, actor, "mark_rulings_reviewed", null, `Reviewed ${n} ruling(s)`);
+      recordActivity(db, actor, "mark_decisions_reviewed", null, `Reviewed ${n} decision(s)`);
       return done(`Marked ${n} as reviewed. ${unreviewedCount(db, actor)} still unreviewed.`);
     },
   },
@@ -1030,12 +1030,12 @@ export const TOOLS: ToolDef[] = [
     readOnly: false,
     description:
       "Propose adding and cutting cards. This is the only way to change which cards are in a Paper deck: " +
-      "the owner rules on each item in the app, and you learn the outcome from list_rulings. Propose as " +
+      "the owner decides each item in the app, and you learn the outcome from list_decisions. Propose as " +
       "many items as the request calls for. Every item needs its own reason (write cards as [[Card Name]], " +
       "and quote the oracle text you rely on). Give items that only make sense together the same group " +
       "so they are accepted or rejected as a unit. A cut removes the card from the deck; set to_maybe on " +
       "a cut to move it to the maybe list instead, when it is worth keeping in view. The result shows " +
-      "what the deck would become and any prior rulings and memories on the cards involved.",
+      "what the deck would become and any prior decisions and memories on the cards involved.",
     input: {
       deck: deckRef,
       expected_revision: z.number().int().nonnegative().optional(),
@@ -1045,14 +1045,14 @@ export const TOOLS: ToolDef[] = [
           z.object({
             action: z.enum(["add", "cut"]),
             card: cardRef,
-            reason: z.string().describe("Why. The owner reads this when ruling."),
+            reason: z.string().describe("Why. The owner reads this when deciding."),
             slot: z.string().optional().describe("For an add: an existing primary purpose slot."),
             secondary_slots: z.array(z.string()).optional().describe("For an add: additional purpose slots; omit to retain a maybe card's assignments."),
             to_maybe: z
               .boolean()
               .optional()
               .describe("For a cut: if accepted, move the card to the maybe list instead of out of the deck (default false)."),
-            group: z.string().optional().describe("A label shared by items to be ruled on together."),
+            group: z.string().optional().describe("A label shared by items the owner decides together."),
           }),
         )
         .min(1),
@@ -1088,21 +1088,21 @@ export const TOOLS: ToolDef[] = [
       const view = getDeck(db, actor, deck);
       const c = view.computed;
       const ids = cards.map((x) => x.oracle_id);
-      const rulings = cardHistories(db, actor, deck, ids);
+      const decisions = cardHistories(db, actor, deck, ids);
       const memories = memoriesForCards(db, actor, ids, deck);
       const context = cards
-        .filter((x) => rulings.has(x.oracle_id) || memories.has(x.oracle_id))
+        .filter((x) => decisions.has(x.oracle_id) || memories.has(x.oracle_id))
         .map((x) =>
           [
             `- ${x.name}:`,
-            ...(rulings.get(x.oracle_id) ?? []).map((r) => `  ${rulingLine(r)}`),
+            ...(decisions.get(x.oracle_id) ?? []).map((r) => `  ${decisionLine(r)}`),
             ...(memories.get(x.oracle_id) ?? []).map((m) => `  ${memoryLine(m)}`),
           ].join("\n"),
         );
       return done(
         [
-          `Proposal #${id} is waiting for the owner's ruling in the app (${proposal.items.length} item(s)).`,
-          `The deck is ${c.card_count}/100. Awaiting ruling across all proposals: +${c.pending.adds} / −${c.pending.cuts}; ` +
+          `Proposal #${id} is waiting for the owner's decision in the app (${proposal.items.length} item(s)).`,
+          `The deck is ${c.card_count}/100. Awaiting decision across all proposals: +${c.pending.adds} / −${c.pending.cuts}; ` +
             `if all were accepted it would be ${c.pending.projected_count}/100.`,
           context.length
             ? `What the app already knows about these cards. If your reasons did not account for it, tell the owner now:\n${context.join("\n")}`
@@ -1134,7 +1134,7 @@ export const TOOLS: ToolDef[] = [
     name: "propose_document_changes",
     title: "Propose a related set of document changes",
     readOnly: false,
-    description: "Propose related brief or power-target changes as one atomic owner approval group. Use supersedes to explicitly replace your previous pending edits/groups; their history and links remain. The full replacement group becomes current. Always awaits owner approval for agents; Legacy is read-only. Profile groups omit deck and contain only profile edits. Duplicate current drafts for the same field require explicit supersession.",
+    description: "Propose related brief or power-target changes as one atomic owner approval group. Use supersedes to explicitly replace your previous pending edits/groups; their history and links remain. The full replacement group becomes current. Always awaits owner approval for agents; Archived is read-only. Profile groups omit deck and contain only profile edits. Duplicate current drafts for the same field require explicit supersession.",
     input: { deck: deckRef.optional(), changes: z.array(documentChange).min(1),
       supersedes: z.array(z.number().int().positive()).optional(), expected_revision: z.number().int().nonnegative().optional() },
     run: ({ db, actor }, a) => {
@@ -1149,7 +1149,7 @@ export const TOOLS: ToolDef[] = [
     prices: true,
     title: "Amend or withdraw your pending proposal",
     readOnly: false,
-    description: "Amend or withdraw only your own pending card or document proposal. Amendments are linked replacements retaining the original audit history. For documents name any edit in a group and supply the complete replacement changes; the whole group is superseded. For partially ruled card proposals, supply only remaining work; earlier rulings stay in history. Never accepts, changes lifecycle, or edits an approved brief/power target.",
+    description: "Amend or withdraw only your own pending card or document proposal. Amendments are linked replacements retaining the original audit history. For documents name any edit in a group and supply the complete replacement changes; the whole group is superseded. For partially decided card proposals, supply only remaining work; earlier decisions stay in history. Never accepts, changes lifecycle, or edits an approved brief/power target.",
     input: { type: z.enum(["cards", "document"]), id: z.number().int().positive(), action: z.enum(["amend", "withdraw"]),
       reason: z.string().trim().min(1), expected_revision: z.number().int().nonnegative().optional(),
       summary: z.string().optional(), items: z.array(proposalItem).min(1).optional(), changes: z.array(documentChange).min(1).optional() },
@@ -1191,8 +1191,8 @@ export const TOOLS: ToolDef[] = [
     description:
       "Propose a change to a deck's brief: replace the thesis or the constraints, define or replace a " +
       "named engine (with the cards that are its required pieces), or remove one. The brief is the " +
-      "owner's document, so this always waits for their ruling and needs a reason citing what " +
-      "prompted it. Legacy is read-only.",
+      "owner's document, so this always waits for their decision and needs a reason citing what " +
+      "prompted it. Archived is read-only.",
     input: {
       deck: deckRef,
       expected_revision: z.number().int().nonnegative().optional(),
@@ -1204,7 +1204,7 @@ export const TOOLS: ToolDef[] = [
         .array(z.object({ card: cardRef, note: z.string().optional() }))
         .optional()
         .describe("For engine_set: the cards the engine needs."),
-      reason: z.string().trim().min(1).describe("What prompted this (rulings, memories). Required for every brief proposal."),
+      reason: z.string().trim().min(1).describe("What prompted this (decisions, memories). Required for every brief proposal."),
     },
     run: ({ db, actor }, a) => {
       const deck = deckId(db, actor, a.deck, true);
@@ -1228,7 +1228,7 @@ export const TOOLS: ToolDef[] = [
       return done(
         r.applied
           ? `Applied the brief edit.\n${renderDeck(db, actor, deck, ["brief"])}`
-          : `Proposed edit #${r.edit_id} is waiting for the owner's ruling in the app.`,
+          : `Proposed edit #${r.edit_id} is waiting for the owner's decision in the app.`,
       );
     },
   },
@@ -1239,17 +1239,17 @@ export const TOOLS: ToolDef[] = [
     description:
       "Propose new text for the owner's profile: who they are as a builder — tastes, playgroup and power " +
       "level, budget stance, standing dislikes. Give the complete replacement text; the owner sees a diff " +
-      "against the current profile and rules on it. Use this when memories have settled into something " +
+      "against the current profile and decides on it. Use this when memories have settled into something " +
       "durable, and cite them in the reason.",
     input: {
       text: z.string().describe("The complete new profile, in markdown. Keep it under about 600 words."),
-      reason: z.string().describe("What prompted this: the rulings and memories it rests on."),
+      reason: z.string().describe("What prompted this: the decisions and memories it rests on."),
     },
     run: ({ db, actor }, a) => {
       const r = proposeDocumentEdit(db, actor, null, "profile", { content: a.text }, a.reason);
       recordActivity(db, actor, "propose_profile_edit", null, r.applied ? "Edited the profile" : `Proposed profile edit #${r.edit_id}`);
       return done(
-        r.applied ? "The profile was updated." : `Proposed edit #${r.edit_id} is waiting for the owner's ruling in the app.`,
+        r.applied ? "The profile was updated." : `Proposed edit #${r.edit_id} is waiting for the owner's decision in the app.`,
       );
     },
   },
@@ -1257,7 +1257,22 @@ export const TOOLS: ToolDef[] = [
 
 // ---------- calling a tool without a transport ----------
 
-const SCHEMAS = new Map(TOOLS.map((t) => [t.name, (["create_deck", "edit_cards"].includes(t.name) ? z.strictObject(t.input) : z.object(t.input))]));
+// D9 renamed these arguments in phase 4b, during the invite-only beta, with
+// no deprecation period (v3 plan D19). The old name gets a specific error.
+const RENAMED_ARGUMENTS: Record<string, string> = { source_ruling: "source_decision" };
+
+/** Every tool rejects an argument it does not define, naming the key, rather
+ * than silently dropping it (a renamed key would otherwise "succeed"). The
+ * SDK's own fields (`_meta`) travel beside `arguments`, never inside it. */
+export function inputSchema(tool: ToolDef) {
+  return z.strictObject(tool.input, {
+    error: (issue) => issue.code !== "unrecognized_keys" ? undefined : issue.keys
+      .map((key) => RENAMED_ARGUMENTS[key] ? `'${key}' was renamed to '${RENAMED_ARGUMENTS[key]}'` : `'${key}' is not an argument of ${tool.name}`)
+      .join("; "),
+  });
+}
+
+const SCHEMAS = new Map(TOOLS.map((t) => [t.name, inputSchema(t)]));
 
 /** Validate arguments and run a tool. Errors propagate; the transport turns them into tool errors. */
 export function callTool(ctx: ToolContext, name: string, args: unknown = {}): ToolResult {

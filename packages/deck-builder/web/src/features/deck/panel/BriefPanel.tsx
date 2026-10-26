@@ -1,12 +1,14 @@
+import { Explainer } from "../../../ui/index.ts";
+import { useVoice } from "../../../app/Preferences.tsx";
 // The Brief tab (spec §6): the owner's document about what the deck is for.
 // Agents read it every session and can only propose edits to it, which show
-// up in place under the section they concern. Legacy briefs are read-only.
+// up in place under the section they concern. Archived briefs are read-only.
 
 import { useState } from "react";
 import { api, type DocumentEdit, type Engine } from "../../../api/client.ts";
 import { useInbox } from "../../../app/Inbox.tsx";
 import { Button, ConfirmDialog, Eyebrow, Text } from "../../../ui/index.ts";
-import { DocumentEditCard } from "../../rulings/index.ts";
+import { DocumentEditCard } from "../../decisions/index.ts";
 import { useDeck, useDeckState } from "../DeckStore.tsx";
 import { BriefField } from "./BriefField.tsx";
 import { EngineCard } from "./EngineCard.tsx";
@@ -17,11 +19,12 @@ import styles from "./BriefPanel.module.css";
 type EngineForm = { engine?: Engine } | null;
 
 export function BriefPanel() {
+  const voice = useVoice();
   const state = useDeckState();
   const { deckId, run, apply } = useDeck();
   const inbox = useInbox();
   const { brief, document_edits: edits } = state;
-  const readOnly = state.deck.category === "legacy";
+  const readOnly = state.deck.category === "archived";
 
   const [form, setForm] = useState<EngineForm>(null);
   const [removing, setRemoving] = useState<Engine | null>(null);
@@ -46,6 +49,7 @@ export function BriefPanel() {
 
   return (
     <>
+      <Explainer title="Deck brief" summary={voice("The brief is your plan: what this deck should do and what matters to you.", "Your brief gives every agent the same plan and constraints.")}>Start with a sentence about how you want to win. Add budget or playgroup expectations as constraints. Name an engine when you want the app to check that its pieces are still in the list. Only you approve changes to this plan.</Explainer>
       {edits.filter(e => e.group_id === e.id).map(edit => <DocumentEditCard key={edit.id} edit={edit}
         onRuled={r => { apply(r); inbox.apply(r.inbox); }} />)}
       <BriefField
@@ -100,7 +104,7 @@ export function BriefPanel() {
       </section>
 
       <Text tone="faint" size="xs" as="p">
-        {readOnly ? "This archived brief is read-only." : "The brief is yours. Agents read it every session and can only propose edits to it."}
+        {readOnly ? "This archived brief is read-only." : voice("Write or edit your plan above. Your list stays as it is.", "The brief is yours. Agents read it every session and can only propose edits to it.")}
       </Text>
 
       {removing && (

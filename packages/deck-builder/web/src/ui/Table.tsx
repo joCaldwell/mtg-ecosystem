@@ -4,7 +4,7 @@ import styles from "./Table.module.css";
 
 /** A styled table. Children are ordinary thead / tbody / tr / th / td. */
 export function Table({ className, ...rest }: TableHTMLAttributes<HTMLTableElement>) {
-  return <table className={cx(styles.table, className)} {...rest} />;
+  return <div className={styles.scroll} role="region" aria-label={rest["aria-label"] ? `${rest["aria-label"]} table` : "Scrollable table"} tabIndex={0}><table className={cx(styles.table, className)} {...rest} /></div>;
 }
 
 export interface ClickableRowProps extends Omit<HTMLAttributes<HTMLTableRowElement>, "onClick"> {

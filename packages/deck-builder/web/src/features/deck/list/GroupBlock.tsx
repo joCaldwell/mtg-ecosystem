@@ -9,7 +9,7 @@ import type { GroupCost } from "../../../domain/price.ts";
 import { CardRow } from "./CardRow.tsx";
 import { GroupHeader } from "./GroupHeader.tsx";
 import styles from "./GroupBlock.module.css";
-import { useDeckList } from "../DeckStore.tsx";
+import { useDeckList } from "../DeckListStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 
 // A group this long would leave the other columns empty if it stayed whole,

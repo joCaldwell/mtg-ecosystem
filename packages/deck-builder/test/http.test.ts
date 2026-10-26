@@ -112,6 +112,30 @@ describe("the agent endpoint, through the official MCP client (spec §10.1)", ()
     assert.match(textOf(unknown), /Did you mean: Sol Ring/);
     await client.close();
   });
+  test("arguments are strict: an unknown key is named, a D9 rename says what it became", async () => {
+    const client = await connect("/mcp", true);
+    const renamed = await client.callTool({ name: "remember", arguments: { text: "Strict arguments", scope: "global", source_ruling: 1 } });
+    assert.equal(renamed.isError, true);
+    assert.match(textOf(renamed), /'source_ruling' was renamed to 'source_decision'/);
+    const section = await client.callTool({ name: "get_deck", arguments: { deck, sections: ["rulings"] } });
+    assert.equal(section.isError, true);
+    assert.match(textOf(section), /'rulings' was renamed to 'decisions'/);
+    const unknown = await client.callTool({ name: "start_session", arguments: { verbose: true } });
+    assert.equal(unknown.isError, true);
+    assert.match(textOf(unknown), /'verbose' is not an argument of start_session/);
+    // The protocol's _meta travels beside arguments, never inside them.
+    const withMeta = await client.callTool({ name: "start_session", arguments: {}, _meta: { progressToken: "strict-1" } });
+    assert.ok(!withMeta.isError, textOf(withMeta));
+    assert.equal((db.prepare("SELECT COUNT(*) n FROM memories WHERE text = 'Strict arguments'").get() as { n: number }).n, 0);
+    await client.close();
+  });
+  test("a connected client cannot take the sample deck's reserved label", async () => {
+    const client = await connect("/mcp/sample-agent");
+    const wrote = await client.callTool({ name: "remember", arguments: { text: "Reserved label check", scope: "global" } });
+    assert.ok(!wrote.isError, textOf(wrote));
+    assert.equal(listActivity(db, OWNER)[0].actor_label, "sample-agent (connected)");
+    await client.close();
+  });
   test("an agent can create, rename and delete through the official client", async () => {
     const client = await connect("/mcp/deck-manager", true);
     const run = async (name: string, args: Record<string, unknown>) => {
@@ -152,7 +176,7 @@ describe("the agent endpoint, through the official MCP client (spec §10.1)", ()
   // did so in its handshake, which a stateless server does not keep, so it is
   // attributed by the URL label or falls back to "agent".
   test("attribution without a label depends on the protocol era", async () => {
-    const write = { name: "mark_rulings_reviewed", arguments: { through: 0 } };
+    const write = { name: "mark_decisions_reviewed", arguments: { through: 0 } };
     const modern = await connect("/mcp", true);
     await modern.callTool(write);
     assert.equal(listActivity(db, OWNER)[0].actor, "test-client");
@@ -363,10 +387,10 @@ describe("the UI's API", () => {
     const patch = (body: unknown) => api(`/api/decks/${id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
-    const updated = await (await patch({ category: "legacy" })).json();
-    assert.equal(updated.state.deck.category, "legacy");
-    assert.equal((await (await api(`/api/decks/${id}`)).json()).state.deck.category, "legacy");
-    assert.equal((await (await api("/api/decks")).json()).find((d: any) => d.id === id).category, "legacy");
+    const updated = await (await patch({ category: "archived" })).json();
+    assert.equal(updated.state.deck.category, "archived");
+    assert.equal((await (await api(`/api/decks/${id}`)).json()).state.deck.category, "archived");
+    assert.equal((await (await api("/api/decks")).json()).find((d: any) => d.id === id).category, "archived");
     await patch({ category: "paper" });
     const invalid = await patch({ name: "Should roll back", category: "unknown" });
     assert.equal(invalid.status, 400);
@@ -382,7 +406,7 @@ describe("the UI's API", () => {
     assert.equal(defaulted.state.deck.category, "theorycrafted");
   });
 
-  test("Legacy is read-only through HTTP and MCP, and owner restoration reopens pending work", async () => {
+  test("Archived is read-only through HTTP and MCP, and owner restoration reopens pending work", async () => {
     const created = await (await post("/api/decks", { name: "Archived API deck", category: "paper" })).json();
     const id = created.state.deck.id;
     await post(`/api/decks/${id}/cards`, { oracle_id: "id-solring" });
@@ -398,7 +422,7 @@ describe("the UI's API", () => {
       const patch = (body: unknown) => api(`/api/decks/${id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
-      assert.equal((await patch({ category: "legacy" })).status, 200);
+      assert.equal((await patch({ category: "archived" })).status, 200);
       for (const result of [
         await post(`/api/decks/${id}/cards`, { oracle_id: "id-forest" }),
         await api(`/api/decks/${id}/brief`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ thesis: "Changed" }) }),
@@ -445,7 +469,7 @@ describe("the UI's API", () => {
     ).json();
     assert.equal(ruled.state.computed.card_count, 3);
     assert.equal(ruled.inbox.proposals.length, 0);
-    assert.equal(ruled.state.log[0].ruling_reason, "Fine.");
+    assert.equal(ruled.state.log[0].decision_reason, "Fine.");
 
     const undone = await (await post(`/api/decks/${deck}/log/${ruled.state.log[0].id}/undo`, {})).json();
     assert.equal(undone.state.computed.card_count, 2);
@@ -565,7 +589,7 @@ describe("sourcing and proposal cleanup end to end", () => {
   });
 });
 
-for (const modern of [false, true]) test(`personal price sources reach real MCP clients without contaminating non-price tools (${modern ? "modern" : "legacy"})`, async () => {
+for (const modern of [false, true]) test(`personal price sources reach real MCP clients without contaminating non-price tools (${modern ? "modern" : "archived"})`, async () => {
   const { cheapestPrintings, ingestPrices, setPriceSource } = await import("../src/prices.ts");
   const { createDeck } = await import("../src/deck/service.ts");
   const { applyChanges } = await import("../src/deck/membership.ts");
@@ -608,7 +632,7 @@ for (const modern of [false, true]) test(`personal price sources reach real MCP 
     }
     const exported = exportDeck(fresh, euro, target);
     assert.equal(textOf(await call("export_deck", { deck: target })), `${exported.card_count} card(s) at revision ${exported.revision}:\n\n${exported.text}`);
-    for (const [name, args] of [["list_rulings", { deck: target }], ["search_memories", {}],
+    for (const [name, args] of [["list_decisions", { deck: target }], ["search_memories", {}],
       ["remember", { scope: "global", text: "Prefers careful budget estimates" }],
       ["revise_memory", { id: 1, action: "update", text: "Prefers daily budget estimates" }],
     ] as const) assert.doesNotMatch(textOf(await call(name, args)), /^Prices:/m, name);
@@ -631,4 +655,22 @@ test("settings price source and budgets save atomically", async () => {
     assert.deepEqual(settings.price_source, { currency: "EUR", store: "cardmarket" });
     assert.deepEqual(settings.budgets, { global: 2000, deck: 2000 });
   } finally { await put({ price_source: source, budgets }); }
+});
+
+// Showing or hiding Advanced is a display preference: it must not make every
+// open view refetch, while a price-source change still reaches them.
+test("an Advanced-only settings write sends no change event; a price change does", async () => {
+  const { getPriceSource } = await import("../src/prices.ts");
+  const source = getPriceSource(db, OWNER);
+  const put = (body: unknown) => fetch(`${base}/api/settings`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const events = await fetch(`${base}/api/events`);
+  const reader = events.body!.getReader();
+  assert.equal(new TextDecoder().decode((await reader.read()).value), 'data: {"kind":"connected"}\n\n');
+  try {
+    assert.equal((await put({ advanced_open: true })).status, 200);
+    assert.equal((await put({ advanced_open: false })).status, 200);
+    assert.equal((await put({ price_source: source })).status, 200);
+    // The first event after the preference writes is the price change's.
+    assert.equal(new TextDecoder().decode((await reader.read()).value), 'data: {"kind":"settings"}\n\n');
+  } finally { await reader.cancel(); }
 });

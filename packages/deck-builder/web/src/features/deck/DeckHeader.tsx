@@ -1,3 +1,5 @@
+import { Explainer } from "../../ui/index.ts";
+import { Advanced, useVoice } from "../../app/Preferences.tsx";
 // The deck's identity and its vital signs (spec §5.1): name, who may edit it,
 // and three numbers that each open the tab explaining them. Slot counts are
 // not here; they live on the group headings, where they can be acted on.
@@ -16,11 +18,12 @@ import { useDeckUi } from "./DeckUi.tsx";
 import styles from "./DeckHeader.module.css";
 
 export function DeckHeader() {
+  const voice = useVoice();
   const state = useDeckState();
   const { run } = useDeck();
   const ui = useDeckUi();
   const { deck, computed, checks, cards } = state;
-  const readOnly = deck.category === "legacy";
+  const readOnly = deck.category === "archived";
   const [draft, setDraft] = useState<string | null>(null);
 
   function startRename() {
@@ -59,9 +62,7 @@ export function DeckHeader() {
       <div className={styles.top}>
         {draft == null ? (
           <h1 className={styles.title}>
-            <button type="button" className={styles.name} onClick={readOnly ? undefined : startRename} title={readOnly ? "Legacy deck: read-only" : "Click to rename"}>
-              {deck.name}
-            </button>
+            {readOnly ? <span className={styles.name}>{deck.name}</span> : <button type="button" className={styles.name} onClick={startRename} title="Click to rename">{deck.name}</button>}
           </h1>
         ) : (
           <form className={styles.rename} onSubmit={saveName}>
@@ -115,8 +116,10 @@ export function DeckHeader() {
         </div>
       </div>
 
+      <Explainer title="Deck lifecycle" summary={voice("Theorycrafted is a work in progress; Paper is a deck you play; Archived keeps it read-only.", "Lifecycle controls how your agent can change the deck.")}>Only you change lifecycle. Agents edit Theorycrafted cards directly and propose Paper card changes. Brief and power-target changes always need your approval. Archived decks can be shared, exported or forked.</Explainer>
       <Row className={styles.sub} gap={5} wrap>
-        <Text size="xs" tone="muted">{readOnly ? "Read-only archive · restore or fork to edit" : deck.category === "paper" ? "Agents propose card and brief changes" : "Agents edit cards directly · brief changes need approval"}</Text>
+        {/* An archived deck says what it means once, in the banner under the toolbar. */}
+        {!readOnly && <Text size="xs" tone="muted">{deck.category === "paper" ? voice("A deck you play", "Agents propose card and brief changes") : voice("A work in progress", "Agents edit cards directly · brief changes need approval")}</Text>}
         {commanders.length > 0 ? (
           <>
             {commanders.map((c) => (
@@ -149,9 +152,9 @@ export function DeckHeader() {
           Power: {state.power.assessment ? `${bracketLabel(state.power.assessment.mapping)}${state.power.assessment.stale ? " · needs review" : ""}` : "not assessed"}
           {state.power.target ? ` · target ${bracketLabel(state.power.target.mapping)}` : ""}
         </button>
-        <Text mono tone="faint" title="The deck's revision">
+        <Advanced inline title="Show or hide revisions, secondary slots, budgets and review flags. Applies across your account."><Text mono tone="faint" title="The deck's revision">
           r{deck.revision}
-        </Text>
+        </Text></Advanced>
       </Row>
     </header>
   );

@@ -10,7 +10,7 @@ import { DeckProjection } from "./DeckProjection.tsx";
 import styles from "./ProposalSummary.module.css";
 
 /**
- * A proposal, read-only. Rulings happen in the deck, where each change sits
+ * A proposal, read-only. Decisions happen in the deck, where each change sits
  * among the cards around it; this page only hands the owner over to it.
  */
 export function ProposalSummary({ proposal }: { proposal: Proposal }) {
@@ -38,7 +38,7 @@ export function ProposalSummary({ proposal }: { proposal: Proposal }) {
           Review in the list <Kbd>↵</Kbd>
         </a>
         <Text tone="faint" size="sm">
-          Rulings happen in the deck, where each change sits among the cards around it.
+          Decisions happen in the deck, where each change sits among the cards around it.
         </Text>
       </div>
 

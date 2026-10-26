@@ -69,11 +69,6 @@
   font-weight: 600;
 }
 
-/* Keep muted cards interactive and readable when the owner focuses on one. */
-.row.muted:not(:hover):not(:focus-visible):not(.selected):not(.open):not(.current) {
-  opacity: var(--filter-muted-opacity);
-}
-
 .row.selected {
   background: var(--sel-bg);
 }

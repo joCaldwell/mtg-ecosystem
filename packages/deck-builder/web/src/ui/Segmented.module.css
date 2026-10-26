@@ -27,8 +27,9 @@
   outline-offset: -2px;
 }
 
-/* Touch (DESIGN.md, narrow screens): each option is a full tap target. */
-@media (max-width: 719px) {
+/* Touch (DESIGN.md, narrow screens and touch tablets): each option is a full
+   tap target. */
+@media (max-width: 719px), (pointer: coarse) and (max-width: 1099px) {
   .seg {
     height: auto;
   }

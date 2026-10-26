@@ -1,10 +1,12 @@
 // Enforces the layering table in web/ARCHITECTURE.md. Imports are read with a
-// regex rather than a parser: the codebase uses plain import/export syntax,
-// and a regex keeps this test free of dependencies.
+// regex rather than a parser: the codebase uses plain import/export syntax.
+// The wording check needs real string boundaries, so it uses the TypeScript
+// parser the typecheck already depends on.
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
+import ts from "typescript";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -248,19 +250,20 @@ describe("tokens", () => {
   });
 });
 
-// ---------- one phone breakpoint (spec §11.2) ----------
+// ---------- approved phone and tablet breakpoints (spec §11.2–11.3) ----------
 
 describe("breakpoints", () => {
-  test("every width media query is the phone breakpoint, PHONE_MAX_WIDTH", async () => {
-    const { PHONE_MAX_WIDTH } = await import("../web/src/app/breakpoints.ts");
+  test("width queries use exactly the phone, drawer and panel breakpoints", async () => {
+    const { PHONE_MAX_WIDTH, DRAWER_BREAKPOINT, PANEL_BREAKPOINT } = await import("../web/src/app/breakpoints.ts");
+    assert.deepEqual([PHONE_MAX_WIDTH, DRAWER_BREAKPOINT, PANEL_BREAKPOINT], [719, 960, 1100]);
     const problems: string[] = [];
     for (const f of walk(SRC)) {
       const rel = posix(relative(SRC, f));
       if (!rel.endsWith(".css")) continue;
       readFileSync(f, "utf8").split("\n").forEach((text, i) => {
-        for (const m of text.matchAll(/@media[^{]*\((?:max|min)-width:\s*(\d+)px\)/g))
-          if (Number(m[1]) !== PHONE_MAX_WIDTH && !rel.startsWith("features/playtest/"))
-            problems.push(`${rel}:${i + 1} uses ${m[1]}px; the phone breakpoint is ${PHONE_MAX_WIDTH}px (app/breakpoints.ts)`);
+        for (const m of text.matchAll(/@media[^{]*\((max|min)-width:\s*(\d+)px\)/g))
+          if ((m[1] !== "max" || ![PHONE_MAX_WIDTH, DRAWER_BREAKPOINT - 1, PANEL_BREAKPOINT - 1].includes(Number(m[2]))) && !rel.startsWith("features/playtest/"))
+            problems.push(`${rel}:${i + 1} uses ${m[1]} ${m[2]}px; allowed max widths are ${PHONE_MAX_WIDTH}, ${DRAWER_BREAKPOINT - 1}, ${PANEL_BREAKPOINT - 1} (app/breakpoints.ts)`);
       });
     }
     assert.deepEqual(problems, [], `\n${problems.join("\n")}\n`);
@@ -277,7 +280,106 @@ describe("window scrolling", () => {
     const base = readFileSync(join(SRC, "design", "base.css"), "utf8");
     assert.match(base, /body\s*\{[^}]*overflow:\s*hidden/);
     assert.match(base, /html\[data-scroll="window"\] body\s*\{[^}]*overflow:\s*visible/);
-    for (const shell of ["features/phone/PhoneShell.tsx", "features/public/PublicShell.tsx"])
+    for (const shell of ["features/phone/PhoneShell.tsx", "features/public/PublicShell.tsx", "app/TabletShell.tsx"])
       assert.match(readFileSync(join(SRC, shell), "utf8"), /^\s*useWindowScroll\(\);/m, `${shell} must call useWindowScroll()`);
+    // AppShell keeps <main> in place and mounts the tablet pieces around it.
+    assert.match(readFileSync(join(SRC, "app/AppShell.tsx"), "utf8"), /\{tablet && <TabletScroll \/>\}/, "the tablet frame must mount TabletScroll");
+  });
+
+  // A review runs in the list on tablets: a modal sheet over it would hide it
+  // and switch off its keys (useHotkeys yields to an open modal).
+  test("starting a review does not open the tablet sheet", () => {
+    const body = stripComments(readFileSync(join(SRC, "features/deck/DeckBody.tsx"), "utf8"));
+    assert.doesNotMatch(body, /ui\.reviewing/);
+  });
+});
+
+// Components use the typed client, including examples on /design.
+test("fetch stays in the API layer", () => {
+  const problems = files.filter(f => /\.tsx$/.test(f) && /\bfetch\s*\(/.test(stripComments(readFileSync(f, "utf8")))).map(f => posix(relative(SRC, f)));
+  assert.deepEqual(problems, []);
+});
+
+// vite.config.ts may skip unused re-exports without running editor modules.
+test("tree-shaken public barrels contain only re-exports", () => {
+  for (const f of files.filter(f => /(?:features\/[^/]+|mtg|ui)\/index\.ts$/.test(posix(f)))) {
+    const rest = stripComments(readFileSync(f, "utf8")).replace(/export\s+(?:type\s+)?(?:\{[^}]*\}|\*)\s+from\s+["'][^"']+["'];?/g, "").trim();
+    assert.equal(rest, "", `${relative(SRC, f)} must not have module side effects`);
+  }
+});
+
+// ---------- user-facing wording (plan D9) ----------
+
+// The owner's choices are "decisions" in every user-facing string: "rule" is
+// MTG's word for the game's rules and for card rulings. The noun stays where
+// it means a rule (rules text, a rule violation); the verb never appears.
+// Strings and JSX text are read with the TypeScript parser, so identifiers,
+// comments, CSS class names and route paths (all outside the text) pass.
+describe("decisions wording", () => {
+  const RULE = /\b[Rr]ul(e|ed|es|ing|ings)\b/;
+  // Each allowed phrase uses the noun. Anything else fails, verb or not, so a
+  // new use is a deliberate addition here.
+  const NOUN = [/\brules text\b/i, /\brule violation\b/i, /\bcard rules\b/i, /\brules preview\b/i, /^Rules at 15px/, /The rules are in web\/DESIGN\.md/];
+
+  function userText(file: string, source = readFileSync(file, "utf8")): Array<{ text: string; line: number }> {
+    const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+    const out: Array<{ text: string; line: number }> = [];
+    const visit = (node: ts.Node) => {
+      if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) return;
+      if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node) || ts.isJsxText(node)) {
+        const text = node.text;
+        // A single token with no spaces is an identifier, a key or a path.
+        if (/\s/.test(text.trim()) || ts.isJsxText(node) || /^[A-Z]/.test(text))
+          out.push({ text, line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1 });
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+    return out;
+  }
+
+  test("finds strings and JSX text, not identifiers or comments", () => {
+    const probe = `// we rule here\nconst rule = "rule";\nconst a = <p title="Rule on it">You ruled {rule} it</p>;\nconst b = \`Ruling \${a}\`;\n`;
+    const found = userText("probe.tsx", probe).filter(({ text }) => RULE.test(text)).map(({ line }) => line);
+    assert.deepEqual(found, [3, 3, 4]);
+  });
+
+  test("features and app say decide, accept or reject, never rule", () => {
+    const problems: string[] = [];
+    for (const f of files) {
+      const rel = posix(relative(SRC, f));
+      if (!/^(features|app)\//.test(rel)) continue;
+      for (const { text, line } of userText(f)) {
+        if (!RULE.test(text)) continue;
+        if (NOUN.some((p) => p.test(text))) continue;
+        problems.push(`${rel}:${line} says "${text.trim().slice(0, 80)}"; use decide, accept or reject (plan D9)`);
+      }
+    }
+    assert.deepEqual(problems, [], `\n${problems.join("\n")}\n`);
+  });
+});
+
+// ---------- the design-system inventory ----------
+
+describe("design system", () => {
+  test("DESIGN.md's inventory lists exactly what ui/index.ts exports", () => {
+    const index = stripComments(readFileSync(join(SRC, "ui", "index.ts"), "utf8"));
+    const exported = new Set<string>();
+    for (const m of index.matchAll(/export\s*\{([^}]*)\}/g))
+      for (const name of m[1].split(","))
+        if (name.trim() && !/^type\s/.test(name.trim())) exported.add(name.trim().split(/\s+as\s+/).pop()!);
+    const design = readFileSync(join(PACKAGE, "web", "DESIGN.md"), "utf8");
+    const inventory = design.slice(design.indexOf("<!-- inventory:start -->"), design.indexOf("<!-- inventory:end -->"));
+    const listed = new Set<string>();
+    for (const row of inventory.split("\n").filter((l) => l.startsWith("| `")))
+      for (const m of row.split("|")[1].matchAll(/`([^`]+)`/g)) listed.add(m[1]);
+    assert.deepEqual([...exported].filter((n) => !listed.has(n)).sort(), [], "exported but not in the DESIGN.md inventory");
+    assert.deepEqual([...listed].filter((n) => !exported.has(n)).sort(), [], "in the DESIGN.md inventory but not exported");
+  });
+
+  test("visually hidden text uses the one shared utility in design/base.css", () => {
+    assert.match(readFileSync(join(SRC, "design", "base.css"), "utf8"), /\.visually-hidden\s*\{[^}]*clip-path:\s*inset\(50%\)/);
+    const copies = walk(SRC).filter((f) => f.endsWith(".module.css") && /clip-path:\s*inset\(50%\)/.test(readFileSync(f, "utf8")));
+    assert.deepEqual(copies.map((f) => posix(relative(SRC, f))), [], 'use className="visually-hidden"');
   });
 });

@@ -23,7 +23,9 @@ function write(fields: Record<string, unknown>) {
   process.stdout.write(JSON.stringify({ ts: new Date().toISOString(), ...fields }) + "\n");
 }
 function pathForLog(req: IncomingMessage) {
-  const path = new URL(req.url ?? "/", "http://localhost").pathname;
+  return routeShape(new URL(req.url ?? "/", "http://localhost").pathname);
+}
+function routeShape(path: string) {
   // URL labels and unknown paths may contain secrets. Never log queries,
   // fragments, callback codes, headers, bodies, tool arguments or results.
   if (path === "/mcp" || path.startsWith("/mcp/")) return "/mcp";
@@ -34,10 +36,14 @@ function pathForLog(req: IncomingMessage) {
       "profile memories activity focus stats jobs refresh backup tokens clients disconnect proposals items " +
       "rule brief engines slots tags power compare fork import preview log review undo category sourcing " +
       "ownership maybe shortlist quantity playtest table observations ui budgets read retire revise " +
-      // Sharing (§18). A slug or handle is never a route word, so it logs as :value:
-      // an unlisted deck's slug is a capability URL and stays out of the logs.
+      "oauth actions history inbox proposal-history document-edits target assessments demo latest resolve " +
+      // Sharing (§18): public, users, sharing. logging.test.ts derives every
+      // literal segment of app.ts's routes and fails if one is missing here.
       "public users sharing").split(" "));
-    return path.split("/").map(segment => !segment || routes.has(segment) ? segment : /^\d+$/.test(segment) ? ":id" : ":value").join("/");
+    // A slug or handle logs as :value even when it spells a route word: an
+    // unlisted deck's slug is a capability URL and stays out of the logs.
+    const named = path.match(/^\/api\/public\/(?:decks|users)\/[^/]+/)?.[0].split("/").length ?? 0;
+    return path.split("/").map((segment, i) => i === named - 1 ? ":value" : !segment || routes.has(segment) ? segment : /^\d+$/.test(segment) ? ":id" : ":value").join("/");
   }
   // Shared pages name the page kind, never the slug or handle (§18).
   const shared = path.match(/^\/(d|u)\/[^/]+\/?$/);
@@ -47,6 +53,8 @@ function pathForLog(req: IncomingMessage) {
 
 /** Transport-only logging; it observes resolved Actors and grants no rights. */
 export const logging = {
+  /** The logged form of a pathname: route words kept, ids and values replaced. */
+  path: routeShape,
   request<T>(req: IncomingMessage, res: ServerResponse, handle: () => T): T {
     const context: Context = { req_id: randomUUID(), method: req.method ?? "UNKNOWN", path: pathForLog(req) };
     const start = performance.now();

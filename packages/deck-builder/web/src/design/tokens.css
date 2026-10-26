@@ -26,12 +26,22 @@
   /* Behind a dialog */
   --scrim: rgba(13, 14, 16, 0.7);
 
-  /* Text */
+  /* Text, brightest to quietest: text > soft > muted > faint. Every tier
+     passes WCAG AA (4.5:1) for small text on every surface it sits on.
+     Ratios measured with the WCAG 2.x relative-luminance formula; tints are
+     composited over the surface beneath them. Worst case is a selected row
+     under the pointer (--sel-bg over --hover).
+                 --bg   --surface --raised --hover --overlay  worst tint
+       text     15.57    14.61    13.63   12.73    13.04      9.98
+       soft     12.85    12.06    11.25   10.51    10.77      8.24
+       muted     8.65     8.12     7.57    7.07     7.25      5.54
+       faint     7.41     6.96     6.49    6.06     6.21      4.75
+     Darker than faint fails AA on the tinted rows; keep the tiers in order
+     and re-measure if a surface or tint changes. */
   --text: #e4e7eb;
   --text-soft: #cfd3d9;
-  --muted: #8d949e;
-  --faint: #5c636d;
-  --filter-muted-opacity: 0.45;
+  --muted: #a8aeb7;
+  --faint: #9aa1ab;
 
   /* Meaning. Each has a foreground, a tinted background and a border. */
   --agent: #a78bfa;
@@ -55,8 +65,8 @@
   --lifecycle-paper-bg: var(--add-bg);
   --lifecycle-theorycrafted: var(--sel);
   --lifecycle-theorycrafted-bg: var(--sel-bg);
-  --lifecycle-legacy: var(--warn);
-  --lifecycle-legacy-bg: var(--warn-bg);
+  --lifecycle-archived: var(--warn);
+  --lifecycle-archived-bg: var(--warn-bg);
 
   /* Mana. Black is a dark disc with a pale ring so it cannot be mistaken for
      the grey generic pip. */
@@ -71,7 +81,7 @@
   --mana-ink: #15171a;
 
   /* Type */
-  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   --text-2xs: 10px;
   --text-xs: 11px;
@@ -108,6 +118,8 @@
   --tap: 44px;
 
   /* Layout */
+  --drawer-w: 320px;
+  --sheet-content-h: 68dvh;
   --sidebar-w: 216px;
   --panel-w: 392px;
   /* The deck's side panel can be dragged between these, and never so wide
@@ -116,6 +128,8 @@
   --panel-w-max: 640px;
   --list-w-min: 360px;
   --measure: 720px;
+  /* One and a half measures: wide enough for a table, narrow enough to read. */
+  --measure-wide: calc(var(--measure) * 1.5);
   /* Shared pages and the phone view (spec §18.5, §11.2). The phone breakpoint
      itself is PHONE_MAX_WIDTH in app/breakpoints.ts: media queries cannot
      read a custom property. */
@@ -123,12 +137,17 @@
   --art-h: 176px;
   --art-fade: linear-gradient(180deg, rgba(13, 14, 16, 0.15) 0%, rgba(13, 14, 16, 0.6) 55%, var(--bg) 100%);
   --phone-bar-h: 48px;
+  /* The menu bar above a tablet page under 960 px, which opens the drawer. */
+  --tablet-bar-h: 48px;
   --sheet-max-h: 86dvh;
   /* The card picture in CardSheet: beside the text, and alone on a phone. */
   --sheet-image-w: 200px;
   --sheet-image-w-phone: 260px;
 
-  /* Elevation and stacking */
+  /* Elevation and stacking, lowest first. A popover opened inside a dialog is
+     portalled into that dialog (ui/Popover.tsx), so it stacks within the
+     dialog's own layer and needs no higher value. Hover cards sit above
+     everything a pointer can be over; toasts above them. */
   --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.55);
   --z-sticky: 5;
   --z-pop: 30;

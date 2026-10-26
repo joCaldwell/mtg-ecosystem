@@ -1,3 +1,5 @@
+import { DeckListProvider } from "./DeckListStore.tsx";
+export { DeckListProvider, useDeckList } from "./DeckListStore.tsx";
 // One store per open deck. Server state is authoritative — every mutation
 // returns the fresh composite under `state` (the server's envelope rule) —
 // so the client never merges: apply() overwrites. Components call
@@ -43,7 +45,7 @@ export interface DeckStore extends DeckData {
   retry: () => void;
 }
 
-const DeckContext = createContext<DeckStore | null>(null);
+const DeckContext = /* @__PURE__ */ createContext<DeckStore | null>(null);
 
 export function DeckProvider({ deckId, children }: { deckId: number; children: ReactNode }) {
   const [data, dispatch] = useReducer(reducer, { state: null, missing: false, loadError: null, error: null });
@@ -89,25 +91,6 @@ export function DeckProvider({ deckId, children }: { deckId: number; children: R
 // ---------- the list's own context ----------
 // The list, its groups and rows read only this, so the same components draw a
 // shared deck (spec §18.5) and the phone view (§11.2) as well as the editor.
-
-interface DeckListValue {
-  state: DeckListState;
-  /** Nothing in the list may be selected or edited: shared pages and phones. */
-  readOnly: boolean;
-}
-
-const DeckListContext = createContext<DeckListValue | null>(null);
-
-export function DeckListProvider({ state, readOnly = false, children }: { state: DeckListState; readOnly?: boolean; children: ReactNode }) {
-  const value = useMemo(() => ({ state, readOnly }), [state, readOnly]);
-  return <DeckListContext.Provider value={value}>{children}</DeckListContext.Provider>;
-}
-
-export function useDeckList(): DeckListValue {
-  const value = useContext(DeckListContext);
-  if (!value) throw new Error("useDeckList outside a DeckListProvider");
-  return value;
-}
 
 export function useDeck(): DeckStore {
   const store = useContext(DeckContext);

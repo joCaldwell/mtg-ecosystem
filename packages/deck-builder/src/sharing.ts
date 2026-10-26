@@ -38,7 +38,7 @@ export interface Sharing {
   publish_decisions: boolean;
 }
 
-/** Owner, in the app (§18.2). Works on Legacy decks: sharing is not an edit.
+/** Owner, in the app (§18.2). Works on Archived decks: sharing is not an edit.
  * The slug is issued the first time the deck leaves private and never changes. */
 export function setVisibility(db: Database, actor: Actor, deckId: number, visibility: Visibility): Sharing {
   const deck = requireDeckOwner(db, actor, deckId, "change who can see this deck");

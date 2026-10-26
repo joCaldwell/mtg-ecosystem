@@ -3,7 +3,8 @@
 // owner looking at their own link sees the same page with a note saying so.
 
 import { useEffect, useMemo, useState } from "react";
-import { api, ApiError, type PublicDeckState } from "../../api/client.ts";
+import { api, ApiError } from "../../api/reader.ts";
+import type { PublicDeckState } from "../../api/client.ts";
 import { APP_TITLE, useScrollRestore } from "../../app/routes.ts";
 import { useSession } from "../../app/Session.tsx";
 import { fromPublic } from "../../domain/readOnlyDeck.ts";
@@ -38,11 +39,11 @@ export function PublicDeckPage({ slug }: { slug: string }) {
   return (
     <PublicShell>
       {!loaded ? <Loading /> : "missing" in loaded ? (
-        <EmptyState title="There is no shared deck here">
+        <EmptyState heading="h1" title="There is no shared deck here">
           It may be private, or it may have been deleted. Ask whoever sent the link to share it again.
         </EmptyState>
       ) : "error" in loaded ? (
-        <EmptyState title="This deck could not be loaded">
+        <EmptyState heading="h1" title="This deck could not be loaded">
           {loaded.error} <Button size="sm" onClick={() => setAttempt((n) => n + 1)}>Retry</Button>
         </EmptyState>
       ) : <SharedDeck shared={loaded.deck} />}

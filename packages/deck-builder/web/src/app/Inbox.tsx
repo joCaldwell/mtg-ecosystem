@@ -1,5 +1,5 @@
 // What is waiting on the owner, across every deck. One fetch shared by the
-// sidebar badge and the inbox page; a ruling's response carries the fresh
+// sidebar badge and the inbox page; a decision's response carries the fresh
 // inbox, which is applied here instead of refetching.
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
@@ -15,7 +15,7 @@ interface InboxStore {
   reload: () => void;
 }
 
-const InboxContext = createContext<InboxStore>({ inbox: null, waiting: 0, apply: () => {}, reload: () => {} });
+const InboxContext = /* @__PURE__ */ createContext<InboxStore>({ inbox: null, waiting: 0, apply: () => {}, reload: () => {} });
 
 export function InboxProvider({ children }: { children: ReactNode }) {
   const query = useQuery(() => api.getInbox(), []);

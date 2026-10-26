@@ -66,7 +66,7 @@ describe("forks (spec §5.3)", () => {
     assert.throws(() => compareDecks(db, OWNER, fork, fork), /different deck/);
   });
   // The case that started v2: a reworked copy whose agent knew nothing of the original.
-  test("a fork inherits the rulings made in the deck it came from, labelled as such", () => {
+  test("a fork inherits the decisions made in the deck it came from, labelled as such", () => {
     const original = newDeck(db, "paper", "Ruled original");
     add(db, original, "id-teferi", { role: "commander" });
     const pid = createProposal(db, AGENT, original, {
@@ -76,7 +76,7 @@ describe("forks (spec §5.3)", () => {
     const rework = forkDeck(db, AGENT, original, "Ruled rework");
     const [inherited] = cardHistory(db, OWNER, rework, "id-counterspell");
     assert.deepEqual(
-      [inherited.kind, inherited.ruling_reason, inherited.from_deck],
+      [inherited.kind, inherited.decision_reason, inherited.from_deck],
       ["reject", "No counterspells.", "Ruled original"],
     );
     assert.equal(cardHistory(db, OWNER, original, "id-counterspell")[0].from_deck, null);
@@ -177,7 +177,7 @@ describe("player statistics (spec §3)", () => {
     assert.deepEqual(stats.slots, [{ name: "Interaction", decks: 2, average_count: 0 }]);
     assert.equal(stats.averages.lands, 0.7);
   });
-  test("Theorycrafted and Legacy decks contribute to none of the statistics", () => {
+  test("Theorycrafted and Archived decks contribute to none of the statistics", () => {
     const db = testDb();
     const paper = newDeck(db, "theorycrafted", "Paper stats");
     add(db, paper, "id-teferi", { role: "commander" });
@@ -185,7 +185,7 @@ describe("player statistics (spec §3)", () => {
     createSlot(db, OWNER, paper, "Ramp");
     setDeckCategory(db, OWNER, paper, "paper");
     const baseline = playerStats(db, OWNER);
-    for (const category of ["theorycrafted", "legacy"] as const) {
+    for (const category of ["theorycrafted", "archived"] as const) {
       const excluded = newDeck(db, "paper", `${category} stats`);
       add(db, excluded, "id-atraxa", { role: "commander" });
       add(db, excluded, "id-solring");
@@ -199,7 +199,7 @@ describe("player statistics (spec §3)", () => {
       setDeckCategory(db, OWNER, excluded, category);
       assert.deepEqual(playerStats(db, OWNER), baseline);
     }
-    setDeckCategory(db, OWNER, paper, "legacy");
+    setDeckCategory(db, OWNER, paper, "archived");
     const empty = playerStats(testDb(), OWNER);
     assert.deepEqual(playerStats(db, OWNER), empty);
   });
@@ -207,7 +207,7 @@ describe("player statistics (spec §3)", () => {
     const db = testDb();
     const root = newDeck(db, "paper", "Legacy root");
     add(db, root, "id-solring");
-    setDeckCategory(db, OWNER, root, "legacy");
+    setDeckCategory(db, OWNER, root, "archived");
     const middle = forkDeck(db, OWNER, root, "Theorycrafted middle");
     const a = forkDeck(db, OWNER, middle, "Paper descendant A");
     const b = forkDeck(db, OWNER, root, "Paper descendant B");

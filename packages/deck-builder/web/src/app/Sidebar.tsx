@@ -1,3 +1,4 @@
+import { usePreferences } from "./Preferences.tsx";
 import { familyOrder } from "../domain/familyOrder.ts";
 // The left rail: where to go, which decks exist, and what an agent connected
 // right now would be told. Decks are one click away from anywhere, and a deck
@@ -23,19 +24,21 @@ const NAV: Array<{ page: PageName; label: string; icon: "inbox" | "decks" | "mem
 ];
 
 
-export function Sidebar({ route }: { route: Route }) {
+/** `brand` is off inside the tablet drawer, whose title already names it. */
+export function Sidebar({ route, brand = true }: { route: Route; brand?: boolean }) {
+  const { hasAgentActivity } = usePreferences();
   const { waiting } = useInbox();
   const { focus } = useFocus();
   const decks = useQuery(() => api.listDecks(), []);
-  const activity = useQuery(() => api.listActivity(), []);
-  const last = activity.data?.[0];
+  const activity = useQuery(() => api.latestActivity(), []);
+  const last = activity.data;
 
   return (
     <aside className={styles.sidebar}>
-      <div className={styles.brand}>
+      {brand && <div className={styles.brand}>
         <span className={styles.mark} aria-hidden="true" />
         Deck Builder
-      </div>
+      </div>}
 
       <nav className={styles.nav} aria-label="Sections">
         {NAV.map((item) => (
@@ -88,7 +91,7 @@ export function Sidebar({ route }: { route: Route }) {
         })}
       </nav>
 
-      <div className={styles.presence}>
+      {hasAgentActivity && <div className={styles.presence}>
         {last ? (
           <div className={styles.who}>
             <Dot tone="agent" pulse />
@@ -114,7 +117,7 @@ export function Sidebar({ route }: { route: Route }) {
             <>No deck is open, so “this deck” means nothing to an agent right now.</>
           )}
         </div>
-      </div>
+      </div>}
     </aside>
   );
 }

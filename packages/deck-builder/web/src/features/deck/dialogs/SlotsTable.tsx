@@ -51,7 +51,7 @@ export function SlotsTable() {
             <th className={styles.numHead}>Max</th>
             <th>Cards</th>
             <th>
-              <span className={styles.visuallyHidden}>Actions</span>
+              <span className="visually-hidden">Actions</span>
             </th>
           </tr>
         </thead>

@@ -12,6 +12,11 @@ export type Actor = {
 };
 export type DeckRole = "owner" | "viewer" | "suggester";
 
+/** The label of the sample deck's synthetic writes (§11.3). It is reserved:
+ * the MCP endpoint never gives it to a connected client, so it marks
+ * demonstration data rather than a model that connected. */
+export const SAMPLE_AGENT_LABEL = "sample-agent";
+
 /** Only public reads accept a null viewer (§18.6); anything else refuses it
  * as an unauthenticated request rather than failing on the missing principal. */
 export function requireActor(actor: Actor | null): asserts actor is Actor {

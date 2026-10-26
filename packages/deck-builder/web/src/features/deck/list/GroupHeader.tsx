@@ -32,7 +32,7 @@ export function GroupHeader({ title, count, primaryCount, secondaryCount, target
   // A total of nothing priced would read as "free".
   const total = cost?.priced ? cost : null;
   return (
-    <h3 className={styles.head}>
+    <h2 className={styles.head}>
       <span className={styles.title}>{title}</span>
       <span className={styles.spacer} />
       {count != null && (
@@ -52,6 +52,6 @@ export function GroupHeader({ title, count, primaryCount, secondaryCount, target
           <Price currency={total.currency} cents={total.cents} column title={groupCostCaption(total)} />
         </span>
       )}
-    </h3>
+    </h2>
   );
 }

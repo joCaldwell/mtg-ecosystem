@@ -4,7 +4,7 @@
 import type { Engine } from "../../../api/client.ts";
 import { RichText, useCardHover } from "../../../mtg/index.ts";
 import { Box, Button, Chip } from "../../../ui/index.ts";
-import { useDeckList } from "../DeckStore.tsx";
+import { useDeckList } from "../DeckListStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import styles from "./EngineCard.module.css";
 
@@ -21,10 +21,10 @@ export function EngineCard({ engine, onEdit, onRemove }: { engine: Pick<Engine, 
         <b className={styles.name}>{engine.name}</b>
         {missing > 0 ? <Chip tone="warn">{missing} missing</Chip> : <Chip tone="add">complete</Chip>}
         {onEdit && onRemove && <span className={styles.actions}>
-          <Button size="sm" variant="ghost" disabled={state.deck.category === "legacy"} onClick={onEdit} aria-label={`Edit the engine ${engine.name}`}>
+          <Button size="sm" variant="ghost" disabled={state.deck.category === "archived"} onClick={onEdit} aria-label={`Edit the engine ${engine.name}`}>
             Edit
           </Button>
-          <Button size="sm" variant="ghost" disabled={state.deck.category === "legacy"} onClick={onRemove} aria-label={`Remove the engine ${engine.name}`}>
+          <Button size="sm" variant="ghost" disabled={state.deck.category === "archived"} onClick={onRemove} aria-label={`Remove the engine ${engine.name}`}>
             Remove
           </Button>
         </span>}

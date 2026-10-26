@@ -46,15 +46,6 @@
   line-height: var(--leading-prose);
 }
 
-.srOnly {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
 /* On a phone the card name opens its sheet: a full tap target. */
 @media (max-width: 719px) {
   .name button {

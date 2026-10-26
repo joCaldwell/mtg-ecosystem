@@ -32,7 +32,7 @@ export function DeleteDeckDialog({ onClose }: { onClose: () => void }) {
       <Stack gap={5}>
         <Text as="p">
           Delete <strong>{deck.name}</strong>? This removes its list and maybe list, its slots and tags,
-          its brief, its proposals, and its rulings log with every import and undo recorded in it. Memories
+          its brief, its proposals, and its decisions log with every import and undo recorded in it. Memories
           written for this deck only are deleted too.
         </Text>
         <Text as="p" tone="muted">

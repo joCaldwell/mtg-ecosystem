@@ -11,7 +11,7 @@
 > - Typed rejections, hard filters and the 3–5 item proposal cap are gone. A rejection carries an optional free-text reason (§8).
 > - Memories replace card notes, hard filters and playtest notes. They are written by agents without approval and are always visible to the owner (§7).
 > - The player profile and deck briefs are the owner's documents; agent edits to them are proposed (§6).
-> - Agents edit Theorycrafted cards freely; Paper cards and all brief edits require approval (§5.2). Legacy is read-only.
+> - Agents edit Theorycrafted cards freely; Paper cards and all brief edits require approval (§5.2). Archived is read-only.
 > - Physical assembly is tracked with ordinary deck tags (§5.5); the dedicated toggle was removed on 2026-10-11.
 > - Slots describe purpose: one optional primary plus any number of secondary slots. Targets count primary assignments only; tags track sourcing and status (2026-10-14, §5.4).
 > - Cross-deck membership is off by default in card search and is turned on per call (§4.2).
@@ -33,7 +33,7 @@ anything that speaks MCP), never inside the app. The app is fully usable with
 no agent attached.
 
 What it models that a list-with-tags tool does not: **what each deck is trying
-to do** (its brief), **what the owner has decided and why** (rulings), and
+to do** (its brief), **what the owner has decided and why** (decisions), and
 **what agents have learned about the owner** (memories and the profile).
 
 ### Design rules
@@ -56,7 +56,7 @@ to do** (its brief), **what the owner has decided and why** (rulings), and
   pages and cross-owner forks in Phase 4a (§18).
 - No collaborators, co-owners, shared memories, chat, paid tiers or formats
   beyond Commander. Forks and later suggestions are the collaboration unit.
-- No lifecycle or rulings terminology changes in the identity phase.
+- No lifecycle or decisions terminology changes in the identity phase.
 - No external knowledge sources (EDHREC, Commander Spellbook, vendor sites). An agent may consult them itself; whatever it finds must resolve through the app's card search before it can be proposed. Scryfall's bulk data is the one source the app reads (§4.1, §4.4).
 - No collection or inventory management; ordinary deck tags can record organization such as cards to obtain (§5.5).
 - No live sync with any external service.
@@ -70,7 +70,7 @@ built behaviour when its phase lands):
   720 px the app is a read-and-rule view: the deck list, each deck
   read-only, the inbox, and accept/reject on pending proposals with the
   optional reason. A phone user changes a deck by prompting an agent and
-  ruling on its proposals. No direct editing, hotkeys, playtester or
+  decision on its proposals. No direct editing, hotkeys, playtester or
   Settings on phones. 720 px and wider keep the full app. The playtester
   stays desktop-only.
 - **Price source per user — built** (D18, phase 1b). Each user picks a currency (USD
@@ -104,7 +104,7 @@ Three kinds of knowledge, separated by who is authoritative for them.
 
 | Kind | Contents | Written by | Reaches an agent |
 | --- | --- | --- | --- |
-| **Records** | Cards, decks, proposals, rulings, computed state, activity log | The app, from actions | Through tools, on demand |
+| **Records** | Cards, decks, proposals, decisions, computed state, activity log | The app, from actions | Through tools, on demand |
 | **Documents** | Player profile (global), deck brief (per deck) | The owner; agents propose edits | Always loaded at their scope |
 | **Memories** | Short notes about preferences, reasons and outcomes | Agents, without approval; the owner too | Loaded by scope; the rest searched |
 
@@ -144,7 +144,7 @@ When a search names a deck:
 
 - Results are pre-filtered to the deck's colour identity, so illegal cards never come back.
 - Each result is marked if it is already in that deck or on its maybe list.
-- Each result carries any memories linked to that card (§7.2) and any prior rulings on it in that deck (§8.3).
+- Each result carries any memories linked to that card (§7.2) and any prior decisions on it in that deck (§8.3).
 
 **Cross-deck membership is off by default.** A result does not say which of
 the owner's other decks contain the card unless the call sets
@@ -162,7 +162,7 @@ of a UUID and are far less likely to be mis-transcribed.
 - A name that resolves to nothing fails the **whole call**, with "did you mean" suggestions. No partial application.
 - A name that is genuinely ambiguous fails with the candidates and their `oracle_id`s. Every card argument also accepts an `oracle_id` for that case.
 
-Things the app mints (decks, proposals, memories, rulings) are referred to by
+Things the app mints (decks, proposals, memories, decisions) are referred to by
 short integer ids, always shown beside their names.
 
 ### 4.4 Prices
@@ -213,7 +213,7 @@ amount. Deck totals count copies and companions, exclude the maybe list,
 and report the number of distinct unpriced cards. Agents read prices but
 cannot change preferences. Compact card lines retain $/€ amounts; each
 price-bearing response/view names the resolved store and Scryfall as-of date
-once. `start_session` also names the source; exports, ruling lists and
+once. `start_session` also names the source; exports, decision lists and
 memory writes retain their price-free text.
 `get_cards` includes resolved price metadata in structured results.
 
@@ -245,14 +245,14 @@ preferences, vendor API or other price source is introduced.
 - Each deck row stores its denormalized colour identity. Changing the commander may invalidate cards; that surfaces as a check finding (§9), never as silent corruption.
 - Each deck-card row: card, quantity, role (`card` / `commander` / `companion`), optional primary slot, secondary slots (zero or more), tags (zero or more), `maybe` (on the maybe list, outside the 100). Zone and purpose are independent: commanders and companions may also have slot assignments.
 - Every change to membership bumps the deck's **revision** number.
-- Each deck has a category: `paper`, `theorycrafted`, or `legacy` (§5.6).
+- Each deck has a category: `paper`, `theorycrafted`, or `archived` (§5.6).
 
 ### 5.2 Lifecycle and editing permissions
 
-A deck’s lifecycle is **Paper**, **Theorycrafted**, or **Legacy** (§5.6).
+A deck’s lifecycle is **Paper**, **Theorycrafted**, or **Archived** (§5.6).
 There is no separate Draft/Active flag. Only the owner changes lifecycle.
 
-| | Theorycrafted | Paper | Legacy |
+| | Theorycrafted | Paper | Archived |
 | --- | --- | --- | --- |
 | Agent changes cards | Directly (`edit_cards`) | By accepted proposal | Read-only |
 | Agent changes brief or power target | By accepted proposal | By accepted proposal | Read-only |
@@ -260,7 +260,7 @@ There is no separate Draft/Active flag. Only the owner changes lifecycle.
 | Organization, memories, assessments | Direct writes | Direct writes | Read-only |
 
 New agent-created decks and all forks are Theorycrafted. The owner may create
-Paper or Theorycrafted decks and archive them as Legacy. Legacy decks can be
+Paper or Theorycrafted decks and archive them as Archived. Archived decks can be
 viewed, exported, compared and forked, but neither the owner nor agents can
 rename, delete, change cards, change organization, revise deck memories, or
 rule on proposals while archived. The owner can restore them to Paper or
@@ -346,7 +346,7 @@ and removes the obsolete mark from historical undo snapshots.
 ### 5.6 Deck lifecycle
 
 The owner marks each deck **Paper** (a physical deck), **Theorycrafted** (an
-idea being explored), or **Legacy** (a read-only archive). Lifecycle controls
+idea being explored), or **Archived** (a read-only archive). Lifecycle controls
 editing permissions (§5.2); per-card tags remain independent (§5.4). Changing
 lifecycle never changes the card list or its revision.
 
@@ -354,19 +354,25 @@ The UI shows one Lifecycle control in the deck header and one column in All
 decks. New decks and forks default to Theorycrafted. Schema 9 preserves
 existing categories and removes the Draft/Active column; it does not infer a
 lifecycle from the former flag. The internal field remains `category`.
+Schema 15 (v3 4b, after sharing's 14) changes only the persisted lifecycle
+value `legacy` to `archived`, preserving every deck id, relation, high-water
+sequence, and user-authored string. Its rebuilt CHECK accepts only Paper,
+Theorycrafted and Archived values. Internal log storage keeps `ruling_reason`;
+HTTP/MCP render it as `decision_reason`. D19 permits this beta rename before
+public sign-up; there is no compatibility alias for the old tools.
 
-The sidebar labels Theorycrafted decks in blue and Legacy decks in amber;
+The sidebar labels Theorycrafted decks in blue and Archived decks in amber;
 Paper decks have no extra sidebar label. All decks lifecycle pills use the
 same colors, with green for Paper.
 
 Only Paper decks contribute to All decks statistics and `player_stats`.
 Changing lifecycle immediately updates statistics. Fork-family ancestry is
-preserved through Theorycrafted and Legacy ancestors, whose cards and totals
+preserved through Theorycrafted and Archived ancestors, whose cards and totals
 are excluded.
 
 All decks has a menu for rename, change lifecycle and delete. Agents can
 rename or delete Paper and Theorycrafted decks through `rename_deck` and
-`delete_deck`; lifecycle changes are owner-only and have no MCP tool. Legacy
+`delete_deck`; lifecycle changes are owner-only and have no MCP tool. Archived
 rename and delete actions are disabled. Deletion permanently removes the
 associated records, including deck-scoped memories; global memories and
 fork decks remain. Agent actions are attributed in Activity.
@@ -462,8 +468,8 @@ judgement.
 
 **Editing:** the owner edits either directly. An agent calls
 `propose_profile_edit` or `propose_brief_edit` with the replacement text and a
-reason that cites what prompted it (rulings, memories). The owner sees a diff
-and accepts or rejects it. Agents always propose brief changes on both Paper and Theorycrafted decks; Legacy is read-only.
+reason that cites what prompted it (decisions, memories). The owner sees a diff
+and accepts or rejects it. Agents always propose brief changes on both Paper and Theorycrafted decks; Archived is read-only.
 
 Memories are where an agent learns; documents are what the owner has
 confirmed. When a group of memories has settled into something durable, the
@@ -484,9 +490,9 @@ as a row:
 | `text` | The statement, with `[[Card Name]]` for any card mentioned (§10.5) |
 | `scope` | `global` or `deck` (with the deck) |
 | `cards` | Optional links to cards |
-| `basis` | `stated` (the owner said it, including in a ruling reason) or `inferred` (the agent concluded it) |
+| `basis` | `stated` (the owner said it, including in a decision reason) or `inferred` (the agent concluded it) |
 | `author` | Compact author text, with `author_user_id`, `author_via`, `author_label` and UI `author_display` (§17.3) |
-| `source` | Optional: the ruling that prompted it, and the deck revision if deck-scoped |
+| `source` | Optional: the decision that prompted it, and the deck revision if deck-scoped |
 | `status` | `active`, `superseded` (with a link to the replacement), or `retired` |
 | timestamps | Created, last revised |
 
@@ -504,7 +510,7 @@ surface it without relying on the agent to go looking.
 
 - **No approval.** `remember` writes immediately for the authenticated
   principal. Global, deck, FTS, similarity and card-linked reads are tenant
-  scoped; a source ruling and any replacement deck must belong to that same
+  scoped; a source decision and any replacement deck must belong to that same
   principal. Another principal cannot revise, supersede, retire, restore or
   confirm the memory, regardless of label. Human/agent semantics use
   `actor.via`; `owner_touched` remains the human-control flag.
@@ -541,7 +547,11 @@ hidden.
 
 ---
 
-## 8. Proposals and rulings
+## 8. Proposals and decisions
+
+Phase 4b names the tools `list_decisions` and `mark_decisions_reviewed`.
+The previous names are removed during the invite-only beta (D9/D19). Existing
+stored reasons, memories, summaries and briefs keep their original text.
 
 ### 8.1 Proposals
 
@@ -549,15 +559,15 @@ On a Paper deck, an agent changes membership by calling `propose_changes`.
 
 - A proposal has a one-line summary and **any number of items**. The agent sizes it to what was asked for.
 - An item is an add or a cut of one copy of one card, with a reason.
-- A cut may be marked `to_maybe`: if accepted, the card moves to the maybe list (§5.4) instead of leaving the deck, keeping its slot and tags. It is off unless the agent sets it, and the owner sees it on the item before ruling. `edit_cards` takes the same flag on a Theorycrafted deck. A card with several copies cannot be parked this way, because the maybe list holds a card once.
+- A cut may be marked `to_maybe`: if accepted, the card moves to the maybe list (§5.4) instead of leaving the deck, keeping its slot and tags. It is off unless the agent sets it, and the owner sees it on the item before decision. `edit_cards` takes the same flag on a Theorycrafted deck. A card with several copies cannot be parked this way, because the maybe list holds a card once.
 - Items may be **grouped**. A group is ruled on as a unit, so a swap justified by one argument cannot be half-accepted.
 - The app tracks the pending delta against 100 and against each slot target, and returns it with the proposal.
-- The response also returns, for each card, its linked memories and prior rulings in this deck (§8.3), so the agent sees what it should have considered.
+- The response also returns, for each card, its linked memories and prior decisions in this deck (§8.3), so the agent sees what it should have considered.
 
-### 8.2 Rulings
+### 8.2 Decisions
 
 The owner rules in the app: per item, per group, or the whole proposal at
-once. A ruling is accept or reject with an **optional free-text reason**.
+once. A decision is accept or reject with an **optional free-text reason**.
 There are no reason types. “Accept all” sends one atomic batch, with the
 revision read at the click and stale acknowledgements only for proposals that
 were already stale then. The capability checks all bases before applying any
@@ -567,41 +577,41 @@ ConfirmDialog, never a browser-native confirmation. Pre-existing proposals
 and deck document edits with a missing baseline are anchored once to the
 deck's revision during upgrade; subsequent edits make them stale normally.
 
-Every ruling is a row in the **rulings log**: deck, card, action, outcome,
+Every decision is a row in the **decisions log**: deck, card, action, outcome,
 reason, proposal, author, timestamp, and the deck revision it produced. The
 owner's direct edits and imports are logged in the same place. This log is the
 version history, and **undo is the reversal of a log entry**. An import is one
 entry carrying a snapshot of the prior list.
 
-### 8.3 Prior rulings follow the card
+### 8.3 Prior decisions follow the card
 
 When a card is proposed, searched with a deck named, or looked up, the app
-attaches earlier rulings on that card in that deck: "rejected at revision 14:
+attaches earlier decisions on that card in that deck: "rejected at revision 14:
 too slow for this list". This is a lookup the app does every time. It replaces
 the old hard filter without asking the owner to classify anything and without
 depending on an agent remembering to check.
 
 A fork inherits this history from the decks it descends from, each entry
-labelled with the deck it was made in *(as built: a fork starts with no rulings
+labelled with the deck it was made in *(as built: a fork starts with no decisions
 of its own, and the first agent to rework one said it had nothing to read)*.
 History does not flow the other way.
 
 An agent may re-propose a rejected card. The playbook requires it to cite the
-prior ruling and say what changed.
+prior decision and say what changed.
 
 ### 8.4 The review queue
 
 Each principal has their own review queue. The owner often rules while no
-agent is running. Each ruling therefore has a
+agent is running. Each decision therefore has a
 `reviewed` mark, unset until an agent has read it. *(As built: the queue holds
-every ruling on a proposal or a proposed edit, and every direct change the
+every decision on a proposal or a proposed edit, and every direct change the
 owner makes to a Paper deck. What an agent did itself, and the owner
 assembling a Theorycrafted deck card by card, are not queued.)* `start_session` reports how
-many rulings are unreviewed, `list_rulings` returns them, and
-`mark_rulings_reviewed` clears them once the agent has decided what, if
+many decisions are unreviewed, `list_decisions` returns them, and
+`mark_decisions_reviewed` clears them once the agent has decided what, if
 anything, is worth a memory. A reason given in the app is never lost for lack
 of a listener. `through` clears only the deck (or profile scope) of the
-anchor ruling, within the authenticated principal. Explicit ID batches
+anchor decision, within the authenticated principal. Explicit ID batches
 validate every tenant before changing any row; a foreign anchor or ID is
 404. A cross-deck result gives explicit IDs to mark instead.
 
@@ -715,15 +725,15 @@ every request resolves its bearer and every tool names its deck.
 
 | Group | Tool | Purpose |
 | --- | --- | --- |
-| Orient | `start_session` | User handle/display name, playbook, profile, global memories, deck roster (one line each), the owner's focus, unreviewed-ruling count, memory budget state |
+| Orient | `start_session` | User handle/display name, playbook, profile, global memories, deck roster (one line each), the owner's focus, unreviewed-decision count, memory budget state |
 | | `player_stats` | Computed across Paper decks only: colours, commander types, curves, slot habits, most-reused cards |
-| Read | `get_deck` | Brief, list grouped by slot with oracle text, computed state, checks, deck memories, pending proposals, recent rulings; `sections` selects parts |
+| Read | `get_deck` | Brief, list grouped by slot with oracle text, computed state, checks, deck memories, pending proposals, recent decisions; `sections` selects parts |
 | | `compare_decks` | Cards only in one, only in the other, and shared; defaults to a fork's parent |
 | | `compare_deck_sources` | Target versus multiple sources: shared cards, persistent ownership evidence, availability, timestamped price estimates and computed totals; optionally adds source tags with revision guards |
 | | `list_proposals` | Current card/document proposals, revision bases, stale flags, supersession and preserved history |
 | | `search_cards` | §4.2 |
-| | `get_cards` | Exact-name lookup of several cards: full text, linked memories, and rulings if a deck is named. Also the way to check that names are real |
-| | `list_rulings` | By deck, by date, or unreviewed only |
+| | `get_cards` | Exact-name lookup of several cards: full text, linked memories, and decisions if a deck is named. Also the way to check that names are real |
+| | `list_decisions` | By deck, by date, or unreviewed only |
 | | `search_memories` | Full-text, filtered by scope, deck or card |
 | | `export_deck` | Archidekt-importable text (§12) |
 | Write freely | `create_deck` | New Theorycrafted deck; supplied thesis becomes a proposal |
@@ -737,7 +747,7 @@ every request resolves its bearer and every tool names its deck.
 | | `shortlist_cards` | Add to or remove from the maybe list, with a note |
 | | `remember` | §7.3 |
 | | `revise_memory` | Update, supersede, retire or confirm |
-| | `mark_rulings_reviewed` | §8.4 |
+| | `mark_decisions_reviewed` | §8.4 |
 | Propose | `propose_changes` | §8.1 |
 | | `propose_brief_edit` | §6 |
 | | `propose_profile_edit` | §6 |
@@ -751,7 +761,7 @@ and `source: "Scryfall"`; `get_cards` attaches these to each card. Amounts
 are resolved for the calling principal, not the deck owner. Price-bearing
 tools and start_session have one store/date line; card lines keep compact $/€
 amounts. HTTP and local calls use the same execution/formatting helper.
-Export text, ruling lists and memory writes have no price-source line.
+Export text, decision lists and memory writes have no price-source line.
 `computed.pending.projected_cost` and `cost_delta` use the same price source
 and simulate pending one-copy adds/cuts and whole-card parking in item order.
 The delta's `unpriced` is signed (change in distinct unpriced cards).
@@ -768,7 +778,7 @@ ownership; source quantities must never be added into a physical inventory.
 Unknown ownership is separate from an explicit statement of being unowned.
 
 Proposal amendments create linked replacements. Superseded/withdrawn drafts
-cannot be ruled on; their payloads and earlier owner rulings remain in history.
+cannot be ruled on; their payloads and earlier owner decisions remain in history.
 Naming one document-group member for approval, rejection, withdrawal or
 supersession covers the whole group. Pending proposals record their membership
 revision and document bases (including engines). Changed bases/revisions require
@@ -779,7 +789,7 @@ The inbox shows each approval group once, with read-only history available.
 See [MCP workflow examples and migration details](deck-builder-mcp-workflows.md)
 for tool arguments, evidence semantics, response fields and limitations.
 
-**Owner-only actions** have no tool: ruling on proposals and document edits,
+**Owner-only actions** have no tool: decision on proposals and document edits,
 changing a deck’s lifecycle, importing over an existing deck,
 undo.
 
@@ -794,11 +804,11 @@ ways because clients differ in what they read:
 
 The playbook's rules:
 
-- Call `start_session` first. Review unreviewed rulings before proposing anything.
+- Call `start_session` first. Review unreviewed decisions before proposing anything.
 - Mention a card only if it is in a deck you have read or came back from a search or lookup in this conversation. A hunch is a search query, not a fact.
 - When an argument depends on what a card does, quote the oracle clause.
 - Never count or compute what the app reports.
-- Re-proposing a rejected card requires citing the ruling and what changed. One push-back, then defer.
+- Re-proposing a rejected card requires citing the decision and what changed. One push-back, then defer.
 - What to remember and what not to (§7.3). Revise before adding.
 - When a memory scope is over budget, consolidate it.
 
@@ -817,10 +827,10 @@ card.
 
 ## 11. The app for people
 
-- **Decks:** list, create, fork, delete; Paper, Theorycrafted or Legacy lifecycle.
+- **Decks:** list, create, fork, delete; Paper, Theorycrafted or Archived lifecycle.
 - **Deck view:** the list grouped by slot or by card type, slot targets and deltas, the maybe list, the brief, a live checks count, tags, direct editing, card search.
-- **Proposals inbox:** everything waiting on the owner across decks. A proposal is ruled on in its deck's list, where each change is drawn in place among the cards around it — per item, per group or all at once, with an optional reason; the inbox links there. Proposed brief and profile edits are ruled in the inbox as diffs. (Settled 2026-10-10: the owner preferred reviewing in the list to ruling from the inbox.)
-- **Rulings log:** per deck, with undo.
+- **Proposals inbox:** everything waiting on the owner across decks. A proposal is ruled on in its deck's list, where each change is drawn in place among the cards around it — per item, per group or all at once, with an optional reason; the inbox links there. Proposed brief and profile edits are ruled in the inbox as diffs. (Settled 2026-10-10: the owner preferred reviewing in the list to decision from the inbox.)
+- **Decisions log:** per deck, with undo.
 - **Memories:** §7.5.
 - **Profile:** edit directly.
 - **Activity feed:** every agent write, with the agent's name, time and target. The audit trail for unapproved writes.
@@ -864,7 +874,7 @@ with a top bar instead of the sidebar, and only these screens:
   a cut, a swap or a group) has Accept and Reject; above them Accept all and
   Reject all cover every open proposal. Each takes the optional reason (at
   most 500 characters; blank is none), which stays in its field until the
-  ruling has landed, and every ruling goes through the existing capabilities
+  decision has landed, and every decision goes through the existing capabilities
   and routes. The owner's own decisions name the agent that acted
   (DESIGN.md principle 5); a viewer's say only "an agent". The reason is recorded on the log entry whichever way the owner
   ruled; on desktop an accept still takes none, so nothing changes there.
@@ -883,11 +893,85 @@ the playtester, memories, profile, activity, Settings and the design page
 each render "Open on a larger screen" with what the screen is for. Live
 updates work as on desktop: an agent's new proposal appears without a
 reload. Changing a deck from a phone means prompting an agent (Claude or
-ChatGPT through the hosted connectors) and ruling on what it proposes; a
+ChatGPT through the hosted connectors) and decision on what it proposes; a
 loopback app cannot be reached from a phone.
 
-At 720 px and wider the full app is unchanged. Phase 4b makes it hold up
-down to that width.
+At 720–1099 px the full editor uses the tablet shell (§11.3). At 1100 px
+and wider it keeps the desktop panes. Phones retain this read-and-rule scope.
+
+### 11.3 First run and tablet editor *(phase 4b)*
+
+- An empty account at 720+ px has three actions: Create a deck; Import an
+  Archidekt or Moxfield text export; Try the sample deck. Import first names
+  its destination and then opens the existing import preview (`?import=1`);
+  no membership changes happen without that preview's approval. The query is
+  consumed when the Import tab opens, so reloading does not reopen it.
+- `POST /api/demo` calls human-only `createDemo(db, actor)` in the capability
+  layer, within a transaction. It creates one private sample for that user,
+  including illustrative proposals, decisions and deck-scoped memories. The
+  synthetic actor is explicitly labelled `sample-agent` with the same
+  principal; every illustrative agent write (proposals, deck memories, the
+  brief edit) carries that label, and none is written to activity. It is
+  demonstration data, not a claim that an external model connected. The
+  label is reserved: a connected client that claims it is attributed as
+  `sample-agent (connected)`. Nothing touches the profile, global memories or physical ownership evidence.
+  Sample tags are sourcing/status examples (Testing, Wishlist, Keep), with
+  purposes recorded as slots. A repeat call
+  returns the recorded sample id while that user's deck exists, including
+  after a rename; deleting it allows another. The CLI calls this capability
+  too and never replaces user content. Missing optional cards are skipped
+  and returned (`missing` beside `state`); a missing commander fails the whole transaction with a
+  card-data recovery message. Hosted, `/api/demo` has its own per-user
+  rate-limit bucket. An intentionally unfinished list demonstrates
+  checks and slot targets rather than pretending it is ready to play.
+- `/api/settings.has_agent_activity` means an agent has written activity,
+  a memory, proposal, document edit or log entry for this principal. Token
+  creation, read-only agent calls and the sample's `sample-agent` writes do
+  not enable it, before or after the sample deck is deleted. Each table is
+  probed through an index. The sidebar presence
+  block is absent until then. Agent-sensitive empty states, subtitles and
+  help have a deck-first and an agent-connected voice. Neutral hints and
+  errors are identical in both. A first-run pointer leads to Settings →
+  Connect an agent, without making connection a prerequisite.
+- Lifecycle, slots vs tags, brief, bracket, proposals and memories have an
+  inline one-sentence explanation and a Learn more popover. Help does not
+  mutate data or infer card facts.
+- **Advanced** is one shared boolean per account in `user_settings`, not
+  localStorage. Migration 15 sets it open for existing users, retaining their
+  visible controls; accounts registered later start closed. New local files
+  also start closed. It gates secondary purposes, memory budgets, review
+  queue flags, revision chips and ownership evidence when rendered. It never
+  hides authorship, decision reasons, checks or stale-approval warnings.
+- `PHONE_MAX_WIDTH=719` retains the phone boundary. Named constants
+  `DRAWER_BREAKPOINT=960` and `PANEL_BREAKPOINT=1100` select the tablet
+  drawer and deck-details sheet. Under 960 the normal sidebar lives in a
+  modal drawer. Under 1100 the list scrolls the window and the owner opens
+  the panel as a bottom sheet. That explicit request is the reason a sheet
+  may cover the list without changing DESIGN.md principle 1. The tablet
+  shell calls `useWindowScroll()` like the phone and shared shells. At
+  1100+ the body stays pinned and panes scroll. Playtest needs 1100+ px.
+- Tables scroll sideways inside their containers. MultiSelect is a
+  searchable multi-select listbox; card rows support `?` to inspect and a
+  tapped mana cost opens CardSheet. Archived titles are plain headings. A
+  skip link targets a labelled main landmark. Faint text meets AA contrast
+  on the app's neutral surfaces, and reduced-motion disables animation.
+- Playtest, settings, /design and public pages load lazily; public fork,
+  compare, export and card-inspection code loads on demand. System fonts
+  replace the unused Inter entry. `GET /api/activity/latest` returns at most
+  one row for this principal, never a `sample-agent` row. Activity and
+  Memories paginate at 100 by keyset, so writes between loads never shift
+  rows: `/api/activity?before_id=` (newest first, with `actor=<label>`
+  filtering before the page) returns `entries`, `has_more` and every agent
+  label of the principal as `actors`; `/api/memories` continues with the
+  previous page's last `before_id` and `before_revised_at`, a search
+  filtering the same newest-revision order.
+  Memories gets its filtered page, scope choices and budgets together.
+  Scope choices include empty owned decks, so the owner can add that deck's
+  first memory without another screen. UI components never call fetch.
+
+These choices preserve the five AGENTS.md rules and introduce no suggestions
+from other users. Public pricing, projection, attribution and phone editing
+limits are unchanged from §18 and §11.2.
 
 ## 12. Archidekt and Moxfield interop
 
@@ -896,7 +980,7 @@ was added on 2026-10-13; see [its requirements](playtester-design-brief.md)
 and [implementation guide](playtester.md). Archidekt interop remains available.
 
 - **Export:** an Archidekt-importable list. With active name or tag filters, **Export matches** opens an export restricted to matching cards, including inverted tag filters. The export dialog can switch between current matches and the whole deck, independently include or exclude the maybe list (excluded by default), and toggle categories. Filtered exports default to plain quantity-and-name lines for a buying list. Included maybe-list cards use `Maybeboard` when categories are enabled. Quantities are preserved; commanders and companions are eligible, and pending proposed additions are excluded. An empty selection exports nothing. Export counts describe the exported copies and lines, and exporting changes no deck records.
-- **Import:** the owner pastes a list; the app diffs it against the deck, shows the diff with destructive cuts called out first, and applies it in full on confirmation. It is one rulings-log entry, so one undo reverts it. Lines in a `Maybeboard` or `Sideboard` category, or under a section header of that name, are shortlisted on the maybe list, not added, and the preview says so. A `Commander` category or section header puts the card in the command zone, including a card already in the deck.
+- **Import:** the owner pastes a list; the app diffs it against the deck, shows the diff with destructive cuts called out first, and applies it in full on confirmation. It is one decisions-log entry, so one undo reverts it. Lines in a `Maybeboard` or `Sideboard` category, or under a section header of that name, are shortlisted on the maybe list, not added, and the preview says so. A `Commander` category or section header puts the card in the command zone, including a card already in the deck.
 - One-way out, one-way in. No sync layer.
 - **Moxfield import** *(phase 4a)*: the same import dialog accepts the text
   Moxfield's Export gives, with the same preview, one log entry and one
@@ -973,9 +1057,9 @@ effects.
 Each phase is verified before the next begins, and each is testable without
 the one above it.
 
-1. **Capability core.** Card database and search; decks with lifecycle permissions, forks, slots, tags, maybe list; checks; the rulings log with undo. Tested with no UI and no agent.
+1. **Capability core.** Card database and search; decks with lifecycle permissions, forks, slots, tags, maybe list; checks; the decisions log with undo. Tested with no UI and no agent.
 2. **Agent interface, read side.** MCP endpoint with token and Origin check, stdio shim, `start_session`, the read tools, the playbook. Verify by connecting a real agent and reading decks.
-3. **The gate.** `edit_cards`, organization tools, `propose_changes`, prior rulings following the card, linting on write; the proposals inbox and live UI updates.
+3. **The gate.** `edit_cards`, organization tools, `propose_changes`, prior decisions following the card, linting on write; the proposals inbox and live UI updates.
 4. **Memories and documents.** The memory store, budgets, the review queue, the profile, proposed document edits, the Memories page and activity feed.
 5. **Cross-deck.** `player_stats`, `compare_decks`, focus.
 6. **Method and evaluation.** The Agent Skill, and a set of realistic multi-step tasks ("rework this fork toward a new thesis", "what should I build next") run against a real agent, with transcripts read and the tools revised from what they show.
@@ -987,11 +1071,11 @@ Checked on 2026-10-10 while building; recorded here so the next change starts
 from what is known.
 
 - **Protocol revisions.** The official SDK's v2 packages (2.3.1) implement 2026-07-28 and fall back statelessly for 2025-revision clients; both paths are covered by tests that use the official client. Claude Code 2.1.296 connected speaking 2026-07-28; Codex CLI 0.162.1 connected speaking the 2025 revision. Both work.
-- **Codex.** A real Codex run completed "find what most needs fixing in this deck and act on it" with no failed tool call, following the same loop as Claude Code (session, deck, unread rulings, memory, proposal). It connects with a static `Authorization` header in `~/.codex/config.toml`, which its CLI, desktop app and IDE extension share. Its `default_tools_approval_mode` honours the tools' read-only annotations: under `writes` a read ran and `remember` was held for approval; under `approve` nothing is asked. Without a label in the URL its writes are attributed to `codex-mcp-client`.
+- **Codex.** A real Codex run completed "find what most needs fixing in this deck and act on it" with no failed tool call, following the same loop as Claude Code (session, deck, unread decisions, memory, proposal). It connects with a static `Authorization` header in `~/.codex/config.toml`, which its CLI, desktop app and IDE extension share. Its `default_tools_approval_mode` honours the tools' read-only annotations: under `writes` a read ran and `remember` was held for approval; under `approve` nothing is asked. Without a label in the URL its writes are attributed to `codex-mcp-client`.
 - **Server `instructions`.** Delivered in both eras (asserted in tests). Claude Code called `start_session` first in every real run, unprompted. No other client was checked.
 - **Permission prompts.** Claude Code refuses each tool call until the server is allowed: a run without an allowlist was denied `start_session`. Allowing `mcp__deck-builder` (the `--allowedTools` flag, or `permissions.allow` in its settings) makes every tool, including the unapproved writes, run without asking. The Settings page shows the snippet.
-- **Real-agent evaluation.** Seven tasks against a copy of real decks, Claude Code with a Sonnet model, given nothing but the tools (one run also had the Agent Skill installed): find and fix what most needs fixing in a deck; say what the owner builds and draft the next deck; rework a deck as a fork; list what is missing in paper; evaluate a deck against its brief; catch up on rulings and suggest cards; tidy cluttered memories. All seven completed. Three tool calls failed across them, each recovered in one step: an unsupported search key, and the two below.
-- **What the transcripts changed.** (1) Forks now inherit their parents' rulings (§8.3). (2) `fork_deck` says to rewrite the thesis first; the agent that was not told left the parent's brief on a deck with a new aim. (3) The paper list carries type lines; an agent sorting bare names by kind got two wrong. (4) Every tool calls a body of prose `text`; an agent wrote `content` to `remember` after seeing it on another tool. (5) `list_rulings` ends with the exact `mark_rulings_reviewed` call; an agent first tried it with no arguments.
+- **Real-agent evaluation.** Seven tasks against a copy of real decks, Claude Code with a Sonnet model, given nothing but the tools (one run also had the Agent Skill installed): find and fix what most needs fixing in a deck; say what the owner builds and draft the next deck; rework a deck as a fork; list what is missing in paper; evaluate a deck against its brief; catch up on decisions and suggest cards; tidy cluttered memories. All seven completed. Three tool calls failed across them, each recovered in one step: an unsupported search key, and the two below.
+- **What the transcripts changed.** (1) Forks now inherit their parents' decisions (§8.3). (2) `fork_deck` says to rewrite the thesis first; the agent that was not told left the parent's brief on a deck with a new aim. (3) The paper list carries type lines; an agent sorting bare names by kind got two wrong. (4) Every tool calls a body of prose `text`; an agent wrote `content` to `remember` after seeing it on another tool. (5) `list_decisions` ends with the exact `mark_decisions_reviewed` call; an agent first tried it with no arguments.
 - **Full-text search for memories.** Adequate at the two dozen that exist. Not tested at the hundreds §7.4 anticipates.
 - **Memory budgets.** The over-budget signal worked in a real run: a scope pushed past its budget was consolidated when the owner asked for a tidy-up. The default sizes themselves are untested against long use; they are settings.
 - **Output sizes.** A full 100-card deck reads at 4–7k estimated tokens; `start_session` at about 1.5k.
@@ -1029,14 +1113,14 @@ Checked on 2026-10-25, v3 Phase 0 hardening:
   while the server lease is held. Optional S3 delivery needs credentials and
   has not been verified against a real bucket.
 - Chrome verified the seeded demo, a loaded CDN image, stale accept-all's
-  ConfirmDialog and successful ruling, and styled proposal history. An
+  ConfirmDialog and successful decision, and styled proposal history. An
   automated hover rendered the stored CDN URL with lazy loading; browser
   resource entries showed zero `api.scryfall.com` requests. T3 snapshots
   timed out; Chrome supplied visual inspection and T3 evaluation supplied
   the hover/network evidence.
 - The official MCP client transcript was read through `start_session`,
-  `get_cards` (including structured image URLs), deck-scoped `list_rulings`
-  and `mark_rulings_reviewed`: other decks' unread rulings remained unread.
+  `get_cards` (including structured image URLs), deck-scoped `list_decisions`
+  and `mark_decisions_reviewed`: other decks' unread decisions remained unread.
 - `npm run check` passes 449 tests on Node 26.12.1, and the same suite
   passes on the declared Node 24.12.0 floor.
 - Phase 0 keeps schema version 10's existing additive-column migration style;
@@ -1236,7 +1320,7 @@ Ownership is a relation: `actor.user_id === decks.user_id`.
 deck and caller role; an unreadable deck is 404. Writes on an unreadable deck
 also return 404, with the same missing-target behavior as reads.
 `PermissionError` (403) is reserved for readable targets whose action is
-forbidden (human-only, admin-only, or Legacy writes). Every exported tenant
+forbidden (human-only, admin-only, or Archived writes). Every exported tenant
 capability requires an actor. Shared card-only utilities remain global, but any deck or memory
 context is authorized. No implicit actor is supplied by a service.
 
@@ -1244,7 +1328,7 @@ V3 roles are owner, viewer (visibility admits them), and suggester (signed
 in on a deck accepting suggestions). No collaborators, co-owners or members
 table. Viewers arrived in phase 4a (§18.3) and read only by slug;
 suggestions arrive in phase 5.
-Lifecycle, rulings, undo, import, deletion and visibility belong to the deck
+Lifecycle, decisions, undo, import, deletion and visibility belong to the deck
 owner; existing human-only actions additionally require `via === "ui"`.
 Agents retain attributed rename/delete on their principal's editable decks.
 No suggester may rule on their own proposal, including agent-via proposals;
@@ -1298,7 +1382,7 @@ all connected users with `kind: "jobs"` and reveal no tenant data.
 store nullable `author_token_id` (FK to `agent_tokens`). The canonical three
 author fields alone cannot distinguish credentials when a client changes its
 URL hint; letting a hint authorize amendments would violate D7. New MCP
-proposals bind to the verified credential. Legacy-file import binds existing
+proposals bind to the verified credential. Archived-file import binds existing
 user-1 agent proposals/edits to that migrated credential in the same durable
 transaction, preserving outstanding work for existing CLI configurations.
 UI-authored proposals remain UI-only for amendments by agents. Changing a
@@ -1317,7 +1401,7 @@ principal’s roster, so an unknown name is 404 without searching other users.
 strings stay stable in MCP prose; UI wire views add `author_display` or
 `actor_display` derived from the canonical fields and current handle. This
 preserves the agent playbook and deck transcript while giving UI attribution
-a principal. Focus and resumable playtest-table state remain usable on Legacy
+a principal. Focus and resumable playtest-table state remain usable on Archived
 lists; observations that write deck memories still require an editable deck.
 Audit recording can follow lifecycle changes; it is not a second deck-edit
 path. Pure calculations/card-fact utilities and operator migration/backup/
@@ -1328,7 +1412,7 @@ valid); user 1 is seeded on migration. This avoids an identity-registration
 API before sessions exist. Shared card ingestion/backup functions are operator
 utilities rather than tenant capabilities; HTTP refresh additionally requires
 `users.is_admin=1`. Token management is UI-only to avoid granting an agent a
-way to mint durable credentials. Legacy token import is idempotent by hash,
+way to mint durable credentials. Archived token import is idempotent by hash,
 then file rename follows the committed insert, so a crash cannot lose access.
 A missing credential after a pre-v11 restore is re-imported from the saved
 `stdio-token`; existing revoked rows stay revoked. No fresh token is minted at boot: the human explicitly creates and saves it
@@ -1566,7 +1650,7 @@ Schema 14 (following phase 1b's 13) adds exactly those columns, plus the fork li
   (`requireDeckOwner` + `requireUi`): publishing is outward-facing, like the
   lifecycle choice, so no agent can do it. `hideLogEntry` (hide or show one
   decisions-log entry on the public page) has the same gate. All three work
-  on Legacy decks: sharing describes who may read a deck, not what is in it,
+  on Archived decks: sharing describes who may read a deck, not what is in it,
   and an archived deck is often the one worth showing. *(Choice: the plan
   says only "owner-only".)*
 - The deck roster, sidebar and deck header carry a small glyph for unlisted
@@ -1656,7 +1740,7 @@ it, and says so when it cannot. The other side of a comparison by slug
 reports its name and slug, not an id or revision.
 
 Card history (§8.3) follows parents only within the principal's own decks,
-so a cross-owner parent's rulings never reach the fork.
+so a cross-owner parent's decisions never reach the fork.
 
 ### 18.5 Pages
 
@@ -1671,7 +1755,7 @@ so a cross-owner parent's rulings never reach the fork.
 - **Actions:** Copy link and Export (Archidekt text, no account) for anyone;
   Fork and Compare with one of my decks when signed in. In local mode the
   local user is always signed in. No sidebar, inbox, focus reporting or
-  ruling hotkeys.
+  decision hotkeys.
 - **`/u/<handle>`**: the display name and the user's public decks (not
   unlisted ones), nothing else. 404 for unknown or deleted handles, and for
   anyone without at least one public deck: the display name comes from the
@@ -1715,6 +1799,6 @@ session.
   tools read shared decks.
 - `start_session` reports how many of the principal's decks are public and
   unlisted. The playbook explains that shared decks are read-only, that a
-  fork of one starts without memories or rulings, and that agents cannot
+  fork of one starts without memories or decisions, and that agents cannot
   change visibility.
 

@@ -298,7 +298,7 @@ describe("import applies in full and at once (spec §12)", () => {
     assert.equal(getDeck(db, OWNER, id).cards.find((c) => c.name === "Typhoid Rats")!.quantity, 4);
     assert.equal(getDeck(db, OWNER, id).deck.revision, beforeRevision + 1);
     assert.equal(listLog(db, OWNER, { deckId: id })[0].revision, beforeRevision + 1);
-    // Nothing waiting on the owner: the paste was the ruling.
+    // Nothing waiting on the owner: the paste was the decision.
     assert.equal(getDeck(db, OWNER, id).computed.pending.adds, 0);
   });
 

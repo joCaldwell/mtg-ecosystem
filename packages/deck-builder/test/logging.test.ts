@@ -109,3 +109,33 @@ test("shared pages and public routes log :value for slugs and handles, and anony
     capture.mock.restore();
   }
 });
+
+test("every literal segment of app.ts's routes logs as itself; ids, slugs, handles and card ids never do", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { PKG_ROOT } = await import("../src/db.ts");
+  const db = testDb();
+  const app = createApp(db);
+  try {
+    // The registry is the source of truth, so a new route cannot regress.
+    const sources = app.routes.map(r => r.pattern.source);
+    assert.ok(sources.length > 50);
+    for (const source of sources) {
+      const segments = source.replace(/^\^\\\//, "").replace(/\$$/, "").split("\\/");
+      // Capture groups get values that would leak if logged; public slugs and
+      // handles spell a route word to prove they are masked by position.
+      const value = /\\\/public\\\//.test(source) ? "inbox" : "0f2a9c1e-secret";
+      const concrete = segments.map(s => s === "(\\d+)" ? "7" : s.startsWith("(") ? value : s.replace(/\\\./g, "."));
+      const logged = segments.map(s => s === "(\\d+)" ? ":id" : s.startsWith("(") ? ":value" : s.replace(/\\\./g, "."));
+      assert.ok(concrete.every(s => /^[\w.-]+$/.test(s)), `${source} has a segment this test cannot read`);
+      assert.equal(logging.path("/" + concrete.join("/")), "/" + logged.join("/"), source);
+    }
+    // Paths app.ts matches as strings rather than through the registry.
+    const literal = [...readFileSync(join(PKG_ROOT, "src", "app.ts"), "utf8").matchAll(/pathname === "(\/api\/[^"]+)"/g)].map(m => m[1]);
+    assert.ok(literal.includes("/api/session") && literal.includes("/api/events"));
+    for (const path of literal) assert.equal(logging.path(path), path);
+  } finally {
+    await app.close();
+    db.close();
+  }
+});

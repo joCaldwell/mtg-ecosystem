@@ -187,7 +187,7 @@ describe("undo is the reversal of a log entry (spec §8.2)", () => {
   });
 });
 
-describe("prior rulings follow the card (spec §8.3)", () => {
+describe("prior decisions follow the card (spec §8.3)", () => {
   test("history is per card and per deck, newest first, and marks what was undone", () => {
     const a = newDeck(db);
     const b = newDeck(db);
@@ -225,6 +225,6 @@ describe("the review queue (spec §8.4)", () => {
     assert.equal(unreviewedCount(fresh, OWNER), 1);
     assert.equal(markReviewed(fresh, OWNER, { through: second }), 1);
     assert.equal(unreviewedCount(fresh, OWNER), 0);
-    assert.throws(() => markReviewed(fresh, OWNER, {}), /ids of the rulings/);
+    assert.throws(() => markReviewed(fresh, OWNER, {}), /ids of the decisions/);
   });
 });

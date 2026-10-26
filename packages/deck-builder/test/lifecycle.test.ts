@@ -36,7 +36,7 @@ test("lifecycle gates card edits, while every agent brief edit needs approval", 
   } finally { db.close(); }
 });
 
-test("Legacy blocks owner and agent writes, preserves pending work, and restores or forks", () => {
+test("Archived blocks owner and agent writes, preserves pending work, and restores or forks", () => {
   const db = testDb();
   try {
     const id = newDeck(db, "paper");
@@ -49,7 +49,7 @@ test("Legacy blocks owner and agent writes, preserves pending work, and restores
     const proposal = createProposal(db, AGENT, id, { items: [{ action: "cut", oracle_id: "id-solring", reason: "Owner wants less ramp." }] });
     const items = pendingItemIds(db, OWNER, proposal);
     const brief = proposeDocumentEdit(db, AGENT, id, "thesis", { content: "New plan" }, "Owner requested a plan.");
-    setDeckCategory(db, OWNER, id, "legacy");
+    setDeckCategory(db, OWNER, id, "archived");
     const before = getDeck(db, OWNER, id);
     const name = before.cards.find(c => !c.maybe)!.name;
 
@@ -87,7 +87,7 @@ test("Legacy blocks owner and agent writes, preserves pending work, and restores
     assert.equal(listDocumentEdits(db, OWNER, { deckId: id })[0].read_only, true);
     assert.deepEqual(pendingItemIds(db, OWNER, proposal), items);
     assert.ok(exportDeck(db, OWNER, id).text.includes(name));
-    assert.match(callTool({ db, actor: AGENT }, "get_deck", { deck: id, sections: [] }).text, /Legacy: read-only/);
+    assert.match(callTool({ db, actor: AGENT }, "get_deck", { deck: id, sections: [] }).text, /Archived: read-only/);
     const fork = forkDeck(db, AGENT, id, "Editable fork");
     assert.equal(getDeck(db, OWNER, fork).deck.category, "theorycrafted");
     applyChanges(db, AGENT, fork, [{ action: "cut", oracle_id: "id-solring" }], { kind: "edit" });

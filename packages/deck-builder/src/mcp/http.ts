@@ -15,12 +15,11 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Database } from "../sqlite.ts";
-import * as z from "zod/v4";
 import {
   McpServer,
   createMcpHandler,
 } from "@modelcontextprotocol/server";
-import type { Actor } from "../actor.ts";
+import { SAMPLE_AGENT_LABEL, type Actor } from "../actor.ts";
 import { readRequestBody } from "../http-body.ts";
 import { createRateLimiter, RateLimitError } from "../ratelimit.ts";
 import { clientIp } from "../mode.ts";
@@ -28,7 +27,7 @@ import { allowedRequest, getMode, type Mode, publicOrigin } from "../mode.ts";
 import { AppError } from "../errors.ts";
 import { verifyToken } from "../tokens.ts";
 import { INSTRUCTIONS } from "./playbook.ts";
-import { TOOLS, runTool } from "./tools.ts";
+import { TOOLS, inputSchema, runTool } from "./tools.ts";
 import { logging } from "../logging.ts";
 
 export const MCP_PATH = "/mcp";
@@ -123,9 +122,7 @@ export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
             openWorldHint: false,
           },
         };
-        if (Object.keys(tool.input).length)
-          server.registerTool(tool.name, { ...config, inputSchema: ["create_deck", "edit_cards"].includes(tool.name) ? z.strictObject(tool.input) : z.object(tool.input) }, run);
-        else server.registerTool(tool.name, config, () => run({}));
+        server.registerTool(tool.name, { ...config, inputSchema: inputSchema(tool) }, run);
       }
       return server;
     },
@@ -187,7 +184,9 @@ export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
       if (tool === "search_cards" || tool === "search_memories") opts.rateLimit?.("search", `mcp:${authenticated.user_id}`);
       if (tool === "compare_decks" || tool === "compare_deck_sources") opts.rateLimit?.("compare", `mcp:${authenticated.user_id}`);
     } catch (e) { if (e instanceof RateLimitError) return respond(res,429,e.message,{"Retry-After":String(e.retryAfter)}); throw e; }
-    const actor: Actor = { ...authenticated, label: name };
+    // The sample's label marks demonstration data (§11.3); a client that
+    // claims it, by URL, token label or OAuth name, is attributed apart.
+    const actor: Actor = { ...authenticated, label: name === SAMPLE_AGENT_LABEL ? `${name} (connected)` : name };
     logging.actor(actor);
     const response = await handler.fetch(request, {
       authInfo: { token: presented, clientId: name, scopes: [], extra: { actor } },

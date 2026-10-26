@@ -82,7 +82,7 @@ describe("creating a proposal (spec §8.1)", () => {
   });
 });
 
-describe("ruling (spec §8.2)", () => {
+describe("decision (spec §8.2)", () => {
   test("only the owner rules", () => {
     const id = seeded();
     const pid = createProposal(db, AGENT, id, {
@@ -103,7 +103,7 @@ describe("ruling (spec §8.2)", () => {
     assert.equal(getDeck(db, OWNER, id).cards.find((c) => c.oracle_id === "id-solring")!.slot_id, slot);
     const entry = getLogEntry(db, OWNER, logId)!;
     assert.deepEqual(
-      [entry.kind, entry.ruling_reason, entry.proposal_id, entry.cards[0].reason],
+      [entry.kind, entry.decision_reason, entry.proposal_id, entry.cards[0].reason],
       ["accept", "Yes, obviously.", pid, "Cheap ramp."],
     );
     assert.equal(getProposal(db, OWNER, pid)!.status, "resolved");
@@ -125,10 +125,10 @@ describe("ruling (spec §8.2)", () => {
 
     const history = cardHistory(db, OWNER, id, "id-solring");
     assert.deepEqual(
-      [history[0].kind, history[0].action, history[0].ruling_reason, history[0].reason],
+      [history[0].kind, history[0].action, history[0].decision_reason, history[0].reason],
       ["reject", "add", "Too slow for this list.", "Ramp."],
     );
-    assert.equal(cardHistory(db, OWNER, id, "id-counterspell")[0].ruling_reason, "");
+    assert.equal(cardHistory(db, OWNER, id, "id-counterspell")[0].decision_reason, "");
     assert.equal(getProposal(db, OWNER, pid)!.status, "resolved");
   });
   test("a group is ruled on as a unit", () => {
@@ -174,7 +174,7 @@ describe("ruling (spec §8.2)", () => {
         { action: "cut", oracle_id: "id-counterspell", reason: "Cut." },
       ],
     });
-    // The owner cuts the card by hand before ruling.
+    // The owner cuts the card by hand before decision.
     add(db, id, "id-forest");
     db.prepare("DELETE FROM deck_cards WHERE deck_id = ? AND oracle_id = 'id-counterspell'").run(id);
     assert.throws(() => acceptItems(db, OWNER, pendingItemIds(db, OWNER, pid)), /stale/);
@@ -193,8 +193,8 @@ describe("ruling (spec §8.2)", () => {
   });
 });
 
-describe("rulings and the review queue (spec §8.4)", () => {
-  test("every ruling waits for an agent to read it, with its reason", () => {
+describe("decisions and the review queue (spec §8.4)", () => {
+  test("every decision waits for an agent to read it, with its reason", () => {
     const fresh = testDb();
     const id = newDeck(fresh, "theorycrafted");
     const pid = createProposal(fresh, AGENT, id, {
@@ -204,7 +204,7 @@ describe("rulings and the review queue (spec §8.4)", () => {
     rejectItems(fresh, OWNER, pendingItemIds(fresh, OWNER, pid), "I never play fast mana.");
     const queue = listLog(fresh, OWNER, { unreviewedOnly: true });
     assert.equal(queue.length, 1);
-    assert.equal(queue[0].ruling_reason, "I never play fast mana.");
+    assert.equal(queue[0].decision_reason, "I never play fast mana.");
     assert.equal(queue[0].deck_name, getDeck(fresh, OWNER, id).deck.name);
   });
   test("the inbox lists open proposals across decks", () => {

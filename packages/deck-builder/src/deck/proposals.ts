@@ -1,7 +1,7 @@
 import { priceResolver, type ResolvedPrice } from "../prices.ts";
 import { displayAuthor, requireActor } from "../actor.ts";
 import { requireDeckOwner } from "../actor.ts";
-// Proposals and rulings (spec §8). On a Paper deck an agent changes
+// Proposals and decisions (spec §8). On a Paper deck an agent changes
 // membership only by proposing; the owner rules per item, per group, or on
 // the whole proposal, with an optional free-text reason. There are no reason
 // types and no cap on items.
@@ -12,7 +12,7 @@ import { withTransaction } from "../db.ts";
 import { type Actor, authorOf, isAuthor, requireUi, PermissionError } from "../actor.ts";
 import { lintProse, requireCardById } from "../cards.ts";
 import { recordActivity } from "../activity.ts";
-import { type LogCardInput, rulingReason, writeLog } from "./log.ts";
+import { type LogCardInput, decisionReason, writeLog } from "./log.ts";
 import { type Change, applyChanges } from "./membership.ts";
 import { copyLimit, findDeckCard, requireDeck, requireEditableDeck, requireRevision, listSlots, validateSlotAssignments } from "./service.ts";
 
@@ -99,7 +99,7 @@ export function createProposal(
     if (pending)
       throw new ServiceError(
         `Proposal #${pending.id} already has a pending ${item.action} of ${card.name}. ` +
-          `Wait for the owner's ruling on it.`,
+          `Wait for the owner's decision on it.`,
       );
   }
   if (input.summary) lintProse(db, input.summary);
@@ -246,7 +246,7 @@ export function getProposal(db: Database, actor: Actor, proposalId: number, forW
   return withItems(db, actor, [row])[0];
 }
 
-// ---------- ruling ----------
+// ---------- decision ----------
 
 interface ItemRow {
   id: number;
@@ -266,15 +266,15 @@ const ITEM_ROW = `SELECT pi.id, pi.proposal_id, p.deck_id, pi.action, pi.oracle_
        pi.secondary_slot_ids_json, pi.to_maybe, pi.reason, pi.group_id, pi.status
   FROM proposal_items pi JOIN proposals p ON p.id = pi.proposal_id`;
 
-// The items a ruling covers: the ones named, widened to whole groups — a
+// The items a decision covers: the ones named, widened to whole groups — a
 // group is ruled on as a unit so a swap cannot be half-accepted (spec §8.1).
 function itemsToRule(db: Database, actor: Actor, itemIds: number[]): ItemRow[] {
-  if (!itemIds.length) throw new ServiceError("Name at least one item to rule on");
+  if (!itemIds.length) throw new ServiceError("Name at least one item to decide");
   const byId = new Map<number, ItemRow>();
   for (const id of itemIds) {
     const item = db.prepare(`${ITEM_ROW} WHERE pi.id = ?`).get(id) as ItemRow | undefined;
     if (!item) throw new ServiceError(`Proposal item ${id} not found`, 404);
-    requireDeckOwner(db, actor, item.deck_id, "rule on this proposal");
+    requireDeckOwner(db, actor, item.deck_id, "decide this proposal");
     const proposal = getProposal(db, actor, item.proposal_id)!;
     if (!proposal.is_current) throw new ServiceError(`Proposal #${proposal.id} is ${proposal.disposition === "current" ? proposal.status : proposal.disposition}`);
     const group = item.group_id
@@ -286,12 +286,12 @@ function itemsToRule(db: Database, actor: Actor, itemIds: number[]): ItemRow[] {
   }
   const items = [...byId.values()].sort((a, b) => a.id - b.id);
   if (new Set(items.map((i) => i.proposal_id)).size > 1)
-    throw new ServiceError("Rule on one proposal at a time");
+    throw new ServiceError("Decide one proposal at a time");
   for (const i of items)
     if (i.status !== "pending")
       throw new ServiceError(
         `Item ${i.id} is already ${i.status}` +
-          (i.group_id ? "; its group must be ruled on as a unit" : ""),
+          (i.group_id ? "; its group must be decided as a unit" : ""),
       );
   return items;
 }
@@ -319,9 +319,9 @@ export function acceptItems(
   reason = "",
   options: { expected_revision?: number; acknowledge_stale?: boolean } = {},
 ): number {
-  reason = rulingReason(reason);
+  reason = decisionReason(reason);
   const items = itemsToRule(db, actor, itemIds);
-  requireUi(actor, "rule on a proposal");
+  requireUi(actor, "decide a proposal");
   const deckId = items[0].deck_id;
   requireEditableDeck(db, actor, deckId);
   requireRevision(db, actor, deckId, options.expected_revision);
@@ -352,7 +352,7 @@ export function acceptItems(
       );
     const logId = applyChanges(db, actor, deckId, changes, {
       kind: "accept",
-      ruling_reason: reason,
+      decision_reason: reason,
       proposal_id: items[0].proposal_id,
     });
     markItems(db, actor, items, "accepted");
@@ -370,8 +370,8 @@ export function acceptProposals(
   reason = "",
 ): void {
   requireEditableDeck(db, actor, deckId);
-  requireUi(actor, "rule on proposals");
-  reason = rulingReason(reason);
+  requireUi(actor, "decide proposals");
+  reason = decisionReason(reason);
   withTransaction(db, () => {
     requireRevision(db, actor, deckId, expectedRevision);
     if (!approvals.length || new Set(approvals.map(a => a.proposal_id)).size !== approvals.length)
@@ -394,16 +394,16 @@ export function acceptProposals(
   });
 }
 
-/** Reject items. Nothing changes; the ruling and its optional reason are logged. */
+/** Reject items. Nothing changes; the decision and its optional reason are logged. */
 export function rejectItems(
   db: Database,
   actor: Actor,
   itemIds: number[],
   reason = "",
 ): number {
-  reason = rulingReason(reason);
+  reason = decisionReason(reason);
   const items = itemsToRule(db, actor, itemIds);
-  requireUi(actor, "rule on a proposal");
+  requireUi(actor, "decide a proposal");
   const deckId = items[0].deck_id;
   requireEditableDeck(db, actor, deckId);
 
@@ -425,7 +425,7 @@ export function rejectItems(
           cards.length === 1
             ? `Rejected ${cards[0].action === "add" ? "adding" : "cutting"} ${cards[0].card_name}`
             : `Rejected ${cards.length} proposed changes`,
-        ruling_reason: reason,
+        decision_reason: reason,
         proposal_id: items[0].proposal_id,
       },
       cards,

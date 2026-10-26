@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, TextField } from "../../ui/index.ts";
-import styles from "./RulingControls.module.css";
+import styles from "./DecisionControls.module.css";
 
-export interface RulingControlsProps {
+export interface DecisionControlsProps {
   /** true: show the reason field instead of the two buttons. */
   rejecting: boolean;
   onAccept: () => void;
   onStartReject: () => void;
   onReject: (reason: string) => void;
   onCancelReject: () => void;
-  /** Disables the controls while a ruling is in flight. */
+  /** Disables the controls while a decision is in flight. */
   busy?: boolean;
   /** Show the A / R key hints on the buttons. */
   showKeys?: boolean;
@@ -22,7 +22,7 @@ export interface RulingControlsProps {
  * keystroke away and may be empty, because a reason that costs effort does not
  * get written.
  */
-export function RulingControls({
+export function DecisionControls({
   rejecting,
   onAccept,
   onStartReject,
@@ -32,7 +32,7 @@ export function RulingControls({
   showKeys = false,
   acceptLabel = "Accept",
   rejectLabel = "Reject",
-}: RulingControlsProps) {
+}: DecisionControlsProps) {
   if (rejecting) {
     return <ReasonField busy={busy} label={rejectLabel} onReject={onReject} onCancel={onCancelReject} />;
   }
@@ -69,6 +69,8 @@ function ReasonField({
         ref={input}
         className={styles.reason}
         aria-label="Reason for rejecting, optional"
+        // A sheet opened for the reason focuses it (ui/Dialog).
+        data-autofocus
         placeholder="Why? Optional. The agent reads this next session."
         value={reason}
         disabled={busy}

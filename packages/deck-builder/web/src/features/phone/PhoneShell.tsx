@@ -26,7 +26,7 @@ export function PhoneShell({ route, children }: { route: Route; children: ReactN
           </a>
         </nav>
       </header>
-      <main className={styles.main}>{children}</main>
+      <main id="main-content" tabIndex={-1} aria-label="Your decks and inbox" className={styles.main}>{children}</main>
     </div>
   );
 }

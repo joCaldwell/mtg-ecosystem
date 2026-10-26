@@ -89,8 +89,8 @@
   color: var(--lifecycle-theorycrafted);
 }
 
-.lifecycle[data-lifecycle="legacy"] {
-  color: var(--lifecycle-legacy);
+.lifecycle[data-lifecycle="archived"] {
+  color: var(--lifecycle-archived);
 }
 
 .presence {
@@ -138,4 +138,9 @@
   display: inline-flex;
   flex: none;
   color: var(--faint);
+}
+
+@media (max-width: 959px) {
+  .sidebar { width: 100%; flex: 1; }
+  .nav a, .decks a { min-height: var(--tap); }
 }

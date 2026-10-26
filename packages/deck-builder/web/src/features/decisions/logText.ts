@@ -18,7 +18,7 @@ export function canUndo(entry: LogEntry): boolean {
   );
 }
 
-/** The owner's rulings are written as "owner" (or "owner (from v1)"); anything else is an agent. */
+/** The owner's decisions are written as "owner" (or "owner (from v1)"); anything else is an agent. */
 export function isAgentAuthor(author: string): boolean {
   return !/^owner\b/.test(author);
 }

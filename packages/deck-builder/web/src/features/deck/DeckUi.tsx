@@ -10,7 +10,7 @@ import type { GroupBy } from "../../domain/grouping.ts";
 import type { TagMatch } from "../../domain/deckSearch.ts";
 
 export type PanelTab = "review" | "brief" | "power" | "checks" | "memories" | "history";
-export type DeckDialog = "fork" | "compare" | "interop" | "slots" | "delete" | "share";
+export type DeckDialog = "fork" | "compare" | "interop" | "import" | "slots" | "delete" | "share";
 
 export interface OpenCard {
   oracleId: string;
@@ -122,7 +122,7 @@ export interface DeckUi extends DeckUiState {
   closeDialog: () => void;
 }
 
-const DeckUiContext = createContext<DeckUi | null>(null);
+const DeckUiContext = /* @__PURE__ */ createContext<DeckUi | null>(null);
 
 export function DeckUiProvider({ children }: { children: ReactNode }) {
   const [ui, dispatch] = useReducer(reducer, null, (): DeckUiState => ({
@@ -157,7 +157,7 @@ export function DeckUiProvider({ children }: { children: ReactNode }) {
       setTagIds: (value: number[]) => dispatch({ t: "tagIds", value }),
       setTagMatch: (value: TagMatch) => dispatch({ t: "tagMatch", value }),
       setTagInverted: (value: boolean) => dispatch({ t: "tagInverted", value }),
-      setTab: (value: PanelTab) => dispatch({ t: "tab", value }),
+      setTab: (value: PanelTab) => { dispatch({ t: "tab", value }); window.dispatchEvent(new Event("deck-details")); },
       openCardPanel: (card: OpenCard | null) => dispatch({ t: "openCard", card }),
       toggleSelected: (oracleId: string) => dispatch({ t: "toggleSelected", oracleId }),
       clearSelection: () => dispatch({ t: "clearSelection" }),

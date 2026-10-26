@@ -22,7 +22,7 @@ const SORT_OPTIONS: Array<{ value: SortBy; label: string; title: string }> = [
 
 export function DeckToolbar() {
   const ui = useDeckUi();
-  const readOnly = useDeckState().deck.category === "legacy";
+  const readOnly = useDeckState().deck.category === "archived";
   const { matches } = useSharedDeckView();
   const matchCount = matches.cardIds.size + matches.addIds.size;
   const search = useRef<HTMLInputElement>(null);

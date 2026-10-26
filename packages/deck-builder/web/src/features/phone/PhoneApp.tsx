@@ -17,7 +17,7 @@ export function PhoneApp({ route }: { route: Route }) {
         : route.page === "deck" ? <PhoneDeck deckId={route.deckId} />
         : route.page === "inbox" ? <PhoneInbox />
         : route.page === "missing" || route.page === "shared" || route.page === "user"
-          ? <div className={styles.page}><EmptyState title="There is nothing at this address">Check the link, or go <a href={href({ page: "decks" })}>back to your decks</a>.</EmptyState></div>
+          ? <div className={styles.page}><EmptyState heading="h1" title="There is nothing at this address">Check the link, or go <a href={href({ page: "decks" })}>back to your decks</a>.</EmptyState></div>
           : <LargerScreen route={route} />}
     </PhoneShell>
   );

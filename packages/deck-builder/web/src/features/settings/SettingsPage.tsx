@@ -1,3 +1,4 @@
+import { Advanced, useVoice } from "../../app/Preferences.tsx";
 import { useEffect } from "react";
 import { useSession } from "../../app/Session.tsx";
 import { LegalFooter } from "../auth/index.ts";
@@ -15,6 +16,7 @@ import styles from "./SettingsPage.module.css";
 
 /** Connection details for agents, memory budgets, and card data (spec §10.1, §7.4). */
 export function SettingsPage() {
+  const voice = useVoice();
   const {session} = useSession();
   const settings = useQuery(() => api.getSettings(), []);
   const data = settings.data;
@@ -23,7 +25,7 @@ export function SettingsPage() {
   return (
     <Page
       width="md"
-      header={<PageHeader title="Settings" subtitle="How agents reach this app, and what they are handed when they do." />}
+      header={<PageHeader title="Settings" subtitle={voice("Your account, card prices and optional agent connections.", "How agents reach this app, and what they are handed when they do.")} />}
     >
       {settings.error && !data && <ErrorNote>{settings.error}</ErrorNote>}
       {settings.loading && <Loading />}
@@ -31,7 +33,7 @@ export function SettingsPage() {
         <div className={styles.cards}>
           <AgentConnectionCard agent={data.agent} onChanged={settings.reload} />
           <PriceSourceCard source={data.price_source} onSaved={settings.reload} />
-          <BudgetsCard budgets={data.budgets} onSaved={settings.reload} />
+          <Advanced><BudgetsCard budgets={data.budgets} onSaved={settings.reload} /></Advanced>
           <CardDataCard cards={data.cards} jobs={data.jobs} onChanged={settings.reload} canRefresh={session.mode === "local" || !!session.user?.is_admin} />
           {session.mode === "hosted" && <AccountCard />}
           {session.mode === "hosted" && !!session.user?.is_admin && <AdminCard />}

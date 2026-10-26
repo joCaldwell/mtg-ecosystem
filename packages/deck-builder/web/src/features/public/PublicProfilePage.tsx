@@ -2,7 +2,8 @@
 // nothing else. Unlisted decks are reachable only by their own links.
 
 import { Fragment, useEffect, useState } from "react";
-import { api, ApiError, type PublicProfile } from "../../api/client.ts";
+import { api, ApiError } from "../../api/reader.ts";
+import type { PublicProfile } from "../../api/client.ts";
 import { APP_TITLE, href, useScrollRestore } from "../../app/routes.ts";
 import { DECK_CATEGORY_LABELS } from "../../domain/deckCategory.ts";
 import { ColorIdentity } from "../../mtg/index.ts";
@@ -32,9 +33,9 @@ export function PublicProfilePage({ handle }: { handle: string }) {
 
   return (
     <PublicShell>
-      {error ? <EmptyState title="This profile could not be loaded">{error}</EmptyState>
+      {error ? <EmptyState heading="h1" title="This profile could not be loaded">{error}</EmptyState>
         : profile === null ? <Loading />
-        : profile === "missing" ? <EmptyState title="There is no one with that handle">Check the link, or the person may have deleted their account.</EmptyState>
+        : profile === "missing" ? <EmptyState heading="h1" title="There is no one with that handle">Check the link, or the person may have deleted their account.</EmptyState>
         : (
           <div className={styles.page}>
             <header className={styles.head}>

@@ -1,3 +1,4 @@
+import { useVoice } from "../../app/Preferences.tsx";
 import { useId, useState, type FormEvent } from "react";
 import { api, type DeckCategory, type DeckSummary } from "../../api/client.ts";
 import { DECK_CATEGORY_LABELS, DECK_CATEGORY_OPTIONS } from "../../domain/deckCategory.ts";
@@ -10,6 +11,7 @@ export function DeckActionDialog({ deck, action, onClose, onSaved }: {
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const voice = useVoice();
   const formId = useId();
   const { toast } = useToast();
   const [name, setName] = useState(deck.name);
@@ -68,14 +70,14 @@ export function DeckActionDialog({ deck, action, onClose, onSaved }: {
               <TextField data-autofocus value={name} disabled={busy} onFocus={(e) => e.currentTarget.select()} onChange={(e) => setName(e.target.value)} autoComplete="off" />
             </Field>
           ) : action === "category" ? (
-            <Field label={`Lifecycle for ${deck.name}`} hint="Paper requires agent card proposals; Theorycrafted allows direct agent card edits; Legacy is read-only. Only you can change lifecycle.">
+            <Field label={`Lifecycle for ${deck.name}`} hint={voice("Paper is a deck you play. Theorycrafted is a work in progress. Archived is read-only. Only you can change this.", "Paper requires agent card proposals; Theorycrafted allows direct agent card edits; Archived is read-only. Only you can change lifecycle.")}>
               <Select data-autofocus value={category} disabled={busy} onChange={(e) => setCategory(e.target.value as DeckCategory)}>
                 {DECK_CATEGORY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </Select>
             </Field>
           ) : (
             <>
-              <Text as="p">Delete <strong>{deck.name}</strong>? This permanently removes its list, slots, tags, brief, proposals, rulings and deck-scoped memories. This cannot be undone.</Text>
+              <Text as="p">Delete <strong>{deck.name}</strong>? This permanently removes its list, slots, tags, brief, proposals, decisions and deck-scoped memories. This cannot be undone.</Text>
               <Text as="p" tone="muted">Global memories, fork decks and activity entries remain. Forks lose their link to this deck.</Text>
             </>
           )}

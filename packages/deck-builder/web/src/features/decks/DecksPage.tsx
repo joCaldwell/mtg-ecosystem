@@ -1,3 +1,5 @@
+import { FirstRun } from "./FirstRun.tsx";
+import { useVoice } from "../../app/Preferences.tsx";
 import { familyOrder } from "../../domain/familyOrder.ts";
 import { Fragment, useState } from "react";
 import { api, type DeckSummary } from "../../api/client.ts";
@@ -43,6 +45,8 @@ function Commanders({ deck }: { deck: DeckSummary }) {
 
 /** The roster, spec §9: every deck, how far along it is, and what is waiting on the owner. */
 export function DecksPage() {
+  const voice = useVoice();
+  const [importing, setImporting] = useState(false);
   const decks = useQuery(() => api.listDecks(), []);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<{ deck: DeckSummary; action: DeckAction } | null>(null);
@@ -54,7 +58,12 @@ export function DecksPage() {
       header={
         <PageHeader
           title="All decks"
-          subtitle="Theorycrafted cards are open to agents. Paper cards need your approval. Legacy decks are read-only."
+          subtitle={
+            // Lifecycle words mean nothing before the first deck exists.
+            decks.data && rows.length === 0
+              ? "Your Commander decks, from first idea to the list you play."
+              : voice("Your Commander decks, from first idea to the list you play. Archived decks stay read-only.", "Theorycrafted cards are open to agents. Paper cards need your approval. Archived decks are read-only.")
+          }
           actions={
             <Button onClick={() => setCreating(true)} aria-haspopup="dialog">
               New deck
@@ -68,9 +77,7 @@ export function DecksPage() {
         {decks.loading && <Loading />}
         {decks.data &&
           (rows.length === 0 ? (
-            <EmptyState title="No decks yet">
-              Create one with New deck, or ask a connected agent to build a Theorycrafted deck.
-            </EmptyState>
+            <FirstRun onCreate={() => setCreating(true)} onImport={() => { setImporting(true); setCreating(true); }} />
           ) : (
             <div className={styles.tableWrap}>
               <Table>
@@ -82,7 +89,7 @@ export function DecksPage() {
                     <th>Lifecycle</th>
                     <th>Cards</th>
                     <th>Inbox</th>
-                    <th aria-label="Actions" className={styles.actions} />
+                    <th className={styles.actions}><span className="visually-hidden">Actions</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -124,7 +131,7 @@ export function DecksPage() {
                             {deck.card_count}/100
                           </Text>
                         </td>
-                        <td>{waiting > 0 && <Chip tone={deck.category === "legacy" ? "neutral" : "agent"}>{waiting} {deck.category === "legacy" ? "paused" : "waiting"}</Chip>}</td>
+                        <td>{waiting > 0 && <Chip tone={deck.category === "archived" ? "neutral" : "agent"}>{waiting} {deck.category === "archived" ? "paused" : "waiting"}</Chip>}</td>
                         <td className={styles.actions} onClick={(e) => e.stopPropagation()}>
                           <DeckActions deck={deck} onAction={(action) => setEditing({ deck, action })} />
                         </td>
@@ -135,9 +142,9 @@ export function DecksPage() {
               </Table>
             </div>
           ))}
-        <PlayerStatsPanel />
+        {rows.length > 0 && <PlayerStatsPanel />}
       </div>
-      {creating && <NewDeckDialog onClose={() => setCreating(false)} />}
+      {creating && <NewDeckDialog importAfterCreate={importing} onClose={() => { setCreating(false); setImporting(false); }} />}
       {editing && <DeckActionDialog key={`${editing.deck.id}-${editing.action}`} {...editing} onClose={() => setEditing(null)} onSaved={decks.reload} />}
     </Page>
   );

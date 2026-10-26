@@ -26,9 +26,9 @@
   border-color: transparent;
 }
 
-.lifecycle[data-lifecycle="legacy"] {
-  color: var(--lifecycle-legacy);
-  background: var(--lifecycle-legacy-bg);
+.lifecycle[data-lifecycle="archived"] {
+  color: var(--lifecycle-archived);
+  background: var(--lifecycle-archived-bg);
   border-color: transparent;
 }
 

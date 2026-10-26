@@ -56,9 +56,9 @@ describe("the profile (spec §6)", () => {
     assert.throws(() => ruleDocumentEdit(fresh, OWNER, edit.id, "accept"), /stale/);
     ruleDocumentEdit(fresh, OWNER, edit.id, "accept", "Fair.", { acknowledge_stale: true });
     assert.equal(getProfile(fresh, OWNER).body_md, "Likes long games. Avoids fast mana.");
-    // A profile ruling belongs to no deck and still lands in the review queue.
+    // A profile decision belongs to no deck and still lands in the review queue.
     const [entry] = listLog(fresh, OWNER, { unreviewedOnly: true });
-    assert.deepEqual([entry.deck_id, entry.kind, entry.ruling_reason], [null, "accept", "Fair."]);
+    assert.deepEqual([entry.deck_id, entry.kind, entry.decision_reason], [null, "accept", "Fair."]);
     assert.throws(() => ruleDocumentEdit(fresh, OWNER, edit.id, "reject"), /already accepted/);
   });
   test("a proposed edit needs a reason, and its prose is linted", () => {

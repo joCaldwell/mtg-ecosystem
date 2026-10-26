@@ -1,0 +1,10 @@
+.firstRun { display: grid; gap: var(--s-7); max-width: var(--measure-wide); padding-block: var(--s-7); }
+.firstRun h2 { font-size: var(--text-xl); font-weight: 650; }
+.firstRun h3 { font-size: var(--text-lg); font-weight: 600; }
+.choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-6); }
+.choices > * { display: flex; }
+.choices > * > * { width: 100%; }
+.choices p { flex: 1; }
+.choices button { align-self: flex-start; }
+.link { text-decoration: underline; }
+@media (max-width: 959px) { .choices { grid-template-columns: minmax(0, 1fr); } .choices button { min-height: var(--tap); } }

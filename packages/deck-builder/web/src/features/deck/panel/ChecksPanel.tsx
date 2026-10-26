@@ -7,7 +7,7 @@ import { CardRef, ColorIdentity } from "../../../mtg/index.ts";
 import { Button, Chip, Eyebrow, KeyValue, Text } from "../../../ui/index.ts";
 import { cx } from "../../../ui/internal.ts";
 import type { Finding } from "../../../api/client.ts";
-import { useDeckList } from "../DeckStore.tsx";
+import { useDeckList } from "../DeckListStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import styles from "./ChecksPanel.module.css";
 
@@ -52,7 +52,7 @@ export function ChecksPanel({ checks }: { checks: Finding[] }) {
               </span>
               <div>
                 <div className={styles.title}>
-                  <span className={styles.srOnly}>{f.severity === "error" ? "Error: " : "Warning: "}</span>
+                  <span className="visually-hidden">{f.severity === "error" ? "Error: " : "Warning: "}</span>
                   {f.title}
                 </div>
                 <div className={styles.detail}>

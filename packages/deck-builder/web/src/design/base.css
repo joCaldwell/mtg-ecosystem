@@ -87,3 +87,19 @@ a {
   border-radius: var(--r-md);
   background: #2a2f36;
 }
+
+/* Motion conveys no required state; respect the reader's preference. */
+@media (prefers-reduced-motion: reduce) {
+  :root { --fast: 0ms; }
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+/* Text for assistive technology only: a column header with no visible label,
+   a severity read before a message, the rest of a link's name. The one
+   shared copy; components use className="visually-hidden". */
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.skip-link { position: fixed; top: var(--s-4); left: var(--s-4); z-index: var(--z-toast); padding: var(--s-5); background: var(--raised); color: var(--text); transform: translateY(-200%); }
+.skip-link:focus { transform: none; }
+
+@media (hover: none) {
+  button, select, input:not([type="checkbox"]), a[role="button"] { min-height: var(--tap); }
+}

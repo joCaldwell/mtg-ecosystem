@@ -1,3 +1,5 @@
+import { api } from "../../api/client.ts";
+import { useQuery } from "../../api/useQuery.ts";
 // The deck view. The list is home: the header, the add bar, the proposal
 // banner and the side panel all sit around it and none of them covers it.
 // This file only composes — each region is its own component and reads the
@@ -5,7 +7,7 @@
 // cut across regions.
 
 import { useCallback, useEffect } from "react";
-import { href } from "../../app/routes.ts";
+import { href, navigate } from "../../app/routes.ts";
 import { CardOpenProvider, useCardLookup } from "../../mtg/index.ts";
 import { Banner, Button, EmptyState, Loading, Page, pressesFocusedControl, useHotkeys } from "../../ui/index.ts";
 import { DeckBody } from "./DeckBody.tsx";
@@ -55,7 +57,15 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
   const state = useDeckState();
   const { error, clearError } = useDeck();
   const ui = useDeckUi();
-  const view = useDeckView();
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get("import") === "1") {
+      ui.openDialog("import");
+      navigate({ page: "deck", deckId: state.deck.id }, { replace: true });
+    }
+  }, [ui.openDialog, state.deck.id]);
+  // Only this deck's and the global memories can mark its rows (spec §7.2).
+  const memories = useQuery(() => api.deckMemories(state.deck.id), [state.deck.id]);
+  const view = useDeckView(memories.data ?? undefined);
   const review = useReview(view.units);
   const { lookup, prime } = useCardLookup();
 
@@ -78,13 +88,13 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
     [state.cards, state.proposals, lookup, openCardPanel],
   );
 
-  const pending = state.deck.category !== "legacy" && view.units.length > 0;
+  const pending = state.deck.category !== "archived" && view.units.length > 0;
 
   // Arriving from the inbox: go straight into the review it linked to.
   const { startReview } = ui;
   useEffect(() => {
     if (startInReview && pending) startReview();
-    // Once, on arrival; later rulings must not restart it.
+    // Once, on arrival; later decisions must not restart it.
     // (pending is read at mount only.)
   }, [startInReview, startReview]);
 
@@ -119,12 +129,12 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
               {error}
             </Banner>
           )}
-          {state.deck.category === "legacy" ? <Banner tone="neutral">Legacy deck · read-only. Restore its lifecycle or fork it to make changes.</Banner> : <ProposalBanner units={view.units} review={review} />}
+          {state.deck.category === "archived" ? <Banner tone="neutral" actions={<Button size="sm" onClick={() => ui.openDialog("fork")} aria-haspopup="dialog">Fork</Button>}>Archived decks are read-only. To make changes, switch this deck to Paper or Theorycrafted, or fork it.</Banner> : <ProposalBanner units={view.units} review={review} />}
           <DeckBody
             list={
               <>
                 <DeckList view={view} />
-                {state.deck.category !== "legacy" && <SelectionBar />}
+                {state.deck.category !== "archived" && <SelectionBar />}
               </>
             }
             panel={<DeckPanel view={view} review={review} />}

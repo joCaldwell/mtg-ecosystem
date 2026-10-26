@@ -28,7 +28,7 @@
   text-align: left;
 }
 
-.name:hover {
+button.name:hover {
   color: var(--text-soft);
   text-decoration: underline dotted var(--faint);
   text-underline-offset: 4px;
@@ -77,4 +77,11 @@
 
 .share:hover {
   border-bottom-color: var(--sel);
+}
+
+/* Touch tablets: the header's actions are full tap targets; the list keeps its
+   desktop density (DESIGN.md). */
+@media (pointer: coarse) and (max-width: 1099px) {
+  .stats > a, .stats > button, .stats [aria-haspopup="menu"] { display: inline-flex; align-items: center; min-height: var(--tap); }
+  button.name { min-height: var(--tap); }
 }

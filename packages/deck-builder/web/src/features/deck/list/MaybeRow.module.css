@@ -20,10 +20,6 @@
   font-weight: 600;
 }
 
-.row.muted:not(:hover):not(:focus-within):not(.open) {
-  opacity: var(--filter-muted-opacity);
-}
-
 .row.open {
   background: var(--raised);
   box-shadow: inset 0 0 0 1px var(--line-strong);

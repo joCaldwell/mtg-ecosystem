@@ -23,11 +23,16 @@
   max-width: var(--measure);
 }
 
-/* One and a half measures: wide enough for a table, narrow enough to read. */
 .lg {
-  max-width: calc(var(--measure) * 1.5);
+  max-width: var(--measure-wide);
 }
 
 .full {
   max-width: none;
+}
+
+@media (max-width: 1099px) {
+  .page { height: auto; min-height: calc(100dvh - var(--tablet-bar-h)); }
+  .scroll { overflow: visible; }
+  .content { padding-inline: var(--s-6); }
 }

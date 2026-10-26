@@ -1,6 +1,6 @@
-// Ruling on proposals (spec §8.2). One place for what accept and reject do,
+// Decision on proposals (spec §8.2). One place for what accept and reject do,
 // used by the banner, the keyboard shortcuts and the review panel, so the
-// three cannot drift: the ruling goes to the server, the fresh deck and inbox
+// three cannot drift: the decision goes to the server, the fresh deck and inbox
 // are applied, and the owner is told what happened with a way back.
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
@@ -16,7 +16,7 @@ export interface Review {
   current: ReviewUnit | null;
   confirmation: ReactNode;
   /** The optional reason is recorded with the acceptance (the phone view asks
-   *  for one, §11.2). `onDone` runs only once the ruling has landed, after any
+   *  for one, §11.2). `onDone` runs only once the decision has landed, after any
    *  stale-proposal confirmation, so a reason is never cleared by a failure. */
   accept: (unit: ReviewUnit, reason?: string, onDone?: () => void) => Promise<void>;
   reject: (unit: ReviewUnit, reason: string, onDone?: () => void) => Promise<void>;

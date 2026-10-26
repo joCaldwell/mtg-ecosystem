@@ -11,7 +11,7 @@ export function MaybeRow({ card, slotName, filterMatch }: { card: DeckCard; slot
 
   return (
     <div
-      className={[styles.row, filterMatch === true && styles.match, filterMatch === false && styles.muted, open && styles.open].filter(Boolean).join(" ")}
+      className={[styles.row, filterMatch === true && styles.match, open && styles.open].filter(Boolean).join(" ")}
       data-filter-match={filterMatch}
     >
       <button

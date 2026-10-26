@@ -10,7 +10,7 @@
   background: var(--agent);
 }
 
-.ruling {
+.decision {
   border: 1.5px solid var(--muted);
   border-radius: 50%;
 }
