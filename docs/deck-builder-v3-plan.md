@@ -11,8 +11,16 @@ asking the owner anything.
 and `packages/deck-builder/web/ARCHITECTURE.md`. The spec remains the source of
 truth; every phase that changes behaviour updates the spec in the same PR.
 
-**Status (2026-10-25):** phase 0 merged (PR #3), phase 1 merged (PR #4).
-Next: phase 2, with phase 1b and 4b free to run in parallel worktrees.
+**Status (2026-10-25):** phases 0–2 and 1b merged (PRs #3–6; 1b merge fc24ca8). Phase 3 is deployed
+with the owner's 18 decks and 36 memories; PR #7 awaits owner review/merge.
+Owner claim, claim-code removal, personal-token MCP access, SSE reconnect,
+refresh and bucket restore are verified. Native volume snapshots remain
+blocked by Railway's Pro-only restriction on this Hobby workspace; external
+monitor setup and second-account/client acceptance remain owner steps.
+PR #7 is rebased on fc24ca8; its eventual promotion also migrates production
+from schema 12 to 13 and loads both price stores. Stage that exact SHA first
+and take a fresh production backup immediately before the owner promotes it.
+Remaining feature phases continue in their own worktrees and reach staging first.
 
 ---
 
@@ -182,6 +190,27 @@ volume at `/data` (`DECKBUILDER_DATA=/data`), a Railway bucket for off-volume
 backups, Railway's own volume backups enabled, the Railway-provided domain for
 the beta and a custom domain when the owner supplies one. Staging environment
 mirrors production with its own volume. Hobby plan is sufficient (see review).
+
+Phase 3 deployment decisions (2026-10-25): production follows **`release`**;
+staging follows **`main`**. The owner promotes the explicit staging-verified
+PR #7 merge SHA with `git push origin <verified-merge-sha>:release`, never
+whichever parallel phase happens to be on main. `release`
+was initialized at **`3e1798d`**, the merge of Phase 2 PR #5 and this phase's
+predecessor. Parallel 1b/4a migrations must reach staging before production.
+Exactly **one replica in each environment**: one SQLite writer and in-memory
+rate limits. From go-live the hosted database is the owner's primary copy;
+the untouched local database becomes development data and is never synced
+back over production. The initial deployment packages the Phase 3 container
+and observability assets with that predecessor's product code; after this PR
+merges the owner promotes its merge commit to put those assets on `release`.
+
+Railway's live API rejected daily/weekly native volume backup schedules on
+the owner's Hobby workspace: **"Manual backups and backup schedules are only
+available for Pro workspaces"**. Both environments still have nightly online
+SQLite backups uploaded to their separate Railway buckets. Native snapshots
+remain an explicit owner action requiring a plan upgrade; Phase 3 does not
+silently change the workspace subscription. See OPERATIONS.md for the exact
+enablement procedure and live evidence.
 
 **D13. Legal posture.** Free, donations at most, no paid tiers (WotC Fan
 Content Policy). Public deck pages and card search work with no account.

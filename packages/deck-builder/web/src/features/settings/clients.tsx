@@ -30,7 +30,16 @@ export function clientConfigs(url: string, token: string, stdio: string | undefi
       parts: [
         {
           label: "Claude Code command",
-          code: `claude mcp add --transport http deck-builder ${url}/claude-code --header "Authorization: Bearer ${token}"`,
+          // Keep the bearer out of argv/history/config. The client expands the
+          // literal environment reference when it connects (vendor docs in ops).
+          code: [
+            "printf 'Paste the token from Settings: '",
+            "read -rs DECKBUILDER_TOKEN",
+            "printf '\\n'",
+            "export DECKBUILDER_TOKEN",
+            `claude mcp add-json deck-builder '${JSON.stringify({ type: "http", url: `${url}/claude-code`, headers: { Authorization: "Bearer ${DECKBUILDER_TOKEN}" } })}'`,
+            "# Launch Claude Code from this environment; keep the variable set.",
+          ].join("\n"),
         },
         {
           prose: (

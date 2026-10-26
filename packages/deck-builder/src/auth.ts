@@ -14,6 +14,7 @@ import { RESERVED_HANDLES } from "./handles.ts";
 import { consentIdentity } from "./oauth-policy.ts";
 import { fetchClientMetadata } from "./cimd-transport.ts";
 import { publicOrigin } from "./mode.ts";
+import { logging } from "./logging.ts";
 
 const digest = (s: string) => createHash("sha256").update(s).digest();
 const equalCode = (a: string, b: string) => timingSafeEqual(digest(a), digest(b));
@@ -80,7 +81,7 @@ export function createHostedAuth(db: Database, env = process.env, metadataFetch 
       } catch (e) { throw new APIError("FORBIDDEN", { message: e instanceof ServiceError ? e.message : "Account registration failed" }); }
       return { data: { ...user, id } };
     },
-    after: async user => { if (claims.delete(user.id)) console.log("[auth] Owner account claimed; you may now remove DECKBUILDER_CLAIM_CODE."); },
+    after: async user => { if (claims.delete(user.id)) logging.event("owner_claimed", { user_id: 1, action: "Remove DECKBUILDER_CLAIM_CODE and redeploy" }); },
   } }, session: { create: { before: async session => {
     if (!db.prepare("SELECT 1 FROM users WHERE auth_id=? AND deleted_at IS NULL").get(session.userId)) return false;
   } } } };

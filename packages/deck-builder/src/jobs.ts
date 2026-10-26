@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { Database } from "./sqlite.ts";
 import { DATA_DIR, DEFAULT_DB_PATH, PKG_ROOT, withTransaction } from "./db.ts";
+import { logging } from "./logging.ts";
 
 export type JobName = "refresh" | "backup";
 export interface JobRun {
@@ -36,14 +37,20 @@ export async function runJob<T>(db: Database, name: JobName, work: () => Promise
   const release = acquireJobLock(db);
   const run: JobRun = { last_run: new Date().toISOString(), finished_at: null, result: "running" };
   try {
+    const previous = read(db, `job:${name}`);
+    const last = previous ? JSON.parse(previous) as JobRun : null;
+    if (!read(db, `job:${name}:last_success`) && last?.result === "success" && last.finished_at)
+      write(db, `job:${name}:last_success`, last.finished_at);
     write(db, `job:${name}`, JSON.stringify(run));
     const result = await work();
     run.result = "success";
+    write(db, `job:${name}:last_success`, new Date().toISOString());
     return result;
   } catch (e) {
     run.result = "error";
     // Do not persist raw SDK errors that can contain credentials or signed URLs.
-    run.error = `${name} failed; see the server/CLI log`;
+    const detail = logging.describeError(e);
+    run.error = `${name} failed (${detail.name}${detail.code ? `/${detail.code}` : ""}); see job_error in the server/CLI log`;
     throw e;
   } finally {
     run.finished_at = new Date().toISOString();
@@ -54,8 +61,8 @@ export async function runJob<T>(db: Database, name: JobName, work: () => Promise
 
 function nextNight(now: number) {
   const date = new Date(now);
-  date.setHours(2, 0, 0, 0);
-  if (date.getTime() <= now) date.setDate(date.getDate() + 1);
+  date.setUTCHours(2, 0, 0, 0);
+  if (date.getTime() <= now) date.setUTCDate(date.getUTCDate() + 1);
   return date.getTime();
 }
 
@@ -76,8 +83,8 @@ export function createJobs(db: Database, opts: {
   };
   const next = (name: JobName) => {
     const last = run(name);
-    if (name === "backup") return last ? nextNight(Date.parse(last.last_run)) : initialNight;
     if (last?.result === "error") return Date.parse(last.last_run) + HOUR;
+    if (name === "backup") return last ? nextNight(Date.parse(last.last_run)) : initialNight;
     if (read(db, "price_stores_version") !== PRICE_STORES_VERSION) return Date.now();
     const dates = [read(db, "last_ingest"), read(db, "prices_as_of")].map(v => v ? Date.parse(v) : 0);
     const freshUntil = Math.min(...dates) + DAY;
@@ -86,7 +93,10 @@ export function createJobs(db: Database, opts: {
   const status = () => ({
     active, queued: [...pending],
     refresh: { last_run: null, result: null, finished_at: null, ...run("refresh"), next_run: new Date(Math.max(Date.now(), next("refresh"))).toISOString() },
-    backup: { last_run: null, result: null, finished_at: null, ...run("backup"), next_run: new Date(Math.max(Date.now(), next("backup"))).toISOString() },
+    backup: { last_run: null, result: null, finished_at: null, ...run("backup"),
+      last_success_at: read(db, "job:backup:last_success") ?? (run("backup")?.result === "success" ? run("backup")!.finished_at : null),
+      stale: (() => { const last = read(db, "job:backup:last_success") ?? (run("backup")?.result === "success" ? run("backup")!.finished_at : null); return !last || !Number.isFinite(Date.parse(last)) || Date.now() - Date.parse(last) > 36 * HOUR; })(),
+      next_run: new Date(Math.max(Date.now(), next("backup"))).toISOString() },
   });
   function pump() {
     if (stopped || active || !pending.size) return;
@@ -96,15 +106,17 @@ export function createJobs(db: Database, opts: {
     pending.delete(name);
     active = name;
     const lastRun = new Date().toISOString();
-    let finished = false;
+    let finished = false, errorLogged = false;
     const finish = async (code: number | null, error?: Error) => {
       if (finished) return;
       finished = true;
       if (code !== 0) {
-        const persist=()=>write(db, `job:${name}`, JSON.stringify({ last_run: lastRun, finished_at: new Date().toISOString(), result: "error", error: error?.message ?? `Child exited ${code}` }));
+        if (!errorLogged) logging.event("job_error", { level: "error", job: name,
+          error: error ? logging.describeError(error) : { name: "ChildProcessError", code: `EXIT_${code ?? "UNKNOWN"}`, stack: "" } });
+        const persist=()=> { const previous = run(name); if (previous?.result !== "error" || Date.parse(previous.last_run) < Date.parse(lastRun)) write(db, `job:${name}`, JSON.stringify({ last_run: lastRun, finished_at: new Date().toISOString(), result: "error", error: error ? `Child process failed (${logging.describeError(error).name})` : `Child exited ${code}` })); };
         if(opts.writeFailure) await opts.writeFailure(persist);else persist();
       }
-      console.log(`Job ${name} finished (${code ?? "error"})`);
+      logging.event("job_finished", { job: name, status: code ?? "error" });
       active = null; child = null;
       opts.onChange?.();
       pump();
@@ -114,11 +126,27 @@ export function createJobs(db: Database, opts: {
         cwd: PKG_ROOT, env: { ...process.env, DECKBUILDER_DB: opts.dbPath ?? DEFAULT_DB_PATH, DECKBUILDER_DATA: opts.dataDir ?? DATA_DIR },
         stdio: ["ignore", "pipe", "pipe"],
       });
-      child.stdout?.on("data", chunk => process.stdout.write(chunk));
-      child.stderr?.on("data", chunk => process.stderr.write(chunk));
-      child.once("error", error => { void finish(null,error).catch(()=>console.error("Could not record failed job")); });
-      child.once("close", code => { void finish(code).catch(()=>console.error("Could not record failed job")); });
-    } catch (error) { void finish(null,error as Error).catch(()=>console.error("Could not record failed job")); }
+      const buffers = { stdout: "", stderr: "" };
+      const output = (stream: "stdout" | "stderr", chunk: Buffer) => {
+        if (process.env.DECKBUILDER_MODE !== "hosted") { process[stream].write(chunk); return; }
+        buffers[stream] = (buffers[stream] + chunk.toString("utf8")).slice(-65536);
+        let end: number;
+        while ((end = buffers[stream].indexOf("\n")) >= 0) {
+          const line = buffers[stream].slice(0, end); buffers[stream] = buffers[stream].slice(end + 1);
+          try {
+            const record = JSON.parse(line);
+            if (!errorLogged && record.event === "job_error" && record.error && typeof record.error === "object") {
+              logging.event("job_error", { level: "error", job: name, error: logging.describeError(record.error) });
+              errorLogged = true;
+            }
+          } catch { /* arbitrary child output is never forwarded in hosted mode */ }
+        }
+      };
+      child.stdout?.on("data", chunk => output("stdout", chunk));
+      child.stderr?.on("data", chunk => output("stderr", chunk));
+      child.once("error", error => { void finish(null,error).catch(()=>logging.event("job_record_failed", { level: "error", job: name })); });
+      child.once("close", code => { void finish(code).catch(()=>logging.event("job_record_failed", { level: "error", job: name })); });
+    } catch (error) { void finish(null,error as Error).catch(()=>logging.event("job_record_failed", { level: "error", job: name })); }
     opts.onChange?.();
   }
   const enqueue = (name: JobName) => { if (active !== name) pending.add(name); pump(); return status(); };

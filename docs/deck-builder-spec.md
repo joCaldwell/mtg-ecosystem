@@ -118,7 +118,9 @@ and the playbook forbids storing them.
 **Source:** Scryfall bulk data, the `oracle-cards` file: one entry per unique
 card, not per printing.
 
-- SQLite, with an FTS5 index over name and oracle text. The server schedules a refresh child process daily and on boot when stale, retrying failed refreshes one hour after their last run; the CLI runs the same operation. Settings enqueues it and returns immediately. A shared timestamped lease prevents overlapping refresh/backup jobs; leases expire after two hours. Job result, last run and next run appear in Settings.
+- SQLite, with an FTS5 index over name and oracle text. The server schedules a refresh child process daily and on boot when stale, retrying failed refreshes one hour after their last run; the CLI runs the same operation. Settings enqueues it and returns immediately. A shared timestamped lease prevents overlapping refresh/backup jobs; leases expire after two hours. Job result, last run and next run appear in Settings. Backups retry after
+one hour on failure and expose last_success_at plus a 36-hour stale flag in
+admin job status, without expanding public health.
 - Oracle data is streamed and staged on disk, then upserted in savepoint batches of roughly 500. Malformed input and a file with fewer than 90% of the currently active cards are refused before publishing. Missing IDs become `retired=1`, preserving exact resolution, references, history and images. General search excludes retired IDs; a named deck may still find retired cards it holds, and its checks flag “retired printing/oracle id”. Returning IDs are reactivated. Retired rows are excluded from the next truncation threshold.
 - The per-instance oracle cache lives under `DATA_DIR/.scryfall-cache`, reused for 24 hours. The Settings path never forces a download; CLI `--force` remains available. All connections wait up to five seconds for SQLite locks. Refresh and nightly backup run outside the serving event loop; see `packages/deck-builder/OPERATIONS.md`.
 - Keyed on `oracle_id` internally.
@@ -957,6 +959,74 @@ Checked on 2026-10-25, v3 Phase 1 identity foundation:
   Settings layouts were inspected. The owner’s live database, token file
   and client configurations were not changed. Vite production build passes.
 
+Checked on 2026-10-25, v3 Phase 3 private beta deployment:
+
+- The repo-root Docker build uses `node:26-slim`, a selected npm workspace,
+  Vite assets and production-only runtime dependencies. Railway's root-owned
+  volume is prepared by a startup helper; the serving Node PID and its jobs
+  run as UID/GID 1000. Production follows `release` initialized at Phase 2's
+  merge `3e1798d`; staging follows `main`. One replica per environment.
+- A read-only online backup of the owner's schema-10 database migrated to
+  schema 12 on production: **18 decks and 36 memories preserved**, zero FK
+  errors, no legacy token file transferred. Production becomes primary at
+  go-live; local data is an unchanged development copy.
+- A forced production refresh completed in **15.14 s**, child peak
+  **264.10 MiB**, with **148/148** concurrent health probes passing and no
+  server restart. A **73,711,616-byte** online backup reached the Railway
+  bucket and was downloaded and restored into staging in **4.961 s** for
+  the restore/open step: the same 18 decks, 36 memories and schema 12.
+  Both exact deployments reached `SUCCESS` and passed Railway healthchecks.
+- A real internal probe with Railway's healthcheck Host and a wrong Origin
+  returned only `{ok:true,schema_version:12}`, with no cookies. A temporary
+  live staging ingress probe confirmed X-Real-IP matched the caller's public
+  IPv4, and spoofed client forwarding headers were overwritten. XFF's last
+  hop was a proxy. Real IPv6 ingress remains unverified.
+- Live Discord sign-in issued a Secure, HttpOnly, SameSite=Lax state cookie
+  behind Railway TLS. Request/tool JSON logs correlate generated request IDs
+  with resolved Actors and omit credentials, bodies, queries and tool data;
+  error logs contain stack frames without potentially sensitive messages.
+  All **961 tests** and both typechecks pass. OPERATIONS.md records commands,
+  deployment IDs and the claim lifecycle. The real owner then signed in and
+  confirmed all decks; user 1 is claimed as `jcaldwell`, with all 18 decks and
+  36 memories. The claim variable was removed and deployment
+  `b7c4ec34-dc77-47e5-acc4-ab8bbc34d235` reached SUCCESS without it. A temporary
+  personal token called `start_session` through the official MCP client from
+  the owner machine; authenticated SSE disconnected/reconnected across the
+  deployment and retained user 1. Temporary test credentials were revoked/removed.
+- The $25 workspace soft spending alert is configured. Railway rejected
+  native daily/weekly volume backups as Pro-only on this Hobby workspace;
+  the runbook explicitly records that unsatisfied redundancy requirement
+  and the owner upgrade/enablement steps. Nightly SQLite bucket backups are
+  configured and real bucket recovery was tested. External uptime monitor
+  setup remains an owner step because no monitor credentials were supplied.
+
+Round-1 Phase 3 review (2026-10-26 UTC), rebased on phase 1b **fc24ca8**:
+
+- Process locks record hostname, reclaim a previous container's reused PID 1
+  and still exclude live same-host operations. The real PID-namespace kill/
+  restart regression passes. Railway has a 30-second drain and a root tsconfig
+  watch path, verified in staging before the identical config-only production
+  patch (`skipDeploys:true`); production code is unchanged until owner promotion.
+- Build context is verified using Moby's actual matcher; explicit COPYs exclude
+  data/credentials. The final image copies nested workspace dependencies and
+  resolves every runtime import/exact pin, including jose 6.2.3; Node is pinned
+  by digest. Hosted job errors preserve redacted name/code/frames, backup failures
+  retry hourly, and admin status exposes backup age without public-health data.
+- Snapshots have unique UTC timestamp/UUID keys. Successful uploads retain 14
+  daily and six monthly recovery points plus the latest upload; upload/list
+  failures never prune. Archive keys are excluded, and no live bucket object
+  was deleted in this review. Privacy describes that policy and operational logs.
+- Staging successfully migrated v12→v13 and automatically loaded both stores:
+  33,327 TCGplayer/USD and 33,092 Cardmarket/EUR quotes; user 1's 18 decks,
+  36 memories, row fingerprints and per-deck USD totals stayed unchanged.
+  Both claim variables are removed. The read-only credential audit and exact
+  historical internal-adapter/HMAC smoke method are documented; future smoke
+  tests require owner-minted Settings tokens, never operator-made sessions.
+- The rebased gate passes **1003 tests** and both typechecks. Promotion must
+  use the verified #7 merge SHA and a fresh immutable post-claim v12 snapshot
+  immediately beforehand, because production still runs v12 and this promotion
+  includes v13. OPERATIONS documents old-variable rollback and schema refusal.
+
 ## 16. Not verified
 
 Ownership-aware sourcing and proposal cleanup were added on 2026-10-15.
@@ -977,7 +1047,7 @@ future v3 phases, not verified features. What has not been checked:
   live-data tool transcript for a second EUR user (start_session, get_deck,
   eur<=1 search) and verified USD isolation for user 1; it does not establish
   how agents use those prices over a full deck-building conversation.
-- ChatGPT on the web or phone. Its servers cannot reach a loopback address. The route is OpenAI's Secure MCP Tunnel running the stdio shim; the Settings page gives the commands from OpenAI's guide, but they have not been run, because they need a tunnel created in the owner's OpenAI Platform organization.
+- Claude.ai/ChatGPT web connector interoperability with the live hosted service. Hosted HTTPS OAuth/CIMD and consent are configured; completing these client connections remains owner testing. Remote clients cannot reach the local loopback instance.
 - The evaluation was run once per task, on one model, with tasks written by the same hand as the tools. It shows the interface works; it does not measure how often.
 
 
@@ -1205,7 +1275,14 @@ token/client identifiers survive on those records. Write no activity afterwards.
 Shared card/price/job data remain.
 A sqlite_master inventory test verifies every tenant table participates, so
 a new table cannot silently escape export/deletion. Backups expire under
-14-day local retention; off-box retention follows bucket policy. The last
+14 local snapshots; bucket retention keeps the newest snapshot
+for each of the last 14 UTC days and six UTC months, plus the latest upload.
+Retention runs after successful upload/listing and excludes `archive/`, including
+deliberate pre-change recovery snapshots and the owner-only pre-launch quarantine.
+The operator manually reviews pre-change archives after at least 30 days,
+verified recovery and an independent backup; never while old-schema rollback
+is still needed. Operational request/tool logs omit sensitive
+payloads; Railway Hobby exposes a seven-day log window. The last
 admin cannot delete their account because nobody would remain to manage
 invites/jobs; Settings explains why.
 

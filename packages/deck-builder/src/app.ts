@@ -72,6 +72,7 @@ import { SearchError, search } from "./search/index.ts";
 import { deckState } from "./state.ts";
 import { getPlaytest, startPlaytest, changePlaytest, savePlaytestUi, saveObservation, tableCard } from "./playtest/service.ts";
 import { playerStats } from "./stats.ts";
+import { logging } from "./logging.ts";
 
 export const APP_VERSION = "2.0.0";
 const WEB_DIST = join(PKG_ROOT, "web", "dist");
@@ -541,7 +542,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
 
   const gate=databaseGate(db);
   const withDatabase = <T>(work:()=>T|Promise<T>):Promise<T> => mode === "hosted" ? gate.run(work) : Promise.resolve(work());
-  const server: Server = createServer(async (req, res) => {
+  const server: Server = createServer((req, res) => logging.request(req, res, async () => {
     securityHeaders(res,mode);
     if(mode === "hosted")res.setHeader("Cache-Control","no-store");
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -590,6 +591,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
       return await withDatabase(async () => {
       if (req.method === "GET" && url.pathname === "/api/session") {
         const sessionActor = await resolveActor(req,mode);
+        logging.actor(sessionActor);
         const providers = [process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET ? "discord" : null, process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET ? "google" : null].filter(Boolean);
         if (mode === "hosted" && !sessionActor) rateLimit("unauthenticated",clientIp(req));
         return json(200,{mode,providers,legal:auth?.legal ?? null,invites_required:auth?.invitesRequired ?? true,user:sessionActor ? accountInfo(db,sessionActor) : null});
@@ -600,6 +602,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
       // Health contains shared facts only; every other API/event request needs a principal.
       const actor = url.pathname === "/api/health" ? localActor() :
         await resolveActor(req,mode);
+      logging.actor(actor);
       if (mode === "hosted") {
         if (!actor || url.pathname === "/api/health") rateLimit("unauthenticated",clientIp(req));
         else {
@@ -653,13 +656,13 @@ export function createApp(db: Database, opts: AppOptions = {}) {
       json(404, { error: `Not found: ${req.method} ${url.pathname}` });
       });
     } catch (e: any) {
+      logging.error(e);
       if (res.headersSent) return void res.end();
       if (e instanceof RateLimitError) res.setHeader("Retry-After",String(e.retryAfter));
       if (e instanceof AppError) return json(e.status, { error: e.message });
-      console.error(e);
       json(500, { error: "Internal error" });
     }
-  });
+  }));
 
   return {
     server,
