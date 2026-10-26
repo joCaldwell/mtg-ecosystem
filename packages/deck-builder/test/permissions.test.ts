@@ -28,6 +28,7 @@ import * as state from "../src/state.ts";
 import * as playtest from "../src/playtest/service.ts";
 import * as search from "../src/search/index.ts";
 import * as tokens from "../src/tokens.ts";
+import * as prices from "../src/prices.ts";
 import { PKG_ROOT, getSetting, setSetting } from "../src/db.ts";
 import { TOOLS, callTool } from "../src/mcp/tools.ts";
 import { testDb } from "./helpers.ts";
@@ -280,7 +281,9 @@ function assertPublicShape(shared: state.PublicDeckState, published: boolean) {
   assert.ok(shared.cards.every(c=>c.maybe_note===""),"shortlist notes stay private");
   assert.deepEqual(shared.tags,[],"tags are sourcing and ownership notes");assert.ok(shared.cards.every(c=>c.tag_ids.length===0));
   assert.ok(!shared.checks.some(f=>f.key.startsWith("power_")),"power findings read assessments that may be an agent's");
-  assert.deepEqual(shared.computed.pending,{adds:0,cuts:0,projected_count:shared.computed.card_count,by_slot:{}},"pending proposals leave no trace");
+  const cost=shared.computed.cost;
+  assert.deepEqual(shared.computed.pending,{adds:0,cuts:0,projected_count:shared.computed.card_count,by_slot:{},
+    projected_cost:cost,cost_delta:{...cost,cents:0,unpriced:0}},"pending proposals leave no trace");
   const text=JSON.stringify(shared);
   for(const secret of PRIVATE_TEXT) assert.ok(!text.includes(secret),`public state leaks "${secret}"`);
   for(const key of ["user_id","author","author_label","author_display","author_via","author_user_id","id","revision","proposal_id","document_edit_id","memories","proposals","document_edits","log"])
@@ -430,6 +433,29 @@ test("public checks carry no power findings from an agent's assessment (review S
     assert.ok(!shared.checks.some(f=>f.key.startsWith("power_")));
     assert.ok(!JSON.stringify(shared).includes("cEDH"));
     assert.ok(!callTool({db:f.db,actor:agent("other",2)},"get_deck",{deck:slugOf(t)}).text.includes("cEDH"));
+  } finally {f.db.close();}
+});
+
+test("a shared deck is priced for its viewer: their own choice, else USD/lowest, never the owner's (plan §4, D18)",()=>{
+  const f=fixture();
+  try {
+    const t=f.targets.find(t=>t.ui.user_id===1&&t.category==="paper")!;
+    f.db.prepare("DELETE FROM card_prices WHERE oracle_id='id-forest'").run();
+    f.db.prepare("INSERT INTO card_prices(oracle_id,store,currency,cents,set_code,collector_number,finish) VALUES ('id-forest','tcgplayer','USD',10,'tst','1','nonfoil'),('id-forest','cardmarket','EUR',7,'tst','1','nonfoil')").run();
+    share(f.db,t,"public");
+    prices.setPriceSource(f.db,t.ui,{currency:"EUR",store:"lowest"});
+    const anonymous=state.publicDeckState(f.db,null,slugOf(t)).price;
+    assert.deepEqual([anonymous.currency,anonymous.total_cents],["USD",70],"anonymous: USD/lowest, 7 Forests at 10¢");
+    const second=f.users[1];
+    assert.equal(state.publicDeckState(f.db,second,slugOf(t)).price.currency,"USD","another viewer's default, not the owner's EUR");
+    prices.setPriceSource(f.db,second,{currency:"EUR",store:"cardmarket"});
+    const eur=state.publicDeckState(f.db,second,slugOf(t));
+    assert.deepEqual([eur.price.currency,eur.price.store,eur.price.total_cents],["EUR","cardmarket",49]);
+    assert.ok(eur.cards.filter(c=>c.oracle_id==="id-forest").every(c=>c.currency==="EUR"&&c.cents===7),"card prices follow the viewer too");
+    assert.equal(state.publicDeckState(f.db,t.ui,slugOf(t)).price.currency,"EUR","the owner previews in their own choice");
+    // 1b's price capabilities with no caller: the anonymous default, and no write.
+    assert.deepEqual(prices.getPriceSource(f.db,null),{currency:"USD",store:"lowest"});
+    assert.throws(()=>prices.setPriceSource(f.db,null,{currency:"EUR",store:"lowest"}),{status:401});
   } finally {f.db.close();}
 });
 

@@ -74,7 +74,7 @@ The auth CLI is an offline schema-generation tool, not a runtime dependency. Pre
 src/
   errors.ts          AppError base — every user-facing failure carries its HTTP status
   actor.ts           Actor with principal; requireDeckOwner, requireSelf, requireUi, PermissionError
-  db.ts              ordered migrations through v13, nested savepoints, per-user settings
+  db.ts              ordered migrations through v14, nested savepoints, per-user settings
   cards.ts           ⭐ exact card resolution, suggestions, prose linting
   ingest.ts          Scryfall bulk → SQLite            search/  Scryfall-syntax subset
   prices.ts          actor-scoped estimates per store and personal price source (spec §4.4)

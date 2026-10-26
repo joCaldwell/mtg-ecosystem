@@ -30,7 +30,7 @@ export function CardSheet({ card, onClose, sheet = false }: { card: CardInfo; on
           <div className={styles.type}>
             {card.type_line}
             {pt && <span className={styles.pt}>{pt}</span>}
-            <span className={styles.price}><Price cents={card.usd_cents} /></span>
+            <span className={styles.price}><Price currency={card.currency} cents={card.cents} /></span>
           </div>
           <OracleText text={card.oracle_text} bare />
         </div>

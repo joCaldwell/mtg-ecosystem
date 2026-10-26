@@ -228,7 +228,7 @@ printing rules. Price is on by default for agents; budgets belong in briefs.
 Public pages call `priceResolver(db, viewer | null)`: the signed-in
 viewer's choice, or explicit USD/lowest for anonymous readers without reading
 any principal's settings (v3 plan §4). They never use the deck owner's actor.
-Phase 4a owns wiring PublicDeckState if it lands after Phase 1b.
+Phase 4a wires this into `PublicDeckState` (§18.3): `getDeck` prices for the viewer there and counts nothing pending.
 Every shown total is labelled an estimate with store/date. Scryfall warns
 bulk prices are dangerously stale after 24 hours: these are general
 estimates, never live offers. No history, collection, buy links, foil-only
@@ -1537,7 +1537,7 @@ the plan left open.*
 > brief and engines; never memories, ownership evidence, assessments or
 > unpublished log entries.
 
-Schema 13 adds exactly those columns, plus the fork lineage snapshot
+Schema 14 (following phase 1b's 13) adds exactly those columns, plus the fork lineage snapshot
 (`decks.parent_owner_handle`, `parent_slug`, `parent_name`, §18.4) and
 `cards.artist` (§18.5). `accept_suggestions` has no setter until phase 5.
 
@@ -1610,7 +1610,9 @@ composite:
   changed since. No attribution on either, and agent assessments never
   appear.
 - `price { total_cents, currency, store, unpriced, as_of, source: "Scryfall" }`.
-  Until phase 1b lands this is today's single price: `USD` and `tcgplayer`.
+  Priced for the viewer (D18): a signed-in viewer's own currency and store,
+  else `USD`/`lowest`; never the owner's choice. Each card's price follows the
+  same choice, and `computed.cost` is the same total.
 - `decisions` only when `publish_decisions = 1`: the newest 100 log entries
   that are not hidden (an undo of a hidden entry is hidden with it), each
   with its kind, a summary the app writes from the cards it moved, the
@@ -1655,7 +1657,7 @@ so a cross-owner parent's rulings never reach the fork.
   source, store and date, and the decisions log when published. The header
   carries the first commander's stored art crop with "Art by …" from
   `cards.artist`; with no stored artist (a database not refreshed since
-  schema 13) the art is left out rather than shown uncredited. Cards stay
+  schema 14) the art is left out rather than shown uncredited. Cards stay
   text rows; tapping one opens its card sheet, as hover does on desktop.
 - **Actions:** Copy link and Export (Archidekt text, no account) for anyone;
   Fork and Compare with one of my decks when signed in. In local mode the

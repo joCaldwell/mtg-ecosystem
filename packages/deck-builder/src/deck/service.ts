@@ -814,12 +814,15 @@ export interface DeckCardView extends ResolvedPrice {
   tag_ids: number[];
 }
 
-export function getDeck(db: Database, actor: Actor, deckId: number) {
+/** `opts` serve the public projection (§18.3): price for the viewer, not the
+ * owner (null is anonymous USD/lowest), and count nothing pending, so a
+ * shared deck's computed state carries no trace of proposals. */
+export function getDeck(db: Database, actor: Actor, deckId: number, opts: { pricesFor?: Actor | null; withoutPending?: boolean } = {}) {
   const deck = requireDeck(db, actor, deckId);
   const slots = listSlots(db, actor, deckId);
   const tags = listTags(db, actor, deckId);
 
-  const prices = priceResolver(db, actor);
+  const prices = priceResolver(db, "pricesFor" in opts ? opts.pricesFor ?? null : actor);
   const cards = prices.resolve(db
     .prepare(
       `SELECT c.oracle_id, c.name, c.mana_cost, c.cmc, c.type_line, c.oracle_text,
@@ -851,7 +854,7 @@ export function getDeck(db: Database, actor: Actor, deckId: number) {
   }
   for (const card of cards) card.secondary_slot_ids = secondaryByCard.get(card.oracle_id) ?? [];
 
-  const pendingItems = prices.resolve(db
+  const pendingItems = opts.withoutPending ? [] : prices.resolve(db
     .prepare(
       `SELECT pi.oracle_id, pi.action, pi.to_maybe, pi.slot_id, dc.slot_id AS current_slot_id,
               dc.maybe AS current_maybe, dc.role AS current_role

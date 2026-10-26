@@ -71,12 +71,12 @@ export function publicDeckState(db: Database, viewer: Actor | null, slug: string
   // The owner's read functions, read-only, for the owner's own deck; only the
   // projection below leaves this function.
   const reader: Actor = { user_id: row.user_id, via: "ui", label: "ui" };
-  const view = getDeck(db, reader, row.id);
+  // Priced as the viewer would see any card: their own choice when signed in,
+  // else USD/lowest (plan §4, D18); counted with nothing pending.
+  const view = getDeck(db, reader, row.id, { pricesFor: viewer, withoutPending: true });
   const brief = getBrief(db, reader, row.id);
   const power = getPower(db, reader, row.id);
   const owner = db.prepare("SELECT handle, display_name FROM users WHERE id = ?").get(row.user_id) as { handle: string; display_name: string };
-  // Computed as if nothing were pending, so proposals leave no trace.
-  const computed = { ...view.computed, pending: { adds: 0, cuts: 0, projected_count: view.computed.card_count, by_slot: {} as Record<number, number> } };
   const ownAssessment = power.history.find(a => a.author_via === "ui" && a.author_user_id === row.user_id) ?? null;
   const editKind = new Map((db.prepare("SELECT id, kind FROM document_edits WHERE deck_id = ?").all(row.id) as { id: number; kind: string }[]).map(r => [r.id, r.kind]));
   // An undo of a hidden entry repeats it, so it is hidden with it.
@@ -112,18 +112,18 @@ export function publicDeckState(db: Database, viewer: Actor | null, slug: string
       } : null,
     },
     price: {
-      total_cents: view.computed.cost.usd_cents,
-      currency: "USD" as const,
-      store: "tcgplayer" as const,
+      total_cents: view.computed.cost.cents,
+      currency: view.computed.cost.currency,
+      store: view.computed.cost.store,
       unpriced: view.computed.cost.unpriced,
       as_of: view.computed.cost.as_of,
-      source: "Scryfall" as const,
+      source: view.computed.cost.source,
     },
     ...(log ? { decisions: log.map((e): PublicDecision => ({
       kind: e.kind, summary: publicSummary(e, e.document_edit_id == null ? null : editKind.get(e.document_edit_id)), reason: e.ruling_reason, by: e.author_via === "ui" ? "owner" : "agent", at: e.ts,
       cards: e.cards.map(c => ({ oracle_id: c.oracle_id, card_name: c.card_name, action: c.action, quantity: c.quantity })),
     })) } : {}),
-    computed,
+    computed: view.computed,
   };
 }
 

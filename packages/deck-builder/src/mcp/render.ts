@@ -444,12 +444,8 @@ export function renderPublicDeck(shared: PublicDeckState, sections: readonly Dec
     const maybe = shared.cards.filter((c) => c.maybe);
     if (maybe.length) out.push(`## Maybe list (${maybe.length}; outside the 100)\n${maybe.map((c) => cardLine(c, { text: withText })).join("\n")}`);
   }
-  if (want.has("state")) {
-    const price = shared.price.as_of
-      ? `- Estimated cost: ${formatUsd(shared.price.total_cents)} at the cheapest printing of each card (${shared.price.source} prices, ${shared.price.store}, ${shared.price.as_of.slice(0, 10)})${shared.price.unpriced ? `; ${shared.price.unpriced} card(s) have no price and are not counted` : ""}`
-      : null;
-    out.push(`## Computed state (the app's counts; do not recount)\n${stateLines({ ...shared, computed: { ...shared.computed, cost: { ...shared.computed.cost, as_of: null } } })}${price ? `\n${price}` : ""}`);
-  }
+  // The cost line names the store and date (D18), priced for this viewer; nothing is pending here.
+  if (want.has("state")) out.push(`## Computed state (the app's counts; do not recount)\n${stateLines(shared)}`);
   if (want.has("checks")) out.push(`## Checks\n${findingLines(shared.checks)}`);
   if (want.has("rulings"))
     out.push(`## The owner's published decisions (newest first)\n${shared.decisions

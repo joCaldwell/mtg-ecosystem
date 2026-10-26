@@ -60,7 +60,7 @@ export function linkPreview(db: Database, viewer: Actor | null, pathname: string
       const commanders = shared.cards.filter((c) => c.role === "commander" && !c.maybe);
       const target = shared.power.target?.mapping;
       const bracket = target?.bracket != null ? `Bracket ${target.bracket}${target.provisional ? " (provisional)" : ""}${target.name ? ` · ${target.name}` : ""} target` : null;
-      // Art only with its credit (D10, §18.5); a database not refreshed since v13 has none.
+      // Art only with its credit (D10, §18.5); a database not refreshed since v14 has none.
       const credited = commanders.find((c) => c.image_art_crop && c.artist);
       const art = credited?.image_art_crop ?? null;
       const artist = credited?.artist ?? null;

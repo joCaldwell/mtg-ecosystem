@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import type { CardInfo } from "../../mtg/index.ts";
 import { CardOpenProvider, CardSheet, InlineText, RichText, useCardLookup } from "../../mtg/index.ts";
 import { bracketLabel } from "../../domain/power.ts";
-import { formatUsd } from "../../domain/price.ts";
+import { formatPrice } from "../../domain/price.ts";
 import { priceSource, type ReadOnlyDeckModel } from "../../domain/readOnlyDeck.ts";
 import { ago } from "../../domain/time.ts";
 import { Chip, Eyebrow, Segmented, Stack, Text } from "../../ui/index.ts";
@@ -99,7 +99,7 @@ function ReadOnlyBody({ model, header, rulings }: ReadOnlyDeckProps) {
             <aside className={styles.aside} aria-label="About this deck">
               <section className={styles.section}>
                 <Eyebrow>Estimated price</Eyebrow>
-                <Text size="xl" mono as="p">{price.as_of ? formatUsd(price.total_cents) : "No prices yet"}</Text>
+                <Text size="xl" mono as="p">{price.as_of ? formatPrice(price.total_cents, price.currency) : "No prices yet"}</Text>
                 <Text size="xs" tone="muted" as="p">
                   Each card at its cheapest playable printing{price.unpriced ? `; ${price.unpriced} card${price.unpriced === 1 ? "" : "s"} without a price ${price.unpriced === 1 ? "is" : "are"} not counted` : ""}. An estimate, not what any copy is worth.
                 </Text>

@@ -53,8 +53,8 @@ export function fromOwner(state: DeckState): ReadOnlyDeckModel {
       assessment: a ? { profile: a.profile, evidence: a.evidence, confidence: a.confidence, notes: a.notes, mapping: a.mapping, stale: a.stale, created_at: a.created_at } : null,
     },
     price: {
-      total_cents: state.computed.cost.usd_cents, currency: "USD", store: "tcgplayer",
-      unpriced: state.computed.cost.unpriced, as_of: state.computed.cost.as_of, source: "Scryfall",
+      total_cents: state.computed.cost.cents, currency: state.computed.cost.currency, store: state.computed.cost.store,
+      unpriced: state.computed.cost.unpriced, as_of: state.computed.cost.as_of, source: state.computed.cost.source,
     },
     decisions: state.log.length
       ? state.log.map((e) => ({

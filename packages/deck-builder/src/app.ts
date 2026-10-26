@@ -496,9 +496,9 @@ export function createApp(db: Database, opts: AppOptions = {}) {
   });
 
   // ---------- card search ----------
-  publicRoute(/^\/api\/resolve$/, (_viewer, _p, _b, url) => {
+  publicRoute(/^\/api\/resolve$/, (viewer, _p, _b, url) => {
     const name = url.searchParams.get("name") ?? "";
-    const matches = priceResolver(db, actor).resolve(cardsNamed(db, name));
+    const matches = priceResolver(db, viewer).resolve(cardsNamed(db, name));
     return { matches, suggestions: matches.length ? [] : suggestNames(db, name) };
   });
   publicRoute(/^\/api\/search$/, (actor, _p, _b, url) => {
