@@ -1558,6 +1558,10 @@ Schema 14 (following phase 1b's 13) adds exactly those columns, plus the fork li
   first time a deck leaves private, unique across all decks, and never
   changed. Going private again keeps it, so re-sharing restores the old
   link; nobody but the owner can read it in between.
+- An unlisted slug is a capability URL, so it never reaches the logs.
+  Request logs write `/d/:value`, `/u/:value` and
+  `/api/public/decks/:value`. A request without a session logs principal
+  `anonymous`, and no address is recorded.
 - `setVisibility` and `setPublishDecisions` are owner-only and human-only
   (`requireDeckOwner` + `requireUi`): publishing is outward-facing, like the
   lifecycle choice, so no agent can do it. `hideLogEntry` (hide or show one

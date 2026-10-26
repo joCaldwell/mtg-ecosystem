@@ -76,3 +76,36 @@ test("request/tool JSON logs correlate resolved principals without credentials, 
     capture.mock.restore();
   }
 });
+
+// Phase 4a: an unlisted deck's slug is a capability URL, and a handle names a
+// person; neither reaches the logs, and a signed-out request is "anonymous".
+import { setVisibility } from "../src/sharing.ts";
+import { newDeck, add } from "./helpers.ts";
+test("shared pages and public routes log :value for slugs and handles, and anonymous for the principal", async () => {
+  const db = testDb();
+  const deck = newDeck(db, "paper", "Logged deck");
+  add(db, deck, "id-forest");
+  const { slug } = setVisibility(db, OWNER, deck, "unlisted");
+  const lines: string[] = [];
+  const originalWrite = process.stdout.write.bind(process.stdout);
+  const capture = mock.method(process.stdout, "write", (chunk: any, ...args: any[]) => {
+    if (typeof chunk !== "string" || !chunk.startsWith('{"ts":')) return (originalWrite as any)(chunk, ...args);
+    lines.push(chunk); return true;
+  });
+  const app = createApp(db, { resolveUiActor: () => null });
+  try {
+    await new Promise<void>(resolve => app.server.listen(0, "127.0.0.1", resolve));
+    const base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+    for (const path of [`/d/${slug}`, `/d/${slug}/`, "/u/owner", `/api/public/decks/${slug}`, `/api/public/decks/${slug}/export`, "/api/public/users/owner", "/api/search?q=SEARCH_SECRET"])
+      await (await fetch(base + path, { headers: { "X-Real-IP": "203.0.113.9" } })).text();
+    const requests = lines.flatMap(l => l.trim().split("\n")).filter(l => l.startsWith('{"ts":')).map(l => JSON.parse(l)).filter(e => e.event === "request");
+    assert.deepEqual(requests.map(e => e.path), ["/d/:value", "/d/:value", "/u/:value", "/api/public/decks/:value", "/api/public/decks/:value/export", "/api/public/users/:value", "/api/search"]);
+    assert.ok(requests.every(e => e.label === "anonymous" && e.user_id === null), "a signed-out request is anonymous");
+    for (const secret of [slug!, "owner", "SEARCH_SECRET", "203.0.113.9", "127.0.0.1"])
+      assert.ok(!lines.join("").includes(secret), `logs disclosed ${secret}`);
+  } finally {
+    await app.close();
+    db.close();
+    capture.mock.restore();
+  }
+});
