@@ -196,7 +196,14 @@ export interface ParsedLine {
   name: string;
   // The line's own [Category] tags, then the section header it sits under.
   categories: string[];
+  /** Read as Moxfield's unlabelled command zone; kept only if the card can be a commander. */
+  guessed_commander?: boolean;
 }
+
+/** A Commander list is a few hundred lines; a paste far past that is not a deck. */
+export const MAX_LIST_LINES = 5000;
+/** The longest card name is 141 characters; a line this long is not a card. */
+export const MAX_LINE_LENGTH = 300;
 
 export interface ParseResult {
   entries: ParsedLine[];
@@ -247,6 +254,11 @@ const COUNT_HEADER = /^([A-Za-z][A-Za-z '\/-]*?)\s*\(\d+\)\s*$/;
 const PRINTING = /\s*\([0-9A-Za-z_]{2,6}\)(\s+[0-9A-Za-z][0-9A-Za-z★†-]*)?\s*$/;
 
 export function parseDeckList(text: string): ParseResult {
+  const lines = text.split(/\r?\n/);
+  // Bounded before any regex runs: the end-anchored patterns below are
+  // quadratic on long runs of whitespace, and nothing here may stall the server.
+  if (lines.length > MAX_LIST_LINES)
+    throw new ServiceError(`A pasted list can have at most ${MAX_LIST_LINES.toLocaleString("en")} lines; this one has ${lines.length.toLocaleString("en")}.`);
   const entries: ParsedLine[] = [];
   const unparsed: Array<{ line_no: number; raw: string }> = [];
   const ignored: ParseResult["ignored"] = [];
@@ -254,6 +266,8 @@ export function parseDeckList(text: string): ParseResult {
   // the next header, not the next blank line — except a Moxfield board, which
   // a blank line ends.
   let section: string | null = null;
+  // The header's own words, for reporting ignored lines ("STICKERS").
+  let sectionLabel = "";
   let skipping = false;
   let board = false;
   let explicitCommandZone = false;
@@ -265,12 +279,16 @@ export function parseDeckList(text: string): ParseResult {
   const blocks: Array<{ labelled: boolean; entries: ParsedLine[] }> = [];
   let printed = 0;
 
-  text.split(/\r?\n/).forEach((raw, i) => {
+  lines.forEach((raw, i) => {
     const lineNo = i + 1;
+    if (raw.length > MAX_LINE_LENGTH) {
+      unparsed.push({ line_no: lineNo, raw: `${raw.slice(0, 80)}…` });
+      return;
+    }
     let line = raw.trim();
     if (!line) {
       if (blocks[block]?.entries.length || blockLabelled) { block++; blockLabelled = false; }
-      if (board) { section = null; board = false; }
+      if (board) { section = null; board = false; sectionLabel = ""; }
       return;
     }
     if (line.startsWith("//") || line.startsWith("#")) return;
@@ -279,6 +297,7 @@ export function parseDeckList(text: string): ParseResult {
     if (header && (SECTIONS.has(key!) || key === ABOUT)) {
       skipping = key === ABOUT;
       section = skipping ? null : SECTIONS.get(key!) ?? null;
+      sectionLabel = header[1];
       board = BOARD_HEADER.test(line);
       if (!board) wordHeaders = true;
       if (section === COMMANDER_CATEGORY) explicitCommandZone = true;
@@ -291,6 +310,7 @@ export function parseDeckList(text: string): ParseResult {
     const counted = line.match(COUNT_HEADER);
     if (counted) {
       section = SECTIONS.get(counted[1].toLowerCase()) ?? null;
+      sectionLabel = counted[1];
       wordHeaders = true;
       if (section === COMMANDER_CATEGORY) explicitCommandZone = true;
       blockLabelled = true;
@@ -366,7 +386,7 @@ export function parseDeckList(text: string): ParseResult {
     for (const c of implied)
       if (!categories.some((own) => own.toLowerCase() === c.toLowerCase())) categories.push(c);
     if (categories.includes(IGNORED_CATEGORY)) {
-      ignored.push({ line_no: lineNo, name, section: header?.[1] ?? sectionName(text, lineNo) });
+      ignored.push({ line_no: lineNo, name, section: sectionLabel });
       return;
     }
     const entry = { line_no: lineNo, raw, quantity, name, categories };
@@ -377,15 +397,25 @@ export function parseDeckList(text: string): ParseResult {
 
   // Moxfield's MTGO and plain-text exports end with the command zone: one or
   // two lines in a final block of their own, after a blank line, under no
-  // header. Only when nothing else in the text names a command zone and the
-  // list uses no word headers, which is how Archidekt marks it.
+  // header. Read that way only when the text has the export's shape: no
+  // command zone named anywhere (header or [Commander]), no word headers
+  // (Archidekt's way of marking one), and a deck of 90–100 cards counting the
+  // block. diffImport then keeps only cards that can be commanders.
   const filled = blocks.filter(Boolean);
   const last = filled.at(-1);
-  if (!explicitCommandZone && !wordHeaders && last && filled.length > 1 && !last.labelled && last.entries.length <= 2)
+  const named = explicitCommandZone || entries.some((e) => e.categories.some((c) => /^commanders?$/i.test(c)));
+  const deckCopies = entries
+    .filter((e) => !e.categories.some((c) => OUTSIDE_CATEGORIES.has(c.toLowerCase())) || last?.entries.includes(e))
+    .reduce((n, e) => n + e.quantity, 0);
+  let guessed = false;
+  if (!named && !wordHeaders && last && filled.length > 1 && !last.labelled && last.entries.length <= 2 && deckCopies >= 90 && deckCopies <= 100) {
+    guessed = true;
     for (const entry of last.entries) {
       entry.categories = entry.categories.filter((c) => !OUTSIDE_CATEGORIES.has(c.toLowerCase()));
       entry.categories.unshift(COMMANDER_CATEGORY);
+      entry.guessed_commander = true;
     }
+  }
 
   const notes: string[] = [];
   if (entries.length && printed >= entries.length * 0.9 && !explicitCommandZone && !entries.some((e) => e.categories.includes(COMMANDER_CATEGORY)))
@@ -393,15 +423,19 @@ export function parseDeckList(text: string): ParseResult {
       "This looks like Moxfield's “Copy for Moxfield” export, which does not mark the commander. " +
         "Set the commander after importing, or paste Moxfield's “Copy Plain Text” export instead: it lists the commander last.",
     );
+  if (guessed && entries.some((e) => e.categories.includes(SIDEBOARD_CATEGORY)))
+    notes.push(
+      "Moxfield keeps a companion under SIDEBOARD:, so sideboard cards go to the maybe list. " +
+        "If one of them is the companion, set it as the companion by hand after importing.",
+    );
   if (ignored.length)
     notes.push(`${ignored.length} line${ignored.length === 1 ? " is" : "s are"} on a board that is not part of a Commander deck (attractions, stickers or contraptions) and ${ignored.length === 1 ? "is" : "are"} left out.`);
   return { entries, unparsed, ignored, notes };
 }
 
-/** The header a line sits under, for reporting ignored lines. */
-function sectionName(text: string, lineNo: number): string {
-  const lines = text.split(/\r?\n/).slice(0, lineNo - 1).reverse();
-  return lines.find((l) => BOARD_HEADER.test(l.trim()) || SECTION_HEADER.test(l.trim()))?.trim().replace(/:$/, "") ?? "";
+/** Commander-eligible (§5.1), or a Background, which shares the command zone. */
+function canLeadADeck(card: CardRow): boolean {
+  return !!card.is_commander || /\bBackground\b/.test(card.type_line);
 }
 
 /** A name as written, then as Moxfield's one-slash multi-face form (§12). */
@@ -488,6 +522,9 @@ export function diffImport(db: Database, actor: Actor, deckId: number, text: str
       continue;
     }
     const card = hit as CardRow;
+    // A guessed command zone holds only what could be a commander there.
+    if (entry.guessed_commander && !canLeadADeck(card))
+      entry.categories = entry.categories.filter((c) => c !== COMMANDER_CATEGORY);
     const outside = entry.categories.find((c) => OUTSIDE_CATEGORIES.has(c.toLowerCase()));
     if (outside) {
       setAside.set(card.oracle_id, { oracle_id: card.oracle_id, name: card.name, category: outside });

@@ -55,9 +55,11 @@ export function forkDeck(db: Database, actor: Actor, source: DeckSource, name: s
         Number(insSlot.run(forkId, s.name, s.target_min, s.target_max, s.position).lastInsertRowid),
       );
 
+    // Tags record sourcing and status, "Have" being ownership evidence
+    // (§5.4, §5.5): another user's are about their copies, not the forker's.
     const tagMap = new Map<number, number>();
     const insTag = db.prepare("INSERT INTO tags (deck_id, name) VALUES (?, ?)");
-    for (const t of db.prepare("SELECT id, name FROM tags WHERE deck_id = ?").all(deckId) as unknown as Array<{
+    for (const t of (foreign ? [] : db.prepare("SELECT id, name FROM tags WHERE deck_id = ?").all(deckId)) as unknown as Array<{
       id: number;
       name: string;
     }>)

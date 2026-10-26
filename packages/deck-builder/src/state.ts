@@ -9,6 +9,7 @@ import { checkDeck } from "./deck/checks.ts";
 import { type LogCard, type LogEntry, listLog } from "./deck/log.ts";
 import { listProposals } from "./deck/proposals.ts";
 import { getDeck, requireViewableDeck } from "./deck/service.ts";
+import { publicParent } from "./sharing.ts";
 import { listDocumentEdits } from "./documents.ts";
 import { loadScope } from "./memory.ts";
 
@@ -48,12 +49,12 @@ export interface PublicDecision {
  * The stored summary is free text that can quote a proposal or an agent
  * (a brief ruling's "proposed because: …", an agent's edit summary), and
  * proposals are never shown (§18.1); only the owner's own reason is. */
-export function publicSummary(e: Pick<LogEntry, "kind" | "cards" | "document_edit_id">): string {
+export function publicSummary(e: Pick<LogEntry, "kind" | "cards" | "document_edit_id">, editKind?: string | null): string {
   const names = (action: LogCard["action"]) => e.cards.filter(c => c.action === action).map(c => `${c.quantity > 1 ? `${c.quantity}× ` : ""}${c.card_name}`);
   const [adds, cuts, roles] = [names("add"), names("cut"), names("role")];
   if (!e.cards.length)
     return e.document_edit_id != null
-      ? `${e.kind === "reject" ? "Rejected" : "Accepted"} a proposed change to the brief`
+      ? `${e.kind === "reject" ? "Rejected" : "Accepted"} a proposed change to the ${editKind === "power_target" ? "power target" : editKind === "profile" ? "profile" : "brief"}`
       : e.kind === "undo" ? "Undid an earlier change" : "Changed the deck";
   const list = (items: string[]) => items.length > 3 ? `${items.slice(0, 3).join(", ")} and ${items.length - 3} more` : items.join(", ");
   if (e.kind === "reject")
@@ -77,6 +78,7 @@ export function publicDeckState(db: Database, viewer: Actor | null, slug: string
   // Computed as if nothing were pending, so proposals leave no trace.
   const computed = { ...view.computed, pending: { adds: 0, cuts: 0, projected_count: view.computed.card_count, by_slot: {} as Record<number, number> } };
   const ownAssessment = power.history.find(a => a.author_via === "ui" && a.author_user_id === row.user_id) ?? null;
+  const editKind = new Map((db.prepare("SELECT id, kind FROM document_edits WHERE deck_id = ?").all(row.id) as { id: number; kind: string }[]).map(r => [r.id, r.kind]));
   // An undo of a hidden entry repeats it, so it is hidden with it.
   const hidden = new Set((db.prepare("SELECT id FROM log WHERE deck_id = ? AND hidden = 1").all(row.id) as { id: number }[]).map(r => r.id));
   const log = row.publish_decisions
@@ -91,14 +93,17 @@ export function publicDeckState(db: Database, viewer: Actor | null, slug: string
       color_identity: view.deck.color_identity,
       category: view.deck.category,
       visibility: row.visibility,
-      parent: view.deck.upstream,
+      parent: publicParent(db, view.deck.upstream),
     },
-    cards: view.cards.map(c => ({ ...c, maybe_note: "" })),
+    // Tags record sourcing and status ("Have" is ownership evidence): the
+    // owner's, not the deck's (§18.3). The key stays, always empty.
+    cards: view.cards.map(c => ({ ...c, maybe_note: "", tag_ids: [] as number[] })),
     slots: view.slots,
-    tags: view.tags,
+    tags: [] as typeof view.tags,
     brief: { thesis: brief.thesis, constraints_md: brief.constraints_md },
     engines: brief.engines.map(e => ({ name: e.name, description: e.description, pieces: e.pieces.map(p => ({ oracle_id: p.oracle_id, name: p.name, note: p.note, in_deck: p.in_deck })) })),
-    checks: checkDeck(db, reader, row.id),
+    // Power findings read the latest assessment, which may be an agent's (§18.3).
+    checks: checkDeck(db, reader, row.id).filter(f => !f.key.startsWith("power_")),
     power: {
       target: power.target ? { profile: power.target.profile, game_changers_max: power.target.game_changers_max, notes: power.target.notes, mapping: power.target.mapping } : null,
       latest_owner_assessment: ownAssessment ? {
@@ -115,7 +120,7 @@ export function publicDeckState(db: Database, viewer: Actor | null, slug: string
       source: "Scryfall" as const,
     },
     ...(log ? { decisions: log.map((e): PublicDecision => ({
-      kind: e.kind, summary: publicSummary(e), reason: e.ruling_reason, by: e.author_via === "ui" ? "owner" : "agent", at: e.ts,
+      kind: e.kind, summary: publicSummary(e, e.document_edit_id == null ? null : editKind.get(e.document_edit_id)), reason: e.ruling_reason, by: e.author_via === "ui" ? "owner" : "agent", at: e.ts,
       cards: e.cards.map(c => ({ oracle_id: c.oracle_id, card_name: c.card_name, action: c.action, quantity: c.quantity })),
     })) } : {}),
     computed,

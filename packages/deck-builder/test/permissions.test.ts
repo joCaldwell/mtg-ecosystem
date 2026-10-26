@@ -278,6 +278,8 @@ function assertPublicShape(shared: state.PublicDeckState, published: boolean) {
   assert.deepEqual(Object.keys(shared.brief).sort(),["constraints_md","thesis"]);
   for(const d of shared.decisions ?? []) { assert.deepEqual(Object.keys(d).sort(),PUBLIC_KEYS.decision); assert.ok(["owner","agent"].includes(d.by)); }
   assert.ok(shared.cards.every(c=>c.maybe_note===""),"shortlist notes stay private");
+  assert.deepEqual(shared.tags,[],"tags are sourcing and ownership notes");assert.ok(shared.cards.every(c=>c.tag_ids.length===0));
+  assert.ok(!shared.checks.some(f=>f.key.startsWith("power_")),"power findings read assessments that may be an agent's");
   assert.deepEqual(shared.computed.pending,{adds:0,cuts:0,projected_count:shared.computed.card_count,by_slot:{}},"pending proposals leave no trace");
   const text=JSON.stringify(shared);
   for(const secret of PRIVATE_TEXT) assert.ok(!text.includes(secret),`public state leaks "${secret}"`);
@@ -329,7 +331,7 @@ test("public-read capabilities: owner, other and anonymous across lifecycle × v
   } finally {f.db.close();}
 });
 
-test("cross-owner fork by slug copies the list, slots, tags, brief and engines only, and keeps its lineage",()=>{
+test("cross-owner fork by slug copies the list, slots, brief and engines only, and keeps its lineage",()=>{
   const f=fixture();
   try {
     const parent=f.targets.find(t=>t.ui.user_id===1&&t.category==="paper")!, second=f.users[1], secondAgent=agent("test-agent",2);
@@ -351,7 +353,9 @@ test("cross-owner fork by slug copies the list, slots, tags, brief and engines o
       assert.deepEqual(view.cards.map(c=>[c.name,c.quantity,c.maybe]).sort(),original.cards.map(c=>[c.name,c.quantity,c.maybe]).sort());
       assert.ok(view.cards.every(c=>c.maybe_note===""));
       assert.deepEqual(view.slots.map(s=>s.name),original.slots.map(s=>s.name));
-      assert.deepEqual(view.tags.map(t=>t.name),original.tags.map(t=>t.name));
+      assert.ok(original.tags.some(t=>t.name==="Have"),"the parent has an ownership tag");
+      assert.deepEqual(view.tags,[],"tags are the owner's sourcing and ownership notes (review S4)");
+      assert.ok(view.cards.every(c=>c.tag_ids.length===0));
       assert.deepEqual(brief.getBrief(f.db,actor,id).engines.map(e=>e.name),["Engine"]);
       assert.equal(memory.listMemories(f.db,actor,{deckId:id}).length,0,"a second user's fork contains no memories");
       assert.equal(f.db.prepare("SELECT COUNT(*) n FROM memories WHERE deck_id=?").get(id)!.n,0);
@@ -368,9 +372,9 @@ test("cross-owner fork by slug copies the list, slots, tags, brief and engines o
     assert.ok(decks.getDeck(f.db,second,forked.id).deck.upstream,"lineage survives the parent going private");
     f.db.prepare("UPDATE decks SET visibility='public' WHERE id=?").run(forked.id);
     const forkSlug=functions.setVisibility(f.db,second,forked.id,"public").slug;
-    assert.deepEqual(state.publicDeckState(f.db,null,forkSlug).deck.parent,{owner_handle:"owner",slug:slugOf(parent),name:decks.requireDeck(f.db,parent.ui,parent.id).name});
+    assert.equal(state.publicDeckState(f.db,null,forkSlug).deck.parent,null,"viewers are not told about a private parent (review S1)");
     decks.deleteDeck(f.db,parent.ui,parent.id);
-    assert.equal(state.publicDeckState(f.db,null,forkSlug).deck.parent!.owner_handle,"owner","lineage survives the parent's deletion");
+    assert.deepEqual(decks.getDeck(f.db,second,forked.id).deck.upstream!.owner_handle,"owner","the forker's lineage survives the parent's deletion");
   } finally {f.db.close();}
 });
 
@@ -392,6 +396,58 @@ test("published decisions: an undo of a hidden entry is hidden too, and no summa
     assert.ok(decisions.some(d=>d.summary==="Accepted a proposed change to the brief"&&d.reason==="Owner agrees"));
     assert.ok(decisions.some(d=>d.summary==="Added Counterspell"&&d.by==="agent"));
   } finally {f.db.close();}
+});
+
+test("a fork's parent shows its link only while public, its name while unlisted, nothing once private (review S1)",()=>{
+  const f=fixture();
+  try {
+    const parent=f.targets.find(t=>t.ui.user_id===1&&t.category==="paper")!, second=f.users[1];
+    share(f.db,parent,"unlisted");
+    const id=fork.forkDeck(f.db,second,{slug:slugOf(parent)},"Second's public fork");
+    const forkSlug=functions.setVisibility(f.db,second,id,"public").slug;
+    const name=decks.requireDeck(f.db,parent.ui,parent.id).name;
+    const seen=()=>[state.publicDeckState(f.db,null,forkSlug).deck.parent,functions.publicProfile(f.db,null,"second").decks[0].parent];
+    for(const p of seen()) assert.deepEqual(p,{owner_handle:"owner",slug:null,name},"an unlisted parent's link is its owner's to give");
+    share(f.db,parent,"public");
+    for(const p of seen()) assert.deepEqual(p,{owner_handle:"owner",slug:slugOf(parent),name});
+    share(f.db,parent,"private");
+    for(const p of seen()) assert.equal(p,null,"a private parent is not named");
+    assert.ok(decks.getDeck(f.db,second,id).deck.upstream,"the forker's own deck keeps the snapshot");
+    decks.deleteDeck(f.db,parent.ui,parent.id);
+    for(const p of seen()) assert.equal(p,null);
+  } finally {f.db.close();}
+});
+
+test("public checks carry no power findings from an agent's assessment (review S2)",()=>{
+  const f=fixture();
+  try {
+    const t=f.targets.find(t=>t.ui.user_id===1&&t.category==="theorycrafted")!;
+    power.setPowerTarget(f.db,t.ui,t.id,{profile:{intent:"social"},game_changers_max:0});
+    power.recordPowerAssessment(f.db,t.ag,t.id,{profile:{intent:"competitive"},revision:decks.requireDeck(f.db,t.ui,t.id).revision,evidence:"list",confidence:"tentative",notes:"Agent guess"});
+    assert.ok(checks.checkDeck(f.db,t.ui,t.id).some(f=>f.key==="power_target_gap"),"the owner sees the gap");
+    share(f.db,t,"public");
+    const shared=state.publicDeckState(f.db,null,slugOf(t));
+    assert.ok(!shared.checks.some(f=>f.key.startsWith("power_")));
+    assert.ok(!JSON.stringify(shared).includes("cEDH"));
+    assert.ok(!callTool({db:f.db,actor:agent("other",2)},"get_deck",{deck:slugOf(t)}).text.includes("cEDH"));
+  } finally {f.db.close();}
+});
+
+test("a profile exists only while its person has a public deck (review S3)",()=>{
+  const f=fixture();
+  try {
+    const t=f.targets.find(t=>t.ui.user_id===2)!;
+    assert.throws(()=>functions.publicProfile(f.db,null,"second"),notFound);
+    share(f.db,t,"unlisted");
+    assert.throws(()=>functions.publicProfile(f.db,null,"second"),notFound,"unlisted decks do not make a profile public");
+    share(f.db,t,"public");
+    assert.equal(functions.publicProfile(f.db,null,"second").display_name,"Second");
+  } finally {f.db.close();}
+});
+
+test("a power-target ruling's public summary names the power target (review S7)",()=>{
+  assert.equal(state.publicSummary({kind:"accept",cards:[],document_edit_id:4},"power_target"),"Accepted a proposed change to the power target");
+  assert.equal(state.publicSummary({kind:"reject",cards:[],document_edit_id:4},"thesis"),"Rejected a proposed change to the brief");
 });
 
 test("sharing controls: slugs are issued once, agents cannot publish, Legacy decks can be shared",()=>{
@@ -573,7 +629,7 @@ test("MCP roster, focus, identity, global memory/FTS, card context and include_m
 import { createApp } from "../src/app.ts";
 import { exportAccount } from "../src/accounts.ts";
 import type { AddressInfo } from "node:net";
-type HttpCase = { method:string; path:(t:Target,f:Fixture)=>string; kind:Classification; body?:(t:Target)=>unknown; global?:boolean; ownStatus?:number;
+type HttpCase = { method:string; path:(t:Target,f:Fixture)=>string; kind:Classification; body?:(t:Target)=>unknown; global?:boolean; ownStatus?:number|((visibility:string)=>number);
   /** Addressed by slug: another signed-in user reaches it while the deck is unlisted or public (§18.3). */
   bySlug?:boolean;
   /** Without a session; public reads default to 200, everything else to 401 (§18.6). */
@@ -646,7 +702,8 @@ http("GET",(t,f)=>`${deckPath(t)}/compare?slug=${slugOf(f.otherOwn(t.ui,t))}`,"r
 const sharedRead=(v:string)=>v==="private"?404:200;
 http("GET",t=>`/api/public/decks/${slugOf(t)}`,"public-read",undefined,{bySlug:true,anonymousStatus:sharedRead});
 http("GET",t=>`/api/public/decks/${slugOf(t)}/export`,"public-read",undefined,{bySlug:true,anonymousStatus:sharedRead});
-http("GET",()=>"/api/public/users/owner","public-read",undefined,{global:true});
+// A profile exists only while its person has a public deck (review S3).
+http("GET",()=>"/api/public/users/owner","public-read",undefined,{global:true,ownStatus:v=>v==="public"?200:404,anonymousStatus:v=>v==="public"?200:404});
 http("POST",t=>`/api/public/decks/${slugOf(t)}/fork`,"write",()=>({name:`HTTP shared fork ${randomUUID()}`}),{bySlug:true});
 http("PUT",()=>"/api/focus","write",t=>({deck_id:t.id}));
 
@@ -681,7 +738,7 @@ test("every HTTP API route is classified and reachable only with the right princ
           assert.equal(res.status,c.bySlug&&visibility!=="private"?200:404,`${label} cross-user: ${await res.text()}`);
         }
         const res=await send(base,c,own,f);
-        assert.equal(res.status,c.ownStatus??200,`${label} own: ${await res.text()}`);
+        assert.equal(res.status,typeof c.ownStatus==="function"?c.ownStatus(visibility):c.ownStatus??200,`${label} own: ${await res.text()}`);
         principal=null;
         const anonymous=await send(base,c,own,f);
         assert.equal(anonymous.status,c.anonymousStatus?.(visibility)??(c.kind==="public-read"?200:401),`${label} anonymous: ${await anonymous.text()}`);
@@ -950,6 +1007,7 @@ const globalProbes:Record<string,GlobalProbe>={
   linkPreview:(fn,f,a,t)=>{const p=fn(f.db,a,`/d/${slugOf(t)}`,"https://example.test");assert.equal(p.status,200);assert.equal(fn(f.db,a,`/d/${slugOf(f.targets[0])}`,"https://example.test").status,404);return p;},
   withPreview:fn=>fn("<head><title>x</title></head>",{status:200,head:"<title>Second</title>"}),
   renderPublicDeck:(fn,f,a,t)=>fn(state.publicDeckState(f.db,a,slugOf(t))),
+  publicParent:(fn,f,a,t)=>{f.db.prepare("UPDATE decks SET visibility='public' WHERE id=?").run(t.id);const p=fn(f.db,{owner_handle:"second",slug:slugOf(t),name:"x"});assert.equal(p.slug,slugOf(t));return p;},
   publicSummary:fn=>{const s=fn({kind:"accept",document_edit_id:3,cards:[]});assert.equal(s,"Accepted a proposed change to the brief");return s;},
   renderPower:(fn,f,a,t)=>fn(power.getPower(f.db,a,t.id)),stateLines:(fn,f,a,t)=>fn(decks.getDeck(f.db,a,t.id)),
   renderCompare:(fn,f,a,t)=>fn(fork.compareDecks(f.db,a,t.id,f.otherOwn(a,t).id)),

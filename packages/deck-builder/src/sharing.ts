@@ -81,16 +81,31 @@ export interface PublicProfile {
     color_identity: string;
     commanders: string[];
     card_count: number;
-    parent: { owner_handle: string; slug: string; name: string } | null;
+    parent: { owner_handle: string; slug: string | null; name: string } | null;
   }>;
 }
 
+/** A fork's parent as a viewer may see it (§18.4), looked up live: linked
+ * while the parent is public, named without its link while unlisted (the
+ * link is its owner's to give out), and absent once private or gone. The
+ * forker's own deck keeps the full snapshot. */
+export function publicParent(db: Database, snapshot: { owner_handle: string; slug: string; name: string } | null): { owner_handle: string; slug: string | null; name: string } | null {
+  if (!snapshot) return null;
+  const parent = db.prepare("SELECT d.name, d.visibility, u.handle FROM decks d JOIN users u ON u.id = d.user_id WHERE d.slug = ? AND u.deleted_at IS NULL")
+    .get(snapshot.slug) as { name: string; visibility: string; handle: string } | undefined;
+  if (!parent || parent.visibility === "private") return null;
+  return { owner_handle: parent.handle, slug: parent.visibility === "public" ? snapshot.slug : null, name: parent.name };
+}
+
 /** `/u/<handle>` (§18.5): the display name and public decks, nothing else.
- * Unlisted decks are reachable only by their link, so they are not listed. */
+ * Unlisted decks are reachable only by their link, so they are not listed,
+ * and a person with no public deck has no public page: their display name
+ * (often a provider's real name) is not shown to anyone who guesses a handle. */
 export function publicProfile(db: Database, _viewer: Actor | null, handle: string): PublicProfile {
-  const user = db.prepare("SELECT id, handle, display_name FROM users WHERE handle = ? AND deleted_at IS NULL AND id > 0")
+  const user = db.prepare(`SELECT u.id, u.handle, u.display_name FROM users u WHERE u.handle = ? AND u.deleted_at IS NULL AND u.id > 0
+      AND EXISTS (SELECT 1 FROM decks d WHERE d.user_id = u.id AND d.visibility = 'public' AND d.slug IS NOT NULL)`)
     .get(String(handle)) as { id: number; handle: string; display_name: string } | undefined;
-  if (!user) throw new ServiceError("There is no one with that handle", 404);
+  if (!user) throw new ServiceError("There is no one with that handle, or they have no public decks", 404);
   const decks = db.prepare(
     `SELECT d.id, d.slug, d.name, d.category, d.color_identity, d.parent_owner_handle, d.parent_slug, d.parent_name,
             COALESCE((SELECT SUM(quantity) FROM deck_cards dc WHERE dc.deck_id = d.id AND dc.role != 'companion' AND dc.maybe = 0), 0) AS card_count
@@ -106,7 +121,7 @@ export function publicProfile(db: Database, _viewer: Actor | null, handle: strin
     decks: decks.map(d => ({
       slug: d.slug, name: d.name, category: d.category, color_identity: d.color_identity, card_count: d.card_count,
       commanders: (commanders.all(d.id) as unknown as { name: string }[]).map(c => c.name),
-      parent: d.parent_slug && d.parent_owner_handle ? { owner_handle: d.parent_owner_handle, slug: d.parent_slug, name: d.parent_name ?? "" } : null,
+      parent: publicParent(db, d.parent_slug && d.parent_owner_handle ? { owner_handle: d.parent_owner_handle, slug: d.parent_slug, name: d.parent_name ?? "" } : null),
     })),
   };
 }

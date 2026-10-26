@@ -100,12 +100,28 @@ test("a deck name with replacement patterns ($' $& $`) stays inside its escaped 
   } finally { await s.close(); }
 });
 
-test("anonymous search shares the search bucket's limit, per IP", async () => {
+test("anonymous search has its own lower budget per IP, and an oversized search is a 400", async () => {
   const s = await served("hosted");
   try {
-    let last = 200;
-    for (let i = 0; i < 61 && last === 200; i++) last = (await fetch(`${s.base}/api/search?q=t:land`)).status;
-    assert.equal(last, 429, "the 61st anonymous search in a minute is refused, like a signed-in user's");
+    const big = await fetch(`${s.base}/api/search?q=${encodeURIComponent(Array.from({ length: 40 }, (_, i) => `o:a${i}`).join(" "))}`);
+    assert.equal(big.status, 400, "30 terms at most without an account");
+    assert.match((await big.json()).error, /the most is 30/);
+    let last = 200, n = 1;
+    for (; n <= 31 && last !== 429; n++) last = (await fetch(`${s.base}/api/search?q=t:land`)).status;
+    assert.equal(last, 429);
+    assert.equal(n - 1, 30, "the 30th anonymous search in a minute is refused (the oversized one counted)");
+  } finally { await s.close(); }
+});
+
+test("no art and no large card without an artist credit (review S6)", async () => {
+  const s = await served("hosted");
+  try {
+    s.db.prepare("UPDATE cards SET artist = NULL WHERE oracle_id = 'id-teferi'").run();
+    const { slug } = setVisibility(s.db, OWNER, s.id, "public");
+    const html = await (await fetch(`${s.base}/d/${slug}`)).text();
+    assert.equal(meta(html, "og:image"), undefined);
+    assert.equal(meta(html, "twitter:card"), "summary");
+    assert.doesNotMatch(meta(html, "description")!, /Art by/);
   } finally { await s.close(); }
 });
 

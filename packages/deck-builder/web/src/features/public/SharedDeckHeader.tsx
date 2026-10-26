@@ -59,7 +59,9 @@ export function SharedDeckHeader({ shared, own }: { shared: PublicDeckState; own
           {deck.parent && (
             <>
               {" · forked from "}
-              <a href={href({ page: "shared", slug: deck.parent.slug })}>{deck.parent.owner_handle}/{deck.parent.name}</a>
+              {deck.parent.slug
+                ? <a href={href({ page: "shared", slug: deck.parent.slug })}>{deck.parent.owner_handle}/{deck.parent.name}</a>
+                : <>{deck.parent.owner_handle}/{deck.parent.name}</>}
             </>
           )}
         </p>

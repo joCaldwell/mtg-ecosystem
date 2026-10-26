@@ -286,9 +286,10 @@ Forks replace named checkpoints. There is no snapshot system and no DAG.
 **Forks across owners** (phase 4a, §18.4). A signed-in user, or their agent,
 may fork another user's unlisted or public deck by its link. That fork copies
 less: the list (maybe list included, without its private notes), slots with
-their targets and both primary and secondary assignments, tags and card tags,
-the brief's thesis and constraints, and engines with their pieces. It never
-copies memories, ownership evidence, the power target or assessments,
+their targets and both primary and secondary assignments, the brief's thesis
+and constraints, and engines with their pieces. It never copies tags (they
+record the other owner's sourcing and status, and "Have" is ownership
+evidence), memories, ownership evidence, the power target or assessments,
 proposals, playtest state, or any log entry. The new deck is the forker's:
 Theorycrafted, private, with one log entry naming its source. It records a
 snapshot of the parent's owner handle, slug and name, so "forked from
@@ -892,9 +893,16 @@ and [implementation guide](playtester.md). Archidekt interop remains available.
   `SIDEBOARD:`, `ATTRACTIONS:` or `STICKERS:`; multi-face names with one
   slash, tried as `A // B` only when the name as written does not resolve.
   "Copy Plain Text" (and "Copy for MTGO") end with the commander in a block
-  of its own, which the import puts in the command zone; the sideboard
+  of its own, which the import puts in the command zone only when the text
+  has the export's shape (no command zone named anywhere, by header or
+  `[Commander]`; no word headers; 90–100 cards counting the block) and only
+  for cards that can be commanders (or Backgrounds), so an ordinary list
+  ending in a blank line and a land or two is left alone; the sideboard
   (where Moxfield keeps the companion) goes to the maybe list like
-  Archidekt's; attraction and sticker boards are left out and reported.
+  Archidekt's, with a note that a companion must then be set by hand;
+  attraction and sticker boards are left out and reported. A paste is
+  bounded at 5,000 lines of at most 300 characters, so the parser stays
+  linear and nothing a user pastes can stall the server.
   "Copy for Moxfield" marks no commander at all, so the preview says so
   rather than guessing (reading its order would be wrong for 2 of the 12
   sampled decks). The dialog recommends "Copy Plain Text": it uses the names
@@ -1568,12 +1576,20 @@ composite:
 
 - `deck { name, slug, owner { handle, display_name }, commander,
   color_identity, category, visibility, parent? { owner_handle, slug, name } }`.
-  `commander` lists the commander names. No deck id or revision.
+  `commander` lists the commander names. No deck id or revision. `parent`
+  is looked up live, not read from the fork's snapshot: with its link while
+  the parent is public, with only handle and name while it is unlisted (its
+  link is its owner's to give out), and absent once it is private or gone.
 - `cards`: the list including the maybe list, each with its card facts,
-  quantity, role, slots and tags; `maybe_note` is always empty, because
-  shortlist notes are working notes.
-- `slots`, `tags`, `brief { thesis, constraints_md }`, `engines` (name,
-  description, pieces and whether each is in the deck), `checks`.
+  quantity, role and slots; `maybe_note` is always empty, because shortlist
+  notes are working notes, and `tag_ids` is always empty.
+- `slots`, `tags` (always empty), `brief { thesis, constraints_md }`,
+  `engines` (name, description, pieces and whether each is in the deck),
+  `checks` without the `power_*` findings, which read the latest assessment
+  and so may describe an agent's. *(Choice, overriding D8's "tags" on both
+  the page and forks: tags record sourcing and status (§5.4), and "Have"
+  creates ownership evidence (§5.5), which D8 never shows. The key stays so
+  the §4 shape holds.)*
 - `power { target, latest_owner_assessment }`: the target's profile, Game
   Changer limit, notes and bracket mapping; and the newest assessment the
   owner recorded themselves in the app (`author_via = 'ui'`), with its
@@ -1603,13 +1619,12 @@ every viewer and visibility.
 `{ slug }` for a deck the actor can view. A fork of one's own deck is
 unchanged (§5.3). A cross-owner fork copies what §5.3 lists and records the
 snapshot `parent_owner_handle`, `parent_slug` and `parent_name` at fork
-time. *(Choice: the plan says it records the parent's id too. That id is
+time, and copies no tags. *(Choice: the plan says it records the parent's id too. That id is
 the other user's, and it would reach the forker through their account
 export; the slug addresses the parent instead. When the parent's owner
 deletes their account, forks keep the lineage as "deleted_account/a deleted
-deck".)* The fork's own page and public page say
-"forked from handle/name"; the link opens the parent's public page, which
-answers 404 once the parent is private or gone.
+deck".)* The fork's own page always says "forked from handle/name" from the
+snapshot; its public page shows the parent only as §18.3 allows.
 
 `compareDecks` accepts `{ slug }` as the other side. With no second deck, a
 cross-owner fork compares against its parent while the caller can still view
@@ -1634,14 +1649,19 @@ so a cross-owner parent's rulings never reach the fork.
   local user is always signed in. No sidebar, inbox, focus reporting or
   ruling hotkeys.
 - **`/u/<handle>`**: the display name and the user's public decks (not
-  unlisted ones), nothing else. 404 for unknown or deleted handles.
+  unlisted ones), nothing else. 404 for unknown or deleted handles, and for
+  anyone without at least one public deck: the display name comes from the
+  sign-in provider (often a real name) and is not shown to someone who
+  merely guesses a handle. A display name the user sets themselves is
+  deferred to phase 4b or 6.
 - **Link previews.** For `/d/<slug>` and `/u/<handle>` the server injects
   `<title>`, `<meta name="description">`, Open Graph (`og:title`,
   `og:description`, `og:type`, `og:url`, `og:image`, `og:site_name`) and
   `twitter:card` tags into `index.html` before serving it. The deck
   description names the commander, colour identity, bracket target and
   owner. `og:image` is the commander's stored art crop on
-  `cards.scryfall.io`. A slug the requester cannot read gets the plain page
+  `cards.scryfall.io`, only when the card's artist is stored too, as on the
+  page. A slug the requester cannot read gets the plain page
   with status 404. Nothing calls `api.scryfall.com` from a browser.
 - The page is laid out single-column below 720 px with wrapping rows and
   44 px tap targets, and never scrolls horizontally at 375 px.
@@ -1651,9 +1671,14 @@ so a cross-owner parent's rulings never reach the fork.
 In hosted mode, without a session: `GET /api/public/decks/:slug`, its
 `/export`, `GET /api/public/users/:handle`, `/api/search` (without a deck),
 `/api/resolve` and `/api/cards/:id/table` answer under the per-IP
-`unauthenticated` rate bucket (D13); anonymous search also counts against
-the `search` bucket per IP (/64 for IPv6), the same 60 a minute a signed-in
-user gets. A search naming a deck still needs that deck's owner. Every other API stays 401. Forking and comparing need a
+`unauthenticated` rate bucket (D13); anonymous search also has its own
+`anonymous_search` bucket, 30 a minute per IP (/64 for IPv6), half a
+signed-in user's. Every search runs synchronously on the one SQLite
+connection, so its size is bounded: without an account 256 characters and
+30 terms, with one 1,000 characters and 100 terms, and at most 20 levels of
+parentheses or negation for anyone. A search over a bound, or one SQLite
+calls too complex, is a 400 that says so. A search naming a deck still
+needs that deck's owner. Every other API stays 401. Forking and comparing need a
 session.
 
 ### 18.7 Agents

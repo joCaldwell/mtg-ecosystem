@@ -155,3 +155,20 @@ describe("errors", () => {
     assert.throws(() => names("is:funny"), /is:commander/);
   });
 });
+
+// Review B2: every search runs on the one connection, so its size is bounded,
+// and a malformed one is the caller's 400, never the server's 500.
+import { ACCOUNT_QUERY_LIMITS, ANONYMOUS_QUERY_LIMITS } from "../src/search/parse.ts";
+test("search size and depth are bounded, tighter without an account", () => {
+  {
+    const terms = (n: number) => Array.from({ length: n }, (_, i) => `-o:zq${i}x`).join(" ");
+    assert.throws(() => search(db, null, terms(ANONYMOUS_QUERY_LIMITS.maxTerms + 1)), SearchError);
+    assert.doesNotThrow(() => search(db, null, "t:creature -o:flying"));
+    assert.throws(() => search(db, null, "x".repeat(ANONYMOUS_QUERY_LIMITS.maxLength + 1)), SearchError);
+    assert.throws(() => search(db, OWNER, terms(ACCOUNT_QUERY_LIMITS.maxTerms + 1)), SearchError);
+    assert.doesNotThrow(() => search(db, OWNER, terms(40)), "an account gets more room than anonymous");
+    assert.throws(() => search(db, OWNER, `${"(".repeat(3000)}forest${")".repeat(3000)}`), SearchError);
+    assert.throws(() => search(db, OWNER, `${"(".repeat(21)}forest${")".repeat(21)}`), /nests more than 20/);
+    assert.throws(() => search(db, OWNER, `${"-".repeat(25)}forest`), SearchError);
+  }
+});

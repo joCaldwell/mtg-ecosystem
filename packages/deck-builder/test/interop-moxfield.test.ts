@@ -74,6 +74,37 @@ describe("Moxfield's exports, as Moxfield wrote them", () => {
     assert.deepEqual(commandersOf(fixture("stickers-attractions", "copy-for-mtgo")), ["The Most Dangerous Gamer"]);
   });
 
+  test("the command-zone reading needs the export's shape and a card that can lead a deck (review S5)", () => {
+    const db = testDb();
+    const id = newDeck(db, "paper");
+    const roles = (text: string) => Object.fromEntries(
+      [...diffImport(db, OWNER, id, text).adds].map((a) => [a.name, a.role]));
+    // An inline [Commander] already names the command zone: the trailing block stays in the deck.
+    assert.deepEqual(roles("1 Atraxa, Praetors' Voice [Commander]\n96 Forest\n\n1 Sol Ring\n1 Counterspell"),
+      { "Atraxa, Praetors' Voice": "commander", Forest: "card", "Sol Ring": "card", Counterspell: "card" });
+    // A list ending in a basic land block never makes the land a commander.
+    assert.ok(!Object.values(roles("1 Sol Ring\n89 Forest\n\n10 Forest")).includes("commander"));
+    // A 60-card MTGO list with a two-card sideboard is not a Commander export.
+    assert.ok(!Object.values(roles("4 Counterspell\n56 Forest\n\n1 Teferi, Temporal Archmage\n1 Sol Ring")).includes("commander"));
+    // The export shape with an ineligible card keeps only the eligible one.
+    const mixed = roles("97 Forest\n1 Counterspell\n\n1 Teferi, Temporal Archmage\n1 Sol Ring");
+    assert.equal(mixed["Teferi, Temporal Archmage"], "commander");
+    assert.equal(mixed["Sol Ring"], "card");
+  });
+
+  test("a paste is bounded: 5,000 lines, 300 characters a line, in linear time (review B1)", () => {
+    assert.throws(() => parseDeckList("1 Forest\n".repeat(5001)), /at most 5,000 lines/);
+    const long = parseDeckList(`1 Forest${" ".repeat(40_000)}x`);
+    assert.equal(long.entries.length, 0);
+    assert.equal(long.unparsed.length, 1);
+    const boards = `1 Forest\n\nSTICKERS:\n${"1 Sticker Card\n".repeat(4990)}`;
+    const started = performance.now();
+    const parsed = parseDeckList(boards);
+    assert.equal(parsed.ignored.length, 4990);
+    assert.ok(parsed.ignored.every((i) => i.section === "STICKERS"));
+    assert.ok(performance.now() - started < 500, "one pass, not one per ignored line");
+  });
+
   test("Archidekt's own headers still decide, so a trailing block there is not a commander", () => {
     const archidekt = "Commander\n1 Atraxa, Praetors' Voice\n\nMainboard\n1 Sol Ring\n\n1 Forest";
     assert.deepEqual(commandersOf(archidekt), ["Atraxa, Praetors' Voice"]);
@@ -82,15 +113,15 @@ describe("Moxfield's exports, as Moxfield wrote them", () => {
 });
 
 describe("Moxfield and Archidekt import to the same deck", () => {
-  // Fixture cards only; the shapes are the real exports' (the full owner-data
-  // check is recorded in the phase 4a PR).
+  // Fixture cards only, padded to the 100 an export has; the shapes are the
+  // real exports' (the full owner-data check is recorded in the phase 4a PR).
   const archidekt = [
     "Commander", "1 Teferi, Temporal Archmage", "",
-    "Mainboard", "1 Counterspell", "1 Sol Ring", "1 Witch Enchanter // Witch-Blessed Meadow", "7 Forest", "",
+    "Mainboard", "1 Counterspell", "1 Sol Ring", "1 Witch Enchanter // Witch-Blessed Meadow", "96 Forest", "",
     "Sideboard", "1 Ball Lightning",
   ].join("\n");
   const moxfieldMtgo = [
-    "1 Counterspell", "7 Forest", "1 Sol Ring", "1 Witch Enchanter/Witch-Blessed Meadow", "",
+    "1 Counterspell", "96 Forest", "1 Sol Ring", "1 Witch Enchanter/Witch-Blessed Meadow", "",
     "SIDEBOARD:", "1 Ball Lightning", "",
     "1 Teferi, Temporal Archmage",
   ].join("\n");
