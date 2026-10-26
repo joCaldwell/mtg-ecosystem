@@ -659,6 +659,13 @@ export function createApp(db: Database, opts: AppOptions = {}) {
         // never get a chance to select a different auth origin.
         return await auth.handle(req,res);
       }
+      // Hashed build assets are immutable and need no principal: resolving a
+      // session and charging the per-user or per-IP budget for each one let a
+      // few page loads in a row exhaust it (a deck page requests dozens).
+      if ((req.method === "GET" || req.method === "HEAD") && url.pathname.startsWith("/assets/")) {
+        if (serveStatic(url.pathname, res, null, req)) return;
+        return json(404, { error: `Not found: ${req.method} ${url.pathname}` });
+      }
       return await withDatabase(async () => {
       if (req.method === "GET" && url.pathname === "/api/session") {
         const sessionActor = await resolveActor(req,mode);
