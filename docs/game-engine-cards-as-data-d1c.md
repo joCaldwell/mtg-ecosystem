@@ -60,6 +60,14 @@ missing-creature readiness, friendly prevention targeting and precombat tap loot
 proves that choosing one mode neither counts the other mode nor fabricates a
 committed instruction.
 
+## Match-policy card identity scope
+
+The no-card-identity claim applies to the match policy only. Fixed scenario
+adapters such as `effects_games.rs:10–19`, `choices_games.rs`, `triggers_games.rs`
+and others retain Oracle-ID constants. `main.rs:1120–1154` also retains constants
+in `verify_source_catalog`. These fixture/admission checks do not feed the match
+policy or select its actions.
+
 ## Card-name search
 
 The exact quoted-name scan uses names extracted from committed expected IR and
@@ -203,3 +211,173 @@ There are **no unresolved D1c verification failures or missing instruction
 witnesses**. Strategy remains intentionally coarse, and the unused cards and
 unreached sites above are explicit. No core rules bug was fixed or core behavior
 changed. Independent implementation review and merge remain pending.
+
+## D1c review follow-up
+
+The follow-up starts at `f02eae7` on `feat/cards-data-d1c-fixes`. Implementation
+source is `3493f0f458bb1155a14811472eb08d5632ea2f16`. It changes only
+simulator policy code, policy tests and this report. The original D1c results
+above remain historical; the comparison below uses the unchanged reports in
+`/home/josh/.t3/worktrees/mtg-ecosystem/t3-0fd71f2b/generated/final-engine-verification/d1c/`.
+
+Prevention readiness now reads announced public damage targets and IR amounts,
+and pending combat damage to our seat or creatures. Instant-speed defensive
+activations can run outside our own main phase. Reactive spell discovery scans
+all modes, and mode selection prefers the ready reactive mode over an otherwise
+ready life-gain mode. Reactive modal cards are held until a reactive mode is
+ready, and reactive tap sources are reserved from attacking. Prevention targets the threatened friendly entity. Ordinary
+post-damage combat priority does not by itself prepare a new shield. These are
+public-information estimates, not a replacement for core damage evaluation.
+
+Filtered sacrifice costs accept tokens, permanents facing announced lethal
+damage or removal/wipes, and sacrifices that enable lethal damage or a favorable
+removal trade. Selection prefers an endangered permanent and uses the same
+candidate preference for sacrificed-power estimates. Source-pump outlets are
+used before combat or while the source participates in combat. Mana sources,
+land search and death payoffs develop before commanders; other hand permanents
+develop before taxed commander recasts. Ordinary instruction spells can use
+remaining precombat mana. The planner spends dedicated mana sources before
+spending a flexible source on a color another source can supply.
+
+The audit of the sacrifice profile's 22 omitted cards found fourteen permanents
+and eight instruction spells. All have supported generic/colored mana costs;
+only two also require an additional sacrifice. Creature death triggers do not
+form casting-time target requirements. The old sacrifice gate, commander-first
+spending, postcombat-only instruction scheduling and flexible-mana allocation
+were generic policy restrictions, covered by regressions here. The retained
+journal survey shows one omitted card bottomed during opening setup and no
+recorded discards of these 22; only game 00 retains intermediate checkpoints.
+This does not establish a complete causal explanation for every noncast card,
+or prove that a card was never drawn. Finite draw order, affordability, targets
+and game duration still affect coverage. The machine-readable audit is
+`d1c-fixes/baseline-investigation.json` under the evidence root.
+
+Optional effects inspect the bound target's slot. Multi-target entity requests
+prefer distinct legal candidates, with repetition only as a fallback. X's mana
+upper estimate examines all listed production alternatives, taking at most the
+largest single production per source, and no longer counts nonmana permanents
+as mana. Core still admits exactly one permanent mana ability per source; its
+public activation response selects a source, not an ability index. Current token
+definitions explicitly clear activated and mana abilities, and their public
+rows expose no ability programs. The policy no longer excludes tokens by a
+blanket flag, but cannot manufacture token abilities or multi-ability mana
+activation support within this simulator-only change.
+
+Nine new policy regressions cover defensive activation, modal prevention,
+sacrifice costs and profitable trades, source pumping, death-payoff development,
+flexible mana, optional slots, distinct targets, precombat spell scheduling and
+reservation of defensive resources.
+No existing assertion, guard, completion layout, deck or capacity was weakened.
+
+<!-- d1c-fixes-results -->
+
+## Follow-up verification and comparison
+
+Release `BUILD_ID`: `f3ad25c085463794c9e4603ea7a94d900bd126d3e2aaa6b6ee5003017000dd0f`. Implementation source: `3493f0f458bb1155a14811472eb08d5632ea2f16`.
+
+The final engine gate passed: **911 Rust tests, zero failed, 18 ignored; 56 Node checks, zero failed**. Formatting and Clippy with warnings denied passed. The focused policy run passed **15/15**, including nine new regressions. The release simulator build exited 0.
+
+All twelve batches and **216/216 explicit replays** passed, in addition to each batch's internal replay. Every profile retains **18 winners, zero draws, zero caps and zero faults**: **216 winners total**, preserving decisiveness. Every batch manifest differs from its baseline only in build identity; catalog digests, seeds, completion layouts and guards are unchanged. Three independent binary processes ran batches; Cargo builds were serial. Timings are diagnostics, not performance claims.
+
+| Profile | Winners/draws/caps before → after | Uncast nonlands | Zero-commit kinds | Kinds with missed sites | Replay |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `commander-attachments-v1` | 18/0/0 → 18/0/0 | 4 → 5 | 1 → 1 | 3 → 4 | 18/18 |
+| `commander-combat-keywords-v1` | 18/0/0 → 18/0/0 | 0 → 0 | 6 → 5 | 8 → 8 | 18/18 |
+| `commander-data-admission-v1` | 18/0/0 → 18/0/0 | 0 → 0 | 0 → 0 | 0 → 0 | 18/18 |
+| `commander-foundations-v1` | 18/0/0 → 18/0/0 | 0 → 0 | 6 → 5 | 8 → 8 | 18/18 |
+| `commander-four-colors-v1` | 18/0/0 → 18/0/0 | 3 → 3 | 1 → 0 | 4 → 3 | 18/18 |
+| `commander-keywords-v1` | 18/0/0 → 18/0/0 | 0 → 0 | 6 → 5 | 8 → 8 | 18/18 |
+| `commander-mana-v1` | 18/0/0 → 18/0/0 | 0 → 0 | 6 → 5 | 8 → 8 | 18/18 |
+| `commander-removal-v1` | 18/0/0 → 18/0/0 | 6 → 6 | 2 → 1 | 9 → 7 | 18/18 |
+| `commander-sacrifice-v1` | 18/0/0 → 18/0/0 | 22 → 15 | 4 → 3 | 15 → 9 | 18/18 |
+| `commander-staples-v1` | 18/0/0 → 18/0/0 | 0 → 0 | 6 → 5 | 8 → 8 | 18/18 |
+| `commander-tokens-v1` | 18/0/0 → 18/0/0 | 0 → 0 | 6 → 5 | 8 → 8 | 18/18 |
+| `commander-wipes-v1` | 18/0/0 → 18/0/0 | 13 → 10 | 6 → 5 | 17 → 13 | 18/18 |
+
+“Zero-commit kinds” means no committed instruction batch anywhere in that profile. “Kinds with missed sites” also includes partly reached kinds with another catalog site still uncommitted. Neither metric asserts that every catalog card belongs to the default decks. Uncast lists below cover default-deck nonlands only; the existing card-use accounting implies a prior cast for nonland usages in these admitted pools.
+
+### Instruction kinds with no committed batch
+
+| Profile | Before | After |
+| --- | --- | --- |
+| `commander-attachments-v1` | `prevent_next_damage` | `return_aura_from_graveyard` |
+| `commander-combat-keywords-v1` | `counter_stack_object`, `deal_damage`, `discard_cards`, `prevent_next_damage`, `put_on_top_owner_library`, `return_to_owner_hand` | `counter_stack_object`, `deal_damage`, `discard_cards`, `put_on_top_owner_library`, `return_to_owner_hand` |
+| `commander-data-admission-v1` | None | None |
+| `commander-foundations-v1` | `counter_stack_object`, `deal_damage`, `discard_cards`, `prevent_next_damage`, `put_on_top_owner_library`, `return_to_owner_hand` | `counter_stack_object`, `deal_damage`, `discard_cards`, `put_on_top_owner_library`, `return_to_owner_hand` |
+| `commander-four-colors-v1` | `prevent_next_damage` | None |
+| `commander-keywords-v1` | `counter_stack_object`, `deal_damage`, `discard_cards`, `prevent_next_damage`, `put_on_top_owner_library`, `return_to_owner_hand` | `counter_stack_object`, `deal_damage`, `discard_cards`, `put_on_top_owner_library`, `return_to_owner_hand` |
+| `commander-mana-v1` | `counter_stack_object`, `deal_damage`, `discard_cards`, `prevent_next_damage`, `put_on_top_owner_library`, `return_to_owner_hand` | `counter_stack_object`, `deal_damage`, `discard_cards`, `put_on_top_owner_library`, `return_to_owner_hand` |
+| `commander-removal-v1` | `prevent_next_damage`, `return_to_owner_hand` | `return_to_owner_hand` |
+| `commander-sacrifice-v1` | `each_opponent_sacrifice`, `modify_source_power_toughness`, `prevent_next_damage`, `return_aura_from_graveyard` | `each_opponent_sacrifice`, `modify_source_power_toughness`, `return_aura_from_graveyard` |
+| `commander-staples-v1` | `counter_stack_object`, `deal_damage`, `discard_cards`, `prevent_next_damage`, `put_on_top_owner_library`, `return_to_owner_hand` | `counter_stack_object`, `deal_damage`, `discard_cards`, `put_on_top_owner_library`, `return_to_owner_hand` |
+| `commander-tokens-v1` | `counter_stack_object`, `deal_damage`, `discard_cards`, `prevent_next_damage`, `put_on_top_owner_library`, `return_to_owner_hand` | `counter_stack_object`, `deal_damage`, `discard_cards`, `put_on_top_owner_library`, `return_to_owner_hand` |
+| `commander-wipes-v1` | `each_opponent_sacrifice`, `lose_life_death_controller`, `modify_source_power_toughness`, `prevent_next_damage`, `pump_set`, `return_aura_from_graveyard` | `each_opponent_sacrifice`, `lose_life_death_controller`, `modify_source_power_toughness`, `pump_set`, `return_aura_from_graveyard` |
+
+Globally, zero-commit kinds fall from **5 to 4**. `prevent_next_damage` rises from **0 to 154 committed batches**. The remaining global gaps are `each_opponent_sacrifice`, `lose_life_death_controller`, `modify_source_power_toughness`, `pump_set`. Their passing core witnesses remain listed above; these are match-policy coverage gaps, not missing core witnesses.
+
+### Default-deck nonlands never cast
+
+| Profile | Before | After |
+| --- | --- | --- |
+| `commander-attachments-v1` | Birds of Paradise, Midnight Haunting, Queen's Commission, Spore Swarm | Alley Strangler, Birds of Paradise, Midnight Haunting, Queen's Commission, Spore Swarm |
+| `commander-combat-keywords-v1` | None | None |
+| `commander-data-admission-v1` | None | None |
+| `commander-foundations-v1` | None | None |
+| `commander-four-colors-v1` | Crazed Skirge, Fencing Ace, Samite Healer | Crazed Skirge, Fencing Ace, Samite Healer |
+| `commander-keywords-v1` | None | None |
+| `commander-mana-v1` | None | None |
+| `commander-removal-v1` | Goblin Instigator, Slaughterhouse Bouncer, Soul Feast, Swords to Plowshares, Unholy Strength, Unsummon | Deadly Recluse, Glorious Anthem, Goblin Instigator, Slaughterhouse Bouncer, Swords to Plowshares, Unsummon |
+| `commander-sacrifice-v1` | Alley Strangler, Beast Within, Beetleback Chief, Butcher of Malakir, Chimney Rabble, Costly Plunder, Counterspell, Crested Herdcaller, Elvish Visionary, Explosive Vegetation, Fling, Gallant Cavalry, Goliath Sphinx, Greenwood Sentinel, Healer's Hawk, Hornet Queen, Lightning Bolt, Serra Angel, Sign in Blood, Slaughterhouse Bouncer, Soul Feast, Spidersilk Armor | Alley Strangler, Beetleback Chief, Butcher of Malakir, Chimney Rabble, Costly Plunder, Counterspell, Crested Herdcaller, Gallant Cavalry, Goliath Sphinx, Healer's Hawk, Hornet Queen, Serra Angel, Sign in Blood, Soul Feast, Spidersilk Armor |
+| `commander-staples-v1` | None | None |
+| `commander-tokens-v1` | None | None |
+| `commander-wipes-v1` | Bone Splinters, Dragon Sniper, Evacuation, Explosive Vegetation, Hornet Queen, Infest, Massacre Wurm, Night's Whisper, Planar Cleansing, Rancor, Soul Feast, Tranquility, Vampire Nighthawk | Bone Splinters, Butcher of Malakir, Dragon Sniper, Evacuation, Ferocious Pup, Hornet Queen, Infest, Massacre Wurm, Night's Whisper, Vampire Nighthawk |
+
+Sacrifice improves from **22 to 15** omitted default-deck cards. Fling commits **0 → 2** damage batches; Goblin Bombardment activates **0 → 4** times. Aggregate `sacrifice_damage` commitments rise **8 → 17**. Butcher of Malakir remains uncast and Bloodthrone Vampire remains unactivated in natural batches, despite their generic policy regressions. These remain explicit coverage limitations. Attachments regresses from **4 to 5** omitted cards, and its `return_aura_from_graveyard` kind is now uncommitted; its winner and replay counts are unchanged.
+
+Full before/after lists of kinds with missed sites, newly cast/newly omitted cards, original-report paths and SHA-256 hashes are in `generated/final-engine-verification/d1c-fixes/comparison.json`. The self-contained `report.html` exposes these lists per profile. Each profile directory retains all eighteen journals, `report.json`, unchanged guards in `manifest.json`, and eighteen explicit replay result files. `source-inputs.json`, `gates.json`, `policy-tests-final.log`, `check-engine.log` and `build-sim.log` bind the implementation and exact gate results.
+
+Two interrupted intermediate attempts remain under `attempts/pre-final/` and `attempts/pre-reservation/`; neither is counted as a final pass. The latter preserved a 910-test Rust pass, incomplete Node/replay work, and prevention-zero reports that exposed the resource-reservation gap. No assertion or guard was weakened to obtain the final results.
+
+### Host-only audit of the remaining casting gaps
+
+A separate native audit reconstructed all eighteen original and eighteen corrected
+sacrifice games from their raw accepted journals. **36/36 terminal semantic digests
+matched; zero audit failures.** This does not replace the standard batch/replay
+qualification above or claim checkpoint/build replay of the older executable.
+It only inspects the acting player's permitted observations, never supplies facts
+to the policy, and uses the original and corrected mana planners on the same
+observed mana costs. Mana funding alone does not assert valid targets or a
+payable additional sacrifice.
+
+| Original 22 omitted cards | Before | After |
+| --- | ---: | ---: |
+| Never seen in hand at own empty-stack main priority | 7 | 6 |
+| Seen there, but no window funded by the planner | 7 | 5 |
+| At least one such window with mana funding | 8 | 11 |
+
+The old and corrected planners produced identical **per-card payable-window
+totals** in these audits. The flexible-mana allocation fix is covered by its
+regression, but was not identified as a cause of this cohort's omissions.
+Actual selected actions show competition from other development, while reactive
+and sacrifice spells still need their specific opportunities. The corrected
+cohort casts seven of the original omissions; six remaining omissions never
+appeared at own main priority, five had no funded main window, and four still
+competed with development or needed reactive/additional-cost opportunities.
+
+Butcher appeared at own main priority in **two games in each cohort**, with
+**zero mana-plan-funded windows** in either planner. Its casting regression
+proves development priority when its cost is funded. Bloodthrone had **zero
+observed token-fodder priority windows** in either cohort; its token-based policy
+regression is separate from this remaining natural-game coverage gap.
+
+Actual cost sacrifices increased **36 → 52**; all sacrifices increased
+**37 → 54**. Cost counts include successful `Sacrificed` outcomes under payment,
+nonmana activation or mana activation causes and exclude resolution sacrifices.
+These improve on `f02eae7`; Fling's two damage commitments and 52 paid sacrifices
+still fall short of the review's earlier per-card figures of twelve and 57.
+
+`audit-before.json`, `audit-after.json`, `casting-audit-summary.json` and
+`audit-results.json` retain the counts, every audited card's observed windows,
+selected actions, semantic checks and exact commands. `audit-priority.rs` and
+`audit-build-command.json` retain the standalone audit implementation and build
+inputs. No core, server, compiler or contract source was edited for this audit.
