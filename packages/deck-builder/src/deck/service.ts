@@ -272,7 +272,7 @@ export function requireRevision(db: Database, actor: Actor, deckId: number, expe
 export function requireEditableDeck(db: Database, actor: Actor, deckId: number): DeckRow {
   const deck = requireDeckOwner(db, actor, deckId);
   if (deck.category === "archived")
-    throw new PermissionError(`"${deck.name}" is a Archived deck and is read-only. Fork it to explore changes, or have the owner restore it to Paper or Theorycrafted.`);
+    throw new PermissionError(`"${deck.name}" is an Archived deck and is read-only. Fork it to explore changes, or have the owner restore it to Paper or Theorycrafted.`);
   return deck;
 }
 

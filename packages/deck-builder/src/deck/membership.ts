@@ -250,7 +250,7 @@ export function applyChanges(
 ): number | null {
   requireDirectCardEdit(db, actor, deckId);
   if (actor.via === "agent" && entry.kind !== "edit")
-    throw new PermissionError("Only the owner can rule on proposals, import over a deck, or undo.");
+    throw new PermissionError("Only the owner can decide proposals, import over a deck, or undo.");
 
   return withTransaction(db, () => {
     const logged: LogCardInput[] = [];

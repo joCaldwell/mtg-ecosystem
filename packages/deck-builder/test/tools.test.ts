@@ -7,7 +7,7 @@ import { listActivity } from "../src/activity.ts";
 import { CardResolutionError } from "../src/cards.ts";
 import { listLog, unreviewedCount } from "../src/deck/log.ts";
 import { forkDeck } from "../src/deck/fork.ts";
-import { acceptItems, pendingItemIds, rejectItems } from "../src/deck/proposals.ts";
+import { acceptItems, createProposal, pendingItemIds, rejectItems } from "../src/deck/proposals.ts";
 import {
   createSlot,
   getDeck,
@@ -17,9 +17,10 @@ import {
 import { getProfile, listDocumentEdits, setProfile } from "../src/documents.ts";
 import { setFocus } from "../src/focus.ts";
 import { listMemories, remember, setBudgets } from "../src/memory.ts";
-import { PLAYBOOK } from "../src/mcp/playbook.ts";
+import { INSTRUCTIONS, PLAYBOOK } from "../src/mcp/playbook.ts";
+import * as z from "zod/v4";
 import { setVisibility } from "../src/sharing.ts";
-import { TOOLS, callTool } from "../src/mcp/tools.ts";
+import { TOOLS, callTool, inputSchema } from "../src/mcp/tools.ts";
 import { AGENT, add, newDeck, testDb } from "./helpers.ts";
 
 const call = (db: Database, name: string, args: unknown = {}) =>
@@ -61,6 +62,35 @@ describe("the tool list (spec §10.3)", () => {
     assert.throws(() => call(db, "no_such_tool"), /Unknown tool/);
     assert.throws(() => call(db, "list_rulings"), /Unknown tool/);
     assert.throws(() => call(db, "mark_rulings_reviewed"), /Unknown tool/);
+  });
+  test("agent-facing text says the owner decides, never rules (D9)", () => {
+    const surfaces = [INSTRUCTIONS, PLAYBOOK, ...TOOLS.map((t) => `${t.title}\n${t.description}\n${JSON.stringify(z.toJSONSchema(inputSchema(t)))}`)];
+    for (const text of surfaces)
+      assert.doesNotMatch(text, /\b(?:rul(?:e|ed|es|ing)s?)\b(?! for working)/i, text.slice(0, 60));
+    const propose = TOOLS.find((t) => t.name === "propose_changes")!;
+    assert.match(propose.description, /the owner decides each item in the app/);
+    assert.match(JSON.stringify(z.toJSONSchema(inputSchema(propose))), /Why\. The owner reads this when deciding\./);
+    assert.match(JSON.stringify(z.toJSONSchema(inputSchema(propose))), /A label shared by items the owner decides together\./);
+    assert.match(TOOLS.find((t) => t.name === "revise_proposal")!.description, /For partially decided card proposals/);
+    assert.match(PLAYBOOK, /in one group so they are decided as a unit\./);
+    assert.match(PLAYBOOK, /Card items the owner has already decided keep their decisions;/);
+    assert.match(PLAYBOOK, /the owner often decides while you are not running/);
+  });
+  test("refusals use the D9 words: an Archived deck, decided as a unit", () => {
+    const db = testDb();
+    const archived = seeded(db, "theorycrafted");
+    setDeckCategory(db, OWNER, archived, "archived");
+    assert.throws(() => call(db, "edit_cards", { deck: archived, add: [{ card: "Sol Ring" }] }), /is an Archived deck and is read-only/);
+    const id = seeded(db);
+    const pid = createProposal(db, AGENT, id, { items: [
+      { action: "cut", oracle_id: "id-counterspell", reason: "Swap.", group: "swap" },
+      { action: "add", oracle_id: "id-solring", reason: "Swap.", group: "swap" },
+      { action: "add", oracle_id: "id-forest", reason: "A land." },
+    ] });
+    const [cutItem, addItem] = pendingItemIds(db, OWNER, pid);
+    rejectItems(db, OWNER, [cutItem]);
+    const items = [addItem];
+    assert.throws(() => acceptItems(db, OWNER, items), /is already rejected; its group must be decided as a unit/);
   });
   test("every tool rejects an unknown argument by name; a D9 rename says what it became", () => {
     const db = testDb();

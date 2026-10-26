@@ -1030,7 +1030,7 @@ export const TOOLS: ToolDef[] = [
     readOnly: false,
     description:
       "Propose adding and cutting cards. This is the only way to change which cards are in a Paper deck: " +
-      "the owner rules on each item in the app, and you learn the outcome from list_decisions. Propose as " +
+      "the owner decides each item in the app, and you learn the outcome from list_decisions. Propose as " +
       "many items as the request calls for. Every item needs its own reason (write cards as [[Card Name]], " +
       "and quote the oracle text you rely on). Give items that only make sense together the same group " +
       "so they are accepted or rejected as a unit. A cut removes the card from the deck; set to_maybe on " +
@@ -1045,14 +1045,14 @@ export const TOOLS: ToolDef[] = [
           z.object({
             action: z.enum(["add", "cut"]),
             card: cardRef,
-            reason: z.string().describe("Why. The owner reads this when decision."),
+            reason: z.string().describe("Why. The owner reads this when deciding."),
             slot: z.string().optional().describe("For an add: an existing primary purpose slot."),
             secondary_slots: z.array(z.string()).optional().describe("For an add: additional purpose slots; omit to retain a maybe card's assignments."),
             to_maybe: z
               .boolean()
               .optional()
               .describe("For a cut: if accepted, move the card to the maybe list instead of out of the deck (default false)."),
-            group: z.string().optional().describe("A label shared by items to be ruled on together."),
+            group: z.string().optional().describe("A label shared by items the owner decides together."),
           }),
         )
         .min(1),
@@ -1149,7 +1149,7 @@ export const TOOLS: ToolDef[] = [
     prices: true,
     title: "Amend or withdraw your pending proposal",
     readOnly: false,
-    description: "Amend or withdraw only your own pending card or document proposal. Amendments are linked replacements retaining the original audit history. For documents name any edit in a group and supply the complete replacement changes; the whole group is superseded. For partially ruled card proposals, supply only remaining work; earlier decisions stay in history. Never accepts, changes lifecycle, or edits an approved brief/power target.",
+    description: "Amend or withdraw only your own pending card or document proposal. Amendments are linked replacements retaining the original audit history. For documents name any edit in a group and supply the complete replacement changes; the whole group is superseded. For partially decided card proposals, supply only remaining work; earlier decisions stay in history. Never accepts, changes lifecycle, or edits an approved brief/power target.",
     input: { type: z.enum(["cards", "document"]), id: z.number().int().positive(), action: z.enum(["amend", "withdraw"]),
       reason: z.string().trim().min(1), expected_revision: z.number().int().nonnegative().optional(),
       summary: z.string().optional(), items: z.array(proposalItem).min(1).optional(), changes: z.array(documentChange).min(1).optional() },
@@ -1239,7 +1239,7 @@ export const TOOLS: ToolDef[] = [
     description:
       "Propose new text for the owner's profile: who they are as a builder — tastes, playgroup and power " +
       "level, budget stance, standing dislikes. Give the complete replacement text; the owner sees a diff " +
-      "against the current profile and rules on it. Use this when memories have settled into something " +
+      "against the current profile and decides on it. Use this when memories have settled into something " +
       "durable, and cite them in the reason.",
     input: {
       text: z.string().describe("The complete new profile, in markdown. Keep it under about 600 words."),

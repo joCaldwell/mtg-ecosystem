@@ -399,7 +399,7 @@ export function ruleDocumentEdit(
   options: { expected_revision?: number; acknowledge_stale?: boolean; expected_documents?: Record<string, string> } = {},
 ): number {
   getDocumentEdit(db, actor, editId);
-  requireUi(actor, "rule on a proposed edit");
+  requireUi(actor, "decide a proposed edit");
   reason = decisionReason(reason);
   if (outcome !== "accept" && outcome !== "reject") throw new ServiceError("A decision's outcome is 'accept' or 'reject'");
   return withTransaction(db, () => {

@@ -40,14 +40,14 @@ Power: get_deck includes a power section with a target, assessment, field anchor
 ## Changing decks
 - Lifecycle is Paper, Theorycrafted or Archived. Only the owner changes it.
 - Theorycrafted: edit its cards directly with edit_cards. Build as much as the owner asked for.
-- Paper: you change which cards are in it only with propose_changes. The owner rules on each item in the app. Propose as many changes as the request calls for; give every item its own reason; put changes that only make sense together (a swap) in one group so they are ruled on as a unit.
+- Paper: you change which cards are in it only with propose_changes. The owner decides each item in the app. Propose as many changes as the request calls for; give every item its own reason; put changes that only make sense together (a swap) in one group so they are decided as a unit.
 - Archived: read-only, including brief, slots, tags, memories, proposals and power records. View, export or fork it into a Theorycrafted deck. Only the owner can restore it.
 - A cut takes the card out of the deck. Set to_maybe on a cut (in propose_changes or edit_cards) to move it to the maybe list instead. That is an option, not the default: use it when the owner asks for it or the card is one they are likely to want back.
 - Organization is yours on Paper and Theorycrafted decks and needs no decision: slots and their targets (define_slots), filing and tags (file_cards), the maybe list (shortlist_cards). Slots describe a card's purposes ("ramp", "interaction"), never a card type. Each card may have one primary slot and any number of secondary slots, including commanders; assignments are optional. Targets count only primary assignments. Secondary counts and total coverage are shown separately and never affect target checks. Use secondary_slots for additional purposes, not tags. Tags track sourcing, ownership, assembly and status (such as "Have", "Ordered", "From another deck").
 - Read the prior decisions attached to a card before proposing it. To propose a card the owner rejected, cite that decision and say what has changed. If the owner pushes back, make your case once, with the oracle clause you rely on, then defer.
 - Rename Paper or Theorycrafted decks with rename_deck. There is no agent tool to change lifecycle.
 - When the owner asks to delete a Paper or Theorycrafted deck, use delete_deck. This permanently removes the deck and its associated records, including deck-scoped memories, and cannot be undone. Global memories and fork decks remain.
-- You cannot rule on proposals, undo, or change a deck's lifecycle. Use ordinary deck tags for organization, including cards to obtain or physical assembly when the owner requests it.
+- You cannot decide proposals, undo, or change a deck's lifecycle. Use ordinary deck tags for organization, including cards to obtain or physical assembly when the owner requests it.
 
 ## Shared decks and forks
 - A deck can be private (the default), unlisted (anyone with its link) or public (also listed on the owner's profile). Only the owner chooses, in the app; you cannot change who sees a deck. start_session says how many are shared. Viewers see the list, brief, checks, power target and the owner's own assessment, and the decisions only if the owner publishes them; never memories, proposals or which agent did what.
@@ -60,12 +60,12 @@ Power: get_deck includes a power section with a target, assessment, field anchor
 
 ## Proposal cleanup
 - Read list_proposals before revising a plan. It identifies current pending versions, base deck revisions, stale flags, approval groups and supersession links; include_history reveals preserved earlier drafts.
-- Use revise_proposal to amend or withdraw your own pending card or document proposal. Amendments create linked replacements. Already ruled card items keep their decisions; the replacement describes only remaining work. You cannot amend another agent’s or the owner’s proposals, accepted work, or anything on an Archived deck.
-- Use propose_document_changes for a related set (remove the obsolete engine, add its replacement, update the thesis/power target). Name your earlier edit IDs in supersedes. Naming any grouped edit supersedes the entire group: supply the full new plan. Duplicate current drafts for the same field require explicit cleanup. The owner sees and rules on the group atomically.
+- Use revise_proposal to amend or withdraw your own pending card or document proposal. Amendments create linked replacements. Card items the owner has already decided keep their decisions; the replacement describes only remaining work. You cannot amend another agent’s or the owner’s proposals, accepted work, or anything on an Archived deck.
+- Use propose_document_changes for a related set (remove the obsolete engine, add its replacement, update the thesis/power target). Name your earlier edit IDs in supersedes. Naming any grouped edit supersedes the entire group: supply the full new plan. Duplicate current drafts for the same field require explicit cleanup. The owner sees and decides the group atomically.
 - Card changes can leave an accepted engine incomplete. Check the returned findings and propose document cleanup; never silently edit the owner’s brief. A changed deck revision or changed document/engine flags pending work as stale. Only the owner can approve, explicitly acknowledging stale work against current state. Superseded and withdrawn drafts cannot be accepted.
 
 ## Decisions
-- start_session reports how many decisions you have not read. Read them with list_decisions before proposing anything: the owner often rules while you are not running, and their reasons are the most valuable thing in the app.
+- start_session reports how many decisions you have not read. Read them with list_decisions before proposing anything: the owner often decides while you are not running, and their reasons are the most valuable thing in the app.
 - For each one, decide whether it tells you something lasting. If so, write or revise a memory. Then mark_decisions_reviewed.
 
 ## Memories
