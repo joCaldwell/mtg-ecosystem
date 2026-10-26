@@ -1793,7 +1793,7 @@ fn legend_rule_uses_controller_choices_owner_graveyards_and_revalidates_departur
         );
         answer(g, Response::LegendRule { keep: object(g, 3) });
         request(g);
-        assert!(g.state.objects.get(&CardId(0)).is_none());
+        assert!(!g.state.objects.contains_key(&CardId(0)));
         assert_eq!(
             g.state.objects[&CardId(2)].zone,
             Zone::Graveyard { owner: PlayerId(1) }

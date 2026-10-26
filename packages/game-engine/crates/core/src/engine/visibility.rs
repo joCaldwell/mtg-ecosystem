@@ -1054,7 +1054,7 @@ impl Game {
             ..
         }) = self.legend_request()?
         {
-            return Ok((player == viewer)
+            return (player == viewer)
                 .then(|| -> Result<_, String> {
                     Ok(PlayerRequest::LegendRule {
                         token,
@@ -1069,7 +1069,7 @@ impl Game {
                             .collect::<Result<_, _>>()?,
                     })
                 })
-                .transpose()?);
+                .transpose();
         }
         if matches!(
             self.state.frame,
