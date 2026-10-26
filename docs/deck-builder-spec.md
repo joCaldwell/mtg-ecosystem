@@ -984,7 +984,13 @@ Checked on 2026-10-25, v3 Phase 3 private beta deployment:
   with resolved Actors and omit credentials, bodies, queries and tool data;
   error logs contain stack frames without potentially sensitive messages.
   All **961 tests** and both typechecks pass. OPERATIONS.md records commands,
-  deployment IDs, remaining owner acceptance and the claim lifecycle.
+  deployment IDs and the claim lifecycle. The real owner then signed in and
+  confirmed all decks; user 1 is claimed as `jcaldwell`, with all 18 decks and
+  36 memories. The claim variable was removed and deployment
+  `b7c4ec34-dc77-47e5-acc4-ab8bbc34d235` reached SUCCESS without it. A temporary
+  personal token called `start_session` through the official MCP client from
+  the owner machine; authenticated SSE disconnected/reconnected across the
+  deployment and retained user 1. Temporary test credentials were revoked/removed.
 - The $25 workspace soft spending alert is configured. Railway rejected
   native daily/weekly volume backups as Pro-only on this Hobby workspace;
   the runbook explicitly records that unsatisfied redundancy requirement
@@ -1012,7 +1018,7 @@ future v3 phases, not verified features. What has not been checked:
   live-data tool transcript for a second EUR user (start_session, get_deck,
   eur<=1 search) and verified USD isolation for user 1; it does not establish
   how agents use those prices over a full deck-building conversation.
-- ChatGPT on the web or phone. Its servers cannot reach a loopback address. The route is OpenAI's Secure MCP Tunnel running the stdio shim; the Settings page gives the commands from OpenAI's guide, but they have not been run, because they need a tunnel created in the owner's OpenAI Platform organization.
+- Claude.ai/ChatGPT web connector interoperability with the live hosted service. Hosted HTTPS OAuth/CIMD and consent are configured; completing these client connections remains owner testing. Remote clients cannot reach the local loopback instance.
 - The evaluation was run once per task, on one model, with tasks written by the same hand as the tools. It shows the interface works; it does not measure how often.
 
 

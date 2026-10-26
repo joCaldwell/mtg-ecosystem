@@ -874,3 +874,48 @@ with more restricted Pro read/fetch access. See
 Do not enter the Discord client secret or a personal bearer token in either
 web connector: each uses deck-builder OAuth with the connecting client's
 published CIMD document. Reconnect after changing the public domain.
+
+Owner claim acceptance (2026-10-25): the owner completed Discord sign-in and
+confirmed every deck is visible. A read-only hosted check verified user 1
+(`jcaldwell`, admin) has an auth identity and owns all **18 decks and 36
+memories**, with zero foreign-key errors. The production claim variable was
+then removed. The production IaC plan now reports **No changes**.
+
+Authenticated acceptance completed after the real owner claim:
+
+- Final production deployment **b7c4ec34-dc77-47e5-acc4-ab8bbc34d235** reached
+  `SUCCESS` and passed Railway's native healthcheck. Its live environment
+  contains **no DECKBUILDER_CLAIM_CODE**; web PID 1 remains UID/GID 1000.
+- A disposable operator-created session for the now-claimed owner exercised
+  the normal hosted Settings HTTP token API. The official MCP client on the
+  owner's machine used that temporary personal token for `start_session`:
+  success, principal 1 / `jcaldwell`, 18-deck roster. No token, session cookie,
+  auth secret or returned deck prose was logged or saved.
+- The same authenticated SSE connection received `connected`, disconnected
+  during the deployment and reconnected automatically to receive `connected`
+  again. `/api/session` still returned user 1 after the replacement. The
+  disposable token was revoked through the Settings API and its test session
+  removed; the owner's real Discord browser session was left alone.
+- One unused single-use invite was minted through the hosted admin API and
+  saved only to `~/.config/deck-builder/beta-invite`, mode 600, for private
+  handoff. No invitation code appears in source, logs or the PR. The owner
+  can test a second Discord identity with it; live second-account acceptance
+  remains an owner action.
+- A new production online backup was uploaded after claim/test cleanup so
+  the off-volume primary snapshot includes the real owner identity. Both
+  environment buckets have a backup object; S3 listing verified staging's
+  object even while Railway's bucket-size summary was stale.
+- The final gate again passed **961/961** with both typechecks. The source
+  laptop data-file content hashes still match the pre-migration manifest.
+
+During initial bootstrap only (before this PR is merged onto `release`), a
+plain redeploy/upload can be skipped by watch patterns or rebuild a remote
+commit without the Dockerfile. The final claim-removal deployment used a
+private temporary `release` worktree at `3e1798d`, overlaid with this phase's
+container/logging assets plus the updated OPERATIONS evidence, then uploaded
+from that repo-root context. The overlay does not commit or promote feature
+code onto `release`. Verify the live variable is absent; a skipped upload is
+not a redeploy. Once the owner merges/promotes Phase 3, ordinary release-branch
+push deployments are self-contained. After any old-image rollback, recheck
+current secrets, the absent claim variable and database schema compatibility;
+old artifacts can retain their original startup/environment snapshot.

@@ -11,8 +11,13 @@ asking the owner anything.
 and `packages/deck-builder/web/ARCHITECTURE.md`. The spec remains the source of
 truth; every phase that changes behaviour updates the spec in the same PR.
 
-**Status (2026-10-25):** phase 0 merged (PR #3), phase 1 merged (PR #4).
-Next: phase 2, with phase 1b and 4b free to run in parallel worktrees.
+**Status (2026-10-25):** phases 0–2 merged (PRs #3–5). Phase 3 is deployed
+with the owner's 18 decks and 36 memories; PR #7 awaits owner review/merge.
+Owner claim, claim-code removal, personal-token MCP access, SSE reconnect,
+refresh and bucket restore are verified. Native volume snapshots remain
+blocked by Railway's Pro-only restriction on this Hobby workspace; external
+monitor setup and second-account/client acceptance remain owner steps.
+Parallel feature phases continue in their own worktrees and reach staging first.
 
 ---
 
