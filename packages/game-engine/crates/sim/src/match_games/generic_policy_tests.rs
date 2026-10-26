@@ -941,3 +941,72 @@ fn sacrifice_estimate_matches_the_profitable_candidate_and_spells_use_precombat_
         }
     );
 }
+
+#[test]
+fn defensive_modal_cards_and_tap_sources_are_reserved_for_reactive_priority() {
+    let c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+    let mut v = wipe_tests::view(&c);
+    v.active = Some(v.viewer);
+    v.turn.step = TurnStep::PrecombatMain;
+    v.turn.lands_played = 1;
+    v.objects = vec![
+        wipe_tests::card(
+            &c,
+            "Healing Salve",
+            v.viewer.0,
+            Zone::Hand { owner: v.viewer },
+        ),
+        wipe_tests::card(&c, "Samite Healer", v.viewer.0, Zone::Battlefield),
+        wipe_tests::card(&c, "Serra Angel", v.viewer.0, Zone::Battlefield),
+    ];
+    v.players
+        .iter_mut()
+        .find(|p| p.player == v.viewer)
+        .unwrap()
+        .mana
+        .insert(Color::W, 1.into());
+    assert_eq!(
+        strategy(&c).priority(&observation(v.clone())).unwrap(),
+        PlayerResponse::Pass,
+        "do not spend the modal prevention card on unconditional life gain"
+    );
+    let mut attack = observation(v.clone());
+    attack.decision = Some(PlayerRequest::Attackers {
+        token: mtg_core::DecisionToken("policy-fixture".into()),
+        player: v.viewer,
+        candidates: vec![
+            ObjectHandle("Samite Healer".into()),
+            ObjectHandle("Serra Angel".into()),
+        ],
+        defenders: vec![PlayerId(0)],
+    });
+    assert_eq!(
+        strategy(&c).choose(&attack).unwrap(),
+        PlayerResponse::Attackers {
+            attacks: vec![(ObjectHandle("Serra Angel".into()), PlayerId(0))]
+        }
+    );
+    v.active = Some(PlayerId(0));
+    v.turn.step = TurnStep::DeclareBlockers;
+    v.objects[2].controller = PlayerId(0);
+    v.combat = vec![mtg_core::VisibleAttacker {
+        attacker: ObjectHandle("Serra Angel".into()),
+        defender: v.viewer,
+        blocked: false,
+        blockers: vec![],
+    }];
+    assert_eq!(
+        strategy(&c).priority(&observation(v.clone())).unwrap(),
+        PlayerResponse::Cast {
+            card: ObjectHandle("Healing Salve".into())
+        }
+    );
+    v.objects.remove(0);
+    assert_eq!(
+        strategy(&c).priority(&observation(v)).unwrap(),
+        PlayerResponse::ActivateAbility {
+            object: ObjectHandle("Samite Healer".into()),
+            ability: 0
+        }
+    );
+}

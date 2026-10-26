@@ -273,6 +273,7 @@ impl Strategy<'_> {
                         .filter(|h| {
                             v.objects.iter().any(|x| {
                                 &x.handle == *h
+                                    && !self.reserve_reactive_tap(x)
                                     && x.characteristics
                                         .as_ref()
                                         .and_then(|c| c.power.as_ref())
