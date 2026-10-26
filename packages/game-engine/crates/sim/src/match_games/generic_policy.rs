@@ -52,6 +52,12 @@ fn reactive_program(p: &SpellProgram) -> bool {
         || p.modes.iter().any(|m| reactive_program(&m.program))
 }
 impl Strategy<'_> {
+    pub(super) fn legend_choice(&self, candidates: &[ObjectHandle]) -> Result<PlayerResponse, String> {
+        Ok(PlayerResponse::LegendRule {
+            keep: candidates.last().ok_or("empty legend choices")?.clone(),
+        })
+    }
+
     pub(super) fn reserve_reactive_tap(&self, o: &VisibleObject) -> bool {
         definition(self.catalog, &o.oracle_id).is_ok_and(|d| {
             d.activated.iter().any(|a| {

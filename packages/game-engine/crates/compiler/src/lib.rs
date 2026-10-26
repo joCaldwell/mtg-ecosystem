@@ -10,6 +10,7 @@ pub mod fixtures {
 pub mod catalog;
 pub mod coverage;
 mod normalization;
+mod diagnostics;
 mod type_line;
 pub use catalog::*;
 use normalization::source_lines;
@@ -655,15 +656,12 @@ fn mana_cost(text: &str) -> Result<ManaCost, Failure> {
 fn read_abilities(raw: &str) -> Result<Vec<Ability>, Failure> {
     // Keep the duplicate-key pass before serde's internally tagged mirrors.
     // serde_path_to_error reports context without accepting unknown fields.
-    let tree: serde_json::Value = decode(raw, "abilities")?;
-    let mut de = serde_json::Deserializer::from_str(raw);
-    let abilities = serde_path_to_error::deserialize(&mut de).map_err(|e| {
-        let path = format!("abilities{}", e.path());
-        let code = coverage::reason_code(&path, &e.inner().to_string(), &tree);
-        unsupported(&path, code)
-    })?;
-    de.end().map_err(|e| invalid("abilities", e.to_string()))?;
-    Ok(abilities)
+    let nodes: Vec<Box<RawValue>> = decode(raw, "abilities")?;
+    nodes.iter().enumerate().map(|(i, node)| {
+        serde_json::from_str::<Ability>(node.get()).map_err(|_| {
+            diagnostics::ability(node.get(), &format!("abilities[{i}]"))
+        })
+    }).collect()
 }
 
 pub fn compile(manifest: &str, record: &str) -> CompileResult {

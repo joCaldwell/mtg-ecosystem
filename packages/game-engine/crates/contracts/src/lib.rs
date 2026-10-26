@@ -884,7 +884,7 @@ impl Definition {
         }
         for kind in &self.characteristics.additional_types {
             match kind {
-                CardKind::Artifact => {
+                CardKind::Artifact if self.characteristics.kind != CardKind::Land => {
                     set.insert(Capability::CastArtifactV1);
                 }
                 CardKind::Enchantment => {
