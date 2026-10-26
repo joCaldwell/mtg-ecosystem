@@ -10,10 +10,9 @@ the rules behind it.
    banner, a hover card. Nothing covers the list except a dialog you asked for.
 2. **Colour means something or it is grey.** See the table below. A new
    feature does not get a new colour.
-3. **Text first.** Cards are names, costs and oracle text. The picture appears
-   on demand: in the hover card and the card panel. The one exception is a
-   public deck page, whose header and link preview carry the commander's art
-   (see Narrow screens and public pages).
+3. **Text first in the editor.** Card rows remain names, costs and oracle
+   text, with pictures on demand. Commander art may frame deck selection and
+   deck headers; a quiet environment may frame sign-in and first run (D21).
 4. **Dense, not cramped.** 13px body, 24px rows, one line per card. Space goes
    between groups, not between rows.
 5. **Every agent write is visibly an agent's.** Violet marks it wherever it
@@ -73,9 +72,14 @@ D20) and built in phase 4a; phase 4b makes the full app hold up between
 | `--cut` red | Going out, failing, rejected | proposed cut, a rule violation, Reject |
 | `--warn` amber | Off target, missing, provisional | slot under target, incomplete deck |
 | `--sel` blue | The owner's selection and focus | selected rows, search and tag matches, focus ring, focused field |
+| `--identity-*` | That deck’s colour identity | thin stripe on its card or header only |
 | greys | Everything else | structure, text, neutral chips |
 
-Mana colours (`--mana-*`) are used only inside mana symbols and the pip chart.
+Mana colours (`--mana-*`) appear in symbols and the pip chart. D21 also
+permits `--identity-*` aliases on a deck's own thin stripe, at
+`--identity-opacity`; colourless uses `--identity-grey`. A split gradient
+represents multiple colours. These accents never tint text or controls and
+never replace semantic colours.
 
 Deck lifecycle labels use green for Paper, blue for Theorycrafted, and amber
 for Archived through the `--lifecycle-*` aliases. Sidebar labels and All decks
@@ -264,3 +268,91 @@ card-ruling terminology. Stored user prose is never renamed.
 The live inventory at /design includes collapsed, expanded, saving, failed
 and inline Advanced states, both overlays, a closed and an open explanation, selected/empty/busy
 listboxes, a plain archived title, accessible faint text and motion guidance.
+
+
+## Art (D21, 2026-10-26)
+
+`mtg/DeckArt` owns crop rendering, credit and reserved space. It accepts stored
+card facts and never fetches them. Only `https://cards.scryfall.io/art_crop/`
+with a nonblank artist qualifies. No generated or stock images, bundled images,
+large card images, constructed URLs or browser Scryfall API calls. Existing
+on-demand full card pictures retain their printed artist/copyright lines.
+
+| Variant | Placement | States |
+| --- | --- | --- |
+| strip | Desktop and phone home cards | single, two equal crops, no commander, unknown artist, failed image; focus stays on the deck link/actions |
+| banner | Owner, phone and public deck headers | expanded, folded desktop, smaller tablet/phone, no credited commander |
+| thumbnail | Sidebar, including drawer | square, two crops, absent without credited art; accessible credit and native title |
+| backdrop | Sign-in and empty-account landing only | one environment, missing facts, failed image; one choice per visit, no rotation while reading |
+
+Every larger crop has visible “Art by <artist> · <card>” text in `--text-xs`.
+Each partner is credited separately. Thumbnail credit is an accessible named
+image and title; the larger card/banner shows the same credit visibly. Art is
+decorative (`alt=""`), so captions carry attribution rather than repeating an
+image description. Failed downloads keep their fixed space and caption.
+
+The overlay reaches `--art-overlay-text` before content starts; the fade ends
+at the surface. Even pure white art stays dark enough for all four text tiers.
+Credits use an opaque surface, never transparency: soft/surface is 12.06:1.
+Backdrops use `--art-backdrop-overlay`, `--art-blur` and a reserved content
+frame. Identity stripes are separate from the image overlay and carry no
+meaning needed to understand the deck. No full-surface identity fills.
+
+Desktop observes only the list pane's real scroll events to fold the header
+space at `--art-collapse-threshold`; panel scrolling does not fold it. A list
+without enough overflow to fold without clamping its position stays expanded. This is
+an immediate response to input, without animation. Tablet, phone and public
+headers use smaller art and scroll out naturally with the window. No scroll
+holder or window-scroll contract changes. Fixed image dimensions/aspect and
+reserved frames prevent image-load layout shifts. No preloads; all crops use
+`loading="lazy"` and `decoding="async"`. Reduced motion remains global.
+
+Art does not appear in inbox, activity, memories, Settings, dialogs or the
+playtester content. The navigation rail can still show deck thumbnails while
+those screens are open.
+
+### Phase 4c initial design-system / copy audit
+
+Applied the installed `design:design-system` and `design:ux-copy` SKILL.md
+checklists directly (no Skill tool in this runtime). Reviewed tokens,
+CardImage/CardSheet, public header, roster, phone header, sidebar, sign-in and
+first run. Existing primitives already cover controls, semantic colours and
+motion. Gaps: one-off public art CSS, eager image without async decode,
+no paired art, no roster/sidebar facts, no reusable credit/overlay treatment.
+DeckArt replaces that one-off treatment; /design demonstrates all variants,
+empty and unknown-credit states. “Art by” preserves the existing public wording,
+is concise, and credits the illustrator consistently without an extra action.
+
+
+### Phase 4c final design-system / accessibility / critique review
+
+The final audit rechecked the art primitives, summaries, public header,
+roster, phone views and backdrops against the initial gaps. `DeckArt` covers
+strip/banner/backdrop; `DeckThumbnail` keeps the rail's accessible credit out
+of the public startup dependency. /design includes single and paired art,
+expanded/folded banners, colourless/missing facts, unknown artist and unavailable
+image examples. New sizes, overlay strengths/fades, blur and identity opacity
+are tokens; the architecture gate rejects raw component colours.
+
+Applied `design:design-critique` to the 375/768/1024/1280 screenshots, explicitly
+asking “is this distracting?”: short crops frame navigation while names and
+actions lead; rows remain text and desktop art folds during work. Kept the
+backdrop dark/blurred, replaced squeezed paired credits with separate wrapping
+lines, and retained D17's phone empty state rather than adding creation there.
+At 375 there is no sidebar; at 768 the existing drawer contains thumbnails.
+
+Applied `design:accessibility-review`: 28 required page/width scans have zero
+axe violations, including zero contrast violations; the art examples also
+pass when scanned on their own. Image/gradient text marked indeterminate by
+axe was checked with worst-case white-art compositing: quietest text is
+6.51:1 at the content fade and 5.81:1 on the backdrop; credit is 12.06:1.
+Decorative alt is empty; thumbnail title/name carries each artist. A simulated
+image error preserves exact frame geometry and credit. No new animation or
+transition; global reduced motion still disables motion. Sign-in gained its
+missing main/skip-link target and uses the existing window-scroll hook.
+Existing unrelated /design table/example role, heading and label findings
+are outside these art primitives; no screen-reader software was available.
+
+The public reader uses a display-only brief component so adding credited art
+stays below the 90,000-byte initial JS gate. The reproducible manifest check
+and production browser request set both measured **89,841 gzip bytes**.

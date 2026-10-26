@@ -1,3 +1,4 @@
+import { DeckThumbnail } from "../mtg/index.ts";
 import { usePreferences } from "./Preferences.tsx";
 import { familyOrder } from "../domain/familyOrder.ts";
 // The left rail: where to go, which decks exist, and what an agent connected
@@ -74,6 +75,7 @@ export function Sidebar({ route, brand = true }: { route: Route; brand?: boolean
               aria-current={open ? "page" : undefined}
               title={pending ? `${deck.name} — something is waiting on you` : deck.name}
             >
+              <DeckThumbnail cards={deck.commander_art} />
               <Dot tone={pending ? "agent" : "neutral"} />
               <span className={styles.name}>{deck.name}</span>
               {deck.visibility !== "private" && (

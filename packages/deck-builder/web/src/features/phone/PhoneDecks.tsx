@@ -1,3 +1,4 @@
+import { useSession } from "../../app/Session.tsx";
 import { useVoice } from "../../app/Preferences.tsx";
 // The deck list on a phone: one tappable row per deck, with what is waiting.
 
@@ -6,18 +7,19 @@ import { useQuery } from "../../api/useQuery.ts";
 import { href, useScrollRestore } from "../../app/routes.ts";
 import { DECK_CATEGORY_LABELS } from "../../domain/deckCategory.ts";
 import { familyOrder } from "../../domain/familyOrder.ts";
-import { ColorIdentity } from "../../mtg/index.ts";
+import { ColorIdentity, DeckArt } from "../../mtg/index.ts";
 import { Chip, EmptyState, ErrorNote, Icon, Loading } from "../../ui/index.ts";
 import styles from "./PhoneDecks.module.css";
 
 export function PhoneDecks() {
   const voice = useVoice();
+  const { session } = useSession();
   const decks = useQuery(() => api.listDecks(), []);
   useScrollRestore(decks.data !== null);
   if (decks.error && !decks.data) return <ErrorNote>{decks.error}</ErrorNote>;
   if (!decks.data) return <Loading />;
   if (!decks.data.length)
-    return <div className={styles.page}><h1 className={styles.title}>Your decks</h1><EmptyState title="No decks yet">{voice("Create or import your first deck on a larger screen, then read it here.", "Ask your agent to build one, or create one on a larger screen.")}</EmptyState></div>;
+    return <div className={styles.page}><h1 className={styles.title}>Your decks</h1><DeckArt cards={session.backdrop ? [session.backdrop] : []} variant="backdrop"><EmptyState title="No decks yet">{voice("Create or import your first deck on a larger screen, then read it here.", "Ask your agent to build one, or create one on a larger screen.")}</EmptyState></DeckArt></div>;
   return (
     <div className={styles.page}>
       <h1 className={styles.title}>Your decks</h1>
@@ -26,7 +28,7 @@ export function PhoneDecks() {
           const waiting = deck.pending_items + deck.pending_document_edits;
           return (
             <li key={deck.id}>
-              <a className={fork ? `${styles.row} ${styles.fork}` : styles.row} href={href({ page: "deck", deckId: deck.id, review: waiting > 0 && deck.category !== "archived" })}>
+              <DeckArt cards={deck.commander_art} identity={deck.color_identity}><a className={fork ? `${styles.row} ${styles.fork}` : styles.row} href={href({ page: "deck", deckId: deck.id, review: waiting > 0 && deck.category !== "archived" })}>
                 <span className={styles.name}>
                   {deck.name}
                   {deck.visibility !== "private" && <span role="img" aria-label={deck.visibility === "public" ? "Public" : "Unlisted"}><Icon name={deck.visibility === "public" ? "globe" : "link"} /></span>}
@@ -40,7 +42,7 @@ export function PhoneDecks() {
                   <span className={styles.count}>{deck.card_count}/100</span>
                   {waiting > 0 && <Chip tone={deck.category === "archived" ? "neutral" : "agent"}>{waiting} waiting</Chip>}
                 </span>
-              </a>
+              </a></DeckArt>
             </li>
           );
         })}

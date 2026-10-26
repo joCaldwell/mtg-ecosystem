@@ -973,6 +973,32 @@ These choices preserve the five AGENTS.md rules and introduce no suggestions
 from other users. Public pricing, projection, attribution and phone editing
 limits are unchanged from §18 and §11.2.
 
+### 11.4 Visual identity (Phase 4c; D21)
+
+Real Scryfall commander crops frame each home card and short deck header,
+including phones. The sidebar uses small commander thumbnails. Pairs split
+the frame; each known artist is credited. No commander or artist means no
+art, without changing deck content. Editor card rows stay text-only. Identity
+may colour a thin deck stripe; controls and semantic colours stay unchanged.
+Sign-in and first run use one blurred/darkened environment resolved from a
+small server-side exact-name set (Forest, Island, Mountain), randomly chosen
+per session bootstrap, with visible corner credit. This is shared card data,
+never tenant data or an external browser API request.
+
+Art credit is “Art by <artist> · <card>”, small and AA-legible. Thumbnail
+credits use accessible names/titles, and become visible on larger deck art.
+Decorative images use empty alt; every crop is lazy/async with fixed aspect
+and reserved space. Loading/error never moves surrounding content. The
+editor banner folds on actual desktop list scrolling (not panel scrolling);
+short tablet/phone/public banners scroll away naturally with the window.
+A desktop list too short to fold without clamping its scroll position keeps
+the short banner stable.
+Reduced motion is respected; no carousel or automatic animation. No art in
+inbox, activity, memories, Settings, dialogs or playtest content. Existing
+navigation thumbnails remain in the rail. DESIGN.md and /design define the
+variants, fallback states, overlay and identity tokens.
+
+
 ## 12. Archidekt and Moxfield interop
 
 Construction and desktop solo goldfishing happen here. The manual playtester
@@ -1773,6 +1799,13 @@ so a cross-owner parent's decisions never reach the fork.
   with status 404. Nothing calls `api.scryfall.com` from a browser.
 - The page is laid out single-column below 720 px with wrapping rows and
   44 px tap targets, and never scrolls horizontally at 375 px.
+
+Phase 4c (D21) shares the owner's `DeckArt` treatment: split credited
+commander crops, tokenized dark fade, small opaque artist caption and a thin
+identity stripe. Text content begins after the overlay reaches its AA-safe
+strength. Anonymous viewers receive no private art source: only the public
+commander card facts already in PublicDeckState. The public initial JS budget
+remains under 90,000 gzip bytes. Images are external art crops, never bundled.
 
 ### 18.6 Without an account
 

@@ -1,7 +1,7 @@
 .header {
   padding: var(--s-5) var(--s-6);
   border-bottom: 1px solid var(--line);
-  background: var(--surface);
+  background: transparent;
 }
 
 .top {

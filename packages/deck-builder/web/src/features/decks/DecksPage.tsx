@@ -4,20 +4,17 @@ import { familyOrder } from "../../domain/familyOrder.ts";
 import { Fragment, useState } from "react";
 import { api, type DeckSummary } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
-import { navigate } from "../../app/routes.ts";
+import { href, navigate } from "../../app/routes.ts";
 import { DECK_CATEGORY_LABELS } from "../../domain/deckCategory.ts";
-import { CardRef, ColorIdentity } from "../../mtg/index.ts";
+import { CardRef, ColorIdentity, DeckArt } from "../../mtg/index.ts";
 import {
   Button,
   Chip,
-  ClickableRow,
-  EmptyState,
   ErrorNote,
   Icon,
   Loading,
   Page,
   PageHeader,
-  Table,
   Text,
 } from "../../ui/index.ts";
 import styles from "./DecksPage.module.css";
@@ -79,68 +76,30 @@ export function DecksPage() {
           (rows.length === 0 ? (
             <FirstRun onCreate={() => setCreating(true)} onImport={() => { setImporting(true); setCreating(true); }} />
           ) : (
-            <div className={styles.tableWrap}>
-              <Table>
-                <thead>
-                  <tr>
-                    <th>Deck</th>
-                    <th>Commander</th>
-                    <th>Identity</th>
-                    <th>Lifecycle</th>
-                    <th>Cards</th>
-                    <th>Inbox</th>
-                    <th className={styles.actions}><span className="visually-hidden">Actions</span></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map(({ deck, fork }) => {
-                    const waiting = deck.pending_items + deck.pending_document_edits;
-                    return (
-                      <ClickableRow
-                        key={deck.id}
-                        onClick={() => navigate({ page: "deck", deckId: deck.id })}
-                      >
-                        <td>
-                          {fork && <Text tone="faint">└ </Text>}
-                          <Text weight="medium">{deck.name}</Text>
-                          {deck.visibility !== "private" && (
-                            <span className={styles.shared} role="img" aria-label={deck.visibility === "public" ? "Public" : "Unlisted"} title={deck.visibility === "public" ? "Public" : "Unlisted: anyone with the link"}>
-                              {" "}<Icon name={deck.visibility === "public" ? "globe" : "link"} size={12} />
-                            </span>
-                          )}
-                          {fork && deck.parent_name && (
-                            <Text tone="faint" size="sm">
-                              {" "}
-                              fork of {deck.parent_name}
-                            </Text>
-                          )}
-                        </td>
-                        <td className={styles.commander}>
-                          <Commanders deck={deck} />
-                        </td>
-                        <td>
-                          <ColorIdentity colors={deck.color_identity} />
-                        </td>
-                        <td>
-                          <Chip className={styles.lifecycle} data-lifecycle={deck.category}>
-                            {DECK_CATEGORY_LABELS[deck.category]}
-                          </Chip>
-                        </td>
-                        <td>
-                          <Text mono tone={deck.card_count === 100 ? "muted" : "warn"}>
-                            {deck.card_count}/100
-                          </Text>
-                        </td>
-                        <td>{waiting > 0 && <Chip tone={deck.category === "archived" ? "neutral" : "agent"}>{waiting} {deck.category === "archived" ? "paused" : "waiting"}</Chip>}</td>
-                        <td className={styles.actions} onClick={(e) => e.stopPropagation()}>
-                          <DeckActions deck={deck} onAction={(action) => setEditing({ deck, action })} />
-                        </td>
-                      </ClickableRow>
-                    );
-                  })}
-                </tbody>
-              </Table>
-            </div>
+            <ul className={styles.roster}>
+              {rows.map(({ deck, fork }) => {
+                const waiting = deck.pending_items + deck.pending_document_edits;
+                return <li key={deck.id}>
+                  <DeckArt cards={deck.commander_art} identity={deck.color_identity}>
+                    <div className={styles.deckCard}>
+                      <div className={styles.cardHeading}>
+                        <h2><a className={styles.deckLink} href={href({ page: "deck", deckId: deck.id })}>{deck.name}</a></h2>
+                        <DeckActions deck={deck} onAction={action => setEditing({ deck, action })} />
+                      </div>
+                      <div className={styles.commander}><Commanders deck={deck} /></div>
+                      {fork && deck.parent_name && <Text tone="faint" size="xs">Fork of {deck.parent_name}</Text>}
+                      <div className={styles.cardStats}>
+                        <ColorIdentity colors={deck.color_identity} />
+                        <Chip className={styles.lifecycle} data-lifecycle={deck.category}>{DECK_CATEGORY_LABELS[deck.category]}</Chip>
+                        <Text mono tone={deck.card_count === 100 ? "muted" : "warn"}>{deck.card_count}/100</Text>
+                        {deck.visibility !== "private" && <span className={styles.shared} role="img" aria-label={deck.visibility === "public" ? "Public" : "Unlisted"} title={deck.visibility === "public" ? "Public" : "Unlisted"}><Icon name={deck.visibility === "public" ? "globe" : "link"} size={12} /></span>}
+                      </div>
+                      {waiting > 0 && <div><Chip tone={deck.category === "archived" ? "neutral" : "agent"}>{waiting} {deck.category === "archived" ? "paused" : "waiting"}</Chip></div>}
+                    </div>
+                  </DeckArt>
+                </li>;
+              })}
+            </ul>
           ))}
         {rows.length > 0 && <PlayerStatsPanel />}
       </div>

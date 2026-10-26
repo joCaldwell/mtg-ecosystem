@@ -1,3 +1,5 @@
+import { DeckArt } from "../../mtg/index.ts";
+import { useSession } from "../../app/Session.tsx";
 import { useState } from "react";
 import { api } from "../../api/client.ts";
 import { useVoice } from "../../app/Preferences.tsx";
@@ -8,6 +10,7 @@ import styles from "./FirstRun.module.css";
 /** Three ways in, with no knowledge of agents or deck terminology required. */
 export function FirstRun({ onCreate, onImport }: { onCreate: () => void; onImport: () => void }) {
   const voice = useVoice();
+  const { session } = useSession();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   async function sample() {
@@ -16,7 +19,7 @@ export function FirstRun({ onCreate, onImport }: { onCreate: () => void; onImpor
     try { const { state } = await api.createSample(); navigate({ page: "deck", deckId: state.deck.id }); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); setBusy(false); }
   }
-  return <section aria-label="Start your first deck" className={styles.firstRun}>
+  return <DeckArt cards={session.backdrop ? [session.backdrop] : []} variant="backdrop"><section aria-label="Start your first deck" className={styles.firstRun}>
     <Stack gap={4}><h2>Your first deck starts here</h2><Text as="p" tone="muted">{voice("Build a Commander deck, bring a list you already have, or explore a sample.", "Build a deck yourself, bring a list, or ask your connected agent to help.")}</Text></Stack>
     <div className={styles.choices}>
       <Box><Stack gap={5}><h3>Start a new deck</h3><Text as="p" tone="muted">{voice("Start with a name. Add a commander and cards as your plan takes shape.", "Start with a name, then build the list yourself or with your agent.")}</Text><Button variant="primary" onClick={onCreate} aria-haspopup="dialog">New deck</Button></Stack></Box>
@@ -25,5 +28,5 @@ export function FirstRun({ onCreate, onImport }: { onCreate: () => void; onImpor
     </div>
     {error && <ErrorNote>{error}</ErrorNote>}
     <Text as="p" size="sm" tone="muted">{voice("Want help from an AI you already use?", "Manage your agent connections in")} <a className={styles.link} href={href({ page: "settings" })}>Settings → Connect an agent</a>.</Text>
-  </section>;
+  </section></DeckArt>;
 }

@@ -1,17 +1,7 @@
-/* The table keeps its columns on one line; a narrow window scrolls it sideways instead of squeezing them. */
-.tableWrap {
-  overflow-x: auto;
-}
-
 .commander {
   max-width: 360px;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.actions {
-  width: var(--s-8);
-  text-align: right;
 }
 
 .lifecycle[data-lifecycle="paper"] {
@@ -32,13 +22,22 @@
   border-color: transparent;
 }
 
-/* Wide enough for eight columns, not so wide the eye loses the row. */
+/* The roster follows the existing reading width, with cards that wrap. */
 .body {
   display: grid;
   gap: var(--s-8);
-  max-width: 1360px;
+  max-width: var(--measure-wide);
 }
 
 .shared {
   color: var(--faint);
 }
+
+.roster { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--deck-card-min)), 1fr)); gap: var(--s-6); padding: 0; margin: 0; list-style: none; }
+.deckCard { display: grid; gap: var(--s-5); padding: var(--s-5) var(--s-6) var(--s-6); }
+.cardHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s-4); }
+.cardHeading h2 { min-width: 0; font-size: var(--text-lg); font-weight: 650; overflow-wrap: anywhere; }
+.deckLink { display: inline-flex; align-items: center; min-height: var(--h-lg); }
+.deckLink:hover { text-decoration: underline; }
+.cardStats { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-4); }
+@media (pointer: coarse) and (max-width: 1099px) { .deckLink, .cardHeading button { min-height: var(--tap); } }

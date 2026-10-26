@@ -1,3 +1,4 @@
+import { visitBackdrop } from "./art.ts";
 import { createDemo } from "./demo.ts";
 import { uiPreferences, setAdvancedOpen } from "./preferences.ts";
 // The app's one HTTP server (spec §10.1): the UI, its JSON API, the live
@@ -664,7 +665,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
         logging.actor(sessionActor);
         const providers = [process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET ? "discord" : null, process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET ? "google" : null].filter(Boolean);
         if (mode === "hosted" && !sessionActor) rateLimit("unauthenticated",clientIp(req));
-        return json(200,{mode,providers,legal:auth?.legal ?? null,invites_required:auth?.invitesRequired ?? true,user:sessionActor ? accountInfo(db,sessionActor) : null});
+        return json(200,{mode,providers,backdrop:visitBackdrop(db),legal:auth?.legal ?? null,invites_required:auth?.invitesRequired ?? true,user:sessionActor ? accountInfo(db,sessionActor) : null});
       }
       if (mode === "hosted" && req.method === "GET" && url.pathname === "/consent.js") {
         res.writeHead(200,{"Content-Type":"text/javascript"}); return void res.end(consentScript);

@@ -285,6 +285,35 @@ the header, and link previews use it as the Open Graph image, with the
 artist line per D10. Cards in the list stay text rows; their pictures are on
 demand, as in the editor.
 
+**D21. Visual identity (owner, 2026-10-26).** Real card art only: every
+new decorative image is a stored Scryfall art crop from `cards.scryfall.io`.
+No generated or stock imagery; the browser never calls `api.scryfall.com`.
+Art and artist travel together. Unknown artist means no art (D10/D20).
+Credit reads “Art by <artist> · <card>”, in `--text-xs` on an opaque dark
+surface, quiet through size and placement while meeting WCAG AA. Sidebar
+thumbnails instead expose that credit through an accessible name and title;
+the deck's larger art shows it visibly.
+
+A deck's own surfaces may carry a thin identity stripe or faint glow, amending
+DESIGN.md's mana-only restriction. Never tint controls, text or semantic
+colours (agent violet, add green, cut red, warn amber, selection blue).
+Colourless stays grey. Use commander crops on home cards, phone cards,
+sidebar thumbnails, short owner and public headers. Pairs show both credited
+crops, split equally; only credited members are shown. No commander means no
+art. Editor rows stay text-only. The owner banner folds on actual list-pane
+scroll at desktop; tablet/phone/public banners are shorter and scroll away
+with the window, retaining #9's contract. Never put art in inbox, activity,
+memories, Settings, dialogs or playtest content.
+
+Sign-in and empty-account landing use one blurred/darkened environment crop
+per visit. A server lookup resolves a small exact-name set (Forest, Island,
+Mountain, verified in the cards table); `/api/session` chooses among credited,
+non-retired results. No external request or schema migration. The selection
+stays fixed for that session bootstrap; no carousel, animation or preload.
+All crops are lazy/async with reserved space, and credits survive image errors.
+Overlay, fade, dimensions and identity opacity are tokens, documented at
+`/design` and in DESIGN.md. See spec §11.4 and §18.5.
+
 ---
 
 ## 2. What the owner provides, and when

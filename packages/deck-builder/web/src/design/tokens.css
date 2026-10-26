@@ -134,8 +134,37 @@
      itself is PHONE_MAX_WIDTH in app/breakpoints.ts: media queries cannot
      read a custom property. */
   --public-w: 1240px;
-  --art-h: 176px;
-  --art-fade: linear-gradient(180deg, rgba(13, 14, 16, 0.15) 0%, rgba(13, 14, 16, 0.6) 55%, var(--bg) 100%);
+  /* D21 art: top can show detail; each variant reaches the text overlay before content.
+     At that point the dark overlay is >= 0.94, even over white artwork.
+     Credits have an opaque surface: soft/surface = 12.06:1. */
+  --art-overlay-top: rgba(13, 14, 16, 0.38);
+  --art-fade: linear-gradient(180deg, var(--art-overlay-top), var(--art-overlay-text) var(--art-strip-space), var(--surface) 100%);
+  --art-banner-fade: linear-gradient(180deg, var(--art-overlay-top), var(--art-overlay-text) var(--art-banner-space), var(--surface) 100%);
+  --art-tablet-fade: linear-gradient(180deg, var(--art-overlay-top), var(--art-overlay-text) var(--art-banner-tablet-space), var(--surface) 100%);
+  --art-phone-fade: linear-gradient(180deg, var(--art-overlay-top), var(--art-overlay-text) var(--art-banner-phone-space), var(--surface) 100%);
+  --art-overlay-text: rgba(13, 14, 16, 0.94);
+  --art-backdrop-overlay: rgba(13, 14, 16, 0.9);
+  --art-aspect: 626 / 457;
+  --art-position: center 35%;
+  --art-strip-space: 64px;
+  --art-banner-space: 88px;
+  --art-banner-tablet-space: 60px;
+  --art-banner-phone-space: 48px;
+  --art-banner-collapsed: 0px;
+  --art-collapsed-opacity: 0;
+  --art-thumb: 28px;
+  --art-blur: 6px;
+  --art-blur-scale: 1.05;
+  --art-collapse-threshold: 48px;
+  --deck-card-min: 300px;
+  --identity-stripe-h: 2px;
+  --identity-opacity: 0.6;
+  --identity-w: var(--mana-w);
+  --identity-u: var(--mana-u);
+  --identity-b: var(--mana-b-ring);
+  --identity-r: var(--mana-r);
+  --identity-g: var(--mana-g);
+  --identity-grey: var(--line-strong);
   --phone-bar-h: 48px;
   /* The menu bar above a tablet page under 960 px, which opens the drawer. */
   --tablet-bar-h: 48px;

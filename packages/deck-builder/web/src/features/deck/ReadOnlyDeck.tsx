@@ -18,7 +18,7 @@ import { useIsPhone } from "../../app/breakpoints.ts";
 import { DeckListProvider } from "./DeckListStore.tsx";
 import { DeckUiProvider, useDeckUi } from "./DeckUi.tsx";
 import { DeckList } from "./list/DeckList.tsx";
-import { BriefField } from "./panel/BriefField.tsx";
+import { BriefText } from "./panel/BriefText.tsx";
 import { ChecksPanel } from "./panel/ChecksPanel.tsx";
 import { EngineCard } from "./panel/EngineCard.tsx";
 import { DeckViewProvider, useDeckView, type DeckViewModel } from "./useDeckView.ts";
@@ -43,8 +43,6 @@ export function ReadOnlyDeck(props: ReadOnlyDeckProps) {
     </DeckListProvider>
   );
 }
-
-const NO_SAVE = async () => false;
 
 function ReadOnlyBody({ model, header, decisions }: ReadOnlyDeckProps) {
   const ui = useDeckUi();
@@ -130,8 +128,8 @@ function ReadOnlyBody({ model, header, decisions }: ReadOnlyDeckProps) {
               </section>
 
               <section className={styles.section}>
-                <BriefField readOnly editable={false} title="Thesis" value={model.brief.thesis} purpose="What the deck is trying to do." onSave={NO_SAVE} />
-                <BriefField readOnly editable={false} title="Constraints" value={model.brief.constraints_md} purpose="Budget, pod expectations, cards it will not play." onSave={NO_SAVE} />
+                <BriefText title="Thesis" value={model.brief.thesis} purpose="What the deck is trying to do." />
+                <BriefText title="Constraints" value={model.brief.constraints_md} purpose="Budget, pod expectations, cards it will not play." />
                 <Eyebrow>Engines</Eyebrow>
                 {model.engines.length === 0
                   ? <Text tone="muted" size="sm" as="p">No engines named.</Text>

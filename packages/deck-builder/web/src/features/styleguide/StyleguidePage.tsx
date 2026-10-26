@@ -1,3 +1,4 @@
+import { ArtExamples } from "./ArtExamples.tsx";
 import { OnboardingPatterns } from "./OnboardingPatterns.tsx";
 import { useState, type ReactNode } from "react";
 import {
@@ -752,6 +753,7 @@ export function StyleguidePage() {
     >
       <div className={styles.groups}>
         <OnboardingPatterns />
+        <ArtExamples />
         <Colours />
         <TypeScale />
         <Buttons />
