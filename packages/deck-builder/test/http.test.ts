@@ -656,3 +656,21 @@ test("settings price source and budgets save atomically", async () => {
     assert.deepEqual(settings.budgets, { global: 2000, deck: 2000 });
   } finally { await put({ price_source: source, budgets }); }
 });
+
+// Showing or hiding Advanced is a display preference: it must not make every
+// open view refetch, while a price-source change still reaches them.
+test("an Advanced-only settings write sends no change event; a price change does", async () => {
+  const { getPriceSource } = await import("../src/prices.ts");
+  const source = getPriceSource(db, OWNER);
+  const put = (body: unknown) => fetch(`${base}/api/settings`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const events = await fetch(`${base}/api/events`);
+  const reader = events.body!.getReader();
+  assert.equal(new TextDecoder().decode((await reader.read()).value), 'data: {"kind":"connected"}\n\n');
+  try {
+    assert.equal((await put({ advanced_open: true })).status, 200);
+    assert.equal((await put({ advanced_open: false })).status, 200);
+    assert.equal((await put({ price_source: source })).status, 200);
+    // The first event after the preference writes is the price change's.
+    assert.equal(new TextDecoder().decode((await reader.read()).value), 'data: {"kind":"settings"}\n\n');
+  } finally { await reader.cancel(); }
+});

@@ -265,11 +265,13 @@ export const api = {
   deckMemories: async (deckId: number): Promise<Memory[]> => {
     const byId = new Map<number, Memory>();
     for (const scope of [{ deck: deckId }, { scope: "global" }]) {
-      for (let offset = 0, more = true; more; ) {
-        const page = await api.listMemories({ ...scope, offset });
+      let before: { before_id: number; before_revised_at: string } | {} = {};
+      for (let more = true; more; ) {
+        const page = await api.listMemories({ ...scope, ...before });
         for (const m of page.memories) byId.set(m.id, m);
-        more = page.has_more && page.memories.length > 0;
-        offset += page.memories.length;
+        const last = page.memories.at(-1);
+        more = page.has_more && !!last;
+        if (last) before = { before_id: last.id, before_revised_at: last.revised_at };
       }
     }
     return [...byId.values()];

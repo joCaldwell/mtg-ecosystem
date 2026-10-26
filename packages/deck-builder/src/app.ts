@@ -726,7 +726,10 @@ export function createApp(db: Database, opts: AppOptions = {}) {
         const body = req.method === "GET" ? {} : await readJson(req);
         validateNumbers(body);
         const result = await r.handler(r.anonymous ? actor : actor!, m.slice(1), body, url);
-        if (r.mutates && url.pathname !== "/api/account" && !quiet.has(url.pathname)) notify(actor!.user_id, { kind: url.pathname.split("/")[2] ?? "change", ...(url.pathname.match(/^\/api\/decks\/(\d+)/) ? { deck_id: Number(url.pathname.match(/^\/api\/decks\/(\d+)/)![1]) } : {}) });
+        // Showing or hiding Advanced changes no data any view displays, so it
+        // must not make every open view refetch (a price-source change still does).
+        const preferenceOnly = url.pathname === "/api/settings" && Object.keys(body).length > 0 && Object.keys(body).every(k => k === "advanced_open");
+        if (r.mutates && url.pathname !== "/api/account" && !quiet.has(url.pathname) && !preferenceOnly) notify(actor!.user_id, { kind: url.pathname.split("/")[2] ?? "change", ...(url.pathname.match(/^\/api\/decks\/(\d+)/) ? { deck_id: Number(url.pathname.match(/^\/api\/decks\/(\d+)/)![1]) } : {}) });
         return json(200, result);
       }
       if ((req.method === "GET" || req.method === "HEAD") && !url.pathname.startsWith("/api/") && serveStatic(url.pathname, res, actor, req))
