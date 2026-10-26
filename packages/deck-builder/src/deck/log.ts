@@ -11,6 +11,16 @@ import { type Actor, authorOf, requireSelf, isDeckOwner, requireDeckOwner, requi
 
 export type LogKind = "accept" | "reject" | "edit" | "import" | "undo";
 
+/** The longest reason a ruling keeps (spec §8.2): a sentence or two, read by agents. */
+export const MAX_RULING_REASON = 500;
+/** A ruling's optional reason, trimmed; blank is no reason. */
+export function rulingReason(reason: unknown): string {
+  const text = typeof reason === "string" ? reason.trim() : "";
+  if (text.length > MAX_RULING_REASON)
+    throw new ServiceError(`A reason can be at most ${MAX_RULING_REASON} characters; this one is ${text.length}.`);
+  return text;
+}
+
 export interface LogCardInput {
   oracle_id: string;
   card_name: string;

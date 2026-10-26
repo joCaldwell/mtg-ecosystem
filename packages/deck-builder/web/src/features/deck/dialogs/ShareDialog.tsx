@@ -32,6 +32,7 @@ export function ShareDialog({ onClose }: { onClose: () => void }) {
         <Stack gap={3}>
           <Segmented
             label="Who can see this deck"
+            disabled={busy}
             value={deck.visibility}
             onChange={(visibility) => visibility !== deck.visibility && void mutate(() => api.setSharing(deck.id, { visibility }))}
             options={[

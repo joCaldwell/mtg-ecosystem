@@ -37,3 +37,8 @@
     padding: 0 var(--s-5);
   }
 }
+
+.option:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}

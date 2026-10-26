@@ -149,7 +149,7 @@ function ReadOnlyBody({ model, header, rulings }: ReadOnlyDeckProps) {
                       <li key={`${d.at}-${i}`} className={styles.decision}>
                         <div className={styles.decisionHead}>
                           <Chip tone={d.kind === "accept" ? "add" : d.kind === "reject" ? "cut" : "neutral"}>{d.kind}</Chip>
-                          <Text size="xs" tone={d.by === "agent" ? "agent" : "muted"}>{d.by === "agent" ? "an agent" : "the owner"} · {ago(d.at)}</Text>
+                          <Text size="xs" tone={d.by === "agent" ? "agent" : "muted"}>{d.who ?? (d.by === "agent" ? "an agent" : "the owner")} · {ago(d.at)}</Text>
                         </div>
                         <Text size="sm" as="p"><InlineText text={d.summary} /></Text>
                         {d.reason && <Text size="sm" tone="soft" as="p">“<InlineText text={d.reason} />”</Text>}

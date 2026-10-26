@@ -589,7 +589,7 @@ for(const [name,c] of Object.entries(toolCases).filter(([,c])=>!c.global)) {
         if(SLUG_TOOLS.has(name)&&visibility!=="private") {
           const text=run().text;
           for(const secret of PRIVATE_TEXT.filter(s=>s!=="test-agent")) assert.ok(!text.includes(secret),`${name} on a shared deck leaks "${secret}"`);
-          if(name==="get_deck") assert.match(text,/Public deck owned by owner; read-only/);
+          if(name==="get_deck") assert.match(text,visibility==="public"?/\nPublic deck owned by owner; read-only/:/\nShared deck \(unlisted\) owned by owner; read-only/);
         } else {
           assert.throws(run,notFound,`${name} by slug on ${visibility}`);
           assert.deepEqual(personalSnapshot(f.db),before,`${name} by slug wrote nothing`);
@@ -1001,13 +1001,17 @@ const globalProbes:Record<string,GlobalProbe>={
   renderActivity:(fn,f,a)=>fn(activity.listActivity(f.db,a)),renderStats:(fn,f,a)=>fn(stats.playerStats(f.db,a)),
   rosterLines:(fn,f,a)=>fn(decks.listDecks(f.db,a)),renderScope:(fn,f,a)=>fn(memory.loadScope(f.db,a,"global"),"global"),
   newSlug:fn=>{const slug=fn();assert.match(slug,/^[0-9A-Za-z]{10}$/);return slug;},
-  slugFrom:fn=>{assert.equal(fn("https://example.test/d/Ab3dE6gH9k"),"Ab3dE6gH9k");assert.equal(fn("Second deck"),null);return fn("/d/Ab3dE6gH9k");},
+  slugFrom:fn=>{
+    for(const ok of ["https://example.test/d/Ab3dE6gH9k","HTTPS://example.test/d/Ab3dE6gH9k/","<https://example.test/d/Ab3dE6gH9k>","https://example.test/d/Ab3dE6gH9k.","/d/Ab3dE6gH9k","Ab3dE6gH9k"]) assert.equal(fn(ok),"Ab3dE6gH9k",ok);
+    for(const no of ["Second deck","https://example.test/x/Ab3dE6gH9k","https://example.test/Ab3dE6gH9k","d/Ab3dE6gH9k/extra"]) assert.equal(fn(no),null,no);
+    return fn("/d/Ab3dE6gH9k");},
   publicProfile:(fn,f,a,t)=>{f.db.prepare("UPDATE decks SET visibility='public' WHERE id=?").run(t.id);const p=fn(f.db,a,"second");assert.deepEqual(p.decks.map((d:any)=>d.slug),[slugOf(t)]);return p;},
   sharedCounts:(fn,f,a,t)=>{f.db.prepare("UPDATE decks SET visibility='unlisted' WHERE id=?").run(t.id);const c=fn(f.db,a);assert.deepEqual(c,{public:0,unlisted:1});return c;},
   linkPreview:(fn,f,a,t)=>{const p=fn(f.db,a,`/d/${slugOf(t)}`,"https://example.test");assert.equal(p.status,200);assert.equal(fn(f.db,a,`/d/${slugOf(f.targets[0])}`,"https://example.test").status,404);return p;},
   withPreview:fn=>fn("<head><title>x</title></head>",{status:200,head:"<title>Second</title>"}),
   renderPublicDeck:(fn,f,a,t)=>fn(state.publicDeckState(f.db,a,slugOf(t))),
   publicParent:(fn,f,a,t)=>{f.db.prepare("UPDATE decks SET visibility='public' WHERE id=?").run(t.id);const p=fn(f.db,{owner_handle:"second",slug:slugOf(t),name:"x"});assert.equal(p.slug,slugOf(t));return p;},
+  rulingReason:fn=>{assert.equal(fn("  a reason  "),"a reason");assert.equal(fn("   "),"");assert.throws(()=>fn("x".repeat(501)),{status:400});return fn("Second");},
   publicSummary:fn=>{const s=fn({kind:"accept",document_edit_id:3,cards:[]});assert.equal(s,"Accepted a proposed change to the brief");return s;},
   renderPower:(fn,f,a,t)=>fn(power.getPower(f.db,a,t.id)),stateLines:(fn,f,a,t)=>fn(decks.getDeck(f.db,a,t.id)),
   renderCompare:(fn,f,a,t)=>fn(fork.compareDecks(f.db,a,t.id,f.otherOwn(a,t).id)),

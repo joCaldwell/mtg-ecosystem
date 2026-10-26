@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "../../api/client.ts";
+import { safeNext } from "../../app/routes.ts";
 import { useSession } from "../../app/Session.tsx";
 import { Box, Button, ErrorNote, Field, Page, PageHeader, Stack, Text, TextField, Row } from "../../ui/index.ts";
 import { LegalFooter } from "./LegalFooter.tsx";
@@ -11,7 +12,11 @@ export function SignInPage() {
     setBusy(true); setError(null);
     try {
       if (code.trim() || !session.invites_required) await api.signup(code.trim());
-      const result = await api.signIn(provider,location.search.slice(1));
+      // A return path rides beside, never inside, Better Auth's signed oauth_query.
+      const query = new URLSearchParams(location.search);
+      const next = safeNext(query.get("next"));
+      query.delete("next");
+      const result = await api.signIn(provider, query.toString(), next);
       location.assign(result.url);
     } catch(e) { setError(e instanceof Error ? e.message : String(e)); setBusy(false); }
   }

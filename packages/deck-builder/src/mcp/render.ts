@@ -418,7 +418,7 @@ export function renderPublicDeck(shared: PublicDeckState, sections: readonly Dec
   if (d.parent) bits.push(`forked from ${d.parent.owner_handle}/${d.parent.name}`);
   const out = [
     `# Shared deck ${d.slug} "${d.name}" — ${bits.join(" · ")}\n` +
-      `Public deck owned by ${d.owner.handle}; read-only. Nothing here can be changed. To build on it, fork it with fork_deck (deck: "${d.slug}"); ` +
+      `${d.visibility === "public" ? "Public deck" : `Shared deck (${d.visibility})`} owned by ${d.owner.handle}; read-only. Nothing here can be changed. To build on it, fork it with fork_deck (deck: "${d.slug}"); ` +
       `the fork is the principal's own Theorycrafted deck and starts without memories or rulings. compare_decks takes it as other.`,
   ];
   if (want.has("brief")) {

@@ -1,5 +1,5 @@
 // Ruling on a phone (spec §8.2, §11.2): each decision — an add, a cut, a swap
-// or a group — with Accept and Reject, and Accept all above them. Each takes
+// or a group — with Accept and Reject, and Accept all and Reject all above them. Each takes
 // the optional reason, which the agent reads at its next session. The changes
 // themselves are drawn into the list below, as on desktop, and the decision
 // last touched is the one outlined there. The rulings go through the same
@@ -22,7 +22,7 @@ const KIND: Record<ReviewUnit["kind"], string> = {
 
 export function PhoneRulings({ view }: { view: { units: ReviewUnit[] } }) {
   const state = useDeckState();
-  const review = useReview(view.units);
+  const review = useReview(view.units, { sheet: true });
   const [reason, setReason] = useState("");
   if (!view.units.length) return null;
   if (state.deck.category === "legacy")
@@ -32,12 +32,17 @@ export function PhoneRulings({ view }: { view: { units: ReviewUnit[] } }) {
     <section className={styles.rulings} aria-label="Waiting on you">
       <div className={styles.all}>
         <Eyebrow>Waiting on you · {view.units.length} decision{view.units.length === 1 ? "" : "s"}</Eyebrow>
-        <Text size="sm" tone="muted" as="p">Each change is drawn into the list below. Rule on each one, or on everything at once.</Text>
-        <TextField fieldSize="lg" className={styles.reason} value={reason} onChange={(e) => setReason(e.target.value)}
-          placeholder="Reason for accepting everything, optional" aria-label="Reason for accepting everything, optional" />
-        <Button size="touch" variant="accept" onClick={() => void review.acceptAll(reason).then(() => setReason(""))}>
-          Accept all{open > 1 ? ` ${open} proposals` : ""}
-        </Button>
+        <Text size="sm" tone="muted" as="p">Each change is drawn into the list below. Rule on each one, or on everything{open > 1 ? ` in all ${open} proposals` : ""} at once.</Text>
+        <TextField fieldSize="lg" className={styles.reason} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500}
+          placeholder="Reason for everything, optional" aria-label="Reason for accepting or rejecting everything, optional" />
+        <div className={styles.buttons}>
+          <Button size="touch" variant="accept" onClick={() => void review.acceptAll(reason, () => setReason(""))}>
+            Accept all
+          </Button>
+          <Button size="touch" variant="reject" onClick={() => void review.rejectAll(reason, () => setReason(""))}>
+            Reject all
+          </Button>
+        </div>
       </div>
       <ol className={styles.units}>
         {view.units.map((unit, index) => <Unit key={unit.key} unit={unit} index={index} review={review} />)}
@@ -62,7 +67,7 @@ function Unit({ unit, index, review }: { unit: ReviewUnit; index: number; review
       <div className={styles.items}>
         {unit.items.map((item) => <ReviewItemLine key={item.id} item={item} />)}
       </div>
-      <TextField fieldSize="lg" className={styles.reason} value={reason} onChange={(e) => setReason(e.target.value)}
+      <TextField fieldSize="lg" className={styles.reason} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500}
         placeholder="Why? Optional. The agent reads this next session." aria-label={`Reason for decision ${index + 1}, optional`} />
       <div className={styles.buttons}>
         <Button size="touch" variant="accept" onClick={() => void review.accept(unit, reason)}>Accept</Button>

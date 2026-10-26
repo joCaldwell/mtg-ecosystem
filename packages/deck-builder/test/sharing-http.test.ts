@@ -125,6 +125,25 @@ test("no art and no large card without an artist credit (review S6)", async () =
   } finally { await s.close(); }
 });
 
+test("HEAD reads a public page and route like GET, with no body; log ids are not mappable (review nits)", async () => {
+  const s = await served("hosted");
+  try {
+    const { slug } = setVisibility(s.db, OWNER, s.id, "public");
+    for (const path of [`/d/${slug}`, `/api/public/decks/${slug}`]) {
+      const head = await fetch(s.base + path, { method: "HEAD" });
+      assert.equal(head.status, 200, path);
+      assert.equal(await head.text(), "");
+    }
+    assert.equal((await fetch(`${s.base}/api/decks`, { method: "HEAD" })).status, 401, "HEAD opens nothing GET does not");
+    s.as({ user_id: 2, via: "ui", label: "ui" });
+    const other = await fetch(`${s.base}/api/decks/${s.id}/log/1`, { method: "PATCH", headers: { "Content-Type": "application/json", Origin: s.base }, body: JSON.stringify({ hidden: true }) });
+    const missing = await fetch(`${s.base}/api/decks/${s.id}/log/999999`, { method: "PATCH", headers: { "Content-Type": "application/json", Origin: s.base }, body: JSON.stringify({ hidden: true }) });
+    assert.equal(other.status, 404);
+    assert.equal(missing.status, 404);
+    assert.equal((await other.json()).error, (await missing.json()).error, "the same answer either way");
+  } finally { await s.close(); }
+});
+
 test("/u/<handle> lists public decks only, with profile tags", async () => {
   const s = await served("hosted");
   try {

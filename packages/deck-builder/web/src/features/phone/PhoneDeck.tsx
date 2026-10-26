@@ -5,7 +5,7 @@
 // appears without a reload.
 
 import { useMemo } from "react";
-import { href } from "../../app/routes.ts";
+import { href, useScrollRestore } from "../../app/routes.ts";
 import { DECK_CATEGORY_LABELS } from "../../domain/deckCategory.ts";
 import { fromOwner } from "../../domain/readOnlyDeck.ts";
 import { DeckProvider, ReadOnlyDeck, useDeck } from "../deck/index.ts";
@@ -33,6 +33,7 @@ function Gate() {
 
 function Deck() {
   const { state, error, clearError } = useDeck();
+  useScrollRestore(true);
   const model = useMemo(() => fromOwner(state!), [state]);
   const deck = state!.deck;
   const edits = state!.document_edits.filter((e) => e.group_id == null || e.group_id === e.id).length;
@@ -53,7 +54,7 @@ function Deck() {
           {error && <Banner tone="error" actions={<Button size="touch" variant="ghost" onClick={clearError}>Dismiss</Button>}>{error}</Banner>}
           {edits > 0 && (
             <Banner tone="agent">
-              {edits} proposed brief {edits === 1 ? "edit waits" : "edits wait"} for you. <a href={href({ page: "inbox" })}>Rule in the inbox</a>
+              {edits} proposed brief {edits === 1 ? "edit waits" : "edits wait"} for you. <a className={styles.tap} href={href({ page: "inbox" })}>Rule in the inbox</a>
             </Banner>
           )}
         </header>

@@ -12,7 +12,7 @@ import { withTransaction } from "../db.ts";
 import { type Actor, authorOf, isAuthor, requireUi, PermissionError } from "../actor.ts";
 import { lintProse, requireCardById } from "../cards.ts";
 import { recordActivity } from "../activity.ts";
-import { type LogCardInput, writeLog } from "./log.ts";
+import { type LogCardInput, rulingReason, writeLog } from "./log.ts";
 import { type Change, applyChanges } from "./membership.ts";
 import { copyLimit, findDeckCard, requireDeck, requireEditableDeck, requireRevision, listSlots, validateSlotAssignments } from "./service.ts";
 
@@ -319,6 +319,7 @@ export function acceptItems(
   reason = "",
   options: { expected_revision?: number; acknowledge_stale?: boolean } = {},
 ): number {
+  reason = rulingReason(reason);
   const items = itemsToRule(db, actor, itemIds);
   requireUi(actor, "rule on a proposal");
   const deckId = items[0].deck_id;
@@ -370,6 +371,7 @@ export function acceptProposals(
 ): void {
   requireEditableDeck(db, actor, deckId);
   requireUi(actor, "rule on proposals");
+  reason = rulingReason(reason);
   withTransaction(db, () => {
     requireRevision(db, actor, deckId, expectedRevision);
     if (!approvals.length || new Set(approvals.map(a => a.proposal_id)).size !== approvals.length)
@@ -399,6 +401,7 @@ export function rejectItems(
   itemIds: number[],
   reason = "",
 ): number {
+  reason = rulingReason(reason);
   const items = itemsToRule(db, actor, itemIds);
   requireUi(actor, "rule on a proposal");
   const deckId = items[0].deck_id;

@@ -134,7 +134,7 @@ export interface QueryLimits {
 /** Signed-out searches. */
 export const ANONYMOUS_QUERY_LIMITS: QueryLimits = { maxLength: 256, maxTerms: 30, maxDepth: 20 };
 /** A signed-in person or their agent. */
-export const ACCOUNT_QUERY_LIMITS: QueryLimits = { maxLength: 1000, maxTerms: 100, maxDepth: 20 };
+export const ACCOUNT_QUERY_LIMITS: QueryLimits = { maxLength: 600, maxTerms: 50, maxDepth: 20 };
 
 export function parse(input: string, limits: QueryLimits = ACCOUNT_QUERY_LIMITS): Node {
   if (input.length > limits.maxLength)

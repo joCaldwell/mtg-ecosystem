@@ -108,6 +108,9 @@
 }
 
 @media (max-width: 719px) {
+  .commanders button {
+    min-height: var(--tap);
+  }
   .text {
     padding: 0 var(--s-4) var(--s-5);
   }

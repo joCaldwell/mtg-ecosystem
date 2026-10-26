@@ -24,3 +24,10 @@
   width: var(--tap);
   height: var(--tap);
 }
+
+@media (max-width: 719px) {
+  .iconButton {
+    min-width: var(--tap);
+    min-height: var(--tap);
+  }
+}

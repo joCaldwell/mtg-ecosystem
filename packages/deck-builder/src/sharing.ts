@@ -24,7 +24,11 @@ export function newSlug(): string {
 
 /** A pasted slug, `/d/<slug>` path or full link, reduced to the slug; null if it is none. */
 export function slugFrom(text: string): string | null {
-  const match = text.trim().match(/^(?:https?:\/\/[^/\s]+)?\/?(?:d\/)?([0-9A-Za-z]{10})\/?(?:[?#]\S*)?$/);
+  // As pasted: "<https://host/d/AbC…>", or ending a sentence with a full stop.
+  const cleaned = text.trim().replace(/^<(.*)>$/, "$1").replace(/[.,;)]+$/, "");
+  if (/^[0-9A-Za-z]{10}$/.test(cleaned)) return cleaned;
+  // A link or path must be a deck link: /d/<slug>, nothing else.
+  const match = cleaned.match(/^(?:https?:\/\/[^/\s]+)?\/d\/([0-9A-Za-z]{10})\/?(?:[?#]\S*)?$/i);
   return match ? match[1] : null;
 }
 

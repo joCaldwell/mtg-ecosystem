@@ -5,7 +5,8 @@
 
 import { Fragment, useState } from "react";
 import type { PublicDeckState } from "../../api/client.ts";
-import { href } from "../../app/routes.ts";
+import { href, signInHref } from "../../app/routes.ts";
+import { useIsPhone } from "../../app/breakpoints.ts";
 import { useSession } from "../../app/Session.tsx";
 import { bracketLabel } from "../../domain/power.ts";
 import { DECK_CATEGORY_LABELS } from "../../domain/deckCategory.ts";
@@ -22,6 +23,7 @@ export function SharedDeckHeader({ shared, own }: { shared: PublicDeckState; own
   const [open, setOpen] = useState<Open>(null);
   const { deck, power } = shared;
   const signedIn = session.mode === "local" || !!session.user;
+  const phone = useIsPhone();
   const commanders = shared.cards.filter((c) => c.role === "commander" && !c.maybe);
   const art = commanders.find((c) => c.image_art_crop && c.artist);
   const link = `${location.origin}${href({ page: "shared", slug: deck.slug })}`;
@@ -76,11 +78,12 @@ export function SharedDeckHeader({ shared, own }: { shared: PublicDeckState; own
           <Button size="touch" onClick={() => setOpen("export")}>Export</Button>
           {signedIn ? (
             <>
-              <Button size="touch" variant="primary" onClick={() => setOpen("fork")}>{own ? "Fork your deck" : "Fork"}</Button>
+              {/* A phone forks other people's decks (§11.2); its owner forks their own on a larger screen. */}
+              {!(own && phone) && <Button size="touch" variant="primary" onClick={() => setOpen("fork")}>{own ? "Fork your deck" : "Fork"}</Button>}
               <Button size="touch" onClick={() => setOpen("compare")}>Compare with one of my decks</Button>
             </>
           ) : (
-            <a className={styles.signin} href={href({ page: "signin" })}>Sign in to fork or compare</a>
+            <a className={styles.signin} href={signInHref(href({ page: "shared", slug: deck.slug }))}>Sign in to fork or compare</a>
           )}
         </div>
       </div>

@@ -15,8 +15,10 @@ export interface ReadOnlyDeckModel {
     assessment: PublicDeckState["power"]["latest_owner_assessment"];
   };
   price: PublicDeckState["price"];
-  /** Null when the owner has not published them (or, on a phone, there are none). */
-  decisions: PublicDecision[] | null;
+  /** Null when the owner has not published them (or, on a phone, there are none).
+   *  `who` is set only for the owner's own deck: they always see which agent
+   *  wrote what (DESIGN.md principle 5); viewers see only "an agent". */
+  decisions: Array<PublicDecision & { who?: string }> | null;
 }
 
 /** A viewer's deck. A shared deck has no numeric id for the viewer; the list
@@ -57,6 +59,7 @@ export function fromOwner(state: DeckState): ReadOnlyDeckModel {
     decisions: state.log.length
       ? state.log.map((e) => ({
           kind: e.kind, summary: e.summary, reason: e.ruling_reason, by: e.author_via === "ui" ? "owner" : "agent", at: e.ts,
+          who: e.author_display ?? e.author,
           cards: e.cards.map((c) => ({ oracle_id: c.oracle_id, card_name: c.card_name, action: c.action, quantity: c.quantity })),
         }))
       : null,

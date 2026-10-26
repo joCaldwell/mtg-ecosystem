@@ -133,7 +133,8 @@ export const api = {
   disconnectClient: (client_id:string) => request<{ok:boolean}>("DELETE","/api/account/oauth",{client_id}),
   session: () => request<Session>("GET","/api/session"),
   signup: (code:string) => request("POST","/api/signup",{code}),
-  signIn: (provider:string, oauth_query:string) => request<{url:string}>("POST","/api/auth/sign-in/social",{provider,callbackURL:location.origin + "/",errorCallbackURL:location.origin + "/signin",...(oauth_query && new URLSearchParams(oauth_query).has("sig") ? {oauth_query} : {})}),
+  /** `next` must already be a same-origin path (routes.ts safeNext). */
+  signIn: (provider:string, oauth_query:string, next = "/") => request<{url:string}>("POST","/api/auth/sign-in/social",{provider,callbackURL:location.origin + next,errorCallbackURL:location.origin + (next === "/" ? "/signin" : `/signin?${new URLSearchParams({ next })}`),...(oauth_query && new URLSearchParams(oauth_query).has("sig") ? {oauth_query} : {})}),
   signOut: () => request("POST","/api/auth/sign-out",{}),
   chooseHandle: (handle:string) => request("PATCH","/api/account/handle",{handle}),
   exportAccount: () => request<unknown>("GET","/api/account/export"),

@@ -500,7 +500,7 @@ describe("shared decks (spec §18.7)", () => {
   test("get_deck on another user's link is the read-only public rendering", () => {
     const { db, slug } = sharedSetup();
     const out = callTool({ db, actor: second }, "get_deck", { deck: `https://example.test/d/${slug}` }).text;
-    assert.match(out, new RegExp(`^# Shared deck ${slug} "Teferi paper \\w+" — lifecycle paper · identity U · 2/100 cards\nPublic deck owned by owner; read-only\\. Nothing here can be changed\\. To build on it, fork it with fork_deck \\(deck: "${slug}"\\)`));
+    assert.match(out, new RegExp(`^# Shared deck ${slug} "Teferi paper \\w+" — lifecycle paper · identity U · 2/100 cards\nShared deck \\(unlisted\\) owned by owner; read-only\\. Nothing here can be changed\\. To build on it, fork it with fork_deck \\(deck: "${slug}"\\)`));
     assert.match(out, /Memories and proposals belong to the deck's owner and are never shared\./);
     assert.ok(!out.includes("hates"), "memories stay private");
     assert.match(TOOLS.find(t => t.name === "get_deck")!.description, /Given another user's shared deck link or slug, returns what its viewers see, read-only\.$/);

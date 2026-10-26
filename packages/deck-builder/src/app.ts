@@ -7,7 +7,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, join, resolve, sep } from "node:path";
 import type { Database } from "./sqlite.ts";
-import { type Actor, requireAdmin } from "./actor.ts";
+import { type Actor, requireAdmin, requireDeckOwner } from "./actor.ts";
 import { readRequestBody } from "./http-body.ts";
 import { databaseGate } from "./auth-database.ts";
 import { consentHtml, consentScript } from "./consent.ts";
@@ -207,8 +207,10 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     return { state: state(actor, num(id)) };
   }));
   route("PATCH", /^\/api\/decks\/(\d+)\/log\/(\d+)$/, (actor, [id, logId], body) => {
+    // The deck first, and one answer for every miss, so log ids cannot be mapped to other users' decks.
+    requireDeckOwner(db, actor, num(id), "change what this deck publishes");
     if (!db.prepare("SELECT 1 FROM log WHERE id = ? AND deck_id = ?").get(num(logId), num(id)))
-      throw new ServiceError("Log entry does not belong to this deck", 404);
+      throw new ServiceError(`There is no deck ${num(id)}. List the decks to see which ids exist.`, 404);
     hideLogEntry(db, actor, num(logId), body.hidden);
     return { state: state(actor, num(id)) };
   });
@@ -651,7 +653,9 @@ export function createApp(db: Database, opts: AppOptions = {}) {
         }
         if (actor && url.pathname.startsWith("/api/") && !["GET","HEAD","OPTIONS"].includes(req.method ?? "") && req.headers.origin !== publicOrigin()) return json(403,{error:"Origin is required"});
       }
-      const anonymous = routes.some(r => r.anonymous && r.method === req.method && r.pattern.test(url.pathname));
+      // HEAD reads a public route or page like GET (link unfurlers probe with it); Node sends no body.
+      const method = req.method === "HEAD" ? "GET" : req.method;
+      const anonymous = routes.some(r => r.anonymous && r.method === method && r.pattern.test(url.pathname));
       if (url.pathname.startsWith("/api/") && !actor && !anonymous) return json(401, { error: "Sign in is required" });
 
       if (mode === "hosted" && req.method === "GET" && url.pathname === "/consent") {
@@ -682,7 +686,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
       }
 
       for (const r of routes) {
-        if (r.method !== req.method) continue;
+        if (r.method !== req.method && !(req.method === "HEAD" && r.method === "GET")) continue;
         const m = url.pathname.match(r.pattern);
         if (!m) continue;
         const body = req.method === "GET" ? {} : await readJson(req);
@@ -691,7 +695,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
         if (r.mutates && url.pathname !== "/api/account" && !quiet.has(url.pathname)) notify(actor!.user_id, { kind: url.pathname.split("/")[2] ?? "change", ...(url.pathname.match(/^\/api\/decks\/(\d+)/) ? { deck_id: Number(url.pathname.match(/^\/api\/decks\/(\d+)/)![1]) } : {}) });
         return json(200, result);
       }
-      if (req.method === "GET" && !url.pathname.startsWith("/api/") && serveStatic(url.pathname, res, actor, req))
+      if ((req.method === "GET" || req.method === "HEAD") && !url.pathname.startsWith("/api/") && serveStatic(url.pathname, res, actor, req))
         return;
       json(404, { error: `Not found: ${req.method} ${url.pathname}` });
       });

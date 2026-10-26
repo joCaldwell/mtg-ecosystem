@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api, ApiError, type PublicDeckState } from "../../api/client.ts";
+import { useScrollRestore } from "../../app/routes.ts";
 import { useSession } from "../../app/Session.tsx";
 import { fromPublic } from "../../domain/readOnlyDeck.ts";
 import { ReadOnlyDeck } from "../deck/index.ts";
@@ -27,8 +28,12 @@ export function PublicDeckPage({ slug }: { slug: string }) {
   }, [slug, attempt]);
 
   useEffect(() => {
-    if (loaded && "deck" in loaded) document.title = `${loaded.deck.deck.name} · ${loaded.deck.deck.owner.handle}`;
+    if (!loaded || !("deck" in loaded)) return;
+    const before = document.title;
+    document.title = `${loaded.deck.deck.name} · ${loaded.deck.deck.owner.handle}`;
+    return () => { document.title = before; };
   }, [loaded]);
+  useScrollRestore(loaded !== null);
 
   return (
     <PublicShell>

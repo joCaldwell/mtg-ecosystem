@@ -843,7 +843,11 @@ carry server-rendered link-preview tags: `/` and `/decks`, `/deck/:id`,
 `/d/:slug` and `/u/:handle`. `href()` in `web/src/app/routes.ts` is the only
 place a URL is built; same-origin links navigate without a reload. A
 bookmark from the hash-route era (`/#/deck/5`) is rewritten once to its
-path on load. The server serves `index.html` for those app routes only;
+path on load, and a malformed escape in a path is a missing page. Going
+back restores the scroll position of the phone and shared pages once their
+data has rendered. Signing in from a shared page returns to it
+(`/signin?next=/d/<slug>`); `next` must be a same-origin path, so a
+crafted link cannot redirect elsewhere. The server serves `index.html` for those app routes only;
 `/api/*`, `/mcp*`, `/.well-known/*`, `/assets/*` and any path with an
 unknown file extension return 404 (D16).
 
@@ -857,15 +861,24 @@ with a top bar instead of the sidebar, and only these screens:
 - **A deck:** the same read-only composition as the public page
   (`ReadOnlyDeck`), fed by the owner's own deck state, with its pending
   proposals drawn in place in the list as on desktop. Each decision (an add,
-  a cut, a swap or a group) has Accept and Reject; above them an "Accept
-  all" covers every open proposal. Each of the three takes the optional
-  reason, and every ruling goes through the existing capabilities and
-  routes. The reason is recorded on the log entry whichever way the owner
+  a cut, a swap or a group) has Accept and Reject; above them Accept all and
+  Reject all cover every open proposal. Each takes the optional reason (at
+  most 500 characters; blank is none), which stays in its field until the
+  ruling has landed, and every ruling goes through the existing capabilities
+  and routes. The owner's own decisions name the agent that acted
+  (DESIGN.md principle 5); a viewer's say only "an agent". The reason is recorded on the log entry whichever way the owner
   ruled; on desktop an accept still takes none, so nothing changes there.
 - **Inbox:** the cross-deck list; card proposals open their deck in review,
   and brief and profile edits rule in place as diffs.
 
-Accept and reject are the only writes on a phone. Direct editing, hotkeys,
+Accept and reject are the only writes on a phone, with one clarification of
+D17: forking another user's shared deck from its public page. A fork edits
+nothing; it makes a new private deck in the forker's account, which fits
+D17's workflow of forking and then prompting an agent. The owner's own
+public page hides "Fork your deck" on a phone. *(Recorded 2026-10-25 in the
+phase 4a review; the owner can veto it.)* An address that is no page says
+so on a phone as on desktop; only real desktop screens say "Open on a
+larger screen". Direct editing, hotkeys,
 the playtester, memories, profile, activity, Settings and the design page
 each render "Open on a larger screen" with what the screen is for. Live
 updates work as on desktop: an agent's new proposal appears without a
@@ -1675,7 +1688,7 @@ In hosted mode, without a session: `GET /api/public/decks/:slug`, its
 `anonymous_search` bucket, 30 a minute per IP (/64 for IPv6), half a
 signed-in user's. Every search runs synchronously on the one SQLite
 connection, so its size is bounded: without an account 256 characters and
-30 terms, with one 1,000 characters and 100 terms, and at most 20 levels of
+30 terms, with one 600 characters and 50 terms (the worst allowed measured about 50 ms on the full card database), and at most 20 levels of
 parentheses or negation for anyone. A search over a bound, or one SQLite
 calls too complex, is a 400 that says so. A search naming a deck still
 needs that deck's owner. Every other API stays 401. Forking and comparing need a

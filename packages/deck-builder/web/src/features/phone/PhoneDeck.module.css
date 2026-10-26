@@ -38,3 +38,10 @@
 .rev {
   font-family: var(--font-mono);
 }
+
+/* A link inside a banner sentence is still a full tap target. */
+.tap {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap);
+}

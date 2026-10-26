@@ -65,3 +65,10 @@
 .dashed.cut {
   border-color: var(--cut-line);
 }
+
+/* A chip that does something is a tap target under 720 px. */
+@media (max-width: 719px) {
+  .interactive {
+    min-height: var(--tap);
+  }
+}

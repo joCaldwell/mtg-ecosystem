@@ -30,11 +30,16 @@ test("a shared deck reads with nothing pending and no numeric id (spec §18.3)",
 
 test("the owner's phone keeps pending proposals in the list, so they are drawn in place (spec §11.2)", () => {
   const pending = proposal([item({ name: "Sol Ring" })]);
-  const state = deckState({ proposals: [pending], log: [logEntry({ summary: "Added Forest", author_via: "ui" })] });
+  const state = deckState({ proposals: [pending], log: [
+    logEntry({ summary: "Added Forest", author_via: "ui" }),
+    logEntry({ summary: "Cut Island", author_via: "agent", author_display: "owner via test-agent" }),
+  ] });
   const model = fromOwner(state);
   assert.equal(model.list, state);
   assert.equal(model.list.proposals.length, 1);
-  assert.deepEqual(model.decisions!.map((d) => [d.summary, d.by]), [["Added Forest", "owner"]]);
+  // The owner sees which agent did what (DESIGN.md principle 5, review S15).
+  assert.deepEqual(model.decisions!.map((d) => [d.summary, d.by, d.who]), [["Added Forest", "owner", "owner"], ["Cut Island", "agent", "owner via test-agent"]]);
+  assert.ok(fromPublic(shared({ decisions: [{ kind: "edit", summary: "x", reason: "", by: "agent", at: "", cards: [] }] })).decisions!.every((d) => !("who" in d)), "viewers never get a name");
   assert.equal(model.price.store, "tcgplayer");
 });
 

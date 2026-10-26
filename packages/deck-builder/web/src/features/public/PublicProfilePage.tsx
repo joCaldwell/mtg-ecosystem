@@ -3,10 +3,10 @@
 
 import { Fragment, useEffect, useState } from "react";
 import { api, ApiError, type PublicProfile } from "../../api/client.ts";
-import { href, navigate } from "../../app/routes.ts";
+import { href, useScrollRestore } from "../../app/routes.ts";
 import { DECK_CATEGORY_LABELS } from "../../domain/deckCategory.ts";
 import { ColorIdentity } from "../../mtg/index.ts";
-import { Chip, ClickableRow, EmptyState, Loading, Table, Text } from "../../ui/index.ts";
+import { Chip, EmptyState, Loading, Table, Text } from "../../ui/index.ts";
 import { PublicShell } from "./PublicShell.tsx";
 import styles from "./PublicProfilePage.module.css";
 
@@ -23,8 +23,12 @@ export function PublicProfilePage({ handle }: { handle: string }) {
     return () => { current = false; };
   }, [handle]);
   useEffect(() => {
-    if (profile && profile !== "missing") document.title = `${profile.display_name} (${profile.handle})`;
+    if (!profile || profile === "missing") return;
+    const before = document.title;
+    document.title = `${profile.display_name} (${profile.handle})`;
+    return () => { document.title = before; };
   }, [profile]);
+  useScrollRestore(profile !== null);
 
   return (
     <PublicShell>
@@ -45,16 +49,17 @@ export function PublicProfilePage({ handle }: { handle: string }) {
                   <thead><tr><th>Deck</th><th>Commander</th><th>Identity</th><th>Lifecycle</th><th>Cards</th></tr></thead>
                   <tbody>
                     {profile.decks.map((d) => (
-                      <ClickableRow key={d.slug} onClick={() => navigate({ page: "shared", slug: d.slug })}>
+                      // The link alone navigates: one tab stop, and Ctrl/Cmd-click opens a tab without moving this one.
+                      <tr key={d.slug}>
                         <td>
                           <a href={href({ page: "shared", slug: d.slug })} className={styles.name}>{d.name}</a>
-                          {d.parent && <Text tone="faint" size="sm"> forked from {d.parent.owner_handle}/{d.parent.name}</Text>}
+                          {d.parent && <Text tone="faint" size="sm"> forked from {d.parent.slug ? <a href={href({ page: "shared", slug: d.parent.slug })}>{d.parent.owner_handle}/{d.parent.name}</a> : `${d.parent.owner_handle}/${d.parent.name}`}</Text>}
                         </td>
                         <td>{d.commanders.length ? d.commanders.map((c, i) => <Fragment key={c}>{i > 0 && " + "}{c}</Fragment>) : <Text tone="faint">none yet</Text>}</td>
                         <td><ColorIdentity colors={d.color_identity} /></td>
                         <td><Chip>{DECK_CATEGORY_LABELS[d.category]}</Chip></td>
                         <td><Text mono tone={d.card_count === 100 ? "muted" : "warn"}>{d.card_count}/100</Text></td>
-                      </ClickableRow>
+                      </tr>
                     ))}
                   </tbody>
                 </Table>

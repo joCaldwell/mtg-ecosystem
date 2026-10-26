@@ -1,6 +1,6 @@
 .card {
   display: grid;
-  grid-template-columns: minmax(0, 200px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, var(--sheet-image-w)) minmax(0, 1fr);
   gap: var(--s-6);
   align-items: start;
 }
@@ -53,7 +53,7 @@
   }
   .image,
   .pending {
-    max-width: 260px;
+    max-width: var(--sheet-image-w-phone);
   }
   .facts {
     width: 100%;

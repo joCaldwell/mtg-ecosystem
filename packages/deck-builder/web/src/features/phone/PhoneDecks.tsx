@@ -2,7 +2,7 @@
 
 import { api } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
-import { href } from "../../app/routes.ts";
+import { href, useScrollRestore } from "../../app/routes.ts";
 import { DECK_CATEGORY_LABELS } from "../../domain/deckCategory.ts";
 import { familyOrder } from "../../domain/familyOrder.ts";
 import { ColorIdentity } from "../../mtg/index.ts";
@@ -11,6 +11,7 @@ import styles from "./PhoneDecks.module.css";
 
 export function PhoneDecks() {
   const decks = useQuery(() => api.listDecks(), []);
+  useScrollRestore(decks.data !== null);
   if (decks.error && !decks.data) return <ErrorNote>{decks.error}</ErrorNote>;
   if (!decks.data) return <Loading />;
   if (!decks.data.length)
@@ -26,7 +27,7 @@ export function PhoneDecks() {
               <a className={fork ? `${styles.row} ${styles.fork}` : styles.row} href={href({ page: "deck", deckId: deck.id, review: waiting > 0 && deck.category !== "legacy" })}>
                 <span className={styles.name}>
                   {deck.name}
-                  {deck.visibility !== "private" && <Icon name={deck.visibility === "public" ? "globe" : "link"} aria-label={deck.visibility} />}
+                  {deck.visibility !== "private" && <span role="img" aria-label={deck.visibility === "public" ? "Public" : "Unlisted"}><Icon name={deck.visibility === "public" ? "globe" : "link"} /></span>}
                 </span>
                 <span className={styles.meta}>
                   <ColorIdentity colors={deck.color_identity} />

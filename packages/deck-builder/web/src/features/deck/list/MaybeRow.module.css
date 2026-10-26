@@ -55,4 +55,7 @@
     align-items: center;
     min-height: var(--tap);
   }
+  .name {
+    min-height: var(--tap);
+  }
 }

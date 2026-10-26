@@ -54,3 +54,10 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* On a phone the card name opens its sheet: a full tap target. */
+@media (max-width: 719px) {
+  .name button {
+    min-height: var(--tap);
+  }
+}

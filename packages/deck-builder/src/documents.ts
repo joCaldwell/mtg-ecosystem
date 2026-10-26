@@ -11,7 +11,7 @@ import { ServiceError } from "./errors.ts";
 import { withTransaction } from "./db.ts";
 import { type Actor, authorOf, isAuthor, requireUi, requireSelf, PermissionError } from "./actor.ts";
 import { lintProse, requireCardById } from "./cards.ts";
-import { writeLog } from "./deck/log.ts";
+import { rulingReason, writeLog } from "./deck/log.ts";
 import { requireDeck, requireEditableDeck, requireRevision } from "./deck/service.ts";
 import {
   type EnginePieceInput,
@@ -400,6 +400,7 @@ export function ruleDocumentEdit(
 ): number {
   getDocumentEdit(db, actor, editId);
   requireUi(actor, "rule on a proposed edit");
+  reason = rulingReason(reason);
   if (outcome !== "accept" && outcome !== "reject") throw new ServiceError("A ruling's outcome is 'accept' or 'reject'");
   return withTransaction(db, () => {
     const rows = editablePendingGroup(db, actor, editId);

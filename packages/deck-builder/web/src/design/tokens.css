@@ -124,6 +124,9 @@
   --art-fade: linear-gradient(180deg, rgba(13, 14, 16, 0.15) 0%, rgba(13, 14, 16, 0.6) 55%, var(--bg) 100%);
   --phone-bar-h: 48px;
   --sheet-max-h: 86dvh;
+  /* The card picture in CardSheet: beside the text, and alone on a phone. */
+  --sheet-image-w: 200px;
+  --sheet-image-w-phone: 260px;
 
   /* Elevation and stacking */
   --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.55);

@@ -2,7 +2,7 @@
 // with the app's name and the way into your own decks or to sign in.
 
 import type { ReactNode } from "react";
-import { href } from "../../app/routes.ts";
+import { href, signInHref } from "../../app/routes.ts";
 import { useSession } from "../../app/Session.tsx";
 import styles from "./PublicShell.module.css";
 
@@ -19,7 +19,7 @@ export function PublicShell({ children }: { children: ReactNode }) {
         <nav className={styles.nav} aria-label="Account">
           {signedIn
             ? <a href={href({ page: "decks" })}>Your decks</a>
-            : <a href={href({ page: "signin" })}>Sign in</a>}
+            : <a href={signInHref(location.pathname)}>Sign in</a>}
         </nav>
       </header>
       <main className={styles.main}>{children}</main>
