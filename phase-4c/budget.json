@@ -1,0 +1,54 @@
+{
+  "bytes": 89841,
+  "kB": 89.841,
+  "chunks": [
+    {
+      "file": "assets/index-QgukiL2T.js",
+      "gzip": 6986
+    },
+    {
+      "file": "assets/react-C6ecTDAN.js",
+      "gzip": 60227
+    },
+    {
+      "file": "assets/PublicDeckPage-C_nPhGRv.js",
+      "gzip": 2470
+    },
+    {
+      "file": "assets/ReadOnlyDeck-BWe2OTxZ.js",
+      "gzip": 12230
+    },
+    {
+      "file": "assets/cards-7Lu9nhWY.js",
+      "gzip": 1176
+    },
+    {
+      "file": "assets/ManaSymbol-6HDmK49Y.js",
+      "gzip": 1086
+    },
+    {
+      "file": "assets/RichText-lCQDBDT7.js",
+      "gzip": 2810
+    },
+    {
+      "file": "assets/deckCategory-DcWiwR3p.js",
+      "gzip": 746
+    },
+    {
+      "file": "assets/windowScroll-BgaR6HSB.js",
+      "gzip": 506
+    },
+    {
+      "file": "assets/inbox-B-nx9byJ.js",
+      "gzip": 197
+    },
+    {
+      "file": "assets/PublicShell-__CDzGfW.js",
+      "gzip": 654
+    },
+    {
+      "file": "assets/Icon-BKvsWM8c.js",
+      "gzip": 753
+    }
+  ]
+}

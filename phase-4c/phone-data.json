@@ -1,0 +1,20 @@
+{
+  "images": [
+    {
+      "url": "https://cards.scryfall.io/art_crop/front/3/b/3b951e0c-a4dd-4a20-87c6-eaa947e33aa4.jpg?1783937085",
+      "bytes": 119630,
+      "content_type": "image/jpeg"
+    },
+    {
+      "url": "https://cards.scryfall.io/art_crop/front/9/0/90c51949-b1ef-4c6e-98b0-4fb33a81db24.jpg?1783928824",
+      "bytes": 79281,
+      "content_type": "image/jpeg"
+    },
+    {
+      "url": "https://cards.scryfall.io/art_crop/front/d/0/d0d33d52-3d28-4635-b985-51e126289259.jpg?1783930136",
+      "bytes": 65180,
+      "content_type": "image/jpeg"
+    }
+  ],
+  "total_bytes": 264091
+}

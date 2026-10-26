@@ -1,0 +1,41 @@
+{
+  "text overlay": {
+    "background": [
+      27.52000000000001,
+      28.460000000000015,
+      30.34000000000001
+    ],
+    "ratios": {
+      "text": 13.68,
+      "soft": 11.29,
+      "muted": 7.6,
+      "faint": 6.51,
+      "violet": 6.23,
+      "green": 8.01,
+      "red": 5.78,
+      "amber": 8.03,
+      "blue": 6.7
+    }
+  },
+  "backdrop overlay": {
+    "background": [
+      37.199999999999996,
+      38.099999999999994,
+      39.89999999999999
+    ],
+    "ratios": {
+      "text": 12.19,
+      "soft": 10.06,
+      "muted": 6.77,
+      "faint": 5.81,
+      "violet": 5.56,
+      "green": 7.14,
+      "red": 5.15,
+      "amber": 7.16,
+      "blue": 5.97
+    }
+  },
+  "credit": {
+    "soft/surface": 12.06
+  }
+}
