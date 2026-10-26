@@ -266,3 +266,18 @@ describe("breakpoints", () => {
     assert.deepEqual(problems, [], `\n${problems.join("\n")}\n`);
   });
 });
+
+// ---------- window scrolling (spec §11.2, §18.5) ----------
+
+describe("window scrolling", () => {
+  // base.css pins the body for the desktop panes; a pinned body cannot be
+  // scrolled by touch or wheel, so a shell that scrolls the window must
+  // release it. (Programmatic scrollTo still works, which is how this hid.)
+  test("the phone and shared-page shells release the pinned body", () => {
+    const base = readFileSync(join(SRC, "design", "base.css"), "utf8");
+    assert.match(base, /body\s*\{[^}]*overflow:\s*hidden/);
+    assert.match(base, /html\[data-scroll="window"\] body\s*\{[^}]*overflow:\s*visible/);
+    for (const shell of ["features/phone/PhoneShell.tsx", "features/public/PublicShell.tsx"])
+      assert.match(readFileSync(join(SRC, shell), "utf8"), /^\s*useWindowScroll\(\);/m, `${shell} must call useWindowScroll()`);
+  });
+});

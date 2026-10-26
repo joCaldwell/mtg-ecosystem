@@ -4,11 +4,13 @@
 import type { ReactNode } from "react";
 import { href, signInHref } from "../../app/routes.ts";
 import { useSession } from "../../app/Session.tsx";
+import { useWindowScroll } from "../../app/windowScroll.ts";
 import styles from "./PublicShell.module.css";
 
 export function PublicShell({ children }: { children: ReactNode }) {
   const { session } = useSession();
   const signedIn = session.mode === "local" || !!session.user;
+  useWindowScroll();
   return (
     <div className={styles.shell}>
       <header className={styles.bar}>
