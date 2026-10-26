@@ -179,15 +179,23 @@ and [search syntax](https://scryfall.com/docs/syntax#prices).
 printing and finish. Migration preserves existing USD rows as TCGplayer.
 Refresh streams the file into a bounded reduction, stages rows in batches
 of 500, then swaps prices and timestamp atomically. Failure retains the old
-prices; lost prices become unpriced. The next refresh after migration loads
-both stores even if the bulk publication timestamp is unchanged.
+prices; lost prices become unpriced. A missing or old `price_stores_version`
+marker makes refresh due at scheduler boot and in next-run status, even when
+the last refresh was recent. Failed jobs retain the hourly retry schedule.
+That refresh loads both stores even if the bulk timestamp is unchanged.
 
 **Personal choice:** `price_currency` (`USD` default or `EUR`) and
 `price_store` (`lowest` default, `tcgplayer` for USD, `cardmarket` for EUR)
 are keys in per-user `user_settings`. `getPriceSource(db, actor)` reads;
 `setPriceSource(db, actor, source)` requires UI and rejects mismatched stores.
+Both `getPriceSource(db, null)` and `priceResolver(db, null)` accept an explicit
+anonymous viewer and resolve USD/lowest without reading any user's settings.
+`setPriceSource(db, null, source)` is refused with 401 before any write.
 Both are capability-layer permissions, not transport policy. Settings saves
-the pair atomically. `lowest` compares only stores in the same currency;
+the pair atomically (along with other settings in the same request). Any
+invalid stored currency/store pair reads as USD/lowest, so old/corrupt
+preferences cannot produce an undefined store. `lowest` compares only stores
+in the same currency;
 there are no exchange rates or cross-currency fallbacks. With one store per
 currency today it resolves to TCGplayer or Cardmarket. Missing prices in the
 selected store remain unpriced, even if another currency has a price.
@@ -198,17 +206,23 @@ results, deck rows/totals, sourcing and proposal deltas. Wire amounts use
 amount. Deck totals count copies and companions, exclude the maybe list,
 and report the number of distinct unpriced cards. Agents read prices but
 cannot change preferences. Compact card lines retain $/€ amounts; each
-response/view names the resolved store and Scryfall as-of date once.
+price-bearing response/view names the resolved store and Scryfall as-of date
+once. `start_session` also names the source; exports, ruling lists and
+memory writes retain their price-free text.
 `get_cards` includes resolved price metadata in structured results.
 
 `usd<=2` and `eur<=2` compare the respective currency's cheapest playable
 printing under the user's chosen store when it belongs to that currency,
-otherwise `lowest`. Unpriced cards match no comparison, including `!=`.
+otherwise `lowest`. Unpriced cards match no direct comparison, including `!=`.
+Negating a comparison (`-usd>5` or `-eur>5`) includes unpriced cards:
+it complements the predicate, as for power/toughness searches.
 This preserves Scryfall's operators while applying the app's card-level
 printing rules. Price is on by default for agents; budgets belong in briefs.
 
-Public pages use the signed-in viewer's choice, otherwise USD/lowest (v3
-plan §4). Phase 4a owns this integration if it lands after Phase 1b.
+Public pages call `priceResolver(db, viewer | null)`: the signed-in
+viewer's choice, or explicit USD/lowest for anonymous readers without reading
+any principal's settings (v3 plan §4). They never use the deck owner's actor.
+Phase 4a owns wiring PublicDeckState if it lands after Phase 1b.
 Every shown total is labelled an estimate with store/date. Scryfall warns
 bulk prices are dangerously stale after 24 hours: these are general
 estimates, never live offers. No history, collection, buy links, foil-only
@@ -714,8 +728,10 @@ every request resolves its bearer and every tool names its deck.
 
 Price-bearing structured results use `cents`, `currency`, `store`, `as_of`
 and `source: "Scryfall"`; `get_cards` attaches these to each card. Amounts
-are resolved for the calling principal, not the deck owner. Every tool
-response has one store/date line; card lines keep compact $/€ amounts.
+are resolved for the calling principal, not the deck owner. Price-bearing
+tools and start_session have one store/date line; card lines keep compact $/€
+amounts. HTTP and local calls use the same execution/formatting helper.
+Export text, ruling lists and memory writes have no price-source line.
 `computed.pending.projected_cost` and `cost_delta` use the same price source
 and simulate pending one-copy adds/cuts and whole-card parking in item order.
 The delta's `unpriced` is signed (change in distinct unpriced cards).

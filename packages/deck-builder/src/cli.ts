@@ -1,3 +1,4 @@
+import { priceSourceLine } from "./mcp/render.ts";
 import { localActor } from "./mode.ts";
 import { backupDatabase, restoreDatabase } from "./backups.ts";
 import { runJob } from "./jobs.ts";
@@ -67,7 +68,7 @@ async function main() {
       }
       try {
         const results = search(db, localActor(), query, { limit: 20 });
-        console.log(priceResolver(db, localActor()).store + " · Scryfall prices as of " + priceResolver(db, localActor()).as_of);
+        console.log(priceSourceLine(priceResolver(db, localActor())));
         for (const c of results) console.log(formatCard(c) + "\n");
         console.log(`${results.length} result(s)${results.length === 20 ? " (limit 20)" : ""}`);
       } catch (e) {

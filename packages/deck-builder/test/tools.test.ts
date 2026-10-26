@@ -422,7 +422,8 @@ describe("memories and the review queue through the tools (spec §7, §8.4)", ()
     const queue = text(db, "list_rulings", { unreviewed_only: true });
     assert.match(queue, /REJECTED: Rejected adding Sol Ring — the owner's reason: "I never play fast mana\." \[unreviewed\]\n  - add Sol Ring: Ramp\./);
     const rulingId = Number(queue.match(/- #(\d+) · deck[^\n]*REJECTED/)![1]);
-    assert.ok(queue.endsWith(`call mark_rulings_reviewed with {"through": ${rulingId}}.\nPrices: TCGplayer (USD), Scryfall daily estimates as of unknown (not loaded).`));
+    assert.ok(queue.endsWith(`call mark_rulings_reviewed with {"through": ${rulingId}}.`));
+    assert.doesNotMatch(queue, /^Prices:/m);
     // One name for a body of prose in every tool, so an agent need not guess.
     for (const tool of TOOLS) assert.ok(!("content" in tool.input), tool.name);
 

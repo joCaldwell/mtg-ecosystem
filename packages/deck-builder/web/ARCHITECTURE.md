@@ -204,4 +204,7 @@ outside the deck also refetches. Source changes in another tab therefore cannot
 leave a cached USD quote attached to an EUR view. Source preferences are per
 principal, and agents cannot set them. PublicDeckState.price integration belongs
 to Phase 4a if it lands later: viewer choice when authenticated, USD/lowest for
-anonymous readers. Use the shared resolver, never select prices by deck owner.
+anonymous readers. `priceResolver(db, viewer | null)` is that entry point;
+it never reads owner preferences for anonymous viewers. Both proposal cost
+compositions show store/date beside their estimates. Settings saves source and
+budgets in one transaction.

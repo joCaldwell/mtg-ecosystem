@@ -317,3 +317,68 @@ test("projected price matches actual approval for copies, parking, unpriced card
   acceptItems(db, OWNER, pendingItemIds(db, OWNER, id));
   assert.deepEqual(getDeck(db, OWNER, deck).computed.cost, pending.projected_cost);
 });
+
+for (const currency of ["usd", "eur"]) test(`${currency} negation keeps unpriced cards while direct != excludes them`, async () => {
+  const db = testDb();
+  try {
+    await priced(db, [printing("id-solring", { prices: { usd: "1.19", eur: "0.80" } }),
+      printing("id-llanowar", { prices: { usd: "0.40", eur: "0.20" } }),
+      printing("id-seedborn", { prices: { usd: "14.00", eur: "12.00" } })]);
+    const ids = (query: string) => search(db, OWNER, query, { limit: 1000 }).map(c => c.oracle_id).sort();
+    const all = (db.prepare("SELECT oracle_id FROM cards WHERE retired=0").all() as {oracle_id:string}[]).map(c => c.oracle_id).sort();
+    const aboveFive = ids(`${currency}>5`);
+    assert.deepEqual(ids(`-${currency}>5`), all.filter(id => !aboveFive.includes(id)));
+    assert.ok(ids(`-${currency}>5`).includes("id-counterspell"));
+    assert.ok(!ids(`${currency}!=5`).includes("id-counterspell"));
+    assert.deepEqual(ids(`--${currency}>5`), aboveFive);
+    const cheapCreatures = ids(`t:creature ${currency}<1`);
+    assert.deepEqual(ids(`t:creature -${currency}<1`), ids("t:creature").filter(id => !cheapCreatures.includes(id)));
+    const unpriced = all.filter(id => !ids(`${currency}>=0`).includes(id));
+    assert.deepEqual(ids(`(${currency}>100 or -${currency}>0)`), unpriced);
+  } finally { db.close(); }
+});
+
+test("invalid stored price pairs fall back together to USD/lowest", async () => {
+  const { setSetting } = await import("../src/db.ts");
+  const db = testDb();
+  try {
+    for (const [currency, store] of [["EUR", "tcgplayer"], ["USD", "cardmarket"], ["GBP", "lowest"], ["EUR", "unknown"]]) {
+      setSetting(db, OWNER, "price_currency", currency); setSetting(db, OWNER, "price_store", store);
+      assert.deepEqual(getPriceSource(db, OWNER), { currency: "USD", store: "lowest" });
+      const price = priceResolver(db, OWNER).resolve([{ oracle_id: "id-solring" }])[0];
+      assert.equal(price.currency, "USD"); assert.equal(price.store, "tcgplayer"); assert.equal(price.cents, null);
+    }
+    setPriceSource(db, OWNER, { currency: "EUR", store: "lowest" });
+    assert.deepEqual(getPriceSource(db, OWNER), { currency: "EUR", store: "lowest" });
+  } finally { db.close(); }
+});
+
+test("public prices use the signed-in viewer and anonymous USD/lowest independently of any owner", async () => {
+  const db = testDb();
+  try {
+    db.exec("INSERT INTO users(id,handle,display_name) VALUES(2,'viewer','Viewer')");
+    const viewer = { ...OWNER, user_id: 2 };
+    await priced(db, [printing("id-solring", { prices: { usd: "1.19", eur: "0.80" } })]);
+    setPriceSource(db, OWNER, { currency: "EUR", store: "cardmarket" });
+    assert.deepEqual(getPriceSource(db, null), { currency: "USD", store: "lowest" });
+    const anon = priceResolver(db, null).resolve([{ oracle_id: "id-solring" }])[0];
+    assert.deepEqual(anon, { oracle_id: "id-solring", cents: 119, currency: "USD", store: "tcgplayer", as_of: AS_OF, source: "Scryfall" });
+    assert.equal(priceResolver(db, viewer).resolve([{ oracle_id: "id-solring" }])[0].cents, 119);
+    setPriceSource(db, viewer, { currency: "EUR", store: "lowest" });
+    assert.equal(priceResolver(db, viewer).resolve([{ oracle_id: "id-solring" }])[0].cents, 80);
+    assert.equal(priceResolver(db, null).resolve([{ oracle_id: "id-solring" }])[0].cents, 119);
+  } finally { db.close(); }
+});
+
+
+test("anonymous source setters return 401 without changing any principal's preferences", () => {
+  const db = testDb();
+  try {
+    setPriceSource(db, OWNER, { currency: "EUR", store: "cardmarket" });
+    const before = db.prepare("SELECT * FROM user_settings ORDER BY user_id,key").all();
+    assert.throws(() => setPriceSource(db, null, { currency: "USD", store: "lowest" }), { status: 401, message: "Sign in to change the price source" });
+    assert.deepEqual(db.prepare("SELECT * FROM user_settings ORDER BY user_id,key").all(), before);
+    assert.deepEqual(getPriceSource(db, null), { currency: "USD", store: "lowest" });
+    assert.deepEqual(getPriceSource(db, OWNER), { currency: "EUR", store: "cardmarket" });
+  } finally { db.close(); }
+});

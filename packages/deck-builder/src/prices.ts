@@ -24,6 +24,8 @@ import { requireUi } from "./actor.ts";
 import { ServiceError } from "./errors.ts";
 import { getSetting, setSetting, withTransaction } from "./db.ts";
 
+export const PRICE_STORES_VERSION = "1";
+
 export type Finish = "nonfoil" | "foil" | "etched";
 
 /** The fields of a Scryfall card object (one printing) that pricing reads. */
@@ -63,15 +65,22 @@ const STORES = {
   cardmarket: { currency: "EUR", fields: [["eur", "nonfoil"], ["eur_foil", "foil"], ["eur_etched", "etched"]] },
 } as const;
 
-export function getPriceSource(db: Database, actor: Actor): PriceSource {
-  return { currency: (getSetting(db, actor, "price_currency") ?? "USD") as Currency,
-    store: (getSetting(db, actor, "price_store") ?? "lowest") as PriceSource["store"] };
+function validPriceSource(value: PriceSource): boolean {
+  return !!value && ["USD", "EUR"].includes(value.currency) &&
+    (value.store === "lowest" || (Object.hasOwn(STORES, value.store) && STORES[value.store].currency === value.currency));
 }
 
-export function setPriceSource(db: Database, actor: Actor, value: PriceSource): void {
+export function getPriceSource(db: Database, actor: Actor | null): PriceSource {
+  if (actor === null) return { currency: "USD", store: "lowest" };
+  const source = { currency: getSetting(db, actor, "price_currency") ?? "USD",
+    store: getSetting(db, actor, "price_store") ?? "lowest" } as PriceSource;
+  return validPriceSource(source) ? source : { currency: "USD", store: "lowest" };
+}
+
+export function setPriceSource(db: Database, actor: Actor | null, value: PriceSource): void {
+  if (actor === null) throw new ServiceError("Sign in to change the price source", 401);
   requireUi(actor, "change the price source");
-  if (!value || !["USD", "EUR"].includes(value.currency) ||
-      (value.store !== "lowest" && (!Object.hasOwn(STORES, value.store) || STORES[value.store].currency !== value.currency)))
+  if (!validPriceSource(value))
     throw new ServiceError("Choose USD with TCGplayer or Lowest, or EUR with Cardmarket or Lowest");
   withTransaction(db, () => {
     setSetting(db, actor, "price_currency", value.currency);
@@ -80,9 +89,13 @@ export function setPriceSource(db: Database, actor: Actor, value: PriceSource): 
 }
 
 /** One actor-scoped policy for row prices and currency search (§4.4).
+ * Null means anonymous USD/lowest, without reading any user's preferences.
  * SQL column arguments are internal identifiers, never user input. */
-export function priceResolver(db: Database, actor: Actor, currency?: Currency) {
-  const choice = getPriceSource(db, actor);
+export function priceResolver(db: Database, actor: Actor | null, currency?: Currency) {
+  return resolver(db, getPriceSource(db, actor), currency);
+}
+
+function resolver(db: Database, choice: PriceSource, currency?: Currency) {
   const unit = currency ?? choice.currency;
   const selected = choice.currency === unit ? choice.store : "lowest";
   const stores = (Object.keys(STORES) as Store[]).filter(s => STORES[s].currency === unit && (selected === "lowest" || selected === s));
@@ -179,7 +192,7 @@ export function ingestPrices(
       db.exec(`DROP TABLE card_prices; ALTER TABLE card_prices_staging RENAME TO card_prices;
         CREATE INDEX idx_card_prices_currency ON card_prices(currency, store, cents)`);
       db.prepare("INSERT INTO meta (key, value) VALUES ('prices_as_of', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(asOf);
-      db.prepare("INSERT INTO meta(key,value) VALUES ('price_stores_version','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value").run();
+      db.prepare("INSERT INTO meta(key,value) VALUES ('price_stores_version',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(PRICE_STORES_VERSION);
     });
   } finally { db.exec("DROP TABLE IF EXISTS card_prices_staging"); }
   const status = priceStatus(db);

@@ -188,7 +188,7 @@ function compileFilter(key: string, op: Op, value: string, ctx: CompileContext):
       if (!ctx.prices) throw new SearchError("Price comparisons require the caller's price context");
       const sqlOp = op === ":" ? "=" : op;
       return {
-        sql: `${ctx.prices[key === "usd" ? "USD" : "EUR"]} ${sqlOp} ?`,
+        sql: `(${ctx.prices[key === "usd" ? "USD" : "EUR"]} IS NOT NULL AND ${ctx.prices[key === "usd" ? "USD" : "EUR"]} ${sqlOp} ?)`,
         params: [Math.round(Number(value) * 100)],
       };
     }

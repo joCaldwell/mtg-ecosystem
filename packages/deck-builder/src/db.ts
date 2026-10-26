@@ -75,6 +75,9 @@ CREATE VIRTUAL TABLE IF NOT EXISTS cards_fts USING fts5(
   name, search_text, oracle_id UNINDEXED
 );
 
+-- Bootstrap is intentionally the historical USD table: supported old files
+-- run this idempotent schema before ordered migrations. v13 below creates the
+-- current per-store shape for both new and migrated files.
 -- Spec §4.4: the cheapest playable paper printing of each card, replaced
 -- wholesale by every refresh. No foreign key: see ingestPrices.
 CREATE TABLE IF NOT EXISTS card_prices (

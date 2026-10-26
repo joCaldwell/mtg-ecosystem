@@ -234,7 +234,9 @@ Vite proxy follows the API port.
     price as what the owner's copy is worth. `priceResolver(db, actor)` supplies
     every personal card price, currency search, sourcing and proposal cost.
     Only UI may call `setPriceSource`; currency/store are per-user settings.
-    Wire amounts use `cents` plus currency/store/as_of metadata. Totals come
+    Public reads use `priceResolver(db, viewer | null)`: null means
+    USD/lowest without consulting owner settings. Wire amounts use `cents`
+    plus currency/store/as_of metadata. Totals come
     from `estimateCost` and always report how many cards had no price.
 *   **Retired cards stay resolvable.** Refresh never deletes a missing oracle ID.
     Hide it from general search, retain it in its deck context and flag its check.

@@ -433,11 +433,11 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     };
   };
   route("GET", /^\/api\/settings$/, settings);
-  route("PUT", /^\/api\/settings$/, (actor, _p, body) => {
+  route("PUT", /^\/api\/settings$/, (actor, _p, body) => withTransaction(db, () => {
     if (body.price_source) setPriceSource(db, actor, body.price_source);
     if (body.budgets) setBudgets(db, actor, body.budgets);
     return settings(actor);
-  });
+  }));
   route("POST", /^\/api\/settings\/tokens$/, (actor, _p, body) => createToken(db, actor, String(body.label ?? "")));
   route("DELETE", /^\/api\/settings\/tokens\/(\d+)$/, (actor, [id]) => {
     revokeToken(db, actor, num(id, "token id", 1));

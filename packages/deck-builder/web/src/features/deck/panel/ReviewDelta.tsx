@@ -74,7 +74,7 @@ export function ReviewDelta() {
           </div>
         ))}
       </div>
-      {computed.cost.as_of && <Text size="sm" tone="muted">Estimated cost: {formatPrice(computed.cost.cents, computed.cost.currency)} → {formatPrice(computed.pending.projected_cost.cents, computed.cost.currency)} · {computed.pending.projected_cost.unpriced} unpriced cards</Text>}
+      {computed.cost.as_of && <Text size="sm" tone="muted">Estimated cost: {formatPrice(computed.cost.cents, computed.cost.currency)} → {formatPrice(computed.pending.projected_cost.cents, computed.cost.currency)} · {computed.pending.projected_cost.unpriced} unpriced cards · {computed.cost.store === "tcgplayer" ? "TCGplayer" : "Cardmarket"} · {computed.cost.as_of.slice(0, 10)}</Text>}
       <Text tone="faint" size="xs" as="p">
         Computed by the app from the current list, so it stays right as you rule.
       </Text>

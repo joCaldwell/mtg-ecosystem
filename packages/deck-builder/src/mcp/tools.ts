@@ -86,6 +86,8 @@ export interface ToolDef {
   input: z.ZodRawShape;
   readOnly: boolean;
   destructive?: boolean;
+  /** Includes personal prices in text/structured data, or orients the agent. */
+  prices?: boolean;
   run: (ctx: ToolContext, args: any) => string | ToolResult;
 }
 
@@ -181,6 +183,7 @@ function contextFor(
 export const TOOLS: ToolDef[] = [
   {
     name: "start_session",
+    prices: true,
     title: "Start a session",
     readOnly: true,
     description:
@@ -231,6 +234,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "get_deck",
+    prices: true,
     title: "Read a deck",
     readOnly: true,
     description:
@@ -253,6 +257,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "propose_power_target",
+    prices: true,
     title: "Set or propose a power target",
     readOnly: false,
     description:
@@ -275,6 +280,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "assess_deck_power",
+    prices: true,
     title: "Record a deck power assessment",
     readOnly: false,
     description:
@@ -292,6 +298,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "compare_deck_sources",
+    prices: true,
     title: "Compare a deck against its sources",
     readOnly: false,
     description: "Compare a target with multiple source decks in one operation. Returns actual shared cards and expensive remaining cards, IDs, exact names, list quantities, source decks, persistent ownership evidence, availability, estimated prices and timestamps, and app-computed totals as structured data. Membership never proves ownership or physical quantity; unknown ownership is not a shopping list. Optionally add all source tags in bulk, preserving slots and unrelated tags; revision guards are required when tagging. Filtering affects cards/result totals, not shared_cards, remaining_cards or tagging.",
@@ -320,6 +327,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "record_ownership",
+    prices: true,
     title: "Record explicit ownership evidence",
     readOnly: false,
     description: "Record explicit owner-provided ownership and optional physical/available quantities, with evidence. Persists independently of deck membership; never infer it from list appearances or keep preferences. Latest statement is current and all history remains. Requires an editable context deck, supports revision/evidence guards, and changes no cards, slots, brief or power target.",
@@ -354,6 +362,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "search_cards",
+    prices: true,
     title: "Search cards",
     readOnly: true,
     description:
@@ -420,6 +429,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "get_cards",
+    prices: true,
     title: "Look up cards by name",
     readOnly: true,
     description:
@@ -540,6 +550,7 @@ export const TOOLS: ToolDef[] = [
 
   {
     name: "rename_deck",
+    prices: true,
     title: "Rename a deck",
     readOnly: false,
     description:
@@ -572,6 +583,7 @@ export const TOOLS: ToolDef[] = [
 
   {
     name: "create_deck",
+    prices: true,
     title: "Create a Theorycrafted deck",
     readOnly: false,
     description:
@@ -614,6 +626,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "fork_deck",
+    prices: true,
     title: "Fork a deck",
     readOnly: false,
     description:
@@ -634,6 +647,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "edit_cards",
+    prices: true,
     title: "Edit Theorycrafted cards",
     readOnly: false,
     description:
@@ -736,6 +750,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "define_slots",
+    prices: true,
     title: "Define a deck's slots",
     readOnly: false,
     description:
@@ -766,6 +781,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "file_cards",
+    prices: true,
     title: "File cards into slots and tags",
     readOnly: false,
     description:
@@ -805,6 +821,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "shortlist_cards",
+    prices: true,
     title: "Add to or remove from the maybe list",
     readOnly: false,
     description:
@@ -1049,6 +1066,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "list_proposals",
+    prices: true,
     title: "Read current proposals and their history",
     readOnly: true,
     description: "Read card and document proposals with current status, supersession links, revision bases, stale flags, and full preserved drafts. Defaults to current pending work; include_history returns resolved, withdrawn and superseded versions. No approval or mutation is performed.",
@@ -1079,6 +1097,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "revise_proposal",
+    prices: true,
     title: "Amend or withdraw your pending proposal",
     readOnly: false,
     description: "Amend or withdraw only your own pending card or document proposal. Amendments are linked replacements retaining the original audit history. For documents name any edit in a group and supply the complete replacement changes; the whole group is superseded. For partially ruled card proposals, supply only remaining work; earlier rulings stay in history. Never accepts, changes lifecycle, or edits an approved brief/power target.",
@@ -1117,6 +1136,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "propose_brief_edit",
+    prices: true,
     title: "Propose an edit to a deck's brief",
     readOnly: false,
     description:
@@ -1199,8 +1219,15 @@ export function callTool(ctx: ToolContext, name: string, args: unknown = {}): To
     throw new ServiceError(
       `Invalid arguments for ${name}: ${parsed.error.issues.map((i) => `${i.path.join(".") || "(arguments)"}: ${i.message}`).join("; ")}`,
     );
-  const result = tool.run(ctx, parsed.data);
+  return runTool(ctx, tool, parsed.data);
+}
+
+/** Shared execution for SDK-validated HTTP calls and local validated calls.
+ * Non-price tools retain their exact text, particularly pasteable exports. */
+export function runTool(ctx: ToolContext, tool: ToolDef, args: unknown): ToolResult {
+  const result = tool.run(ctx, args);
   const output = typeof result === "string" ? { text: result } : result;
+  if (!tool.prices) return output;
   const line = priceSourceLine(priceResolver(ctx.db, ctx.actor));
   return { ...output, text: [output.text.split("\n" + line).join("").split(line).join("").trimEnd(), line].join("\n") };
 }

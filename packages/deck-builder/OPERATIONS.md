@@ -377,7 +377,10 @@ attempts use 5/minute/IP, and OAuth token exchange uses 240/minute/client.
 Schema v13 migrates old USD quotes to `(oracle_id, tcgplayer)` without
 changing cents, printing or finish. Preferences are per-user `price_currency`
 and `price_store` keys (absent means USD/lowest). Production applies the ordered
-migration on deploy. The first subsequent refresh downloads default-cards even
+migration on deploy. A missing/old price_stores_version marker makes the
+scheduler enqueue refresh at boot and report it due immediately, even when
+card/pricing timestamps and the previous successful run are fresh. Failed
+refreshes retain the hourly retry. The refresh downloads default-cards even
 if its timestamp matches: `price_stores_version` is set only with the successful
 atomic swap. Later refreshes retain the normal publication freshness check.
 Both store reductions stream together; the staging transactions still hold at
@@ -406,3 +409,13 @@ its selected card panel showed the matching EUR amount and date. Desktop and
 390 px shell remains cramped pending Phase 4a's phone view. Real-data agent
 start_session/get_deck and eur<=1 search text were read; user 1 still showed
 TCGplayer/USD. The harness, backup, screenshots and transcripts stay ignored.
+
+
+Phase 1b review regression checks use the official MCP client against createApp
+in both protocol eras: price-bearing responses have exactly one source/date
+line, while exports retain their exact importable text and ruling/memory tools
+have no source line. The three reported negation queries on the same backup
+match pre-phase results by oracle ID: `-usd>5` 32,791; `t:dragon -usd<1` 153;
+`t:dragon (usd>100 or -usd>0)` 34. No live database was opened for these checks.
+The scheduler regression migrates a populated v12 fixture and checks missing,
+old and current price-store markers one hour after a successful refresh.

@@ -564,3 +564,71 @@ describe("sourcing and proposal cleanup end to end", () => {
     } finally { await client.close(); }
   });
 });
+
+for (const modern of [false, true]) test(`personal price sources reach real MCP clients without contaminating non-price tools (${modern ? "modern" : "legacy"})`, async () => {
+  const { cheapestPrintings, ingestPrices, setPriceSource } = await import("../src/prices.ts");
+  const { createDeck } = await import("../src/deck/service.ts");
+  const { applyChanges } = await import("../src/deck/membership.ts");
+  const { exportDeck } = await import("../src/deck/interop.ts");
+  const fresh = testDb();
+  fresh.exec("INSERT INTO users(id,handle,display_name) VALUES(2,'euro-user','Euro user')");
+  const euro = { ...OWNER, user_id: 2 };
+  setPriceSource(fresh, euro, { currency: "EUR", store: "cardmarket" });
+  await ingestPrices(fresh, await cheapestPrintings([{ oracle_id: "id-solring", set: "test", collector_number: "1", games: ["paper"], prices: { usd: "1.19", eur: "0.80" } }]), "2026-10-25T21:05:44.018+00:00");
+  const target = createDeck(fresh, euro, "EUR HTTP prices", { category: "theorycrafted" });
+  const source = createDeck(fresh, euro, "EUR source", { category: "paper" });
+  applyChanges(fresh, euro, target, [{ action: "add", oracle_id: "id-solring" }], { kind: "edit" });
+  const token = createToken(fresh, euro, "price reader").token;
+  const service = createApp(fresh);
+  await new Promise<void>(resolve => service.server.listen(0, "127.0.0.1", resolve));
+  const url = new URL(`http://127.0.0.1:${(service.server.address() as AddressInfo).port}/mcp/prices-test`);
+  const client = new Client({ name: "prices-test", version: "1" }, modern ? { versionNegotiation: { mode: { pin: "2026-07-28" } } } : {});
+  try {
+    await client.connect(new StreamableHTTPClientTransport(url, { requestInit: { headers: { Authorization: `Bearer ${token}` } } }));
+    const call = async (name: string, args: Record<string, unknown> = {}) => {
+      const result = await client.callTool({ name, arguments: args });
+      assert.ok(!result.isError, textOf(result));
+      return result;
+    };
+    const line = "Prices: Cardmarket (EUR), Scryfall daily estimates as of 2026-10-25.";
+    for (const [name, args] of [
+      ["start_session", {}], ["get_deck", { deck: target }], ["get_deck", { deck: target, sections: ["list"] }],
+      ["get_cards", { cards: ["Sol Ring"] }], ["search_cards", { query: "eur<=1" }],
+      ["compare_deck_sources", { deck: target, sources: [source] }], ["list_proposals", { deck: target }],
+    ] as const) {
+      const result = await call(name, args);
+      const text = textOf(result);
+      assert.equal(text.split(line).length - 1, 1, name);
+      assert.ok(text.endsWith(line), name);
+      if (["get_cards", "search_cards", "compare_deck_sources"].includes(name)) assert.match(text, /€0\.80/);
+      if (name === "get_cards") {
+        const card = (result.structuredContent as any).cards[0];
+        assert.equal(card.currency, "EUR"); assert.equal(card.store, "cardmarket"); assert.equal(card.cents, 80);
+      }
+    }
+    const exported = exportDeck(fresh, euro, target);
+    assert.equal(textOf(await call("export_deck", { deck: target })), `${exported.card_count} card(s) at revision ${exported.revision}:\n\n${exported.text}`);
+    for (const [name, args] of [["list_rulings", { deck: target }], ["search_memories", {}],
+      ["remember", { scope: "global", text: "Prefers careful budget estimates" }],
+      ["revise_memory", { id: 1, action: "update", text: "Prefers daily budget estimates" }],
+    ] as const) assert.doesNotMatch(textOf(await call(name, args)), /^Prices:/m, name);
+  } finally { await client.close(); await service.close(); fresh.close(); }
+});
+
+test("settings price source and budgets save atomically", async () => {
+  const { getPriceSource } = await import("../src/prices.ts");
+  const { getBudgets } = await import("../src/memory.ts");
+  const source = getPriceSource(db, OWNER), budgets = getBudgets(db, OWNER);
+  const put = (body: unknown) => fetch(`${base}/api/settings`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const bad = await put({ price_source: { currency: "EUR", store: "cardmarket" }, budgets: { global: 2000, deck: 1 } });
+  assert.equal(bad.status, 400);
+  assert.deepEqual(getPriceSource(db, OWNER), source);
+  assert.deepEqual(getBudgets(db, OWNER), budgets, "an earlier valid budget must also roll back");
+  try {
+    const good = await put({ price_source: { currency: "EUR", store: "cardmarket" }, budgets: { global: 2000, deck: 2000 } });
+    assert.equal(good.status, 200);
+    const settings = await good.json();
+    assert.deepEqual(settings.price_source, { currency: "EUR", store: "cardmarket" });
+    assert.deepEqual(settings.budgets, { global: 2000, deck: 2000 });
+  } finally { await put({ price_source: source, budgets }); }
+});
