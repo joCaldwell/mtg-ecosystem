@@ -2,7 +2,7 @@ import { ServiceError } from "./errors.ts";
 // The sample is isolated to one new deck in the requesting user's account.
 // Cards resolve against installed data; a missing commander fails atomically.
 import type { Database } from "./sqlite.ts";
-import { requireUi, type Actor } from "./actor.ts";
+import { requireUi, SAMPLE_AGENT_LABEL, type Actor } from "./actor.ts";
 import { getSetting, setSetting, withTransaction } from "./db.ts";
 import type { Change } from "./deck/membership.ts";
 import type { Role } from "./deck/service.ts";
@@ -20,14 +20,17 @@ import {
   shortlistCard,
 } from "./deck/service.ts";
 import { proposeDocumentEdit } from "./documents.ts";
-import { recordActivity } from "./activity.ts";
 import { remember } from "./memory.ts";
 
 export function createDemo(db: Database, actor: Actor): { deckId: number; missing: string[] } {
   requireUi(actor, "create a sample deck");
   return withTransaction(db, () => {
   const OWNER = actor;
-  const AGENT: Actor = { user_id: actor.user_id, via: "agent", label: "sample-agent" };
+  // Every illustrative agent write (proposals, memories, the brief edit) is
+  // attributed to the reserved sample label. None is written to activity:
+  // the feed is the audit trail of real agents' writes, and creating the
+  // sample is the owner's own action. has_agent_activity ignores the label.
+  const AGENT: Actor = { user_id: actor.user_id, via: "agent", label: SAMPLE_AGENT_LABEL };
   const DECK_NAME = "Sample — Atraxa Superfriends";
   // Repeated requests return the same deck. Deleting it lets the
   // owner create another; no existing deck or user-authored text is replaced.
@@ -141,7 +144,7 @@ if (enginePieces.length)
 
 setDeckCategory(db, OWNER, deckId, "paper");
 
-// --- history: the rulings log is the version history, so give it one ---
+// --- history: the decisions log is the version history, so give it one ---
 
 const itemFor = (name: string, action: "add" | "cut", reason: string, extra: { slot_id?: number; group?: string } = {}) => {
   const oid = oracle(name);
@@ -160,7 +163,7 @@ function propose(summary: string, items: (ProposalItemInput | null)[]) {
   if (pid) acceptItems(db, OWNER, pendingItemIds(db, OWNER, pid), "Yes. This is the deck.");
 }
 
-// Two rejections with reasons. The ruling follows the card from now on, and
+// Two rejections with reasons. The decision follows the card from now on, and
 // an agent turned each into a memory.
 {
   const pid = propose("Interaction top-up", [
@@ -174,7 +177,6 @@ function propose(summary: string, items: (ProposalItemInput | null)[]) {
       basis: "stated",
       source_log_id: log,
     });
-    recordActivity(db, AGENT, "remember", deckId, "Memory: the playgroup dislikes counterspells");
   }
 }
 {
@@ -199,19 +201,21 @@ remember(db, AGENT, {
   scope: "deck", deck_id: deckId,
   basis: "inferred",
 });
-// The owner's own notes after goldfishing.
-remember(db, OWNER, {
-  text: "Goldfished ten games: engine online turn 6 on the play, turn 8 on the draw. Never lost to running out of gas — lost to not interacting.",
+// What the owner reported after goldfishing, as an agent records it.
+remember(db, AGENT, {
+  text: "The owner goldfished ten games: engine online turn 6 on the play, turn 8 on the draw. They never lost to running out of gas; they lost to not interacting.",
   scope: "deck",
   deck_id: deckId,
+  basis: "stated",
 });
-remember(db, OWNER, {
-  text: "Two games ended with a walker one activation short of an ultimate. More proliferate, not more walkers.",
+remember(db, AGENT, {
+  text: "Two of the owner's games ended with a walker one activation short of an ultimate. They want more proliferate, not more walkers.",
   scope: "deck",
   deck_id: deckId,
+  basis: "stated",
 });
 
-// Left pending on purpose: an atomic swap, so the grouped ruling has a case.
+// Left pending on purpose: an atomic swap, so the grouped decision has a case.
 propose("Swap a rock for an extra walker activation", [
   itemFor("Mind Stone", "cut", "Weakest rock in an already-over-target ramp slot.", { group: "swap-1" }),
   itemFor("Oath of Teferi", "add", "An extra activation every turn is worth more here than the fourth mana rock.", { slot_id: slots.walkers, group: "swap-1" }),
@@ -231,7 +235,6 @@ proposeDocumentEdit(
   const oid = oracle("The Chain Veil");
   if (oid) shortlistCard(db, OWNER, deckId, oid, "Extra activations if the walker count goes up.");
 }
-recordActivity(db, AGENT, "create_sample", deckId, "Created sample deck with example proposals and memories");
 setSetting(db, actor, "sample_deck_id", String(deckId));
 return { deckId, missing: [...missing] };
   });

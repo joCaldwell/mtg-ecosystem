@@ -1,5 +1,5 @@
 import { useVoice } from "../../app/Preferences.tsx";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api, type ActivityEntry } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
 import { href } from "../../app/routes.ts";
@@ -46,14 +46,17 @@ function waitingOnYou(e: ActivityEntry): boolean {
 /** Every write an agent made (spec §11): the audit trail for what needed no approval. */
 export function ActivityPage() {
   const voice = useVoice();
-  const [offset, setOffset] = useState(0);
-  const feed = useQuery(() => api.listActivity(offset), [offset]);
+  // Keyset paging (§11.3): each earlier page is remembered by the id it
+  // started before, so writes between loads never shift rows.
+  const [cursors, setCursors] = useState<number[]>([]);
   const [agent, setAgent] = useState<string | null>(null);
-  useEffect(() => setAgent(null), [offset]);
+  const before = cursors.at(-1);
+  const feed = useQuery(() => api.listActivity({ before_id: before, actor: agent ?? undefined }), [before, agent]);
+  const choose = (next: string | null) => { setAgent(next); setCursors([]); };
 
-  const entries = feed.data ?? [];
-  const actors = [...new Set(entries.map((e) => e.actor))];
-  const sessions = groupSessions(agent == null ? entries : entries.filter((e) => e.actor === agent));
+  const entries = feed.data?.entries ?? [];
+  const actors = feed.data?.actors ?? [];
+  const sessions = groupSessions(entries);
 
   return (
     <Page
@@ -68,16 +71,16 @@ export function ActivityPage() {
       {feed.error && <ErrorNote>{feed.error}</ErrorNote>}
       {feed.loading ? (
         <Loading />
-      ) : entries.length === 0 ? (
+      ) : entries.length === 0 && actors.length === 0 ? (
         <EmptyState title={voice("No connected activity yet", "No agent has written anything on this page yet")}>
           {voice("You can build decks without an agent. To connect one, open", "Connect or manage an agent in")} <a href={href({ page: "settings" })}><Text tone="agent">Settings</Text></a>.
         </EmptyState>
       ) : (
         <>
-          <div className={styles.filters} role="group" aria-label="Agents on this page">
-            <Pill on={agent == null} onClick={() => setAgent(null)}>All agents on this page</Pill>
+          <div className={styles.filters} role="group" aria-label="Agents">
+            <Pill on={agent == null} onClick={() => choose(null)}>All agents</Pill>
             {actors.map((a) => (
-              <Pill key={a} on={agent === a} onClick={() => setAgent(a)}>
+              <Pill key={a} on={agent === a} onClick={() => choose(a)}>
                 {a}
               </Pill>
             ))}
@@ -124,7 +127,7 @@ export function ActivityPage() {
           </div>
         </>
       )}
-      <nav aria-label="Activity pages"><Button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 100))}>Previous 100</Button> <Text>Page {offset / 100 + 1}</Text> <Button disabled={entries.length < 100} onClick={() => setOffset(offset + 100)}>Next 100</Button></nav>
+      <nav aria-label="Activity pages"><Button disabled={cursors.length === 0} onClick={() => setCursors(cursors.slice(0, -1))}>Previous 100</Button> <Text>Page {cursors.length + 1}</Text> <Button disabled={!feed.data?.has_more} onClick={() => setCursors([...cursors, entries[entries.length - 1].id])}>Next 100</Button></nav>
     </Page>
   );
 }

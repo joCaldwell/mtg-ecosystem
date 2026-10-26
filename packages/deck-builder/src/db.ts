@@ -527,6 +527,13 @@ const MIGRATIONS: Array<{ version: number; up: (db: Database) => void }> = [
     // registered account has no key and starts with Advanced closed.
     if (db.prepare("SELECT 1 FROM meta WHERE key='schema_version'").get())
       db.exec("INSERT OR IGNORE INTO user_settings(user_id,key,value) SELECT id,'advanced_open','true' FROM users WHERE id > 0");
+    // /api/settings probes each table for a non-sample agent write (§11.3);
+    // the activity feed filters and lists actors per user before paginating.
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_activity_user_actor ON activity(user_id, actor_label, id);
+      CREATE INDEX IF NOT EXISTS idx_memories_agent ON memories(user_id, author_label) WHERE author_via = 'agent';
+      CREATE INDEX IF NOT EXISTS idx_proposals_agent ON proposals(author_user_id, author_label) WHERE author_via = 'agent';
+      CREATE INDEX IF NOT EXISTS idx_document_edits_agent ON document_edits(user_id, author_label) WHERE author_via = 'agent';
+      CREATE INDEX IF NOT EXISTS idx_log_agent ON log(user_id, author_label) WHERE author_via = 'agent';`);
   } },
 ];
 

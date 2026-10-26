@@ -20,7 +20,7 @@ import {
   McpServer,
   createMcpHandler,
 } from "@modelcontextprotocol/server";
-import type { Actor } from "../actor.ts";
+import { SAMPLE_AGENT_LABEL, type Actor } from "../actor.ts";
 import { readRequestBody } from "../http-body.ts";
 import { createRateLimiter, RateLimitError } from "../ratelimit.ts";
 import { clientIp } from "../mode.ts";
@@ -187,7 +187,9 @@ export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
       if (tool === "search_cards" || tool === "search_memories") opts.rateLimit?.("search", `mcp:${authenticated.user_id}`);
       if (tool === "compare_decks" || tool === "compare_deck_sources") opts.rateLimit?.("compare", `mcp:${authenticated.user_id}`);
     } catch (e) { if (e instanceof RateLimitError) return respond(res,429,e.message,{"Retry-After":String(e.retryAfter)}); throw e; }
-    const actor: Actor = { ...authenticated, label: name };
+    // The sample's label marks demonstration data (§11.3); a client that
+    // claims it, by URL, token label or OAuth name, is attributed apart.
+    const actor: Actor = { ...authenticated, label: name === SAMPLE_AGENT_LABEL ? `${name} (connected)` : name };
     logging.actor(actor);
     const response = await handler.fetch(request, {
       authInfo: { token: presented, clientId: name, scopes: [], extra: { actor } },

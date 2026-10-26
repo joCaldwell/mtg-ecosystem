@@ -134,9 +134,13 @@ export interface MemoryQuery {
   cardId?: string;
   /** Full-text query: any of the words, best matches first. */
   query?: string;
+  /** Order a query's matches like a browse (newest revision first) instead of by relevance. */
+  byRevision?: boolean;
   status?: MemoryStatus | "any";
   limit?: number;
-  offset?: number;
+  /** Keyset cursor (§11.3): only memories after this one in revision order.
+   * Writes between pages never shift rows; never combined with relevance order. */
+  before?: { revised_at: string; id: number };
   basis?: "stated" | "inferred";
 }
 
@@ -181,8 +185,13 @@ export function listMemories(db: Database, actor: Actor, q: MemoryQuery = {}): M
     params.push(q.cardId);
   }
   if (q.basis) { where.push("m.basis = ?"); params.push(q.basis); }
-  const offset = Math.max(0, q.offset ?? 0);
   const limit = Math.min(Math.max(q.limit ?? 50, 1), 1000);
+  const ranked = !!q.query?.trim() && !q.byRevision;
+  if (q.before) {
+    if (ranked) throw new ServiceError("A relevance-ordered search has no next page; narrow the query");
+    where.push("(m.revised_at < ? OR (m.revised_at = ? AND m.id < ?))");
+    params.push(q.before.revised_at, q.before.revised_at, q.before.id);
+  }
 
   if (q.query?.trim()) {
     const match = ftsQuery(q.query);
@@ -191,17 +200,17 @@ export function listMemories(db: Database, actor: Actor, q: MemoryQuery = {}): M
       .prepare(
         `${SELECT} JOIN memories_fts ON memories_fts.memory_id = m.id
          WHERE memories_fts MATCH ? ${where.length ? `AND ${where.join(" AND ")}` : ""}
-         ORDER BY bm25(memories_fts), m.id DESC LIMIT ? OFFSET ?`,
+         ORDER BY ${ranked ? "bm25(memories_fts), m.id DESC" : "m.revised_at DESC, m.id DESC"} LIMIT ?`,
       )
-      .all(match, ...params, limit, offset) as unknown as Row[];
+      .all(match, ...params, limit) as unknown as Row[];
     return toViews(db, actor, rows);
   }
   const rows = db
     .prepare(
       `${SELECT} ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-       ORDER BY m.revised_at DESC, m.id DESC LIMIT ? OFFSET ?`,
+       ORDER BY m.revised_at DESC, m.id DESC LIMIT ?`,
     )
-    .all(...params, limit, offset) as unknown as Row[];
+    .all(...params, limit) as unknown as Row[];
   return toViews(db, actor, rows);
 }
 

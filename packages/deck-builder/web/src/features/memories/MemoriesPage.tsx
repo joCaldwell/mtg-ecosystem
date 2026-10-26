@@ -15,7 +15,10 @@ type BasisFilter = "any" | "stated" | "inferred";
 /** Every memory (spec §7.4, §7.5): browse by scope, basis and status, search, correct, retire. */
 export function MemoriesPage() {
   const voice = useVoice();
-  const [offset, setOffset] = useState(0);
+  // Keyset paging (§11.3): each earlier page is remembered by the row it
+  // started after, so writes between loads never shift rows.
+  const [cursors, setCursors] = useState<{ before_id: number; before_revised_at: string }[]>([]);
+  const cursor = cursors.at(-1);
   const [scope, setScope] = useState<ScopeFilter>("all");
   const [basis, setBasis] = useState<BasisFilter>("any");
   const [showOld, setShowOld] = useState(false);
@@ -35,9 +38,9 @@ export function MemoriesPage() {
         scope: typeof scope === "number" ? "deck" : scope === "global" ? "global" : undefined,
         deck: typeof scope === "number" ? scope : undefined,
         status: showOld ? "any" : "active",
-        q, offset, basis: basis === "any" ? undefined : basis,
+        q, ...cursor, basis: basis === "any" ? undefined : basis,
       }),
-    [scope, showOld, q, offset, basis],
+    [scope, showOld, q, cursor, basis],
   );
   const scopes = list.data?.scopes ?? [];
   const archived = new Set(scopes.filter(d => d.category === "archived").map(d => d.id));
@@ -45,7 +48,7 @@ export function MemoriesPage() {
   const shown = list.data?.memories ?? [];
   const g = list.data?.global_budget;
   const budgets = list.data?.budgets;
-  useEffect(() => setOffset(0), [scope, showOld, q, basis]);
+  useEffect(() => setCursors([]), [scope, showOld, q, basis]);
   useEffect(() => {
     if (typeof scope === "number" && list.data && !list.data.scopes.some(deck => deck.id === scope)) setScope("all");
   }, [scope, list.data?.scopes]);
@@ -171,7 +174,7 @@ export function MemoriesPage() {
         </Stack>
       )}
 
-      <nav aria-label="Memory pages"><Button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 100))}>Previous 100</Button> <Text>Page {offset / 100 + 1}</Text> <Button disabled={!list.data?.has_more} onClick={() => setOffset(offset + 100)}>Next 100</Button></nav>
+      <nav aria-label="Memory pages"><Button disabled={cursors.length === 0} onClick={() => setCursors(cursors.slice(0, -1))}>Previous 100</Button> <Text>Page {cursors.length + 1}</Text> <Button disabled={!list.data?.has_more} onClick={() => { const last = shown[shown.length - 1]; setCursors([...cursors, { before_id: last.id, before_revised_at: last.revised_at }]); }}>Next 100</Button></nav>
       <p className={styles.note}>{voice("Stated memories record what you said. Inferred memories are conclusions to confirm.", "Stated means you said it, in a decision reason or directly. Inferred is an agent's guess, dashed until confirmed. An agent can never edit or retire a memory you wrote.")}</p>
     </Page>
   );

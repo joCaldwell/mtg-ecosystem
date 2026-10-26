@@ -27,7 +27,8 @@ export function removeIdentity(db: Database): void {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
     for (const name of ["user_id", "author_user_id", "author_via", "author_label", "actor_user_id", "actor_via", "actor_label", "author_token_id", "author_oauth_client_id"]) {
       if (!cols.some(c => c.name === name)) continue;
-      db.exec(`DROP INDEX IF EXISTS idx_${table}_user; ALTER TABLE ${table} DROP COLUMN ${name}`);
+      // v15's attribution indexes did not exist before identity either.
+      db.exec(`DROP INDEX IF EXISTS idx_${table}_user; DROP INDEX IF EXISTS idx_${table}_agent; DROP INDEX IF EXISTS idx_${table}_user_actor; ALTER TABLE ${table} DROP COLUMN ${name}`);
     }
   }
   db.exec("DROP TABLE users; PRAGMA legacy_alter_table = OFF; PRAGMA foreign_keys = ON");

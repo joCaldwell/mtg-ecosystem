@@ -9,7 +9,7 @@ export type { PlaytestView, PlaytestAction, PlaytestUiPatch, TableCard, TableObj
 import type { PowerProfile, PowerTargetInput, PowerAssessmentInput, BracketMapping } from "../../../src/deck/power.ts";
 import type { DeckState, PublicDeckState, PublicDecision } from "../../../src/state.ts";
 import type { PublicProfile, Sharing } from "../../../src/sharing.ts";
-import type { ActivityEntry } from "../../../src/activity.ts";
+import type { ActivityEntry, activityPage } from "../../../src/activity.ts";
 import type { CardRow } from "../../../src/cards.ts";
 import type { EngineView } from "../../../src/deck/brief.ts";
 import type { Finding } from "../../../src/deck/checks.ts";
@@ -89,6 +89,7 @@ export interface Settings {
   agent: { url: string; mode: "local" | "hosted"; tokens: AgentToken[]; oauth_clients?: {client_id:string;label:string|null;last_used_at:string|null}[]; oauth_usage?: { client_id:string; label:string; last_used_at:string }[]; stdio_command?: string };
 }
 
+export type ActivityPage = ReturnType<typeof activityPage>;
 export interface MemoryList {
   has_more: boolean;
   scopes: Array<{ id: number; name: string; category: DeckCategory }>;
@@ -251,7 +252,8 @@ export const api = {
     request<{ state: DeckState; assessment_id: number }>("POST", `/api/decks/${deckId}/power/assessments`, assessment),
 
   // ---------- memories (spec §7.5) ----------
-  listMemories: (q: { scope?: string; deck?: number; card?: string; q?: string; offset?: number; basis?: "stated" | "inferred"; status?: string } = {}) => {
+  /** `before_id` with `before_revised_at` (the last row of the previous page) continues a listing. */
+  listMemories: (q: { scope?: string; deck?: number; card?: string; q?: string; before_id?: number; before_revised_at?: string; basis?: "stated" | "inferred"; status?: string } = {}) => {
     const params = new URLSearchParams();
     for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== "") params.set(k, String(v));
     return request<MemoryList>("GET", `/api/memories?${params}`);
@@ -263,8 +265,14 @@ export const api = {
 
   // ---------- activity, stats, focus, settings ----------
   latestActivity: () => request<ActivityEntry | null>("GET", "/api/activity/latest"),
-  listActivity: (offset = 0) => request<ActivityEntry[]>("GET", `/api/activity?offset=${offset}`),
-  createSample: () => request<{ state: DeckState }>("POST", "/api/demo"),
+  /** Keyset pages of 100: `before_id` is the previous page's last id; `actor` filters before paging. */
+  listActivity: (q: { before_id?: number; actor?: string } = {}) => {
+    const params = new URLSearchParams();
+    if (q.before_id !== undefined) params.set("before_id", String(q.before_id));
+    if (q.actor) params.set("actor", q.actor);
+    return request<ActivityPage>("GET", `/api/activity?${params}`);
+  },
+  createSample: () => request<{ state: DeckState; missing: string[] }>("POST", "/api/demo"),
   getStats: () => request<PlayerStats>("GET", "/api/stats"),
   setFocus: (deckId: number | null, selected: string[] = []) =>
     request<{ ok: true }>("PUT", "/api/focus", { deck_id: deckId, selected }),

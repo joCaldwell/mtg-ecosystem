@@ -19,7 +19,7 @@ import { createRateLimiter, RateLimitError } from "./ratelimit.ts";
 import { clientIp, securityHeaders } from "./mode.ts";
 import { allowedRequest, getMode, localActor, publicOrigin, type Mode } from "./mode.ts";
 import { createToken, listTokens, revokeToken } from "./tokens.ts";
-import { listActivity } from "./activity.ts";
+import { activityPage, latestActivity } from "./activity.ts";
 import { cardsNamed, requireCardById, suggestNames } from "./cards.ts";
 import { PKG_ROOT, SCHEMA_VERSION, withTransaction } from "./db.ts";
 import { AppError, ServiceError } from "./errors.ts";
@@ -105,6 +105,14 @@ export function resolveUiActor(req: IncomingMessage, mode: Mode, auth?: HostedAu
 export interface Change { kind: string; deck_id?: number }
 
 /** Reject invalid numeric input before it reaches SQLite or arithmetic. */
+/** A memory page's keyset cursor: the previous page's last revised_at and id, together. */
+function memoryCursor(q: URLSearchParams): { revised_at: string; id: number } | undefined {
+  if (!q.has("before_id") && !q.has("before_revised_at")) return undefined;
+  const revised = q.get("before_revised_at") ?? "";
+  if (!/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}/.test(revised)) throw new ServiceError("before_revised_at must be the last memory's revised_at");
+  return { revised_at: revised, id: num(q.get("before_id"), "before_id", 1) };
+}
+
 function num(value: unknown, name = "number", min = 0): number {
   if ((typeof value !== "number" && typeof value !== "string") || String(value).trim() === "")
     throw new ServiceError(`${name} must be an integer`);
@@ -406,7 +414,11 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     return { profile: getProfile(db, actor) };
   });
 
-  route("POST", /^\/api\/demo$/, (actor) => ({ state: state(actor, createDemo(db, actor).deckId) }));
+  // §11.3: optional cards the installed data lacks are skipped and named.
+  route("POST", /^\/api\/demo$/, (actor) => {
+    const { deckId, missing } = createDemo(db, actor);
+    return { state: state(actor, deckId), missing };
+  });
 
   // ---------- memories (spec §7.5) ----------
   route("GET", /^\/api\/memories$/, (actor, _p, _b, url) => {
@@ -419,7 +431,10 @@ export function createApp(db: Database, opts: AppOptions = {}) {
         query: q.get("q") ?? undefined,
         status: (q.get("status") as any) ?? "active",
         basis: q.get("basis") === "stated" || q.get("basis") === "inferred" ? q.get("basis") as "stated" | "inferred" : undefined,
-        offset: num(q.get("offset") ?? 0), limit: 101,
+        // The page is a browse: a search filters it, newest revision first,
+        // so the keyset cursor (the last row's revised_at and id) holds.
+        byRevision: true,
+        before: memoryCursor(q), limit: 101,
       });
     return {
       memories: memories.slice(0, 100), has_more: memories.length > 100,
@@ -443,10 +458,17 @@ export function createApp(db: Database, opts: AppOptions = {}) {
   route("GET", /^\/api\/memories\/(\d+)$/, (actor, [id]) => ({ memory: getMemory(db, actor, num(id)) }));
 
   // ---------- activity, stats, focus, settings ----------
-  route("GET", /^\/api\/activity\/latest$/, (actor) => listActivity(db, actor, 1)[0] ?? null);
-  route("GET", /^\/api\/activity$/, (actor, _p, _b, url) =>
-    listActivity(db, actor, Math.min(100, num(url.searchParams.get("limit") ?? 100, "limit", 1)), num(url.searchParams.get("offset") ?? 0)),
-  );
+  // The sidebar presence: a real agent's latest write, never the sample's.
+  route("GET", /^\/api\/activity\/latest$/, (actor) => latestActivity(db, actor));
+  // Keyset pages of 100 (§11.3); the agent filter applies before the page.
+  route("GET", /^\/api\/activity$/, (actor, _p, _b, url) => {
+    const q = url.searchParams;
+    return activityPage(db, actor, {
+      limit: Math.min(100, num(q.get("limit") ?? 100, "limit", 1)),
+      beforeId: q.has("before_id") ? num(q.get("before_id"), "before_id", 1) : undefined,
+      actorLabel: q.get("actor") || undefined,
+    });
+  });
   route("GET", /^\/api\/stats$/, (actor) => playerStats(db, actor));
   route("GET", /^\/api\/focus$/, (actor) => ({ focus: getFocus(db, actor) }));
   const settings = (actor: Actor) => {
@@ -661,6 +683,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
           if (url.pathname === "/api/search") rateLimit("search",String(actor.user_id));
           if (url.pathname.endsWith("/compare")) rateLimit("compare",String(actor.user_id));
           if (/^\/api\/decks\/\d+\/import(\/preview)?$/.test(url.pathname)) rateLimit("import",String(actor.user_id));
+          if (url.pathname === "/api/demo") rateLimit("demo",String(actor.user_id));
         }
         if (actor && url.pathname.startsWith("/api/") && !["GET","HEAD","OPTIONS"].includes(req.method ?? "") && req.headers.origin !== publicOrigin()) return json(403,{error:"Origin is required"});
       }

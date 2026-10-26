@@ -112,6 +112,13 @@ describe("the agent endpoint, through the official MCP client (spec §10.1)", ()
     assert.match(textOf(unknown), /Did you mean: Sol Ring/);
     await client.close();
   });
+  test("a connected client cannot take the sample deck's reserved label", async () => {
+    const client = await connect("/mcp/sample-agent");
+    const wrote = await client.callTool({ name: "remember", arguments: { text: "Reserved label check", scope: "global" } });
+    assert.ok(!wrote.isError, textOf(wrote));
+    assert.equal(listActivity(db, OWNER)[0].actor_label, "sample-agent (connected)");
+    await client.close();
+  });
   test("an agent can create, rename and delete through the official client", async () => {
     const client = await connect("/mcp/deck-manager", true);
     const run = async (name: string, args: Record<string, unknown>) => {

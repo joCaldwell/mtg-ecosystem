@@ -910,19 +910,25 @@ and wider it keeps the desktop panes. Phones retain this read-and-rule scope.
   layer, within a transaction. It creates one private sample for that user,
   including illustrative proposals, decisions and deck-scoped memories. The
   synthetic actor is explicitly labelled `sample-agent` with the same
-  principal. It is demonstration data, not a claim that an external model
-  connected. Nothing touches the profile, global memories or physical ownership evidence.
+  principal; every illustrative agent write (proposals, deck memories, the
+  brief edit) carries that label, and none is written to activity. It is
+  demonstration data, not a claim that an external model connected. The
+  label is reserved: a connected client that claims it is attributed as
+  `sample-agent (connected)`. Nothing touches the profile, global memories or physical ownership evidence.
   Sample tags are sourcing/status examples (Testing, Wishlist, Keep), with
   purposes recorded as slots. A repeat call
   returns the recorded sample id while that user's deck exists, including
   after a rename; deleting it allows another. The CLI calls this capability
   too and never replaces user content. Missing optional cards are skipped
-  and returned; a missing commander fails the whole transaction with a
-  card-data recovery message. An intentionally unfinished list demonstrates
+  and returned (`missing` beside `state`); a missing commander fails the whole transaction with a
+  card-data recovery message. Hosted, `/api/demo` has its own per-user
+  rate-limit bucket. An intentionally unfinished list demonstrates
   checks and slot targets rather than pretending it is ready to play.
 - `/api/settings.has_agent_activity` means an agent has written activity,
   a memory, proposal, document edit or log entry for this principal. Token
-  creation and read-only agent calls do not enable it. The sidebar presence
+  creation, read-only agent calls and the sample's `sample-agent` writes do
+  not enable it, before or after the sample deck is deleted. Each table is
+  probed through an index. The sidebar presence
   block is absent until then. Agent-sensitive empty states, subtitles and
   help have a deck-first and an agent-connected voice. Neutral hints and
   errors are identical in both. A first-run pointer leads to Settings →
@@ -952,7 +958,13 @@ and wider it keeps the desktop panes. Phones retain this read-and-rule scope.
 - Playtest, settings, /design and public pages load lazily; public fork,
   compare, export and card-inspection code loads on demand. System fonts
   replace the unused Inter entry. `GET /api/activity/latest` returns at most
-  one row for this principal. Activity and Memories paginate at 100;
+  one row for this principal, never a `sample-agent` row. Activity and
+  Memories paginate at 100 by keyset, so writes between loads never shift
+  rows: `/api/activity?before_id=` (newest first, with `actor=<label>`
+  filtering before the page) returns `entries`, `has_more` and every agent
+  label of the principal as `actors`; `/api/memories` continues with the
+  previous page's last `before_id` and `before_revised_at`, a search
+  filtering the same newest-revision order.
   Memories gets its filtered page, scope choices and budgets together.
   Scope choices include empty owned decks, so the owner can add that deck's
   first memory without another screen. UI components never call fetch.
