@@ -30,3 +30,8 @@
   align-items: center;
   gap: var(--s-4);
 }
+
+/* Touch tablets: header actions are full tap targets (DESIGN.md). */
+@media (pointer: coarse) and (max-width: 1099px) {
+  .actions > button, .actions > a { min-height: var(--tap); }
+}

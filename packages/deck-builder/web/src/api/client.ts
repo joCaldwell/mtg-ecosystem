@@ -258,6 +258,22 @@ export const api = {
     for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== "") params.set(k, String(v));
     return request<MemoryList>("GET", `/api/memories?${params}`);
   },
+  /** The active memories a deck's card rows mark (spec §7.2): the deck's own
+   *  and the global ones, every page. The list endpoint caps a response at 100
+   *  and has no "this deck or global" filter, so this asks for each scope and
+   *  follows has_more. */
+  deckMemories: async (deckId: number): Promise<Memory[]> => {
+    const byId = new Map<number, Memory>();
+    for (const scope of [{ deck: deckId }, { scope: "global" }]) {
+      for (let offset = 0, more = true; more; ) {
+        const page = await api.listMemories({ ...scope, offset });
+        for (const m of page.memories) byId.set(m.id, m);
+        more = page.has_more && page.memories.length > 0;
+        offset += page.memories.length;
+      }
+    }
+    return [...byId.values()];
+  },
   addMemory: (input: { text: string; scope: "global" | "deck"; deck_id?: number | null }) =>
     request<{ memory: Memory }>("POST", "/api/memories", input),
   reviseMemory: (id: number, revision: MemoryRevision) =>

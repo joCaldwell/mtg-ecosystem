@@ -21,3 +21,6 @@
 .tabletMain { min-width: 0; }
 
 .rail > aside { flex: 1; }
+/* On desktop the sidebar sits in the grid directly; the wrapper exists so
+   the same element holds it as a tablet rail. */
+.side { display: contents; }

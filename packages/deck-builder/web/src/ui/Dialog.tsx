@@ -1,8 +1,8 @@
-import { useEffect, useId, useLayoutEffect, useRef, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, type MouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "./Icon.tsx";
 import { IconButton } from "./IconButton.tsx";
-import { FOCUSABLE, dismissOnEscape } from "./internal.ts";
+import { FOCUSABLE, escapeLayers } from "./internal.ts";
 import styles from "./Dialog.module.css";
 
 export interface DialogProps {
@@ -36,20 +36,30 @@ export function Dialog({ title, onClose, width = "md", placement = "center", chi
     const target = visible("[data-autofocus]") ?? visible(FOCUSABLE);
     (target ?? el)?.focus();
 
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
+    const unlock = lockBodyScroll();
+    // A field inside the dialog that handles its own Escape (an inline
+    // editor, a reason) gets the first press; the next one closes the dialog.
     const releaseEscape = dismissOnEscape(() => closeRef.current());
 
     return () => {
       releaseEscape();
-      document.body.style.overflow = overflow;
+      unlock();
       previous?.focus();
     };
   }, []);
 
+  // Native, not onKeyDown: content may be portalled into the panel from
+  // elsewhere in the React tree (the deck panel in its sheet), and React
+  // bubbles those events past the dialog. A nested surface that already
+  // moved focus marks the event handled.
+  useEffect(() => {
+    const el = panel.current;
+    el?.addEventListener("keydown", trapTab);
+    return () => el?.removeEventListener("keydown", trapTab);
+  }, []);
+
   function trapTab(e: KeyboardEvent) {
-    if (e.key !== "Tab" || !panel.current) return;
+    if (e.key !== "Tab" || e.defaultPrevented || !panel.current) return;
     // Advanced keeps hidden content mounted. Native Tab skips it; the
     // focus trap must use the same set of visible controls.
     const items = Array.from(panel.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(item => item.getClientRects().length > 0);
@@ -83,7 +93,6 @@ export function Dialog({ title, onClose, width = "md", placement = "center", chi
         aria-labelledby={titleId}
         tabIndex={-1}
         className={`${styles.dialog} ${placement === "sheet" ? styles.sheet : placement === "drawer" ? styles.drawer : width === "lg" ? styles.lg : styles.md}`}
-        onKeyDown={trapTab}
       >
         <div className={styles.head}>
           <h2 id={titleId} className={styles.title}>
@@ -99,4 +108,51 @@ export function Dialog({ title, onClose, width = "md", placement = "center", chi
     </div>,
     document.body,
   );
+}
+
+// Nested dialogs can close in the same commit, parent first. Each saving and
+// restoring body.style.overflow let the child write "hidden" back after the
+// parent restored it, so the lock is counted, like app/windowScroll.ts.
+// (Here, not in internal.ts, so it stays out of the public entry chunk.)
+let scrollLocks = 0;
+let unlockedOverflow = "";
+export function lockBodyScroll(): () => void {
+  if (scrollLocks++ === 0) {
+    unlockedOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+  }
+  return () => {
+    if (--scrollLocks === 0) document.body.style.overflow = unlockedOverflow;
+  };
+}
+
+// The shared Escape stack (internal.ts), with one difference from a popover:
+// when Escape starts in a field, the field's own handler runs first, and the
+// dialog closes only if the press bubbles out unhandled (not stopped, not
+// prevented). An inline editor in a sheet cancels on the first press and the
+// sheet closes on the second.
+function dismissOnEscape(close: () => void): () => void {
+  escapeLayers.push(close);
+  let deferred: Event | null = null;
+  const onKey = (event: KeyboardEvent) => {
+    if (event.key !== "Escape" || escapeLayers.at(-1) !== close) return;
+    if (event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable]")) {
+      deferred = event;
+      return;
+    }
+    event.preventDefault(); event.stopImmediatePropagation(); close();
+  };
+  const onUnhandled = (event: KeyboardEvent) => {
+    if (event !== deferred) return;
+    deferred = null;
+    if (!event.defaultPrevented && escapeLayers.at(-1) === close) { event.preventDefault(); close(); }
+  };
+  document.addEventListener("keydown", onKey, true);
+  window.addEventListener("keydown", onUnhandled);
+  return () => {
+    const index = escapeLayers.indexOf(close);
+    if (index >= 0) escapeLayers.splice(index, 1);
+    document.removeEventListener("keydown", onKey, true);
+    window.removeEventListener("keydown", onUnhandled);
+  };
 }

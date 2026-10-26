@@ -278,11 +278,28 @@ account's shared Advanced preference. Saving that preference is UI-only below
 HTTP. Sidebar presence is absent until an agent write; /api/activity/latest
 reads one activity row. Creating a token or reading with it does not count.
 
-`TabletShell` runs from 720 through 1099 px and **calls useWindowScroll()**.
-It uses the existing sidebar in a drawer below `DRAWER_BREAKPOINT` (960), or
-keeps the rail from 960. `DeckBody` puts its unchanged panel into a requested
-Dialog sheet below `PANEL_BREAKPOINT` (1100); the list scrolls the window. At
-1100+ the existing panes scroll independently. `PHONE_MAX_WIDTH` and
+The tablet frame runs from 720 through 1099 px; `TabletScroll`
+(`app/TabletShell.tsx`) **calls useWindowScroll()** while it applies. The
+sidebar becomes a rail from `DRAWER_BREAKPOINT` (960) and a menu bar with a
+drawer below it. `AppShell` keeps every child at a fixed position (navigation,
+`<main>`, then `TabletScroll`), so crossing a breakpoint, as an iPad rotating
+does, re-styles the frame without remounting the page. Lazy pages suspend
+inside `<main>`, so a first visit keeps the sidebar. `DeckBody` likewise keeps
+the list in place and renders the panel once, through a portal into one host
+element that it attaches to the side pane or to a requested Dialog sheet below
+`PANEL_BREAKPOINT` (1100). A Brief draft or a half-typed reason survives a
+rotation. Only a card, a header stat, a tab request or "Open deck details"
+opens the sheet; a review runs in the list with its keys, and R opens the
+sheet only for the reason field, closing it again after the reason is sent or
+cancelled. The list scrolls the window. At 1100+ the existing panes scroll
+independently. Dialog's body scroll lock is counted, so nested dialogs that
+close together release the page; Dialog's focus trap listens natively,
+because the portalled panel's React events do not bubble through the sheet.
+Escape that starts in a field reaches the field first: an inline editor in a
+sheet cancels, and the next Escape closes the sheet. An Explainer keeps the
+trigger's place in the Tab order and closes when focus leaves it. Under
+`(pointer: coarse)` up to 1099 px, header, toolbar and banner controls are
+`--tap` tall while the 24 px list rows keep desktop density. `PHONE_MAX_WIDTH` and
 `useIsPhone()` still select 4a's read-only phone view. Tables contain their own
 horizontal overflow. Every shell provides the labelled `main-content` skip
 link target. QA must use actual wheel/touch input, never script scrolling.
@@ -294,7 +311,9 @@ small public provider independent of private inbox/focus/preferences. The
 reader API and HTTP transport are separate from editor API methods; wire types
 still flow through client.ts. DeckListStore is the shared read-only context;
 DeckStore owns editing and re-exports the same hooks. useDeckView receives
-memories as data instead of fetching in the read-only composition.
+memories as data instead of fetching in the read-only composition. The deck
+page asks `api.deckMemories` for only the memories that can mark its rows: the
+deck's own and the global ones, following `has_more` past the 100-row cap.
 
 Barrel index.ts files are re-exports only; an architecture test enforces this
 so Vite may tree-shake their unused exports without executing the editor.

@@ -63,8 +63,9 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
       navigate({ page: "deck", deckId: state.deck.id }, { replace: true });
     }
   }, [ui.openDialog, state.deck.id]);
-  const memories = useQuery(() => api.listMemories(), []);
-  const view = useDeckView(memories.data?.memories);
+  // Only this deck's and the global memories can mark its rows (spec §7.2).
+  const memories = useQuery(() => api.deckMemories(state.deck.id), [state.deck.id]);
+  const view = useDeckView(memories.data ?? undefined);
   const review = useReview(view.units);
   const { lookup, prime } = useCardLookup();
 
