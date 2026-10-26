@@ -13,9 +13,10 @@ export default defineRailway(ctx => {
     source: github("joCaldwell/mtg-ecosystem", { branch: production ? "release" : "main" }),
     build: {
       builder: "DOCKERFILE", dockerfilePath: "packages/deck-builder/Dockerfile",
-      watchPatterns: ["/packages/deck-builder/**", "/package.json", "/package-lock.json", "/.dockerignore"],
+      watchPatterns: ["/packages/deck-builder/**", "/package.json", "/package-lock.json", "/tsconfig.base.json", "/.dockerignore"],
     },
     replicas: { ams: 1 }, healthcheck: "/api/health", healthcheckTimeout: 300,
+    deploy: { drainingSeconds: 30 },
     start: "sh /usr/local/bin/deck-builder-entrypoint node src/server.ts",
     volumeMounts: { "/data": data },
     env: {
@@ -27,7 +28,6 @@ export default defineRailway(ctx => {
       DISCORD_CLIENT_ID: preserve(), DISCORD_CLIENT_SECRET: preserve(), BETTER_AUTH_SECRET: preserve(),
       BACKUP_S3_ENDPOINT: preserve(), BACKUP_S3_BUCKET: preserve(),
       BACKUP_S3_ACCESS_KEY: preserve(), BACKUP_S3_SECRET_KEY: preserve(),
-      ...(production ? {} : { DECKBUILDER_CLAIM_CODE: preserve() }),
       // Claim code is bootstrap-only. Never recreate it after the owner claim.
     },
   });

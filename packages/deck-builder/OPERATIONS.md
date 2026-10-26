@@ -27,13 +27,16 @@ The serving process schedules work; it never ingests bulk data itself.
   are reused for 24 hours. This cache is independent of the parser's cache.
   Default-printing prices stream from the download and are not kept on disk.
 - Refresh runs on boot when card or price data is stale/missing and daily
-  thereafter. A failed refresh retries one hour after its last run, still
-  respecting the active-job and shared-lease checks. Backup runs at 02:00 in
-  the server's local timezone; an overdue backup runs on the next scheduler
+  thereafter. A failed refresh or backup retries one hour after its last run, still
+  respecting the active-job and shared-lease checks. Backup runs at 02:00 UTC; an overdue backup runs on the next scheduler
   tick (30 seconds). Only one job runs at
   a time; repeated queued requests coalesce.
 - `GET /api/settings` and Settings show each job's last run, result, next run,
-  active job and queue. Child stdout/stderr go to the server log. CLI jobs
+  active job and queue. Local child output goes to the terminal. Hosted
+  failures emit one redacted `job_error` (name, code, stack frames) rather than
+  raw stdout/stderr; arbitrary messages and bodies are discarded. Backup status
+  also exposes `last_success_at` and `stale` (over 36 hours or never successful),
+  shown in Admin Settings and its authenticated `GET /api/admin` response. CLI jobs
   write the same persistent status. CLI-triggered runs become visible on
   the next Settings read; scheduled completions also notify the live stream.
 - `meta['job:lock']` is an atomic SQLite lease shared by refresh and backup,
@@ -69,9 +72,9 @@ npm run backup
 
 This uses Node's online `sqlite.backup()` API, including committed WAL
 content, writes a temporary file, then renames it to
-`DATA_DIR/backups/deck-builder-YYYY-MM-DD.db` (UTC date). A second backup on
-the same UTC day replaces that day's snapshot. Keep the newest 14 dated
-files, then optionally upload the new snapshot. Never copy only
+`DATA_DIR/backups/deck-builder-YYYY-MM-DDTHH-mm-ss-SSSZ-<uuid>.db`.
+UTC timestamp plus random suffix prevents same-day replacement. Keep the
+newest 14 local snapshots, then optionally upload the new snapshot. Never copy only
 `deck-builder.db` while the server is running: committed data may be in its
 WAL sidecar.
 
@@ -81,7 +84,7 @@ card database grows. Allow space for another snapshot while one is being
 written, plus the live database, WAL and download cache. Retention remains
 14 for all modes; operators who need less local disk use can prune older
 local snapshots between runs. The next backup still keeps at most 14 dated
-files. This does not change off-box bucket lifecycle policies.
+files. Bucket retention is enforced by the uploader as described below.
 
 To upload each snapshot to an S3-compatible bucket, configure all four:
 
@@ -93,11 +96,17 @@ To upload each snapshot to an S3-compatible bucket, configure all four:
 | `BACKUP_S3_SECRET_KEY` | Secret key (secret) |
 
 The ops-only `@aws-sdk/client-s3` dependency uploads to
-`backups/deck-builder-YYYY-MM-DD.db`, with region `auto` and path-style
+`backups/deck-builder-YYYY-MM-DDTHH-mm-ss-SSSZ-<uuid>.db`, with region `auto` and path-style
 addressing. Partial configuration or an upload failure fails the job while
 keeping the local snapshot. Store credentials in the process environment,
 never in source, commands copied into issues, or screenshots. Remote-object
-retention is the bucket operator's lifecycle policy; local retention is 14.
+retention runs only after a successful upload and complete listing: keep the
+first available snapshot of each of the last 14 UTC days and each of the last
+6 UTC calendar months, plus the newest uploaded snapshot. Archive keys and
+unrecognised objects are untouched. Failed uploads/listing never prune; retry
+is one hour later. Local retention is 14 snapshots. This review deletes no
+live bucket objects; automatic pruning becomes production code only after
+the owner promotes this PR.
 
 ## Restore drill
 
@@ -116,7 +125,7 @@ recovered from a backup.
 ```sh
 npm run backup
 npm stop
-node src/cli.ts restore data/backups/deck-builder-2026-10-25.db
+node src/cli.ts restore /private/path/post-claim-backup.db
 npm start
 curl --fail http://127.0.0.1:8787/api/health
 ```
@@ -124,7 +133,7 @@ curl --fail http://127.0.0.1:8787/api/health
 For a nondestructive rehearsal, point the restore at a separate destination:
 
 ```sh
-DECKBUILDER_DB=/tmp/deck-builder-restore.db node src/cli.ts restore data/backups/deck-builder-2026-10-25.db
+DECKBUILDER_DB=/tmp/deck-builder-restore.db node src/cli.ts restore /private/path/post-claim-backup.db
 DECKBUILDER_DB=/tmp/deck-builder-restore.db DECKBUILDER_DATA=/tmp/deck-builder-drill DECKBUILDER_PORT=8799 node src/server.ts
 curl --fail http://127.0.0.1:8799/api/health
 ```
@@ -314,8 +323,9 @@ secrets. Deletion removes auth sessions/accounts, OAuth grants/codes, personal
 tokens and all owned application rows, with no post-deletion activity.
 Other tenants’ content and spent invite records stay; attribution is replaced
 with non-login tombstone user 0 and identifying author labels are cleared. Local
-backups expire in 14 days; the operator must configure remote bucket retention
-and repeat deletions when restoring older backups.
+storage keeps the newest 14 snapshots; bucket retention keeps 14 daily and
+6 monthly recovery points plus the latest upload. Repeat deletions when
+restoring older backups.
 
 Schema generation uses the pinned config and an **in-memory database**:
 `npx auth@1.7.13 generate --config scripts/auth-schema.ts --output <temporary.sql> --yes`.
@@ -487,7 +497,7 @@ railway config plan
 Review every plan, especially deletes. Do not use `config pull
 --include-variables`: it writes non-sealed secret values to source. Claim
 codes are bootstrap state: production's code is deliberately absent from
-the desired graph after claiming; staging preserves its independent code.
+the desired graph after claiming in both environments; neither can recreate it.
 Config-as-code does not express billing alerts or native backup schedules;
 those use the CLI/API below.
 
@@ -495,17 +505,23 @@ The owner promotes after staging smoke tests and a fresh production backup:
 
 ```sh
 git fetch origin
-git push origin main:release
-# Or a specific staging-verified commit:
-git push origin <commit-sha>:release
+PROMOTE_SHA=$(gh pr view 7 --json mergeCommit --jq '.mergeCommit.oid')
+# Stop unless PR #7 is merged and this exact SHA passed staging.
+git show --no-patch --oneline "$PROMOTE_SHA"
+# Immediately before this push: fresh backup + verify its object (commands below).
+# Run the unique online snapshot/upload in "Pre-promotion online snapshot" below.
+# Verify its printed object key/size, then immediately push:
+git cat-file -e "${PROMOTE_SHA}^{commit}" && git push origin "${PROMOTE_SHA}:release"
 railway deployment list --project 2c9c40a2-4b69-4d5e-a2c4-188a6f5894b8 --environment production --service deck-builder --json
 curl --fail https://deck-builder-production-00d7.up.railway.app/api/health
 ```
 
-Use an up-to-date local `main` for the first form. Follow the exact resulting
+Promote the explicit PR #7 merge SHA, never whichever commit happens to be
+on main: #6 has merged (schema 13), and #8 (schema 14) may merge later. Follow the exact resulting
 deployment ID to `SUCCESS`; upload/build acceptance alone is not success.
 Volumes imply brief deployment downtime. Do not bypass staging for a schema
-change. Secrets, backups and monitoring are independent of Git promotion.
+change. This promotion takes production from v12 to v13 and loads Cardmarket
+on first boot; the owner must check schema 13 and job/store success afterwards. Secrets, backups and monitoring are independent of Git promotion.
 
 ## Logs, health and monitoring
 
@@ -513,12 +529,18 @@ Request and MCP tool logs are one JSON object per line with `ts`, `level`,
 `req_id`, resolved `user_id`, `via`, `label`, `method`, `path` or `tool`,
 `status` and elapsed `ms`. `X-Request-ID` correlates the two records. Requests
 log once on finish/close; open SSE requests log when closed (499 if aborted).
-Errors include stack frames, excluding the message because provider/validation
+5xx errors include their actual name, code and stack frames; 4xx errors are
+warn-level without stacks. Hosted logs exclude the message because provider/validation
 messages can contain credentials or submitted text. Query strings, headers,
 cookies, request bodies, tool arguments/results and raw IPs are never logged.
 Dynamic URL segments are replaced with placeholders; MCP paths log `/mcp`.
-Hosted child output records only stream/byte counts, plus job completion;
-Settings and `meta` retain job status. Better Auth's own logger stays disabled.
+Hosted children emit one redacted structured failure (name/code/stack frames),
+plus job completion; arbitrary child text is discarded. Local 500/startup
+errors still print the readable message. Successful health probes are skipped.
+Settings and `meta` retain job status, last successful backup and staleness.
+Railway Hobby provides a 7-day log window; there is no external log exporter.
+The privacy page describes these operational logs and retention. See
+[Railway log retention](https://docs.railway.com/observability/logs). Better Auth's own logger stays disabled.
 For example, grepping Railway's structured output:
 
 ```sh
@@ -546,6 +568,45 @@ backup timestamps as well. No Sentry SDK or `SENTRY_DSN` integration is added;
 optional error aggregation is deferred instead of installing an unused SDK.
 
 ## Rollback and restore safety
+
+**Stop before an old-image rollback.** Railway restores that deployment's
+variables as well as its image. Any production deployment before
+`b7c4ec34-dc77-47e5-acc4-ab8bbc34d235` (including `bd39f6e9`) brings back
+`DECKBUILDER_CLAIM_CODE`, and can revert current secrets/draining settings.
+Do not expose such a rollback until its configuration is corrected. A claim
+code is dead while user 1 is claimed, but becomes dangerous when combined
+with an unclaimed restore. Prefer a compatible owner-promoted fix-forward
+SHA using current configuration. [Railway rollback behavior](https://docs.railway.com/guides/roll-back-bad-deploy).
+
+Compare live schema with the exact target commit before stopping anything:
+
+```sh
+ROLLBACK_SHA='paste-the-verified-target-SHA'
+curl --fail -sS https://deck-builder-production-00d7.up.railway.app/api/health
+git show "${ROLLBACK_SHA}:packages/deck-builder/src/db.ts" | sed -nE 's/^export const SCHEMA_VERSION = ([0-9]+);/target schema: \1/p'
+```
+
+The two schema versions must match for a code-only rollback. Older code on a
+newer schema is refused by `assertOurs`; because volume deploys stop the old
+container before startup, that safe refusal means downtime, not fallback to
+the old server. The original deployed #7 predecessor is schema 12; #6 merged
+as fc24ca8 with schema 13, and this PR is rebased on it. #8 renumbers to 14. Never point
+schema-12 code at a database already upgraded by either later phase. If the
+versions differ, stop and plan a compatible forward fix or an explicitly
+approved post-claim database restore with reconciliation of later writes.
+
+**Never restore the pre-claim production snapshot.** The old
+`backups/deck-builder-2026-10-25.db` resets user 1 to `auth_id NULL`, locking
+the owner out or permitting a new claim if an old code is reintroduced. It
+was copied, not moved, to
+`archive/pre-claim-deck-builder-2026-10-25.db` (73,711,616 bytes), marked
+`restore_policy=do-not-restore`; the original remains. Both are quarantined
+historical owner-only evidence. Automatic retention never touches archive/.
+The current restore example uses **post-claim**
+`backups/deck-builder-2026-10-26.db` (74,711,040 bytes). After downloading,
+open it read-only and confirm user 1's auth_id is non-null, its schema is
+supported, and the deck/memory counts match before any restore. Future
+timestamped backups need the same identity check, not just a filename date.
 
 For a code-only regression, Railway → production → deck-builder → Deployments
 → the previous known-good deployment → menu → Redeploy. Or use
@@ -717,7 +778,7 @@ import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 const c = JSON.parse(execFileSync('railway', ['bucket', '--environment', 'production', 'credentials', '--bucket', 'backups-production', '--json'], { encoding: 'utf8' }));
 const s3 = new S3Client({ endpoint:c.endpoint, region:'auto', forcePathStyle:true,
   credentials:{accessKeyId:c.accessKeyId, secretAccessKey:c.secretAccessKey} });
-const object = await s3.send(new GetObjectCommand({Bucket:c.bucketName, Key:'backups/deck-builder-2026-10-25.db'}));
+const object = await s3.send(new GetObjectCommand({Bucket:c.bucketName, Key:'backups/deck-builder-2026-10-26.db'}));
 await pipeline(object.Body, createWriteStream('packages/deck-builder/.dev/phase3/production-bucket-backup.db', { mode:0o600, flags:'wx' }));
 s3.destroy();
 JS
@@ -817,15 +878,21 @@ installed `claude mcp add --help`):
 ```sh
 read -rs 'DECKBUILDER_HOSTED_TOKEN?Paste the Claude Code token from hosted Settings: '
 printf '\n'
-claude mcp add --scope user --transport http deck-builder-hosted \
-  https://deck-builder-production-00d7.up.railway.app/mcp/claude-code \
-  --header "Authorization: Bearer ${DECKBUILDER_HOSTED_TOKEN}"
-unset DECKBUILDER_HOSTED_TOKEN
+export DECKBUILDER_HOSTED_TOKEN
+claude mcp add-json --scope user deck-builder-hosted \
+  '{"type":"http","url":"https://deck-builder-production-00d7.up.railway.app/mcp/claude-code","headers":{"Authorization":"Bearer ${DECKBUILDER_HOSTED_TOKEN}"}}'
+# Launch Claude Code from this environment; unset only after it exits. Same
+# environment variable must be available whenever that client starts.
 ```
 
 Restart Claude Code, use `/mcp` to confirm Connected, then ask it to call
 `start_session` and check it reports the claimed identity and 18 decks.
-The CLI saves the bearer header in its own private configuration. Keep
+The single-quoted JSON stores only the environment reference, so the token
+is absent from argv and configuration. Header expansion is documented in
+[Claude Code MCP environment variables](https://code.claude.com/docs/en/mcp#environment-variable-expansion-in-mcpjson).
+`add-json --help` was checked locally. Do not replace the single quotes with
+double quotes: that would expand the token into argv. The older `--header`
+form does expose it in argv/process listings and saves the literal value. Keep
 normal tool approvals unless the owner deliberately changes them.
 
 Codex CLI, with a **separate** hosted Settings token (syntax checked against
@@ -886,11 +953,19 @@ Authenticated acceptance completed after the real owner claim:
 - Final production deployment **b7c4ec34-dc77-47e5-acc4-ab8bbc34d235** reached
   `SUCCESS` and passed Railway's native healthcheck. Its live environment
   contains **no DECKBUILDER_CLAIM_CODE**; web PID 1 remains UID/GID 1000.
-- A disposable operator-created session for the now-claimed owner exercised
-  the normal hosted Settings HTTP token API. The official MCP client on the
+- Historical smoke method (not an approved future procedure): I called
+  Better Auth `internalAdapter.createSession` for the claimed owner inside
+  production. This wrote an owner session row outside the Discord flow. I
+  read BETTER_AUTH_SECRET inside that process to HMAC-sign a session-token
+  cookie, then piped the cookie only into local process memory. Two such
+  sessions were created: the first attempt failed a roster-shape check and
+  immediately removed its row; the second exercised the normal hosted
+  Settings HTTP token API. The official MCP client on the
   owner's machine used that temporary personal token for `start_session`:
   success, principal 1 / `jcaldwell`, 18-deck roster. No token, session cookie,
-  auth secret or returned deck prose was logged or saved.
+  auth secret or returned deck prose was logged or saved. This operator-made
+  credential bypassed the intended login flow and should not have been used.
+  Future smoke tests must use owner-minted Settings tokens, as described below.
 - The same authenticated SSE connection received `connected`, disconnected
   during the deployment and reconnected automatically to receive `connected`
   again. `/api/session` still returned user 1 after the replacement. The
@@ -919,3 +994,212 @@ not a redeploy. Once the owner merges/promotes Phase 3, ordinary release-branch
 push deployments are self-contained. After any old-image rollback, recheck
 current secrets, the absent claim variable and database schema compatibility;
 old artifacts can retain their original startup/environment snapshot.
+
+## Server won't start: stale lock recovery
+
+New locks contain `{pid, hostname, token}`. Startup reclaims a file from a
+foreign hostname, a dead PID, or its own reused PID (including container PID
+1). A second acquisition held inside the current process still refuses, as
+does a live holder on the same hostname. These checks protect restore and
+local CLI operations as well as server startup.
+
+If an older deployment is already crash-looping, do not repeatedly redeploy
+it or delete locks blindly. Pause automatic retries, enter a maintenance
+container holding the same volume, and inspect its hostname/PID plus the
+lock metadata (never auth/token files). Confirm no web process, refresh,
+backup or restore is alive on that volume. Take an online backup if possible.
+Only then remove `/data/deck-builder.db.server-lock` and deploy compatible
+code. Never remove it underneath a live holder. A legacy lock without a
+hostname and reused PID 1 may need this manual recovery while old code runs.
+Do not clear the separate `meta['job:lock']` lease while its child is alive;
+its two-hour stale-lease rule is independent of server process locks.
+
+`.railway/railway.ts` now sets `deploy.drainingSeconds: 30`. Railway sends
+SIGTERM and waits that long before SIGKILL; this leaves time for the roughly
+15-second refresh child to finish and release SQLite. Drain is not a backup
+and does not make OOM/host loss clean. Both restart paths must work. See
+[Railway deployment teardown](https://docs.railway.com/deployments/deployment-teardown).
+
+## Future authenticated smoke tests
+
+Use the real owner's browser for sign-in/session/SSE checks. For CLI checks,
+the owner creates a labelled token in **hosted Settings → Agent connection**
+and saves it once to a private local file, mode 600 (for example
+`~/.config/deck-builder/hosted-smoke-token`). Read that file directly inside
+the MCP test process; never put its value in argv, chat, logs or a PR. Call
+`start_session`, verify the claimed principal/roster, then have the owner
+revoke the temporary token in Settings and remove the private test file.
+Do not create session rows, call `internalAdapter.createSession`, sign cookies
+with BETTER_AUTH_SECRET, borrow session rows, or create an impersonation path.
+There is no supported emergency admin credential CLI in this release.
+
+The initial operator-made smoke was audited read-only during review:
+production has exactly one session, created **2026-10-26T00:00:51.163Z**, before
+the smoke script's **00:02:29Z** start. There are zero session rows from the
+smoke window. The only `phase3-smoke-temporary` personal token has non-null
+last_used_at and revoked_at (**2026-10-26 00:03:48**). No credentials were minted
+for this review. These metadata checks reveal no session tokens or hashes.
+
+## Staging claim after a future restore
+
+The owner claimed staging during review and confirmed all 18 decks. Its claim
+variable was removed and the new staging deployment was verified without it.
+Both IaC graphs omit claim codes, so neither environment can recreate one.
+
+Use a verified post-claim backup for routine restores. If an explicitly
+approved future **staging-only** restore leaves user 1 unclaimed, keep the
+claim variable absent until the owner is ready. Generate a fresh random
+code of at least 32 characters into `~/.config/deck-builder/claim-code-staging`
+(mode 600), replacing the obsolete code, and set it as a **sealed** variable
+in Railway → staging → deck-builder → Variables. Redeploy staging, then the
+owner opens `https://deck-builder-staging.up.railway.app/signin`, pastes the
+new file contents and signs in through Discord. Verify user 1 is claimed,
+remove the staging variable and redeploy again. Never rewrite auth_id by hand
+and never re-enable production's bootstrap path as a routine restore step.
+
+## Independent monthly backup copy (owner action)
+
+Railway buckets and volumes share a provider; bucket recovery alone is not
+provider-independent protection. Once per month, after a successful production
+backup, download the latest post-claim snapshot to the owner's machine or an
+encrypted removable drive. Run from the repository root with the logged-in
+Railway CLI and installed ops dependency. This command reads credentials only
+in memory, never deletes a bucket object, refuses to overwrite an existing
+local file and verifies integrity plus the claimed owner before reporting:
+
+```sh
+node --input-type=module <<'JS'
+import {execFileSync} from 'node:child_process';
+import {mkdirSync,createWriteStream,chmodSync} from 'node:fs';
+import {homedir} from 'node:os';
+import {join,basename} from 'node:path';
+import {pipeline} from 'node:stream/promises';
+import {Database} from 'node:sqlite';
+import {S3Client,ListObjectsV2Command,GetObjectCommand} from '@aws-sdk/client-s3';
+const c=JSON.parse(execFileSync('railway',['bucket','--environment','production','credentials','--bucket','backups-production','--json'],{encoding:'utf8'}));
+const s3=new S3Client({endpoint:c.endpoint,region:'auto',forcePathStyle:true,credentials:{accessKeyId:c.accessKeyId,secretAccessKey:c.secretAccessKey}});
+try {
+  const objects=[];let ContinuationToken;
+  do {const p=await s3.send(new ListObjectsV2Command({Bucket:c.bucketName,Prefix:'backups/',ContinuationToken}));objects.push(...p.Contents??[]);ContinuationToken=p.IsTruncated?p.NextContinuationToken:undefined;} while(ContinuationToken);
+  const latest=objects.filter(x=>/^backups\/deck-builder-\d{4}-\d{2}-\d{2}.*\.db$/.test(x.Key)).sort((a,b)=>new Date(b.LastModified)-new Date(a.LastModified))[0];
+  if(!latest)throw Error('No snapshot found');
+  const dir=join(homedir(),'.local/share/deck-builder-offline',new Date().toISOString().slice(0,7));mkdirSync(dir,{recursive:true,mode:0o700});chmodSync(dir,0o700);
+  const file=join(dir,basename(latest.Key));
+  const object=await s3.send(new GetObjectCommand({Bucket:c.bucketName,Key:latest.Key}));
+  await pipeline(object.Body,createWriteStream(file,{flags:'wx',mode:0o600}));
+  const db=new Database(file,{readOnly:true});
+  try {if(db.prepare('pragma integrity_check').get().integrity_check!=='ok'||!db.prepare('select auth_id from users where id=1').get()?.auth_id)throw Error('Not a verified post-claim backup');console.log({file,decks:db.prepare('select count(*) n from decks').get().n});} finally {db.close();}
+} finally {s3.destroy();}
+JS
+```
+
+Disconnect/store the external copy independently, keep six monthly copies,
+and repeat erasures/revocations if recovering one. The quarantined pre-claim
+archive is excluded from normal restore selection and remains owner-only;
+review its disposition after an independent recovery copy exists. This review
+copied its archive key and deleted **nothing** in either bucket.
+
+## Protect and promote release
+
+In GitHub → repository Settings → Rules → Rulesets → New ruleset → New branch
+ruleset, name it `release`, set Enforcement to Active, and target **Include by
+pattern → release**. Add the repository owner/admin to the bypass list for
+explicit promotions. Enable **Restrict updates**, **Restrict deletions** and
+**Block force pushes**, then Create. If the repository plan does not support
+rulesets, document that limitation rather than assuming protection exists.
+Keep the explicit owner push workflow available; do not require a release PR
+that would produce a different merge SHA. Never give agents a standing release
+promotion instruction.
+
+Updated merge order: **#6 already merged as fc24ca8 → #7 → #8 (schema 14)**.
+#7 now includes the v12→v13 migration and first-boot Cardmarket load. After #7 merges, fetch
+its exact merge SHA with `gh pr view 7 --json mergeCommit --jq '.mergeCommit.oid'`,
+verify schema 13, successful refresh at both stores and unchanged user-1
+counts/totals on that SHA in staging. **Immediately before promotion**, take
+a fresh post-claim production backup and verify the new bucket object, then
+push **that SHA** to release. Do not use `main:release`: main may already have
+a later migration. Check the exact production deployment reaches SUCCESS,
+health/schema, owner roster, backup status and session/SSE behavior. The code
+fixes in this review remain staging-only until that owner promotion.
+
+## Pre-promotion online snapshot (production is still v12)
+
+The running v12 CLI names backups by date and would overwrite today's object.
+Immediately before the owner promotes the explicit #7 merge SHA, use this
+online backup/upload instead. It runs on the existing production runtime;
+it deploys no code, opens SQLite read-only, creates a private online snapshot
+and uploads a unique UTC timestamp/UUID key with overwrite protection. It
+performs no bucket pruning. Confirm the printed key and verified size, then
+promote without an intervening work session. Retain that key for migration
+recovery; it must be post-claim. If this fails, do not promote.
+
+```sh
+railway ssh --project 2c9c40a2-4b69-4d5e-a2c4-188a6f5894b8 --environment production --service deck-builder -- 'setpriv --reuid=node --regid=node --init-groups node --input-type=module <<"JS"
+import {Database,backup} from "node:sqlite";
+import {mkdirSync,createReadStream,statSync,chmodSync} from "node:fs";
+import {randomUUID} from "node:crypto";
+import {S3Client,PutObjectCommand,HeadObjectCommand} from "@aws-sdk/client-s3";
+async function snapshot(){
+const db=new Database(process.env.DECKBUILDER_DB??"/data/deck-builder.db",{readOnly:true,timeout:5000});
+const name=`deck-builder-${new Date().toISOString().replaceAll(":","-").replace(".","-")}-${randomUUID()}.db`;
+const file=`/data/backups/${name}`,Key=`backups/${name}`;
+try {if(!db.prepare("select auth_id from users where id=1").get()?.auth_id)throw Error("Owner must be claimed");mkdirSync("/data/backups",{recursive:true});await backup(db,file);chmodSync(file,0o600);}finally{db.close();}
+const s3=new S3Client({endpoint:process.env.BACKUP_S3_ENDPOINT,region:"auto",forcePathStyle:true,credentials:{accessKeyId:process.env.BACKUP_S3_ACCESS_KEY,secretAccessKey:process.env.BACKUP_S3_SECRET_KEY}});
+try {const Bucket=process.env.BACKUP_S3_BUCKET;await s3.send(new PutObjectCommand({Bucket,Key,Body:createReadStream(file),ContentLength:statSync(file).size,IfNoneMatch:"*"}));const head=await s3.send(new HeadObjectCommand({Bucket,Key}));if(head.ContentLength!==statSync(file).size)throw Error("Backup size mismatch");console.log(JSON.stringify({key:Key,verified_bytes:head.ContentLength}));}finally{s3.destroy();}
+}
+await snapshot().catch(error=>{const safe=v=>typeof v==="string"&&/^[A-Z][A-Za-z0-9_.$-]{0,63}$/.test(v)?v:undefined;console.error(JSON.stringify({event:"pre_promotion_backup_error",name:safe(error.name)??"Error",code:safe(error.code)}));process.exitCode=1;});
+JS'
+```
+
+Once the owner has promoted this release, `node src/cli.ts backup` uses the
+new timestamped/retained implementation. Do not use a pre-claim snapshot to
+undo a v13 migration. A rollback to v12 requires this fresh post-claim v12
+snapshot plus compatible code and reconciliation of writes made after it.
+
+## Round-1 review acceptance (2026-10-26 UTC)
+
+- Rebased onto **fc24ca8** (merged #6). `http.ts` retains `runTool`; `jobs.ts`
+  retains both `price_stores_version` readiness checks. No schema migration was
+  added by this phase; the combined candidate includes phase 1b's v13.
+- A real user/PID namespace regression force-killed Node **PID 1 from its
+  parent namespace**, left the lock file, and the next PID 1 reclaimed it.
+  Foreign-host and live same-host exclusion cases also pass. Sending KILL to
+  PID 1 from inside the live staging namespace was ignored (not counted as
+  a crash-recovery success); a normal Railway staging restart was healthy.
+- The Moby/BuildKit `patternmatcher` **v0.6.1** proof excludes `.env`, live DB,
+  token files, `.dev`, tests and oracle-parser. Run it from
+  `scripts/docker-context-check` with `go run . <repo-root>`; the PR includes
+  the complete selected file list. No Docker daemon was available locally.
+  Explicit build-stage COPYs provide a second boundary. Go is a verification
+  tool only; it adds no application/runtime dependency or workspace change.
+- Both root and workspace-local npm trees are copied into the final image.
+  Its build-time import manifest check and live staging check resolve every
+  runtime import and exact pin, including **jose 6.2.3**. The base image digest
+  is pinned; `docker buildx imagetools inspect node:26-slim` verified it.
+- Staging plan before apply: `build.watchPatterns` adds `/tsconfig.base.json`;
+  `deploy.drainingSeconds` changes from unset/default 0 to **30**. After
+  applying/reading back and testing staging, the identical two-field patch
+  was committed to production with **skipDeploys:true**. Both plans now show
+  **No changes**. Production remains **b7c4ec34**, schema 12; no code or
+  migration was promoted and release remains **3e1798d**.
+- Rebased staging deployment **49a43240-d8a0-4537-9ece-b38a82038d1d** reached
+  SUCCESS with schema **13**. Its automatic first-boot refresh succeeded
+  **00:43:33.087Z → 00:43:48.983Z** (15.896 seconds), marker **1**, with
+  **33,327 TCGplayer/USD** and **33,092 Cardmarket/EUR** catalogue prices.
+  User 1 is claimed with **18 decks/36 memories**. All per-deck USD totals,
+  deck names/revisions and memory-row fingerprints match the saved v12
+  baseline. No FK errors; the staging claim variable is absent.
+- Job tests prove one redacted error survives hosted child transport, raw
+  messages/bodies do not, failed backups retry hourly, and last successful
+  backup/staleness survives failures. Admin Settings exposes the 36-hour
+  warning; public health stays minimal. The gate passed **1003/1003**, both
+  typechecks, including the real PID-namespace and final-image-layout cases.
+- The pre-claim object was copied under archive/ and all existing bucket
+  keys were preserved. No live retention/pruning command was run. The
+  production code changes, including retention, await the owner's explicit
+  SHA promotion. This review created no operator sessions or personal tokens.
+
+Finish #7 staging-v13 verification and its promotion before allowing #8 to
+auto-migrate the same staging volume to v14. If staging is already v14, do
+not start v13 code against it; arrange a separate compatible restored copy
+for verification rather than forcing a down migration.

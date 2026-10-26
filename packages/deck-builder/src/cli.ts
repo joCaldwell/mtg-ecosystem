@@ -6,6 +6,7 @@ import { openDb, DEFAULT_DB_PATH } from "./db.ts";
 import { formatPrice, priceResolver } from "./prices.ts";
 import { refreshCardData } from "./refresh.ts";
 import { search, SearchError } from "./search/index.ts";
+import { logging } from "./logging.ts";
 
 function formatCard(c: {
   name: string;
@@ -87,4 +88,4 @@ async function main() {
   }
 }
 
-main().catch(error => { console.error(error); process.exitCode = 1; });
+main().catch(error => { logging.failure("job_error", error); process.exitCode = 1; });

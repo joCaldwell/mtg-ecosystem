@@ -35,7 +35,7 @@ const shutdown = async () => {
 };
 process.on("SIGTERM", () => void shutdown());
 process.on("SIGINT", () => void shutdown());
-app.server.on("error", () => { logging.event("server_error", { level: "error" }); void shutdown().then(() => { process.exitCode = 1; }); });
+app.server.on("error", error => { logging.failure("server_error", error); void shutdown().then(() => { process.exitCode = 1; }); });
 
 // Local remains loopback-only; hosted uses all interfaces. Both modes check
 // Host/Origin, MCP resolves a bearer, and hosted UI requests await sessions.

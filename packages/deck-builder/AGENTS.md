@@ -143,7 +143,7 @@ Run from this directory (`packages/deck-builder/`):
 | `npm test` | Tests only — `node --test`, **not** Vitest |
 | `npm run seed:demo` | Create/replace the demo deck and its fork, which exercise every panel |
 | `npm run refresh` | CLI job: stream cards, then prices. `-- --force` bypasses freshness; Settings only enqueues a child job |
-| `npm run backup` | Consistent online SQLite snapshot, keep 14 days, optional S3 upload |
+| `npm run backup` | Online SQLite snapshot; 14 local files, optional S3 with 14 daily/6 monthly retention |
 | `npm run restore -- <file>` | Verify and restore a snapshot while the server is stopped |
 | `npm run search '<query>'` | Scryfall-syntax search from the CLI |
 | `npm run mcp` | The stdio shim, for clients that only launch a command |
@@ -162,6 +162,11 @@ The Railway runbook there covers the private beta: repo-root Docker context,
 production `release` versus staging `main`, one replica per environment,
 claim-code removal, bucket restores and the Hobby native-backup limitation.
 Hosted data is primary after go-live; laptop `data/` is development-only.
+Operational code uses host-aware process locks, a 30-second deployment drain,
+timestamped backups with 14 daily/6 monthly bucket retention and backup-age
+status. `scripts/check-runtime.mjs` verifies the final image's imports and
+exact pins; the Go context checker uses Moby's real ignore matcher. Production
+code changes are promoted only by the owner, using an explicit verified SHA.
 
 ### Connecting an agent
 

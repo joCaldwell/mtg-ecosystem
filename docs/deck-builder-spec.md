@@ -118,7 +118,9 @@ and the playbook forbids storing them.
 **Source:** Scryfall bulk data, the `oracle-cards` file: one entry per unique
 card, not per printing.
 
-- SQLite, with an FTS5 index over name and oracle text. The server schedules a refresh child process daily and on boot when stale, retrying failed refreshes one hour after their last run; the CLI runs the same operation. Settings enqueues it and returns immediately. A shared timestamped lease prevents overlapping refresh/backup jobs; leases expire after two hours. Job result, last run and next run appear in Settings.
+- SQLite, with an FTS5 index over name and oracle text. The server schedules a refresh child process daily and on boot when stale, retrying failed refreshes one hour after their last run; the CLI runs the same operation. Settings enqueues it and returns immediately. A shared timestamped lease prevents overlapping refresh/backup jobs; leases expire after two hours. Job result, last run and next run appear in Settings. Backups retry after
+one hour on failure and expose last_success_at plus a 36-hour stale flag in
+admin job status, without expanding public health.
 - Oracle data is streamed and staged on disk, then upserted in savepoint batches of roughly 500. Malformed input and a file with fewer than 90% of the currently active cards are refused before publishing. Missing IDs become `retired=1`, preserving exact resolution, references, history and images. General search excludes retired IDs; a named deck may still find retired cards it holds, and its checks flag “retired printing/oracle id”. Returning IDs are reactivated. Retired rows are excluded from the next truncation threshold.
 - The per-instance oracle cache lives under `DATA_DIR/.scryfall-cache`, reused for 24 hours. The Settings path never forces a download; CLI `--force` remains available. All connections wait up to five seconds for SQLite locks. Refresh and nightly backup run outside the serving event loop; see `packages/deck-builder/OPERATIONS.md`.
 - Keyed on `oracle_id` internally.
@@ -998,6 +1000,33 @@ Checked on 2026-10-25, v3 Phase 3 private beta deployment:
   configured and real bucket recovery was tested. External uptime monitor
   setup remains an owner step because no monitor credentials were supplied.
 
+Round-1 Phase 3 review (2026-10-26 UTC), rebased on phase 1b **fc24ca8**:
+
+- Process locks record hostname, reclaim a previous container's reused PID 1
+  and still exclude live same-host operations. The real PID-namespace kill/
+  restart regression passes. Railway has a 30-second drain and a root tsconfig
+  watch path, verified in staging before the identical config-only production
+  patch (`skipDeploys:true`); production code is unchanged until owner promotion.
+- Build context is verified using Moby's actual matcher; explicit COPYs exclude
+  data/credentials. The final image copies nested workspace dependencies and
+  resolves every runtime import/exact pin, including jose 6.2.3; Node is pinned
+  by digest. Hosted job errors preserve redacted name/code/frames, backup failures
+  retry hourly, and admin status exposes backup age without public-health data.
+- Snapshots have unique UTC timestamp/UUID keys. Successful uploads retain 14
+  daily and six monthly recovery points plus the latest upload; upload/list
+  failures never prune. Archive keys are excluded, and no live bucket object
+  was deleted in this review. Privacy describes that policy and operational logs.
+- Staging successfully migrated v12→v13 and automatically loaded both stores:
+  33,327 TCGplayer/USD and 33,092 Cardmarket/EUR quotes; user 1's 18 decks,
+  36 memories, row fingerprints and per-deck USD totals stayed unchanged.
+  Both claim variables are removed. The read-only credential audit and exact
+  historical internal-adapter/HMAC smoke method are documented; future smoke
+  tests require owner-minted Settings tokens, never operator-made sessions.
+- The rebased gate passes **1003 tests** and both typechecks. Promotion must
+  use the verified #7 merge SHA and a fresh immutable post-claim v12 snapshot
+  immediately beforehand, because production still runs v12 and this promotion
+  includes v13. OPERATIONS documents old-variable rollback and schema refusal.
+
 ## 16. Not verified
 
 Ownership-aware sourcing and proposal cleanup were added on 2026-10-15.
@@ -1246,7 +1275,11 @@ token/client identifiers survive on those records. Write no activity afterwards.
 Shared card/price/job data remain.
 A sqlite_master inventory test verifies every tenant table participates, so
 a new table cannot silently escape export/deletion. Backups expire under
-14-day local retention; off-box retention follows bucket policy. The last
+14 local snapshots; bucket retention keeps the first available snapshot
+for each of the last 14 UTC days and six UTC months, plus the latest upload.
+Retention runs after successful upload/listing and excludes the quarantined
+owner-only pre-launch archive. Operational request/tool logs omit sensitive
+payloads; Railway Hobby exposes a seven-day log window. The last
 admin cannot delete their account because nobody would remain to manage
 invites/jobs; Settings explains why.
 

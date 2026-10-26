@@ -9,8 +9,15 @@ const requests = new AsyncLocalStorage<Context>();
 // Log stack frames, never the exception message: provider errors can contain
 // OAuth URLs/tokens, and validation errors can quote submitted values.
 function errorFrames(error: unknown) {
-  return { name: "Error", stack: error instanceof Error ?
-    error.stack?.split("\n").filter(line => /^\s+at /.test(line)).join("\n") ?? "" : "" };
+  const value = error as { name?: unknown; code?: unknown; stack?: unknown } | null;
+  const symbol = (v: unknown) => typeof v === "string" && /^[A-Z][A-Za-z0-9_.$-]{0,63}$/.test(v) ? v : undefined;
+  let stack = typeof value?.stack === "string" ? value.stack : "";
+  if (error instanceof Error) {
+    const message = `${error.name}: ${error.message}`;
+    if (stack.startsWith(message)) stack = stack.slice(message.length);
+  }
+  return { name: symbol(value?.name) ?? "Error", ...(symbol(value?.code) ? { code: symbol(value?.code) } : {}),
+    stack: stack.split("\n").filter(line => /^\s+at /.test(line)).slice(0, 20).join("\n") };
 }
 function write(fields: Record<string, unknown>) {
   process.stdout.write(JSON.stringify({ ts: new Date().toISOString(), ...fields }) + "\n");
@@ -42,24 +49,37 @@ export const logging = {
     const finish = () => {
       if (completed) return;
       completed = true;
-      write({ level: context.error || res.statusCode >= 500 ? "error" : "info", event: "request",
+      const status = res.writableFinished ? res.statusCode : 499;
+      if (context.path === "/api/health" && status < 500) return;
+      const error = context.error && (status >= 500 ? context.error : { name: context.error.name, ...(context.error.code ? { code: context.error.code } : {}) });
+      write({ level: status >= 500 ? "error" : status >= 400 ? "warn" : "info", event: "request",
         req_id: context.req_id, user_id: context.actor?.user_id ?? null,
         via: context.actor?.via ?? null, label: context.actor?.label ?? null,
-        method: context.method, path: context.path, status: res.writableFinished ? res.statusCode : 499,
-        ms: Math.round((performance.now() - start) * 100) / 100, ...(context.error ? { error: context.error } : {}) });
+        method: context.method, path: context.path, status,
+        ms: Math.round((performance.now() - start) * 100) / 100, ...(error ? { error } : {}) });
     };
     res.once("finish", finish);
     res.once("close", finish);
     return requests.run(context, handle);
   },
   actor(actor: Actor | null) { const context = requests.getStore(); if (context && actor) context.actor = actor; },
-  error(error: unknown) { const context = requests.getStore(); if (context) context.error = errorFrames(error); },
+  error(error: unknown) {
+    const context = requests.getStore(); if (context) context.error = errorFrames(error);
+    if (process.env.DECKBUILDER_MODE !== "hosted" && (!(error as any)?.status || (error as any).status >= 500))
+      console.error(error instanceof Error ? error.message : "Unknown error");
+  },
   tool(actor: Actor, tool: string, start: number, status: number, error?: unknown) {
     const context = requests.getStore();
-    write({ level: error ? "error" : "info", event: "tool", req_id: context?.req_id ?? null,
+    const detail = error ? errorFrames(error) : undefined;
+    write({ level: status >= 500 ? "error" : status >= 400 ? "warn" : "info", event: "tool", req_id: context?.req_id ?? null,
       user_id: actor.user_id, via: actor.via, label: actor.label, method: context?.method ?? "POST",
       tool, status, ms: Math.round((performance.now() - start) * 100) / 100,
-      ...(error ? { error: errorFrames(error) } : {}) });
+      ...(detail ? { error: status >= 500 ? detail : { name: detail.name, ...(detail.code ? { code: detail.code } : {}) } } : {}) });
+  },
+  describeError: errorFrames,
+  failure(event: string, error: unknown) {
+    write({ level: "error", event, error: errorFrames(error) });
+    if (process.env.DECKBUILDER_MODE !== "hosted") console.error(error instanceof Error ? error.message : "Unknown error");
   },
   event(event: string, fields: Record<string, unknown> = {}) { write({ level: "info", event, ...fields }); },
 };

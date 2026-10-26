@@ -6,34 +6,85 @@ import { DATA_DIR, DEFAULT_DB_PATH, openDb } from "./db.ts";
 import { acquireJobLock } from "./jobs.ts";
 import { acquireProcessLock } from "./process-lock.ts";
 
+type BucketObject = { Key?: string; LastModified?: Date };
+type BackupStore = { upload(file: string, key: string): Promise<void>; list(): Promise<BucketObject[]>; remove(keys: string[]): Promise<void>; close(): void };
+
+// The first snapshot of each of the latest 14 UTC days, plus the first
+// snapshot of each of the latest six UTC calendar months. Only our backup
+// namespace is managed; archive/ and unrelated objects are never touched.
+function expiredBackupKeys(objects: BucketObject[], now: Date): string[] {
+  const snapshots = objects.flatMap(object => {
+    const match = object.Key?.match(/^backups\/deck-builder-(\d{4}-\d{2}-\d{2})(?:T(\d{2}-\d{2}-\d{2}-\d{3})Z-[\da-f-]+)?\.db$/);
+    if (!match) return [];
+    const date = match[1], stamp = match[2] ? `${date}T${match[2].slice(0, 8).replaceAll("-", ":")}.${match[2].slice(9)}Z` : `${date}T00:00:00.000Z`;
+    return [{ key: object.Key!, date, month: date.slice(0, 7), stamp }];
+  }).sort((a, b) => a.stamp.localeCompare(b.stamp) || a.key.localeCompare(b.key));
+  const keep = new Set<string>();
+  const today = now.toISOString().slice(0, 10);
+  const oldestDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 13)).toISOString().slice(0, 10);
+  const oldestMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5, 1)).toISOString().slice(0, 7);
+  const days = new Set<string>(), months = new Set<string>();
+  for (const s of snapshots) {
+    if (s.date > today) { keep.add(s.key); continue; } // don't prune future-dated objects after a clock correction
+    if (s.date >= oldestDay && !days.has(s.date)) { keep.add(s.key); days.add(s.date); }
+    if (s.month >= oldestMonth && !months.has(s.month)) { keep.add(s.key); months.add(s.month); }
+  }
+  return snapshots.filter(s => !keep.has(s.key)).map(s => s.key);
+}
+
+async function s3Store(): Promise<BackupStore> {
+  const { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } = await import("@aws-sdk/client-s3");
+  const Bucket = process.env.BACKUP_S3_BUCKET!;
+  const client = new S3Client({ endpoint: process.env.BACKUP_S3_ENDPOINT, region: "auto", forcePathStyle: true,
+    credentials: { accessKeyId: process.env.BACKUP_S3_ACCESS_KEY!, secretAccessKey: process.env.BACKUP_S3_SECRET_KEY! } });
+  return {
+    async upload(file, Key) { await client.send(new PutObjectCommand({ Bucket, Key, Body: createReadStream(file), ContentLength: statSync(file).size, ContentType: "application/vnd.sqlite3", IfNoneMatch: "*" })); },
+    async list() {
+      const objects: BucketObject[] = []; let ContinuationToken: string | undefined;
+      do {
+        const page = await client.send(new ListObjectsV2Command({ Bucket, Prefix: "backups/", ContinuationToken }));
+        objects.push(...page.Contents ?? []);
+        ContinuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
+        if (page.IsTruncated && !ContinuationToken) throw new Error("Backup listing was truncated without a continuation token");
+      } while (ContinuationToken);
+      return objects;
+    },
+    async remove(keys) {
+      for (let i = 0; i < keys.length; i += 1000) {
+        const result = await client.send(new DeleteObjectsCommand({ Bucket, Delete: { Objects: keys.slice(i, i + 1000).map(Key => ({ Key })), Quiet: true } }));
+        if (result.Errors?.length) throw new Error("Backup retention deletion failed");
+      }
+    },
+    close() { client.destroy(); },
+  };
+}
+
 /** Online SQLite backup includes committed WAL content. Never copy the .db. */
-export async function backupDatabase(db: Database, dataDir = DATA_DIR, now = new Date()) {
+export async function backupDatabase(db: Database, dataDir = DATA_DIR, now = new Date(), store?: BackupStore) {
   const dir = join(dataDir, "backups");
   mkdirSync(dir, { recursive: true });
-  const file = join(dir, `deck-builder-${now.toISOString().slice(0, 10)}.db`);
+  const file = join(dir, `deck-builder-${now.toISOString().replaceAll(":", "-").replace(".", "-")}-${randomUUID()}.db`);
   const temp = `${file}.${randomUUID()}.tmp`;
   try {
     // https://nodejs.org/api/sqlite.html#sqlitebackupsourceDb-path-options
     await backup(db, temp);
     renameSync(temp, file);
   } finally { rmSync(temp, { force: true }); }
-  const files = readdirSync(dir).filter(n => /^deck-builder-\d{4}-\d{2}-\d{2}\.db$/.test(n)).sort().reverse();
-  for (const old of files.slice(14)) rmSync(join(dir, old));
+  const names = readdirSync(dir).filter(name => /^deck-builder-\d{4}-\d{2}-\d{2}(?:T[\d-]+Z-[\da-f-]+)?\.db$/.test(name) && name !== file.split("/").at(-1)).sort().reverse();
+  for (const old of names.slice(13)) rmSync(join(dir, old));
   const keys = ["BACKUP_S3_ENDPOINT", "BACKUP_S3_BUCKET", "BACKUP_S3_ACCESS_KEY", "BACKUP_S3_SECRET_KEY"] as const;
-  if (keys.some(k => process.env[k])) {
-    if (!keys.every(k => process.env[k])) throw new Error(`S3 backup needs all of ${keys.join(", ")}`);
+  if (store || keys.some(k => process.env[k])) {
+    if (!store && !keys.every(k => process.env[k])) throw new Error(`S3 backup needs all of ${keys.join(", ")}`);
     // https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/javascript_s3_code_examples.html
-    const { S3Client, PutObjectCommand } = await import("@aws-sdk/client-s3");
-    const client = new S3Client({
-      endpoint: process.env.BACKUP_S3_ENDPOINT, region: "auto", forcePathStyle: true,
-      credentials: { accessKeyId: process.env.BACKUP_S3_ACCESS_KEY!, secretAccessKey: process.env.BACKUP_S3_SECRET_KEY! },
-    });
+    const client = store ?? await s3Store();
     try {
-      await client.send(new PutObjectCommand({
-        Bucket: process.env.BACKUP_S3_BUCKET, Key: `backups/${file.split("/").at(-1)}`,
-        Body: createReadStream(file), ContentLength: statSync(file).size, ContentType: "application/vnd.sqlite3",
-      }));
-    } finally { client.destroy(); }
+      const key = `backups/${file.split("/").at(-1)}`;
+      await client.upload(file, key);
+      // Retention runs only after a durable upload and complete listing; never
+      // replace the preceding good snapshot, including on the same day.
+      const expired = expiredBackupKeys(await client.list(), now).filter(old => old !== key);
+      if (expired.length) await client.remove(expired);
+    } finally { client.close(); }
   }
   return { file };
 }

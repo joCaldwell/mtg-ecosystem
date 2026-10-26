@@ -3,8 +3,8 @@
 This configuration owns only the `deck-builder` project, scoped to the linked
 `production` or `staging` environment. Production follows `release`; staging
 follows `main`. Each has one replica, its own 5000 MB `/data` volume and a
-backup bucket. Secrets remain sealed platform variables, referenced through
-`preserve()`; the production claim code is deliberately absent after claiming.
+backup bucket and a 30-second drain. Secrets remain sealed platform variables,
+referenced through `preserve()`; claim codes are absent in both environments.
 
 Use Railway CLI 5.63.1 and install the isolated authoring dependency:
 

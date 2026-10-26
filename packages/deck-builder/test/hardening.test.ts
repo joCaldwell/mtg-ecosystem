@@ -290,10 +290,10 @@ test("optional S3 backup uploads the SQLite snapshot through the SDK and keeps l
   const { createServer } = await import("node:http");
   let path = "", body = Buffer.alloc(0);
   const bucket = createServer((req, res) => {
-    path = req.url!;
+    if (req.method === "PUT") path = req.url!;
     const chunks: Buffer[] = [];
     req.on("data", chunk => chunks.push(chunk));
-    req.on("end", () => { body = Buffer.concat(chunks); res.writeHead(200, { ETag: '"test"' }); res.end(); });
+    req.on("end", () => { if (req.method === "PUT") body = Buffer.concat(chunks); res.writeHead(200, { ETag: '"test"' }); res.end(req.method === "GET" ? '<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>' : ""); });
   });
   await new Promise<void>(resolve => bucket.listen(0, "127.0.0.1", resolve));
   const keys = ["BACKUP_S3_ENDPOINT", "BACKUP_S3_BUCKET", "BACKUP_S3_ACCESS_KEY", "BACKUP_S3_SECRET_KEY"];
@@ -302,7 +302,7 @@ test("optional S3 backup uploads the SQLite snapshot through the SDK and keeps l
   try {
     Object.assign(process.env, { BACKUP_S3_ENDPOINT: `http://127.0.0.1:${(bucket.address() as AddressInfo).port}`, BACKUP_S3_BUCKET: "test-bucket", BACKUP_S3_ACCESS_KEY: "test-access-key", BACKUP_S3_SECRET_KEY: "test-secret-key" });
     const result = await backupDatabase(fresh, data, new Date("2026-10-25T00:00:00Z"));
-    assert.match(path, /^\/test-bucket\/backups\/deck-builder-2026-10-25\.db/);
+    assert.match(path, /^\/test-bucket\/backups\/deck-builder-2026-10-25T00-00-00-000Z-/);
     assert.ok(body.includes(Buffer.from("SQLite format 3")));
     assert.ok(readFileSync(result.file).includes(Buffer.from("SQLite format 3")));
     delete process.env.BACKUP_S3_BUCKET;

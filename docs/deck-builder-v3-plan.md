@@ -11,13 +11,16 @@ asking the owner anything.
 and `packages/deck-builder/web/ARCHITECTURE.md`. The spec remains the source of
 truth; every phase that changes behaviour updates the spec in the same PR.
 
-**Status (2026-10-25):** phases 0–2 merged (PRs #3–5). Phase 3 is deployed
+**Status (2026-10-25):** phases 0–2 and 1b merged (PRs #3–6; 1b merge fc24ca8). Phase 3 is deployed
 with the owner's 18 decks and 36 memories; PR #7 awaits owner review/merge.
 Owner claim, claim-code removal, personal-token MCP access, SSE reconnect,
 refresh and bucket restore are verified. Native volume snapshots remain
 blocked by Railway's Pro-only restriction on this Hobby workspace; external
 monitor setup and second-account/client acceptance remain owner steps.
-Parallel feature phases continue in their own worktrees and reach staging first.
+PR #7 is rebased on fc24ca8; its eventual promotion also migrates production
+from schema 12 to 13 and loads both price stores. Stage that exact SHA first
+and take a fresh production backup immediately before the owner promotes it.
+Remaining feature phases continue in their own worktrees and reach staging first.
 
 ---
 
@@ -189,8 +192,9 @@ the beta and a custom domain when the owner supplies one. Staging environment
 mirrors production with its own volume. Hobby plan is sufficient (see review).
 
 Phase 3 deployment decisions (2026-10-25): production follows **`release`**;
-staging follows **`main`**. The owner promotes with `git push origin
-main:release` (or an explicitly selected, staging-verified commit). `release`
+staging follows **`main`**. The owner promotes the explicit staging-verified
+PR #7 merge SHA with `git push origin <verified-merge-sha>:release`, never
+whichever parallel phase happens to be on main. `release`
 was initialized at **`3e1798d`**, the merge of Phase 2 PR #5 and this phase's
 predecessor. Parallel 1b/4a migrations must reach staging before production.
 Exactly **one replica in each environment**: one SQLite writer and in-memory
