@@ -1,0 +1,20 @@
+{
+  "name": "deck-builder-ux-eval",
+  "private": true,
+  "type": "module",
+  "description": "Measurement harness for UX hill-climbing on the deck-builder web app. Dev tooling only: outside the npm workspace and the gate.",
+  "scripts": {
+    "seed": "node seed.ts",
+    "serve": "node serve.ts",
+    "capture": "node capture.mjs",
+    "packet": "node judging/packet.mjs",
+    "score": "node judging/score.mjs"
+  },
+  "devDependencies": {
+    "axe-core": "4.14.0",
+    "playwright-core": "1.62.1"
+  },
+  "engines": {
+    "node": ">=24.12"
+  }
+}
