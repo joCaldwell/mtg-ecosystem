@@ -714,6 +714,7 @@ http("GET",()=>"/api/stats","read",undefined,{global:true});
 http("GET",()=>"/api/focus","read",undefined,{global:true});
 http("GET",()=>"/api/settings","owner-only",undefined,{global:true});
 http("PUT",()=>"/api/settings","owner-only",()=>({budgets:{global:1200}}),{global:true});
+http("PUT",()=>"/api/settings","owner-only",()=>({advanced_open:true}),{global:true});
 http("POST",()=>"/api/settings/tokens","owner-only",()=>({label:"HTTP client"}),{global:true});
 http("DELETE",(t,f)=>`/api/settings/tokens/${t.token}`,"owner-only");
 http("POST",()=>"/api/cards/refresh","owner-only",undefined,{global:true,ownStatus:503});
@@ -772,6 +773,27 @@ test("every HTTP API route is classified and reachable only with the right princ
         assert.equal(anonymous.status,c.anonymousStatus?.(visibility)??(c.kind==="public-read"?200:401),`${label} anonymous: ${await anonymous.text()}`);
       } finally { f.db.exec("ROLLBACK TO http_matrix; RELEASE http_matrix"); }
     }
+  } finally {await app.close();f.db.close();}
+});
+
+test("PUT /api/settings advanced_open writes only the caller's own preference; other users, anonymous and bearer callers cannot",async()=>{
+  const f=fixture(); let principal:Actor|null=OWNER;
+  const app=createApp(f.db,{resolveUiActor:()=>principal}),base=await listening(app);
+  const put=(value:unknown,headers:Record<string,string>={})=>fetch(base+"/api/settings",{method:"PUT",headers:{"Content-Type":"application/json",...headers},body:JSON.stringify({advanced_open:value})});
+  const open=(user_id:number)=>getSetting(f.db,{user_id,via:"ui",label:"ui"},"advanced_open");
+  try {
+    const before=[open(1),open(2)];
+    principal=f.users[1];
+    const second=await put(true);assert.equal(second.status,200);assert.equal((await second.json()).advanced_open,true);
+    assert.deepEqual([open(1),open(2)],[before[0],"true"],"the other user's write is theirs alone");
+    principal=null;
+    assert.equal((await put(false)).status,401);
+    const token=tokens.createToken(f.db,OWNER,"Settings bearer").token;
+    assert.equal((await put(false,{Authorization:`Bearer ${token}`})).status,401,"a personal token is not a UI session");
+    assert.deepEqual([open(1),open(2)],[before[0],"true"]);
+    principal=OWNER;
+    assert.equal((await put("true")).status,400);
+    assert.equal(open(1),before[0]);
   } finally {await app.close();f.db.close();}
 });
 
