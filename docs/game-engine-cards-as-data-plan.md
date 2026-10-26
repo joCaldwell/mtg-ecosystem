@@ -77,8 +77,16 @@ The end state of D1 is that adding an already-lowerable card is data-only.
 
 ### D1c: simulator
 
-- **One batch command.** A single generic `match-batch <profile>` and
-  `match-replay <profile>` replaces the per-profile subcommands.
+The D1c implementation (`ad5b9e9`) and verification are complete; independent
+review is pending. See [D1c verification](game-engine-cards-as-data-d1c.md). The
+batch CLI and completion layouts were already data-driven at the D1b-3 base. D1c replaces
+all five card-specific policy modules with one IR-driven chooser and one generic
+instruction-site, trigger, keyword and card-use summary. No core rules or profile
+JSON changes are needed. Historical demo/throughput fixtures still select their
+fixed reference scenarios; they use the same generic batch and strategy code.
+
+- **One batch command.** A single generic `match-batch <profile> <out>` and
+  `match-replay <profile> <evidence>` replaces the per-profile subcommands.
 - **Generic completion policies.** Base them on IR features: removal targets
   the highest-power opposing creature, burn targets the lowest life, and so on.
 - **Remove card-specific code.** Delete card-name branches and the
@@ -87,14 +95,28 @@ The end state of D1 is that adding an already-lowerable card is data-only.
 
 ### D1 exit
 
-- Re-baseline every current profile under the new system, regenerated from
-  data. All tests pass.
-- Add the audit's three cards (Canyon Minotaur, Open Fire, Flesh to Dust) plus
-  at least ten other already-lowerable cards from the current archive. Use a
-  new profile data file, with zero changes to `.rs` or `.ts` files.
-- Run a batch with 0 faults, and add a per-capability witness for any
-  instruction the batch did not reach.
-- `npm run check:engine` and SDK verification pass.
+- [x] Re-baseline all twelve current data profiles. The D1c release batches
+  finished **216/216 games with winners**, zero draws/faults/truncations, and
+  **216/216 explicit CLI replays**. Every profile retained the prior policy's
+  18-winner outcome. See the [D1c report](game-engine-cards-as-data-d1c.md).
+- [x] Add Canyon Minotaur, Open Fire and Flesh to Dust plus ten other
+  already-lowerable current-archive cards. This was completed by the D1b-3
+  data-only commit `17da3a1`:
+  `git diff --name-only 57562e3 17da3a1 -- '*.rs' '*.ts'` produces no output. The generic D1c batch used every card in that
+  twenty-definition admission catalog, including all thirteen additions.
+- [x] Retain a per-capability witness for every instruction the batches missed.
+  Thirty of thirty-five instruction kinds produced committed batches. The five
+  globally unreached kinds and every profile-specific missed kind map to passing
+  existing core tests; no witness is missing. Exact sites and unused cards are
+  listed in the report and ignored batch evidence. No core rule changes were
+  required.
+- [x] `npm run check:engine` passed end to end: formatting, Clippy, **902 Rust
+  tests passed / zero failed / 18 ignored**, and **56 Node checks passed**.
+  Release server build and SDK verification passed: **47 tests**, strict
+  TypeScript and all 32 response variants. SDK generated output was copied to
+  ignored evidence and removed from the SDK.
+
+Implementation review and merge remain separate from these verification items.
 
 ## D2 — Generic IR and compositional compiler
 

@@ -361,7 +361,6 @@ fn prepare_root(
         catalog,
         policy: Policy::Develop,
         mulligans: [0; 4],
-        beneficial: false,
         mana_plan: Default::default(),
         mana_color: None,
     };
@@ -474,7 +473,6 @@ fn branch(
         catalog,
         policy: Policy::Develop,
         mulligans: [0; 4],
-        beneficial: false,
         mana_plan: Default::default(),
         mana_color: None,
     };
@@ -1436,7 +1434,6 @@ fn choice_setup_policy_initial_keep_is_public_and_does_not_mutate_game() {
         catalog: &catalog,
         policy: Policy::Develop,
         mulligans: [0; 4],
-        beneficial: false,
         mana_plan: Default::default(),
         mana_color: None,
     };

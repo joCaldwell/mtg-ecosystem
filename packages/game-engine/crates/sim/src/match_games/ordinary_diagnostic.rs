@@ -1,5 +1,5 @@
 //! Trusted host diagnostics, not a strategy or a product search acceptance gate.
-//! Ordinary games use actual pod admission and the unchanged released Strategy.
+//! Ordinary games use actual pod admission and the current IR-driven Strategy.
 //! Preparation, policy, queries, transitions, replay and adapters stay separate.
 use super::*;
 use serde_json::{Value, json};
@@ -444,7 +444,6 @@ fn ordinary_prefix(catalog: &Catalog, count: usize, quantum: u64) -> Result<Run,
         catalog,
         policy: Policy::Develop,
         mulligans: [0; 4],
-        beneficial: false,
         mana_plan: Default::default(),
         mana_color: None,
     };
@@ -781,7 +780,7 @@ fn ordinary_legal_pod_diagnostic() {
         .unwrap();
     let mut report = json!({"schema":"ordinary-legal-pod-diagnostic-v1","status":"running","build_id":BUILD_ID,
         "classification":"legal four100card pod; fixed1024input prefix, not necessarily a completed game",
-        "policy":"unchanged released Develop Strategy; chooser permitted Observation only",
+        "policy":"IR-driven Develop Strategy; chooser permitted Observation only",
         "seed_index":1,"starting_player":1,"mulligans":[0,0,0,0],"trace_mode":"off","quantum":QUANTUM,
         "warmups":1,"measured_repeats":REPEATS,"samples":[],
         "scope":"Core segment check+submit+automatic advancement; observation and policy clocks separate. Admission, preparation, replay oracle, serialization and I/O outside segment. Whole host process must be externally bounded and measured."});

@@ -46,8 +46,10 @@ admission exclusions for every selected catalog.
 
 Use `mtg-sim match-batch PROFILE OUTPUT` and `mtg-sim match-replay PROFILE FILE`.
 Batch generation and replay both obtain the profile and catalog from data;
-replay rejects a report for a different profile. The existing Develop policy
-and its card-specific heuristics remain D1c work. Historical reports retain
+replay rejects a report for a different profile. The Develop policy reads public IR target domains, filters, instruction amounts
+and costs, plus permitted board observations. No profile or card identity selects
+strategy. One generic interaction summary lists instruction-site coverage and
+unused catalog cards; see [D1c verification](game-engine-cards-as-data-d1c.md). Historical reports retain
 their original source, catalog, policy and build qualifications.
 
 `match-game PROFILE INDEX` runs one completion game;
