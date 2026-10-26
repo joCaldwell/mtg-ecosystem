@@ -109,7 +109,7 @@ export function LogRow({
   const deck = entry.deck_name ?? "Your profile";
 
   return (
-    <div className={styles.row}>
+    <div className={styles.row} data-advanced={advanced}>
       {advanced && <Text mono size="xs" tone="faint" className={styles.rev}>
         r{entry.revision}
       </Text>}

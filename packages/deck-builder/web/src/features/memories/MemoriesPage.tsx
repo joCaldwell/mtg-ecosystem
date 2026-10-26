@@ -46,6 +46,9 @@ export function MemoriesPage() {
   const g = list.data?.global_budget;
   const budgets = list.data?.budgets;
   useEffect(() => setOffset(0), [scope, showOld, q, basis]);
+  useEffect(() => {
+    if (typeof scope === "number" && list.data && !list.data.scopes.some(deck => deck.id === scope)) setScope("all");
+  }, [scope, list.data?.scopes]);
   const filtered = scope !== "all" || basis !== "any" || showOld || q !== "";
   const addToDeck = typeof scope === "number" ? scope : null;
 
@@ -75,8 +78,8 @@ export function MemoriesPage() {
               <Meter value={g.used} max={g.budget} tone={g.omitted > 0 ? "warn" : "agent"} aria-label="Global memory budget used" />
               <p className={styles.small}>
                 {g.omitted > 0
-                  ? `${g.omitted} did not fit and are found by search only. Ask an agent to consolidate.`
-                  : "Everything global loads at the start of a session."}
+                  ? voice(`${g.omitted} did not fit. They remain searchable; combine related notes to make room.`, `${g.omitted} did not fit and are found by search only. Ask an agent to consolidate.`)
+                  : voice("All global notes fit within this limit.", "Everything global loads at the start of a session.")}
               </p>
             </Box>
             <Box padding="sm">
@@ -160,7 +163,7 @@ export function MemoriesPage() {
                   showScope={scope === "all"}
                   onChanged={() => {
                     list.reload();
-                          }}
+                  }}
                 />
               ))}
             </div>

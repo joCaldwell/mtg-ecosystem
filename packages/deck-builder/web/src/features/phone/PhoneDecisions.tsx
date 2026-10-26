@@ -1,3 +1,4 @@
+import { useVoice } from "../../app/Preferences.tsx";
 // Decision on a phone (spec §8.2, §11.2): each decision — an add, a cut, a swap
 // or a group — with Accept and Reject, and Accept all and Reject all above them. Each takes
 // the optional reason, which the agent reads at its next session. The changes
@@ -26,7 +27,7 @@ export function PhoneDecisions({ view }: { view: { units: ReviewUnit[] } }) {
   const [reason, setReason] = useState("");
   if (!view.units.length) return null;
   if (state.deck.category === "archived")
-    return <p className={styles.legacy}>This Archived deck has {view.units.length} pending decisions, kept until it is restored on a larger screen.</p>;
+    return <p className={styles.legacy}>This archived deck has {view.units.length} pending decisions, kept until it is restored on a larger screen.</p>;
   const open = state.proposals.filter((p) => view.units.some((u) => u.proposalId === p.id)).length;
   return (
     <section className={styles.decisions} aria-label="Waiting on you">
@@ -53,6 +54,7 @@ export function PhoneDecisions({ view }: { view: { units: ReviewUnit[] } }) {
 }
 
 function Unit({ unit, index, review }: { unit: ReviewUnit; index: number; review: Review }) {
+  const voice = useVoice();
   const state = useDeckState();
   const [reason, setReason] = useState("");
   const proposal = state.proposals.find((p) => p.id === unit.proposalId);
@@ -68,7 +70,7 @@ function Unit({ unit, index, review }: { unit: ReviewUnit; index: number; review
         {unit.items.map((item) => <ReviewItemLine key={item.id} item={item} />)}
       </div>
       <TextField fieldSize="lg" className={styles.reason} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500}
-        placeholder="Why? Optional. The agent reads this next session." aria-label={`Reason for decision ${index + 1}, optional`} />
+        placeholder={voice("Reason, optional. Kept with your decision.", "Why? Optional. The agent reads this next session.")} aria-label={`Reason for decision ${index + 1}, optional`} />
       <div className={styles.buttons}>
         <Button size="touch" variant="accept" onClick={() => void review.accept(unit, reason)}>Accept</Button>
         <Button size="touch" variant="reject" onClick={() => void review.reject(unit, reason)}>Reject</Button>

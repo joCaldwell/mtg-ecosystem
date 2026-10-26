@@ -28,7 +28,7 @@
   text-align: left;
 }
 
-.name:hover {
+button.name:hover {
   color: var(--text-soft);
   text-decoration: underline dotted var(--faint);
   text-underline-offset: 4px;

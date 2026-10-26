@@ -1,5 +1,5 @@
 import { useVoice } from "../../app/Preferences.tsx";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, type ActivityEntry } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
 import { href } from "../../app/routes.ts";
@@ -19,6 +19,7 @@ const VERB: Record<string, string> = {
   shortlist_cards: "Shortlisted",
   remember: "Remembered",
   revise_memory: "Revised",
+  mark_rulings_reviewed: "Read decisions", // Historical action code; stored prose is preserved.
   mark_decisions_reviewed: "Read decisions",
   propose_changes: "Proposed",
   propose_brief_edit: "Brief edit",
@@ -48,6 +49,7 @@ export function ActivityPage() {
   const [offset, setOffset] = useState(0);
   const feed = useQuery(() => api.listActivity(offset), [offset]);
   const [agent, setAgent] = useState<string | null>(null);
+  useEffect(() => setAgent(null), [offset]);
 
   const entries = feed.data ?? [];
   const actors = [...new Set(entries.map((e) => e.actor))];
@@ -72,8 +74,8 @@ export function ActivityPage() {
         </EmptyState>
       ) : (
         <>
-          <div className={styles.filters} role="group" aria-label="Agent">
-            <Pill on={agent == null} onClick={() => setAgent(null)}>All agents</Pill>
+          <div className={styles.filters} role="group" aria-label="Agents on this page">
+            <Pill on={agent == null} onClick={() => setAgent(null)}>All agents on this page</Pill>
             {actors.map((a) => (
               <Pill key={a} on={agent === a} onClick={() => setAgent(a)}>
                 {a}

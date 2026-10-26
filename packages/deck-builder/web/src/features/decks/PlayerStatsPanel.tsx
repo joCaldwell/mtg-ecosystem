@@ -1,3 +1,4 @@
+import { useVoice } from "../../app/Preferences.tsx";
 import type { ReactNode } from "react";
 import { api, type PlayerStats } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
@@ -46,6 +47,7 @@ function Colors({ stats }: { stats: PlayerStats }) {
  * this only arranges them. Empty blocks are left out.
  */
 export function PlayerStatsPanel() {
+  const voice = useVoice();
   const query = useQuery(() => api.getStats(), []);
   const stats = query.data;
   if (query.error && !stats) return <ErrorNote>{query.error}</ErrorNote>;
@@ -163,7 +165,7 @@ export function PlayerStatsPanel() {
       )}
 
       <Text tone="faint" size="xs">
-        Only Paper decks contribute. These are the same computed numbers an agent gets from <Text mono>player_stats</Text>.
+        {voice("Only Paper decks contribute. Mark a deck as Paper to include its counts here.", "Only Paper decks contribute. These are the same computed numbers your agent receives.")}
       </Text>
     </Section>
   );

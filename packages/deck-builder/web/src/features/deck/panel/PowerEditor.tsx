@@ -1,3 +1,4 @@
+import { useVoice } from "../../../app/Preferences.tsx";
 import { useState, type FormEvent } from "react";
 import { api, type Power, type PowerAssessmentInput, type PowerProfile } from "../../../api/client.ts";
 import { emptyPowerProfile } from "../../../domain/power.ts";
@@ -8,6 +9,7 @@ import styles from "./PowerPanel.module.css";
 export function PowerEditor({ kind, power, revision, onClose }: {
   kind: "target" | "assessment"; power: Power; revision: number; onClose: () => void;
 }) {
+  const voice = useVoice();
   const { deckId, run, error } = useDeck();
   const target = kind === "target";
   const source = target ? power.target : power.assessment;
@@ -42,7 +44,7 @@ export function PowerEditor({ kind, power, revision, onClose }: {
     <form id="power-editor" onSubmit={save} className={styles.form}>
       <Text as="p" tone="muted">{target ? "Describe the experience you want to build toward. Leave undecided fields unknown." : `Describe the list at r${assessedRevision}. Leave uncertain fields unknown and explain your evidence.`}</Text>
       <div className={styles.fields}>
-        {fields.map(field => <Field key={field.key} label={field.label} hint={field.options.find(o => o.value === profile[field.key])?.hint ?? "Unknown until you or an agent assesses it."}>
+        {fields.map(field => <Field key={field.key} label={field.label} hint={field.options.find(o => o.value === profile[field.key])?.hint ?? voice("Unknown until you assess it.", "Unknown until you or an agent assesses it.")}>
           <Select value={profile[field.key] ?? ""} onChange={e => setProfile({ ...profile, [field.key]: e.target.value || null })}>
             <option value="">Unknown / undecided</option>
             {field.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -79,7 +81,7 @@ export function PowerEditor({ kind, power, revision, onClose }: {
         <TextArea value={notes} required={!target} maxLength={6000} rows={4} onChange={e => setNotes(e.target.value)} />
       </Field>
       {error && <ErrorNote>{error}</ErrorNote>}
-      <Stack gap={2}><Text size="sm" tone="faint">{target ? "Targets do not change the list or its current assessment." : "This is your assessment. Agents cannot overwrite it for this revision. Card edits will flag it for review."}</Text></Stack>
+      <Stack gap={2}><Text size="sm" tone="faint">{target ? "Targets do not change the list or its current assessment." : voice("This is your assessment. Card edits will flag it for review.", "This is your assessment. Agents cannot overwrite it for this revision. Card edits will flag it for review.")}</Text></Stack>
     </form>
   </Dialog>;
 }

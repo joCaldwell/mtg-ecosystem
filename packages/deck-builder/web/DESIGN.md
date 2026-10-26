@@ -222,7 +222,8 @@ sheet over the list (principle 1's existing requested-dialog exception).
 - **Listbox:** MultiSelect's filtered options have `role=option` and
   `aria-selected` inside an `aria-multiselectable` listbox. Up/Down navigates
   search and options; Space/Enter toggles; Escape/Done returns to the trigger.
-  The listbox shows empty and no-match states and disables writes while busy.
+  The listbox shows empty and no-match states as a disabled option (so its
+  required option role remains present), and disables writes while busy.
 - **Card inspection:** `?` on a focused card row opens the same CardSheet as
   tapping its mana cost. Inline card names without a host action open it too.
   The modal is named, traps focus, closes with Escape and restores focus.

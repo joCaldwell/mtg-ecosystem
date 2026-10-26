@@ -1,3 +1,4 @@
+import { usePreferences } from "../../app/Preferences.tsx";
 // A deck on a phone (spec §11.2): the same read-only composition as a shared
 // page, fed by the owner's own deck, with its pending proposals drawn in place
 // and ruled on here. Accept and reject are the only writes a phone makes.
@@ -32,6 +33,7 @@ function Gate() {
 }
 
 function Deck() {
+  const { advanced } = usePreferences();
   const { state, error, clearError } = useDeck();
   useScrollRestore(true);
   const model = useMemo(() => fromOwner(state!), [state]);
@@ -46,7 +48,7 @@ function Deck() {
           <h1 className={styles.title}>{deck.name}</h1>
           <div className={styles.meta}>
             <Chip>{DECK_CATEGORY_LABELS[deck.category]}</Chip>
-            <span className={styles.rev}>r{deck.revision}</span>
+            {advanced && <span className={styles.rev}>r{deck.revision}</span>}
             {deck.visibility !== "private" && deck.slug && (
               <a href={href({ page: "shared", slug: deck.slug })}><Icon name={deck.visibility === "public" ? "globe" : "link"} /> {deck.visibility === "public" ? "Public" : "Unlisted"} page</a>
             )}

@@ -25,3 +25,5 @@
 .keys {
   white-space: nowrap;
 }
+
+.explanation { padding: var(--s-2) var(--s-6); }

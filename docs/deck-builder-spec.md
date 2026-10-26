@@ -904,13 +904,16 @@ and wider it keeps the desktop panes. Phones retain this read-and-rule scope.
 - An empty account at 720+ px has three actions: Create a deck; Import an
   Archidekt or Moxfield text export; Try the sample deck. Import first names
   its destination and then opens the existing import preview (`?import=1`);
-  no membership changes happen without that preview's approval.
+  no membership changes happen without that preview's approval. The query is
+  consumed when the Import tab opens, so reloading does not reopen it.
 - `POST /api/demo` calls human-only `createDemo(db, actor)` in the capability
   layer, within a transaction. It creates one private sample for that user,
   including illustrative proposals, decisions and deck-scoped memories. The
   synthetic actor is explicitly labelled `sample-agent` with the same
   principal. It is demonstration data, not a claim that an external model
-  connected. Nothing touches the profile or global memories. A repeat call
+  connected. Nothing touches the profile, global memories or physical ownership evidence.
+  Sample tags are sourcing/status examples (Testing, Wishlist, Keep), with
+  purposes recorded as slots. A repeat call
   returns the recorded sample id while that user's deck exists, including
   after a rename; deleting it allows another. The CLI calls this capability
   too and never replaces user content. Missing optional cards are skipped

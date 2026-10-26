@@ -104,7 +104,7 @@ function CardExamples({ cards }: { cards: CardInfo[] }) {
         </Labelled>
       </Example>
 
-      <Example title="CardSheet" note="The hover card's touch form: tapped open, a bottom sheet on a phone and a small dialog otherwise. Read-only decks open every card this way.">
+      <Example title="CardSheet" note="Explicit card inspection: tap a card, or focus a CardRef and press ?. Escape closes it and restores focus. Read-only decks open every card this way.">
         <Row gap={4} wrap>
           <Button onClick={() => setSheet("center")}>Open as a dialog</Button>
           <Button size="touch" onClick={() => setSheet("sheet")}>Open as a sheet</Button>
@@ -135,7 +135,7 @@ function CardExamples({ cards }: { cards: CardInfo[] }) {
 
       <Example
         title="CardRef"
-        note="A card's name inline in text. It opens the card through the nearest CardOpenProvider; without one the click does nothing."
+        note="A card's name inline in text. A host action opens it in context; without one, a click opens CardSheet. Focus a reference and press ? for inspection."
       >
         <CardOpenProvider onOpen={setOpened}>
           <p className={styles.prose}>

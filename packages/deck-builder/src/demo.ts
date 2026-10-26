@@ -56,11 +56,12 @@ const slots = {
   draw: createSlot(db, OWNER, deckId, "draw", 5, 8),
   defense: createSlot(db, OWNER, deckId, "defense", 3, 5),
 };
+// Tags teach sourcing/status, not a second purpose taxonomy. In particular
+// the sample never asserts real physical ownership with a Have tag.
 const tags = {
-  proliferate: createTag(db, OWNER, deckId, "proliferate"),
-  removal: createTag(db, OWNER, deckId, "removal"),
-  ultimate: createTag(db, OWNER, deckId, "ultimate"),
-  wincon: createTag(db, OWNER, deckId, "wincon"),
+  testing: createTag(db, OWNER, deckId, "Testing"),
+  wishlist: createTag(db, OWNER, deckId, "Wishlist"),
+  keep: createTag(db, OWNER, deckId, "Keep"),
 };
 
 // One logged act for the whole first build, as an import or an agent's
@@ -107,12 +108,12 @@ add("Swamp", slots.manaBase, { quantity: 5 });
 applyChanges(db, OWNER, deckId, build, { kind: "edit", summary: "First build" });
 
 for (const [name, tagIds] of [
-  ["Flux Channeler", [tags.proliferate]],
-  ["Inexorable Tide", [tags.proliferate, tags.wincon]],
-  ["Contagion Engine", [tags.proliferate]],
-  ["Karn Liberated", [tags.ultimate, tags.wincon]],
-  ["Swords to Plowshares", [tags.removal]],
-  ["Assassin's Trophy", [tags.removal]],
+  ["Flux Channeler", [tags.testing]],
+  ["Inexorable Tide", [tags.testing, tags.keep]],
+  ["Contagion Engine", [tags.testing]],
+  ["Karn Liberated", [tags.wishlist, tags.keep]],
+  ["Swords to Plowshares", [tags.keep]],
+  ["Assassin's Trophy", [tags.keep]],
 ] as [string, number[]][]) {
   const oid = oracle(name);
   if (oid) organizeCard(db, OWNER, deckId, oid, { tagIds });
@@ -120,7 +121,7 @@ for (const [name, tagIds] of [
 
 updateBrief(db, OWNER, deckId, {
   thesis:
-    "Atraxa proliferates planeswalker loyalty every end step until an ultimate ends the game. " +
+    "Atraxa proliferates planeswalker loyalty at your end step until an ultimate ends the game. " +
     "The deck is a control shell first: survive, stick a walker, then let the proliferate engine " +
     "outpace what any one opponent can remove.",
   constraints_md:
@@ -154,7 +155,7 @@ function propose(summary: string, items: (ProposalItemInput | null)[]) {
 // An accepted add, so the log has an accept in it.
 {
   const pid = propose("Loyalty doubling", [
-    itemFor("Doubling Season", "add", "Doubles loyalty counters — every walker arrives one activation from its ultimate.", { slot_id: slots.walkers }),
+    itemFor("Doubling Season", "add", "Doubles loyalty counters as planeswalkers enter, making their ultimates available sooner.", { slot_id: slots.walkers }),
   ]);
   if (pid) acceptItems(db, OWNER, pendingItemIds(db, OWNER, pid), "Yes. This is the deck.");
 }

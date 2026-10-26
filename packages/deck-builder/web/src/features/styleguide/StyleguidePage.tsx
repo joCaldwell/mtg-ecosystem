@@ -439,8 +439,8 @@ function Forms() {
           <Stack gap={4} className={styles.narrow}>
             <TextField placeholder="md (default)" value={text} onChange={(e) => setText(e.target.value)} />
             <TextField fieldSize="lg" placeholder="lg: for the add bar" />
-            <TextField invalid defaultValue="invalid" />
-            <TextField disabled defaultValue="disabled" />
+            <TextField aria-label="Invalid example" invalid defaultValue="invalid" />
+            <TextField aria-label="Disabled example" disabled defaultValue="disabled" />
           </Stack>
         </Demo>
       </Section>
@@ -448,19 +448,19 @@ function Forms() {
         <Demo>
           <Stack gap={4} className={styles.narrow}>
             <TextArea placeholder="Fixed rows" rows={2} />
-            <TextArea autosize value={area} onChange={(e) => setArea(e.target.value)} />
+            <TextArea aria-label="Autosizing example" autosize value={area} onChange={(e) => setArea(e.target.value)} />
           </Stack>
         </Demo>
       </Section>
       <Section title="Select and Checkbox">
         <Demo>
           <Row gap={6}>
-            <Select value={sel} onChange={(e) => setSel(e.target.value)}>
+            <Select aria-label="Select example" value={sel} onChange={(e) => setSel(e.target.value)}>
               <option value="a">Commander</option>
               <option value="b">Brawl</option>
               <option value="c">Standard</option>
             </Select>
-            <Select disabled defaultValue="a"><option value="a">Disabled</option></Select>
+            <Select aria-label="Disabled select example" disabled defaultValue="a"><option value="a">Disabled</option></Select>
             <Checkbox checked={checked} onChange={setChecked} label="Checked" />
             <Checkbox checked={false} onChange={() => undefined} label="Unchecked" />
             <Checkbox checked disabled onChange={() => undefined} label="Disabled" />
@@ -502,8 +502,8 @@ function Feedback() {
                 <div className={styles.grow}><Meter tone={t} value={(i + 1) * 20} max={100} aria-label={t} /></div>
               </Row>
             ))}
-            <Row gap={5}><span className={styles.meterLabel}><Label>over</Label></span><div className={styles.grow}><Meter tone="warn" value={140} max={100} /></div></Row>
-            <Row gap={5}><span className={styles.meterLabel}><Label>empty</Label></span><div className={styles.grow}><Meter value={0} max={100} /></div></Row>
+            <Row gap={5}><span className={styles.meterLabel}><Label>over</Label></span><div className={styles.grow}><Meter aria-label="Over budget example" tone="warn" value={140} max={100} /></div></Row>
+            <Row gap={5}><span className={styles.meterLabel}><Label>empty</Label></span><div className={styles.grow}><Meter aria-label="Empty meter example" value={0} max={100} /></div></Row>
           </Stack>
         </Demo>
       </Section>
@@ -595,7 +595,7 @@ function Overlays() {
             footer={<><Button variant="ghost" onClick={() => setDialog(null)}>Cancel</Button><Button variant="primary" onClick={() => setDialog(null)}>Save</Button></>}
           >
             <Field label="Name" hint="Autofocused through data-autofocus.">
-              <TextField data-autofocus defaultValue="Jo's upkeep" />
+              <TextField aria-label="Deck name" data-autofocus defaultValue="Jo's upkeep" />
             </Field>
           </Dialog>
         ) : null}

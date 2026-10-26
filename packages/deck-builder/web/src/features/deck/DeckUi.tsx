@@ -10,7 +10,7 @@ import type { GroupBy } from "../../domain/grouping.ts";
 import type { TagMatch } from "../../domain/deckSearch.ts";
 
 export type PanelTab = "review" | "brief" | "power" | "checks" | "memories" | "history";
-export type DeckDialog = "fork" | "compare" | "interop" | "slots" | "delete" | "share";
+export type DeckDialog = "fork" | "compare" | "interop" | "import" | "slots" | "delete" | "share";
 
 export interface OpenCard {
   oracleId: string;

@@ -20,6 +20,7 @@ export function OnboardingPatterns() {
       <Text as="p" tone="faint">Faint text stays readable on all app surfaces. Reduced motion turns off transitions and the pulse animation.</Text>
     </Stack>
     {dialog && <Dialog title={dialog === "drawer" ? "Navigation" : "Deck details"} placement={dialog} onClose={() => setDialog(null)}>
+      <Disclosure label="Advanced in a dialog" open={advanced} onChange={setAdvanced}><Button>Hidden control excluded from focus trap</Button></Disclosure>
       <Stack gap={7}><Text>The {dialog} uses the same focus trap, Escape, backdrop and close control as Dialog.</Text><Button onClick={() => setDialog(null)}>Close {dialog}</Button></Stack>
     </Dialog>}
   </Section>;

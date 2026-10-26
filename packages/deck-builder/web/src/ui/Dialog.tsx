@@ -32,7 +32,8 @@ export function Dialog({ title, onClose, width = "md", placement = "center", chi
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const el = panel.current;
-    const target = el?.querySelector<HTMLElement>("[data-autofocus]") ?? el?.querySelector<HTMLElement>(FOCUSABLE);
+    const visible = (selector: string) => Array.from(el?.querySelectorAll<HTMLElement>(selector) ?? []).find(item => item.getClientRects().length > 0);
+    const target = visible("[data-autofocus]") ?? visible(FOCUSABLE);
     (target ?? el)?.focus();
 
     const overflow = document.body.style.overflow;
@@ -49,7 +50,9 @@ export function Dialog({ title, onClose, width = "md", placement = "center", chi
 
   function trapTab(e: KeyboardEvent) {
     if (e.key !== "Tab" || !panel.current) return;
-    const items = Array.from(panel.current.querySelectorAll<HTMLElement>(FOCUSABLE));
+    // Advanced keeps hidden content mounted. Native Tab skips it; the
+    // focus trap must use the same set of visible controls.
+    const items = Array.from(panel.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(item => item.getClientRects().length > 0);
     const first = items[0];
     const last = items[items.length - 1];
     if (!first || !last) {

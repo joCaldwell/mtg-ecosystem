@@ -248,11 +248,12 @@ describe("tokens", () => {
   });
 });
 
-// ---------- one phone breakpoint (spec §11.2) ----------
+// ---------- approved phone and tablet breakpoints (spec §11.2–11.3) ----------
 
 describe("breakpoints", () => {
   test("width queries use exactly the phone, drawer and panel breakpoints", async () => {
     const { PHONE_MAX_WIDTH, DRAWER_BREAKPOINT, PANEL_BREAKPOINT } = await import("../web/src/app/breakpoints.ts");
+    assert.deepEqual([PHONE_MAX_WIDTH, DRAWER_BREAKPOINT, PANEL_BREAKPOINT], [719, 960, 1100]);
     const problems: string[] = [];
     for (const f of walk(SRC)) {
       const rel = posix(relative(SRC, f));

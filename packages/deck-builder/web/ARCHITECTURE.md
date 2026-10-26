@@ -186,8 +186,8 @@ refresh and backup. The server's SSE has a 25-second comment heartbeat;
 job completion emits a normal invalidation. The shared `domain/familyOrder`
 keeps all fork descendants in the roster; `ui/Pill` owns selectable filter
 pills. Proposal history uses Section/Box/Stack/Chip and human-readable dates
-and edit titles, without approval controls. The Memories scope-reset effect
-depends only on the scope and unfiltered memory response.
+and edit titles, without approval controls. Memories resets a deleted scope from its response’s owned-deck metadata, and
+resets pagination when a filter changes.
 
 
 ## Identity foundation (v3 Phase 1)

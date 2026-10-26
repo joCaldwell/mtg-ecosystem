@@ -103,6 +103,7 @@ test("sample creation is atomic, idempotent, human-only and leaves global/profil
   assert.deepEqual(listMemories(db,second,{scope:"global"}),[global]);
   assert.equal(getDeck(db,OWNER,ownerDeck).deck.name,"Existing owner's deck");
   assert.equal(getDeck(db,second,sample.deckId).deck.visibility,"private");
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM ownership_evidence WHERE user_id=2").get()!.n,0,"sample tags never assert physical ownership");
   assert.ok(listActivity(db,second).every(e=>e.user_id===2));
   assert.equal(uiPreferences(db,second).has_agent_activity,true);
  }finally{db.close();}

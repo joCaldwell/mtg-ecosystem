@@ -7,7 +7,7 @@ import { useQuery } from "../../api/useQuery.ts";
 // cut across regions.
 
 import { useCallback, useEffect } from "react";
-import { href } from "../../app/routes.ts";
+import { href, navigate } from "../../app/routes.ts";
 import { CardOpenProvider, useCardLookup } from "../../mtg/index.ts";
 import { Banner, Button, EmptyState, Loading, Page, pressesFocusedControl, useHotkeys } from "../../ui/index.ts";
 import { DeckBody } from "./DeckBody.tsx";
@@ -58,8 +58,11 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
   const { error, clearError } = useDeck();
   const ui = useDeckUi();
   useEffect(() => {
-    if (new URLSearchParams(location.search).get("import") === "1") ui.openDialog("interop");
-  }, [ui.openDialog]);
+    if (new URLSearchParams(location.search).get("import") === "1") {
+      ui.openDialog("import");
+      navigate({ page: "deck", deckId: state.deck.id }, { replace: true });
+    }
+  }, [ui.openDialog, state.deck.id]);
   const memories = useQuery(() => api.listMemories(), []);
   const view = useDeckView(memories.data?.memories);
   const review = useReview(view.units);

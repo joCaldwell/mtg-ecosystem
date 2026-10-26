@@ -1,3 +1,4 @@
+import { useVoice } from "../../app/Preferences.tsx";
 import { useEffect, useState } from "react";
 import { api, type Settings } from "../../api/client.ts";
 import { Box, Button, ErrorNote, Field, Row, Stack, Text, TextField } from "../../ui/index.ts";
@@ -11,6 +12,7 @@ const valid = (s: string) => /^\d+$/.test(s.trim()) && Number(s) >= MIN && Numbe
 
 /** How much memory an agent is handed without asking (spec §7.4), in estimated tokens. */
 export function BudgetsCard({ budgets, onSaved }: { budgets: Settings["budgets"]; onSaved: () => void }) {
+  const voice = useVoice();
   const [global, setGlobal] = useState(String(budgets.global));
   const [deck, setDeck] = useState(String(budgets.deck));
   const [busy, setBusy] = useState(false);
@@ -50,8 +52,7 @@ export function BudgetsCard({ budgets, onSaved }: { budgets: Settings["budgets"]
           Memory budgets
         </Text>
         <Text tone="muted" size="sm">
-          When a scope outgrows its budget the newest memories load, the oldest are found by search only, and the
-          agent is told to consolidate.
+          {voice("These limits apply when you connect an agent. Older notes stay searchable even when they do not fit in a session.", "When a scope outgrows its budget the newest memories load, the oldest are found by search only, and the agent is told to consolidate.")}
         </Text>
         <div className={styles.fields}>
           <Field label="Global memories" hint="Estimated tokens loaded at session start.">

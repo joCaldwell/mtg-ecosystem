@@ -117,11 +117,13 @@ export function CardControls({ card }: { card: DeckCard }) {
       />,
     ]);
 
-  if (deck.category === "archived") return <KeyValue items={[
-    ["Primary slot", slots.find(s => s.id === card.slot_id)?.name ?? "Unfiled"],
-    ["Secondary slots", slots.filter(s => card.secondary_slot_ids.includes(s.id)).map(s => s.name).join(", ") || "None"],
-    ["Tags", tags.filter(t => card.tag_ids.includes(t.id)).map(t => t.name).join(", ") || "None"],
-    ["Role", card.role], ["Copies", card.quantity],
-  ]} className={styles.kv} />;
+  if (deck.category === "archived") return <>
+    <KeyValue items={[
+      ["Primary slot", slots.find(s => s.id === card.slot_id)?.name ?? "Unfiled"],
+      ["Tags", tags.filter(t => card.tag_ids.includes(t.id)).map(t => t.name).join(", ") || "None"],
+      ["Role", card.role], ["Copies", card.quantity],
+    ]} className={styles.kv} />
+    <Advanced><KeyValue items={[["Secondary slots", slots.filter(s => card.secondary_slot_ids.includes(s.id)).map(s => s.name).join(", ") || "None"]]} /></Advanced>
+  </>;
   return <><KeyValue items={rows.filter(([label]) => label !== "Secondary slots")} className={styles.kv} /><Advanced><KeyValue items={rows.filter(([label]) => label === "Secondary slots")} className={styles.kv} /></Advanced></>;
 }

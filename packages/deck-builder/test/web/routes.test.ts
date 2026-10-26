@@ -50,3 +50,10 @@ test("sign-in returns only to a path on this site (review S10)", () => {
   assert.equal(signInHref(), "/signin");
   for (const sneaky of ["/./\\evil.com", "/a/..\\/evil.com", "/.//evil.com"]) assert.ok(!safeNext(sneaky).startsWith("//"), sneaky);
 });
+
+
+test("first-run import has an explicit query handoff on the existing deck route", () => {
+  assert.equal(href({ page: "deck", deckId: 3, importing: true }), "/deck/3?import=1");
+  assert.deepEqual(parseRoute("/deck/3", "?import=1"), { page: "deck", deckId: 3, review: false, importing: true });
+  assert.deepEqual(parseRoute("/deck/3", "?import=0"), { page: "deck", deckId: 3, review: false });
+});

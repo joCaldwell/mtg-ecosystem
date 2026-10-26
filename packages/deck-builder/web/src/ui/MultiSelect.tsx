@@ -122,7 +122,7 @@ export function MultiSelect({ label, placeholder = "Select…", options, value, 
           }}
           onKeyDown={(event) => {
             if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-            const inputs = Array.from(panel.current?.querySelectorAll<HTMLElement>('input:not(:disabled), [role="option"]:not(:disabled)') ?? []);
+            const inputs = Array.from(panel.current?.querySelectorAll<HTMLElement>('input:not(:disabled), [role="option"]:not([aria-disabled="true"]):not(:disabled)') ?? []);
             const current = inputs.indexOf(document.activeElement as HTMLElement);
             event.preventDefault();
             inputs[(current + (event.key === "ArrowDown" ? 1 : inputs.length - 1)) % inputs.length]?.focus();
@@ -133,7 +133,7 @@ export function MultiSelect({ label, placeholder = "Select…", options, value, 
             {visible.map((option) => (
               <button type="button" role="option" key={option.value} className={styles.option} aria-selected={value.includes(option.value)} disabled={busy} onClick={() => void toggle(option.value)}><span aria-hidden="true">{value.includes(option.value) ? "✓" : "○"}</span>{option.label}</button>
             ))}
-            {visible.length === 0 && <p className={styles.empty}>{options.length ? "No matching options." : emptyText}</p>}
+            {visible.length === 0 && <p role="option" aria-selected="false" aria-disabled="true" className={styles.empty}>{options.length ? "No matching options." : emptyText}</p>}
           </div>
           {footer}
           <Button size="sm" variant="ghost" onClick={close}>Done</Button>

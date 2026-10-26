@@ -41,6 +41,7 @@ describe("the tool list (spec §10.3)", () => {
     assert.ok(TOOLS.find(t => t.name === "search_cards")!.description.includes("usd<=2 or eur<=2 (cheapest playable printing in that currency, at your chosen store or lowest)"));
     assert.ok(PLAYBOOK.includes("Only the user can change their source in Settings."));
     assert.equal(TOOLS[0].name, "start_session");
+    assert.deepEqual(TOOLS.filter(t => /(?:decisions|rulings)/.test(t.name)).map(t => t.name), ["list_decisions", "mark_decisions_reviewed"]);
     assert.ok(TOOLS.find(t => t.name === "rename_deck")!.description.includes("unique across your decks."));
     const nameInput = TOOLS.find(t => t.name === "create_deck")!.input.name;
     assert.ok("description" in nameInput);
@@ -58,6 +59,8 @@ describe("the tool list (spec §10.3)", () => {
     assert.throws(() => call(db, "get_deck", {}), /Invalid arguments for get_deck: deck/);
     assert.throws(() => call(db, "remember", { text: "x", scope: "everywhere" }), /Invalid arguments/);
     assert.throws(() => call(db, "no_such_tool"), /Unknown tool/);
+    assert.throws(() => call(db, "list_rulings"), /Unknown tool/);
+    assert.throws(() => call(db, "mark_rulings_reviewed"), /Unknown tool/);
   });
 });
 

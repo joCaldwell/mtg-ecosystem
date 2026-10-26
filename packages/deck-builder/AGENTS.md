@@ -143,7 +143,7 @@ Run from this directory (`packages/deck-builder/`):
 | `npm run dev` | **Frontend loop**: API on :8787 + Vite HMR on :5173. Use :5173 |
 | `npm run check` | Typecheck (src + web) then test — the gate before committing |
 | `npm test` | Tests only — `node --test`, **not** Vitest |
-| `npm run seed:demo` | Create/replace the demo deck and its fork, which exercise every panel |
+| `npm run seed:demo` | Create the sample deck if absent, through the first-run capability |
 | `npm run refresh` | CLI job: stream cards, then prices. `-- --force` bypasses freshness; Settings only enqueues a child job |
 | `npm run backup` | Online SQLite snapshot; 14 local files, optional S3 with 14 daily/6 monthly retention |
 | `npm run restore -- <file>` | Verify and restore a snapshot while the server is stopped |
