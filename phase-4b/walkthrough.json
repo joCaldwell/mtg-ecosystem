@@ -1,0 +1,95 @@
+{
+  "results": [
+    {
+      "step": "landing",
+      "width": 768,
+      "hasPresence": 0,
+      "cards": 1
+    },
+    {
+      "step": "landing",
+      "width": 1024,
+      "hasPresence": 0,
+      "cards": 1
+    },
+    {
+      "step": "landing",
+      "width": 1280,
+      "hasPresence": 0,
+      "cards": 1
+    },
+    {
+      "step": "landing",
+      "width": 375,
+      "hasPresence": 0,
+      "cards": 0
+    },
+    {
+      "step": "sample opens",
+      "path": "/deck/30",
+      "title": "Sample — Atraxa Superfriends",
+      "explainer": true
+    },
+    {
+      "step": "wheel",
+      "width": 768,
+      "scroll": {
+        "window": 550,
+        "panes": []
+      }
+    },
+    {
+      "step": "drawer focus",
+      "inDialog": true
+    },
+    {
+      "step": "nested Escape",
+      "width": 768,
+      "sheetRemains": 1
+    },
+    {
+      "step": "wheel",
+      "width": 1024,
+      "scroll": {
+        "window": 550,
+        "panes": []
+      }
+    },
+    {
+      "step": "nested Escape",
+      "width": 1024,
+      "sheetRemains": 1
+    },
+    {
+      "step": "wheel",
+      "width": 1280,
+      "scroll": {
+        "window": 0,
+        "panes": [
+          {
+            "cls": "_scroll_1t1p4_1",
+            "top": 537
+          }
+        ]
+      }
+    },
+    {
+      "step": "wheel",
+      "width": 375,
+      "scroll": {
+        "window": 550,
+        "panes": []
+      }
+    },
+    {
+      "step": "keyboard card",
+      "focusRestored": true
+    },
+    {
+      "step": "memories",
+      "scopes": "All scopes\nGlobal\nSample — Atraxa Superfriends"
+    }
+  ],
+  "errors": [],
+  "deckPath": "/deck/30"
+}

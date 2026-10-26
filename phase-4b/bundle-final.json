@@ -1,0 +1,54 @@
+{
+  "bytes": 89744,
+  "kB": 89.744,
+  "chunks": [
+    {
+      "file": "assets/index-Bl3XNVH6.js",
+      "gzip": 6987
+    },
+    {
+      "file": "assets/react-C6ecTDAN.js",
+      "gzip": 60227
+    },
+    {
+      "file": "assets/PublicDeckPage-CYv2XvHo.js",
+      "gzip": 2635
+    },
+    {
+      "file": "assets/ReadOnlyDeck-BG0YLjnx.js",
+      "gzip": 12548
+    },
+    {
+      "file": "assets/cards-Da9wxjQj.js",
+      "gzip": 1177
+    },
+    {
+      "file": "assets/ManaSymbol-DtjhpXx5.js",
+      "gzip": 1088
+    },
+    {
+      "file": "assets/RichText-CZt1En0p.js",
+      "gzip": 2230
+    },
+    {
+      "file": "assets/windowScroll-BRhZv6Dc.js",
+      "gzip": 827
+    },
+    {
+      "file": "assets/Text-CWovPybA.js",
+      "gzip": 421
+    },
+    {
+      "file": "assets/inbox-B-nx9byJ.js",
+      "gzip": 197
+    },
+    {
+      "file": "assets/PublicShell-6wM1BX-m.js",
+      "gzip": 654
+    },
+    {
+      "file": "assets/Icon-DuuV_fK5.js",
+      "gzip": 753
+    }
+  ]
+}

@@ -1,0 +1,189 @@
+{
+  "results": [
+    {
+      "label": "decks-768",
+      "violations": []
+    },
+    {
+      "label": "deck-768",
+      "violations": []
+    },
+    {
+      "label": "inbox-768",
+      "violations": []
+    },
+    {
+      "label": "public-768",
+      "violations": []
+    },
+    {
+      "label": "decks-1024",
+      "violations": []
+    },
+    {
+      "label": "deck-1024",
+      "violations": []
+    },
+    {
+      "label": "inbox-1024",
+      "violations": []
+    },
+    {
+      "label": "public-1024",
+      "violations": []
+    },
+    {
+      "label": "decks-1280",
+      "violations": []
+    },
+    {
+      "label": "deck-1280",
+      "violations": []
+    },
+    {
+      "label": "inbox-1280",
+      "violations": []
+    },
+    {
+      "label": "public-1280",
+      "violations": []
+    },
+    {
+      "label": "decks-375",
+      "violations": []
+    },
+    {
+      "label": "deck-375",
+      "violations": []
+    },
+    {
+      "label": "inbox-375",
+      "violations": []
+    },
+    {
+      "label": "public-375",
+      "violations": []
+    },
+    {
+      "label": "drawer-open",
+      "violations": []
+    },
+    {
+      "label": "sheet-explainer-open",
+      "violations": []
+    },
+    {
+      "label": "keyboard-card",
+      "violations": []
+    },
+    {
+      "label": "multiselect-open",
+      "violations": []
+    },
+    {
+      "label": "memories",
+      "violations": []
+    },
+    {
+      "label": "empty-listbox",
+      "violations": []
+    },
+    {
+      "label": "design-drawer",
+      "violations": []
+    }
+  ],
+  "checks": [
+    {
+      "type": "wheel",
+      "width": 768,
+      "window": 550,
+      "panes": []
+    },
+    {
+      "type": "wheel",
+      "width": 1024,
+      "window": 550,
+      "panes": []
+    },
+    {
+      "type": "wheel",
+      "width": 1280,
+      "window": 0,
+      "panes": [
+        537
+      ]
+    },
+    {
+      "type": "wheel",
+      "width": 375,
+      "window": 550,
+      "panes": []
+    },
+    {
+      "type": "boundary",
+      "width": 719,
+      "windowScroll": "window",
+      "overflow": false,
+      "addBar": false
+    },
+    {
+      "type": "boundary",
+      "width": 720,
+      "windowScroll": "window",
+      "overflow": false,
+      "addBar": true
+    },
+    {
+      "type": "boundary",
+      "width": 959,
+      "windowScroll": "window",
+      "overflow": false,
+      "addBar": true
+    },
+    {
+      "type": "boundary",
+      "width": 960,
+      "windowScroll": "window",
+      "overflow": false,
+      "addBar": true
+    },
+    {
+      "type": "boundary",
+      "width": 1099,
+      "windowScroll": "window",
+      "overflow": false,
+      "addBar": true
+    },
+    {
+      "type": "boundary",
+      "width": 1100,
+      "windowScroll": null,
+      "overflow": false,
+      "addBar": true
+    },
+    {
+      "type": "nestedEscape",
+      "sheetRemains": true
+    },
+    {
+      "type": "advanced",
+      "persisted": true,
+      "sharedAcrossPanels": true
+    },
+    {
+      "type": "reducedMotion",
+      "fast": "0ms"
+    },
+    {
+      "type": "archivedTitle",
+      "button": false
+    },
+    {
+      "type": "hiddenAdvancedFocusTrap",
+      "tabCycles": 16,
+      "contained": true
+    }
+  ],
+  "errors": []
+}

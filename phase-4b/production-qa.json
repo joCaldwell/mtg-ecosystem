@@ -1,0 +1,24 @@
+{
+  "public": {
+    "gzipBytes": 89744,
+    "files": [
+      "/assets/index-Bl3XNVH6.js",
+      "/assets/react-C6ecTDAN.js",
+      "/assets/PublicDeckPage-CYv2XvHo.js",
+      "/assets/cards-Da9wxjQj.js",
+      "/assets/ReadOnlyDeck-BG0YLjnx.js",
+      "/assets/ManaSymbol-DtjhpXx5.js",
+      "/assets/RichText-CZt1En0p.js",
+      "/assets/windowScroll-BRhZv6Dc.js",
+      "/assets/Text-CWovPybA.js",
+      "/assets/inbox-B-nx9byJ.js",
+      "/assets/PublicShell-6wM1BX-m.js",
+      "/assets/Icon-DuuV_fK5.js"
+    ],
+    "errors": []
+  },
+  "touch": {
+    "width": 768,
+    "manaTapOpensDialog": true
+  }
+}
