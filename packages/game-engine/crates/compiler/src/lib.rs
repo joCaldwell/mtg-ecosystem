@@ -10,6 +10,7 @@ pub mod fixtures {
 pub mod catalog;
 pub mod coverage;
 mod normalization;
+mod self_reference;
 mod diagnostics;
 mod type_line;
 pub use catalog::*;
@@ -745,7 +746,22 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     if sha256(format!("[{}]", result.abilities.get()).as_bytes()) != ast_sha256 {
         return Err(invalid("astSha256", "successful AST hash mismatch"));
     }
-    let abilities: Vec<Ability> = read_abilities(result.abilities.get())?;
+    // CR 201.5: canonicalize only exact archive-bound references to this source.
+    // Source and AST integrity checks above still cover the original bytes.
+    let types = type_line::parse(&source.type_line)?;
+    let noun = match types.kind {
+        CardKind::Creature => "creature",
+        CardKind::Artifact => "artifact",
+        CardKind::Enchantment if types.subtypes == ["Aura"] => "aura",
+        CardKind::Enchantment => "enchantment",
+        CardKind::Land => "land",
+        CardKind::Instant | CardKind::Sorcery => "spell",
+    };
+    let binding = decode(r.binding.get(), "binding")?;
+    let canonical_abilities = self_reference::canonicalize(
+        result.abilities.get(), &binding, &r.oracle_identity, noun, "/faces/0/abilities"
+    )?;
+    let abilities: Vec<Ability> = read_abilities(&canonical_abilities)?;
     // Only understood whole-card ASTs reach source normalization. Unsupported
     // nodes are rejected first; every candidate for admission still proves the
     // exact complete normalized source and line/aggregate mirror below.
@@ -764,14 +780,14 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     if result.lines.len() != abilities.len() {
         return Err(invalid("lines", "unaccounted ability block"));
     }
-    for (line, ability) in result.lines.iter().zip(&abilities) {
-        let a: Ability =
-            strict_read(line.ability.get()).map_err(|e| unsupported("lines.ability", e))?;
-        if &a != ability || line.text.is_empty() {
+    let original: Vec<Box<RawValue>> = decode(result.abilities.get(), "abilities")?;
+    for (line, ability) in result.lines.iter().zip(&original) {
+        let a: serde_json::Value = decode(line.ability.get(), "lines.ability")?;
+        let b: serde_json::Value = decode(ability.get(), "abilities")?;
+        if a != b || line.text.is_empty() {
             return Err(invalid("lines", "line and aggregate ability disagree"));
         }
     }
-    let types = type_line::parse(&source.type_line)?;
     let kind = types.kind;
     let basic = types.basic;
     let power = source
@@ -939,6 +955,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                 ));
                             }
                             match keyword.keyword.as_str() {
+                                "flash" => definition.keywords.push(KeywordAbility::Flash),
                                 "defender" => definition.keywords.push(KeywordAbility::Defender),
                                 "trample" => definition.keywords.push(KeywordAbility::Trample),
                                 "first strike" => {
@@ -1065,6 +1082,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             }
             definition.spell = Some(program);
         }
+    }
+    if definition.keywords.contains(&KeywordAbility::Flash) {
+        definition.spell.as_mut().ok_or_else(|| unsupported("keyword", "flash requires castable spell"))?.timing = SpellTiming::Instant;
     }
     definition.capabilities = definition.requirements();
     definition
