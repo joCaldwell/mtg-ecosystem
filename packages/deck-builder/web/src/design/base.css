@@ -22,6 +22,17 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Phones and shared pages scroll the window, not a pane (app/windowScroll.ts). */
+html[data-scroll="window"],
+html[data-scroll="window"] body,
+html[data-scroll="window"] #root {
+  height: auto;
+}
+
+html[data-scroll="window"] body {
+  overflow: visible;
+}
+
 h1,
 h2,
 h3,

@@ -5,12 +5,14 @@
 import type { ReactNode } from "react";
 import { useInbox } from "../../app/Inbox.tsx";
 import { href, type Route } from "../../app/routes.ts";
+import { useWindowScroll } from "../../app/windowScroll.ts";
 import { Badge } from "../../ui/index.ts";
 import styles from "./PhoneShell.module.css";
 
 export function PhoneShell({ route, children }: { route: Route; children: ReactNode }) {
   const { waiting } = useInbox();
   const decks = route.page === "decks" || route.page === "deck";
+  useWindowScroll();
   return (
     <div className={styles.shell}>
       <header className={styles.bar}>

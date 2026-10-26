@@ -154,6 +154,13 @@ shell sits inside `AppProviders`, so the event stream refetches as on
 desktop and an agent's new proposal appears without a reload. 4b inherits
 the breakpoint, `ReadOnlyDeck` and the router.
 
+The desktop app scrolls inside its panes, so `design/base.css` pins the body
+with `overflow: hidden`. The phone shell and `PublicShell` scroll the window
+instead, and call `useWindowScroll()` (`app/windowScroll.ts`), which marks
+`<html data-scroll="window">` while they are mounted so base.css releases the
+body. Without it, touch and wheel scrolling do nothing (a script's
+`scrollTo` still works, so automated checks must scroll by wheel or touch).
+
 ## Recovery and background work
 
 `api/client.ts` checks HTTP status and content type before decoding JSON.
