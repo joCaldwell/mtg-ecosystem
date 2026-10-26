@@ -65,7 +65,7 @@ export function ProposalBanner({ units, review }: { units: ReviewUnit[]; review:
     <><div className={styles.explanation}><Explainer title="Proposed changes" summary={voice("Proposals wait for your decision before anything changes.", "Your agent has suggested changes for you to review.")}>Review the changes among the cards in the list. Accept or reject one item, a linked group, or all open proposals. A reason is optional and stays with the decision. Nothing is applied until you accept it.</Explainer></div><Banner
       tone="agent"
       actions={
-        <Button size="sm" variant="agent" kbd="↵" onClick={ui.startReview}>
+        <Button size="sm" variant="agent" kbd="↵" className={styles.tap} onClick={ui.startReview}>
           Review in the list
         </Button>
       }
