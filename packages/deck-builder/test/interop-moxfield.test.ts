@@ -92,17 +92,43 @@ describe("Moxfield's exports, as Moxfield wrote them", () => {
     assert.equal(mixed["Sol Ring"], "card");
   });
 
-  test("a paste is bounded: 5,000 lines, 300 characters a line, in linear time (review B1)", () => {
+  test("a paste is bounded: 5,000 lines, 300 characters a line, in linear time (review B1, round 2)", () => {
     assert.throws(() => parseDeckList("1 Forest\n".repeat(5001)), /at most 5,000 lines/);
-    const long = parseDeckList(`1 Forest${" ".repeat(40_000)}x`);
+    const long = parseDeckList(`1 Forest${"x".repeat(400)}`);
     assert.equal(long.entries.length, 0);
     assert.equal(long.unparsed.length, 1);
+    // A comment or a blank line of any length is still a comment or a separator.
+    const spaced = parseDeckList(`// ${"c".repeat(400)}\n1 Forest\n${" ".repeat(400)}\n1 Sol Ring`);
+    assert.deepEqual(spaced.entries.map((e) => e.name), ["Forest", "Sol Ring"]);
+    assert.equal(spaced.unparsed.length, 0);
+    // The worst shapes for end-anchored work, at the line cap and line count:
+    // whitespace runs, and lines made of strippable fields.
+    for (const line of ["x" + " ".repeat(298) + "x", "1 x" + " ".repeat(280) + "[Cat]", "1 x" + " (AB) 1".repeat(40), "1 x" + " *F*".repeat(70), "1 x" + " #t".repeat(95)]) {
+      const started = performance.now();
+      parseDeckList(Array(5000).fill(line).join("\n"));
+      const ms = performance.now() - started;
+      assert.ok(ms < 250, `${JSON.stringify(line.slice(0, 12))}…: ${Math.round(ms)} ms for 5,000 lines`);
+    }
     const boards = `1 Forest\n\nSTICKERS:\n${"1 Sticker Card\n".repeat(4990)}`;
-    const started = performance.now();
     const parsed = parseDeckList(boards);
     assert.equal(parsed.ignored.length, 4990);
     assert.ok(parsed.ignored.every((i) => i.section === "STICKERS"));
-    assert.ok(performance.now() - started < 500, "one pass, not one per ignored line");
+  });
+
+  test("a preview resolves each name once and suggests for the first 25 misses only (review round 2)", () => {
+    const db = testDb();
+    const id = newDeck(db, "paper");
+    const junk = Array.from({ length: 300 }, (_, i) => `1 Forrest ${i}`).join("\n");
+    const diff = diffImport(db, OWNER, id, `${junk}\n${"1 Solring\n".repeat(50)}`);
+    assert.equal(diff.unresolved.length, 350, "every line is still reported");
+    const withSuggestions = new Set(diff.unresolved.filter((u) => u.suggestions.length).map((u) => u.name));
+    assert.ok(withSuggestions.size <= 25);
+    assert.ok(diff.unresolved.slice(0, 25).every((u) => u.suggestions.length > 0), "the first misses still get help");
+  });
+
+  test("whitespace runs inside a line do not change what it means", () => {
+    const [entry] = parseDeckList("2x   Sol   Ring   (CMM)   405   *F*   [Ramp,  Artifact]").entries;
+    assert.deepEqual([entry.quantity, entry.name, entry.categories], [2, "Sol Ring", ["Ramp", "Artifact"]]);
   });
 
   test("Archidekt's own headers still decide, so a trailing block there is not a commander", () => {

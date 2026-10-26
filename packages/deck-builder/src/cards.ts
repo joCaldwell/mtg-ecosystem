@@ -99,7 +99,7 @@ export function cardsNamed(db: Database, name: string): CardRow[] {
 // ambiguous purely because some double-faced card has a face with the same
 // name. The card actually *called* that wins (spec §4.3); what remains
 // ambiguous after that genuinely is, and needs an oracle_id.
-function resolveOne(db: Database, ref: string): CardRow | ResolutionFailure {
+function resolveOne(db: Database, ref: string, suggest = true): CardRow | ResolutionFailure {
   const trimmed = ref.trim();
   if (!trimmed) return { ref, problem: "unknown", suggestions: [], candidates: [] };
   // Test fixtures use short ids, so an id lookup is tried for anything that
@@ -120,7 +120,7 @@ function resolveOne(db: Database, ref: string): CardRow | ResolutionFailure {
       candidates: (full.length ? full : matches).map((m) => ({ name: m.name, oracle_id: m.oracle_id })),
     };
   }
-  return { ref, problem: "unknown", suggestions: suggestNames(db, trimmed), candidates: [] };
+  return { ref, problem: "unknown", suggestions: suggest ? suggestNames(db, trimmed) : [], candidates: [] };
 }
 
 /** Resolve one reference or throw. */
@@ -137,8 +137,9 @@ export function resolveCards(db: Database, refs: string[]): CardRow[] {
 }
 
 /** The non-throwing form, for callers that report failures line by line. */
-export function tryResolveCard(db: Database, ref: string): CardRow | ResolutionFailure {
-  return resolveOne(db, ref);
+/** `suggest: false` skips the suggestion search, which is the costly part of a miss. */
+export function tryResolveCard(db: Database, ref: string, { suggest = true }: { suggest?: boolean } = {}): CardRow | ResolutionFailure {
+  return resolveOne(db, ref, suggest);
 }
 
 export function requireCardById(db: Database, oracleId: string): CardRow {

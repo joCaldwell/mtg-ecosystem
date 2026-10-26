@@ -204,6 +204,8 @@ export interface ParsedLine {
 export const MAX_LIST_LINES = 5000;
 /** The longest card name is 141 characters; a line this long is not a card. */
 export const MAX_LINE_LENGTH = 300;
+/** Trailing fields one line may carry (^label^, [categories], `category`, #tags, *F*, (SET) number). */
+const MAX_LINE_FIELDS = 12;
 
 export interface ParseResult {
   entries: ParsedLine[];
@@ -251,7 +253,8 @@ const BOARD_HEADER = /^[A-Z]+:$/;
 const COUNT_HEADER = /^([A-Za-z][A-Za-z '\/-]*?)\s*\(\d+\)\s*$/;
 // "(SET) NUMBER": 2–6 character set codes, collector numbers with letters,
 // stars and dashes as Moxfield writes them (259p, 1492★, CSP-105).
-const PRINTING = /\s*\([0-9A-Za-z_]{2,6}\)(\s+[0-9A-Za-z][0-9A-Za-z★†-]*)?\s*$/;
+// Tested on the text from the line's last "(", so it is anchored at both ends.
+const PRINTING = /^\([0-9A-Za-z_]{2,6}\)( [0-9A-Za-z][0-9A-Za-z★†-]*)?$/;
 
 export function parseDeckList(text: string): ParseResult {
   const lines = text.split(/\r?\n/);
@@ -281,10 +284,8 @@ export function parseDeckList(text: string): ParseResult {
 
   lines.forEach((raw, i) => {
     const lineNo = i + 1;
-    if (raw.length > MAX_LINE_LENGTH) {
-      unparsed.push({ line_no: lineNo, raw: `${raw.slice(0, 80)}…` });
-      return;
-    }
+    // trim() is linear; a blank line (whatever its length) still separates
+    // blocks, and a comment of any length is skipped, before the cap applies.
     let line = raw.trim();
     if (!line) {
       if (blocks[block]?.entries.length || blockLabelled) { block++; blockLabelled = false; }
@@ -292,6 +293,14 @@ export function parseDeckList(text: string): ParseResult {
       return;
     }
     if (line.startsWith("//") || line.startsWith("#")) return;
+    if (line.length > MAX_LINE_LENGTH) {
+      unparsed.push({ line_no: lineNo, raw: `${raw.slice(0, 80)}…` });
+      return;
+    }
+    // Every pattern below is anchored at the end and begins with \s*: on a
+    // long run of spaces each start position would rescan the run. One
+    // space per run makes each pattern linear (card names never hold two).
+    line = line.replace(/\s+/g, " ");
     const header = line.match(SECTION_HEADER);
     const key = header?.[1].toLowerCase();
     if (header && (SECTIONS.has(key!) || key === ABOUT)) {
@@ -331,49 +340,63 @@ export function parseDeckList(text: string): ParseResult {
       line = line.slice(qty[0].length);
     }
 
-    // Strip trailing metadata in any order. Each field is anchored to the end
-    // so a name containing e.g. "//" is never eaten.
+    // Strip trailing metadata in any order. Each field is found from the end
+    // (endsWith / lastIndexOf) and only its own tail is tested, so a pass is
+    // one linear look and a name containing e.g. "//" is never eaten.
     const categories: string[] = [];
-    for (;;) {
+    // Passes are capped: a real line has a handful of fields (label,
+    // category, tags, finish, printing). Whatever is left over stays in the
+    // name and fails to resolve, visibly.
+    for (let pass = 0; pass < MAX_LINE_FIELDS; pass++) {
       const before = line;
+      const cut = (at: number) => { line = line.slice(0, at).trimEnd(); };
       // ^Label,#rrggbb^
-      line = line.replace(/\s*\^[^^]*\^\s*$/, "");
+      if (line.endsWith("^")) {
+        const at = line.lastIndexOf("^", line.length - 2);
+        if (at >= 0) cut(at);
+      }
       // [Cat] or [Cat1,Cat2]
-      const bracket = line.match(/\s*\[([^\[\]]*)\]\s*$/);
-      if (bracket) {
-        categories.unshift(
-          ...bracket[1]
-            .split(",")
-            .map((c) => c.trim())
-            // Archidekt category modifiers ({top}, {noDeck}, …) are reported
-            // by users but we could not verify their syntax — strip anything
-            // brace-wrapped rather than guess at its meaning.
-            .map((c) => c.replace(/\{[^}]*\}/g, "").trim())
-            .filter(Boolean),
-        );
-        line = line.slice(0, bracket.index).trimEnd();
+      if (line.endsWith("]")) {
+        const at = line.lastIndexOf("[");
+        const inside = at >= 0 ? line.slice(at + 1, -1) : "]";
+        if (!inside.includes("]")) {
+          categories.unshift(
+            ...inside
+              .split(",")
+              .map((c) => c.trim())
+              // Archidekt category modifiers ({top}, {noDeck}, …) are reported
+              // by users but we could not verify their syntax — strip anything
+              // brace-wrapped rather than guess at its meaning.
+              .map((c) => c.replace(/\{[^}]*\}/g, "").trim())
+              .filter(Boolean),
+          );
+          cut(at);
+        }
       }
       // `Category`
-      const backtick = line.match(/\s*`([^`]*)`\s*$/);
-      if (backtick) {
-        const c = backtick[1].trim();
-        if (c) categories.unshift(c);
-        line = line.slice(0, backtick.index).trimEnd();
+      if (line.endsWith("`")) {
+        const at = line.lastIndexOf("`", line.length - 2);
+        if (at >= 0) {
+          const c = line.slice(at + 1, -1).trim();
+          if (c) categories.unshift(c);
+          cut(at);
+        }
       }
       // Moxfield tags: #Tag (this deck) and #!Tag (every deck). Like an
       // Archidekt category, a tag naming one of the deck's slots files it.
-      const tag = line.match(/\s+#!?([^\s#]+)\s*$/);
+      const space = line.lastIndexOf(" ");
+      const tag = space >= 0 ? line.slice(space + 1).match(/^#!?([^\s#]+)$/) : null;
       if (tag) {
         categories.unshift(tag[1]);
-        line = line.slice(0, tag.index).trimEnd();
+        cut(space);
       }
       // *F*, *E*, *F**E*
-      line = line.replace(/(\s*\*[A-Za-z]\*)+\s*$/, "");
+      while (/^\*[A-Za-z]\*$/.test(line.slice(-3))) cut(line.length - 3);
       // (set) optionally followed by a collector number
-      const print = line.match(PRINTING);
-      if (print) {
+      const open = line.lastIndexOf("(");
+      if (open >= 0 && PRINTING.test(line.slice(open))) {
         printed++;
-        line = line.slice(0, print.index).trimEnd();
+        cut(open);
       }
       if (line === before) break;
     }
@@ -438,11 +461,15 @@ function canLeadADeck(card: CardRow): boolean {
   return !!card.is_commander || /\bBackground\b/.test(card.type_line);
 }
 
+/** Distinct unresolved names that get suggestions in one paste. A miss's
+ * suggestion search is its costly part; past this a list is not a typo. */
+const MAX_SUGGESTED = 25;
+
 /** A name as written, then as Moxfield's one-slash multi-face form (§12). */
-function resolveListed(db: Database, name: string) {
-  const hit = tryResolveCard(db, name);
+function resolveListed(db: Database, name: string, suggest: boolean) {
+  const hit = tryResolveCard(db, name, { suggest });
   if (!("problem" in hit) || !name.includes("/") || name.includes("//")) return hit;
-  const faces = tryResolveCard(db, name.split(/\s*\/\s*/).join(" // "));
+  const faces = tryResolveCard(db, name.split(/\s*\/\s*/).join(" // "), { suggest: false });
   return "problem" in faces ? hit : faces;
 }
 
@@ -507,8 +534,17 @@ export function diffImport(db: Database, actor: Actor, deckId: number, text: str
   // than one line, e.g. split across categories).
   const pasted = new Map<string, { name: string; quantity: number; categories: string[] }>();
 
+  const resolved = new Map<string, ReturnType<typeof resolveListed>>();
+  let suggested = 0;
   for (const entry of entries) {
-    const hit = resolveListed(db, entry.name);
+    // Each distinct name is resolved once per paste.
+    const key = entry.name.toLowerCase();
+    let hit = resolved.get(key);
+    if (!hit) {
+      hit = resolveListed(db, entry.name, suggested < MAX_SUGGESTED);
+      if ("problem" in hit && hit.problem === "unknown") suggested++;
+      resolved.set(key, hit);
+    }
     if ("problem" in hit) {
       const failure = hit as ResolutionFailure;
       if (failure.problem === "ambiguous")

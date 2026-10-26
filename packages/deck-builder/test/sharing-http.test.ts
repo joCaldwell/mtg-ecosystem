@@ -144,6 +144,20 @@ test("HEAD reads a public page and route like GET, with no body; log ids are not
   } finally { await s.close(); }
 });
 
+test("imports, preview and apply, have their own 20-a-minute budget per account (review round 2)", async () => {
+  const s = await served("hosted");
+  try {
+    s.as(OWNER);
+    const post = (path: string) => fetch(`${s.base}/api/decks/${s.id}/${path}`, { method: "POST", headers: { "Content-Type": "application/json", Origin: s.base }, body: JSON.stringify({ text: "1 Forest" }) });
+    const statuses: number[] = [];
+    for (let i = 0; i < 21; i++) statuses.push((await post("import/preview")).status);
+    assert.deepEqual(statuses.slice(0, 20), Array(20).fill(200));
+    assert.equal(statuses[20], 429);
+    assert.equal((await post("import")).status, 429, "apply shares the budget");
+    assert.equal((await fetch(`${s.base}/api/decks/${s.id}`)).status, 200, "the rest of the app is unaffected");
+  } finally { await s.close(); }
+});
+
 test("/u/<handle> lists public decks only, with profile tags", async () => {
   const s = await served("hosted");
   try {

@@ -56,7 +56,11 @@ export function SharedDeckHeader({ shared, own }: { shared: PublicDeckState; own
         </div>
         <h1 className={styles.title}>{deck.name}</h1>
         <p className={styles.byline}>
-          by <a href={href({ page: "user", handle: deck.owner.handle })}>{deck.owner.display_name}</a>{" "}
+          {/* A profile exists only while its owner has a public deck (§18.5); an
+              unlisted deck cannot know that, so it names the owner without a link. */}
+          by {deck.visibility === "public"
+            ? <a href={href({ page: "user", handle: deck.owner.handle })}>{deck.owner.display_name}</a>
+            : deck.owner.display_name}{" "}
           <span className={styles.handle}>@{deck.owner.handle}</span>
           {deck.parent && (
             <>

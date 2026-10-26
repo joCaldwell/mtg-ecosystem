@@ -37,3 +37,10 @@
 .invalid:focus {
   box-shadow: 0 0 0 3px var(--cut-bg);
 }
+
+/* Touch (DESIGN.md, narrow screens): a field is one tap target tall. */
+@media (max-width: 719px) {
+  .field {
+    min-height: var(--tap);
+  }
+}

@@ -1,0 +1,9 @@
+/* The terms and privacy links sit in a sentence; on a phone each is still
+   a full tap target. */
+@media (max-width: 719px) {
+  .legal a {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--tap);
+  }
+}

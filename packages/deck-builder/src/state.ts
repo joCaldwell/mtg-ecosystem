@@ -54,7 +54,8 @@ export function publicSummary(e: Pick<LogEntry, "kind" | "cards" | "document_edi
   const [adds, cuts, roles] = [names("add"), names("cut"), names("role")];
   if (!e.cards.length)
     return e.document_edit_id != null
-      ? `${e.kind === "reject" ? "Rejected" : "Accepted"} a proposed change to the ${editKind === "power_target" ? "power target" : editKind === "profile" ? "profile" : "brief"}`
+      // Profile edits have no deck, so only brief and power-target edits reach a deck's log.
+      ? `${e.kind === "reject" ? "Rejected" : "Accepted"} a proposed change to the ${editKind === "power_target" ? "power target" : "brief"}`
       : e.kind === "undo" ? "Undid an earlier change" : "Changed the deck";
   const list = (items: string[]) => items.length > 3 ? `${items.slice(0, 3).join(", ")} and ${items.length - 3} more` : items.join(", ");
   if (e.kind === "reject")

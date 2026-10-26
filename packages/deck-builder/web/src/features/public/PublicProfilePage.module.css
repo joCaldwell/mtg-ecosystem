@@ -30,3 +30,13 @@
     padding: var(--s-6) var(--s-4);
   }
 }
+
+/* The name is the row's only link (Ctrl/Cmd-click opens a tab), so on a
+   phone it is a full tap target. */
+@media (max-width: 719px) {
+  .name {
+    display: flex;
+    align-items: center;
+    min-height: var(--tap);
+  }
+}

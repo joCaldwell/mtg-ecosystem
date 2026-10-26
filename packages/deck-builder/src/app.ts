@@ -650,6 +650,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
           rateLimit("ui",String(actor.user_id));
           if (url.pathname === "/api/search") rateLimit("search",String(actor.user_id));
           if (url.pathname.endsWith("/compare")) rateLimit("compare",String(actor.user_id));
+          if (/^\/api\/decks\/\d+\/import(\/preview)?$/.test(url.pathname)) rateLimit("import",String(actor.user_id));
         }
         if (actor && url.pathname.startsWith("/api/") && !["GET","HEAD","OPTIONS"].includes(req.method ?? "") && req.headers.origin !== publicOrigin()) return json(403,{error:"Origin is required"});
       }

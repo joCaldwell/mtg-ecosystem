@@ -4,7 +4,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api, ApiError, type PublicDeckState } from "../../api/client.ts";
-import { useScrollRestore } from "../../app/routes.ts";
+import { APP_TITLE, useScrollRestore } from "../../app/routes.ts";
 import { useSession } from "../../app/Session.tsx";
 import { fromPublic } from "../../domain/readOnlyDeck.ts";
 import { ReadOnlyDeck } from "../deck/index.ts";
@@ -29,9 +29,9 @@ export function PublicDeckPage({ slug }: { slug: string }) {
 
   useEffect(() => {
     if (!loaded || !("deck" in loaded)) return;
-    const before = document.title;
     document.title = `${loaded.deck.deck.name} · ${loaded.deck.deck.owner.handle}`;
-    return () => { document.title = before; };
+    // A cold load's head already carries this page's title, so restore the app's own.
+    return () => { document.title = APP_TITLE; };
   }, [loaded]);
   useScrollRestore(loaded !== null);
 

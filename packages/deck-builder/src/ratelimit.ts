@@ -13,6 +13,7 @@ export const LIMITS = {
   search: { count: 60, window: 60_000 }, // expensive search
   anonymous_search: { count: 30, window: 60_000 }, // the same, per IP (/64), without an account (§18.6)
   compare: { count: 30, window: 60_000 }, // expensive deck comparisons
+  import: { count: 20, window: 60_000 }, // pasted-list parses and diffs, preview and apply (§12)
 } as const;
 export class RateLimitError extends AppError {
   retryAfter: number;

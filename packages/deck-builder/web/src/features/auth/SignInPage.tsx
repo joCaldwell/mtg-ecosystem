@@ -4,6 +4,7 @@ import { safeNext } from "../../app/routes.ts";
 import { useSession } from "../../app/Session.tsx";
 import { Box, Button, ErrorNote, Field, Page, PageHeader, Stack, Text, TextField, Row } from "../../ui/index.ts";
 import { LegalFooter } from "./LegalFooter.tsx";
+import styles from "./SignInPage.module.css";
 
 export function SignInPage() {
   const {session} = useSession();
@@ -30,7 +31,7 @@ export function SignInPage() {
       <Row gap={3} wrap>{session.providers.map(p => <Button key={p} variant="primary" disabled={busy} onClick={() => signIn(p)}>Continue with {p === "discord" ? "Discord" : "Google"}</Button>)}</Row>
       {error && <ErrorNote>{error}</ErrorNote>}
       {providerError && <ErrorNote>{providerError === "registration_failed" ? "Registration did not complete. Check your invite or claim code and try again." : "The provider sign-in did not complete or its state expired. Start sign-in again."}</ErrorNote>}
-      <Text size="sm" tone="muted">By continuing, you agree to the <a href="/terms">terms</a> and acknowledge the <a href="/privacy">privacy policy</a>.</Text>
+      <Text size="sm" tone="muted" className={styles.legal}>By continuing, you agree to the <a href="/terms">terms</a> and acknowledge the <a href="/privacy">privacy policy</a>.</Text>
     </Stack></Box><LegalFooter />
   </Page>;
 }

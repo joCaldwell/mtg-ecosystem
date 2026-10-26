@@ -40,10 +40,13 @@ test("a malformed escape is a missing page, not a crash (review S9)", () => {
 test("sign-in returns only to a path on this site (review S10)", () => {
   assert.equal(safeNext("/d/Ab3dE6gH9k"), "/d/Ab3dE6gH9k");
   assert.equal(safeNext("/u/owner?x=1#top"), "/u/owner?x=1#top");
-  for (const hostile of ["//evil.example/x", "/\\evil.example", "https://evil.example", "javascript:alert(1)", "evil", "", null, "/\u0000x", "/%2F%2Fevil.example"])
+  for (const hostile of ["//evil.example/x", "/\\evil.example", "https://evil.example", "javascript:alert(1)", "evil", "", null, "/\u0000x", "/%2F%2Fevil.example",
+    // Normalisation turns these into "//evil.com" (review round 2).
+    "/./\\evil.com", "/a/..\\/evil.com", "/.//evil.com", "/a/..//evil.com"])
     assert.ok(["/", "/%2F%2Fevil.example"].includes(safeNext(hostile)), String(hostile));
   assert.equal(new URL(safeNext("/%2F%2Fevil.example"), "https://site.example").host, "site.example", "an encoded slash stays a path");
   assert.equal(signInHref("/d/Ab3dE6gH9k"), "/signin?next=%2Fd%2FAb3dE6gH9k");
   assert.equal(signInHref("//evil.example"), "/signin");
   assert.equal(signInHref(), "/signin");
+  for (const sneaky of ["/./\\evil.com", "/a/..\\/evil.com", "/.//evil.com"]) assert.ok(!safeNext(sneaky).startsWith("//"), sneaky);
 });

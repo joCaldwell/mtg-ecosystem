@@ -3,7 +3,7 @@
 
 import { Fragment, useEffect, useState } from "react";
 import { api, ApiError, type PublicProfile } from "../../api/client.ts";
-import { href, useScrollRestore } from "../../app/routes.ts";
+import { APP_TITLE, href, useScrollRestore } from "../../app/routes.ts";
 import { DECK_CATEGORY_LABELS } from "../../domain/deckCategory.ts";
 import { ColorIdentity } from "../../mtg/index.ts";
 import { Chip, EmptyState, Loading, Table, Text } from "../../ui/index.ts";
@@ -24,9 +24,9 @@ export function PublicProfilePage({ handle }: { handle: string }) {
   }, [handle]);
   useEffect(() => {
     if (!profile || profile === "missing") return;
-    const before = document.title;
     document.title = `${profile.display_name} (${profile.handle})`;
-    return () => { document.title = before; };
+    // A cold load's head already carries this page's title, so restore the app's own.
+    return () => { document.title = APP_TITLE; };
   }, [profile]);
   useScrollRestore(profile !== null);
 

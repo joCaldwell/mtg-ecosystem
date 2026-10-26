@@ -60,10 +60,13 @@ export function isPublicRoute(route: Route): boolean {
 /** Where sign-in returns to: a same-origin path only (one leading "/", no
  *  scheme, no "//" or "/\\" host), else the deck list. Never an open redirect. */
 export function safeNext(next: string | null | undefined): string {
-  if (!next || !/^\/(?![/\\])/.test(next) || /[\u0000-\u001f]/.test(next)) return "/";
+  const local = /^\/(?![/\\])/;
+  if (!next || !local.test(next) || /[\u0000-\u001f\\]/.test(next)) return "/";
   try {
     const url = new URL(next, "https://same.invalid");
-    return url.origin === "https://same.invalid" ? `${url.pathname}${url.search}${url.hash}` : "/";
+    const path = `${url.pathname}${url.search}${url.hash}`;
+    // Checked again after normalisation: "/.//evil" becomes "//evil".
+    return url.origin === "https://same.invalid" && local.test(path) ? path : "/";
   } catch { return "/"; }
 }
 
@@ -74,20 +77,32 @@ export function signInHref(here?: string): string {
 }
 
 const CHANGE = "app:navigate";
+/** The app's own title, which a shared page restores when it is left. */
+export const APP_TITLE = "MTG Deck Builder";
 
 // Phones and shared pages scroll the window, and going back refetches before
 // the list exists, so the browser cannot restore the position itself. Each
-// history entry keeps its own scrollY; useScrollRestore puts it back once
-// the screen's data has rendered.
+// history entry has a key; its position is recorded when it is left — by a
+// link, or by Back/Forward, when popstate fires while the window still shows
+// the page being left — and kept both in memory and in the entry's state
+// (for after a reload). useScrollRestore puts it back once the data renders.
 let pendingScroll: number | null = null;
+const positions = new Map<string, number>();
+let currentKey = "";
+const newKey = () => Math.random().toString(36).slice(2, 10);
 function rememberScroll(): void {
-  history.replaceState({ ...(history.state ?? {}), scrollY: window.scrollY }, "");
+  if (currentKey) positions.set(currentKey, window.scrollY);
+  try { history.replaceState({ ...(history.state ?? {}), key: currentKey, scrollY: window.scrollY }, ""); }
+  catch { /* a browser's rate limit on replaceState: the in-memory position stands */ }
 }
 
 function go(to: string, replace = false): void {
   rememberScroll();
   pendingScroll = null;
-  if (to !== location.pathname + location.search + location.hash) history[replace ? "replaceState" : "pushState"](null, "", to);
+  if (to !== location.pathname + location.search + location.hash) {
+    if (!replace) currentKey = newKey();
+    history[replace ? "replaceState" : "pushState"]({ key: currentKey }, "", to);
+  }
   window.dispatchEvent(new Event(CHANGE));
   window.scrollTo?.(0, 0);
 }
@@ -122,7 +137,7 @@ function onLinkClick(e: MouseEvent): void {
   if (!a || (a.target && a.target !== "_self") || a.hasAttribute("download")) return;
   const url = new URL(a.href, location.href);
   // Only the app's own pages; the API, MCP, metadata and built files belong to the server.
-  if (url.origin !== location.origin || /^\/(api|mcp|\.well-known|assets)(\/|$)/.test(url.pathname) || /^\/mcp/.test(url.pathname)) return;
+  if (url.origin !== location.origin || /^\/(api|mcp|\.well-known|assets)(\/|$)/.test(url.pathname)) return;
   // A link to a spot on this same page is the browser's to scroll to.
   if (url.pathname === location.pathname && url.search === location.search && url.hash) return;
   e.preventDefault();
@@ -136,13 +151,31 @@ export function useRoute(): Route {
   });
   useEffect(() => {
     if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+    currentKey = typeof history.state?.key === "string" ? history.state.key : newKey();
+    try { history.replaceState({ ...(history.state ?? {}), key: currentKey }, ""); } catch { /* keep going without */ }
+    // Also kept in the entry's state while scrolling (for a reload), at most
+    // every 400 ms: Safari refuses more than 100 replaceState calls in 30 s.
+    let savedAt = 0;
+    const onScroll = () => {
+      const now = Date.now();
+      if (now - savedAt >= 400) { savedAt = now; rememberScroll(); }
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    const back = () => {
+      // The window still shows the page being left: record it under its own key.
+      positions.set(currentKey, window.scrollY);
+      currentKey = typeof history.state?.key === "string" ? history.state.key : newKey();
+      pendingScroll = positions.get(currentKey) ?? (typeof history.state?.scrollY === "number" ? history.state.scrollY : 0);
+      update();
+    };
     const update = () => setRoute(parseRoute(location.pathname));
-    const back = () => { pendingScroll = typeof history.state?.scrollY === "number" ? history.state.scrollY : 0; update(); };
+
     window.addEventListener("popstate", back);
     window.addEventListener(CHANGE, update);
     document.addEventListener("click", onLinkClick);
     return () => {
       window.removeEventListener("popstate", back);
+      window.removeEventListener("scroll", onScroll);
       window.removeEventListener(CHANGE, update);
       document.removeEventListener("click", onLinkClick);
     };

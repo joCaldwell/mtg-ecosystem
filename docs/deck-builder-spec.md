@@ -914,8 +914,13 @@ and [implementation guide](playtester.md). Archidekt interop remains available.
   (where Moxfield keeps the companion) goes to the maybe list like
   Archidekt's, with a note that a companion must then be set by hand;
   attraction and sticker boards are left out and reported. A paste is
-  bounded at 5,000 lines of at most 300 characters, so the parser stays
-  linear and nothing a user pastes can stall the server.
+  bounded at 5,000 lines of at most 300 characters (blank lines and
+  comments of any length still count as such); whitespace runs collapse to
+  one space and each trailing field is found from the end, so every line is
+  linear work. Each distinct name resolves once per paste, and only the
+  first 25 distinct misses get suggestions (the costly part of a miss);
+  later ones are still listed. Imports, preview and apply, are limited to
+  20 a minute per account in hosted mode.
   "Copy for Moxfield" marks no commander at all, so the preview says so
   rather than guessing (reading its order would be wrong for 2 of the 12
   sampled decks). The dialog recommends "Copy Plain Text": it uses the names
