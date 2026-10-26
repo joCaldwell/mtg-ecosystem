@@ -121,7 +121,6 @@ fn run_profiled(
         catalog,
         policy,
         mulligans,
-        beneficial: false,
         mana_plan: Default::default(),
         mana_color: None,
     };

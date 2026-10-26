@@ -43,6 +43,7 @@ impl Planner {
                 .filter(|i| deficit.is_none_or(|c| self.sources[*i].colors.contains(&c)))
                 .min_by_key(|i| {
                     (
+                        self.sources[*i].colors.len(),
                         self.sources[*i].land,
                         usize::from(self.sources[*i].cost.is_some()),
                         *i,
@@ -226,7 +227,6 @@ mod tests {
             catalog: &catalog,
             policy: Policy::Develop,
             mulligans: [0; 4],
-            beneficial: false,
             mana_plan: Default::default(),
             mana_color: None,
         };

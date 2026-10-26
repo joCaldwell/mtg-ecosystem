@@ -13,7 +13,8 @@ now uses measured shared ceilings and bounds retained token identities.
 Feature requests must fit the explicit reviewed capability sets; catalog integrity
 and the selected dated banned-list digest remain bound independently.
 `catalog build MANIFEST [--write]` replaces all per-catalog compile commands.
-Card-specific Develop heuristics remain D1c work.
+D1c uses one IR-driven Develop policy and one generic interaction summary;
+see `docs/game-engine-cards-as-data-d1c.md` for the re-baseline and witnesses.
 
 
 Rust owns contracts, offline compilation, deterministic core, and the scenario
@@ -128,7 +129,7 @@ policies, expected fixtures and projection fields remain unchanged; optional
 fields omit empty values. Versions remain 18/19/16/15. Search and server hosting
 remain foundations-only. No keyword grants/removal, protection, planeswalkers,
 banding or damage-assignment order is admitted. The simulator exposes
-`combat-keywords-match-batch OUTPUT` and `combat-keywords-match-replay FILE`.
+`match-batch commander-combat-keywords-v1 OUTPUT` and `match-replay commander-combat-keywords-v1 FILE`.
 
 `docs/game-engine-tokens-counters.md` adds the separate `commander-tokens-v1`
 profile: 72 definitions in IR v14, fixed defined creature tokens and fixed
@@ -141,8 +142,8 @@ fields omit absent values. Token-only capacities are 64 lifetime tokens, 344
 damage occurrences, 1,892 stack/pending entries and 468 event-group members;
 `Game::typed_fault` identifies overflow and the contract derives each bound.
 Earlier profile limits and bytes, versions 18/19/16/15, search and foundations-only
-server hosting remain unchanged. The simulator adds `tokens-match-batch OUTPUT`
-and `tokens-match-replay FILE`. Copy/noncreature/variable tokens, other counter
+server hosting remain unchanged. The simulator adds `match-batch commander-tokens-v1 OUTPUT`
+and `match-replay commander-tokens-v1 FILE`. Copy/noncreature/variable tokens, other counter
 kinds, proliferate and keyword grants remain outside this finite release.
 
 `docs/game-engine-staples.md` defines `commander-staples-v1`: a separate
@@ -155,7 +156,7 @@ entries and 660 event members; the contract derives these bounds with recursion.
 The exact pool's separate 68-token lifetime proof is guarded by a catalog test.
 Search handles last only for that resolution choice. Earlier limits, fixtures,
 versions 18/19/16/15, and foundations-only search/server scope remain unchanged.
-The simulator adds `staples-match-batch OUTPUT` and `staples-match-replay FILE`.
+The simulator adds `match-batch commander-staples-v1 OUTPUT` and `match-replay commander-staples-v1 FILE`.
 Regeneration, restricted destruction, other searches/recursion and general
 continuous effects remain excluded.
 
@@ -169,8 +170,7 @@ sacrifice-draw abilities use the existing nonmana stack path. Only mana-v1 uses
 760 damage occurrences and 3,868 stack/pending entries; 256 live tokens, 660
 event members and 32 effects retain the staples derivation. Versions remain
 18/19/16/15; optional fields omit absent values. The simulator adds
-`mana-match-batch OUTPUT` and `mana-match-replay FILE`, with source-type mana
-activation counts and per-seat first commander cast turns. Server hosting and
+`match-batch commander-mana-v1 OUTPUT` and `match-replay commander-mana-v1 FILE`, with generic instruction, trigger, keyword and card-use counts. Server hosting and
 search remain foundations-only. Colorless-specific costs, "could produce",
 triggered mana abilities, damage-dealing mana abilities and multiple commanders
 remain excluded.
@@ -183,9 +183,8 @@ reused blue/red spells, abilities, tokens, counters, anthems, commander returns
 and final Furnace damage. Bounds are 256 live tokens, 760 damage occurrences,
 4,080 stack/pending entries, 660 event members and 32 effects; the contract
 re-derives them including repeatable Azure Mage activation and bounce/tuck.
-The simulator adds `four-colors-match-batch OUTPUT` and
-`four-colors-match-replay FILE`, with counter, bounce, tuck, Furnace and
-commander-color counts. Earlier fixtures/limits, versions 18/19/16/15 and
+The simulator adds `match-batch commander-four-colors-v1 OUTPUT` and
+`match-replay commander-four-colors-v1 FILE`, with generic instruction, trigger, keyword and card-use counts. Earlier fixtures/limits, versions 18/19/16/15 and
 foundations-only search/server hosting remain separate. Target-opponent token
 creation (Hunted Dragon) remains a whole-card rejection.
 
@@ -195,8 +194,8 @@ layer-6 keyword grants (including hexproof/shroud), attachment P/T and combat
 restrictions, attachment SBAs and Rancor return triggers. Targeting restrictions
 use invocation controllers at announcement and resolution; damage LKI retains
 granted keywords. Its stack/pending bound is 4,093; damage/event/effect/live-token
-bounds remain 760/660/32/256. The simulator adds `attachments-match-batch OUTPUT`
-and `attachments-match-replay FILE`. Versions remain 18/19/16/15; omitted empty
+bounds remain 760/660/32/256. The simulator adds `match-batch commander-attachments-v1 OUTPUT`
+and `match-replay commander-attachments-v1 FILE`. Versions remain 18/19/16/15; omitted empty
 fields preserve earlier projections. Search and server remain foundations-only.
 See the progress ledger for acceptance status and private witness boundaries.
 
@@ -208,8 +207,8 @@ counters with compensation tokens. Public player rows expose owned exile cards
 by viewer handles; optional effects have their own response. Bounds are 512
 live tokens, 1,296 damage occurrences, 6,381 stack/pending entries, 916 event
 members and 32 temporary effects, with typed capacity faults and a conservative
-116-token lifetime proof. The simulator adds `removal-match-batch OUTPUT` and
-`removal-match-replay FILE`. Earlier limits/fixtures and versions 18/19/16/15
+116-token lifetime proof. The simulator adds `match-batch commander-removal-v1 OUTPUT` and
+`match-replay commander-removal-v1 FILE`. Earlier limits/fixtures and versions 18/19/16/15
 remain unchanged; server hosting and search remain foundations-only.
 
 `docs/game-engine-sacrifice.md` defines `commander-sacrifice-v1`: a separate
@@ -218,8 +217,8 @@ costs, filtered dies payoffs, sacrificed-power LKI, each-opponent effects, APNAP
 simultaneous forced sacrifices and source can't-block. This profile alone uses
 8,192 live tokens, 17,184 damage occurrences, 294,540 stack/pending entries,
 8,596 event members and 8,192 effects, with typed faults and the contract's
-finite lifetime/episode proofs. The simulator adds `sacrifice-match-batch OUTPUT`
-and `sacrifice-match-replay FILE`. Earlier fixtures/capacities and versions
+finite lifetime/episode proofs. The simulator adds `match-batch commander-sacrifice-v1 OUTPUT`
+and `match-replay commander-sacrifice-v1 FILE`. Earlier fixtures/capacities and versions
 18/19/16/15 remain unchanged; hosting remains foundations/attachments only and
 search foundations-only. See the progress ledger for acceptance evidence and
 the reachable Requiem Angel witness substitution.
@@ -232,8 +231,8 @@ including-caster sacrifice, and turn-scoped Anger exile replacement. Wurm dies
 triggers retain the dying controller. Profile-only capacities are 65,536 live
 tokens, 131,872 damage occurrences, 2,442,108 stack/pending entries, 65,940 event
 members and 65,536 effects; the contract includes mass-return/Gravedigger reuse
-in both lifetime and episode proofs. The simulator adds `wipes-match-batch` and
-`wipes-match-replay`. Earlier fixtures/capacities and versions 18/19/16/15 remain
+in both lifetime and episode proofs. The simulator adds `match-batch commander-wipes-v1` and
+`match-replay commander-wipes-v1`. Earlier fixtures/capacities and versions 18/19/16/15 remain
 unchanged; hosting remains foundations/attachments and search foundations only.
 See the progress ledger for acceptance evidence and witness reachability.
 
@@ -284,6 +283,9 @@ Run from repository root, using pinned Rust 1.99.0:
   the Node cross-language fixture contract check. The test profile uses optimization
   level 2 with debug assertions and overflow checks enabled.
 - `cargo test --workspace --locked` and `cargo test --workspace --locked --release`.
+- `target/release/mtg-sim match-batch PROFILE OUTPUT`: 18 games and independent replay,
+  with generic batch coverage in `report.json`; OUTPUT must be new.
+- `target/release/mtg-sim match-replay PROFILE FILE`: verify a saved game.
 - `cargo run --locked -p mtg-sim -- demo`: verified source-to-runtime demonstration.
 - `cargo run --locked -p mtg-sim -- schema`: export the executable JSON Schema.
 - `npm run retain:engine`: retain source/dependency closure and verify an offline
