@@ -1,7 +1,10 @@
 .content { display: grid; gap: var(--s-6); max-width: var(--measure); padding: var(--s-6) var(--s-7) var(--s-8); }
+.form { padding: var(--s-6) var(--s-7) var(--s-7); }
 /* The terms and privacy links sit in a sentence; on a phone each is still
    a full tap target. */
 @media (max-width: 719px) {
+  .content { padding-inline: var(--s-5); }
+  .form { padding: var(--s-5); }
   .legal a {
     display: inline-flex;
     align-items: center;

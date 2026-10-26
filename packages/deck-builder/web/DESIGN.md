@@ -44,10 +44,10 @@ D20) and built in phase 4a; phase 4b makes the full app hold up between
 - **Nothing scrolls sideways at 375 px.** Names wrap (`overflow-wrap:
   anywhere`), action rows wrap, two-column grids collapse, and a table
   scrolls inside its own box, never the page.
-- **Public pages show the commander's art** in the header, faded into the
-  page (`--art-h`, `--art-fade`), with "Art by …" over it, and as the link
-  preview image. Without a stored artist the art is left out. The card list
-  itself stays text.
+- **Public pages show the commander's art** in a showcase band above the
+  header (`DeckArt variant="showcase"`, see Art), credited inside the crop,
+  and as the link preview image. Without a stored artist the art is left
+  out. The card list itself stays text.
 - **Sharing has no colour.** Public is the globe icon, unlisted the link
   icon, both grey: visibility is not one of the meanings below.
 - **The playtester is desktop-only.**
@@ -179,6 +179,7 @@ or about this app.
 | `pressesFocusedControl` | Whether Enter or Space would press the focused button or link, so a screen shortcut on that key stands down | |
 | `useLocalStorage` | State kept in localStorage | |
 | `tokenPx` | A size token as a number, where script has to do arithmetic with one | |
+| `useNearView` | Whether an element is within a margin of view in its own scroll container (or the window); latches true. For deferring downloads | `margin` |
 <!-- inventory:end -->
 
 
@@ -272,87 +273,67 @@ listboxes, a plain archived title, accessible faint text and motion guidance.
 
 ## Art (D21, 2026-10-26)
 
-`mtg/DeckArt` owns crop rendering, credit and reserved space. It accepts stored
-card facts and never fetches them. Only `https://cards.scryfall.io/art_crop/`
-with a nonblank artist qualifies. No generated or stock images, bundled images,
-large card images, constructed URLs or browser Scryfall API calls. Existing
-on-demand full card pictures retain their printed artist/copyright lines.
+The owner's brief: colour and real card art without distraction; the artist
+credit subtle but present; identity tints never overdone.
 
-| Variant | Placement | States |
-| --- | --- | --- |
-| strip | Desktop and phone home cards | single, two equal crops, no commander, unknown artist, failed image; focus stays on the deck link/actions |
-| banner | Owner, phone and public deck headers | expanded, folded desktop, smaller tablet/phone, no credited commander |
-| thumbnail | Sidebar, including drawer | square, two crops, absent without credited art; accessible credit and native title |
-| backdrop | Sign-in and empty-account landing only | one environment, missing facts, failed image; one choice per visit, no rotation while reading |
+`mtg/DeckArt` owns crop rendering, credit and reserved space; `mtg/DeckThumbnail`
+the rail's small version. Both take stored card facts (`domain/art.ts`
+`ArtFacts`) and never fetch them. One helper, `creditedArt`, decides what
+qualifies: an `https` URL on `cards.scryfall.io` whose parsed path starts
+with `/art_crop/`, with a nonblank artist; at most two (a partner pair). No
+generated or stock images, bundled images, large card images, constructed
+URLs or browser Scryfall API calls. On-demand full card pictures keep their
+printed artist and copyright lines.
 
-Every larger crop has visible “Art by <artist> · <card>” text in `--text-xs`.
-Each partner is credited separately. Thumbnail credit is an accessible named
-image and title; the larger card/banner shows the same credit visibly. Art is
-decorative (`alt=""`), so captions carry attribution rather than repeating an
-image description. Failed downloads keep their fixed space and caption.
+| Variant | Placement | Band (`--band`) | Loading |
+| --- | --- | --- | --- |
+| strip | Desktop and phone home cards | `--art-strip-space` | lazy: `load` from `useNearView` (200 px) |
+| banner | Owner and phone deck headers | `--art-banner-space`, smaller on tablet/phone | `priority="auto"` (eager) |
+| showcase | Public deck page | `--art-showcase-space` (176 px), 112 px on phones | `priority="high"` (eager, `fetchpriority=high`) |
+| backdrop | Sign-in and empty-account landing only | `--art-backdrop-space` | `priority="auto"`; one land per visit, no rotation |
+| thumbnail | Sidebar rail, including the drawer | `--art-thumb` (16 px), the icon column | lazy: `useNearView` in the rail, `fetchpriority=low` |
 
-The overlay reaches `--art-overlay-text` before content starts; the fade ends
-at the surface. Even pure white art stays dark enough for all four text tiers.
-Credits use an opaque surface, never transparency: soft/surface is 12.06:1.
-Backdrops use `--art-backdrop-overlay`, `--art-blur` and a reserved content
-frame. Identity stripes are separate from the image overlay and carry no
-meaning needed to understand the deck. No full-surface identity fills.
-
-Desktop observes only the list pane's real scroll events to fold the header
-space at `--art-collapse-threshold`; panel scrolling does not fold it. A list
-without enough overflow to fold without clamping its position stays expanded. This is
-an immediate response to input, without animation. Tablet, phone and public
-headers use smaller art and scroll out naturally with the window. No scroll
-holder or window-scroll contract changes. Fixed image dimensions/aspect and
-reserved frames prevent image-load layout shifts. No preloads; all crops use
-`loading="lazy"` and `decoding="async"`. Reduced motion remains global.
+- **The art is a band above the content.** Content starts where the band
+  ends, on `--art-overlay-text` or darker, and the crop fades into the
+  surface below it. Nothing sits on bright art except the credit pill. The
+  frame's size comes from the band, never the image, so loading moves nothing.
+- **The credit is inside its crop, bottom-right**, on a small
+  `--art-overlay-text` pill in `--text-xs` `--muted`. Partners get one per
+  crop half. Where the commander's name is visible beside the art (roster
+  cards, deck headers, the public page) it reads "Art by <artist>"; where no
+  card is named (backdrops, the rail tooltip) "Art by <artist> · <card>".
+  Double-faced cards use the front-face name. A failed or not-yet-loaded
+  image takes its credit with it; the empty frame keeps its space.
+- **The rail thumbnail is decorative** (`aria-hidden`), so the link's name is
+  the deck name. Its credit is the native tooltip. It sits at
+  `--art-thumb-opacity` until its row is current or hovered, replaces the
+  neutral dot (a deck waiting on the owner keeps its violet dot on the
+  thumbnail's corner), and the row's gaps give back its width: names
+  truncate exactly where they did before thumbnails.
+- **Roster cards are one link.** The deck name's link is stretched over the
+  card; the commander links and the actions menu sit above it. Cards fill
+  their grid row with the stats pinned to the bottom.
+- **Backdrops show the land unblurred** in a band at the top of a solid
+  surface panel; the form or first-run choices sit on the surface below.
+- **Overlays derive from `--bg`** (`color-mix`), so a palette change carries
+  them. Measured over pure white art: credit pill 7.6:1 (analytic floor),
+  text under any band 5.7:1 or better.
+- **Identity is a 2 px stripe** at `--identity-opacity`, split for several
+  colours, grey for colourless. Black uses the darker half of its pip
+  (`--identity-b`) so it never reads as white. No identity fills, tints of
+  text or controls.
+- **The desktop banner folds** while the deck list (only it, not the panel)
+  is scrolled past `--art-collapse-threshold`, unless the list is too short
+  to stay folded. Padding, height and opacity animate over `--base`, which
+  is 0 under reduced motion; the credit hides with the art. The fold exists
+  only at 1100 px and wider: `useArtCollapse` drops it below that, and the
+  CSS ignores `data-collapsed` there. A fold and unfold together stay under
+  0.1 cumulative layout shift. Narrower headers scroll away with the window.
 
 Art does not appear in inbox, activity, memories, Settings, dialogs or the
-playtester content. The navigation rail can still show deck thumbnails while
-those screens are open.
+playtester content. The rail can still show thumbnails while those screens
+are open.
 
-### Phase 4c initial design-system / copy audit
-
-Applied the installed `design:design-system` and `design:ux-copy` SKILL.md
-checklists directly (no Skill tool in this runtime). Reviewed tokens,
-CardImage/CardSheet, public header, roster, phone header, sidebar, sign-in and
-first run. Existing primitives already cover controls, semantic colours and
-motion. Gaps: one-off public art CSS, eager image without async decode,
-no paired art, no roster/sidebar facts, no reusable credit/overlay treatment.
-DeckArt replaces that one-off treatment; /design demonstrates all variants,
-empty and unknown-credit states. “Art by” preserves the existing public wording,
-is concise, and credits the illustrator consistently without an extra action.
-
-
-### Phase 4c final design-system / accessibility / critique review
-
-The final audit rechecked the art primitives, summaries, public header,
-roster, phone views and backdrops against the initial gaps. `DeckArt` covers
-strip/banner/backdrop; `DeckThumbnail` keeps the rail's accessible credit out
-of the public startup dependency. /design includes single and paired art,
-expanded/folded banners, colourless/missing facts, unknown artist and unavailable
-image examples. New sizes, overlay strengths/fades, blur and identity opacity
-are tokens; the architecture gate rejects raw component colours.
-
-Applied `design:design-critique` to the 375/768/1024/1280 screenshots, explicitly
-asking “is this distracting?”: short crops frame navigation while names and
-actions lead; rows remain text and desktop art folds during work. Kept the
-backdrop dark/blurred, replaced squeezed paired credits with separate wrapping
-lines, and retained D17's phone empty state rather than adding creation there.
-At 375 there is no sidebar; at 768 the existing drawer contains thumbnails.
-
-Applied `design:accessibility-review`: 28 required page/width scans have zero
-axe violations, including zero contrast violations; the art examples also
-pass when scanned on their own. Image/gradient text marked indeterminate by
-axe was checked with worst-case white-art compositing: quietest text is
-6.51:1 at the content fade and 5.81:1 on the backdrop; credit is 12.06:1.
-Decorative alt is empty; thumbnail title/name carries each artist. A simulated
-image error preserves exact frame geometry and credit. No new animation or
-transition; global reduced motion still disables motion. Sign-in gained its
-missing main/skip-link target and uses the existing window-scroll hook.
-Existing unrelated /design table/example role, heading and label findings
-are outside these art primitives; no screen-reader software was available.
-
-The public reader uses a display-only brief component so adding credited art
-stays below the 90,000-byte initial JS gate. The reproducible manifest check
-and production browser request set both measured **89,841 gzip bytes**.
+History: phase 4c added art (D21); its review moved credits into the crops,
+made roster cards whole links again, unblurred the backdrops and restored the
+public showcase band.

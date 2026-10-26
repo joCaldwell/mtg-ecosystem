@@ -1,22 +1,25 @@
 import { type ReactNode } from "react";
+import { artCredit, creditedArt, type ArtFacts } from "../domain/art.ts";
 import styles from "./DeckArt.module.css";
 
-type Art = { oracle_id: string; name: string; image_art_crop?: string | null; artist?: string | null };
-/** Decorative crops only; credits remain real text, including on image failure. */
-export function DeckArt({ cards, identity = "", variant = "strip", collapsed = false, children }: {
-  cards: readonly Art[]; identity?: string; variant?: "strip" | "banner" | "backdrop";
-  collapsed?: boolean; children?: ReactNode;
+/** Decorative crops in a band above the content, each credited inside its own
+ * crop. `load` false keeps the frame but defers the download and its credit
+ * (the roster passes whether the card is near view); `priority` loads art
+ * above the fold at once. The frame's size comes from the band, never from
+ * the image, so nothing moves when it arrives. */
+export function DeckArt({ cards, identity = "", variant = "strip", collapsed = false, load = true, priority, children }: {
+  cards: readonly ArtFacts[] | null | undefined; identity?: string;
+  variant?: "strip" | "banner" | "showcase" | "backdrop";
+  collapsed?: boolean; load?: boolean; priority?: "auto" | "high"; children?: ReactNode;
 }) {
-  const art = cards.filter(c => c.artist?.trim() && c.image_art_crop?.startsWith("https://cards.scryfall.io/art_crop/")).slice(0, 2);
+  const art = creditedArt(cards);
   return <div className={`${styles.surface} ${styles[variant]}`}
-    data-identity={identity} data-art={art.length > 0 || undefined} data-collapsed={collapsed || undefined}>
-    {art.length > 0 && <div className={styles.visual}>
-      <div className={styles.images}>{art.map(c => <div className={styles.crop} key={c.oracle_id}>
-        <img src={c.image_art_crop!} alt="" loading="lazy" decoding="async" width="626" height="457" onError={e => { e.currentTarget.hidden = true; }} />
-      </div>)}</div>
-    </div>}
-    <div className={styles.identity} aria-hidden="true">{[...new Set(identity)].filter(c => "WUBRG".includes(c)).map(c => <i key={c} data-color={c} />)}</div>
-    {children && <div className={styles.content}>{children}</div>}
-    {art.length > 0 && <p className={styles.credit}>{art.map(c => <span key={c.oracle_id}>Art by {c.artist} · {c.name}</span>)}</p>}
+    data-art={art.length > 0 || undefined} data-collapsed={collapsed || undefined}>
+    {art.length > 0 && <div className={styles.visual}>{art.map(c => <div className={styles.crop} key={c.oracle_id}>
+      {load && <img src={c.image_art_crop} alt="" loading={priority ? "eager" : "lazy"} fetchPriority={priority} decoding="async" onError={e => { e.currentTarget.parentElement!.dataset.failed = ""; }} />}
+      <span className={styles.credit}>{artCredit(c, variant !== "backdrop")}</span>
+    </div>)}</div>}
+    <div className={styles.identity} aria-hidden="true">{[...identity].filter(c => "WUBRG".includes(c)).map(c => <i key={c} data-color={c} />)}</div>
+    {children}
   </div>;
 }

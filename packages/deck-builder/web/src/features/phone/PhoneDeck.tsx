@@ -44,7 +44,7 @@ function Deck() {
     <ReadOnlyDeck
       model={model}
       header={
-        <DeckArt cards={state!.cards.filter(c => c.role === "commander" && !c.maybe)} identity={deck.color_identity} variant="banner"><header className={styles.head}>
+        <DeckArt cards={state!.cards.filter(c => c.role === "commander" && !c.maybe)} identity={deck.color_identity} variant="banner" priority="auto"><header className={styles.head}>
           <a className={styles.back} href={href({ page: "decks" })}><Icon name="back" /> Decks</a>
           <h1 className={styles.title}>{deck.name}</h1>
           <div className={styles.meta}>

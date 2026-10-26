@@ -16,6 +16,7 @@ import {
   Page,
   PageHeader,
   Text,
+  useNearView,
 } from "../../ui/index.ts";
 import styles from "./DecksPage.module.css";
 import { NewDeckDialog } from "./NewDeckDialog.tsx";
@@ -38,6 +39,32 @@ function Commanders({ deck }: { deck: DeckSummary }) {
       ))}
     </>
   );
+}
+
+/** One deck on the roster. The name's link covers the whole card, as the
+ * table row did; the commander links and the actions sit above it. */
+function RosterCard({ deck, fork, onAction }: { deck: DeckSummary; fork: boolean; onAction: (action: DeckAction) => void }) {
+  const [ref, near] = useNearView<HTMLLIElement>();
+  const waiting = deck.pending_items + deck.pending_document_edits;
+  return <li ref={ref} className={styles.card}>
+    <DeckArt cards={deck.commander_art} identity={deck.color_identity} load={near}>
+      <div className={styles.deckCard}>
+        <div className={styles.cardHeading}>
+          <h2><a className={styles.deckLink} href={href({ page: "deck", deckId: deck.id })}>{deck.name}</a></h2>
+          <DeckActions deck={deck} onAction={onAction} />
+        </div>
+        <div className={styles.commander}><Commanders deck={deck} /></div>
+        {fork && deck.parent_name && <Text tone="faint" size="xs">Fork of {deck.parent_name}</Text>}
+        <div className={styles.cardStats}>
+          <ColorIdentity colors={deck.color_identity} />
+          <Chip className={styles.lifecycle} data-lifecycle={deck.category}>{DECK_CATEGORY_LABELS[deck.category]}</Chip>
+          <Text mono tone={deck.card_count === 100 ? "muted" : "warn"}>{deck.card_count}/100</Text>
+          {deck.visibility !== "private" && <span className={styles.shared} role="img" aria-label={deck.visibility === "public" ? "Public" : "Unlisted"} title={deck.visibility === "public" ? "Public" : "Unlisted"}><Icon name={deck.visibility === "public" ? "globe" : "link"} size={12} /></span>}
+          {waiting > 0 && <Chip tone={deck.category === "archived" ? "neutral" : "agent"}>{waiting} {deck.category === "archived" ? "paused" : "waiting"}</Chip>}
+        </div>
+      </div>
+    </DeckArt>
+  </li>;
 }
 
 /** The roster, spec §9: every deck, how far along it is, and what is waiting on the owner. */
@@ -77,28 +104,7 @@ export function DecksPage() {
             <FirstRun onCreate={() => setCreating(true)} onImport={() => { setImporting(true); setCreating(true); }} />
           ) : (
             <ul className={styles.roster}>
-              {rows.map(({ deck, fork }) => {
-                const waiting = deck.pending_items + deck.pending_document_edits;
-                return <li key={deck.id}>
-                  <DeckArt cards={deck.commander_art} identity={deck.color_identity}>
-                    <div className={styles.deckCard}>
-                      <div className={styles.cardHeading}>
-                        <h2><a className={styles.deckLink} href={href({ page: "deck", deckId: deck.id })}>{deck.name}</a></h2>
-                        <DeckActions deck={deck} onAction={action => setEditing({ deck, action })} />
-                      </div>
-                      <div className={styles.commander}><Commanders deck={deck} /></div>
-                      {fork && deck.parent_name && <Text tone="faint" size="xs">Fork of {deck.parent_name}</Text>}
-                      <div className={styles.cardStats}>
-                        <ColorIdentity colors={deck.color_identity} />
-                        <Chip className={styles.lifecycle} data-lifecycle={deck.category}>{DECK_CATEGORY_LABELS[deck.category]}</Chip>
-                        <Text mono tone={deck.card_count === 100 ? "muted" : "warn"}>{deck.card_count}/100</Text>
-                        {deck.visibility !== "private" && <span className={styles.shared} role="img" aria-label={deck.visibility === "public" ? "Public" : "Unlisted"} title={deck.visibility === "public" ? "Public" : "Unlisted"}><Icon name={deck.visibility === "public" ? "globe" : "link"} size={12} /></span>}
-                      </div>
-                      {waiting > 0 && <div><Chip tone={deck.category === "archived" ? "neutral" : "agent"}>{waiting} {deck.category === "archived" ? "paused" : "waiting"}</Chip></div>}
-                    </div>
-                  </DeckArt>
-                </li>;
-              })}
+              {rows.map(({ deck, fork }) => <RosterCard key={deck.id} deck={deck} fork={fork} onAction={action => setEditing({ deck, action })} />)}
             </ul>
           ))}
         {rows.length > 0 && <PlayerStatsPanel />}

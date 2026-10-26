@@ -134,34 +134,35 @@
      itself is PHONE_MAX_WIDTH in app/breakpoints.ts: media queries cannot
      read a custom property. */
   --public-w: 1240px;
-  /* D21 art: top can show detail; each variant reaches the text overlay before content.
-     At that point the dark overlay is >= 0.94, even over white artwork.
-     Credits have an opaque surface: soft/surface = 12.06:1. */
-  --art-overlay-top: rgba(13, 14, 16, 0.38);
-  --art-fade: linear-gradient(180deg, var(--art-overlay-top), var(--art-overlay-text) var(--art-strip-space), var(--surface) 100%);
-  --art-banner-fade: linear-gradient(180deg, var(--art-overlay-top), var(--art-overlay-text) var(--art-banner-space), var(--surface) 100%);
-  --art-tablet-fade: linear-gradient(180deg, var(--art-overlay-top), var(--art-overlay-text) var(--art-banner-tablet-space), var(--surface) 100%);
-  --art-phone-fade: linear-gradient(180deg, var(--art-overlay-top), var(--art-overlay-text) var(--art-banner-phone-space), var(--surface) 100%);
-  --art-overlay-text: rgba(13, 14, 16, 0.94);
-  --art-backdrop-overlay: rgba(13, 14, 16, 0.9);
+  /* D21 art. Overlays derive from --bg, so a palette change carries them.
+     Each art band reaches --art-overlay-text where content starts; the
+     credit pill uses the same overlay. Over pure white art the pill and the
+     text below a band measure >= 9:1 (DESIGN.md, Art). */
+  --art-overlay-top: color-mix(in srgb, var(--bg) 30%, transparent);
+  --art-overlay-text: color-mix(in srgb, var(--bg) 94%, transparent);
   --art-aspect: 626 / 457;
   --art-position: center 35%;
-  --art-strip-space: 64px;
-  --art-banner-space: 88px;
-  --art-banner-tablet-space: 60px;
+  /* Band heights: the art shows above the content, which starts at the band. */
+  --art-strip-space: 48px;
+  --art-banner-space: 72px;
+  --art-banner-tablet-space: 56px;
   --art-banner-phone-space: 48px;
-  --art-banner-collapsed: 0px;
-  --art-collapsed-opacity: 0;
-  --art-thumb: 28px;
-  --art-blur: 6px;
-  --art-blur-scale: 1.05;
+  --art-showcase-space: 176px;
+  --art-showcase-phone-space: 112px;
+  --art-backdrop-space: 160px;
+  --art-backdrop-phone-space: 112px;
   --art-collapse-threshold: 48px;
+  /* Sidebar thumbnails sit in the icon column; quieter until current or hovered. */
+  --art-thumb: 16px;
+  --art-thumb-opacity: 0.7;
   --deck-card-min: 300px;
   --identity-stripe-h: 2px;
   --identity-opacity: 0.6;
   --identity-w: var(--mana-w);
   --identity-u: var(--mana-u);
-  --identity-b: var(--mana-b-ring);
+  /* Black's own ring is nearly white; on a 2px stripe beside white it needs
+     the darker half of the pip. */
+  --identity-b: color-mix(in srgb, var(--mana-b-ring) 50%, var(--mana-b));
   --identity-r: var(--mana-r);
   --identity-g: var(--mana-g);
   --identity-grey: var(--line-strong);
@@ -184,8 +185,9 @@
   --z-hover: 60;
   --z-toast: 80;
 
-  /* Motion */
+  /* Motion. Both drop to 0 under reduced motion (base.css). */
   --fast: 120ms;
+  --base: 200ms;
 }
 
 /* Approved playtester extensions: rules remain readable at desktop 100% zoom. */

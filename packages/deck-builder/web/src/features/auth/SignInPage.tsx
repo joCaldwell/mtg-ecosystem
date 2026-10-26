@@ -26,7 +26,7 @@ export function SignInPage() {
   }
   const providerError = new URLSearchParams(location.search).get("error");
   return <main id="main-content" tabIndex={-1} aria-label="Sign in"><PageHeader title="Your decks, your decisions" subtitle="Sign in to deck builder" /><div className={styles.content}>
-    <DeckArt cards={session.backdrop ? [session.backdrop] : []} variant="backdrop"><Stack gap={5}>
+    <DeckArt cards={session.backdrop ? [session.backdrop] : null} variant="backdrop" priority="auto"><div className={styles.form}><Stack gap={5}>
       <Text>Keep your decks and deck-building knowledge together. Connect an agent when you want help; every write stays attributed to your account.</Text>
       <Field label="Invite or owner claim code" hint={session.invites_required ? "Required for a new account. Leave blank if you have signed in before." : "Optional: enter an owner claim code or invite, or leave blank to create an account."}>
         <TextField type="password" autoComplete="off" value={code} maxLength={256} onChange={e => setCode(e.target.value)} />
@@ -35,6 +35,6 @@ export function SignInPage() {
       {error && <ErrorNote>{error}</ErrorNote>}
       {providerError && <ErrorNote>{providerError === "registration_failed" ? "Registration did not complete. Check your invite or claim code and try again." : "The provider sign-in did not complete or its state expired. Start sign-in again."}</ErrorNote>}
       <Text size="sm" tone="muted" className={styles.legal}>By continuing, you agree to the <a href="/terms">terms</a> and acknowledge the <a href="/privacy">privacy policy</a>.</Text>
-    </Stack></DeckArt><LegalFooter />
+    </Stack></div></DeckArt><LegalFooter />
   </div></main>;
 }

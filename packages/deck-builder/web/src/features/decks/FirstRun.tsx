@@ -19,7 +19,7 @@ export function FirstRun({ onCreate, onImport }: { onCreate: () => void; onImpor
     try { const { state } = await api.createSample(); navigate({ page: "deck", deckId: state.deck.id }); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); setBusy(false); }
   }
-  return <DeckArt cards={session.backdrop ? [session.backdrop] : []} variant="backdrop"><section aria-label="Start your first deck" className={styles.firstRun}>
+  return <DeckArt cards={session.backdrop ? [session.backdrop] : null} variant="backdrop" priority="auto"><section aria-label="Start your first deck" className={styles.firstRun}>
     <Stack gap={4}><h2>Your first deck starts here</h2><Text as="p" tone="muted">{voice("Build a Commander deck, bring a list you already have, or explore a sample.", "Build a deck yourself, bring a list, or ask your connected agent to help.")}</Text></Stack>
     <div className={styles.choices}>
       <Box><Stack gap={5}><h3>Start a new deck</h3><Text as="p" tone="muted">{voice("Start with a name. Add a commander and cards as your plan takes shape.", "Start with a name, then build the list yourself or with your agent.")}</Text><Button variant="primary" onClick={onCreate} aria-haspopup="dialog">New deck</Button></Stack></Box>

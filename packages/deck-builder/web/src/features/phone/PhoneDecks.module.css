@@ -27,12 +27,30 @@
   color: var(--text);
 }
 
+/* The whole card, art band included, is the link. */
+.row::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
 .row:active {
   background: var(--hover);
 }
 
 .fork {
   margin-left: var(--s-6);
+}
+
+.empty {
+  display: grid;
+  gap: var(--s-2);
+  padding: var(--s-5);
+}
+
+.empty h2 {
+  font-size: var(--text-lg);
+  font-weight: 600;
 }
 
 .name {

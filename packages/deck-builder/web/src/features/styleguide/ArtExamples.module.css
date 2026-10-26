@@ -1,2 +1,6 @@
-/* Simulate an unavailable download with the real frame and credit intact. */
-.unavailable img { visibility: hidden; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--deck-card-min)), 1fr)); gap: var(--s-5); }
+.body { display: grid; gap: var(--s-2); padding: var(--s-4) var(--s-5) var(--s-5); }
+.thumbs { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: var(--s-4) var(--s-5); }
+.dim { opacity: var(--art-thumb-opacity); }
+/* Simulate a failed download: the picture and its credit hide, the frame stays. */
+.unavailable img, .unavailable img + span { visibility: hidden; }

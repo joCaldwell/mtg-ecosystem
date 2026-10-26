@@ -337,11 +337,18 @@ second unfiltered memory list or a deck roster just to construct its filters.
 Actor-scoped deck summaries add `commander_art`; `/api/session` adds one
 shared-card `backdrop` resolved from the curated exact-name set. No new table,
 tenant lookup, external HTTP call or client Scryfall lookup is involved.
-`mtg/DeckArt` draws strips, banners and backdrops, and `DeckThumbnail` draws
-small accessible rail art. Both consume facts, never API state. DESIGN.md and
-/design own their tokens, variants and fallbacks. Features choose placement;
-`app/useArtCollapse` only observes the desktop list's `data-deck-list` scroll
-events. Tablet/phone/public shells retain `useWindowScroll` and let their short
-banners leave naturally with the document. Sign-in uses that same hook and a
-labelled main. The public/phone reader uses `BriefText`, without the editable
+`domain/art.ts` repeats the admission rule for the client (`creditedArt`,
+parsed URL) and words the credit; `mtg/DeckArt` draws strips, banners,
+showcases and backdrops, and `mtg/DeckThumbnail` the rail's decorative art.
+Both consume facts, never API state. DESIGN.md and /design own their tokens,
+variants and fallbacks. Features choose placement and loading: roster cards
+pass `load` from `ui/useNearView`, which observes the nearest container that
+actually scrolls (or the window) with a 200 px margin, so off-screen roster
+and rail art is not downloaded. `app/useArtCollapse` only observes the
+desktop list's `data-deck-list` scroll events, reads its tokens once, and
+drops a fold below 1100 px; its rule is `domain/artFold.ts`, kept apart so
+the public chunk does not carry it. Tablet/phone/public shells retain
+`useWindowScroll` and let their short banners leave naturally with the
+document. Sign-in uses that same hook and a labelled main. The public/phone
+reader uses `BriefText`, without the editable
 brief wrapper's state or loader in its initial dependency graph.

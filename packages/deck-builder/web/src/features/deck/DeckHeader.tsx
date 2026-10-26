@@ -58,7 +58,7 @@ export function DeckHeader({ collapsed = false }: { collapsed?: boolean }) {
   ];
 
   return (
-    <DeckArt cards={commanders} identity={deck.color_identity} variant="banner" collapsed={collapsed}><header className={styles.header}>
+    <DeckArt cards={commanders} identity={deck.color_identity} variant="banner" collapsed={collapsed} priority="auto"><header className={styles.header}>
       <div className={styles.top}>
         {draft == null ? (
           <h1 className={styles.title}>

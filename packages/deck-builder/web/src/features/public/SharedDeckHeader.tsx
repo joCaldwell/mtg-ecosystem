@@ -39,7 +39,7 @@ export function SharedDeckHeader({ shared, own }: { shared: PublicDeckState; own
   }
 
   return (
-    <DeckArt cards={commanders} identity={deck.color_identity} variant="banner">
+    <DeckArt cards={commanders} identity={deck.color_identity} variant="showcase" priority="high">
       <div className={styles.text}>
         <div className={styles.meta}>
           <Chip>{DECK_CATEGORY_LABELS[deck.category]}</Chip>
