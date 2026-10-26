@@ -13,8 +13,8 @@ web/src/
   mtg/       ManaCost, CardRef, RichText…  how a Magic card is shown; no API, no app state
   domain/    grouping, review, marks…      pure functions over wire types; no React, no DOM
   api/       client.ts, live.tsx, useQuery the typed HTTP client and the change stream
-  app/       App, routes, shell, providers wiring: routing, sidebar, app-wide providers
-  features/  deck/, inbox/, memories/…     one folder per screen or shared workflow
+  app/       App, routes, shell, providers wiring: routing, sidebar, app-wide providers, the breakpoint
+  features/  deck/, inbox/, public/, phone/… one folder per screen or shared workflow
 ```
 
 Imports go **down this list only**:
@@ -80,12 +80,16 @@ The server is the source of truth and the client never merges.
 **A new page** (say, a playtester):
 
 1. `features/playtest/PlaytestPage.tsx`, built from `ui/` and `mtg/` pieces.
-2. Add the route to `app/routes.ts` and the page to the switch in `app/App.tsx`.
-3. Add a sidebar entry in `app/Sidebar.tsx` if it needs one.
+2. Add the route to `app/routes.ts` (a path, built only by `href()`), the page
+   to the switch in `app/App.tsx`, and the path to the server's app-route
+   list in `src/app.ts` `serveStatic` (D16: anything else is 404).
+3. Add a sidebar entry in `app/Sidebar.tsx` if it needs one, and decide what
+   the phone shell shows for it (`features/phone/PhoneApp.tsx`; by default,
+   "Open on a larger screen").
 4. Any data shaping goes in `domain/` with a test.
 
 **A new primitive:** add it to `ui/`, export it from `ui/index.ts`, and add
-an example to `features/styleguide/StyleguidePage.tsx` (`#/design`). If it
+an example to `features/styleguide/StyleguidePage.tsx` (`/design`). If it
 needs a new colour or size, that is a token first.
 
 **A new server field:** change the server type; `api/client.ts` imports it
@@ -97,7 +101,58 @@ has to follow.
 `npm run build` typechecks the server and the UI. `npm test` runs the domain
 tests and the layering test. `npm run dev` serves the UI with hot reload;
 seed the demo deck first (`npm run seed:demo`) so every panel has content.
-`#/design` shows every primitive in every state.
+`/design` shows every primitive in every state.
+
+## Routing (v3 phase 4a, spec §11.1)
+
+Path routes: `/`, `/decks`, `/deck/:id`, `/deck/:id/review`,
+`/deck/:id/playtest`, `/inbox`, `/memories`, `/profile`, `/activity`,
+`/settings`, `/design`, `/signin`, `/privacy`, `/terms`, `/d/:slug`,
+`/u/:handle`. `app/routes.ts` owns them: `parseRoute`, `href()` (the only
+place a URL is built), `navigate()`, and `useRoute()`, which also turns a
+plain same-origin `<a href>` click into in-place navigation, so components
+keep writing ordinary links. A hash-era bookmark (`/#/deck/5`) is rewritten
+once on load. The server answers only those paths with `index.html`; for
+`/d/:slug` and `/u/:handle` it first injects the title, description and Open
+Graph tags (`src/preview.ts`) and answers 404 when the requester cannot read
+what the path names. Vite's dev server falls back to `index.html` for every
+path, so link previews exist only when the API server serves the build.
+
+## Shared pages and read-only decks (`features/public`, spec §18)
+
+`/d/:slug` and `/u/:handle` render outside the signed-in app:
+`SessionProvider open` lets them through signed out, and they get only
+`CardProviders` (lookup and hover), never `LiveProvider`, `InboxProvider` or
+`FocusProvider`, which need a session. They read `api.publicDeck`,
+`api.publicExport` and `api.publicProfile`, which the server answers without
+an account.
+
+`features/deck/ReadOnlyDeck.tsx` is the one read-only composition, exported
+from the deck feature. It takes a `ReadOnlyDeckModel` from
+`domain/readOnlyDeck.ts` (`fromPublic` for a shared deck, `fromOwner` for the
+owner's own deck on a phone) and draws the existing `DeckList`, `GroupBlock`,
+`CardRow`, `ChecksPanel`, read-only `BriefField`s and `EngineCard`s inside
+read-only providers: `DeckListProvider readOnly` and its own
+`DeckUiProvider`. List components read `useDeckList()` (a `DeckListState`:
+cards, slots, tags, computed, proposals, log), not the whole `DeckState`, so
+they work from either source; the live `DeckProvider` provides the same
+context. Read-only rows cannot be selected, and a tap opens `CardSheet`
+instead of the side panel.
+
+## The phone view (`features/phone`, spec §11.2, D17)
+
+`app/breakpoints.ts` holds the one breakpoint, `PHONE_MAX_WIDTH = 719`, and
+`useIsPhone()`. CSS repeats it as `@media (max-width: 719px)`, and
+`web-architecture.test.ts` fails on any other width query outside the
+playtester. Below it, `App` renders `PhoneApp` instead of `AppShell`: a top
+bar, `PhoneDecks`, `PhoneDeck` (the live `DeckProvider` around
+`ReadOnlyDeck`, with `PhoneRulings` drawing every decision and Accept all,
+each with its optional reason, through the same `useReview` as desktop) and
+`PhoneInbox` (proposals open their deck; document edits rule in place with
+`DocumentEditCard`). Every other route renders `LargerScreen`. The phone
+shell sits inside `AppProviders`, so the event stream refetches as on
+desktop and an agent's new proposal appears without a reload. 4b inherits
+the breakpoint, `ReadOnlyDeck` and the router.
 
 ## Recovery and background work
 
@@ -137,8 +192,7 @@ above `LiveProvider` and gates private providers/screens until signed in, so
 SSE and private data queries never start on the sign-in page. `useSession()`
 exposes mode, configured providers, the current account and a reload hook.
 The first-run handle picker appears only on a provider-handle collision.
-Legal pages bypass sign-in; `/signin` is an auth boundary while the existing
-application still uses hash routes. The server serves `/consent` as plain
+Legal pages and shared pages bypass sign-in; `/signin` is an auth boundary. The server serves `/consent` as plain
 HTML with an external script; it submits Better Auth's signed oauth_query.
 Local mode never renders sign-in, regardless of the path.
 

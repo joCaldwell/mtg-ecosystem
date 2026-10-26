@@ -332,7 +332,7 @@ test("v10 identity migration preserves data, sequences and structured authors, w
   old.close();
   const db = openDb(path);
   try {
-    assert.equal((db.prepare("SELECT value FROM meta WHERE key='schema_version'").get() as { value: string }).value, "13");
+    assert.equal((db.prepare("SELECT value FROM meta WHERE key='schema_version'").get() as { value: string }).value, "14");
     assert.deepEqual(getDeck(db, OWNER, deck), before.deck);
     assert.deepEqual(getProfile(db, OWNER), before.profile);
     assert.deepEqual(listMemories(db, OWNER, { status: "any" }), before.memories);

@@ -1,4 +1,4 @@
-import type { DeckState, Memory } from "../api/client.ts";
+import type { DeckListState, Memory } from "../api/client.ts";
 
 export interface CardMark {
   memories: number;
@@ -11,7 +11,7 @@ export interface CardMark {
  * deck's recent log (accept or reject entries that have not been undone).
  * Keyed by oracle_id; only cards with at least one of either appear.
  */
-export function cardMarks(state: DeckState, memories: Memory[]): Map<string, CardMark> {
+export function cardMarks(state: DeckListState, memories: Memory[]): Map<string, CardMark> {
   const marks = new Map<string, CardMark>();
   const bump = (oracleId: string, field: keyof CardMark) => {
     const mark = marks.get(oracleId) ?? { memories: 0, rulings: 0 };

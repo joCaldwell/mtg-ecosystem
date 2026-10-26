@@ -43,6 +43,44 @@ import { requireDeck } from "./service.ts";
 // Category syntax rechecked 2026-10-17:
 // https://archidekt.com/forum/thread/6024990/1
 // https://archidekt.com/forum/thread/3223199
+//
+// ---------------------------------------------------------------------------
+// MOXFIELD — import only (spec §12), verified 2026-10-25 against Moxfield's
+// help center and 72 real exports (12 public Commander decks × every button
+// of the deck page's Export dialog; fixtures in test/fixtures/moxfield/):
+//
+//  * Line syntax, from Moxfield's "Creating decks" help article
+//    (https://moxfield.com/help/creating-decks, updated 2026-06-16): "The
+//    format to list them is: AMOUNT CARDNAME (SETCODE) NUMBER *F*. The set
+//    code, collector number and foil indicator (*F*) are optional." Its
+//    "Adding cards" article (https://moxfield.com/help/adding-cards) adds
+//    tags: "1 Lightning Bolt (A25) *F* #OneDrop #!Removal".
+//  * What the exporter writes: *F* for foil and *E* for etched; set codes of
+//    3–5 characters (PLST, P30M); collector numbers that are not plain
+//    digits (1492★, 1F★, 2018A, 259p, CSP-105, 2023-8); multi-face names with
+//    ONE slash, "Wear / Tear" ("Copy for Moxfield") or "Wear/Tear" ("Copy for
+//    MTGO"), where Scryfall writes "Wear // Tear".
+//  * Boards other than the main deck follow a blank line under an upper-case
+//    header with a colon: SIDEBOARD:, ATTRACTIONS:, STICKERS:. The
+//    companion is an unmarked line under SIDEBOARD:. The maybeboard
+//    ("Considering") is never exported.
+//  * Names: "Copy Plain Text" and "Copy for Moxfield" use the printed name
+//    Scryfall uses ("Spider-Punk"); "Copy for MTGO" uses MTGO's own name where
+//    it differs ("Kraza, the Swarm as One"), which then fails to resolve and
+//    is reported like any unknown name. Plain Text is the one to paste.
+//    Every variant writes a flavor-named printing by its flavor name ("The
+//    Ball" for Fellwar Stone); those are reported unresolved too (spec §12).
+//  * The commander: "Copy for MTGO", "Download for MTGO" and "Copy Plain
+//    Text" put it in a final block after a blank line, with no header (all
+//    12 decks). "Copy for Moxfield" lists it first with no marker at all, so
+//    it cannot be told from the deck; we do not guess (the alphabetical-order
+//    break that would hint at it is wrong for 2 of the 12 decks), and the
+//    preview says so. "Copy for Arena" uses About / Name / Companion /
+//    Commander / Deck / Sideboard headings and drops cards Arena lacks.
+//
+// Moxfield publishes no import grammar beyond the help text, and its API is
+// not public; nothing here fetches from Moxfield.
+// ---------------------------------------------------------------------------
 
 import type { Database } from "../sqlite.ts";
 import { ServiceError } from "../errors.ts";
@@ -50,6 +88,7 @@ import { type Actor, requireUi } from "../actor.ts";
 import { type CardRow, CardResolutionError, type ResolutionFailure, tryResolveCard } from "../cards.ts";
 import { type Change, applyChanges } from "./membership.ts";
 import { type Role, getDeck, shortlistCard } from "./service.ts";
+import { publicDeckState } from "../state.ts";
 
 // Categories we emit for cards that aren't in a user slot. "Commander" is
 // Archidekt's own command-zone category name.
@@ -65,6 +104,9 @@ const MAYBEBOARD_CATEGORY = "Maybeboard";
 // preview reports every card it sets aside this way rather than doing it
 // silently.
 const OUTSIDE_CATEGORIES = new Set(["maybeboard", "sideboard"]);
+// Moxfield boards that are separate decks in their own right, not cards for
+// the 100 nor candidates for it. Listed in the preview and left out.
+const IGNORED_CATEGORY = "Not part of the deck";
 
 export interface ExportOptions {
   // Emit [Category] tags derived from slots / role. Off = bare "QTY Name".
@@ -88,7 +130,21 @@ export function exportDeck(
   opts: ExportOptions = {},
 ): ExportResult {
   requireDeck(db, actor, deckId);
-  const { deck, slots, cards } = getDeck(db, actor, deckId);
+  const view = getDeck(db, actor, deckId);
+  return { ...exportLines(view, opts), revision: view.deck.revision };
+}
+
+/** A shared deck's list as Archidekt text, for anyone who can read it (§18.5).
+ * Built from the public projection, so it carries nothing the page does not. */
+export function exportPublicDeck(db: Database, viewer: Actor | null, slug: string, opts: Pick<ExportOptions, "categories" | "includeMaybe"> = {}): Omit<ExportResult, "revision"> & { name: string } {
+  const shared = publicDeckState(db, viewer, slug);
+  return { name: shared.deck.name, ...exportLines(shared, opts) };
+}
+
+function exportLines(
+  { slots, cards }: { slots: Array<{ id: number; name: string }>; cards: Array<{ oracle_id: string; name: string; quantity: number; role: Role; maybe: number; slot_id: number | null }> },
+  opts: ExportOptions,
+): Omit<ExportResult, "revision"> {
   const slotName = new Map(slots.map((s) => [s.id, s.name]));
   const selected = opts.oracleIds === undefined ? null : new Set(opts.oracleIds);
 
@@ -128,7 +184,6 @@ export function exportDeck(
     text: lines.join("\n") + (lines.length ? "\n" : ""),
     card_count: rows.reduce((n, r) => n + r.card.quantity, 0),
     line_count: lines.length,
-    revision: deck.revision,
   };
 }
 
@@ -141,25 +196,38 @@ export interface ParsedLine {
   name: string;
   // The line's own [Category] tags, then the section header it sits under.
   categories: string[];
+  /** Read as Moxfield's unlabelled command zone; kept only if the card can be a commander. */
+  guessed_commander?: boolean;
 }
+
+/** A Commander list is a few hundred lines; a paste far past that is not a deck. */
+export const MAX_LIST_LINES = 5000;
+/** The longest card name is 141 characters; a line this long is not a card. */
+export const MAX_LINE_LENGTH = 300;
+/** Trailing fields one line may carry (^label^, [categories], `category`, #tags, *F*, (SET) number). */
+const MAX_LINE_FIELDS = 12;
 
 export interface ParseResult {
   entries: ParsedLine[];
   // Lines we could not read as a card at all (as opposed to names that simply
   // don't resolve — those come back from the diff, with suggestions).
   unparsed: Array<{ line_no: number; raw: string }>;
+  // Lines under a board that is not part of a Commander deck (Moxfield's
+  // ATTRACTIONS:, STICKERS:), left out and reported.
+  ignored: Array<{ line_no: number; name: string; section: string }>;
+  /** What the text says about where it came from, for the preview's notes. */
+  notes: string[];
 }
 
-// Whole-line section headers Archidekt and other exporters emit, and the
-// category each one gives the lines beneath it (null: the deck itself). None
-// of these are Magic card names, so reading them as headers cannot swallow a
-// real card.
+// Whole-line section headers Archidekt, Moxfield and other exporters emit,
+// and the category each gives the lines beneath it (null: the deck itself).
+// None of these are Magic card names, so reading them as headers cannot
+// swallow a real card.
 const SECTIONS = new Map<string, string | null>([
   ["deck", null],
   ["decklist", null],
   ["main", null],
   ["mainboard", null],
-  ["about", null],
   ["token", null],
   ["tokens", null],
   ["commander", COMMANDER_CATEGORY],
@@ -167,34 +235,94 @@ const SECTIONS = new Map<string, string | null>([
   ["companion", COMPANION_CATEGORY],
   ["sideboard", SIDEBOARD_CATEGORY],
   ["maybeboard", MAYBEBOARD_CATEGORY],
+  // Moxfield's name for its maybeboard.
+  ["considering", MAYBEBOARD_CATEGORY],
+  ["attractions", IGNORED_CATEGORY],
+  ["stickers", IGNORED_CATEGORY],
+  ["contraptions", IGNORED_CATEGORY],
 ]);
+// Arena's "About" block names the deck ("Name Tom Bombadil + Jegantha"); its
+// lines are not cards.
+const ABOUT = "about";
 const SECTION_HEADER = /^([A-Za-z]+)\s*:?\s*$/;
+// Moxfield's board headers: upper case with a colon. A board ends at the next
+// blank line, after which an unlabelled block is the command zone.
+const BOARD_HEADER = /^[A-Z]+:$/;
 // "Creatures (24)" style count headers — documented to break the importer,
 // so they turn up in lists people hand-edit.
 const COUNT_HEADER = /^([A-Za-z][A-Za-z '\/-]*?)\s*\(\d+\)\s*$/;
+// "(SET) NUMBER": 2–6 character set codes, collector numbers with letters,
+// stars and dashes as Moxfield writes them (259p, 1492★, CSP-105).
+// Tested on the text from the line's last "(", so it is anchored at both ends.
+const PRINTING = /^\([0-9A-Za-z_]{2,6}\)( [0-9A-Za-z][0-9A-Za-z★†-]*)?$/;
 
-export function parseArchidektList(text: string): ParseResult {
+export function parseDeckList(text: string): ParseResult {
+  const lines = text.split(/\r?\n/);
+  // Bounded before any regex runs: the end-anchored patterns below are
+  // quadratic on long runs of whitespace, and nothing here may stall the server.
+  if (lines.length > MAX_LIST_LINES)
+    throw new ServiceError(`A pasted list can have at most ${MAX_LIST_LINES.toLocaleString("en")} lines; this one has ${lines.length.toLocaleString("en")}.`);
   const entries: ParsedLine[] = [];
   const unparsed: Array<{ line_no: number; raw: string }> = [];
+  const ignored: ParseResult["ignored"] = [];
   // The category of the header the current line sits under. It holds until
-  // the next header, not the next blank line.
+  // the next header, not the next blank line — except a Moxfield board, which
+  // a blank line ends.
   let section: string | null = null;
+  // The header's own words, for reporting ignored lines ("STICKERS").
+  let sectionLabel = "";
+  let skipping = false;
+  let board = false;
+  let explicitCommandZone = false;
+  let wordHeaders = false;
+  // Blocks are runs of lines between blank lines; the last one may be
+  // Moxfield's unlabelled command zone.
+  let block = 0;
+  let blockLabelled = false;
+  const blocks: Array<{ labelled: boolean; entries: ParsedLine[] }> = [];
+  let printed = 0;
 
-  text.split(/\r?\n/).forEach((raw, i) => {
+  lines.forEach((raw, i) => {
     const lineNo = i + 1;
+    // trim() is linear; a blank line (whatever its length) still separates
+    // blocks, and a comment of any length is skipped, before the cap applies.
     let line = raw.trim();
-    if (!line) return;
-    if (line.startsWith("//") || line.startsWith("#")) return;
-    const header = line.match(SECTION_HEADER);
-    if (header && SECTIONS.has(header[1].toLowerCase())) {
-      section = SECTIONS.get(header[1].toLowerCase()) ?? null;
+    if (!line) {
+      if (blocks[block]?.entries.length || blockLabelled) { block++; blockLabelled = false; }
+      if (board) { section = null; board = false; sectionLabel = ""; }
       return;
     }
+    if (line.startsWith("//") || line.startsWith("#")) return;
+    if (line.length > MAX_LINE_LENGTH) {
+      unparsed.push({ line_no: lineNo, raw: `${raw.slice(0, 80)}…` });
+      return;
+    }
+    // Every pattern below is anchored at the end and begins with \s*: on a
+    // long run of spaces each start position would rescan the run. One
+    // space per run makes each pattern linear (card names never hold two).
+    line = line.replace(/\s+/g, " ");
+    const header = line.match(SECTION_HEADER);
+    const key = header?.[1].toLowerCase();
+    if (header && (SECTIONS.has(key!) || key === ABOUT)) {
+      skipping = key === ABOUT;
+      section = skipping ? null : SECTIONS.get(key!) ?? null;
+      sectionLabel = header[1];
+      board = BOARD_HEADER.test(line);
+      if (!board) wordHeaders = true;
+      if (section === COMMANDER_CATEGORY) explicitCommandZone = true;
+      blockLabelled = true;
+      return;
+    }
+    if (skipping) return;
     // A count header we don't know ("Creatures (24)") is a grouping inside
     // the deck, so it ends a Commander or Maybeboard section.
     const counted = line.match(COUNT_HEADER);
     if (counted) {
       section = SECTIONS.get(counted[1].toLowerCase()) ?? null;
+      sectionLabel = counted[1];
+      wordHeaders = true;
+      if (section === COMMANDER_CATEGORY) explicitCommandZone = true;
+      blockLabelled = true;
       return;
     }
     const implied = section ? [section] : [];
@@ -212,39 +340,64 @@ export function parseArchidektList(text: string): ParseResult {
       line = line.slice(qty[0].length);
     }
 
-    // Strip trailing metadata in any order. Each field is anchored to the end
-    // so a name containing e.g. "//" is never eaten.
+    // Strip trailing metadata in any order. Each field is found from the end
+    // (endsWith / lastIndexOf) and only its own tail is tested, so a pass is
+    // one linear look and a name containing e.g. "//" is never eaten.
     const categories: string[] = [];
-    for (;;) {
+    // Passes are capped: a real line has a handful of fields (label,
+    // category, tags, finish, printing). Whatever is left over stays in the
+    // name and fails to resolve, visibly.
+    for (let pass = 0; pass < MAX_LINE_FIELDS; pass++) {
       const before = line;
+      const cut = (at: number) => { line = line.slice(0, at).trimEnd(); };
       // ^Label,#rrggbb^
-      line = line.replace(/\s*\^[^^]*\^\s*$/, "");
+      if (line.endsWith("^")) {
+        const at = line.lastIndexOf("^", line.length - 2);
+        if (at >= 0) cut(at);
+      }
       // [Cat] or [Cat1,Cat2]
-      const bracket = line.match(/\s*\[([^\[\]]*)\]\s*$/);
-      if (bracket) {
-        categories.unshift(
-          ...bracket[1]
-            .split(",")
-            .map((c) => c.trim())
-            // Archidekt category modifiers ({top}, {noDeck}, …) are reported
-            // by users but we could not verify their syntax — strip anything
-            // brace-wrapped rather than guess at its meaning.
-            .map((c) => c.replace(/\{[^}]*\}/g, "").trim())
-            .filter(Boolean),
-        );
-        line = line.slice(0, bracket.index).trimEnd();
+      if (line.endsWith("]")) {
+        const at = line.lastIndexOf("[");
+        const inside = at >= 0 ? line.slice(at + 1, -1) : "]";
+        if (!inside.includes("]")) {
+          categories.unshift(
+            ...inside
+              .split(",")
+              .map((c) => c.trim())
+              // Archidekt category modifiers ({top}, {noDeck}, …) are reported
+              // by users but we could not verify their syntax — strip anything
+              // brace-wrapped rather than guess at its meaning.
+              .map((c) => c.replace(/\{[^}]*\}/g, "").trim())
+              .filter(Boolean),
+          );
+          cut(at);
+        }
       }
       // `Category`
-      const backtick = line.match(/\s*`([^`]*)`\s*$/);
-      if (backtick) {
-        const c = backtick[1].trim();
-        if (c) categories.unshift(c);
-        line = line.slice(0, backtick.index).trimEnd();
+      if (line.endsWith("`")) {
+        const at = line.lastIndexOf("`", line.length - 2);
+        if (at >= 0) {
+          const c = line.slice(at + 1, -1).trim();
+          if (c) categories.unshift(c);
+          cut(at);
+        }
+      }
+      // Moxfield tags: #Tag (this deck) and #!Tag (every deck). Like an
+      // Archidekt category, a tag naming one of the deck's slots files it.
+      const space = line.lastIndexOf(" ");
+      const tag = space >= 0 ? line.slice(space + 1).match(/^#!?([^\s#]+)$/) : null;
+      if (tag) {
+        categories.unshift(tag[1]);
+        cut(space);
       }
       // *F*, *E*, *F**E*
-      line = line.replace(/(\s*\*[A-Za-z]\*)+\s*$/, "");
+      while (/^\*[A-Za-z]\*$/.test(line.slice(-3))) cut(line.length - 3);
       // (set) optionally followed by a collector number
-      line = line.replace(/\s*\([0-9A-Za-z_]{2,6}\)(\s+[0-9]+[a-z★]?)?\s*$/, "");
+      const open = line.lastIndexOf("(");
+      if (open >= 0 && PRINTING.test(line.slice(open))) {
+        printed++;
+        cut(open);
+      }
       if (line === before) break;
     }
 
@@ -255,10 +408,69 @@ export function parseArchidektList(text: string): ParseResult {
     }
     for (const c of implied)
       if (!categories.some((own) => own.toLowerCase() === c.toLowerCase())) categories.push(c);
-    entries.push({ line_no: lineNo, raw, quantity, name, categories });
+    if (categories.includes(IGNORED_CATEGORY)) {
+      ignored.push({ line_no: lineNo, name, section: sectionLabel });
+      return;
+    }
+    const entry = { line_no: lineNo, raw, quantity, name, categories };
+    entries.push(entry);
+    blocks[block] ??= { labelled: blockLabelled, entries: [] };
+    blocks[block].entries.push(entry);
   });
 
-  return { entries, unparsed };
+  // Moxfield's MTGO and plain-text exports end with the command zone: one or
+  // two lines in a final block of their own, after a blank line, under no
+  // header. Read that way only when the text has the export's shape: no
+  // command zone named anywhere (header or [Commander]), no word headers
+  // (Archidekt's way of marking one), and a deck of 90–100 cards counting the
+  // block. diffImport then keeps only cards that can be commanders.
+  const filled = blocks.filter(Boolean);
+  const last = filled.at(-1);
+  const named = explicitCommandZone || entries.some((e) => e.categories.some((c) => /^commanders?$/i.test(c)));
+  const deckCopies = entries
+    .filter((e) => !e.categories.some((c) => OUTSIDE_CATEGORIES.has(c.toLowerCase())) || last?.entries.includes(e))
+    .reduce((n, e) => n + e.quantity, 0);
+  let guessed = false;
+  if (!named && !wordHeaders && last && filled.length > 1 && !last.labelled && last.entries.length <= 2 && deckCopies >= 90 && deckCopies <= 100) {
+    guessed = true;
+    for (const entry of last.entries) {
+      entry.categories = entry.categories.filter((c) => !OUTSIDE_CATEGORIES.has(c.toLowerCase()));
+      entry.categories.unshift(COMMANDER_CATEGORY);
+      entry.guessed_commander = true;
+    }
+  }
+
+  const notes: string[] = [];
+  if (entries.length && printed >= entries.length * 0.9 && !explicitCommandZone && !entries.some((e) => e.categories.includes(COMMANDER_CATEGORY)))
+    notes.push(
+      "This looks like Moxfield's “Copy for Moxfield” export, which does not mark the commander. " +
+        "Set the commander after importing, or paste Moxfield's “Copy Plain Text” export instead: it lists the commander last.",
+    );
+  if (guessed && entries.some((e) => e.categories.includes(SIDEBOARD_CATEGORY)))
+    notes.push(
+      "Moxfield keeps a companion under SIDEBOARD:, so sideboard cards go to the maybe list. " +
+        "If one of them is the companion, set it as the companion by hand after importing.",
+    );
+  if (ignored.length)
+    notes.push(`${ignored.length} line${ignored.length === 1 ? " is" : "s are"} on a board that is not part of a Commander deck (attractions, stickers or contraptions) and ${ignored.length === 1 ? "is" : "are"} left out.`);
+  return { entries, unparsed, ignored, notes };
+}
+
+/** Commander-eligible (§5.1), or a Background, which shares the command zone. */
+function canLeadADeck(card: CardRow): boolean {
+  return !!card.is_commander || /\bBackground\b/.test(card.type_line);
+}
+
+/** Distinct unresolved names that get suggestions in one paste. A miss's
+ * suggestion search is its costly part; past this a list is not a typo. */
+const MAX_SUGGESTED = 25;
+
+/** A name as written, then as Moxfield's one-slash multi-face form (§12). */
+function resolveListed(db: Database, name: string, suggest: boolean) {
+  const hit = tryResolveCard(db, name, { suggest });
+  if (!("problem" in hit) || !name.includes("/") || name.includes("//")) return hit;
+  const faces = tryResolveCard(db, name.split(/\s*\/\s*/).join(" // "), { suggest: false });
+  return "problem" in faces ? hit : faces;
 }
 
 // ---------- diff ----------
@@ -298,13 +510,15 @@ export interface ImportDiff {
   // Lines in a Maybeboard or Sideboard category or section: shortlisted, not added.
   set_aside: Array<{ oracle_id: string; name: string; category: string }>;
   unparsed: Array<{ line_no: number; raw: string }>;
+  ignored: ParseResult["ignored"];
+  notes: string[];
   revision: number;
 }
 
 export function diffImport(db: Database, actor: Actor, deckId: number, text: string): ImportDiff {
   requireDeck(db, actor, deckId);
   const { deck, slots, cards } = getDeck(db, actor, deckId);
-  const { entries, unparsed } = parseArchidektList(text);
+  const { entries, unparsed, ignored, notes } = parseDeckList(text);
 
   const slotByName = new Map(slots.map((s) => [s.name.toLowerCase(), s]));
   // The maybe list is not the deck: a pasted card that is only shortlisted
@@ -320,8 +534,17 @@ export function diffImport(db: Database, actor: Actor, deckId: number, text: str
   // than one line, e.g. split across categories).
   const pasted = new Map<string, { name: string; quantity: number; categories: string[] }>();
 
+  const resolved = new Map<string, ReturnType<typeof resolveListed>>();
+  let suggested = 0;
   for (const entry of entries) {
-    const hit = tryResolveCard(db, entry.name);
+    // Each distinct name is resolved once per paste.
+    const key = entry.name.toLowerCase();
+    let hit = resolved.get(key);
+    if (!hit) {
+      hit = resolveListed(db, entry.name, suggested < MAX_SUGGESTED);
+      if ("problem" in hit && hit.problem === "unknown") suggested++;
+      resolved.set(key, hit);
+    }
     if ("problem" in hit) {
       const failure = hit as ResolutionFailure;
       if (failure.problem === "ambiguous")
@@ -335,6 +558,9 @@ export function diffImport(db: Database, actor: Actor, deckId: number, text: str
       continue;
     }
     const card = hit as CardRow;
+    // A guessed command zone holds only what could be a commander there.
+    if (entry.guessed_commander && !canLeadADeck(card))
+      entry.categories = entry.categories.filter((c) => c !== COMMANDER_CATEGORY);
     const outside = entry.categories.find((c) => OUTSIDE_CATEGORIES.has(c.toLowerCase()));
     if (outside) {
       setAside.set(card.oracle_id, { oracle_id: card.oracle_id, name: card.name, category: outside });
@@ -440,6 +666,8 @@ export function diffImport(db: Database, actor: Actor, deckId: number, text: str
     ambiguous,
     set_aside: [...setAside.values()].filter((c) => !pasted.has(c.oracle_id)),
     unparsed,
+    ignored,
+    notes,
     revision: deck.revision,
   };
 }

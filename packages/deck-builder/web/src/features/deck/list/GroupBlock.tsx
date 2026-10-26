@@ -9,7 +9,7 @@ import type { GroupCost } from "../../../domain/price.ts";
 import { CardRow } from "./CardRow.tsx";
 import { GroupHeader } from "./GroupHeader.tsx";
 import styles from "./GroupBlock.module.css";
-import { useDeckState } from "../DeckStore.tsx";
+import { useDeckList } from "../DeckStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 
 // A group this long would leave the other columns empty if it stayed whole,
@@ -44,7 +44,7 @@ export interface GroupBlockProps {
 }
 
 export function GroupBlock({ cards, secondaryCards = [], commandZoneCards = [], matchingCards, matchingAdds, adds = [], cuts, current, marks, bold, empty, ...head }: GroupBlockProps) {
-  const { slots } = useDeckState();
+  const { slots } = useDeckList().state;
   const showPrimary = useDeckUi().groupBy === "slot";
   const slotName = (id: number) => slots.find(s => s.id === id)?.name ?? "";
   return (

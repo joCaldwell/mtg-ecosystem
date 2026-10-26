@@ -51,9 +51,9 @@ to do** (its brief), **what the owner has decided and why** (rulings), and
 - No model calls inside the app. This includes embeddings and any "smart" ranking that needs a model.
 - No chat UI, no transcript storage, no context management. Those belong to the agent's own harness.
 - Hosting, deployment, accounts and multi-user support are v3 goals (§17).
-  Phase 1 establishes identity and tenancy; login, sessions, Better Auth and
-  OAuth arrive in Phase 2, hosting in Phase 3, and visibility/public pages
-  in Phase 4a. Phase 1 exposes no cross-owner decks.
+  Phase 1 established identity and tenancy; login, sessions, Better Auth and
+  OAuth arrived in Phase 2, hosting in Phase 3, and visibility, public
+  pages and cross-owner forks in Phase 4a (§18).
 - No collaborators, co-owners, shared memories, chat, paid tiers or formats
   beyond Commander. Forks and later suggestions are the collaboration unit.
 - No lifecycle or rulings terminology changes in the identity phase.
@@ -66,21 +66,25 @@ Reopened on 2026-10-25 (planned in the
 [v3 plan](deck-builder-v3-plan.md); each entry becomes a description of
 built behaviour when its phase lands):
 
-- **Phones read and rule; agents edit** (D17, phase 4a). Below 720 px the app
-  is a read-and-rule view: the deck list, each deck read-only, the inbox, and
-  accept/reject on pending proposals with the optional reason. A phone user
-  changes a deck by prompting an agent and ruling on its proposals. No direct
-  editing, hotkeys, playtester or Settings on phones. 720 px and wider keep
-  the full app. The playtester stays desktop-only.
+- **Phones read and rule; agents edit** (D17, built in phase 4a, §11). Below
+  720 px the app is a read-and-rule view: the deck list, each deck
+  read-only, the inbox, and accept/reject on pending proposals with the
+  optional reason. A phone user changes a deck by prompting an agent and
+  ruling on its proposals. No direct editing, hotkeys, playtester or
+  Settings on phones. 720 px and wider keep the full app. The playtester
+  stays desktop-only.
 - **Price source per user — built** (D18, phase 1b). Each user picks a currency (USD
   or EUR) and a store in it (TCGplayer, Cardmarket) or the lowest in that
   currency. The chosen price is shown, totalled, searched and given to
   agents, always labelled with its store and date. Scryfall's bulk data
   remains the only source: no other price data, no exchange rates.
-- **Commander art on public pages** (D20, phase 4a): the public deck page's
-  header and its link preview. The editor stays a text list.
-- **Moxfield import** (phase 4a): paste-in text, alongside Archidekt. No URL
-  fetching and no sync.
+- **Commander art on public pages** (D20, built in phase 4a, §18): the
+  public deck page's header and its link preview, with the artist line.
+  The editor stays a text list.
+- **Moxfield import** (built in phase 4a, §12): paste-in text, alongside
+  Archidekt. No URL fetching and no sync.
+- **Sharing** (D8, built in phase 4a, §18): decks can be unlisted or public,
+  read without an account, and forked by another user.
 
 Reopened on 2026-10-11: **cards carry a price** (§4.4). It is an estimate
 from the same Scryfall refresh that loads the cards. There is still no price
@@ -124,7 +128,7 @@ admin job status, without expanding public health.
 - Oracle data is streamed and staged on disk, then upserted in savepoint batches of roughly 500. Malformed input and a file with fewer than 90% of the currently active cards are refused before publishing. Missing IDs become `retired=1`, preserving exact resolution, references, history and images. General search excludes retired IDs; a named deck may still find retired cards it holds, and its checks flag “retired printing/oracle id”. Returning IDs are reactivated. Retired rows are excluded from the next truncation threshold.
 - The per-instance oracle cache lives under `DATA_DIR/.scryfall-cache`, reused for 24 hours. The Settings path never forces a download; CLI `--force` remains available. All connections wait up to five seconds for SQLite locks. Refresh and nightly backup run outside the serving event loop; see `packages/deck-builder/OPERATIONS.md`.
 - Keyed on `oracle_id` internally.
-- Retain: `oracle_id`, `name`, `mana_cost`, `cmc`, `type_line`, `oracle_text`, `power`, `toughness`, `loyalty`, `color_identity`, `legalities.commander`, `layout`, `card_faces`, nullable `game_changer` (§5.7), `image_small`, `image_normal`, `image_art_crop` (front-face imagery for double-sided layouts), and `retired`. Discard everything else.
+- Retain: `oracle_id`, `name`, `mana_cost`, `cmc`, `type_line`, `oracle_text`, `power`, `toughness`, `loyalty`, `color_identity`, `legalities.commander`, `layout`, `card_faces`, nullable `game_changer` (§5.7), `image_small`, `image_normal`, `image_art_crop` (front-face imagery for double-sided layouts), `artist` (the illustrator of the same imagery: Scryfall's print-field `artist`, or the front face's when the image comes from the face; added in phase 4a for the art-crop credit, §18.5), and `retired`. Discard everything else.
 - Use Scryfall's `color_identity` directly. Do not compute it.
 - `legalities.commander` supplies the banned list. Commander eligibility is a separate check.
 
@@ -224,7 +228,7 @@ printing rules. Price is on by default for agents; budgets belong in briefs.
 Public pages call `priceResolver(db, viewer | null)`: the signed-in
 viewer's choice, or explicit USD/lowest for anonymous readers without reading
 any principal's settings (v3 plan §4). They never use the deck owner's actor.
-Phase 4a owns wiring PublicDeckState if it lands after Phase 1b.
+Phase 4a wires this into `PublicDeckState` (§18.3): `getDeck` prices for the viewer there and counts nothing pending.
 Every shown total is labelled an estimate with store/date. Scryfall warns
 bulk prices are dangerously stale after 24 hours: these are general
 estimates, never live offers. No history, collection, buy links, foil-only
@@ -278,6 +282,20 @@ copied by hand has no link until one is set, and with one it compares and
 inherits history like any fork.
 
 Forks replace named checkpoints. There is no snapshot system and no DAG.
+
+**Forks across owners** (phase 4a, §18.4). A signed-in user, or their agent,
+may fork another user's unlisted or public deck by its link. That fork copies
+less: the list (maybe list included, without its private notes), slots with
+their targets and both primary and secondary assignments, the brief's thesis
+and constraints, and engines with their pieces. It never copies tags (they
+record the other owner's sourcing and status, and "Have" is ownership
+evidence), memories, ownership evidence, the power target or assessments,
+proposals, playtest state, or any log entry. The new deck is the forker's:
+Theorycrafted, private, with one log entry naming its source. It records a
+snapshot of the parent's owner handle, slug and name, so "forked from
+handle/name" survives the parent going private, being renamed or being
+deleted. It does not record the parent's numeric id, which stays its owner's. Comparison against that parent works while the forker can
+still read it; card history never crosses the owner boundary.
 
 ### 5.4 Slots, tags and the maybe list
 
@@ -810,16 +828,68 @@ card.
   and a currency then store/Lowest price-source control (§4.4). Saving is
   UI-only and invalidates that principal's views, including hover lookups.
   The deck estimate and card panel name the resolved store and Scryfall date.
-- *Planned (§2, phase 4a):* **phones** get the read-and-rule view, and wider
-  screens keep everything above.
+- **Sharing:** the deck header's Share dialog sets visibility, publishes the decisions log, copies the link and opens what viewers see. Public deck pages (`/d/<slug>`) and profiles (`/u/<handle>`) are described in §18.
 
 The UI updates live when an agent writes (server-sent events from the app to
 the browser). A proposal made in a terminal appears in the inbox without a
 reload.
 
----
+### 11.1 Routes *(phase 4a)*
 
-## 12. Archidekt interop
+The client uses path routes, so a deck has a real URL and a public page can
+carry server-rendered link-preview tags: `/` and `/decks`, `/deck/:id`,
+`/deck/:id/review`, `/deck/:id/playtest`, `/inbox`, `/memories`, `/profile`,
+`/activity`, `/settings`, `/design`, `/signin`, `/privacy`, `/terms`,
+`/d/:slug` and `/u/:handle`. `href()` in `web/src/app/routes.ts` is the only
+place a URL is built; same-origin links navigate without a reload. A
+bookmark from the hash-route era (`/#/deck/5`) is rewritten once to its
+path on load, and a malformed escape in a path is a missing page. Going
+back restores the scroll position of the phone and shared pages once their
+data has rendered. Signing in from a shared page returns to it
+(`/signin?next=/d/<slug>`); `next` must be a same-origin path, so a
+crafted link cannot redirect elsewhere. The server serves `index.html` for those app routes only;
+`/api/*`, `/mcp*`, `/.well-known/*`, `/assets/*` and any path with an
+unknown file extension return 404 (D16).
+
+### 11.2 Phones *(phase 4a, D17)*
+
+Below 720 px (`PHONE_MAX_WIDTH` in `web/src/app/breakpoints.ts`, the one
+constant shared with the public page) the signed-in app is a phone shell
+with a top bar instead of the sidebar, and only these screens:
+
+- **Decks:** the deck list, one tappable row per deck with its pending count.
+- **A deck:** the same read-only composition as the public page
+  (`ReadOnlyDeck`), fed by the owner's own deck state, with its pending
+  proposals drawn in place in the list as on desktop. Each decision (an add,
+  a cut, a swap or a group) has Accept and Reject; above them Accept all and
+  Reject all cover every open proposal. Each takes the optional reason (at
+  most 500 characters; blank is none), which stays in its field until the
+  ruling has landed, and every ruling goes through the existing capabilities
+  and routes. The owner's own decisions name the agent that acted
+  (DESIGN.md principle 5); a viewer's say only "an agent". The reason is recorded on the log entry whichever way the owner
+  ruled; on desktop an accept still takes none, so nothing changes there.
+- **Inbox:** the cross-deck list; card proposals open their deck in review,
+  and brief and profile edits rule in place as diffs.
+
+Accept and reject are the only writes on a phone, with one clarification of
+D17: forking another user's shared deck from its public page. A fork edits
+nothing; it makes a new private deck in the forker's account, which fits
+D17's workflow of forking and then prompting an agent. The owner's own
+public page hides "Fork your deck" on a phone. *(Recorded 2026-10-25 in the
+phase 4a review; the owner can veto it.)* An address that is no page says
+so on a phone as on desktop; only real desktop screens say "Open on a
+larger screen". Direct editing, hotkeys,
+the playtester, memories, profile, activity, Settings and the design page
+each render "Open on a larger screen" with what the screen is for. Live
+updates work as on desktop: an agent's new proposal appears without a
+reload. Changing a deck from a phone means prompting an agent (Claude or
+ChatGPT through the hosted connectors) and ruling on what it proposes; a
+loopback app cannot be reached from a phone.
+
+At 720 px and wider the full app is unchanged. Phase 4b makes it hold up
+down to that width.
+
+## 12. Archidekt and Moxfield interop
 
 Construction and desktop solo goldfishing happen here. The manual playtester
 was added on 2026-10-13; see [its requirements](playtester-design-brief.md)
@@ -828,11 +898,45 @@ and [implementation guide](playtester.md). Archidekt interop remains available.
 - **Export:** an Archidekt-importable list. With active name or tag filters, **Export matches** opens an export restricted to matching cards, including inverted tag filters. The export dialog can switch between current matches and the whole deck, independently include or exclude the maybe list (excluded by default), and toggle categories. Filtered exports default to plain quantity-and-name lines for a buying list. Included maybe-list cards use `Maybeboard` when categories are enabled. Quantities are preserved; commanders and companions are eligible, and pending proposed additions are excluded. An empty selection exports nothing. Export counts describe the exported copies and lines, and exporting changes no deck records.
 - **Import:** the owner pastes a list; the app diffs it against the deck, shows the diff with destructive cuts called out first, and applies it in full on confirmation. It is one rulings-log entry, so one undo reverts it. Lines in a `Maybeboard` or `Sideboard` category, or under a section header of that name, are shortlisted on the maybe list, not added, and the preview says so. A `Commander` category or section header puts the card in the command zone, including a card already in the deck.
 - One-way out, one-way in. No sync layer.
-- *Planned (§2, phase 4a):* import also accepts Moxfield's text export, with
-  the same preview, log entry and undo. Export stays Archidekt.
+- **Moxfield import** *(phase 4a)*: the same import dialog accepts the text
+  Moxfield's Export gives, with the same preview, one log entry and one
+  undo. The format is read off Moxfield's help pages and 72 real exports and
+  cited, with fixtures, in `src/deck/interop.ts`: quantity, name, optional
+  `(SET) number`, `*F*`/`*E*` and `#tags`; boards after a blank line under
+  `SIDEBOARD:`, `ATTRACTIONS:` or `STICKERS:`; multi-face names with one
+  slash, tried as `A // B` only when the name as written does not resolve.
+  "Copy Plain Text" (and "Copy for MTGO") end with the commander in a block
+  of its own, which the import puts in the command zone only when the text
+  has the export's shape (no command zone named anywhere, by header or
+  `[Commander]`; no word headers; 90–100 cards counting the block) and only
+  for cards that can be commanders (or Backgrounds), so an ordinary list
+  ending in a blank line and a land or two is left alone; the sideboard
+  (where Moxfield keeps the companion) goes to the maybe list like
+  Archidekt's, with a note that a companion must then be set by hand;
+  attraction and sticker boards are left out and reported. A paste is
+  bounded at 5,000 lines of at most 300 characters (blank lines and
+  comments of any length still count as such); whitespace runs collapse to
+  one space and each trailing field is found from the end, so every line is
+  linear work. Each distinct name resolves once per paste, and only the
+  first 25 distinct misses get suggestions (the costly part of a miss);
+  later ones are still listed. Imports, preview and apply, are limited to
+  20 a minute per account in hosted mode.
+  "Copy for Moxfield" marks no commander at all, so the preview says so
+  rather than guessing (reading its order would be wrong for 2 of the 12
+  sampled decks). The dialog recommends "Copy Plain Text": it uses the names
+  Scryfall uses, where "Copy for MTGO" may use MTGO's own. A Moxfield list
+  and the equivalent Archidekt text import to the same deck. Paste only: no
+  URL fetching, no Moxfield API, no sync. Export stays Archidekt.
+  *Known gap:* every Moxfield variant writes a flavor-named printing by its
+  flavor name ("The Ball" for Fellwar Stone). Exact resolution knows oracle
+  and face names only, so such a line is reported as unresolved for the owner
+  to fix, never guessed; 3 of the 6 sampled decks had one. Resolving
+  Scryfall's per-printing `flavor_name` exactly would need it ingested from
+  the `default-cards` file and is left for later.
 
-Verify Archidekt's text format against its own documentation and cite the
-sources in the code. Do not rely on model memory for it.
+Verify Archidekt's and Moxfield's text formats against their own
+documentation (or, where none exists, a real export) and cite the sources in
+the code. Do not rely on model memory for them.
 
 ---
 
@@ -845,6 +949,16 @@ sources in the code. Do not rely on model memory for it.
 | An agent reads card text; it does not recall it | Deck views, searches and lookups all return oracle text |
 | Counts and legality are never an agent's arithmetic | Computed by the app and returned with every read and write (§9) |
 | Images use ingested facts | Scryfall bulk `image_uris` (card or front face), returned by table lookup/search/`get_cards`; all browser images use these stored CDN URLs and load lazily. Missing imagery has a placeholder; no `cards/named` URL is constructed. |
+
+**On public pages** *(phase 4a, §18)* the same guarantees hold, plus:
+
+| Guarantee | How |
+| --- | --- |
+| A viewer sees exactly the published shape | `publicDeckState` builds `PublicDeckState` through an allow-list; the permission matrix asserts its keys for every visibility and actor |
+| Nothing private reaches a viewer | Memories, proposals, pending edits, ownership evidence, activity, maybe-list notes and agent names are never in it; decision entries say "owner" or "an agent", never which |
+| Private decks are not discoverable | A private slug is 404 for everyone but the owner, as HTML and as API; numeric deck ids stay the owner's namespace |
+| Art is credited | The header's commander art crop is the stored Scryfall URL (D10) with the card's stored artist; the art is not shown without its artist line |
+| Prices are labelled | The total names Scryfall, the store, the currency and the as-of date |
 
 **Not guaranteed:** what an agent says in its own chat window. The app cannot
 lint text it never sees. The playbook's citation rule and the `get_cards`
@@ -1128,7 +1242,8 @@ context is authorized. No implicit actor is supplied by a service.
 
 V3 roles are owner, viewer (visibility admits them), and suggester (signed
 in on a deck accepting suggestions). No collaborators, co-owners or members
-table. Phase 1 admits only owners; visibility and suggestions arrive later.
+table. Viewers arrived in phase 4a (§18.3) and read only by slug;
+suggestions arrive in phase 5.
 Lifecycle, rulings, undo, import, deletion and visibility belong to the deck
 owner; existing human-only actions additionally require `via === "ui"`.
 Agents retain attributed rename/delete on their principal's editable decks.
@@ -1226,7 +1341,7 @@ mode keeps `localActor()`; hosted mode replaces the current `null` with the
 session’s principal. OAuth access-token verification goes beside
 `verifyToken(db, secret, now?): Actor | null` in `tokens.ts`; `mcp/http.ts`
 passes the verified Actor through the SDK’s `authInfo.extra.actor`. Phase 2
-implements these seams; visibility, public pages and renames remain later work.
+implements these seams; visibility and public pages followed in phase 4a (§18); renames remain later work.
 
 
 Phase 1 review follow-up: the permission suite discovers `src/**/*.ts` exports
@@ -1289,7 +1404,7 @@ invites/jobs; Settings explains why.
 Admins have a Settings card for jobs/enqueue, invite creation/listing, user
 count and database size. Invites are random and single-use. UI/admin guards
 live in the capability layer. No impersonation. Public deck visibility,
-profiles, suggestions, path routing and renames remain later phases.
+profiles and path routing arrived in phase 4a (§18, §11.1); suggestions and renames remain later phases.
 
 ### 17.6 Phase 2 implementation choices
 
@@ -1397,3 +1512,209 @@ errors ask the user to restart sign-in; registration errors mention the code.
 Hosted legal routes and legal footer are absent in local mode. Hashed SPA
 assets use `public, max-age=31536000, immutable`; APIs, auth, consent, HTML
 and the index route remain `no-store`.
+
+---
+
+## 18. Sharing
+
+*Built in v3 phase 4a (2026-10-25). The plan's decision is reproduced
+verbatim; the rest of this section records how it was built and the choices
+the plan left open.*
+
+### 18.1 The decision (v3 plan D8, verbatim)
+
+> **D8. Visibility and sharing.**
+>
+> ```sql
+> ALTER TABLE decks ADD COLUMN visibility TEXT NOT NULL DEFAULT 'private'
+>   CHECK (visibility IN ('private','unlisted','public'));
+> ALTER TABLE decks ADD COLUMN slug TEXT UNIQUE;          -- 10 chars base62, set when visibility first leaves private, never changes
+> ALTER TABLE decks ADD COLUMN publish_decisions INTEGER NOT NULL DEFAULT 0;
+> ALTER TABLE decks ADD COLUMN accept_suggestions INTEGER NOT NULL DEFAULT 0;
+> ALTER TABLE log   ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;   -- owner hides single entries from the public page
+> ```
+>
+> Public URL: `/d/<slug>`. A public page shows the list by slot, brief, checks,
+> bracket target and the owner's latest assessment, price estimate with source
+> and date, and the decisions log only if `publish_decisions = 1`, minus hidden
+> entries. Never shown: memories, proposals, pending edits, ownership evidence,
+> activity, the owner's agent names. Cross-owner forks copy list, slots, tags,
+> brief and engines; never memories, ownership evidence, assessments or
+> unpublished log entries.
+
+Schema 14 (following phase 1b's 13) adds exactly those columns, plus the fork lineage snapshot
+(`decks.parent_owner_handle`, `parent_slug`, `parent_name`, §18.4) and
+`cards.artist` (§18.5). `accept_suggestions` has no setter until phase 5.
+
+### 18.2 Visibility
+
+| | Who can read `/d/<slug>` | On `/u/<handle>` | Search engines |
+| --- | --- | --- | --- |
+| **Private** (default) | The owner only; 404 for everyone else | No | `noindex` |
+| **Unlisted** | Anyone with the link, signed in or not | No | `noindex` |
+| **Public** | Anyone | Yes | Indexable |
+
+- The slug is 10 base62 characters from `crypto.randomInt`, assigned the
+  first time a deck leaves private, unique across all decks, and never
+  changed. Going private again keeps it, so re-sharing restores the old
+  link; nobody but the owner can read it in between.
+- An unlisted slug is a capability URL, so it never reaches the logs.
+  Request logs write `/d/:value`, `/u/:value` and
+  `/api/public/decks/:value`. A request without a session logs principal
+  `anonymous`, and no address is recorded.
+- `setVisibility` and `setPublishDecisions` are owner-only and human-only
+  (`requireDeckOwner` + `requireUi`): publishing is outward-facing, like the
+  lifecycle choice, so no agent can do it. `hideLogEntry` (hide or show one
+  decisions-log entry on the public page) has the same gate. All three work
+  on Legacy decks: sharing describes who may read a deck, not what is in it,
+  and an archived deck is often the one worth showing. *(Choice: the plan
+  says only "owner-only".)*
+- The deck roster, sidebar and deck header carry a small glyph for unlisted
+  and public decks.
+
+### 18.3 Who reads what
+
+- **Viewers address a deck only by its slug.** Numeric deck ids stay the
+  owner's namespace: every id-addressed capability, tool and route is 404
+  for anyone but the owner, whatever the visibility, exactly as in phase 1.
+  `requireDeck` therefore remains the owner's read gate, and
+  `requireViewableDeck(db, viewer, slug)` admits viewers by visibility and
+  returns the role. Only the public capabilities call it:
+  `publicDeckState`, `exportPublicDeck`, forking or comparing by slug, and
+  `publicProfile`. *(Choice: the plan has `requireDeck` admit viewers. Doing
+  that would have opened every existing id-addressed read — proposals,
+  memories, log — to viewers, and made rule 1 depend on every caller
+  remembering to trim. A separate gate keeps viewers to one projection.)*
+- A viewer is a signed-in non-owner, any agent acting for one, or nobody at
+  all (`viewer = null`, hosted mode without a session). Private decks are
+  404 to all of them; unlisted and public decks return `PublicDeckState`.
+- The owner opening their own slug gets the same page with a banner saying
+  it is how viewers see it, including while the deck is private. That is
+  the Share dialog's "what viewers see" preview.
+
+**`PublicDeckState`** (plan §4) is built by `publicDeckState()` in
+`src/state.ts` from an explicit allow-list, never by trimming the owner's
+composite:
+
+- `deck { name, slug, owner { handle, display_name }, commander,
+  color_identity, category, visibility, parent? { owner_handle, slug, name } }`.
+  `commander` lists the commander names. No deck id or revision. `parent`
+  is looked up live, not read from the fork's snapshot: with its link while
+  the parent is public, with only handle and name while it is unlisted (its
+  link is its owner's to give out), and absent once it is private or gone.
+- `cards`: the list including the maybe list, each with its card facts,
+  quantity, role and slots; `maybe_note` is always empty, because shortlist
+  notes are working notes, and `tag_ids` is always empty.
+- `slots`, `tags` (always empty), `brief { thesis, constraints_md }`,
+  `engines` (name, description, pieces and whether each is in the deck),
+  `checks` without the `power_*` findings, which read the latest assessment
+  and so may describe an agent's. *(Choice, overriding D8's "tags" on both
+  the page and forks: tags record sourcing and status (§5.4), and "Have"
+  creates ownership evidence (§5.5), which D8 never shows. The key stays so
+  the §4 shape holds.)*
+- `power { target, latest_owner_assessment }`: the target's profile, Game
+  Changer limit, notes and bracket mapping; and the newest assessment the
+  owner recorded themselves in the app (`author_via = 'ui'`), with its
+  profile, evidence, confidence, notes, mapping and whether the list has
+  changed since. No attribution on either, and agent assessments never
+  appear.
+- `price { total_cents, currency, store, unpriced, as_of, source: "Scryfall" }`.
+  Priced for the viewer (D18): a signed-in viewer's own currency and store,
+  else `USD`/`lowest`; never the owner's choice. Each card's price follows the
+  same choice, and `computed.cost` is the same total.
+- `decisions` only when `publish_decisions = 1`: the newest 100 log entries
+  that are not hidden (an undo of a hidden entry is hidden with it), each
+  with its kind, a summary the app writes from the cards it moved, the
+  owner's reason, time and cards. The stored summary is not used: it is
+  free text that can quote a proposal ("proposed because: …") or an agent.
+  Who acted is `by: "owner" | "agent"`, never an agent's name or handle.
+  Proposal and edit ids are dropped.
+- `computed`: the app's counts, curve, pips and slot deltas, computed as if
+  nothing were pending, so pending proposals leave no trace.
+
+The capability reads the owner's deck through the existing read functions
+with a read-only owner context and then projects; the projection is the
+only thing returned. The permission matrix asserts the exact key set for
+every viewer and visibility.
+
+### 18.4 Forks across owners
+
+`forkDeck(db, actor, source, name)` takes the owner's deck id as before, or
+`{ slug }` for a deck the actor can view. A fork of one's own deck is
+unchanged (§5.3). A cross-owner fork copies what §5.3 lists and records the
+snapshot `parent_owner_handle`, `parent_slug` and `parent_name` at fork
+time, and copies no tags. *(Choice: the plan says it records the parent's id too. That id is
+the other user's, and it would reach the forker through their account
+export; the slug addresses the parent instead. When the parent's owner
+deletes their account, forks keep the lineage as "deleted_account/a deleted
+deck".)* The fork's own page always says "forked from handle/name" from the
+snapshot; its public page shows the parent only as §18.3 allows.
+
+`compareDecks` accepts `{ slug }` as the other side. With no second deck, a
+cross-owner fork compares against its parent while the caller can still view
+it, and says so when it cannot. The other side of a comparison by slug
+reports its name and slug, not an id or revision.
+
+Card history (§8.3) follows parents only within the principal's own decks,
+so a cross-owner parent's rulings never reach the fork.
+
+### 18.5 Pages
+
+- **`/d/<slug>`** is one component, `ReadOnlyDeck`, also used by the phone
+  view (§11.2): the list by slot or type, checks, read-only brief and
+  engines, the power target and owner assessment, the price with its
+  source, store and date, and the decisions log when published. The header
+  carries the first commander's stored art crop with "Art by …" from
+  `cards.artist`; with no stored artist (a database not refreshed since
+  schema 14) the art is left out rather than shown uncredited. Cards stay
+  text rows; tapping one opens its card sheet, as hover does on desktop.
+- **Actions:** Copy link and Export (Archidekt text, no account) for anyone;
+  Fork and Compare with one of my decks when signed in. In local mode the
+  local user is always signed in. No sidebar, inbox, focus reporting or
+  ruling hotkeys.
+- **`/u/<handle>`**: the display name and the user's public decks (not
+  unlisted ones), nothing else. 404 for unknown or deleted handles, and for
+  anyone without at least one public deck: the display name comes from the
+  sign-in provider (often a real name) and is not shown to someone who
+  merely guesses a handle. A display name the user sets themselves is
+  deferred to phase 4b or 6.
+- **Link previews.** For `/d/<slug>` and `/u/<handle>` the server injects
+  `<title>`, `<meta name="description">`, Open Graph (`og:title`,
+  `og:description`, `og:type`, `og:url`, `og:image`, `og:site_name`) and
+  `twitter:card` tags into `index.html` before serving it. The deck
+  description names the commander, colour identity, bracket target and
+  owner. `og:image` is the commander's stored art crop on
+  `cards.scryfall.io`, only when the card's artist is stored too, as on the
+  page. A slug the requester cannot read gets the plain page
+  with status 404. Nothing calls `api.scryfall.com` from a browser.
+- The page is laid out single-column below 720 px with wrapping rows and
+  44 px tap targets, and never scrolls horizontally at 375 px.
+
+### 18.6 Without an account
+
+In hosted mode, without a session: `GET /api/public/decks/:slug`, its
+`/export`, `GET /api/public/users/:handle`, `/api/search` (without a deck),
+`/api/resolve` and `/api/cards/:id/table` answer under the per-IP
+`unauthenticated` rate bucket (D13); anonymous search also has its own
+`anonymous_search` bucket, 30 a minute per IP (/64 for IPv6), half a
+signed-in user's. Every search runs synchronously on the one SQLite
+connection, so its size is bounded: without an account 256 characters and
+30 terms, with one 600 characters and 50 terms (the worst allowed measured about 50 ms on the full card database), and at most 20 levels of
+parentheses or negation for anyone. A search over a bound, or one SQLite
+calls too complex, is a 400 that says so. A search naming a deck still
+needs that deck's owner. Every other API stays 401. Forking and comparing need a
+session.
+
+### 18.7 Agents
+
+- `get_deck` accepts a slug or a `/d/<slug>` link to a deck the principal
+  can view and returns the public rendering, headed "Public deck owned by
+  <handle>; read-only". It contains only `PublicDeckState`.
+- `compare_decks` accepts a slug as `other`; `fork_deck` accepts one as
+  `deck`. Every other tool treats a slug as an unknown deck and says which
+  tools read shared decks.
+- `start_session` reports how many of the principal's decks are public and
+  unlisted. The playbook explains that shared decks are read-only, that a
+  fork of one starts without memories or rulings, and that agents cannot
+  change visibility.
+

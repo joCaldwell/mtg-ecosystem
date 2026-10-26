@@ -73,6 +73,11 @@ export function Sidebar({ route }: { route: Route }) {
             >
               <Dot tone={pending ? "agent" : "neutral"} />
               <span className={styles.name}>{deck.name}</span>
+              {deck.visibility !== "private" && (
+                <span className={styles.shared} role="img" aria-label={deck.visibility === "public" ? "Public" : "Unlisted"} title={deck.visibility === "public" ? "Public" : "Unlisted: anyone with the link"}>
+                  <Icon name={deck.visibility === "public" ? "globe" : "link"} size={12} />
+                </span>
+              )}
               {deck.category !== "paper" && (
                 <span className={styles.lifecycle} data-lifecycle={deck.category} title={DECK_CATEGORY_LABELS[deck.category]}>
                   {deck.category === "theorycrafted" ? "Theory" : DECK_CATEGORY_LABELS[deck.category]}

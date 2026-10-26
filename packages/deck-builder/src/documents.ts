@@ -1,4 +1,4 @@
-import { displayAuthor } from "./actor.ts";
+import { displayAuthor, requireActor } from "./actor.ts";
 // The two documents (spec §6) and the gate in front of them. The player
 // profile and each deck's brief are the owner's voice: the owner edits either
 // directly, and an agent proposes an edit the owner sees as a diff and rules
@@ -11,7 +11,7 @@ import { ServiceError } from "./errors.ts";
 import { withTransaction } from "./db.ts";
 import { type Actor, authorOf, isAuthor, requireUi, requireSelf, PermissionError } from "./actor.ts";
 import { lintProse, requireCardById } from "./cards.ts";
-import { writeLog } from "./deck/log.ts";
+import { rulingReason, writeLog } from "./deck/log.ts";
 import { requireDeck, requireEditableDeck, requireRevision } from "./deck/service.ts";
 import {
   type EnginePieceInput,
@@ -280,6 +280,7 @@ function toView(db: Database, actor: Actor, row: EditRow, includeGroup = true): 
 }
 
 export function getDocumentEdit(db: Database, actor: Actor, editId: number, forWrite = false): DocumentEditView | null {
+  requireActor(actor);
   const row = db.prepare(`${EDIT_SELECT} WHERE e.id = ? AND e.user_id = ?`).get(editId, actor.user_id) as EditRow | undefined;
   if (!row) throw new ServiceError(`Proposed edit ${editId} not found`, 404);
   if (forWrite && row.deck_id != null) requireEditableDeck(db, actor, row.deck_id);
@@ -379,6 +380,7 @@ export function proposeDocumentGroup(db: Database, actor: Actor, deckId: number 
 }
 
 export function withdrawDocumentEdit(db: Database, actor: Actor, editId: number, reason: string, expectedRevision?: number): void {
+  requireActor(actor);
   if (!reason?.trim()) throw new ServiceError("Withdrawing a proposal needs a reason");
   lintProse(db, reason);
   withTransaction(db, () => {
@@ -398,6 +400,7 @@ export function ruleDocumentEdit(
 ): number {
   getDocumentEdit(db, actor, editId);
   requireUi(actor, "rule on a proposed edit");
+  reason = rulingReason(reason);
   if (outcome !== "accept" && outcome !== "reject") throw new ServiceError("A ruling's outcome is 'accept' or 'reject'");
   return withTransaction(db, () => {
     const rows = editablePendingGroup(db, actor, editId);

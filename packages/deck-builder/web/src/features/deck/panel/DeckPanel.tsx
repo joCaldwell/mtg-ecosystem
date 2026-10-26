@@ -3,6 +3,7 @@
 
 import { useEffect, useRef } from "react";
 import { Tabs, type TabSpec } from "../../../ui/index.ts";
+import { useDeckState } from "../DeckStore.tsx";
 import { useDeckUi, type PanelTab } from "../DeckUi.tsx";
 import type { DeckViewModel } from "../useDeckView.ts";
 import type { Review } from "../useReview.tsx";
@@ -25,6 +26,7 @@ const TABS: Array<{ id: PanelTab; label: string }> = [
 
 export function DeckPanel({ view, review }: { view: DeckViewModel; review: Review }) {
   const ui = useDeckUi();
+  const state = useDeckState();
   const pending = view.units.length;
   // The Review tab exists only while there is something to rule on, and the
   // stored tab may be left over from before the last ruling.
@@ -63,7 +65,7 @@ export function DeckPanel({ view, review }: { view: DeckViewModel; review: Revie
         ) : tab === "power" ? (
           <PowerPanel />
         ) : tab === "checks" ? (
-          <ChecksPanel />
+          <ChecksPanel checks={state.checks} />
         ) : tab === "memories" ? (
           <MemoriesPanel />
         ) : (

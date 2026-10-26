@@ -9,6 +9,8 @@ export interface DialogProps {
   title: ReactNode;
   onClose: () => void;
   width?: "md" | "lg";
+  /** `sheet` rises from the bottom edge at full width: the touch form (DESIGN.md). */
+  placement?: "center" | "sheet";
   children: ReactNode;
   footer?: ReactNode;
 }
@@ -18,7 +20,7 @@ export interface DialogProps {
  * first focusable one), Tab stays inside, Escape or a backdrop click closes,
  * and focus returns to where it was when the dialog closes.
  */
-export function Dialog({ title, onClose, width = "md", children, footer }: DialogProps) {
+export function Dialog({ title, onClose, width = "md", placement = "center", children, footer }: DialogProps) {
   const titleId = useId();
   const panel = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
@@ -77,21 +79,21 @@ export function Dialog({ title, onClose, width = "md", children, footer }: Dialo
   }
 
   return createPortal(
-    <div className={styles.backdrop} onMouseDown={onBackdropMouseDown}>
+    <div className={`${styles.backdrop} ${placement === "sheet" ? styles.sheetBackdrop : ""}`} onMouseDown={onBackdropMouseDown}>
       <div
         ref={panel}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={`${styles.dialog} ${width === "lg" ? styles.lg : styles.md}`}
+        className={`${styles.dialog} ${placement === "sheet" ? styles.sheet : width === "lg" ? styles.lg : styles.md}`}
         onKeyDown={trapTab}
       >
         <div className={styles.head}>
           <h2 id={titleId} className={styles.title}>
             {title}
           </h2>
-          <IconButton label="Close" size="sm" onClick={onClose}>
+          <IconButton label="Close" size={placement === "sheet" ? "touch" : "sm"} onClick={onClose}>
             <Icon name="close" />
           </IconButton>
         </div>

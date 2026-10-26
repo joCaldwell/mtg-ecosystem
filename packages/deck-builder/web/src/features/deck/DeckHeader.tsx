@@ -106,6 +106,11 @@ export function DeckHeader() {
             {hasError ? (checks.length === 1 ? "problem" : "problems") : checks.length ? "off target" : "Checks clear"}
           </DeckStat>
           <a className={styles.link} href={href({ page: "playtest", deckId: deck.id })}>Playtest</a>
+          <button type="button" className={styles.share} onClick={() => ui.openDialog("share")} aria-haspopup="dialog"
+            title={deck.visibility === "private" ? "Private: only you can see this deck" : deck.visibility === "public" ? "Public: anyone can read it" : "Unlisted: anyone with the link can read it"}>
+            {deck.visibility !== "private" && <Icon name={deck.visibility === "public" ? "globe" : "link"} />}
+            Share{deck.visibility !== "private" ? ` · ${deck.visibility === "public" ? "Public" : "Unlisted"}` : ""}
+          </button>
           <Menu label="More" align="end" items={moreItems} />
         </div>
       </div>
@@ -128,6 +133,11 @@ export function DeckHeader() {
         {deck.parent && (
           <span>
             fork of <a className={styles.link} href={href({ page: "deck", deckId: deck.parent.id })}>{deck.parent.name}</a>
+          </span>
+        )}
+        {deck.upstream && (
+          <span>
+            forked from <a className={styles.link} href={href({ page: "shared", slug: deck.upstream.slug })}>{deck.upstream.owner_handle}/{deck.upstream.name}</a>
           </span>
         )}
         {computed.cost.as_of && (

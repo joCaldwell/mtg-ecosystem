@@ -8,7 +8,7 @@ test("table selection toggles independent instance IDs without changing another 
   assert.deepEqual(selectedAfterClick(["a"], "b", true), ["a", "b"]);
   assert.deepEqual(selectedAfterClick(["a", "b"], "a", true), ["b"]);
 });
-test("table faces use verified fixture faces and route survives hash reload", () => {
+test("table faces use verified fixture faces and the playtest route survives a reload", () => {
   const c = FIXTURES.find((c) => c.oracle_id === "id-witch")!;
   const card = { oracle_id: c.oracle_id!, name: c.name, faces: c.card_faces! };
   assert.equal(faceOf(card, 1).name, c.card_faces![1].name);

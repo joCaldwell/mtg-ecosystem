@@ -277,4 +277,4 @@ if (missing.size) {
   console.log(`\n${missing.size} name(s) not in this card snapshot, skipped:`);
   console.log("  " + [...missing].join(", "));
 }
-console.log(`\nOpen it at http://localhost:${process.env.DECKBUILDER_PORT ?? 8787}/#/deck/${deckId}`);
+console.log(`\nOpen it at http://localhost:${process.env.DECKBUILDER_PORT ?? 8787}/deck/${deckId}`);

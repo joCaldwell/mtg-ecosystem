@@ -66,3 +66,15 @@
 .link:hover {
   border-bottom-color: var(--sel);
 }
+
+.share {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  color: var(--text-soft);
+  border-bottom: 1px dotted var(--faint);
+}
+
+.share:hover {
+  border-bottom-color: var(--sel);
+}

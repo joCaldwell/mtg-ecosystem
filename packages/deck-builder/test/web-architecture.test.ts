@@ -247,3 +247,22 @@ describe("tokens", () => {
     assert.deepEqual(problems, [], `\n${problems.join("\n")}\n`);
   });
 });
+
+// ---------- one phone breakpoint (spec §11.2) ----------
+
+describe("breakpoints", () => {
+  test("every width media query is the phone breakpoint, PHONE_MAX_WIDTH", async () => {
+    const { PHONE_MAX_WIDTH } = await import("../web/src/app/breakpoints.ts");
+    const problems: string[] = [];
+    for (const f of walk(SRC)) {
+      const rel = posix(relative(SRC, f));
+      if (!rel.endsWith(".css")) continue;
+      readFileSync(f, "utf8").split("\n").forEach((text, i) => {
+        for (const m of text.matchAll(/@media[^{]*\((?:max|min)-width:\s*(\d+)px\)/g))
+          if (Number(m[1]) !== PHONE_MAX_WIDTH && !rel.startsWith("features/playtest/"))
+            problems.push(`${rel}:${i + 1} uses ${m[1]}px; the phone breakpoint is ${PHONE_MAX_WIDTH}px (app/breakpoints.ts)`);
+      });
+    }
+    assert.deepEqual(problems, [], `\n${problems.join("\n")}\n`);
+  });
+});

@@ -79,3 +79,16 @@
   border-color: var(--agent);
   background: var(--agent-bg);
 }
+
+.touch {
+  height: var(--tap);
+  padding: 0 var(--s-6);
+}
+
+/* Touch (DESIGN.md, narrow screens): every button is at least one tap target
+   tall below 720 px, whatever size it is on desktop. */
+@media (max-width: 719px) {
+  .button {
+    min-height: var(--tap);
+  }
+}

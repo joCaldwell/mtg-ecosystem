@@ -4,7 +4,7 @@
 // because they follow the grouping and the grouping is chosen on screen: the
 // counts of type groups, and what each group costs (spec §4.4).
 
-import type { DeckCard, DeckState, ProposalItem } from "../api/client.ts";
+import type { DeckCard, DeckListState, ProposalItem } from "../api/client.ts";
 import { CARD_ORDER, TYPE_GROUPS, byName, byPrice, primaryType, quantityOf, type SortBy } from "./cards.ts";
 import { pendingItems } from "./inbox.ts";
 import { type GroupCost, costOf } from "./price.ts";
@@ -55,7 +55,7 @@ export function formatTarget(min: number | null, max: number | null): string | n
 }
 
 /** Every item still waiting for a ruling, across the deck's open proposals. */
-export function pendingOf(state: DeckState): ProposalItem[] {
+export function pendingOf(state: DeckListState): ProposalItem[] {
   return state.proposals.flatMap(pendingItems);
 }
 
@@ -64,14 +64,14 @@ export function pendingOf(state: DeckState): ProposalItem[] {
  * or whose slot no longer exists, which the server also files as unslotted on
  * accept — goes to the unfiled group.
  */
-export function groupKeyForAdd(item: ProposalItem, state: DeckState, groupBy: GroupBy): string {
+export function groupKeyForAdd(item: ProposalItem, state: DeckListState, groupBy: GroupBy): string {
   if (groupBy === "type") return `type-${primaryType(item.type_line)}`;
   return item.slot_id != null && state.slots.some((s) => s.id === item.slot_id)
     ? `slot-${item.slot_id}`
     : UNFILED_KEY;
 }
 
-export function layoutDeck(state: DeckState, groupBy: GroupBy, sortBy: SortBy = "curve"): DeckLayout {
+export function layoutDeck(state: DeckListState, groupBy: GroupBy, sortBy: SortBy = "curve"): DeckLayout {
   const inDeck = state.cards.filter((c) => !c.maybe);
   const listed = inDeck.filter((c) => c.role === "card").sort(CARD_ORDER[sortBy]);
   const pendingAdds = pendingOf(state).filter((i) => i.action === "add");

@@ -109,7 +109,7 @@ const RADII = ["--r-sm", "--r-md", "--r-lg", "--r-xl", "--r-pill"] as const;
 
 const ICONS: IconName[] = [
   "inbox", "decks", "memories", "activity", "profile", "settings", "back",
-  "close", "check", "plus", "chevronDown", "undo", "redo", "search", "more",
+  "close", "check", "plus", "chevronDown", "undo", "redo", "search", "more", "globe", "link",
 ];
 
 type Tone = "neutral" | "agent" | "warn" | "add" | "cut";
@@ -251,8 +251,8 @@ function Buttons() {
   return (
     <Stack gap={7}>
       <Section title="Button">
-        <Demo note="Rows: md, sm, with a key hint, disabled.">
-          {[{}, { size: "sm" as const }, { kbd: "A" }, { disabled: true }].map((extra, i) => (
+        <Demo note="Rows: md, sm, touch (one --tap tall, for phones), with a key hint, disabled.">
+          {[{}, { size: "sm" as const }, { size: "touch" as const }, { kbd: "A" }, { disabled: true }].map((extra, i) => (
             <Row key={i} gap={4} wrap>
               {variants.map((v) => (
                 <Button key={v} variant={v} {...extra}>{v}</Button>
@@ -277,6 +277,8 @@ function Buttons() {
             {(["close", "more"] as IconName[]).map((n) => (
               <IconButton key={n} label={n} size="sm"><Icon name={n} /></IconButton>
             ))}
+            <Label>touch</Label>
+            <IconButton label="close" size="touch"><Icon name="close" /></IconButton>
           </Row>
         </Demo>
       </Section>
@@ -567,7 +569,7 @@ function ToastDemo() {
 }
 
 function Overlays() {
-  const [dialog, setDialog] = useState<null | "md" | "lg" | "confirm" | "danger">(null);
+  const [dialog, setDialog] = useState<null | "md" | "lg" | "sheet" | "confirm" | "danger">(null);
   const [pop, setPop] = useState<null | "below" | "right" | "above" | "left">(null);
   const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null);
   const [note, setNote] = useState("");
@@ -578,14 +580,16 @@ function Overlays() {
           <Row gap={4} wrap>
             <Button onClick={() => setDialog("md")}>Dialog md</Button>
             <Button onClick={() => setDialog("lg")}>Dialog lg</Button>
+            <Button onClick={() => setDialog("sheet")}>Dialog sheet (touch)</Button>
             <Button onClick={() => setDialog("confirm")}>Confirm</Button>
             <Button variant="reject" onClick={() => setDialog("danger")}>Confirm, danger</Button>
           </Row>
         </Demo>
-        {dialog === "md" || dialog === "lg" ? (
+        {dialog === "md" || dialog === "lg" || dialog === "sheet" ? (
           <Dialog
             title="Rename deck"
-            width={dialog}
+            width={dialog === "lg" ? "lg" : "md"}
+            placement={dialog === "sheet" ? "sheet" : "center"}
             onClose={() => setDialog(null)}
             footer={<><Button variant="ghost" onClick={() => setDialog(null)}>Cancel</Button><Button variant="primary" onClick={() => setDialog(null)}>Save</Button></>}
           >

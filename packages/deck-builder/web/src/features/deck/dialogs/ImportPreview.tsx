@@ -49,6 +49,10 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
         ) : null}
       </Text>
 
+      {diff.notes.map((note) => (
+        <Text key={note} as="p" tone="warn" size="sm">{note}</Text>
+      ))}
+
       {diff.cut_count > 0 ? (
         <ErrorNote>
           Applying this removes {diff.cut_count} {diff.cut_count === 1 ? "card" : "cards"}, including quantity

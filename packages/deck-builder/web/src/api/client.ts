@@ -7,7 +7,8 @@ export type { PlaytestView, PlaytestAction, PlaytestUiPatch, TableCard, TableObj
 // change on the server fails this typecheck instead of failing at runtime.
 
 import type { PowerProfile, PowerTargetInput, PowerAssessmentInput, BracketMapping } from "../../../src/deck/power.ts";
-import type { DeckState } from "../../../src/state.ts";
+import type { DeckState, PublicDeckState, PublicDecision } from "../../../src/state.ts";
+import type { PublicProfile, Sharing } from "../../../src/sharing.ts";
 import type { ActivityEntry } from "../../../src/activity.ts";
 import type { CardRow } from "../../../src/cards.ts";
 import type { EngineView } from "../../../src/deck/brief.ts";
@@ -37,6 +38,10 @@ export type {
   DeckCategory,
   DeckState,
   DeckSummary,
+  PublicDeckState,
+  PublicDecision,
+  PublicProfile,
+  Sharing,
   ExportResult,
   Finding,
   ImportDiff,
@@ -44,6 +49,12 @@ export type {
   PlayerStats,
 };
 export type Power = DeckState["power"];
+export type Visibility = DeckState["deck"]["visibility"];
+/** What the deck list draws from: the owner's composite, or a shared deck
+ *  adapted by domain/readOnlyDeck.ts. List code takes this, never all of DeckState. */
+export type DeckListState = Pick<DeckState, "cards" | "slots" | "tags" | "computed" | "proposals" | "log"> & {
+  deck: Pick<DeckState["deck"], "id" | "category">;
+};
 export type CardData = SearchResult;
 export type DeckCard = DeckState["cards"][number];
 export type Slot = DeckState["slots"][number];
@@ -122,7 +133,8 @@ export const api = {
   disconnectClient: (client_id:string) => request<{ok:boolean}>("DELETE","/api/account/oauth",{client_id}),
   session: () => request<Session>("GET","/api/session"),
   signup: (code:string) => request("POST","/api/signup",{code}),
-  signIn: (provider:string, oauth_query:string) => request<{url:string}>("POST","/api/auth/sign-in/social",{provider,callbackURL:location.origin + "/",errorCallbackURL:location.origin + "/signin",...(oauth_query && new URLSearchParams(oauth_query).has("sig") ? {oauth_query} : {})}),
+  /** `next` must already be a same-origin path (routes.ts safeNext). */
+  signIn: (provider:string, oauth_query:string, next = "/") => request<{url:string}>("POST","/api/auth/sign-in/social",{provider,callbackURL:location.origin + next,errorCallbackURL:location.origin + (next === "/" ? "/signin" : `/signin?${new URLSearchParams({ next })}`),...(oauth_query && new URLSearchParams(oauth_query).has("sig") ? {oauth_query} : {})}),
   signOut: () => request("POST","/api/auth/sign-out",{}),
   chooseHandle: (handle:string) => request("PATCH","/api/account/handle",{handle}),
   exportAccount: () => request<unknown>("GET","/api/account/export"),
@@ -152,8 +164,25 @@ export const api = {
   compareDecks: (id: number, other?: number) =>
     request<DeckComparison>("GET", `/api/decks/${id}/compare${other ? `?other=${other}` : ""}`),
 
-  acceptProposals: (deckId: number, proposals: Array<{ proposal_id: number; acknowledge_stale?: boolean }>, expected_revision: number) =>
-    request<{ state: DeckState; inbox: Inbox }>("POST", `/api/decks/${deckId}/proposals/rule`, { proposals, expected_revision }),
+  acceptProposals: (deckId: number, proposals: Array<{ proposal_id: number; acknowledge_stale?: boolean }>, expected_revision: number, reason = "") =>
+    request<{ state: DeckState; inbox: Inbox }>("POST", `/api/decks/${deckId}/proposals/rule`, { proposals, expected_revision, reason }),
+
+  // ---------- sharing (spec §18) ----------
+  setSharing: (deckId: number, patch: { visibility?: Visibility; publish_decisions?: boolean }) =>
+    request<StateResponse>("PATCH", `/api/decks/${deckId}/sharing`, patch),
+  hideLogEntry: (deckId: number, logId: number, hidden: boolean) =>
+    request<StateResponse>("PATCH", `/api/decks/${deckId}/log/${logId}`, { hidden }),
+  publicDeck: (slug: string) => request<{ deck: PublicDeckState }>("GET", `/api/public/decks/${encodeURIComponent(slug)}`),
+  publicExport: (slug: string, opts: { categories?: boolean; includeMaybe?: boolean } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.categories === false) params.set("categories", "off");
+    if (opts.includeMaybe) params.set("include_maybe", "on");
+    return request<{ name: string; text: string; card_count: number; line_count: number }>("GET", `/api/public/decks/${encodeURIComponent(slug)}/export?${params}`);
+  },
+  publicProfile: (handle: string) => request<{ profile: PublicProfile }>("GET", `/api/public/users/${encodeURIComponent(handle)}`),
+  forkShared: (slug: string, name: string) => request<StateResponse>("POST", `/api/public/decks/${encodeURIComponent(slug)}/fork`, { name }),
+  compareShared: (deckId: number, slug: string) =>
+    request<DeckComparison>("GET", `/api/decks/${deckId}/compare?${new URLSearchParams({ slug })}`),
 
   // ---------- cards in a deck ----------
   addCard: (deckId: number, oracleId: string, opts: { slotId?: number | null; secondarySlotIds?: number[]; role?: string; maybe?: boolean } = {}) =>

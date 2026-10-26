@@ -19,3 +19,10 @@
   opacity: 0.5;
   cursor: default;
 }
+
+/* The label is the tap target: a full touch height under 720 px. */
+@media (max-width: 719px) {
+  .checkbox {
+    min-height: var(--tap);
+  }
+}

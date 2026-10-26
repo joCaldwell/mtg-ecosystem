@@ -33,9 +33,15 @@ function pathForLog(req: IncomingMessage) {
       "oauth-authorization-server oauth-protected-resource mcp openid-configuration jwks decks cards search " +
       "profile memories activity focus stats jobs refresh backup tokens clients disconnect proposals items " +
       "rule brief engines slots tags power compare fork import preview log review undo category sourcing " +
-      "ownership maybe shortlist quantity playtest table observations ui budgets read retire revise").split(" "));
+      "ownership maybe shortlist quantity playtest table observations ui budgets read retire revise " +
+      // Sharing (§18). A slug or handle is never a route word, so it logs as :value:
+      // an unlisted deck's slug is a capability URL and stays out of the logs.
+      "public users sharing").split(" "));
     return path.split("/").map(segment => !segment || routes.has(segment) ? segment : /^\d+$/.test(segment) ? ":id" : ":value").join("/");
   }
+  // Shared pages name the page kind, never the slug or handle (§18).
+  const shared = path.match(/^\/(d|u)\/[^/]+\/?$/);
+  if (shared) return `/${shared[1]}/:value`;
   return ["/", "/signin", "/privacy", "/terms", "/consent", "/consent.js"].includes(path) ? path : "/:other";
 }
 
@@ -54,7 +60,8 @@ export const logging = {
       const error = context.error && (status >= 500 ? context.error : { name: context.error.name, ...(context.error.code ? { code: context.error.code } : {}) });
       write({ level: status >= 500 ? "error" : status >= 400 ? "warn" : "info", event: "request",
         req_id: context.req_id, user_id: context.actor?.user_id ?? null,
-        via: context.actor?.via ?? null, label: context.actor?.label ?? null,
+        // No resolved principal (a shared page, card search, sign-in): anonymous, never an address.
+        via: context.actor?.via ?? null, label: context.actor?.label ?? "anonymous",
         method: context.method, path: context.path, status,
         ms: Math.round((performance.now() - start) * 100) / 100, ...(error ? { error } : {}) });
     };

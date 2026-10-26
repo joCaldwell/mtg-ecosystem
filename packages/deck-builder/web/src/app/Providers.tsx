@@ -2,8 +2,6 @@ import { useEffect, type ReactNode } from "react";
 import { api } from "../api/client.ts";
 import { LiveProvider, useLive } from "../api/live.tsx";
 import { CardHoverProvider, CardLookupProvider, useCardLookup, type CardInfo } from "../mtg/index.ts";
-import { ToastProvider } from "../ui/index.ts";
-import { SessionProvider } from "./Session.tsx";
 import { FocusProvider } from "./Focus.tsx";
 import { InboxProvider } from "./Inbox.tsx";
 
@@ -12,23 +10,32 @@ import { InboxProvider } from "./Inbox.tsx";
 const lookupCard = (name: string): Promise<CardInfo | null> =>
   api.resolveCard(name).then((r) => r.matches[0] ?? null);
 
-/** Everything app-wide a screen may reach for through context, in one place. */
-export function AppProviders({ children }: { children: ReactNode }) {
+/** What every screen may reach for: card lookups and hover cards. Shared
+ *  pages get only these (spec §18.5): no event stream, inbox or focus, all of
+ *  which need a session and belong to the signed-in app. */
+export function CardProviders({ children }: { children: ReactNode }) {
   return (
-    <ToastProvider>
-      <SessionProvider><LiveProvider>
-        <CardLookupProvider lookup={lookupCard}>
-          <ClearCardCache /><CardHoverProvider>
-            <InboxProvider>
-              <FocusProvider>{children}</FocusProvider>
-            </InboxProvider>
-          </CardHoverProvider>
-        </CardLookupProvider>
-      </LiveProvider></SessionProvider>
-    </ToastProvider>
+    <CardLookupProvider lookup={lookupCard}>
+      <CardHoverProvider>{children}</CardHoverProvider>
+    </CardLookupProvider>
   );
 }
 
+/** Everything the signed-in app reaches for through context, in one place. */
+export function AppProviders({ children }: { children: ReactNode }) {
+  return (
+    <LiveProvider>
+      <CardProviders>
+        <ClearCardCache />
+        <InboxProvider>
+          <FocusProvider>{children}</FocusProvider>
+        </InboxProvider>
+      </CardProviders>
+    </LiveProvider>
+  );
+}
+
+/** A change (a new price source, a refresh) can change what a looked-up card shows (§4.4). */
 function ClearCardCache() {
   const live = useLive();
   const { clear } = useCardLookup();

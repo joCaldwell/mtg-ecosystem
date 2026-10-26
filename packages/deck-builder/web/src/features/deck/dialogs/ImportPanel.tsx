@@ -81,8 +81,8 @@ export function ImportPanel({ draft, onDraft, onClose }: Props) {
   return (
     <Stack gap={5} className={styles.panel}>
       <Text tone="muted" as="p">
-        Paste a list from Archidekt or any one-card-per-line list. Nothing changes until you read the
-        preview and apply it.
+        Paste a list from Archidekt, Moxfield (Export, then Copy Plain Text, which places the commander) or any
+        one-card-per-line list. Nothing changes until you read the preview and apply it.
       </Text>
       <TextArea
         rows={7}

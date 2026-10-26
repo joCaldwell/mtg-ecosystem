@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { api } from "../../api/client.ts";
+import { safeNext } from "../../app/routes.ts";
 import { useSession } from "../../app/Session.tsx";
 import { Box, Button, ErrorNote, Field, Page, PageHeader, Stack, Text, TextField, Row } from "../../ui/index.ts";
 import { LegalFooter } from "./LegalFooter.tsx";
+import styles from "./SignInPage.module.css";
 
 export function SignInPage() {
   const {session} = useSession();
@@ -11,7 +13,11 @@ export function SignInPage() {
     setBusy(true); setError(null);
     try {
       if (code.trim() || !session.invites_required) await api.signup(code.trim());
-      const result = await api.signIn(provider,location.search.slice(1));
+      // A return path rides beside, never inside, Better Auth's signed oauth_query.
+      const query = new URLSearchParams(location.search);
+      const next = safeNext(query.get("next"));
+      query.delete("next");
+      const result = await api.signIn(provider, query.toString(), next);
       location.assign(result.url);
     } catch(e) { setError(e instanceof Error ? e.message : String(e)); setBusy(false); }
   }
@@ -25,7 +31,7 @@ export function SignInPage() {
       <Row gap={3} wrap>{session.providers.map(p => <Button key={p} variant="primary" disabled={busy} onClick={() => signIn(p)}>Continue with {p === "discord" ? "Discord" : "Google"}</Button>)}</Row>
       {error && <ErrorNote>{error}</ErrorNote>}
       {providerError && <ErrorNote>{providerError === "registration_failed" ? "Registration did not complete. Check your invite or claim code and try again." : "The provider sign-in did not complete or its state expired. Start sign-in again."}</ErrorNote>}
-      <Text size="sm" tone="muted">By continuing, you agree to the <a href="/terms">terms</a> and acknowledge the <a href="/privacy">privacy policy</a>.</Text>
+      <Text size="sm" tone="muted" className={styles.legal}>By continuing, you agree to the <a href="/terms">terms</a> and acknowledge the <a href="/privacy">privacy policy</a>.</Text>
     </Stack></Box><LegalFooter />
   </Page>;
 }

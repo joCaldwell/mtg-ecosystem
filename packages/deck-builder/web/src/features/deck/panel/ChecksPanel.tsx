@@ -6,7 +6,8 @@ import { primaryType, TYPE_GROUPS } from "../../../domain/cards.ts";
 import { CardRef, ColorIdentity } from "../../../mtg/index.ts";
 import { Button, Chip, Eyebrow, KeyValue, Text } from "../../../ui/index.ts";
 import { cx } from "../../../ui/internal.ts";
-import { useDeckState } from "../DeckStore.tsx";
+import type { Finding } from "../../../api/client.ts";
+import { useDeckList } from "../DeckStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import styles from "./ChecksPanel.module.css";
 
@@ -15,10 +16,12 @@ const COLORS = ["W", "U", "B", "R", "G"] as const;
 /** Tallest curve bar, in pixels; the bars are scaled to the biggest bucket. */
 const CURVE_HEIGHT = 52;
 
-export function ChecksPanel() {
-  const state = useDeckState();
+/** Reads the list through useDeckList, so a shared deck and the phone view
+ *  draw the same panel; `checks` come with whichever composite was loaded. */
+export function ChecksPanel({ checks }: { checks: Finding[] }) {
+  const { state, readOnly } = useDeckList();
   const ui = useDeckUi();
-  const { checks, computed, cards, slots } = state;
+  const { computed, cards, slots } = state;
 
   const offTarget = computed.slot_deltas.filter((d) => d.status === "under" || d.status === "over");
   const hasTargets = computed.slot_deltas.some((d) => d.status !== "untargeted");
@@ -86,13 +89,15 @@ export function ChecksPanel() {
                   ? "No slot has a target. Set one, such as 8 to 10 for ramp, and the list shows when a slot drifts."
                   : "This deck has no slots. Slots group cards by job and can carry a target."}
               </Text>
-              <Button size="sm" onClick={() => ui.openDialog("slots")}>
-                Edit slots
-              </Button>
+              {!readOnly && (
+                <Button size="sm" onClick={() => ui.openDialog("slots")}>
+                  Edit slots
+                </Button>
+              )}
             </div>
           ))}
         <Text tone="faint" size="xs" as="p">
-          Targets are yours and soft. Nothing here blocks an edit.
+          {readOnly ? "Targets are the owner's and soft." : "Targets are yours and soft. Nothing here blocks an edit."}
         </Text>
       </section>
 

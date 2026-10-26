@@ -4,8 +4,8 @@
 // `run(() => api.x(...))` and the response lands here; no setState or mutate
 // callbacks are threaded through props.
 
-import { createContext, useCallback, useContext, useEffect, useReducer, useState, type ReactNode } from "react";
-import { api, ApiError, type DeckState, type Envelope } from "../../api/client.ts";
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
+import { api, ApiError, type DeckListState, type DeckState, type Envelope } from "../../api/client.ts";
 import { useLive } from "../../api/live.tsx";
 
 interface DeckData {
@@ -80,8 +80,33 @@ export function DeckProvider({ deckId, children }: { deckId: number; children: R
   }, [deckId, apply, live, attempt]);
 
   return (
-    <DeckContext.Provider value={{ ...data, deckId, apply, run, clearError, retry }}>{children}</DeckContext.Provider>
+    <DeckContext.Provider value={{ ...data, deckId, apply, run, clearError, retry }}>
+      {data.state ? <DeckListProvider state={data.state}>{children}</DeckListProvider> : children}
+    </DeckContext.Provider>
   );
+}
+
+// ---------- the list's own context ----------
+// The list, its groups and rows read only this, so the same components draw a
+// shared deck (spec §18.5) and the phone view (§11.2) as well as the editor.
+
+interface DeckListValue {
+  state: DeckListState;
+  /** Nothing in the list may be selected or edited: shared pages and phones. */
+  readOnly: boolean;
+}
+
+const DeckListContext = createContext<DeckListValue | null>(null);
+
+export function DeckListProvider({ state, readOnly = false, children }: { state: DeckListState; readOnly?: boolean; children: ReactNode }) {
+  const value = useMemo(() => ({ state, readOnly }), [state, readOnly]);
+  return <DeckListContext.Provider value={value}>{children}</DeckListContext.Provider>;
+}
+
+export function useDeckList(): DeckListValue {
+  const value = useContext(DeckListContext);
+  if (!value) throw new Error("useDeckList outside a DeckListProvider");
+  return value;
 }
 
 export function useDeck(): DeckStore {

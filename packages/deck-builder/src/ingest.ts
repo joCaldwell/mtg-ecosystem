@@ -36,6 +36,7 @@ interface ImageUris { small?: string; normal?: string; art_crop?: string }
 
 interface ScryfallFace {
   image_uris?: ImageUris;
+  artist?: string | null;
   name: string;
   mana_cost?: string;
   type_line?: string;
@@ -48,6 +49,7 @@ interface ScryfallFace {
 
 export interface ScryfallCard {
   image_uris?: ImageUris;
+  artist?: string | null;
   oracle_id: string;
   name: string;
   mana_cost?: string;
@@ -101,6 +103,7 @@ export interface CardRow {
   image_small: string | null;
   image_normal: string | null;
   image_art_crop: string | null;
+  artist: string | null;
   retired: number;
 }
 
@@ -144,6 +147,9 @@ export function toRow(card: ScryfallCard): CardRow | null {
     image_small: (card.image_uris ?? front?.image_uris)?.small ?? null,
     image_normal: (card.image_uris ?? front?.image_uris)?.normal ?? null,
     image_art_crop: (card.image_uris ?? front?.image_uris)?.art_crop ?? null,
+    // The illustrator of that same image, for the art crop's credit (D10):
+    // Scryfall's nullable print field `artist`, or the card face's own.
+    artist: (card.image_uris ? card.artist : front?.artist ?? card.artist) ?? null,
     retired: 0,
     oracle_id: card.oracle_id,
     name: card.name,
@@ -191,12 +197,12 @@ INSERT INTO cards (
   oracle_id, name, mana_cost, cmc, type_line, oracle_text,
   power, toughness, loyalty, power_num, toughness_num, loyalty_num,
   colors, color_identity, colors_mask, ci_mask, colors_count, ci_count,
-  commander_legality, is_commander, game_changer, layout, faces_json, search_text, full_search_text, image_small, image_normal, image_art_crop, retired
+  commander_legality, is_commander, game_changer, layout, faces_json, search_text, full_search_text, image_small, image_normal, image_art_crop, artist, retired
 ) VALUES (
   :oracle_id, :name, :mana_cost, :cmc, :type_line, :oracle_text,
   :power, :toughness, :loyalty, :power_num, :toughness_num, :loyalty_num,
   :colors, :color_identity, :colors_mask, :ci_mask, :colors_count, :ci_count,
-  :commander_legality, :is_commander, :game_changer, :layout, :faces_json, :search_text, :full_search_text, :image_small, :image_normal, :image_art_crop, :retired
+  :commander_legality, :is_commander, :game_changer, :layout, :faces_json, :search_text, :full_search_text, :image_small, :image_normal, :image_art_crop, :artist, :retired
 )
 ON CONFLICT(oracle_id) DO UPDATE SET
   name = excluded.name, mana_cost = excluded.mana_cost, cmc = excluded.cmc,
@@ -209,7 +215,7 @@ ON CONFLICT(oracle_id) DO UPDATE SET
   ci_count = excluded.ci_count,
   commander_legality = excluded.commander_legality, is_commander = excluded.is_commander, game_changer = excluded.game_changer,
   image_small = excluded.image_small, image_normal = excluded.image_normal,
-  image_art_crop = excluded.image_art_crop, retired = 0,
+  image_art_crop = excluded.image_art_crop, artist = excluded.artist, retired = 0,
   layout = excluded.layout, faces_json = excluded.faces_json,
   search_text = excluded.search_text, full_search_text = excluded.full_search_text
 `;

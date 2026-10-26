@@ -1,0 +1,69 @@
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-5);
+  min-height: var(--phone-bar-h);
+  padding: 0 var(--s-6);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-4);
+  min-height: var(--tap);
+  color: var(--text);
+  font-weight: 650;
+}
+
+.mark {
+  width: var(--s-6);
+  height: var(--s-6);
+  border-radius: var(--r-sm);
+  background: linear-gradient(135deg, var(--mana-u) 0 33%, var(--mana-b-ring) 33% 66%, var(--mana-r) 66%);
+}
+
+.nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap);
+  padding: 0 var(--s-4);
+  color: var(--muted);
+}
+
+.nav a:hover {
+  color: var(--text);
+}
+
+.main {
+  flex: 1;
+  width: 100%;
+  max-width: var(--public-w);
+  margin: 0 auto;
+  min-width: 0;
+}
+
+.footer {
+  padding: var(--s-6);
+  border-top: 1px solid var(--line);
+  color: var(--faint);
+  font-size: var(--text-xs);
+  text-align: center;
+}
+
+@media (max-width: 719px) {
+  .bar {
+    padding: 0 var(--s-4);
+  }
+}

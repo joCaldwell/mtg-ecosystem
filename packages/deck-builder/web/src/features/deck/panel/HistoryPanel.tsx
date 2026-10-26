@@ -8,7 +8,7 @@ import { useDeck, useDeckState } from "../DeckStore.tsx";
 import styles from "./HistoryPanel.module.css";
 
 export function HistoryPanel() {
-  const { log } = useDeckState();
+  const { log, deck } = useDeckState();
   const { deckId, run } = useDeck();
   const { toast } = useToast();
 
@@ -31,13 +31,14 @@ export function HistoryPanel() {
         ) : (
           <div className={styles.list}>
             {log.map((entry) => (
-              <LogRow key={entry.id} entry={entry} onUndo={(e) => void undo(e)} />
+              <LogRow key={entry.id} entry={entry} onUndo={(e) => void undo(e)}
+                onToggleHidden={deck.publish_decisions ? (e) => void run(() => api.hideLogEntry(deckId, e.id, !e.hidden)) : undefined} />
             ))}
           </div>
         )}
       </section>
       <Text tone="faint" size="xs" as="p">
-        Shows the latest 40 entries.
+        Shows the latest 40 entries.{deck.publish_decisions ? " This deck publishes its decisions: hide an entry to keep it off the shared page." : ""}
       </Text>
     </>
   );

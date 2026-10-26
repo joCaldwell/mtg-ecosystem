@@ -92,10 +92,13 @@ function CardReasons({ cards }: { cards: LogCard[] }) {
 export function LogRow({
   entry,
   onUndo,
+  onToggleHidden,
   showDeck = false,
 }: {
   entry: LogEntry;
   onUndo?: (entry: LogEntry) => void;
+  /** Given when the deck publishes its decisions (§18.2): hide this entry from the page, or show it again. */
+  onToggleHidden?: (entry: LogEntry) => void;
   showDeck?: boolean;
 }) {
   const lead = LEAD[entry.kind];
@@ -119,11 +122,17 @@ export function LogRow({
           </span>
         )}
         {undone && <span className={styles.undone}>undone</span>}
+        {onToggleHidden && !!entry.hidden && <span className={styles.undone}>hidden from the page</span>}
       </div>
       <div className={styles.action}>
         {onUndo && !entry.read_only && canUndo(entry) && (
           <Button variant="ghost" size="sm" onClick={() => onUndo(entry)}>
             Undo
+          </Button>
+        )}
+        {onToggleHidden && (
+          <Button variant="ghost" size="sm" onClick={() => onToggleHidden(entry)} title="Whether this entry appears on the deck's shared page">
+            {entry.hidden ? "Show on page" : "Hide from page"}
           </Button>
         )}
       </div>

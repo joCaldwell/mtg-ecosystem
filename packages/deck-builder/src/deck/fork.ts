@@ -3,6 +3,10 @@ import { requireDeckOwner } from "../actor.ts";
 // organization, brief and deck memories into a new Theorycrafted deck and records the
 // parent. The copies then diverge; the link exists so the two can be compared.
 // Forks replace named checkpoints: there is no snapshot system and no DAG.
+//
+// Another user's shared deck is forked by its slug (spec §18.4) and copies
+// less: never memories, ownership evidence, the power target, assessments,
+// proposals or log entries, and the maybe list arrives without its notes.
 
 import type { Database } from "../sqlite.ts";
 import { ServiceError } from "../errors.ts";
@@ -11,12 +15,27 @@ import type { Actor } from "../actor.ts";
 import { copyPowerTarget } from "./power.ts";
 import { copyDeckMemories } from "../memory.ts";
 import { writeLog } from "./log.ts";
-import { createDeck, getDeck, recomputeIdentity, requireDeck } from "./service.ts";
+import { publicDeckState } from "../state.ts";
+import { type DeckRow, createDeck, getDeck, recomputeIdentity, requireDeck, requireViewableDeck } from "./service.ts";
 
-export function forkDeck(db: Database, actor: Actor, deckId: number, name: string): number {
-  const parent = requireDeckOwner(db, actor, deckId);
+/** A deck to fork or compare against: one of the principal's own by id, or a
+ * shared deck by its slug. */
+export type DeckSource = number | { slug: string };
+
+export function forkDeck(db: Database, actor: Actor, source: DeckSource, name: string): number {
+  const parent: DeckRow = typeof source === "number" ? requireDeckOwner(db, actor, source) : requireViewableDeck(db, actor, source.slug);
+  const deckId = parent.id;
+  // Forking one's own deck by its link is the ordinary fork.
+  const foreign = parent.user_id !== actor.user_id;
   return withTransaction(db, () => {
-    const forkId = createDeck(db, actor, name, { parentId: deckId });
+    const forkId = createDeck(db, actor, name, foreign ? {} : { parentId: deckId });
+    if (foreign) {
+      const handle = (db.prepare("SELECT handle FROM users WHERE id = ?").get(parent.user_id) as { handle: string }).handle;
+      // Lineage by snapshot only: the other user's numeric id is theirs (§18.3)
+      // and never stored where the forker's own reads or export could show it.
+      db.prepare("UPDATE decks SET parent_owner_handle = ?, parent_slug = ?, parent_name = ? WHERE id = ?")
+        .run(handle, parent.slug, parent.name, forkId);
+    }
 
     const slotMap = new Map<number, number>();
     const insSlot = db.prepare(
@@ -36,9 +55,11 @@ export function forkDeck(db: Database, actor: Actor, deckId: number, name: strin
         Number(insSlot.run(forkId, s.name, s.target_min, s.target_max, s.position).lastInsertRowid),
       );
 
+    // Tags record sourcing and status, "Have" being ownership evidence
+    // (§5.4, §5.5): another user's are about their copies, not the forker's.
     const tagMap = new Map<number, number>();
     const insTag = db.prepare("INSERT INTO tags (deck_id, name) VALUES (?, ?)");
-    for (const t of db.prepare("SELECT id, name FROM tags WHERE deck_id = ?").all(deckId) as unknown as Array<{
+    for (const t of (foreign ? [] : db.prepare("SELECT id, name FROM tags WHERE deck_id = ?").all(deckId)) as unknown as Array<{
       id: number;
       name: string;
     }>)
@@ -66,7 +87,7 @@ export function forkDeck(db: Database, actor: Actor, deckId: number, name: strin
         c.slot_id == null ? null : (slotMap.get(c.slot_id) ?? null),
         c.role,
         c.maybe,
-        c.maybe_note,
+        foreign ? "" : c.maybe_note,
         c.quantity,
       );
 
@@ -99,8 +120,13 @@ export function forkDeck(db: Database, actor: Actor, deckId: number, name: strin
       .all(deckId) as unknown as Array<{ id: number; name: string; description: string }>)
       insPiece.run(Number(insEngine.run(forkId, e.name, e.description).lastInsertRowid), e.id);
 
-    copyPowerTarget(db, actor, deckId, forkId);
     recomputeIdentity(db, actor, forkId);
+    if (foreign) {
+      const upstream = getDeck(db, actor, forkId).deck.upstream!;
+      writeLog(db, actor, { deck_id: forkId, kind: "edit", summary: `Forked from ${upstream.owner_handle}/${upstream.name}` });
+      return forkId;
+    }
+    copyPowerTarget(db, actor, deckId, forkId);
     const memories = copyDeckMemories(db, actor, deckId, forkId);
     writeLog(db, actor, {
       deck_id: forkId,
@@ -124,7 +150,8 @@ export interface CompareCard {
 
 export interface DeckComparison {
   a: { id: number; name: string; revision: number; card_count: number };
-  b: { id: number; name: string; revision: number; card_count: number };
+  /** A shared deck by its slug has no id or revision for the caller to see. */
+  b: { id: number | null; slug: string | null; owner_handle: string | null; name: string; revision: number | null; card_count: number };
   /** True when b was chosen because it is a's parent. */
   b_is_parent: boolean;
   only_in_a: CompareCard[];
@@ -134,24 +161,47 @@ export interface DeckComparison {
   shared_count: number;
 }
 
-/** Compare two decks' lists (maybe lists excluded). With no second deck, compares against the parent. */
-export function compareDecks(db: Database, actor: Actor, aId: number, bId?: number): DeckComparison {
+type CompareSide = { cards: Array<CompareCard & { maybe: number }> };
+
+/** Compare two decks' lists (maybe lists excluded). With no second deck, compares against the parent:
+ * one's own, or the shared deck a cross-owner fork came from while it can still be read (§18.4). */
+export function compareDecks(db: Database, actor: Actor, aId: number, other?: DeckSource): DeckComparison {
   const a = getDeck(db, actor, aId);
-  let other = bId;
-  if (other === undefined) {
-    if (!a.deck.parent)
+  let target = other;
+  if (target === undefined) {
+    if (a.deck.parent) target = a.deck.parent.id;
+    else if (a.deck.upstream) target = { slug: a.deck.upstream.slug };
+    else
       throw new ServiceError(
         `"${a.deck.name}" is not a fork, so there is no parent to compare with. Name a second deck.`,
       );
-    other = a.deck.parent.id;
   }
-  if (other === aId) throw new ServiceError("Compare a deck with a different deck");
-  const b = getDeck(db, actor, other);
+  let b: DeckComparison["b"];
+  let bSide: CompareSide;
+  if (typeof target === "number") {
+    if (target === aId) throw new ServiceError("Compare a deck with a different deck");
+    const view = getDeck(db, actor, target);
+    b = { id: view.deck.id, slug: null, owner_handle: null, name: view.deck.name, revision: view.deck.revision, card_count: view.computed.card_count };
+    bSide = view;
+  } else {
+    let shared;
+    try {
+      if (requireViewableDeck(db, actor, target.slug).id === aId) throw new ServiceError("Compare a deck with a different deck");
+      shared = publicDeckState(db, actor, target.slug);
+    }
+    catch (e) {
+      if (other === undefined && e instanceof ServiceError && e.status === 404)
+        throw new ServiceError(`"${a.deck.name}" was forked from ${a.deck.upstream!.owner_handle}/${a.deck.upstream!.name}, which you can no longer read: it is private now or was deleted.`, 404);
+      throw e;
+    }
+    b = { id: null, slug: shared.deck.slug, owner_handle: shared.deck.owner.handle, name: shared.deck.name, revision: null, card_count: shared.computed.card_count };
+    bSide = shared;
+  }
 
-  const main = (view: typeof a) => new Map(view.cards.filter((c) => !c.maybe).map((c) => [c.oracle_id, c]));
+  const main = (view: CompareSide) => new Map(view.cards.filter((c) => !c.maybe).map((c) => [c.oracle_id, c]));
   const inA = main(a);
-  const inB = main(b);
-  const brief = (c: (typeof a.cards)[number]): CompareCard => ({
+  const inB = main(bSide);
+  const brief = (c: CompareCard): CompareCard => ({
     oracle_id: c.oracle_id,
     name: c.name,
     mana_cost: c.mana_cost,
@@ -166,8 +216,8 @@ export function compareDecks(db: Database, actor: Actor, aId: number, bId?: numb
 
   return {
     a: { id: a.deck.id, name: a.deck.name, revision: a.deck.revision, card_count: a.computed.card_count },
-    b: { id: b.deck.id, name: b.deck.name, revision: b.deck.revision, card_count: b.computed.card_count },
-    b_is_parent: bId === undefined,
+    b,
+    b_is_parent: other === undefined,
     only_in_a: onlyA,
     only_in_b: onlyB,
     quantity_differs: shared

@@ -13,6 +13,7 @@ import { estimateCost, priceResolver, type PriceMetadata, type ResolvedPrice } f
 
 export type Role = "card" | "commander" | "companion";
 export type DeckCategory = "paper" | "theorycrafted" | "legacy";
+export type Visibility = "private" | "unlisted" | "public";
 
 // Card types and supertypes. Slots and tags say what a card *does* — "ramp",
 // "interaction" — and card type says what it *is*; the decklist groups by
@@ -88,6 +89,13 @@ export interface DeckRow {
   color_identity: string;
   revision: number;
   created_at: string;
+  visibility: Visibility;
+  slug: string | null;
+  publish_decisions: number;
+  accept_suggestions: number;
+  parent_owner_handle: string | null;
+  parent_slug: string | null;
+  parent_name: string | null;
 }
 
 export function createDeck(
@@ -200,6 +208,8 @@ export interface DeckSummary {
   commanders: string[];
   pending_items: number;
   pending_document_edits: number;
+  visibility: Visibility;
+  slug: string | null;
 }
 
 /** The roster: one line per deck, enough to choose which one to open. */
@@ -207,7 +217,7 @@ export function listDecks(db: Database, actor: Actor): DeckSummary[] {
   const rows = db
     .prepare(
       `SELECT d.id, d.name, d.category, CASE WHEN p.id IS NOT NULL THEN d.parent_id END AS parent_id, p.name AS parent_name, d.color_identity,
-              d.revision, d.created_at,
+              d.revision, d.created_at, d.visibility, d.slug,
               COALESCE((SELECT SUM(quantity) FROM deck_cards dc
                         WHERE dc.deck_id = d.id AND dc.role != 'companion' AND dc.maybe = 0), 0) AS card_count,
               (SELECT COUNT(*) FROM proposal_items pi JOIN proposals pr ON pr.id = pi.proposal_id
@@ -227,14 +237,28 @@ export function listDecks(db: Database, actor: Actor): DeckSummary[] {
   }));
 }
 
+/** The owner's read gate for id-addressed capabilities. Viewers never pass it:
+ * they address shared decks by slug through requireViewableDeck (§18.3). */
 export function requireDeck(db: Database, actor: Actor, deckId: number): DeckRow {
   const deck = db.prepare("SELECT * FROM decks WHERE id = ?").get(deckId) as DeckRow | undefined;
-  if (!deck || deck.user_id !== actor.user_id)
+  if (!deck || !actor || deck.user_id !== actor.user_id)
     throw new ServiceError(
       `There is no deck ${deckId}. List the decks to see which ids exist.`,
       404,
     );
   return { ...deck, role: "owner" };
+}
+
+/** A deck by its shared link (§18.3). The owner always reads it; anyone else,
+ * signed in or not (`viewer` null), only while it is unlisted or public.
+ * Everything else is the same 404, so a private slug says nothing. */
+export function requireViewableDeck(db: Database, viewer: Actor | null, slug: string): DeckRow {
+  const deck = db.prepare("SELECT * FROM decks WHERE slug = ?").get(String(slug)) as DeckRow | undefined;
+  const owner = !!deck && !!viewer && deck.user_id === viewer.user_id;
+  const owned = !!deck && !!db.prepare("SELECT 1 FROM users WHERE id = ? AND deleted_at IS NULL").get(deck.user_id);
+  if (!deck || !owned || (!owner && deck.visibility === "private"))
+    throw new ServiceError("There is no shared deck at that link. It may be private, or it may have been deleted.", 404);
+  return { ...deck, role: owner ? "owner" : "viewer" };
 }
 
 /** Guard a membership revision before a dependent mutation. */
@@ -777,6 +801,8 @@ export interface DeckCardView extends ResolvedPrice {
   image_small: string | null;
   image_normal: string | null;
   image_art_crop: string | null;
+  /** Credit for the art crop (D10); null until a refresh supplies it. */
+  artist: string | null;
   retired: number;
   slot_id: number | null;
   secondary_slot_ids: number[];
@@ -788,17 +814,20 @@ export interface DeckCardView extends ResolvedPrice {
   tag_ids: number[];
 }
 
-export function getDeck(db: Database, actor: Actor, deckId: number) {
+/** `opts` serve the public projection (§18.3): price for the viewer, not the
+ * owner (null is anonymous USD/lowest), and count nothing pending, so a
+ * shared deck's computed state carries no trace of proposals. */
+export function getDeck(db: Database, actor: Actor, deckId: number, opts: { pricesFor?: Actor | null; withoutPending?: boolean } = {}) {
   const deck = requireDeck(db, actor, deckId);
   const slots = listSlots(db, actor, deckId);
   const tags = listTags(db, actor, deckId);
 
-  const prices = priceResolver(db, actor);
+  const prices = priceResolver(db, "pricesFor" in opts ? opts.pricesFor ?? null : actor);
   const cards = prices.resolve(db
     .prepare(
       `SELECT c.oracle_id, c.name, c.mana_cost, c.cmc, c.type_line, c.oracle_text,
               c.power, c.toughness, c.loyalty, c.color_identity, c.ci_mask,
-              c.commander_legality, c.is_commander, c.image_small, c.image_normal, c.image_art_crop, c.retired,
+              c.commander_legality, c.is_commander, c.image_small, c.image_normal, c.image_art_crop, c.artist, c.retired,
               dc.slot_id, dc.role, dc.maybe, dc.maybe_note, dc.quantity
        FROM deck_cards dc JOIN cards c ON c.oracle_id = dc.oracle_id
        WHERE dc.deck_id = ? ORDER BY c.name`,
@@ -825,7 +854,7 @@ export function getDeck(db: Database, actor: Actor, deckId: number) {
   }
   for (const card of cards) card.secondary_slot_ids = secondaryByCard.get(card.oracle_id) ?? [];
 
-  const pendingItems = prices.resolve(db
+  const pendingItems = opts.withoutPending ? [] : prices.resolve(db
     .prepare(
       `SELECT pi.oracle_id, pi.action, pi.to_maybe, pi.slot_id, dc.slot_id AS current_slot_id,
               dc.maybe AS current_maybe, dc.role AS current_role
@@ -842,6 +871,10 @@ export function getDeck(db: Database, actor: Actor, deckId: number) {
         | undefined)
     : undefined;
   const parent = parentRow ? { id: parentRow.id, name: parentRow.name } : null;
+  // A cross-owner fork's source, from the snapshot taken when it was forked (§18.4).
+  const upstream = deck.parent_slug && deck.parent_owner_handle
+    ? { owner_handle: deck.parent_owner_handle, slug: deck.parent_slug, name: deck.parent_name ?? "" }
+    : null;
 
   return {
     deck: {
@@ -849,6 +882,10 @@ export function getDeck(db: Database, actor: Actor, deckId: number) {
       name: deck.name,
       category: deck.category,
       parent,
+      upstream,
+      visibility: deck.visibility,
+      slug: deck.slug,
+      publish_decisions: !!deck.publish_decisions,
       ci_mask: deck.ci_mask,
       color_identity: deck.color_identity,
       revision: deck.revision,

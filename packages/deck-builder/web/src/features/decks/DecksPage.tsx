@@ -11,6 +11,7 @@ import {
   ClickableRow,
   EmptyState,
   ErrorNote,
+  Icon,
   Loading,
   Page,
   PageHeader,
@@ -95,6 +96,11 @@ export function DecksPage() {
                         <td>
                           {fork && <Text tone="faint">└ </Text>}
                           <Text weight="medium">{deck.name}</Text>
+                          {deck.visibility !== "private" && (
+                            <span className={styles.shared} role="img" aria-label={deck.visibility === "public" ? "Public" : "Unlisted"} title={deck.visibility === "public" ? "Public" : "Unlisted: anyone with the link"}>
+                              {" "}<Icon name={deck.visibility === "public" ? "globe" : "link"} size={12} />
+                            </span>
+                          )}
                           {fork && deck.parent_name && (
                             <Text tone="faint" size="sm">
                               {" "}

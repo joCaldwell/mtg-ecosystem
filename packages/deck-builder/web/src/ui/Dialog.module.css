@@ -57,3 +57,28 @@
   padding: var(--s-5) var(--s-6);
   border-top: 1px solid var(--line);
 }
+
+/* The touch form: anchored to the bottom edge, full width, its own scroll.
+   Its header is at least one touch target tall. */
+.sheetBackdrop {
+  align-items: flex-end;
+  padding: 0;
+}
+
+.sheet {
+  max-width: none;
+  max-height: var(--sheet-max-h);
+  border-bottom: 0;
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+}
+
+.sheet .head {
+  min-height: var(--tap);
+}
+
+/* A centred dialog on a narrow screen keeps a margin and never overflows. */
+@media (max-width: 719px) {
+  .backdrop:not(.sheetBackdrop) {
+    padding: var(--s-6) var(--s-4);
+  }
+}
