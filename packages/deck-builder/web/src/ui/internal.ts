@@ -22,7 +22,7 @@ export const FOCUSABLE =
 
 // Dialogs and popovers share one Escape stack. Only the innermost surface
 // dismisses; stopImmediatePropagation also protects other capture listeners.
-const escapeLayers: Array<() => void> = [];
+export const escapeLayers: Array<() => void> = [];
 export function dismissOnEscape(close: () => void): () => void {
   escapeLayers.push(close);
   const onKey = (event: KeyboardEvent) => {

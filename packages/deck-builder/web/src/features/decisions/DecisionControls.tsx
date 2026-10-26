@@ -69,6 +69,8 @@ function ReasonField({
         ref={input}
         className={styles.reason}
         aria-label="Reason for rejecting, optional"
+        // A sheet opened for the reason focuses it (ui/Dialog).
+        data-autofocus
         placeholder="Why? Optional. The agent reads this next session."
         value={reason}
         disabled={busy}

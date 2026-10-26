@@ -1,20 +1,29 @@
+import { Suspense, type ReactNode } from "react";
+import { Loading } from "../ui/index.ts";
 import { useMediaQuery, DRAWER_QUERY, PANEL_QUERY } from "./breakpoints.ts";
-import { TabletShell } from "./TabletShell.tsx";
-import type { ReactNode } from "react";
+import { TabletBar, TabletScroll } from "./TabletShell.tsx";
 import type { Route } from "./routes.ts";
 import { Sidebar } from "./Sidebar.tsx";
 import styles from "./AppShell.module.css";
 
 /** The frame every page sits in: the sidebar, and one main region that the
- *  page fills and scrolls inside. */
+ *  page fills. Every child keeps its position whichever layout applies, so
+ *  crossing a breakpoint (an iPad rotating) re-styles the frame instead of
+ *  remounting the page: drafts, selection, a review and open dialogs stay,
+ *  and nothing refetches. Only the drawer's menu bar comes and goes. */
 export function AppShell({ route, children }: { route: Route; children: ReactNode }) {
   const tablet = useMediaQuery(PANEL_QUERY);
-  const drawer = useMediaQuery(DRAWER_QUERY);
-  if (tablet) return <TabletShell route={route} drawer={drawer}>{children}</TabletShell>;
+  const narrow = useMediaQuery(DRAWER_QUERY);
+  const drawer = tablet && narrow;
+  const focused = !tablet && route.page === "playtest";
   return (
-    <div className={`${styles.shell} ${route.page === "playtest" ? styles.focused : ""}`}>
-      {route.page !== "playtest" && <Sidebar route={route} />}
-      <main id="main-content" tabIndex={-1} aria-label="Deck builder" className={styles.main}>{children}</main>
+    <div className={tablet ? (drawer ? styles.tablet : styles.tabletRail) : `${styles.shell} ${focused ? styles.focused : ""}`}>
+      {drawer ? <TabletBar route={route} /> : !focused && <div className={tablet ? styles.rail : styles.side}><Sidebar route={route} /></div>}
+      <main id="main-content" tabIndex={-1} aria-label="Deck builder" className={tablet ? styles.tabletMain : styles.main}>
+        {/* A lazy page's first visit suspends here, inside the frame, not at the app root. */}
+        <Suspense fallback={<Loading />}>{children}</Suspense>
+      </main>
+      {tablet && <TabletScroll />}
     </div>
   );
 }

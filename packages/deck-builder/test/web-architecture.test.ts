@@ -280,6 +280,15 @@ describe("window scrolling", () => {
     assert.match(base, /html\[data-scroll="window"\] body\s*\{[^}]*overflow:\s*visible/);
     for (const shell of ["features/phone/PhoneShell.tsx", "features/public/PublicShell.tsx", "app/TabletShell.tsx"])
       assert.match(readFileSync(join(SRC, shell), "utf8"), /^\s*useWindowScroll\(\);/m, `${shell} must call useWindowScroll()`);
+    // AppShell keeps <main> in place and mounts the tablet pieces around it.
+    assert.match(readFileSync(join(SRC, "app/AppShell.tsx"), "utf8"), /\{tablet && <TabletScroll \/>\}/, "the tablet frame must mount TabletScroll");
+  });
+
+  // A review runs in the list on tablets: a modal sheet over it would hide it
+  // and switch off its keys (useHotkeys yields to an open modal).
+  test("starting a review does not open the tablet sheet", () => {
+    const body = stripComments(readFileSync(join(SRC, "features/deck/DeckBody.tsx"), "utf8"));
+    assert.doesNotMatch(body, /ui\.reviewing/);
   });
 });
 
