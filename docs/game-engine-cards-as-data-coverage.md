@@ -100,7 +100,7 @@ The IR remains v20. Combined types add the corresponding existing capabilities.
 Removal's positive/negative type predicates, spell-counter type predicates,
 sacrifice filters and enchantment wipes all use complete type membership.
 Creature casting, combat and summoning sickness use the canonical creature kind.
-Legendary noncreature permanents and inert permanent subtypes no longer hit
+Legendary noncreature permanents and inert artifact/enchantment subtypes no longer hit
 closed presentation whitelists; their entire AST still has to lower.
 Planeswalkers, battles, unsupported card types/supertypes (including Snow and
 World), mixed spell/permanent types and land-creatures retain explicit failures.
@@ -162,3 +162,53 @@ Full results and examples are retained under
 `generated/cards-as-data-coverage/d2a/`; downloaded and generated artifacts stay
 ignored. Coverage is a compiler metric. The remaining semantic families above
 are future D2 work, and lowering alone does not establish full rules support.
+
+## Verification and evidence qualification
+
+Implementation source freeze: `a0ff576e1a4f0e76a59c0c793a340fd1a4c9666f`.
+All 72 compiler tests pass, including every committed catalog's exact expected
+IR and digest. No fixture IR/digest regeneration was needed. Core witnesses
+cover positive/negative removal filters, sacrifice unions, enchantment/creature
+sets, stack filters, casting, summoning sickness and snapshot/replay in all
+trace modes. No `sim/src/match_games*` file was changed.
+
+Two release coverage runs took 4.946 and 4.950 seconds and produced byte-identical
+JSON and TSV. Each TSV has 38,721 record rows. Comparing legal lowered Oracle
+IDs proves all 1,719 baseline cards remain lowered, with 109 additions and zero
+regressions. Raw outputs include `final/`, `final-repeat/`,
+`reproducibility.json` and `regression-summary.json` beneath
+`generated/cards-as-data-coverage/d2a/`.
+
+Final verification phases:
+
+- Formatting and workspace/all-target Clippy: passed.
+- `npm run check:engine` Rust phase: **907 passed, 0 failed, 18 existing
+  diagnostics ignored**.
+- Exact Node phase rerun: **56 passed, 0 failed, 0 skipped**.
+- SDK verification against the fresh debug server: **47 passed, 0 failed**, plus
+  strict TypeScript and generated schema/declaration checks.
+- Release `match-batch commander-foundations-v1`: **18 finished, 0 faults,
+  0 truncations, 0 replay failures**.
+- Release `match-batch commander-data-admission-v1`: **18 finished, 0 faults,
+  0 truncations, 0 replay failures**.
+
+The wrapper invocation completed formatting, Clippy and Rust successfully, then
+exited 1 because this fresh worktree lacked `ajv` before the Node contract tests
+could load. After local `npm ci --ignore-scripts`, its exact Node command passed:
+
+```sh
+node --test scripts/capture-json-output.test.ts scripts/retain-policy-sources.test.ts \
+  scripts/retain-server-evidence.test.ts packages/game-engine/tests/contracts.test.ts
+```
+
+This is a phase-wise pass qualification: the failed wrapper invocation itself
+is not relabelled as passed. No engine source changed between its passing Rust
+phase and the successful Node retry. The earlier pre-freeze attempt was stopped
+after source-identity checks correctly detected source edits during the run;
+its original log and the stale-build diagnostic are preserved separately.
+The frozen rebuild passed both source-identity tests. No guard was weakened.
+
+All final phase logs, both complete batch directories, SDK verification and
+`verification-summary.json` are retained under
+`generated/final-engine-verification/d2a/` (ignored). The release batch build ID
+is `76f3950a308cf83a4709191c0ee99a6b591d047c70037e325a780e85d99dce6e`.

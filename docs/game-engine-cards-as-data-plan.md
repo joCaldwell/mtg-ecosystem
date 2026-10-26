@@ -123,7 +123,9 @@ The end state of D2 is that coverage grows by capability.
   the share of Commander-legal records that lower and validate, plus the top
   rejection reasons. The baseline is 5.35% at IR v20.
 
-  Each D2 step records its coverage delta.
+  Each D2 step records its coverage delta. The committed command, D2a baseline,
+  deltas and verification are in
+  [the coverage report](game-engine-cards-as-data-coverage.md).
 - **Capability witnesses.** Correctness is shown per capability, not per card:
   - reviewed rules witnesses for each new or merged instruction;
   - a randomized check that samples lowered corpus cards into legal decks and
