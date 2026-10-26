@@ -167,6 +167,7 @@ timestamped backups with 14 daily/6 monthly bucket retention and backup-age
 status. `scripts/check-runtime.mjs` verifies the final image's imports and
 exact pins; the Go context checker uses Moby's real ignore matcher. Production
 code changes are promoted only by the owner, using an explicit verified SHA.
+`scripts/docker-context-check` needs Go, runs outside the gate, and uses Moby's own matcher to verify Docker exclusions exactly.
 
 ### Connecting an agent
 

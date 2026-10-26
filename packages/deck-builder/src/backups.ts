@@ -9,7 +9,7 @@ import { acquireProcessLock } from "./process-lock.ts";
 type BucketObject = { Key?: string; LastModified?: Date };
 type BackupStore = { upload(file: string, key: string): Promise<void>; list(): Promise<BucketObject[]>; remove(keys: string[]): Promise<void>; close(): void };
 
-// The first snapshot of each of the latest 14 UTC days, plus the first
+// The newest snapshot of each of the latest 14 UTC days, plus the newest
 // snapshot of each of the latest six UTC calendar months. Only our backup
 // namespace is managed; archive/ and unrelated objects are never touched.
 function expiredBackupKeys(objects: BucketObject[], now: Date): string[] {
@@ -18,7 +18,7 @@ function expiredBackupKeys(objects: BucketObject[], now: Date): string[] {
     if (!match) return [];
     const date = match[1], stamp = match[2] ? `${date}T${match[2].slice(0, 8).replaceAll("-", ":")}.${match[2].slice(9)}Z` : `${date}T00:00:00.000Z`;
     return [{ key: object.Key!, date, month: date.slice(0, 7), stamp }];
-  }).sort((a, b) => a.stamp.localeCompare(b.stamp) || a.key.localeCompare(b.key));
+  }).sort((a, b) => b.stamp.localeCompare(a.stamp) || b.key.localeCompare(a.key));
   const keep = new Set<string>();
   const today = now.toISOString().slice(0, 10);
   const oldestDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 13)).toISOString().slice(0, 10);
@@ -80,8 +80,8 @@ export async function backupDatabase(db: Database, dataDir = DATA_DIR, now = new
     try {
       const key = `backups/${file.split("/").at(-1)}`;
       await client.upload(file, key);
-      // Retention runs only after a durable upload and complete listing; never
-      // replace the preceding good snapshot, including on the same day.
+      // Retention runs only after a durable upload and complete listing.
+      // Always protect this upload, even if a newer snapshot already exists.
       const expired = expiredBackupKeys(await client.list(), now).filter(old => old !== key);
       if (expired.length) await client.remove(expired);
     } finally { client.close(); }

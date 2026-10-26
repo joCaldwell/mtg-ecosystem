@@ -1275,10 +1275,13 @@ token/client identifiers survive on those records. Write no activity afterwards.
 Shared card/price/job data remain.
 A sqlite_master inventory test verifies every tenant table participates, so
 a new table cannot silently escape export/deletion. Backups expire under
-14 local snapshots; bucket retention keeps the first available snapshot
+14 local snapshots; bucket retention keeps the newest snapshot
 for each of the last 14 UTC days and six UTC months, plus the latest upload.
-Retention runs after successful upload/listing and excludes the quarantined
-owner-only pre-launch archive. Operational request/tool logs omit sensitive
+Retention runs after successful upload/listing and excludes `archive/`, including
+deliberate pre-change recovery snapshots and the owner-only pre-launch quarantine.
+The operator manually reviews pre-change archives after at least 30 days,
+verified recovery and an independent backup; never while old-schema rollback
+is still needed. Operational request/tool logs omit sensitive
 payloads; Railway Hobby exposes a seven-day log window. The last
 admin cannot delete their account because nobody would remain to manage
 invites/jobs; Settings explains why.

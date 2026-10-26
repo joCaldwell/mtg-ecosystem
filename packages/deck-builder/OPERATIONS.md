@@ -101,7 +101,7 @@ addressing. Partial configuration or an upload failure fails the job while
 keeping the local snapshot. Store credentials in the process environment,
 never in source, commands copied into issues, or screenshots. Remote-object
 retention runs only after a successful upload and complete listing: keep the
-first available snapshot of each of the last 14 UTC days and each of the last
+newest snapshot of each of the last 14 UTC days and each of the last
 6 UTC calendar months, plus the newest uploaded snapshot. Archive keys and
 unrecognised objects are untouched. Failed uploads/listing never prune; retry
 is one hour later. Local retention is 14 snapshots. This review deletes no
@@ -1128,10 +1128,14 @@ The running v12 CLI names backups by date and would overwrite today's object.
 Immediately before the owner promotes the explicit #7 merge SHA, use this
 online backup/upload instead. It runs on the existing production runtime;
 it deploys no code, opens SQLite read-only, creates a private online snapshot
-and uploads a unique UTC timestamp/UUID key with overwrite protection. It
+and uploads a unique UTC timestamp/UUID key under `archive/pre-promotion/`
+with overwrite protection, outside the automatic `backups/` retention namespace. It
 performs no bucket pruning. Confirm the printed key and verified size, then
 promote without an intervening work session. Retain that key for migration
-recovery; it must be post-claim. If this fails, do not promote.
+recovery; it must be post-claim. If this fails, do not promote. Use the same
+`archive/pre-promotion/` namespace for every deliberate operator snapshot
+before a risky change, including later migrations; never put those recovery
+points in the automatically pruned `backups/` namespace.
 
 ```sh
 railway ssh --project 2c9c40a2-4b69-4d5e-a2c4-188a6f5894b8 --environment production --service deck-builder -- 'setpriv --reuid=node --regid=node --init-groups node --input-type=module <<"JS"
@@ -1142,7 +1146,7 @@ import {S3Client,PutObjectCommand,HeadObjectCommand} from "@aws-sdk/client-s3";
 async function snapshot(){
 const db=new Database(process.env.DECKBUILDER_DB??"/data/deck-builder.db",{readOnly:true,timeout:5000});
 const name=`deck-builder-${new Date().toISOString().replaceAll(":","-").replace(".","-")}-${randomUUID()}.db`;
-const file=`/data/backups/${name}`,Key=`backups/${name}`;
+const file=`/data/backups/${name}`,Key=`archive/pre-promotion/${name}`;
 try {if(!db.prepare("select auth_id from users where id=1").get()?.auth_id)throw Error("Owner must be claimed");mkdirSync("/data/backups",{recursive:true});await backup(db,file);chmodSync(file,0o600);}finally{db.close();}
 const s3=new S3Client({endpoint:process.env.BACKUP_S3_ENDPOINT,region:"auto",forcePathStyle:true,credentials:{accessKeyId:process.env.BACKUP_S3_ACCESS_KEY,secretAccessKey:process.env.BACKUP_S3_SECRET_KEY}});
 try {const Bucket=process.env.BACKUP_S3_BUCKET;await s3.send(new PutObjectCommand({Bucket,Key,Body:createReadStream(file),ContentLength:statSync(file).size,IfNoneMatch:"*"}));const head=await s3.send(new HeadObjectCommand({Bucket,Key}));if(head.ContentLength!==statSync(file).size)throw Error("Backup size mismatch");console.log(JSON.stringify({key:Key,verified_bytes:head.ContentLength}));}finally{s3.destroy();}
@@ -1150,6 +1154,35 @@ try {const Bucket=process.env.BACKUP_S3_BUCKET;await s3.send(new PutObjectComman
 await snapshot().catch(error=>{const safe=v=>typeof v==="string"&&/^[A-Z][A-Za-z0-9_.$-]{0,63}$/.test(v)?v:undefined;console.error(JSON.stringify({event:"pre_promotion_backup_error",name:safe(error.name)??"Error",code:safe(error.code)}));process.exitCode=1;});
 JS'
 ```
+
+### Manual archive cleanup (owner only)
+
+Automatic backup jobs never list or delete `archive/` objects. Keep each
+pre-change snapshot for **at least 30 days after the change** and longer
+while rollback to that schema remains a recovery option. Before deleting one,
+verify the new schema/data, a successful restore of a newer post-change backup,
+and an independent off-Railway copy. Record the exact archived key and the
+owner's recovery decision; deletion is manual, never a scheduled wildcard job.
+The pre-claim quarantine remains subject to its separate do-not-restore warning.
+
+The owner may then delete **one reviewed archive object** using their S3 CLI.
+Load that bucket's credentials privately into `AWS_ACCESS_KEY_ID` and
+`AWS_SECRET_ACCESS_KEY`, and its non-secret endpoint/name into
+`BACKUP_S3_ENDPOINT`/`BACKUP_S3_BUCKET`; never print credentials or put them in
+argv. Replace the placeholder with the exact archived filename. First verify
+its size with `head-object`, then run the delete only for that same key:
+
+```sh
+ARCHIVE_KEY='archive/pre-promotion/<exact-reviewed-filename>.db'
+aws --endpoint-url "$BACKUP_S3_ENDPOINT" s3api head-object \
+  --bucket "$BACKUP_S3_BUCKET" --key "$ARCHIVE_KEY"
+# Only after the owner has completed the recovery checks above:
+aws --endpoint-url "$BACKUP_S3_ENDPOINT" s3api delete-object \
+  --bucket "$BACKUP_S3_BUCKET" --key "$ARCHIVE_KEY"
+unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+```
+
+No live objects were deleted while implementing or reviewing this phase.
 
 Once the owner has promoted this release, `node src/cli.ts backup` uses the
 new timestamped/retained implementation. Do not use a pre-claim snapshot to
@@ -1203,3 +1236,14 @@ Finish #7 staging-v13 verification and its promotion before allowing #8 to
 auto-migrate the same staging volume to v14. If staging is already v14, do
 not start v13 code against it; arrange a separate compatible restored copy
 for verification rather than forcing a down migration.
+
+
+## Round-2 retention correction
+
+Automatic retention selects the **newest**, rather than first, snapshot per
+UTC day/month. Regression tests cover a legacy date-only key with a later
+same-day timestamp, monthly newest selection, archive listing/deletion
+exclusion and unconditional protection of the just-uploaded key. Deliberate
+pre-change recovery points use `archive/pre-promotion/` and owner-only manual
+cleanup above. No staging redeploy or bucket mutation was performed for this
+correction. The gate passes **1005/1005** with both typechecks.
