@@ -85,7 +85,7 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
       <span className={styles.cost}>
         <ManaCost cost={card.mana_cost} />
       </span>
-      <Price cents={card.usd_cents} column />
+      <Price currency={card.currency} cents={card.cents} column />
     </button>
   );
 }

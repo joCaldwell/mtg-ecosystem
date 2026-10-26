@@ -187,3 +187,24 @@ including unused grants, and confirms Disconnect through the UI-only
 account capability. The server deletes consent/refresh tokens and remembers
 an issuance cutoff, so re-consent cannot revive old credentials. Public
 hashed assets cache immutably; hosted HTML, API and consent remain no-store.
+
+
+## Price sources (v3 Phase 1b)
+
+Settings' PriceSourceCard saves currency and store together through the typed
+client; changing currency resets the draft store to Lowest. The server applies
+the principal's choice everywhere. Wire prices use `cents`, `currency`, `store`,
+`as_of`, `source`; domain/price formats $ or € and propagates currency into group
+totals. Deck headers and card panels label the store/date. Proposal projections
+consume server-computed pending.projected_cost and cost_delta, including
+unpriced counts; components never calculate proposal price deltas.
+
+The shared card lookup cache clears on live invalidation; a card panel resolved
+outside the deck also refetches. Source changes in another tab therefore cannot
+leave a cached USD quote attached to an EUR view. Source preferences are per
+principal, and agents cannot set them. PublicDeckState.price integration belongs
+to Phase 4a if it lands later: viewer choice when authenticated, USD/lowest for
+anonymous readers. `priceResolver(db, viewer | null)` is that entry point;
+it never reads owner preferences for anonymous viewers. Both proposal cost
+compositions show store/date beside their estimates. Settings saves source and
+budgets in one transaction.

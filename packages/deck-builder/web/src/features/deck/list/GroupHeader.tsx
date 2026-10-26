@@ -49,7 +49,7 @@ export function GroupHeader({ title, count, primaryCount, secondaryCount, target
       )}
       {total && (
         <span className={styles.cost}>
-          <Price cents={total.usd_cents} column title={groupCostCaption(total)} />
+          <Price currency={total.currency} cents={total.cents} column title={groupCostCaption(total)} />
         </span>
       )}
     </h3>

@@ -170,11 +170,11 @@ describe("layoutDeck, by type", () => {
 describe("layoutDeck, card order within a group", () => {
   const state = deckState({
     cards: [
-      card({ name: "Test Card B", cmc: 1, usd_cents: 500 }),
-      card({ name: "Test Card A", cmc: 3, usd_cents: 50 }),
-      card({ name: "Test Card C", cmc: 2, usd_cents: null }),
-      card({ name: "Test Maybe Z", usd_cents: 9000, maybe: 1 }),
-      card({ name: "Test Maybe Y", usd_cents: 10, maybe: 1 }),
+      card({ name: "Test Card B", cmc: 1, cents: 500 }),
+      card({ name: "Test Card A", cmc: 3, cents: 50 }),
+      card({ name: "Test Card C", cmc: 2, cents: null }),
+      card({ name: "Test Maybe Z", cents: 9000, maybe: 1 }),
+      card({ name: "Test Maybe Y", cents: 10, maybe: 1 }),
     ],
   });
   const rows = (layout: ReturnType<typeof layoutDeck>) => layout.groups[0].cards.map((c) => c.name.slice(-1)).join("");

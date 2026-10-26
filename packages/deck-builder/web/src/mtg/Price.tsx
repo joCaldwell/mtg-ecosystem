@@ -1,4 +1,4 @@
-import { formatUsd } from "../domain/price.ts";
+import { formatPrice } from "../domain/price.ts";
 import styles from "./Price.module.css";
 
 /**
@@ -9,17 +9,19 @@ import styles from "./Price.module.css";
 export function Price({
   cents,
   column,
+  currency = "USD",
   title = "Cheapest printing",
 }: {
   cents: number | null | undefined;
   column?: boolean;
+  currency?: "USD" | "EUR";
   /** Says what the figure is; a total passes its own. */
   title?: string;
 }) {
   if (cents == null) return column ? <span className={styles.column} /> : null;
   return (
     <span className={column ? `${styles.price} ${styles.column}` : styles.price} title={title}>
-      {formatUsd(cents)}
+      {formatPrice(cents, currency)}
     </span>
   );
 }

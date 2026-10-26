@@ -72,10 +72,10 @@ describe("byCurve and quantityOf", () => {
 
 describe("byName and byPrice", () => {
   const cards = [
-    { cmc: 1, name: "Test Card B", usd_cents: 500 },
-    { cmc: 5, name: "Test Card D", usd_cents: null },
-    { cmc: 3, name: "Test Card A", usd_cents: 500 },
-    { cmc: 2, name: "Test Card C", usd_cents: 1999 },
+    { cmc: 1, name: "Test Card B", cents: 500 },
+    { cmc: 5, name: "Test Card D", cents: null },
+    { cmc: 3, name: "Test Card A", cents: 500 },
+    { cmc: 2, name: "Test Card C", cents: 1999 },
     { cmc: 0, name: "Test Card E" },
   ];
   const order = (cmp: (a: (typeof cards)[number], b: (typeof cards)[number]) => number) =>

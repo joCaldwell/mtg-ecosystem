@@ -7,7 +7,7 @@
 import type { Database } from "./sqlite.ts";
 import { AppError } from "./errors.ts";
 import { normalizeName } from "./db.ts";
-import { USD_CENTS_COLUMN } from "./prices.ts";
+import type { ResolvedPrice } from "./prices.ts";
 
 export interface CardRow {
   oracle_id: string;
@@ -23,8 +23,12 @@ export interface CardRow {
   ci_mask: number;
   commander_legality: string;
   is_commander: number;
-  /** Spec §4.4: the cheapest printing's price; null when no printing has one. */
-  usd_cents: number | null;
+  /** Global resolution has no personal price. Front doors enrich through
+   * priceResolver(db, actor); null then means this store has no price (§4.4). */
+  cents?: number | null;
+  currency?: ResolvedPrice["currency"];
+  store?: ResolvedPrice["store"];
+  as_of?: string | null;
   image_small: string | null;
   image_normal: string | null;
   image_art_crop: string | null;
@@ -33,7 +37,7 @@ export interface CardRow {
 
 export const CARD_COLUMNS =
   "oracle_id, name, mana_cost, cmc, type_line, oracle_text, power, toughness, loyalty, " +
-  `color_identity, ci_mask, commander_legality, is_commander, image_small, image_normal, image_art_crop, retired, ${USD_CENTS_COLUMN}`;
+  `color_identity, ci_mask, commander_legality, is_commander, image_small, image_normal, image_art_crop, retired`;
 
 export interface ResolutionFailure {
   ref: string;

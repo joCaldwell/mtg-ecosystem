@@ -6,7 +6,7 @@ import { recordActivity } from "../activity.ts";
 import { lintProse, requireCardById } from "../cards.ts";
 import { withTransaction } from "../db.ts";
 import { ServiceError } from "../errors.ts";
-import { estimateCost, pricesAsOf } from "../prices.ts";
+import { estimateCost, pricesAsOf, priceResolver } from "../prices.ts";
 import { fileCards, getDeck, requireDeck, requireEditableDeck, requireRevision } from "./service.ts";
 
 export type OwnershipStatus = "owned" | "unowned" | "unknown";
@@ -95,6 +95,8 @@ export function compareDeckSources(db: Database, actor: Actor, targetId: number,
     const sources = ids.map(id => getDeck(db, actor, id));
     for (const source of sources) requireRevision(db, actor, source.deck.id, opts.expected_source_revisions?.[source.deck.id]);
     const asOf = pricesAsOf(db);
+    const { currency, store, source } = priceResolver(db, actor);
+    const price = { currency, store, source, as_of: asOf };
     const all = target.cards.filter(c => !c.maybe).map(c => {
       const source_decks = sources.flatMap(s => {
         const match = s.cards.find(card => !card.maybe && card.oracle_id === c.oracle_id);
@@ -108,7 +110,7 @@ export function compareDeckSources(db: Database, actor: Actor, targetId: number,
         source_decks, sourcing: source_decks.length ? "shared" as const : "not_in_sources" as const,
         ownership: { status: latest?.status ?? "unknown", quantity: latest?.quantity ?? null, evidence },
         reuse: { status: available == null ? "unknown" as const : available >= c.quantity ? "available" as const : "insufficient" as const, available_quantity: available },
-        price: { usd_cents: c.usd_cents, as_of: asOf, estimated: true },
+        price: { ...price, cents: c.cents, estimated: true },
       };
     });
     let tagged = 0;
@@ -127,21 +129,21 @@ export function compareDeckSources(db: Database, actor: Actor, targetId: number,
       (!opts.availability || c.reuse.status === opts.availability));
     cards.sort((a, b) => {
       if (opts.sort === "price_asc" || opts.sort === "price_desc") {
-        if (a.price.usd_cents == null || b.price.usd_cents == null)
-          return a.price.usd_cents == null ? (b.price.usd_cents == null ? a.name.localeCompare(b.name) : 1) : -1;
-        return (opts.sort === "price_desc" ? -1 : 1) * (a.price.usd_cents - b.price.usd_cents) || a.name.localeCompare(b.name);
+        if (a.price.cents == null || b.price.cents == null)
+          return a.price.cents == null ? (b.price.cents == null ? a.name.localeCompare(b.name) : 1) : -1;
+        return (opts.sort === "price_desc" ? -1 : 1) * (a.price.cents - b.price.cents) || a.name.localeCompare(b.name);
       }
       return (opts.sort === "ownership" ? a.ownership.status.localeCompare(b.ownership.status) : opts.sort === "sourcing" ? a.sourcing.localeCompare(b.sourcing) : 0) || a.name.localeCompare(b.name);
     });
     const summarize = (rows: typeof all) => ({
       cards: rows.length, copies: rows.reduce((sum, c) => sum + c.quantity, 0),
-      cost: estimateCost(rows.map(c => ({ usd_cents: c.price.usd_cents, quantity: c.quantity }))),
+      cost: { ...price, ...estimateCost(rows.map(c => ({ cents: c.price.cents, quantity: c.quantity }))) },
     });
     const remaining = all.filter(c => c.sourcing === "not_in_sources" && c.ownership.status !== "owned");
     return {
-      target: target.deck, sources: sources.map(s => s.deck), prices_as_of: asOf,
+      price, target: target.deck, sources: sources.map(s => s.deck), prices_as_of: asOf,
       cards, shared_cards: all.filter(c => c.sourcing === "shared"),
-      remaining_cards: remaining.slice().sort((a, b) => (b.price.usd_cents ?? -1) - (a.price.usd_cents ?? -1) || a.name.localeCompare(b.name)),
+      remaining_cards: remaining.slice().sort((a, b) => (b.price.cents ?? -1) - (a.price.cents ?? -1) || a.name.localeCompare(b.name)),
       summary: { target: summarize(all), shared: summarize(all.filter(c => c.sourcing === "shared")), remaining: summarize(remaining),
         unknown_ownership: summarize(all.filter(c => c.ownership.status === "unknown")), result: summarize(cards), tagged },
     };

@@ -9,7 +9,7 @@ export const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const DATA_DIR = resolve(process.env.DECKBUILDER_DATA ?? join(PKG_ROOT, "data"));
 export const DEFAULT_DB_PATH = resolve(process.env.DECKBUILDER_DB ?? join(DATA_DIR, "deck-builder.db"));
 
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 
 const SCHEMA = `
 -- Explicit physical evidence survives deck membership, forks and deletion.
@@ -75,6 +75,9 @@ CREATE VIRTUAL TABLE IF NOT EXISTS cards_fts USING fts5(
   name, search_text, oracle_id UNINDEXED
 );
 
+-- Bootstrap is intentionally the historical USD table: supported old files
+-- run this idempotent schema before ordered migrations. v13 below creates the
+-- current per-store shape for both new and migrated files.
 -- Spec §4.4: the cheapest playable paper printing of each card, replaced
 -- wholesale by every refresh. No foreign key: see ingestPrices.
 CREATE TABLE IF NOT EXISTS card_prices (
@@ -85,8 +88,6 @@ CREATE TABLE IF NOT EXISTS card_prices (
   collector_number TEXT NOT NULL,
   finish           TEXT NOT NULL CHECK (finish IN ('nonfoil', 'foil', 'etched'))
 );
-
-CREATE INDEX IF NOT EXISTS idx_card_prices_usd ON card_prices(usd_cents);
 
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
@@ -481,6 +482,18 @@ const MIGRATIONS: Array<{ version: number; up: (db: Database) => void }> = [
         PRIMARY KEY(user_id, client_id)
       );`);
   } },
+  { version: 13, up(db) {
+    db.exec(`ALTER TABLE card_prices RENAME TO card_prices_usd;
+      CREATE TABLE card_prices (
+        oracle_id TEXT NOT NULL, store TEXT NOT NULL CHECK(store IN ('tcgplayer','cardmarket')),
+        currency TEXT NOT NULL CHECK((store = 'tcgplayer' AND currency = 'USD') OR (store = 'cardmarket' AND currency = 'EUR')),
+        cents INTEGER NOT NULL CHECK(cents >= 0), set_code TEXT NOT NULL, collector_number TEXT NOT NULL,
+        finish TEXT NOT NULL CHECK(finish IN ('nonfoil','foil','etched')), PRIMARY KEY(oracle_id,store)
+      );
+      INSERT INTO card_prices SELECT oracle_id,'tcgplayer','USD',usd_cents,set_code,collector_number,finish FROM card_prices_usd;
+      DROP TABLE card_prices_usd;
+      CREATE INDEX idx_card_prices_currency ON card_prices(currency,store,cents);`);
+  } },
 ];
 
 function removeDeckStatus(db: Database) {
@@ -658,7 +671,7 @@ function assertOurs(db: Database, path: string) {
   } catch {
     /* no meta table at all */
   }
-  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5" || found === "6" || found === "7" || found === "8" || found === "9" || found === "10" || found === "11") return found;
+  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5" || found === "6" || found === "7" || found === "8" || found === "9" || found === "10" || found === "11" || found === "12") return found;
   throw new SchemaError(
     `${path} is not a database this version of the deck builder can open ` +
       `(it reports schema ${found ?? "unknown"}; this version uses ${SCHEMA_VERSION}). ` +

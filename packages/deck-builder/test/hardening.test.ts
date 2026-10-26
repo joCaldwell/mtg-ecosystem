@@ -198,6 +198,7 @@ test("scheduler retries failed refreshes within an hour and keeps successful run
   const fresh = openDb(":memory:");
   const jobs = createJobs(fresh);
   const setMeta = fresh.prepare("INSERT INTO meta VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value");
+  setMeta.run("price_stores_version", "1");
   try {
     for (const dataTime of [now - 48 * 60 * 60 * 1000, now]) {
       setMeta.run("last_ingest", new Date(dataTime).toISOString());
@@ -312,4 +313,45 @@ test("optional S3 backup uploads the SQLite snapshot through the SDK and keeps l
     fresh.close();
     await new Promise<void>(resolve => bucket.close(() => resolve()));
   }
+});
+
+for (const marker of [null, "0", "1"]) test(`scheduler checks price-store marker ${marker ?? "missing"} on migrated DB at boot and in next-run status`, async t => {
+  const { removePriceSources } = await import("./legacy-db.ts");
+  const { ingestPrices, cheapestPrintings } = await import("../src/prices.ts");
+  const now = Date.UTC(2026, 9, 25, 12), lastRun = new Date(now - 60 * 60 * 1000).toISOString();
+  t.mock.method(Date, "now", () => now);
+  const path = join(dir, `price-store-boot-${marker ?? "missing"}.db`);
+  const before = openDb(path);
+  ingestCards(before, FIXTURES);
+  await ingestPrices(before, await cheapestPrintings([{ oracle_id: "id-solring", set: "test", collector_number: "1", games: ["paper"], prices: { usd: "1.19" } }]), lastRun);
+  removePriceSources(before);
+  before.exec("UPDATE meta SET value='12' WHERE key='schema_version'");
+  before.close();
+  const fresh = openDb(path), names: string[] = [];
+  const setMeta = fresh.prepare("INSERT INTO meta VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value");
+  for (const key of ["last_ingest", "prices_as_of"]) setMeta.run(key, lastRun);
+  setMeta.run("job:refresh", JSON.stringify({ last_run: lastRun, finished_at: lastRun, result: "success" }));
+  if (marker != null) setMeta.run("price_stores_version", marker);
+  assert.equal(fresh.prepare("SELECT count(*) n FROM card_prices WHERE store='tcgplayer'").get()!.n, 1);
+  assert.equal(fresh.prepare("SELECT count(*) n FROM card_prices WHERE store='cardmarket'").get()!.n, 0);
+  const jobs = createJobs(fresh, { spawnJob(name) { names.push(name); return spawn(process.execPath, ["-e", ""], { stdio: "pipe" }); } });
+  try {
+    assert.equal(jobs.status().refresh.next_run, new Date(marker === "1" ? Date.parse(lastRun) + 24 * 60 * 60 * 1000 : now).toISOString());
+    jobs.start();
+    assert.deepEqual(names, marker === "1" ? [] : ["refresh"]);
+    assert.equal(jobs.status().active, marker === "1" ? null : "refresh");
+  } finally { await jobs.close(); fresh.close(); }
+});
+
+test("CLI search before a price refresh names its source and explains the missing date", async () => {
+  const path = join(dir, "cli-price-date.db"), data = join(dir, "cli-price-data");
+  const fresh = openDb(path); ingestCards(fresh, FIXTURES); fresh.close();
+  const child = spawn(process.execPath, [join(PKG_ROOT, "src", "cli.ts"), "search", "t:artifact"], {
+    env: { ...process.env, DECKBUILDER_MODE: "local", DECKBUILDER_DB: path, DECKBUILDER_DATA: data }, stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "", stderr = "";
+  child.stdout.on("data", data => { stdout += data; }); child.stderr.on("data", data => { stderr += data; });
+  assert.equal(await new Promise(resolve => child.once("close", resolve)), 0, stderr);
+  assert.equal(stdout.split("\n")[0], "Prices: TCGplayer (USD), Scryfall daily estimates as of unknown (not loaded).");
+  assert.doesNotMatch(stdout, /as of null/);
 });

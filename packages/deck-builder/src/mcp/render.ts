@@ -21,7 +21,7 @@ import {
 } from "../deck/service.ts";
 import { type DocumentEditView, listDocumentEdits } from "../documents.ts";
 import { type LoadedScope, type MemoryView, loadScope } from "../memory.ts";
-import { type CostEstimate, formatUsd } from "../prices.ts";
+import { type CostEstimate, type Currency, type PriceMetadata, formatPrice } from "../prices.ts";
 import type { PlayerStats } from "../stats.ts";
 
 // The corner stat as the card prints it: power/toughness, or loyalty.
@@ -41,30 +41,30 @@ const indent = (text: string, by = "    ") =>
 
 // Spec §4.4: a card's price is the cheapest printing's, and is part of how
 // the card is shown everywhere. A card with no price shows none.
-function priceTag(usdCents: number | null, quantity = 1): string {
-  if (usdCents == null) return "";
-  return ` · ${formatUsd(usdCents)}${quantity > 1 ? " each" : ""}`;
+function priceTag(cents: number | null | undefined, quantity = 1, currency: Currency = "USD"): string {
+  if (cents == null) return "";
+  return ` · ${formatPrice(cents, currency)}${quantity > 1 ? " each" : ""}`;
 }
 
-/** "$412.37 at the cheapest printing of each card (Scryfall prices of 2026-10-11); 2 cards have no price and are not counted". */
-function costPhrase(cost: CostEstimate & { as_of: string | null }): string {
+/** Amount and unpriced count; source/date appears once in the response. */
+function costPhrase(cost: CostEstimate & PriceMetadata): string {
   const missing = cost.unpriced
     ? `; ${cost.unpriced} card${cost.unpriced === 1 ? " has" : "s have"} no price and ${cost.unpriced === 1 ? "is" : "are"} not counted`
     : "";
-  return `${formatUsd(cost.usd_cents)} at the cheapest printing of each card (Scryfall prices of ${cost.as_of!.slice(0, 10)})${missing}`;
+  return `${formatPrice(cost.cents, cost.currency)} at the cheapest printing of each card${missing}`;
 }
 
 /** One card: name, cost, type, stats, price; oracle text beneath when asked. */
 export function cardLine(
   c: Pick<
     CardRow,
-    "name" | "mana_cost" | "type_line" | "oracle_text" | "power" | "toughness" | "loyalty" | "usd_cents"
+    "name" | "mana_cost" | "type_line" | "oracle_text" | "power" | "toughness" | "loyalty" | "cents" | "currency"
   >,
   opts: { text?: boolean; quantity?: number; suffix?: string } = {},
 ): string {
   const qty = opts.quantity && opts.quantity > 1 ? `${opts.quantity}x ` : "";
   const cost = c.mana_cost ? ` ${c.mana_cost}` : "";
-  const head = `- ${qty}${c.name}${cost} — ${c.type_line}${statline(c)}${priceTag(c.usd_cents, opts.quantity)}${opts.suffix ?? ""}`;
+  const head = `- ${qty}${c.name}${cost} — ${c.type_line}${statline(c)}${priceTag(c.cents, opts.quantity, c.currency)}${opts.suffix ?? ""}`;
   return opts.text === false || !c.oracle_text ? head : `${head}\n${indent(c.oracle_text)}`;
 }
 
@@ -165,7 +165,7 @@ function header(view: DeckView): string {
     : (d.category === "paper"
       ? "Paper: change its cards only with propose_changes."
       : "Theorycrafted: edit its cards directly with edit_cards.") + " Brief and power target changes always require proposals.";
-  return `# Deck ${d.id} "${d.name}" — ${bits.join(" · ")}\n${rule}`;
+  return `# Deck ${d.id} "${d.name}" — ${bits.join(" · ")}\n${rule}\n${priceSourceLine(view.computed.cost)}`;
 }
 
 export function stateLines(view: DeckView): string {
@@ -186,6 +186,8 @@ export function stateLines(view: DeckView): string {
     lines.push(
       `- Awaiting the owner's ruling: +${c.pending.adds} / −${c.pending.cuts}; if all were accepted the deck would be ${c.pending.projected_count}/100`,
     );
+  if ((c.pending.adds || c.pending.cuts) && c.cost.as_of)
+    lines.push(`- Estimated cost if accepted: ${formatPrice(c.pending.projected_cost.cents, c.cost.currency)} (${c.pending.cost_delta.cents >= 0 ? "+" : "−"}${formatPrice(Math.abs(c.pending.cost_delta.cents), c.cost.currency)}); ${c.pending.projected_cost.unpriced} unpriced cards.`);
   if (view.slots.length) {
     lines.push(`- Slots:`);
     for (const s of c.slot_deltas) {
@@ -516,4 +518,9 @@ export function renderStats(s: PlayerStats): string {
 
 export function renderActivity(entries: ActivityEntry[]): string {
   return entries.map((e) => `- ${e.ts} ${e.actor} ${e.action}: ${e.summary}`).join("\n") || "(none)";
+}
+
+/** One source/date line per agent response; card lines stay compact. */
+export function priceSourceLine(price: PriceMetadata): string {
+  return `Prices: ${price.store === "tcgplayer" ? "TCGplayer" : "Cardmarket"} (${price.currency}), Scryfall daily estimates as of ${price.as_of?.slice(0,10) ?? "unknown (not loaded)"}.`;
 }

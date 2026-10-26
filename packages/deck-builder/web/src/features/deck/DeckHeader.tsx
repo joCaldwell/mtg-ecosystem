@@ -7,7 +7,7 @@ import { api } from "../../api/client.ts";
 import { href } from "../../app/routes.ts";
 import { DECK_CATEGORY_OPTIONS } from "../../domain/deckCategory.ts";
 import { bracketLabel } from "../../domain/power.ts";
-import { costCaption, formatUsd } from "../../domain/price.ts";
+import { costCaption, formatPrice } from "../../domain/price.ts";
 import { ColorIdentity, ManaCost, CardRef } from "../../mtg/index.ts";
 import { Icon, Menu, Row, Segmented, Text, TextField, type MenuItem } from "../../ui/index.ts";
 import { DeckStat } from "./DeckStat.tsx";
@@ -132,7 +132,7 @@ export function DeckHeader() {
         )}
         {computed.cost.as_of && (
           <Text mono tone="muted" title={costCaption(computed.cost)}>
-            est. {formatUsd(computed.cost.usd_cents)}
+            est. {formatPrice(computed.cost.cents, computed.cost.currency)} · {computed.cost.store === "tcgplayer" ? "TCGplayer" : "Cardmarket"} · {computed.cost.as_of.slice(0, 10)}
           </Text>
         )}
         <button type="button" className={styles.name} onClick={() => ui.setTab("power")} title="Set the power target or assess this deck">

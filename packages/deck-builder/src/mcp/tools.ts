@@ -1,3 +1,5 @@
+import { priceResolver, formatPrice } from "../prices.ts";
+import { priceSourceLine } from "./render.ts";
 // The agent's tools (spec §10.3). Few, shaped around tasks, each a thin
 // adapter: resolve names, call the capability layer, render text. Every rule
 // an agent is held to is enforced below this file, in the same functions the
@@ -84,6 +86,8 @@ export interface ToolDef {
   input: z.ZodRawShape;
   readOnly: boolean;
   destructive?: boolean;
+  /** Includes personal prices in text/structured data, or orients the agent. */
+  prices?: boolean;
   run: (ctx: ToolContext, args: any) => string | ToolResult;
 }
 
@@ -179,6 +183,7 @@ function contextFor(
 export const TOOLS: ToolDef[] = [
   {
     name: "start_session",
+    prices: true,
     title: "Start a session",
     readOnly: true,
     description:
@@ -229,6 +234,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "get_deck",
+    prices: true,
     title: "Read a deck",
     readOnly: true,
     description:
@@ -251,6 +257,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "propose_power_target",
+    prices: true,
     title: "Set or propose a power target",
     readOnly: false,
     description:
@@ -273,6 +280,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "assess_deck_power",
+    prices: true,
     title: "Record a deck power assessment",
     readOnly: false,
     description:
@@ -290,6 +298,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "compare_deck_sources",
+    prices: true,
     title: "Compare a deck against its sources",
     readOnly: false,
     description: "Compare a target with multiple source decks in one operation. Returns actual shared cards and expensive remaining cards, IDs, exact names, list quantities, source decks, persistent ownership evidence, availability, estimated prices and timestamps, and app-computed totals as structured data. Membership never proves ownership or physical quantity; unknown ownership is not a shopping list. Optionally add all source tags in bulk, preserving slots and unrelated tags; revision guards are required when tagging. Filtering affects cards/result totals, not shared_cards, remaining_cards or tagging.",
@@ -307,17 +316,18 @@ export const TOOLS: ToolDef[] = [
     run: ({ db, actor }, a) => {
       const result = compareDeckSources(db, actor, deckId(db, actor, a.deck, !!a.apply_source_tags), a.sources.map((s: string | number) => deckId(db, actor, s, !!a.apply_source_tags)), a);
       const s = result.summary;
-      const price = (cents: number | null) => cents == null ? "price unknown" : `$${(cents / 100).toFixed(2)} est.`;
+      const price = (cents: number | null) => cents == null ? "price unknown" : `${formatPrice(cents, result.price.currency)} est.`;
       return {
         changed: !!a.apply_source_tags, structuredContent: result,
-        text: `${result.target.name}: ${s.target.cards} distinct cards / ${s.target.copies} copies. ${s.shared.cards} shared; ${s.remaining.cards} absent from sources and not explicitly owned (${price(s.remaining.cost.usd_cents)}, ${s.remaining.cost.unpriced} unpriced). ${s.unknown_ownership.cards} have unknown ownership. Physical quantities are never summed across decks. Prices as of ${result.prices_as_of ?? "unknown"}.${a.apply_source_tags ? ` Source tags applied to ${s.tagged} card${s.tagged === 1 ? "" : "s"}.` : ""}\n` +
+        text: `${result.target.name}: ${s.target.cards} distinct cards / ${s.target.copies} copies. ${s.shared.cards} shared; ${s.remaining.cards} absent from sources and not explicitly owned (${price(s.remaining.cost.cents)}, ${s.remaining.cost.unpriced} unpriced). ${s.unknown_ownership.cards} have unknown ownership. Physical quantities are never summed across decks.${a.apply_source_tags ? ` Source tags applied to ${s.tagged} card${s.tagged === 1 ? "" : "s"}.` : ""}\n` +
           `Shared: ${result.shared_cards.map(c => `${c.name} [${c.source_decks.map(d => d.name).join("; ")}]`).join(", ") || "none"}\n` +
-          `Most expensive remaining (first 10; full data attached): ${result.remaining_cards.slice(0, 10).map(c => `${c.name} — ${price(c.price.usd_cents)}, ${c.ownership.status}`).join("; ") || "none"}\nUnknown ownership and source membership do not establish availability or a purchase requirement.`,
+          `Most expensive remaining (first 10; full data attached): ${result.remaining_cards.slice(0, 10).map(c => `${c.name} — ${price(c.price.cents)}, ${c.ownership.status}`).join("; ") || "none"}\nUnknown ownership and source membership do not establish availability or a purchase requirement.`,
       };
     },
   },
   {
     name: "record_ownership",
+    prices: true,
     title: "Record explicit ownership evidence",
     readOnly: false,
     description: "Record explicit owner-provided ownership and optional physical/available quantities, with evidence. Persists independently of deck membership; never infer it from list appearances or keep preferences. Latest statement is current and all history remains. Requires an editable context deck, supports revision/evidence guards, and changes no cards, slots, brief or power target.",
@@ -352,13 +362,14 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "search_cards",
+    prices: true,
     title: "Search cards",
     readOnly: true,
     description:
       "Search every Magic card with a subset of Scryfall syntax. Bare words match the name; " +
       't:creature (type), o:"draw a card" (oracle text), fo: (text including reminder text), ' +
       "mv<=2 or cmc>=5, c:rg (colours, at least these), id<=wub (colour identity within), " +
-      "pow>=4, tou<3, loy=3, usd<=2 (price of the cheapest printing, in dollars), is:commander, " +
+      "pow>=4, tou<3, loy=3, usd<=2 or eur<=2 (cheapest playable printing in that currency, at your chosen store or lowest), is:commander, " +
       "f:commander, banned:commander. Combine with spaces (AND), " +
       "'or', '-' or 'not', and parentheses. With a deck named, results are limited to that deck's colour " +
       "identity, marked if already in it, and carry the owner's prior rulings on each card in that deck; " +
@@ -394,7 +405,7 @@ export const TOOLS: ToolDef[] = [
       } catch (e) {
         if (e instanceof SearchError)
           throw new ServiceError(
-            `That search could not be read: ${e.message}. Supported keys: t, o, fo, mv/cmc, c, id, pow, tou, loy, usd, ` +
+            `That search could not be read: ${e.message}. Supported keys: t, o, fo, mv/cmc, c, id, pow, tou, loy, usd, eur, ` +
               `is:commander, f:commander, banned:commander, and with a deck: slot:, tag:. Quote phrases: o:"draw a card".`,
           );
         throw e;
@@ -418,6 +429,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "get_cards",
+    prices: true,
     title: "Look up cards by name",
     readOnly: true,
     description:
@@ -436,10 +448,11 @@ export const TOOLS: ToolDef[] = [
     run: ({ db, actor }, a) => {
       const deck = a.deck === undefined ? undefined : deckId(db, actor, a.deck);
       const resolved = (a.cards as string[]).map((ref) => tryResolveCard(db, ref));
-      const found = resolved.filter((r): r is CardRow => !("problem" in r));
+      const found = priceResolver(db, actor).resolve(resolved.filter((r): r is CardRow => !("problem" in r)));
+      const priced = new Map(found.map(c => [c.oracle_id, c]));
       const ctx = contextFor(db, actor, found, deck, !!a.include_my_decks);
       return {
-        text: resolved.map(r => "problem" in r ? resolutionFailureLine(r) : cardWithContext(r, ctx(r))).join("\n"),
+        text: resolved.map(r => "problem" in r ? resolutionFailureLine(r) : cardWithContext(priced.get(r.oracle_id)!, ctx(r))).join("\n"),
         structuredContent: { cards: found, failures: resolved.filter(r => "problem" in r) },
       };
     },
@@ -537,6 +550,7 @@ export const TOOLS: ToolDef[] = [
 
   {
     name: "rename_deck",
+    prices: true,
     title: "Rename a deck",
     readOnly: false,
     description:
@@ -569,6 +583,7 @@ export const TOOLS: ToolDef[] = [
 
   {
     name: "create_deck",
+    prices: true,
     title: "Create a Theorycrafted deck",
     readOnly: false,
     description:
@@ -611,6 +626,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "fork_deck",
+    prices: true,
     title: "Fork a deck",
     readOnly: false,
     description:
@@ -631,6 +647,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "edit_cards",
+    prices: true,
     title: "Edit Theorycrafted cards",
     readOnly: false,
     description:
@@ -733,6 +750,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "define_slots",
+    prices: true,
     title: "Define a deck's slots",
     readOnly: false,
     description:
@@ -763,6 +781,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "file_cards",
+    prices: true,
     title: "File cards into slots and tags",
     readOnly: false,
     description:
@@ -802,6 +821,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "shortlist_cards",
+    prices: true,
     title: "Add to or remove from the maybe list",
     readOnly: false,
     description:
@@ -1046,6 +1066,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "list_proposals",
+    prices: true,
     title: "Read current proposals and their history",
     readOnly: true,
     description: "Read card and document proposals with current status, supersession links, revision bases, stale flags, and full preserved drafts. Defaults to current pending work; include_history returns resolved, withdrawn and superseded versions. No approval or mutation is performed.",
@@ -1076,6 +1097,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "revise_proposal",
+    prices: true,
     title: "Amend or withdraw your pending proposal",
     readOnly: false,
     description: "Amend or withdraw only your own pending card or document proposal. Amendments are linked replacements retaining the original audit history. For documents name any edit in a group and supply the complete replacement changes; the whole group is superseded. For partially ruled card proposals, supply only remaining work; earlier rulings stay in history. Never accepts, changes lifecycle, or edits an approved brief/power target.",
@@ -1114,6 +1136,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "propose_brief_edit",
+    prices: true,
     title: "Propose an edit to a deck's brief",
     readOnly: false,
     description:
@@ -1196,6 +1219,15 @@ export function callTool(ctx: ToolContext, name: string, args: unknown = {}): To
     throw new ServiceError(
       `Invalid arguments for ${name}: ${parsed.error.issues.map((i) => `${i.path.join(".") || "(arguments)"}: ${i.message}`).join("; ")}`,
     );
-  const result = tool.run(ctx, parsed.data);
-  return typeof result === "string" ? { text: result } : result;
+  return runTool(ctx, tool, parsed.data);
+}
+
+/** Shared execution for SDK-validated HTTP calls and local validated calls.
+ * Non-price tools retain their exact text, particularly pasteable exports. */
+export function runTool(ctx: ToolContext, tool: ToolDef, args: unknown): ToolResult {
+  const result = tool.run(ctx, args);
+  const output = typeof result === "string" ? { text: result } : result;
+  if (!tool.prices) return output;
+  const line = priceSourceLine(priceResolver(ctx.db, ctx.actor));
+  return { ...output, text: [output.text.split("\n" + line).join("").split(line).join("").trimEnd(), line].join("\n") };
 }

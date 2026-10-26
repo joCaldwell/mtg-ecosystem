@@ -35,7 +35,7 @@ export function card(over: Partial<DeckCard> & { name?: string } = {}): DeckCard
     ci_mask: 0,
     commander_legality: "legal",
     is_commander: 0,
-    usd_cents: null,
+    cents: null, currency: "USD", store: "tcgplayer", as_of: null, source: "Scryfall",
     image_small: null, image_normal: null, image_art_crop: null, retired: 0,
     slot_id: null,
     secondary_slot_ids: [],
@@ -63,7 +63,7 @@ export function searchResult(over: Partial<CardData> & { name?: string } = {}): 
     color_identity: "",
     commander_legality: "legal",
     is_commander: 0,
-    usd_cents: null,
+    cents: null, currency: "USD", store: "tcgplayer", as_of: null, source: "Scryfall",
     image_small: null, image_normal: null, image_art_crop: null, retired: 0,
     ...over,
   };
@@ -89,7 +89,7 @@ export function item(over: Partial<ProposalItem> & { name?: string } = {}): Prop
     power: null,
     toughness: null,
     loyalty: null,
-    usd_cents: null,
+    cents: null, currency: "USD", store: "tcgplayer", as_of: null, source: "Scryfall",
     image_small: null, image_normal: null, image_art_crop: null,
     slot_id: null,
     slot_name: null,
@@ -228,7 +228,7 @@ function computedFor(
   return {
     card_count: cardCount,
     delta_to_100: cardCount - 100,
-    pending: { adds, cuts, projected_count: cardCount + adds - cuts, by_slot: bySlot },
+    pending: { adds, cuts, projected_count: cardCount + adds - cuts, by_slot: bySlot, projected_cost: { cents: 0, unpriced: 0, as_of: null, currency: "USD", store: "tcgplayer", source: "Scryfall" }, cost_delta: { cents: 0, unpriced: 0, as_of: null, currency: "USD", store: "tcgplayer", source: "Scryfall" } },
     unslotted_count: main.filter((c) => c.slot_id == null && c.role === "card").reduce((n, c) => n + c.quantity, 0),
     maybe_count: cards.filter((c) => c.maybe).length,
     slot_deltas: slots.map((s) => {
@@ -257,7 +257,7 @@ function computedFor(
     average_mana_value: null,
     curve: { "0": 0, "1": 0, "2": 0, "3": 0, "4": 0, "5": 0, "6": 0, "7+": 0 },
     pips: { W: 0, U: 0, B: 0, R: 0, G: 0 },
-    cost: { usd_cents: 0, unpriced: 0, as_of: null },
+    cost: { cents: 0, unpriced: 0, as_of: null, currency: "USD", store: "tcgplayer", source: "Scryfall" },
   };
 }
 

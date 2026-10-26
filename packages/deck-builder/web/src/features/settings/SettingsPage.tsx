@@ -8,6 +8,7 @@ import { useQuery } from "../../api/useQuery.ts";
 import { href } from "../../app/routes.ts";
 import { ErrorNote, Loading, Page, PageHeader, Text } from "../../ui/index.ts";
 import { AgentConnectionCard } from "./AgentConnectionCard.tsx";
+import { PriceSourceCard } from "./PriceSourceCard.tsx";
 import { BudgetsCard } from "./BudgetsCard.tsx";
 import { CardDataCard } from "./CardDataCard.tsx";
 import styles from "./SettingsPage.module.css";
@@ -29,6 +30,7 @@ export function SettingsPage() {
       {data && (
         <div className={styles.cards}>
           <AgentConnectionCard agent={data.agent} onChanged={settings.reload} />
+          <PriceSourceCard source={data.price_source} onSaved={settings.reload} />
           <BudgetsCard budgets={data.budgets} onSaved={settings.reload} />
           <CardDataCard cards={data.cards} jobs={data.jobs} onChanged={settings.reload} canRefresh={session.mode === "local" || !!session.user?.is_admin} />
           {session.mode === "hosted" && <AccountCard />}

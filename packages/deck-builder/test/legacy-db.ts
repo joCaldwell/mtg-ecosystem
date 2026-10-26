@@ -4,6 +4,7 @@ import type { Database } from "../src/sqlite.ts";
  * file before applying their historical schema edits. Never just relabel v11. */
 export function removeIdentity(db: Database): void {
   db.exec("PRAGMA foreign_keys = OFF; PRAGMA legacy_alter_table = ON");
+  removePriceSources(db);
   // Strip phase-2 additions too: historical fixtures must be real old shapes.
   for (const name of ["user","session","account","verification","jwks","oauthClient","oauthResource","oauthClientResource","oauthRefreshToken","oauthAccessToken","oauthConsent","oauthClientAssertion","invites","signup_intents","oauth_usage"]) db.exec(`DROP TABLE IF EXISTS "${name}"`);
   const decks = (db.prepare("SELECT sql FROM sqlite_master WHERE name = 'decks'").get() as { sql: string }).sql;
@@ -29,4 +30,15 @@ export function removeIdentity(db: Database): void {
     }
   }
   db.exec("DROP TABLE users; PRAGMA legacy_alter_table = OFF; PRAGMA foreign_keys = ON");
+}
+
+/** Reconstruct the USD-only price table when testing historical migrations. */
+export function removePriceSources(db: Database): void {
+  db.exec(`CREATE TABLE card_prices_legacy (
+    oracle_id TEXT PRIMARY KEY, usd_cents INTEGER NOT NULL, set_code TEXT NOT NULL,
+    collector_number TEXT NOT NULL, finish TEXT NOT NULL CHECK(finish IN ('nonfoil','foil','etched'))
+  );
+  INSERT INTO card_prices_legacy SELECT oracle_id,cents,set_code,collector_number,finish FROM card_prices WHERE store='tcgplayer';
+  DROP TABLE card_prices; ALTER TABLE card_prices_legacy RENAME TO card_prices;
+  DELETE FROM meta WHERE key='price_stores_version';`);
 }

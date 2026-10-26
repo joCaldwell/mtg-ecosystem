@@ -5,7 +5,7 @@
 
 import type { Database } from "./sqlite.ts";
 import { ingestFromFile } from "./ingest.ts";
-import { cheapestPrintings, ingestPrices, priceStatus, pricesAsOf } from "./prices.ts";
+import { PRICE_STORES_VERSION, cheapestPrintings, ingestPrices, priceStatus, pricesAsOf } from "./prices.ts";
 import { bulkEntry, ensureBulkFile, streamPrintings } from "./scryfall.ts";
 
 export interface RefreshResult {
@@ -24,7 +24,7 @@ export async function refreshCardData(
   const cards = (await ingestFromFile(db, await ensureBulkFile(opts.force))).inserted;
 
   const entry = await bulkEntry("default_cards");
-  const current = !opts.force && pricesAsOf(db) === entry.updated_at;
+  const current = !opts.force && !!db.prepare("SELECT 1 FROM meta WHERE key = 'price_stores_version' AND value = ?").get(PRICE_STORES_VERSION) && pricesAsOf(db) === entry.updated_at;
   if (current) {
     console.log(`Prices are current (Scryfall's are from ${entry.updated_at}); skipping download.`);
   } else {

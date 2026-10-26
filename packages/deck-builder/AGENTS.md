@@ -74,10 +74,10 @@ The auth CLI is an offline schema-generation tool, not a runtime dependency. Pre
 src/
   errors.ts          AppError base — every user-facing failure carries its HTTP status
   actor.ts           Actor with principal; requireDeckOwner, requireSelf, requireUi, PermissionError
-  db.ts              ordered migrations through v12, nested savepoints, per-user settings
+  db.ts              ordered migrations through v13, nested savepoints, per-user settings
   cards.ts           ⭐ exact card resolution, suggestions, prose linting
   ingest.ts          Scryfall bulk → SQLite            search/  Scryfall-syntax subset
-  prices.ts          the cheapest playable printing of each card (spec §4.4)
+  prices.ts          actor-scoped estimates per store and personal price source (spec §4.4)
   refresh.ts         refreshCardData(): streamed cards, then staged price swap — CLI child only
   jobs.ts            daily/stale-boot refresh and nightly backup scheduler; shared SQLite lease
   backups.ts         online SQLite backup, optional S3 upload, validated offline restore
@@ -231,8 +231,13 @@ Vite proxy follows the API port.
     without checking it resolves.
 *   **A price is the cheapest playable printing's, in whole cents, and is an
     estimate.** Decks hold cards, not printings, so nothing may present a
-    price as what the owner's copy is worth. Totals come from `estimateCost`
-    and always report how many cards had no price.
+    price as what the owner's copy is worth. `priceResolver(db, actor)` supplies
+    every personal card price, currency search, sourcing and proposal cost.
+    Only UI may call `setPriceSource`; currency/store are per-user settings.
+    Public reads use `priceResolver(db, viewer | null)`: null means
+    USD/lowest without consulting owner settings. Wire amounts use `cents`
+    plus currency/store/as_of metadata. Totals come
+    from `estimateCost` and always report how many cards had no price.
 *   **Retired cards stay resolvable.** Refresh never deletes a missing oracle ID.
     Hide it from general search, retain it in its deck context and flag its check.
     Images come from stored bulk URLs; never construct a Scryfall API image lookup.

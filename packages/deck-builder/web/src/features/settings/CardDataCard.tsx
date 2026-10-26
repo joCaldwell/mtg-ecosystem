@@ -46,7 +46,7 @@ export function CardDataCard({ cards, jobs, onChanged, canRefresh = true }: { ca
         <Text tone="muted" size="sm" as="p">
           {cards.prices.as_of
             ? `${cards.prices.priced.toLocaleString()} cards have a price: the cheapest printing of each, from Scryfall's ` +
-              `prices, published ${ago(cards.prices.as_of)}. Scryfall updates them daily, and they are estimates.`
+              `${cards.prices.store === "tcgplayer" ? "TCGplayer" : "Cardmarket"} prices (${cards.prices.currency}), as of ${cards.prices.as_of.slice(0,10)}. Scryfall updates them daily, and they are estimates.`
             : "No prices loaded yet. Refresh to load them."}
         </Text>
         {jobs && <Stack gap={2}>

@@ -37,6 +37,8 @@ describe("the tool list (spec §10.3)", () => {
     assert.equal(TOOLS.length, 30);
     assert.equal(new Set(TOOLS.map((t) => t.name)).size, 30);
     for (const t of TOOLS) assert.ok(t.description.length > 80, t.name);
+    assert.ok(TOOLS.find(t => t.name === "search_cards")!.description.includes("usd<=2 or eur<=2 (cheapest playable printing in that currency, at your chosen store or lowest)"));
+    assert.ok(PLAYBOOK.includes("Only the user can change their source in Settings."));
     assert.equal(TOOLS[0].name, "start_session");
     assert.ok(TOOLS.find(t => t.name === "rename_deck")!.description.includes("unique across your decks."));
     const nameInput = TOOLS.find(t => t.name === "create_deck")!.input.name;
@@ -116,6 +118,8 @@ describe("start_session", () => {
     add(db, id, "id-solring");
     const out = text(db, "start_session");
     assert.ok(out.startsWith(PLAYBOOK));
+    assert.ok(out.endsWith("Prices: TCGplayer (USD), Scryfall daily estimates as of unknown (not loaded)."));
+    assert.equal(out.split("Prices: TCGplayer").length - 1, 1);
     assert.match(out, /# Identity\nowner — Owner/);
     assert.match(out, /# The owner's profile\nLikes long games\./);
     assert.match(out, /memory #1 \(global, inferred — a hypothesis\): Avoids fast mana\./);
@@ -207,7 +211,7 @@ describe("searching and looking up cards (spec §4.2, §7.2, §8.3)", () => {
       text(db, "search_cards", { query: "Sol Ring", deck: id, include_my_decks: true }),
       /- in your decks: Other deck/,
     );
-    assert.match(text(db, "get_cards", { cards: ["Counterspell", "Sol Ring"], include_my_decks: true }), /in your decks: Teferi paper \w+\n.*in your decks: Other deck$/s);
+    assert.match(text(db, "get_cards", { cards: ["Counterspell", "Sol Ring"], include_my_decks: true }), /in your decks: Teferi paper \w+\n.*in your decks: Other deck\nPrices: TCGplayer \(USD\), Scryfall daily estimates as of unknown \(not loaded\)\.$/s);
   });
   test("identity can be lifted, and an empty result says what to try", () => {
     assert.match(text(db, "search_cards", { query: "Llanowar", deck: id }), /No cards match.*ignore_identity: true/);
@@ -419,6 +423,7 @@ describe("memories and the review queue through the tools (spec §7, §8.4)", ()
     assert.match(queue, /REJECTED: Rejected adding Sol Ring — the owner's reason: "I never play fast mana\." \[unreviewed\]\n  - add Sol Ring: Ramp\./);
     const rulingId = Number(queue.match(/- #(\d+) · deck[^\n]*REJECTED/)![1]);
     assert.ok(queue.endsWith(`call mark_rulings_reviewed with {"through": ${rulingId}}.`));
+    assert.doesNotMatch(queue, /^Prices:/m);
     // One name for a body of prose in every tool, so an agent need not guess.
     for (const tool of TOOLS) assert.ok(!("content" in tool.input), tool.name);
 

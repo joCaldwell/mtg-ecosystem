@@ -1,3 +1,4 @@
+import { priceResolver, type ResolvedPrice } from "../prices.ts";
 import { displayAuthor } from "../actor.ts";
 import { requireDeckOwner } from "../actor.ts";
 // Proposals and rulings (spec §8). On a Paper deck an agent changes
@@ -129,7 +130,7 @@ export function createProposal(
 
 // ---------- reading ----------
 
-export interface ProposalItemView {
+export interface ProposalItemView extends ResolvedPrice {
   id: number;
   proposal_id: number;
   action: "add" | "cut";
@@ -141,7 +142,6 @@ export interface ProposalItemView {
   power: string | null;
   toughness: string | null;
   loyalty: string | null;
-  usd_cents: number | null;
   image_small: string | null;
   image_normal: string | null;
   image_art_crop: string | null;
@@ -181,10 +181,9 @@ export interface ProposalView {
 }
 
 const ITEM_SELECT = `SELECT pi.id, pi.proposal_id, pi.action, pi.oracle_id, c.name AS card_name,
-       c.mana_cost, c.type_line, c.oracle_text, c.power, c.toughness, c.loyalty, pr.usd_cents, c.image_small, c.image_normal, c.image_art_crop,
+       c.mana_cost, c.type_line, c.oracle_text, c.power, c.toughness, c.loyalty, c.image_small, c.image_normal, c.image_art_crop,
        pi.slot_id, s.name AS slot_name, pi.secondary_slot_ids_json, pi.to_maybe, pi.reason, pi.group_id, pi.status
   FROM proposal_items pi JOIN cards c ON c.oracle_id = pi.oracle_id
-  LEFT JOIN card_prices pr ON pr.oracle_id = pi.oracle_id
   LEFT JOIN slots s ON s.id = pi.slot_id
   WHERE pi.proposal_id = ? ORDER BY pi.id`;
 
@@ -195,7 +194,7 @@ function withItems(db: Database, actor: Actor, rows: Array<Omit<ProposalView, "i
   const stmt = db.prepare(ITEM_SELECT);
   return rows.map(p => {
     const slots = new Map(listSlots(db, actor, p.deck_id).map(s => [s.id, s.name]));
-    const items = (stmt.all(p.id) as unknown as (ProposalItemView & { secondary_slot_ids_json: string | null })[]).map(raw => {
+    const items = priceResolver(db, actor).resolve(stmt.all(p.id) as unknown as (ProposalItemView & { secondary_slot_ids_json: string | null })[]).map(raw => {
       const { secondary_slot_ids_json: json, ...item } = raw;
       const current = findDeckCard(db, actor, p.deck_id, item.oracle_id);
       const proposedPrimary = item.slot_id != null && slots.has(item.slot_id) ? item.slot_id : null;

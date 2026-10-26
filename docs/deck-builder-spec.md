@@ -72,7 +72,7 @@ built behaviour when its phase lands):
   changes a deck by prompting an agent and ruling on its proposals. No direct
   editing, hotkeys, playtester or Settings on phones. 720 px and wider keep
   the full app. The playtester stays desktop-only.
-- **Price source per user** (D18, phase 1b). Each user picks a currency (USD
+- **Price source per user — built** (D18, phase 1b). Each user picks a currency (USD
   or EUR) and a store in it (TCGplayer, Cardmarket) or the lowest in that
   currency. The chosen price is shown, totalled, searched and given to
   agents, always labelled with its store and date. Scryfall's bulk data
@@ -84,7 +84,7 @@ built behaviour when its phase lands):
 
 Reopened on 2026-10-11: **cards carry a price** (§4.4). It is an estimate
 from the same Scryfall refresh that loads the cards. There is still no price
-history, no choice of vendor and no record of which printing the owner holds.
+history and no record of which printing the owner holds.
 
 Reopened on 2026-10-10: **card images are shown on demand.** The deck stays a
 text list; a card's picture appears only in its hover card and its detail
@@ -129,7 +129,7 @@ card, not per printing.
 ### 4.2 Search
 
 A subset of Scryfall query syntax: `t:`, `o:`, `cmc`/`mv` with comparators,
-`id:`/`id<=`, `c:`, `pow`/`tou`, `usd` with comparators (§4.4), `is:`, extended
+`id:`/`id<=`, `c:`, `pow`/`tou`, `usd`/`eur` with comparators (§4.4), `is:`, extended
 with `slot:` and `tag:`.
 Verify each operator's semantics against Scryfall's syntax documentation and
 cite it in a comment.
@@ -161,37 +161,72 @@ short integer ids, always shown beside their names.
 
 ### 4.4 Prices
 
-*Planned change (§2, D18):* prices per store, with each user choosing the
-currency and store. This section describes today's single USD price until
-phase 1b rewrites it.
+Every card has at most one estimate **per store**: its cheapest playable
+paper printing, in whole cents. Decks record cards, not printings (§4.1):
+this estimates acquiring a copy, never the value of the owner's copy.
 
-Every card has at most one price: what its **cheapest playable paper
-printing** costs, in USD. A deck records cards, not printings (§4.1), so this
-is the only price the app can state honestly: what it would cost to get a
-copy, not what the owner's copy is worth.
+**Source:** only Scryfall's daily `default-cards` bulk file. `usd`,
+`usd_foil`, `usd_etched` are TCGplayer USD prices; `eur`, `eur_foil`, and
+`eur_etched` when present are Cardmarket EUR prices. Per store, take the
+lowest across those finishes and all counted printings. A printing counts
+only when paper, not oversized, and not from a `memorabilia` set. Ties use
+set code, then collector number; finish order is nonfoil, foil, etched.
+Sources: [Card objects](https://scryfall.com/docs/api/cards),
+[Scryfall price sources](https://scryfall.com/docs/faqs/where-do-scryfall-prices-come-from-7),
+and [search syntax](https://scryfall.com/docs/syntax#prices).
 
-**Source:** Scryfall bulk data, the `default-cards` file (every printing).
-The `oracle-cards` file also carries prices, but for one representative
-printing per card, chosen for recognisability; measured on 2026-10-11 that
-printing cost over 10% more than the cheapest one for about a quarter of
-priced cards, and had no price at all for 1,600 cards that another printing
-priced.
+`card_prices` has a primary key `(oracle_id, store)`, currency, cents,
+printing and finish. Migration preserves existing USD rows as TCGplayer.
+Refresh streams the file into a bounded reduction, stages rows in batches
+of 500, then swaps prices and timestamp atomically. Failure retains the old
+prices; lost prices become unpriced. A missing or old `price_stores_version`
+marker makes refresh due at scheduler boot and in next-run status, even when
+the last refresh was recent. Failed jobs retain the hourly retry schedule.
+That refresh loads both stores even if the bulk timestamp is unchanged.
 
-- A printing counts if it is a paper card, not oversized, and not from a `memorabilia` set (gold-bordered, Collectors' Edition, 30th Anniversary Edition). Those are not legal to play and would otherwise be the "cheapest printing" of most Reserved List cards.
-- The lowest of the printing's `usd`, `usd_foil` and `usd_etched` is used; a foil is sometimes the cheapest copy.
-- Stored as whole cents in `card_prices`, with the printing it came from. Loaded into a staging table in bounded transactions, then atomically swapped with the live prices and as-of timestamp: a card that lost its price is unpriced, not stale. A failed staging load preserves the previous prices.
-- The file is read as it downloads and not kept. A refresh skips the download when Scryfall has published nothing newer than the prices in use.
-- A card with no price on any counted printing has none. Totals leave it out and say how many cards they left out.
+**Personal choice:** `price_currency` (`USD` default or `EUR`) and
+`price_store` (`lowest` default, `tcgplayer` for USD, `cardmarket` for EUR)
+are keys in per-user `user_settings`. `getPriceSource(db, actor)` reads;
+`setPriceSource(db, actor, source)` requires UI and rejects mismatched stores.
+Both `getPriceSource(db, null)` and `priceResolver(db, null)` accept an explicit
+anonymous viewer and resolve USD/lowest without reading any user's settings.
+`setPriceSource(db, null, source)` is refused with 401 before any write.
+Both are capability-layer permissions, not transport policy. Settings saves
+the pair atomically (along with other settings in the same request). Any
+invalid stored currency/store pair reads as USD/lowest, so old/corrupt
+preferences cannot produce an undefined store. `lowest` compares only stores
+in the same currency;
+there are no exchange rates or cross-currency fallbacks. With one store per
+currency today it resolves to TCGplayer or Cardmarket. Missing prices in the
+selected store remain unpriced, even if another currency has a price.
 
-Scryfall calls bulk prices "dangerously stale after 24 hours" and fit only
-for "a general estimate of card value". The app treats them that way: every
-total is labelled an estimate and carries the date of the prices.
+**Every consumer** uses the same actor-taking resolver: card facts, search
+results, deck rows/totals, sourcing and proposal deltas. Wire amounts use
+`cents` with `currency`, `store`, `as_of` metadata, never a USD-labelled EUR
+amount. Deck totals count copies and companions, exclude the maybe list,
+and report the number of distinct unpriced cards. Agents read prices but
+cannot change preferences. Compact card lines retain $/€ amounts; each
+price-bearing response/view names the resolved store and Scryfall as-of date
+once. `start_session` also names the source; exports, ruling lists and
+memory writes retain their price-free text.
+`get_cards` includes resolved price metadata in structured results.
 
-**Where a price appears.** On the card wherever the card is shown, to the
-owner and to agents alike; as a deck total in computed state (the companion
-counts, the maybe list does not).
-`usd<=2` in a search compares this same price. Price is on by default for agents: it is a fact about
-the card, and a budget is a constraint the brief can state.
+`usd<=2` and `eur<=2` compare the respective currency's cheapest playable
+printing under the user's chosen store when it belongs to that currency,
+otherwise `lowest`. Unpriced cards match no direct comparison, including `!=`.
+Negating a comparison (`-usd>5` or `-eur>5`) includes unpriced cards:
+it complements the predicate, as for power/toughness searches.
+This preserves Scryfall's operators while applying the app's card-level
+printing rules. Price is on by default for agents; budgets belong in briefs.
+
+Public pages call `priceResolver(db, viewer | null)`: the signed-in
+viewer's choice, or explicit USD/lowest for anonymous readers without reading
+any principal's settings (v3 plan §4). They never use the deck owner's actor.
+Phase 4a owns wiring PublicDeckState if it lands after Phase 1b.
+Every shown total is labelled an estimate with store/date. Scryfall warns
+bulk prices are dangerously stale after 24 hours: these are general
+estimates, never live offers. No history, collection, buy links, foil-only
+preferences, vendor API or other price source is introduced.
 
 ---
 
@@ -691,6 +726,16 @@ every request resolves its bearer and every tool names its deck.
 | | `revise_proposal` | Amend or withdraw the calling agent's own pending card/document proposals, retaining history and links |
 | Write freely | `assess_deck_power` | Attributed, revision-bound gameplay assessment (§5.7) |
 
+Price-bearing structured results use `cents`, `currency`, `store`, `as_of`
+and `source: "Scryfall"`; `get_cards` attaches these to each card. Amounts
+are resolved for the calling principal, not the deck owner. Price-bearing
+tools and start_session have one store/date line; card lines keep compact $/€
+amounts. HTTP and local calls use the same execution/formatting helper.
+Export text, ruling lists and memory writes have no price-source line.
+`computed.pending.projected_cost` and `cost_delta` use the same price source
+and simulate pending one-copy adds/cuts and whole-card parking in item order.
+The delta's `unpriced` is signed (change in distinct unpriced cards).
+
 **Focus.** The app records what the owner has open in the UI (which deck,
 which cards are selected). `start_session` returns it and `get_deck` accepts
 `"focus"` as the deck, so "this deck" in conversation means the one on
@@ -759,7 +804,10 @@ card.
 - **Memories:** §7.5.
 - **Profile:** edit directly.
 - **Activity feed:** every agent write, with the agent's name, time and target. The audit trail for unapproved writes.
-- **Settings:** connection details for agents, memory budgets, card data refresh.
+- **Settings:** connection details for agents, memory budgets, card data refresh,
+  and a currency then store/Lowest price-source control (§4.4). Saving is
+  UI-only and invalidates that principal's views, including hover lookups.
+  The deck estimate and card panel name the resolved store and Scryfall date.
 - *Planned (§2, phase 4a):* **phones** get the read-and-rule view, and wider
   screens keep everything above.
 
@@ -925,7 +973,10 @@ are built. Hosted login, sessions, OAuth, visibility and public pages are
 future v3 phases, not verified features. What has not been checked:
 
 - Any client other than Claude Code and Codex.
-- How agents use prices. The price beside each card, the deck's estimated cost and the playbook's rule about them are pinned by tests, but no real transcript has been read since they were added.
+- Longer real agent budgeting workflows remain unverified. Phase 1b read a
+  live-data tool transcript for a second EUR user (start_session, get_deck,
+  eur<=1 search) and verified USD isolation for user 1; it does not establish
+  how agents use those prices over a full deck-building conversation.
 - ChatGPT on the web or phone. Its servers cannot reach a loopback address. The route is OpenAI's Secure MCP Tunnel running the stdio shim; the Settings page gives the commands from OpenAI's guide, but they have not been run, because they need a tunnel created in the owner's OpenAI Platform organization.
 - The evaluation was run once per task, on one model, with tasks written by the same hand as the tools. It shows the interface works; it does not measure how often.
 

@@ -28,7 +28,7 @@ import { allowedRequest, getMode, type Mode, publicOrigin } from "../mode.ts";
 import { AppError } from "../errors.ts";
 import { verifyToken } from "../tokens.ts";
 import { INSTRUCTIONS } from "./playbook.ts";
-import { TOOLS } from "./tools.ts";
+import { TOOLS, runTool } from "./tools.ts";
 
 export const MCP_PATH = "/mcp";
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -97,8 +97,7 @@ export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
       for (const tool of TOOLS) {
         const run = async (args: unknown) => {
           try {
-            const out = tool.run({ db, actor }, args ?? {});
-            const result = typeof out === "string" ? { text: out } : out;
+            const result = runTool({ db, actor }, tool, args ?? {});
             if (result.changed) opts.onChange?.(actor.user_id, { kind: tool.name });
             return { content: [{ type: "text" as const, text: result.text }],
               ...(result.structuredContent ? { structuredContent: result.structuredContent } : {}) };

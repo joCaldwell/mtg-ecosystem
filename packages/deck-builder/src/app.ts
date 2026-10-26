@@ -66,7 +66,7 @@ import {
   reviseMemory,
   setBudgets,
 } from "./memory.ts";
-import { priceStatus } from "./prices.ts";
+import { priceStatus, priceResolver, getPriceSource, setPriceSource } from "./prices.ts";
 import type { Jobs } from "./jobs.ts";
 import { SearchError, search } from "./search/index.ts";
 import { deckState } from "./state.ts";
@@ -420,7 +420,8 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     return {
       jobs: opts.jobs?.status() ?? null,
       budgets: getBudgets(db, actor),
-      cards: { count: cards.n, updated_at: ingested?.value ?? null, prices: priceStatus(db) },
+      price_source: getPriceSource(db, actor),
+      cards: { count: cards.n, updated_at: ingested?.value ?? null, prices: priceStatus(db, priceResolver(db, actor).store) },
       agent: {
         url: `${mode === "hosted" ? publicOrigin() : `http://127.0.0.1:${opts.port ?? 8787}`}${MCP_PATH}`,
         mode,
@@ -432,10 +433,11 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     };
   };
   route("GET", /^\/api\/settings$/, settings);
-  route("PUT", /^\/api\/settings$/, (actor, _p, body) => {
+  route("PUT", /^\/api\/settings$/, (actor, _p, body) => withTransaction(db, () => {
+    if (body.price_source) setPriceSource(db, actor, body.price_source);
     if (body.budgets) setBudgets(db, actor, body.budgets);
     return settings(actor);
-  });
+  }));
   route("POST", /^\/api\/settings\/tokens$/, (actor, _p, body) => createToken(db, actor, String(body.label ?? "")));
   route("DELETE", /^\/api\/settings\/tokens\/(\d+)$/, (actor, [id]) => {
     revokeToken(db, actor, num(id, "token id", 1));
@@ -467,7 +469,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
   // ---------- card search ----------
   route("GET", /^\/api\/resolve$/, (actor, _p, _b, url) => {
     const name = url.searchParams.get("name") ?? "";
-    const matches = cardsNamed(db, name);
+    const matches = priceResolver(db, actor).resolve(cardsNamed(db, name));
     return { matches, suggestions: matches.length ? [] : suggestNames(db, name) };
   });
   route("GET", /^\/api\/search$/, (actor, _p, _b, url) => {
