@@ -1688,7 +1688,7 @@ fn d2b_source_catalog() -> Catalog {
         .unwrap()
         .definitions,
     );
-    c.definitions.sort_by(|a,b| a.oracle_id.cmp(&b.oracle_id));
+    c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     c.validate().unwrap();
     c
 }

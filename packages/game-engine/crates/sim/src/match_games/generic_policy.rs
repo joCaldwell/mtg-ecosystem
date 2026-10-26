@@ -52,7 +52,10 @@ fn reactive_program(p: &SpellProgram) -> bool {
         || p.modes.iter().any(|m| reactive_program(&m.program))
 }
 impl Strategy<'_> {
-    pub(super) fn legend_choice(&self, candidates: &[ObjectHandle]) -> Result<PlayerResponse, String> {
+    pub(super) fn legend_choice(
+        &self,
+        candidates: &[ObjectHandle],
+    ) -> Result<PlayerResponse, String> {
         Ok(PlayerResponse::LegendRule {
             keep: candidates.last().ok_or("empty legend choices")?.clone(),
         })
@@ -1150,6 +1153,22 @@ impl Strategy<'_> {
         }
         if let Some(r) = self.reactive_spells(v)? {
             return Ok(r);
+        }
+        // CR 702.8: develop flash permanents in an opponent's end step.
+        // Core retains all timing, target and payment authority.
+        if v.active != Some(v.viewer) && v.turn.step == TurnStep::End && v.stack.is_empty() {
+            for o in v
+                .objects
+                .iter()
+                .filter(|o| o.zone == (Zone::Hand { owner: v.viewer }))
+            {
+                let d = definition(self.catalog, &o.oracle_id)?;
+                if d.keywords.contains(&KeywordAbility::Flash)
+                    && let Some(r) = self.cast(v, o, d)
+                {
+                    return Ok(r);
+                }
+            }
         }
         if v.active != Some(v.viewer)
             || !v.stack.is_empty()

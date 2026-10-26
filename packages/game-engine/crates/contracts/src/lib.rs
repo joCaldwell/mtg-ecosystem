@@ -161,6 +161,8 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+    EntersTappedV1,
+    FlashV1,
     CastArtifactV1,
     PermanentManaV1,
     CompositeActivationCostV1,
@@ -348,7 +350,8 @@ pub struct CreatureToken {
 }
 impl CreatureToken {
     pub fn validate(&self) -> Result<(), String> {
-        if self.colors.contains(&Color::C)
+        if self.keywords.contains(&KeywordAbility::Flash)
+            || self.colors.contains(&Color::C)
             || self.colors.iter().collect::<BTreeSet<_>>().len() != self.colors.len()
             || self.subtypes.is_empty()
             || self
@@ -601,6 +604,7 @@ pub enum Duration {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
+    EntersTapped,
     ReduceGenericByCreatureCount,
     CantBeCountered,
     ModifyCreatures {
@@ -770,6 +774,7 @@ pub struct SourceProvenance {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum KeywordAbility {
+    Flash,
     Hexproof,
     Shroud,
     Defender,
@@ -791,6 +796,7 @@ impl<'de> Deserialize<'de> for KeywordAbility {
         // The executable schema publishes string keywords. Do not accept serde's
         // alternative externally-tagged unit-map spelling as an IR vocabulary.
         match String::deserialize(d)?.as_str() {
+            "flash" => Ok(Self::Flash),
             "defender" => Ok(Self::Defender),
             "flying" => Ok(Self::Flying),
             "reach" => Ok(Self::Reach),
@@ -808,6 +814,7 @@ impl<'de> Deserialize<'de> for KeywordAbility {
             other => Err(de::Error::unknown_variant(
                 other,
                 &[
+                    "flash",
                     "defender",
                     "flying",
                     "reach",
@@ -956,6 +963,7 @@ impl Definition {
         }
         for keyword in &self.keywords {
             set.insert(match keyword {
+                KeywordAbility::Flash => Capability::FlashV1,
                 KeywordAbility::Defender => Capability::DefenderV1,
                 KeywordAbility::Flying => Capability::FlyingV1,
                 KeywordAbility::Reach => Capability::ReachV1,
@@ -972,6 +980,7 @@ impl Definition {
         }
         for a in &self.static_abilities {
             set.insert(match a.effect {
+                StaticEffect::EntersTapped => Capability::EntersTappedV1,
                 StaticEffect::ReduceGenericByCreatureCount | StaticEffect::CantBeCountered => {
                     Capability::BoardWipesV1
                 }
@@ -1090,9 +1099,19 @@ impl Definition {
         {
             return Err("unsupported attachment subtype combination".into());
         }
-        if !self.keywords.is_empty() && c.kind != CardKind::Creature {
+        if self.keywords.iter().any(|k| *k != KeywordAbility::Flash) && c.kind != CardKind::Creature
+        {
             return Err("keywords require creature characteristics".into());
         }
+        if self.keywords.contains(&KeywordAbility::Flash) && c.kind == CardKind::Land {
+            return Err("flash on lands is outside supported casting semantics".into());
+        }
+        let cast_timing =
+            if c.kind == CardKind::Instant || self.keywords.contains(&KeywordAbility::Flash) {
+                SpellTiming::Instant
+            } else {
+                SpellTiming::MainPhase
+            };
         if self.oracle_id.is_empty()
             || self.name.is_empty()
             || c.mana_cost.generic.is_negative()
@@ -1344,7 +1363,10 @@ impl Definition {
             }
             validate_instruction_program(p)?;
         }
-        if !self.static_abilities.is_empty()
+        if self
+            .static_abilities
+            .iter()
+            .any(|a| a.effect != StaticEffect::EntersTapped)
             && c.kind != CardKind::Enchantment
             && !equipment
             && !(sacrifice && c.kind == CardKind::Creature)
@@ -1366,6 +1388,12 @@ impl Definition {
             return Err("static damage replacement must function on battlefield".into());
         }
         for a in &self.static_abilities {
+            if a.effect == StaticEffect::EntersTapped {
+                if matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
+                    return Err("entry replacement requires a permanent".into());
+                }
+                continue;
+            }
             if let StaticEffect::ModifyCreatures {
                 scope,
                 power,
@@ -1390,6 +1418,7 @@ impl Definition {
                     || (*scope == CreatureScope::Enchanted && !aura)
                     || (*scope == CreatureScope::Controller
                         && (c.kind != CardKind::Enchantment || aura))
+                    || keywords.contains(&KeywordAbility::Flash)
                     || keywords
                         .iter()
                         .enumerate()
@@ -1418,7 +1447,7 @@ impl Definition {
                     || c.toughness.is_some()
                     || self.intrinsic_zone.is_some()
                     || p.functioning_zone != FunctioningZone::Stack
-                    || p.timing != SpellTiming::MainPhase
+                    || p.timing != cast_timing
                     || p.resolution != SpellResolution::Permanent
                     || if aura {
                         !matches!(p.targets.as_slice(), [t] if t.domain == TargetDomain::BattlefieldCreature && t.slot == 0 && !t.selection_id.is_empty() && t.chooser == Chooser::Controller && t.stage == EvaluationStage::Announcement)
@@ -1461,7 +1490,7 @@ impl Definition {
                     .as_ref()
                     .ok_or("missing creature spell program")?;
                 if p.functioning_zone != FunctioningZone::Stack
-                    || p.timing != SpellTiming::MainPhase
+                    || p.timing != cast_timing
                     || p.resolution != SpellResolution::Permanent
                     || !p.targets.is_empty()
                     || !p.instructions.is_empty()
@@ -1481,12 +1510,7 @@ impl Definition {
                 }
                 let p = self.spell.as_ref().ok_or("missing spell program")?;
                 if p.functioning_zone != FunctioningZone::Stack
-                    || p.timing
-                        != if c.kind == CardKind::Instant {
-                            SpellTiming::Instant
-                        } else {
-                            SpellTiming::MainPhase
-                        }
+                    || p.timing != cast_timing
                     || p.resolution != SpellResolution::Instructions
                     || (p.instructions.is_empty() && p.modes.is_empty())
                 {
@@ -2004,6 +2028,12 @@ impl Catalog {
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
             d.validate()?;
+            if self.schema_version < 20 && d.capabilities.contains(&Capability::EntersTappedV1) {
+                return Err("IR v20 is required for entry replacements".into());
+            }
+            if self.schema_version < 20 && d.capabilities.contains(&Capability::FlashV1) {
+                return Err("IR v20 is required for flash".into());
+            }
             if self.schema_version < 20 && d.capabilities.contains(&Capability::BoardWipesV1) {
                 return Err("IR v20 is required for board wipes and X".into());
             }

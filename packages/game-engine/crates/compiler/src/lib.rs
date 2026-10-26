@@ -9,9 +9,9 @@ pub mod fixtures {
 }
 pub mod catalog;
 pub mod coverage;
+mod diagnostics;
 mod normalization;
 mod self_reference;
-mod diagnostics;
 mod type_line;
 pub use catalog::*;
 use normalization::source_lines;
@@ -110,12 +110,18 @@ struct Source {
 enum Ability {
     #[serde(rename = "additional-cost")]
     AdditionalCost {
+        #[serde(rename = "abilityWord")]
+        ability_word: Option<String>,
         costs: Vec<SourceCost>,
     },
     Keywords {
+        #[serde(rename = "abilityWord")]
+        ability_word: Option<String>,
         keywords: Vec<SourceKeyword>,
     },
     Static {
+        #[serde(rename = "abilityWord")]
+        ability_word: Option<String>,
         effect: SourceStaticEffect,
     },
     Triggered {
@@ -126,9 +132,13 @@ enum Ability {
         effects: Vec<Sentence>,
     },
     Spell {
+        #[serde(rename = "abilityWord")]
+        ability_word: Option<String>,
         effects: Vec<Sentence>,
     },
     Activated {
+        #[serde(rename = "abilityWord")]
+        ability_word: Option<String>,
         costs: Vec<SourceCost>,
         effects: Vec<Sentence>,
     },
@@ -544,6 +554,12 @@ enum AnyTargetReference {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "static", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceStaticEffect {
+    EntersTapped {
+        what: serde_json::Value,
+        #[serde(rename = "conditionKind")]
+        condition_kind: Option<serde_json::Value>,
+        condition: Option<serde_json::Value>,
+    },
     CostModification {
         scope: serde_json::Value,
         change: serde_json::Value,
@@ -658,11 +674,14 @@ fn read_abilities(raw: &str) -> Result<Vec<Ability>, Failure> {
     // Keep the duplicate-key pass before serde's internally tagged mirrors.
     // serde_path_to_error reports context without accepting unknown fields.
     let nodes: Vec<Box<RawValue>> = decode(raw, "abilities")?;
-    nodes.iter().enumerate().map(|(i, node)| {
-        serde_json::from_str::<Ability>(node.get()).map_err(|_| {
-            diagnostics::ability(node.get(), &format!("abilities[{i}]"))
+    nodes
+        .iter()
+        .enumerate()
+        .map(|(i, node)| {
+            serde_json::from_str::<Ability>(node.get())
+                .map_err(|_| diagnostics::ability(node.get(), &format!("abilities[{i}]")))
         })
-    }).collect()
+        .collect()
 }
 
 pub fn compile(manifest: &str, record: &str) -> CompileResult {
@@ -759,9 +778,27 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     };
     let binding = decode(r.binding.get(), "binding")?;
     let canonical_abilities = self_reference::canonicalize(
-        result.abilities.get(), &binding, &r.oracle_identity, noun, "/faces/0/abilities"
+        result.abilities.get(),
+        &binding,
+        &r.oracle_identity,
+        noun,
+        "/faces/0/abilities",
     )?;
     let abilities: Vec<Ability> = read_abilities(&canonical_abilities)?;
+    // CR 207.2c: labels carry no rules meaning. All underlying fields must
+    // still decode and lower, including conditions, costs and player relations.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    for ability in &abilities {
+        let (Ability::AdditionalCost { ability_word, .. }
+        | Ability::Keywords { ability_word, .. }
+        | Ability::Static { ability_word, .. }
+        | Ability::Spell { ability_word, .. }
+        | Ability::Activated { ability_word, .. }
+        | Ability::Triggered { ability_word, .. }) = ability;
+        if ability_word.as_ref().is_some_and(|s| s.trim().is_empty()) {
+            return Err(unsupported("abilities.abilityWord", "empty annotation"));
+        }
+    }
     // Only understood whole-card ASTs reach source normalization. Unsupported
     // nodes are rejected first; every candidate for admission still proves the
     // exact complete normalized source and line/aggregate mirror below.
@@ -877,10 +914,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             }
             for (block, ability) in abilities.iter().enumerate() {
                 match ability {
-                    Ability::Static { effect } => {
+                    Ability::Static { effect, .. } => {
                         definition.static_abilities.push(lower_static(effect)?)
                     }
-                    Ability::Keywords { keywords } => {
+                    Ability::Keywords { keywords, .. } => {
                         if keywords.is_empty() {
                             return Err(unsupported("abilities.keywords", "empty keyword block"));
                         }
@@ -984,7 +1021,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                             }
                         }
                     }
-                    Ability::Activated { costs, effects } => {
+                    Ability::Activated { costs, effects, .. } => {
                         if let Some(mana) = lower_mana_ability(costs, effects, block, kind)? {
                             definition.mana_abilities.push(mana);
                         } else {
@@ -997,17 +1034,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         trigger,
                         effects,
                         condition,
-                        ability_word,
+                        ability_word: _,
                     } => {
-                        if ability_word.as_ref().is_some_and(|word| {
-                            word.is_empty()
-                                || !word.chars().all(|c| c.is_ascii_alphabetic() || c == ' ')
-                        }) {
-                            return Err(unsupported(
-                                "abilities.abilityWord",
-                                "unsupported annotation",
-                            ));
-                        }
                         definition.triggered.push(lower_trigger(
                             trigger,
                             effects,
@@ -1045,7 +1073,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             };
             let mut slots = BTreeMap::new();
             for (block, ability) in abilities.iter().enumerate() {
-                if let Ability::AdditionalCost { costs } = ability {
+                if let Ability::AdditionalCost { costs, .. } = ability {
                     if block != 0 || program.additional_sacrifice.is_some() {
                         return Err(unsupported(
                             "cost",
@@ -1058,7 +1086,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     program.additional_sacrifice = Some(lower_sacrifice_filter(what)?);
                     continue;
                 }
-                if let Ability::Static { effect } = ability {
+                if let Ability::Static { effect, .. } = ability {
                     let a = lower_static(effect)?;
                     if a.functioning_zone != FunctioningZone::Stack {
                         return Err(unsupported("static", "spell static must function on stack"));
@@ -1066,7 +1094,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     definition.static_abilities.push(a);
                     continue;
                 }
-                let Ability::Spell { effects } = ability else {
+                let Ability::Spell { effects, .. } = ability else {
                     return Err(unsupported(
                         "abilities.kind",
                         "nonspell ability on instant/sorcery",
@@ -1084,7 +1112,20 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         }
     }
     if definition.keywords.contains(&KeywordAbility::Flash) {
-        definition.spell.as_mut().ok_or_else(|| unsupported("keyword", "flash requires castable spell"))?.timing = SpellTiming::Instant;
+        definition
+            .spell
+            .as_mut()
+            .ok_or_else(|| unsupported("keyword", "flash requires castable spell"))?
+            .timing = SpellTiming::Instant;
+    }
+    if definition.triggered.iter().any(|a| {
+        a.condition != TriggerCondition::OpponentCreatureDies
+            && a.program
+                .instructions
+                .iter()
+                .any(|i| matches!(i, Instruction::LoseLifeDeathController { .. }))
+    }) {
+        return Err(unsupported("trigger", "unbound death controller"));
     }
     definition.capabilities = definition.requirements();
     definition
@@ -2121,6 +2162,38 @@ fn lower_prevention(
     }
 }
 fn lower_static(effect: &SourceStaticEffect) -> Result<StaticAbility, Failure> {
+    // CR 614.1c/614.12: only unconditional entry of this source is supported.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    if let SourceStaticEffect::EntersTapped {
+        what,
+        condition_kind,
+        condition,
+    } = effect
+    {
+        if condition_kind.is_some() || condition.is_some() {
+            return Err(unsupported("static", "static:enters-tapped:conditional"));
+        }
+        if ![
+            "permanent",
+            "creature",
+            "artifact",
+            "enchantment",
+            "aura",
+            "land",
+        ]
+        .iter()
+        .any(|noun| *what == serde_json::json!({"ref":"this","noun":noun}))
+        {
+            return Err(unsupported(
+                "static",
+                "static:enters-tapped:unsupported_source",
+            ));
+        }
+        return Ok(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::EntersTapped,
+        });
+    }
     let special = match effect {
         SourceStaticEffect::Cant { what, action }
             if *what == serde_json::json!({"ref":"this","noun":"spell"})
@@ -3733,7 +3806,7 @@ mod tests {
     fn changed_record(index: usize, change: impl FnOnce(&mut serde_json::Value)) -> String {
         changed_source(fixtures::LIBRARY_RECORDS[index].1, change)
     }
-    fn changed_source(raw: &str, change: impl FnOnce(&mut serde_json::Value)) -> String {
+    pub(super) fn changed_source(raw: &str, change: impl FnOnce(&mut serde_json::Value)) -> String {
         let mut r: serde_json::Value = serde_json::from_str(raw).unwrap();
         change(&mut r);
         r["sourceSha256"] = sha256(canonical(&r["source"]).unwrap().as_bytes()).into();
@@ -6827,3 +6900,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod d2b_tests;

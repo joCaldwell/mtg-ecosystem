@@ -143,3 +143,91 @@ fn bound_self_trigger_uses_the_same_source_incarnation_ir_as_this_creature() {
         matches!(ir.program.instructions.as_slice(),[Instruction::DrawCards {count,recipient:None,..}] if *count == Quantity::from(1))
     );
 }
+
+#[test]
+fn rule_bearing_subtypes_are_explicit_boundaries_in_intake_and_ir() {
+    for subtype in [
+        "Saga",
+        "Class",
+        "Case",
+        "Vehicle",
+        "Curse",
+        "Spacecraft",
+        "Attraction",
+        "Room",
+        "Contraption",
+        "Fortification",
+        "Role",
+        "Adventure",
+        "Omen",
+    ] {
+        let failure = type_line::parse(&format!("Artifact — {subtype}"))
+            .err()
+            .unwrap();
+        assert_eq!(
+            failure.reason,
+            format!("subtype:{}", subtype.to_lowercase())
+        );
+        assert!(unsupported_rules_subtype(subtype));
+        let raw = tests::changed_source(SOURCE_SELF, |r| {
+            r["source"]["type_line"] = format!("Legendary Artifact — {subtype}").into();
+        });
+        assert!(
+            matches!(compile(MANIFEST, &raw), CompileResult::Unsupported { reason, .. } if reason == format!("subtype:{}", subtype.to_lowercase()))
+        );
+        let CompileResult::Lowered { mut definition } = compile(MANIFEST, SOURCE_SELF) else {
+            panic!("source")
+        };
+        definition.characteristics.subtypes = vec![subtype.into()];
+        assert!(definition.validate().is_err());
+    }
+    for subtype in [
+        "Clue", "Food", "Treasure", "Arcane", "Lesson", "Trap", "Shrine",
+    ] {
+        assert!(!unsupported_rules_subtype(subtype));
+    }
+}
+
+#[test]
+fn diagnostics_follow_the_second_ability_instead_of_a_repeated_discriminator() {
+    let raw = r#"[{"kind":"keywords","keywords":[{"keyword":"menace"}]},{"kind":"triggered","trigger":{"trigger":"enters","what":{"ref":"self"}},"effects":[]}]"#;
+    let failure = read_abilities(raw).unwrap_err();
+    assert_eq!(failure.path, "abilities[1].trigger.what");
+    assert_eq!(failure.reason, "ref:self");
+}
+
+#[test]
+fn annotation_is_typed_and_cannot_swallow_underlying_semantics() {
+    let raw = r#"[{"kind":"activated","abilityWord":"A label’s name 2","costs":[],"effects":[]}]"#;
+    assert!(read_abilities(raw).is_ok());
+    assert!(read_abilities(&raw.replace("[]}]", "[],\"unknownCondition\":true}]")).is_err());
+    assert!(read_abilities(&raw.replace("\"A label’s name 2\"", "42")).is_err());
+}
+
+#[test]
+fn labels_preserve_the_complete_source_program_without_new_runtime_semantics() {
+    let CompileResult::Lowered {
+        definition: original,
+    } = compile(MANIFEST, SOURCE_SELF)
+    else {
+        panic!("source")
+    };
+    for index in 0..2 {
+        let raw = tests::changed_source(SOURCE_SELF, |r| {
+            let line = &mut r["faces"][0]["result"]["lines"][index];
+            let old = line["text"].as_str().unwrap().to_owned();
+            line["text"] = format!("Label — {old}").into();
+            line["ability"]["abilityWord"] = "Label".into();
+            r["faces"][0]["result"]["abilities"][index]["abilityWord"] = "Label".into();
+            let text = r["source"]["oracle_text"].as_str().unwrap();
+            let mut lines = text.split('\n').map(str::to_owned).collect::<Vec<_>>();
+            lines[index] = format!("Label — {}", lines[index]);
+            r["source"]["oracle_text"] = lines.join("\n").into();
+        });
+        let CompileResult::Lowered { mut definition } = compile(MANIFEST, &raw) else {
+            panic!("labelled source: {:?}", compile(MANIFEST, &raw))
+        };
+        definition.provenance = original.provenance.clone();
+        assert_eq!(*definition, *original);
+    }
+}
