@@ -27,6 +27,6 @@ export function TabletBar({ route }: { route: Route }) {
       <Button size="touch" onClick={() => setOpen(true)} aria-haspopup="dialog">Menu</Button>
       <a href={href({ page: "decks" })}>Deck Builder</a>
     </header>
-    {open && <Dialog title="Navigation" placement="drawer" onClose={() => setOpen(false)}><Sidebar route={route} /></Dialog>}
+    {open && <Dialog title="Navigation" placement="drawer" onClose={() => setOpen(false)}><Sidebar route={route} brand={false} /></Dialog>}
   </>;
 }

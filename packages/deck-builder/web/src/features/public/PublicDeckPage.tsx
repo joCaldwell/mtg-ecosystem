@@ -39,11 +39,11 @@ export function PublicDeckPage({ slug }: { slug: string }) {
   return (
     <PublicShell>
       {!loaded ? <Loading /> : "missing" in loaded ? (
-        <EmptyState title="There is no shared deck here">
+        <EmptyState heading="h1" title="There is no shared deck here">
           It may be private, or it may have been deleted. Ask whoever sent the link to share it again.
         </EmptyState>
       ) : "error" in loaded ? (
-        <EmptyState title="This deck could not be loaded">
+        <EmptyState heading="h1" title="This deck could not be loaded">
           {loaded.error} <Button size="sm" onClick={() => setAttempt((n) => n + 1)}>Retry</Button>
         </EmptyState>
       ) : <SharedDeck shared={loaded.deck} />}

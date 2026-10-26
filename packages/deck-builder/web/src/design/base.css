@@ -93,6 +93,10 @@ a {
   :root { --fast: 0ms; }
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+/* Text for assistive technology only: a column header with no visible label,
+   a severity read before a message, the rest of a link's name. The one
+   shared copy; components use className="visually-hidden". */
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .skip-link { position: fixed; top: var(--s-4); left: var(--s-4); z-index: var(--z-toast); padding: var(--s-5); background: var(--raised); color: var(--text); transform: translateY(-200%); }
 .skip-link:focus { transform: none; }
 

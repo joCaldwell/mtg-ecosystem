@@ -52,7 +52,7 @@ export function ChecksPanel({ checks }: { checks: Finding[] }) {
               </span>
               <div>
                 <div className={styles.title}>
-                  <span className={styles.srOnly}>{f.severity === "error" ? "Error: " : "Warning: "}</span>
+                  <span className="visually-hidden">{f.severity === "error" ? "Error: " : "Warning: "}</span>
                   {f.title}
                 </div>
                 <div className={styles.detail}>

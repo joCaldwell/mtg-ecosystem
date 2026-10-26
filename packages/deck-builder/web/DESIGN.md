@@ -90,6 +90,17 @@ radii, control heights, layout widths, elevation, stacking and motion.
 
 Component CSS uses tokens only. If you reach for a literal, add a token.
 
+Text has four tiers, brightest first: `--text`, `--text-soft`, `--muted`,
+`--faint`. Each passes WCAG AA (4.5:1) on every surface and tint; the measured
+ratios sit beside the tokens. Stacking runs `--z-sticky` < `--z-pop` <
+`--z-dialog` < `--z-hover` < `--z-toast`; a popover inside a dialog is
+portalled into it, so it needs no higher layer. `--measure-wide` is the wide
+page and first-run width; `--tablet-bar-h` the drawer's menu bar.
+
+`design/base.css` holds the one global utility, `.visually-hidden`, for text
+only assistive technology reads: a column header with no visible label, a
+severity before a message, the rest of a link's name.
+
 ## Type
 
 - Body `--text-md` (13px). Secondary `--text-sm` (12px). Labels and meta
@@ -126,6 +137,7 @@ or about this app.
 | `Kbd` | A key cap | |
 | `Chip` | A small tag or filter; a button when given `onClick` | tone `neutral` `agent` `warn` `add` `cut`; `dashed` for unconfirmed |
 | `Badge` | A count pill | `neutral` `agent` `warn` |
+| `Pill` | A selectable filter in a row of filters; `aria-pressed` carries the state | `on` |
 | `Dot` | A 6px status mark | `neutral` `agent` `warn` `add` `cut`; `pulse` |
 | `Tabs` | Switching panels, underline style, arrow keys | per-tab `badge`, `tone: "agent"` |
 | `Segmented` | Choosing one of a few views | |
@@ -142,11 +154,11 @@ or about this app.
 | `Stack`, `Row`, `Spacer` | Layout on the spacing scale `--s-1` to `--s-8` | `gap` 1-8; Row `align`, `justify`, `wrap` |
 | `Text` | Text with a tone, size and weight from the tokens | tone: 8; size `xs` to `xl`; `mono`; weight 3 |
 | `Banner` | A full-width strip under a header | `agent` `warn` `error` `neutral`; `actions` |
-| `ErrorNote`, `EmptyState`, `Loading` | An inline error, "nothing here yet", and a loading line | |
+| `ErrorNote`, `EmptyState`, `Loading` | An inline error, "nothing here yet", and a loading line | EmptyState `heading` `h1` `h2` when it is all the page has |
 | `Dialog` | A modal: focus trap, Esc, backdrop click, focus restore, `data-autofocus` | width `md` `lg`; placement `center` `sheet` `drawer`; `footer` |
 | `ConfirmDialog` | A question with Cancel and a confirm button | tone `default` `danger` |
-| `Disclosure` | Controlled Advanced reveal; caller owns persistence | collapsed, expanded, disabled while saving; `inline` |
-| `Explainer` | One sentence and a Learn more popover | closed, open, keyboard focus, close/Escape and focus return |
+| `Disclosure` | Controlled Advanced reveal; caller owns persistence and shows its save error | collapsed, expanded, disabled while saving, save failed; `inline`; `title` |
+| `Explainer` | One sentence and a Learn more popover | closed, open, keyboard focus, close/Escape and focus return; `defaultOpen` (style guide only) |
 | `Popover`, `placeNear` | A panel anchored to an element, kept inside the viewport | placement `below` `right` `above` `left`; `align` |
 | `ToastProvider`, `useToast` | One toast at a time, bottom centre, with an optional action | `duration`; `action` with `kbd` |
 | `DiffView` | Added and deleted lines | line kind `same` `add` `del` |
@@ -156,6 +168,7 @@ or about this app.
 | `ResizeHandle` | A draggable edge inside the element it resizes; arrow keys, Home, End, double-click to reset | `edge` `left` `right`; caller owns `value`, `min`, `max` |
 | `Page`, `PageHeader`, `SplitPane` | Screen frame with a sticky header and scrolling body; list and detail columns | Page width `md` `lg` `full` |
 | `useHotkeys` | Declare a screen's shortcuts (`"j"`, `"shift+a"`, `"mod+k"`); ignored while typing except Escape | `enabled`, `allowInInputs` |
+| `pressesFocusedControl` | Whether Enter or Space would press the focused button or link, so a screen shortcut on that key stands down | |
 | `useLocalStorage` | State kept in localStorage | |
 | `tokenPx` | A size token as a number, where script has to do arithmetic with one | |
 <!-- inventory:end -->
@@ -227,9 +240,10 @@ sheet over the list (principle 1's existing requested-dialog exception).
 - **Card inspection:** `?` on a focused card row opens the same CardSheet as
   tapping its mana cost. Inline card names without a host action open it too.
   The modal is named, traps focus, closes with Escape and restores focus.
-- **Text and motion:** faint is now #9aa1ab, readable on every neutral app
-  surface at small sizes. Filtered-out cards use no opacity reduction: their
-  names still need to be read. Global reduced-motion zeroes `--fast` and
+- **Text and motion:** faint is #9aa1ab and muted #a8aeb7, so the tiers stay
+  in order and both pass AA on tinted rows (see Tokens). Filtered-out cards
+  are not dimmed: their names still need to be read, and the matches carry
+  the selection tint instead. Global reduced-motion zeroes `--fast` and
   disables transitions/animations. Inter is removed; the system font stack
   avoids a third-party font request.
 
@@ -243,6 +257,6 @@ private, and every synthetic write names sample-agent. “Archived” describes 
 lifecycle; “decisions” describes the owner's choices, avoiding MTG format and
 card-ruling terminology. Stored user prose is never renamed.
 
-The live inventory at /design includes collapsed, expanded and saving
-Advanced states, both overlays, closed/open explanation, selected/empty/busy
+The live inventory at /design includes collapsed, expanded, saving, failed
+and inline Advanced states, both overlays, a closed and an open explanation, selected/empty/busy
 listboxes, a plain archived title, accessible faint text and motion guidance.

@@ -1,4 +1,4 @@
-.firstRun { display: grid; gap: var(--s-7); max-width: calc(var(--measure) * 1.5); padding-block: var(--s-7); }
+.firstRun { display: grid; gap: var(--s-7); max-width: var(--measure-wide); padding-block: var(--s-7); }
 .firstRun h2 { font-size: var(--text-xl); font-weight: 650; }
 .firstRun h3 { font-size: var(--text-lg); font-weight: 600; }
 .choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-6); }

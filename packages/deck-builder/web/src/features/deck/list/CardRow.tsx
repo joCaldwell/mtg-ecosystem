@@ -53,7 +53,6 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
   const cls = [
     styles.row,
     filterMatch === true && styles.match,
-    filterMatch === false && styles.muted,
     change === "cut" && styles.cut,
     change === "add" && styles.add,
     selected && styles.selected,

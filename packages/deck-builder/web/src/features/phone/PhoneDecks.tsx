@@ -17,7 +17,7 @@ export function PhoneDecks() {
   if (decks.error && !decks.data) return <ErrorNote>{decks.error}</ErrorNote>;
   if (!decks.data) return <Loading />;
   if (!decks.data.length)
-    return <div className={styles.page}><EmptyState title="No decks yet">{voice("Create or import your first deck on a larger screen, then read it here.", "Ask your agent to build one, or create one on a larger screen.")}</EmptyState></div>;
+    return <div className={styles.page}><h1 className={styles.title}>Your decks</h1><EmptyState title="No decks yet">{voice("Create or import your first deck on a larger screen, then read it here.", "Ask your agent to build one, or create one on a larger screen.")}</EmptyState></div>;
   return (
     <div className={styles.page}>
       <h1 className={styles.title}>Your decks</h1>

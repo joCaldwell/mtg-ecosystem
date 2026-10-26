@@ -305,3 +305,28 @@ test("tree-shaken public barrels contain only re-exports", () => {
     assert.equal(rest, "", `${relative(SRC, f)} must not have module side effects`);
   }
 });
+
+// ---------- the design-system inventory ----------
+
+describe("design system", () => {
+  test("DESIGN.md's inventory lists exactly what ui/index.ts exports", () => {
+    const index = stripComments(readFileSync(join(SRC, "ui", "index.ts"), "utf8"));
+    const exported = new Set<string>();
+    for (const m of index.matchAll(/export\s*\{([^}]*)\}/g))
+      for (const name of m[1].split(","))
+        if (name.trim() && !/^type\s/.test(name.trim())) exported.add(name.trim().split(/\s+as\s+/).pop()!);
+    const design = readFileSync(join(PACKAGE, "web", "DESIGN.md"), "utf8");
+    const inventory = design.slice(design.indexOf("<!-- inventory:start -->"), design.indexOf("<!-- inventory:end -->"));
+    const listed = new Set<string>();
+    for (const row of inventory.split("\n").filter((l) => l.startsWith("| `")))
+      for (const m of row.split("|")[1].matchAll(/`([^`]+)`/g)) listed.add(m[1]);
+    assert.deepEqual([...exported].filter((n) => !listed.has(n)).sort(), [], "exported but not in the DESIGN.md inventory");
+    assert.deepEqual([...listed].filter((n) => !exported.has(n)).sort(), [], "in the DESIGN.md inventory but not exported");
+  });
+
+  test("visually hidden text uses the one shared utility in design/base.css", () => {
+    assert.match(readFileSync(join(SRC, "design", "base.css"), "utf8"), /\.visually-hidden\s*\{[^}]*clip-path:\s*inset\(50%\)/);
+    const copies = walk(SRC).filter((f) => f.endsWith(".module.css") && /clip-path:\s*inset\(50%\)/.test(readFileSync(f, "utf8")));
+    assert.deepEqual(copies.map((f) => posix(relative(SRC, f))), [], 'use className="visually-hidden"');
+  });
+});

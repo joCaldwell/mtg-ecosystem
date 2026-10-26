@@ -26,7 +26,7 @@ export function ReviewItemLine({ item }: { item: ProposalItem }) {
           {adding ? "+" : "−"}
         </span>
         <span className={styles.name}>
-          <span className={styles.srOnly}>{adding ? "Add " : "Cut "}</span>
+          <span className="visually-hidden">{adding ? "Add " : "Cut "}</span>
           <CardRef name={item.card_name} card={{ ...item, name: item.card_name }} />
         </span>
         <ManaCost cost={item.mana_cost} />

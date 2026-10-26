@@ -2,6 +2,9 @@
   display: flex;
   align-items: baseline;
   gap: var(--s-4);
+  /* An h2 for the outline (h1 is the deck), sized exactly as the h3 it was (1.17em): the
+     children set their own type, but the row's line box follows this. */
+  font-size: calc(var(--text-md) * 1.17);
   margin-bottom: var(--s-1);
   padding: 0 var(--s-3) var(--s-2);
   border-bottom: 1px solid var(--line);

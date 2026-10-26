@@ -84,7 +84,7 @@ export function DecksPage() {
                     <th>Lifecycle</th>
                     <th>Cards</th>
                     <th>Inbox</th>
-                    <th aria-label="Actions" className={styles.actions} />
+                    <th className={styles.actions}><span className="visually-hidden">Actions</span></th>
                   </tr>
                 </thead>
                 <tbody>

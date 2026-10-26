@@ -24,7 +24,8 @@ const NAV: Array<{ page: PageName; label: string; icon: "inbox" | "decks" | "mem
 ];
 
 
-export function Sidebar({ route }: { route: Route }) {
+/** `brand` is off inside the tablet drawer, whose title already names it. */
+export function Sidebar({ route, brand = true }: { route: Route; brand?: boolean }) {
   const { hasAgentActivity } = usePreferences();
   const { waiting } = useInbox();
   const { focus } = useFocus();
@@ -34,10 +35,10 @@ export function Sidebar({ route }: { route: Route }) {
 
   return (
     <aside className={styles.sidebar}>
-      <div className={styles.brand}>
+      {brand && <div className={styles.brand}>
         <span className={styles.mark} aria-hidden="true" />
         Deck Builder
-      </div>
+      </div>}
 
       <nav className={styles.nav} aria-label="Sections">
         {NAV.map((item) => (
