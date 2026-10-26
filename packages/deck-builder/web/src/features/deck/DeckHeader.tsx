@@ -151,7 +151,7 @@ export function DeckHeader() {
           Power: {state.power.assessment ? `${bracketLabel(state.power.assessment.mapping)}${state.power.assessment.stale ? " · needs review" : ""}` : "not assessed"}
           {state.power.target ? ` · target ${bracketLabel(state.power.target.mapping)}` : ""}
         </button>
-        <Advanced inline><Text mono tone="faint" title="The deck's revision">
+        <Advanced inline title="Shows revisions, secondary slots, budgets and review flags everywhere"><Text mono tone="faint" title="The deck's revision">
           r{deck.revision}
         </Text></Advanced>
       </Row>

@@ -13,7 +13,12 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const source = new EventSource("/api/events");
     // The first message is the stream opening, and a reconnect after the
-    // server restarts is one too: both are a reason to refetch.
+    // server restarts is one too: both are a reason to refetch. The first
+    // one duplicates every query mounted with the stream, but skipping it is
+    // not safe: the stream and those queries travel on separate requests, so
+    // a query can be read before the stream is registered and miss a write
+    // made in between. Removing the duplicate needs the server to say which
+    // reads predate the subscription (a change sequence on both).
     source.onmessage = (event) => {
       const change = JSON.parse(event.data) as Change;
       // Tenant-scoped payload names what changed; initially refetch all queries.
