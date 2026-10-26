@@ -86,8 +86,8 @@ export function InboxPage() {
             <DocumentEditCard key={selected.key} edit={selected.edit} showDeck onRuled={(result) => apply(result.inbox)} />
           ) : (
             <div className={styles.empty}>
-              <EmptyState title="Nothing is waiting on you.">
-                {voice("There are no proposed changes to review. Keep building your decks; your decisions stay in each deck’s History.", "Your decisions and reasons are queued. An agent reads them the next time it starts a session, whether or not it was running when you ruled.")}
+              <EmptyState title="Nothing is waiting on you">
+                {voice("There are no proposed changes to review. Keep building your decks; your decisions stay in each deck’s History.", "Your decisions and reasons are queued. An agent reads them the next time it starts a session, whether or not it was running when you decided.")}
               </EmptyState>
               {/* Advanced appears only when it has something to show. */}
               {inbox.unreviewed > 0 && <Advanced>

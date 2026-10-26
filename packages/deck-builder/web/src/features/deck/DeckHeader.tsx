@@ -118,7 +118,8 @@ export function DeckHeader() {
 
       <Explainer title="Deck lifecycle" summary={voice("Theorycrafted is a work in progress; Paper is a deck you play; Archived keeps it read-only.", "Lifecycle controls how your agent can change the deck.")}>Only you change lifecycle. Agents edit Theorycrafted cards directly and propose Paper card changes. Brief and power-target changes always need your approval. Archived decks can be shared, exported or forked.</Explainer>
       <Row className={styles.sub} gap={5} wrap>
-        <Text size="xs" tone="muted">{readOnly ? "Read-only archive · restore or fork to edit" : deck.category === "paper" ? voice("A deck you play", "Agents propose card and brief changes") : voice("A work in progress", "Agents edit cards directly · brief changes need approval")}</Text>
+        {/* An archived deck says what it means once, in the banner under the toolbar. */}
+        {!readOnly && <Text size="xs" tone="muted">{deck.category === "paper" ? voice("A deck you play", "Agents propose card and brief changes") : voice("A work in progress", "Agents edit cards directly · brief changes need approval")}</Text>}
         {commanders.length > 0 ? (
           <>
             {commanders.map((c) => (
@@ -151,7 +152,7 @@ export function DeckHeader() {
           Power: {state.power.assessment ? `${bracketLabel(state.power.assessment.mapping)}${state.power.assessment.stale ? " · needs review" : ""}` : "not assessed"}
           {state.power.target ? ` · target ${bracketLabel(state.power.target.mapping)}` : ""}
         </button>
-        <Advanced inline title="Shows revisions, secondary slots, budgets and review flags everywhere"><Text mono tone="faint" title="The deck's revision">
+        <Advanced inline title="Show or hide revisions, secondary slots, budgets and review flags. Applies across your account."><Text mono tone="faint" title="The deck's revision">
           r{deck.revision}
         </Text></Advanced>
       </Row>

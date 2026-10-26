@@ -58,7 +58,12 @@ export function DecksPage() {
       header={
         <PageHeader
           title="All decks"
-          subtitle={voice("Your Commander decks, from first idea to the list you play. Archived decks stay read-only.", "Theorycrafted cards are open to agents. Paper cards need your approval. Archived decks are read-only.")}
+          subtitle={
+            // Lifecycle words mean nothing before the first deck exists.
+            decks.data && rows.length === 0
+              ? "Your Commander decks, from first idea to the list you play."
+              : voice("Your Commander decks, from first idea to the list you play. Archived decks stay read-only.", "Theorycrafted cards are open to agents. Paper cards need your approval. Archived decks are read-only.")
+          }
           actions={
             <Button onClick={() => setCreating(true)} aria-haspopup="dialog">
               New deck

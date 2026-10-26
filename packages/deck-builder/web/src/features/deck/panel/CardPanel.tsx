@@ -92,7 +92,7 @@ export function CardPanel({ card: open }: { card: OpenCard }) {
                   </Text>
                 )}
                 <Text tone="muted" size="sm" as="p">
-                  Rule on it in the Review tab.
+                  Accept or reject it in the Review tab.
                 </Text>
               </div>
             )

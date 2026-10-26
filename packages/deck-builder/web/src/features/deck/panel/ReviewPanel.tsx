@@ -17,7 +17,7 @@ export function ReviewPanel({ view, review }: { view: DeckViewModel; review: Rev
   const state = useDeckState();
   const ui = useDeckUi();
 
-  if (state.deck.category === "archived") return <Text tone="muted">Pending proposals are preserved. Restore this deck to rule on them.</Text>;
+  if (state.deck.category === "archived") return <Text tone="muted">Pending proposals are kept. To accept or reject them, switch this deck to Paper or Theorycrafted.</Text>;
 
   // Units come oldest proposal first, so the proposals do too.
   const proposals = state.proposals
@@ -62,7 +62,7 @@ export function ReviewPanel({ view, review }: { view: DeckViewModel; review: Rev
             Review in the list
           </Button>
           <Text tone="faint" size="xs">
-            Draws each change into the list, so you rule on it in place.
+            Draws each change into the list, so you can accept or reject it in place.
           </Text>
         </div>
       )}

@@ -56,7 +56,7 @@ function Deck() {
           {error && <Banner tone="error" actions={<Button size="touch" variant="ghost" onClick={clearError}>Dismiss</Button>}>{error}</Banner>}
           {edits > 0 && (
             <Banner tone="agent">
-              {edits} proposed brief {edits === 1 ? "edit waits" : "edits wait"} for you. <a className={styles.tap} href={href({ page: "inbox" })}>Rule in the inbox</a>
+              {edits} proposed brief {edits === 1 ? "edit waits" : "edits wait"} for you. <a className={styles.tap} href={href({ page: "inbox" })}>Review in the inbox</a>
             </Banner>
           )}
         </header>

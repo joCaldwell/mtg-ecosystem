@@ -21,7 +21,7 @@ export function PhoneInbox() {
       <h1 className={styles.title}>Inbox</h1>
       <Text size="sm" tone="muted" as="p">{voice("Proposed changes wait for your decision. Nothing here has been applied.", "Everything an agent needs your decision on. Nothing here has been applied.")}</Text>
       {entries.length === 0 ? (
-        <EmptyState title="Nothing is waiting on you.">{voice("There are no proposed changes to review. Open a deck to read its list and decisions.", "Ask your agent for changes; what it proposes appears here without a reload.")}</EmptyState>
+        <EmptyState title="Nothing is waiting on you">{voice("There are no proposed changes to review. Open a deck to read its list and decisions.", "Ask your agent for changes; what it proposes appears here without a reload.")}</EmptyState>
       ) : (
         <ul className={styles.list}>
           {entries.map((entry) => (

@@ -24,7 +24,7 @@ export function HistoryPanel() {
   return (
     <>
       <section className={styles.section}>
-        <Eyebrow>Decisions log · this is the version history</Eyebrow>
+        <Eyebrow>Decisions and versions</Eyebrow>
         <Advanced><Text size="sm" tone="muted">Revision numbers and agent review flags are visible below.</Text></Advanced>
         {log.length === 0 ? (
           <Text tone="muted" size="sm" as="p">

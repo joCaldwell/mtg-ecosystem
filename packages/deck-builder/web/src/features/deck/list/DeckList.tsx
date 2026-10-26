@@ -17,7 +17,7 @@ import styles from "./DeckList.module.css";
 
 const LEGEND: Array<[MarkKind, string]> = [
   ["memory", "memory linked"],
-  ["decision", "ruled on before"],
+  ["decision", "decided before"],
 ];
 
 const NONE = new Set<string>();

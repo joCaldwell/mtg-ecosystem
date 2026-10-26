@@ -28,7 +28,7 @@ Decided on 2026-10-25 ([plan](../../../docs/deck-builder-v3-plan.md) D17,
 D20) and built in phase 4a; phase 4b makes the full app hold up between
 720 px and 1024 px.
 
-- **Phones (under 720 px) read and rule.** The deck list, a read-only deck,
+- **Phones (under 720 px) read and decide.** The deck list, a read-only deck,
   the inbox, and accept/reject with a reason. Nothing else writes. A screen
   that cannot work there says "Open on a larger screen" rather than
   squeezing in. The breakpoint is `PHONE_MAX_WIDTH` in `app/breakpoints.ts`
@@ -118,6 +118,10 @@ severity before a message, the rest of a link's name.
   applies ("Only you can set this, and agents never see it").
 - Refer to revisions as `r95`, memories and proposals by their number.
 - Empty states say what would put something there.
+- The owner's choices are decisions: they accept, reject or decide. Never
+  "rule" or "ruling", which in Magic mean the game's rules and card rulings.
+  `web-architecture.test.ts` checks every string in `features/` and `app/`.
+- One name per action. Opening the create dialog is "New deck" everywhere.
 
 ## Components
 

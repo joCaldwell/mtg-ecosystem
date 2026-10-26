@@ -5,8 +5,8 @@ import { Box, Chip, Text } from "../../ui/index.ts";
 import styles from "./ChangeUnit.module.css";
 
 const LABEL: Record<ReviewUnit["kind"], string> = {
-  swap: "Swap, ruled together",
-  group: "Ruled together",
+  swap: "Swap · decided together",
+  group: "Group · decided together",
   add: "Add",
   cut: "Cut",
 };

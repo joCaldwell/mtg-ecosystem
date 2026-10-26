@@ -20,7 +20,7 @@ export function LargerScreen({ route }: { route: Route }) {
   return (
     <div className={styles.page}>
       <EmptyState heading="h1" title="Open on a larger screen">
-        {WHAT[route.page] ?? "This screen is on a larger screen."} {voice("On a phone you can read decks and accept or reject proposed changes. Create and edit decks on a larger screen.", "On a phone you can read your decks and rule on what your agents propose. To change a deck from here, ask your agent and accept or reject what it proposes.")}{" "}
+        {WHAT[route.page] ?? "This page needs a larger screen."} {voice("On a phone you can read decks and accept or reject proposed changes. Create and edit decks on a larger screen.", "On a phone you can read your decks and accept or reject what your agents propose. To change a deck from here, ask your agent to propose it.")}{" "}
         <a href={href({ page: "decks" })}>Back to your decks</a>
       </EmptyState>
     </div>

@@ -1,10 +1,12 @@
 // Enforces the layering table in web/ARCHITECTURE.md. Imports are read with a
-// regex rather than a parser: the codebase uses plain import/export syntax,
-// and a regex keeps this test free of dependencies.
+// regex rather than a parser: the codebase uses plain import/export syntax.
+// The wording check needs real string boundaries, so it uses the TypeScript
+// parser the typecheck already depends on.
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
+import ts from "typescript";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -304,6 +306,57 @@ test("tree-shaken public barrels contain only re-exports", () => {
     const rest = stripComments(readFileSync(f, "utf8")).replace(/export\s+(?:type\s+)?(?:\{[^}]*\}|\*)\s+from\s+["'][^"']+["'];?/g, "").trim();
     assert.equal(rest, "", `${relative(SRC, f)} must not have module side effects`);
   }
+});
+
+// ---------- user-facing wording (plan D9) ----------
+
+// The owner's choices are "decisions" in every user-facing string: "rule" is
+// MTG's word for the game's rules and for card rulings. The noun stays where
+// it means a rule (rules text, a rule violation); the verb never appears.
+// Strings and JSX text are read with the TypeScript parser, so identifiers,
+// comments, CSS class names and route paths (all outside the text) pass.
+describe("decisions wording", () => {
+  const RULE = /\b[Rr]ul(e|ed|es|ing|ings)\b/;
+  // Each allowed phrase uses the noun. Anything else fails, verb or not, so a
+  // new use is a deliberate addition here.
+  const NOUN = [/\brules text\b/i, /\brule violation\b/i, /\bcard rules\b/i, /\brules preview\b/i, /^Rules at 15px/, /The rules are in web\/DESIGN\.md/];
+
+  function userText(file: string, source = readFileSync(file, "utf8")): Array<{ text: string; line: number }> {
+    const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+    const out: Array<{ text: string; line: number }> = [];
+    const visit = (node: ts.Node) => {
+      if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) return;
+      if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node) || ts.isJsxText(node)) {
+        const text = node.text;
+        // A single token with no spaces is an identifier, a key or a path.
+        if (/\s/.test(text.trim()) || ts.isJsxText(node) || /^[A-Z]/.test(text))
+          out.push({ text, line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1 });
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+    return out;
+  }
+
+  test("finds strings and JSX text, not identifiers or comments", () => {
+    const probe = `// we rule here\nconst rule = "rule";\nconst a = <p title="Rule on it">You ruled {rule} it</p>;\nconst b = \`Ruling \${a}\`;\n`;
+    const found = userText("probe.tsx", probe).filter(({ text }) => RULE.test(text)).map(({ line }) => line);
+    assert.deepEqual(found, [3, 3, 4]);
+  });
+
+  test("features and app say decide, accept or reject, never rule", () => {
+    const problems: string[] = [];
+    for (const f of files) {
+      const rel = posix(relative(SRC, f));
+      if (!/^(features|app)\//.test(rel)) continue;
+      for (const { text, line } of userText(f)) {
+        if (!RULE.test(text)) continue;
+        if (NOUN.some((p) => p.test(text))) continue;
+        problems.push(`${rel}:${line} says "${text.trim().slice(0, 80)}"; use decide, accept or reject (plan D9)`);
+      }
+    }
+    assert.deepEqual(problems, [], `\n${problems.join("\n")}\n`);
+  });
 });
 
 // ---------- the design-system inventory ----------

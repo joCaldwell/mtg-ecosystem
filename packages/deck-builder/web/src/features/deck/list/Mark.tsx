@@ -5,7 +5,7 @@ export type MarkKind = "memory" | "decision";
 // What each marker says, shared by the rows and the legend under the list.
 export const MARK_MEANING: Record<MarkKind, string> = {
   memory: "A memory is linked to this card",
-  decision: "You have ruled on this card before",
+  decision: "You’ve decided on this card before",
 };
 
 /** A 6px marker on a card row. Shape as well as colour tells them apart. */

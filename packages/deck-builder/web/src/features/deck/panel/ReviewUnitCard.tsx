@@ -1,4 +1,4 @@
-// One decision (spec §8.1): a swap or a group is ruled together, so it is one
+// One decision (spec §8.1): a swap or a group is decided together, so it is one
 // card with one pair of buttons, however many cards it names.
 
 import { useEffect, useRef } from "react";
@@ -11,10 +11,10 @@ import { ReviewItemLine } from "./ReviewItemLine.tsx";
 import styles from "./ReviewUnitCard.module.css";
 
 const KIND: Record<ReviewUnit["kind"], string> = {
-  swap: "Swap · ruled together",
+  swap: "Swap · decided together",
   add: "Add",
   cut: "Cut",
-  group: "Group · ruled together",
+  group: "Group · decided together",
 };
 
 export function ReviewUnitCard({ unit, index, review }: { unit: ReviewUnit; index: number; review: Review }) {
