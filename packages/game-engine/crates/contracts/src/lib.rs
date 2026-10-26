@@ -99,7 +99,9 @@ pub struct ManaCost {
     pub generic: Quantity,
     pub colored: Vec<Color>,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum CardKind {
     Land,
@@ -112,7 +114,11 @@ pub enum CardKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Characteristics {
+    /// Canonical execution type: creature first, then land, artifact, enchantment.
     pub kind: CardKind,
+    /// Other simultaneous card types; empty preserves existing catalog bytes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub additional_types: Vec<CardKind>,
     pub subtypes: Vec<String>,
     pub basic: bool,
     pub legendary: bool,
@@ -122,6 +128,12 @@ pub struct Characteristics {
     pub power: Option<Quantity>,
     pub toughness: Option<Quantity>,
 }
+impl Characteristics {
+    pub fn has_type(&self, kind: CardKind) -> bool {
+        self.kind == kind || self.additional_types.contains(&kind)
+    }
+}
+
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
 )]
@@ -848,6 +860,17 @@ impl Definition {
                 });
             }
         }
+        for kind in &self.characteristics.additional_types {
+            match kind {
+                CardKind::Artifact => {
+                    set.insert(Capability::CastArtifactV1);
+                }
+                CardKind::Enchantment => {
+                    set.insert(Capability::CastEnchantmentV1);
+                }
+                _ => {}
+            }
+        }
         if self
             .characteristics
             .subtypes
@@ -1018,6 +1041,21 @@ impl Definition {
             return Err("unbound mana X".into());
         }
         let c = &self.characteristics;
+        // Combined types use one canonical execution type and complete type
+        // membership everywhere filters apply. No land-creature casting path
+        // or mixed spell/permanent type is implemented yet.
+        if c.additional_types
+            .iter()
+            .any(|k| !matches!(k, CardKind::Artifact | CardKind::Enchantment) || *k == c.kind)
+            || c.additional_types.windows(2).any(|w| w[0] >= w[1])
+            || (!c.additional_types.is_empty()
+                && !matches!(
+                    c.kind,
+                    CardKind::Creature | CardKind::Land | CardKind::Artifact
+                ))
+        {
+            return Err("unsupported or noncanonical combined card types".into());
+        }
         let equipment = c.kind == CardKind::Artifact && c.subtypes == ["Equipment"];
         let aura = c.kind == CardKind::Enchantment && c.subtypes == ["Aura"];
         if !self.keywords.is_empty() && c.kind != CardKind::Creature {
@@ -1344,8 +1382,6 @@ impl Definition {
             CardKind::Enchantment | CardKind::Artifact => {
                 let p = self.spell.as_ref().ok_or("missing enchantment spell")?;
                 if c.basic
-                    || c.legendary
-                    || (!c.subtypes.is_empty() && !equipment && !aura)
                     || c.power.is_some()
                     || c.toughness.is_some()
                     || self.intrinsic_zone.is_some()
@@ -1364,15 +1400,13 @@ impl Definition {
                 }
             }
             CardKind::Land => {
-                if c.legendary
-                    || if c.basic {
-                        c.subtypes.len() != 1
-                            || basic_land_color(&c.subtypes[0]).is_none()
-                            || !self.mana_abilities.is_empty()
-                    } else {
-                        !c.subtypes.is_empty() || self.mana_abilities.is_empty()
-                    }
-                    || c.mana_cost.generic != Quantity::zero()
+                if if c.basic {
+                    c.subtypes.len() != 1
+                        || basic_land_color(&c.subtypes[0]).is_none()
+                        || !self.mana_abilities.is_empty()
+                } else {
+                    !c.subtypes.is_empty() || self.mana_abilities.is_empty()
+                } || c.mana_cost.generic != Quantity::zero()
                     || !c.mana_cost.colored.is_empty()
                     || c.power.is_some()
                     || c.toughness.is_some()
@@ -1407,7 +1441,6 @@ impl Definition {
             CardKind::Instant | CardKind::Sorcery => {
                 if c.legendary
                     || c.basic
-                    || !c.subtypes.is_empty()
                     || c.power.is_some()
                     || c.toughness.is_some()
                     || self.intrinsic_zone.is_some()

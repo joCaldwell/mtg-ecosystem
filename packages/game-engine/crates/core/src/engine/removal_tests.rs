@@ -1220,3 +1220,124 @@ fn sage_may_is_not_performed_for_a_departed_controller() {
         assert_eq!(g.zone(object(g, 1)), Some(Zone::Battlefield));
     });
 }
+
+#[test]
+fn combined_types_participate_in_every_filter_and_set() {
+    let spec = |filter: &PermanentFilter| TargetSpec {
+        slot: 0,
+        selection_id: "combined-type-target".into(),
+        chooser: Chooser::Controller,
+        stage: EvaluationStage::Announcement,
+        domain: TargetDomain::BattlefieldPermanent,
+        filter: Some(filter.clone()),
+    };
+    let mut p = prepared(&[("Grizzly Bears", 0, false), ("Llanowar Elves", 0, false)]);
+    let c = Arc::make_mut(&mut p.catalog);
+    let d = c
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Grizzly Bears")
+        .unwrap();
+    d.characteristics.additional_types = vec![CardKind::Enchantment, CardKind::Artifact];
+    d.capabilities = d.requirements();
+    d.validate().unwrap();
+    p.catalog_digest = digest(c).unwrap();
+    let g = Game::new(p);
+    let hybrid = object(&g, 0);
+    let ordinary = object(&g, 1);
+    for kind in [
+        CardKind::Artifact,
+        CardKind::Enchantment,
+        CardKind::Creature,
+    ] {
+        let f = PermanentFilter {
+            types: vec![kind],
+            non_types: vec![],
+            non_colors: vec![],
+            opponent: false,
+        };
+        assert!(g.permanent_target_legal(hybrid, PlayerId(1), &spec(&f)));
+        assert_eq!(
+            g.permanent_target_legal(ordinary, PlayerId(1), &spec(&f)),
+            kind == CardKind::Creature
+        );
+        let excluded = PermanentFilter {
+            types: vec![],
+            non_types: vec![kind],
+            non_colors: vec![],
+            opponent: false,
+        };
+        assert!(!g.permanent_target_legal(hybrid, PlayerId(1), &spec(&excluded)));
+    }
+    let f = SacrificeFilter {
+        types: vec![CardKind::Artifact],
+        subtypes: vec![],
+    };
+    assert_eq!(g.sacrifice_candidates(PlayerId(0), &f), vec![hybrid]);
+    let union = SacrificeFilter {
+        types: vec![CardKind::Artifact, CardKind::Creature],
+        subtypes: vec![],
+    };
+    assert_eq!(
+        g.sacrifice_candidates(PlayerId(0), &union),
+        vec![hybrid, ordinary]
+    );
+    assert_eq!(
+        g.objects_in_set(&ObjectSet::Enchantments, PlayerId(0)),
+        vec![hybrid]
+    );
+    assert_eq!(
+        g.objects_in_set(&ObjectSet::Creatures, PlayerId(0)),
+        vec![hybrid, ordinary]
+    );
+    let c = g.characteristics(hybrid).unwrap();
+    assert!(
+        c.has_type(CardKind::Artifact)
+            && c.has_type(CardKind::Enchantment)
+            && c.has_type(CardKind::Creature)
+    );
+}
+
+#[test]
+fn artifact_creature_cast_is_both_an_artifact_spell_and_a_creature_permanent() {
+    let mut p = prepared(&[
+        ("Grizzly Bears", 0, true),
+        ("Forest", 0, false),
+        ("Forest", 0, false),
+    ]);
+    let c = Arc::make_mut(&mut p.catalog);
+    let d = c
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Grizzly Bears")
+        .unwrap();
+    d.characteristics.additional_types = vec![CardKind::Artifact];
+    d.capabilities = d.requirements();
+    d.validate().unwrap();
+    p.catalog_digest = digest(c).unwrap();
+    traces(p, |g| {
+        announce(g, 0, vec![]);
+        for kind in [CardKind::Artifact, CardKind::Creature] {
+            let spec = TargetSpec {
+                slot: 0,
+                selection_id: "spell".into(),
+                chooser: Chooser::Controller,
+                stage: EvaluationStage::Announcement,
+                domain: TargetDomain::StackSpell,
+                filter: Some(PermanentFilter {
+                    types: vec![kind],
+                    non_types: vec![],
+                    non_colors: vec![],
+                    opponent: false,
+                }),
+            };
+            assert_eq!(g.eligible_stack_targets_for(&spec, None).len(), 1);
+        }
+        resolve(g, vec![]);
+        assert_eq!(g.current(object(g, 0)).unwrap().zone, Zone::Battlefield);
+        assert!(
+            !attackers(g).contains(&object(g, 0)),
+            "a newly cast artifact creature is summoning sick"
+        );
+    });
+}

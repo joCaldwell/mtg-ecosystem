@@ -20,7 +20,7 @@ impl Game {
                 match set {
                     ObjectSet::Creatures => creature,
                     ObjectSet::NonlandPermanents => d.characteristics.kind != CardKind::Land,
-                    ObjectSet::Enchantments => d.characteristics.kind == CardKind::Enchantment,
+                    ObjectSet::Enchantments => d.characteristics.has_type(CardKind::Enchantment),
                     ObjectSet::AttackingCreatures => {
                         creature && self.state.combat.iter().any(|a| a.attacker == o.id)
                     }

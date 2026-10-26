@@ -70,6 +70,7 @@ fn token_definition(source: &Definition, id: CardId, token: &CreatureToken) -> D
     d.name = format!("{} Token", token.subtypes.join(" "));
     d.characteristics = Characteristics {
         kind: CardKind::Creature,
+        additional_types: vec![],
         subtypes: token.subtypes.clone(),
         basic: false,
         legendary: false,

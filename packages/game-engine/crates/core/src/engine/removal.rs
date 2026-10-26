@@ -28,8 +28,8 @@ impl Game {
         }) && self.definition(object.card).is_ok_and(|d| {
             let c = &d.characteristics;
             !matches!(c.kind, CardKind::Instant | CardKind::Sorcery)
-                && (f.types.is_empty() || f.types.contains(&c.kind))
-                && !f.non_types.contains(&c.kind)
+                && (f.types.is_empty() || f.types.iter().any(|k| c.has_type(*k)))
+                && !f.non_types.iter().any(|k| c.has_type(*k))
                 && !c.colors.iter().any(|c| f.non_colors.contains(c))
         })
     }
@@ -59,8 +59,9 @@ impl Game {
                         .iter()
                         .find(|e| e.id == *id)
                         .is_some_and(|e| {
-                            self.definition(e.source.card)
-                                .is_ok_and(|d| f.types.contains(&d.characteristics.kind))
+                            self.definition(e.source.card).is_ok_and(|d| {
+                                f.types.iter().any(|k| d.characteristics.has_type(*k))
+                            })
                         })
                 })
             })

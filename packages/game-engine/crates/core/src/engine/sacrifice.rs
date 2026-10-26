@@ -14,7 +14,8 @@ impl Game {
             .filter(|o| o.zone == Zone::Battlefield && o.controller == player)
             .filter(|o| {
                 self.definition(o.id.card).is_ok_and(|d| {
-                    (filter.types.is_empty() || filter.types.contains(&d.characteristics.kind))
+                    (filter.types.is_empty()
+                        || filter.types.iter().any(|k| d.characteristics.has_type(*k)))
                         && filter
                             .subtypes
                             .iter()

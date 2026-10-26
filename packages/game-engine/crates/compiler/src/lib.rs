@@ -8,7 +8,11 @@ pub mod fixtures {
     include!(concat!(env!("OUT_DIR"), "/fixtures.rs"));
 }
 pub mod catalog;
+pub mod coverage;
+mod normalization;
+mod type_line;
 pub use catalog::*;
+use normalization::source_lines;
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
@@ -145,13 +149,29 @@ impl<'de> Deserialize<'de> for SourceKeyword {
             .and_then(|k| k.as_str())
             .ok_or_else(|| D::Error::custom("missing keyword"))?
             .to_owned();
+        let keyword = match keyword.as_str() {
+            "first-strike" => "first strike".to_owned(),
+            "double-strike" => "double strike".to_owned(),
+            _ => keyword,
+        };
+        if !matches!(keyword.as_str(), "equip" | "enchant")
+            && serde_json::from_value::<KeywordAbility>(serde_json::Value::String(keyword.clone()))
+                .is_err()
+        {
+            return Err(D::Error::custom(format!("keyword:{keyword}")));
+        }
         let allowed = match keyword.as_str() {
             "equip" => ["keyword", "cost"].as_slice(),
             "enchant" => ["keyword", "filter"].as_slice(),
             _ => ["keyword"].as_slice(),
         };
         if object.len() != allowed.len() || object.keys().any(|k| !allowed.contains(&k.as_str())) {
-            return Err(D::Error::custom("unsupported complete keyword shape"));
+            let field = object
+                .keys()
+                .find(|k| !allowed.contains(&k.as_str()))
+                .map(String::as_str)
+                .unwrap_or("missing_parameter");
+            return Err(D::Error::custom(format!("keyword:{keyword}:field:{field}")));
         }
         let cost = object
             .get("cost")
@@ -632,84 +652,18 @@ fn mana_cost(text: &str) -> Result<ManaCost, Failure> {
     Ok(cost)
 }
 
-fn source_lines(text: &str, name: &str) -> Result<Vec<String>, Failure> {
-    // Only the first subset's ASCII text/reminder normalization is consumed.
-    // This checks source block association; it does not interpret rule bodies.
-    // CR 207.2a, same pinned rules URL as the parser's normalize.ts.
-    if text
-        .chars()
-        .any(|c| !c.is_ascii() && !matches!(c, '—' | '•'))
-    {
-        return Err(unsupported(
-            "source.oracle_text",
-            "normalization outside the first source adapter subset",
-        ));
-    }
-    let mut normalized = String::new();
-    let mut depth = 0_u32;
-    for c in text.chars() {
-        match c {
-            '(' => {
-                depth = depth
-                    .checked_add(1)
-                    .ok_or_else(|| invalid("source.oracle_text", "parenthesis depth limit"))?;
-                if depth == 1 {
-                    normalized.push(' ');
-                }
-            }
-            ')' if depth > 0 => depth -= 1,
-            ')' => return Err(invalid("source.oracle_text", "unbalanced reminder text")),
-            '\n' => normalized.push('\n'),
-            c if depth == 0 => normalized.push(c),
-            _ => {}
-        }
-    }
-    if depth != 0 {
-        return Err(invalid("source.oracle_text", "unbalanced reminder text"));
-    }
-    let lines: Vec<String> = normalized
-        .lines()
-        .map(|line| {
-            let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
-            // The pinned archive also normalizes a complete self-name at the
-            // start of a subsequent sentence (Smash to Smithereens; CR 201.5).
-            let line = line.replace(&format!(". {name} "), ". ~ ");
-            // The reviewed archive normalizes a complete source name at the
-            // start of a block to ~ (CR 201.5). Keep ASCII word boundaries;
-            // literal-name and legendary-short-name grammar is not interpreted.
-            let (prefix, body) = line
-                .strip_prefix("• ")
-                .map_or(("", line.as_str()), |body| ("• ", body));
-            match body.strip_prefix(name) {
-                Some(rest)
-                    if rest
-                        .chars()
-                        .next()
-                        .is_some_and(|c| !c.is_ascii_alphanumeric() && c != '_') =>
-                {
-                    format!("{prefix}~{rest}")
-                }
-                _ => line,
-            }
-        })
-        .filter(|line| !line.is_empty())
-        .collect();
-    // The parser groups a complete choose/bullet source block into one line
-    // entry. Preserve its newlines and account for every bullet, never discard
-    // unknown alternatives. CR700.2: selection semantics are bound from AST.
-    let mut blocks: Vec<String> = vec![];
-    for line in lines {
-        if line.starts_with("• ") {
-            let Some(previous) = blocks.last_mut().filter(|b| b.starts_with("Choose ")) else {
-                return Err(invalid("lines", "orphan modal source option"));
-            };
-            previous.push('\n');
-            previous.push_str(&line);
-        } else {
-            blocks.push(line);
-        }
-    }
-    Ok(blocks)
+fn read_abilities(raw: &str) -> Result<Vec<Ability>, Failure> {
+    // Keep the duplicate-key pass before serde's internally tagged mirrors.
+    // serde_path_to_error reports context without accepting unknown fields.
+    let tree: serde_json::Value = decode(raw, "abilities")?;
+    let mut de = serde_json::Deserializer::from_str(raw);
+    let abilities = serde_path_to_error::deserialize(&mut de).map_err(|e| {
+        let path = format!("abilities{}", e.path());
+        let code = coverage::reason_code(&path, &e.inner().to_string(), &tree);
+        unsupported(&path, code)
+    })?;
+    de.end().map_err(|e| invalid("abilities", e.to_string()))?;
+    Ok(abilities)
 }
 
 pub fn compile(manifest: &str, record: &str) -> CompileResult {
@@ -747,9 +701,28 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             "source or diagnostic binding hash mismatch",
         ));
     }
+    // Multi-face Scryfall records intentionally lack single-face oracle_text,
+    // mana_cost, etc. Classify the layout before decoding that adapter. Hashes
+    // above still bind every source byte; no default fills missing fields.
+    let shape: serde_json::Value = decode(r.source.get(), "source")?;
+    if shape.get("card_faces").is_some_and(|v| !v.is_null()) {
+        let layout = shape["layout"]
+            .as_str()
+            .ok_or_else(|| invalid("source.layout", "missing layout"))?;
+        return Err(unsupported(
+            "source.layout",
+            format!("multi_face_layout:{layout}"),
+        ));
+    }
     let source: Source = decode(r.source.get(), "source")?;
     if source.oracle_id != r.oracle_identity || source.id.is_empty() || source.name.is_empty() {
         return Err(invalid("source", "missing or mismatched card identity"));
+    }
+    if source.loyalty.is_some() {
+        return Err(unsupported("source.type_line.card_type", "Planeswalker"));
+    }
+    if source.defense.is_some() {
+        return Err(unsupported("source.type_line.card_type", "Battle"));
     }
     if source.layout != "normal"
         || source.card_faces.is_some()
@@ -768,11 +741,21 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     if !result.ok || result.name != source.name || result.lines.iter().any(|l| !l.ok) {
         return Err(invalid("faces[0].result", "incomplete or mismatched parse"));
     }
-    if source_lines(&source.oracle_text, &source.name)?
+    let ast_sha256 = r
+        .ast_sha256
+        .ok_or_else(|| invalid("astSha256", "missing successful AST hash"))?;
+    if sha256(format!("[{}]", result.abilities.get()).as_bytes()) != ast_sha256 {
+        return Err(invalid("astSha256", "successful AST hash mismatch"));
+    }
+    let abilities: Vec<Ability> = read_abilities(result.abilities.get())?;
+    // Only understood whole-card ASTs reach source normalization. Unsupported
+    // nodes are rejected first; every candidate for admission still proves the
+    // exact complete normalized source and line/aggregate mirror below.
+    if source_lines(&source.oracle_text, &source.name, &source.type_line)?
         != result
             .lines
             .iter()
-            .map(|l| l.text.clone())
+            .map(|l| normalization::literal_spelling(&l.text))
             .collect::<Vec<_>>()
     {
         return Err(invalid(
@@ -780,14 +763,6 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             "source contains unaccounted or mismatched normalized blocks",
         ));
     }
-    let ast_sha256 = r
-        .ast_sha256
-        .ok_or_else(|| invalid("astSha256", "missing successful AST hash"))?;
-    if sha256(format!("[{}]", result.abilities.get()).as_bytes()) != ast_sha256 {
-        return Err(invalid("astSha256", "successful AST hash mismatch"));
-    }
-    let abilities: Vec<Ability> =
-        strict_read(result.abilities.get()).map_err(|e| unsupported("abilities", e))?;
     if result.lines.len() != abilities.len() {
         return Err(invalid("lines", "unaccounted ability block"));
     }
@@ -798,26 +773,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             return Err(invalid("lines", "line and aggregate ability disagree"));
         }
     }
-    let (types, subtypes) = source
-        .type_line
-        .split_once(" — ")
-        .unwrap_or((&source.type_line, ""));
-    let (kind, basic) = match types {
-        "Artifact" => (CardKind::Artifact, false),
-        "Land" => (CardKind::Land, false),
-        "Basic Land" => (CardKind::Land, true),
-        "Creature" => (CardKind::Creature, false),
-        "Legendary Creature" => (CardKind::Creature, false),
-        "Instant" => (CardKind::Instant, false),
-        "Sorcery" => (CardKind::Sorcery, false),
-        "Enchantment" => (CardKind::Enchantment, false),
-        _ => {
-            return Err(unsupported(
-                "source.type_line",
-                "unsupported intrinsic type/supertype family",
-            ));
-        }
-    };
+    let types = type_line::parse(&source.type_line)?;
+    let kind = types.kind;
+    let basic = types.basic;
     let power = source
         .power
         .map(|s| s.parse::<Quantity>())
@@ -840,9 +798,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         name: source.name,
         characteristics: Characteristics {
             kind,
+            additional_types: types.additional_types,
             basic,
-            legendary: types == "Legendary Creature",
-            subtypes: subtypes.split_whitespace().map(str::to_owned).collect(),
+            legendary: types.legendary,
+            subtypes: types.subtypes,
             mana_cost: mana_cost(&source.mana_cost.replace("{X}", ""))?,
             colors: source.colors,
             color_identity: source.color_identity,
@@ -875,11 +834,6 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     };
     match kind {
         CardKind::Land | CardKind::Creature | CardKind::Artifact | CardKind::Enchantment => {
-            if kind == CardKind::Enchantment
-                && (source.oracle_text.is_empty() || abilities.is_empty())
-            {
-                return Err(unsupported("abilities", "empty enchantment behavior"));
-            }
             if kind == CardKind::Land && basic && !abilities.is_empty() {
                 return Err(unsupported(
                     "abilities",
@@ -983,7 +937,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                             if keyword.cost.is_some() || keyword.filter.is_some() {
                                 return Err(unsupported(
                                     "keyword",
-                                    "unsupported keyword parameters",
+                                    format!("keyword:{}:parameters", keyword.keyword),
                                 ));
                             }
                             match keyword.keyword.as_str() {
@@ -1009,7 +963,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                 _ => {
                                     return Err(unsupported(
                                         "abilities.keywords",
-                                        "unsupported whole-card keyword family",
+                                        format!("keyword:{}", keyword.keyword),
                                     ));
                                 }
                             }
@@ -2970,6 +2924,201 @@ fn lower_activation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn strict_mirror_reports_specific_nodes_keywords_and_fields() {
+        for (raw, expected) in [
+            (
+                r#"[{"kind":"future-ability","payload":{}}]"#,
+                "kind:future-ability",
+            ),
+            (
+                r#"[{"kind":"triggered","trigger":{"trigger":"phase"},"effects":[]}]"#,
+                "trigger:phase",
+            ),
+            (
+                r#"[{"kind":"spell","effects":[{"steps":[{"effect":"gain-abilities"}]}]}]"#,
+                "effect:gain-abilities",
+            ),
+            (
+                r#"[{"kind":"keywords","keywords":[{"keyword":"ward","cost":[]}]}]"#,
+                "keyword:ward",
+            ),
+            (
+                r#"[{"kind":"keywords","keywords":[{"keyword":"flying","extra":true}]}]"#,
+                "keyword:flying:field:extra",
+            ),
+        ] {
+            let failure = read_abilities(raw).unwrap_err();
+            assert!(failure.unsupported);
+            assert_eq!(failure.reason, expected);
+        }
+        let failure =
+            read_abilities(r#"[{"kind":"spell","effects":[],"unknownClause":true}]"#).unwrap_err();
+        assert!(failure.unsupported && failure.reason.contains("unknownClause"));
+        let failure =
+            read_abilities(r#"[{"kind":"keywords","keywords":[],"keywords":[]}]"#).unwrap_err();
+        assert!(!failure.unsupported, "duplicates remain invalid");
+        let raw = fixtures::COMBAT_KEYWORD_RECORDS
+            .iter()
+            .find(|(name, _)| *name == "youthful-knight")
+            .unwrap()
+            .1;
+        let alias = changed_source(raw, |r| {
+            r["faces"][0]["result"]["abilities"][0]["keywords"][0]["keyword"] =
+                "first-strike".into();
+            r["faces"][0]["result"]["lines"][0]["ability"] =
+                r["faces"][0]["result"]["abilities"][0].clone();
+        });
+        let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, &alias) else {
+            panic!("implemented keyword alias must lower");
+        };
+        assert_eq!(definition.keywords, [KeywordAbility::FirstStrike]);
+    }
+
+    #[test]
+    fn combined_types_preserve_all_types_and_reject_missing_runtime_types() {
+        for line in [
+            "Artifact Creature — Bear",
+            "Legendary Artifact Creature — Bear",
+            "Enchantment Creature — Bear",
+            "Legendary Enchantment Creature — Bear",
+            "Artifact Enchantment Creature — Bear",
+            "Creature Artifact — Bear",
+        ] {
+            let raw = changed_record(1, |r| {
+                r["source"]["type_line"] = line.into();
+            });
+            let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, &raw) else {
+                panic!("{line}");
+            };
+            definition.validate().unwrap();
+            assert!(definition.characteristics.has_type(CardKind::Creature));
+            assert_eq!(
+                definition.characteristics.has_type(CardKind::Artifact),
+                line.contains("Artifact")
+            );
+            assert_eq!(
+                definition.characteristics.has_type(CardKind::Enchantment),
+                line.contains("Enchantment")
+            );
+            assert_eq!(
+                definition.characteristics.legendary,
+                line.contains("Legendary")
+            );
+            let mut bad = *definition;
+            bad.characteristics.additional_types.push(CardKind::Land);
+            bad.capabilities = bad.requirements();
+            assert!(bad.validate().is_err());
+        }
+        let raw = fixtures::EFFECT_RECORDS
+            .iter()
+            .find(|(name, _)| *name == "furnace-of-rath")
+            .unwrap()
+            .1;
+        let raw = changed_source(raw, |r| {
+            r["source"]["type_line"] = "Legendary Enchantment".into();
+        });
+        assert!(matches!(
+            compile(fixtures::MANIFEST, &raw),
+            CompileResult::Lowered { .. }
+        ));
+        // Spell subtypes are retained metadata. Their printed abilities still
+        // have to lower; Arcane/Lesson do not add an implicit runtime action.
+        for subtype in ["Arcane", "Lesson"] {
+            let raw = changed_record(3, |r| {
+                r["source"]["type_line"] = format!("Instant — {subtype}").into();
+            });
+            let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, &raw) else {
+                panic!("inert spell subtype {subtype}");
+            };
+            assert_eq!(definition.characteristics.subtypes, [subtype]);
+            definition.validate().unwrap();
+        }
+        for (line, reason) in [
+            ("Planeswalker — Ada", "Planeswalker"),
+            ("Battle — Siege", "Battle"),
+            ("Snow Creature — Bear", "Snow"),
+            ("World Enchantment", "World"),
+        ] {
+            let raw = changed_record(1, |r| {
+                r["source"]["type_line"] = line.into();
+            });
+            assert!(
+                matches!(compile(fixtures::MANIFEST, &raw), CompileResult::Unsupported { reason: actual, .. } if actual == reason)
+            );
+        }
+    }
+
+    #[test]
+    fn multi_face_layout_is_unsupported_without_single_face_defaults() {
+        let raw = changed_record(1, |r| {
+            r["source"]["layout"] = "transform".into();
+            r["source"]["card_faces"] = serde_json::json!([{}, {}]);
+            r["source"].as_object_mut().unwrap().remove("oracle_text");
+            r["source"].as_object_mut().unwrap().remove("mana_cost");
+        });
+        assert!(
+            matches!(compile(fixtures::MANIFEST, &raw), CompileResult::Unsupported { reason, .. } if reason == "multi_face_layout:transform")
+        );
+        let mut bad: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        bad["sourceSha256"] = "0".repeat(64).into();
+        assert!(matches!(
+            compile(fixtures::MANIFEST, &bad.to_string()),
+            CompileResult::Invalid { .. }
+        ));
+        let raw = changed_record(1, |r| {
+            r["source"].as_object_mut().unwrap().remove("oracle_text");
+        });
+        assert!(matches!(
+            compile(fixtures::MANIFEST, &raw),
+            CompileResult::Invalid { .. }
+        ));
+    }
+
+    #[test]
+    fn source_normalization_accounts_for_every_clause_and_literal_name() {
+        assert_eq!(source_lines("When Aether Bear enters, put a counter on Aether Bear. Aether Bear's power is 2.\n(Outer (nested) reminder) Flying", "Aether Bear", "Creature").unwrap(), ["When ~ enters, put a counter on ~. ~'s power is 2.", "Flying"]);
+        assert_eq!(
+            source_lines(
+                "When Ada enters, Ada, the Wise draws a card.",
+                "Ada, the Wise",
+                "Legendary Creature"
+            )
+            .unwrap(),
+            ["When ~ enters, ~ draws a card."]
+        );
+        assert_eq!(
+            source_lines("Fearsome fear Fear’s power is 1.", "Fear", "Creature").unwrap(),
+            ["Fearsome fear ~'s power is 1."]
+        );
+        assert_eq!(
+            source_lines(
+                "Search for cards named Squadron Hawk.",
+                "Squadron Hawk",
+                "Creature"
+            )
+            .unwrap(),
+            ["Search for cards named Squadron Hawk."]
+        );
+        assert_eq!(
+            source_lines(
+                "When Ada enters, target Ada planeswalker gains loyalty.",
+                "Ada, the Wise",
+                "Legendary Creature"
+            )
+            .unwrap(),
+            ["When ~ enters, target Ada planeswalker gains loyalty."]
+        );
+        assert!(source_lines("Flying (unclosed", "Bear", "Creature").is_err());
+        // The expected line is still byte-exact after normalization.
+        let raw = changed_record(3, |r| {
+            r["faces"][0]["result"]["lines"][0]["text"] = "When ~ enters, draw two cards.".into();
+        });
+        assert!(
+            matches!(compile(fixtures::MANIFEST, &raw), CompileResult::Invalid { path, .. } if path == "lines")
+        );
+    }
+
     #[test]
     fn wipes_v20_complete_source_pairs_and_historical_bytes() {
         let c = embedded_catalog("wipes").unwrap();
@@ -6471,9 +6620,6 @@ mod tests {
         let mutations: Vec<Mutation> = vec![
             |r| {
                 r["source"]["oracle_text"] = "(Flying)".into();
-            },
-            |r| {
-                r["source"]["type_line"] = "Artifact Creature — Bear".into();
             },
             |r| {
                 r["source"]["mana_cost"] = "{X}{G}".into();
