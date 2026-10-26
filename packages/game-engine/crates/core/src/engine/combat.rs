@@ -572,6 +572,28 @@ impl Game {
         cleanup: bool,
         changed: bool,
     ) -> Result<(), String> {
+        self.stabilization_wave_with_legends(resume, cleanup, changed, None)
+    }
+    pub(super) fn stabilization_wave_with_legends(
+        &mut self,
+        resume: Frame,
+        cleanup: bool,
+        changed: bool,
+        kept: Option<Vec<ObjectId>>,
+    ) -> Result<(), String> {
+        let groups = self.legend_groups()?;
+        if kept.is_none() && !groups.is_empty() {
+            self.state.frame = Frame::LegendRule {
+                resume: Box::new(Frame::Stabilize {
+                    resume: Box::new(resume),
+                    cleanup,
+                    changed,
+                }),
+                groups,
+                kept: vec![],
+            };
+            return Ok(());
+        }
         let mut occurrences = vec![];
         for o in self
             .state
@@ -600,6 +622,28 @@ impl Game {
             }
         }
         self.attachment_sbas(&mut occurrences)?;
+        // CR 704.5j: put the unchosen legends into their owners' graveyards.
+        // This is neither destruction nor sacrifice (CR 701.8/701.21).
+        for group in &groups {
+            let keep = kept
+                .as_ref()
+                .and_then(|kept| kept.iter().find(|id| group.contains(id)))
+                .ok_or("missing legend keep choice")?;
+            for object in group.iter().filter(|id| *id != keep) {
+                if !occurrences.iter().any(|e| {
+                    matches!(e,
+                    ProposedEvent::StateBasedGraveyard { object: id, .. }
+                    | ProposedEvent::Move { object: id, .. } if id == object)
+                }) {
+                    occurrences.push(ProposedEvent::Move {
+                        object: *object,
+                        destination: Zone::Graveyard {
+                            owner: self.state.cards[&object.card].owner,
+                        },
+                    });
+                }
+            }
+        }
         // CR 111.7/704.5d: the previous movement already collected dies
         // triggers using lookback. Ceasing is its own next SBA wave.
         occurrences.extend(

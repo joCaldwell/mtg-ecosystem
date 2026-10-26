@@ -268,6 +268,7 @@ mod combat_tests;
 mod commander_damage_library_tests;
 #[cfg(test)]
 mod commander_tests;
+mod legend;
 mod scenarios;
 pub use combat::*;
 mod turns;
@@ -864,6 +865,11 @@ struct Resolving {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 enum Frame {
+    LegendRule {
+        resume: Box<Frame>,
+        groups: Vec<Vec<ObjectId>>,
+        kept: Vec<ObjectId>,
+    },
     AnnounceX {
         cast: Casting,
     },
@@ -965,6 +971,9 @@ enum Frame {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    LegendRule {
+        keep: ObjectId,
+    },
     AnnounceX {
         value: Quantity,
     },
@@ -1074,6 +1083,12 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    LegendRule {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<ObjectId>,
+        previous_choices: Vec<ObjectId>,
+    },
     AnnounceX {
         decision_id: u64,
         player: PlayerId,
@@ -1254,6 +1269,7 @@ impl Request {
             | Self::Sacrifice { decision_id, .. }
             | Self::SacrificeCost { decision_id, .. }
             | Self::ForcedSacrifice { decision_id, .. }
+            | Self::LegendRule { decision_id, .. }
             | Self::ResolveDiscard { decision_id, .. }
             | Self::SpendMana { decision_id, .. }
             | Self::CommanderReturn { decision_id, .. }
@@ -1285,6 +1301,7 @@ impl Request {
             | Self::Sacrifice { player, .. }
             | Self::SacrificeCost { player, .. }
             | Self::ForcedSacrifice { player, .. }
+            | Self::LegendRule { player, .. }
             | Self::ResolveDiscard { player, .. }
             | Self::SpendMana { player, .. }
             | Self::CommanderReturn { player, .. }
@@ -2208,6 +2225,9 @@ impl Game {
             return Ok((req.player() == viewer).then_some(req));
         }
         let req = match &self.state.frame {
+            Frame::LegendRule { .. } => {
+                return Ok(self.legend_request()?.filter(|r| r.player() == viewer));
+            }
             Frame::EntityTargets { .. } => Request::EntityTargets {
                 decision_id: self.state.revision,
                 player: self.top()?.controller,
@@ -2317,6 +2337,9 @@ impl Game {
         Ok((req.player() == viewer).then_some(req))
     }
     fn validate_response(&self, player: PlayerId, response: &Response) -> Result<(), String> {
+        if matches!(self.state.frame, Frame::LegendRule { .. }) {
+            return self.validate_legend_response(player, response);
+        }
         if let Frame::AnnounceX { .. } = self.state.frame {
             return if matches!(response, Response::AnnounceX { value } if !value.is_negative())
                 && self.top()?.controller == player
@@ -2409,6 +2432,9 @@ impl Game {
                     .spell
                     .as_ref()
                     .ok_or("missing cast program")?;
+                // CR 702.8a / 601.2: intrinsic flash lowers to instant timing;
+                // catalog validation binds that permission to the whole spell.
+                // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
                 if program.timing == SpellTiming::MainPhase && (!self.main_phase_action(player)) {
                     return Err("main-phase spell casting requires active-player main-phase priority and empty stack".into());
                 }
@@ -2585,6 +2611,7 @@ impl Game {
             return self.apply_departure(player);
         }
         match self.state.frame.clone() {
+            Frame::LegendRule { .. } => self.legend_step()?,
             Frame::SacrificeCost { .. }
             | Frame::ForcedSacrifice { .. }
             | Frame::OptionalDamage { .. } => self.sacrifice_step()?,
@@ -3293,6 +3320,7 @@ impl Game {
                 self.validate_response(pending.player, &pending.response)?;
             }
         }
+        self.validate_legend_state()?;
         self.validate_combat_state()
     }
     pub fn replay(prepared: Prepared, journal: &ReplayJournal) -> Result<Self, String> {

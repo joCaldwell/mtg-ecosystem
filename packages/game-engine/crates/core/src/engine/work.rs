@@ -641,6 +641,7 @@ impl Game {
                             | PlayerResponse::Sacrifice { .. }
                             | PlayerResponse::ResolveDiscard { .. },
                         )
+                        | (Frame::LegendRule { .. }, PlayerResponse::LegendRule { .. })
                         | (Frame::DamageEffects { .. }, PlayerResponse::DamageEffect { .. })
                         | (Frame::SpendMana { .. }, PlayerResponse::SpendMana { .. })
                         | (Frame::CommanderReturn { .. }, PlayerResponse::CommanderReturn { .. })

@@ -59,69 +59,38 @@ pub(crate) fn reason_code(path: &str, reason: &str, abilities: &Value) -> String
         if let Some(rest) = reason.strip_prefix(prefix)
             && let Some((value, _)) = rest.split_once('`')
         {
-            fn tag(v: &Value, value: &str) -> Option<String> {
-                match v {
-                    Value::Array(a) => a.iter().find_map(|v| tag(v, value)),
-                    Value::Object(o) => {
-                        for key in [
-                            "kind",
-                            "trigger",
-                            "effect",
-                            "keyword",
-                            "amount",
-                            "ref",
-                            "cost",
-                            "player",
-                            "modifier",
-                            "static",
-                            "event",
-                            "replacement",
-                            "mana",
-                            "shield",
-                            "prevent",
-                            "to",
-                            "cls",
-                        ] {
-                            if o.get(key).and_then(Value::as_str) == Some(value) {
-                                return Some(format!("{key}:{value}"));
-                            }
-                        }
-                        o.values().find_map(|v| tag(v, value))
-                    }
-                    _ => None,
-                }
-            }
-            return tag(abilities, value)
+            // `abilities` here is the failed typed node, not a whole-card
+            // search domain. Buffered enum locations are recovered by diagnostics.
+            let tag = abilities.as_object().and_then(|o| {
+                [
+                    "kind",
+                    "trigger",
+                    "effect",
+                    "keyword",
+                    "amount",
+                    "ref",
+                    "cost",
+                    "player",
+                    "modifier",
+                    "static",
+                    "event",
+                    "replacement",
+                    "mana",
+                    "shield",
+                    "prevent",
+                    "to",
+                    "cls",
+                ]
+                .into_iter()
+                .find(|key| o.get(*key).and_then(Value::as_str) == Some(value))
+            });
+            return tag
+                .map(|key| format!("{key}:{value}"))
                 .unwrap_or_else(|| format!("{}.{value}", stable_path(path)));
         }
     }
-    if reason.starts_with("unsupported complete keyword shape") {
-        fn keyword(v: &Value) -> Option<String> {
-            match v {
-                Value::Array(a) => a.iter().find_map(keyword),
-                Value::Object(o) => {
-                    if let Some(k) = o.get("keyword").and_then(Value::as_str) {
-                        let allowed = match k {
-                            "equip" => &["keyword", "cost"][..],
-                            "enchant" => &["keyword", "filter"][..],
-                            _ => &["keyword"][..],
-                        };
-                        if o.len() != allowed.len()
-                            || o.keys().any(|k| !allowed.contains(&k.as_str()))
-                        {
-                            return Some(format!("keyword:{k}"));
-                        }
-                    }
-                    o.values().find_map(keyword)
-                }
-                _ => None,
-            }
-        }
-        if let Some(k) = keyword(abilities) {
-            return k;
-        }
-    }
     if [
+        "subtype:",
         "multi_face_layout:",
         "keyword:",
         "kind:",
@@ -265,7 +234,14 @@ pub fn coverage(archive: &Path, out: &Path) -> Result<CoverageSummary, CoverageE
             excluded
         } else {
             match compile(header, raw) {
-                CompileResult::Lowered { definition } => match definition.validate() {
+                CompileResult::Lowered { definition } => match (Catalog {
+                    schema_version: 20,
+                    rules_edition: RULES_EDITION.into(),
+                    rules_sha256: RULES_SHA256.into(),
+                    definitions: vec![*definition],
+                })
+                .validate()
+                {
                     Ok(()) => ("lowered_validated", String::new()),
                     Err(e) => ("invalid", reason_code("ir", &e, ast)),
                 },
@@ -384,7 +360,7 @@ mod tests {
     }
     #[test]
     fn reason_codes_do_not_depend_on_serde_locations_or_array_offsets() {
-        let ast = serde_json::json!([{"kind":"triggered","trigger":{"trigger":"phase"}}]);
+        let ast = serde_json::json!({"trigger":"phase"});
         assert_eq!(
             reason_code(
                 "abilities[2]",

@@ -401,6 +401,7 @@ fn commander_history_key_aliases_reject_inside_publication_and_ipc() {
 fn attachments_profile_variants_decode_strictly_through_commands_and_publications() {
     let decoder = CommandDecoder::new().unwrap();
     for response in [
+        json!({"response":"legend_rule","keep":"legend"}),
         json!({"response":"mana_color","color":"C"}),
         json!({"response":"search_lands","objects":["private-search"]}),
         json!({"response":"optional_recursion","perform":true}),
@@ -415,6 +416,7 @@ fn attachments_profile_variants_decode_strictly_through_commands_and_publication
         assert!(decoder.decode(&envelope(extra).to_string()).is_err());
     }
     for response in [
+        json!({"response":"legend_rule","keep":{"card":1,"incarnation":0}}),
         json!({"response":"mana_color","color":"colorless"}),
         json!({"response":"search_lands","objects":[{"oracle_id":"public"}]}),
         json!({"response":"optional_recursion","perform":1}),
@@ -427,6 +429,7 @@ fn attachments_profile_variants_decode_strictly_through_commands_and_publication
     for request in [
         json!({"request":"mana_color","colors":["W","C"],"mana_ability_source":"rock"}),
         json!({"request":"search_lands","maximum":2,"candidates":[{"handle":"private-search","oracle_id":"public"}]}),
+        json!({"request":"legend_rule","candidates":["legend-1","legend-2"],"previous_choices":[]}),
         json!({"request":"optional_recursion"}),
         json!({"request":"mana","cost":{"generic":"1","colored":[]},"mana_ability_source":"signet"}),
         json!({"request":"spend_mana","cost":{"generic":"1","colored":[]},"available":{"C":"1"},"mana_ability_source":"signet"}),

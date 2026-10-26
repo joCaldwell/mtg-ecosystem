@@ -134,6 +134,28 @@ impl Characteristics {
     }
 }
 
+/// Rule-bearing subtype boundaries from CR 205.3g–k, 301.5–7, 303.4/7,
+/// 709.5, 714–720. Other subtype labels do not themselves supply abilities.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+pub fn unsupported_rules_subtype(subtype: &str) -> bool {
+    matches!(
+        subtype,
+        "Saga"
+            | "Class"
+            | "Case"
+            | "Vehicle"
+            | "Curse"
+            | "Spacecraft"
+            | "Attraction"
+            | "Room"
+            | "Contraption"
+            | "Fortification"
+            | "Role"
+            | "Adventure"
+            | "Omen"
+    )
+}
+
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
 )]
@@ -1056,8 +1078,18 @@ impl Definition {
         {
             return Err("unsupported or noncanonical combined card types".into());
         }
+        for subtype in &c.subtypes {
+            if unsupported_rules_subtype(subtype) {
+                return Err(format!("subtype:{}", subtype.to_lowercase()));
+            }
+        }
         let equipment = c.kind == CardKind::Artifact && c.subtypes == ["Equipment"];
         let aura = c.kind == CardKind::Enchantment && c.subtypes == ["Aura"];
+        if (c.subtypes.iter().any(|s| s == "Equipment") && !equipment)
+            || (c.subtypes.iter().any(|s| s == "Aura") && !aura)
+        {
+            return Err("unsupported attachment subtype combination".into());
+        }
         if !self.keywords.is_empty() && c.kind != CardKind::Creature {
             return Err("keywords require creature characteristics".into());
         }

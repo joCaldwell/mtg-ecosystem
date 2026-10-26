@@ -374,6 +374,9 @@ impl Strategy<'_> {
         let v = &o.view;
         let request = o.decision.as_ref().ok_or("missing match request")?;
         Ok(match request {
+            PlayerRequest::LegendRule { candidates, .. } => PlayerResponse::LegendRule {
+                keep: candidates.last().ok_or("empty legend choices")?.clone(),
+            },
             PlayerRequest::AnnounceX { .. } => PlayerResponse::AnnounceX {
                 value: self.earthquake_x(v).unwrap_or_default(),
             },

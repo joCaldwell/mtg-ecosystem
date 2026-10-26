@@ -183,6 +183,12 @@ pub struct PermittedView {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerRequest {
+    LegendRule {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+        previous_choices: Vec<ObjectHandle>,
+    },
     AnnounceX {
         token: DecisionToken,
         player: PlayerId,
@@ -361,7 +367,8 @@ pub enum PlayerRequest {
 impl PlayerRequest {
     pub fn token(&self) -> &DecisionToken {
         match self {
-            Self::ManaColor { token, .. }
+            Self::LegendRule { token, .. }
+            | Self::ManaColor { token, .. }
             | Self::SearchLands { token, .. }
             | Self::OptionalEffect { token, .. }
             | Self::OptionalRecursion { token, .. }
@@ -401,6 +408,9 @@ pub struct Observation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerResponse {
+    LegendRule {
+        keep: ObjectHandle,
+    },
     AnnounceX {
         value: Quantity,
     },
@@ -1037,6 +1047,30 @@ impl Game {
         let Some(token) = token else {
             return Ok(None);
         };
+        if let Some(Request::LegendRule {
+            player,
+            candidates,
+            previous_choices,
+            ..
+        }) = self.legend_request()?
+        {
+            return Ok((player == viewer)
+                .then(|| -> Result<_, String> {
+                    Ok(PlayerRequest::LegendRule {
+                        token,
+                        player,
+                        candidates: candidates
+                            .into_iter()
+                            .map(|o| self.handle_for(viewer, o))
+                            .collect::<Result<_, _>>()?,
+                        previous_choices: previous_choices
+                            .into_iter()
+                            .map(|o| self.handle_for(viewer, o))
+                            .collect::<Result<_, _>>()?,
+                    })
+                })
+                .transpose()?);
+        }
         if matches!(
             self.state.frame,
             Frame::SacrificeCost { .. }
@@ -1566,6 +1600,11 @@ impl Game {
                 Some((self.state.revision, 3))
             } else {
                 match self.state.frame {
+                    Frame::LegendRule { .. }
+                        if self.legend_request()?.is_some_and(|r| r.player() == viewer) =>
+                    {
+                        Some((self.state.revision, 19))
+                    }
                     Frame::Setup if self.setup_request()?.is_some_and(|r| r.player() == viewer) => {
                         Some((self.state.revision, 15))
                     }
@@ -1735,6 +1774,9 @@ impl Game {
             }
             PlayerResponse::SacrificeCost { object } => Ok(Response::SacrificeCost {
                 object: self.resolve_handle(viewer, object)?,
+            }),
+            PlayerResponse::LegendRule { keep } => Ok(Response::LegendRule {
+                keep: self.resolve_handle(viewer, keep)?,
             }),
             PlayerResponse::ForcedSacrifice { object } => Ok(Response::ForcedSacrifice {
                 object: self.resolve_handle(viewer, object)?,

@@ -65,6 +65,9 @@ impl Policy {
                 .find(|o| o.zone == (Zone::Hand { owner: v.viewer }) && o.oracle_id == id)
         };
         Ok(match request {
+            PlayerRequest::LegendRule { candidates, .. } => PlayerResponse::LegendRule {
+                keep: candidates.last().ok_or("empty legend choices")?.clone(),
+            },
             PlayerRequest::AnnounceX { .. } => {
                 return Err("X request unsupported by this completion policy".into());
             }

@@ -70,6 +70,7 @@ test('mandatory setup, commander return and cleanup use offered values and unsup
  assert.deepEqual(choose(observation('discard',{count:2,candidates:['a','b','c']})),{response:'discard',objects:['a','b']});
  assert.throws(()=>choose(observation('discard',{count:3,candidates:['a']})),/commander_policy_unsupported/);
  assert.throws(()=>choose(observation('mana',{cost:{generic:'0',colored:['U']}})),/commander_policy_unsupported/);
+ assert.throws(()=>choose(observation('legend_rule',{candidates:['a','b'],previous_choices:[]})),/commander_policy_unsupported/);
  assert.throws(()=>choose(observation('targets',{candidates:['a'],occurrences:[]})),/commander_policy_unsupported/);
  const bad=observation();bad.view.viewer=1;assert.throws(()=>policy(bad,0,manifest()),/commander_policy_unsupported/);
  const mixed=manifest();mixed.decks[1].commander=definition('Yargle and Multani').oracle_id;assert.throws(()=>policy(observation(),0,mixed),/commander_policy_unsupported/);
