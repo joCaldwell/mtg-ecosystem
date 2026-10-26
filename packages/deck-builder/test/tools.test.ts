@@ -62,6 +62,15 @@ describe("the tool list (spec §10.3)", () => {
     assert.throws(() => call(db, "list_rulings"), /Unknown tool/);
     assert.throws(() => call(db, "mark_rulings_reviewed"), /Unknown tool/);
   });
+  test("every tool rejects an unknown argument by name; a D9 rename says what it became", () => {
+    const db = testDb();
+    assert.throws(() => call(db, "remember", { text: "Strict", scope: "global", source_ruling: 1 }),
+      /^Error: Invalid arguments for remember: \(arguments\): 'source_ruling' was renamed to 'source_decision'$/);
+    assert.equal(listMemories(db, OWNER, { scope: "global" }).length, 0, "nothing was saved");
+    assert.throws(() => call(db, "get_deck", { deck: seeded(db), sections: ["rulings"] }), /sections\.0: 'rulings' was renamed to 'decisions'/);
+    for (const t of TOOLS)
+      assert.throws(() => call(db, t.name, { not_an_argument: true }), new RegExp(`'not_an_argument' is not an argument of ${t.name}`), t.name);
+  });
 });
 
 describe("deck management tools", () => {

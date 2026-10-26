@@ -112,6 +112,23 @@ describe("the agent endpoint, through the official MCP client (spec §10.1)", ()
     assert.match(textOf(unknown), /Did you mean: Sol Ring/);
     await client.close();
   });
+  test("arguments are strict: an unknown key is named, a D9 rename says what it became", async () => {
+    const client = await connect("/mcp", true);
+    const renamed = await client.callTool({ name: "remember", arguments: { text: "Strict arguments", scope: "global", source_ruling: 1 } });
+    assert.equal(renamed.isError, true);
+    assert.match(textOf(renamed), /'source_ruling' was renamed to 'source_decision'/);
+    const section = await client.callTool({ name: "get_deck", arguments: { deck, sections: ["rulings"] } });
+    assert.equal(section.isError, true);
+    assert.match(textOf(section), /'rulings' was renamed to 'decisions'/);
+    const unknown = await client.callTool({ name: "start_session", arguments: { verbose: true } });
+    assert.equal(unknown.isError, true);
+    assert.match(textOf(unknown), /'verbose' is not an argument of start_session/);
+    // The protocol's _meta travels beside arguments, never inside them.
+    const withMeta = await client.callTool({ name: "start_session", arguments: {}, _meta: { progressToken: "strict-1" } });
+    assert.ok(!withMeta.isError, textOf(withMeta));
+    assert.equal((db.prepare("SELECT COUNT(*) n FROM memories WHERE text = 'Strict arguments'").get() as { n: number }).n, 0);
+    await client.close();
+  });
   test("a connected client cannot take the sample deck's reserved label", async () => {
     const client = await connect("/mcp/sample-agent");
     const wrote = await client.callTool({ name: "remember", arguments: { text: "Reserved label check", scope: "global" } });

@@ -9,7 +9,8 @@ production data was changed.
 Used SQLite's online backup API with a read-only connection to
 `/home/josh/Code/mtg-ecosystem/packages/deck-builder/data/deck-builder.db`.
 The snapshot and all QA databases live in this worktree's ignored `.dev/`.
-The source file was at schema 13; the copy ran migrations 14 and 15.
+The source file was at schema 10 (corrected in review; an earlier draft said
+13); the copy ran migrations 11 through 15.
 
 | Lifecycle | Before | After migration, before seeding |
 | --- | ---: | ---: |
@@ -44,6 +45,36 @@ actual nullable shape fixed the fixture without weakening any assertion.
   deck's read-only rendering. The new names are present and the old names are
   absent. This verifies the interface; it does not measure a model's deck
   assessment quality. The sanitized transcript is on the QA branch.
+
+## D9 interface changes
+
+D9 renames land in 4b without a deprecation period (v3 plan D19 applies from
+public sign-up). Every agent-facing rename:
+
+| Surface | Before | After |
+| --- | --- | --- |
+| Tool name | `list_rulings` | `list_decisions` |
+| Tool name | `mark_rulings_reviewed` | `mark_decisions_reviewed` |
+| `remember` argument | `source_ruling` | `source_decision` |
+| `get_deck` `sections` value | `rulings` | `decisions` |
+| `get_deck` section heading | `## Recent rulings and changes`, `## Awaiting the owner's ruling` | `## Recent decisions and changes`, `## Awaiting the owner's decision` |
+| `start_session` heading | `# Rulings you have not read` | `# Decisions you have not read` |
+| Card context line (`get_cards`, `search_cards`, `propose_changes`) | `- ruling #N …` | `- decision #N …` |
+| Roster and deck header | `legacy`, `Legacy: read-only`, `awaiting ruling` | `archived`, `Archived: read-only`, `awaiting decision` |
+| Playbook and instructions | `## Rulings`, Legacy | `## Decisions`, Archived |
+| Activity action code (new rows) | `mark_rulings_reviewed` | `mark_decisions_reviewed` |
+
+UI wire only (not MCP): deck `category` value `legacy` → `archived`; card
+history `rulings` → `decisions`; log entries' and card decisions'
+`ruling_reason` → `decision_reason`. The `log` table and its `ruling_reason`
+column keep their names (D9).
+
+Every tool's arguments are strict, so an old argument name fails instead of
+being dropped: `remember({…, source_ruling: 1})` returns `'source_ruling' was
+renamed to 'source_decision'`, `sections: ["rulings"]` returns `'rulings' was
+renamed to 'decisions'`, and any other unknown key returns `'<key>' is not an
+argument of <tool>`. The protocol's `_meta` is outside `arguments`. Nested
+item objects keep their existing shapes.
 
 ## Design checks applied by hand
 
@@ -144,7 +175,9 @@ No database or screenshot is committed to main.
 
 Phase 5 inherits the same capability and permission gates, shared-page
 projection, lazy public actions, 720/960/1100 boundaries, persisted Advanced,
-agent-optional copy hook, and 100-item pages. Activity's agent filter applies
-to the displayed page and resets when paging; Memories filters before paging.
+agent-optional copy hook, and 100-item keyset pages (`before_id`, with
+`before_revised_at` for Memories) with `has_more`. Activity's agent filter is
+applied by the server before paging and offers every label of the principal;
+Memories filters before paging.
 Keep the public budget check when adding the suggestion composer. Suggestions
 from people, their tone, abuse controls and notifications remain phase 5 work.

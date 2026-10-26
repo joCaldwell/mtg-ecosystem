@@ -15,7 +15,6 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Database } from "../sqlite.ts";
-import * as z from "zod/v4";
 import {
   McpServer,
   createMcpHandler,
@@ -28,7 +27,7 @@ import { allowedRequest, getMode, type Mode, publicOrigin } from "../mode.ts";
 import { AppError } from "../errors.ts";
 import { verifyToken } from "../tokens.ts";
 import { INSTRUCTIONS } from "./playbook.ts";
-import { TOOLS, runTool } from "./tools.ts";
+import { TOOLS, inputSchema, runTool } from "./tools.ts";
 import { logging } from "../logging.ts";
 
 export const MCP_PATH = "/mcp";
@@ -123,9 +122,7 @@ export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
             openWorldHint: false,
           },
         };
-        if (Object.keys(tool.input).length)
-          server.registerTool(tool.name, { ...config, inputSchema: ["create_deck", "edit_cards"].includes(tool.name) ? z.strictObject(tool.input) : z.object(tool.input) }, run);
-        else server.registerTool(tool.name, config, () => run({}));
+        server.registerTool(tool.name, { ...config, inputSchema: inputSchema(tool) }, run);
       }
       return server;
     },

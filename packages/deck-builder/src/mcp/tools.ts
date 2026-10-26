@@ -278,7 +278,7 @@ export const TOOLS: ToolDef[] = [
     input: {
       deck: sharedRef,
       sections: z
-        .array(z.enum(DECK_SECTIONS))
+        .array(z.enum(DECK_SECTIONS, { error: (issue) => issue.input === "rulings" ? "'rulings' was renamed to 'decisions'" : undefined }))
         .optional()
         .describe("Which parts to return. Omit for everything."),
       card_text: z
@@ -1257,7 +1257,22 @@ export const TOOLS: ToolDef[] = [
 
 // ---------- calling a tool without a transport ----------
 
-const SCHEMAS = new Map(TOOLS.map((t) => [t.name, (["create_deck", "edit_cards"].includes(t.name) ? z.strictObject(t.input) : z.object(t.input))]));
+// D9 renamed these arguments in phase 4b, during the invite-only beta, with
+// no deprecation period (v3 plan D19). The old name gets a specific error.
+const RENAMED_ARGUMENTS: Record<string, string> = { source_ruling: "source_decision" };
+
+/** Every tool rejects an argument it does not define, naming the key, rather
+ * than silently dropping it (a renamed key would otherwise "succeed"). The
+ * SDK's own fields (`_meta`) travel beside `arguments`, never inside it. */
+export function inputSchema(tool: ToolDef) {
+  return z.strictObject(tool.input, {
+    error: (issue) => issue.code !== "unrecognized_keys" ? undefined : issue.keys
+      .map((key) => RENAMED_ARGUMENTS[key] ? `'${key}' was renamed to '${RENAMED_ARGUMENTS[key]}'` : `'${key}' is not an argument of ${tool.name}`)
+      .join("; "),
+  });
+}
+
+const SCHEMAS = new Map(TOOLS.map((t) => [t.name, inputSchema(t)]));
 
 /** Validate arguments and run a tool. Errors propagate; the transport turns them into tool errors. */
 export function callTool(ctx: ToolContext, name: string, args: unknown = {}): ToolResult {
