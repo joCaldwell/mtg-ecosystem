@@ -1,3 +1,4 @@
+import type { CardArt } from "../../../src/art.ts";
 import type { accountInfo, adminInfo } from "../../../src/accounts.ts";
 import type { AgentToken } from "../../../src/tokens.ts";
 import type { PlaytestView, PlaytestAction, PlaytestUiPatch, TableCard, TableObject, CardFace, Zone, Row as TableRow, Mode } from "../../../src/playtest/service.ts";
@@ -77,7 +78,7 @@ export interface Inbox {
   unreviewed: number;
 }
 
-export interface Session { mode: "local" | "hosted"; providers: string[]; legal: {operator_name:string;contact_email:string}|null; invites_required:boolean; user: ReturnType<typeof accountInfo> | null }
+export interface Session { backdrop: CardArt | null; mode: "local" | "hosted"; providers: string[]; legal: {operator_name:string;contact_email:string}|null; invites_required:boolean; user: ReturnType<typeof accountInfo> | null }
 
 export interface Settings {
   has_agent_activity: boolean;

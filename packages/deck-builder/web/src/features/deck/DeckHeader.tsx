@@ -10,14 +10,14 @@ import { href } from "../../app/routes.ts";
 import { DECK_CATEGORY_OPTIONS } from "../../domain/deckCategory.ts";
 import { bracketLabel } from "../../domain/power.ts";
 import { costCaption, formatPrice } from "../../domain/price.ts";
-import { ColorIdentity, ManaCost, CardRef } from "../../mtg/index.ts";
+import { ColorIdentity, ManaCost, CardRef, DeckArt } from "../../mtg/index.ts";
 import { Icon, Menu, Row, Segmented, Text, TextField, type MenuItem } from "../../ui/index.ts";
 import { DeckStat } from "./DeckStat.tsx";
 import { useDeck, useDeckState } from "./DeckStore.tsx";
 import { useDeckUi } from "./DeckUi.tsx";
 import styles from "./DeckHeader.module.css";
 
-export function DeckHeader() {
+export function DeckHeader({ collapsed = false }: { collapsed?: boolean }) {
   const voice = useVoice();
   const state = useDeckState();
   const { run } = useDeck();
@@ -58,7 +58,7 @@ export function DeckHeader() {
   ];
 
   return (
-    <header className={styles.header}>
+    <DeckArt cards={commanders} identity={deck.color_identity} variant="banner" collapsed={collapsed} priority="auto"><header className={styles.header}>
       <div className={styles.top}>
         {draft == null ? (
           <h1 className={styles.title}>
@@ -156,6 +156,6 @@ export function DeckHeader() {
           r{deck.revision}
         </Text></Advanced>
       </Row>
-    </header>
+    </header></DeckArt>
   );
 }

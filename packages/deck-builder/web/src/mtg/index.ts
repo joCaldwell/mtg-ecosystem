@@ -1,4 +1,5 @@
 export type { CardInfo } from "./CardInfo.ts";
+export { DeckArt } from "./DeckArt.tsx";
 export { ManaSymbol } from "./ManaSymbol.tsx";
 export { ManaCost } from "./ManaCost.tsx";
 export { Price } from "./Price.tsx";
@@ -17,3 +18,5 @@ export { TapButton } from "./table/TapButton.tsx";
 export { TableZone } from "./table/TableZone.tsx";
 export { PlayerSummary } from "./table/PlayerSummary.tsx";
 export { CardInspection } from "./table/CardInspection.tsx";
+
+export { DeckThumbnail } from "./DeckThumbnail.tsx";

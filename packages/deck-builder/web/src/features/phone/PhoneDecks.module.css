@@ -10,7 +10,7 @@
 
 .list {
   display: grid;
-  gap: var(--s-2);
+  gap: var(--s-5);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -21,10 +21,17 @@
   gap: var(--s-2);
   min-height: var(--tap);
   padding: var(--s-4) var(--s-5);
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: var(--r-lg);
-  background: var(--surface);
+  background: transparent;
   color: var(--text);
+}
+
+/* The whole card, art band included, is the link. */
+.row::after {
+  content: "";
+  position: absolute;
+  inset: 0;
 }
 
 .row:active {
@@ -33,6 +40,17 @@
 
 .fork {
   margin-left: var(--s-6);
+}
+
+.empty {
+  display: grid;
+  gap: var(--s-2);
+  padding: var(--s-5);
+}
+
+.empty h2 {
+  font-size: var(--text-lg);
+  font-weight: 600;
 }
 
 .name {

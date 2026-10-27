@@ -10,10 +10,9 @@ the rules behind it.
    banner, a hover card. Nothing covers the list except a dialog you asked for.
 2. **Colour means something or it is grey.** See the table below. A new
    feature does not get a new colour.
-3. **Text first.** Cards are names, costs and oracle text. The picture appears
-   on demand: in the hover card and the card panel. The one exception is a
-   public deck page, whose header and link preview carry the commander's art
-   (see Narrow screens and public pages).
+3. **Text first in the editor.** Card rows remain names, costs and oracle
+   text, with pictures on demand. Commander art may frame deck selection and
+   deck headers; a quiet environment may frame sign-in and first run (D21).
 4. **Dense, not cramped.** 13px body, 24px rows, one line per card. Space goes
    between groups, not between rows.
 5. **Every agent write is visibly an agent's.** Violet marks it wherever it
@@ -45,10 +44,10 @@ D20) and built in phase 4a; phase 4b makes the full app hold up between
 - **Nothing scrolls sideways at 375 px.** Names wrap (`overflow-wrap:
   anywhere`), action rows wrap, two-column grids collapse, and a table
   scrolls inside its own box, never the page.
-- **Public pages show the commander's art** in the header, faded into the
-  page (`--art-h`, `--art-fade`), with "Art by …" over it, and as the link
-  preview image. Without a stored artist the art is left out. The card list
-  itself stays text.
+- **Public pages show the commander's art** in a showcase band above the
+  header (`DeckArt variant="showcase"`, see Art), credited inside the crop,
+  and as the link preview image. Without a stored artist the art is left
+  out. The card list itself stays text.
 - **Sharing has no colour.** Public is the globe icon, unlisted the link
   icon, both grey: visibility is not one of the meanings below.
 - **The playtester is desktop-only.**
@@ -73,9 +72,14 @@ D20) and built in phase 4a; phase 4b makes the full app hold up between
 | `--cut` red | Going out, failing, rejected | proposed cut, a rule violation, Reject |
 | `--warn` amber | Off target, missing, provisional | slot under target, incomplete deck |
 | `--sel` blue | The owner's selection and focus | selected rows, search and tag matches, focus ring, focused field |
+| `--identity-*` | That deck’s colour identity | thin stripe on its card or header only |
 | greys | Everything else | structure, text, neutral chips |
 
-Mana colours (`--mana-*`) are used only inside mana symbols and the pip chart.
+Mana colours (`--mana-*`) appear in symbols and the pip chart. D21 also
+permits `--identity-*` aliases on a deck's own thin stripe, at
+`--identity-opacity`; colourless uses `--identity-grey`. A split gradient
+represents multiple colours. These accents never tint text or controls and
+never replace semantic colours.
 
 Deck lifecycle labels use green for Paper, blue for Theorycrafted, and amber
 for Archived through the `--lifecycle-*` aliases. Sidebar labels and All decks
@@ -175,6 +179,7 @@ or about this app.
 | `pressesFocusedControl` | Whether Enter or Space would press the focused button or link, so a screen shortcut on that key stands down | |
 | `useLocalStorage` | State kept in localStorage | |
 | `tokenPx` | A size token as a number, where script has to do arithmetic with one | |
+| `useNearView` | Whether an element is within a margin of view in its own scroll container (or the window); latches true. For deferring downloads | `margin` |
 <!-- inventory:end -->
 
 
@@ -264,3 +269,71 @@ card-ruling terminology. Stored user prose is never renamed.
 The live inventory at /design includes collapsed, expanded, saving, failed
 and inline Advanced states, both overlays, a closed and an open explanation, selected/empty/busy
 listboxes, a plain archived title, accessible faint text and motion guidance.
+
+
+## Art (D21, 2026-10-26)
+
+The owner's brief: colour and real card art without distraction; the artist
+credit subtle but present; identity tints never overdone.
+
+`mtg/DeckArt` owns crop rendering, credit and reserved space; `mtg/DeckThumbnail`
+the rail's small version. Both take stored card facts (`domain/art.ts`
+`ArtFacts`) and never fetch them. One helper, `creditedArt`, decides what
+qualifies: an `https` URL on `cards.scryfall.io` whose parsed path starts
+with `/art_crop/`, with a nonblank artist; at most two (a partner pair). No
+generated or stock images, bundled images, large card images, constructed
+URLs or browser Scryfall API calls. On-demand full card pictures keep their
+printed artist and copyright lines.
+
+| Variant | Placement | Band (`--band`) | Loading |
+| --- | --- | --- | --- |
+| strip | Desktop and phone home cards | `--art-strip-space` | deferred: `load` from `useNearView` (200 px), then eager |
+| banner | Owner and phone deck headers | `--art-banner-space`, smaller on tablet/phone | eager |
+| showcase | Public deck page | `--art-showcase-space` (176 px), 112 px on phones | eager, `priority="high"` (`fetchpriority`) |
+| backdrop | Sign-in and empty-account landing only | `--art-backdrop-space` | eager; one land per visit, no rotation |
+| thumbnail | Sidebar rail, including the drawer | `--art-thumb` (16 px), the icon column | deferred: `useNearView` in the rail, `fetchpriority=low` |
+
+- **The art is a band above the content.** Content starts where the band
+  ends, on `--art-overlay-text` or darker, and the crop fades into the
+  surface below it. Nothing sits on bright art except the credit pill. The
+  frame's size comes from the band, never the image, so loading moves nothing.
+- **The credit is inside its crop, bottom-right**, on a small
+  `--art-overlay-text` pill in `--text-xs` `--muted`. Partners get one per
+  crop half. Where the commander's name is visible beside the art (roster
+  cards, deck headers, the public page) it reads "Art by <artist>"; where no
+  card is named (backdrops, the rail tooltip) "Art by <artist> · <card>".
+  Double-faced cards use the front-face name. A failed or not-yet-loaded
+  image takes its credit with it; the empty frame keeps its space.
+- **The rail thumbnail is decorative** (`aria-hidden`), so the link's name is
+  the deck name. Its credit is the native tooltip. It sits at
+  `--art-thumb-opacity` until its row is current or hovered, replaces the
+  neutral dot (a deck waiting on the owner keeps its violet dot on the
+  thumbnail's corner), and the row's gaps give back its width: names
+  truncate exactly where they did before thumbnails.
+- **Roster cards are one link.** The deck name's link is stretched over the
+  card; the commander links and the actions menu sit above it. Cards fill
+  their grid row with the stats pinned to the bottom.
+- **Backdrops show the land unblurred** in a band at the top of a solid
+  surface panel; the form or first-run choices sit on the surface below.
+- **Overlays derive from `--bg`** (`color-mix`), so a palette change carries
+  them. Measured over pure white art: credit pill 7.6:1 (analytic floor),
+  text under any band 5.7:1 or better.
+- **Identity is a 2 px stripe** at `--identity-opacity`, split for several
+  colours, grey for colourless. Black uses the darker half of its pip
+  (`--identity-b`) so it never reads as white. No identity fills, tints of
+  text or controls.
+- **The desktop banner folds** while the deck list (only it, not the panel)
+  is scrolled past `--art-collapse-threshold`, unless the list is too short
+  to stay folded. Padding, height and opacity animate over `--base`, which
+  is 0 under reduced motion; the credit hides with the art. The fold exists
+  only at 1100 px and wider: `useArtCollapse` drops it below that, and the
+  CSS ignores `data-collapsed` there. A fold and unfold together stay under
+  0.1 cumulative layout shift. Narrower headers scroll away with the window.
+
+Art does not appear in inbox, activity, memories, Settings, dialogs or the
+playtester content. The rail can still show thumbnails while those screens
+are open.
+
+History: phase 4c added art (D21); its review moved credits into the crops,
+made roster cards whole links again, unblurred the backdrops and restored the
+public showcase band.

@@ -1,5 +1,7 @@
+import { DeckThumbnail } from "../mtg/index.ts";
 import { usePreferences } from "./Preferences.tsx";
 import { familyOrder } from "../domain/familyOrder.ts";
+import { creditedArt } from "../domain/art.ts";
 // The left rail: where to go, which decks exist, and what an agent connected
 // right now would be told. Decks are one click away from anywhere, and a deck
 // with something waiting on the owner carries the agent colour.
@@ -74,7 +76,11 @@ export function Sidebar({ route, brand = true }: { route: Route; brand?: boolean
               aria-current={open ? "page" : undefined}
               title={pending ? `${deck.name} — something is waiting on you` : deck.name}
             >
-              <Dot tone={pending ? "agent" : "neutral"} />
+              {/* The thumbnail takes the dot's column; a deck waiting on the owner keeps its violet dot over it. */}
+              <span className={styles.lead}>
+                <DeckThumbnail cards={deck.commander_art} className={styles.thumb} />
+                {(pending || !creditedArt(deck.commander_art).length) && <Dot tone={pending ? "agent" : "neutral"} />}
+              </span>
               <span className={styles.name}>{deck.name}</span>
               {deck.visibility !== "private" && (
                 <span className={styles.shared} role="img" aria-label={deck.visibility === "public" ? "Public" : "Unlisted"} title={deck.visibility === "public" ? "Public" : "Unlisted: anyone with the link"}>

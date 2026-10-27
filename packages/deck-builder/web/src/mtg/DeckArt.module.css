@@ -1,0 +1,60 @@
+/* --band is the art's height above the content; each variant sets it. The
+   crop covers the band and fades to the surface below it, so content always
+   starts on --art-overlay-text or darker. */
+.surface { --band: 0px; position: relative; isolation: isolate; min-width: 0; background: var(--surface); }
+.surface[data-art] { padding-top: var(--band); }
+
+.visual { position: absolute; inset: 0 0 auto; z-index: -1; display: flex; height: calc(var(--band) * 2); overflow: hidden; pointer-events: none; }
+.visual::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to bottom, var(--art-overlay-top) 25%, var(--art-overlay-text) 50%, var(--surface)); }
+.crop { position: relative; flex: 1; min-width: 0; }
+.crop img { display: block; width: 100%; height: 100%; aspect-ratio: var(--art-aspect); object-fit: cover; object-position: var(--art-position); }
+/* A failed or deferred picture takes its credit with it; the frame stays. */
+.crop[data-failed] > *, .crop:not(:has(img)) > .credit { visibility: hidden; }
+
+/* Small, quiet and inside its own crop: bottom-right of the band. */
+.credit {
+  position: absolute; z-index: 1; right: var(--s-3); top: calc(var(--band) - var(--s-2)); transform: translateY(-100%);
+  max-width: calc(100% - var(--s-5)); overflow: hidden; padding: var(--s-1) var(--s-3); border-radius: var(--r-sm);
+  background: var(--art-overlay-text); color: var(--muted); font-size: var(--text-xs); line-height: var(--leading);
+  text-overflow: ellipsis; white-space: nowrap;
+}
+
+.identity { position: absolute; inset: 0 0 auto; display: flex; height: var(--identity-stripe-h); background: var(--identity-grey); opacity: var(--identity-opacity); pointer-events: none; }
+.identity i { flex: 1; }
+.identity [data-color="W"] { background: var(--identity-w); }
+.identity [data-color="U"] { background: var(--identity-u); }
+.identity [data-color="B"] { background: var(--identity-b); }
+.identity [data-color="R"] { background: var(--identity-r); }
+.identity [data-color="G"] { background: var(--identity-g); }
+
+.strip { --band: var(--art-strip-space); display: grid; border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; }
+
+/* The owner's banner folds on desktop while the list is scrolled (useArtCollapse). */
+.banner { --band: var(--art-banner-space); flex: none; border-bottom: 1px solid var(--line); transition: padding-top var(--base) ease-out; }
+.banner .visual { transition: height var(--base) ease-out, opacity var(--base) ease-out, visibility 0s; }
+.banner[data-collapsed] { --band: 0px; }
+.banner[data-collapsed] .visual { opacity: 0; visibility: hidden; transition: height var(--base) ease-out, opacity var(--base) ease-out, visibility 0s var(--base); }
+
+.showcase { --band: var(--art-showcase-space); border-bottom: 1px solid var(--line); }
+.showcase .visual, .backdrop .visual { height: calc(var(--band) + var(--s-8)); }
+.showcase .visual::after, .backdrop .visual::after { background: linear-gradient(to bottom, transparent, var(--art-overlay-top) calc(var(--band) * 0.6), var(--art-overlay-text) var(--band), var(--surface)); }
+
+/* Sign-in and first run: the land unblurred in a band, the form on the surface below. */
+.backdrop { --band: var(--art-backdrop-space); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; }
+.backdrop .identity { display: none; }
+
+.thumbnail { --band: 0px; display: block; width: var(--art-thumb); height: var(--art-thumb); flex: none; border-radius: var(--r-sm); overflow: hidden; }
+.thumbnail .visual { position: static; height: 100%; }
+.thumbnail .visual::after { content: none; }
+
+@media (max-width: 1099px) {
+  .banner { --band: var(--art-banner-tablet-space); }
+  /* A fold belongs to the desktop list; narrower, the banner leaves with the window. */
+  .banner[data-collapsed] { --band: var(--art-banner-tablet-space); }
+  .banner[data-collapsed] .visual { opacity: 1; visibility: visible; }
+}
+@media (max-width: 719px) {
+  .banner, .banner[data-collapsed] { --band: var(--art-banner-phone-space); }
+  .showcase { --band: var(--art-showcase-phone-space); }
+  .backdrop { --band: var(--art-backdrop-phone-space); }
+}

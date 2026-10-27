@@ -1,3 +1,4 @@
+import { creditedArt, type CardArt } from "../art.ts";
 // Decks, their organization, and the composite deck view. What is *in* a deck
 // changes only through deck/membership.ts; everything here is either deck
 // lifecycle, organization (spec §5.4 — slots, tags, the maybe list, none of
@@ -206,6 +207,7 @@ export interface DeckSummary {
   created_at: string;
   card_count: number;
   commanders: string[];
+  commander_art: CardArt[];
   pending_items: number;
   pending_document_edits: number;
   visibility: Visibility;
@@ -226,15 +228,15 @@ export function listDecks(db: Database, actor: Actor): DeckSummary[] {
                WHERE de.deck_id = d.id AND de.status = 'pending') AS pending_document_edits
        FROM decks d LEFT JOIN decks p ON p.id = d.parent_id AND p.user_id = d.user_id WHERE d.user_id = ? ORDER BY d.name`,
     )
-    .all(actor.user_id) as unknown as Array<Omit<DeckSummary, "commanders">>;
+    .all(actor.user_id) as unknown as Array<Omit<DeckSummary, "commanders" | "commander_art">>;
   const commanders = db.prepare(
-    `SELECT c.name FROM deck_cards dc JOIN cards c ON c.oracle_id = dc.oracle_id
-     WHERE dc.deck_id = ? AND dc.role = 'commander' ORDER BY c.name`,
+    `SELECT c.oracle_id, c.name, c.image_art_crop, c.artist FROM deck_cards dc JOIN cards c ON c.oracle_id = dc.oracle_id
+     WHERE dc.deck_id = ? AND dc.role = 'commander' AND dc.maybe = 0 ORDER BY c.name`,
   );
-  return rows.map((r) => ({
-    ...r,
-    commanders: (commanders.all(r.id) as unknown as { name: string }[]).map((c) => c.name),
-  }));
+  return rows.map((r) => {
+    const cards = commanders.all(r.id) as unknown as CardArt[];
+    return { ...r, commanders: cards.map(c => c.name), commander_art: cards.map(creditedArt).filter((c): c is CardArt => c !== null) };
+  });
 }
 
 /** The owner's read gate for id-addressed capabilities. Viewers never pass it:

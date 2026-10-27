@@ -1,3 +1,4 @@
+import { visitBackdrop } from "./art.ts";
 import { createDemo } from "./demo.ts";
 import { uiPreferences, setAdvancedOpen } from "./preferences.ts";
 // The app's one HTTP server (spec §10.1): the UI, its JSON API, the live
@@ -658,13 +659,20 @@ export function createApp(db: Database, opts: AppOptions = {}) {
         // never get a chance to select a different auth origin.
         return await auth.handle(req,res);
       }
+      // Hashed build assets are immutable and need no principal: resolving a
+      // session and charging the per-user or per-IP budget for each one let a
+      // few page loads in a row exhaust it (a deck page requests dozens).
+      if ((req.method === "GET" || req.method === "HEAD") && url.pathname.startsWith("/assets/")) {
+        if (serveStatic(url.pathname, res, null, req)) return;
+        return json(404, { error: `Not found: ${req.method} ${url.pathname}` });
+      }
       return await withDatabase(async () => {
       if (req.method === "GET" && url.pathname === "/api/session") {
         const sessionActor = await resolveActor(req,mode);
         logging.actor(sessionActor);
         const providers = [process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET ? "discord" : null, process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET ? "google" : null].filter(Boolean);
         if (mode === "hosted" && !sessionActor) rateLimit("unauthenticated",clientIp(req));
-        return json(200,{mode,providers,legal:auth?.legal ?? null,invites_required:auth?.invitesRequired ?? true,user:sessionActor ? accountInfo(db,sessionActor) : null});
+        return json(200,{mode,providers,backdrop:visitBackdrop(db),legal:auth?.legal ?? null,invites_required:auth?.invitesRequired ?? true,user:sessionActor ? accountInfo(db,sessionActor) : null});
       }
       if (mode === "hosted" && req.method === "GET" && url.pathname === "/consent.js") {
         res.writeHead(200,{"Content-Type":"text/javascript"}); return void res.end(consentScript);

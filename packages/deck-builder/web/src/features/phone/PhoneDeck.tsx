@@ -1,3 +1,4 @@
+import { DeckArt } from "../../mtg/index.ts";
 import { usePreferences } from "../../app/Preferences.tsx";
 // A deck on a phone (spec §11.2): the same read-only composition as a shared
 // page, fed by the owner's own deck, with its pending proposals drawn in place
@@ -43,7 +44,7 @@ function Deck() {
     <ReadOnlyDeck
       model={model}
       header={
-        <header className={styles.head}>
+        <DeckArt cards={state!.cards.filter(c => c.role === "commander" && !c.maybe)} identity={deck.color_identity} variant="banner" priority="auto"><header className={styles.head}>
           <a className={styles.back} href={href({ page: "decks" })}><Icon name="back" /> Decks</a>
           <h1 className={styles.title}>{deck.name}</h1>
           <div className={styles.meta}>
@@ -59,7 +60,7 @@ function Deck() {
               {edits} proposed brief {edits === 1 ? "edit waits" : "edits wait"} for you. <a className={styles.tap} href={href({ page: "inbox" })}>Review in the inbox</a>
             </Banner>
           )}
-        </header>
+        </header></DeckArt>
       }
       decisions={(view) => <PhoneDecisions view={view} />}
     />

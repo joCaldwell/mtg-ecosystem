@@ -959,6 +959,9 @@ test("MCP and HTTP reject own-deck/foreign-child combinations without partial wr
 // Every non-deck export has a concrete user-2 probe. The invocation proxy
 // rejects a no-op probe, and output/owner snapshots verify the privacy claim.
 const globalProbes:Record<string,GlobalProbe>={
+  creditedArt:(fn,f)=>{const c=functions.requireCardById(f.db,"id-forest");assert.equal(fn(c),null);return fn({...c,image_art_crop:"https://cards.scryfall.io/art_crop/test.jpg",artist:"Shared artist"});},
+  isScryfallArtCrop:(fn)=>{assert.equal(fn("https://cards.scryfall.io/art_crop/../large/x.jpg"),false);return fn("https://cards.scryfall.io/art_crop/test.jpg");},
+  visitBackdrop:(fn,f)=>{const before=personalSnapshot(f.db);const result=fn(f.db);assert.deepEqual(personalSnapshot(f.db),before);return result;},
   accountInfo:(fn,f,a)=>{const info=fn(f.db,a);assert.equal(info.id,2);return info;},
   chooseHandle:(fn,f,a)=>{f.db.prepare("UPDATE users SET needs_handle=1 WHERE id=?").run(a.user_id);return fn(f.db,a,"second_chosen");},
   connectedClients:(fn,f,a)=>fn(f.db,a),
