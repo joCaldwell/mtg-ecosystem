@@ -1,7 +1,6 @@
+/* DeckArt's banner draws the rule below and the art behind. */
 .header {
   padding: var(--s-5) var(--s-6);
-  border-bottom: 1px solid var(--line);
-  background: var(--surface);
 }
 
 .top {

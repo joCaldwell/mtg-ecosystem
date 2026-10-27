@@ -1,17 +1,7 @@
-/* The table keeps its columns on one line; a narrow window scrolls it sideways instead of squeezing them. */
-.tableWrap {
-  overflow-x: auto;
-}
-
 .commander {
   max-width: 360px;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.actions {
-  width: var(--s-8);
-  text-align: right;
 }
 
 .lifecycle[data-lifecycle="paper"] {
@@ -32,13 +22,30 @@
   border-color: transparent;
 }
 
-/* Wide enough for eight columns, not so wide the eye loses the row. */
+/* The roster follows the existing reading width, with cards that wrap. */
 .body {
   display: grid;
   gap: var(--s-8);
-  max-width: 1360px;
+  max-width: var(--measure-wide);
 }
 
 .shared {
   color: var(--faint);
 }
+
+/* Cards fill their grid row, so a partner's two-line commander leaves no
+   ragged gap; the stats line is pinned to the bottom. */
+.roster { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--deck-card-min)), 1fr)); gap: var(--s-5); padding: 0; margin: 0; list-style: none; }
+.card { display: grid; }
+.deckCard { display: flex; flex-direction: column; gap: var(--s-3); padding: var(--s-3) var(--s-5) var(--s-5); }
+.cardHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s-4); }
+.cardHeading h2 { min-width: 0; font-size: var(--text-lg); font-weight: 650; overflow-wrap: anywhere; }
+.deckLink { display: inline-flex; align-items: center; min-height: var(--h-lg); }
+/* The whole card opens the deck, as the table row did. */
+.deckLink::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.deckLink:focus-visible { outline: none; }
+.deckLink:focus-visible::after { outline: 2px solid var(--sel); outline-offset: -2px; border-radius: var(--r-lg); }
+.card:hover .deckLink { text-decoration: underline; }
+.cardHeading :is(a, button):not(.deckLink), .commander :is(a, button) { position: relative; z-index: 1; }
+.cardStats { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-4); margin-top: auto; padding-top: var(--s-2); }
+@media (pointer: coarse) and (max-width: 1099px) { .deckLink, .cardHeading button { min-height: var(--tap); } }

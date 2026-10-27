@@ -54,7 +54,7 @@ export function DeckList({ view }: { view: DeckViewModel }) {
   const nothingToShow = state.cards.length === 0 && !(reviewing && overlay.addsByGroup.size > 0);
 
   return (
-    <div ref={scroll} className={readOnly ? styles.flow : styles.scroll}>
+    <div ref={scroll} data-deck-list={!readOnly ? "true" : undefined} className={readOnly ? styles.flow : styles.scroll}>
       {nothingToShow ? (
         <EmptyState title="No cards yet">
           {readOnly ? "This deck has no cards in it yet." : "Use the bar above to add the first one, or import a list from the More menu."}

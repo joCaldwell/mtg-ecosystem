@@ -67,7 +67,45 @@
 }
 
 .decks a.fork {
-  padding-left: var(--s-7);
+  padding-left: calc(var(--s-7) - var(--s-2));
+}
+
+/* Deck rows keep main's room for names: the thumbnail replaces the dot and
+   the gaps and padding give back what it takes. */
+.decks a {
+  gap: var(--s-3);
+  padding-inline: var(--s-2);
+}
+
+.decks a .shared,
+.decks a .lifecycle {
+  margin-left: var(--s-1);
+}
+
+.lead {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--art-thumb);
+  height: var(--art-thumb);
+  flex: none;
+}
+
+.thumb {
+  opacity: var(--art-thumb-opacity);
+}
+
+.decks a:hover .thumb,
+.decks a.current .thumb {
+  opacity: 1;
+}
+
+/* Waiting on the owner: the violet dot sits on the thumbnail's corner. */
+.thumb + * {
+  position: absolute;
+  right: calc(var(--s-1) * -1);
+  bottom: calc(var(--s-1) * -1);
+  box-shadow: 0 0 0 var(--s-1) var(--surface);
 }
 
 .name {

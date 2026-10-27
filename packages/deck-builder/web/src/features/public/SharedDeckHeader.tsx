@@ -10,7 +10,7 @@ import { useIsPhone } from "../../app/breakpoints.ts";
 import { useSession } from "../../app/Session.tsx";
 import { bracketLabel } from "../../domain/power.ts";
 import { DECK_CATEGORY_LABELS } from "../../domain/deckCategory.ts";
-import { CardRef, ColorIdentity } from "../../mtg/index.ts";
+import { CardRef, ColorIdentity, DeckArt } from "../../mtg/index.ts";
 import { Button, Chip, Icon, useToast } from "../../ui/index.ts";
 const CompareSharedDialog = lazy(() => import("./SharedDialogs.tsx").then(m => ({ default: m.CompareSharedDialog })));
 const ExportSharedDialog = lazy(() => import("./SharedDialogs.tsx").then(m => ({ default: m.ExportSharedDialog })));
@@ -27,7 +27,6 @@ export function SharedDeckHeader({ shared, own }: { shared: PublicDeckState; own
   const signedIn = session.mode === "local" || !!session.user;
   const phone = useIsPhone();
   const commanders = shared.cards.filter((c) => c.role === "commander" && !c.maybe);
-  const art = commanders.find((c) => c.image_art_crop && c.artist);
   const link = `${location.origin}${href({ page: "shared", slug: deck.slug })}`;
 
   async function copyLink() {
@@ -40,11 +39,7 @@ export function SharedDeckHeader({ shared, own }: { shared: PublicDeckState; own
   }
 
   return (
-    <header className={styles.header}>
-      <div className={art ? styles.art : styles.plain}>
-        {art && <img className={styles.image} src={art.image_art_crop!} alt="" loading="eager" />}
-        {art && <span className={styles.credit}>Art by {art.artist} · {art.name}</span>}
-      </div>
+    <DeckArt cards={commanders} identity={deck.color_identity} variant="showcase" priority="high">
       <div className={styles.text}>
         <div className={styles.meta}>
           <Chip>{DECK_CATEGORY_LABELS[deck.category]}</Chip>
@@ -98,6 +93,6 @@ export function SharedDeckHeader({ shared, own }: { shared: PublicDeckState; own
       {open === "fork" && <ForkSharedDialog shared={shared} onClose={() => setOpen(null)} />}
       {open === "compare" && <CompareSharedDialog shared={shared} onClose={() => setOpen(null)} />}
       </Suspense>
-    </header>
+    </DeckArt>
   );
 }

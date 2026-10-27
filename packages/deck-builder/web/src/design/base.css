@@ -90,7 +90,7 @@ a {
 
 /* Motion conveys no required state; respect the reader's preference. */
 @media (prefers-reduced-motion: reduce) {
-  :root { --fast: 0ms; }
+  :root { --fast: 0ms; --base: 0ms; }
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
 /* Text for assistive technology only: a column header with no visible label,

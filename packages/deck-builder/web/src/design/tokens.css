@@ -134,8 +134,38 @@
      itself is PHONE_MAX_WIDTH in app/breakpoints.ts: media queries cannot
      read a custom property. */
   --public-w: 1240px;
-  --art-h: 176px;
-  --art-fade: linear-gradient(180deg, rgba(13, 14, 16, 0.15) 0%, rgba(13, 14, 16, 0.6) 55%, var(--bg) 100%);
+  /* D21 art. Overlays derive from --bg, so a palette change carries them.
+     Each art band reaches --art-overlay-text where content starts; the
+     credit pill uses the same overlay. Over pure white art the pill and the
+     text below a band measure >= 9:1 (DESIGN.md, Art). */
+  --art-overlay-top: color-mix(in srgb, var(--bg) 30%, transparent);
+  --art-overlay-text: color-mix(in srgb, var(--bg) 94%, transparent);
+  --art-aspect: 626 / 457;
+  --art-position: center 35%;
+  /* Band heights: the art shows above the content, which starts at the band. */
+  --art-strip-space: 48px;
+  --art-banner-space: 72px;
+  --art-banner-tablet-space: 56px;
+  --art-banner-phone-space: 48px;
+  --art-showcase-space: 176px;
+  --art-showcase-phone-space: 112px;
+  --art-backdrop-space: 160px;
+  --art-backdrop-phone-space: 112px;
+  --art-collapse-threshold: 48px;
+  /* Sidebar thumbnails sit in the icon column; quieter until current or hovered. */
+  --art-thumb: 16px;
+  --art-thumb-opacity: 0.7;
+  --deck-card-min: 300px;
+  --identity-stripe-h: 2px;
+  --identity-opacity: 0.6;
+  --identity-w: var(--mana-w);
+  --identity-u: var(--mana-u);
+  /* Black's own ring is nearly white; on a 2px stripe beside white it needs
+     the darker half of the pip. */
+  --identity-b: color-mix(in srgb, var(--mana-b-ring) 50%, var(--mana-b));
+  --identity-r: var(--mana-r);
+  --identity-g: var(--mana-g);
+  --identity-grey: var(--line-strong);
   --phone-bar-h: 48px;
   /* The menu bar above a tablet page under 960 px, which opens the drawer. */
   --tablet-bar-h: 48px;
@@ -155,8 +185,9 @@
   --z-hover: 60;
   --z-toast: 80;
 
-  /* Motion */
+  /* Motion. Both drop to 0 under reduced motion (base.css). */
   --fast: 120ms;
+  --base: 200ms;
 }
 
 /* Approved playtester extensions: rules remain readable at desktop 100% zoom. */
