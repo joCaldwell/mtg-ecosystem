@@ -936,12 +936,17 @@ and wider it keeps the desktop panes. Phones retain this read-and-rule scope.
 - Lifecycle, slots vs tags, brief, bracket, proposals and memories have an
   inline one-sentence explanation and a Learn more popover. Help does not
   mutate data or infer card facts.
-- **Advanced** is one shared boolean per account in `user_settings`, not
-  localStorage. Migration 15 sets it open for existing users, retaining their
-  visible controls; accounts registered later start closed. New local files
-  also start closed. It gates secondary purposes, memory budgets, review
-  queue flags, revision chips and ownership evidence when rendered. It never
-  hides authorship, decision reasons, checks or stale-approval warnings.
+- **Owner decision, 2026-10-27:** remove the Advanced disclosure and its
+  `advanced_open` account preference. Show revision numbers in History and
+  card decisions; put memory and assessment revision metadata in titles where
+  those records appear. Deck headers carry no revision chip. Memory budgets,
+  scope usage and omitted counts live only in Settings. Secondary slots are
+  a compact field below the primary slot in the card panel, never repeated on
+  deck-list rows. Show agent review status plainly in decisions and the
+  unreviewed count in the inbox. Card panels show ownership evidence only
+  when it exists, with its basis and attribution. No replacement explanations
+  or preference migration; historical stored rows remain unused. Authorship,
+  reasons, checks and stale-approval warnings remain visible.
 - `PHONE_MAX_WIDTH=719` retains the phone boundary. Named constants
   `DRAWER_BREAKPOINT=960` and `PANEL_BREAKPOINT=1100` select the tablet
   drawer and deck-details sheet. Under 960 the normal sidebar lives in a

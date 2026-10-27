@@ -167,7 +167,6 @@ or about this app.
 | `ErrorNote`, `EmptyState`, `Loading` | An inline error, "nothing here yet", and a loading line | EmptyState `heading` `h1` `h2` when it is all the page has |
 | `Dialog` | A modal: focus trap, Esc, backdrop click, focus restore, `data-autofocus` | width `md` `lg`; placement `center` `sheet` `drawer`; `footer` |
 | `ConfirmDialog` | A question with Cancel and a confirm button | tone `default` `danger` |
-| `Disclosure` | Controlled Advanced reveal; caller owns persistence and shows its save error | collapsed, expanded, disabled while saving, save failed; `inline`; `title` |
 | `Explainer` | One sentence and a Learn more popover | closed, open, keyboard focus, close/Escape and focus return; `defaultOpen` (style guide only) |
 | `Popover`, `placeNear` | A panel anchored to an element, kept inside the viewport | placement `below` `right` `above` `left`; `align` |
 | `ToastProvider`, `useToast` | One toast at a time, bottom centre, with an optional action | `duration`; `action` with `kbd` |
@@ -218,18 +217,17 @@ checklists by reading their SKILL.md files directly; this runtime has no Skill
 tool. The audit covered tokens.css, ui/, and the existing /design examples.
 The system already had semantic colors, touch sizing, a focus-trapping Dialog,
 and CardSheet. Gaps: unreadable faint text; checkbox-group semantics for a
-multiple choice control; no disclosure, explainer or drawer pattern. Existing
+multiple choice control; no explainer or drawer pattern. Existing
 principles are preserved. On tablet only, the owner may explicitly open a
 sheet over the list (principle 1's existing requested-dialog exception).
 
-- **Advanced:** one account preference shared by the panels, persisted in
-  `user_settings.advanced_open`. Existing accounts start open; new accounts
-  closed. Enter/Space toggles; the trigger exposes expanded state and its
-  controlled region. Saving disables the trigger; a failure leaves the
-  previous state and an inline error. The inline variant keeps deck metadata
-  compact. Secondary purposes, memory budgets, agent review flags, ownership
-  evidence when shown, and revision metadata belong here. Attribution never
-  disappears with Advanced.
+- **Contextual details (owner decision, 2026-10-27):** revisions belong in
+  History and card decisions; memory/assessment revision metadata goes in
+  titles. Deck headers have no revision chip. Budgets and usage belong only
+  in Settings. Secondary slots sit directly below the primary slot as a
+  compact field; list rows do not repeat them. Agent review status is plain
+  in decisions and the inbox. Ownership evidence appears in the card panel
+  only when present, with its basis and attribution. No shared disclosure.
 - **Explainer:** a sentence about the concept in the task's context, followed
   by “Learn more” with the concept in its accessible name. Click, Enter or
   Space expands a labelled popover region; Close, Escape or outside click
@@ -268,8 +266,8 @@ private, and every synthetic write names sample-agent. “Archived” describes 
 lifecycle; “decisions” describes the owner's choices, avoiding MTG format and
 card-ruling terminology. Stored user prose is never renamed.
 
-The live inventory at /design includes collapsed, expanded, saving, failed
-and inline Advanced states, both overlays, a closed and an open explanation, selected/empty/busy
+The live inventory at /design includes contextual metadata and compact slot
+fields, both overlays, closed and open explanations, selected/empty/busy
 listboxes, a plain archived title, accessible faint text and motion guidance.
 
 

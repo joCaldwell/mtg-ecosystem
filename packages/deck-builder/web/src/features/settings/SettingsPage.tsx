@@ -1,4 +1,4 @@
-import { Advanced, useVoice } from "../../app/Preferences.tsx";
+import { useVoice } from "../../app/Preferences.tsx";
 import { useEffect } from "react";
 import { useSession } from "../../app/Session.tsx";
 import { LegalFooter } from "../auth/index.ts";
@@ -33,7 +33,7 @@ export function SettingsPage() {
         <div className={styles.cards}>
           <AgentConnectionCard agent={data.agent} onChanged={settings.reload} />
           <PriceSourceCard source={data.price_source} onSaved={settings.reload} />
-          <Advanced><BudgetsCard budgets={data.budgets} onSaved={settings.reload} /></Advanced>
+          <BudgetsCard budgets={data.budgets} usage={data.memory_usage} onSaved={settings.reload} />
           <CardDataCard cards={data.cards} jobs={data.jobs} onChanged={settings.reload} canRefresh={session.mode === "local" || !!session.user?.is_admin} />
           {session.mode === "hosted" && <AccountCard />}
           {session.mode === "hosted" && !!session.user?.is_admin && <AdminCard />}

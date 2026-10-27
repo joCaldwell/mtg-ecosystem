@@ -1,4 +1,3 @@
-import { Advanced } from "../../../app/Preferences.tsx";
 // The History tab (spec §8.2): the decisions log is the deck's version history,
 // and any entry can be undone. Undo writes a new entry rather than erasing one.
 
@@ -24,11 +23,10 @@ export function HistoryPanel() {
   return (
     <>
       <section className={styles.section}>
-        <Eyebrow>Decisions and versions</Eyebrow>
-        <Advanced><Text size="sm" tone="muted">Revision numbers and agent review flags are visible below.</Text></Advanced>
+        <Eyebrow>History · r{deck.revision}</Eyebrow>
         {log.length === 0 ? (
           <Text tone="muted" size="sm" as="p">
-            Nothing yet. Every accepted or rejected proposal, edit and import lands here, with who made it.
+            No decisions yet.
           </Text>
         ) : (
           <div className={styles.list}>

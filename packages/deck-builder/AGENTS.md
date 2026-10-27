@@ -341,7 +341,7 @@ Local mode exposes neither legal pages nor their footer. OAuth disconnect
 must remove refresh grants and preserve JWT issuance cutoffs on re-consent.
 Handles reserve route words and may change only during the first-run picker.
 
-Phase 4b adds human-only `createDemo` (src/demo.ts) and Advanced preferences
+Phase 4b adds human-only `createDemo` (src/demo.ts) and first-run voice
 (src/preferences.ts). The sample is atomic, idempotent per user, has no global
 memory/profile writes, and resolves all cards against installed data. The CLI
 is a thin adapter and never replaces an existing sample. UI components call

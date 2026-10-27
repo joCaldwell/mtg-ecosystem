@@ -4,9 +4,9 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDb, getSetting } from "../src/db.ts";
+import { openDb, getSetting, setSetting } from "../src/db.ts";
 import { createDemo } from "../src/demo.ts";
-import { uiPreferences, setAdvancedOpen } from "../src/preferences.ts";
+import { uiPreferences } from "../src/preferences.ts";
 import { latestActivity, listActivity, recordActivity } from "../src/activity.ts";
 import { createDeck, deleteDeck, setDeckCategory, getDeck, createSlot } from "../src/deck/service.ts";
 import { createProposal } from "../src/deck/proposals.ts";
@@ -65,7 +65,7 @@ test("v14 → v15 preserves both tenants, all relations, prose, sharing and the 
   assert.deepEqual(ids.map((id,i)=>getDeck(migrated,{...OWNER,user_id:i+1},id)),before);
   assert.deepEqual(migrated.prepare("SELECT * FROM memories").all(),memories);
   assert.deepEqual(migrated.prepare("SELECT * FROM log").all(),log);
-  for(const user_id of [1,2])assert.equal(uiPreferences(migrated,{...OWNER,user_id}).advanced_open,true);
+  for(const user_id of [1,2])assert.deepEqual(uiPreferences(migrated,{...OWNER,user_id}),{has_agent_activity:false});
   assert.throws(()=>migrated.prepare("UPDATE decks SET category='legacy'").run(),/CHECK/);
   assert.ok(createDeck(migrated,OWNER,"After migration")>999);
   assert.deepEqual(migrated.prepare("PRAGMA foreign_key_check").all(),[]);
@@ -78,16 +78,16 @@ test("first agent write changes only its principal's voice; token creation and r
  const db=testDb();try {
   db.exec("INSERT INTO users(id,handle,display_name) VALUES (2,'second','Second')");
   const second={...OWNER,user_id:2};
-  assert.deepEqual(uiPreferences(db,OWNER),{has_agent_activity:false,advanced_open:false});
+  assert.deepEqual(uiPreferences(db,OWNER),{has_agent_activity:false});
   createToken(db,OWNER,"unused");listMemories(db,agent("reader"));
   assert.equal(uiPreferences(db,OWNER).has_agent_activity,false);
   remember(db,agent("writer"),{scope:"global",text:"I prefer longer games"});
   assert.equal(uiPreferences(db,OWNER).has_agent_activity,true);
   assert.equal(uiPreferences(db,second).has_agent_activity,false);
-  setAdvancedOpen(db,second,true);assert.equal(uiPreferences(db,second).advanced_open,true);
-  assert.equal(uiPreferences(db,OWNER).advanced_open,false);
-  assert.throws(()=>setAdvancedOpen(db,agent("writer"),true),{status:403});
-  assert.throws(()=>setAdvancedOpen(db,OWNER,"true"),/Advanced/);
+  setSetting(db,second,"advanced_open","true");
+  setSetting(db,OWNER,"advanced_open","false");
+  assert.deepEqual(uiPreferences(db,second),{has_agent_activity:false});
+  assert.deepEqual(uiPreferences(db,OWNER),{has_agent_activity:true});
  }finally{db.close();}
 });
 

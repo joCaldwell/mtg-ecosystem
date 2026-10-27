@@ -1,5 +1,5 @@
 import { Explainer } from "../../ui/index.ts";
-import { Advanced, useVoice } from "../../app/Preferences.tsx";
+import { useVoice } from "../../app/Preferences.tsx";
 // The deck's identity and its vital signs (spec §5.1): name, who may edit it,
 // and three numbers that each open the tab explaining them. Slot counts are
 // not here; they live on the group headings, where they can be acted on.
@@ -156,9 +156,6 @@ export function DeckHeader({ collapsed = false }: { collapsed?: boolean }) {
           Power: {state.power.assessment ? `${bracketLabel(state.power.assessment.mapping)}${state.power.assessment.stale ? " · needs review" : ""}` : "not assessed"}
           {state.power.target ? ` · target ${bracketLabel(state.power.target.mapping)}` : ""}
         </button>
-        <Advanced inline title="Show or hide revisions, secondary slots, budgets and review flags. Applies across your account."><Text mono tone="faint" title="The deck's revision">
-          r{deck.revision}
-        </Text></Advanced>
       </Row>
     </header></DeckArt>
   );

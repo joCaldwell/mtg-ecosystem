@@ -523,8 +523,8 @@ const MIGRATIONS: Array<{ version: number; up: (db: Database) => void }> = [
     db.exec("DROP TABLE decks; ALTER TABLE decks_v15 RENAME TO decks");
     if (sequence) db.prepare("UPDATE sqlite_sequence SET seq=? WHERE name='decks'").run(sequence.seq);
     for (const index of indexes) db.exec(index.sql);
-    // Existing users keep the controls they already had visible. A newly
-    // registered account has no key and starts with Advanced closed.
+    // Historical phase 4b preference, retired by the 2026-10-27 owner decision.
+    // Preserve this migration; application reads and writes ignore these rows.
     if (db.prepare("SELECT 1 FROM meta WHERE key='schema_version'").get())
       db.exec("INSERT OR IGNORE INTO user_settings(user_id,key,value) SELECT id,'advanced_open','true' FROM users WHERE id > 0");
     // /api/settings probes each table for a non-sample agent write (§11.3);

@@ -35,10 +35,6 @@
   color: var(--muted);
 }
 
-.rev {
-  font-family: var(--font-mono);
-}
-
 /* A link inside a banner sentence is still a full tap target. */
 .tap {
   display: inline-flex;

@@ -4,3 +4,8 @@
   align-content: start;
   min-width: 0;
 }
+
+.evidence {
+  display: grid;
+  gap: var(--s-1);
+}

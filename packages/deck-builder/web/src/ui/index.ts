@@ -49,6 +49,5 @@ export { CounterControl } from "./CounterControl.tsx";
 
 export { Pill } from "./Pill.tsx";
 
-export { Disclosure } from "./Disclosure.tsx";
 export { Explainer } from "./Explainer.tsx";
 export { useNearView } from "./useNearView.ts";
