@@ -52,7 +52,8 @@ export function DeckHeader({ collapsed = false }: { collapsed?: boolean }) {
   const moreItems: MenuItem[] = [
     { id: "fork", label: "Fork", onSelect: () => ui.openDialog("fork") },
     { id: "compare", label: "Compare", onSelect: () => ui.openDialog("compare") },
-    { id: "interop", label: readOnly ? "Export" : "Import / export", onSelect: () => ui.openDialog("interop") },
+    ...(!readOnly ? [{ id: "import", label: "Import", onSelect: () => ui.openDialog("import") }] : []),
+    { id: "export", label: "Export", onSelect: () => ui.openDialog("export") },
     { id: "slots", label: "Edit slots and tags", disabled: readOnly, onSelect: () => ui.openDialog("slots") },
     { id: "delete", label: "Delete deck", disabled: readOnly, tone: "cut", onSelect: () => ui.openDialog("delete") },
   ];

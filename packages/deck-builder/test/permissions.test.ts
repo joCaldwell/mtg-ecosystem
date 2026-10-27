@@ -719,6 +719,7 @@ http("POST",()=>"/api/settings/tokens","owner-only",()=>({label:"HTTP client"}),
 http("DELETE",(t,f)=>`/api/settings/tokens/${t.token}`,"owner-only");
 http("POST",()=>"/api/cards/refresh","owner-only",undefined,{global:true,ownStatus:503});
 http("GET",t=>`${deckPath(t)}/export`,"read");
+http("POST",()=>"/api/decks/import/preview","owner-only",()=>({text:"7 Forest"}),{global:true});
 http("POST",t=>`${deckPath(t)}/import/preview`,"read",()=>({text:"7 Forest"}));
 http("POST",t=>`${deckPath(t)}/import`,"owner-only",()=>({text:"7 Forest"}));
 http("GET",()=>"/api/resolve?name=Forest","public-read",undefined,{global:true});
@@ -999,6 +1000,13 @@ test("MCP and HTTP reject own-deck/foreign-child combinations without partial wr
 // Every non-deck export has a concrete user-2 probe. The invocation proxy
 // rejects a no-op probe, and output/owner snapshots verify the privacy claim.
 const globalProbes:Record<string,GlobalProbe>={
+  previewNewImport:(fn,f,a)=>{
+    const before=personalSnapshot(f.db);
+    assert.throws(()=>fn(f.db,{...a,via:"agent"},"7 Forest"),PermissionError);
+    const result=fn(f.db,a,"7 Forest");
+    assert.equal(result.add_count,7);assert.equal(result.cut_count,0);assert.equal(result.revision,0);
+    assert.deepEqual(personalSnapshot(f.db),before);return result;
+  },
   creditedArt:(fn,f)=>{const c=functions.requireCardById(f.db,"id-forest");assert.equal(fn(c),null);return fn({...c,image_art_crop:"https://cards.scryfall.io/art_crop/test.jpg",artist:"Shared artist"});},
   isScryfallArtCrop:(fn)=>{assert.equal(fn("https://cards.scryfall.io/art_crop/../large/x.jpg"),false);return fn("https://cards.scryfall.io/art_crop/test.jpg");},
   visitBackdrop:(fn,f)=>{const before=personalSnapshot(f.db);const result=fn(f.db);assert.deepEqual(personalSnapshot(f.db),before);return result;},
@@ -1120,7 +1128,7 @@ const globalProbes:Record<string,GlobalProbe>={
 };
 for(const name of ["AppError","ServiceError","SchemaError","PermissionError","SearchError"])globalProbes[name]=fn=>new fn("Second probe");
 globalProbes.CardResolutionError=fn=>new fn([{ref:"missing",problem:"unknown",suggestions:[],candidates:[]}]);
-const globalKinds:Record<string,Classification>={createDemo:"owner-only",uiPreferences:"read",sharedCounts:"read",getPriceSource:"read",setPriceSource:"owner-only",priceResolver:"read",connectedClients:"owner-only",disconnectClient:"owner-only",accountInfo:"owner-only",chooseHandle:"owner-only",exportAccount:"owner-only",deleteAccount:"owner-only",createInvite:"owner-only",adminInfo:"owner-only",accountScopes:"public-read",getSetting:"read",setSetting:"write",createDeck:"write",listDecks:"read",getProfile:"read",setProfile:"owner-only",getBudgets:"read",setBudgets:"write",unreviewedCount:"read",getFocus:"read",playerStats:"read",listActivity:"read",latestActivity:"read",activityPage:"read",ownershipEvidence:"read",createToken:"owner-only",listTokens:"owner-only",revokeToken:"owner-only",requireUi:"owner-only",requireAdmin:"owner-only",ingestPrices:"write"};
+const globalKinds:Record<string,Classification>={previewNewImport:"owner-only",createDemo:"owner-only",uiPreferences:"read",sharedCounts:"read",getPriceSource:"read",setPriceSource:"owner-only",priceResolver:"read",connectedClients:"owner-only",disconnectClient:"owner-only",accountInfo:"owner-only",chooseHandle:"owner-only",exportAccount:"owner-only",deleteAccount:"owner-only",createInvite:"owner-only",adminInfo:"owner-only",accountScopes:"public-read",getSetting:"read",setSetting:"write",createDeck:"write",listDecks:"read",getProfile:"read",setProfile:"owner-only",getBudgets:"read",setBudgets:"write",unreviewedCount:"read",getFocus:"read",playerStats:"read",listActivity:"read",latestActivity:"read",activityPage:"read",ownershipEvidence:"read",createToken:"owner-only",listTokens:"owner-only",revokeToken:"owner-only",requireUi:"owner-only",requireAdmin:"owner-only",ingestPrices:"write"};
 for(const [name,probe] of Object.entries(globalProbes))globalCase(name,globalKinds[name]??"public-read",probe);
 
 function ownerSnapshot(f:Fixture) {

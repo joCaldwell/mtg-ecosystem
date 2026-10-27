@@ -1,0 +1,14 @@
+.body { display: flex; min-height: 0; overflow: hidden; }
+.content { display: flex; flex-direction: column; gap: var(--s-4); width: 100%; height: var(--sheet-content-h); min-height: 0; }
+.form { display: flex; flex-direction: column; gap: var(--s-5); flex: 1; min-height: 0; overflow: auto; }
+.metadata { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: var(--s-5); }
+.source { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.paste { flex: 1; min-height: var(--h-lg); font-family: var(--font-mono); font-size: var(--text-sm); white-space: pre; }
+.formats { color: var(--muted); font-size: var(--text-sm); }
+.formats summary { cursor: pointer; width: fit-content; text-decoration: underline; }
+.formats p { padding-top: var(--s-3); }
+.footer { display: flex; align-items: flex-end; justify-content: flex-end; gap: var(--s-5); width: 100%; flex-wrap: wrap; }
+.note { flex: 1; }
+@media (pointer: coarse) and (max-width: 1099px) {
+  .footer button, .metadata input, .metadata select, .note input, .formats summary { min-height: var(--tap); }
+}

@@ -363,3 +363,19 @@ the public chunk does not carry it. Tablet/phone/public shells retain
 document. Sign-in uses that same hook and a labelled main. The public/phone
 reader uses `BriefText`, without the editable
 brief wrapper's state or loader in its initial dependency graph.
+
+## Direct deck import
+
+`features/import` owns the shared new/existing-deck dialog. All decks and
+first run open it directly; the deck menu has separate Import and Export
+actions. New-deck preview calls `/api/decks/import/preview`, which uses the
+same capability-layer diff against an empty snapshot without writing a deck.
+Apply calls `createDeck` and then the existing import endpoint. A failed
+apply retains the created id for retry; closing opens that empty deck.
+Existing-deck results and undo responses replace the deck store as usual.
+
+The preview unmounts the source form behind Edit list. Totals and warnings
+stay above the independently scrolling changes, with cuts first; Apply and
+the optional History note remain in Dialog's footer. Formats is a native
+disclosure in the source step. Dialog's optional `bodyClassName` lets this
+workflow size its scrolling region without changing other dialogs.

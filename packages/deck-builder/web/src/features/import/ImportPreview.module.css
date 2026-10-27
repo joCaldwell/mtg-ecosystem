@@ -30,3 +30,8 @@
   border-bottom: 1px dotted var(--faint);
   color: var(--text);
 }
+
+.preview { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: var(--s-4); }
+.summary { flex: none; max-height: 45%; overflow: auto; }
+.changes { flex: 1; min-height: 0; overflow: auto; padding: var(--s-2); border-top: 1px solid var(--line); }
+.changes:focus-visible { outline: 2px solid var(--sel); outline-offset: -2px; }

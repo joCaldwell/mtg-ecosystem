@@ -156,7 +156,7 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
           <DeckBody
             list={
               <>
-                <DeckList view={view} />
+                <DeckList view={view} emptyAction={state.deck.category === "archived" ? undefined : <><p>Search above to add cards, or bring a list.</p><Button onClick={() => ui.openDialog("import")} aria-haspopup="dialog">Import a list</Button></>} />
                 {state.deck.category !== "archived" && <SelectionBar />}
               </>
             }

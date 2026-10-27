@@ -154,6 +154,7 @@ test("imports, preview and apply, have their own 20-a-minute budget per account 
     assert.deepEqual(statuses.slice(0, 20), Array(20).fill(200));
     assert.equal(statuses[20], 429);
     assert.equal((await post("import")).status, 429, "apply shares the budget");
+    assert.equal((await fetch(`${s.base}/api/decks/import/preview`, { method: "POST", headers: { "Content-Type": "application/json", Origin: s.base }, body: JSON.stringify({ text: "1 Forest" }) })).status, 429, "new-deck preview shares the same budget");
     assert.equal((await fetch(`${s.base}/api/decks/${s.id}`)).status, 200, "the rest of the app is unaffected");
   } finally { await s.close(); }
 });
@@ -215,5 +216,39 @@ test("D16: index.html for app routes only; API, MCP, well-known, assets and unkn
       assert.doesNotMatch(await res.text(), /<div id="root">/, path);
     }
     assert.equal((await fetch(`${s.base}/assets/app.js`)).status, 200);
+  } finally { await s.close(); }
+});
+
+
+test("new-deck import previews require a session, write nothing, and retain parser limits", async () => {
+  const s = await served("hosted");
+  try {
+    const post = (text: string, path = "/api/decks/import/preview") => fetch(s.base + path, {
+      method: "POST", headers: { "Content-Type": "application/json", Origin: s.base }, body: JSON.stringify({ text }),
+    });
+    assert.equal((await post("1 Forest")).status, 401);
+    s.as(OWNER);
+    const before = s.db.prepare("SELECT total_changes() AS n").get();
+    const preview = await post("Commander\n1 Teferi, Temporal Archmage\nMainboard\n2 Forest\nSideboard\n1 Counterspell");
+    assert.equal(preview.status, 200);
+    const diff = await preview.json();
+    assert.equal(diff.add_count, 3);
+    assert.equal(diff.cut_count, 0);
+    assert.equal(diff.adds.find((c: any) => c.oracle_id === "id-teferi").role, "commander");
+    assert.equal(diff.set_aside[0].oracle_id, "id-counterspell");
+    assert.equal(diff.revision, 0);
+    assert.deepEqual(s.db.prepare("SELECT total_changes() AS n").get(), before, "preview writes no deck, log, activity or focus");
+    const created = await fetch(s.base + "/api/decks", { method: "POST", headers: { "Content-Type": "application/json", Origin: s.base }, body: JSON.stringify({ name: "Preview parity", category: "paper" }) });
+    assert.equal(created.status, 200);
+    const id = (await created.json()).state.deck.id;
+    const text = "1 Forest\n1 Counterspell [Maybeboard]";
+    assert.deepEqual(await (await post(text)).json(), await (await post(text, `/api/decks/${id}/import/preview`)).json());
+    assert.equal((await post(Array(5002).fill("1 Forest").join("\n"))).status, 400);
+    const longLine = await post("1 " + "x".repeat(301));
+    assert.equal(longLine.status, 200);
+    const rejected = await longLine.json();
+    assert.equal(rejected.unparsed.length, 1, "oversized lines are reported, never parsed as cards");
+    assert.equal(rejected.add_count, 0);
+    assert.equal(rejected.unresolved.length, 0);
   } finally { await s.close(); }
 });

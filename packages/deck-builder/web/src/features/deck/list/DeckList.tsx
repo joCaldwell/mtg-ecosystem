@@ -3,7 +3,7 @@
 // every pending item were accepted, drawn in place rather than in a side list,
 // so the owner judges a swap by what the list looks like after it.
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import type { ProposalItem } from "../../../api/client.ts";
 import { costOf } from "../../../domain/price.ts";
 import { EmptyState, Text } from "../../../ui/index.ts";
@@ -23,7 +23,7 @@ const LEGEND: Array<[MarkKind, string]> = [
 const NONE = new Set<string>();
 const NO_ADDS = new Map<string, ProposalItem[]>();
 
-export function DeckList({ view }: { view: DeckViewModel }) {
+export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyAction?: ReactNode }) {
   const { state, readOnly } = useDeckList();
   const ui = useDeckUi();
   const scroll = useRef<HTMLDivElement>(null);
@@ -57,7 +57,7 @@ export function DeckList({ view }: { view: DeckViewModel }) {
     <div ref={scroll} data-deck-list={!readOnly ? "true" : undefined} className={readOnly ? styles.flow : styles.scroll}>
       {nothingToShow ? (
         <EmptyState title="No cards yet">
-          {readOnly ? "This deck has no cards in it yet." : "Use the bar above to add the first one, or import a list from the More menu."}
+          {emptyAction ?? "This deck has no cards in it yet."}
         </EmptyState>
       ) : (
         <>

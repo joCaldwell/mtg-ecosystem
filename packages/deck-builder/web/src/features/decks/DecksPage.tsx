@@ -15,10 +15,12 @@ import {
   Loading,
   Page,
   PageHeader,
+  Row,
   Text,
   useNearView,
 } from "../../ui/index.ts";
 import styles from "./DecksPage.module.css";
+import { ImportDialog } from "../import/index.ts";
 import { NewDeckDialog } from "./NewDeckDialog.tsx";
 import { PlayerStatsPanel } from "./PlayerStatsPanel.tsx";
 import { DeckActions, type DeckAction } from "./DeckActions.tsx";
@@ -89,9 +91,8 @@ export function DecksPage() {
               : voice("Your Commander decks, from first idea to the list you play. Archived decks stay read-only.", "Theorycrafted cards are open to agents. Paper cards need your approval. Archived decks are read-only.")
           }
           actions={
-            <Button onClick={() => setCreating(true)} aria-haspopup="dialog">
-              New deck
-            </Button>
+            <Row gap={4} wrap><Button onClick={() => setCreating(true)} aria-haspopup="dialog">New deck</Button>
+            <Button onClick={() => setImporting(true)} aria-haspopup="dialog">Import deck</Button></Row>
           }
         />
       }
@@ -101,7 +102,7 @@ export function DecksPage() {
         {decks.loading && <Loading />}
         {decks.data &&
           (rows.length === 0 ? (
-            <FirstRun onCreate={() => setCreating(true)} onImport={() => { setImporting(true); setCreating(true); }} />
+            <FirstRun onCreate={() => setCreating(true)} onImport={() => setImporting(true)} />
           ) : (
             <ul className={styles.roster}>
               {rows.map(({ deck, fork }) => <RosterCard key={deck.id} deck={deck} fork={fork} onAction={action => setEditing({ deck, action })} />)}
@@ -109,7 +110,8 @@ export function DecksPage() {
           ))}
         {rows.length > 0 && <PlayerStatsPanel />}
       </div>
-      {creating && <NewDeckDialog importAfterCreate={importing} onClose={() => { setCreating(false); setImporting(false); }} />}
+      {creating && <NewDeckDialog onClose={() => setCreating(false)} />}
+      {importing && <ImportDialog onClose={() => setImporting(false)} />}
       {editing && <DeckActionDialog key={`${editing.deck.id}-${editing.action}`} {...editing} onClose={() => setEditing(null)} onSaved={decks.reload} />}
     </Page>
   );
