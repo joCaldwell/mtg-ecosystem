@@ -458,6 +458,13 @@ its optional reason in the panel (the requested sheet on tablets). Panel-only
 scrolling and resize observation keep asynchronously loaded context from moving
 the controls away or undoing the list reveal.
 
+Desktop editors use a 300 px column minimum to leave more room for names beside
+mana and estimates; reader and narrow layouts retain the 250 px minimum.
+All decks filters its existing family-ordered roster by deck/commander name and
+lifecycle. Collection statistics continue to describe all Paper decks. Memories
+uses a labelled scope selector with stable width, so loading deck choices cannot
+push the composer down by adding rows of scope pills.
+
 Secondary-page UX (2026-10-27): inbox ProposalDecision calls the existing ruleProposal capability with the revision read at the click and captures stale confirmation before submitting. It applies the returned inbox without client merging. PhoneInbox preserves the proposal parameter; PhoneDecisions keeps selected units first and discloses bulk decisions. The shared mtg/DeckCard is the roster presentation used by All decks and public profiles; publicProfile supplies only public commanders’ credited art facts alongside their names.
 
 Review refinement (2026-10-27): CardPanel reserves a readable field width beside

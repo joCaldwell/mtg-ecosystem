@@ -3,7 +3,7 @@ import { useVoice } from "../../app/Preferences.tsx";
 import { useEffect, useState } from "react";
 import { api } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
-import { Button, Text, Pill, EmptyState, ErrorNote, Eyebrow, Loading, Page, PageHeader, Stack, TextField } from "../../ui/index.ts";
+import { Button, Text, Pill, EmptyState, ErrorNote, Eyebrow, Field, Loading, Page, PageHeader, Select, Stack, TextField } from "../../ui/index.ts";
 import { AddMemory } from "./AddMemory.tsx";
 import { MemoryCard } from "./MemoryCard.tsx";
 import styles from "./MemoriesPage.module.css";
@@ -66,22 +66,21 @@ export function MemoriesPage() {
 
       <Stack gap={4}>
         <div className={styles.filters}>
-          <div className={styles.group} role="group" aria-label="Scope">
-            <Pill on={scope === "all"} onClick={() => setScope("all")}>All scopes</Pill>
-            <Pill on={scope === "global"} onClick={() => setScope("global")}>Global</Pill>
-            {[...decks].map(([id, name]) => (
-              <Pill key={id} on={scope === id} onClick={() => setScope(id)}>
-                {name}
-              </Pill>
-            ))}
-          </div>
+          <Field label="Scope" className={styles.scope}>
+            <Select value={scope} onChange={event => {
+              const value = event.target.value;
+              setScope(value === "all" || value === "global" ? value : Number(value));
+            }}>
+              <option value="all">All scopes</option>
+              <option value="global">Global</option>
+              {scopes.map(deck => <option key={deck.id} value={deck.id}>{deck.name}{deck.category === "archived" ? " · Archived" : ""}</option>)}
+            </Select>
+          </Field>
           <div className={styles.group} role="group" aria-label="Basis">
+            <Text size="sm" tone="muted">Basis</Text>
             <Pill on={basis === "any"} onClick={() => setBasis("any")}>Any basis</Pill>
             <Pill on={basis === "stated"} onClick={() => setBasis("stated")}>Stated</Pill>
             <Pill on={basis === "inferred"} onClick={() => setBasis("inferred")}>Inferred</Pill>
-          </div>
-          <div className={styles.group}>
-            <Pill on={showOld} onClick={() => setShowOld(!showOld)}>Show retired and superseded</Pill>
           </div>
           <TextField
             type="search"
@@ -91,6 +90,9 @@ export function MemoriesPage() {
             placeholder="Search memory text or a card"
             aria-label="Search memories"
           />
+          <div className={`${styles.group} ${styles.status}`}>
+            <Pill on={showOld} onClick={() => setShowOld(!showOld)}>Show retired and superseded</Pill>
+          </div>
         </div>
 
         {!(addToDeck != null && archived.has(addToDeck)) && <AddMemory

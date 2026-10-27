@@ -142,7 +142,9 @@
   --panel-w: 392px;
   --card-fields-min: 240px;
   --card-art-max: 150px;
-  --deck-column-min: 250px;
+  --deck-reader-column-min: 250px;
+  --deck-column-min: var(--deck-reader-column-min);
+  --deck-editor-column-min: 300px;
   --price-column-min: 6ch;
   --mana-list-gap: 1px;
   /* The deck's side panel can be dragged between these, and never so wide

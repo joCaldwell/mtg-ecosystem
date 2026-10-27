@@ -1,6 +1,7 @@
 .page {
   /* Essential workspace metadata stays readable without expanding desktop rows. */
   --text-xs: var(--text-sm);
+  --deck-column-min: var(--deck-editor-column-min);
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -9,5 +10,6 @@
 
 /* Tablet sizing is a viewport contract, including freshly imported decks. */
 @media (max-width: 1099px) {
+  .page { --deck-column-min: var(--deck-reader-column-min); }
   .page :is(button, select, input) { min-height: var(--tap); }
 }

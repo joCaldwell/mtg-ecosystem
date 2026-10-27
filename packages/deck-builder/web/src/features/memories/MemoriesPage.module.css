@@ -1,9 +1,13 @@
 .filters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: end;
   gap: var(--s-3) var(--s-6);
 }
+.scope { min-width: 0; }
+.scope select { width: 100%; }
+.scope > span { width: 100%; }
+.status { grid-column: 1 / -1; }
 
 .group {
   display: flex;
@@ -15,8 +19,14 @@
 /* Pill toggles: a Chip cannot show "selected", and these are state, not tags. */
 
 .search {
-  width: 240px;
-  margin-left: auto;
+  width: 100%;
+  min-width: 0;
+}
+@media (max-width: 1099px) {
+  .filters :is(select, button) { min-height: var(--tap); }
+}
+@media (max-width: 719px) {
+  .filters { grid-template-columns: minmax(0, 1fr); }
 }
 
 .listHead {

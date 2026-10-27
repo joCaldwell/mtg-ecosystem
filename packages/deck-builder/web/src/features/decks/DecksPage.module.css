@@ -9,6 +9,10 @@
 .shared {
   color: var(--faint);
 }
+.collection { display: grid; gap: var(--s-6); min-width: 0; }
+.filters { display: flex; flex-wrap: wrap; align-items: end; gap: var(--s-5); }
+.search { flex: 1 1 var(--sidebar-w); max-width: var(--toolbar-search-max); min-width: 0; }
+.filters > :is(p, button) { margin-block: var(--s-2); }
 
 /* Cards fill their grid row, so a partner's two-line commander leaves no
    ragged gap; the stats line is pinned to the bottom. */
