@@ -35,3 +35,13 @@
   align-items: start;
 }
 .columns > * { min-width: 0; }
+
+.permissions > summary {
+  cursor: pointer;
+  color: var(--text-soft);
+  padding-block: var(--s-3);
+}
+.permissions[open] > summary { margin-bottom: var(--s-3); }
+@media (max-width: 1099px) {
+  .permissions > summary { min-height: var(--tap); align-content: center; }
+}

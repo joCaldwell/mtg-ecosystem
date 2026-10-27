@@ -39,8 +39,8 @@
 
 .when {
   margin-left: auto;
-  font-size: var(--text-xs);
-  color: var(--faint);
+  font-size: var(--text-sm);
+  color: var(--muted);
 }
 
 .mono {
@@ -64,8 +64,9 @@
 
 .time {
   font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  color: var(--muted);
 }
 
 .verb {

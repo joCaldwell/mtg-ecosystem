@@ -74,6 +74,7 @@
   .layout [role="group"] { height: auto; }
   .layout { margin-left: auto; flex-wrap: wrap; gap: var(--s-2); }
   .filterSummary { flex-wrap: wrap; gap: var(--s-2); }
+  .filterSummary button:last-child, .search [role="status"] { display: none; }
 }
 
 /* Touch tablets: toolbar controls are full tap targets (DESIGN.md). */

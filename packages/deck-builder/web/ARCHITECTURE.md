@@ -456,3 +456,13 @@ Undo uses removeCard; ordinary membership Undo still uses its log entry.
 PhoneDecisions falls back to the first pending proposal after its selected one
 is resolved. DeckArt folds its decorative crop with transform and opacity in
 a fixed reserved box, without resizing the header or either desktop pane.
+
+Active tablet filters keep only their query/tag summary, match count and Clear
+action below navigation while the toolbar scrolls away. Matching-row reveal
+reserves that row's height. Pending impact headings in Inbox and Review name
+the full proposal count; individual decisions retain their existing scope.
+Settings' existing selector separates Claude Code token and OAuth setup, with
+optional tool permissions in a native disclosure. Token and grant management
+remain visible regardless of the selected method. Phone larger-screen notices
+use page titles and a separate back action; sign-in consent uses inline links
+with natural sentence wrapping.

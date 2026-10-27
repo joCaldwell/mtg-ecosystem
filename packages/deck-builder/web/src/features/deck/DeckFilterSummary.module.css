@@ -1,0 +1,23 @@
+.summary { display: none; }
+
+@media (max-width: 1099px) {
+  .summary {
+    position: sticky;
+    top: var(--tablet-bar-outer-h);
+    z-index: var(--z-sticky);
+    display: flex;
+    align-items: center;
+    gap: var(--s-4);
+    padding: var(--s-2) var(--s-4);
+    background: var(--surface);
+    border-bottom: 1px solid var(--line-strong);
+  }
+  .query {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .summary [role="status"], .summary button { flex: none; }
+}

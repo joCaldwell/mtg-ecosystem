@@ -16,6 +16,7 @@ import { DeckDialogs } from "./dialogs/DeckDialogs.tsx";
 import { DeckHeader } from "./DeckHeader.tsx";
 import { DeckProvider, useDeck, useDeckState } from "./DeckStore.tsx";
 import { DeckToolbar } from "./DeckToolbar.tsx";
+import { DeckFilterSummary } from "./DeckFilterSummary.tsx";
 import { DeckUiProvider, useDeckUi } from "./DeckUi.tsx";
 import { DeckList } from "./list/DeckList.tsx";
 import { SelectionBar } from "./list/SelectionBar.tsx";
@@ -151,6 +152,7 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
         <div className={styles.page} onScrollCapture={art.onScrollCapture}>
           <DeckHeader collapsed={art.collapsed} />
           <DeckToolbar />
+          <DeckFilterSummary />
           {error && (
             <Banner tone="error" actions={<Button size="sm" variant="ghost" onClick={clearError}>Dismiss</Button>}>
               {error}

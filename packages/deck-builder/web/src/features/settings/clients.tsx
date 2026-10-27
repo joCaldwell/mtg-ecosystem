@@ -4,7 +4,7 @@
 
 import type { ReactNode } from "react";
 
-export type ClientId = "claude-code" | "codex" | "chatgpt" | "claude-ai" | "http" | "stdio";
+export type ClientId = "claude-code" | "claude-code-oauth" | "codex" | "chatgpt" | "claude-ai" | "http" | "stdio";
 
 export type Part = { prose: ReactNode } | { code: string; label: string };
 
@@ -12,6 +12,7 @@ export interface Client {
   id: ClientId;
   label: string;
   parts: Part[];
+  permissions?: Part[];
 }
 
 const Code = ({ children }: { children: ReactNode }) => <code>{children}</code>;
@@ -26,7 +27,7 @@ export function clientConfigs(url: string, token: string, stdio: string | undefi
   const clients: Client[] = [
     {
       id: "claude-code",
-      label: "Claude Code",
+      label: "Claude Code · personal token",
       parts: [
         {
           label: "Claude Code command",
@@ -41,6 +42,8 @@ export function clientConfigs(url: string, token: string, stdio: string | undefi
             "# Launch Claude Code from this environment; keep the variable set.",
           ].join("\n"),
         },
+      ],
+      permissions: [
         {
           prose: (
             <>
@@ -57,7 +60,7 @@ export function clientConfigs(url: string, token: string, stdio: string | undefi
     },
     {
       id: "codex",
-      label: "Codex",
+      label: "Codex · personal token",
       parts: [
         {
           prose: (
@@ -84,12 +87,14 @@ export function clientConfigs(url: string, token: string, stdio: string | undefi
   if (!stdio) {
     // Verified 2026-10-25 against code.claude.com/docs/en/mcp and
     // developers.openai.com/api/docs/mcp (remote connectors use OAuth).
-    clients[0].parts.push({ prose: <>Or connect with OAuth: run the following without a token, open Claude Code’s /mcp menu and choose Authenticate, then sign in and approve deck-builder access.</> },
-      { label: "Claude Code OAuth", code: `claude mcp add --transport http deck-builder-oauth ${url}` });
-    clients.push({ id: "claude-ai", label: "Claude.ai", parts: [
+    clients.splice(1, 0, { id: "claude-code-oauth", label: "Claude Code · OAuth", parts: [
+      { prose: <>Run this without a token. Open Claude Code’s /mcp menu and choose Authenticate, then sign in and approve deck-builder access.</> },
+      { label: "Claude Code OAuth", code: `claude mcp add --transport http deck-builder-oauth ${url}` },
+    ], permissions: clients[0].permissions });
+    clients.push({ id: "claude-ai", label: "Claude.ai · OAuth", parts: [
       { prose: <>In Claude.ai, open Settings → Connectors → Add custom connector. Enter this hosted URL, then choose Connect. Sign in with your deck-builder account and approve access. A public HTTPS address is required.</> },
       { label: "Claude.ai connector URL", code: url },
-    ] }, { id: "chatgpt", label: "ChatGPT", parts: [
+    ] }, { id: "chatgpt", label: "ChatGPT · OAuth", parts: [
       { prose: <>In ChatGPT, enable developer mode in Settings → Apps, then create an app with this MCP URL and OAuth authentication. Connect, sign in and approve deck-builder access. Your plan or workspace must allow custom apps; a public HTTPS address is required.</> },
       { label: "ChatGPT MCP URL", code: url },
     ] });

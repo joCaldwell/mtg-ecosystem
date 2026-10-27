@@ -20,7 +20,7 @@ interface DeltaRow {
 }
 
 export function ReviewDelta() {
-  const { computed, slots } = useDeckState();
+  const { computed, slots, proposals } = useDeckState();
   const { pending } = computed;
 
   const rows: DeltaRow[] = [
@@ -52,7 +52,7 @@ export function ReviewDelta() {
 
   return (
     <Box>
-      <Eyebrow>If you accept everything still open</Eyebrow>
+      <Eyebrow>If {proposals.length > 1 ? "all " : ""}{proposals.length} pending {proposals.length === 1 ? "proposal is" : "proposals are"} accepted</Eyebrow>
       <div className={styles.delta}>
         {rows.map((r) => (
           <div key={r.key} className={styles.row}>

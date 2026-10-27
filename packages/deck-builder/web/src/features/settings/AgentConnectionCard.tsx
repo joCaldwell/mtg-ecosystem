@@ -3,7 +3,7 @@ import { api, type Settings } from "../../api/client.ts";
 import { ago } from "../../domain/time.ts";
 import { Box, Button, ConfirmDialog, ErrorNote, Field, KeyValue, Row, Select, Stack, Text, TextField } from "../../ui/index.ts";
 import styles from "./AgentConnectionCard.module.css";
-import { clientConfigs, type ClientId } from "./clients.tsx";
+import { clientConfigs, type ClientId, type Part } from "./clients.tsx";
 import { CopyButton } from "./CopyButton.tsx";
 
 /** Credentials stay in this component only until dismissed or the page is left. */
@@ -74,9 +74,12 @@ export function AgentConnectionCard({ agent, onChanged }: { agent: Settings["age
         const seen = [...agent.tokens.filter(t=>t.last_used_at && !t.revoked_at).map(t=>({label:t.label,last_used_at:t.last_used_at!})),...(agent.oauth_usage ?? [])].sort((a,b)=>b.last_used_at.localeCompare(a.last_used_at));
         return seen[0] ? `Last seen: ${seen[0].label}, ${ago(seen[0].last_used_at)}` : "Last seen: no agent has connected yet";
       })()}</Text>
-      <Field label="Client"><Select value={client.id} onChange={e => setClientId(e.target.value as ClientId)}>{clients.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}</Select></Field>
-      {client.parts.map((part, i) => "prose" in part ? <Text key={i} tone="muted" size="sm" as="p">{part.prose}</Text> :
-        <div key={i} className={styles.snippet}><pre className={styles.code} aria-label={part.label}>{part.code}</pre><div className={styles.copy}><CopyButton text={part.code} label={part.label} /></div></div>)}
+      <Field label="Connection method"><Select value={client.id} onChange={e => setClientId(e.target.value as ClientId)}>{clients.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}</Select></Field>
+      {client.parts.map(renderPart)}
+      {client.permissions && <details key={client.id} className={styles.permissions}>
+        <summary>Tool permissions (optional)</summary>
+        <Stack gap={4}>{client.permissions.map(renderPart)}</Stack>
+      </details>}
     </Stack>
     </div>
   </Stack>
@@ -88,4 +91,9 @@ export function AgentConnectionCard({ agent, onChanged }: { agent: Settings["age
     <Text>This client will lose access immediately. Other tokens keep working.</Text>
   </ConfirmDialog>}
   </Box>;
+}
+
+function renderPart(part: Part, i: number) {
+  return "prose" in part ? <Text key={i} tone="muted" size="sm" as="p">{part.prose}</Text> :
+    <div key={i} className={styles.snippet}><pre className={styles.code} aria-label={part.label}>{part.code}</pre><div className={styles.copy}><CopyButton text={part.code} label={part.label} /></div></div>;
 }

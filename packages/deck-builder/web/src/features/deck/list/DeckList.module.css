@@ -41,6 +41,13 @@
 
 @media (max-width: 1099px) { .scroll { overflow: visible; } }
 
+/* Search reveals stay below navigation and the single active-filter row. */
+@media (max-width: 1099px) {
+  .scroll [data-filter-match="true"] {
+    scroll-margin-top: calc(var(--tablet-bar-outer-h) + var(--tap) + var(--s-4));
+  }
+}
+
 /* "Ctrl-click to select several", the legend's last item when the list is
    editable, needs a mouse and keyboard; on a touch screen it is noise.
    (Selected in CSS so the public bundle carries no extra class name.) */

@@ -191,8 +191,10 @@
   --identity-g: var(--mana-g);
   --identity-grey: var(--line-strong);
   --phone-bar-h: 48px;
-  /* The menu bar above a tablet page under 960 px, which opens the drawer. */
   --tablet-bar-h: 48px;
+  /* Actual tablet navigation includes a touch target, padding and divider.
+     The minimum above is also used by the desktop brand row. */
+  --tablet-bar-outer-h: max(var(--tablet-bar-h), calc(var(--tap) + var(--s-2) * 2 + 1px));
   --sheet-max-h: 86dvh;
   /* The card picture in CardSheet: beside the text, and alone on a phone. */
   --sheet-image-w: 200px;

@@ -1,28 +1,28 @@
-import { useVoice } from "../../app/Preferences.tsx";
 // Everything a phone does not do (D17): one screen that says what is there
 // and where to do it instead, rather than a squeezed editor.
 
-import { href, type Route } from "../../app/routes.ts";
-import { EmptyState } from "../../ui/index.ts";
+import { navigate, type Route } from "../../app/routes.ts";
+import { Button, Stack, Text } from "../../ui/index.ts";
 import styles from "./LargerScreen.module.css";
 
-const WHAT: Partial<Record<Route["page"], string>> = {
-  playtest: "The playtester needs a table: open it on a computer.",
-  memories: "Memories are read and edited on a larger screen.",
-  profile: "Your profile is edited on a larger screen.",
-  activity: "The activity feed is on a larger screen.",
-  settings: "Settings, connections and tokens are on a larger screen.",
-  design: "The design reference is on a larger screen.",
+const PAGES: Partial<Record<Route["page"], { title: string; task: string }>> = {
+  playtest: { title: "Playtest", task: "use the playtester" },
+  memories: { title: "Memories", task: "read and edit memories" },
+  profile: { title: "Profile", task: "edit your profile" },
+  activity: { title: "Activity", task: "read the activity feed" },
+  settings: { title: "Settings", task: "manage settings, connections and tokens" },
+  design: { title: "Design reference", task: "browse the design reference" },
 };
 
 export function LargerScreen({ route }: { route: Route }) {
-  const voice = useVoice();
+  const page = PAGES[route.page];
   return (
     <div className={styles.page}>
-      <EmptyState heading="h1" title="Open on a larger screen">
-        {WHAT[route.page] ?? "This page needs a larger screen."} {voice("On a phone you can read decks and accept or reject proposed changes. Create and edit decks on a larger screen.", "On a phone you can read your decks and accept or reject what your agents propose. To change a deck from here, ask your agent to propose it.")}{" "}
-        <a href={href({ page: "decks" })}>Back to your decks</a>
-      </EmptyState>
+      <Stack gap={5}>
+        <Text as="h1" size="xl" weight="bold">{page?.title ?? "Open on a larger screen"}</Text>
+        <Text as="p" tone="muted">Open on a larger screen{page ? ` to ${page.task}` : " to use this page"}.</Text>
+        <div><Button size="touch" onClick={() => navigate({ page: "decks" })}>Back to decks</Button></div>
+      </Stack>
     </div>
   );
 }

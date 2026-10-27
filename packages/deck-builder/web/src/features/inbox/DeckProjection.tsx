@@ -48,7 +48,7 @@ export function DeckProjection({ state }: { state: DeckState }) {
   const openProposals = state.proposals.length;
   return (
     <Box>
-      <Eyebrow>What the deck becomes</Eyebrow>
+      <Eyebrow>If {openProposals > 1 ? "all " : ""}{openProposals} pending {openProposals === 1 ? "proposal is" : "proposals are"} accepted</Eyebrow>
       <div className={styles.grid}>
         {rows.map((row) => (
           <div key={row.key} className={styles.line}>
@@ -66,7 +66,7 @@ export function DeckProjection({ state }: { state: DeckState }) {
       {state.computed.cost.as_of && <Text size="sm" tone="muted" title={costCaption(state.computed.cost)}>Estimated cost: {formatPrice(state.computed.cost.cents, state.computed.cost.currency)} → {formatPrice(state.computed.pending.projected_cost.cents, state.computed.cost.currency)} · {state.computed.pending.projected_cost.unpriced} unpriced cards · {state.computed.cost.store === "tcgplayer" ? "TCGplayer" : "Cardmarket"} · {state.computed.cost.as_of.slice(0, 10)}</Text>}
       <Text tone="faint" size="xs">
         {openProposals > 1
-          ? `Counts everything pending on this deck: ${openProposals} open proposals, not only this one.`
+          ? "The decision below applies only to the selected proposal."
           : "Counts everything pending on this deck."}{" "}
         Amber means outside the target.
       </Text>
