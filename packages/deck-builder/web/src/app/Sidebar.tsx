@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from "react";
 import { DeckThumbnail } from "../mtg/index.ts";
 import { usePreferences } from "./Preferences.tsx";
 import { familyOrder } from "../domain/familyOrder.ts";
@@ -9,7 +10,7 @@ import { api } from "../api/client.ts";
 import { useQuery } from "../api/useQuery.ts";
 import { DECK_CATEGORY_LABELS } from "../domain/deckCategory.ts";
 import { ago } from "../domain/time.ts";
-import { Badge, Dot, Eyebrow, Icon, IconButton } from "../ui/index.ts";
+import { Badge, Dot, Eyebrow, Icon, IconButton, TextField } from "../ui/index.ts";
 import { useFocus } from "./Focus.tsx";
 import { useInbox } from "./Inbox.tsx";
 import { href, type PageName, type Route } from "./routes.ts";
@@ -34,6 +35,34 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
   const { focus } = useFocus();
   const decks = useQuery(() => api.listDecks(), []);
   const activity = useQuery(() => api.latestActivity(), []);
+  const [deckQuery, setDeckQuery] = useState("");
+  const filterInput = useRef<HTMLInputElement>(null);
+  const deckNav = useRef<HTMLElement>(null);
+  const canFilter = brand && !collapsed && (decks.data?.length ?? 0) > 8;
+  const query = canFilter ? deckQuery.trim().toLocaleLowerCase() : "";
+  const orderedDecks = familyOrder(decks.data ?? []);
+  const shownDecks = orderedDecks.filter(({ deck }) => !query || [deck.name, ...deck.commanders].some(name => name.toLocaleLowerCase().includes(query)));
+  const currentDeckId = route.page === "deck" || route.page === "playtest" ? route.deckId : null;
+  useLayoutEffect(() => {
+    if (!brand || currentDeckId == null) return;
+    const nav = deckNav.current;
+    if (!nav) return;
+    const reveal = () => {
+      const current = nav.querySelector<HTMLElement>('a[aria-current="page"]');
+      if (!current) return false; // The summaries may still be loading.
+      const pane = nav.getBoundingClientRect(), item = current.getBoundingClientRect();
+      // Only this rail scrolls. A later presence footer can reduce its height.
+      if (item.bottom > pane.bottom) nav.scrollTop += item.bottom - pane.bottom;
+      else if (item.top < pane.top) nav.scrollTop += item.top - pane.top;
+      return true;
+    };
+    const waiting = new MutationObserver(() => { if (reveal()) waiting.disconnect(); });
+    waiting.observe(nav, { childList: true, subtree: true });
+    if (reveal()) waiting.disconnect();
+    const sizes = new ResizeObserver(() => { reveal(); });
+    sizes.observe(nav);
+    return () => { waiting.disconnect(); sizes.disconnect(); };
+  }, [brand, collapsed, currentDeckId, route.page]);
   const last = activity.data;
   const section = route.page;
 
@@ -71,9 +100,15 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
 
       <div className={styles.heading} aria-hidden={collapsed || undefined}>
         <Eyebrow>Your decks</Eyebrow>
+        {query && <span className={styles.matches} role="status">{shownDecks.length} matches</span>}
       </div>
-      <nav className={styles.decks} aria-label="Decks">
-        {familyOrder(decks.data ?? []).map(({ deck, fork }) => {
+      {canFilter && <div className={styles.filter}>
+        <TextField ref={filterInput} type="search" aria-label="Find a deck or commander in sidebar" placeholder="Find a deck…"
+          value={deckQuery} onChange={event => setDeckQuery(event.target.value)}
+          onKeyDown={event => { if (event.key === "Escape" && deckQuery) { event.preventDefault(); event.stopPropagation(); setDeckQuery(""); } }} />
+      </div>}
+      <nav ref={deckNav} className={styles.decks} aria-label="Decks">
+        {shownDecks.map(({ deck, fork }) => {
           const open = (route.page === "deck" || route.page === "playtest") && route.deckId === deck.id;
           const pending = deck.pending_items + deck.pending_document_edits > 0;
           return (
@@ -99,12 +134,16 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
               )}
               {deck.category !== "paper" && (
                 <span className={styles.lifecycle} data-lifecycle={deck.category} title={DECK_CATEGORY_LABELS[deck.category]}>
-                  {deck.category === "theorycrafted" ? "Theory" : DECK_CATEGORY_LABELS[deck.category]}
+                  {DECK_CATEGORY_LABELS[deck.category]}
                 </span>
               )}
             </a>
           );
         })}
+        {query && shownDecks.length === 0 && <div className={styles.noMatches}>
+          <span>No decks found</span>
+          <button type="button" onClick={() => { setDeckQuery(""); filterInput.current?.focus(); }}>Clear filter</button>
+        </div>}
       </nav>
 
       {hasAgentActivity && <div className={styles.presence} title={presence}>

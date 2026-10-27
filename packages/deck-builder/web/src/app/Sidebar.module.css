@@ -209,3 +209,18 @@
 /* A deferred or failed thumbnail still has a visible rail target. */
 .thumb + .fallback { position: absolute; }
 .thumb:has([data-loaded]):not(:has([data-failed])) + .fallback { visibility: hidden; }
+
+/* Larger desktop collections are searchable without leaving the current deck.
+   These controls are absent from the compact rail and the tablet drawer. */
+.heading { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-3); }
+.matches { color: var(--muted); font-size: var(--text-xs); white-space: nowrap; }
+.filter { padding: 0 var(--s-5) var(--s-4); }
+.noMatches { display: grid; gap: var(--s-4); padding: var(--s-4); color: var(--muted); font-size: var(--text-sm); }
+.noMatches button { justify-self: start; color: var(--text); text-decoration: underline; text-underline-offset: var(--s-1); }
+@media not all and (max-width: 1099px) {
+  .sidebar:not(.collapsed) .decks a { position: relative; flex: none; display: grid; grid-template-columns: var(--art-thumb) minmax(0, 1fr) auto; gap: 0 var(--s-3); padding-block: var(--s-2); }
+  .sidebar:not(.collapsed) .lead { grid-column: 1; grid-row: 1 / span 2; align-self: center; }
+  .sidebar:not(.collapsed) .name { grid-column: 2; grid-row: 1; white-space: normal; overflow-wrap: anywhere; }
+  .sidebar:not(.collapsed) .shared { grid-column: 3; grid-row: 1; margin-left: 0; }
+  .sidebar:not(.collapsed) .lifecycle { grid-column: 2 / -1; grid-row: 2; margin-left: 0; font-size: var(--text-xs); text-transform: none; letter-spacing: 0; }
+}

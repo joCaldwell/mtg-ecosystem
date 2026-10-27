@@ -403,6 +403,15 @@ in place while navigating the change list.
 
 ## Sidebar navigation
 
+Expanded desktop navigation gives deck names their full row width; non-Paper
+lifecycle labels sit underneath at 11px, while shared-state icons stay beside
+the title. Collections with more than eight decks expose a native name/commander
+filter over the existing actor-scoped summaries. Search never remounts the deck
+editor or writes data. Escape clears it; empty results provide a clear action.
+Collapsed rail and tablet drawer always retain the full deck list, even while an
+expanded-desktop filter is set. Route/rail changes reveal the active deck only
+inside the navigation scroller, without shifting the deck list or page.
+
 All decks leads the section navigation, followed by Inbox, Memories, Activity,
 Profile and Settings. Following review, the owner decided on 2026-10-27 to
 restore the standalone ActivityPage and its own page title. ProfilePage has

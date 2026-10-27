@@ -247,3 +247,7 @@ Each pass:
 checks whole-row pointer/keyboard activation, focus, nested note controls, main
 modifier selection, persistent reason labels, and stored assignments/membership
 through promotion and undo against two disposable fixture servers.
+
+`node check-sidebar-search.mjs` checks the expanded disposable collection: full
+name visibility, deck/commander queries, unsaved draft identity, Escape/empty
+clear, compact-rail destinations and keyboard navigation at all four desktop widths.
