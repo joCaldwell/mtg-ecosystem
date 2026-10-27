@@ -1824,7 +1824,7 @@ commander crops, tokenized dark fade, small opaque artist caption and a thin
 identity stripe. Text content begins after the overlay reaches its AA-safe
 strength. Anonymous viewers receive no private art source: only the public
 commander card facts already in PublicDeckState. The public initial JS budget
-remains under 90,000 gzip bytes. Images are external art crops, never bundled.
+remains under 110,000 gzip bytes (owner raised the budget from 90,000 on 2026-10-27). Images are external art crops, never bundled.
 
 ### 18.6 Without an account
 

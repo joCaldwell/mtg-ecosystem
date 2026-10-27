@@ -138,7 +138,7 @@ function hardMetricRegressions(baseRun, candRun) {
   const bb = b.public_bundle?.gzip_js_bytes, cb = c.public_bundle?.gzip_js_bytes;
   if (cb == null) out.push("public bundle: not measured");
   else {
-    if (cb >= 90000) out.push(`public bundle over budget: ${cb} bytes`);
+    if (cb >= 110000) out.push(`public bundle over budget: ${cb} bytes`);
     if (bb != null) worse("public bundle gzip JS bytes", bb, cb, 500);
   }
   return out;

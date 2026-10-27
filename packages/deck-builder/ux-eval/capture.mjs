@@ -295,7 +295,7 @@ await browser.close();
   const r = spawnSync(process.execPath, [join(buildDir, "scripts", "check-public-bundle.mjs")], { encoding: "utf8" });
   try {
     const out = JSON.parse(r.stdout);
-    metrics.public_bundle = { gzip_js_bytes: out.bytes, budget_bytes: 90000, within_budget: out.bytes < 90000, chunks: out.chunks.length };
+    metrics.public_bundle = { gzip_js_bytes: out.bytes, budget_bytes: 110000, within_budget: out.bytes < 110000, chunks: out.chunks.length };
   } catch {
     metrics.public_bundle = { error: (r.stderr || r.stdout).slice(0, 300) };
   }

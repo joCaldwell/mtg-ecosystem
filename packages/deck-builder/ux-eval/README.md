@@ -183,7 +183,7 @@ deviation across its samples (so every judge needs two or more samples), and
 (3) no hard metric got worse: total axe nodes, small-text nodes, small tap
 targets, console errors, layout shift (+0.05 tolerance, since load timing moves it slightly), incomplete captures
 and completed flows; per screen, axe nodes, overflow and console errors; per
-completed flow, clicks and steps; and the public bundle (under 90,000 bytes,
+completed flow, clicks and steps; and the public bundle (under 110,000 bytes,
 growth at most 500).
 
 ## The loop, as a checklist

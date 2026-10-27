@@ -334,7 +334,7 @@ Barrel index.ts files are re-exports only; an architecture test enforces this
 so Vite may tree-shake their unused exports without executing the editor.
 React has its own manual chunk. `node scripts/check-public-bundle.mjs` after
 `vite build` sums unique gzip JS chunks in the initial public-deck visit,
-including React and the entry, and fails at 90,000 bytes. Deferred interaction
+including React and the entry, and fails at 110,000 bytes (raised from 90,000 by the owner on 2026-10-27). Deferred interaction
 chunks are excluded, and CSS is reported by Vite separately.
 
 Components never call fetch. **All HTTP calls live in api/**, including

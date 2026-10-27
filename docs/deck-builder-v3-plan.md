@@ -926,7 +926,7 @@ degrades gracefully down to 720 px, below which phones get 4a's phone view
 `has_agent_activity` flag, demo route and `activity/latest`.
 
 **Acceptance.** `npm run check` green; `tools.test.ts` and transcript check
-re-run after renames; bundle gzip for the public page route under 90 KB JS;
+re-run after renames; bundle gzip for the public page route under 90 KB JS (raised to 110 KB by the owner on 2026-10-27);
 axe (or equivalent) reports no contrast or role violations on decks, deck,
 inbox, public page; manual narrow-width pass recorded with screenshots in
 the PR, at 768, 1024 and 1280 for the full app and at 375 for the phone view.
