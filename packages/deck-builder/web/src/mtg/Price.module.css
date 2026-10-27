@@ -1,7 +1,7 @@
 .price {
   flex: none;
-  color: var(--price-color, var(--faint));
-  font: var(--text-xs) var(--font-mono);
+  color: var(--price-color, var(--text-soft));
+  font: var(--text-sm) var(--font-mono);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }

@@ -80,19 +80,22 @@ export function DeckHeader({ collapsed = false }: { collapsed?: boolean }) {
           </form>
         )}
 
-        <Segmented
-          label="Deck lifecycle"
-          options={DECK_CATEGORY_OPTIONS}
-          value={deck.category}
-          onChange={(category) => {
-            if (category !== deck.category) void run(() => api.setDeckCategory(deck.id, category));
-          }}
-        />
+        <div className={styles.lifecycle}>
+          <Segmented
+            label="Deck lifecycle"
+            options={DECK_CATEGORY_OPTIONS}
+            value={deck.category}
+            onChange={(category) => {
+              if (category !== deck.category) void run(() => api.setDeckCategory(deck.id, category));
+            }}
+          />
+          <Explainer title="Deck lifecycle">{voice("Theorycrafted is a work in progress; Paper is a deck you play; Archived keeps it read-only.", "Lifecycle controls how your agent can change the deck.")} Only you change lifecycle. Agents edit Theorycrafted cards directly and propose Paper card changes. Brief and power-target changes always need your approval. Archived decks can be shared, exported or forked.</Explainer>
+        </div>
 
         <div className={styles.stats}>
           <DeckStat
             figure={count}
-            tone={count === 100 ? "add" : "cut"}
+            tone={count === 100 ? "add" : "warn"}
             title="Open the checks"
             onClick={() => ui.setTab("checks")}
           >
@@ -109,6 +112,7 @@ export function DeckHeader({ collapsed = false }: { collapsed?: boolean }) {
           </DeckStat>
           {/* Peers, so one secondary style, set apart from the status chips. */}
           <div className={styles.actions}>
+            <Button className={styles.details} onClick={() => ui.setTab(ui.tab)} aria-haspopup="dialog">Open deck details</Button>
             {/* A link, so it opens in a new tab too; drawn as Button's default. */}
             <a className={styles.action} href={href({ page: "playtest", deckId: deck.id })}>Playtest</a>
             <Button onClick={() => ui.openDialog("share")} aria-haspopup="dialog"
@@ -121,10 +125,7 @@ export function DeckHeader({ collapsed = false }: { collapsed?: boolean }) {
         </div>
       </div>
 
-      <Explainer title="Deck lifecycle" summary={voice("Theorycrafted is a work in progress; Paper is a deck you play; Archived keeps it read-only.", "Lifecycle controls how your agent can change the deck.")}>Only you change lifecycle. Agents edit Theorycrafted cards directly and propose Paper card changes. Brief and power-target changes always need your approval. Archived decks can be shared, exported or forked.</Explainer>
       <Row className={styles.sub} gap={5} wrap>
-        {/* An archived deck says what it means once, in the banner under the toolbar. */}
-        {!readOnly && <Text size="xs" tone="muted">{deck.category === "paper" ? voice("A deck you play", "Agents propose card and brief changes") : voice("A work in progress", "Agents edit cards directly · brief changes need approval")}</Text>}
         {commanders.length > 0 ? (
           <>
             {commanders.map((c) => (
@@ -149,7 +150,7 @@ export function DeckHeader({ collapsed = false }: { collapsed?: boolean }) {
           </span>
         )}
         {computed.cost.as_of && (
-          <Text mono tone="muted" title={costCaption(computed.cost)}>
+          <Text mono tone="soft" title={costCaption(computed.cost)}>
             est. {formatPrice(computed.cost.cents, computed.cost.currency)} · {computed.cost.store === "tcgplayer" ? "TCGplayer" : "Cardmarket"} · {computed.cost.as_of.slice(0, 10)}
           </Text>
         )}

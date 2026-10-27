@@ -26,7 +26,12 @@
   white-space: nowrap;
 }
 
-.explanation { padding: var(--s-2) var(--s-6); }
+
 
 /* Touch tablets: the review action is a full tap target. */
 @media (pointer: coarse) and (max-width: 1099px) { .tap { min-height: var(--tap); } }
+
+@media (max-width: 1099px) {
+  .line { flex-wrap: wrap; gap: var(--s-2) var(--s-4); }
+  .who { flex-shrink: 1; }
+}

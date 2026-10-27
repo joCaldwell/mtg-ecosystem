@@ -4,7 +4,7 @@
   gap: var(--s-4);
   padding: var(--s-4) var(--s-6);
   border-bottom: 1px solid var(--line);
-  background: var(--bg);
+  background: var(--surface);
 }
 
 .add {
@@ -18,7 +18,6 @@
   flex: none;
   align-items: center;
   gap: var(--s-4);
-  margin-left: auto;
   white-space: nowrap;
 }
 
@@ -34,8 +33,8 @@
   display: flex;
   align-items: center;
   gap: var(--s-4) var(--s-5);
-  flex: 1 1 var(--panel-w);
-  min-width: min-content;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .layout {
@@ -65,12 +64,17 @@
 }
 
 @media (max-width: 1099px) {
-  .view { flex-wrap: wrap; overflow: visible; }
-  .filters { flex-wrap: wrap; min-width: 0; }
-  .layout { flex-wrap: wrap; }
+  .toolbar { flex-direction: row; flex-wrap: wrap; padding: var(--s-3) var(--s-4); gap: var(--s-2) var(--s-4); }
+  .toolbar .view, .toolbar .filters { display: contents; }
+  .add, .search { flex: 1 1 40%; min-width: 0; max-width: none; }
+  .search input { min-width: 0; }
+  .layout { margin-left: auto; flex-wrap: wrap; gap: var(--s-2); }
+  .filterSummary { flex-wrap: wrap; gap: var(--s-2); }
 }
 
 /* Touch tablets: toolbar controls are full tap targets (DESIGN.md). */
 @media (pointer: coarse) and (max-width: 1099px) {
   .toolbar button, .toolbar input { min-height: var(--tap); }
 }
+
+.search [role="status"] { flex: none; white-space: nowrap; }

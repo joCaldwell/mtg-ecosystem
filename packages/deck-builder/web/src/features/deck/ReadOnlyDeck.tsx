@@ -36,6 +36,8 @@ export interface ReadOnlyDeckProps {
   header?: ReactNode;
   /** The phone view's decision controls; given the units it draws in place. */
   decisions?: (view: DeckViewModel) => ReactNode;
+  /** Optional phone link back to the decisions above the list. */
+  listNavigation?: ReactNode;
 }
 
 export function ReadOnlyDeck(props: ReadOnlyDeckProps) {
@@ -61,7 +63,7 @@ function usePublicView(): DeckViewModel {
   }), [layout, state.computed.card_count]);
 }
 
-function ReadOnlyBody({ model, header, decisions, useView = usePublicView }: ReadOnlyDeckProps) {
+function ReadOnlyBody({ model, header, decisions, listNavigation, useView = usePublicView }: ReadOnlyDeckProps) {
   const ui = useDeckUi();
   const view = useView();
   const phone = useIsPhone();
@@ -100,9 +102,10 @@ function ReadOnlyBody({ model, header, decisions, useView = usePublicView }: Rea
           {header}
           {decisions?.(view)}
           <div className={styles.body}>
-            <section className={styles.list} aria-label="Deck list">
+            <section id="deck-list" tabIndex={-1} className={styles.list} aria-label="Deck list">
+              {listNavigation}
               <div className={styles.listHead}>
-                <Eyebrow>{model.list.computed.card_count} / 100 cards</Eyebrow>
+                <Text mono size="sm" tone="soft">{model.list.computed.card_count} / 100 cards</Text>
                 <Segmented
                   label="Group by"
                   value={ui.groupBy}

@@ -1,9 +1,14 @@
 .row {
+  --sym-size: var(--mana-list-size);
+  --glyph-scale: var(--mana-list-glyph);
+  --mana-min-glyph: var(--text-sm);
+  position: relative;
   display: flex;
   align-items: baseline;
   gap: var(--s-4);
   min-height: var(--row);
   padding: var(--s-2) var(--s-3);
+  border-left: 2px solid transparent;
   border-radius: var(--r-sm);
 }
 
@@ -13,7 +18,8 @@
 
 .row.match {
   background: var(--sel-bg);
-  box-shadow: inset 0 0 0 1px var(--sel-line);
+  box-shadow: inset 0 0 0 1px var(--sel);
+  border-left-color: var(--sel);
 }
 
 .match .name {
@@ -71,4 +77,20 @@
   .note:empty {
     display: none;
   }
+}
+
+/* Search preserves every row and its interaction. Nonmatches stay AA-readable. */
+.row[data-filter-match="false"] {
+  color: var(--muted);
+  --price-color: var(--muted);
+}
+.row[data-filter-match="false"] .name { color: var(--muted); }
+.row.match { box-shadow: inset 0 0 0 1px var(--sel); }
+.row.match .name { color: var(--text); }
+
+/* Stretch the existing button's hit area over its row on touch tablets. */
+@media (pointer: coarse) and (max-width: 1099px) {
+  .row, .name { min-height: var(--tap); }
+  .name::after { content: ""; position: absolute; inset: 0; }
+  .note a { position: relative; }
 }

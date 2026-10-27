@@ -95,8 +95,26 @@ button.name:hover {
   border-color: var(--line-hover);
 }
 
-/* Touch tablets: the header's actions are full tap targets; the list keeps its
-   desktop density (DESIGN.md). */
+
+.details { display: none; }
+
+.lifecycle {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+
+@media (max-width: 1099px) {
+  .details { display: inline-flex; }
+  .header { padding: var(--s-3) var(--s-4); }
+  .top { gap: var(--s-2) var(--s-4); }
+  .title { flex: 1 1 auto; font-size: var(--text-lg); }
+  .stats { flex: 1 1 100%; flex-wrap: wrap; margin-left: 0; }
+  .actions { margin-left: auto; padding-left: var(--s-3); }
+  .sub { column-gap: var(--s-4); row-gap: var(--s-1); }
+}
+
+/* Touch tablets: header actions are full tap targets. */
 @media (pointer: coarse) and (max-width: 1099px) {
   .stats > button, .actions > a, .actions > button, .stats [aria-haspopup="menu"] { display: inline-flex; align-items: center; min-height: var(--tap); }
   button.name { min-height: var(--tap); }

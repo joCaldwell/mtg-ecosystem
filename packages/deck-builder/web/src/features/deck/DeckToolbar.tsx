@@ -30,15 +30,6 @@ export function DeckToolbar() {
     <div className={styles.toolbar}>
       <div className={styles.add}>
         {!readOnly && <AddBar />}
-        {matches.active && (
-          <div className={styles.filterSummary}>
-            <Text tone="muted" size="sm" role="status" title="Matching cards are highlighted; other cards are muted">
-              {matchCount} {matchCount === 1 ? "match" : "matches"}
-            </Text>
-            <Button size="sm" variant="ghost" onClick={() => ui.openDialog("export")}>Export matches</Button>
-            <Button size="sm" variant="ghost" onClick={() => { ui.setSearchTerm(""); ui.setTagIds([]); }}>Clear filters</Button>
-          </div>
-        )}
       </div>
       <div className={styles.view} role="group" aria-label="Deck view controls">
         <div className={styles.filters}>
@@ -71,7 +62,18 @@ export function DeckToolbar() {
                 <Icon name="close" />
               </IconButton>
             )}
+            {matches.active && (
+              <Text mono tone="soft" size="sm" role="status" title="Matching cards are highlighted; other cards are muted">
+                {matchCount} {matchCount === 1 ? "match" : "matches"}
+              </Text>
+            )}
           </div>
+          {matches.active && (
+            <div className={styles.filterSummary}>
+              <Button size="sm" variant="ghost" onClick={() => ui.openDialog("export")}>Export matches</Button>
+              <Button size="sm" variant="ghost" onClick={() => { ui.setSearchTerm(""); ui.setTagIds([]); }}>Clear filters</Button>
+            </div>
+          )}
           <DeckTagFilter />
         </div>
         <div className={styles.layout}>

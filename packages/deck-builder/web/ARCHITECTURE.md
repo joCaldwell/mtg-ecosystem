@@ -316,7 +316,7 @@ Escape that starts in a field reaches the field first: an inline editor in a
 sheet cancels, and the next Escape closes the sheet. An Explainer keeps the
 trigger's place in the Tab order and closes when focus leaves it. Under
 `(pointer: coarse)` up to 1099 px, header, toolbar and banner controls are
-`--tap` tall while the 24 px list rows keep desktop density. `PHONE_MAX_WIDTH` and
+`--tap` tall and card rows grow to 44 px. Desktop rows remain 24 px. `PHONE_MAX_WIDTH` and
 `useIsPhone()` still select 4a's read-only phone view. Tables contain their own
 horizontal overflow. Every shell provides the labelled `main-content` skip
 link target. QA must use actual wheel/touch input, never script scrolling.
@@ -413,3 +413,20 @@ Below 960 the drawer also stays expanded. Returning to 1100+ restores the
 account's saved choice. AppShell keeps `<main>` at the same child position;
 collapse and breakpoint changes never replace it. TabletScroll still calls
 useWindowScroll; the phone shell below 720 is unchanged.
+
+## Deck editor scanning (2026-10-27)
+
+Tablet headers combine lifecycle help, counts and actions; Open deck details
+lives among those actions and sends the same explicit details request. The
+panel host and list remain mounted across 1100 px. Lifecycle, proposal and
+brief explanations live inside the existing Learn more popovers. Toolbar
+controls share a raised surface; tablet add/search fields and tag/group/sort
+controls wrap into two rows before the proposal banner.
+
+Deck filtering preserves all rows, groups and totals. Nonmatches use readable
+muted text; matches get a blue edge/outline and stronger names. The count sits
+beside search. Query/tag changes scroll the first rendered match into view
+without moving focus, expanding disclosures or changing the scroll owner.
+Phone decks use native fragment links between the title, card list and pending
+proposals. The read-only composition accepts optional list navigation; editing
+and phone decision permissions are unchanged.

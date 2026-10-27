@@ -30,4 +30,16 @@ test("ReadOnlyDeck renders a shared deck without a DeckProvider, and offers no e
   assert.ok(!html.includes("Ctrl-click"), "no selection in a read-only list");
   assert.ok(!/>Edit</.test(html), "no Edit buttons on the brief or engines");
   assert.ok(!html.includes("Edit slots"));
+
+  const phone = renderToStaticMarkup(createElement(ReadOnlyDeck, {
+    model: fromPublic(publicDeckState(db, null, slug!)),
+    header: createElement("a", { href: "#deck-list" }, "Read deck · 2 cards"),
+    decisions: () => createElement("section", { id: "deck-proposals" }, "Pending decisions"),
+    listNavigation: createElement("a", { href: "#deck-proposals" }, "Review proposals"),
+  }));
+  assert.match(phone, /href="#deck-list">Read deck · 2 cards/);
+  assert.match(phone, /<section id="deck-list" tabindex="-1"[^>]*aria-label="Deck list"/);
+  assert.ok(phone.indexOf('id="deck-proposals"') < phone.indexOf('id="deck-list"'));
+  assert.ok(phone.indexOf('id="deck-list"') < phone.indexOf('href="#deck-proposals"'));
+  assert.ok(phone.indexOf('href="#deck-proposals"') < phone.indexOf("Commander"));
 });

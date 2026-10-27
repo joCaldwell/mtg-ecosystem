@@ -41,3 +41,13 @@
   align-items: center;
   min-height: var(--tap);
 }
+
+.jump {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  min-height: var(--tap);
+  color: var(--sel);
+  text-decoration: underline;
+  text-underline-offset: var(--s-1);
+}

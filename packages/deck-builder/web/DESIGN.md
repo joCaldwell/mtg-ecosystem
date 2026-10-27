@@ -42,7 +42,7 @@ D20) and built in phase 4a; phase 4b makes the full app hold up between
 - **Touch replaces hover.** On touch (`hover: none`) the hover card never
   opens; a tapped card opens `CardSheet`, a bottom sheet on a phone. Tap
   targets are at least `--tap` (44 px): `Button size="touch"`,
-  `IconButton size="touch"`, and list rows grow to it under 720 px. The
+  `IconButton size="touch"`, and list rows grow to it under 720 px and on coarse pointers up to 1099 px. The
   dense 24px rows of principle 4 are a desktop rule.
 - **Nothing scrolls sideways at 375 px.** Names wrap (`overflow-wrap:
   anywhere`), action rows wrap, two-column grids collapse, and a table
@@ -135,6 +135,7 @@ severity before a message, the rest of a link's name.
 - Eyebrows (small section labels): `--text-xs`, uppercase, letter-spaced,
   `--faint`.
 - Counts, revisions, mana values, times: `--font-mono` with tabular numerals.
+  Deck prices, slot totals and header metadata use at least `--text-sm` (12px).
 
 ## Writing in the UI
 
@@ -187,7 +188,7 @@ or about this app.
 | `ErrorNote`, `EmptyState`, `Loading` | An inline error, "nothing here yet", and a loading line | EmptyState `heading` `h1` `h2` when it is all the page has |
 | `Dialog` | A modal: focus trap, Esc, backdrop click, focus restore, `data-autofocus` | width `md` `lg`; placement `center` `sheet` `drawer`; `footer` |
 | `ConfirmDialog` | A question with Cancel and a confirm button | tone `default` `danger` |
-| `Explainer` | One sentence and a Learn more popover | closed, open, keyboard focus, close/Escape and focus return; `defaultOpen` (style guide only) |
+| `Explainer` | Optional summary and a Learn more popover | closed, open, keyboard focus, close/Escape and focus return; `defaultOpen` (style guide only) |
 | `Popover`, `placeNear` | A panel anchored to an element, kept inside the viewport | placement `below` `right` `above` `left`; `align` |
 | `ToastProvider`, `useToast` | One toast at a time, bottom centre, with an optional action | `duration`; `action` with `kbd` |
 | `DiffView` | Added and deleted lines | line kind `same` `add` `del` |
@@ -248,7 +249,7 @@ sheet over the list (principle 1's existing requested-dialog exception).
   compact field; list rows do not repeat them. Agent review status is plain
   in decisions and the inbox. Ownership evidence appears in the card panel
   only when present, with its basis and attribution. No shared disclosure.
-- **Explainer:** a sentence about the concept in the task's context, followed
+- **Explainer:** an optional sentence about the concept in the task's context, followed
   by “Learn more” with the concept in its accessible name. Click, Enter or
   Space expands a labelled popover region; Close, Escape or outside click
   dismisses it. Opening focuses the explanation; a nested popover stays within
@@ -271,8 +272,8 @@ sheet over the list (principle 1's existing requested-dialog exception).
   The modal is named, traps focus, closes with Escape and restores focus.
 - **Text and motion:** the neutral text tiers stay in order and pass AA on
   tinted rows (see Tokens for the current palette and measured minima).
-  Filtered-out cards are not dimmed: their names still need to be read, and the matches carry
-  the selection tint instead. Global reduced-motion zeroes `--fast` and
+  Nonmatching cards use the muted text token, without opacity, so their names
+  remain readable. Matches carry a blue edge and outline with stronger names. Global reduced-motion zeroes `--fast` and
   disables transitions/animations. Inter is removed; the system font stack
   avoids a third-party font request.
 

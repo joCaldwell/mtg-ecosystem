@@ -33,12 +33,9 @@
 }
 
 .stacked { min-width: 0; padding-bottom: var(--s-8); }
-.panelActions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-5); padding: var(--s-5) var(--s-6); border-bottom: 1px solid var(--line); color: var(--muted); font-size: var(--text-sm); }
 .sheetPanel { display: flex; height: var(--sheet-content-h); min-height: 0; }
 @media (max-width: 1099px) { .listPane { min-height: auto; } }
 .stackedList { min-width: 0; }
 /* The panel's host element moves between the side pane and the sheet. */
 .panelSlot { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .panelHost { display: flex; flex: 1; min-width: 0; min-height: 0; }
-
-@media (pointer: coarse) and (max-width: 1099px) { .tap { min-height: var(--tap); } }

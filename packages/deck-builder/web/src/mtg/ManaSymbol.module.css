@@ -41,7 +41,7 @@
 }
 
 /* Two-digit numbers need a smaller glyph to stay inside the disc. */
-.long { font-size: calc(var(--size) * var(--glyph-scale, 0.64) * 0.75); }
+.long { font-size: max(var(--mana-min-glyph, 0px), calc(var(--size) * var(--glyph-scale, 0.64) * 0.75)); }
 
 .hybrid { background: linear-gradient(135deg, var(--a) 50%, var(--b) 50%); }
 .hasBlack { box-shadow: inset 0 0 0 1px var(--mana-b-ring); }

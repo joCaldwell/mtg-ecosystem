@@ -21,12 +21,12 @@
 
 /* Sits over the rows' price column, so it reads as that column's sum. */
 .cost {
-  --price-color: var(--muted);
+  --price-color: var(--text-soft);
 }
 
 .count {
-  color: var(--muted);
-  font: var(--text-xs) var(--font-mono);
+  color: var(--text-soft);
+  font: var(--text-sm) var(--font-mono);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -41,7 +41,7 @@
 }
 
 .untargeted {
-  color: var(--muted);
+  color: var(--text-soft);
 }
 
 .projected {

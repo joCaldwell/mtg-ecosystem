@@ -6,7 +6,7 @@ import styles from "./Explainer.module.css";
 
 /** Help at the point of use: one sentence, then an explicit learn-more action.
  *  `defaultOpen` is for the style guide: it starts open without taking focus. */
-export function Explainer({ title, summary, defaultOpen = false, children }: { title: string; summary: string; defaultOpen?: boolean; children: ReactNode }) {
+export function Explainer({ title, summary, defaultOpen = false, children }: { title: string; summary?: string; defaultOpen?: boolean; children: ReactNode }) {
   const [open, setOpen] = useState(defaultOpen);
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   const id = useId();
@@ -44,7 +44,7 @@ export function Explainer({ title, summary, defaultOpen = false, children }: { t
     return () => { panel.removeEventListener("keydown", keyDown); panel.removeEventListener("focusout", focusOut); };
   }, [open, anchor]);
   return <div className={styles.explainer}>
-    <span>{summary} </span>
+    {summary && <span>{summary} </span>}
     <button ref={setAnchor} type="button" className={styles.learn} aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => setOpen(!open)}>Learn more<span className="visually-hidden"> about {title.toLowerCase()}</span></button>
     <Popover anchor={anchor} open={open} onClose={close}>
       <section ref={content} tabIndex={-1} id={id} role="region" aria-label={title} className={styles.panel}>

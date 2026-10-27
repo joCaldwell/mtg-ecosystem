@@ -129,6 +129,8 @@
   --h-md: 26px;
   --h-lg: 30px;
   --row: 24px;
+  --mana-list-size: 16px;
+  --mana-list-glyph: 0.75;
   /* Touch: the smallest thing a finger is asked to hit (DESIGN.md, narrow screens). */
   --tap: 44px;
 

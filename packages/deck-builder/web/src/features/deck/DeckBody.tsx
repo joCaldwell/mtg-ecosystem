@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { PANEL_QUERY, useMediaQuery } from "../../app/breakpoints.ts";
-import { Button, Dialog, ResizeHandle, tokenPx, useLocalStorage } from "../../ui/index.ts";
+import { Dialog, ResizeHandle, tokenPx, useLocalStorage } from "../../ui/index.ts";
 import { useDeckUi } from "./DeckUi.tsx";
 import styles from "./DeckBody.module.css";
 
@@ -84,10 +84,6 @@ export function DeckBody({ list, panel }: { list: ReactNode; panel: ReactNode })
       className={tablet ? styles.stacked : styles.body}
       style={tablet || width === null ? undefined : ({ "--deck-panel-w": `${width}px` } as CSSProperties)}
     >
-      {tablet && <div className={styles.panelActions}>
-        <Button className={styles.tap} onClick={() => setSheet(true)} aria-haspopup="dialog">Open deck details</Button>
-        <span>Brief, power, checks, memories and decisions</span>
-      </div>}
       <div className={tablet ? styles.stackedList : styles.listPane}>{list}</div>
       {!tablet && <div className={styles.panelPane}>
         <ResizeHandle

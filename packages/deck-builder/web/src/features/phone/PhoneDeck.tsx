@@ -8,6 +8,7 @@ import { DeckArt } from "../../mtg/index.ts";
 import { useMemo } from "react";
 import { href, useScrollRestore } from "../../app/routes.ts";
 import { DECK_CATEGORY_LABELS } from "../../domain/deckCategory.ts";
+import { pendingItems } from "../../domain/inbox.ts";
 import { fromOwner } from "../../domain/readOnlyDeck.ts";
 import { DeckProvider, ReadOnlyDeck, useDeck, useDeckView } from "../deck/index.ts";
 import { Banner, Button, Chip, EmptyState, Icon, Loading } from "../../ui/index.ts";
@@ -46,6 +47,7 @@ function Deck() {
         <DeckArt cards={state!.cards.filter(c => c.role === "commander" && !c.maybe)} identity={deck.color_identity} variant="banner" priority="auto"><header className={styles.head}>
           <a className={styles.back} href={href({ page: "decks" })}><Icon name="back" /> Decks</a>
           <h1 className={styles.title}>{deck.name}</h1>
+          <a className={styles.jump} href="#deck-list">Read deck · {model.list.computed.card_count} cards</a>
           <div className={styles.meta}>
             <Chip>{DECK_CATEGORY_LABELS[deck.category]}</Chip>
             {deck.visibility !== "private" && deck.slug && (
@@ -60,7 +62,10 @@ function Deck() {
           )}
         </header></DeckArt>
       }
-      decisions={(view) => <PhoneDecisions view={view} />}
+      decisions={(view) => view.units.length > 0 && <section id="deck-proposals" aria-label="Proposals" tabIndex={-1}>
+        <PhoneDecisions view={view} />
+      </section>}
+      listNavigation={model.list.proposals.some(p => pendingItems(p).length > 0) && <a className={styles.jump} href="#deck-proposals">Review proposals</a>}
     />
   );
 }

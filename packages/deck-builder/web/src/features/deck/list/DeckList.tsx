@@ -51,6 +51,12 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
     scroll.current?.querySelector('[data-current="true"]')?.scrollIntoView({ block: "nearest" });
   }, [unitKey, readOnly]);
 
+  // Query changes reveal the first match in the existing window/pane scroll
+  // container. Leave focus in search so typing and clearing keep working.
+  useEffect(() => {
+    if (matches.active && !readOnly) scrollToFirstMatch(scroll.current);
+  }, [ui.searchTerm, ui.tagIds, ui.tagMatch, ui.tagInverted, readOnly]);
+
   const nothingToShow = state.cards.length === 0 && !(reviewing && overlay.addsByGroup.size > 0);
 
   return (
@@ -130,4 +136,12 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
       </p>
     </div>
   );
+}
+
+export function scrollToFirstMatch(list: HTMLElement | null): void {
+  // A secondary contributor can be inside a closed details element. Its main
+  // row remains in the list; don't open or collapse any groups while searching.
+  const first = Array.from(list?.querySelectorAll<HTMLElement>('[data-filter-match="true"]') ?? [])
+    .find(row => row.getClientRects().length > 0);
+  first?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }

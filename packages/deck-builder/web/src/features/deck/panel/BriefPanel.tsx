@@ -49,7 +49,7 @@ export function BriefPanel() {
 
   return (
     <>
-      <Explainer title="Deck brief" summary={voice("The brief is your plan: what this deck should do and what matters to you.", "Your brief gives every agent the same plan and constraints.")}>Start with a sentence about how you want to win. Add budget or playgroup expectations as constraints. Name an engine when you want the app to check that its pieces are still in the list. Only you approve changes to this plan.</Explainer>
+      <Explainer title="Deck brief">{voice("The brief is your plan: what this deck should do and what matters to you.", "Your brief gives every agent the same plan and constraints.")} Start with a sentence about how you want to win. Add budget or playgroup expectations as constraints. Name an engine when you want the app to check that its pieces are still in the list. Only you approve changes to this plan.</Explainer>
       {edits.filter(e => e.group_id === e.id).map(edit => <DocumentEditCard key={edit.id} edit={edit}
         onRuled={r => { apply(r); inbox.apply(r.inbox); }} />)}
       <BriefField
@@ -103,9 +103,7 @@ export function BriefPanel() {
         {pending(["engine_set", "engine_remove"])}
       </section>
 
-      <Text tone="faint" size="xs" as="p">
-        {readOnly ? "This archived brief is read-only." : voice("Write or edit your plan above. Your list stays as it is.", "The brief is yours. Agents read it every session and can only propose edits to it.")}
-      </Text>
+      {readOnly && <Text tone="faint" size="xs" as="p">This archived brief is read-only.</Text>}
 
       {removing && (
         <ConfirmDialog
