@@ -10,7 +10,7 @@ import { useMemo } from "react";
 import { href, useScrollRestore } from "../../app/routes.ts";
 import { DECK_CATEGORY_LABELS } from "../../domain/deckCategory.ts";
 import { fromOwner } from "../../domain/readOnlyDeck.ts";
-import { DeckProvider, ReadOnlyDeck, useDeck } from "../deck/index.ts";
+import { DeckProvider, ReadOnlyDeck, useDeck, useDeckView } from "../deck/index.ts";
 import { Banner, Button, Chip, EmptyState, Icon, Loading } from "../../ui/index.ts";
 import { PhoneDecisions } from "./PhoneDecisions.tsx";
 import styles from "./PhoneDeck.module.css";
@@ -43,6 +43,7 @@ function Deck() {
   return (
     <ReadOnlyDeck
       model={model}
+      useView={useDeckView}
       header={
         <DeckArt cards={state!.cards.filter(c => c.role === "commander" && !c.maybe)} identity={deck.color_identity} variant="banner" priority="auto"><header className={styles.head}>
           <a className={styles.back} href={href({ page: "decks" })}><Icon name="back" /> Decks</a>

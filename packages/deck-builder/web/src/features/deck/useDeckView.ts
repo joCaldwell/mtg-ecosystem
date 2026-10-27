@@ -3,7 +3,7 @@
 // functions in domain/, memoised so the list does not regroup on every
 // keystroke elsewhere on the page.
 
-import { createContext, useContext, useMemo } from "react";
+import { useMemo } from "react";
 import type { Memory, ProposalItem } from "../../api/client.ts";
 import { matchDeckList, type DeckFilterMatches } from "../../domain/deckSearch.ts";
 import { layoutDeck, type DeckLayout } from "../../domain/grouping.ts";
@@ -22,18 +22,7 @@ export interface DeckViewModel {
   matches: DeckFilterMatches;
 }
 
-const DeckViewContext = createContext<DeckViewModel | null>(null);
 const NO_ADDS = new Map<string, ProposalItem[]>();
-
-/** Provided once by the deck page, so the list is grouped a single time. */
-export const DeckViewProvider = DeckViewContext.Provider;
-
-/** The view the deck page computed. For components under it that take no props. */
-export function useSharedDeckView(): DeckViewModel {
-  const view = useContext(DeckViewContext);
-  if (!view) throw new Error("useSharedDeckView outside DeckViewProvider");
-  return view;
-}
 
 /** `memories: false` for read-only views: a shared deck's viewer has no
  *  memories to mark, and the phone view does not show them. */
