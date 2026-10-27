@@ -64,3 +64,12 @@ test("the inbox hands the selected proposal to the deck review (UX pass 1)", () 
   assert.equal(href({ page: "deck", deckId: 3, proposal: 12 }), "/deck/3");
   assert.deepEqual(parseRoute("/deck/3/review", "?proposal=12"), { page: "deck", deckId: 3, review: true });
 });
+
+test("the activity bookmark selects Profile's Activity tab and href preserves it", () => {
+  assert.deepEqual(parseRoute("/activity"), { page: "activity" });
+  assert.deepEqual(parseRoute("/activity/"), { page: "activity" });
+  assert.deepEqual(parseRoute("/profile"), { page: "profile" });
+  assert.equal(href({ page: "activity" }), "/activity");
+  assert.equal(href({ page: "profile" }), "/profile");
+  assert.equal(isPublicRoute(parseRoute("/activity")), false);
+});

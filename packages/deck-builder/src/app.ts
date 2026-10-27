@@ -1,6 +1,6 @@
 import { visitBackdrop } from "./art.ts";
 import { createDemo } from "./demo.ts";
-import { uiPreferences, setAdvancedOpen } from "./preferences.ts";
+import { uiPreferences, setAdvancedOpen, setSidebarCollapsed } from "./preferences.ts";
 // The app's one HTTP server (spec §10.1): the UI, its JSON API, the live
 // event stream, and the agent endpoint, all in the process that owns the
 // database. Every request resolves a principal and both doors call the same
@@ -495,6 +495,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
   };
   route("GET", /^\/api\/settings$/, settings);
   route("PUT", /^\/api\/settings$/, (actor, _p, body) => withTransaction(db, () => {
+    if (body.sidebar_collapsed !== undefined) setSidebarCollapsed(db, actor, body.sidebar_collapsed);
     if (body.advanced_open !== undefined) setAdvancedOpen(db, actor, body.advanced_open);
     if (body.price_source) setPriceSource(db, actor, body.price_source);
     if (body.budgets) setBudgets(db, actor, body.budgets);
@@ -734,9 +735,9 @@ export function createApp(db: Database, opts: AppOptions = {}) {
         const body = req.method === "GET" ? {} : await readJson(req);
         validateNumbers(body);
         const result = await r.handler(r.anonymous ? actor : actor!, m.slice(1), body, url);
-        // Showing or hiding Advanced changes no data any view displays, so it
+        // Showing or hiding UI controls changes no data any view displays, so it
         // must not make every open view refetch (a price-source change still does).
-        const preferenceOnly = url.pathname === "/api/settings" && Object.keys(body).length > 0 && Object.keys(body).every(k => k === "advanced_open");
+        const preferenceOnly = url.pathname === "/api/settings" && Object.keys(body).length > 0 && Object.keys(body).every(k => k === "advanced_open" || k === "sidebar_collapsed");
         if (r.mutates && url.pathname !== "/api/account" && !quiet.has(url.pathname) && !preferenceOnly) notify(actor!.user_id, { kind: url.pathname.split("/")[2] ?? "change", ...(url.pathname.match(/^\/api\/decks\/(\d+)/) ? { deck_id: Number(url.pathname.match(/^\/api\/decks\/(\d+)/)![1]) } : {}) });
         return json(200, result);
       }

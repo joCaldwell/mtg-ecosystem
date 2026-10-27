@@ -339,3 +339,24 @@ are open.
 History: phase 4c added art (D21); its review moved credits into the crops,
 made roster cards whole links again, unblurred the backdrops and restored the
 public showcase band.
+
+## Sidebar and Profile navigation
+
+All decks comes first, then Inbox, Memories, Profile and Settings. Deck links
+have a separate “Your decks” heading, with the same icon/text alignment and
+row spacing as section links. Agent presence is a quiet summary:
+last writer and time, then “Agent context” with the open deck and selection.
+
+At 1100 px and up, Collapse sidebar switches to a 64 px icon rail. Expand
+sidebar reverses it. The button exposes expanded state; each link keeps its
+accessible name and a title, including deck names, and the inbox badge stays
+visible. The account preference persists on the server and defaults to
+expanded. Failed saves keep the prior state and show an error toast.
+The 960–1099 px rail and under-960 drawer deliberately keep visible labels
+and have no collapse control; widening restores the saved desktop choice.
+No colors change. The phone shell is unchanged.
+
+Profile uses the existing underline Tabs for Profile and Activity. Arrow
+keys switch tabs; `/profile` selects Profile and `/activity` selects Activity.
+The sidebar marks Profile current for both. A profile draft survives tab
+switches and resizing.

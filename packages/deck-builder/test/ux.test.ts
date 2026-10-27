@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb, getSetting } from "../src/db.ts";
 import { createDemo } from "../src/demo.ts";
-import { uiPreferences, setAdvancedOpen } from "../src/preferences.ts";
+import { uiPreferences, setAdvancedOpen, setSidebarCollapsed } from "../src/preferences.ts";
 import { latestActivity, listActivity, recordActivity } from "../src/activity.ts";
 import { createDeck, deleteDeck, setDeckCategory, getDeck, createSlot } from "../src/deck/service.ts";
 import { createProposal } from "../src/deck/proposals.ts";
@@ -78,7 +78,7 @@ test("first agent write changes only its principal's voice; token creation and r
  const db=testDb();try {
   db.exec("INSERT INTO users(id,handle,display_name) VALUES (2,'second','Second')");
   const second={...OWNER,user_id:2};
-  assert.deepEqual(uiPreferences(db,OWNER),{has_agent_activity:false,advanced_open:false});
+  assert.deepEqual(uiPreferences(db,OWNER),{has_agent_activity:false,advanced_open:false,sidebar_collapsed:false});
   createToken(db,OWNER,"unused");listMemories(db,agent("reader"));
   assert.equal(uiPreferences(db,OWNER).has_agent_activity,false);
   remember(db,agent("writer"),{scope:"global",text:"I prefer longer games"});
@@ -219,4 +219,28 @@ test("POST /api/demo names the skipped cards and has its own hosted rate-limit b
   const limited=await post();assert.equal(limited.status,429);assert.ok(Number(limited.headers.get("retry-after"))>0);
   assert.equal((await f.call("/api/decks",{headers:{Cookie:cookie}})).status,200,"the general UI budget is separate");
  } finally {await f.close();}
+});
+
+test("sidebar collapse is a persistent, UI-only preference for the caller without a migration", () => {
+ const dir=mkdtempSync(join(tmpdir(),"sidebar-pref-")), path=join(dir,"test.db");
+ let db=openDb(path);
+ try {
+  db.exec("INSERT INTO users(id,handle,display_name) VALUES (2,'second','Second')");
+  const second={...OWNER,user_id:2};
+  const version=db.prepare("PRAGMA user_version").get();
+  assert.equal(uiPreferences(db,OWNER).sidebar_collapsed,false);
+  assert.equal(uiPreferences(db,second).sidebar_collapsed,false);
+  setSidebarCollapsed(db,second,true);
+  assert.equal(getSetting(db,second,"sidebar_collapsed"),"true");
+  assert.equal(uiPreferences(db,OWNER).sidebar_collapsed,false);
+  for(const value of ["true",1,null,{}]) assert.throws(()=>setSidebarCollapsed(db,OWNER,value),{status:400});
+  assert.throws(()=>setSidebarCollapsed(db,agent("writer",2),false),{status:403});
+  assert.throws(()=>setSidebarCollapsed(db,null as any,true),{status:401});
+  assert.equal(uiPreferences(db,second).sidebar_collapsed,true);
+  db.close();db=openDb(path);
+  assert.deepEqual(db.prepare("PRAGMA user_version").get(),version);
+  assert.equal(uiPreferences(db,second).sidebar_collapsed,true);
+  setSidebarCollapsed(db,second,false);
+  assert.equal(uiPreferences(db,second).sidebar_collapsed,false);
+ }finally{db.close();rmSync(dir,{recursive:true,force:true});}
 });

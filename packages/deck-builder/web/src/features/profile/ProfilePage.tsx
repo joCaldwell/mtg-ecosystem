@@ -1,3 +1,5 @@
+import { navigate } from "../../app/routes.ts";
+import { ActivityPanel } from "../activity/index.ts";
 import { useVoice } from "../../app/Preferences.tsx";
 import { useState } from "react";
 import { api } from "../../api/client.ts";
@@ -17,6 +19,7 @@ import {
   Stack,
   Text,
   TextArea,
+  Tabs,
 } from "../../ui/index.ts";
 import { DocumentEditCard } from "../decisions/index.ts";
 import styles from "./ProfilePage.module.css";
@@ -33,7 +36,7 @@ function wordCount(text: string): number {
 
 /** The player profile (spec §6): the owner's document, read by every agent first. Edited directly here;
  *  an agent can only propose a change, which shows above for the owner to rule on. */
-export function ProfilePage() {
+export function ProfilePage({ tab = "profile" }: { tab?: "profile" | "activity" }) {
   const voice = useVoice();
   const profile = useQuery(() => api.getProfile(), []);
   const inbox = useInbox();
@@ -77,19 +80,24 @@ export function ProfilePage() {
 
   return (
     <Page
-      width="md"
+      width={tab === "activity" ? "lg" : "md"}
       header={
+        <>
         <PageHeader
           title="Profile"
-          subtitle={voice("Your tastes, your playgroup and the games you want to play, in your words.", "Who you are as a builder, in your words. Every agent reads this first, in every session.")}
+          subtitle={tab === "activity" ? voice("An optional activity trail for help you connect to your decks. Your own edits appear in each deck’s History.", "Every write an agent has made, grouped by session.") : voice("Your tastes, your playgroup and the games you want to play, in your words.", "Who you are as a builder, in your words. Every agent reads this first, in every session.")}
           actions={
-            !editing && saved ? (
+            tab === "profile" && !editing && saved ? (
               <Button onClick={startEditing}>{empty ? "Write your profile" : "Edit"}</Button>
             ) : undefined
           }
         />
+        <Tabs tabs={[{ id: "profile", label: "Profile" }, { id: "activity", label: "Activity" }]} value={tab} onChange={(next) => navigate({ page: next === "activity" ? "activity" : "profile" })} aria-label="Profile tabs" className={styles.tabs} />
+        </>
       }
     >
+      {tab === "activity" && <div role="tabpanel" aria-label="Activity" className={styles.profile}><ActivityPanel /></div>}
+      <div role="tabpanel" aria-label="Profile" hidden={tab !== "profile"} className={styles.profile}>
       {profile.error && !saved && <ErrorNote>{profile.error}</ErrorNote>}
       {profile.loading && <Loading />}
 
@@ -174,6 +182,7 @@ export function ProfilePage() {
           </Text>
         </Stack>
       )}
+      </div>
     </Page>
   );
 }

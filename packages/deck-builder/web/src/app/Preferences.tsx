@@ -1,10 +1,12 @@
 import { createContext, useContext, useState, useEffect, useId, type ReactNode } from "react";
 import { api } from "../api/client.ts";
 import { useQuery } from "../api/useQuery.ts";
-import { Disclosure, ErrorNote } from "../ui/index.ts";
+import { Disclosure, ErrorNote, useToast } from "../ui/index.ts";
 
 const Context = createContext({
   hasAgentActivity: false, advanced: false,
+  sidebarCollapsed: false, sidebarBusy: false,
+  setSidebarCollapsed: (_collapsed: boolean) => {},
   /** False until /api/settings answers: Advanced has no known state yet. */
   loaded: false,
   busy: false,
@@ -13,11 +15,25 @@ const Context = createContext({
   setAdvanced: (_open: boolean, _from = "") => {},
 });
 export function PreferencesProvider({ children }: { children: ReactNode }) {
+  const { toast } = useToast();
+  const [sidebarSaved, setSidebarSaved] = useState<boolean | null>(null);
+  const [sidebarBusy, setSidebarBusy] = useState(false);
   const settings = useQuery(() => api.getSettings(), []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ message: string; from: string } | null>(null);
   const [saved, setSaved] = useState<boolean | null>(null);
   useEffect(() => setSaved(null), [settings.data]);
+  useEffect(() => setSidebarSaved(null), [settings.data]);
+  async function setSidebarCollapsed(collapsed: boolean) {
+    if (sidebarBusy) return;
+    setSidebarBusy(true);
+    try {
+      const result = await api.updateSettings({ sidebar_collapsed: collapsed });
+      setSidebarSaved(result.sidebar_collapsed);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e));
+    } finally { setSidebarBusy(false); }
+  }
   async function setAdvanced(open: boolean, from = "") {
     if (busy) return;
     setBusy(true); setError(null);
@@ -26,7 +42,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     catch (e) { setError({ message: e instanceof Error ? e.message : String(e), from }); }
     finally { setBusy(false); }
   }
-  return <Context.Provider value={{ hasAgentActivity: settings.data?.has_agent_activity ?? false, advanced: saved ?? settings.data?.advanced_open ?? false, loaded: saved !== null || settings.data !== null || settings.error !== null, busy, error, setAdvanced }}>{children}</Context.Provider>;
+  return <Context.Provider value={{ sidebarCollapsed: sidebarSaved ?? settings.data?.sidebar_collapsed ?? false, sidebarBusy, setSidebarCollapsed, hasAgentActivity: settings.data?.has_agent_activity ?? false, advanced: saved ?? settings.data?.advanced_open ?? false, loaded: saved !== null || settings.data !== null || settings.error !== null, busy, error, setAdvanced }}>{children}</Context.Provider>;
 }
 export function usePreferences() { return useContext(Context); }
 /** Both voices live together so copy reviews can assess the same state. */

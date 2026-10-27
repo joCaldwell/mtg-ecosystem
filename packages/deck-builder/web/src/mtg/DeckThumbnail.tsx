@@ -13,7 +13,7 @@ export function DeckThumbnail({ cards, className }: { cards: readonly ArtFacts[]
   return <span ref={ref} className={`${styles.surface} ${styles.thumbnail} ${className ?? ""}`} aria-hidden="true"
     title={art.map(c => artCredit(c, false)).join(" / ")}>
     <span className={styles.visual}>{art.map(c => <span className={styles.crop} key={c.oracle_id}>
-      {near && <img src={c.image_art_crop} alt="" loading="lazy" fetchPriority="low" decoding="async" width="626" height="457" onError={e => { e.currentTarget.parentElement!.dataset.failed = ""; }} />}
+      {near && <img src={c.image_art_crop} alt="" loading="lazy" fetchPriority="low" decoding="async" width="626" height="457" onLoad={e => { e.currentTarget.parentElement!.dataset.loaded = ""; }} onError={e => { e.currentTarget.parentElement!.dataset.failed = ""; }} />}
     </span>)}</span>
   </span>;
 }

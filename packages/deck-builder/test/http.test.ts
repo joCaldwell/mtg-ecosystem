@@ -669,6 +669,8 @@ test("an Advanced-only settings write sends no change event; a price change does
   try {
     assert.equal((await put({ advanced_open: true })).status, 200);
     assert.equal((await put({ advanced_open: false })).status, 200);
+    assert.equal((await put({ sidebar_collapsed: true })).status, 200);
+    assert.equal((await put({ sidebar_collapsed: false, advanced_open: true })).status, 200);
     assert.equal((await put({ price_source: source })).status, 200);
     // The first event after the preference writes is the price change's.
     assert.equal(new TextDecoder().decode((await reader.read()).value), 'data: {"kind":"settings"}\n\n');

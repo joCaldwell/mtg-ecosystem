@@ -20,11 +20,18 @@ const PROBES = [
 export function uiPreferences(db: Database, actor: Actor) {
   requireActor(actor);
   const written = PROBES.some(sql => db.prepare(sql).get(actor.user_id, SAMPLE_AGENT_LABEL));
-  return { has_agent_activity: written, advanced_open: getSetting(db, actor, "advanced_open") === "true" };
+  return { has_agent_activity: written, advanced_open: getSetting(db, actor, "advanced_open") === "true", sidebar_collapsed: getSetting(db, actor, "sidebar_collapsed") === "true" };
 }
 
 export function setAdvancedOpen(db: Database, actor: Actor, value: unknown): void {
   requireUi(actor, "change Advanced controls");
   if (typeof value !== "boolean") throw new ServiceError("Advanced must be open or closed");
   setSetting(db, actor, "advanced_open", String(value));
+}
+
+/** Desktop navigation only (§11.3); absent keys default to expanded. */
+export function setSidebarCollapsed(db: Database, actor: Actor, value: unknown): void {
+  requireUi(actor, "collapse the sidebar");
+  if (typeof value !== "boolean") throw new ServiceError("Sidebar collapsed must be a boolean");
+  setSetting(db, actor, "sidebar_collapsed", String(value));
 }
