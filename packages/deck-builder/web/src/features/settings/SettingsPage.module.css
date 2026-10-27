@@ -1,5 +1,7 @@
 .cards {
   display: grid;
   gap: var(--s-6);
-  max-width: 760px;
+  max-width: var(--measure-wide);
 }
+
+.cards > :not(:first-child) { max-width: var(--measure); min-width: 0; }

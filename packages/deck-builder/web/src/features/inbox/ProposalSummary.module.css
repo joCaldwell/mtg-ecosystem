@@ -47,3 +47,7 @@
 .review:hover {
   border-color: var(--agent);
 }
+
+@media (pointer: coarse) and (max-width: 1099px) {
+  .review { min-height: var(--tap); }
+}

@@ -1,6 +1,5 @@
 import { Explainer } from "../../../ui/index.ts";
-import { useVoice } from "../../../app/Preferences.tsx";
-import { Button, Dialog, Section, Stack, Text } from "../../../ui/index.ts";
+import { Button, Dialog, Section, Stack } from "../../../ui/index.ts";
 import { SlotsTable } from "./SlotsTable.tsx";
 import { TagsSection } from "./TagsSection.tsx";
 
@@ -8,7 +7,6 @@ import { TagsSection } from "./TagsSection.tsx";
 // The server rejects names that collide with a card type or a search prefix;
 // its message is shown as it comes.
 export function SlotsDialog({ onClose }: { onClose: () => void }) {
-  const voice = useVoice();
   return (
     <Dialog
       title="Slots and tags"
@@ -16,21 +14,12 @@ export function SlotsDialog({ onClose }: { onClose: () => void }) {
       onClose={onClose}
       footer={<Button onClick={onClose}>Close</Button>}
     >
-      <Explainer title="Slots and tags" summary="Slots describe purpose; tags track sourcing and status.">Primary slots count toward targets; secondary slots add purposes. Both are optional. Group by card type separately.</Explainer>
+      <Explainer title="Slots and tags" summary="Slots describe purpose; tags track sourcing and status.">Primary slots count toward targets; secondary slots add purposes and are counted separately. Both are optional. Group by card type separately. Targets are soft: leave a side empty for no limit, or set Min and Max to the same number for an exact target. Tags track sourcing, ownership, assembly and status, with as many as you like per card and no targets. Agents can file cards and manage tags without proposals.</Explainer>
       <Stack gap={7}>
         <Section title="Slots">
-          <Text tone="muted" as="p">
-            {voice("Slots describe what a card does. Tags track where it comes from or its status.", "Slots describe purpose. Agents can file cards and manage tags without proposals.")}
-            Targets count primary assignments only. Secondary purposes are shown separately and do not affect target checks.
-            Targets are soft. Leave a side empty for no limit, or use the same number in both for an exact target.
-          </Text>
           <SlotsTable />
         </Section>
         <Section title="Tags">
-          <Text tone="muted" as="p">
-            Tags track sourcing, ownership, assembly and status. A card can have as many as you like.
-            Use secondary slots for additional purposes. Tags carry no targets.
-          </Text>
           <TagsSection />
         </Section>
       </Stack>

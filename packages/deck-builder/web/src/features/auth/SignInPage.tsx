@@ -25,7 +25,7 @@ export function SignInPage() {
     } catch(e) { setError(e instanceof Error ? e.message : String(e)); setBusy(false); }
   }
   const providerError = new URLSearchParams(location.search).get("error");
-  return <main id="main-content" tabIndex={-1} aria-label="Sign in"><PageHeader title="Your decks, your decisions" subtitle="Sign in to deck builder" /><div className={styles.content}>
+  return <main className={styles.page} id="main-content" tabIndex={-1} aria-label="Sign in"><div className={styles.content}><PageHeader title="Your decks, your decisions" subtitle="Sign in to deck builder" />
     <DeckArt cards={session.backdrop ? [session.backdrop] : null} variant="backdrop" priority="auto"><div className={styles.form}><Stack gap={5}>
       <Text>Keep your decks and deck-building knowledge together. Connect an agent when you want help; every write stays attributed to your account.</Text>
       <Field label="Invite or owner claim code" hint={session.invites_required ? "Required for a new account. Leave blank if you have signed in before." : "Optional: enter an owner claim code or invite, or leave blank to create an account."}>

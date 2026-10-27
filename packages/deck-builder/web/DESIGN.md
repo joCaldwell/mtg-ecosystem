@@ -35,10 +35,10 @@ D20) and built in phase 4a; phase 4b makes the full app hold up between
   that cannot work there says "Open on a larger screen" rather than
   squeezing in. The breakpoint is `PHONE_MAX_WIDTH` in `app/breakpoints.ts`
   (CSS: `@media (max-width: 719px)`); the other two max-width queries are 959 px and 1099 px.
-- **720 px and wider is the full app.** The sidebar becomes a drawer under
-  960 px (`DRAWER_BREAKPOINT`), and the deck panel becomes a bottom sheet under
-  1100 px (`PANEL_BREAKPOINT`). At 960–1099 px the rail remains visible while
-  the main content scrolls the window. Desktop panes remain pinned at 1100 px.
+- **720 px and wider is the full app.** The sidebar lives in a drawer below
+  1100 px, with the current page and Inbox count in its top bar. The deck panel
+  becomes a bottom sheet under 1100 px (`PANEL_BREAKPOINT`), while the main
+  content scrolls the window. Desktop panes remain pinned at 1100 px.
 - **Touch replaces hover.** On touch (`hover: none`) the hover card never
   opens; a tapped card opens `CardSheet`, a bottom sheet on a phone. Tap
   targets are at least `--tap` (44 px): `Button size="touch"`,
@@ -257,7 +257,7 @@ sheet over the list (principle 1's existing requested-dialog exception).
   tags, brief, bracket, proposals, and memories. It does not change data.
 - **Drawer:** `Dialog placement="drawer"`, `--drawer-w`, full viewport height,
   left edge, internal scrolling. Same focus trap/restore, Escape, close and
-  backdrop rules as Dialog. At 720–959 px it contains the normal sidebar.
+  backdrop rules as Dialog. At 720–1099 px it contains the normal sidebar.
 - **Bottom sheet:** existing `Dialog placement="sheet"`, now also the full
   deck panel under 1100 px. The list stays in the window; the requested panel
   has `--sheet-content-h` and scrolls internally. Header stats, tabs and card
@@ -373,8 +373,8 @@ sidebar reverses it. The button exposes expanded state; each link keeps its
 accessible name and a title, including deck names, and the inbox badge stays
 visible. The account preference persists on the server and defaults to
 expanded. Failed saves keep the prior state and show an error toast.
-The 960–1099 px rail and under-960 drawer deliberately keep visible labels
-and have no collapse control; widening restores the saved desktop choice.
+The 720–1099 px drawer keeps visible labels and has no collapse control;
+widening restores the saved desktop choice.
 The inbox count uses a filled `--agent` pill with `--bg` ink (7.71:1
 WCAG contrast) in both layouts. The phone shell is unchanged.
 

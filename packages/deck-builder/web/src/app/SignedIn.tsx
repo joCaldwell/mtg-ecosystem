@@ -30,7 +30,7 @@ function screen(route: Route): ReactNode {
     case "terms":
       return <DecksPage />;
     case "inbox":
-      return <InboxPage />;
+      return <InboxPage entryKey={route.entry} />;
     case "memories":
       return <MemoriesPage />;
     case "profile":

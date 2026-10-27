@@ -27,3 +27,11 @@
   top: var(--s-4);
   right: var(--s-4);
 }
+
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--list-w-min)), 1fr));
+  gap: var(--s-7);
+  align-items: start;
+}
+.columns > * { min-width: 0; }

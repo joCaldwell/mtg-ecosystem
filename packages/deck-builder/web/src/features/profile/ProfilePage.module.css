@@ -1,10 +1,6 @@
 /* The document reads as a page: bordered, with prose leading, at reading width (prototype .doc). */
 .doc {
   max-width: var(--measure);
-  padding: var(--s-6) var(--s-7);
-  border: 1px solid var(--line);
-  border-radius: var(--r-xl);
-  background: var(--surface);
   line-height: var(--leading-prose);
 }
 
@@ -24,3 +20,16 @@
 }
 
 .profile { display: grid; gap: var(--s-6); }
+
+.card {
+  min-width: 0;
+  max-width: var(--measure);
+  padding: var(--s-6) var(--s-7);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  background: var(--surface);
+}
+
+@media (pointer: coarse) and (max-width: 1099px) {
+  .card button { min-height: var(--tap); }
+}
