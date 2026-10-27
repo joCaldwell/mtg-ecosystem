@@ -3,7 +3,7 @@ import type {Actor} from "../src/actor.ts";
 import type {AddressInfo} from "node:net";
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {creditedArt,visitBackdrop} from "../src/art.ts";
+import {creditedArt,isScryfallArtCrop,visitBackdrop} from "../src/art.ts";
 import {listDecks,createDeck} from "../src/deck/service.ts";
 import {applyChanges} from "../src/deck/membership.ts";
 import {testDb,add,newDeck} from "./helpers.ts";
@@ -13,7 +13,8 @@ test("decorative art requires a nonblank artist and a stored Scryfall crop",()=>
  const c={oracle_id:"id-forest",name:"Forest",image_art_crop:crop,artist:" Illustrator "};
  assert.equal(creditedArt(c)?.artist,"Illustrator");
  for(const artist of [null,""," "])assert.equal(creditedArt({...c,artist}),null);
- for(const url of ["https://example.test/art.jpg","https://cards.scryfall.io/normal/front/test.jpg","https://cards.scryfall.io.evil/art_crop/test.jpg"])assert.equal(creditedArt({...c,image_art_crop:url}),null);
+ for(const url of ["https://example.test/art.jpg","https://cards.scryfall.io/normal/front/test.jpg","https://cards.scryfall.io.evil/art_crop/test.jpg","https://cards.scryfall.io/art_crop/../large/front/test.jpg","http://cards.scryfall.io/art_crop/front/test.jpg","https://user@cards.scryfall.io/art_crop/front/test.jpg","not a url"])assert.equal(creditedArt({...c,image_art_crop:url}),null);
+ assert.equal(isScryfallArtCrop(crop),true);
 });
 test("roster art is limited to each principal's actual commanders, with paired credits",()=>{
  const db=testDb();try{

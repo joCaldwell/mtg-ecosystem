@@ -9,9 +9,18 @@ export interface CardArt {
   artist: string;
 }
 
+/** Scryfall's art-crop CDN, judged on the parsed URL so "../" cannot leave /art_crop/. */
+export function isScryfallArtCrop(url: string | null | undefined): url is string {
+  if (!url) return false;
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" && u.host === "cards.scryfall.io" && !u.username && !u.password && u.pathname.startsWith("/art_crop/");
+  } catch { return false; }
+}
+
 /** Unknown illustrators and non-CDN/non-crop URLs never become decorative art. */
 export function creditedArt(card: { oracle_id: string; name: string; image_art_crop?: string | null; artist?: string | null }): CardArt | null {
-  if (!card.artist?.trim() || !card.image_art_crop?.startsWith("https://cards.scryfall.io/art_crop/")) return null;
+  if (!card.artist?.trim() || !isScryfallArtCrop(card.image_art_crop)) return null;
   return { oracle_id: card.oracle_id, name: card.name, image_art_crop: card.image_art_crop, artist: card.artist.trim() };
 }
 

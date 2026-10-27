@@ -190,3 +190,26 @@ test("unconsented DCR clients expire after a day while granted clients survive c
     await f.call("/api/auth/jwks");assert.deepEqual(f.db.prepare("SELECT clientId FROM oauthClient ORDER BY clientId").all().map(r=>r.clientId),["granted","recent"]);
   }finally{await f.close();}
 });
+
+// A deck page requests dozens of hashed build files. Charging each to the
+// per-IP or per-user budget let a few page loads in a row exhaust it, so
+// immutable /assets/* are served without a principal or a budget.
+test("hashed build assets are never rate limited and need no session",async()=>{
+  const {mkdtempSync,mkdirSync,writeFileSync,rmSync}=await import("node:fs");
+  const {tmpdir}=await import("node:os");const {join}=await import("node:path");
+  const {LIMITS}=await import("../src/ratelimit.ts");const {createApp}=await import("../src/app.ts");
+  const dist=mkdtempSync(join(tmpdir(),"dist-"));mkdirSync(join(dist,"assets"));
+  writeFileSync(join(dist,"index.html"),"<!doctype html><title>t</title>");writeFileSync(join(dist,"assets","app-abc.js"),"export{}");
+  const {testDb}=await import("./helpers.ts");const db=testDb();
+  const app=createApp(db,{mode:"hosted",webDist:dist});await new Promise<void>(r=>app.server.listen(0,"127.0.0.1",r));
+  const base=`http://127.0.0.1:${(app.server.address() as import("node:net").AddressInfo).port}`;
+  const saved=process.env.DECKBUILDER_PUBLIC_ORIGIN;process.env.DECKBUILDER_PUBLIC_ORIGIN=base;
+  try{
+    for(let i=0;i<LIMITS.unauthenticated.count+30;i++){
+      const r=await fetch(base+"/assets/app-abc.js");assert.equal(r.status,200,`asset request ${i}`);
+      assert.match(r.headers.get("cache-control")??"",/immutable/);await r.arrayBuffer();
+    }
+    assert.equal((await fetch(base+"/api/health")).status,200,"assets did not spend the anonymous budget");
+    assert.equal((await fetch(base+"/assets/missing.js")).status,404);
+  }finally{process.env.DECKBUILDER_PUBLIC_ORIGIN=saved;await app.close();db.close();rmSync(dist,{recursive:true,force:true});}
+});
