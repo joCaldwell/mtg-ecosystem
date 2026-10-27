@@ -45,7 +45,7 @@ export function InboxPage() {
       const target = e.target instanceof HTMLElement ? e.target.closest("button, a") : null;
       if (target && !target.matches("[data-entry][aria-current='true']")) return;
       e.preventDefault();
-      navigate({ page: "deck", deckId: selected.proposal.deck_id, review: true });
+      navigate({ page: "deck", deckId: selected.proposal.deck_id, review: true, proposal: selected.proposal.id });
     },
   });
 

@@ -57,3 +57,10 @@ test("first-run import has an explicit query handoff on the existing deck route"
   assert.deepEqual(parseRoute("/deck/3", "?import=1"), { page: "deck", deckId: 3, review: false, importing: true });
   assert.deepEqual(parseRoute("/deck/3", "?import=0"), { page: "deck", deckId: 3, review: false });
 });
+
+test("the inbox hands the selected proposal to the deck review (UX pass 1)", () => {
+  assert.equal(href({ page: "deck", deckId: 3, review: true, proposal: 12 }), "/deck/3/review?proposal=12");
+  // Only a review carries it; the route itself stays the review route.
+  assert.equal(href({ page: "deck", deckId: 3, proposal: 12 }), "/deck/3");
+  assert.deepEqual(parseRoute("/deck/3/review", "?proposal=12"), { page: "deck", deckId: 3, review: true });
+});

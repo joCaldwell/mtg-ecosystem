@@ -2,6 +2,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { layoutDeck } from "../../web/src/domain/grouping.ts";
 import { reviewOverlay, reviewUnits } from "../../web/src/domain/review.ts";
+import { firstUnitOf, proposalParam } from "../../web/src/domain/reviewStart.ts";
 import { card, deckState, item, proposal, slot } from "./fixtures.ts";
 
 describe("reviewUnits", () => {
@@ -192,5 +193,31 @@ describe("reviewOverlay", () => {
       proposals: [proposal([item({ action: "cut", name: "Test Card A", status: "accepted" })])],
     });
     assert.equal(reviewOverlay(state, layoutDeck(state, "type"), "type").cuts.size, 0);
+  });
+});
+
+describe("firstUnitOf", () => {
+  test("a review handed a proposal starts at that proposal's first open decision", () => {
+    const older = proposal([item({ name: "Test Card A" }), item({ name: "Test Card B" })], { id: 20 });
+    const newer = proposal([item({ name: "Test Card C", group_id: "g" }), item({ name: "Test Card D", action: "cut", group_id: "g" })], { id: 50 });
+    const units = reviewUnits([newer, older]);
+    assert.equal(firstUnitOf(units, 50), 2);
+    assert.equal(units[firstUnitOf(units, 50)].proposalId, 50);
+    assert.equal(firstUnitOf(units, 20), 0);
+  });
+
+  test("an unknown or absent proposal starts at the first decision", () => {
+    const units = reviewUnits([proposal([item({ name: "Test Card A" })], { id: 20 })]);
+    assert.equal(firstUnitOf(units, 99), 0);
+    assert.equal(firstUnitOf(units, undefined), 0);
+    assert.equal(firstUnitOf([], 20), 0);
+  });
+});
+
+describe("proposalParam", () => {
+  test("reads the proposal a review link names, and only a positive whole number", () => {
+    assert.equal(proposalParam("?proposal=12"), 12);
+    assert.equal(proposalParam(""), undefined);
+    for (const bad of ["0", "-1", "1.5", "x", ""]) assert.equal(proposalParam(`?proposal=${bad}`), undefined, bad);
   });
 });

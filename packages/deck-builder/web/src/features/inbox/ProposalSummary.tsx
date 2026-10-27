@@ -34,7 +34,7 @@ export function ProposalSummary({ proposal }: { proposal: Proposal }) {
 
       {proposal.stale && <Text tone="warn">The deck changed since r{proposal.base_revision ?? "unknown"}. Review current r{proposal.current_revision} before approval.</Text>}
       <div className={styles.action}>
-        <a className={styles.review} href={href({ page: "deck", deckId: proposal.deck_id, review: true })}>
+        <a className={styles.review} href={href({ page: "deck", deckId: proposal.deck_id, review: true, proposal: proposal.id })}>
           Review in the list <Kbd>↵</Kbd>
         </a>
         <Text tone="faint" size="sm">

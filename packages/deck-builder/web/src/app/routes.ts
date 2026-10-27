@@ -7,10 +7,13 @@ import { useEffect, useLayoutEffect, useState } from "react";
 
 export type PageName = "decks" | "inbox" | "memories" | "profile" | "activity" | "settings" | "design";
 /** `review` opens the deck with its pending proposals already drawn into the
- *  list — the link the inbox hands a proposal off with. */
+ *  list — the link the inbox hands a proposal off with. `proposal` names the
+ *  one the inbox had selected, so the review starts at its first decision; the
+ *  deck screen reads it back (domain/reviewStart.ts), which keeps the parse
+ *  out of the public bundle. */
 export type Route =
   | { page: PageName }
-  | { page: "deck"; deckId: number; review?: boolean; importing?: boolean }
+  | { page: "deck"; deckId: number; review?: boolean; proposal?: number; importing?: boolean }
   | { page: "playtest"; deckId: number }
   | { page: "shared"; slug: string }
   | { page: "user"; handle: string }
@@ -43,7 +46,8 @@ export function parseRoute(pathname: string, search = ""): Route {
 export function href(route: Route): string {
   switch (route.page) {
     case "decks": return "/";
-    case "deck": return `/deck/${route.deckId}${route.review ? "/review" : ""}${route.importing ? "?import=1" : ""}`;
+    // A review and an import never start together; only a review names a proposal.
+    case "deck": return `/deck/${route.deckId}${route.review ? "/review" : ""}${route.importing ? "?import=1" : route.review && route.proposal ? `?proposal=${route.proposal}` : ""}`;
     case "playtest": return `/deck/${route.deckId}/playtest`;
     case "shared": return `/d/${encodeURIComponent(route.slug)}`;
     case "user": return `/u/${encodeURIComponent(route.handle)}`;

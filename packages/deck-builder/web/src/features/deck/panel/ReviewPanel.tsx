@@ -27,7 +27,7 @@ export function ReviewPanel({ view, review }: { view: DeckViewModel; review: Rev
   return (
     <>
       {proposals.map((proposal, n) => (
-        <div key={proposal.id} className={styles.proposal}>
+        <div key={proposal.id} className={styles.proposal} data-proposal={proposal.id}>
           <div className={styles.head}>
             <Eyebrow className={styles.eyebrow}>
               <span className={styles.id}>Proposal {proposal.id}</span>

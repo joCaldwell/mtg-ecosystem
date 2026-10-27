@@ -7,7 +7,7 @@ import { useQuery } from "../../api/useQuery.ts";
 // deck through the two stores — and owns the keyboard shortcuts, since they
 // cut across regions.
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { href, navigate } from "../../app/routes.ts";
 import { CardOpenProvider, useCardLookup } from "../../mtg/index.ts";
 import { Banner, Button, EmptyState, Loading, Page, pressesFocusedControl, useHotkeys } from "../../ui/index.ts";
@@ -24,6 +24,7 @@ import { ProposalBanner } from "./ProposalBanner.tsx";
 import { DeckViewProvider, useDeckView } from "./useDeckView.ts";
 import { useReportFocus } from "../../app/useReportFocus.ts";
 import { useReview } from "./useReview.tsx";
+import { firstUnitOf, proposalParam } from "../../domain/reviewStart.ts";
 import styles from "./DeckPage.module.css";
 
 export function DeckPage({ deckId, review = false }: { deckId: number; review?: boolean }) {
@@ -93,12 +94,32 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
   const pending = state.deck.category !== "archived" && view.units.length > 0;
 
   // Arriving from the inbox: go straight into the review it linked to.
-  const { startReview } = ui;
+  const { startReview, setCursor } = ui;
+  const arriving = useRef(false);
   useEffect(() => {
-    if (startInReview && pending) startReview();
+    if (startInReview && pending) {
+      arriving.current = true;
+      startReview();
+    }
     // Once, on arrival; later decisions must not restart it.
     // (pending is read at mount only.)
   }, [startInReview, startReview]);
+  // Then move to the proposal selected there. Only once the Review tab is
+  // open: the panel starts a new tab at the top after its children have
+  // scrolled. The list brings the decision's rows into view; the panel shows
+  // the proposal from its heading, at the top, so the context still loading
+  // into the decisions above it cannot push it out of view.
+  useEffect(() => {
+    if (!ui.reviewing || !arriving.current) return;
+    arriving.current = false;
+    const index = firstUnitOf(view.units, proposalParam(location.search));
+    setCursor(index);
+    // The panel's own scroll box only: scrollIntoView would also move the
+    // pinned desktop page. Under 1100 px the panel is not on the page.
+    const block = document.querySelector(`[data-proposal="${view.units[index]?.proposalId}"]`);
+    const pane = block?.closest('[role="tabpanel"]');
+    if (block && pane) pane.scrollTop += block.getBoundingClientRect().top - pane.getBoundingClientRect().top;
+  }, [ui.reviewing, setCursor]);
 
   useHotkeys({
     // Escape backs out one layer at a time, innermost first.
