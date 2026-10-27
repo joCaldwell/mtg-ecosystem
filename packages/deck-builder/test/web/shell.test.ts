@@ -71,22 +71,25 @@ test("collapsed sidebar keeps named navigation and an expanded-state control; ta
   assert.match(collapsed, /aria-label="Expand sidebar"[^>]*aria-expanded="false"/);
   for (const html of [expanded, collapsed]) {
     assert.ok(html.indexOf('href="/"') < html.indexOf('href="/inbox"'), "All decks comes first");
-    assert.match(html, /href="\/profile"[^>]*aria-current="page"/);
-    for (const label of ["All decks", "Inbox", "Memories", "Profile", "Settings"]) assert.ok(html.includes(`>${label}</span>`), label);
-    assert.doesNotMatch(html, /aria-label="Activity"/);
+    assert.match(html, /href="\/activity"[^>]*aria-current="page"/);
+    for (const label of ["All decks", "Inbox", "Memories", "Activity", "Profile", "Settings"]) assert.ok(html.includes(`>${label}</span>`), label);
+    assert.doesNotMatch(html, /href="\/profile"[^>]*aria-current="page"/);
+    assert.ok(html.indexOf('href="/memories"') < html.indexOf('href="/activity"'));
+    assert.ok(html.indexOf('href="/activity"') < html.indexOf('href="/profile"'));
   }
-  for (const label of ["All decks", "Inbox", "Memories", "Profile", "Settings"]) assert.ok(collapsed.includes(`aria-label="${label}"`), label);
+  for (const label of ["All decks", "Inbox", "Memories", "Activity", "Profile", "Settings"]) assert.ok(collapsed.includes(`aria-label="${label}"`), label);
   assert.match(collapsed, /href="\/inbox"[^>]*title="Inbox"/);
   const tablet = render(false);
   assert.doesNotMatch(tablet, /aria-label="(?:Collapse|Expand) sidebar"/);
 });
 
-test("Profile uses the shared tabs and renders Activity inside its page", async (t) => {
-  const { ProfilePage } = await (await vite(t)).ssrLoadModule("/src/features/profile/ProfilePage.tsx");
-  const html = renderToStaticMarkup(createElement(ProfilePage, { tab: "activity" }));
-  assert.match(html, /role="tablist" aria-label="Profile tabs"/);
-  assert.match(html, /role="tab" aria-selected="true"[^>]*>Activity/);
-  assert.match(html, /role="tabpanel" aria-label="Activity"/);
-  assert.match(html, /role="tabpanel" aria-label="Profile" hidden=""/);
-  assert.equal((html.match(/<h1/g) ?? []).length, 1, "one Profile page header around both tabs");
+test("Profile and Activity render independent pages with their own titles and no tabs", async (t) => {
+  const server = await vite(t);
+  const { ProfilePage } = await server.ssrLoadModule("/src/features/profile/ProfilePage.tsx");
+  const { ActivityPage } = await server.ssrLoadModule("/src/features/activity/ActivityPage.tsx");
+  for (const [Component, title] of [[ProfilePage, "Profile"], [ActivityPage, "Activity"]] as const) {
+    const html = renderToStaticMarkup(createElement(Component));
+    assert.match(html, new RegExp(`<h1[^>]*>${title}</h1>`));
+    assert.doesNotMatch(html, /role="tab(list|panel)?"/);
+  }
 });

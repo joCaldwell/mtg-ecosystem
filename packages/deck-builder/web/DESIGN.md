@@ -362,7 +362,7 @@ public showcase band.
 
 ## Sidebar and Profile navigation
 
-All decks comes first, then Inbox, Memories, Profile and Settings. Deck links
+All decks comes first, then Inbox, Memories, Activity, Profile and Settings. Deck links
 have a separate “Your decks” heading, with the same icon/text alignment and
 row spacing as section links. Agent presence is a quiet summary:
 last writer and time, then “Agent context” with the open deck and selection.
@@ -374,9 +374,11 @@ visible. The account preference persists on the server and defaults to
 expanded. Failed saves keep the prior state and show an error toast.
 The 960–1099 px rail and under-960 drawer deliberately keep visible labels
 and have no collapse control; widening restores the saved desktop choice.
-No colors change. The phone shell is unchanged.
+The inbox count uses a filled `--agent` pill with `--bg` ink (7.71:1
+WCAG contrast) in both layouts. The phone shell is unchanged.
 
-Profile uses the existing underline Tabs for Profile and Activity. Arrow
-keys switch tabs; `/profile` selects Profile and `/activity` selects Activity.
-The sidebar marks Profile current for both. A profile draft survives tab
-switches and resizing.
+Following review, the owner decided on 2026-10-27 to restore Activity as a
+separate sidebar item after Memories. `/activity` has its own Activity title
+and current link; `/profile` is a single page with no tabs. A profile draft
+survives resizing. The inbox’s unreviewed decision count sits in its padded
+header subtitle, aligned with the rest of the page content.

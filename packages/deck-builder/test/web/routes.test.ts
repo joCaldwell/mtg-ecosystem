@@ -65,7 +65,7 @@ test("the inbox hands the selected proposal to the deck review (UX pass 1)", () 
   assert.deepEqual(parseRoute("/deck/3/review", "?proposal=12"), { page: "deck", deckId: 3, review: true });
 });
 
-test("the activity bookmark selects Profile's Activity tab and href preserves it", () => {
+test("Activity and Profile have independent private page routes (review 2026-10-27)", () => {
   assert.deepEqual(parseRoute("/activity"), { page: "activity" });
   assert.deepEqual(parseRoute("/activity/"), { page: "activity" });
   assert.deepEqual(parseRoute("/profile"), { page: "profile" });

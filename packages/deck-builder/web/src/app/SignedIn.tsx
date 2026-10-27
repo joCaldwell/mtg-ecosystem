@@ -4,6 +4,7 @@ import { DecksPage } from "../features/decks/index.ts";
 import { InboxPage } from "../features/inbox/index.ts";
 import { MemoriesPage } from "../features/memories/index.ts";
 import { PhoneApp } from "../features/phone/index.ts";
+import { ActivityPage } from "../features/activity/index.ts";
 import { ProfilePage } from "../features/profile/index.ts";
 import { EmptyState, Page } from "../ui/index.ts";
 import { AppShell } from "./AppShell.tsx";
@@ -33,8 +34,9 @@ function screen(route: Route): ReactNode {
     case "memories":
       return <MemoriesPage />;
     case "profile":
+      return <ProfilePage />;
     case "activity":
-      return <ProfilePage tab={route.page} />;
+      return <ActivityPage />;
     case "settings":
       return <SettingsPage />;
     case "design":

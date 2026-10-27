@@ -1,1 +1,1 @@
-export { ActivityPanel } from "./ActivityPanel.tsx";
+export { ActivityPage } from "./ActivityPage.tsx";

@@ -51,7 +51,7 @@ export function href(route: Route): string {
     case "shared": return `/d/${encodeURIComponent(route.slug)}`;
     case "user": return `/u/${encodeURIComponent(route.handle)}`;
     case "missing": return "/";
-    // /activity is the Profile page’s Activity tab; its bookmark stays stable.
+    // Activity and Profile are independent pages (review decision, 2026-10-27).
     default: return `/${route.page}`;
   }
 }

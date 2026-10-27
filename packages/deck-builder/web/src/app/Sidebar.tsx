@@ -15,10 +15,11 @@ import { useInbox } from "./Inbox.tsx";
 import { href, type PageName, type Route } from "./routes.ts";
 import styles from "./Sidebar.module.css";
 
-const NAV: Array<{ page: PageName; label: string; icon: "inbox" | "decks" | "memories" | "profile" | "settings" }> = [
+const NAV: Array<{ page: PageName; label: string; icon: "inbox" | "decks" | "memories" | "activity" | "profile" | "settings" }> = [
   { page: "decks", label: "All decks", icon: "decks" },
   { page: "inbox", label: "Inbox", icon: "inbox" },
   { page: "memories", label: "Memories", icon: "memories" },
+  { page: "activity", label: "Activity", icon: "activity" },
   { page: "profile", label: "Profile", icon: "profile" },
   { page: "settings", label: "Settings", icon: "settings" },
 ];
@@ -34,7 +35,7 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
   const decks = useQuery(() => api.listDecks(), []);
   const activity = useQuery(() => api.latestActivity(), []);
   const last = activity.data;
-  const section = route.page === "activity" ? "profile" : route.page;
+  const section = route.page;
 
   const presence = [last && `${last.actor} · ${ago(last.ts)}`, focus ? `Agent context: ${focus.deckName}${focus.selectedCount > 0 ? ` · ${focus.selectedCount} selected` : ""}` : "No deck in agent context"].filter(Boolean).join(". ");
 
@@ -61,7 +62,7 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
             <span className={styles.label}>{item.label}</span>
             {item.page === "inbox" && waiting > 0 && (
               <span className={styles.end}>
-                <Badge tone="agent">{waiting}</Badge>{!collapsed && <span className="visually-hidden"> waiting</span>}
+                <Badge className={styles.inboxBadge}>{waiting}</Badge>{!collapsed && <span className="visually-hidden"> waiting</span>}
               </span>
             )}
           </a>

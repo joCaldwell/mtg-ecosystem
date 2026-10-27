@@ -108,9 +108,11 @@ seed the demo deck first (`npm run seed:demo`) so every panel has content.
 Path routes: `/`, `/decks`, `/deck/:id`, `/deck/:id/review`,
 `/deck/:id/playtest`, `/inbox`, `/memories`, `/profile`, `/activity`,
 `/settings`, `/design`, `/signin`, `/privacy`, `/terms`, `/d/:slug`,
-`/u/:handle`. `/activity` keeps its existing named route and `href()`; SignedIn maps it
-to ProfilePage’s Activity tab. `/profile` selects the Profile tab. The server
-already allow-lists both paths (D16). `app/routes.ts` owns them: `parseRoute`, `href()` (the only
+`/u/:handle`. Following review, the owner decided on 2026-10-27 to restore
+`/activity` as a standalone ActivityPage with its own title and sidebar entry
+after Memories. `/profile` renders a single ProfilePage without tabs. Their
+named routes and `href()` paths stay independent; the server already
+allow-lists both paths (D16). `app/routes.ts` owns them: `parseRoute`, `href()` (the only
 place a URL is built), `navigate()`, and `useRoute()`, which also turns a
 plain same-origin `<a href>` click into in-place navigation, so components
 keep writing ordinary links. A hash-era bookmark (`/#/deck/5`) is rewritten
@@ -386,10 +388,13 @@ workflow size its scrolling region without changing other dialogs.
 
 ## Sidebar navigation
 
-All decks leads the section navigation, followed by Inbox, Memories, Profile
-and Settings. Profile owns Profile/Activity tabs (the existing Tabs primitive);
-its editor remains mounted when changing tabs, retaining a profile draft.
-ActivityPanel shares Profile's Page and scroll container.
+All decks leads the section navigation, followed by Inbox, Memories, Activity,
+Profile and Settings. Following review, the owner decided on 2026-10-27 to
+restore the standalone ActivityPage and its own page title. ProfilePage has
+no tabs; ActivityPage owns its Page and scroll container around ActivityPanel.
+The inbox badge uses a solid violet fill with black ink in expanded and
+collapsed layouts. Unreviewed decisions appear in InboxPage’s padded header
+subtitle.
 The route allow-list and public-path decoding share compact parsing to keep
 the initial public bundle below its existing budget.
 

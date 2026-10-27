@@ -832,7 +832,10 @@ card.
 - **Proposals inbox:** everything waiting on the owner across decks. A proposal is ruled on in its deck's list, where each change is drawn in place among the cards around it — per item, per group or all at once, with an optional reason; the inbox links there. Proposed brief and profile edits are ruled in the inbox as diffs. (Settled 2026-10-10: the owner preferred reviewing in the list to decision from the inbox.)
 - **Decisions log:** per deck, with undo.
 - **Memories:** §7.5.
-- **Profile:** Profile and Activity tabs, using the shared Tabs primitive. Edit the profile directly; Activity shows every agent write, with the agent's name, time and target: the audit trail for unapproved writes. Activity has no separate sidebar entry.
+- **Activity:** its own page and sidebar item after Memories, showing every agent write with the agent's name, time and target: the audit trail for unapproved writes.
+- **Profile:** a single page for editing the profile directly, with no tabs.
+  **Owner decision following review, 2026-10-27:** restore standalone Activity
+  for discoverability and give the feed its own Activity page title.
 - **Settings:** connection details for agents, memory budgets, card data refresh,
   and a currency then store/Lowest price-source control (§4.4). Saving is
   UI-only and invalidates that principal's views, including hover lookups.
@@ -851,7 +854,7 @@ carry server-rendered link-preview tags: `/` and `/decks`, `/deck/:id`,
 `/activity`, `/settings`, `/design`, `/signin`, `/privacy`, `/terms`,
 `/d/:slug` and `/u/:handle`. `href()` in `web/src/app/routes.ts` is the only
 place a URL is built; same-origin links navigate without a reload. `/activity`
-opens Profile’s Activity tab, and `/profile` selects its Profile tab. Both
+opens the standalone Activity page, and `/profile` opens Profile. Both
 remain in the server’s app-route allow-list (D16). A
 bookmark from the hash-route era (`/#/deck/5`) is rewritten once to its
 path on load, and a malformed escape in a path is a missing page. Going
@@ -956,7 +959,7 @@ and wider it keeps the desktop panes. Phones retain this read-and-rule scope.
   may cover the list without changing DESIGN.md principle 1. The tablet
   shell calls `useWindowScroll()` like the phone and shared shells. At
   1100+ the body stays pinned and panes scroll. Playtest needs 1100+ px.
-- **Sidebar:** All decks leads navigation, above Inbox; Memories, Profile and
+- **Sidebar:** All decks leads navigation, above Inbox; Memories, Activity, Profile and
   Settings follow. Decks have a separate “Your decks” heading. At 1100+ px an
   accessible collapse/expand control switches to an icon rail, preserving nav
   icons, the inbox badge, and deck thumbnails or dots with names in titles

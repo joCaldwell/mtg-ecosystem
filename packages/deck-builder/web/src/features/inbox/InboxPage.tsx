@@ -52,7 +52,10 @@ export function InboxPage() {
   const header = (
     <PageHeader
       title="Inbox"
-      subtitle={voice("Proposed changes wait here for your decision. Nothing is applied until you accept it.", "Everything an agent needs your decision on, across all decks. Nothing here has been applied.")}
+      subtitle={<>
+        {voice("Proposed changes wait here for your decision. Nothing is applied until you accept it.", "Everything an agent needs your decision on, across all decks. Nothing here has been applied.")}
+        {inbox != null && inbox.unreviewed > 0 && <><br /><Text tone="muted" size="sm">{inbox.unreviewed} {inbox.unreviewed === 1 ? "decision" : "decisions"} unreviewed by agents</Text></>}
+      </>}
     />
   );
 
@@ -68,7 +71,6 @@ export function InboxPage() {
   return (
     <div className={styles.page}>
       {header}
-      {inbox.unreviewed > 0 && <Text tone="muted" size="sm">{inbox.unreviewed} {inbox.unreviewed === 1 ? "decision" : "decisions"} unreviewed by agents</Text>}
       <Button variant="ghost" onClick={() => setHistory(!history)}>{history ? "Hide proposal history" : "Show proposal history"}</Button>
       {history && <ProposalHistory />}
       <SplitPane
