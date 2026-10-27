@@ -124,9 +124,11 @@ test("phone decisions put the selected proposal first and keep bulk decisions in
   assert.doesNotMatch(html, /<details[^>]*\bopen/);
   assert.ok(html.indexOf(">Accept all<") > disclosure && html.indexOf(">Reject all<") > disclosure);
   assert.equal((html.match(/Reason for decision/g) ?? []).length, 2, "every individual decision stays available");
-  const resolved = renderToStaticMarkup(createElement(PhoneDecisions, { view, proposalId: 99 }));
-  assert.match(resolved, /This proposal has no pending decisions/);
-  assert.ok(resolved.indexOf("Older proposal") > resolved.indexOf("<details"), "a vanished selection does not silently substitute a different proposal");
+  const remaining = { units: view.units.filter((unit: { proposalId: number }) => unit.proposalId !== 22) };
+  const resolved = renderToStaticMarkup(createElement(PhoneDecisions, { view: remaining, proposalId: 22 }));
+  assert.doesNotMatch(resolved, /This proposal has no pending decisions/);
+  assert.match(resolved, />Proposal 11</);
+  assert.ok(resolved.indexOf("Older proposal") < resolved.indexOf("<details"), "resolving the selected proposal exposes the next pending decision directly");
 });
 
 test("phone inbox links retain the proposal selection", async t => {

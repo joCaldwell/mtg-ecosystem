@@ -76,6 +76,7 @@ export function CardPanel({ card: open }: { card: OpenCard }) {
       {info ? info.oracle_text && <OracleText text={info.oracle_text} /> : <Loading />}
 
       <div className={styles.facts}>
+        <CardImage name={open.name} card={info} />
         <div className={styles.side}>
           {owned ? (
             <CardControls card={owned} />
@@ -102,7 +103,6 @@ export function CardPanel({ card: open }: { card: OpenCard }) {
             </Text>
           )}
         </div>
-        <CardImage name={open.name} card={info} width={150} />
       </div>
 
       {state.deck.category !== "archived" && <CardActions oracleId={open.oracleId} owned={owned} />}

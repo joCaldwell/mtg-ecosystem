@@ -33,8 +33,9 @@
 
 .facts {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--s-6);
+  /* Reserve readable controls first; the picture yields as the panel narrows. */
+  grid-template-columns: minmax(0, min(33%, var(--card-art-max))) minmax(var(--card-fields-min), 1fr);
+  gap: var(--s-4);
   align-items: start;
 }
 

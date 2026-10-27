@@ -126,9 +126,14 @@ export function AddBar() {
     toast(message, {
       action: undo ? { label: "Undo", onAction: () => void run(undo) } : undefined,
     });
-    // A successful add clears the search, including a maybe-list add. Focus
-    // first: its onFocus may open results, so closing must happen afterwards.
+    // Keep shortlist results and their updated membership marks ready for the
+    // next card. Selecting the query lets typing replace it immediately.
     input.current?.focus();
+    if (how.maybe) {
+      input.current?.select();
+      setOpen(true);
+      return;
+    }
     setQuery("");
     setResults(null);
     setError(null);

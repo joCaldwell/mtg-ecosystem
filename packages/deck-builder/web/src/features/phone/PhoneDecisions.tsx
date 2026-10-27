@@ -28,13 +28,15 @@ export function PhoneDecisions({ view, proposalId }: { view: { units: ReviewUnit
   if (!view.units.length) return null;
   if (state.deck.category === "archived")
     return <p className={styles.legacy}>This archived deck has {view.units.length} pending decisions, kept until you switch it to Paper or Theorycrafted on a larger screen.</p>;
-  const selected = proposalId == null ? view.units : view.units.filter(u => u.proposalId === proposalId);
-  const remaining = proposalId == null ? [] : view.units.filter(u => u.proposalId !== proposalId);
+  // Start with the inbox selection, then advance directly when it is resolved.
+  const activeProposalId = proposalId == null ? undefined
+    : view.units.some(u => u.proposalId === proposalId) ? proposalId : view.units[0]?.proposalId;
+  const selected = activeProposalId == null ? view.units : view.units.filter(u => u.proposalId === activeProposalId);
+  const remaining = activeProposalId == null ? [] : view.units.filter(u => u.proposalId !== activeProposalId);
   const open = state.proposals.filter((p) => view.units.some((u) => u.proposalId === p.id)).length;
   return (
     <section className={styles.decisions} aria-label="Waiting on you">
-      {proposalId != null && <Eyebrow>Proposal {proposalId}</Eyebrow>}
-      {selected.length === 0 && <Text tone="muted">This proposal has no pending decisions.</Text>}
+      {activeProposalId != null && <Eyebrow>Proposal {activeProposalId}</Eyebrow>}
       <ol className={styles.units}>
         {selected.map(unit => <Unit key={unit.key} unit={unit} index={view.units.indexOf(unit)} review={review} />)}
       </ol>

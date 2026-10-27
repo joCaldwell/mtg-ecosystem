@@ -348,11 +348,11 @@ printed artist and copyright lines.
   text or controls.
 - **The desktop banner folds** while the deck list (only it, not the panel)
   is scrolled past `--art-collapse-threshold`, unless the list is too short
-  to stay folded. Padding, height and opacity animate over `--base`, which
-  is 0 under reduced motion; the credit hides with the art. The fold exists
+  to stay folded. The banner reserves its full box height; its inner crop folds using transform
+  and opacity over `--base`, which is 0 under reduced motion. The credit hides
+  with the art, and the header and panes retain their positions. The fold exists
   only at 1100 px and wider: `useArtCollapse` drops it below that, and the
-  CSS ignores `data-collapsed` there. A fold and unfold together stay under
-  0.1 cumulative layout shift. Narrower headers scroll away with the window.
+  CSS ignores `data-collapsed` there. A fold and unfold produce no layout shift. Narrower headers scroll away with the window.
 
 Art does not appear in inbox, activity, memories, Settings, dialogs or the
 playtester content. The rail can still show thumbnails while those screens
@@ -390,7 +390,15 @@ brief, power and proposals. Its add bar uses a plus label and raised surface;
 query syntax lives with the results. Deck search stays with the filters.
 Workspace and roster metadata is at least 12 px; prices, totals, counts and
 lifecycle labels use the soft grey tier unless they convey a semantic state.
-Card-panel slot, tag and role fields use full-width labelled rows below the
-rules, followed by art.
+Card-panel slot, tag and role fields sit beside the art below the rules.
+The art shrinks first, reserving at least 240 px for compact label-and-control rows; their
+controls fill that width without clipping the tags chevron. Desktop list
+columns use a 250 px minimum and 12 px gaps, fitting three at 1440 px with
+the default panel, and falling back to two when the panel leaves less room.
 
 Owner UX decision (2026-10-27): inbox proposal details can accept or reject the whole selected proposal with an optional reason; Review in the list remains secondary. A phone inbox opens the selected proposal beneath a compact deck heading. Its individual decisions come first; Review all decisions discloses deck-wide actions and other proposals. All inbox badges hide zero counts and use bright violet with black ink. Profiles pair their document and Edit action with proposed edits; public profiles reuse the All decks card presentation. Import previews use the wide dialog, a bounded change list with an explicit continuation count, and warnings outside that list.
+
+Review refinement (2026-10-27): Shift+Enter retains add-bar results and marks
+the added card “maybe list”; its Undo removes that shortlisted card. Phone
+review opens the selected proposal first, then shows the next pending proposal
+directly when it is resolved. Review all decisions keeps its placement below.

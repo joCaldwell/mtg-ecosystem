@@ -1,18 +1,18 @@
 .kv {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
-  gap: var(--s-2);
+  gap: var(--s-2) var(--s-4);
 }
 
 .kv dt {
-  padding-top: var(--s-4);
+  padding-top: var(--s-2);
   color: var(--text-soft);
 }
 
 .tags {
   display: flex;
   flex-direction: column;
-  gap: var(--s-2);
+  gap: var(--s-1);
   min-width: 0;
 }
 

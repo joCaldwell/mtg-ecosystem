@@ -42,7 +42,7 @@ async function tracks(page) {
   });
   assert.deepEqual(result.overlaps, [], 'rows and headers reserve non-overlapping tracks');
   assert.deepEqual(result.fragmented, [], 'rows and headers never split across columns');
-  assert(result.widths.every(w => w >= 299), 'card columns are at least about 300px');
+  assert(result.widths.every(w => w >= 249), 'card columns are at least about 250px');
   return result;
 }
 async function click(locator) {
@@ -104,7 +104,7 @@ try {
       await until(() => page.evaluate(y => scrollY > y, before), 'phone window wheel scrolling works');
     } else {
       const layout = await tracks(page);
-      if (width >= 1280) assert.equal(layout.columns, 2, 'open desktop panel leaves room for two readable columns');
+      if (width >= 1280) assert.equal(layout.columns, width === 1440 ? 3 : 2, 'three columns fit at 1440; a narrow list falls back to two');
       if (width < 1100) {
         assert(await page.locator('[data-deck-list] button[data-oracle-id]').first().evaluate(el => el.getBoundingClientRect().height >= 44), 'tablet card rows are 44px with a fine pointer');
         assert(await page.getByRole('combobox', { name: 'Add a card or search' }).evaluate(el => el.getBoundingClientRect().height >= 44), 'tablet add input is 44px');
@@ -139,10 +139,12 @@ try {
       await click(page.locator('[data-deck-list] button[data-oracle-id]').first());
       await page.getByRole('combobox', { name: 'Primary slot', exact: true }).waitFor();
       const fields = await page.getByRole('combobox', { name: 'Primary slot', exact: true }).evaluate(el => {
-        const fields = el.closest('dl'), image = fields.parentElement.parentElement.querySelector('img');
-        return { width: el.getBoundingClientRect().width, container: fields.getBoundingClientRect().width, artBelow: !image || image.getBoundingClientRect().top >= fields.getBoundingClientRect().bottom };
+        const fields = el.closest('dl'), facts = fields.parentElement.parentElement, image = facts.firstElementChild;
+        const r = fields.getBoundingClientRect(), art = image.getBoundingClientRect();
+        const triggers = [...fields.querySelectorAll('button[aria-haspopup="listbox"]')];
+        return { width: el.getBoundingClientRect().width, container: r.width, artBeside: art.right <= r.left && Math.abs(art.top - r.top) < 1, overflow: triggers.some(t => t.scrollWidth > t.clientWidth || t.getBoundingClientRect().right > r.right + 1), truncated: triggers.some(t => { const text = t.querySelector('span'); return text.scrollWidth > text.clientWidth; }) };
       });
-      assert(fields.width >= fields.container - 1 && fields.artBelow, 'card controls use full-width rows above art');
+      assert(fields.width >= 140 && fields.container >= 240 && fields.artBeside && !fields.overflow && !fields.truncated, 'compact art and fields fit without clipped selects or chevrons');
       await audit(page, `${width} card panel`);
       if (width === 1024) {
         const select = page.getByRole('combobox', { name: 'Primary slot', exact: true });
@@ -168,7 +170,7 @@ try {
         await add.fill(candidate.name);
         await page.getByRole('option').filter({ hasText: candidate.name }).first().waitFor();
         await add.press('Shift+Enter');
-        await until(async () => await add.inputValue() === '' && await add.getAttribute('aria-expanded') === 'false', 'successful maybe add clears and closes results');
+        await until(async () => await add.inputValue() === candidate.name && await add.getAttribute('aria-expanded') === 'true' && await page.getByRole('option').filter({ hasText: candidate.name }).first().innerText().then(t => /maybe list/i.test(t)), 'maybe add keeps results open and updates membership');
         assert(await add.evaluate(el => document.activeElement === el), 'successful add keeps input focus');
         const added = await get(`/api/decks/${deck.id}`);
         assert(added.state.cards.some(c => c.oracle_id === candidate.oracle_id && c.maybe), 'card was added to maybe list');

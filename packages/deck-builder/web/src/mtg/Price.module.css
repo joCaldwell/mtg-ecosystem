@@ -10,6 +10,6 @@
 .column {
   display: inline-block;
   flex: none;
-  min-width: 7ch;
+  min-width: var(--price-column-width, 7ch);
   text-align: right;
 }

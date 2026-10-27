@@ -29,11 +29,11 @@
 
 .strip { --band: var(--art-strip-space); display: grid; border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; }
 
-/* The owner's banner folds on desktop while the list is scrolled (useArtCollapse). */
-.banner { --band: var(--art-banner-space); flex: none; border-bottom: 1px solid var(--line); transition: padding-top var(--base) ease-out; }
-.banner .visual { transition: height var(--base) ease-out, opacity var(--base) ease-out, visibility 0s; }
-.banner[data-collapsed] { --band: 0px; }
-.banner[data-collapsed] .visual { opacity: 0; visibility: hidden; transition: height var(--base) ease-out, opacity var(--base) ease-out, visibility 0s var(--base); }
+/* Keep the banner's reserved box stable while its decorative crop folds.
+   Only composited properties animate; neither pane changes size on scroll. */
+.banner { --band: var(--art-banner-space); flex: none; border-bottom: 1px solid var(--line); }
+.banner .visual { transform-origin: top; transition: transform var(--base) ease-out, opacity var(--base) ease-out, visibility 0s; }
+.banner[data-collapsed] .visual { transform: scaleY(0); opacity: 0; visibility: hidden; transition: transform var(--base) ease-out, opacity var(--base) ease-out, visibility 0s var(--base); }
 
 .showcase { --band: var(--art-showcase-space); border-bottom: 1px solid var(--line); }
 .showcase .visual, .backdrop .visual { height: calc(var(--band) + var(--s-8)); }
@@ -51,7 +51,7 @@
   .banner { --band: var(--art-banner-tablet-space); }
   /* A fold belongs to the desktop list; narrower, the banner leaves with the window. */
   .banner[data-collapsed] { --band: var(--art-banner-tablet-space); }
-  .banner[data-collapsed] .visual { opacity: 1; visibility: visible; }
+  .banner[data-collapsed] .visual { transform: none; opacity: 1; visibility: visible; }
 }
 @media (max-width: 719px) {
   .banner, .banner[data-collapsed] { --band: var(--art-banner-phone-space); }

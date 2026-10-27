@@ -15,8 +15,8 @@
 .cols {
   /* Native columns rebalance whenever rows, headers or details change height.
      Keep three only when the available list width can fit readable names. */
-  columns: 3 var(--deck-card-min);
-  column-gap: var(--s-7);
+  columns: 3 var(--deck-column-min);
+  column-gap: var(--s-5);
 }
 
 .hint {

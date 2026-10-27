@@ -441,7 +441,7 @@ five viewport widths, real wheel scrolling, proposal handoffs, add/undo, column
 reflow, post-import tablet targets, and panel identity across 1100 px. It requires
 the seeded evaluation database and never runs against live data.
 
-The card list uses native balanced columns with a 300 px target minimum and
+The card list uses native balanced columns with a 250 px target minimum and
 unfragmented row/header tracks. The browser recalculates breaks as content sizes
 change. Review arrival reveals the chosen decision's first card, then focuses
 its optional reason in the panel (the requested sheet on tablets). Panel-only
@@ -449,3 +449,10 @@ scrolling and resize observation keep asynchronously loaded context from moving
 the controls away or undoing the list reveal.
 
 Secondary-page UX (2026-10-27): inbox ProposalDecision calls the existing ruleProposal capability with the revision read at the click and captures stale confirmation before submitting. It applies the returned inbox without client merging. PhoneInbox preserves the proposal parameter; PhoneDecisions keeps selected units first and discloses bulk decisions. The shared mtg/DeckCard is the roster presentation used by All decks and public profiles; publicProfile supplies only public commanders’ credited art facts alongside their names.
+
+Review refinement (2026-10-27): CardPanel reserves a readable field width beside
+shrinkable art. AddBar retains search results after maybe-list adds, while its
+Undo uses removeCard; ordinary membership Undo still uses its log entry.
+PhoneDecisions falls back to the first pending proposal after its selected one
+is resolved. DeckArt folds its decorative crop with transform and opacity in
+a fixed reserved box, without resizing the header or either desktop pane.
