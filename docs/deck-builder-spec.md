@@ -832,8 +832,7 @@ card.
 - **Proposals inbox:** everything waiting on the owner across decks. A proposal is ruled on in its deck's list, where each change is drawn in place among the cards around it — per item, per group or all at once, with an optional reason; the inbox links there. Proposed brief and profile edits are ruled in the inbox as diffs. (Settled 2026-10-10: the owner preferred reviewing in the list to decision from the inbox.)
 - **Decisions log:** per deck, with undo.
 - **Memories:** §7.5.
-- **Profile:** edit directly.
-- **Activity feed:** every agent write, with the agent's name, time and target. The audit trail for unapproved writes.
+- **Profile:** Profile and Activity tabs, using the shared Tabs primitive. Edit the profile directly; Activity shows every agent write, with the agent's name, time and target: the audit trail for unapproved writes. Activity has no separate sidebar entry.
 - **Settings:** connection details for agents, memory budgets, card data refresh,
   and a currency then store/Lowest price-source control (§4.4). Saving is
   UI-only and invalidates that principal's views, including hover lookups.
@@ -851,7 +850,9 @@ carry server-rendered link-preview tags: `/` and `/decks`, `/deck/:id`,
 `/deck/:id/review`, `/deck/:id/playtest`, `/inbox`, `/memories`, `/profile`,
 `/activity`, `/settings`, `/design`, `/signin`, `/privacy`, `/terms`,
 `/d/:slug` and `/u/:handle`. `href()` in `web/src/app/routes.ts` is the only
-place a URL is built; same-origin links navigate without a reload. A
+place a URL is built; same-origin links navigate without a reload. `/activity`
+opens Profile’s Activity tab, and `/profile` selects its Profile tab. Both
+remain in the server’s app-route allow-list (D16). A
 bookmark from the hash-route era (`/#/deck/5`) is rewritten once to its
 path on load, and a malformed escape in a path is a missing page. Going
 back restores the scroll position of the phone and shared pages once their
@@ -937,7 +938,7 @@ and wider it keeps the desktop panes. Phones retain this read-and-rule scope.
   inline one-sentence explanation and a Learn more popover. Help does not
   mutate data or infer card facts.
 - **Owner decision, 2026-10-27:** remove the Advanced disclosure and its
-  `advanced_open` account preference. Show revision numbers in History and
+  account preference. Show revision numbers in History and
   card decisions; put memory and assessment revision metadata in titles where
   those records appear. Deck headers carry no revision chip. Memory budgets,
   scope usage and omitted counts live only in Settings. Secondary slots are
@@ -955,6 +956,19 @@ and wider it keeps the desktop panes. Phones retain this read-and-rule scope.
   may cover the list without changing DESIGN.md principle 1. The tablet
   shell calls `useWindowScroll()` like the phone and shared shells. At
   1100+ the body stays pinned and panes scroll. Playtest needs 1100+ px.
+- **Sidebar:** All decks leads navigation, above Inbox; Memories, Profile and
+  Settings follow. Decks have a separate “Your decks” heading. At 1100+ px an
+  accessible collapse/expand control switches to an icon rail, preserving nav
+  icons, the inbox badge, and deck thumbnails or dots with names in titles
+  and accessible labels. Its `aria-expanded` reflects the layout. The boolean
+  `sidebar_collapsed` is UI-only, per account in existing `user_settings`,
+  defaults false and needs no migration. Save failure keeps the saved state
+  and reports an error. The 960–1099 rail deliberately remains expanded for
+  visible tablet navigation; the drawer under 960 also remains expanded.
+  Widening restores the saved desktop choice. Layout changes keep `<main>`
+  mounted; tablet window scrolling and the phone shell are unchanged. Agent
+  presence briefly names the last writer/time and the
+  open deck/selection as agent context.
 - Tables scroll sideways inside their containers. MultiSelect is a
   searchable multi-select listbox; card rows support `?` to inspect and a
   tapped mana cost opens CardSheet. Archived titles are plain headings. A

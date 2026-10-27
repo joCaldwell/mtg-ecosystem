@@ -4,9 +4,9 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDb, getSetting, setSetting } from "../src/db.ts";
+import { openDb, getSetting } from "../src/db.ts";
 import { createDemo } from "../src/demo.ts";
-import { uiPreferences } from "../src/preferences.ts";
+import { uiPreferences, setSidebarCollapsed } from "../src/preferences.ts";
 import { latestActivity, listActivity, recordActivity } from "../src/activity.ts";
 import { createDeck, deleteDeck, setDeckCategory, getDeck, createSlot } from "../src/deck/service.ts";
 import { createProposal } from "../src/deck/proposals.ts";
@@ -57,7 +57,7 @@ test("v14 → v15 preserves both tenants, all relations, prose, sharing and the 
    INSERT INTO decks_v14 SELECT id,user_id,name,CASE category WHEN 'archived' THEN 'legacy' ELSE category END,parent_id,ci_mask,color_identity,revision,created_at,visibility,slug,publish_decisions,accept_suggestions,parent_owner_handle,parent_slug,parent_name FROM decks;
    DROP TABLE decks; ALTER TABLE decks_v14 RENAME TO decks;
    CREATE INDEX idx_decks_user ON decks(user_id); CREATE UNIQUE INDEX idx_decks_slug ON decks(slug);
-   UPDATE sqlite_sequence SET seq=999 WHERE name='decks'; DELETE FROM user_settings WHERE key='advanced_open';
+   UPDATE sqlite_sequence SET seq=999 WHERE name='decks';
    UPDATE meta SET value='14' WHERE key='schema_version';`);db.close();
   const migrated=openDb(path);
   assert.equal(migrated.prepare("SELECT COUNT(*) n FROM decks WHERE category='legacy'").get()!.n,0);
@@ -65,12 +65,12 @@ test("v14 → v15 preserves both tenants, all relations, prose, sharing and the 
   assert.deepEqual(ids.map((id,i)=>getDeck(migrated,{...OWNER,user_id:i+1},id)),before);
   assert.deepEqual(migrated.prepare("SELECT * FROM memories").all(),memories);
   assert.deepEqual(migrated.prepare("SELECT * FROM log").all(),log);
-  for(const user_id of [1,2])assert.deepEqual(uiPreferences(migrated,{...OWNER,user_id}),{has_agent_activity:false});
+  for(const user_id of [1,2])assert.deepEqual(uiPreferences(migrated,{...OWNER,user_id}),{has_agent_activity:false,sidebar_collapsed:false});
   assert.throws(()=>migrated.prepare("UPDATE decks SET category='legacy'").run(),/CHECK/);
   assert.ok(createDeck(migrated,OWNER,"After migration")>999);
   assert.deepEqual(migrated.prepare("PRAGMA foreign_key_check").all(),[]);
   assert.equal(migrated.prepare("PRAGMA integrity_check").get()!.integrity_check,"ok");
-  migrated.close();const reopened=openDb(path);assert.equal(getSetting(reopened,OWNER,"advanced_open"),"true");reopened.close();
+  migrated.close();const reopened=openDb(path);assert.deepEqual(uiPreferences(reopened,OWNER),{has_agent_activity:false,sidebar_collapsed:false});reopened.close();
  } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
@@ -78,16 +78,14 @@ test("first agent write changes only its principal's voice; token creation and r
  const db=testDb();try {
   db.exec("INSERT INTO users(id,handle,display_name) VALUES (2,'second','Second')");
   const second={...OWNER,user_id:2};
-  assert.deepEqual(uiPreferences(db,OWNER),{has_agent_activity:false});
+  assert.deepEqual(uiPreferences(db,OWNER),{has_agent_activity:false,sidebar_collapsed:false});
   createToken(db,OWNER,"unused");listMemories(db,agent("reader"));
   assert.equal(uiPreferences(db,OWNER).has_agent_activity,false);
   remember(db,agent("writer"),{scope:"global",text:"I prefer longer games"});
   assert.equal(uiPreferences(db,OWNER).has_agent_activity,true);
   assert.equal(uiPreferences(db,second).has_agent_activity,false);
-  setSetting(db,second,"advanced_open","true");
-  setSetting(db,OWNER,"advanced_open","false");
-  assert.deepEqual(uiPreferences(db,second),{has_agent_activity:false});
-  assert.deepEqual(uiPreferences(db,OWNER),{has_agent_activity:true});
+  assert.deepEqual(uiPreferences(db,second),{has_agent_activity:false,sidebar_collapsed:false});
+  assert.deepEqual(uiPreferences(db,OWNER),{has_agent_activity:true,sidebar_collapsed:false});
  }finally{db.close();}
 });
 
@@ -219,4 +217,28 @@ test("POST /api/demo names the skipped cards and has its own hosted rate-limit b
   const limited=await post();assert.equal(limited.status,429);assert.ok(Number(limited.headers.get("retry-after"))>0);
   assert.equal((await f.call("/api/decks",{headers:{Cookie:cookie}})).status,200,"the general UI budget is separate");
  } finally {await f.close();}
+});
+
+test("sidebar collapse is a persistent, UI-only preference for the caller without a migration", () => {
+ const dir=mkdtempSync(join(tmpdir(),"sidebar-pref-")), path=join(dir,"test.db");
+ let db=openDb(path);
+ try {
+  db.exec("INSERT INTO users(id,handle,display_name) VALUES (2,'second','Second')");
+  const second={...OWNER,user_id:2};
+  const version=db.prepare("PRAGMA user_version").get();
+  assert.equal(uiPreferences(db,OWNER).sidebar_collapsed,false);
+  assert.equal(uiPreferences(db,second).sidebar_collapsed,false);
+  setSidebarCollapsed(db,second,true);
+  assert.equal(getSetting(db,second,"sidebar_collapsed"),"true");
+  assert.equal(uiPreferences(db,OWNER).sidebar_collapsed,false);
+  for(const value of ["true",1,null,{}]) assert.throws(()=>setSidebarCollapsed(db,OWNER,value),{status:400});
+  assert.throws(()=>setSidebarCollapsed(db,agent("writer",2),false),{status:403});
+  assert.throws(()=>setSidebarCollapsed(db,null as any,true),{status:401});
+  assert.equal(uiPreferences(db,second).sidebar_collapsed,true);
+  db.close();db=openDb(path);
+  assert.deepEqual(db.prepare("PRAGMA user_version").get(),version);
+  assert.equal(uiPreferences(db,second).sidebar_collapsed,true);
+  setSidebarCollapsed(db,second,false);
+  assert.equal(uiPreferences(db,second).sidebar_collapsed,false);
+ }finally{db.close();rmSync(dir,{recursive:true,force:true});}
 });

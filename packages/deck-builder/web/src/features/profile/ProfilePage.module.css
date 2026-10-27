@@ -22,3 +22,7 @@
 .count {
   flex: none;
 }
+
+.tabs { padding-inline: var(--s-7); }
+.profile { display: grid; gap: var(--s-6); }
+.profile[hidden] { display: none; }

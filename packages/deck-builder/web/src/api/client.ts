@@ -84,6 +84,7 @@ export interface Session { backdrop: CardArt | null; mode: "local" | "hosted"; p
 export interface Settings {
   has_agent_activity: boolean;
   memory_usage: Array<{ name: string; deck_id: number | null; budget: number; used: number; omitted: number }>;
+  sidebar_collapsed: boolean;
   price_source: PriceSource;
   jobs: ReturnType<Jobs["status"]> | null;
   budgets: { global: number; deck: number };
@@ -297,7 +298,7 @@ export const api = {
   setFocus: (deckId: number | null, selected: string[] = []) =>
     request<{ ok: true }>("PUT", "/api/focus", { deck_id: deckId, selected }),
   getSettings: () => request<Settings>("GET", "/api/settings"),
-  updateSettings: (patch: { price_source?: PriceSource; budgets?: { global?: number; deck?: number } }) =>
+  updateSettings: (patch: { sidebar_collapsed?: boolean; price_source?: PriceSource; budgets?: { global?: number; deck?: number } }) =>
     request<Settings>("PUT", "/api/settings", patch),
   createToken: (label: string) => request<{ token: string; credential: AgentToken }>("POST", "/api/settings/tokens", { label }),
   revokeToken: (id: number) => request<{ ok: true }>("DELETE", `/api/settings/tokens/${id}`),

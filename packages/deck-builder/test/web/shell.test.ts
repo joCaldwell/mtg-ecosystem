@@ -61,3 +61,31 @@ test("main is the frame's second child on desktop, rail and drawer layouts, with
   }
   assert.ok(frame(800).tags[0] === "header" && frame(1024).tags[0] === "div" && frame(1280).tags[0] === "div");
 });
+
+test("collapsed sidebar keeps named navigation and an expanded-state control; tablets retain their full rail", async (t) => {
+  const server = await vite(t);
+  const { Sidebar } = await server.ssrLoadModule("/src/app/Sidebar.tsx");
+  const render = (collapsed: boolean, onToggle?: () => void) => renderToStaticMarkup(createElement(Sidebar, { route: { page: "activity" }, collapsed, onToggle }));
+  const expanded = render(false, () => {}), collapsed = render(true, () => {});
+  assert.match(expanded, /aria-label="Collapse sidebar"[^>]*aria-expanded="true"/);
+  assert.match(collapsed, /aria-label="Expand sidebar"[^>]*aria-expanded="false"/);
+  for (const html of [expanded, collapsed]) {
+    assert.ok(html.indexOf('href="/"') < html.indexOf('href="/inbox"'), "All decks comes first");
+    assert.match(html, /href="\/profile"[^>]*aria-current="page"[^>]*aria-label="Profile"/);
+    for (const label of ["All decks", "Inbox", "Memories", "Profile", "Settings"]) assert.ok(html.includes(`aria-label="${label}"`), label);
+    assert.doesNotMatch(html, /aria-label="Activity"/);
+  }
+  assert.match(collapsed, /href="\/inbox"[^>]*title="Inbox"/);
+  const tablet = render(false);
+  assert.doesNotMatch(tablet, /aria-label="(?:Collapse|Expand) sidebar"/);
+});
+
+test("Profile uses the shared tabs and renders Activity inside its page", async (t) => {
+  const { ProfilePage } = await (await vite(t)).ssrLoadModule("/src/features/profile/ProfilePage.tsx");
+  const html = renderToStaticMarkup(createElement(ProfilePage, { tab: "activity" }));
+  assert.match(html, /role="tablist" aria-label="Profile tabs"/);
+  assert.match(html, /role="tab" aria-selected="true"[^>]*>Activity/);
+  assert.match(html, /role="tabpanel" aria-label="Activity"/);
+  assert.match(html, /role="tabpanel" aria-label="Profile" hidden=""/);
+  assert.equal((html.match(/<h1/g) ?? []).length, 1, "one Profile page header around both tabs");
+});

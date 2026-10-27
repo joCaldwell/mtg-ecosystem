@@ -715,6 +715,7 @@ http("GET",()=>"/api/focus","read",undefined,{global:true});
 http("GET",()=>"/api/settings","owner-only",undefined,{global:true});
 http("PUT",()=>"/api/settings","owner-only",()=>({budgets:{global:1200}}),{global:true});
 http("PUT",()=>"/api/settings","owner-only",()=>({price_source:{currency:"EUR",store:"cardmarket"}}),{global:true});
+http("PUT",()=>"/api/settings","owner-only",()=>({sidebar_collapsed:true}),{global:true});
 http("POST",()=>"/api/settings/tokens","owner-only",()=>({label:"HTTP client"}),{global:true});
 http("DELETE",(t,f)=>`/api/settings/tokens/${t.token}`,"owner-only");
 http("POST",()=>"/api/cards/refresh","owner-only",undefined,{global:true,ownStatus:503});
@@ -807,22 +808,17 @@ test("settings usage and card-panel ownership expose only the session principal'
       sourcing.recordOwnership(f.db,agent("inventory",ui.user_id),deck.id,[{
         oracle_id:"id-forest",status:"owned",quantity:ui.user_id,available_quantity:1,basis:`Private evidence ${ui.user_id}`,
       }]);
-      setSetting(f.db,ui,"advanced_open",ui.user_id===1?"true":"false");
     }
     for(const ui of f.users) {
       principal=ui;
       const own=f.targets.filter(t=>t.ui.user_id===ui.user_id),foreign=f.targets.find(t=>t.ui.user_id!==ui.user_id)!;
       const response=await fetch(base+"/api/settings");assert.equal(response.status,200);
       const settings=await response.json();
-      assert.equal(Object.hasOwn(settings,"advanced_open"),false);
       assert.deepEqual(settings.memory_usage.map((u:any)=>u.deck_id),[null,...decks.listDecks(f.db,ui).map(d=>d.id)]);
       for(const usage of settings.memory_usage) {
         const expected=memory.loadScope(f.db,ui,usage.deck_id==null?"global":"deck",usage.deck_id??undefined);
         assert.deepEqual({budget:usage.budget,used:usage.used,omitted:usage.omitted},{budget:expected.budget,used:expected.used,omitted:expected.omitted});
       }
-      const ignored=await fetch(base+"/api/settings",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({advanced_open:"retired"})});
-      assert.equal(ignored.status,200);assert.equal(Object.hasOwn(await ignored.json(),"advanced_open"),false);
-      assert.equal(getSetting(f.db,ui,"advanced_open"),ui.user_id===1?"true":"false","retired rows stay untouched");
       const history=await fetch(`${base}/api/decks/${own[0].id}/cards/id-forest/history`);assert.equal(history.status,200);
       const context=await history.json();
       assert.deepEqual(Object.keys(context).sort(),["decisions","memories","ownership"]);
@@ -835,6 +831,27 @@ test("settings usage and card-panel ownership expose only the session principal'
       const empty=await fetch(`${base}/api/decks/${own[0].id}/cards/id-solring/history`);assert.equal(empty.status,200);
       assert.deepEqual((await empty.json()).ownership,[]);
     }
+  } finally {await app.close();f.db.close();}
+});
+
+test("PUT /api/settings sidebar_collapsed writes only the caller's own preference; other users, anonymous and bearer callers cannot",async()=>{
+  const f=fixture(); let principal:Actor|null=OWNER;
+  const app=createApp(f.db,{resolveUiActor:()=>principal}),base=await listening(app);
+  const put=(value:unknown,headers:Record<string,string>={})=>fetch(base+"/api/settings",{method:"PUT",headers:{"Content-Type":"application/json",...headers},body:JSON.stringify({sidebar_collapsed:value})});
+  const open=(user_id:number)=>getSetting(f.db,{user_id,via:"ui",label:"ui"},"sidebar_collapsed");
+  try {
+    const before=[open(1),open(2)];
+    principal=f.users[1];
+    const second=await put(true);assert.equal(second.status,200);assert.equal((await second.json()).sidebar_collapsed,true);
+    assert.deepEqual([open(1),open(2)],[before[0],"true"],"the other user's write is theirs alone");
+    principal=null;
+    assert.equal((await put(false)).status,401);
+    const token=tokens.createToken(f.db,OWNER,"Settings bearer").token;
+    assert.equal((await put(false,{Authorization:`Bearer ${token}`})).status,401,"a personal token is not a UI session");
+    assert.deepEqual([open(1),open(2)],[before[0],"true"]);
+    principal=OWNER;
+    assert.equal((await put("true")).status,400);
+    assert.equal(open(1),before[0]);
   } finally {await app.close();f.db.close();}
 });
 
@@ -1024,6 +1041,7 @@ const globalProbes:Record<string,GlobalProbe>={
   securityHeaders:fn=>{const headers:Record<string,string>={};fn({setHeader:(k:string,v:string)=>{headers[k]=v;}},"local");assert.deepEqual(headers,{});return headers;},
   consentHtml:fn=>{const html=fn({name:"<script>bad</script>",identityHost:null,redirectHost:"127.0.0.1",redirectUri:"http://127.0.0.1/cb",loopback:true});assert.ok(html.includes("&lt;script&gt;"));return html;},
   uiPreferences:(fn,f,a)=>{ const result=fn(f.db,a); assert.equal(result.has_agent_activity,true); return result; },
+  setSidebarCollapsed:(fn,f,a)=>{ assert.throws(()=>fn(f.db,{...a,via:"agent"},true),PermissionError); fn(f.db,a,true); assert.notEqual(getSetting(f.db,OWNER,"sidebar_collapsed"),"true"); return getSetting(f.db,a,"sidebar_collapsed"); },
   createDemo:(fn,f,a)=>{ assert.throws(()=>fn(f.db,{...a,via:"agent"}),PermissionError); const result=fn(f.db,a); return decks.requireDeck(f.db,a,result.deckId); },
   getSetting:(fn,f,a)=>{setSetting(f.db,a,"probe","second setting");return fn(f.db,a,"probe");},
   setSetting:(fn,f,a)=>{fn(f.db,a,"probe","second setting");assert.equal(getSetting(f.db,a,"probe"),"second setting");return getSetting(f.db,a,"probe");},
@@ -1128,7 +1146,7 @@ const globalProbes:Record<string,GlobalProbe>={
 };
 for(const name of ["AppError","ServiceError","SchemaError","PermissionError","SearchError"])globalProbes[name]=fn=>new fn("Second probe");
 globalProbes.CardResolutionError=fn=>new fn([{ref:"missing",problem:"unknown",suggestions:[],candidates:[]}]);
-const globalKinds:Record<string,Classification>={previewNewImport:"owner-only",createDemo:"owner-only",uiPreferences:"read",sharedCounts:"read",getPriceSource:"read",setPriceSource:"owner-only",priceResolver:"read",connectedClients:"owner-only",disconnectClient:"owner-only",accountInfo:"owner-only",chooseHandle:"owner-only",exportAccount:"owner-only",deleteAccount:"owner-only",createInvite:"owner-only",adminInfo:"owner-only",accountScopes:"public-read",getSetting:"read",setSetting:"write",createDeck:"write",listDecks:"read",getProfile:"read",setProfile:"owner-only",getBudgets:"read",setBudgets:"write",unreviewedCount:"read",getFocus:"read",playerStats:"read",listActivity:"read",latestActivity:"read",activityPage:"read",ownershipEvidence:"read",createToken:"owner-only",listTokens:"owner-only",revokeToken:"owner-only",requireUi:"owner-only",requireAdmin:"owner-only",ingestPrices:"write"};
+const globalKinds:Record<string,Classification>={previewNewImport:"owner-only",createDemo:"owner-only",uiPreferences:"read",setSidebarCollapsed:"owner-only",sharedCounts:"read",getPriceSource:"read",setPriceSource:"owner-only",priceResolver:"read",connectedClients:"owner-only",disconnectClient:"owner-only",accountInfo:"owner-only",chooseHandle:"owner-only",exportAccount:"owner-only",deleteAccount:"owner-only",createInvite:"owner-only",adminInfo:"owner-only",accountScopes:"public-read",getSetting:"read",setSetting:"write",createDeck:"write",listDecks:"read",getProfile:"read",setProfile:"owner-only",getBudgets:"read",setBudgets:"write",unreviewedCount:"read",getFocus:"read",playerStats:"read",listActivity:"read",latestActivity:"read",activityPage:"read",ownershipEvidence:"read",createToken:"owner-only",listTokens:"owner-only",revokeToken:"owner-only",requireUi:"owner-only",requireAdmin:"owner-only",ingestPrices:"write"};
 for(const [name,probe] of Object.entries(globalProbes))globalCase(name,globalKinds[name]??"public-read",probe);
 
 function ownerSnapshot(f:Fixture) {

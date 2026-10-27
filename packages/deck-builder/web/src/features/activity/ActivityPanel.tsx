@@ -6,7 +6,7 @@ import { href } from "../../app/routes.ts";
 import { groupSessions } from "../../domain/activity.ts";
 import { clockTime, dayLabel } from "../../domain/time.ts";
 import { InlineText } from "../../mtg/index.ts";
-import { Button, Pill, Chip, Dot, EmptyState, ErrorNote, Loading, Page, PageHeader, Text } from "../../ui/index.ts";
+import { Button, Pill, Chip, Dot, EmptyState, ErrorNote, Loading, Text } from "../../ui/index.ts";
 import styles from "./ActivityPage.module.css";
 
 // The action strings recordActivity is called with (src/mcp/tools.ts), as words.
@@ -44,7 +44,7 @@ function waitingOnYou(e: ActivityEntry): boolean {
 
 
 /** Every write an agent made (spec §11): the audit trail for what needed no approval. */
-export function ActivityPage() {
+export function ActivityPanel() {
   const voice = useVoice();
   // Keyset paging (§11.3): each earlier page is remembered by the id it
   // started before, so writes between loads never shift rows.
@@ -59,15 +59,7 @@ export function ActivityPage() {
   const sessions = groupSessions(entries);
 
   return (
-    <Page
-      width="lg"
-      header={
-        <PageHeader
-          title="Activity"
-          subtitle={voice("An optional activity trail for help you connect to your decks. Your own edits appear in each deck’s History.", "Every write an agent has made, grouped by session. This is the audit trail for changes that did not need your approval.")}
-        />
-      }
-    >
+    <>
       {feed.error && <ErrorNote>{feed.error}</ErrorNote>}
       {feed.loading ? (
         <Loading />
@@ -128,6 +120,6 @@ export function ActivityPage() {
         </>
       )}
       <nav aria-label="Activity pages"><Button disabled={cursors.length === 0} onClick={() => setCursors(cursors.slice(0, -1))}>Previous 100</Button> <Text>Page {cursors.length + 1}</Text> <Button disabled={!feed.data?.has_more} onClick={() => setCursors([...cursors, entries[entries.length - 1].id])}>Next 100</Button></nav>
-    </Page>
+    </>
   );
 }

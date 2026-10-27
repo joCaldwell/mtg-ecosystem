@@ -1,5 +1,4 @@
 import { lazy, type ReactNode } from "react";
-import { ActivityPage } from "../features/activity/index.ts";
 import { DeckPage } from "../features/deck/index.ts";
 import { DecksPage } from "../features/decks/index.ts";
 import { InboxPage } from "../features/inbox/index.ts";
@@ -33,10 +32,9 @@ function screen(route: Route): ReactNode {
       return <InboxPage />;
     case "memories":
       return <MemoriesPage />;
-    case "activity":
-      return <ActivityPage />;
     case "profile":
-      return <ProfilePage />;
+    case "activity":
+      return <ProfilePage tab={route.page} />;
     case "settings":
       return <SettingsPage />;
     case "design":

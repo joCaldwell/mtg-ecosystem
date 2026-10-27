@@ -4,6 +4,8 @@
   height: 100vh;
 }
 
+.collapsed { grid-template-columns: var(--sidebar-rail-w) minmax(0, 1fr); }
+
 .main {
   display: flex;
   flex-direction: column;

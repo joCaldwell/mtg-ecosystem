@@ -136,6 +136,7 @@
   --drawer-w: 320px;
   --sheet-content-h: 68dvh;
   --sidebar-w: 216px;
+  --sidebar-rail-w: 64px;
   --panel-w: 392px;
   /* The deck's side panel can be dragged between these, and never so wide
      that the list beside it has less than --list-w-min. */

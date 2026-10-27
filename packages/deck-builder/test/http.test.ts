@@ -657,8 +657,8 @@ test("settings price source and budgets save atomically", async () => {
   } finally { await put({ price_source: source, budgets }); }
 });
 
-// Both settings mutations invalidate open views.
-test("budget and price settings writes each send a change event", async () => {
+// Sidebar-only writes stay quiet; data settings invalidate open views.
+test("sidebar-only settings stay quiet while budget and price writes each send a change event", async () => {
   const { getPriceSource } = await import("../src/prices.ts");
   const source = getPriceSource(db, OWNER);
   const put = (body: unknown) => fetch(`${base}/api/settings`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -666,9 +666,15 @@ test("budget and price settings writes each send a change event", async () => {
   const reader = events.body!.getReader();
   assert.equal(new TextDecoder().decode((await reader.read()).value), 'data: {"kind":"connected"}\n\n');
   try {
+    let received = false;
+    const nextEvent = reader.read().then(event => { received = true; return event; });
+    assert.equal((await put({ sidebar_collapsed: true })).status, 200);
+    assert.equal((await put({ sidebar_collapsed: false })).status, 200);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.equal(received, false, "sidebar-only writes must not broadcast");
     const { getBudgets } = await import("../src/memory.ts");
     assert.equal((await put({ budgets: getBudgets(db, OWNER) })).status, 200);
-    assert.equal(new TextDecoder().decode((await reader.read()).value), 'data: {"kind":"settings"}\n\n');
+    assert.equal(new TextDecoder().decode((await nextEvent).value), 'data: {"kind":"settings"}\n\n');
     assert.equal((await put({ price_source: source })).status, 200);
     assert.equal(new TextDecoder().decode((await reader.read()).value), 'data: {"kind":"settings"}\n\n');
   } finally { await reader.cancel(); }

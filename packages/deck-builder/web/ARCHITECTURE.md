@@ -108,7 +108,9 @@ seed the demo deck first (`npm run seed:demo`) so every panel has content.
 Path routes: `/`, `/decks`, `/deck/:id`, `/deck/:id/review`,
 `/deck/:id/playtest`, `/inbox`, `/memories`, `/profile`, `/activity`,
 `/settings`, `/design`, `/signin`, `/privacy`, `/terms`, `/d/:slug`,
-`/u/:handle`. `app/routes.ts` owns them: `parseRoute`, `href()` (the only
+`/u/:handle`. `/activity` keeps its existing named route and `href()`; SignedIn maps it
+to ProfilePage’s Activity tab. `/profile` selects the Profile tab. The server
+already allow-lists both paths (D16). `app/routes.ts` owns them: `parseRoute`, `href()` (the only
 place a URL is built), `navigate()`, and `useRoute()`, which also turns a
 plain same-origin `<a href>` click into in-place navigation, so components
 keep writing ordinary links. A hash-era bookmark (`/#/deck/5`) is rewritten
@@ -273,7 +275,9 @@ budgets in one transaction.
 ## Phase 4b: first run, tablets and loading
 
 `PreferencesProvider` reads /api/settings once for the private shell. It
-supplies `has_agent_activity` and both copy voices through `useVoice`. Sidebar
+supplies `has_agent_activity`, both copy voices through `useVoice`, and the
+account’s desktop sidebar collapse state. Saving that preference is UI-only
+below HTTP. Sidebar
 presence is absent until an agent write; /api/activity/latest reads one
 activity row. Creating a token or reading with it does not count.
 
@@ -286,8 +290,8 @@ LogRow shows review status, and InboxPage keeps the unreviewed count visible
 alongside the queue. CardHistory's owner-scoped response adds ownership
 evidence, rendered only when nonempty with basis, quantities and attribution.
 Settings alone shows memory limits, usage and omitted counts for the global
-scope and owned decks, computed through loadScope. No new migration; old
-advanced_open rows are unused. The disclosure primitive is removed.
+scope and owned decks, computed through loadScope. No new migration. The
+disclosure primitive is removed.
 
 The tablet frame runs from 720 through 1099 px; `TabletScroll`
 (`app/TabletShell.tsx`) **calls useWindowScroll()** while it applies. The
@@ -379,3 +383,28 @@ stay above the independently scrolling changes, with cuts first; Apply and
 the optional History note remain in Dialog's footer. Formats is a native
 disclosure in the source step. Dialog's optional `bodyClassName` lets this
 workflow size its scrolling region without changing other dialogs.
+
+## Sidebar navigation
+
+All decks leads the section navigation, followed by Inbox, Memories, Profile
+and Settings. Profile owns Profile/Activity tabs (the existing Tabs primitive);
+its editor remains mounted when changing tabs, retaining a profile draft.
+ActivityPanel shares Profile's Page and scroll container.
+The route allow-list and public-path decoding share compact parsing to keep
+the initial public bundle below its existing budget.
+
+At 1100+ px, AppShell applies the account's `sidebar_collapsed` preference
+from /api/settings to its grid and Sidebar. The icon rail uses
+`--sidebar-rail-w`; links retain names, titles, the inbox count and deck
+thumbnails/dots. The collapse button names its action and exposes
+`aria-expanded`. Saving is UI-only in `src/preferences.ts`, uses an existing
+user_settings key (default expanded), and sends no data invalidation.
+PreferencesProvider reports a failed save in a toast and retains the saved
+state. It does not use browser storage.
+
+The 960–1099 px rail deliberately stays expanded, with no collapse control,
+so tablet navigation retains visible names and the existing touch layout.
+Below 960 the drawer also stays expanded. Returning to 1100+ restores the
+account's saved choice. AppShell keeps `<main>` at the same child position;
+collapse and breakpoint changes never replace it. TabletScroll still calls
+useWindowScroll; the phone shell below 720 is unchanged.

@@ -9,8 +9,9 @@
 .brand {
   display: flex;
   align-items: center;
-  gap: var(--s-4);
-  padding: var(--s-6) var(--s-6) var(--s-5);
+  gap: var(--s-3);
+  min-height: var(--tablet-bar-h);
+  padding: var(--s-4) var(--s-5);
   font-weight: 650;
   letter-spacing: -0.01em;
 }
@@ -27,7 +28,7 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
-  padding: 0 var(--s-4);
+  padding: 0 var(--s-5);
 }
 
 .decks {
@@ -41,7 +42,8 @@
   display: flex;
   align-items: center;
   gap: var(--s-4);
-  padding: var(--s-2) var(--s-4);
+  min-height: var(--h-lg);
+  padding: var(--s-3) var(--s-4);
   border-radius: var(--r-md);
   color: var(--muted);
 }
@@ -63,7 +65,7 @@
 }
 
 .heading {
-  padding: var(--s-6) var(--s-6) var(--s-2);
+  padding: var(--s-6) calc(var(--s-5) + var(--s-4)) var(--s-3);
 }
 
 .decks a.fork {
@@ -74,7 +76,7 @@
    the gaps and padding give back what it takes. */
 .decks a {
   gap: var(--s-3);
-  padding-inline: var(--s-2);
+  padding-inline: var(--s-4);
 }
 
 .decks a .shared,
@@ -101,7 +103,7 @@
 }
 
 /* Waiting on the owner: the violet dot sits on the thumbnail's corner. */
-.thumb + * {
+.thumb + .pending {
   position: absolute;
   right: calc(var(--s-1) * -1);
   bottom: calc(var(--s-1) * -1);
@@ -134,7 +136,7 @@
 .presence {
   display: grid;
   gap: var(--s-3);
-  padding: var(--s-5) var(--s-6);
+  padding: var(--s-5);
   border-top: 1px solid var(--line);
   font-size: var(--text-sm);
 }
@@ -159,11 +161,11 @@
 }
 
 .focus {
-  padding: var(--s-3) var(--s-4);
-  border: 1px dashed var(--line-strong);
-  border-radius: var(--r-md);
+  display: grid;
+  gap: var(--s-1);
   color: var(--muted);
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .focus b {
@@ -182,3 +184,23 @@
   .sidebar { width: 100%; flex: 1; }
   .nav a, .decks a { min-height: var(--tap); }
 }
+
+.brandName { flex: 1; white-space: nowrap; }
+.toggle { flex: none; margin-left: auto; }
+.expandIcon { transform: rotate(180deg); }
+.presenceText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The desktop rail keeps every link; accessible names and titles survive
+   the hidden text, including deck names and the inbox's count. */
+.collapsed .brand { justify-content: center; }
+.collapsed .toggle { margin: 0; }
+.collapsed .nav a, .collapsed .decks a { justify-content: center; position: relative; padding-inline: 0; min-height: var(--tap); }
+.collapsed .label, .collapsed .name, .collapsed .lifecycle, .collapsed .shared, .collapsed .presenceText { display: none; }
+.collapsed .end { position: absolute; top: 0; right: 0; }
+.collapsed .heading { margin: var(--s-4) var(--s-5); padding: 0; border-top: 1px solid var(--line); }
+.collapsed .heading > * { display: none; }
+.collapsed .presence { justify-items: center; }
+
+/* A deferred or failed thumbnail still has a visible rail target. */
+.thumb + .fallback { position: absolute; }
+.thumb:has([data-loaded]):not(:has([data-failed])) + .fallback { visibility: hidden; }

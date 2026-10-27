@@ -20,8 +20,6 @@ export type Route =
   | { page: "signin" | "privacy" | "terms" }
   | { page: "missing" };
 
-const PAGES: readonly PageName[] = ["decks", "inbox", "memories", "profile", "activity", "settings", "design"];
-
 /** A path segment, or null when its escapes are malformed ("%E0%A4%A"). */
 function segment(raw: string): string | null {
   try { return decodeURIComponent(raw); } catch { return null; }
@@ -34,13 +32,14 @@ export function parseRoute(pathname: string, search = ""): Route {
   if (playtest) return { page: "playtest", deckId: Number(playtest[1]) };
   const deck = path.match(/^\/deck\/(\d+)(\/review)?$/);
   if (deck) return { page: "deck", deckId: Number(deck[1]), review: deck[2] != null, ...(new URLSearchParams(search).get("import") === "1" ? { importing: true } : {}) };
-  const shared = path.match(/^\/d\/([^/]+)$/);
-  if (shared) { const slug = segment(shared[1]); return slug == null ? { page: "missing" } : { page: "shared", slug }; }
-  const user = path.match(/^\/u\/([^/]+)$/);
-  if (user) { const handle = segment(user[1]); return handle == null ? { page: "missing" } : { page: "user", handle }; }
-  const page = path.match(/^\/([a-z]+)$/)?.[1];
-  if (page === "signin" || page === "privacy" || page === "terms") return { page };
-  return page && (PAGES as readonly string[]).includes(page) ? { page: page as PageName } : { page: "missing" };
+  // Both public paths share decoding and malformed-escape handling.
+  const shared = path.match(/^\/([du])\/([^/]+)$/);
+  if (shared) {
+    const value = segment(shared[2]);
+    if (value != null) return shared[1] === "d" ? { page: "shared", slug: value } : { page: "user", handle: value };
+  }
+  const page = path.match(/^\/(decks|inbox|memories|profile|activity|settings|design|signin|privacy|terms)$/)?.[1];
+  return { page: (page ?? "missing") as PageName | "signin" | "privacy" | "terms" | "missing" };
 }
 
 export function href(route: Route): string {
@@ -52,6 +51,7 @@ export function href(route: Route): string {
     case "shared": return `/d/${encodeURIComponent(route.slug)}`;
     case "user": return `/u/${encodeURIComponent(route.handle)}`;
     case "missing": return "/";
+    // /activity is the Profile page’s Activity tab; its bookmark stays stable.
     default: return `/${route.page}`;
   }
 }
