@@ -13,6 +13,8 @@ export interface DialogProps {
   placement?: "center" | "sheet" | "drawer";
   children: ReactNode;
   footer?: ReactNode;
+  /** A workflow with its own scrolling region can size the body. */
+  bodyClassName?: string;
 }
 
 /**
@@ -20,7 +22,7 @@ export interface DialogProps {
  * first focusable one), Tab stays inside, Escape or a backdrop click closes,
  * and focus returns to where it was when the dialog closes.
  */
-export function Dialog({ title, onClose, width = "md", placement = "center", children, footer }: DialogProps) {
+export function Dialog({ title, onClose, width = "md", placement = "center", children, footer, bodyClassName }: DialogProps) {
   const titleId = useId();
   const panel = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
@@ -102,7 +104,7 @@ export function Dialog({ title, onClose, width = "md", placement = "center", chi
             <Icon name="close" />
           </IconButton>
         </div>
-        <div className={styles.body}>{children}</div>
+        <div className={`${styles.body} ${bodyClassName ?? ""}`}>{children}</div>
         {footer ? <div className={styles.footer}>{footer}</div> : null}
       </div>
     </div>,

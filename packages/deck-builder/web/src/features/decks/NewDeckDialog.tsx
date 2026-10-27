@@ -7,7 +7,7 @@ import { Button, Dialog, ErrorNote, Field, Select, TextField } from "../../ui/in
 import styles from "./NewDeckDialog.module.css";
 
 /** Creates a deck and opens it. The lifecycle defaults to Theorycrafted, with no slots. */
-export function NewDeckDialog({ onClose, importAfterCreate = false }: { onClose: () => void; importAfterCreate?: boolean }) {
+export function NewDeckDialog({ onClose }: { onClose: () => void }) {
   const voice = useVoice();
   const formId = useId();
   const [name, setName] = useState("");
@@ -23,7 +23,7 @@ export function NewDeckDialog({ onClose, importAfterCreate = false }: { onClose:
     try {
       const { state } = await api.createDeck(name.trim(), category);
       onClose();
-      navigate({ page: "deck", deckId: state.deck.id, importing: importAfterCreate });
+      navigate({ page: "deck", deckId: state.deck.id });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setBusy(false);
@@ -32,7 +32,7 @@ export function NewDeckDialog({ onClose, importAfterCreate = false }: { onClose:
 
   return (
     <Dialog
-      title={importAfterCreate ? "Import a deck" : "New deck"}
+      title="New deck"
       onClose={onClose}
       footer={
         <>
@@ -40,7 +40,7 @@ export function NewDeckDialog({ onClose, importAfterCreate = false }: { onClose:
             Cancel
           </Button>
           <Button type="submit" form={formId} variant="primary" disabled={!name.trim() || busy}>
-            {busy ? "Creating…" : importAfterCreate ? "Create and import" : "Create deck"}
+            {busy ? "Creating…" : "Create deck"}
           </Button>
         </>
       }

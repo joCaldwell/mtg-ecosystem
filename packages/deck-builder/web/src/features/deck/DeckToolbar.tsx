@@ -35,7 +35,7 @@ export function DeckToolbar() {
             <Text tone="muted" size="sm" role="status" title="Matching cards are highlighted; other cards are muted">
               {matchCount} {matchCount === 1 ? "match" : "matches"}
             </Text>
-            <Button size="sm" variant="ghost" onClick={() => ui.openDialog("interop")}>Export matches</Button>
+            <Button size="sm" variant="ghost" onClick={() => ui.openDialog("export")}>Export matches</Button>
             <Button size="sm" variant="ghost" onClick={() => { ui.setSearchTerm(""); ui.setTagIds([]); }}>Clear filters</Button>
           </div>
         )}

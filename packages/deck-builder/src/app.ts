@@ -27,7 +27,7 @@ import { AppError, ServiceError } from "./errors.ts";
 import { getFocus, setFocus } from "./focus.ts";
 import { removeEngine, setEngine, updateBrief } from "./deck/brief.ts";
 import { compareDecks, forkDeck } from "./deck/fork.ts";
-import { applyImport, diffImport, exportDeck, exportPublicDeck } from "./deck/interop.ts";
+import { applyImport, diffImport, exportDeck, exportPublicDeck, previewNewImport } from "./deck/interop.ts";
 import { cardHistory, hideLogEntry, listLog, unreviewedCount } from "./deck/log.ts";
 import { applyChanges, setQuantity, undo } from "./deck/membership.ts";
 import { getPower, setPowerTarget, recordPowerAssessment } from "./deck/power.ts";
@@ -520,6 +520,9 @@ export function createApp(db: Database, opts: AppOptions = {}) {
       includeMaybe: url.searchParams.get("include_maybe") === "on",
     }),
   );
+  route("POST", /^\/api\/decks\/import\/preview$/, (actor, _ids, body) =>
+    previewNewImport(db, actor, String(body.text ?? "")),
+  );
   route("POST", /^\/api\/decks\/(\d+)\/import\/preview$/, (actor, [id], body) =>
     diffImport(db, actor, num(id), String(body.text ?? "")),
   );
@@ -690,7 +693,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
           rateLimit("ui",String(actor.user_id));
           if (url.pathname === "/api/search") rateLimit("search",String(actor.user_id));
           if (url.pathname.endsWith("/compare")) rateLimit("compare",String(actor.user_id));
-          if (/^\/api\/decks\/\d+\/import(\/preview)?$/.test(url.pathname)) rateLimit("import",String(actor.user_id));
+          if (/^\/api\/decks\/(?:\d+\/)?import(\/preview)?$/.test(url.pathname)) rateLimit("import",String(actor.user_id));
           if (url.pathname === "/api/demo") rateLimit("demo",String(actor.user_id));
         }
         if (actor && url.pathname.startsWith("/api/") && !["GET","HEAD","OPTIONS"].includes(req.method ?? "") && req.headers.origin !== publicOrigin()) return json(403,{error:"Origin is required"});

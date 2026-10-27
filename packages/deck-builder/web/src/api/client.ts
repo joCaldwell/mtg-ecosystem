@@ -310,8 +310,8 @@ export const api = {
     if (opts.includeMaybe) params.set("include_maybe", "on");
     return request<ExportResult>("GET", `/api/decks/${deckId}/export?${params}`);
   },
-  previewImport: (deckId: number, text: string) =>
-    request<ImportDiff>("POST", `/api/decks/${deckId}/import/preview`, { text }),
+  previewImport: (deckId: number | null, text: string) =>
+    request<ImportDiff>("POST", deckId === null ? "/api/decks/import/preview" : `/api/decks/${deckId}/import/preview`, { text }),
   importList: (deckId: number, text: string, note?: string) =>
     request<{
       import: {

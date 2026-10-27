@@ -517,7 +517,20 @@ export interface ImportDiff {
 
 export function diffImport(db: Database, actor: Actor, deckId: number, text: string): ImportDiff {
   requireDeck(db, actor, deckId);
-  const { deck, slots, cards } = getDeck(db, actor, deckId);
+  return diffAgainst(db, getDeck(db, actor, deckId), text);
+}
+
+/** Preview a new owner deck without creating or mutating any records (§12). */
+export function previewNewImport(db: Database, actor: Actor, text: string): ImportDiff {
+  requireUi(actor, "preview a new deck import");
+  return diffAgainst(db, { deck: { revision: 0 }, slots: [], cards: [] }, text);
+}
+
+function diffAgainst(
+  db: Database,
+  { deck, slots, cards }: Pick<ReturnType<typeof getDeck>, "slots" | "cards"> & { deck: { revision: number } },
+  text: string,
+): ImportDiff {
   const { entries, unparsed, ignored, notes } = parseDeckList(text);
 
   const slotByName = new Map(slots.map((s) => [s.name.toLowerCase(), s]));
