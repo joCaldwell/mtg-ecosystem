@@ -147,7 +147,12 @@ const regressions = hardMetricRegressions(key.baseline, key.candidate);
 
 const reasons = [];
 if (!majority) reasons.push(`only ${votesFor} of ${overall.length} votes prefer the candidate overall`);
-if (noise === null) reasons.push("noise unknown: no judge gave two or more samples");
+// One sample per judge (the default, to save usage): noise cannot be
+// measured, so require every vote for the candidate and a mean of at least +1.
+if (noise === null) {
+  if (votesFor !== overall.length || meanPreference < 1)
+    reasons.push(`single samples: needs every vote for the candidate and a mean of +1 or more (got ${votesFor}/${overall.length}, ${r2(meanPreference)})`);
+}
 else if (!aboveNoise) reasons.push(`mean preference ${r2(meanPreference)} is not above the noise ${r2(noise)}`);
 if (regressions.length) reasons.push(`${regressions.length} hard metric(s) got worse`);
 const verdict = reasons.length ? "reject" : "keep";
