@@ -85,7 +85,7 @@ a {
 ::-webkit-scrollbar-thumb {
   border: 2px solid var(--bg);
   border-radius: var(--r-md);
-  background: #2a2f36;
+  background: var(--scrollbar);
 }
 
 /* Motion conveys no required state; respect the reader's preference. */

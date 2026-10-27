@@ -2,7 +2,7 @@
   --sym-size: 16px;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-lg);
-  background: var(--raised);
+  background: var(--surface);
   padding: var(--s-5);
   min-width: 0;
   position: relative;
@@ -14,7 +14,7 @@
   transition: border-color var(--fast), background var(--fast), opacity var(--fast);
 }
 .card:hover {
-  border-color: var(--faint);
+  border-color: var(--line-hover);
   background: var(--hover);
 }
 .card:focus-visible {

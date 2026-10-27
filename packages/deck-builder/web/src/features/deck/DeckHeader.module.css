@@ -92,7 +92,7 @@ button.name:hover {
 
 .action:hover {
   background: var(--hover);
-  border-color: var(--faint);
+  border-color: var(--line-hover);
 }
 
 /* Touch tablets: the header's actions are full tap targets; the list keeps its

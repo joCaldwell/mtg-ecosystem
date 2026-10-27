@@ -61,13 +61,15 @@ interface Token {
 }
 
 const SURFACES: Token[] = [
-  { name: "--bg", note: "The page, inputs, boxes sunk into a panel" },
-  { name: "--surface", note: "Sidebar, panels, page headers" },
-  { name: "--raised", note: "Buttons, selected rows, popovers" },
-  { name: "--hover", note: "Hovered rows and buttons" },
-  { name: "--overlay", note: "Dialogs and toasts" },
-  { name: "--line", note: "Quiet dividers and borders" },
-  { name: "--line-strong", note: "Control borders" },
+  { name: "--bg", note: "True-black canvas and sidebar" },
+  { name: "--surface", note: "Near-black cards, panels and inputs" },
+  { name: "--raised", note: "Brighter selected surfaces and neutral chips" },
+  { name: "--hover", note: "4% white over the current surface" },
+  { name: "--overlay", note: "Opaque near-black dialogs, menus and toasts" },
+  { name: "--line", note: "8% white hairline dividers" },
+  { name: "--line-strong", note: "11% white control borders" },
+  { name: "--line-hover", note: "18% white hovered borders" },
+  { name: "--action", note: "Blue primary actions, black ink" },
 ];
 
 const TEXTS: Token[] = [
@@ -158,17 +160,17 @@ function Colours() {
           {SURFACES.map((t) => <Swatch key={t.name} token={t.name} note={t.note} />)}
         </div>
       </Section>
-      <Section title="Colour: text">
+      <Section title="Colour: text" aside="AA minima including nested tints: 11.51 / 8.47 / 4.97 / 4.57:1">
         <div className={styles.swatches}>
           {TEXTS.map((t) => <Swatch key={t.name} token={t.name} note={t.note} />)}
         </div>
       </Section>
-      <Section title="Colour: what each one means" aside="each has a -bg tint, and all but sel a -line border">
+      <Section title="Colour: what each one means" aside="each has a 6% -bg tint and a 32% -line border">
         <Stack gap={4}>
           {MEANINGS.map((m) => (
             <Row key={m.name} gap={5} align="center">
               <div className={styles.triple}>
-                {(m.name === "sel" ? ["", "-bg"] : ["", "-bg", "-line"]).map((suffix) => (
+                {["", "-bg", "-line"].map((suffix) => (
                   <div key={suffix} className={styles.chipface} style={{ background: `var(--${m.name}${suffix})` }} />
                 ))}
               </div>

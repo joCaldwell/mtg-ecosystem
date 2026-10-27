@@ -9,56 +9,70 @@
      sel    (blue)   — the owner's own selection and keyboard focus          */
 
 :root {
-  /* Surfaces, darkest to lightest */
-  --bg: #0d0e10;
-  --surface: #141619;
-  --raised: #1a1d21;
-  --hover: #1f2328;
-  --overlay: #1d2126;
-  --line: #24282e;
-  --line-strong: #323841;
+  /* True-black canvas; opaque near-black panels keep popovers legible.
+     Modelled on pingdotgg/t3code, apps/web/src/index.css:
+     https://github.com/pingdotgg/t3code/blob/main/apps/web/src/index.css
+     html.dark[data-redesign]: neutral-950 + ~3% white for surfaces, a
+     slightly brighter selected tier, transparent white for hover/rules. */
+  --bg: #000;
+  --surface: #111;
+  --raised: #1a1a1a;
+  --hover: rgba(255, 255, 255, 0.04);
+  --overlay: var(--surface);
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.11);
+  --line-hover: rgba(255, 255, 255, 0.18);
+  --scrollbar: rgba(255, 255, 255, 0.12);
   /* Quiet diagonal texture for cards outside the deck's 100. */
   --maybe-pattern: repeating-linear-gradient(
     135deg,
     transparent 0 10px,
     rgba(255, 255, 255, 0.012) 10px 20px
   );
-  /* Behind a dialog */
-  --scrim: rgba(13, 14, 16, 0.7);
+  /* Dim the scene with black transparency, never a grey wash. */
+  --scrim: rgba(0, 0, 0, 0.7);
 
   /* Text, brightest to quietest: text > soft > muted > faint. Every tier
-     passes WCAG AA (4.5:1) for small text on every surface it sits on.
-     Ratios measured with the WCAG 2.x relative-luminance formula; tints are
-     composited over the surface beneath them. Worst case is a selected row
-     under the pointer (--sel-bg over --hover).
-                 --bg   --surface --raised --hover --overlay  worst tint
-       text     15.57    14.61    13.63   12.73    13.04      9.98
-       soft     12.85    12.06    11.25   10.51    10.77      8.24
-       muted     8.65     8.12     7.57    7.07     7.25      5.54
-       faint     7.41     6.96     6.49    6.06     6.21      4.75
-     Darker than faint fails AA on the tinted rows; keep the tiers in order
-     and re-measure if a surface or tint changes. */
-  --text: #e4e7eb;
-  --text-soft: #cfd3d9;
-  --muted: #a8aeb7;
-  --faint: #9aa1ab;
+     passes WCAG AA (4.5:1) for small text. WCAG 2.x sRGB luminance ratios,
+     including alpha compositing, are recorded below. Hover is 4% white
+     over the brightest base (--raised); worst tint includes TWO semantic
+     backgrounds over that hover (nested tinted controls in banners).
+                  --bg   --surface --raised  hover  --overlay  worst tint
+       text        19.26     17.32     15.96     14.39     17.32     11.51
+       soft        14.17     12.74     11.74     10.58     12.74      8.47
+       muted        8.33      7.49      6.90      6.22      7.49      4.97
+       faint        7.65      6.88      6.34      5.71      6.88      4.57
+     Re-measure if a surface or tint changes; never dim readable metadata. */
+  --text: #f5f5f5;
+  --text-soft: #d4d4d4;
+  --muted: #a3a3a3;
+  --faint: #9c9c9c;
 
-  /* Meaning. Each has a foreground, a tinted background and a border. */
+  /* Meaning. Restrained transparent tints and hairlines on black.
+     Semantic foreground minima across the same nested/hover envelope:
+       agent 4.61, add 5.92, cut 4.77, warn 5.94, sel 4.96
+     (All >= 4.5:1; borders communicate alongside words/icons.) */
   --agent: #a78bfa;
-  --agent-bg: rgba(167, 139, 250, 0.12);
-  --agent-line: rgba(167, 139, 250, 0.4);
+  --agent-bg: rgba(167, 139, 250, 0.06);
+  --agent-line: rgba(167, 139, 250, 0.32);
   --add: #57c785;
-  --add-bg: rgba(87, 199, 133, 0.1);
-  --add-line: rgba(87, 199, 133, 0.4);
-  --cut: #ef6f6a;
-  --cut-bg: rgba(239, 111, 106, 0.1);
-  --cut-line: rgba(239, 111, 106, 0.4);
+  --add-bg: rgba(87, 199, 133, 0.06);
+  --add-line: rgba(87, 199, 133, 0.32);
+  --cut: #f27d78;
+  --cut-bg: rgba(242, 125, 120, 0.06);
+  --cut-line: rgba(242, 125, 120, 0.32);
   --warn: #e2a84b;
-  --warn-bg: rgba(226, 168, 75, 0.12);
-  --warn-line: rgba(226, 168, 75, 0.4);
+  --warn-bg: rgba(226, 168, 75, 0.06);
+  --warn-line: rgba(226, 168, 75, 0.32);
   --sel: #6aa3ff;
-  --sel-bg: rgba(106, 163, 255, 0.14);
-  --sel-line: rgba(106, 163, 255, 0.45);
+  --sel-bg: rgba(106, 163, 255, 0.06);
+  --sel-line: rgba(106, 163, 255, 0.32);
+
+  /* One primary action colour; selection/focus share its existing blue.
+     Black ink: 8.30:1 at rest, 9.64:1 on hover. */
+  --action: var(--sel);
+  --action-hover: color-mix(in srgb, var(--action) 85%, white);
+  --action-ink: var(--bg);
 
   /* Deck lifecycle is a state, not one of the meanings above, so its sidebar
      labels and roster pills are grey and the word carries it (DESIGN.md). */
@@ -138,7 +152,8 @@
   /* D21 art. Overlays derive from --bg, so a palette change carries them.
      Each art band reaches --art-overlay-text where content starts; the
      credit pill uses the same overlay. Over pure white art the pill and the
-     text below a band measure >= 9:1 (DESIGN.md, Art). */
+     text below a band measure >= 6.97:1; muted credit 7.58:1
+     (WCAG 2.x sRGB, 94% black over white; DESIGN.md, Art). */
   --art-overlay-top: color-mix(in srgb, var(--bg) 30%, transparent);
   --art-overlay-text: color-mix(in srgb, var(--bg) 94%, transparent);
   --art-aspect: 626 / 457;
@@ -197,8 +212,8 @@
   --text-random-result: 32px;
   --text-hud: 18px;
   --leading-rules: 1.6;
-  /* Table surface: a touch darker than the app's panels so cards lift off it. */
-  --table-bg: #0a0b0d;
+  /* The table shares the black canvas; near-black cards lift off it. */
+  --table-bg: var(--bg);
   --text-card-w: 264px;
   --compact-card-w: 208px;
   --compact-card-min-h: 88px;

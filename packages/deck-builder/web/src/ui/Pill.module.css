@@ -15,7 +15,7 @@
 
 .pillOn {
   background: var(--raised);
-  border-color: var(--faint);
+  border-color: var(--line-hover);
   color: var(--text);
 }
 
