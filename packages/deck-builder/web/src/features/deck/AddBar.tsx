@@ -11,7 +11,7 @@ import { Checkbox, ErrorNote, Icon, Kbd, Text, useHotkeys, useToast } from "../.
 import { AddBarResult } from "./AddBarResult.tsx";
 import { useDeck, useDeckState } from "./DeckStore.tsx";
 import { useDeckUi } from "./DeckUi.tsx";
-import { useSharedDeckView } from "./useDeckView.ts";
+import { useSharedDeckView } from "./DeckViewContext.ts";
 import styles from "./AddBar.module.css";
 
 const DEBOUNCE_MS = 150;

@@ -6,7 +6,7 @@ import { AddBar } from "./AddBar.tsx";
 import { DeckTagFilter } from "./DeckTagFilter.tsx";
 import { useDeckState } from "./DeckStore.tsx";
 import { useDeckUi } from "./DeckUi.tsx";
-import { useSharedDeckView } from "./useDeckView.ts";
+import { useSharedDeckView } from "./DeckViewContext.ts";
 import styles from "./DeckToolbar.module.css";
 
 const GROUP_OPTIONS: Array<{ value: GroupBy; label: string }> = [

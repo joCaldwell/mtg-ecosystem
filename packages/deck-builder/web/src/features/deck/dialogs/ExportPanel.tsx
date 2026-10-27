@@ -3,7 +3,7 @@ import { api } from "../../../api/client.ts";
 import { useQuery } from "../../../api/useQuery.ts";
 import { Button, Checkbox, ErrorNote, Row, Spacer, Stack, Text, TextArea, useToast } from "../../../ui/index.ts";
 import { useDeck, useDeckState } from "../DeckStore.tsx";
-import { useSharedDeckView } from "../useDeckView.ts";
+import { useSharedDeckView } from "../DeckViewContext.ts";
 import styles from "./ExportPanel.module.css";
 
 export function ExportPanel() {

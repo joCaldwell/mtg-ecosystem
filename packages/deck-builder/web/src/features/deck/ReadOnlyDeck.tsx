@@ -15,19 +15,23 @@ import { priceSource, type ReadOnlyDeckModel } from "../../domain/readOnlyDeck.t
 import { ago } from "../../domain/time.ts";
 import { Chip, Eyebrow, Segmented, Stack, Text } from "../../ui/index.ts";
 import { useIsPhone } from "../../app/breakpoints.ts";
-import { DeckListProvider } from "./DeckListStore.tsx";
+import { DeckListProvider, useDeckList } from "./DeckListStore.tsx";
 import { DeckUiProvider, useDeckUi } from "./DeckUi.tsx";
 import { DeckList } from "./list/DeckList.tsx";
 import { BriefText } from "./panel/BriefText.tsx";
 import { ChecksPanel } from "./panel/ChecksPanel.tsx";
 import { EngineCard } from "./panel/EngineCard.tsx";
-import { DeckViewProvider, useDeckView, type DeckViewModel } from "./useDeckView.ts";
+import { DeckViewProvider } from "./DeckViewContext.ts";
+import type { DeckViewModel } from "./useDeckView.ts";
+import { layoutDeck } from "../../domain/grouping.ts";
 import styles from "./ReadOnlyDeck.module.css";
 
 const CardSheet = lazy(() => import("../../mtg/CardSheet.tsx").then(m => ({ default: m.CardSheet })));
 
 export interface ReadOnlyDeckProps {
   model: ReadOnlyDeckModel;
+  /** Owner phone views provide the full proposal-aware view. */
+  useView?: () => DeckViewModel;
   /** Drawn above everything: the public page's art header, the phone's title. */
   header?: ReactNode;
   /** The phone view's decision controls; given the units it draws in place. */
@@ -44,9 +48,22 @@ export function ReadOnlyDeck(props: ReadOnlyDeckProps) {
   );
 }
 
-function ReadOnlyBody({ model, header, decisions }: ReadOnlyDeckProps) {
+// Public states contain neither proposals nor private activity, and expose no
+// search or tag controls. Avoid loading the editor's review and filter logic.
+function usePublicView(): DeckViewModel {
+  const { state } = useDeckList();
+  const { groupBy, sortBy } = useDeckUi();
+  const layout = useMemo(() => layoutDeck(state, groupBy, sortBy), [state, groupBy, sortBy]);
+  return useMemo(() => ({
+    layout, units: [], marks: new Map(),
+    overlay: { cuts: new Set(), addsByGroup: new Map(), projected: new Map(), projectedTotal: state.computed.card_count },
+    matches: { active: false, cardIds: new Set(), addIds: new Set() },
+  }), [layout, state.computed.card_count]);
+}
+
+function ReadOnlyBody({ model, header, decisions, useView = usePublicView }: ReadOnlyDeckProps) {
   const ui = useDeckUi();
-  const view = useDeckView();
+  const view = useView();
   const phone = useIsPhone();
   const { lookup } = useCardLookup();
   const [named, setNamed] = useState<CardInfo | null>(null);
