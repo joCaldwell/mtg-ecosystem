@@ -29,7 +29,7 @@ export function TabletBar({ route }: { route: Route }) {
     <header className={styles.bar}>
       <Button size="touch" onClick={() => setOpen(true)} aria-haspopup="dialog">Menu</Button>
       <span className={styles.location}>{names[route.page]}</span>
-      <a className={styles.inboxLink} href={href({ page: "inbox" })} aria-current={route.page === "inbox" ? "page" : undefined}>Inbox <Badge className={styles.inboxBadge}>{waiting}</Badge><span className="visually-hidden"> waiting</span></a>
+      <a className={styles.inboxLink} href={href({ page: "inbox" })} aria-current={route.page === "inbox" ? "page" : undefined}>Inbox {waiting > 0 && <><Badge tone="agent" className={styles.inboxBadge}>{waiting}</Badge><span className="visually-hidden"> waiting</span></>}</a>
     </header>
     {open && <Dialog title="Navigation" placement="drawer" onClose={() => setOpen(false)}><Sidebar route={route} brand={false} /></Dialog>}
   </>;

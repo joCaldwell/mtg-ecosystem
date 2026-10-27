@@ -29,25 +29,27 @@
   gap: var(--s-4) var(--s-5);
 }
 
-/* A link, not a button: it navigates. Looks like Button variant="agent". */
+/* Secondary navigation to the deck context. */
 .review {
   display: inline-flex;
   align-items: center;
   gap: var(--s-3);
   height: var(--h-md);
   padding: 0 var(--s-5);
-  border: 1px solid var(--agent-line);
+  border: 1px solid var(--line);
   border-radius: var(--r-md);
-  background: var(--agent-bg);
-  color: var(--agent);
+  background: transparent;
+  color: var(--text-soft);
   white-space: nowrap;
   transition: border-color var(--fast);
 }
 
 .review:hover {
-  border-color: var(--agent);
+  border-color: var(--line-strong);
 }
 
 @media (pointer: coarse) and (max-width: 1099px) {
   .review { min-height: var(--tap); }
 }
+
+@media (pointer: coarse) and (max-width: 1099px) { :global([data-proposal-decision]) :is(input, button) { min-height: var(--tap); } }

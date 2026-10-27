@@ -1,3 +1,4 @@
+import { proposalParam } from "../../domain/reviewStart.ts";
 import { href, type Route } from "../../app/routes.ts";
 import { EmptyState } from "../../ui/index.ts";
 import { LargerScreen } from "./LargerScreen.tsx";
@@ -14,7 +15,7 @@ export function PhoneApp({ route }: { route: Route }) {
   return (
     <PhoneShell route={route}>
       {route.page === "decks" || route.page === "signin" || route.page === "privacy" || route.page === "terms" ? <PhoneDecks />
-        : route.page === "deck" ? <PhoneDeck deckId={route.deckId} />
+        : route.page === "deck" ? <PhoneDeck deckId={route.deckId} proposalId={route.proposal ?? (route.review && typeof location !== "undefined" ? proposalParam(location.search) : undefined)} />
         : route.page === "inbox" ? <PhoneInbox />
         : route.page === "missing" || route.page === "shared" || route.page === "user"
           ? <div className={styles.page}><EmptyState heading="h1" title="There is nothing at this address">Check the link, or go <a href={href({ page: "decks" })}>back to your decks</a>.</EmptyState></div>

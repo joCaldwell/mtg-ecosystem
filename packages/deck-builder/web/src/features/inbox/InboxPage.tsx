@@ -12,10 +12,8 @@ import { ProposalSummary } from "./ProposalSummary.tsx";
 import styles from "./InboxPage.module.css";
 
 /**
- * Everything waiting on the owner, across decks (spec §8.4, §11). A queue that
- * hands proposals off to the deck, where each change is ruled among the cards
- * around it. Document edits are ruled here, because a text diff is the whole
- * decision.
+ * Everything waiting on the owner, across decks (spec §8.4, §11). Decide a
+ * whole proposal here or review individual changes among the cards in the deck.
  */
 export function InboxPage({ entryKey }: { entryKey?: string }) {
   const tablet = useMediaQuery(PANEL_QUERY);
@@ -65,8 +63,7 @@ export function InboxPage({ entryKey }: { entryKey?: string }) {
     <PageHeader
       title={tablet && detailOpen && selected ? (selected.type === "proposal" ? "Proposal" : "Document edit") : "Inbox"}
       subtitle={tablet && detailOpen ? undefined : <>
-        {voice("Proposed changes wait here for your decision. Nothing is applied until you accept it.", "Everything an agent needs your decision on, across all decks. Nothing here has been applied.")}
-        {inbox != null && inbox.unreviewed > 0 && <><br /><Text tone="muted" size="sm">{inbox.unreviewed} {inbox.unreviewed === 1 ? "decision" : "decisions"} unreviewed by agents</Text></>}
+        {inbox != null && inbox.unreviewed > 0 && <><Text tone="muted" size="sm">{inbox.unreviewed} {inbox.unreviewed === 1 ? "decision" : "decisions"} unreviewed by agents</Text></>}
       </>}
     />
   );

@@ -576,7 +576,7 @@ function ToastDemo() {
 }
 
 function Overlays() {
-  const [dialog, setDialog] = useState<null | "md" | "lg" | "sheet" | "confirm" | "danger">(null);
+  const [dialog, setDialog] = useState<null | "md" | "lg" | "wide" | "sheet" | "confirm" | "danger">(null);
   const [pop, setPop] = useState<null | "below" | "right" | "above" | "left">(null);
   const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null);
   const [note, setNote] = useState("");
@@ -587,15 +587,16 @@ function Overlays() {
           <Row gap={4} wrap>
             <Button onClick={() => setDialog("md")}>Dialog md</Button>
             <Button onClick={() => setDialog("lg")}>Dialog lg</Button>
+            <Button onClick={() => setDialog("wide")}>Dialog wide</Button>
             <Button onClick={() => setDialog("sheet")}>Dialog sheet (touch)</Button>
             <Button onClick={() => setDialog("confirm")}>Confirm</Button>
             <Button variant="reject" onClick={() => setDialog("danger")}>Confirm, danger</Button>
           </Row>
         </Demo>
-        {dialog === "md" || dialog === "lg" || dialog === "sheet" ? (
+        {dialog === "md" || dialog === "lg" || dialog === "wide" || dialog === "sheet" ? (
           <Dialog
             title="Rename deck"
-            width={dialog === "lg" ? "lg" : "md"}
+            width={dialog === "sheet" ? "md" : dialog}
             placement={dialog === "sheet" ? "sheet" : "center"}
             onClose={() => setDialog(null)}
             footer={<><Button variant="ghost" onClick={() => setDialog(null)}>Cancel</Button><Button variant="primary" onClick={() => setDialog(null)}>Save</Button></>}

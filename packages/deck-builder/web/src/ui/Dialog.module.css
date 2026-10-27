@@ -29,6 +29,10 @@
   max-width: var(--measure);
 }
 
+.wide {
+  max-width: var(--measure-wide);
+}
+
 .head {
   display: flex;
   align-items: center;

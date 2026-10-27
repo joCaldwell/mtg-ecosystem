@@ -20,3 +20,4 @@ export { PlayerSummary } from "./table/PlayerSummary.tsx";
 export { CardInspection } from "./table/CardInspection.tsx";
 
 export { DeckThumbnail } from "./DeckThumbnail.tsx";
+export { DeckCard } from "./DeckCard.tsx";
