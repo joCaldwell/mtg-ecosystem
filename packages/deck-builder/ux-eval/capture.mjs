@@ -93,7 +93,9 @@ const cardRow = (page, name) => page.getByRole("button", { name: new RegExp(`^${
 async function panelView(page, vp, view) {
   if (vp.width < 1100) await press(page, page.getByRole("button", { name: "Open deck details", exact: true }), vp);
   const selector = page.getByRole("combobox", { name: "Panel view", exact: true });
-  if (await selector.isVisible()) {
+  const links = page.getByRole("navigation", { name: "Deck panel views", exact: true });
+  if (await links.isVisible()) await press(page, links.getByRole("button", { name: view === "stats" ? "Stats" : "Checks", exact: true }), vp);
+  else if (await selector.isVisible()) {
     // Native keys produce the same trusted input as the legacy tab click.
     // A synthetic change event would count intentional view changes as load CLS.
     const index = await selector.locator(`option[value="${view}"]`).evaluate(option => option.index);

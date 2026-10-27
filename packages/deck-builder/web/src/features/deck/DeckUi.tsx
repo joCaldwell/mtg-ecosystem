@@ -4,7 +4,7 @@
 // place — opening a card clears nothing, starting a review switches the panel
 // to Review, and so on.
 
-import { createContext, useContext, useEffect, useMemo, useReducer, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode, type RefObject } from "react";
 import type { SortBy } from "../../domain/cards.ts";
 import type { GroupBy } from "../../domain/grouping.ts";
 import type { TagMatch } from "../../domain/deckSearch.ts";
@@ -105,6 +105,8 @@ function reducer(ui: DeckUiState, action: Action): DeckUiState {
 }
 
 export interface DeckUi extends DeckUiState {
+  /** The first inspection trigger, retained through card-to-card browsing. */
+  cardOrigin: RefObject<HTMLElement | null>;
   setGroupBy: (value: GroupBy) => void;
   setSortBy: (value: SortBy) => void;
   setSearchTerm: (value: string) => void;
@@ -126,6 +128,8 @@ export interface DeckUi extends DeckUiState {
 const DeckUiContext = /* @__PURE__ */ createContext<DeckUi | null>(null);
 
 export function DeckUiProvider({ children }: { children: ReactNode }) {
+  const cardOrigin = useRef<HTMLElement | null>(null);
+  const currentCard = useRef<OpenCard | null>(null);
   const [ui, dispatch] = useReducer(reducer, null, (): DeckUiState => ({
     groupBy: localStorage.getItem(GROUP_BY_KEY) === "type" ? "type" : "slot",
     sortBy: storedSortBy(),
@@ -141,6 +145,7 @@ export function DeckUiProvider({ children }: { children: ReactNode }) {
     rejecting: null,
     dialog: null,
   }));
+  currentCard.current = ui.openCard;
 
   useEffect(() => {
     localStorage.setItem(GROUP_BY_KEY, ui.groupBy);
@@ -159,7 +164,11 @@ export function DeckUiProvider({ children }: { children: ReactNode }) {
       setTagMatch: (value: TagMatch) => dispatch({ t: "tagMatch", value }),
       setTagInverted: (value: boolean) => dispatch({ t: "tagInverted", value }),
       setTab: (value: PanelTab) => { dispatch({ t: "tab", value }); window.dispatchEvent(new Event("deck-details")); },
-      openCardPanel: (card: OpenCard | null) => dispatch({ t: "openCard", card }),
+      openCardPanel: (card: OpenCard | null) => {
+        if (card && !currentCard.current) cardOrigin.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        currentCard.current = card;
+        dispatch({ t: "openCard", card });
+      },
       toggleSelected: (oracleId: string) => dispatch({ t: "toggleSelected", oracleId }),
       clearSelection: () => dispatch({ t: "clearSelection" }),
       startReview: () => dispatch({ t: "startReview" }),
@@ -172,7 +181,7 @@ export function DeckUiProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  return <DeckUiContext.Provider value={{ ...ui, ...actions }}>{children}</DeckUiContext.Provider>;
+  return <DeckUiContext.Provider value={{ ...ui, ...actions, cardOrigin }}>{children}</DeckUiContext.Provider>;
 }
 
 export function useDeckUi(): DeckUi {

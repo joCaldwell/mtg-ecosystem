@@ -33,7 +33,7 @@ export function DeckBody({ list, panel }: { list: ReactNode; panel: ReactNode })
   tabletNow.current = tablet;
   // Only a card or an explicit request opens the sheet. A review runs in the
   // list, where its keys work; a modal sheet would cover it and disable them.
-  useEffect(() => { if (ui.openCard && tabletNow.current) setSheet(true); }, [ui.openCard]);
+  useEffect(() => { if (ui.openCard && tablet) setSheet(true); }, [ui.openCard, tablet]);
   // R in a review opens the reason field, which is in the panel: show it,
   // and, if the sheet opened only for that, go back to the list once the
   // reason is sent or cancelled.
@@ -98,7 +98,7 @@ export function DeckBody({ list, panel }: { list: ReactNode; panel: ReactNode })
         />
         <div ref={attach} className={styles.panelSlot} />
       </div>}
-      {tablet && sheet && <Dialog title={ui.openCard ? "Card details" : `Deck details · ${panelViewLabel(ui.tab)}`} placement="sheet" onClose={() => { setSheet(false); forReason.current = false; if (ui.openCard) ui.openCardPanel(null); }}>
+      {tablet && sheet && <Dialog title={ui.openCard ? "Deck details" : `Deck details · ${panelViewLabel(ui.tab)}`} placement="sheet" onEscape={ui.openCard ? () => ui.openCardPanel(null) : undefined} onClose={() => { setSheet(false); forReason.current = false; if (ui.openCard) ui.openCardPanel(null); }}>
         <div ref={attach} className={styles.sheetPanel} />
       </Dialog>}
       {createPortal(panel, host)}

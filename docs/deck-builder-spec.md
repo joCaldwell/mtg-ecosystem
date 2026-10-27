@@ -828,7 +828,7 @@ card.
 ## 11. The app for people
 
 - **Decks:** list, create, fork, delete; Paper, Theorycrafted or Archived lifecycle.
-- **Deck view:** the list grouped by slot or by card type, slot targets and deltas, the maybe list, the brief, a live checks count, tags, direct editing, card search. The panel's explicit destination always matches its body, including Card details with a named return action; Stats and Checks are separate. The same navigation serves the narrower details sheet.
+- **Deck view:** the list grouped by slot or by card type, slot targets and deltas, the maybe list, the brief, a live checks count, tags, direct editing, card search. The panel exposes visible Review, Brief, Power, Stats, Checks, Memories and History controls, with an unmistakable active destination. Card inspection replaces those controls with the card title and icon-only Back to the original deck view. The hidden deck view retains its drafts, scroll and review cursor while cards are inspected; switching cards creates no back stack. The same composition serves the narrower details sheet.
 - **Proposals inbox:** everything waiting on the owner across decks. A proposal is ruled on in its deck's list, where each change is drawn in place among the cards around it — per item, per group or all at once, with an optional reason; the inbox links there. Proposed brief and profile edits are ruled in the inbox as diffs. (Settled 2026-10-10: the owner preferred reviewing in the list to decision from the inbox.)
 - **Decisions log:** per deck, with undo.
 - **Memories:** §7.5.

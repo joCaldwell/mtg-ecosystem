@@ -18,12 +18,6 @@
   min-width: 0;
 }
 
-.name {
-  font-size: var(--text-lg);
-  font-weight: 650;
-  overflow-wrap: anywhere;
-}
-
 .facts {
   display: grid;
   /* Reserve readable controls first; the picture yields as the panel narrows. */

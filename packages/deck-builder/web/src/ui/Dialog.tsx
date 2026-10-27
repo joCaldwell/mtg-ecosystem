@@ -8,6 +8,8 @@ import styles from "./Dialog.module.css";
 export interface DialogProps {
   title: ReactNode;
   onClose: () => void;
+  /** An inner inspection view can go back before Escape closes the sheet. */
+  onEscape?: () => void;
   width?: "md" | "lg" | "wide";
   /** `sheet` rises from the bottom edge at full width: the touch form (DESIGN.md). */
   placement?: "center" | "sheet" | "drawer";
@@ -22,12 +24,12 @@ export interface DialogProps {
  * first focusable one), Tab stays inside, Escape or a backdrop click closes,
  * and focus returns to where it was when the dialog closes.
  */
-export function Dialog({ title, onClose, width = "md", placement = "center", children, footer, bodyClassName }: DialogProps) {
+export function Dialog({ title, onClose, onEscape, width = "md", placement = "center", children, footer, bodyClassName }: DialogProps) {
   const titleId = useId();
   const panel = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   useLayoutEffect(() => {
-    closeRef.current = onClose;
+    closeRef.current = onEscape ?? onClose;
   });
 
   // Focus in on open, back out on close; hold the page still meanwhile.

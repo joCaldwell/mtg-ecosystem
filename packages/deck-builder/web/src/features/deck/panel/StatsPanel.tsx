@@ -2,7 +2,7 @@
 // arrange the same server-computed values here.
 import { TYPE_GROUPS } from "../../../domain/cards.ts";
 import { lazy, Suspense } from "react";
-import { Chip, Eyebrow, KeyValue, Loading } from "../../../ui/index.ts";
+import { Chip, Eyebrow, Loading, Text } from "../../../ui/index.ts";
 import { useDeckList } from "../DeckListStore.tsx";
 import styles from "./StatsPanel.module.css";
 
@@ -17,26 +17,16 @@ export function StatsPanel() {
   const { computed } = state;
   const curveTop = Math.max(1, ...CURVE_BUCKETS.map(bucket => computed.curve[bucket] ?? 0));
   const typeOrder = [...TYPE_GROUPS, "Other"].filter(type => (computed.type_counts[type] ?? 0) > 0);
-  return <>
+  return <div className={styles.stats}>
       <section className={styles.section}>
         <Eyebrow>Deck totals</Eyebrow>
-        <KeyValue
-          items={[
-            ["Cards", <span className={styles.num}>{computed.card_count} / 100</span>],
-            ["Lands", <span className={styles.num}>{computed.land_count}</span>],
-            [
-              "Average mana value",
-              <span className={styles.num}>
-                {computed.average_mana_value == null ? "—" : computed.average_mana_value.toFixed(1)}
-              </span>,
-            ],
-            ["Unfiled", <span className={styles.num}>{computed.unslotted_count}</span>],
-            ["Maybe list", <span className={styles.num}>{computed.maybe_count}</span>],
-          ]}
-        />
+        <dl className={styles.totals}>
+          <div><dt>Cards</dt><dd>{computed.card_count}<span className={styles.maximum}> / 100</span></dd></div>
+          <div><dt>Lands</dt><dd>{computed.land_count}</dd></div>
+          <div><dt>Avg. mana value</dt><dd>{computed.average_mana_value == null ? "—" : computed.average_mana_value.toFixed(1)}</dd></div>
+        </dl>
+        <Text size="sm" tone="muted">{computed.unslotted_count} unfiled · {computed.maybe_count} on the maybe list</Text>
       </section>
-
-      <Suspense fallback={<Loading />}><ManaComparison mana={computed.mana} /></Suspense>
 
       <section className={styles.section}>
         <Eyebrow>Mana curve · nonland</Eyebrow>
@@ -54,6 +44,8 @@ export function StatsPanel() {
         </div>
       </section>
 
+      <Suspense fallback={<Loading />}><ManaComparison mana={computed.mana} /></Suspense>
+
       {typeOrder.length > 0 && (
         <section className={styles.section}>
           <Eyebrow>Types</Eyebrow>
@@ -66,5 +58,5 @@ export function StatsPanel() {
           </div>
         </section>
       )}
-  </>;
+  </div>;
 }

@@ -62,7 +62,6 @@ export function CardPanel({ card: open }: { card: OpenCard }) {
 
       <div className={styles.head}>
         <div className={styles.titles}>
-          <h2 className={styles.name}>{open.name}</h2>
           {parts.length > 0 && <Text tone="soft" size="sm">{parts.join(" · ")}</Text>}
         </div>
         {info && <ManaCost cost={info.mana_cost} />}

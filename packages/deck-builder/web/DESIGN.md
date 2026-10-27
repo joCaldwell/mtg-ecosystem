@@ -467,8 +467,14 @@ band, divider or explanatory subtitle. Useful state uses its compact meta slot;
 permissions and warnings stay with the relevant decision. Inbox shares that
 frame while its list and detail panes keep independent scrolling.
 
-Panel navigation uses one labelled native selector rather than a crowded strip.
-Card details is an explicit destination with a named return action. Stats and
-Checks are distinct. A named region follows the selection, including in the
-shared sheet. Statistics use exact counts with a concise methods legend; mana
+Panel navigation exposes visible text controls in a deliberate two-row layout
+(Review, Brief, Power, Stats / Checks, Memories, History), or one row when roomy.
+The current destination has an underline and aria-current. Inspection replaces
+these controls in the same header with one card title and an icon-only Back;
+its hidden label names the previous view. The body never duplicates the title.
+Keep that view mounted, hidden and inert, preserving drafts and scroll; switching
+cards retains the first origin. Stats and Checks remain distinct. A named region
+follows the selection, including in the shared sheet. Statistics lead with totals
+and curve, retain the colour demand/source comparison, and disclose detailed
+costs, other faces and source coverage. Use a concise methods legend; mana
 source copies do not imply guaranteed output, adequacy or casting probability.

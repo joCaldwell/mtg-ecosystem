@@ -1,10 +1,10 @@
 /** Deck-level destinations; card inspection temporarily remembers one of these. */
 export const PANEL_VIEWS = [
+  { id: "review", label: "Review" },
   { id: "brief", label: "Brief" },
   { id: "power", label: "Power" },
   { id: "stats", label: "Stats" },
   { id: "checks", label: "Checks" },
-  { id: "review", label: "Review" },
   { id: "memories", label: "Memories" },
   { id: "history", label: "History" },
 ] as const;

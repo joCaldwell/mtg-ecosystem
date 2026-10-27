@@ -136,8 +136,8 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
   useHotkeys({
     // Escape backs out one layer at a time, innermost first.
     escape: () => {
-      if (ui.rejecting) ui.setRejecting(null);
-      else if (ui.openCard) ui.openCardPanel(null);
+      if (ui.openCard) ui.openCardPanel(null);
+      else if (ui.rejecting) ui.setRejecting(null);
       else if (ui.selected.length) ui.clearSelection();
       else if (ui.reviewing) ui.stopReview();
     },

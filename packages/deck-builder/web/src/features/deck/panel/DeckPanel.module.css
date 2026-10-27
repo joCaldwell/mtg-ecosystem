@@ -7,13 +7,18 @@
   min-height: 0;
   border-left: 1px solid var(--line);
   background: var(--surface);
+  container-type: inline-size;
 }
 
-.navigation { flex: none; display: grid; gap: var(--s-2); padding: var(--s-4) var(--s-6); border-bottom: 1px solid var(--line); }
-.label { color: var(--muted); font-size: var(--text-sm); }
-.controls { display: flex; align-items: center; gap: var(--s-3); min-width: 0; }
-.controls > span { flex: 1; min-width: 0; }
-.controls > button { flex: none; }
+.navigation { flex: none; padding: var(--s-3) var(--s-6); border-bottom: 1px solid var(--line); }
+.links { display: grid; grid-template-columns: repeat(4, max-content); column-gap: var(--s-4); row-gap: var(--s-2); align-items: center; }
+.links > button { display: inline-flex; align-items: center; justify-self: start; gap: var(--s-2); padding-block: var(--s-3); color: var(--muted); font-size: var(--text-sm); white-space: nowrap; border-bottom: 2px solid transparent; }
+.links > button:hover { color: var(--text); }
+.links > button[aria-current] { color: var(--text); border-bottom-color: currentColor; }
+.links > button:first-child { color: var(--agent); }
+.cardHeader { display: flex; align-items: center; gap: var(--s-3); min-height: var(--h-md); }
+.cardTitle { margin: 0; min-width: 0; font-size: var(--text-lg); font-weight: 650; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+@container (min-width: 560px) { .links { grid-template-columns: repeat(7, max-content); } }
 
 .body {
   display: grid;
@@ -25,6 +30,7 @@
   padding: var(--s-6) var(--s-6) var(--s-8);
   overflow-y: auto;
 }
+.body[hidden] { display: none; }
 
 @media (max-width: 1099px) {
   .panel :is(button, select, input) { min-height: var(--tap); }

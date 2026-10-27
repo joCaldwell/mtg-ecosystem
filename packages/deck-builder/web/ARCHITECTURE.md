@@ -489,17 +489,27 @@ with natural sentence wrapping.
 
 ## Panel destinations and statistics (owner direction, 2026-10-27)
 
-DeckPanel has one native “Panel view” selector. Its selected destination always
-names the visible region: Brief, Power, Stats, Checks, Review, Memories, History
-or Card details. Card inspection remembers the deck view and offers a named
-Back action. Review remains available when empty. The same mounted panel moves
-through the existing portal host into the narrower sheet; its title follows the
-actual destination. Resizing never resets the card, review cursor or local draft.
+DeckPanel exposes text buttons for Review, Brief, Power, Stats, Checks, Memories
+and History. They use normal Tab/Enter/Space behavior and aria-current, not
+fake URLs or tab semantics. The narrow panel deliberately uses two rows;
+roomy panels use one. Review remains available when empty and shows its pending
+count when nonzero. Card inspection replaces that header with the card title
+and an icon-only Back whose accessible name includes the remembered destination.
+The original deck view stays mounted, hidden and inert, with its scroll and local
+drafts retained. Card-to-card inspection keeps the first origin; Back restores
+that visible trigger or the active view control. List browsing retains list
+focus, including on Escape. A hidden panel trigger instead hands focus to Back.
+The same mounted panel moves through the existing portal host into the narrower
+sheet; its context follows the actual destination. Sheet Escape first leaves
+card inspection; its Close control closes the sheet. Resizing never resets the
+card, review cursor or local draft.
 Review shortcuts cannot accept/reject from another focused panel destination.
 
 Stats arranges server totals, mana curve, type counts and computed.mana. Checks
 contains findings and soft slot targets. ReadOnlyDeck retains both sections.
 ManaComparison loads only with Stats or the reader's statistical composition.
+Totals and curve lead; the first-face colour demand/source table remains visible.
+Other costs, alternative faces and source coverage use specific disclosures.
 Its counts come from src/deck/mana.ts, shared with agent state text; the client
 never infers production. The analysis uses stored face/cost/Oracle/type facts,
 separates first and other faces, fixed/flexible/special costs and land/nonland

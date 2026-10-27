@@ -1,8 +1,8 @@
 // One explicit destination drives the header, content region and shared sheet.
-import { useEffect, useId, useRef } from "react";
-import { Button, Select } from "../../../ui/index.ts";
+import { useEffect, useLayoutEffect, useRef } from "react";
+import { Badge, Icon, IconButton } from "../../../ui/index.ts";
 import { useDeckState } from "../DeckStore.tsx";
-import { useDeckUi, type PanelTab } from "../DeckUi.tsx";
+import { useDeckUi } from "../DeckUi.tsx";
 import { PANEL_VIEWS, panelViewLabel } from "../panelViews.ts";
 import type { DeckViewModel } from "../useDeckView.ts";
 import type { Review } from "../useReview.tsx";
@@ -20,34 +20,53 @@ export function DeckPanel({ view, review }: { view: DeckViewModel; review: Revie
   const ui = useDeckUi();
   const state = useDeckState();
   const pending = view.units.length;
-  const active = ui.openCard ? "card" : ui.tab;
-  const name = ui.openCard ? `Card details for ${ui.openCard.name}` : panelViewLabel(ui.tab);
-  const selectId = useId();
-  const bodyId = useId();
-  const selector = useRef<HTMLSelectElement>(null);
+  const panel = useRef<HTMLElement>(null);
+  const links = useRef(new Map<string, HTMLButtonElement>());
+  const back = useRef<HTMLButtonElement>(null);
   const body = useRef<HTMLDivElement>(null);
+  const cardBody = useRef<HTMLDivElement>(null);
+  const deckScroll = useRef(0);
+  const previous = useRef({ tab: ui.tab, card: null as string | null });
   const openId = ui.openCard?.oracleId ?? null;
-  useEffect(() => { body.current?.scrollTo({ top: 0 }); }, [ui.tab, openId]);
+  useLayoutEffect(() => {
+    const before = previous.current;
+    const active = document.activeElement;
+    if (ui.tab !== before.tab) deckScroll.current = 0;
+    if (openId !== before.card) {
+      if (openId) {
+        if (cardBody.current) cardBody.current.scrollTop = 0;
+        const origin = ui.cardOrigin.current;
+        if ((!before.card && origin && panel.current?.contains(origin)) || active === document.body) back.current?.focus({ preventScroll: true });
+      } else if (before.card && (active === document.body || (active instanceof Element && panel.current?.contains(active)))) {
+        const origin = ui.cardOrigin.current;
+        const visible = origin?.isConnected && origin.getClientRects().length && !origin.closest("[hidden], [inert]");
+        (visible ? origin : links.current.get(ui.tab))?.focus({ preventScroll: true });
+      }
+    }
+    if (!openId && body.current) body.current.scrollTop = deckScroll.current;
+    previous.current = { tab: ui.tab, card: openId };
+  }, [ui.tab, openId, ui.cardOrigin]);
   useEffect(() => {
-    if (pending === 0 && ui.tab === "review" && !openId && document.activeElement === document.body) selector.current?.focus({ preventScroll: true });
+    if (pending === 0 && ui.tab === "review" && !openId && document.activeElement === document.body) links.current.get("review")?.focus({ preventScroll: true });
   }, [pending, ui.tab, openId]);
 
-  return <aside className={styles.panel} aria-label="Deck panel" data-deck-panel>
+  return <aside ref={panel} className={styles.panel} aria-label="Deck panel" data-deck-panel onKeyDown={event => {
+    if (event.key === "Escape" && ui.openCard && !event.defaultPrevented) {
+      event.preventDefault(); event.stopPropagation(); ui.openCardPanel(null);
+    }
+  }}>
     <div className={styles.navigation}>
-      <label className={styles.label} htmlFor={selectId}>Panel view</label>
-      <div className={styles.controls}>
-        <Select ref={selector} id={selectId} aria-controls={bodyId} value={active} onChange={event => {
-          if (event.target.value !== "card") ui.setTab(event.target.value as PanelTab);
-        }}>
-          {ui.openCard && <option value="card">Card details</option>}
-          {PANEL_VIEWS.map(item => <option key={item.id} value={item.id}>{item.label}{item.id === "review" && pending ? ` (${pending})` : ""}</option>)}
-        </Select>
-        {ui.openCard && <Button size="sm" variant="ghost" onClick={() => { ui.openCardPanel(null); selector.current?.focus(); }}>Back to {panelViewLabel(ui.tab)}</Button>}
-      </div>
+      {ui.openCard ? <div className={styles.cardHeader}>
+        <IconButton ref={back} size="sm" label={`Back to ${panelViewLabel(ui.tab)}`} onClick={() => ui.openCardPanel(null)}><Icon name="back" /></IconButton>
+        <h2 className={styles.cardTitle}>{ui.openCard.name}</h2>
+      </div> : <nav className={styles.links} aria-label="Deck panel views">
+        {PANEL_VIEWS.map(item => <button key={item.id} type="button" ref={node => { if (node) links.current.set(item.id, node); else links.current.delete(item.id); }} aria-current={ui.tab === item.id ? "true" : undefined} onClick={() => ui.setTab(item.id)}>
+          {item.label}{item.id === "review" && pending > 0 && <Badge tone="agent">{pending}</Badge>}
+        </button>)}
+      </nav>}
     </div>
-    <div ref={body} id={bodyId} className={styles.body} role="region" aria-label={name} tabIndex={0} data-panel-body>
-      {ui.openCard ? <CardPanel key={ui.openCard.oracleId} card={ui.openCard} />
-        : ui.tab === "review" ? <ReviewPanel view={view} review={review} />
+    <div ref={body} className={styles.body} role="region" aria-label={panelViewLabel(ui.tab)} tabIndex={0} hidden={!!ui.openCard} inert={!!ui.openCard} data-panel-body={ui.openCard ? undefined : true} onScroll={() => { if (!ui.openCard && body.current) deckScroll.current = body.current.scrollTop; }}>
+      {ui.tab === "review" ? <ReviewPanel view={view} review={review} />
         : ui.tab === "brief" ? <BriefPanel />
         : ui.tab === "power" ? <PowerPanel />
         : ui.tab === "stats" ? <StatsPanel />
@@ -55,5 +74,6 @@ export function DeckPanel({ view, review }: { view: DeckViewModel; review: Revie
         : ui.tab === "memories" ? <MemoriesPanel />
         : <HistoryPanel />}
     </div>
+    {ui.openCard && <div ref={cardBody} className={styles.body} role="region" aria-label={`Card details for ${ui.openCard.name}`} tabIndex={0} data-panel-body><CardPanel key={ui.openCard.oracleId} card={ui.openCard} /></div>}
   </aside>;
 }

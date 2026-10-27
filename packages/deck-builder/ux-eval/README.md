@@ -148,6 +148,15 @@ few pixels differently each run; synthesized gesture scrolling does nothing in
 headless Chromium); the pointer is parked in a corner after each action so no
 hover state is captured. Never `scrollTo`.
 
+### `node check-panel-inspection.mjs [--origin http://127.0.0.1:8853] [--report <file>]`
+
+Run against an existing `serve.ts` disposable fixture server. Exercises visible
+panel controls, first-card return origin, draft/reason/engine DOM preservation,
+scroll and focus, four desktop widths and the shared popup across resizing.
+Escape leaves inspection before closing the sheet; Close closes it. Checks
+that hidden content is inaccessible and deck data is unchanged. Refuses hosted
+origins. The default seeded deck is 2; `--deck` can select an equivalent fixture.
+
 ### `node compare.mjs <runA> <runB>`
 
 Pairs two runs and lists images and metrics that differ. Run it whenever the
