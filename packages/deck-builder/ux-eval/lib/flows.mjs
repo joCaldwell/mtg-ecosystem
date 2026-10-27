@@ -60,49 +60,21 @@ export const FLOWS = [
       const list = readFileSync(join(t.PKG, "test/fixtures/moxfield/kinnan-midrange.copy-plain-text.txt"), "utf8");
       await page.goto(t.origin + "/");
       await t.step("Open All decks");
-      const direct = control(page, /^Import/);
-      if (await exists(direct, 800)) {
-        await t.press(direct);
-        await t.step("Click “Import”");
-      } else {
-        await t.press(control(page, /^New deck/));
-        await t.step("Click “New deck”");
-      }
+      await t.press(control(page, /^Import deck$/));
+      await t.step("Click “Import deck”");
       const name = page.getByRole("textbox", { name: /deck name/i });
       await t.press(name);
       await t.keys(name, "Kinnan from Moxfield");
       await t.step("Type a deck name");
-      await t.press(control(page, /^(Create and import|Create deck|Create)/));
-      await t.page.waitForURL(/\/deck\/\d+/, { timeout: 10000 });
-      await t.step("Click “Create deck”");
-      let box = page.getByRole("textbox", { name: /list to import/i });
-      if (!(await exists(box, 1200))) {
-        await t.press(control(page, /^More/));
-        await t.step("Open the “More” menu");
-        await t.press(page.getByRole("menuitem", { name: /import/i }));
-        await t.step("Choose “Import / export”");
-        if (!(await exists(box, 800))) {
-          await t.press(page.getByRole("tab", { name: /^Import/ }));
-          await t.step("Choose the Import tab");
-        }
-      }
+      const box = page.getByRole("textbox", { name: /list to import/i });
       await t.press(box);
       await t.type(box, list);
       await t.step("Paste the Moxfield “Copy Plain Text” export");
       await t.press(control(page, /^Preview/));
       await t.step("Click “Preview”");
-      await t.press(page.getByRole("button", { name: /^Apply the import/ }).last());
-      await page.waitForTimeout(300);
-      if (await exists(page.getByText(/^Cut \d+ cards? from this deck/), 500)) {
-        await t.step("Click “Apply the import”");
-        await t.press(page.getByRole("button", { name: /^Apply the import/ }).last());
-        await t.step("Confirm “Apply the import”");
-      } else await t.step("Click “Apply the import”");
-      const close = page.getByRole("dialog").getByRole("button", { name: /^Close/ }).first();
-      if (await exists(close, 800)) {
-        await t.press(close);
-        await t.step("Close the dialog");
-      }
+      await t.press(page.getByRole("button", { name: /^Apply the import/ }));
+      await page.waitForURL(/\/deck\/\d+/, { timeout: 10000 });
+      await t.step("Click “Apply the import”");
       const deck = (await t.api("/api/decks", t.users.owner)).find((d) => d.name === "Kinnan from Moxfield");
       return {
         completed: !!deck && deck.card_count >= 90 && deck.commanders.length > 0,

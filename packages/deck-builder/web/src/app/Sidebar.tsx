@@ -54,14 +54,14 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
             href={href({ page: item.page })}
             className={section === item.page ? styles.current : undefined}
             aria-current={section === item.page ? "page" : undefined}
-            aria-label={item.page === "inbox" && waiting > 0 ? `Inbox, ${waiting} waiting` : item.label}
+            aria-label={collapsed ? (item.page === "inbox" && waiting > 0 ? `Inbox, ${waiting} waiting` : item.label) : undefined}
             title={collapsed ? item.label : undefined}
           >
             <Icon name={item.icon} />
             <span className={styles.label}>{item.label}</span>
             {item.page === "inbox" && waiting > 0 && (
               <span className={styles.end}>
-                <Badge tone="agent">{waiting}</Badge>
+                <Badge tone="agent">{waiting}</Badge>{!collapsed && <span className="visually-hidden"> waiting</span>}
               </span>
             )}
           </a>
@@ -81,7 +81,7 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
               href={href({ page: "deck", deckId: deck.id })}
               className={[open ? styles.current : "", fork ? styles.fork : ""].join(" ")}
               aria-current={open ? "page" : undefined}
-              aria-label={`${deck.name}${pending ? ", waiting on you" : ""}${deck.category !== "paper" ? `, ${DECK_CATEGORY_LABELS[deck.category]}` : ""}${deck.visibility !== "private" ? `, ${deck.visibility}` : ""}`}
+              aria-label={collapsed ? `${deck.name}${pending ? ", waiting on you" : ""}${deck.category !== "paper" ? `, ${DECK_CATEGORY_LABELS[deck.category]}` : ""}${deck.visibility !== "private" ? `, ${deck.visibility}` : ""}` : undefined}
               title={pending ? `${deck.name} — something is waiting on you` : deck.name}
             >
               {/* The thumbnail takes the dot's column; a deck waiting on the owner keeps its violet dot over it. */}
@@ -90,6 +90,7 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
                 <Dot tone={pending ? "agent" : "neutral"} className={pending ? styles.pending : styles.fallback} />
               </span>
               <span className={styles.name}>{deck.name}</span>
+              {!collapsed && pending && <span className="visually-hidden">, waiting on you</span>}
               {deck.visibility !== "private" && (
                 <span className={styles.shared} role="img" aria-label={deck.visibility === "public" ? "Public" : "Unlisted"} title={deck.visibility === "public" ? "Public" : "Unlisted: anyone with the link"}>
                   <Icon name={deck.visibility === "public" ? "globe" : "link"} size={12} />

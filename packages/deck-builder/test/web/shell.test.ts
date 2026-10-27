@@ -71,10 +71,11 @@ test("collapsed sidebar keeps named navigation and an expanded-state control; ta
   assert.match(collapsed, /aria-label="Expand sidebar"[^>]*aria-expanded="false"/);
   for (const html of [expanded, collapsed]) {
     assert.ok(html.indexOf('href="/"') < html.indexOf('href="/inbox"'), "All decks comes first");
-    assert.match(html, /href="\/profile"[^>]*aria-current="page"[^>]*aria-label="Profile"/);
-    for (const label of ["All decks", "Inbox", "Memories", "Profile", "Settings"]) assert.ok(html.includes(`aria-label="${label}"`), label);
+    assert.match(html, /href="\/profile"[^>]*aria-current="page"/);
+    for (const label of ["All decks", "Inbox", "Memories", "Profile", "Settings"]) assert.ok(html.includes(`>${label}</span>`), label);
     assert.doesNotMatch(html, /aria-label="Activity"/);
   }
+  for (const label of ["All decks", "Inbox", "Memories", "Profile", "Settings"]) assert.ok(collapsed.includes(`aria-label="${label}"`), label);
   assert.match(collapsed, /href="\/inbox"[^>]*title="Inbox"/);
   const tablet = render(false);
   assert.doesNotMatch(tablet, /aria-label="(?:Collapse|Expand) sidebar"/);

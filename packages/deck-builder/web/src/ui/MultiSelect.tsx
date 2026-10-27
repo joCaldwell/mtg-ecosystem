@@ -33,6 +33,9 @@ export function MultiSelect({ label, placeholder = "Select…", options, value, 
   const restoreFocus = useRef<HTMLElement | null>(null);
   const id = useId();
   const selected = options.filter((option) => value.includes(option.value));
+  const triggerText = compact && selected.length > 0
+    ? summary ?? (selected.length === 1 ? selected[0].label : `${selected.length} selected`)
+    : placeholder;
   const visible = options.filter((option) => option.label.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
 
   useEffect(() => {
@@ -73,7 +76,7 @@ export function MultiSelect({ label, placeholder = "Select…", options, value, 
       <Button
         ref={setAnchor}
         className={`${styles.trigger} ${compact && selected.length > 0 ? styles.active : ""}`}
-        aria-label={label}
+        aria-label={`${triggerText}, ${label}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? `${id}-choices` : undefined}
@@ -86,9 +89,7 @@ export function MultiSelect({ label, placeholder = "Select…", options, value, 
         }}
       >
         <span className={compact ? styles.summary : undefined}>
-          {compact && selected.length > 0
-            ? summary ?? (selected.length === 1 ? selected[0].label : `${selected.length} selected`)
-            : placeholder}
+          {triggerText}
         </span>
         <Icon name="chevronDown" size={12} />
       </Button>
@@ -100,7 +101,7 @@ export function MultiSelect({ label, placeholder = "Select…", options, value, 
               type="button"
               className={styles.chip}
               disabled={busy}
-              aria-label={`Remove ${option.label} from ${label.toLowerCase()}`}
+              aria-label={`${option.label}, remove from ${label.toLowerCase()}`}
               onClick={() => void toggle(option.value)}
             >
               <span>{option.label}</span><Icon name="close" size={12} />

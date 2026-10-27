@@ -140,15 +140,14 @@ const SCREENS = [
   {
     screen: "import", user: U.owner, path: `/deck/${D.najeela}`, widths: APP, fresh: true, states: [
       {
-        state: "empty", caption: "Import tab of the import and export dialog",
+        state: "empty", caption: "Open Import",
         act: async ({ page, vp }) => {
           await press(page, page.getByRole("button", { name: /^More/ }), vp);
           await press(page, page.getByRole("menuitem", { name: /import/i }), vp);
-          await press(page, page.getByRole("tab", { name: /^Import/ }), vp);
         },
       },
       {
-        state: "preview", caption: "A Moxfield export of the same deck pasted and previewed",
+        state: "preview", caption: "Paste a Moxfield export and click Preview",
         act: async ({ page, vp }) => {
           const box = page.getByRole("textbox", { name: /list to import/i });
           await press(page, box, vp);
@@ -157,12 +156,11 @@ const SCREENS = [
         },
       },
       {
-        state: "result", caption: "After applying the import",
+        state: "result", caption: "Apply the import",
         act: async ({ page, vp }) => {
           await press(page, page.getByRole("button", { name: /^Apply the import/ }).last(), vp);
           const confirm = page.getByRole("button", { name: /^Apply the import/ });
-          await page.waitForTimeout(300);
-          if (await confirm.count()) await press(page, confirm.last(), vp).catch(() => {});
+          if (await confirm.isVisible()) await press(page, confirm.last(), vp);
         },
       },
     ],

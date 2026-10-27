@@ -83,7 +83,7 @@ export function ActivityPanel() {
               const deckIds = new Map<string, number>();
               for (const e of s.entries) if (e.deck_name && e.deck_id != null) deckIds.set(e.deck_name, e.deck_id);
               return (
-                <section key={s.key} className={styles.session} aria-label={`${s.actor} session`}>
+                <div key={s.key} className={styles.session}>
                   <div className={styles.head}>
                     <Dot tone="agent" pulse />
                     <Text tone="agent" weight="bold">{s.actor}</Text>
@@ -113,7 +113,7 @@ export function ActivityPanel() {
                       {waitingOnYou(e) ? <Chip tone="agent">waiting on you</Chip> : <Chip>applied</Chip>}
                     </div>
                   ))}
-                </section>
+                </div>
               );
             })}
           </div>
