@@ -64,7 +64,7 @@ D20) and built in phase 4a; phase 4b makes the full app hold up between
 | `ReadOnlyDeck` | `features/deck` | List beside price, power, brief, checks, decisions; one column under 720 px |
 | Shared deck header | `features/public` | Art, name, owner, commander, target; Copy link, Export, Fork, Compare |
 | Share dialog | `features/deck/dialogs` | Segmented visibility with its consequence in words; link; publish decisions |
-| Phone shell | `features/phone` | 48 px top bar; one decision per card with reason, Accept, Reject; Accept all |
+| Phone shell | `features/phone` | 48 px top bar; one decision per card with reason, Accept, Reject; bulk actions in Review all decisions |
 
 ## What each colour means
 
@@ -186,7 +186,7 @@ or about this app.
 | `Text` | Text with a tone, size and weight from the tokens | tone: 8; size `xs` to `xl`; `mono`; weight 3 |
 | `Banner` | A full-width strip under a header | `agent` `warn` `error` `neutral`; `actions` |
 | `ErrorNote`, `EmptyState`, `Loading` | An inline error, "nothing here yet", and a loading line | EmptyState `heading` `h1` `h2` when it is all the page has |
-| `Dialog` | A modal: focus trap, Esc, backdrop click, focus restore, `data-autofocus` | width `md` `lg`; placement `center` `sheet` `drawer`; `footer` |
+| `Dialog` | A modal: focus trap, Esc, backdrop click, focus restore, `data-autofocus` | width `md` `lg` `wide`; placement `center` `sheet` `drawer`; `footer` |
 | `ConfirmDialog` | A question with Cancel and a confirm button | tone `default` `danger` |
 | `Explainer` | Optional summary and a Learn more popover | closed, open, keyboard focus, close/Escape and focus return; `defaultOpen` (style guide only) |
 | `Popover`, `placeNear` | A panel anchored to an element, kept inside the viewport | placement `below` `right` `above` `left`; `align` |
@@ -376,10 +376,12 @@ expanded. Failed saves keep the prior state and show an error toast.
 The 720–1099 px drawer keeps visible labels and has no collapse control;
 widening restores the saved desktop choice.
 The inbox count uses a filled `--agent` pill with `--bg` ink (7.71:1
-WCAG contrast) in both layouts. The phone shell is unchanged.
+WCAG contrast) in both layouts. The phone shell uses the same badge treatment.
 
 Following review, the owner decided on 2026-10-27 to restore Activity as a
 separate sidebar item after Memories. `/activity` has its own Activity title
 and current link; `/profile` is a single page with no tabs. A profile draft
 survives resizing. The inbox’s unreviewed decision count sits in its padded
 header subtitle, aligned with the rest of the page content.
+
+Owner UX decision (2026-10-27): inbox proposal details can accept or reject the whole selected proposal with an optional reason; Review in the list remains secondary. A phone inbox opens the selected proposal beneath a compact deck heading. Its individual decisions come first; Review all decisions discloses deck-wide actions and other proposals. All inbox badges hide zero counts and use bright violet with black ink. Profiles pair their document and Edit action with proposed edits; public profiles reuse the All decks card presentation. Import previews use the wide dialog, a bounded change list with an explicit continuation count, and warnings outside that list.

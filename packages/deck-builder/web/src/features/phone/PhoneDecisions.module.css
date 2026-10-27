@@ -69,3 +69,7 @@
   padding: var(--s-5) var(--s-4) 0;
   color: var(--muted);
 }
+
+.reviewAll { display: grid; min-width: 0; }
+.reviewAll summary { min-height: var(--tap); padding-block: var(--s-4); color: var(--text-soft); cursor: pointer; }
+.reviewAll > .all, .reviewAll > .units { margin-bottom: var(--s-4); }

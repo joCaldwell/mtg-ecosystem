@@ -1,13 +1,12 @@
 // `/u/<handle>` (spec §18.5): a person's display name and their public decks,
 // nothing else. Unlisted decks are reachable only by their own links.
 
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { api, ApiError } from "../../api/reader.ts";
 import type { PublicProfile } from "../../api/client.ts";
 import { APP_TITLE, href, useScrollRestore } from "../../app/routes.ts";
-import { DECK_CATEGORY_LABELS } from "../../domain/deckCategory.ts";
-import { ColorIdentity } from "../../mtg/index.ts";
-import { Chip, EmptyState, Loading, Table, Text } from "../../ui/index.ts";
+import { DeckCard } from "../../mtg/index.ts";
+import { EmptyState, Loading, Text } from "../../ui/index.ts";
 import { PublicShell } from "./PublicShell.tsx";
 import styles from "./PublicProfilePage.module.css";
 
@@ -45,26 +44,12 @@ export function PublicProfilePage({ handle }: { handle: string }) {
             {profile.decks.length === 0 ? (
               <EmptyState title="No public decks yet">Decks appear here when their owner makes them public.</EmptyState>
             ) : (
-              <div className={styles.tableWrap}>
-                <Table>
-                  <thead><tr><th>Deck</th><th>Commander</th><th>Identity</th><th>Lifecycle</th><th>Cards</th></tr></thead>
-                  <tbody>
-                    {profile.decks.map((d) => (
-                      // The link alone navigates: one tab stop, and Ctrl/Cmd-click opens a tab without moving this one.
-                      <tr key={d.slug}>
-                        <td>
-                          <a href={href({ page: "shared", slug: d.slug })} className={styles.name}>{d.name}</a>
-                          {d.parent && <Text tone="faint" size="sm"> forked from {d.parent.slug ? <a href={href({ page: "shared", slug: d.parent.slug })}>{d.parent.owner_handle}/{d.parent.name}</a> : `${d.parent.owner_handle}/${d.parent.name}`}</Text>}
-                        </td>
-                        <td>{d.commanders.length ? d.commanders.map((c, i) => <Fragment key={c}>{i > 0 && " + "}{c}</Fragment>) : <Text tone="faint">none yet</Text>}</td>
-                        <td><ColorIdentity colors={d.color_identity} /></td>
-                        <td><Chip>{DECK_CATEGORY_LABELS[d.category]}</Chip></td>
-                        <td><Text mono tone={d.card_count === 100 ? "muted" : "warn"}>{d.card_count}/100</Text></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </Table>
-              </div>
+              <ul className={styles.roster}>
+                {profile.decks.map(d => <DeckCard key={d.slug} name={d.name} href={href({ page: "shared", slug: d.slug })}
+                  art={d.commander_art} identity={d.color_identity} category={d.category} count={d.card_count}
+                  commanders={d.commanders.join(" + ") || <Text tone="faint">none yet</Text>}
+                  lineage={d.parent && <>Fork of {d.parent.slug ? <a href={href({ page: "shared", slug: d.parent.slug })}>{d.parent.owner_handle}/{d.parent.name}</a> : `${d.parent.owner_handle}/${d.parent.name}`}</>} />)}
+              </ul>
             )}
           </div>
         )}

@@ -432,3 +432,5 @@ without moving focus, expanding disclosures or changing the scroll owner.
 Phone decks use native fragment links between the title, card list and pending
 proposals. The read-only composition accepts optional list navigation; editing
 and phone decision permissions are unchanged.
+
+Secondary-page UX (2026-10-27): inbox ProposalDecision calls the existing ruleProposal capability with the revision read at the click and captures stale confirmation before submitting. It applies the returned inbox without client merging. PhoneInbox preserves the proposal parameter; PhoneDecisions keeps selected units first and discloses bulk decisions. The shared mtg/DeckCard is the roster presentation used by All decks and public profiles; publicProfile supplies only public commanders’ credited art facts alongside their names.

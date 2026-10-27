@@ -1,6 +1,6 @@
 import { useVoice } from "../../app/Preferences.tsx";
 // Decision on a phone (spec §8.2, §11.2): each decision — an add, a cut, a swap
-// or a group — with Accept and Reject, and Accept all and Reject all above them. Each takes
+// or a group — with Accept and Reject. Bulk decisions live in a disclosure. Each takes
 // the optional reason, which the agent reads at its next session. The changes
 // themselves are drawn into the list below, as on desktop, and the decision
 // last touched is the one outlined there. The decisions go through the same
@@ -21,33 +21,43 @@ const KIND: Record<ReviewUnit["kind"], string> = {
   group: "Group · decided together",
 };
 
-export function PhoneDecisions({ view }: { view: { units: ReviewUnit[] } }) {
+export function PhoneDecisions({ view, proposalId }: { view: { units: ReviewUnit[] }; proposalId?: number }) {
   const state = useDeckState();
   const review = useReview(view.units, { sheet: true });
   const [reason, setReason] = useState("");
   if (!view.units.length) return null;
   if (state.deck.category === "archived")
     return <p className={styles.legacy}>This archived deck has {view.units.length} pending decisions, kept until you switch it to Paper or Theorycrafted on a larger screen.</p>;
+  const selected = proposalId == null ? view.units : view.units.filter(u => u.proposalId === proposalId);
+  const remaining = proposalId == null ? [] : view.units.filter(u => u.proposalId !== proposalId);
   const open = state.proposals.filter((p) => view.units.some((u) => u.proposalId === p.id)).length;
   return (
     <section className={styles.decisions} aria-label="Waiting on you">
-      <div className={styles.all}>
-        <Eyebrow>Waiting on you · {view.units.length} decision{view.units.length === 1 ? "" : "s"}</Eyebrow>
-        <Text size="sm" tone="muted" as="p">Each change is drawn into the list below. Accept or reject each one, or everything{open > 1 ? ` in all ${open} proposals` : ""} at once.</Text>
-        <TextField fieldSize="lg" className={styles.reason} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500}
-          placeholder="Reason for everything, optional" aria-label="Reason for accepting or rejecting everything, optional" />
-        <div className={styles.buttons}>
-          <Button size="touch" variant="accept" onClick={() => void review.acceptAll(reason, () => setReason(""))}>
-            Accept all
-          </Button>
-          <Button size="touch" variant="reject" onClick={() => void review.rejectAll(reason, () => setReason(""))}>
-            Reject all
-          </Button>
-        </div>
-      </div>
+      {proposalId != null && <Eyebrow>Proposal {proposalId}</Eyebrow>}
+      {selected.length === 0 && <Text tone="muted">This proposal has no pending decisions.</Text>}
       <ol className={styles.units}>
-        {view.units.map((unit, index) => <Unit key={unit.key} unit={unit} index={index} review={review} />)}
+        {selected.map(unit => <Unit key={unit.key} unit={unit} index={view.units.indexOf(unit)} review={review} />)}
       </ol>
+      <details className={styles.reviewAll}>
+        <summary>Review all decisions · {view.units.length}</summary>
+        <div className={styles.all}>
+          <Eyebrow>Waiting on you · {view.units.length} decision{view.units.length === 1 ? "" : "s"}</Eyebrow>
+          <Text size="sm" tone="muted" as="p">Decide everything{open > 1 ? ` in all ${open} proposals` : ""} at once.</Text>
+          <TextField fieldSize="lg" className={styles.reason} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500}
+            placeholder="Reason for everything, optional" aria-label="Reason for accepting or rejecting everything, optional" />
+          <div className={styles.buttons}>
+            <Button size="touch" variant="accept" onClick={() => void review.acceptAll(reason, () => setReason(""))}>
+              Accept all
+            </Button>
+            <Button size="touch" variant="reject" onClick={() => void review.rejectAll(reason, () => setReason(""))}>
+              Reject all
+            </Button>
+          </div>
+        </div>
+        <ol className={styles.units}>
+          {remaining.map(unit => <Unit key={unit.key} unit={unit} index={view.units.indexOf(unit)} review={review} />)}
+        </ol>
+      </details>
       {review.confirmation}
     </section>
   );

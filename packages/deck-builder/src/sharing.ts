@@ -2,6 +2,7 @@
 // decides, in the app: publishing is outward-facing, so no agent can do it.
 // What a viewer then sees is publicDeckState() in state.ts.
 
+import { creditedArt, type CardArt } from "./art.ts";
 import { randomInt } from "node:crypto";
 import type { Database } from "./sqlite.ts";
 import { type Actor, requireDeckOwner, requireUi } from "./actor.ts";
@@ -84,6 +85,7 @@ export interface PublicProfile {
     category: DeckCategory;
     color_identity: string;
     commanders: string[];
+    commander_art: CardArt[];
     card_count: number;
     parent: { owner_handle: string; slug: string | null; name: string } | null;
   }>;
@@ -116,17 +118,21 @@ export function publicProfile(db: Database, _viewer: Actor | null, handle: strin
      FROM decks d WHERE d.user_id = ? AND d.visibility = 'public' AND d.slug IS NOT NULL ORDER BY d.name`,
   ).all(user.id) as unknown as Array<{ id: number; slug: string; name: string; category: DeckCategory; color_identity: string; card_count: number; parent_owner_handle: string | null; parent_slug: string | null; parent_name: string | null }>;
   const commanders = db.prepare(
-    `SELECT c.name FROM deck_cards dc JOIN cards c ON c.oracle_id = dc.oracle_id
+    `SELECT c.oracle_id, c.name, c.image_art_crop, c.artist FROM deck_cards dc JOIN cards c ON c.oracle_id = dc.oracle_id
      WHERE dc.deck_id = ? AND dc.role = 'commander' AND dc.maybe = 0 ORDER BY c.name`,
   );
   return {
     handle: user.handle,
     display_name: user.display_name,
-    decks: decks.map(d => ({
-      slug: d.slug, name: d.name, category: d.category, color_identity: d.color_identity, card_count: d.card_count,
-      commanders: (commanders.all(d.id) as unknown as { name: string }[]).map(c => c.name),
-      parent: publicParent(db, d.parent_slug && d.parent_owner_handle ? { owner_handle: d.parent_owner_handle, slug: d.parent_slug, name: d.parent_name ?? "" } : null),
-    })),
+    decks: decks.map(d => {
+      const cards = commanders.all(d.id) as unknown as CardArt[];
+      return {
+        slug: d.slug, name: d.name, category: d.category, color_identity: d.color_identity, card_count: d.card_count,
+        commanders: cards.map(c => c.name),
+        commander_art: cards.map(creditedArt).filter((c): c is CardArt => c !== null),
+        parent: publicParent(db, d.parent_slug && d.parent_owner_handle ? { owner_handle: d.parent_owner_handle, slug: d.parent_slug, name: d.parent_name ?? "" } : null),
+      };
+    }),
   };
 }
 

@@ -1,4 +1,3 @@
-import { useVoice } from "../../app/Preferences.tsx";
 import { useEffect } from "react";
 import { useSession } from "../../app/Session.tsx";
 import { LegalFooter } from "../auth/index.ts";
@@ -16,7 +15,6 @@ import styles from "./SettingsPage.module.css";
 
 /** Connection details for agents, memory budgets, and card data (spec §10.1, §7.4). */
 export function SettingsPage() {
-  const voice = useVoice();
   const {session} = useSession();
   const settings = useQuery(() => api.getSettings(), []);
   const data = settings.data;
@@ -25,7 +23,7 @@ export function SettingsPage() {
   return (
     <Page
       width="lg"
-      header={<PageHeader title="Settings" subtitle={voice("Your account, card prices and optional agent connections.", "How agents reach this app, and what they are handed when they do.")} />}
+      header={<PageHeader title="Settings" />}
     >
       {settings.error && !data && <ErrorNote>{settings.error}</ErrorNote>}
       {settings.loading && <Loading />}

@@ -32,7 +32,7 @@ function wordCount(text: string): number {
 }
 
 /** The player profile (spec §6): the owner's document, read by every agent first. Edited directly here;
- *  an agent can only propose a change, which shows above for the owner to rule on. */
+ *  an agent can only propose a change for the owner to decide. */
 export function ProfilePage() {
   const voice = useVoice();
   const profile = useQuery(() => api.getProfile(), []);
@@ -77,100 +77,106 @@ export function ProfilePage() {
 
   return (
     <Page
-      width="md"
+      width="lg"
       header={
         <PageHeader
           title="Profile"
-          subtitle={voice("Your tastes, your playgroup and the games you want to play, in your words.", "Who you are as a builder, in your words. Every agent reads this first, in every session.")}
+          subtitle={voice("Your tastes and playgroup, in your words.", "Every agent reads this at the start of a session.")}
         />
       }
     >
       <div className={styles.profile}>
-      {profile.error && !saved && <ErrorNote>{profile.error}</ErrorNote>}
-      {profile.loading && <Loading />}
+        {profile.error && !saved && <ErrorNote>{profile.error}</ErrorNote>}
+        {profile.loading && <Loading />}
 
-      {pending.map((edit) => (
-        <DocumentEditCard
-          key={edit.id}
-          edit={edit}
-          onRuled={(r) => {
-            inbox.apply(r.inbox);
-            profile.reload();
-          }}
-        />
-      ))}
+        {saved && (
+          <Stack gap={5} className={styles.card}>
+            <Row justify="between" gap={4}>
+              <Text as="h2" size="lg" weight="medium">About you</Text>
+              {!editing && <Button onClick={startEditing}>{empty ? "Write your profile" : "Edit"}</Button>}
+            </Row>
+            {editing ? (
+              <>
+                <TextArea
+                  autosize
+                  rows={14}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  aria-label="Profile"
+                  placeholder={"What do you like to build? What does your playgroup allow?\nWhat will you never play?"}
+                  className={styles.editor}
+                  autoFocus
+                />
+                {changedUnderneath && (
+                  <Text tone="warn" size="sm">
+                    The saved profile changed while you were editing, for example because you accepted a proposed edit.
+                    Saving replaces it with the text in this box.
+                  </Text>
+                )}
+              </>
+            ) : empty ? (
+              <EmptyState title="Your profile is empty">
+                {voice("Write about your tastes, your playgroup, your budget, and what you will never play.", "Write what an agent should know before it suggests anything: your tastes, your playgroup and its power level, your budget stance, and what you will never play.")}
+              </EmptyState>
+            ) : (
+              <div className={styles.doc}>
+                <RichText text={saved.body_md} />
+              </div>
+            )}
 
-      {saved && (
-        <Stack gap={5} className={styles.card}>
-          {!editing && <Row justify="end"><Button onClick={startEditing}>{empty ? "Write your profile" : "Edit"}</Button></Row>}
-          {editing ? (
-            <>
-              <TextArea
-                autosize
-                rows={14}
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                aria-label="Profile"
-                placeholder={"What do you like to build? What does your playgroup allow?\nWhat will you never play?"}
-                className={styles.editor}
-                autoFocus
-              />
-              {changedUnderneath && (
+            <Stack gap={3}>
+              <Row gap={5}>
+                <Meter
+                  className={styles.meter}
+                  value={words}
+                  max={SOFT_CAP}
+                  tone={over ? "warn" : "neutral"}
+                  aria-label="Words against the soft cap"
+                />
+                <Text mono tone={over ? "warn" : "faint"} size="sm" className={styles.count}>
+                  {words} of about {SOFT_CAP} words
+                </Text>
+              </Row>
+              {over && (
                 <Text tone="warn" size="sm">
-                  The saved profile changed while you were editing, for example because you accepted an edit above.
-                  Saving replaces it with the text in this box.
+                  {editing ? "This is" : "Your profile is"} over the soft cap of {SOFT_CAP} words. Agents load all of it
+                  every session, so a shorter profile leaves them more room for the deck.
                 </Text>
               )}
-            </>
-          ) : empty ? (
-            <EmptyState title="Your profile is empty">
-              {voice("Write about your tastes, your playgroup, your budget, and what you will never play.", "Write what an agent should know before it suggests anything: your tastes, your playgroup and its power level, your budget stance, and what you will never play.")}
-            </EmptyState>
-          ) : (
-            <div className={styles.doc}>
-              <RichText text={saved.body_md} />
-            </div>
-          )}
+            </Stack>
 
-          <Stack gap={3}>
-            <Row gap={5}>
-              <Meter
-                className={styles.meter}
-                value={words}
-                max={SOFT_CAP}
-                tone={over ? "warn" : "neutral"}
-                aria-label="Words against the soft cap"
-              />
-              <Text mono tone={over ? "warn" : "faint"} size="sm" className={styles.count}>
-                {words} of about {SOFT_CAP} words
-              </Text>
-            </Row>
-            {over && (
-              <Text tone="warn" size="sm">
-                {editing ? "This is" : "Your profile is"} over the soft cap of {SOFT_CAP} words. Agents load all of it
-                every session, so a shorter profile leaves them more room for the deck.
-              </Text>
+            {error && <ErrorNote>{error}</ErrorNote>}
+            {editing && (
+              <Row gap={4} justify="end">
+                <Button variant="ghost" onClick={() => setDraft(null)} disabled={busy}>
+                  Cancel
+                </Button>
+                <Button variant="primary" onClick={save} disabled={busy || draft === saved.body_md}>
+                  {busy ? "Saving…" : "Save"}
+                </Button>
+              </Row>
             )}
+
+            <Text tone="faint" size="sm">
+              {!empty && <>Saved {ago(saved.updated_at)}. </>}
+              You edit this directly. Agents can only propose changes for your approval.
+            </Text>
           </Stack>
-
-          {error && <ErrorNote>{error}</ErrorNote>}
-          {editing && (
-            <Row gap={4} justify="end">
-              <Button variant="ghost" onClick={() => setDraft(null)} disabled={busy}>
-                Cancel
-              </Button>
-              <Button variant="primary" onClick={save} disabled={busy || draft === saved.body_md}>
-                {busy ? "Saving…" : "Save"}
-              </Button>
-            </Row>
-          )}
-
-          <Text tone="faint" size="sm">
-            {!empty && <>Saved {ago(saved.updated_at)}. </>}
-            You edit this directly. Agents can only propose changes, which appear above for you to accept or reject.
-          </Text>
-        </Stack>
-      )}
+        )}
+        <aside className={styles.pending} aria-label="Proposed profile edits">
+          <Text as="h2" size="lg" weight="medium">Proposed edits{pending.length > 0 ? ` · ${pending.length}` : ""}</Text>
+          {pending.map((edit) => (
+            <DocumentEditCard
+              key={edit.id}
+              edit={edit}
+              onRuled={(r) => {
+                inbox.apply(r.inbox);
+                profile.reload();
+              }}
+            />
+          ))}
+          {inbox.inbox && pending.length === 0 && <Text as="p" tone="muted">No profile edits are waiting for your approval.</Text>}
+        </aside>
       </div>
     </Page>
   );

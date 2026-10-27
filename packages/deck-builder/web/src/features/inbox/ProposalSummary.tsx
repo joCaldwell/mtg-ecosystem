@@ -7,11 +7,12 @@ import { InlineText } from "../../mtg/index.ts";
 import { ErrorNote, Eyebrow, Kbd, Loading, Section, Stack, Text } from "../../ui/index.ts";
 import { ChangeUnit } from "./ChangeUnit.tsx";
 import { DeckProjection } from "./DeckProjection.tsx";
+import { ProposalDecision } from "./ProposalDecision.tsx";
 import styles from "./ProposalSummary.module.css";
 
 /**
- * A proposal, read-only. Decisions happen in the deck, where each change sits
- * among the cards around it; this page only hands the owner over to it.
+ * The selected proposal, with a whole-proposal decision and a link to review
+ * individual changes in the deck.
  */
 export function ProposalSummary({ proposal }: { proposal: Proposal }) {
   const deck = useQuery(() => api.getDeck(proposal.deck_id), [proposal.deck_id]);
@@ -33,15 +34,6 @@ export function ProposalSummary({ proposal }: { proposal: Proposal }) {
       </Stack>
 
       {proposal.stale && <Text tone="warn">The deck changed since r{proposal.base_revision ?? "unknown"}. Review current r{proposal.current_revision} before approval.</Text>}
-      <div className={styles.action}>
-        <a className={styles.review} href={href({ page: "deck", deckId: proposal.deck_id, review: true, proposal: proposal.id })}>
-          Review in the list <Kbd>↵</Kbd>
-        </a>
-        <Text tone="faint" size="sm">
-          Decisions happen in the deck, where each change sits among the cards around it.
-        </Text>
-      </div>
-
       {deck.error && <ErrorNote>{deck.error}</ErrorNote>}
       {!state && !deck.error && <Loading />}
       {state && <DeckProjection state={state} />}
@@ -53,6 +45,12 @@ export function ProposalSummary({ proposal }: { proposal: Proposal }) {
           ))}
         </Stack>
       </Section>
+      {state && <ProposalDecision proposal={proposal} state={state} onDecided={deck.reload} />}
+      <div className={styles.action}>
+        <a className={styles.review} href={href({ page: "deck", deckId: proposal.deck_id, review: true, proposal: proposal.id })}>
+          Review in the list <Kbd>↵</Kbd>
+        </a>
+      </div>
     </>
   );
 }

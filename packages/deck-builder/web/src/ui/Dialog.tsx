@@ -8,7 +8,7 @@ import styles from "./Dialog.module.css";
 export interface DialogProps {
   title: ReactNode;
   onClose: () => void;
-  width?: "md" | "lg";
+  width?: "md" | "lg" | "wide";
   /** `sheet` rises from the bottom edge at full width: the touch form (DESIGN.md). */
   placement?: "center" | "sheet" | "drawer";
   children: ReactNode;
@@ -93,7 +93,7 @@ export function Dialog({ title, onClose, width = "md", placement = "center", chi
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={`${styles.dialog} ${placement === "sheet" ? styles.sheet : placement === "drawer" ? styles.drawer : width === "lg" ? styles.lg : styles.md}`}
+        className={`${styles.dialog} ${placement === "sheet" ? styles.sheet : placement === "drawer" ? styles.drawer : styles[width]}`}
       >
         <div className={styles.head}>
           <h2 id={titleId} className={styles.title}>

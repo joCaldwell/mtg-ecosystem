@@ -72,7 +72,7 @@ export function ImportDialog({ deckId = null, onClose, onApplied }: {
     } finally { setBusy(false); }
   }
 
-  return <Dialog title={deckId === null ? "Import deck" : "Import"} width="lg" onClose={close} bodyClassName={styles.body}
+  return <Dialog title={deckId === null ? "Import deck" : "Import"} width={diff ? "wide" : "lg"} onClose={close} bodyClassName={styles.body}
     footer={<div className={styles.footer}>
       {diff && <Field label="Note for History (optional)" className={styles.note}><TextField value={note} disabled={busy} onChange={e => setNote(e.target.value)} /></Field>}
       <Row gap={4} wrap>

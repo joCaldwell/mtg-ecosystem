@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { ImportDiff } from "../../api/client.ts";
 import { useCardHover } from "../../mtg/index.ts";
 import { Box, ErrorNote, Stack, Text } from "../../ui/index.ts";
@@ -17,6 +17,24 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
   // owner does not read it as a decision.
   const cutNames = new Set([...diff.cuts.map((c) => c.name), ...decreases.map((q) => q.name)]);
   const problems = diff.unresolved.length + diff.ambiguous.length + diff.unparsed.length;
+  const changes = useRef<HTMLDivElement>(null);
+  const [more, setMore] = useState(0);
+  const [scrollbar, setScrollbar] = useState({ height: 100, top: 0 });
+  function measureRemaining() {
+    const el = changes.current;
+    if (!el) return;
+    const bottom = el.getBoundingClientRect().bottom;
+    setMore(Array.from(el.querySelectorAll("li[data-import-change]")).filter(row => row.getBoundingClientRect().bottom > bottom + 1).length);
+    const height = Math.max(5, 100 * el.clientHeight / Math.max(1, el.scrollHeight));
+    const progress = el.scrollTop / Math.max(1, el.scrollHeight - el.clientHeight);
+    setScrollbar({ height, top: progress * (100 - height) });
+  }
+  useLayoutEffect(() => {
+    measureRemaining();
+    const observer = new ResizeObserver(measureRemaining);
+    if (changes.current) observer.observe(changes.current);
+    return () => observer.disconnect();
+  }, [diff]);
 
   return (
     <div className={styles.preview}>
@@ -61,9 +79,8 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
         ) : null}
 
       </Stack>
-      <Stack gap={5} className={styles.changes} role="region" aria-label="Import changes" tabIndex={0}>
         {problems > 0 ? (
-          <Box tone="warn" id={problemsId} role="region" aria-label="Not imported" tabIndex={-1}>
+          <Box className={styles.warnings} tone="warn" id={problemsId} role="region" aria-label="Not imported" tabIndex={0}>
             <Text as="h3" weight="medium" tone="warn">
               Not imported · {problems}
             </Text>
@@ -128,6 +145,9 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
           </Box>
         ) : null}
 
+      <div className={styles.scrollFrame} data-more={more > 0 || undefined}>
+      <div ref={changes} onScroll={measureRemaining} className={styles.changes} role="region" aria-label="Import changes" tabIndex={0}>
+        <Stack gap={5}>
         {diff.cuts.length + decreases.length > 0 ? (
           <Group title="Will be cut" count={diff.cut_count} tone="cut">
             {diff.cuts.map((c) => (
@@ -200,7 +220,13 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
         ) : null}
 
 
-      </Stack>
+        </Stack>
+      </div>
+      {/* Keep the native scrollbar operable underneath a persistent visual track,
+          including on systems that hide their scrollbar until it is used. */}
+      <div className={styles.scrollbar} aria-hidden="true"><span style={{ height: `${scrollbar.height}%`, top: `${scrollbar.top}%` }} /></div>
+      </div>
+      {more > 0 && <Text as="p" size="sm" tone="muted" className={styles.continuation}>↓ {more} more {more === 1 ? "change" : "changes"} below · Scroll to review</Text>}
     </div>
   );
 }

@@ -100,8 +100,8 @@ test("tablet top bar names the current page and links directly to the inbox with
   const html = renderToStaticMarkup(createElement(TabletBar, { route: { page: "memories" } }));
   assert.match(html, />Memories<\/span>/);
   assert.match(html, /href="\/inbox"/);
-  assert.match(html, />0<\/span>/);
-  assert.match(html, /> waiting<\/span>/);
+  assert.doesNotMatch(html, />0<\/span>/, "empty inbox badges are hidden");
+  assert.doesNotMatch(html, /> waiting<\/span>/, "an empty inbox does not announce a count");
   assert.match(html, /aria-haspopup="dialog"/);
 });
 

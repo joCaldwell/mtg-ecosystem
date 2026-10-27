@@ -55,3 +55,22 @@ test("bootstrap art matrix: owner/other UI and anonymous receive shared facts; a
   }
  }finally{await app.close();db.close();if(saved===undefined)delete process.env.DECKBUILDER_PUBLIC_ORIGIN;else process.env.DECKBUILDER_PUBLIC_ORIGIN=saved;}
 });
+
+
+test("public profile cards include credited art only from their public commanders", async()=>{
+ const {publicProfile,setVisibility}=await import("../src/sharing.ts");
+ const db=testDb();try{
+  const visible=newDeck(db,"paper","Visible deck"),privateDeck=newDeck(db,"paper","Private deck"),unlisted=newDeck(db,"paper","Unlisted deck");
+  add(db,visible,"id-teferi",{role:"commander"});add(db,visible,"id-forest");
+  add(db,privateDeck,"id-atraxa",{role:"commander"});add(db,unlisted,"id-atraxa",{role:"commander"});
+  db.prepare("UPDATE cards SET image_art_crop=?,artist='Known illustrator'").run(crop);
+  setVisibility(db,OWNER,visible,"public");setVisibility(db,OWNER,unlisted,"unlisted");
+  const {handle}=db.prepare("SELECT handle FROM users WHERE id=?").get(OWNER.user_id) as {handle:string};
+  const profile=publicProfile(db,null,handle);
+  assert.deepEqual(profile.decks.map(d=>d.name),["Visible deck"]);
+  assert.deepEqual(profile.decks[0]!.commander_art.map(c=>c.oracle_id),["id-teferi"]);
+  assert.equal(profile.decks[0]!.commander_art[0]!.artist,"Known illustrator");
+  db.prepare("UPDATE cards SET artist=NULL WHERE oracle_id='id-teferi'").run();
+  assert.deepEqual(publicProfile(db,null,handle).decks[0]!.commander_art,[],"unknown credits never become public art");
+ }finally{db.close();}
+});

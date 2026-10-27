@@ -15,25 +15,25 @@ import { Banner, Button, Chip, EmptyState, Icon, Loading } from "../../ui/index.
 import { PhoneDecisions } from "./PhoneDecisions.tsx";
 import styles from "./PhoneDeck.module.css";
 
-export function PhoneDeck({ deckId }: { deckId: number }) {
+export function PhoneDeck({ deckId, proposalId }: { deckId: number; proposalId?: number }) {
   return (
     <DeckProvider deckId={deckId} key={deckId}>
-      <Gate />
+      <Gate proposalId={proposalId} />
     </DeckProvider>
   );
 }
 
-function Gate() {
+function Gate({ proposalId }: { proposalId?: number }) {
   const { state, missing, loadError, retry } = useDeck();
   if (missing)
     return <EmptyState title="This deck does not exist">It may have been deleted. <a href={href({ page: "decks" })}>Back to your decks</a></EmptyState>;
   if (!state && loadError)
     return <EmptyState title="Could not load this deck">The server could not be reached. <Button size="touch" onClick={retry}>Retry</Button></EmptyState>;
   if (!state) return <Loading />;
-  return <Deck />;
+  return <Deck proposalId={proposalId} />;
 }
 
-function Deck() {
+function Deck({ proposalId }: { proposalId?: number }) {
   const { state, error, clearError } = useDeck();
   useScrollRestore(true);
   const model = useMemo(() => fromOwner(state!), [state]);
@@ -44,18 +44,18 @@ function Deck() {
       model={model}
       useView={useDeckView}
       header={
-        <DeckArt cards={state!.cards.filter(c => c.role === "commander" && !c.maybe)} identity={deck.color_identity} variant="banner" priority="auto"><header className={styles.head}>
-          <a className={styles.back} href={href({ page: "decks" })}><Icon name="back" /> Decks</a>
+        <DeckArt cards={proposalId ? [] : state!.cards.filter(c => c.role === "commander" && !c.maybe)} identity={deck.color_identity} variant="banner" priority="auto"><header className={styles.head}>
+          <a className={styles.back} href={href({ page: proposalId ? "inbox" : "decks" })}><Icon name="back" /> {proposalId ? "Inbox" : "Decks"}</a>
           <h1 className={styles.title}>{deck.name}</h1>
-          <a className={styles.jump} href="#deck-list">Read deck · {model.list.computed.card_count} cards</a>
-          <div className={styles.meta}>
+          {!proposalId && <a className={styles.jump} href="#deck-list">Read deck · {model.list.computed.card_count} cards</a>}
+          {!proposalId && <div className={styles.meta}>
             <Chip>{DECK_CATEGORY_LABELS[deck.category]}</Chip>
             {deck.visibility !== "private" && deck.slug && (
               <a href={href({ page: "shared", slug: deck.slug })}><Icon name={deck.visibility === "public" ? "globe" : "link"} /> {deck.visibility === "public" ? "Public" : "Unlisted"} page</a>
             )}
-          </div>
+          </div>}
           {error && <Banner tone="error" actions={<Button size="touch" variant="ghost" onClick={clearError}>Dismiss</Button>}>{error}</Banner>}
-          {edits > 0 && (
+          {edits > 0 && !proposalId && (
             <Banner tone="agent">
               {edits} proposed brief {edits === 1 ? "edit waits" : "edits wait"} for you. <a className={styles.tap} href={href({ page: "inbox" })}>Review in the inbox</a>
             </Banner>
@@ -63,7 +63,7 @@ function Deck() {
         </header></DeckArt>
       }
       decisions={(view) => view.units.length > 0 && <section id="deck-proposals" aria-label="Proposals" tabIndex={-1}>
-        <PhoneDecisions view={view} />
+        <PhoneDecisions view={view} proposalId={proposalId} />
       </section>}
       listNavigation={model.list.proposals.some(p => pendingItems(p).length > 0) && <a className={styles.jump} href="#deck-proposals">Review proposals</a>}
     />

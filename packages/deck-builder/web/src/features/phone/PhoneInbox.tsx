@@ -5,7 +5,7 @@ import { useVoice } from "../../app/Preferences.tsx";
 import { useState } from "react";
 import { useInbox } from "../../app/Inbox.tsx";
 import { navigate } from "../../app/routes.ts";
-import { EmptyState, Loading, Text } from "../../ui/index.ts";
+import { EmptyState, Loading } from "../../ui/index.ts";
 import { InboxEntry, inboxEntries } from "../inbox/index.ts";
 import { DocumentEditCard } from "../decisions/index.ts";
 import styles from "./PhoneInbox.module.css";
@@ -19,7 +19,6 @@ export function PhoneInbox() {
   return (
     <div className={styles.page}>
       <h1 className={styles.title}>Inbox</h1>
-      <Text size="sm" tone="muted" as="p">{voice("Proposed changes wait for your decision. Nothing here has been applied.", "Everything an agent needs your decision on. Nothing here has been applied.")}</Text>
       {entries.length === 0 ? (
         <EmptyState title="Nothing is waiting on you">{voice("There are no proposed changes to review. Open a deck to read its list and decisions.", "Ask your agent for changes; what it proposes appears here without a reload.")}</EmptyState>
       ) : (
@@ -30,7 +29,7 @@ export function PhoneInbox() {
                 entry={entry}
                 selected={openKey === entry.key}
                 onSelect={() => entry.type === "proposal"
-                  ? navigate({ page: "deck", deckId: entry.proposal.deck_id, review: true })
+                  ? navigate({ page: "deck", deckId: entry.proposal.deck_id, review: true, proposal: entry.proposal.id })
                   : setOpenKey(openKey === entry.key ? null : entry.key)}
               />
               {entry.type === "edit" && openKey === entry.key && (

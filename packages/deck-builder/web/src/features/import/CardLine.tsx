@@ -21,7 +21,7 @@ export function CardLine({ name, quantity = 1, cost, tone, label, detail }: Card
   const inspect = useCardInspect();
   const open = () => inspect(name);
   return (
-    <li className={`${styles.line} ${tone ? styles[tone] : ""}`}>
+    <li data-import-change className={`${styles.line} ${tone ? styles[tone] : ""}`}>
       {label ? (
         <Chip tone={tone ?? "neutral"} className={styles.label}>
           {label}

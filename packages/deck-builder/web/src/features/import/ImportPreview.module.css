@@ -32,8 +32,19 @@
 }
 
 .preview { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: var(--s-4); }
-.summary { flex: none; max-height: 45%; overflow: auto; }
-.changes { flex: 1; min-height: 0; overflow: auto; padding: var(--s-2); border-top: 1px solid var(--line); }
+.summary { flex: none; }
+.warnings { flex: 0 1 auto; min-height: var(--h-lg); max-height: 30%; overflow: auto; }
+.scrollFrame { position: relative; display: flex; flex: 1; min-height: 0; overflow: hidden; border-block: 1px solid var(--line); }
+.scrollFrame[data-more]::after { content: ""; position: absolute; inset: auto var(--s-5) 0 0; height: var(--s-8); background: linear-gradient(transparent, var(--overlay)); pointer-events: none; }
+.changes { flex: 1; min-height: 0; overflow-y: scroll; scrollbar-gutter: stable; scrollbar-color: auto; padding: var(--s-3); }
+.changes::-webkit-scrollbar { width: var(--s-4); }
+.changes::-webkit-scrollbar-track { background: var(--raised); }
+.changes::-webkit-scrollbar-thumb { background: var(--muted); border: var(--s-1) solid var(--raised); border-radius: var(--r-pill); }
+.continuation { flex: none; text-align: center; }
+.scrollbar { position: absolute; inset: 0 0 0 auto; width: var(--s-4); background: var(--raised); pointer-events: none; }
+.scrollbar > span { position: absolute; inset-inline: var(--s-1); background: var(--muted); border-radius: var(--r-pill); }
 .changes:focus-visible { outline: 2px solid var(--sel); outline-offset: -2px; }
 
 .problemLink { color: var(--warn); text-decoration: underline; text-underline-offset: var(--s-1); }
+
+@supports not selector(::-webkit-scrollbar) { .changes { scrollbar-color: var(--muted) var(--raised); } }
