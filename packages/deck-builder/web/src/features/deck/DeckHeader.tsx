@@ -11,7 +11,7 @@ import { DECK_CATEGORY_OPTIONS } from "../../domain/deckCategory.ts";
 import { bracketLabel } from "../../domain/power.ts";
 import { costCaption, formatPrice } from "../../domain/price.ts";
 import { ColorIdentity, ManaCost, CardRef, DeckArt } from "../../mtg/index.ts";
-import { Icon, Menu, Row, Segmented, Text, TextField, type MenuItem } from "../../ui/index.ts";
+import { Button, Icon, Menu, Row, Segmented, Text, TextField, type MenuItem } from "../../ui/index.ts";
 import { DeckStat } from "./DeckStat.tsx";
 import { useDeck, useDeckState } from "./DeckStore.tsx";
 import { useDeckUi } from "./DeckUi.tsx";
@@ -106,13 +106,17 @@ export function DeckHeader({ collapsed = false }: { collapsed?: boolean }) {
             {/* The count is in the figure; the words say how bad. */}
             {hasError ? (checks.length === 1 ? "problem" : "problems") : checks.length ? "off target" : "Checks clear"}
           </DeckStat>
-          <a className={styles.link} href={href({ page: "playtest", deckId: deck.id })}>Playtest</a>
-          <button type="button" className={styles.share} onClick={() => ui.openDialog("share")} aria-haspopup="dialog"
-            title={deck.visibility === "private" ? "Private: only you can see this deck" : deck.visibility === "public" ? "Public: anyone can read it" : "Unlisted: anyone with the link can read it"}>
-            {deck.visibility !== "private" && <Icon name={deck.visibility === "public" ? "globe" : "link"} />}
-            Share{deck.visibility !== "private" ? ` · ${deck.visibility === "public" ? "Public" : "Unlisted"}` : ""}
-          </button>
-          <Menu label="More" align="end" items={moreItems} />
+          {/* Peers, so one secondary style, set apart from the status chips. */}
+          <div className={styles.actions}>
+            {/* A link, so it opens in a new tab too; drawn as Button's default. */}
+            <a className={styles.action} href={href({ page: "playtest", deckId: deck.id })}>Playtest</a>
+            <Button onClick={() => ui.openDialog("share")} aria-haspopup="dialog"
+              title={deck.visibility === "private" ? "Private: only you can see this deck" : deck.visibility === "public" ? "Public: anyone can read it" : "Unlisted: anyone with the link can read it"}>
+              {deck.visibility !== "private" && <Icon name={deck.visibility === "public" ? "globe" : "link"} />}
+              Share{deck.visibility !== "private" ? ` · ${deck.visibility === "public" ? "Public" : "Unlisted"}` : ""}
+            </Button>
+            <Menu label="More" align="end" items={moreItems} />
+          </div>
         </div>
       </div>
 

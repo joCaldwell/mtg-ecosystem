@@ -66,21 +66,38 @@ button.name:hover {
   border-bottom-color: var(--sel);
 }
 
-.share {
-  display: inline-flex;
+/* Playtest, Share and More are peers: one secondary style (Button's default,
+   which Share and More use), and a rule between them and the status chips. */
+.actions {
+  display: flex;
   align-items: center;
-  gap: var(--s-2);
-  color: var(--text-soft);
-  border-bottom: 1px dotted var(--faint);
+  gap: var(--s-3);
+  margin-left: var(--s-3);
+  padding-left: var(--s-5);
+  border-left: 1px solid var(--line);
 }
 
-.share:hover {
-  border-bottom-color: var(--sel);
+.action {
+  display: inline-flex;
+  align-items: center;
+  height: var(--h-md);
+  padding: 0 var(--s-5);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--raised);
+  color: var(--text);
+  white-space: nowrap;
+  transition: background var(--fast), border-color var(--fast);
+}
+
+.action:hover {
+  background: var(--hover);
+  border-color: var(--faint);
 }
 
 /* Touch tablets: the header's actions are full tap targets; the list keeps its
    desktop density (DESIGN.md). */
 @media (pointer: coarse) and (max-width: 1099px) {
-  .stats > a, .stats > button, .stats [aria-haspopup="menu"] { display: inline-flex; align-items: center; min-height: var(--tap); }
+  .stats > button, .actions > a, .actions > button, .stats [aria-haspopup="menu"] { display: inline-flex; align-items: center; min-height: var(--tap); }
   button.name { min-height: var(--tap); }
 }
