@@ -126,6 +126,13 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
     return () => { cancelAnimationFrame(frame); cancelAnimationFrame(focusFrame); };
   }, [ui.reviewing, setCursor]);
 
+  // Review shortcuts act in the list or the Review destination, never from
+  // another focused panel view whose visible controls describe another task.
+  function canReview(event: KeyboardEvent) {
+    const inPanel = event.target instanceof Element && event.target.closest("[data-deck-panel]");
+    return ui.reviewing && (!inPanel || (!ui.openCard && ui.tab === "review"));
+  }
+
   useHotkeys({
     // Escape backs out one layer at a time, innermost first.
     escape: () => {
@@ -135,15 +142,15 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
       else if (ui.reviewing) ui.stopReview();
     },
     enter: (e) => pending && !ui.reviewing && !pressesFocusedControl(e) && ui.startReview(),
-    j: () => ui.reviewing && ui.setCursor(Math.min(ui.cursor + 1, view.units.length - 1)),
-    k: () => ui.reviewing && ui.setCursor(ui.cursor - 1),
-    a: () => ui.reviewing && review.current && void review.accept(review.current),
+    j: (event) => canReview(event) && ui.setCursor(Math.min(ui.cursor + 1, view.units.length - 1)),
+    k: (event) => canReview(event) && ui.setCursor(ui.cursor - 1),
+    a: (event) => canReview(event) && review.current && void review.accept(review.current),
     r: (e) => {
-      if (!ui.reviewing || !review.current) return;
+      if (!canReview(e) || !review.current) return;
       e.preventDefault(); // or the "r" lands in the reason field it opens
       ui.setRejecting(review.current.key);
     },
-    "shift+a": () => ui.reviewing && void review.acceptAll(),
+    "shift+a": (event) => canReview(event) && void review.acceptAll(),
   });
 
   return (

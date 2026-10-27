@@ -9,7 +9,8 @@ import type { SortBy } from "../../domain/cards.ts";
 import type { GroupBy } from "../../domain/grouping.ts";
 import type { TagMatch } from "../../domain/deckSearch.ts";
 
-export type PanelTab = "review" | "brief" | "power" | "checks" | "memories" | "history";
+import type { PanelView } from "./panelViews.ts";
+export type PanelTab = PanelView;
 export type DeckDialog = "fork" | "compare" | "export" | "import" | "slots" | "delete" | "share";
 
 export interface OpenCard {
@@ -97,7 +98,7 @@ function reducer(ui: DeckUiState, action: Action): DeckUiState {
     case "cursor":
       return { ...ui, cursor: Math.max(0, action.index), rejecting: null };
     case "rejecting":
-      return { ...ui, rejecting: action.key };
+      return { ...ui, rejecting: action.key, ...(action.key ? { tab: "review", openCard: null } : {}) };
     case "dialog":
       return { ...ui, dialog: action.value };
   }

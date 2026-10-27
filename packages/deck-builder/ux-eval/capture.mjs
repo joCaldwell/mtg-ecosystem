@@ -88,6 +88,22 @@ const PUBLIC = [375, 768, 1280];
 
 const cardRow = (page, name) => page.getByRole("button", { name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`) }).first();
 
+/** Select the same destination across navigation compositions. Older builds
+ * kept statistics in Checks; they remain a valid comparison of that task. */
+async function panelView(page, vp, view) {
+  if (vp.width < 1100) await press(page, page.getByRole("button", { name: "Open deck details", exact: true }), vp);
+  const selector = page.getByRole("combobox", { name: "Panel view", exact: true });
+  if (await selector.isVisible()) {
+    // Native keys produce the same trusted input as the legacy tab click.
+    // A synthetic change event would count intentional view changes as load CLS.
+    const index = await selector.locator(`option[value="${view}"]`).evaluate(option => option.index);
+    await selector.focus();
+    await selector.press("Home");
+    for (let step = 0; step < index; step++) await selector.press("ArrowDown");
+  }
+  else await press(page, page.getByRole("tab", { name: "Checks", exact: true }), vp);
+}
+
 /** One screen: a path, a user, and the states reached from it in order. */
 const SCREENS = [
   { screen: "sign-in", user: 0, path: "/signin", widths: PUBLIC, states: [{ state: "default", caption: "Sign-in page, signed out" }] },
@@ -108,6 +124,10 @@ const SCREENS = [
       { state: "review", caption: "Reviewing proposals in the list", act: async ({ page, vp }) => press(page, page.getByRole("button", { name: /^Review in the list/ }), vp) },
     ],
   },
+  ...["stats", "checks"].map(view => ({
+    screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: APP,
+    states: [{ state: view, caption: view === "stats" ? "Deck statistics" : "Deck checks and slot targets", act: async ({ page, vp }) => panelView(page, vp, view) }],
+  })),
   {
     screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: ALL, states: [
       {

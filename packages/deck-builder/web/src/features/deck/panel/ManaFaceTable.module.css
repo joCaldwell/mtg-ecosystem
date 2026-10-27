@@ -1,0 +1,7 @@
+.table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.table th, .table td { padding: var(--s-3) var(--s-2); border-bottom: 1px solid var(--line); vertical-align: middle; }
+.table thead { color: var(--muted); }
+.table thead th { font-weight: 500; text-align: right; }
+.table th:first-child { text-align: left; }
+.table td { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.color { display: flex; align-items: center; gap: var(--s-3); font-weight: 500; }

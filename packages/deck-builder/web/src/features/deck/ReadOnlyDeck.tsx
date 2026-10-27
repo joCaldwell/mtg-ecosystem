@@ -19,6 +19,7 @@ import { DeckListProvider, useDeckList } from "./DeckListStore.tsx";
 import { DeckUiProvider, useDeckUi } from "./DeckUi.tsx";
 import { DeckList } from "./list/DeckList.tsx";
 import { BriefText } from "./panel/BriefText.tsx";
+import { StatsPanel } from "./panel/StatsPanel.tsx";
 import { ChecksPanel } from "./panel/ChecksPanel.tsx";
 import { EngineCard } from "./panel/EngineCard.tsx";
 import { DeckViewProvider } from "./DeckViewContext.ts";
@@ -159,6 +160,10 @@ function ReadOnlyBody({ model, header, decisions, listNavigation, useView = useP
               <section className={styles.section}>
                 <Eyebrow>Checks</Eyebrow>
                 <ChecksPanel checks={model.checks} />
+              </section>
+              <section className={styles.section}>
+                <Eyebrow>Stats</Eyebrow>
+                <StatsPanel />
               </section>
 
               {model.decisions && (

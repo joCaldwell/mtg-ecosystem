@@ -1,7 +1,7 @@
 // Panel scrolling must stay in its own pane. scrollIntoView on a decision
 // also scrolls the window, undoing the list's reveal on an inbox handoff.
 export function revealReviewUnit(unit: HTMLElement): void {
-  const pane = unit.closest<HTMLElement>('[role="tabpanel"]');
+  const pane = unit.closest<HTMLElement>('[data-panel-body]');
   if (!pane || !unit.getClientRects().length) return;
   const bounds = pane.getBoundingClientRect();
   const row = unit.getBoundingClientRect();

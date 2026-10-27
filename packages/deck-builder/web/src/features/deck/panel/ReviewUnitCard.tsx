@@ -36,7 +36,7 @@ export function ReviewUnitCard({ unit, index, review }: { unit: ReviewUnit; inde
     // History/reason context arrives asynchronously. Keep this decision's
     // controls visible when it, a preceding proposal, or the pane resizes.
     const observer = new ResizeObserver(reveal);
-    const pane = el.closest('[role="tabpanel"]');
+    const pane = el.closest('[data-panel-body]');
     observer.observe(el);
     if (pane) {
       observer.observe(pane);

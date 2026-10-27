@@ -8,14 +8,16 @@ export interface PageProps {
   children: ReactNode;
   /** md is reading width, lg is wide content, full uses all the room. */
   width?: "md" | "lg" | "full";
+  /** False when the body supplies independently scrolling panes. */
+  scroll?: boolean;
   className?: string;
 }
 
-export function Page({ header, children, width = "lg", className }: PageProps) {
+export function Page({ header, children, width = "lg", scroll = true, className }: PageProps) {
   return (
     <div className={cx(styles.page, styles[width], className)}>
       {header}
-      <div className={styles.scroll}>
+      <div className={scroll ? styles.scroll : styles.workspace}>
         <div className={styles.content}>{children}</div>
       </div>
     </div>

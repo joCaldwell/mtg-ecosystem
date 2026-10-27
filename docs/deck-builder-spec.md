@@ -828,7 +828,7 @@ card.
 ## 11. The app for people
 
 - **Decks:** list, create, fork, delete; Paper, Theorycrafted or Archived lifecycle.
-- **Deck view:** the list grouped by slot or by card type, slot targets and deltas, the maybe list, the brief, a live checks count, tags, direct editing, card search.
+- **Deck view:** the list grouped by slot or by card type, slot targets and deltas, the maybe list, the brief, a live checks count, tags, direct editing, card search. The panel's explicit destination always matches its body, including Card details with a named return action; Stats and Checks are separate. The same navigation serves the narrower details sheet.
 - **Proposals inbox:** everything waiting on the owner across decks. A proposal is ruled on in its deck's list, where each change is drawn in place among the cards around it — per item, per group or all at once, with an optional reason; the inbox links there. Proposed brief and profile edits are ruled in the inbox as diffs. (Settled 2026-10-10: the owner preferred reviewing in the list to decision from the inbox.)
 - **Decisions log:** per deck, with undo.
 - **Memories:** §7.5.
@@ -1022,6 +1022,23 @@ Reduced motion is respected; no carousel or automatic animation. No art in
 inbox, activity, memories, Settings, dialogs or playtest content. Existing
 navigation thumbnails remain in the rail. DESIGN.md and /design define the
 variants, fallback states, overlay and identity tokens.
+
+
+### Desktop statistics and content headers (owner direction, 2026-10-27)
+
+Stats compares W/U/B/R/G fixed printed cost symbols with recognized direct
+mana-source card copies, separately for lands and other permanents. Generic,
+variable, snow, colourless and flexible symbols stay explicit. First and other
+printed faces are alternatives, never simultaneous resources. Any-colour output
+stays separate; multi-colour source rows overlap. Conditional, indirect and
+unsupported text is unresolved. These are not available mana or casting odds.
+The capability layer computes the same additive analysis for UI and agents,
+without colour-identity proxies, permissions changes or schema migrations.
+
+Shared page headers use the black content frame with aligned h1 titles and
+actions. Remove decorative grey bands and explanatory header subtitles; retain
+useful state compactly. Centered widths, scroll owners, main/skip links and the
+approved commander art/collapse remain intact.
 
 
 ## 12. Archidekt and Moxfield interop

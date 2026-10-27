@@ -9,27 +9,11 @@
   background: var(--surface);
 }
 
-/* Six tabs and a badge are close to the panel's width; tighter padding keeps
-   them on one line, and scrolling is the fallback. */
-.tabs {
-  flex: none;
-  overflow-x: auto;
-  scrollbar-width: none;
-  padding-inline: var(--s-4);
-}
-
-.tabs [role="tab"] {
-  padding-inline: var(--s-3);
-}
-
-.none [role="tab"][aria-selected="true"] {
-  border-bottom-color: transparent;
-  color: var(--muted);
-}
-
-.none [role="tab"][aria-selected="true"]:hover {
-  color: var(--text);
-}
+.navigation { flex: none; display: grid; gap: var(--s-2); padding: var(--s-4) var(--s-6); border-bottom: 1px solid var(--line); }
+.label { color: var(--muted); font-size: var(--text-sm); }
+.controls { display: flex; align-items: center; gap: var(--s-3); min-width: 0; }
+.controls > span { flex: 1; min-width: 0; }
+.controls > button { flex: none; }
 
 .body {
   display: grid;

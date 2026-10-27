@@ -56,7 +56,7 @@ async function click(locator) {
       return;
     }
     const pane = await locator.evaluate(el => {
-      const pane = el.closest('[role="tabpanel"]');
+      const pane = el.closest('[data-panel-body]');
       const r = pane?.getBoundingClientRect();
       return r ? { x: r.x + r.width / 2, y: Math.max(80, Math.min(innerHeight - 80, r.y + r.height / 2)) } : null;
     });
@@ -68,7 +68,7 @@ async function click(locator) {
 }
 async function visibleInPane(locator) {
   return locator.evaluate(el => {
-    const r = el.getBoundingClientRect(), pane = el.closest('[role="tabpanel"]')?.getBoundingClientRect();
+    const r = el.getBoundingClientRect(), pane = el.closest('[data-panel-body]')?.getBoundingClientRect();
     return r.top >= (pane?.top ?? 0) - 1 && r.bottom <= (pane?.bottom ?? innerHeight) + 1;
   });
 }

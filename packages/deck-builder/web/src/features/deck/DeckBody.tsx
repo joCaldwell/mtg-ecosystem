@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import { PANEL_QUERY, useMediaQuery } from "../../app/breakpoints.ts";
 import { Dialog, ResizeHandle, tokenPx, useLocalStorage } from "../../ui/index.ts";
 import { useDeckUi } from "./DeckUi.tsx";
+import { panelViewLabel } from "./panelViews.ts";
 import styles from "./DeckBody.module.css";
 
 const PANEL_WIDTH_KEY = "deck.panelWidth";
@@ -44,13 +45,13 @@ export function DeckBody({ list, panel }: { list: ReactNode; panel: ReactNode })
   // Opening a header stat can select the current tab again, so listen to
   // the explicit details request as well as changes of tab.
   useEffect(() => {
-    const open = () => tabletNow.current && setSheet(true);
+    const open = () => { forReason.current = false; if (tabletNow.current) setSheet(true); };
     window.addEventListener("deck-details", open);
     return () => window.removeEventListener("deck-details", open);
   }, []);
   // Wider than a tablet, the panel is beside the list; a stale sheet must not
   // reappear when the window narrows again.
-  useEffect(() => { if (!tablet) setSheet(false); }, [tablet]);
+  useEffect(() => { if (!tablet) { setSheet(false); forReason.current = false; } }, [tablet]);
   const [host] = useState(() => {
     const el = document.createElement("div");
     el.className = styles.panelHost;
@@ -97,7 +98,7 @@ export function DeckBody({ list, panel }: { list: ReactNode; panel: ReactNode })
         />
         <div ref={attach} className={styles.panelSlot} />
       </div>}
-      {tablet && sheet && <Dialog title={ui.openCard ? ui.openCard.name : "Deck details"} placement="sheet" onClose={() => { setSheet(false); forReason.current = false; if (ui.openCard) ui.openCardPanel(null); }}>
+      {tablet && sheet && <Dialog title={ui.openCard ? "Card details" : `Deck details · ${panelViewLabel(ui.tab)}`} placement="sheet" onClose={() => { setSheet(false); forReason.current = false; if (ui.openCard) ui.openCardPanel(null); }}>
         <div ref={attach} className={styles.sheetPanel} />
       </Dialog>}
       {createPortal(panel, host)}

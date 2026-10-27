@@ -391,10 +391,10 @@ Following review, the owner decided on 2026-10-27 to restore Activity as a
 separate sidebar item after Memories. `/activity` has its own Activity title
 and current link; `/profile` is a single page with no tabs. A profile draft
 survives resizing. The inbox’s unreviewed decision count sits in its padded
-header subtitle, aligned with the rest of the page content.
+header metadata beside its title, aligned with the rest of the page content.
 
-The deck editor keeps one header help control for lifecycle, slots, maybe cards,
-brief, power and proposals. Its add bar uses a plus label and raised surface;
+The deck editor keeps specifically labelled help for lifecycle consequences,
+slot targets and proposal mechanics. Its add bar uses a plus label and raised surface;
 query syntax lives with the results. Deck search stays with the filters.
 Workspace and roster metadata is at least 12 px; prices, totals, counts and
 lifecycle labels use the soft grey tier unless they convey a semantic state.
@@ -458,3 +458,17 @@ row, including blank space, mana and price; references in a note remain separate
 controls. Enter and Space open details and ? inspects. Main-list modifier
 selection is unchanged; maybe cards do not join bulk operations that assume
 deck membership. Slot assignments remain stored.
+
+## Content headers and panel views (owner direction, 2026-10-27)
+
+Application page titles and actions belong to the black content frame, with
+the same centered width and gutter as their content. PageHeader has no grey
+band, divider or explanatory subtitle. Useful state uses its compact meta slot;
+permissions and warnings stay with the relevant decision. Inbox shares that
+frame while its list and detail panes keep independent scrolling.
+
+Panel navigation uses one labelled native selector rather than a crowded strip.
+Card details is an explicit destination with a named return action. Stats and
+Checks are distinct. A named region follows the selection, including in the
+shared sheet. Statistics use exact counts with a concise methods legend; mana
+source copies do not imply guaranteed output, adequacy or casting probability.

@@ -81,7 +81,6 @@ export function ProfilePage() {
       header={
         <PageHeader
           title="Profile"
-          subtitle={voice("Your tastes and playgroup, in your words.", "Every agent reads this at the start of a session.")}
         />
       }
     >

@@ -179,10 +179,20 @@ export function stateLines(view: Pick<DeckView, "slots" | "computed">): string {
       c.average_mana_value == null ? "n/a" : c.average_mana_value.toFixed(2)
     }`,
     `- Curve (mana value: cards): ${Object.entries(c.curve).map(([b, n]) => `${b}: ${n}`).join(", ")}`,
-    `- Coloured pips in costs: ${
+    `- Legacy raw colour-letter count, all printed faces including flexible alternatives: ${
       Object.entries(c.pips).filter(([, n]) => n > 0).map(([k, n]) => `${k} ${n}`).join(", ") || "none"
     }`,
   ];
+  const mana = c.mana;
+  const face = mana.first_face;
+  const manaColors = ["W", "U", "B", "R", "G"] as const;
+  const manaTypes = [...manaColors, "C"] as const;
+  lines.push(`- Mana comparison, first printed face (fixed cost symbols / recognized land copies / other permanent copies): ${manaColors.map(color => `${color} ${face.costs.fixed_symbols[color]}/${face.sources.land.by_type[color]}/${face.sources.nonland.by_type[color]}`).join("; ")}`);
+  lines.push(`- Separate mana options: flexible costs ${Object.entries(face.costs.flexible_symbols).map(([symbol, count]) => `${symbol} ×${count}`).join(", ") || "none"}; any-colour sources ${face.sources.land.any_color_copies} land / ${face.sources.nonland.any_color_copies} other; C sources ${face.sources.land.by_type.C} land / ${face.sources.nonland.by_type.C} other.`);
+  if (face.costs.generic_units || face.costs.snow_symbols || face.costs.fixed_symbols.C || Object.values(face.costs.variable_symbols).some(Boolean) || face.costs.no_printed_cost_nonland_copies) lines.push(`- Other first-face cost counts: generic units ${face.costs.generic_units}; fixed C ${face.costs.fixed_symbols.C}; snow ${face.costs.snow_symbols}; variable symbols ${Object.entries(face.costs.variable_symbols).map(([symbol, count]) => `${symbol} ${count}`).join(", ")}; no printed nonland cost ${face.costs.no_printed_cost_nonland_copies}.`);
+  lines.push(`- Mana-source coverage: ${mana.coverage.recognized_source_copies} recognized (${mana.coverage.partial_source_copies} partial), ${mana.coverage.unresolved_source_copies} unresolved, ${mana.coverage.no_supported_source_pattern_copies} without a supported pattern; ${mana.coverage.cost_issue_copies} copies with cost issues.`);
+  if (mana.coverage.other_face_copies > 0) lines.push(`- Other printed faces, separately (not simultaneous): ${manaTypes.map(color => `${color} ${mana.other_faces.costs.fixed_symbols[color]}/${mana.other_faces.sources.land.by_type[color]}/${mana.other_faces.sources.nonland.by_type[color]}`).join("; ")}; generic ${mana.other_faces.costs.generic_units}, snow ${mana.other_faces.costs.snow_symbols}, variables ${Object.entries(mana.other_faces.costs.variable_symbols).map(([symbol, count]) => `${symbol} ${count}`).join(", ")}, flexible ${Object.entries(mana.other_faces.costs.flexible_symbols).map(([symbol, count]) => `${symbol} ×${count}`).join(", ") || "none"}; any-colour sources ${mana.other_faces.sources.land.any_color_copies} land / ${mana.other_faces.sources.nonland.any_color_copies} other.`);
+  lines.push("- The mana comparison counts printed symbols and narrow direct tap-source patterns, not available mana or casting odds. It keeps flexible costs, any-colour output and other faces separate; multicolour source rows overlap. Conditional, spell, fetch and granted production is not resolved.");
   // Nothing to say until prices have been loaded once.
   if (c.cost.as_of) lines.push(`- Estimated cost: ${costPhrase(c.cost)}`);
   if (c.pending.adds || c.pending.cuts)

@@ -4,7 +4,7 @@
 
 import { ago } from "../../../domain/time.ts";
 import { InlineText } from "../../../mtg/index.ts";
-import { Button, Explainer, Eyebrow, Kbd, Text } from "../../../ui/index.ts";
+import { Button, EmptyState, Explainer, Eyebrow, Kbd, Text } from "../../../ui/index.ts";
 import { useDeckState } from "../DeckStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import type { DeckViewModel } from "../useDeckView.ts";
@@ -17,6 +17,7 @@ export function ReviewPanel({ view, review }: { view: DeckViewModel; review: Rev
   const state = useDeckState();
   const ui = useDeckUi();
 
+  if (view.units.length === 0) return <EmptyState title="No pending proposals" />;
   if (state.deck.category === "archived") return <Text tone="muted">Pending proposals are kept. To accept or reject them, switch this deck to Paper or Theorycrafted.</Text>;
 
   // Units come oldest proposal first, so the proposals do too.

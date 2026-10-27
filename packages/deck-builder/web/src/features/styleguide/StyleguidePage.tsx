@@ -738,7 +738,7 @@ function Layout() {
         <div className={styles.framed}>
           <Page
             width="full"
-            header={<PageHeader title="Memories" subtitle="What agents have been told to remember" actions={<><Button size="sm">Filter</Button><Button size="sm" variant="primary">New memory</Button></>} />}
+            header={<PageHeader title="Memories" actions={<><Button size="sm">Filter</Button><Button size="sm" variant="primary">New memory</Button></>} />}
           >
             <SplitPane
               list={<><Box padding="sm">First item</Box><Box padding="sm">Second item</Box></>}
@@ -755,7 +755,7 @@ export function StyleguidePage() {
   return (
     <Page
       width="lg"
-      header={<PageHeader title="Design" subtitle="Every primitive in every state. The rules are in web/DESIGN.md." />}
+      header={<PageHeader title="Design" />}
     >
       <div className={styles.groups}>
         <OnboardingPatterns />

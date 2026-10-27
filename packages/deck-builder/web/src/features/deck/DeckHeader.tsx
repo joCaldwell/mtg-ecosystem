@@ -97,8 +97,8 @@ export function DeckHeader({ collapsed = false }: { collapsed?: boolean }) {
           <DeckStat
             figure={count}
             tone={count === 100 ? "add" : "warn"}
-            title="Open the checks"
-            onClick={() => ui.setTab("checks")}
+            title="Open stats"
+            onClick={() => ui.setTab("stats")}
           >
             / 100 cards
           </DeckStat>

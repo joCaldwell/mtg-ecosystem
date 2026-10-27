@@ -9,7 +9,7 @@ import { ptString } from "../../../domain/cards.ts";
 import { formatPrice } from "../../../domain/price.ts";
 import { pendingOf } from "../../../domain/grouping.ts";
 import { CardImage, InlineText, ManaCost, OracleText, useCardLookup, type CardInfo } from "../../../mtg/index.ts";
-import { Button, Chip, Icon, Loading, Text } from "../../../ui/index.ts";
+import { Button, Chip, Loading, Text } from "../../../ui/index.ts";
 import { useDeckState } from "../DeckStore.tsx";
 import { useDeckUi, type OpenCard } from "../DeckUi.tsx";
 import { CardActions } from "./CardActions.tsx";
@@ -55,14 +55,9 @@ export function CardPanel({ card: open }: { card: OpenCard }) {
 
   return (
     <>
-      <div className={styles.top}>
-        <Button size="sm" variant="ghost" kbd="Esc" onClick={() => ui.openCardPanel(null)}>
-          <Icon name="back" size={12} /> Back
-        </Button>
-        <div className={styles.status}>
-          <Chip>{where}</Chip>
-          {proposal && <Chip tone={proposal.action === "add" ? "add" : "cut"}>Proposed {proposal.action}</Chip>}
-        </div>
+      <div className={styles.status}>
+        <Chip>{where}</Chip>
+        {proposal && <Chip tone={proposal.action === "add" ? "add" : "cut"}>Proposed {proposal.action}</Chip>}
       </div>
 
       <div className={styles.head}>
@@ -91,9 +86,7 @@ export function CardPanel({ card: open }: { card: OpenCard }) {
                     <InlineText text={proposal.reason} />
                   </Text>
                 )}
-                <Text tone="muted" size="sm" as="p">
-                  Accept or reject it in the Review tab.
-                </Text>
+                <Button size="sm" variant="agent" onClick={() => ui.setTab("review")}>Open Review</Button>
               </div>
             )
           )}

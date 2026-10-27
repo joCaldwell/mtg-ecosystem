@@ -1,3 +1,4 @@
+import { analyzeMana, type ManaCard } from "./mana.ts";
 import { creditedArt, type CardArt } from "../art.ts";
 // Decks, their organization, and the composite deck view. What is *in* a deck
 // changes only through deck/membership.ts; everything here is either deck
@@ -828,13 +829,13 @@ export function getDeck(db: Database, actor: Actor, deckId: number, opts: { pric
   const cards = prices.resolve(db
     .prepare(
       `SELECT c.oracle_id, c.name, c.mana_cost, c.cmc, c.type_line, c.oracle_text,
-              c.power, c.toughness, c.loyalty, c.color_identity, c.ci_mask,
+              c.power, c.toughness, c.loyalty, c.color_identity, c.ci_mask, c.layout, c.faces_json,
               c.commander_legality, c.is_commander, c.image_small, c.image_normal, c.image_art_crop, c.artist, c.retired,
               dc.slot_id, dc.role, dc.maybe, dc.maybe_note, dc.quantity
        FROM deck_cards dc JOIN cards c ON c.oracle_id = dc.oracle_id
        WHERE dc.deck_id = ? ORDER BY c.name`,
     )
-    .all(deckId) as unknown as DeckCardView[]);
+    .all(deckId) as unknown as (DeckCardView & Pick<ManaCard, "layout" | "faces_json">)[]);
 
   const tagRows = db
     .prepare("SELECT oracle_id, tag_id FROM deck_card_tags WHERE deck_id = ?")
@@ -894,7 +895,7 @@ export function getDeck(db: Database, actor: Actor, deckId: number, opts: { pric
     },
     slots,
     tags,
-    cards,
+    cards: cards.map(({ layout: _layout, faces_json: _faces, ...card }) => card),
     computed: computeState(deck, slots, cards, pendingItems, prices),
   };
 }
@@ -920,7 +921,7 @@ const isLand = (c: { type_line: string }) => /\bLand\b/.test(c.type_line);
 function computeState(
   deck: { ci_mask: number | null },
   slots: SlotRow[],
-  cards: DeckCardView[],
+  cards: (DeckCardView & Pick<ManaCard, "layout" | "faces_json">)[],
   pendingItems: PendingItem[],
   prices: PriceMetadata,
 ) {
@@ -933,6 +934,13 @@ function computeState(
   const deckCards = cards.filter((c) => !c.maybe);
   const mainCards = deckCards.filter((c) => c.role !== "companion");
   const cardCount = mainCards.reduce((n, c) => n + c.quantity, 0);
+  const displayTypes = ["Creature", "Planeswalker", "Battle", "Instant", "Sorcery", "Artifact", "Enchantment"];
+  const typeCounts: Record<string, number> = Object.fromEntries([...displayTypes, "Land", "Other"].map(type => [type, 0]));
+  for (const card of mainCards) {
+    const primary = isLand(card) ? "Land" : displayTypes.find(type => new RegExp(`\\b${type}\\b`).test(card.type_line)) ?? "Other";
+    typeCounts[primary] += card.quantity;
+  }
+
 
   const slotDeltas = slots.map((s) => {
     const primaryCount = mainCards
@@ -1072,6 +1080,8 @@ function computeState(
     average_mana_value: averageManaValue,
     curve,
     pips,
+    mana: analyzeMana(cards),
+    type_counts: typeCounts,
     cost,
   };
 }

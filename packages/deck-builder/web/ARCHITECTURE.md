@@ -8,8 +8,9 @@ with one-way dependencies, and one rule about where each kind of code goes.
 
 `Page` supplies a shared centered frame through the inherited `--page-width`:
 `md` is reading width, `lg` grows to `--page-wide` (1440 px), and `full` is
-uncapped. `PageHeader` keeps its background full width while its inner frame
-aligns its title/actions with page content. A feature must not add a second,
+uncapped. `PageHeader` uses the same black canvas, centered frame and gutter as its
+page content, with a real h1, aligned actions and optional compact state metadata.
+It has no separate background band or explanatory subtitle. A feature must not add a second,
 left-aligned width cap inside that frame. Prose can retain its reading measure.
 
 ```
@@ -485,3 +486,22 @@ optional tool permissions in a native disclosure. Token and grant management
 remain visible regardless of the selected method. Phone larger-screen notices
 use page titles and a separate back action; sign-in consent uses inline links
 with natural sentence wrapping.
+
+## Panel destinations and statistics (owner direction, 2026-10-27)
+
+DeckPanel has one native “Panel view” selector. Its selected destination always
+names the visible region: Brief, Power, Stats, Checks, Review, Memories, History
+or Card details. Card inspection remembers the deck view and offers a named
+Back action. Review remains available when empty. The same mounted panel moves
+through the existing portal host into the narrower sheet; its title follows the
+actual destination. Resizing never resets the card, review cursor or local draft.
+Review shortcuts cannot accept/reject from another focused panel destination.
+
+Stats arranges server totals, mana curve, type counts and computed.mana. Checks
+contains findings and soft slot targets. ReadOnlyDeck retains both sections.
+ManaComparison loads only with Stats or the reader's statistical composition.
+Its counts come from src/deck/mana.ts, shared with agent state text; the client
+never infers production. The analysis uses stored face/cost/Oracle/type facts,
+separates first and other faces, fixed/flexible/special costs and land/nonland
+source copies, and reports partial or unresolved patterns. Internal face JSON
+and layout used for analysis are stripped before the card wire is returned.

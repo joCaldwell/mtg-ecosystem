@@ -1,10 +1,9 @@
-// The right-hand column of the deck screen: one tab at a time, or the open
-// card over whichever tab that is. DeckBody sets the width; this fills it.
-
-import { useEffect, useRef } from "react";
-import { Tabs, type TabSpec } from "../../../ui/index.ts";
+// One explicit destination drives the header, content region and shared sheet.
+import { useEffect, useId, useRef } from "react";
+import { Button, Select } from "../../../ui/index.ts";
 import { useDeckState } from "../DeckStore.tsx";
 import { useDeckUi, type PanelTab } from "../DeckUi.tsx";
+import { PANEL_VIEWS, panelViewLabel } from "../panelViews.ts";
 import type { DeckViewModel } from "../useDeckView.ts";
 import type { Review } from "../useReview.tsx";
 import { BriefPanel } from "./BriefPanel.tsx";
@@ -14,64 +13,47 @@ import { HistoryPanel } from "./HistoryPanel.tsx";
 import { MemoriesPanel } from "./MemoriesPanel.tsx";
 import { PowerPanel } from "./PowerPanel.tsx";
 import { ReviewPanel } from "./ReviewPanel.tsx";
+import { StatsPanel } from "./StatsPanel.tsx";
 import styles from "./DeckPanel.module.css";
-
-const TABS: Array<{ id: PanelTab; label: string }> = [
-  { id: "brief", label: "Brief" },
-  { id: "power", label: "Power" },
-  { id: "checks", label: "Checks" },
-  { id: "memories", label: "Memories" },
-  { id: "history", label: "History" },
-];
 
 export function DeckPanel({ view, review }: { view: DeckViewModel; review: Review }) {
   const ui = useDeckUi();
   const state = useDeckState();
   const pending = view.units.length;
-  // The Review tab exists only while there is something to rule on, and the
-  // stored tab may be left over from before the last decision.
-  const tab: PanelTab = ui.tab === "review" && pending === 0 ? "brief" : ui.tab;
-
-  const tabs: TabSpec[] = [
-    ...(pending > 0 ? [{ id: "review", label: "Review", badge: pending, tone: "agent" as const }] : []),
-    ...TABS,
-  ];
-
-  // A new tab or a new card starts at the top, not wherever the last one was left.
+  const active = ui.openCard ? "card" : ui.tab;
+  const name = ui.openCard ? `Card details for ${ui.openCard.name}` : panelViewLabel(ui.tab);
+  const selectId = useId();
+  const bodyId = useId();
+  const selector = useRef<HTMLSelectElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const openId = ui.openCard?.oracleId ?? null;
+  useEffect(() => { body.current?.scrollTo({ top: 0 }); }, [ui.tab, openId]);
   useEffect(() => {
-    body.current?.scrollTo({ top: 0 });
-  }, [tab, openId]);
+    if (pending === 0 && ui.tab === "review" && !openId && document.activeElement === document.body) selector.current?.focus({ preventScroll: true });
+  }, [pending, ui.tab, openId]);
 
-  return (
-    <aside className={styles.panel} aria-label="Deck panel">
-      {/* With a card open no tab is highlighted, but the selected one stays the
-          keyboard stop so the row is still reachable. */}
-      <Tabs
-        tabs={tabs}
-        value={tab}
-        onChange={(id) => ui.setTab(id as PanelTab)}
-        className={ui.openCard ? `${styles.tabs} ${styles.none}` : styles.tabs}
-        aria-label="Panel"
-      />
-      <div ref={body} className={styles.body} role="tabpanel">
-        {ui.openCard ? (
-          <CardPanel key={ui.openCard.oracleId} card={ui.openCard} />
-        ) : tab === "review" ? (
-          <ReviewPanel view={view} review={review} />
-        ) : tab === "brief" ? (
-          <BriefPanel />
-        ) : tab === "power" ? (
-          <PowerPanel />
-        ) : tab === "checks" ? (
-          <ChecksPanel checks={state.checks} />
-        ) : tab === "memories" ? (
-          <MemoriesPanel />
-        ) : (
-          <HistoryPanel />
-        )}
+  return <aside className={styles.panel} aria-label="Deck panel" data-deck-panel>
+    <div className={styles.navigation}>
+      <label className={styles.label} htmlFor={selectId}>Panel view</label>
+      <div className={styles.controls}>
+        <Select ref={selector} id={selectId} aria-controls={bodyId} value={active} onChange={event => {
+          if (event.target.value !== "card") ui.setTab(event.target.value as PanelTab);
+        }}>
+          {ui.openCard && <option value="card">Card details</option>}
+          {PANEL_VIEWS.map(item => <option key={item.id} value={item.id}>{item.label}{item.id === "review" && pending ? ` (${pending})` : ""}</option>)}
+        </Select>
+        {ui.openCard && <Button size="sm" variant="ghost" onClick={() => { ui.openCardPanel(null); selector.current?.focus(); }}>Back to {panelViewLabel(ui.tab)}</Button>}
       </div>
-    </aside>
-  );
+    </div>
+    <div ref={body} id={bodyId} className={styles.body} role="region" aria-label={name} tabIndex={0} data-panel-body>
+      {ui.openCard ? <CardPanel key={ui.openCard.oracleId} card={ui.openCard} />
+        : ui.tab === "review" ? <ReviewPanel view={view} review={review} />
+        : ui.tab === "brief" ? <BriefPanel />
+        : ui.tab === "power" ? <PowerPanel />
+        : ui.tab === "stats" ? <StatsPanel />
+        : ui.tab === "checks" ? <ChecksPanel checks={state.checks} />
+        : ui.tab === "memories" ? <MemoriesPanel />
+        : <HistoryPanel />}
+    </div>
+  </aside>;
 }

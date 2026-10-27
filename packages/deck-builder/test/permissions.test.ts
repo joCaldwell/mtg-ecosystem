@@ -1093,6 +1093,7 @@ const globalProbes:Record<string,GlobalProbe>={
   cardsNamed:(fn,f)=>fn(f.db,"Forest"),requireCardById:(fn,f)=>fn(f.db,"id-forest"),
   resolveCard:(fn,f)=>fn(f.db,"Forest"),resolveCards:(fn,f)=>fn(f.db,["Forest"]),tryResolveCard:(fn,f)=>fn(f.db,"Forest"),
   suggestNames:(fn,f)=>fn(f.db,"Fores"),extractCardRefs:fn=>fn("Uses [[Forest]]"),lintProse:(fn,f)=>fn(f.db,"Uses [[Forest]]"),
+  analyzeMana:(fn,f,a,t)=>fn(decks.getDeck(f.db,a,t.id).cards.map(card=>({...card,layout:"normal",faces_json:null}))),
   copyLimit:(fn,f)=>fn(functions.requireCardById(f.db,"id-forest")),similarTag:fn=>fn(["Have"],"have"),validateVocabName:fn=>fn("Utility"),
   isDoctorPair:fn=>fn([]),parseDeckList:fn=>fn("7 Forest"),
   parseTarget:fn=>fn({profile:{}}),mapBracket:fn=>fn(power.parseTarget({profile:{}}).profile,0),

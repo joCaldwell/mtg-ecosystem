@@ -66,7 +66,7 @@ test("proposal arrival focuses its own reason and scrolls only its panel, preser
   const pane = { scrollTop: 100, clientHeight: 500, getBoundingClientRect: () => ({ top: 200, bottom: 700 }) };
   const target = {
     dataset: { reviewUnit: "chosen" },
-    closest: (selector: string) => selector === '[role="tabpanel"]' ? pane : { getBoundingClientRect: () => ({ top: 800 }) },
+    closest: (selector: string) => selector === '[data-panel-body]' ? pane : { getBoundingClientRect: () => ({ top: 800 }) },
     getClientRects: () => [{}], getBoundingClientRect: () => ({ top: 900, bottom: 1200 }),
     querySelector: () => ({ focus: (options: unknown) => calls.push(options) }),
   };

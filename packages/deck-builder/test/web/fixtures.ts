@@ -1,3 +1,4 @@
+import { analyzeMana } from "../../src/deck/mana.ts";
 // Minimal valid wire data for the domain tests. Typed against the real wire
 // types, so a server change that adds or renames a field fails this file's
 // typecheck instead of silently leaving the tests describing a shape the
@@ -258,6 +259,8 @@ function computedFor(
     average_mana_value: null,
     curve: { "0": 0, "1": 0, "2": 0, "3": 0, "4": 0, "5": 0, "6": 0, "7+": 0 },
     pips: { W: 0, U: 0, B: 0, R: 0, G: 0 },
+    mana: analyzeMana(cards.map(card => ({ ...card, layout: "normal", faces_json: null }))),
+    type_counts: {},
     cost: { cents: 0, unpriced: 0, as_of: null, currency: "USD", store: "tcgplayer", source: "Scryfall" },
   };
 }
