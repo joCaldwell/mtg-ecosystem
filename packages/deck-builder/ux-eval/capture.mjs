@@ -111,7 +111,7 @@ const SCREENS = [
     screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: ALL, states: [
       {
         state: "maybe-list", caption: "Scrolled to the maybe list",
-        act: async ({ page, vp }) => scrollUntilVisible(page, page.getByRole("heading", { name: "Maybe list" }).first(), vp, { top: true }),
+        act: async ({ page, vp }) => scrollUntilVisible(page, page.getByRole("region", { name: "Maybe list" }).first(), vp, { top: true }),
       },
     ],
   },
