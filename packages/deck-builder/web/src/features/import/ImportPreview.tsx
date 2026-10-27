@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import type { ImportDiff } from "../../api/client.ts";
 import { useCardHover } from "../../mtg/index.ts";
 import { Box, ErrorNote, Stack, Text } from "../../ui/index.ts";
@@ -11,6 +11,7 @@ import styles from "./ImportPreview.module.css";
 export function ImportPreview({ diff }: { diff: ImportDiff }) {
   const hover = useCardHover();
   const problemsId = useId();
+  const sectionId = useId();
   const decreases = diff.quantity_changes.filter((q) => q.to < q.from);
   const increases = diff.quantity_changes.filter((q) => q.to > q.from);
   // A misspelled line leaves its card out of the list, so the card shows up as a cut. Say so, so the
@@ -20,6 +21,21 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
   const changes = useRef<HTMLDivElement>(null);
   const [more, setMore] = useState(0);
   const [scrollbar, setScrollbar] = useState({ height: 100, top: 0 });
+  function jump(event: MouseEvent<HTMLAnchorElement>, section: string) {
+    event.preventDefault();
+    const el = changes.current;
+    const group = document.getElementById(`${sectionId}-${section}`) as HTMLDetailsElement | null;
+    if (!el || !group) return;
+    group.open = true;
+    // Only move the changes pane; the omissions and Apply controls stay put.
+    el.scrollBy({ top: group.getBoundingClientRect().top - el.getBoundingClientRect().top });
+    group.querySelector("summary")?.focus({ preventScroll: true });
+    measureRemaining();
+  }
+  function countLink(section: string, count: number, label: string, tone?: "add" | "cut") {
+    const content = <><Text mono tone={count ? tone : "muted"}>{count}</Text> {label}</>;
+    return count ? <a className={styles.sectionLink} href={`#${sectionId}-${section}`} onClick={event => jump(event, section)}>{content}</a> : content;
+  }
   function measureRemaining() {
     const el = changes.current;
     if (!el) return;
@@ -40,24 +56,18 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
     <div className={styles.preview}>
       <Stack gap={3} className={styles.summary} role="status" tabIndex={-1} data-import-summary>
         <Text as="p" tone="muted">
-          <Text mono tone={diff.cut_count ? "cut" : "muted"}>
-            {diff.cut_count}
-          </Text>{" "}
-          to cut ·{" "}
-          <Text mono tone={diff.add_count ? "add" : "muted"}>
-            {diff.add_count}
-          </Text>{" "}
-          to add · <Text mono>{diff.unchanged}</Text> unchanged
+          {countLink("cuts", diff.cut_count, "to cut", "cut")} ·{" "}
+          {countLink("adds", diff.add_count, "to add", "add")} · <Text mono>{diff.unchanged}</Text> unchanged
           {diff.role_changes.length ? (
             <>
               {" "}
-              · <Text mono>{diff.role_changes.length}</Text> {diff.role_changes.length === 1 ? "role change" : "role changes"}
+              · {countLink("roles", diff.role_changes.length, diff.role_changes.length === 1 ? "role change" : "role changes")}
             </>
           ) : null}
           {diff.set_aside.length ? (
             <>
               {" "}
-              · <Text mono>{diff.set_aside.length}</Text> set aside
+              · {countLink("aside", diff.set_aside.length, "set aside")}
             </>
           ) : null}
           {problems ? (
@@ -149,7 +159,7 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
       <div ref={changes} onScroll={measureRemaining} className={styles.changes} role="region" aria-label="Import changes" tabIndex={0}>
         <Stack gap={5}>
         {diff.cuts.length + decreases.length > 0 ? (
-          <Group title="Will be cut" count={diff.cut_count} tone="cut">
+          <Group id={`${sectionId}-cuts`} onToggle={measureRemaining} title="Will be cut" count={diff.cut_count} tone="cut">
             {diff.cuts.map((c) => (
               <CardLine
                 key={c.oracle_id}
@@ -175,7 +185,7 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
         ) : null}
 
         {diff.adds.length + increases.length > 0 ? (
-          <Group title="Will be added" count={diff.add_count} tone="add">
+          <Group id={`${sectionId}-adds`} onToggle={measureRemaining} title="Will be added" count={diff.add_count} tone="add">
             {diff.adds.map((a) => (
               <CardLine
                 key={a.oracle_id}
@@ -201,7 +211,7 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
         ) : null}
 
         {diff.role_changes.length > 0 ? (
-          <Group title="Will change role" count={diff.role_changes.length}>
+          <Group id={`${sectionId}-roles`} onToggle={measureRemaining} title="Will change role" count={diff.role_changes.length}>
             {diff.role_changes.map((r) => (
               <CardLine key={r.oracle_id} oracleId={r.oracle_id} name={r.name} detail={`${r.from} → ${r.to}`} />
             ))}
@@ -209,7 +219,7 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
         ) : null}
 
         {diff.set_aside.length > 0 ? (
-          <Group title="Set aside to the maybe list" count={diff.set_aside.length}>
+          <Group id={`${sectionId}-aside`} onToggle={measureRemaining} title="Set aside to the maybe list" count={diff.set_aside.length}>
             <li className={styles.note}>
               Listed under Maybeboard or Sideboard, so shortlisted on the maybe list and not added to the deck.
             </li>
@@ -241,22 +251,26 @@ function addDetail(a: ImportDiff["adds"][number]): ReactNode {
 }
 
 function Group({
+  id,
+  onToggle,
   title,
   count,
   tone,
   children,
 }: {
+  id: string;
+  onToggle: () => void;
   title: string;
   count: number;
   tone?: "add" | "cut";
   children: ReactNode;
 }) {
   return (
-    <Stack gap={2}>
-      <Text weight="medium" size="sm" as="h3" tone={tone}>
-        {title} · <Text mono>{count}</Text>
-      </Text>
+    <details id={id} open className={styles.group} onToggle={onToggle}>
+      <summary>
+        <Text weight="medium" size="sm" tone={tone}>{title} · <Text mono>{count}</Text></Text>
+      </summary>
       <ul className={styles.list}>{children}</ul>
-    </Stack>
+    </details>
   );
 }

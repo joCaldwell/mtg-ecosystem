@@ -74,7 +74,7 @@ test("preview pins totals and warnings and links problem count to omissions befo
   assert.ok(changes > html.indexOf("Test warning"));
   assert.ok(changes > html.indexOf("problem line"));
   assert.ok(changes > html.indexOf("Removes"));
-  const target = html.match(/<a[^>]*href="#([^"]+)"[^>]*>.*?problem line<\/a>/s)?.[1];
+  const target = html.match(/<a[^>]*href="#([^"]+)"[^>]*>(?:(?!<\/a>).)*?problem line<\/a>/s)?.[1];
   assert.ok(target, "the problem count is a fragment link");
   assert.ok(html.includes(`id="${target}" role="region" aria-label="Not imported" tabindex="0"`), "it targets the focusable problem section");
   assert.ok(html.indexOf("Not imported") < changes, "omission warnings remain outside and before the scrolling change list");

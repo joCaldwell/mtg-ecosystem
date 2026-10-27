@@ -395,6 +395,10 @@ stay above the independently scrolling changes, with cuts first; Apply and
 the optional History note remain in Dialog's footer. Formats is a native
 disclosure in the source step. Dialog's optional `bodyClassName` lets this
 workflow size its scrolling region without changing other dialogs.
+Nonzero change counts link to their sections inside the changes pane and
+focus the section's native summary. Each section starts open, can collapse
+after review, and reopens when its count is chosen; warnings and Apply stay
+in place while navigating the change list.
 
 ## Sidebar navigation
 

@@ -46,5 +46,12 @@
 .changes:focus-visible { outline: 2px solid var(--sel); outline-offset: -2px; }
 
 .problemLink { color: var(--warn); text-decoration: underline; text-underline-offset: var(--s-1); }
+.sectionLink { color: inherit; text-decoration: underline; text-decoration-color: var(--faint); text-underline-offset: var(--s-1); }
+.sectionLink:hover { color: var(--text); }
+.group > summary { cursor: pointer; padding-block: var(--s-3); }
+.group > summary:focus-visible { outline: 2px solid var(--sel); outline-offset: -2px; }
+@media (max-width: 1099px) {
+  .group > summary { min-height: var(--tap); align-content: center; }
+}
 
 @supports not selector(::-webkit-scrollbar) { .changes { scrollbar-color: var(--muted) var(--raised); } }
