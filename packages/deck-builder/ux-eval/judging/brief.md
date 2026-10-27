@@ -51,7 +51,10 @@ a public page, which anyone can open without an account.
 2. **Colour means something or it is grey.** Violet: an agent wrote or
    proposed it. Green: coming in, passing, accepted. Red: going out, failing,
    rejected. Amber: off target or missing. Blue: the owner's selection and
-   focus. Everything else is grey. Mana colours appear only in mana symbols.
+   focus. Everything else is grey. Mana colours appear in mana symbols and in the
+   paired colour-distribution charts in deck Stats. The charts compare fixed
+   coloured cost symbols and recognized source-colour counts, each normalized
+   to its own total; multicolour sources contribute to multiple colour counts.
 3. **Text first.** Cards are names, costs and rules text; the card picture
    appears on demand. Public deck pages show the commander's art.
 4. **Dense, not cramped.** Small body text and one line per card on desktop,
@@ -63,6 +66,16 @@ a public page, which anyone can open without an account.
 
 Phones (under 720 px) are for reading and deciding; screens that cannot work
 there say "Open on a larger screen". From 720 px up it is the full app.
+
+## Desktop interface direction
+
+Deck-level panel destinations remain visible together on one line. Card
+inspection replaces that navigation with Back and the card header; Back
+returns to the previous deck view. Stats and Checks are separate destinations.
+Page titles and actions share the content frame, without a full-width header
+band or explanatory subtitle. Keep help specific and concise; ordinary
+controls should explain themselves. Maybe rows open card details across the
+row and do not display purpose assignments.
 
 ## How to read the screenshots
 

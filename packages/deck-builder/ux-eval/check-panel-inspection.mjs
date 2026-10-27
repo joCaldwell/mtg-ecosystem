@@ -38,11 +38,22 @@ try {
       await panel.getByRole("region", { name: label, exact: true }).waitFor();
       if (label === "Stats") {
         const comparison = panel.getByRole("region", { name: "Mana demand and sources", exact: true });
+        await comparison.waitFor();
+        const expected = before.computed.mana.first_face;
+        const costCounts = ["W", "U", "B", "R", "G"].map(color => expected.costs.fixed_symbols[color]);
+        const sourceCounts = ["W", "U", "B", "R", "G"].map(color => expected.sources.land.by_type[color] + expected.sources.nonland.by_type[color]);
+        assert.deepEqual((await comparison.getByRole("figure", { name: "Cost demand", exact: true }).locator("li b").allTextContents()).map(Number), costCounts);
+        assert.deepEqual((await comparison.getByRole("figure", { name: "Direct sources", exact: true }).locator("li b").allTextContents()).map(Number), sourceCounts);
+        await comparison.getByText(`${costCounts.reduce((a, b) => a + b, 0)} fixed coloured symbols`, { exact: true }).waitFor();
+        await comparison.getByText(`${sourceCounts.reduce((a, b) => a + b, 0)} source-colour counts`, { exact: true }).waitFor();
+        const exact = comparison.locator("summary").filter({ hasText: "Exact colour counts" });
+        await exact.focus(); await exact.press("Enter");
         const rows = comparison.locator("table").first().locator("tbody tr");
         for (const [index, color] of ["W", "U", "B", "R", "G"].entries()) {
           const expected = before.computed.mana.first_face;
           assert.deepEqual((await rows.nth(index).locator("td").allTextContents()).map(Number), [expected.costs.fixed_symbols[color], expected.sources.land.by_type[color], expected.sources.nonland.by_type[color]]);
         }
+        await exact.press("Enter");
         const costs = comparison.locator("summary").filter({ hasText: "Other cost symbols" });
         await costs.focus(); await costs.press("Enter");
         await comparison.getByText(`${before.computed.mana.first_face.costs.generic_units} generic units · ${before.computed.mana.first_face.costs.snow_symbols} snow symbols`, { exact: true }).waitFor();

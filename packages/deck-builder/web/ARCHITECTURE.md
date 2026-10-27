@@ -510,8 +510,15 @@ Review shortcuts cannot accept/reject from another focused panel destination.
 Stats arranges server totals, mana curve, type counts and computed.mana. Checks
 contains findings and soft slot targets. ReadOnlyDeck retains both sections.
 ManaComparison loads only with Stats or the reader's statistical composition.
-Totals and curve lead; the first-face colour demand/source table remains visible.
-Other costs, alternative faces and source coverage use specific disclosures.
+Totals and a readable count-labelled curve lead. Paired WUBRG donuts use
+independent fixed-symbol and source-colour-count denominators, with visible exact
+legends. Source colours overlap; shares are never unique-card percentages.
+Chart groups stack at small/default panel widths and pair only when each has
+room. The pure domain/deckStats adapter arranges computed buckets; it does not
+parse cards or infer production. Colourless, any-colour and flexible counts stay
+separate. Exact tables, other costs/faces and coverage use specific disclosures.
+Type bars use the server's exclusive display groups, one group per card. The
+curve excludes lands without a printed cost; it is not unconditionally nonland.
 Its counts come from src/deck/mana.ts, shared with agent state text; the client
 never infers production. The analysis uses stored face/cost/Oracle/type facts,
 separates first and other faces, fixed/flexible/special costs and land/nonland

@@ -1,7 +1,9 @@
 import type { DeckState } from "../../../api/client.ts";
 import { CardRef, ManaCost } from "../../../mtg/index.ts";
 import { Eyebrow, KeyValue, Stack, Text } from "../../../ui/index.ts";
+import { manaDistributions } from "../../../domain/deckStats.ts";
 import { ManaFaceTable } from "./ManaFaceTable.tsx";
+import { ManaDistribution } from "./ManaDistribution.tsx";
 import styles from "./ManaComparison.module.css";
 
 type Mana = DeckState["computed"]["mana"];
@@ -19,12 +21,14 @@ const REASONS: Record<string, string> = {
 };
 export function ManaComparison({ mana }: { mana: Mana }) {
   const face = mana.first_face, coverage = mana.coverage;
+  const distributions = manaDistributions(mana);
   const flexible = (value: Mana["first_face"]) => Object.entries(value.costs.flexible_symbols).length
     ? <span className={styles.flexible}>{Object.entries(value.costs.flexible_symbols).map(([symbol, count]) => <span key={symbol}><ManaCost cost={symbol} /> × {count}</span>)}</span> : "None";
   const separateSources = (value: Mana["first_face"]) => <KeyValue items={[
     ...(value.sources.land.any_color_copies || value.sources.nonland.any_color_copies ? [["Any-colour sources", `${value.sources.land.any_color_copies} lands · ${value.sources.nonland.any_color_copies} other permanents`] as [string, string]] : []),
     ...(value.costs.fixed_symbols.C || value.sources.land.by_type.C || value.sources.nonland.by_type.C ? [["Colourless C", `${value.costs.fixed_symbols.C} cost symbols · ${value.sources.land.by_type.C} lands · ${value.sources.nonland.by_type.C} other permanents`] as [string, string]] : []),
     ...(Object.keys(value.costs.flexible_symbols).length ? [["Flexible costs", flexible(value)] as [string, ReturnType<typeof flexible>]] : []),
+    ...(Object.values(value.costs.variable_symbols).some(Boolean) ? [["Variable symbols", Object.entries(value.costs.variable_symbols).filter(([, count]) => count > 0).map(([symbol, count]) => `${symbol} × ${count}`).join(" · ")] as [string, string]] : []),
   ]} />;
   const otherCosts = (value: Mana["first_face"]) => <KeyValue items={[
     ["Generic / snow", `${value.costs.generic_units} generic units · ${value.costs.snow_symbols} snow symbols`],
@@ -33,10 +37,18 @@ export function ManaComparison({ mana }: { mana: Mana }) {
   ]} />;
   return <section className={styles.section} aria-label="Mana demand and sources">
     <Eyebrow>Mana costs and sources</Eyebrow>
-    {coverage.other_face_copies > 0 && <Text tone="muted" size="sm">First printed faces; other faces below.</Text>}
-    <ManaFaceTable face={face} />
-    <Text tone="muted" size="sm">Direct source copies may overlap; not available mana or casting odds.</Text>
+    <div className={styles.charts}>
+      <ManaDistribution title="Cost demand" unit="fixed coloured symbols" centerUnit="symbols" distribution={distributions.costs} empty="No fixed coloured cost symbols." />
+      <ManaDistribution title="Direct sources" unit="source-colour counts" centerUnit="counts" distribution={distributions.sources} empty="No named source colours recognized." />
+    </div>
+    <Text tone="muted" size="sm">Compare colour proportions, not totals. A multicolour source counts in each colour.</Text>
+    {coverage.other_face_copies > 0 && <Text tone="muted" size="sm">First printed faces; other faces stay separate below.</Text>}
     {separateSources(face)}
+    {!distributions.sources.total && (face.sources.land.any_color_copies + face.sources.nonland.any_color_copies > 0) && <Text tone="muted" size="sm">Any-colour sources are listed separately.</Text>}
+    <details className={styles.details}>
+      <summary>Exact colour counts</summary>
+      <ManaFaceTable face={face} />
+    </details>
     <details className={styles.details}>
       <summary>Other cost symbols</summary>
       {otherCosts(face)}
@@ -51,10 +63,11 @@ export function ManaComparison({ mana }: { mana: Mana }) {
       </Stack>
     </details>}
     <details className={styles.details}>
-      <summary>Source coverage · {coverage.unresolved_source_copies} unresolved{coverage.partial_source_copies ? ` · ${coverage.partial_source_copies} partial` : ""}{coverage.cost_issue_copies ? ` · ${coverage.cost_issue_copies} cost issues` : ""}</summary>
+      <summary>{coverage.unresolved_source_copies || coverage.partial_source_copies || coverage.cost_issue_copies ? <>Source coverage{coverage.unresolved_source_copies ? ` · ${coverage.unresolved_source_copies} unresolved` : ""}{coverage.partial_source_copies ? ` · ${coverage.partial_source_copies} partial` : ""}{coverage.cost_issue_copies ? ` · ${coverage.cost_issue_copies} cost issues` : ""}</> : "Source recognition details"}</summary>
       <Stack gap={4}>
       <Text size="sm" tone="soft">Across printed faces: {coverage.recognized_source_copies} source copies recognized ({coverage.partial_source_copies} partial) · {coverage.no_supported_source_pattern_copies} without a supported pattern.</Text>
       <Text size="sm" tone="muted">Conditions, spells, fetches and granted production need review. No supported pattern means unrecognized, not a confirmed non-producer.</Text>
+      <Text size="sm" tone="muted">Counts are not available mana or casting odds.</Text>
       <Stack gap={4}>{mana.issues.map((issue, index) => <div key={`${issue.oracle_id}/${issue.face_index}/${index}`} className={styles.issue}>
         <div><CardRef name={issue.name} />{issue.quantity > 1 ? ` × ${issue.quantity}` : ""}</div>
         <Text tone="muted" size="sm">{REASONS[issue.reason] ?? issue.reason}{issue.face_index > 0 ? ` · face ${issue.face_index + 1}` : ""}{issue.excerpt ? `: ${issue.excerpt}` : ""}</Text>

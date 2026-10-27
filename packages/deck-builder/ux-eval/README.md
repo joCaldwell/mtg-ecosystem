@@ -157,6 +157,15 @@ Escape leaves inspection before closing the sheet; Close closes it. Checks
 that hidden content is inaccessible and deck data is unchanged. Refuses hosted
 origins. The default seeded deck is 2; `--deck` can select an equivalent fixture.
 
+### `node check-visual-stats.mjs [--origin http://127.0.0.1:8858] [--out <dir>]`
+
+Uses an existing disposable `serve.ts` copy. Resolves chart fixtures against the
+seed card database and creates fixture decks through the API. Checks independent
+colour denominators, visible legends, mono/zero/any-colour/colourless/overlapping
+source/alternative-face states, adaptive actual panels at four desktop widths,
+accessibility and unchanged inspection data. Also checks Share controls after
+prose removal. Refuses non-loopback origins. Start a fresh fixture server first.
+
 ### `node compare.mjs <runA> <runB>`
 
 Pairs two runs and lists images and metrics that differ. Run it whenever the

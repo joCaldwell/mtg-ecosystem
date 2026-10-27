@@ -479,3 +479,19 @@ follows the selection, including in the shared sheet. Statistics lead with total
 and curve, retain the colour demand/source comparison, and disclose detailed
 costs, other faces and source coverage. Use a concise methods legend; mana
 source copies do not imply guaranteed output, adequacy or casting probability.
+
+
+## Visual deck statistics
+
+Deck Stats uses summary metrics, a count-labelled mana curve, paired colour
+distributions and neutral type-group bars. The owner authorizes WUBRG colour
+fills for these charts, matching named visible legends; Black uses its dark
+mana fill with a pale boundary, distinct from an empty ring. Each donut states
+its own units and total. Fixed cost symbols and recognized source-colour counts
+are different denominators; source colours may overlap. No shared total,
+deficit, available-mana or casting-odds implication is made. Chart groups stack
+at minimum/default panel widths, pairing only with enough actual content width
+for two readable charts and legends. Empty rings show explicit zero states;
+mono-colour is a complete ring. Exact non-coloured costs, any-colour output,
+alternative faces and incomplete source evidence stay separate in specific
+details. Chart labels remain at least the small text size; values need no hover.

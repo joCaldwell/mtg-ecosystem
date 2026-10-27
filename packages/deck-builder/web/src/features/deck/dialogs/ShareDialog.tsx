@@ -1,19 +1,13 @@
 // Who can read this deck (spec §18.2). Only the owner chooses, here; no
-// agent can. Each choice says in plain words what it does, and the link
-// appears once the deck has one.
+// agent can. The selected control is the visibility state; a link appears
+// once the deck has one.
 
-import { api, type Visibility } from "../../../api/client.ts";
+import { api } from "../../../api/client.ts";
 import { href } from "../../../app/routes.ts";
 import { Button, Checkbox, Dialog, ErrorNote, Eyebrow, Icon, Segmented, Stack, Text, TextField, useToast } from "../../../ui/index.ts";
 import { useDeckState } from "../DeckStore.tsx";
 import { useAttempt } from "./useAttempt.ts";
 import styles from "./ShareDialog.module.css";
-
-const CONSEQUENCE: Record<Visibility, string> = {
-  private: "Only you can see this deck. Its link, if it had one, shows nothing to anyone else.",
-  unlisted: "Anyone with the link can read the list, brief, checks and power, without an account. It is not listed on your profile or in search engines.",
-  public: "Anyone can read it, and it is listed on your profile. Search engines may index it.",
-};
 
 export function ShareDialog({ onClose }: { onClose: () => void }) {
   const { deck } = useDeckState();
@@ -41,11 +35,6 @@ export function ShareDialog({ onClose }: { onClose: () => void }) {
               { value: "public", label: <><Icon name="globe" /> Public</> },
             ]}
           />
-          <Text tone="soft" as="p" role="status">{CONSEQUENCE[deck.visibility]}</Text>
-          <Text size="xs" tone="faint" as="p">
-            Viewers never see your memories, pending proposals, ownership notes, activity or your agents' names. Only
-            you can change this, and agents never can.
-          </Text>
         </Stack>
 
         <Stack gap={3}>
@@ -56,7 +45,7 @@ export function ShareDialog({ onClose }: { onClose: () => void }) {
               <Button onClick={() => void copy()} disabled={deck.visibility === "private"}>Copy link</Button>
             </div>
           ) : (
-            <Text tone="muted" as="p">Choose Unlisted or Public to make a link. It stays the same from then on.</Text>
+            <Text tone="muted" as="p">Choose Unlisted or Public to create a link.</Text>
           )}
           {link && <a href={href({ page: "shared", slug: deck.slug! })} target="_blank" rel="noreferrer">See what viewers see</a>}
         </Stack>
@@ -69,10 +58,6 @@ export function ShareDialog({ onClose }: { onClose: () => void }) {
             onChange={(publish_decisions) => void mutate(() => api.setSharing(deck.id, { publish_decisions }))}
             label="Show this deck's decisions log on its page"
           />
-          <Text size="xs" tone="muted" as="p">
-            Off by default. When on, each entry in the History tab can be hidden from the page on its own. Agents are shown
-            only as “an agent”.
-          </Text>
         </Stack>
         {error && <ErrorNote>{error}</ErrorNote>}
       </Stack>

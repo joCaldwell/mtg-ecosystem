@@ -5,30 +5,33 @@
 .totals dd { margin: 0; font: var(--text-xl) var(--font-mono); font-variant-numeric: tabular-nums; }
 .maximum { color: var(--muted); font-size: var(--text-sm); }
 .curve {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   align-items: flex-end;
   gap: var(--s-3);
+  border-bottom: 1px solid var(--line-strong);
 }
 
 .col {
-  display: grid;
-  flex: 1;
-  justify-items: center;
-  align-content: end;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  height: var(--deck-curve-height);
   gap: var(--s-2);
 }
 
 .bar {
   display: block;
   width: 100%;
-  min-height: 2px;
+  height: calc(var(--deck-curve-bar-height) * var(--curve-share));
   border-radius: var(--r-sm) var(--r-sm) 0 0;
-  background: var(--line-strong);
+  background: var(--text-soft);
 }
 
 .count,
 .bucket {
-  font: var(--text-2xs) var(--font-mono);
+  font: var(--text-sm) var(--font-mono);
 }
 
 .count {
@@ -40,10 +43,16 @@
 }
 
 .types {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s-2);
+  display: grid;
+  gap: var(--s-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
 }
+.types > li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) max-content; align-items: center; gap: var(--s-5); }
+.typeTrack { display: block; height: var(--s-4); background: var(--raised); border-radius: var(--r-sm); overflow: hidden; }
+.typeTrack > i { display: block; height: 100%; background: var(--text-soft); border-radius: inherit; }
 
 .typeCount {
   color: var(--text);

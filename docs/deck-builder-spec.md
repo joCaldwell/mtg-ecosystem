@@ -1032,6 +1032,12 @@ variable, snow, colourless and flexible symbols stay explicit. First and other
 printed faces are alternatives, never simultaneous resources. Any-colour output
 stays separate; multi-colour source rows overlap. Conditional, indirect and
 unsupported text is unresolved. These are not available mana or casting odds.
+Primary colour distributions have separate normalized denominators: fixed
+WUBRG cost symbols and summed named-colour source-copy counts, including land
+and nonland sources. Exact named legends remain visible; a multicolour source
+contributes to each colour, not multiple unique cards. Mono and empty states
+remain explicit. Strong count-labelled curve and type-group bars complement
+the paired charts; exact exceptions/evidence remain in details.
 The capability layer computes the same additive analysis for UI and agents,
 without colour-identity proxies, permissions changes or schema migrations.
 

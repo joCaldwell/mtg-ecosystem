@@ -106,6 +106,30 @@ async function panelView(page, vp, view) {
   else await press(page, page.getByRole("tab", { name: "Checks", exact: true }), vp);
 }
 
+async function statsSection(page, vp, watch, section) {
+  await panelView(page, vp, "stats");
+  await settle(page, watch);
+  const panel = page.getByRole("complementary", { name: "Deck panel" });
+  const modern = panel.getByRole("region", { name: "Mana demand and sources", exact: true });
+  const modernBuild = await panel.getByRole("navigation", { name: "Deck panel views", exact: true }).count() > 0 || await page.getByRole("combobox", { name: "Panel view", exact: true }).count() > 0;
+  if (modernBuild) await modern.waitFor();
+  const target = section === "colours"
+    ? (modernBuild ? modern : panel.getByText("Colour · share of coloured symbols in costs", { exact: true }))
+    : panel.getByText(modernBuild ? "Card types" : "Types", { exact: true });
+  await target.waitFor();
+  const currentPane = panel.locator("[data-panel-body]");
+  const pane = await currentPane.count() ? currentPane : panel.getByRole("tabpanel");
+  for (let pass = 0; pass < 3; pass++) {
+    const row = await target.boundingBox(), box = await pane.boundingBox();
+    if (!row || !box) throw new Error("Stats section has no rendered bounds");
+    const distance = row.y - box.y - 16;
+    if (Math.abs(distance) < 3) break;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.wheel(0, Math.round(distance));
+    await settle(page, watch);
+  }
+}
+
 /** One screen: a path, a user, and the states reached from it in order. */
 const SCREENS = [
   { screen: "sign-in", user: 0, path: "/signin", widths: PUBLIC, states: [{ state: "default", caption: "Sign-in page, signed out" }] },
@@ -129,6 +153,10 @@ const SCREENS = [
   ...["stats", "checks"].map(view => ({
     screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: APP,
     states: [{ state: view, caption: view === "stats" ? "Deck statistics" : "Deck checks and slot targets", act: async ({ page, vp }) => panelView(page, vp, view) }],
+  })),
+  ...["colours", "types"].map(section => ({
+    screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: APP,
+    states: [{ state: `stats-${section}`, caption: section === "colours" ? "Mana colour demand and sources" : "Deck type breakdown", act: async ({ page, vp, watch }) => statsSection(page, vp, watch, section) }],
   })),
   {
     screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: ALL, states: [
@@ -225,6 +253,13 @@ async function runScreen(def, width, slug) {
         if (s.act) await s.act({ page, vp, watch });
         await releaseHeld(page);
         await settle(page, watch);
+        // Dynamic Stats can finish just below the first viewport. Wait for
+        // its actual content before taking a full public-page screenshot.
+        if (def.screen === "public-deck") {
+          const loading = page.getByRole("status").filter({ hasText: /^Loading…$/ });
+          if (await loading.count()) await loading.waitFor({ state: "hidden" });
+          await settle(page, watch);
+        }
       } catch (e) {
         failures.push({ key, error: String(e.message ?? e).split("\n")[0] });
       }

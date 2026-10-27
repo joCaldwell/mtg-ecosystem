@@ -158,6 +158,11 @@
   /* Application page frame; prose keeps its own shorter reading measure. */
   --page-wide: 1440px;
   --stats-column-min: 280px;
+  /* Deck Stats charts: independent of collection-wide summary layouts. */
+  --deck-mana-chart-min: 288px;
+  --deck-mana-donut: 112px;
+  --deck-curve-bar-height: 112px;
+  --deck-curve-height: 152px;
   --stats-identity-min: 144px;
   --settings-card-min: 440px;
   --toolbar-add-w: 300px;
