@@ -287,11 +287,11 @@ printed artist and copyright lines.
 
 | Variant | Placement | Band (`--band`) | Loading |
 | --- | --- | --- | --- |
-| strip | Desktop and phone home cards | `--art-strip-space` | lazy: `load` from `useNearView` (200 px) |
-| banner | Owner and phone deck headers | `--art-banner-space`, smaller on tablet/phone | `priority="auto"` (eager) |
-| showcase | Public deck page | `--art-showcase-space` (176 px), 112 px on phones | `priority="high"` (eager, `fetchpriority=high`) |
-| backdrop | Sign-in and empty-account landing only | `--art-backdrop-space` | `priority="auto"`; one land per visit, no rotation |
-| thumbnail | Sidebar rail, including the drawer | `--art-thumb` (16 px), the icon column | lazy: `useNearView` in the rail, `fetchpriority=low` |
+| strip | Desktop and phone home cards | `--art-strip-space` | deferred: `load` from `useNearView` (200 px), then eager |
+| banner | Owner and phone deck headers | `--art-banner-space`, smaller on tablet/phone | eager |
+| showcase | Public deck page | `--art-showcase-space` (176 px), 112 px on phones | eager, `priority="high"` (`fetchpriority`) |
+| backdrop | Sign-in and empty-account landing only | `--art-backdrop-space` | eager; one land per visit, no rotation |
+| thumbnail | Sidebar rail, including the drawer | `--art-thumb` (16 px), the icon column | deferred: `useNearView` in the rail, `fetchpriority=low` |
 
 - **The art is a band above the content.** Content starts where the band
   ends, on `--art-overlay-text` or darker, and the crop fades into the
