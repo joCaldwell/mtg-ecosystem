@@ -3,7 +3,7 @@
 // mode, against a fresh copy of the seed database, serving a web build made
 // outside the repository.
 //
-//   node serve.ts [--port 8830] [--seed /tmp/ux-eval/seed/seed.db] [--dist <dir>]
+//   node serve.ts [--port 8830] [--seed <UX_EVAL_ROOT>/seed/seed.db] [--dist <dir>]
 //   node serve.ts --build-only [--build-dir <dir>]     prints the dist path
 //
 // Sessions are mocked the way test/sharing-http.test.ts and
@@ -15,6 +15,7 @@
 // Rate limits are raised in-process: a capture makes hundreds of requests a
 // minute as one user, which a real person never does.
 
+import { UX_EVAL_ROOT } from "./lib/paths.mjs";
 import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,16 +50,16 @@ export function buildWeb(dir: string): string {
 }
 
 if (flag("build-only")) {
-  const dir = resolve(arg("build-dir") ?? join("/tmp/ux-eval/build", randomUUID().slice(0, 8)));
+  const dir = resolve(arg("build-dir") ?? join(UX_EVAL_ROOT, "build", randomUUID().slice(0, 8)));
   console.log(buildWeb(dir));
   process.exit(0);
 }
 
 const PORT = Number(arg("port", "8830"));
-const SEED = resolve(arg("seed", "/tmp/ux-eval/seed/seed.db")!);
+const SEED = resolve(arg("seed", join(UX_EVAL_ROOT, "seed", "seed.db"))!);
 if (!existsSync(SEED)) throw new Error(`No seed database at ${SEED}; run node seed.ts first`);
 const ORIGIN = `http://127.0.0.1:${PORT}`;
-const work = join("/tmp/ux-eval/serve", String(PORT));
+const work = join(UX_EVAL_ROOT, "serve", String(PORT));
 rmSync(work, { recursive: true, force: true });
 mkdirSync(join(work, "data"), { recursive: true });
 const dist = arg("dist") ? resolve(arg("dist")!) : buildWeb(join(work, "build"));

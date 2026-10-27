@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Builds the deterministic fixture database the capture runs against.
 //
-//   node seed.ts [--out /tmp/ux-eval/seed/seed.db] [--source <owner-copy.db>]
+//   node seed.ts [--out <UX_EVAL_ROOT>/seed/seed.db] [--source <owner-copy.db>]
 //
 // Card facts are copied from a snapshot of a real database (cards, card_names,
 // card_prices and the ingest/price meta keys only; no user row is copied).
@@ -11,6 +11,7 @@
 // Time and randomness are fixed (lib/determinism.ts), so the same inputs give
 // the same database.
 
+import { UX_EVAL_ROOT } from "./lib/paths.mjs";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,9 +26,9 @@ function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
-const OUT = resolve(arg("out", "/tmp/ux-eval/seed/seed.db"));
+const OUT = resolve(arg("out", join(UX_EVAL_ROOT, "seed", "seed.db")));
 const SOURCE = resolve(arg("source", "/home/josh/.t3/worktrees/mtg-ecosystem/t3-aa7eb73f/packages/deck-builder/.dev/owner-copy.db"));
-const CACHE = "/tmp/ux-eval/cache";
+const CACHE = join(UX_EVAL_ROOT, "cache");
 // The snapshot predates stored image URLs and artists. When this Scryfall
 // oracle bulk file is present, those two facts are filled from it through the
 // app's own toRow() mapping; nothing else is taken from it.

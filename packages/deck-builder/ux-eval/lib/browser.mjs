@@ -1,6 +1,7 @@
 // Browser-side helpers for capture.mjs: deterministic contexts, settling,
 // real-input scrolling, screenshots and the hard metrics.
 
+import { UX_EVAL_ROOT } from "./paths.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -8,7 +9,7 @@ import { join } from "node:path";
 
 const require = createRequire(import.meta.url);
 const AXE_SOURCE = readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
-const IMAGE_CACHE = "/tmp/ux-eval/cache/images";
+const IMAGE_CACHE = join(UX_EVAL_ROOT, "cache", "images");
 
 /** The four capture viewports. Under 1100 px the device is touch (coarse pointer), as tablets and phones are. */
 /**

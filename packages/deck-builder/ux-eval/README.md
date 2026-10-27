@@ -23,9 +23,13 @@ cd packages/deck-builder/ux-eval && npm ci
 
 Node 26 (type stripping runs `seed.ts` and `serve.ts`, which import `../src`).
 
+Set `UX_EVAL_ROOT` to override the default root, `~/.cache/deck-builder-ux-eval`.
+All runs, packets, seed data, caches, builds and server working files live under
+this root and persist across reboots.
+
 ## The pieces
 
-### `node seed.ts` → `/tmp/ux-eval/seed/seed.db`
+### `node seed.ts` → `~/.cache/deck-builder-ux-eval/seed/seed.db`
 
 A fresh database at the current schema. Card facts (`cards`, `card_names`,
 `card_prices`, and the `last_ingest`/`prices_as_of` meta keys) are copied
@@ -36,7 +40,7 @@ two facts are filled from the Scryfall oracle bulk file
 `/home/josh/Code/mtg-ecosystem/.scryfall-cache/oracle-cards.json` through
 the app's own `toRow()` (pass `--images <file>` to change it; without one,
 card images show their placeholder). The migrated, enriched copy is cached in
-`/tmp/ux-eval/cache/`.
+`~/.cache/deck-builder-ux-eval/cache/`.
 
 Everything else goes through the capability layer, owner actions as a UI
 actor and agent writes through the MCP tool adapters (`callTool`) as agent
@@ -71,7 +75,7 @@ fixtures, a gated sign-up), so the sign-in page, legal footer and signed-out
 public pages render as in production. Rate limits are raised in-process,
 because a capture makes far more requests per minute than a person.
 
-### `node capture.mjs` → `/tmp/ux-eval/runs/<random-id>/`
+### `node capture.mjs` → `~/.cache/deck-builder-ux-eval/runs/<random-id>/`
 
 Builds the web app (or `--dist`), then starts and restarts `serve.ts`
 itself: once for the read-only screens, and fresh for every state sequence
@@ -133,7 +137,7 @@ through `addInitScript`; timers of 3 s or more (toasts) are held and released
 just before the next screenshot, so a toast is in exactly the screenshot after
 the action that raised it; fixed locale, time zone, colour scheme and reduced
 motion; software raster on one thread; external requests refused except card
-images, which are cached in `/tmp/ux-eval/cache/images` after the first fetch.
+images, which are cached in `~/.cache/deck-builder-ux-eval/cache/images` after the first fetch.
 Scrolling is only by mouse wheel (a CDP touch drag scrolls too, but lands a
 few pixels differently each run; synthesized gesture scrolling does nothing in
 headless Chromium); the pointer is parked in a corner after each action so no
@@ -161,7 +165,7 @@ node judging/packet.mjs absolute <run> [--only <regex>] [--no-flows] [--full]
 node judging/packet.mjs pairwise <baseline-run> <candidate-run> [same options]
 ```
 
-A packet (`/tmp/ux-eval/packets/<id>/`) contains `brief.md`, `rubric.md`,
+A packet (`~/.cache/deck-builder-ux-eval/packets/<id>/`) contains `brief.md`, `rubric.md`,
 `prompt.md`, `index.md` and the images under their capture keys. Pairwise
 packets put them in `v1/` and `v2/`; which run is Version 1 is random per
 packet, recorded in `<id>.key.json` *beside* the folder. Give judges the
@@ -171,7 +175,7 @@ images, twice that pairwise); `--only` cuts it down to a subset of screens.
 
 ```
 node judging/score.mjs --absolute results/*.json
-node judging/score.mjs --key /tmp/ux-eval/packets/<id>.key.json results/*.json
+node judging/score.mjs --key ~/.cache/deck-builder-ux-eval/packets/<id>.key.json results/*.json
 ```
 
 Name each judge reply `<judge>--<sample>.json` (`opus--1.json`,

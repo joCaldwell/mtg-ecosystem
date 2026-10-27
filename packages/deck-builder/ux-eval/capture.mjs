@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 // Captures every screen in its states, and the task flows, with hard metrics.
 //
-//   node capture.mjs [--port 8830] [--seed /tmp/ux-eval/seed/seed.db] [--dist <web/dist>]
-//                    [--out /tmp/ux-eval/runs] [--only <regex over capture keys>]
+//   node capture.mjs [--port 8830] [--seed <UX_EVAL_ROOT>/seed/seed.db] [--dist <web/dist>]
+//                    [--out <UX_EVAL_ROOT>/runs] [--only <regex over capture keys>]
 //
-// Writes /tmp/ux-eval/runs/<random-id>/ with screens/*.png, flows/<flow>/<step>.png,
+// Writes <UX_EVAL_ROOT>/runs/<random-id>/ with screens/*.png, flows/<flow>/<step>.png,
 // metrics.json and manifest.json. Capture keys never change between runs, so
 // two runs pair screen by screen. run.json (private: commit, time, arguments)
 // is for the operator only; packet.mjs never copies it.
 
+import { UX_EVAL_ROOT } from "./lib/paths.mjs";
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -28,11 +29,11 @@ function arg(name, fallback) {
 }
 const PORT = Number(arg("port", "8830"));
 const ORIGIN = `http://127.0.0.1:${PORT}`;
-const SEED = resolve(arg("seed", "/tmp/ux-eval/seed/seed.db"));
+const SEED = resolve(arg("seed", join(UX_EVAL_ROOT, "seed", "seed.db")));
 const SEED_INFO = JSON.parse(readFileSync(join(dirname(SEED), "seed.json"), "utf8"));
 const ONLY = arg("only") ? new RegExp(arg("only")) : null;
 const RUN_ID = randomBytes(6).toString("hex");
-const RUN = join(resolve(arg("out", "/tmp/ux-eval/runs")), RUN_ID);
+const RUN = join(resolve(arg("out", join(UX_EVAL_ROOT, "runs"))), RUN_ID);
 mkdirSync(join(RUN, "screens"), { recursive: true });
 mkdirSync(join(RUN, "flows"), { recursive: true });
 
@@ -41,7 +42,7 @@ mkdirSync(join(RUN, "flows"), { recursive: true });
 let DIST = arg("dist");
 let buildDir;
 if (!DIST) {
-  buildDir = join("/tmp/ux-eval/build", RUN_ID);
+  buildDir = join(UX_EVAL_ROOT, "build", RUN_ID);
   const r = spawnSync(process.execPath, [join(HERE, "serve.ts"), "--build-only", "--build-dir", buildDir], { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
   if (r.status !== 0) throw new Error("web build failed");
   DIST = r.stdout.trim().split("\n").at(-1);

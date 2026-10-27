@@ -5,7 +5,7 @@
 //   node judging/packet.mjs pairwise <baseline-run> <candidate-run> [options]
 //
 // Options:
-//   --out <dir>       where packets go (default /tmp/ux-eval/packets)
+//   --out <dir>       where packets go (default <UX_EVAL_ROOT>/packets)
 //   --only <regex>    keep only captures whose key matches (flow steps: "<flow>/<NN>")
 //   --no-flows        leave out the flows
 //   --full            include full-page shots as well as first-viewport shots
@@ -16,6 +16,7 @@
 // is "Version 1" is chosen at random per packet, and the mapping is written
 // next to the folder as <packet>.key.json, which the judges never get.
 
+import { UX_EVAL_ROOT } from "../lib/paths.mjs";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
@@ -32,7 +33,7 @@ if (!["absolute", "pairwise"].includes(mode) || runs.length !== (mode === "absol
   process.exit(2);
 }
 const ONLY = opt("only") ? new RegExp(opt("only")) : null;
-const OUT = resolve(opt("out") ?? "/tmp/ux-eval/packets");
+const OUT = resolve(opt("out") ?? join(UX_EVAL_ROOT, "packets"));
 const id = randomBytes(5).toString("hex");
 const packet = join(OUT, id);
 mkdirSync(packet, { recursive: true });
