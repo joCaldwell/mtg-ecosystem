@@ -12,11 +12,14 @@
 
 .navigation { flex: none; padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--line); }
 .navigation[data-inspecting] { border-bottom: 0; }
-.links { display: flex; flex-wrap: nowrap; gap: var(--s-2); align-items: center; }
-.links > button { display: inline-flex; align-items: center; justify-self: start; gap: var(--s-2); padding-block: var(--s-3); color: var(--muted); font-size: var(--text-sm); white-space: nowrap; border-bottom: 2px solid transparent; }
+.navigation:has(.links) { padding: var(--s-2); }
+.links { display: flex; flex-wrap: nowrap; gap: var(--s-1); align-items: center; }
+.links > button { position: relative; display: inline-flex; flex: 1 0 auto; align-items: center; justify-content: center; gap: var(--s-2); padding: var(--s-3) var(--s-1); color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
 .links > button:hover { color: var(--text); }
-.links > button[aria-current] { color: var(--text); border-bottom-color: currentColor; }
+.links > button:focus-visible { outline-offset: 0; border-radius: var(--r-sm); }
+.links > button[aria-current] { color: var(--text); text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: var(--s-1); }
 .links > button:first-child { color: var(--agent); }
+.count { min-width: var(--s-6); padding-inline: var(--s-1); text-align: center; }
 
 .body {
   display: grid;

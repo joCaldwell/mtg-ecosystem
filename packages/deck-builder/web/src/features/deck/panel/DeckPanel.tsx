@@ -58,7 +58,7 @@ export function DeckPanel({ view, review }: { view: DeckViewModel; review: Revie
     {!ui.openCard && <div className={styles.navigation}>
       <nav className={styles.links} aria-label="Deck panel views">
         {PANEL_VIEWS.map(item => <button key={item.id} type="button" ref={node => { if (node) links.current.set(item.id, node); else links.current.delete(item.id); }} aria-current={ui.tab === item.id ? "true" : undefined} onClick={() => ui.setTab(item.id)}>
-          {item.label}{item.id === "review" && pending > 0 && <Badge tone="agent">{pending}</Badge>}
+          {item.label}{item.id === "review" && pending > 0 && <Badge className={styles.count} tone="agent">{pending}</Badge>}
         </button>)}
       </nav>
     </div>}
