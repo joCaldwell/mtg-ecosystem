@@ -2,5 +2,5 @@
 .learn { color: var(--text-soft); text-decoration: underline; text-underline-offset: var(--s-1); }
 .learn:hover { color: var(--text); }
 .panel { display: grid; gap: var(--s-5); max-width: min(var(--panel-w), calc(100vw - var(--s-8))); padding: var(--s-6); color: var(--text-soft); line-height: var(--leading-prose); }
-.panel h3 { color: var(--text); font-size: var(--text-md); }
+.heading { color: var(--text); font-size: var(--text-md); }
 @media (max-width: 959px) { .learn { min-height: var(--tap); } }

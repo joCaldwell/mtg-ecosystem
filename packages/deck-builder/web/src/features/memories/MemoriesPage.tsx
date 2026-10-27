@@ -57,11 +57,10 @@ export function MemoriesPage() {
       header={
         <PageHeader
           title="Memories"
-          subtitle={voice("Keep the preferences and lessons you want to carry from one deck to the next.", "What agents have learned about you. They write these without asking; you can read, correct or retire every one.")}
         />
       }
     >
-      <Explainer title="Memories" summary={voice("A memory keeps a preference or lesson with its reason.", "Memories keep what your agent learns between sessions.")}>Use global memories for tastes that apply to every deck, or choose a deck for notes about that list. Stated means you said it; inferred means a conclusion you can confirm. You can correct or retire any memory. Agents cannot change one you wrote or edited.</Explainer>
+      <Explainer title="Memories" heading="h2" summary="Keep preferences and lessons for future decks and sessions.">Use global memories for tastes that apply to every deck, or choose a deck for notes about that list. Stated means you said it, directly or in a decision reason. Inferred means an agent’s conclusion, shown dashed until you confirm it. Agents write memories without approval; every memory names its author. You can correct or retire any memory. Agents cannot change one you wrote or edited.</Explainer>
       {list.error && <ErrorNote>{list.error}</ErrorNote>}
 
 
@@ -98,15 +97,12 @@ export function MemoriesPage() {
           key={addToDeck ?? "global"}
           scope={addToDeck != null ? "deck" : "global"}
           deckId={addToDeck ?? undefined}
+          scopeLabel={`Adding to: ${addToDeck != null ? decks.get(addToDeck) : "Global"}`}
           onAdded={() => {
             list.reload();
           }}
         />}
-        <span className={styles.addTo}>
-          {addToDeck != null && archived.has(addToDeck) ? "Archived deck memories are read-only." : addToDeck != null
-            ? `Adding to ${decks.get(addToDeck)}, because that deck is selected above.`
-            : "Adding a global memory. Select a deck above to add one to that deck instead."}
-        </span>
+        {addToDeck != null && archived.has(addToDeck) && <Text tone="muted" size="sm">Archived deck memories are read-only.</Text>}
       </Stack>
 
       {list.loading ? (
@@ -139,8 +135,16 @@ export function MemoriesPage() {
         </Stack>
       )}
 
-      <nav aria-label="Memory pages"><Button disabled={cursors.length === 0} onClick={() => setCursors(cursors.slice(0, -1))}>Previous 100</Button> <Text>Page {cursors.length + 1}</Text> <Button disabled={!list.data?.has_more} onClick={() => { const last = shown[shown.length - 1]; setCursors([...cursors, { before_id: last.id, before_revised_at: last.revised_at }]); }}>Next 100</Button></nav>
-      <p className={styles.note}>{voice("Stated memories record what you said. Inferred memories are conclusions to confirm.", "Stated means you said it, in a decision reason or directly. Inferred is an agent's guess, dashed until confirmed. An agent can never edit or retire a memory you wrote.")}</p>
+      {(cursors.length > 0 || list.data?.has_more) && (
+        <nav aria-label="Memory pages">
+          <Button disabled={cursors.length === 0} onClick={() => setCursors(cursors.slice(0, -1))}>Previous 100</Button>{" "}
+          <Text>Page {cursors.length + 1}</Text>{" "}
+          <Button disabled={!list.data?.has_more} onClick={() => {
+            const last = shown[shown.length - 1];
+            setCursors([...cursors, { before_id: last.id, before_revised_at: last.revised_at }]);
+          }}>Next 100</Button>
+        </nav>
+      )}
     </Page>
   );
 }

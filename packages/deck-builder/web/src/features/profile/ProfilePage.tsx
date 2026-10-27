@@ -82,11 +82,6 @@ export function ProfilePage() {
         <PageHeader
           title="Profile"
           subtitle={voice("Your tastes, your playgroup and the games you want to play, in your words.", "Who you are as a builder, in your words. Every agent reads this first, in every session.")}
-          actions={
-            !editing && saved ? (
-              <Button onClick={startEditing}>{empty ? "Write your profile" : "Edit"}</Button>
-            ) : undefined
-          }
         />
       }
     >
@@ -106,7 +101,8 @@ export function ProfilePage() {
       ))}
 
       {saved && (
-        <Stack gap={5}>
+        <Stack gap={5} className={styles.card}>
+          {!editing && <Row justify="end"><Button onClick={startEditing}>{empty ? "Write your profile" : "Edit"}</Button></Row>}
           {editing ? (
             <>
               <TextArea

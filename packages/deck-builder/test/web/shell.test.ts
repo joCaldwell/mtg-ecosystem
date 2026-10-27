@@ -35,7 +35,7 @@ test("the dialog scroll lock is counted, so nested dialogs closing together rele
   assert.equal(body.style.overflow, "clip", "the value from before the first lock comes back");
 });
 
-test("main is the frame's second child on desktop, rail and drawer layouts, with the page inside it", async (t) => {
+test("main is the frame's second child on desktop and both tablet drawer sizes, with the page inside it", async (t) => {
   const server = await vite(t);
   const { AppShell } = await server.ssrLoadModule("/src/app/AppShell.tsx");
   const saved = (globalThis as any).window;
@@ -59,10 +59,10 @@ test("main is the frame's second child on desktop, rail and drawer layouts, with
     assert.equal(tags.indexOf("main"), 1, `${width}px: main is the frame's second child (${tags.join(",")})`);
     assert.ok(/<main[^>]*id="main-content"[^>]*>.*PAGE.*<\/main>/s.test(html), `${width}px: the page renders inside main`);
   }
-  assert.ok(frame(800).tags[0] === "header" && frame(1024).tags[0] === "div" && frame(1280).tags[0] === "div");
+  assert.ok(frame(800).tags[0] === "header" && frame(1024).tags[0] === "header" && frame(1280).tags[0] === "div");
 });
 
-test("collapsed sidebar keeps named navigation and an expanded-state control; tablets retain their full rail", async (t) => {
+test("collapsed sidebar keeps named navigation and an expanded-state control; drawer navigation keeps labels", async (t) => {
   const server = await vite(t);
   const { Sidebar } = await server.ssrLoadModule("/src/app/Sidebar.tsx");
   const render = (collapsed: boolean, onToggle?: () => void) => renderToStaticMarkup(createElement(Sidebar, { route: { page: "activity" }, collapsed, onToggle }));
@@ -92,4 +92,53 @@ test("Profile and Activity render independent pages with their own titles and no
     assert.match(html, new RegExp(`<h1[^>]*>${title}</h1>`));
     assert.doesNotMatch(html, /role="tab(list|panel)?"/);
   }
+});
+
+
+test("tablet top bar names the current page and links directly to the inbox with its waiting count", async (t) => {
+  const { TabletBar } = await (await vite(t)).ssrLoadModule("/src/app/TabletShell.tsx");
+  const html = renderToStaticMarkup(createElement(TabletBar, { route: { page: "memories" } }));
+  assert.match(html, />Memories<\/span>/);
+  assert.match(html, /href="\/inbox"/);
+  assert.match(html, />0<\/span>/);
+  assert.match(html, /> waiting<\/span>/);
+  assert.match(html, /aria-haspopup="dialog"/);
+});
+
+
+test("a routed inbox detail offers Back to inbox even while its data loads", async (t) => {
+  const { InboxPage } = await (await vite(t)).ssrLoadModule("/src/features/inbox/InboxPage.tsx");
+  const html = renderToStaticMarkup(createElement(InboxPage, { entryKey: "proposal-12" }));
+  assert.match(html, /data-detail="true"/);
+  assert.match(html, /<a[^>]*href="\/inbox"[^>]*>← Back to inbox<\/a>/);
+  assert.ok(html.indexOf("Back to inbox") < html.indexOf("<h1"), "back precedes the page title");
+});
+
+test("inbox entries are detail links, while the phone's callback-only entry remains a button", async (t) => {
+  const { InboxEntry } = await (await vite(t)).ssrLoadModule("/src/features/inbox/InboxEntry.tsx");
+  const { proposal, item } = await import("./fixtures.ts");
+  const entry = { key: "proposal-12", type: "proposal", created_at: "2026-10-20T17:00:00Z", proposal: proposal([item()], { id: 12 }) };
+  const props = { entry, selected: true, onSelect: () => {} };
+  const linked = renderToStaticMarkup(createElement(InboxEntry, { ...props, href: "/inbox?entry=proposal-12" }));
+  assert.match(linked, /^<a[^>]*href="\/inbox\?entry=proposal-12"/);
+  assert.match(linked, /aria-current="true"/);
+  assert.doesNotMatch(linked, /<button/);
+  const phone = renderToStaticMarkup(createElement(InboxEntry, props));
+  assert.match(phone, /^<button[^>]*type="button"/);
+  assert.doesNotMatch(phone, /href=/);
+});
+
+test("page-level help can follow h1 with h2 without changing nested help's h3 default", async (t) => {
+  // This checks heading semantics; portal positioning and focus need the browser.
+  const server = await createServer({
+    server: { middlewareMode: true, hmr: false }, appType: "custom", logLevel: "silent",
+    plugins: [{ name: "inline-popover-for-ssr", enforce: "pre", load(id) {
+      if (id.endsWith("/src/ui/Popover.tsx")) return "export function Popover({ children }) { return children; }";
+    } }],
+  });
+  t.after(() => server.close());
+  const { Explainer } = await server.ssrLoadModule("/src/ui/Explainer.tsx");
+  const props = { title: "Memories", summary: "Keep lessons.", children: "Details", defaultOpen: true };
+  assert.match(renderToStaticMarkup(createElement(Explainer, { ...props, heading: "h2" })), /<h2[^>]*>Memories<\/h2>/);
+  assert.match(renderToStaticMarkup(createElement(Explainer, props)), /<h3[^>]*>Memories<\/h3>/);
 });

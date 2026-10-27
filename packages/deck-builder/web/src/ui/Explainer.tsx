@@ -6,7 +6,7 @@ import styles from "./Explainer.module.css";
 
 /** Help at the point of use: one sentence, then an explicit learn-more action.
  *  `defaultOpen` is for the style guide: it starts open without taking focus. */
-export function Explainer({ title, summary, defaultOpen = false, children }: { title: string; summary: string; defaultOpen?: boolean; children: ReactNode }) {
+export function Explainer({ title, summary, heading: Heading = "h3", defaultOpen = false, children }: { title: string; summary: string; heading?: "h2" | "h3"; defaultOpen?: boolean; children: ReactNode }) {
   const [open, setOpen] = useState(defaultOpen);
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   const id = useId();
@@ -48,7 +48,7 @@ export function Explainer({ title, summary, defaultOpen = false, children }: { t
     <button ref={setAnchor} type="button" className={styles.learn} aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => setOpen(!open)}>Learn more<span className="visually-hidden"> about {title.toLowerCase()}</span></button>
     <Popover anchor={anchor} open={open} onClose={close}>
       <section ref={content} tabIndex={-1} id={id} role="region" aria-label={title} className={styles.panel}>
-        <h3>{title}</h3><div>{children}</div><Button size="sm" onClick={close}>Close explanation</Button>
+        <Heading className={styles.heading}>{title}</Heading><div>{children}</div><Button size="sm" onClick={close}>Close explanation</Button>
       </section>
     </Popover>
   </div>;

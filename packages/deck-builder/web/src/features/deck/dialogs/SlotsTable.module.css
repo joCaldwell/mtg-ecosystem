@@ -33,3 +33,5 @@
 .addRow td {
   border-bottom: 0;
 }
+
+.table .targetHint { color: var(--muted); font-size: var(--text-xs); text-align: right; text-transform: none; letter-spacing: normal; }

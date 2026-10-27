@@ -73,3 +73,19 @@ test("Activity and Profile have independent private page routes (review 2026-10-
   assert.equal(href({ page: "profile" }), "/profile");
   assert.equal(isPublicRoute(parseRoute("/activity")), false);
 });
+
+
+test("inbox details use the existing route and return to the queue without a selection", () => {
+  for (const entry of ["proposal-12", "edit-7"]) {
+    const route: Route = { page: "inbox", entry };
+    const url = new URL(href(route), "https://same.invalid");
+    assert.equal(url.pathname, "/inbox");
+    assert.deepEqual(parseRoute(url.pathname, url.search), route);
+    assert.equal(isPublicRoute(route), false);
+  }
+  assert.equal(href({ page: "inbox" }), "/inbox");
+  assert.deepEqual(parseRoute("/inbox"), { page: "inbox" });
+  for (const entry of ["", "proposal-0", "proposal--1", "edit-x", "other-3", "proposal-1/2"]) {
+    assert.deepEqual(parseRoute("/inbox", `?${new URLSearchParams({ entry })}`), { page: "inbox" });
+  }
+});

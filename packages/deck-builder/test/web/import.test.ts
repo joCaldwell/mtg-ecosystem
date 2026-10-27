@@ -57,7 +57,7 @@ test("maybe-only imports remain actionable; identical and unresolved-only lists 
   assert.equal(hasImportChanges(diff({ unresolved: [{ line_no: 1, name: "Test unknown", suggestions: [] }] })), false);
 });
 
-test("preview pins totals and warnings outside the scrollable changes, with cuts first", async t => {
+test("preview pins totals and warnings and links problem count to omissions before any changes", async t => {
   const server = await createServer({ server: { middlewareMode: true, hmr: false }, appType: "custom", logLevel: "silent" });
   t.after(() => server.close());
   const { ImportPreview } = await server.ssrLoadModule("/src/features/import/ImportPreview.tsx");
@@ -66,6 +66,7 @@ test("preview pins totals and warnings outside the scrollable changes, with cuts
     cuts: [{ oracle_id: "c", name: "Test cut", quantity: 2, role: "card" }],
     adds: [{ oracle_id: "a", name: "Test add", quantity: 1, slot_id: null, slot_name: null, category: null, role: "card" }],
     unresolved: [{ line_no: 3, name: "Test unknown", suggestions: [] }],
+    set_aside: [{ oracle_id: "m", name: "Test maybe", category: "Sideboard" }],
   });
   const html = renderToStaticMarkup(createElement(ImportPreview, { diff: preview }));
   const changes = html.indexOf('aria-label="Import changes"');
@@ -73,7 +74,13 @@ test("preview pins totals and warnings outside the scrollable changes, with cuts
   assert.ok(changes > html.indexOf("Test warning"));
   assert.ok(changes > html.indexOf("problem line"));
   assert.ok(changes > html.indexOf("Removes"));
+  const target = html.match(/<a[^>]*href="#([^"]+)"[^>]*>.*?problem line<\/a>/s)?.[1];
+  assert.ok(target, "the problem count is a fragment link");
+  assert.ok(html.includes(`id="${target}" role="region" aria-label="Not imported" tabindex="-1"`), "it targets the focusable problem section");
+  assert.ok(changes < html.indexOf("Not imported"));
+  assert.ok(html.indexOf("Not imported") < html.indexOf("Will be cut"));
   assert.ok(html.indexOf("Will be cut") < html.indexOf("Will be added"));
+  assert.ok(html.indexOf("Not imported") < html.indexOf("Set aside to the maybe list"));
   assert.ok(!html.includes("textarea"));
 });
 

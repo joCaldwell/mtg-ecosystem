@@ -1,6 +1,7 @@
 import { useVoice } from "../../app/Preferences.tsx";
 import { useEffect, useRef, useState } from "react";
-import { navigate } from "../../app/routes.ts";
+import { href, navigate, useScrollRestore } from "../../app/routes.ts";
+import { useMediaQuery, PANEL_QUERY } from "../../app/breakpoints.ts";
 import { useInbox } from "../../app/Inbox.tsx";
 import { Button, EmptyState, Loading, PageHeader, SplitPane, Text, useHotkeys } from "../../ui/index.ts";
 import { DocumentEditCard } from "../decisions/index.ts";
@@ -16,43 +17,54 @@ import styles from "./InboxPage.module.css";
  * around it. Document edits are ruled here, because a text diff is the whole
  * decision.
  */
-export function InboxPage() {
+export function InboxPage({ entryKey }: { entryKey?: string }) {
+  const tablet = useMediaQuery(PANEL_QUERY);
   const voice = useVoice();
   const { inbox, apply } = useInbox();
   const [history, setHistory] = useState(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
   const entries = inbox ? inboxEntries(inbox) : [];
-  const found = entries.findIndex((e) => e.key === selectedKey);
+  const found = entries.findIndex((e) => e.key === (entryKey ?? selectedKey));
   // Where the selection was, so one that disappears hands over to its neighbour.
   const lastIndex = useRef(0);
   const index = found >= 0 ? found : Math.min(lastIndex.current, entries.length - 1);
-  const selected = entries[index] ?? null;
+  const selected = entryKey && found < 0 ? null : entries[index] ?? null;
+  const detailOpen = entryKey != null;
+  useScrollRestore(inbox != null);
   useEffect(() => {
     if (index >= 0) lastIndex.current = index;
   }, [index]);
 
   const step = (by: number) => {
     const next = entries[Math.min(Math.max(index + by, 0), entries.length - 1)];
-    if (next) setSelectedKey(next.key);
+    if (next) {
+      setSelectedKey(next.key);
+      if (detailOpen) navigate({ page: "inbox", entry: next.key });
+    }
   };
   useHotkeys({
     j: () => step(1),
     k: () => step(-1),
     enter: (e) => {
-      if (!selected || selected.type !== "proposal") return;
+      if (!selected) return;
       // Enter on a button or link already does what that control says.
       const target = e.target instanceof HTMLElement ? e.target.closest("button, a") : null;
-      if (target && !target.matches("[data-entry][aria-current='true']")) return;
-      e.preventDefault();
-      navigate({ page: "deck", deckId: selected.proposal.deck_id, review: true, proposal: selected.proposal.id });
+      if (target) return;
+      if (tablet && !detailOpen) {
+        e.preventDefault();
+        navigate({ page: "inbox", entry: selected.key });
+      } else if (selected.type === "proposal") {
+        e.preventDefault();
+        navigate({ page: "deck", deckId: selected.proposal.deck_id, review: true, proposal: selected.proposal.id });
+      }
     },
   });
 
   const header = (
     <PageHeader
-      title="Inbox"
-      subtitle={<>
+      title={tablet && detailOpen && selected ? (selected.type === "proposal" ? "Proposal" : "Document edit") : "Inbox"}
+      subtitle={tablet && detailOpen ? undefined : <>
         {voice("Proposed changes wait here for your decision. Nothing is applied until you accept it.", "Everything an agent needs your decision on, across all decks. Nothing here has been applied.")}
         {inbox != null && inbox.unreviewed > 0 && <><br /><Text tone="muted" size="sm">{inbox.unreviewed} {inbox.unreviewed === 1 ? "decision" : "decisions"} unreviewed by agents</Text></>}
       </>}
@@ -61,7 +73,8 @@ export function InboxPage() {
 
   if (!inbox) {
     return (
-      <div className={styles.page}>
+      <div className={styles.page} data-detail={detailOpen || undefined}>
+        <a className={styles.back} href={href({ page: "inbox" })}>← Back to inbox</a>
         {header}
         <Loading />
       </div>
@@ -69,16 +82,21 @@ export function InboxPage() {
   }
 
   return (
-    <div className={styles.page}>
+    <div className={styles.page} data-detail={detailOpen || undefined}>
+      <a className={styles.back} href={href({ page: "inbox" })}>← Back to inbox</a>
       {header}
-      <Button variant="ghost" onClick={() => setHistory(!history)}>{history ? "Hide proposal history" : "Show proposal history"}</Button>
-      {history && <ProposalHistory />}
+      <div className={styles.history}>
+        <Button variant="ghost" onClick={() => setHistory(!history)}>{history ? "Hide proposal history" : "Show proposal history"}</Button>
+        {history && <ProposalHistory />}
+      </div>
       <SplitPane
-        list={entries.map((entry) => (
+        className={styles.panes}
+        list={entries.length === 0 && tablet ? <EmptyState title="Nothing is waiting on you">There are no proposed changes to review.</EmptyState> : entries.map((entry) => (
           <InboxEntry
             key={entry.key}
             entry={entry}
             selected={entry.key === selected?.key}
+            href={href({ page: "inbox", entry: entry.key })}
             onSelect={() => setSelectedKey(entry.key)}
           />
         ))}
@@ -89,7 +107,7 @@ export function InboxPage() {
             <DocumentEditCard key={selected.key} edit={selected.edit} showDeck onRuled={(result) => apply(result.inbox)} />
           ) : (
             <div className={styles.empty}>
-              <EmptyState title="Nothing is waiting on you">
+              <EmptyState title={detailOpen ? "This item is no longer waiting" : "Nothing is waiting on you"}>
                 {voice("There are no proposed changes to review. Keep building your decks; your decisions stay in each deck’s History.", "Your decisions and reasons are queued. An agent reads them the next time it starts a session, whether or not it was running when you decided.")}
               </EmptyState>
             </div>

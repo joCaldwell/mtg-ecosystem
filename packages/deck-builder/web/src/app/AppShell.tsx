@@ -1,6 +1,6 @@
 import { Suspense, type ReactNode } from "react";
 import { Loading } from "../ui/index.ts";
-import { useMediaQuery, DRAWER_QUERY, PANEL_QUERY } from "./breakpoints.ts";
+import { useMediaQuery, PANEL_QUERY } from "./breakpoints.ts";
 import { TabletBar, TabletScroll } from "./TabletShell.tsx";
 import type { Route } from "./routes.ts";
 import { usePreferences } from "./Preferences.tsx";
@@ -15,13 +15,11 @@ import styles from "./AppShell.module.css";
 export function AppShell({ route, children }: { route: Route; children: ReactNode }) {
   const { sidebarCollapsed, sidebarBusy, setSidebarCollapsed, loaded } = usePreferences();
   const tablet = useMediaQuery(PANEL_QUERY);
-  const narrow = useMediaQuery(DRAWER_QUERY);
-  const drawer = tablet && narrow;
   const collapsed = !tablet && sidebarCollapsed;
   const focused = !tablet && route.page === "playtest";
   return (
-    <div className={tablet ? (drawer ? styles.tablet : styles.tabletRail) : `${styles.shell} ${collapsed ? styles.collapsed : ""} ${focused ? styles.focused : ""}`}>
-      {drawer ? <TabletBar route={route} /> : !focused && <div className={tablet ? styles.rail : styles.side}><Sidebar route={route} collapsed={collapsed} onToggle={!tablet ? () => setSidebarCollapsed(!sidebarCollapsed) : undefined} toggleDisabled={sidebarBusy || !loaded} /></div>}
+    <div className={tablet ? styles.tablet : `${styles.shell} ${collapsed ? styles.collapsed : ""} ${focused ? styles.focused : ""}`}>
+      {tablet ? <TabletBar route={route} /> : !focused && <div className={styles.side}><Sidebar route={route} collapsed={collapsed} onToggle={!tablet ? () => setSidebarCollapsed(!sidebarCollapsed) : undefined} toggleDisabled={sidebarBusy || !loaded} /></div>}
       <main id="main-content" tabIndex={-1} aria-label="Deck builder" className={tablet ? styles.tabletMain : styles.main}>
         {/* A lazy page's first visit suspends here, inside the frame, not at the app root. */}
         <Suspense fallback={<Loading />}>{children}</Suspense>

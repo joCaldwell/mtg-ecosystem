@@ -24,7 +24,7 @@ export function SettingsPage() {
 
   return (
     <Page
-      width="md"
+      width="lg"
       header={<PageHeader title="Settings" subtitle={voice("Your account, card prices and optional agent connections.", "How agents reach this app, and what they are handed when they do.")} />}
     >
       {settings.error && !data && <ErrorNote>{settings.error}</ErrorNote>}

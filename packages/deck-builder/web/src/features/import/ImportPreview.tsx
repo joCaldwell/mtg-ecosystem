@@ -1,16 +1,16 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import type { ImportDiff } from "../../api/client.ts";
 import { useCardHover } from "../../mtg/index.ts";
 import { Box, ErrorNote, Stack, Text } from "../../ui/index.ts";
 import { CardLine } from "./CardLine.tsx";
 import styles from "./ImportPreview.module.css";
 
-// The preview is the approval step (spec §12). Cuts come first and in the
-// cut colour, because they are the only part of an import that takes
-// something away; the problems come last, but are counted up here so they
-// cannot be missed. Names that did not resolve are never guessed.
+// The preview is the approval step (spec §12). Problem lines lead the changes
+// so omissions can be checked first, followed by cuts in the cut colour.
+// Names that did not resolve are never guessed.
 export function ImportPreview({ diff }: { diff: ImportDiff }) {
   const hover = useCardHover();
+  const problemsId = useId();
   const decreases = diff.quantity_changes.filter((q) => q.to < q.from);
   const increases = diff.quantity_changes.filter((q) => q.to > q.from);
   // A misspelled line leaves its card out of the list, so the card shows up as a cut. Say so, so the
@@ -45,7 +45,7 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
           {problems ? (
             <>
               {" "}
-              · <Text mono tone="warn">{problems}</Text> <Text tone="warn">{problems === 1 ? "problem line" : "problem lines"}</Text>
+              · <a className={styles.problemLink} href={`#${problemsId}`}><Text mono>{problems}</Text> {problems === 1 ? "problem line" : "problem lines"}</a>
             </>
           ) : null}
         </Text>
@@ -62,6 +62,72 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
 
       </Stack>
       <Stack gap={5} className={styles.changes} role="region" aria-label="Import changes" tabIndex={0}>
+        {problems > 0 ? (
+          <Box tone="warn" id={problemsId} role="region" aria-label="Not imported" tabIndex={-1}>
+            <Text as="h3" weight="medium" tone="warn">
+              Not imported · {problems}
+            </Text>
+            <Text tone="muted" size="sm" as="p">
+              These lines are skipped, and the rest of the list still applies. Names are matched exactly and never
+              guessed: fix the line and preview again.
+            </Text>
+            <ul className={styles.problems}>
+              {diff.unresolved.map((u) => (
+                <li key={`u${u.line_no}`}>
+                  <Text mono tone="muted">
+                    line {u.line_no}
+                  </Text>{" "}
+                  “{u.name}” did not match a card.
+                  {u.suggestions.length > 0 ? (
+                    <>
+                      {" "}
+                      Did you mean{" "}
+                      {u.suggestions.map((s, i) => (
+                        <span key={s}>
+                          {i > 0 ? ", " : ""}
+                          <span className={styles.suggestion} {...hover(s)}>
+                            {s}
+                          </span>
+                        </span>
+                      ))}
+                      ?
+                    </>
+                  ) : (
+                    " No close names were found."
+                  )}
+                  {u.suggestions.some((s) => cutNames.has(s)) ? (
+                    <Text tone="cut">
+                      {" "}
+                      {u.suggestions.filter((s) => cutNames.has(s)).join(", ")} is in the cut list because of this line.
+                    </Text>
+                  ) : null}
+                </li>
+              ))}
+              {diff.ambiguous.map((a) => (
+                <li key={`a${a.line_no}`}>
+                  <Text mono tone="muted">
+                    line {a.line_no}
+                  </Text>{" "}
+                  “{a.name}” matched more than one card. Add the one you mean through search.
+                  <ul className={styles.candidates}>
+                    {a.candidates.map((c) => (
+                      <CardLine key={c.oracle_id} oracleId={c.oracle_id} name={c.name} detail={c.oracle_id.slice(0, 8)} />
+                    ))}
+                  </ul>
+                </li>
+              ))}
+              {diff.unparsed.map((u) => (
+                <li key={`p${u.line_no}`}>
+                  <Text mono tone="muted">
+                    line {u.line_no}
+                  </Text>{" "}
+                  could not be read as a card entry: <Text mono>{u.raw}</Text>
+                </li>
+              ))}
+            </ul>
+          </Box>
+        ) : null}
+
         {diff.cuts.length + decreases.length > 0 ? (
           <Group title="Will be cut" count={diff.cut_count} tone="cut">
             {diff.cuts.map((c) => (
@@ -133,71 +199,7 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
           </Group>
         ) : null}
 
-        {problems > 0 ? (
-          <Box tone="warn">
-            <Text weight="medium" tone="warn">
-              Not imported · {problems}
-            </Text>
-            <Text tone="muted" size="sm" as="p">
-              These lines are skipped, and the rest of the list still applies. Names are matched exactly and never
-              guessed: fix the line and preview again.
-            </Text>
-            <ul className={styles.problems}>
-              {diff.unresolved.map((u) => (
-                <li key={`u${u.line_no}`}>
-                  <Text mono tone="muted">
-                    line {u.line_no}
-                  </Text>{" "}
-                  “{u.name}” did not match a card.
-                  {u.suggestions.length > 0 ? (
-                    <>
-                      {" "}
-                      Did you mean{" "}
-                      {u.suggestions.map((s, i) => (
-                        <span key={s}>
-                          {i > 0 ? ", " : ""}
-                          <span className={styles.suggestion} {...hover(s)}>
-                            {s}
-                          </span>
-                        </span>
-                      ))}
-                      ?
-                    </>
-                  ) : (
-                    " No close names were found."
-                  )}
-                  {u.suggestions.some((s) => cutNames.has(s)) ? (
-                    <Text tone="cut">
-                      {" "}
-                      {u.suggestions.filter((s) => cutNames.has(s)).join(", ")} is in the cut list because of this line.
-                    </Text>
-                  ) : null}
-                </li>
-              ))}
-              {diff.ambiguous.map((a) => (
-                <li key={`a${a.line_no}`}>
-                  <Text mono tone="muted">
-                    line {a.line_no}
-                  </Text>{" "}
-                  “{a.name}” matched more than one card. Add the one you mean through search.
-                  <ul className={styles.candidates}>
-                    {a.candidates.map((c) => (
-                      <CardLine key={c.oracle_id} oracleId={c.oracle_id} name={c.name} detail={c.oracle_id.slice(0, 8)} />
-                    ))}
-                  </ul>
-                </li>
-              ))}
-              {diff.unparsed.map((u) => (
-                <li key={`p${u.line_no}`}>
-                  <Text mono tone="muted">
-                    line {u.line_no}
-                  </Text>{" "}
-                  could not be read as a card entry: <Text mono>{u.raw}</Text>
-                </li>
-              ))}
-            </ul>
-          </Box>
-        ) : null}
+
       </Stack>
     </div>
   );

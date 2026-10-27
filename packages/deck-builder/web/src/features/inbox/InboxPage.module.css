@@ -9,3 +9,12 @@
   display: grid;
   gap: var(--s-5);
 }
+
+.back { display: none; }
+
+@media (max-width: 1099px) {
+  .panes > :last-child { display: none; }
+  .page[data-detail] .panes > :first-child, .page[data-detail] .history { display: none; }
+  .page[data-detail] .panes > :last-child { display: grid; }
+  .page[data-detail] .back { display: flex; align-items: center; min-height: var(--tap); padding-inline: var(--s-7); color: var(--text-soft); }
+}

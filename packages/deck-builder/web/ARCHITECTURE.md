@@ -297,8 +297,11 @@ disclosure primitive is removed.
 
 The tablet frame runs from 720 through 1099 px; `TabletScroll`
 (`app/TabletShell.tsx`) **calls useWindowScroll()** while it applies. The
-sidebar becomes a rail from `DRAWER_BREAKPOINT` (960) and a menu bar with a
-drawer below it. `AppShell` keeps every child at a fixed position (navigation,
+sidebar lives in a drawer throughout 720–1099 px. The top bar names the
+current page and links directly to Inbox with its waiting count. Inbox selection
+uses `/inbox?entry=proposal-<id>` or `edit-<id>`, with Back to inbox above
+the title; desktop retains the split view. `AppShell` keeps every child at
+a fixed position (navigation,
 `<main>`, then `TabletScroll`), so crossing a breakpoint, as an iPad rotating
 does, re-styles the frame without remounting the page. Lazy pages suspend
 inside `<main>`, so a first visit keeps the sidebar. `DeckBody` likewise keeps
@@ -407,9 +410,8 @@ user_settings key (default expanded), and sends no data invalidation.
 PreferencesProvider reports a failed save in a toast and retains the saved
 state. It does not use browser storage.
 
-The 960–1099 px rail deliberately stays expanded, with no collapse control,
-so tablet navigation retains visible names and the existing touch layout.
-Below 960 the drawer also stays expanded. Returning to 1100+ restores the
+The 720–1099 px drawer stays expanded inside, with no collapse control.
+Its top bar shows the current page and Inbox count. Returning to 1100+ restores the
 account's saved choice. AppShell keeps `<main>` at the same child position;
 collapse and breakpoint changes never replace it. TabletScroll still calls
 useWindowScroll; the phone shell below 720 is unchanged.

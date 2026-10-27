@@ -12,7 +12,8 @@ export type PageName = "decks" | "inbox" | "memories" | "profile" | "activity" |
  *  deck screen reads it back (domain/reviewStart.ts), which keeps the parse
  *  out of the public bundle. */
 export type Route =
-  | { page: PageName }
+  | { page: Exclude<PageName, "inbox"> }
+  | { page: "inbox"; entry?: string }
   | { page: "deck"; deckId: number; review?: boolean; proposal?: number; importing?: boolean }
   | { page: "playtest"; deckId: number }
   | { page: "shared"; slug: string }
@@ -32,6 +33,10 @@ export function parseRoute(pathname: string, search = ""): Route {
   if (playtest) return { page: "playtest", deckId: Number(playtest[1]) };
   const deck = path.match(/^\/deck\/(\d+)(\/review)?$/);
   if (deck) return { page: "deck", deckId: Number(deck[1]), review: deck[2] != null, ...(new URLSearchParams(search).get("import") === "1" ? { importing: true } : {}) };
+  if (path === "/inbox") {
+    const entry = new URLSearchParams(search).get("entry");
+    return { page: "inbox", ...(entry && /^(proposal|edit)-[1-9]\d*$/.test(entry) ? { entry } : {}) };
+  }
   // Both public paths share decoding and malformed-escape handling.
   const shared = path.match(/^\/([du])\/([^/]+)$/);
   if (shared) {
@@ -47,6 +52,7 @@ export function href(route: Route): string {
     case "decks": return "/";
     // A review and an import never start together; only a review names a proposal.
     case "deck": return `/deck/${route.deckId}${route.review ? "/review" : ""}${route.importing ? "?import=1" : route.review && route.proposal ? `?proposal=${route.proposal}` : ""}`;
+    case "inbox": return `/inbox${route.entry ? `?${new URLSearchParams({ entry: route.entry })}` : ""}`;
     case "playtest": return `/deck/${route.deckId}/playtest`;
     case "shared": return `/d/${encodeURIComponent(route.slug)}`;
     case "user": return `/u/${encodeURIComponent(route.handle)}`;

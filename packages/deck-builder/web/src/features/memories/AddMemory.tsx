@@ -9,10 +9,12 @@ export function AddMemory({
   scope,
   deckId,
   onAdded,
+  scopeLabel,
 }: {
   scope: "global" | "deck";
   deckId?: number;
   onAdded: () => void;
+  scopeLabel?: string;
 }) {
   const voice = useVoice();
   const [text, setText] = useState("");
@@ -50,7 +52,7 @@ export function AddMemory({
       />
       {error && <ErrorNote>{error}</ErrorNote>}
       <div className={styles.row}>
-        <span className={styles.hint}>{voice("Keep one preference or lesson and its reason. You can change it later.", "A memory you write is yours. Agents can read it and never change it.")}</span>
+        <span className={styles.hint}>{scopeLabel ?? voice("Keep one preference or lesson and its reason. You can change it later.", "A memory you write is yours. Agents can read it and never change it.")}</span>
         <Button type="submit" size="sm" variant="primary" disabled={busy || !text.trim()}>
           Remember
         </Button>

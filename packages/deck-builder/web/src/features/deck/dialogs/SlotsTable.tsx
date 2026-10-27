@@ -46,13 +46,16 @@ export function SlotsTable() {
       <Table className={styles.table}>
         <thead>
           <tr>
-            <th>Name</th>
-            <th className={styles.numHead}>Min</th>
-            <th className={styles.numHead}>Max</th>
-            <th>Cards</th>
-            <th>
+            <th rowSpan={2} scope="col">Name</th>
+            <th colSpan={2} scope="colgroup" className={styles.targetHint}>Primary only · blank = no limit</th>
+            <th rowSpan={2} scope="col">Cards</th>
+            <th rowSpan={2} scope="col">
               <span className="visually-hidden">Actions</span>
             </th>
+          </tr>
+          <tr>
+            <th scope="col" className={styles.numHead}>Min</th>
+            <th scope="col" className={styles.numHead}>Max</th>
           </tr>
         </thead>
         <tbody>
