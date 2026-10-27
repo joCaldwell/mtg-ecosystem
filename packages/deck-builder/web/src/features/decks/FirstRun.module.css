@@ -9,3 +9,5 @@
 .link { text-decoration: underline; }
 @media (max-width: 959px) { .choices { grid-template-columns: minmax(0, 1fr); } .choices button { min-height: var(--tap); } }
 @media (max-width: 719px) { .firstRun { padding: var(--s-5); } }
+
+@media (pointer: coarse) and (max-width: 1099px) { .choices button { min-height: var(--tap); } }

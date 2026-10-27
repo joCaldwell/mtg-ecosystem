@@ -33,5 +33,5 @@
 
 /* Touch tablets: header actions are full tap targets (DESIGN.md). */
 @media (pointer: coarse) and (max-width: 1099px) {
-  .actions > button, .actions > a { min-height: var(--tap); }
+  .actions button, .actions a { min-height: var(--tap); }
 }

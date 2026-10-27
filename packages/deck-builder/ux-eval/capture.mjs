@@ -205,8 +205,9 @@ async function runScreen(def, width, slug) {
         failures.push({ key, error: String(e.message ?? e).split("\n")[0] });
       }
       const file = join(RUN, "screens", `${key}.png`);
-      const full = await shoot(page, file);
+      // Full-page screenshots can reset Chromium touch emulation; measure first.
       const m = await pageMetrics(page, vp);
+      const full = await shoot(page, file);
       m.axe = await axe(page);
       m.axe_violations = m.axe.reduce((n, v) => n + v.nodes, 0);
       m.console_errors = watch.errors.slice(before);
