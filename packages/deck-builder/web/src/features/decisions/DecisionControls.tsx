@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, TextField } from "../../ui/index.ts";
+import { Button, Field, TextField } from "../../ui/index.ts";
 import styles from "./DecisionControls.module.css";
 
 export interface DecisionControlsProps {
@@ -56,14 +56,14 @@ export function DecisionControls({
   if (!reason) return buttons;
   return (
     <div className={styles.withReason}>
-      <TextField
+      <Field label="Reason (optional)"><TextField
         aria-label={reason.label}
         placeholder={reason.placeholder}
         value={reason.value}
         maxLength={500}
         disabled={busy}
         onChange={(e) => reason.onChange(e.target.value)}
-      />
+      /></Field>
       {buttons}
     </div>
   );
@@ -87,10 +87,9 @@ function ReasonField({
   useEffect(() => input.current?.focus(), []);
 
   return (
-    <div className={styles.controls}>
-      <TextField
+    <div className={styles.withReason}>
+      <Field label="Reason for rejecting (optional)"><TextField
         ref={input}
-        className={styles.reason}
         aria-label="Reason for rejecting, optional"
         // A sheet opened for the reason focuses it (ui/Dialog).
         data-autofocus
@@ -111,13 +110,15 @@ function ReasonField({
             onCancel();
           }
         }}
-      />
+      /></Field>
+      <div className={styles.controls}>
       <Button variant="reject" size="sm" kbd="↵" disabled={busy} onClick={() => onReject(reason)}>
         {label}
       </Button>
       <Button variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
         Cancel
       </Button>
+      </div>
     </div>
   );
 }

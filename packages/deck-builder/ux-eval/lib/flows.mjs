@@ -36,6 +36,45 @@ async function latestDecision(t, deckId) {
 
 export const FLOWS = [
   {
+    name: "playtest-draw-undo-resume",
+    caption: "Keep a hand, draw, undo and resume the saved manual table",
+    width: 1440,
+    user: (u) => u.owner,
+    async run(t) {
+      const { page } = t, id = t.decks.najeela;
+      const before = (await t.api(`/api/decks/${id}`, t.users.owner)).state;
+      await page.goto(t.origin + `/deck/${id}/playtest`);
+      await page.getByRole("dialog", { name: "New game", exact: true }).waitFor();
+      await t.step("Open playtest from a saved deck");
+      await t.press(page.getByRole("button", { name: "Shuffle and draw seven", exact: true }));
+      await page.getByRole("region", { name: "Opening hand", exact: true }).waitFor();
+      await t.step("Shuffle and draw seven");
+      await t.press(page.getByRole("button", { name: "Keep hand", exact: true }));
+      const draw = page.getByRole("button", { name: /^Draw(?:\s|$)/ }); await draw.waitFor();
+      await t.step("Keep the opening hand");
+      const read = async () => (await t.api(`/api/decks/${id}/playtest`, t.users.owner)).playtest;
+      const kept = await read();
+      const handCard = page.getByRole("region", { name: "Hand", exact: true }).getByRole("group").first();
+      await handCard.focus(); await t.key(handCard, "Enter"); await t.settle();
+      const selected = await handCard.getAttribute("data-selected") === "true";
+      await t.key(handCard, "Shift+F10"); await page.getByRole("menu").waitFor();
+      await t.step("Select a hand card and open its keyboard action menu");
+      await page.keyboard.press("Escape"); await t.settle();
+      await t.press(draw); await t.settle();
+      await t.step("Draw one card"); const drawn = await read();
+      await t.press(page.getByRole("button", { name: "Undo (Z)", exact: true })); await t.settle();
+      await t.step("Undo the draw"); const undone = await read();
+      await page.reload(); await draw.waitFor(); await t.settle();
+      await t.step("Reload and resume the saved table"); const resumed = await read();
+      const after = (await t.api(`/api/decks/${id}`, t.users.owner)).state;
+      const drawnOne = drawn.computed.counts.hand === kept.computed.counts.hand + 1;
+      const restored = JSON.stringify(undone.session.frame.zones) === JSON.stringify(kept.session.frame.zones);
+      const persisted = resumed.session.id === kept.session.id && JSON.stringify(resumed.session.frame.zones) === JSON.stringify(undone.session.frame.zones);
+      const unchanged = after.deck.revision === before.deck.revision && JSON.stringify(after.cards) === JSON.stringify(before.cards);
+      return { completed: drawnOne && restored && persisted && unchanged && selected, facts: { keyboard_card_selected: selected, opening_hand: kept.computed.counts.hand, drew_one: drawnOne, exact_zone_order_restored: restored, session_resumed: persisted, deck_unchanged: unchanged } };
+    },
+  },
+  {
     name: "first-run-sample",
     caption: "From a new, empty account to the sample deck",
     width: 1280,

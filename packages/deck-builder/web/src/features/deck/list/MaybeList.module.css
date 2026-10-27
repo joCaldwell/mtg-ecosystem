@@ -23,3 +23,12 @@
   color: var(--muted);
   font-size: var(--text-sm);
 }
+
+@media not all and (max-width: 1099px) {
+  .rows {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--deck-editor-column-min)), 1fr));
+    column-gap: var(--s-5);
+    align-items: start;
+  }
+}

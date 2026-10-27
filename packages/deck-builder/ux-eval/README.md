@@ -105,13 +105,16 @@ sign-in; first run (empty account); all decks; a Paper deck by default, with a
 card selected, reviewing proposals, scrolled to the maybe list, filtered by a
 search, and with the slots dialog open; the import dialog empty, with a pasted
 preview, and after applying; inbox, memories, activity, settings, profile;
-the sample deck; the public deck page and a public profile, signed out. Phone
+the sample deck; the public deck page and a public profile, signed out. Desktop
+playtest captures cover New game, the opening hand, the kept table, selected
+card inspection and the ordered library viewer, each from a fresh fixture. Phone
 views are the 375 px captures.
 
 **Flows**, with action captions and step and click counts:
 
 | Flow | Width | Task |
 | --- | --- | --- |
+| `playtest-draw-undo-resume` | 1440 | Keep a hand, keyboard-select a card and open its action menu, draw, undo exact zone order and reload the saved table without changing the deck |
 | `first-run-sample` | 1280 | From an empty account to the sample deck |
 | `import-moxfield` | 1280 | Import a Moxfield list into a new deck |
 | `review-accept-with-reason` | 1440 | Review one agent proposal and accept it with a reason |
@@ -239,3 +242,8 @@ Each pass:
    becomes the baseline. **Reject** → discard the change.
 7. Never show a judge the backlog, earlier replies, the key file, `run.json`
    or anything that names a pass, a date or a commit.
+
+`node check-maybe-rows.mjs --origin http://127.0.0.1:8853 --baseline http://127.0.0.1:8857`
+checks whole-row pointer/keyboard activation, focus, nested note controls, main
+modifier selection, persistent reason labels, and stored assignments/membership
+through promotion and undo against two disposable fixture servers.

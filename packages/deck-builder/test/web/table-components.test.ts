@@ -46,6 +46,10 @@ test("table components render actual wire facts, readable state and anonymous hi
     createElement(TextCard, { observation, full: true, selected: true }),
   );
   assert.ok(visible.includes(card.faces[1].name));
+  // The interactive group contains tools: group is valid on div, not article.
+  // https://www.w3.org/TR/html-aria/#el-article
+  assert.match(visible, /^<div[^>]*role="group"/);
+  assert.doesNotMatch(visible, /<article[^>]*role="group"/);
   assert.ok(visible.includes('data-selected="true"'));
   assert.ok(visible.includes('data-tapped="true"'));
   assert.ok(visible.includes("test counter: 3"));

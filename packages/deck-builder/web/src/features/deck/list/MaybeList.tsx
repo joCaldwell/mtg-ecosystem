@@ -26,9 +26,9 @@ export function MaybeList({ cards, matchingCards }: {
         </Text>
       </div>
       {sharedNote && <p className={styles.sharedNote}><InlineText text={sharedNote} /></p>}
-      {cards.map((c) => (
+      <div className={styles.rows}>{cards.map((c) => (
         <MaybeRow key={c.oracle_id} card={c} filterMatch={matchingCards?.has(c.oracle_id)} sharedNote={sharedNote != null} />
-      ))}
+      ))}</div>
     </section>
   );
 }

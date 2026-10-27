@@ -89,7 +89,7 @@ export function TextCard({
     onSelect?.(e.shiftKey || e.ctrlKey || e.metaKey);
   };
   return (
-    <article
+    <div
       className={`${styles.card} ${full ? styles.full : styles.compact} ${targeted ? styles.targeted : ""}`}
       data-selected={selected}
       data-tapped={object?.tapped ?? false}
@@ -192,6 +192,6 @@ export function TextCard({
       )}
       {footer && <footer className={styles.footer}>{footer}</footer>}
       {disabledReason && <small>{disabledReason}</small>}
-    </article>
+    </div>
   );
 }

@@ -6,12 +6,6 @@
   min-width: 0;
 }
 
-/* Takes the room the buttons leave; wraps below them when the column is narrow. */
-.reason {
-  flex: 1 1 calc(var(--s-8) * 4);
-  min-width: 0;
-}
-
 /* The reason sits on its own line above the buttons it goes with. */
 .withReason {
   display: grid;

@@ -217,6 +217,31 @@ const SCREENS = [
       },
     ],
   },
+  // The desktop manual table is a core workflow too. Every width starts from
+  // a fresh disposable seed so New game and the opening hand are comparable.
+  {
+    screen: "playtest", user: U.owner, path: `/deck/${D.najeela}/playtest`,
+    widths: [1280, 1440, ...WIDE], fresh: true,
+    states: [
+      { state: "new-game", caption: "Start a manual playtest from the deck", act: async ({ page }) => { await page.getByRole("dialog", { name: "New game", exact: true }).waitFor(); } },
+      { state: "opening", caption: "Shuffle and draw an opening hand", act: async ({ page, vp }) => {
+        await press(page, page.getByRole("button", { name: "Shuffle and draw seven", exact: true }), vp);
+        await page.getByRole("region", { name: "Opening hand", exact: true }).waitFor();
+      } },
+      { state: "playing", caption: "Keep the opening hand", act: async ({ page, vp }) => {
+        await press(page, page.getByRole("button", { name: "Keep hand", exact: true }), vp);
+        await page.getByRole("button", { name: /^Draw(?:\s|$)/ }).waitFor();
+      } },
+      { state: "card-selected", caption: "Select an actual hand card for inspection", act: async ({ page, vp }) => {
+        const card = page.getByRole("region", { name: "Hand", exact: true }).getByRole("group").first();
+        await press(page, card, vp);
+      } },
+      { state: "library", caption: "Open the ordered library viewer", act: async ({ page, vp }) => {
+        await press(page, page.getByRole("navigation", { name: "Table zones" }).getByRole("button", { name: /^Library/ }), vp);
+        await page.getByRole("combobox", { name: "Library viewer mode" }).waitFor();
+      } },
+    ],
+  },
   { screen: "inbox", user: U.owner, path: "/inbox", widths: ALL, states: [{ state: "default", caption: "Inbox with proposals and a brief edit" }] },
   { screen: "memories", user: U.owner, path: "/memories", widths: ALL, states: [{ state: "default", caption: "Memories" }] },
   { screen: "activity", user: U.owner, path: "/activity", widths: ALL, states: [{ state: "default", caption: "Activity feed of agent writes" }] },
