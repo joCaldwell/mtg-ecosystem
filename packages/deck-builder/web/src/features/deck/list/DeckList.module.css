@@ -9,6 +9,9 @@
 
 /* Read-only: part of a page that scrolls as a whole (ReadOnlyDeck). */
 .flow {
+  /* A shared list must identify every card without opening it. */
+  --deck-column-min: var(--deck-editor-column-min);
+  --card-name-white-space: normal;
   min-width: 0;
 }
 
@@ -52,3 +55,10 @@
    editable, needs a mouse and keyboard; on a touch screen it is noise.
    (Selected in CSS so the public bundle carries no extra class name.) */
 @media (hover: none), (pointer: coarse) { .legend > :last-child:not(.legendItem) { display: none; } }
+
+@media (max-width: 1099px) {
+  .flow {
+    --deck-column-min: var(--deck-reader-column-min);
+    --card-name-white-space: nowrap;
+  }
+}

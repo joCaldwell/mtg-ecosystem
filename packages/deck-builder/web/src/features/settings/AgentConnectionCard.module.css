@@ -42,12 +42,12 @@
   .columns > :last-child { border-left: 0; border-top: 1px solid var(--line); padding-left: 0; padding-top: var(--s-7); }
 }
 
-.permissions > summary {
+.permissions > summary, .instructions > summary {
   cursor: pointer;
   color: var(--text-soft);
   padding-block: var(--s-3);
 }
-.permissions[open] > summary { margin-bottom: var(--s-3); }
+.permissions[open] > summary, .instructions[open] > summary { margin-bottom: var(--s-3); }
 @media (max-width: 1099px) {
-  .permissions > summary { min-height: var(--tap); align-content: center; }
+  .permissions > summary, .instructions > summary { min-height: var(--tap); align-content: center; }
 }

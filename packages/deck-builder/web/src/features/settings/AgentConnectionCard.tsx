@@ -74,7 +74,10 @@ export function AgentConnectionCard({ agent, onChanged }: { agent: Settings["age
         return seen[0] ? `Last seen: ${seen[0].label}, ${ago(seen[0].last_used_at)}` : "Last seen: no agent has connected yet";
       })()}</Text>
       <Field label="Connection method"><Select value={client.id} onChange={e => setClientId(e.target.value as ClientId)}>{clients.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}</Select></Field>
-      {client.parts.map(renderPart)}
+      <details className={styles.instructions}>
+        <summary>Setup instructions</summary>
+        <Stack gap={4}>{client.parts.map(renderPart)}</Stack>
+      </details>
       {client.permissions && <details key={client.id} className={styles.permissions}>
         <summary>Tool permissions (optional)</summary>
         <Stack gap={4}>{client.permissions.map(renderPart)}</Stack>

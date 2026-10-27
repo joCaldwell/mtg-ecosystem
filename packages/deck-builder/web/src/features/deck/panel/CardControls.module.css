@@ -1,11 +1,14 @@
 .kv {
-  grid-template-columns: auto minmax(0, 1fr);
+  /* Labels above values give long purposes and tags the full control width. */
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
-  gap: var(--s-2) var(--s-4);
+  gap: var(--s-2);
+  font-size: var(--text-md);
 }
 
 .kv dt {
-  padding-top: var(--s-2);
+  padding-top: 0;
+  font-weight: 500;
   color: var(--text-soft);
 }
 
@@ -22,3 +25,13 @@
 }
 
 .kv dd > :not(.quantity), .kv select, .tags > div { width: 100%; }
+
+.kv dd:not(:last-child) { margin-bottom: var(--s-3); }
+.kv :is(select, input, button) { font-size: var(--text-md); }
+
+/* Keep the existing sheet layout while this pass focuses on desktop. */
+@media (max-width: 1099px) {
+  .kv { grid-template-columns: auto minmax(0, 1fr); gap: var(--s-2) var(--s-4); font-size: var(--text-sm); }
+  .kv dt { padding-top: var(--s-2); font-weight: inherit; }
+  .kv dd:not(:last-child) { margin-bottom: 0; }
+}

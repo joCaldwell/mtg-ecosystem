@@ -40,7 +40,8 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: var(--card-name-white-space, nowrap);
+  overflow-wrap: anywhere;
 }
 
 .marks {

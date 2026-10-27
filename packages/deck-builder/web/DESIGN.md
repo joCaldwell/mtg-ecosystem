@@ -438,3 +438,13 @@ controls. The always-available add input retains `/`, Enter, Shift+Enter and
 Escape. Search keeps nonmatches muted. Active query, match count, Clear and
 Export appear in a separate context row only while filtering; that row stays
 below tablet navigation while the toolbar scrolls away.
+
+## Desktop reading and details
+
+Shared desktop lists require the same minimum column width as the editor and
+allow long names to wrap; readers can identify every card without opening it.
+Editor rows retain their single-line density. Card-detail metadata separates
+type from the dated price estimate. Desktop card controls put labels above
+full-width values so purposes and tags remain readable beside the image.
+Settings keeps the connection method visible and puts its detailed commands
+inside “Setup instructions”; tokens and connected apps remain directly visible.
