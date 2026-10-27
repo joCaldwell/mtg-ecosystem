@@ -6,15 +6,15 @@
   padding: 0 var(--s-5);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-md);
-  background: var(--raised);
+  background: var(--surface);
   color: var(--text);
   white-space: nowrap;
   transition: background var(--fast), border-color var(--fast), color var(--fast);
 }
 
 .button:hover:not(:disabled) {
-  background: var(--hover);
-  border-color: var(--faint);
+  background: linear-gradient(var(--hover), var(--hover)), var(--surface);
+  border-color: var(--line-hover);
 }
 
 .sm {
@@ -36,15 +36,15 @@
 }
 
 .primary {
-  border-color: var(--text);
-  background: var(--text);
-  color: var(--bg);
+  border-color: var(--action);
+  background: var(--action);
+  color: var(--action-ink);
   font-weight: 600;
 }
 
 .primary:hover:not(:disabled) {
-  border-color: var(--text-soft);
-  background: var(--text-soft);
+  border-color: var(--action-hover);
+  background: var(--action-hover);
 }
 
 .accept {

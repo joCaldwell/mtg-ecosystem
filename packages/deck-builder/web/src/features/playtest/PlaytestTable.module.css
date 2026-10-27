@@ -43,7 +43,7 @@
 }
 .deckLink:hover {
   background: var(--hover);
-  border-color: var(--faint);
+  border-color: var(--line-hover);
   color: var(--text);
 }
 .title {

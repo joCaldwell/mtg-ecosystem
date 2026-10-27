@@ -8,8 +8,11 @@ the rules behind it.
 
 1. **The deck list is home.** Everything else comes to it: a side panel, a
    banner, a hover card. Nothing covers the list except a dialog you asked for.
-2. **Colour means something or it is grey.** See the table below. A new
-   feature does not get a new colour.
+2. **Colour means something or it is neutral.** The canvas and sidebar are
+   true black. Near-black surfaces lift slightly; transparent white hairlines
+   and hover states separate them. No blue-tinted greys or milky fills. One
+   blue action colour serves primary actions; the meanings below stay distinct.
+   A new feature does not get a new colour.
 3. **Text first in the editor.** Card rows remain names, costs and oracle
    text, with pictures on demand. Commander art may frame deck selection and
    deck headers; a quiet environment may frame sign-in and first run (D21).
@@ -71,7 +74,7 @@ D20) and built in phase 4a; phase 4b makes the full app hold up between
 | `--add` green | Coming in, passing, accepted | proposed add, a check that passes, Accept |
 | `--cut` red | Going out, failing, rejected | proposed cut, a rule violation, Reject |
 | `--warn` amber | Off target, missing, provisional | slot under target, incomplete deck |
-| `--sel` blue | The owner's selection and focus | selected rows, search and tag matches, focus ring, focused field |
+| `--sel` blue | The owner's selection, focus and primary action | selected rows, search and tag matches, focus ring, focused field; `--action` aliases it for primary buttons |
 | `--identity-*` | That deck’s colour identity | thin stripe on its card or header only |
 | greys | Everything else | structure, text, neutral chips, deck lifecycle |
 
@@ -87,6 +90,23 @@ and the deck header's lifecycle control. The `--lifecycle-*` aliases resolve to
 `--muted` on `--raised`, keeping green, blue and amber for accept/pass,
 selection and warnings. Sidebar labels appear only for Theorycrafted and
 Archived decks.
+
+The palette follows [T3 Code’s redesign dark theme](https://github.com/pingdotgg/t3code/blob/main/apps/web/src/index.css)
+(`html.dark[data-redesign]`): `--bg` is #000, including the sidebar;
+`--surface` and `--overlay` are #111 (neutral-950 with about 3% white),
+with #1a1a1a for `--raised` selected/control surfaces. Popovers stay opaque.
+Hover is 4% white over the existing surface. Rules are 8% white, control
+borders 11%, hover borders 18%; dim decorative elements with transparency.
+Inputs use the near-black surface and control border. Primary buttons use
+`--action` blue with black ink (8.30:1; 9.64:1 on hover); accept/reject
+and agent actions keep their semantic colours.
+
+Text is neutral #f5f5f5 / #d4d4d4 / #a3a3a3 / #9c9c9c. Conservative
+minimum ratios, including two stacked 6% semantic tints over a hovered
+raised surface: text 11.51:1, soft 8.47:1, muted 4.97:1, faint 4.57:1.
+The semantic tints use 32% borders. Violet, green, red, amber and blue text
+also pass AA across that envelope; exact measurements are in tokens.css.
+Red is slightly lighter to keep nested reject controls readable.
 
 ## Tokens
 
@@ -193,7 +213,7 @@ The playtester deliberately uses larger rules text (`--text-rules`, 15px,
 inspection with host-supplied contextual tools. Full, compact, hidden, selected,
 tapped, targeted and disabled observations are shown at `/design`.
 
-The table surface (`--table-bg`) is a step darker than the app's panels so
+The table surface (`--table-bg`) shares the true-black canvas so near-black
 cards lift off it. Battlefield cards end in one line: fact chips (token,
 counters, attachments) and a power/toughness box on the left, state and the tap
 control on the right. A manual power/toughness box is dashed and says
@@ -251,9 +271,9 @@ sheet over the list (principle 1's existing requested-dialog exception).
 - **Card inspection:** `?` on a focused card row opens the same CardSheet as
   tapping its mana cost. Inline card names without a host action open it too.
   The modal is named, traps focus, closes with Escape and restores focus.
-- **Text and motion:** faint is #9aa1ab and muted #a8aeb7, so the tiers stay
-  in order and both pass AA on tinted rows (see Tokens). Filtered-out cards
-  are not dimmed: their names still need to be read, and the matches carry
+- **Text and motion:** the neutral text tiers stay in order and pass AA on
+  tinted rows (see Tokens for the current palette and measured minima).
+  Filtered-out cards are not dimmed: their names still need to be read, and the matches carry
   the selection tint instead. Global reduced-motion zeroes `--fast` and
   disables transitions/animations. Inter is removed; the system font stack
   avoids a third-party font request.
@@ -318,8 +338,10 @@ printed artist and copyright lines.
 - **Backdrops show the land unblurred** in a band at the top of a solid
   surface panel; the form or first-run choices sit on the surface below.
 - **Overlays derive from `--bg`** (`color-mix`), so a palette change carries
-  them. Measured over pure white art: credit pill 7.6:1 (analytic floor),
-  text under any band 5.7:1 or better.
+  them. Measured with WCAG 2.x sRGB luminance over pure white art (94%
+  black overlay): muted credit 7.58:1, faint text under any band 6.97:1 or
+  better. Strip, banner, showcase and backdrop share this floor; no overlay
+  strength changes are needed for the black canvas.
 - **Identity is a 2 px stripe** at `--identity-opacity`, split for several
   colours, grey for colourless. Black uses the darker half of its pip
   (`--identity-b`) so it never reads as white. No identity fills, tints of

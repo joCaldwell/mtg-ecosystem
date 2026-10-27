@@ -3,7 +3,7 @@
   flex-direction: column;
   min-height: 0;
   border-right: 1px solid var(--line);
-  background: var(--surface);
+  background: var(--bg);
 }
 
 .brand {
@@ -105,7 +105,7 @@
   position: absolute;
   right: calc(var(--s-1) * -1);
   bottom: calc(var(--s-1) * -1);
-  box-shadow: 0 0 0 var(--s-1) var(--surface);
+  box-shadow: 0 0 0 var(--s-1) var(--bg);
 }
 
 .name {
