@@ -1,6 +1,6 @@
 // One explicit destination drives the header, content region and shared sheet.
 import { useEffect, useLayoutEffect, useRef } from "react";
-import { Badge, Icon, IconButton } from "../../../ui/index.ts";
+import { Badge } from "../../../ui/index.ts";
 import { useDeckState } from "../DeckStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import { PANEL_VIEWS, panelViewLabel } from "../panelViews.ts";
@@ -55,16 +55,13 @@ export function DeckPanel({ view, review }: { view: DeckViewModel; review: Revie
       event.preventDefault(); event.stopPropagation(); ui.openCardPanel(null);
     }
   }}>
-    <div className={styles.navigation}>
-      {ui.openCard ? <div className={styles.cardHeader}>
-        <IconButton ref={back} size="sm" label={`Back to ${panelViewLabel(ui.tab)}`} onClick={() => ui.openCardPanel(null)}><Icon name="back" /></IconButton>
-        <h2 className={styles.cardTitle}>{ui.openCard.name}</h2>
-      </div> : <nav className={styles.links} aria-label="Deck panel views">
+    {!ui.openCard && <div className={styles.navigation}>
+      <nav className={styles.links} aria-label="Deck panel views">
         {PANEL_VIEWS.map(item => <button key={item.id} type="button" ref={node => { if (node) links.current.set(item.id, node); else links.current.delete(item.id); }} aria-current={ui.tab === item.id ? "true" : undefined} onClick={() => ui.setTab(item.id)}>
           {item.label}{item.id === "review" && pending > 0 && <Badge tone="agent">{pending}</Badge>}
         </button>)}
-      </nav>}
-    </div>
+      </nav>
+    </div>}
     <div ref={body} className={styles.body} role="region" aria-label={panelViewLabel(ui.tab)} tabIndex={0} hidden={!!ui.openCard} inert={!!ui.openCard} data-panel-body={ui.openCard ? undefined : true} onScroll={() => { if (!ui.openCard && body.current) deckScroll.current = body.current.scrollTop; }}>
       {ui.tab === "review" ? <ReviewPanel view={view} review={review} />
         : ui.tab === "brief" ? <BriefPanel />
@@ -74,6 +71,6 @@ export function DeckPanel({ view, review }: { view: DeckViewModel; review: Revie
         : ui.tab === "memories" ? <MemoriesPanel />
         : <HistoryPanel />}
     </div>
-    {ui.openCard && <div ref={cardBody} className={styles.body} role="region" aria-label={`Card details for ${ui.openCard.name}`} tabIndex={0} data-panel-body><CardPanel key={ui.openCard.oracleId} card={ui.openCard} /></div>}
+    {ui.openCard && <CardPanel key={ui.openCard.oracleId} card={ui.openCard} backRef={back} bodyRef={cardBody} />}
   </aside>;
 }

@@ -4,20 +4,22 @@
 // own row, a proposal item naming it, then a lookup by name.
 
 import { useLive } from "../../../api/live.tsx";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type Ref } from "react";
 import { ptString } from "../../../domain/cards.ts";
 import { formatPrice } from "../../../domain/price.ts";
 import { pendingOf } from "../../../domain/grouping.ts";
 import { CardImage, InlineText, ManaCost, OracleText, useCardLookup, type CardInfo } from "../../../mtg/index.ts";
-import { Button, Chip, Loading, Text } from "../../../ui/index.ts";
+import { Button, Chip, Icon, IconButton, Loading, Text } from "../../../ui/index.ts";
 import { useDeckState } from "../DeckStore.tsx";
 import { useDeckUi, type OpenCard } from "../DeckUi.tsx";
 import { CardActions } from "./CardActions.tsx";
 import { CardControls } from "./CardControls.tsx";
 import { CardHistory } from "./CardHistory.tsx";
+import { panelViewLabel } from "../panelViews.ts";
+import panelStyles from "./DeckPanel.module.css";
 import styles from "./CardPanel.module.css";
 
-export function CardPanel({ card: open }: { card: OpenCard }) {
+export function CardPanel({ card: open, backRef, bodyRef }: { card: OpenCard; backRef: Ref<HTMLButtonElement>; bodyRef: Ref<HTMLDivElement> }) {
   const state = useDeckState();
   const ui = useDeckUi();
   const { lookup } = useCardLookup();
@@ -55,16 +57,20 @@ export function CardPanel({ card: open }: { card: OpenCard }) {
 
   return (
     <>
-      <div className={styles.status}>
-        <Chip>{where}</Chip>
-        {proposal && <Chip tone={proposal.action === "add" ? "add" : "cut"}>Proposed {proposal.action}</Chip>}
-      </div>
-
-      <div className={styles.head}>
-        <div className={styles.titles}>
-          {parts.length > 0 && <Text tone="soft" size="sm">{parts.join(" · ")}</Text>}
+      <div className={panelStyles.navigation} data-inspecting>
+        <div className={styles.header}>
+          <IconButton ref={backRef} size="sm" label={`Back to ${panelViewLabel(ui.tab)}`} onClick={() => ui.openCardPanel(null)}><Icon name="back" /></IconButton>
+          <h2 className={styles.name}>{open.name}</h2>
+          <div className={styles.status}>
+            <Chip>{where}</Chip>
+            {proposal && <Chip tone={proposal.action === "add" ? "add" : "cut"}>Proposed {proposal.action}</Chip>}
+          </div>
+          {info && <span className={styles.cost}><ManaCost cost={info.mana_cost} /></span>}
         </div>
-        {info && <ManaCost cost={info.mana_cost} />}
+      </div>
+      <div ref={bodyRef} className={panelStyles.body} role="region" aria-label={`Card details for ${open.name}`} tabIndex={0} data-panel-body>
+      <div className={styles.head}>
+          {parts.length > 0 && <Text tone="soft" size="sm">{parts.join(" · ")}</Text>}
       </div>
 
       {info ? info.oracle_text && <OracleText text={info.oracle_text} /> : <Loading />}
@@ -99,6 +105,7 @@ export function CardPanel({ card: open }: { card: OpenCard }) {
 
       {state.deck.category !== "archived" && <CardActions oracleId={open.oracleId} owned={owned} />}
       <CardHistory oracleId={open.oracleId} />
+      </div>
     </>
   );
 }

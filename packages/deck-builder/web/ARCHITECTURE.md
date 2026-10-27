@@ -491,10 +491,12 @@ with natural sentence wrapping.
 
 DeckPanel exposes text buttons for Review, Brief, Power, Stats, Checks, Memories
 and History. They use normal Tab/Enter/Space behavior and aria-current, not
-fake URLs or tab semantics. The narrow panel deliberately uses two rows;
-roomy panels use one. Review remains available when empty and shows its pending
+fake URLs or tab semantics. All seven destinations stay on one line at minimum, default and wider panel
+widths, using the existing readable type and compact spacing. Review remains available when empty and shows its pending
 count when nonzero. Card inspection replaces that header with the card title
 and an icon-only Back whose accessible name includes the remembered destination.
+The original card title, status chips and mana cost sit inline in that header;
+there is no separator beneath it. Type, price and estimate metadata stay below.
 The original deck view stays mounted, hidden and inert, with its scroll and local
 drafts retained. Card-to-card inspection keeps the first origin; Back restores
 that visible trigger or the active view control. List browsing retains list

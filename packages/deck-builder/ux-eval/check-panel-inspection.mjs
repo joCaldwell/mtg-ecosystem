@@ -30,7 +30,7 @@ try {
     assert.deepEqual(await nav.getByRole("button").allTextContents(), ["Review3", "Brief", "Power", "Stats", "Checks", "Memories", "History"]);
     assert.equal(await panel.getByRole("combobox", { name: "Panel view" }).count(), 0);
     const bounds = await nav.getByRole("button").evaluateAll(nodes => nodes.map(node => ({ label: node.textContent, top: Math.round(node.getBoundingClientRect().top) })));
-    assert.equal(bounds[0].top, bounds[3].top); assert(bounds[4].top > bounds[3].top, "default panel deliberately uses two rows");
+    assert.equal(new Set(bounds.map(item => item.top)).size, 1, "all default-width destinations stay on one line");
     for (const label of ["Review", "Brief", "Power", "Stats", "Checks", "Memories", "History"]) {
       const link = current(label);
       await link.focus(); await link.press("Enter"); await settle(page, watch);
@@ -92,10 +92,14 @@ try {
     const engine = panel.getByRole("textbox", { name: "Name", exact: true }); await engine.fill("Unsaved engine"); await open(cards[0]); await back("Brief"); assert.equal(await engine.inputValue(), "Unsaved engine");
     assert.equal((await axe(page)).length, 0);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-    const resize = page.getByRole("separator", { name: "Resize the deck panel" }); await resize.focus(); await resize.press("End");
+    const resize = page.getByRole("separator", { name: "Resize the deck panel" }); await resize.focus(); await resize.press("Home");
+    const minimum = await nav.getByRole("button").evaluateAll(nodes => nodes.map(node => Math.round(node.getBoundingClientRect().top)));
+    assert.equal(new Set(minimum).size, 1, "minimum panel keeps every destination on one line");
+    assert.equal(await nav.evaluate(node => node.scrollWidth > node.clientWidth), false, "minimum panel does not clip navigation");
+    await resize.press("End");
     const roomy = await nav.getByRole("button").evaluateAll(nodes => nodes.map(node => Math.round(node.getBoundingClientRect().top)));
     assert.equal(new Set(roomy).size, 1, "roomy panel has one navigation row");
-    results.push({ width, visible_navigation: true, deliberate_two_rows: true, keyboard_activation: true, draft_dom_scroll_preserved: true, reason_scroll_preserved: true, rejection_draft_escape_preserved: true, engine_form_preserved: true, first_card_origin_return: true, panel_trigger_focus_return: true, hidden_content_inaccessible: true });
+    results.push({ width, visible_navigation: true, single_row_at_min_default_wide: true, keyboard_activation: true, draft_dom_scroll_preserved: true, reason_scroll_preserved: true, rejection_draft_escape_preserved: true, engine_form_preserved: true, first_card_origin_return: true, panel_trigger_focus_return: true, hidden_content_inaccessible: true });
     await context.close(); console.log(`Panel inspection ${width} passed`);
   }
   const context = await newContext(browser, { origin, vp: VIEWPORTS[1440], user: 1, frozenNow: "2026-10-20T17:00:00Z", notes: { blocked: new Set(), imageFailures: new Set() } });

@@ -467,10 +467,11 @@ band, divider or explanatory subtitle. Useful state uses its compact meta slot;
 permissions and warnings stay with the relevant decision. Inbox shares that
 frame while its list and detail panes keep independent scrolling.
 
-Panel navigation exposes visible text controls in a deliberate two-row layout
-(Review, Brief, Power, Stats / Checks, Memories, History), or one row when roomy.
+Panel navigation keeps all visible text controls on one line at minimum, default
+and wider widths: Review, Brief, Power, Stats, Checks, Memories and History.
 The current destination has an underline and aria-current. Inspection replaces
-these controls in the same header with one card title and an icon-only Back;
+these controls in the same header with icon-only Back, title, status and mana
+cost inline, without a divider underneath;
 its hidden label names the previous view. The body never duplicates the title.
 Keep that view mounted, hidden and inert, preserving drafts and scroll; switching
 cards retains the first origin. Stats and Checks remain distinct. A named region
