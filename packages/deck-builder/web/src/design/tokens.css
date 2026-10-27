@@ -60,13 +60,14 @@
   --sel-bg: rgba(106, 163, 255, 0.14);
   --sel-line: rgba(106, 163, 255, 0.45);
 
-  /* Deck lifecycle uses the same palette in sidebar labels and roster pills. */
-  --lifecycle-paper: var(--add);
-  --lifecycle-paper-bg: var(--add-bg);
-  --lifecycle-theorycrafted: var(--sel);
-  --lifecycle-theorycrafted-bg: var(--sel-bg);
-  --lifecycle-archived: var(--warn);
-  --lifecycle-archived-bg: var(--warn-bg);
+  /* Deck lifecycle is a state, not one of the meanings above, so its sidebar
+     labels and roster pills are grey and the word carries it (DESIGN.md). */
+  --lifecycle-paper: var(--muted);
+  --lifecycle-paper-bg: var(--raised);
+  --lifecycle-theorycrafted: var(--muted);
+  --lifecycle-theorycrafted-bg: var(--raised);
+  --lifecycle-archived: var(--muted);
+  --lifecycle-archived-bg: var(--raised);
 
   /* Mana. Black is a dark disc with a pale ring so it cannot be mistaken for
      the grey generic pip. */

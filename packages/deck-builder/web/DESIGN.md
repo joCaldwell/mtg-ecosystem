@@ -73,7 +73,7 @@ D20) and built in phase 4a; phase 4b makes the full app hold up between
 | `--warn` amber | Off target, missing, provisional | slot under target, incomplete deck |
 | `--sel` blue | The owner's selection and focus | selected rows, search and tag matches, focus ring, focused field |
 | `--identity-*` | That deck’s colour identity | thin stripe on its card or header only |
-| greys | Everything else | structure, text, neutral chips |
+| greys | Everything else | structure, text, neutral chips, deck lifecycle |
 
 Mana colours (`--mana-*`) appear in symbols and the pip chart. D21 also
 permits `--identity-*` aliases on a deck's own thin stripe, at
@@ -81,9 +81,11 @@ permits `--identity-*` aliases on a deck's own thin stripe, at
 represents multiple colours. These accents never tint text or controls and
 never replace semantic colours.
 
-Deck lifecycle labels use green for Paper, blue for Theorycrafted, and amber
-for Archived through the `--lifecycle-*` aliases. Sidebar labels and All decks
-pills share these colors; sidebar labels appear only for Theorycrafted and
+Deck lifecycle (Paper, Theorycrafted, Archived) is a state, not a meaning, so
+its labels are grey and the word carries it: All decks pills, sidebar labels
+and the deck header's lifecycle control. The `--lifecycle-*` aliases resolve to
+`--muted` on `--raised`, keeping green, blue and amber for accept/pass,
+selection and warnings. Sidebar labels appear only for Theorycrafted and
 Archived decks.
 
 ## Tokens

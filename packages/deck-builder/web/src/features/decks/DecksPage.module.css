@@ -7,19 +7,16 @@
 .lifecycle[data-lifecycle="paper"] {
   color: var(--lifecycle-paper);
   background: var(--lifecycle-paper-bg);
-  border-color: transparent;
 }
 
 .lifecycle[data-lifecycle="theorycrafted"] {
   color: var(--lifecycle-theorycrafted);
   background: var(--lifecycle-theorycrafted-bg);
-  border-color: transparent;
 }
 
 .lifecycle[data-lifecycle="archived"] {
   color: var(--lifecycle-archived);
   background: var(--lifecycle-archived-bg);
-  border-color: transparent;
 }
 
 /* The roster follows the existing reading width, with cards that wrap. */
