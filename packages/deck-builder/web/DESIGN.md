@@ -406,5 +406,5 @@ directly when it is resolved. Review all decisions keeps its placement below.
 Readability refinement: generic buttons and text fields keep a 44 px minimum
 through tablet widths, including portalled import and slot dialogs. A note
 shared by every maybe card appears once beneath the list heading; distinct
-notes stay on their rows. Review rows isolate their flex layout so long groups
+notes stay on their rows. Card rows are atomic inline flex boxes so long groups
 can cross native columns without painting one card over another.

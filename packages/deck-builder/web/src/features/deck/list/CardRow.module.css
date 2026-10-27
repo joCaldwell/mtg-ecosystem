@@ -4,16 +4,16 @@
   --mana-min-glyph: var(--text-sm);
   --mana-gap: var(--mana-list-gap);
   --price-column-width: var(--price-column-min);
-  display: flex;
+  /* An inline flex box is atomic in native columns, including review rows
+     inserted into a long group. Block flex boxes can paint across a break. */
+  display: inline-flex;
+  vertical-align: top;
   align-items: center;
   gap: var(--s-2);
   width: 100%;
   min-height: var(--row);
   /* A flex row is one track, including a wrapped purpose or taller mana. */
   break-inside: avoid;
-  /* Isolate the flex layout while a long group fragments across columns.
-     Otherwise Chromium can paint a changed review row over its neighbour. */
-  contain: layout;
   padding: var(--s-1) var(--s-3);
   border-left: 2px solid transparent;
   border-radius: var(--r-sm);
