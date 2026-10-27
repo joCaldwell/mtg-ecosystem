@@ -402,3 +402,9 @@ Review refinement (2026-10-27): Shift+Enter retains add-bar results and marks
 the added card “maybe list”; its Undo removes that shortlisted card. Phone
 review opens the selected proposal first, then shows the next pending proposal
 directly when it is resolved. Review all decisions keeps its placement below.
+
+Readability refinement: generic buttons and text fields keep a 44 px minimum
+through tablet widths, including portalled import and slot dialogs. A note
+shared by every maybe card appears once beneath the list heading; distinct
+notes stay on their rows. Review rows isolate their flex layout so long groups
+can cross native columns without painting one card over another.

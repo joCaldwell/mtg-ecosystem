@@ -17,3 +17,9 @@
   font-size: var(--text-sm);
   font-weight: 600;
 }
+
+.sharedNote {
+  margin-bottom: var(--s-4);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}

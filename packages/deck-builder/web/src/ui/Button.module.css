@@ -85,9 +85,8 @@
   padding: 0 var(--s-6);
 }
 
-/* Touch (DESIGN.md, narrow screens): every button is at least one tap target
-   tall below 720 px, whatever size it is on desktop. */
-@media (max-width: 719px) {
+/* Tablet dialogs are portalled outside the editor's touch-sizing wrapper. */
+@media (max-width: 1099px) {
   .button {
     min-height: var(--tap);
   }

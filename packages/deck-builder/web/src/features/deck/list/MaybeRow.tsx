@@ -4,7 +4,7 @@ import { Chip } from "../../../ui/index.ts";
 import { useDeckUi } from "../DeckUi.tsx";
 import styles from "./MaybeRow.module.css";
 
-export function MaybeRow({ card, slotName, filterMatch }: { card: DeckCard; slotName: string | null; filterMatch?: boolean }) {
+export function MaybeRow({ card, slotName, filterMatch, sharedNote = false }: { card: DeckCard; slotName: string | null; filterMatch?: boolean; sharedNote?: boolean }) {
   const ui = useDeckUi();
   const hover = useCardHover();
   const open = ui.openCard?.oracleId === card.oracle_id;
@@ -26,7 +26,7 @@ export function MaybeRow({ card, slotName, filterMatch }: { card: DeckCard; slot
         {card.name}
       </button>
       <span className={styles.note}>
-        {card.maybe_note && <InlineText text={card.maybe_note} />}
+        {!sharedNote && card.maybe_note && <InlineText text={card.maybe_note} />}
       </span>
       {slotName && <Chip>{slotName}</Chip>}
       <ManaCost cost={card.mana_cost} />

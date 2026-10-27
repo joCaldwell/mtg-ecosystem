@@ -39,7 +39,7 @@
 }
 
 /* Touch (DESIGN.md, narrow screens): a field is one tap target tall. */
-@media (max-width: 719px) {
+@media (max-width: 1099px) {
   .field {
     min-height: var(--tap);
   }
