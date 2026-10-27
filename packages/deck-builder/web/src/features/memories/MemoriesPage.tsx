@@ -1,16 +1,15 @@
 import { Explainer } from "../../ui/index.ts";
-import { Advanced, useVoice } from "../../app/Preferences.tsx";
+import { useVoice } from "../../app/Preferences.tsx";
 import { useEffect, useState } from "react";
 import { api } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
-import { Button, Text, Pill, Box, EmptyState, ErrorNote, Eyebrow, Loading, Meter, Page, PageHeader, Section, Stack, TextField } from "../../ui/index.ts";
+import { Button, Text, Pill, EmptyState, ErrorNote, Eyebrow, Loading, Page, PageHeader, Stack, TextField } from "../../ui/index.ts";
 import { AddMemory } from "./AddMemory.tsx";
 import { MemoryCard } from "./MemoryCard.tsx";
 import styles from "./MemoriesPage.module.css";
 
 type ScopeFilter = "all" | "global" | number;
 type BasisFilter = "any" | "stated" | "inferred";
-
 
 /** Every memory (spec §7.4, §7.5): browse by scope, basis and status, search, correct, retire. */
 export function MemoriesPage() {
@@ -46,8 +45,6 @@ export function MemoriesPage() {
   const archived = new Set(scopes.filter(d => d.category === "archived").map(d => d.id));
   const decks = new Map(scopes.map(d => [d.id, d.name]));
   const shown = list.data?.memories ?? [];
-  const g = list.data?.global_budget;
-  const budgets = list.data?.budgets;
   useEffect(() => setCursors([]), [scope, showOld, q, basis]);
   useEffect(() => {
     if (typeof scope === "number" && list.data && !list.data.scopes.some(deck => deck.id === scope)) setScope("all");
@@ -67,38 +64,6 @@ export function MemoriesPage() {
       <Explainer title="Memories" summary={voice("A memory keeps a preference or lesson with its reason.", "Memories keep what your agent learns between sessions.")}>Use global memories for tastes that apply to every deck, or choose a deck for notes about that list. Stated means you said it; inferred means a conclusion you can confirm. You can correct or retire any memory. Agents cannot change one you wrote or edited.</Explainer>
       {list.error && <ErrorNote>{list.error}</ErrorNote>}
 
-      <Advanced>{g && budgets && (
-        <Section title="What loads into an agent's context, in estimated tokens">
-          <div className={styles.budgets}>
-            <Box padding="sm">
-              <div className={styles.budgetHead}>
-                <h3 className={styles.budgetTitle}>Global</h3>
-                <span className={styles.grow} />
-                <span className={styles.num}>
-                  {g.used.toLocaleString()} of {g.budget.toLocaleString()}
-                </span>
-              </div>
-              <Meter value={g.used} max={g.budget} tone={g.omitted > 0 ? "warn" : "agent"} aria-label="Global memory budget used" />
-              <p className={styles.small}>
-                {g.omitted > 0
-                  ? voice(`${g.omitted} did not fit. They remain searchable; combine related notes to make room.`, `${g.omitted} did not fit and are found by search only. Ask an agent to consolidate.`)
-                  : voice("All global notes fit within this limit.", "Everything global loads at the start of a session.")}
-              </p>
-            </Box>
-            <Box padding="sm">
-              <div className={styles.budgetHead}>
-                <h3 className={styles.budgetTitle}>Per deck</h3>
-                <span className={styles.grow} />
-                <span className={styles.num}>{budgets.deck.toLocaleString()} each</span>
-              </div>
-              <p className={styles.small}>
-                Each deck loads its own memories up to {budgets.deck.toLocaleString()} estimated tokens. A deck's meter
-                is on that deck's Memories tab.
-              </p>
-            </Box>
-          </div>
-        </Section>
-      )}</Advanced>
 
       <Stack gap={4}>
         <div className={styles.filters}>

@@ -273,10 +273,21 @@ budgets in one transaction.
 ## Phase 4b: first run, tablets and loading
 
 `PreferencesProvider` reads /api/settings once for the private shell. It
-supplies `has_agent_activity`, both copy voices through `useVoice`, and the
-account's shared Advanced preference. Saving that preference is UI-only below
-HTTP. Sidebar presence is absent until an agent write; /api/activity/latest
-reads one activity row. Creating a token or reading with it does not count.
+supplies `has_agent_activity` and both copy voices through `useVoice`. Sidebar
+presence is absent until an agent write; /api/activity/latest reads one
+activity row. Creating a token or reading with it does not count.
+
+Owner decision (2026-10-27, §11.3): Advanced and its account preference are
+removed. History owns current and entry revisions; card decisions show their
+revision, while memory and power assessment metadata uses native titles.
+Neither desktop nor phone deck headers show revisions. CardControls keeps
+secondary slots directly under the primary field, compact and ungated.
+LogRow shows review status, and InboxPage keeps the unreviewed count visible
+alongside the queue. CardHistory's owner-scoped response adds ownership
+evidence, rendered only when nonempty with basis, quantities and attribution.
+Settings alone shows memory limits, usage and omitted counts for the global
+scope and owned decks, computed through loadScope. No new migration; old
+advanced_open rows are unused. The disclosure primitive is removed.
 
 The tablet frame runs from 720 through 1099 px; `TabletScroll`
 (`app/TabletShell.tsx`) **calls useWindowScroll()** while it applies. The

@@ -16,7 +16,7 @@ export function SlotsDialog({ onClose }: { onClose: () => void }) {
       onClose={onClose}
       footer={<Button onClick={onClose}>Close</Button>}
     >
-      <Explainer title="Slots and tags" summary="Slots describe purpose; tags track sourcing and status.">A primary slot counts toward its target. Advanced controls let you add secondary purposes without changing those targets. Slots are optional, and card types are a separate way to group your list.</Explainer>
+      <Explainer title="Slots and tags" summary="Slots describe purpose; tags track sourcing and status.">Primary slots count toward targets; secondary slots add purposes. Both are optional. Group by card type separately.</Explainer>
       <Stack gap={7}>
         <Section title="Slots">
           <Text tone="muted" as="p">

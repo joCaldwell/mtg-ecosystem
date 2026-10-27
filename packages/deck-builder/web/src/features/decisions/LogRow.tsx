@@ -1,4 +1,3 @@
-import { usePreferences } from "../../app/Preferences.tsx";
 import type { ReactNode } from "react";
 import type { LogEntry } from "../../api/client.ts";
 import { ago } from "../../domain/time.ts";
@@ -102,27 +101,24 @@ export function LogRow({
   onToggleHidden?: (entry: LogEntry) => void;
   showDeck?: boolean;
 }) {
-  const { advanced } = usePreferences();
   const lead = LEAD[entry.kind];
   const unread = entry.reviewed_at == null;
   const undone = entry.undone_by != null;
   const deck = entry.deck_name ?? "Your profile";
 
   return (
-    <div className={styles.row} data-advanced={advanced}>
-      {advanced && <Text mono size="xs" tone="faint" className={styles.rev}>
+    <div className={styles.row}>
+      <Text mono size="xs" tone="faint" className={styles.rev}>
         r{entry.revision}
-      </Text>}
+      </Text>
       <div className={styles.what}>
         <span className={styles[lead.tone]}>{lead.word}</span> <span className={undone ? styles.dim : undefined}>{describe(entry)}</span>
-        {advanced && unread && (
-          <span
-            className={styles.unread}
-            title="No agent has read this decision yet. The next agent session will."
-          >
-            unread by agents
-          </span>
-        )}
+        <span
+          className={styles.unread}
+          title={unread ? "No agent has read this decision yet" : `Reviewed by an agent ${ago(entry.reviewed_at!)}`}
+        >
+          {unread ? "Unreviewed" : "Reviewed"}
+        </span>
         {undone && <span className={styles.undone}>undone</span>}
         {onToggleHidden && !!entry.hidden && <span className={styles.undone}>hidden from the page</span>}
       </div>

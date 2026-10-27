@@ -1,9 +1,6 @@
-// First-run voice and progressive disclosure (§11.3). Preferences always
-// belong to the authenticated principal; agents cannot change the UI.
+// First-run voice (§11.3), scoped to the authenticated principal.
 import type { Database } from "./sqlite.ts";
-import { requireActor, requireUi, SAMPLE_AGENT_LABEL, type Actor } from "./actor.ts";
-import { getSetting, setSetting } from "./db.ts";
-import { ServiceError } from "./errors.ts";
+import { requireActor, SAMPLE_AGENT_LABEL, type Actor } from "./actor.ts";
 
 // One indexed probe per table (v15's partial agent-author indexes, and
 // activity by user and label), each stopping at its first row. The sample
@@ -20,11 +17,5 @@ const PROBES = [
 export function uiPreferences(db: Database, actor: Actor) {
   requireActor(actor);
   const written = PROBES.some(sql => db.prepare(sql).get(actor.user_id, SAMPLE_AGENT_LABEL));
-  return { has_agent_activity: written, advanced_open: getSetting(db, actor, "advanced_open") === "true" };
-}
-
-export function setAdvancedOpen(db: Database, actor: Actor, value: unknown): void {
-  requireUi(actor, "change Advanced controls");
-  if (typeof value !== "boolean") throw new ServiceError("Advanced must be open or closed");
-  setSetting(db, actor, "advanced_open", String(value));
+  return { has_agent_activity: written };
 }

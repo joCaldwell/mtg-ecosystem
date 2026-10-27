@@ -1,4 +1,4 @@
-import { Advanced, useVoice } from "../../app/Preferences.tsx";
+import { useVoice } from "../../app/Preferences.tsx";
 import { useEffect, useRef, useState } from "react";
 import { navigate } from "../../app/routes.ts";
 import { useInbox } from "../../app/Inbox.tsx";
@@ -68,6 +68,7 @@ export function InboxPage() {
   return (
     <div className={styles.page}>
       {header}
+      {inbox.unreviewed > 0 && <Text tone="muted" size="sm">{inbox.unreviewed} {inbox.unreviewed === 1 ? "decision" : "decisions"} unreviewed by agents</Text>}
       <Button variant="ghost" onClick={() => setHistory(!history)}>{history ? "Hide proposal history" : "Show proposal history"}</Button>
       {history && <ProposalHistory />}
       <SplitPane
@@ -89,13 +90,6 @@ export function InboxPage() {
               <EmptyState title="Nothing is waiting on you">
                 {voice("There are no proposed changes to review. Keep building your decks; your decisions stay in each deck’s History.", "Your decisions and reasons are queued. An agent reads them the next time it starts a session, whether or not it was running when you decided.")}
               </EmptyState>
-              {/* Advanced appears only when it has something to show. */}
-              {inbox.unreviewed > 0 && <Advanced>
-                <Text tone="muted" size="sm">
-                  {inbox.unreviewed} of your decisions {inbox.unreviewed === 1 ? "has" : "have"} not been read by an agent
-                  yet.
-                </Text>
-              </Advanced>}
             </div>
           )
         }

@@ -60,8 +60,7 @@ export function Dialog({ title, onClose, width = "md", placement = "center", chi
 
   function trapTab(e: KeyboardEvent) {
     if (e.key !== "Tab" || e.defaultPrevented || !panel.current) return;
-    // Advanced keeps hidden content mounted. Native Tab skips it; the
-    // focus trap must use the same set of visible controls.
+    // Native Tab skips hidden content; trap the same visible controls.
     const items = Array.from(panel.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(item => item.getClientRects().length > 0);
     const first = items[0];
     const last = items[items.length - 1];

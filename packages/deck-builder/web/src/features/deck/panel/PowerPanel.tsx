@@ -1,5 +1,5 @@
 import { Explainer } from "../../../ui/index.ts";
-import { usePreferences, useVoice } from "../../../app/Preferences.tsx";
+import { useVoice } from "../../../app/Preferences.tsx";
 import { useState } from "react";
 import { api } from "../../../api/client.ts";
 import { useInbox } from "../../../app/Inbox.tsx";
@@ -15,7 +15,6 @@ import styles from "./PowerPanel.module.css";
 
 export function PowerPanel() {
   const voice = useVoice();
-  const { advanced } = usePreferences();
   const state = useDeckState();
   const { power, deck } = state;
   const { deckId, run, apply } = useDeck();
@@ -30,7 +29,7 @@ export function PowerPanel() {
       <Row justify="between"><Eyebrow>Deck power</Eyebrow><Button size="sm" variant="ghost" disabled={readOnly} onClick={() => setEditing("assessment")}>{a ? "Reassess" : "Assess deck"}</Button></Row>
       <div className={styles.summary}>
         <Stack gap={2}><Text size="xs" tone="muted">Current assessment</Text><Text size="xl" mono tone={a?.stale ? "warn" : "soft"}>{a ? bracketLabel(a.mapping) : "Not assessed"}</Text>
-          {a && <Text size="xs" tone={a.owner_touched ? "muted" : "agent"}>{a.author_display ?? a.author}{advanced ? ` · r${a.revision}` : ""} · {ago(a.created_at)}</Text>}
+          {a && <Text title={`Assessed at r${a.revision}`} size="xs" tone={a.owner_touched ? "muted" : "agent"}>{a.author_display ?? a.author} · {ago(a.created_at)}</Text>}
         </Stack>
         <Stack gap={2}><Text size="xs" tone="muted">Target</Text><Text size="xl" mono>{t ? bracketLabel(t.mapping) : "Not set"}</Text>
           <Button size="sm" variant="ghost" disabled={readOnly} onClick={() => setEditing("target")}>{t ? "Edit target" : "Set target"}</Button>
@@ -62,7 +61,7 @@ export function PowerPanel() {
     {state.document_edits.filter(e => e.kind === "power_target").map(edit => <DocumentEditCard key={edit.id} edit={edit} onRuled={r => { apply(r); inbox.apply(r.inbox); }} />)}
     {power.history.length > 1 && <details className={styles.details}><summary>Previous assessments</summary><Stack gap={5}>
       {power.history.slice(1).map(old => <Stack key={old.id} gap={2}>
-        <Text size="sm" tone={old.owner_touched ? "muted" : "agent"}>{old.author_display ?? old.author}{advanced ? ` · r${old.revision}` : ""} · {bracketLabel(old.mapping)} · {old.confidence} · {old.evidence} · {ago(old.created_at)}</Text>
+        <Text title={`Assessed at r${old.revision}`} size="sm" tone={old.owner_touched ? "muted" : "agent"}>{old.author_display ?? old.author} · {bracketLabel(old.mapping)} · {old.confidence} · {old.evidence} · {ago(old.created_at)}</Text>
         <details><summary>View this assessment</summary><Stack gap={2}>{powerRows({ ...power, assessment: old }).map(row => <Text key={row.field} size="sm" tone="muted">{row.field}: {row.current}</Text>)}</Stack></details>
         <RichText text={old.notes} />
       </Stack>)}

@@ -1,42 +1,24 @@
-import { Advanced, useVoice } from "../../../app/Preferences.tsx";
+import { useVoice } from "../../../app/Preferences.tsx";
 // The Memories tab (spec §7): what agents have written down about this deck,
-// and how much of it fits in what an agent is shown when it opens the deck.
+// with editing and retirement in place.
 
 import { api } from "../../../api/client.ts";
 import { useQuery } from "../../../api/useQuery.ts";
 import { href } from "../../../app/routes.ts";
-import { Eyebrow, ErrorNote, Loading, Meter, Text } from "../../../ui/index.ts";
+import { ErrorNote, Loading, Text } from "../../../ui/index.ts";
 import { AddMemory, MemoryCard } from "../../memories/index.ts";
 import { useDeck, useDeckState } from "../DeckStore.tsx";
 import styles from "./MemoriesPanel.module.css";
 
 export function MemoriesPanel() {
   const voice = useVoice();
-  const { memory_budget: budget, deck } = useDeckState();
+  const { deck } = useDeckState();
   const { deckId } = useDeck();
   const list = useQuery(() => api.listMemories({ scope: "deck", deck: deckId }), [deckId]);
   const memories = list.data?.memories ?? [];
 
   return (
     <>
-      <Advanced><section className={styles.section}>
-        <Eyebrow>Loaded whenever an agent opens this deck</Eyebrow>
-        <Meter
-          value={budget.used}
-          max={budget.budget}
-          tone={budget.omitted > 0 ? "warn" : "agent"}
-          aria-label="Share of the deck memory budget in use"
-        />
-        <Text tone="faint" size="xs" mono>
-          {budget.used} of {budget.budget} estimated tokens
-        </Text>
-        {budget.omitted > 0 && (
-          <Text tone="warn" size="sm" as="p">
-            {budget.omitted} did not fit and {budget.omitted === 1 ? "is" : "are"} found by search only. Ask an agent
-            to consolidate this deck's memories.
-          </Text>
-        )}
-      </section></Advanced>
 
       <section className={styles.section}>
         {list.error && <ErrorNote>{list.error}</ErrorNote>}
