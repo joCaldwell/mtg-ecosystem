@@ -11,14 +11,18 @@ export function useArtCollapse() {
   const desktop = !useMediaQuery(PANEL_QUERY);
   const [folded, setFolded] = useState(false);
   // Tokens do not change while the page is open; read them on first use.
-  const space = useRef<{ threshold: number; band: number } | null>(null);
+  const space = useRef<{ threshold: number; expandThreshold: number; band: number } | null>(null);
   useEffect(() => { if (!desktop) setFolded(false); }, [desktop]);
   return {
     collapsed: desktop && folded,
     onScrollCapture: (event: UIEvent<HTMLElement>) => {
       const list = event.target as HTMLElement;
       if (!desktop || list.dataset.deckList !== "true") return;
-      space.current ??= { threshold: tokenPx("--art-collapse-threshold"), band: tokenPx("--art-banner-space") };
+      space.current ??= {
+        threshold: tokenPx("--art-collapse-threshold"),
+        expandThreshold: tokenPx("--art-expand-threshold"),
+        band: tokenPx("--art-banner-space"),
+      };
       setFolded((f) => nextFold(f, list, space.current!));
     },
   };

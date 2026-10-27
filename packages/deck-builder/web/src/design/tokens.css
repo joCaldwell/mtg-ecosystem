@@ -185,6 +185,7 @@
   --art-backdrop-space: 160px;
   --art-backdrop-phone-space: 112px;
   --art-collapse-threshold: 48px;
+  --art-expand-threshold: 16px;
   /* Sidebar thumbnails sit in the icon column; quieter until current or hovered. */
   --art-thumb: 16px;
   --art-thumb-opacity: 0.7;

@@ -32,15 +32,25 @@ test("credited art needs a named artist, keeps at most two, and names the front 
   assert.equal(artCredit(art[0]!, false), "Art by Someone · Front");
 });
 
-test("the banner folds past the threshold, unfolds at it, and never folds a list too short to stay folded", () => {
-  const space = { threshold: 48, band: 72 };
+test("banner hysteresis prevents repeated folds near the threshold and guards short lists", () => {
+  const space = { threshold: 48, expandThreshold: 16, band: 72 };
   const list = (scrollTop: number, overflow: number) => ({ scrollTop, clientHeight: 500, scrollHeight: 500 + overflow });
   assert.equal(nextFold(false, list(30, 400), space), false, "above the threshold");
   assert.equal(nextFold(false, list(60, 400), space), true, "past it, with room");
-  assert.equal(nextFold(true, list(48, 400), space), false, "back at the threshold unfolds");
+  assert.equal(nextFold(true, list(48, 400), space), true, "reversing through the collapse point stays compact");
+  assert.equal(nextFold(true, list(17, 400), space), true, "just outside the return threshold stays compact");
+  assert.equal(nextFold(true, list(16, 400), space), false, "near the top restores the art");
   // 100 px of overflow loses 72 when the band folds: the list would clamp to
   // 28, under the threshold, and unfold again. It stays as it is instead.
   assert.equal(nextFold(false, list(60, 100), space), false, "a short list keeps its banner");
-  assert.equal(nextFold(true, list(28 + 21, 28), space), true, "and a folded one is not flipped back by the clamp");
+  assert.equal(nextFold(true, list(28, 28), space), true, "a browser clamp into the dead band does not unfold it");
   assert.equal(nextFold(false, list(60, 121), space), true, "just enough room folds");
+  let folded = false;
+  let transitions = 0;
+  for (const top of [60, 45, 55, 30, 17, 16, 30, 45]) {
+    const next = nextFold(folded, list(top, 400), space);
+    if (next !== folded) transitions++;
+    folded = next;
+  }
+  assert.equal(transitions, 2, "one fold and one expansion despite repeated crossings");
 });

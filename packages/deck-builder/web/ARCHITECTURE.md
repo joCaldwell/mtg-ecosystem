@@ -460,8 +460,10 @@ Review refinement (2026-10-27): CardPanel reserves a readable field width beside
 shrinkable art. AddBar retains search results after maybe-list adds, while its
 Undo uses removeCard; ordinary membership Undo still uses its log entry.
 PhoneDecisions falls back to the first pending proposal after its selected one
-is resolved. DeckArt folds its decorative crop with transform and opacity in
-a fixed reserved box, without resizing the header or either desktop pane.
+is resolved. DeckArt folds its decorative crop with transform and opacity while
+its occupied padding collapses in sync, moving the header up and returning
+space to both desktop panes. The list uses separate collapse and return
+thresholds to prevent oscillation during small scroll reversals.
 
 Active tablet filters keep only their query/tag summary, match count and Clear
 action below navigation while the toolbar scrolls away. Matching-row reveal

@@ -348,11 +348,16 @@ printed artist and copyright lines.
   text or controls.
 - **The desktop banner folds** while the deck list (only it, not the panel)
   is scrolled past `--art-collapse-threshold`, unless the list is too short
-  to stay folded. The banner reserves its full box height; its inner crop folds using transform
-  and opacity over `--base`, which is 0 under reduced motion. The credit hides
-  with the art, and the header and panes retain their positions. The fold exists
+  to stay folded. Its padding collapses with the crop over `--base`, moving the
+  title, toolbar and both panes upward and returning the band's space to the
+  work area. The credit hides with the crop. It expands only near the list top
+  (`--art-expand-threshold`), leaving a dead band to prevent oscillation. The
+  panes retain their own scroll positions subject to normal end clamping.
+  Reduced motion makes the transition immediate. The fold exists
   only at 1100 px and wider: `useArtCollapse` drops it below that, and the
-  CSS ignores `data-collapsed` there. A fold and unfold produce no layout shift. Narrower headers scroll away with the window.
+  CSS ignores `data-collapsed` there. Narrower headers scroll away with the window.
+  This owner-requested movement is intentional scroll-driven reflow; load
+  stability must be distinguished from the header's transition.
 
 Art does not appear in inbox, activity, memories, Settings, dialogs or the
 playtester content. The rail can still show thumbnails while those screens
