@@ -8,7 +8,7 @@
 
 .picker {
   min-width: 0;
-  width: var(--sidebar-w);
+  width: var(--toolbar-tags-w);
 }
 
 .actions {

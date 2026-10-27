@@ -158,6 +158,10 @@
   --stats-column-min: 280px;
   --stats-identity-min: 144px;
   --settings-card-min: 440px;
+  --toolbar-add-w: 300px;
+  --toolbar-search-max: 400px;
+  --toolbar-tags-w: 140px;
+  --toolbar-search-min: 160px;
   /* Shared pages and the phone view (spec §18.5, §11.2). The phone breakpoint
      itself is PHONE_MAX_WIDTH in app/breakpoints.ts: media queries cannot
      read a custom property. */

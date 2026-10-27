@@ -423,3 +423,13 @@ followed by card data and account controls. Secondary Settings copy uses body
 size. Memory budget fields come before the optional usage disclosure, whose
 scope names use normal case. All scopes and precise values remain available.
 These layouts stack on tablets, and phone capabilities remain unchanged.
+
+Owner toolbar direction (2026-10-27): the editor has one aligned desktop
+working row. “Add cards” is a raised catalogue field, separated by a rule from
+the deck search, compact tag filter, and labelled Group/Sort native selects.
+Controls stay adjacent and share a height instead of occupying opposite ends
+of the viewport. On tablets the add field takes its own row above those view
+controls. The always-available add input retains `/`, Enter, Shift+Enter and
+Escape. Search keeps nonmatches muted. Active query, match count, Clear and
+Export appear in a separate context row only while filtering; that row stays
+below tablet navigation while the toolbar scrolls away.

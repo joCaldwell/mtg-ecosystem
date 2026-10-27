@@ -1,85 +1,33 @@
+/* One working row: add from the catalogue, then find and arrange this deck.
+   Controls stay together rather than docking at opposite ends of the screen. */
 .toolbar {
+  --h-md: var(--h-lg);
   display: flex;
-  flex-direction: column;
-  gap: var(--s-4);
+  align-items: center;
+  gap: var(--s-6);
   padding: var(--s-4) var(--s-6);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--line-strong);
   background: var(--surface);
 }
-
-.add {
-  display: flex;
-  align-items: center;
-  gap: var(--s-5);
-}
-
-.filterSummary {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--s-4);
-  white-space: nowrap;
-}
-
-.view {
-  display: flex;
-  align-items: center;
-  overflow-x: auto;
-  justify-content: space-between;
-  gap: var(--s-4) var(--s-6);
-}
-
-.filters {
-  display: flex;
-  align-items: center;
-  gap: var(--s-4) var(--s-5);
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.layout {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--s-4);
-}
-
-.search {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  flex: 1 1 var(--sidebar-w);
-  min-width: var(--sidebar-w);
-  max-width: var(--panel-w);
-}
-
-.sort {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s-2);
-}
-
-.search input::-webkit-search-cancel-button {
-  display: none;
-}
-
+.add { display: flex; flex: 0 1 var(--toolbar-add-w); min-width: var(--sidebar-w); padding-right: var(--s-6); border-right: 1px solid var(--line-strong); }
+.add > div { max-width: none; min-width: 0; }
+.view { display: flex; flex: 1; min-width: 0; align-items: center; gap: var(--s-6); }
+.filters { display: flex; flex: 1; min-width: 0; max-width: calc(var(--toolbar-search-max) + var(--toolbar-tags-w) + var(--s-4)); align-items: center; gap: var(--s-4); }
+.search { display: flex; flex: 1; min-width: var(--toolbar-search-min); align-items: center; gap: var(--s-3); padding-left: var(--s-4); border-radius: var(--r-md); background: var(--bg); color: var(--muted); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.search:focus-within { box-shadow: inset 0 0 0 1px var(--sel), 0 0 0 3px var(--sel-bg); }
+.search > svg { flex: none; }
+.search .searchInput { border: 0; background: none; padding-left: 0; color: var(--text); }
+.search .searchInput:focus { box-shadow: none; }
+.search input::-webkit-search-cancel-button { display: none; }
+.search button { flex: none; }
+.layout { display: flex; flex: none; align-items: center; gap: var(--s-5); }
+.choice { display: flex; align-items: center; gap: var(--s-3); white-space: nowrap; }
+.choice select { font-size: var(--text-sm); }
 @media (max-width: 1099px) {
-  .toolbar { padding: var(--s-3) var(--s-4); gap: var(--s-3); }
-  .view { flex-wrap: wrap; overflow: visible; }
-  .filters { flex: 1 1 100%; flex-wrap: wrap; }
-  .add { width: 100%; }
-  .add > div { max-width: none; }
-  .search { flex: 1 1 40%; min-width: 0; max-width: none; }
-  .search input { min-width: 0; }
-  .layout [role="group"] { height: auto; }
-  .layout { margin-left: auto; flex-wrap: wrap; gap: var(--s-2); }
-  .filterSummary { flex-wrap: wrap; gap: var(--s-2); }
-  .filterSummary button:last-child, .search [role="status"] { display: none; }
+  .toolbar { flex-wrap: wrap; gap: var(--s-3); padding: var(--s-3) var(--s-4); }
+  .add { flex-basis: 100%; border: 0; padding: 0; }
+  .view { flex-wrap: wrap; gap: var(--s-3); }
+  .layout { gap: var(--s-4); }
+  .search { min-width: var(--toolbar-search-min); }
+  .toolbar :is(button, input, select) { min-height: var(--tap); }
 }
-
-/* Touch tablets: toolbar controls are full tap targets (DESIGN.md). */
-@media (max-width: 1099px) {
-  .toolbar button, .toolbar input { min-height: var(--tap); }
-}
-
-.search [role="status"] { flex: none; white-space: nowrap; }

@@ -1,17 +1,16 @@
 import { useRef } from "react";
-import { Button, Icon, IconButton, Segmented, Text, TextField } from "../../ui/index.ts";
+import { Icon, IconButton, Select, Text, TextField } from "../../ui/index.ts";
 import type { SortBy } from "../../domain/cards.ts";
 import type { GroupBy } from "../../domain/grouping.ts";
 import { AddBar } from "./AddBar.tsx";
 import { DeckTagFilter } from "./DeckTagFilter.tsx";
 import { useDeckState } from "./DeckStore.tsx";
 import { useDeckUi } from "./DeckUi.tsx";
-import { useSharedDeckView } from "./DeckViewContext.ts";
 import styles from "./DeckToolbar.module.css";
 
 const GROUP_OPTIONS: Array<{ value: GroupBy; label: string }> = [
-  { value: "slot", label: "By slot" },
-  { value: "type", label: "By type" },
+  { value: "slot", label: "Slots" },
+  { value: "type", label: "Card type" },
 ];
 
 const SORT_OPTIONS: Array<{ value: SortBy; label: string; title: string }> = [
@@ -23,22 +22,20 @@ const SORT_OPTIONS: Array<{ value: SortBy; label: string; title: string }> = [
 export function DeckToolbar() {
   const ui = useDeckUi();
   const readOnly = useDeckState().deck.category === "archived";
-  const { matches } = useSharedDeckView();
-  const matchCount = matches.cardIds.size + matches.addIds.size;
   const search = useRef<HTMLInputElement>(null);
   return (
     <div className={styles.toolbar}>
-      <div className={styles.add}>
-        {!readOnly && <AddBar />}
-      </div>
+      {!readOnly && <div className={styles.add}><AddBar /></div>}
       <div className={styles.view} role="group" aria-label="Deck view controls">
         <div className={styles.filters}>
           <div className={styles.search}>
+            <Icon name="search" size={14} />
             <TextField
               ref={search}
               type="search"
               aria-label="Search this deck"
-              placeholder="Search this deck…"
+              placeholder="Find in this deck…"
+              className={styles.searchInput}
               autoComplete="off"
               spellCheck={false}
               value={ui.searchTerm}
@@ -62,28 +59,20 @@ export function DeckToolbar() {
                 <Icon name="close" />
               </IconButton>
             )}
-            {matches.active && (
-              <Text mono tone="soft" size="sm" role="status" title="Matching cards are highlighted; other cards are muted">
-                {matchCount} {matchCount === 1 ? "match" : "matches"}
-              </Text>
-            )}
           </div>
-          {matches.active && (
-            <div className={styles.filterSummary}>
-              <Button size="sm" variant="ghost" onClick={() => ui.openDialog("export")}>Export matches</Button>
-              <Button size="sm" variant="ghost" onClick={() => { ui.setSearchTerm(""); ui.setTagIds([]); }}>Clear filters</Button>
-            </div>
-          )}
           <DeckTagFilter />
         </div>
         <div className={styles.layout}>
-          <Segmented label="Group the list" options={GROUP_OPTIONS} value={ui.groupBy} onChange={ui.setGroupBy} />
-          <span className={styles.sort}>
-            <Text size="xs" tone="faint">
-              Sort
-            </Text>
-            <Segmented label="Order the cards in each group" options={SORT_OPTIONS} value={ui.sortBy} onChange={ui.setSortBy} />
-          </span>
+          <label className={styles.choice}><Text size="sm" tone="muted">Group</Text>
+            <Select aria-label="Group the list" value={ui.groupBy} onChange={e => ui.setGroupBy(e.target.value as GroupBy)}>
+              {GROUP_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </Select>
+          </label>
+          <label className={styles.choice}><Text size="sm" tone="muted">Sort</Text>
+            <Select aria-label="Order the cards in each group" value={ui.sortBy} onChange={e => ui.setSortBy(e.target.value as SortBy)}>
+              {SORT_OPTIONS.map(o => <option key={o.value} value={o.value} title={o.title}>{o.label}</option>)}
+            </Select>
+          </label>
         </div>
       </div>
     </div>

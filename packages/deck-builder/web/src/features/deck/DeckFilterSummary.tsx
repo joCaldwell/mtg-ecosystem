@@ -18,5 +18,6 @@ export function DeckFilterSummary() {
     <Text className={styles.query} title={query}>{query}</Text>
     <Text mono size="sm" role="status">{count} {count === 1 ? "match" : "matches"}</Text>
     <Button size="sm" onClick={() => { ui.setSearchTerm(""); ui.setTagIds([]); }}>Clear filters</Button>
+    <Button size="sm" variant="ghost" onClick={() => ui.openDialog("export")}>Export matches</Button>
   </div>;
 }

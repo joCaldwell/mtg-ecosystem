@@ -121,7 +121,7 @@ const SCREENS = [
       {
         state: "filtered", caption: "The deck searched for “tutor”",
         act: async ({ page, vp }) => {
-          const field = page.getByRole("textbox", { name: /search this deck/i }).or(page.getByPlaceholder(/search this deck/i)).first();
+          const field = page.getByRole("searchbox", { name: "Search this deck", exact: true });
           await press(page, field, vp);
           await field.pressSequentially("tutor");
         },

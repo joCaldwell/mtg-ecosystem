@@ -164,7 +164,7 @@ export function AddBar() {
   return (
     <div ref={box} className={styles.wrap}>
       <label className={styles.bar}>
-        <span className={styles.addLabel}><Icon name="plus" size={14} /> Add</span>
+        <span className={styles.addLabel}><Icon name="plus" size={14} /> Add cards</span>
         <input
           ref={input}
           className={styles.input}
