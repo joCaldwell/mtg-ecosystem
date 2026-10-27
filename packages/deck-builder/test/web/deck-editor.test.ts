@@ -31,11 +31,11 @@ test("search scrolls the first rendered match without opening contributor disclo
   assert.deepEqual(calls, [], "empty queries and closed disclosures do not move the page");
 });
 
-test("compact help retains its named, keyboard-operable Learn more control", async (t) => {
+test("concept help uses a specific, keyboard-operable question label", async (t) => {
   const { Explainer } = await (await modules(t)).ssrLoadModule("/src/ui/Explainer.tsx");
-  const html = renderToStaticMarkup(createElement(Explainer, { title: "Deck lifecycle" }, "Lifecycle guidance"));
+  const html = renderToStaticMarkup(createElement(Explainer, { title: "Deck lifecycle", label: "Who can edit?" }, "Lifecycle guidance"));
   assert.match(html, /<button[^>]*type="button"[^>]*aria-expanded="false"/);
-  assert.match(html, /Learn more.*about deck lifecycle/);
+  assert.match(html, /Who can edit?/);
   assert.doesNotMatch(html, /Lifecycle guidance/, "guidance is behind help until requested");
 });
 

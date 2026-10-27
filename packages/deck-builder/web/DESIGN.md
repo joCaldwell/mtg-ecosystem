@@ -189,7 +189,7 @@ or about this app.
 | `ErrorNote`, `EmptyState`, `Loading` | An inline error, "nothing here yet", and a loading line | EmptyState `heading` `h1` `h2` when it is all the page has |
 | `Dialog` | A modal: focus trap, Esc, backdrop click, focus restore, `data-autofocus` | width `md` `lg` `wide`; placement `center` `sheet` `drawer`; `footer` |
 | `ConfirmDialog` | A question with Cancel and a confirm button | tone `default` `danger` |
-| `Explainer` | Optional summary and a Learn more popover | closed, open, keyboard focus, close/Escape and focus return; `defaultOpen` (style guide only) |
+| `Explainer` | Specifically labelled help for unfamiliar concepts | closed, open, keyboard focus, close/Escape and focus return; `defaultOpen` (style guide only) |
 | `Popover`, `placeNear` | A panel anchored to an element, kept inside the viewport | placement `below` `right` `above` `left`; `align` |
 | `ToastProvider`, `useToast` | One toast at a time, bottom centre, with an optional action | `duration`; `action` with `kbd` |
 | `DiffView` | Added and deleted lines | line kind `same` `add` `del` |
@@ -250,12 +250,15 @@ sheet over the list (principle 1's existing requested-dialog exception).
   compact field; list rows do not repeat them. Agent review status is plain
   in decisions and the inbox. Ownership evidence appears in the card panel
   only when present, with its basis and attribution. No shared disclosure.
-- **Explainer:** an optional sentence about the concept in the task's context, followed
-  by “Learn more” with the concept in its accessible name. Click, Enter or
-  Space expands a labelled popover region; Close, Escape or outside click
+- **Explainer (owner direction, 2026-10-27):** only for unfamiliar concepts,
+  with a specific question or label such as “Who can edit?” or “How proposals
+  work”. Do not add generic “Learn more” buttons or repeat prose for obvious
+  controls. Essential warnings, permissions and destructive consequences stay
+  visible at the decision point. Click, Enter or Space expands a labelled
+  popover region; Close, Escape or outside click
   dismisses it. Opening focuses the explanation; a nested popover stays within
-  its parent dialog’s focus trap and Escape dismisses only that popover. Focus returns to its trigger. Use it for lifecycle, slots vs
-  tags, brief, bracket, proposals, and memories. It does not change data.
+  its parent dialog’s focus trap and Escape dismisses only that popover. Focus returns to its trigger. Use it sparingly for lifecycle consequences, slot targets and proposal
+  mechanics. It does not change data.
 - **Drawer:** `Dialog placement="drawer"`, `--drawer-w`, full viewport height,
   left edge, internal scrolling. Same focus trap/restore, Escape, close and
   backdrop rules as Dialog. At 720–1099 px it contains the normal sidebar.
@@ -443,8 +446,15 @@ below tablet navigation while the toolbar scrolls away.
 
 Shared desktop lists require the same minimum column width as the editor and
 allow long names to wrap; readers can identify every card without opening it.
-Editor rows retain their single-line density. Card-detail metadata separates
-type from the dated price estimate. Desktop card controls put labels above
-full-width values so purposes and tags remain readable beside the image.
-Settings keeps the connection method visible and puts its detailed commands
-inside “Setup instructions”; tokens and connected apps remain directly visible.
+Editor rows retain their single-line density. Card details keep compact aligned
+label/value rows, bringing card actions and history into view without a scroll.
+Settings keeps the connection method visible and puts detailed commands inside
+“Setup instructions”. They start open until an agent has connected and reopen
+when choosing a method or creating a token. Explicit disclosure choices survive
+settings refreshes. Tokens and connected apps remain directly visible.
+
+Maybe rows omit slot and purpose labels. Their native button covers the entire
+row, including blank space, mana and price; references in a note remain separate
+controls. Enter and Space open details and ? inspects. Main-list modifier
+selection is unchanged; maybe cards do not join bulk operations that assume
+deck membership. Slot assignments remain stored.

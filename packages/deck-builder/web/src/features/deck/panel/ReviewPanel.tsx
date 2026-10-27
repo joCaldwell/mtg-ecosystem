@@ -4,7 +4,7 @@
 
 import { ago } from "../../../domain/time.ts";
 import { InlineText } from "../../../mtg/index.ts";
-import { Button, Eyebrow, Kbd, Text } from "../../../ui/index.ts";
+import { Button, Explainer, Eyebrow, Kbd, Text } from "../../../ui/index.ts";
 import { useDeckState } from "../DeckStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import type { DeckViewModel } from "../useDeckView.ts";
@@ -61,9 +61,10 @@ export function ReviewPanel({ view, review }: { view: DeckViewModel; review: Rev
           <Button variant="agent" onClick={ui.startReview} kbd="↵">
             Review in the list
           </Button>
-          <Text tone="faint" size="xs">
-            Draws each change into the list, so you can accept or reject it in place.
-          </Text>
+          <Explainer title="Proposals" label="How proposals work">
+            <p>Review shows proposed changes among the cards already in the list. Accept or reject one decision, a linked group, or all remaining changes.</p>
+            <p>Your optional reason stays in History for agents to read. A stale proposal asks you to acknowledge changes before accepting.</p>
+          </Explainer>
         </div>
       )}
     </>

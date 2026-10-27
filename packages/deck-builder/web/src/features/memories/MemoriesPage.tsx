@@ -1,4 +1,3 @@
-import { Explainer } from "../../ui/index.ts";
 import { useVoice } from "../../app/Preferences.tsx";
 import { useEffect, useState } from "react";
 import { api } from "../../api/client.ts";
@@ -60,7 +59,6 @@ export function MemoriesPage() {
         />
       }
     >
-      <Explainer title="Memories" heading="h2" summary="Keep preferences and lessons for future decks and sessions.">Use global memories for tastes that apply to every deck, or choose a deck for notes about that list. Stated means you said it, directly or in a decision reason. Inferred means an agent’s conclusion, shown dashed until you confirm it. Agents write memories without approval; every memory names its author. You can correct or retire any memory. Agents cannot change one you wrote or edited.</Explainer>
       {list.error && <ErrorNote>{list.error}</ErrorNote>}
 
 

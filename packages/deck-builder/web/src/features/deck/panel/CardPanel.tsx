@@ -50,8 +50,8 @@ export function CardPanel({ card: open }: { card: OpenCard }) {
           ? "Companion"
           : "In the deck";
   const pt = info ? ptString(info) : "";
-  const price = info?.cents == null ? [] : [`${formatPrice(info.cents, info.currency)} cheapest printing`, info.store === "tcgplayer" ? "TCGplayer" : "Cardmarket", `Scryfall ${info.as_of?.slice(0,10) ?? "date unknown"}`];
-  const type = info ? [info.type_line, pt].filter(Boolean).join(" · ") : "";
+  const price = info?.cents == null ? "" : `${formatPrice(info.cents, info.currency)} cheapest printing · ${info.store === "tcgplayer" ? "TCGplayer" : "Cardmarket"} · Scryfall ${info.as_of?.slice(0,10) ?? "date unknown"}`;
+  const parts = info ? [info.type_line, pt, price].filter(Boolean) : [];
 
   return (
     <>
@@ -68,8 +68,7 @@ export function CardPanel({ card: open }: { card: OpenCard }) {
       <div className={styles.head}>
         <div className={styles.titles}>
           <h2 className={styles.name}>{open.name}</h2>
-          {type && <Text tone="soft">{type}</Text>}
-          {price.length > 0 && <Text tone="muted" className={styles.price}>{price.map((part, i) => <span key={part}>{i > 0 && " · "}<span className={styles.pricePart}>{part}</span></span>)}</Text>}
+          {parts.length > 0 && <Text tone="soft" size="sm">{parts.join(" · ")}</Text>}
         </div>
         {info && <ManaCost cost={info.mana_cost} />}
       </div>

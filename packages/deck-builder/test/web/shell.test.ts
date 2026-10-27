@@ -138,7 +138,7 @@ test("page-level help can follow h1 with h2 without changing nested help's h3 de
   });
   t.after(() => server.close());
   const { Explainer } = await server.ssrLoadModule("/src/ui/Explainer.tsx");
-  const props = { title: "Memories", summary: "Keep lessons.", children: "Details", defaultOpen: true };
+  const props = { title: "Memories", label: "Memory basis", summary: "Keep lessons.", children: "Details", defaultOpen: true };
   assert.match(renderToStaticMarkup(createElement(Explainer, { ...props, heading: "h2" })), /<h2[^>]*>Memories<\/h2>/);
   assert.match(renderToStaticMarkup(createElement(Explainer, props)), /<h3[^>]*>Memories<\/h3>/);
 });

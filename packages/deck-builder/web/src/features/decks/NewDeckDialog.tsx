@@ -46,7 +46,7 @@ export function NewDeckDialog({ onClose }: { onClose: () => void }) {
       }
     >
       <form id={formId} onSubmit={create} className={styles.form}>
-        <Field label="Deck name" hint="Choose how this deck is used and edited.">
+        <Field label="Deck name">
           <TextField data-autofocus value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />
         </Field>
         <Field label="Lifecycle" hint={voice("Theorycrafted is a work in progress. Paper is a deck you play. You can archive either later.", "Paper requires agent card proposals; Theorycrafted allows direct agent card edits. Brief changes always need approval. You can archive either later.")}>

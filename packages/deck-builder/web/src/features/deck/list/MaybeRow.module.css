@@ -88,9 +88,9 @@
 .row.match { box-shadow: inset 0 0 0 1px var(--sel); }
 .row.match .name { color: var(--text); }
 
-/* Stretch the existing button's hit area over its row on touch tablets. */
-@media (max-width: 1099px) {
-  .row, .name { min-height: var(--tap); }
-  .name::after { content: ""; position: absolute; inset: 0; }
-  .note a { position: relative; }
-}
+/* Full-row pointer and focus target; note links remain independent siblings. */
+.hit { position: absolute; inset: 0; width: 100%; border-radius: inherit; }
+.hit:focus-visible { outline-offset: -2px; }
+.note { pointer-events: none; }
+.note :is(button, a) { position: relative; pointer-events: auto; }
+@media (max-width: 1099px) { .row { min-height: var(--tap); } }

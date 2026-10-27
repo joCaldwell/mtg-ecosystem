@@ -19,10 +19,10 @@ export function OnboardingPatterns() {
           ["Updated", <Text size="sm" title="Recorded at r95">Today</Text>],
         ]} />
       </Section>
-      <Explainer title="Deck brief" summary="A brief records the plan behind the list.">Write what the deck is trying to do and what matters to you. Close this explanation to return to the same place. The default, hover, focus and expanded states use existing text and selection tokens.</Explainer>
+      <Explainer title="Proposals" label="How proposals work">Accept or reject proposed changes with an optional reason. Help appears only for unfamiliar concepts and names the question it answers.</Explainer>
       {/* Open from the start, with room below so the panel covers nothing else. */}
       <div className={styles.openExplainer}>
-        <Explainer defaultOpen title="Slots and tags" summary="A slot says what a card is for; a tag tracks its sourcing or status.">Slots can have targets, counted on the group headings. Tags are your own words, such as owned or ordered. This example starts open.</Explainer>
+        <Explainer defaultOpen title="Slots and tags" label="How slot targets work">Slots can have targets, counted on the group headings. Tags are your own words, such as owned or ordered. This example starts open.</Explainer>
       </div>
       <Stack gap={3}><Button onClick={() => setDialog("drawer")} aria-haspopup="dialog">Open navigation drawer</Button><Button onClick={() => setDialog("sheet")} aria-haspopup="dialog">Open details sheet</Button></Stack>
       <MultiSelect label="Example purposes" options={[{value:"one",label:"Primary support"},{value:"two",label:"Additional support"}]} value={values} onChange={async next => { await new Promise(resolve => setTimeout(resolve, 600)); setValues(next); }} />

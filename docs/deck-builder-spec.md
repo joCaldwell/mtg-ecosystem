@@ -937,9 +937,12 @@ and wider it keeps the desktop panes. Phones retain this read-and-rule scope.
   help have a deck-first and an agent-connected voice. Neutral hints and
   errors are identical in both. A first-run pointer leads to Settings →
   Connect an agent, without making connection a prerequisite.
-- Lifecycle, slots vs tags, brief, bracket, proposals and memories have an
-  inline one-sentence explanation and a Learn more popover. Help does not
-  mutate data or infer card facts.
+- **Owner direction, 2026-10-27:** help is sparse and specifically labelled,
+  for unfamiliar concepts such as lifecycle consequences, slot targets and
+  proposal mechanics. Remove generic Learn more affordances and prose that
+  explains obvious controls. Keep warnings, permissions, destructive consequences
+  and relevant validation visible at the decision point. Help does not mutate
+  data or infer card facts.
 - **Owner decision, 2026-10-27:** remove the Advanced disclosure and its
   account preference. Show revision numbers in History and
   card decisions; put memory and assessment revision metadata in titles where

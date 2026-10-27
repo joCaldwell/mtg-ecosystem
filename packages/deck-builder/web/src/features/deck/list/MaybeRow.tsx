@@ -1,34 +1,47 @@
+import type { KeyboardEvent } from "react";
 import type { DeckCard } from "../../../api/client.ts";
-import { InlineText, ManaCost, Price, useCardHover } from "../../../mtg/index.ts";
-import { Chip } from "../../../ui/index.ts";
+import { InlineText, ManaCost, Price, useCardHover, useCardInspect } from "../../../mtg/index.ts";
 import { useDeckUi } from "../DeckUi.tsx";
 import styles from "./MaybeRow.module.css";
 
-export function MaybeRow({ card, slotName, filterMatch, sharedNote = false }: { card: DeckCard; slotName: string | null; filterMatch?: boolean; sharedNote?: boolean }) {
+export function MaybeRow({ card, filterMatch, sharedNote = false }: { card: DeckCard; filterMatch?: boolean; sharedNote?: boolean }) {
   const ui = useDeckUi();
   const hover = useCardHover();
+  const inspect = useCardInspect();
   const open = ui.openCard?.oracleId === card.oracle_id;
+
+  // Maybe cards open details without joining bulk actions that assume deck
+  // membership. Main-list modifier selection keeps its existing contract.
+  function onClick() {
+    ui.openCardPanel(open ? null : { oracleId: card.oracle_id, name: card.name });
+  }
+
+  function onKeyDown(event: KeyboardEvent) {
+    if (event.key === "?") { event.preventDefault(); event.stopPropagation(); inspect(card); }
+    if (event.key === "Enter") event.stopPropagation();
+  }
 
   return (
     <div
       className={[styles.row, filterMatch === true && styles.match, open && styles.open].filter(Boolean).join(" ")}
+      data-oracle-id={card.oracle_id}
       data-filter-match={filterMatch}
     >
+      {/* A native full-row button stays a sibling of note links: no nested
+          controls, and mana/price/blank space all open this card's details. */}
       <button
         type="button"
-        className={styles.name}
+        className={styles.hit}
+        aria-label={card.name}
         aria-current={open || undefined}
-        onClick={() => ui.openCardPanel(open ? null : { oracleId: card.oracle_id, name: card.name })}
-        // Enter opens the card here; it must not also start a review.
-        onKeyDown={(e) => e.key === "Enter" && e.stopPropagation()}
+        onClick={onClick}
+        onKeyDown={onKeyDown}
         {...hover(card)}
-      >
-        {card.name}
-      </button>
+      />
+      <span className={styles.name}>{card.name}</span>
       <span className={styles.note}>
         {!sharedNote && card.maybe_note && <InlineText text={card.maybe_note} />}
       </span>
-      {slotName && <Chip>{slotName}</Chip>}
       <ManaCost cost={card.mana_cost} />
       <Price currency={card.currency} cents={card.cents} column />
     </div>

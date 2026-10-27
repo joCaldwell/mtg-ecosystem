@@ -322,7 +322,7 @@ independently. Dialog's body scroll lock is counted, so nested dialogs that
 close together release the page; Dialog's focus trap listens natively,
 because the portalled panel's React events do not bubble through the sheet.
 Escape that starts in a field reaches the field first: an inline editor in a
-sheet cancels, and the next Escape closes the sheet. An Explainer keeps the
+sheet cancels, and the next Escape closes the sheet. A specifically labelled Explainer keeps the
 trigger's place in the Tab order and closes when focus leaves it. Up to
 1099 px, editor header, toolbar, banner and panel controls are `--tap` tall
 and card rows grow to 44 px, regardless of pointer type or import history.
@@ -431,8 +431,8 @@ useWindowScroll; the phone shell below 720 is unchanged.
 
 Tablet headers combine lifecycle help, counts and actions; Open deck details
 lives among those actions and sends the same explicit details request. The
-panel host and list remain mounted across 1100 px. Lifecycle, proposal and
-brief explanations live inside the existing Learn more popovers. Toolbar
+panel host and list remain mounted across 1100 px. Only unfamiliar lifecycle consequences, slot targets and proposal mechanics
+get specifically labelled help; obvious controls do not need generic popovers. Toolbar
 controls share a raised surface; tablet add/search fields and tag/group/sort
 controls wrap into two rows before the proposal banner.
 

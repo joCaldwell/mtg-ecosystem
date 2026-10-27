@@ -14,7 +14,10 @@ export function SlotsDialog({ onClose }: { onClose: () => void }) {
       onClose={onClose}
       footer={<Button onClick={onClose}>Close</Button>}
     >
-      <Explainer title="Slots and tags" summary="Slots describe purpose; tags track sourcing and status.">Primary slots count toward targets; secondary slots add purposes and are counted separately. Both are optional. Group by card type separately. Targets are soft: leave a side empty for no limit, or set Min and Max to the same number for an exact target. Tags track sourcing, ownership, assembly and status, with as many as you like per card and no targets. Agents can file cards and manage tags without proposals.</Explainer>
+      <Explainer title="Slots and tags" label="How slot targets work">
+        <p>Slots describe purpose; tags track sourcing and status. Both are optional. Only primary slots count toward targets; secondary purposes are counted separately.</p>
+        <p>Leave a target blank for no limit. Use the same Min and Max for an exact target.</p>
+      </Explainer>
       <Stack gap={7}>
         <Section title="Slots">
           <SlotsTable />

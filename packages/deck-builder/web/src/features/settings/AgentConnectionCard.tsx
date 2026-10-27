@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api, type Settings } from "../../api/client.ts";
 import { ago } from "../../domain/time.ts";
 import { Box, Button, ConfirmDialog, ErrorNote, Field, KeyValue, Row, Select, Stack, Text, TextField } from "../../ui/index.ts";
@@ -17,10 +17,18 @@ export function AgentConnectionCard({ agent, onChanged }: { agent: Settings["age
   const [clientId, setClientId] = useState<ClientId>("claude-code");
   const clients = clientConfigs(agent.url, secret ?? "<your agent token>", agent.stdio_command);
   const client = clients.find(c => c.id === clientId) ?? clients[0];
+  const lastSeen = [...agent.tokens.filter(t => t.last_used_at && !t.revoked_at).map(t => ({ label: t.label, last_used_at: t.last_used_at! })), ...(agent.oauth_usage ?? [])]
+    .sort((a, b) => b.last_used_at.localeCompare(a.last_used_at))[0];
+  // First connection needs the commands; established accounts keep them on demand.
+  const [instructionsInitiallyOpen] = useState(!lastSeen);
+  const instructions = useRef<HTMLDetailsElement>(null);
+  function showInstructions() {
+    if (instructions.current) instructions.current.open = true;
+  }
 
   async function create() {
     setBusy(true); setError(null);
-    try { const result = await api.createToken(label); setSecret(result.token); setLabel(""); onChanged(); }
+    try { const result = await api.createToken(label); setSecret(result.token); setLabel(""); showInstructions(); onChanged(); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
   }
@@ -69,12 +77,11 @@ export function AgentConnectionCard({ agent, onChanged }: { agent: Settings["age
     </Stack>}
     </Stack><Stack gap={4}>
       <Text as="h3" weight="bold">Client setup</Text>
-      <Text tone="muted" size="sm">{(() => {
-        const seen = [...agent.tokens.filter(t=>t.last_used_at && !t.revoked_at).map(t=>({label:t.label,last_used_at:t.last_used_at!})),...(agent.oauth_usage ?? [])].sort((a,b)=>b.last_used_at.localeCompare(a.last_used_at));
-        return seen[0] ? `Last seen: ${seen[0].label}, ${ago(seen[0].last_used_at)}` : "Last seen: no agent has connected yet";
-      })()}</Text>
-      <Field label="Connection method"><Select value={client.id} onChange={e => setClientId(e.target.value as ClientId)}>{clients.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}</Select></Field>
-      <details className={styles.instructions}>
+      <Text tone="muted" size="sm">{lastSeen ? `Last seen: ${lastSeen.label}, ${ago(lastSeen.last_used_at)}` : "Last seen: no agent has connected yet"}</Text>
+      <Field label="Connection method"><Select value={client.id} onChange={e => { setClientId(e.target.value as ClientId); showInstructions(); }}>{clients.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}</Select></Field>
+      {/* The browser owns toggling; refreshes and queued toggle events must not
+          overwrite an explicit close or a request to show a new method. */}
+      <details ref={instructions} className={styles.instructions} open={instructionsInitiallyOpen}>
         <summary>Setup instructions</summary>
         <Stack gap={4}>{client.parts.map(renderPart)}</Stack>
       </details>

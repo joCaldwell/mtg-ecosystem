@@ -119,7 +119,7 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
               />
             )}
           </div>
-          <MaybeList cards={layout.maybe} slots={state.slots} matchingCards={matchingCards} />
+          <MaybeList cards={layout.maybe} matchingCards={matchingCards} />
         </>
       )}
       <p className={styles.legend}>
