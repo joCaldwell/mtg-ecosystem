@@ -1,7 +1,8 @@
 // One decision (spec §8.1): a swap or a group is decided together, so it is one
 // card with one pair of buttons, however many cards it names.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useVoice } from "../../../app/Preferences.tsx";
 import type { ReviewUnit } from "../../../domain/review.ts";
 import { cx } from "../../../ui/internal.ts";
 import { DecisionControls } from "../../decisions/index.ts";
@@ -19,7 +20,10 @@ const KIND: Record<ReviewUnit["kind"], string> = {
 
 export function ReviewUnitCard({ unit, index, review }: { unit: ReviewUnit; index: number; review: Review }) {
   const ui = useDeckUi();
+  const voice = useVoice();
   const here = ui.reviewing && ui.cursor === index;
+  // The phone's optional reason (§11.2), sent with Accept or Reject.
+  const [reason, setReason] = useState("");
 
   // Keyboard review moves the cursor through a list longer than the panel.
   const root = useRef<HTMLDivElement>(null);
@@ -40,14 +44,20 @@ export function ReviewUnitCard({ unit, index, review }: { unit: ReviewUnit; inde
       <div className={styles.foot}>
         <DecisionControls
           rejecting={ui.rejecting === unit.key}
-          onAccept={() => void review.accept(unit)}
+          onAccept={(text) => void review.accept(unit, text, () => setReason(""))}
           onStartReject={() => {
             ui.setCursor(index);
             ui.setRejecting(unit.key);
           }}
-          onReject={(reason) => void review.reject(unit, reason)}
+          onReject={(text) => void review.reject(unit, text, () => setReason(""))}
           onCancelReject={() => ui.setRejecting(null)}
           showKeys={here}
+          reason={{
+            value: reason,
+            onChange: setReason,
+            label: `Reason for decision ${index + 1}, optional`,
+            placeholder: voice("Reason, optional. Kept with your decision.", "Why? Optional. The agent reads this next session."),
+          }}
         />
       </div>
     </div>

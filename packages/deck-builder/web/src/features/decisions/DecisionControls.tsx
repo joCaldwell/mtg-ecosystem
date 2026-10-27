@@ -5,7 +5,8 @@ import styles from "./DecisionControls.module.css";
 export interface DecisionControlsProps {
   /** true: show the reason field instead of the two buttons. */
   rejecting: boolean;
-  onAccept: () => void;
+  /** Called with the reason field's text when `reason` is given. */
+  onAccept: (reason?: string) => void;
   onStartReject: () => void;
   onReject: (reason: string) => void;
   onCancelReject: () => void;
@@ -15,6 +16,11 @@ export interface DecisionControlsProps {
   showKeys?: boolean;
   acceptLabel?: string;
   rejectLabel?: string;
+  /** An optional reason field above the buttons, as on the phone (§11.2),
+   *  sent with either decision: Accept passes it to onAccept and Reject
+   *  decides at once through onReject. The reject key (`rejecting`) still opens
+   *  the focused reason field, starting from this text. */
+  reason?: { value: string; onChange: (value: string) => void; label: string; placeholder: string };
 }
 
 /**
@@ -32,18 +38,33 @@ export function DecisionControls({
   showKeys = false,
   acceptLabel = "Accept",
   rejectLabel = "Reject",
+  reason,
 }: DecisionControlsProps) {
   if (rejecting) {
-    return <ReasonField busy={busy} label={rejectLabel} onReject={onReject} onCancel={onCancelReject} />;
+    return <ReasonField busy={busy} label={rejectLabel} initial={reason?.value ?? ""} onReject={onReject} onCancel={onCancelReject} />;
   }
-  return (
+  const buttons = (
     <div className={styles.controls}>
-      <Button variant="accept" size="sm" kbd={showKeys ? "A" : undefined} disabled={busy} onClick={onAccept}>
+      <Button variant="accept" size="sm" kbd={showKeys ? "A" : undefined} disabled={busy} onClick={() => onAccept(reason?.value)}>
         {acceptLabel}
       </Button>
-      <Button variant="reject" size="sm" kbd={showKeys ? "R" : undefined} disabled={busy} onClick={onStartReject}>
+      <Button variant="reject" size="sm" kbd={showKeys ? "R" : undefined} disabled={busy} onClick={reason ? () => onReject(reason.value) : onStartReject}>
         {rejectLabel}
       </Button>
+    </div>
+  );
+  if (!reason) return buttons;
+  return (
+    <div className={styles.withReason}>
+      <TextField
+        aria-label={reason.label}
+        placeholder={reason.placeholder}
+        value={reason.value}
+        maxLength={500}
+        disabled={busy}
+        onChange={(e) => reason.onChange(e.target.value)}
+      />
+      {buttons}
     </div>
   );
 }
@@ -51,15 +72,17 @@ export function DecisionControls({
 function ReasonField({
   busy,
   label,
+  initial,
   onReject,
   onCancel,
 }: {
   busy: boolean;
   label: string;
+  initial: string;
   onReject: (reason: string) => void;
   onCancel: () => void;
 }) {
-  const [reason, setReason] = useState("");
+  const [reason, setReason] = useState(initial);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => input.current?.focus(), []);
 
