@@ -71,25 +71,17 @@ export function PlayerStatsPanel() {
   if (stats.averages.lands != null) averages.push(["Land count", <Text mono key="l">{num(stats.averages.lands)}</Text>]);
 
   return (
-    <Section title="Across your paper decks">
+    <Section title="Across your paper decks" className={styles.stats}>
+      <div className={styles.summary}>
+        <Text><Text mono weight="bold">{stats.deck_count}</Text> Paper {stats.deck_count === 1 ? "deck" : "decks"} · <Text mono weight="bold">{stats.families}</Text> {stats.families === 1 ? "family" : "families"}</Text>
+        <Text tone="muted" size="sm">A fork and its parent count as one family.</Text>
+      </div>
       <div className={styles.grid}>
-        <Block title="Decks">
-          <KeyValue
-            items={[
-              ["Decks", <Text mono key="d">{stats.deck_count}</Text>],
-              ["Families", <Text mono key="f">{stats.families}</Text>],
-            ]}
-          />
-          <Text tone="faint" size="xs">
-            A fork and its parent count as one family.
-          </Text>
-        </Block>
-
         <Colors stats={stats} />
 
         {stats.identities.length > 0 && (
           <Block title="Most common identities">
-            <div className={styles.rows}>
+            <div className={styles.identities}>
               {stats.identities.map((i) => (
                 <div key={i.identity} className={styles.row}>
                   <span className={styles.pips}>
@@ -127,15 +119,19 @@ export function PlayerStatsPanel() {
                 <Text tone="faint" size="xs">
                   Cards of each type
                 </Text>
-                <KeyValue items={byType} />
+                <div className={styles.typeCounts}>
+                  {byType.map(([type, value]) => <div key={String(type)} className={styles.typeCount}><Text>{type}</Text>{value}</div>)}
+                </div>
               </>
             )}
           </Block>
         )}
 
-        {stats.slots.length > 0 && (
+      </div>
+
+      {stats.slots.length > 0 && (
           <Block title="Slots you use">
-            <div className={styles.rows}>
+            <div className={styles.slots}>
               {stats.slots.map((s) => (
                 <div key={s.name} className={styles.slot}>
                   <Text className={styles.slotName}>{s.name}</Text>
@@ -147,8 +143,6 @@ export function PlayerStatsPanel() {
             </div>
           </Block>
         )}
-      </div>
-
       {stats.reused_cards.length > 0 && (
         <Block title="Cards reused across deck families">
           <ul className={styles.reused}>

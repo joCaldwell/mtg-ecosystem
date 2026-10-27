@@ -6,6 +6,12 @@ with one-way dependencies, and one rule about where each kind of code goes.
 
 ## Layers
 
+`Page` supplies a shared centered frame through the inherited `--page-width`:
+`md` is reading width, `lg` grows to `--page-wide` (1440 px), and `full` is
+uncapped. `PageHeader` keeps its background full width while its inner frame
+aligns its title/actions with page content. A feature must not add a second,
+left-aligned width cap inside that frame. Prose can retain its reading measure.
+
 ```
 web/src/
   design/    tokens.css, base.css          the only place raw colours and sizes exist

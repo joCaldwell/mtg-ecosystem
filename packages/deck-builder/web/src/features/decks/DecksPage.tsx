@@ -63,7 +63,7 @@ export function DecksPage() {
 
   return (
     <Page
-      width="full"
+      width="lg"
       header={
         <PageHeader
           title="All decks"

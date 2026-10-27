@@ -83,6 +83,11 @@ that writes (the import dialog) and for every flow. Options: `--port`,
 `--seed`, `--dist`, `--out`, `--only <regex over keys>` (flows are
 `flow:<name>`).
 
+For large-screen layout checks, `--wide` also enables 1920 × 1080 and
+2560 × 1440 app captures. Combine it with `--only`, for example
+`--wide --only '^(decks|settings|profile|activity|memories)--.*--(1920|2560)$'`.
+The default capture suite and its comparable metrics stay unchanged.
+
 ```
 <run>/screens/<key>.png         first viewport
 <run>/screens/<key>.full.png    full page, when the window scrolls past one viewport

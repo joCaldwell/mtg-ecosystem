@@ -1,9 +1,9 @@
-/* The roster follows the existing reading width, with cards that wrap. */
+/* The roster and statistics share the centered application page frame. */
 .body {
   --text-xs: var(--text-sm);
   display: grid;
   gap: var(--s-8);
-  max-width: var(--measure-wide);
+  min-width: 0;
 }
 
 .shared {

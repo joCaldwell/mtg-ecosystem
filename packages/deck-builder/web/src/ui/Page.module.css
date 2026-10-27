@@ -16,19 +16,22 @@
   display: grid;
   gap: var(--s-6);
   align-content: start;
+  width: 100%;
+  max-width: var(--page-width);
+  margin-inline: auto;
   padding: var(--s-6) var(--s-7) calc(var(--s-8) * 2);
 }
 
 .md {
-  max-width: var(--measure);
+  --page-width: var(--measure);
 }
 
 .lg {
-  max-width: var(--measure-wide);
+  --page-width: var(--page-wide);
 }
 
 .full {
-  max-width: none;
+  --page-width: none;
 }
 
 @media (max-width: 1099px) {

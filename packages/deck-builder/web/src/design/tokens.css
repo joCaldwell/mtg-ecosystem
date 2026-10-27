@@ -153,6 +153,11 @@
   --measure: 720px;
   /* One and a half measures: wide enough for a table, narrow enough to read. */
   --measure-wide: calc(var(--measure) * 1.5);
+  /* Application page frame; prose keeps its own shorter reading measure. */
+  --page-wide: 1440px;
+  --stats-column-min: 280px;
+  --stats-identity-min: 144px;
+  --settings-card-min: 440px;
   /* Shared pages and the phone view (spec §18.5, §11.2). The phone breakpoint
      itself is PHONE_MAX_WIDTH in app/breakpoints.ts: media queries cannot
      read a custom property. */

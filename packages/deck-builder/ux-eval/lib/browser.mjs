@@ -29,6 +29,8 @@ export const VIEWPORTS = {
   768: { width: 768, height: 1024, touch: true, mobile: false },
   1280: { width: 1280, height: 800, touch: false, mobile: false },
   1440: { width: 1440, height: 900, touch: false, mobile: false },
+  1920: { width: 1920, height: 1080, touch: false, mobile: false },
+  2560: { width: 2560, height: 1440, touch: false, mobile: false },
 };
 
 /**

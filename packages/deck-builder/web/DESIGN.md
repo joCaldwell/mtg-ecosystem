@@ -408,3 +408,18 @@ through tablet widths, including portalled import and slot dialogs. A note
 shared by every maybe card appears once beneath the list heading; distinct
 notes stay on their rows. Card rows are atomic inline flex boxes so long groups
 can cross native columns without painting one card over another.
+
+Owner layout direction (2026-10-27): secondary pages use a centered, fluid
+application frame up to `--page-wide` (1440 px), with page titles and actions
+aligned to the same edges as the content. Reading-width pages center their
+shorter measure; full workspace pages retain their full width. The All decks
+roster fills this frame with responsive columns. Its Paper overview uses four
+comparable panels, followed by full-width, wrapping grids for slot usage and
+reused cards. Long slot names remain visible, with their values alongside.
+
+Settings shares that frame: credentials and setup are adjacent on desktop,
+with more room for setup snippets; price and memory preferences sit together,
+followed by card data and account controls. Secondary Settings copy uses body
+size. Memory budget fields come before the optional usage disclosure, whose
+scope names use normal case. All scopes and precise values remain available.
+These layouts stack on tablets, and phone capabilities remain unchanged.

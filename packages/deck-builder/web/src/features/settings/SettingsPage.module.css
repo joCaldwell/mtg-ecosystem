@@ -1,7 +1,10 @@
 .cards {
+  --text-sm: var(--text-md);
+  --text-xs: var(--text-md);
   display: grid;
-  gap: var(--s-6);
-  max-width: var(--measure-wide);
+  gap: var(--s-7);
+  min-width: 0;
 }
 
-.cards > :not(:first-child) { max-width: var(--measure); min-width: 0; }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--settings-card-min)), 1fr)); align-items: start; gap: var(--s-7); }
+.cards > *, .pair > * { min-width: 0; }

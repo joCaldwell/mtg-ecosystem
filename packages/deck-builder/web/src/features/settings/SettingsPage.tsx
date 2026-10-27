@@ -30,10 +30,14 @@ export function SettingsPage() {
       {data && (
         <div className={styles.cards}>
           <AgentConnectionCard agent={data.agent} onChanged={settings.reload} />
+          <div className={styles.pair}>
           <PriceSourceCard source={data.price_source} onSaved={settings.reload} />
           <BudgetsCard budgets={data.budgets} usage={data.memory_usage} onSaved={settings.reload} />
+          </div>
+          <div className={styles.pair}>
           <CardDataCard cards={data.cards} jobs={data.jobs} onChanged={settings.reload} canRefresh={session.mode === "local" || !!session.user?.is_admin} />
           {session.mode === "hosted" && <AccountCard />}
+          </div>
           {session.mode === "hosted" && !!session.user?.is_admin && <AdminCard />}
           {session.mode === "hosted" && <LegalFooter asOf={data.cards.prices.as_of} />}
           <Text tone="faint" size="sm">

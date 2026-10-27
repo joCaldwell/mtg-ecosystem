@@ -9,6 +9,7 @@
 }
 
 .text {
+  max-width: var(--measure);
   font-size: var(--text-md);
   line-height: var(--leading-prose);
 }

@@ -52,14 +52,6 @@ export function BudgetsCard({ budgets, usage, onSaved }: { budgets: Settings["bu
         <Text tone="muted" size="sm">
           Newest memories load first. Omitted notes stay searchable.
         </Text>
-        <Table aria-label="Memory usage">
-          <thead><tr><th scope="col">Scope</th><th scope="col">Tokens loaded / limit</th><th scope="col">Omitted</th></tr></thead>
-          <tbody>{usage.map(scope => <tr key={scope.deck_id ?? "global"}>
-            <th scope="row">{scope.name}</th>
-            <td><Text mono size="sm">{scope.used.toLocaleString()} / {scope.budget.toLocaleString()}</Text></td>
-            <td><Text mono size="sm" tone={scope.omitted > 0 ? "warn" : "muted"}>{scope.omitted}</Text></td>
-          </tr>)}</tbody>
-        </Table>
         <div className={styles.fields}>
           <Field label="Global memories" hint="Estimated tokens loaded at session start.">
             <TextField
@@ -100,6 +92,17 @@ export function BudgetsCard({ budgets, usage, onSaved }: { budgets: Settings["bu
             </Text>
           )}
         </Row>
+        <details className={styles.usage}>
+          <summary>Memory usage by deck</summary>
+          <Table aria-label="Memory usage">
+            <thead><tr><th scope="col">Scope</th><th scope="col">Loaded / limit</th><th scope="col">Omitted</th></tr></thead>
+            <tbody>{usage.map(scope => <tr key={scope.deck_id ?? "global"}>
+              <th scope="row">{scope.name}</th>
+              <td><Text mono size="sm">{scope.used.toLocaleString()} / {scope.budget.toLocaleString()}</Text></td>
+              <td><Text mono size="sm" tone={scope.omitted > 0 ? "warn" : "muted"}>{scope.omitted}</Text></td>
+            </tr>)}</tbody>
+          </Table>
+        </details>
       </Stack>
     </Box>
   );

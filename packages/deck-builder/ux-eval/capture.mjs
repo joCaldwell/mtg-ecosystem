@@ -81,8 +81,9 @@ async function api(path, user) {
 
 const D = SEED_INFO.decks;
 const U = SEED_INFO.users;
-const ALL = [375, 768, 1280, 1440];
-const APP = [768, 1280, 1440];
+const WIDE = process.argv.includes("--wide") ? [1920, 2560] : [];
+const ALL = [375, 768, 1280, 1440, ...WIDE];
+const APP = [768, 1280, 1440, ...WIDE];
 const PUBLIC = [375, 768, 1280];
 
 const cardRow = (page, name) => page.getByRole("button", { name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`) }).first();

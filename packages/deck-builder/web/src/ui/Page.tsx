@@ -13,10 +13,10 @@ export interface PageProps {
 
 export function Page({ header, children, width = "lg", className }: PageProps) {
   return (
-    <div className={cx(styles.page, className)}>
+    <div className={cx(styles.page, styles[width], className)}>
       {header}
       <div className={styles.scroll}>
-        <div className={cx(styles.content, styles[width])}>{children}</div>
+        <div className={styles.content}>{children}</div>
       </div>
     </div>
   );

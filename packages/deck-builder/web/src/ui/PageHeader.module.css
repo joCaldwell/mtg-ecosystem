@@ -1,10 +1,20 @@
 .header {
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.frame {
   display: flex;
   align-items: flex-end;
   gap: var(--s-6);
   padding: var(--s-6) var(--s-7) var(--s-5);
-  border-bottom: 1px solid var(--line);
-  background: var(--surface);
+  width: 100%;
+  max-width: var(--page-width, none);
+  margin-inline: auto;
+}
+
+@media (max-width: 1099px) {
+  .frame { padding-inline: var(--s-6); }
 }
 
 .text {
