@@ -1,5 +1,3 @@
-import { Explainer } from "../../ui/index.ts";
-import { useVoice } from "../../app/Preferences.tsx";
 // The strip under the toolbar that says whether anything is waiting on the
 // owner (spec §8.2): an agent's proposal, or the review in progress. Archived
 // decks show an archive notice instead.
@@ -15,7 +13,6 @@ import type { Review } from "./useReview.tsx";
 import styles from "./ProposalBanner.module.css";
 
 export function ProposalBanner({ units, review }: { units: ReviewUnit[]; review: Review }) {
-  const voice = useVoice();
   const { proposals } = useDeckState();
   const ui = useDeckUi();
 
@@ -66,7 +63,6 @@ export function ProposalBanner({ units, review }: { units: ReviewUnit[]; review:
       tone="agent"
       actions={
         <>
-          <Explainer title="Proposed changes">{voice("Proposals wait for your decision before anything changes.", "Your agent has suggested changes for you to review.")} Review the changes among the cards in the list. Accept or reject one item, a linked group, or all open proposals. A reason is optional and stays with the decision. Nothing is applied until you accept it.</Explainer>
           <Button size="sm" variant="agent" kbd="↵" className={styles.tap} onClick={ui.startReview}>Review in the list</Button>
         </>
       }

@@ -89,7 +89,13 @@ export function DeckHeader({ collapsed = false }: { collapsed?: boolean }) {
               if (category !== deck.category) void run(() => api.setDeckCategory(deck.id, category));
             }}
           />
-          <Explainer title="Deck lifecycle">{voice("Theorycrafted is a work in progress; Paper is a deck you play; Archived keeps it read-only.", "Lifecycle controls how your agent can change the deck.")} Only you change lifecycle. Agents edit Theorycrafted cards directly and propose Paper card changes. Brief and power-target changes always need your approval. Archived decks can be shared, exported or forked.</Explainer>
+          <Explainer title="Deck editor">
+            <p>{voice("Theorycrafted is a work in progress; Paper is a deck you play; Archived keeps it read-only.", "Agents edit Theorycrafted cards directly and propose Paper card changes.")} Only you change lifecycle.</p>
+            <p>Use slots for a card’s purpose and tags for sourcing or status. Maybe cards sit outside the 100; agents can shortlist there without approval.</p>
+            <p>The brief holds your plan and constraints. Its engines check that their pieces remain in the list. Brief and power-target changes from agents always need your approval.</p>
+            <p>Review draws proposed changes into the list. Accept or reject a decision, a linked group, or all open proposals. An optional reason stays with your decision.</p>
+            <p>Power brackets describe the intended game. Set a target and assess the list; unknown answers stay unknown. Suggested brackets are for discussion with your table.</p>
+          </Explainer>
         </div>
 
         <div className={styles.stats}>

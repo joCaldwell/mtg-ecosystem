@@ -48,7 +48,7 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
   const unitKey = unit?.key;
   useEffect(() => {
     if (!unitKey || readOnly) return;
-    scroll.current?.querySelector('[data-current="true"]')?.scrollIntoView({ block: "nearest" });
+    scrollToReviewCard(scroll.current, unit?.items[0]?.oracle_id);
   }, [unitKey, readOnly]);
 
   // Query changes reveal the first match in the existing window/pane scroll
@@ -144,4 +144,11 @@ export function scrollToFirstMatch(list: HTMLElement | null): void {
   const first = Array.from(list?.querySelectorAll<HTMLElement>('[data-filter-match="true"]') ?? [])
     .find(row => row.getClientRects().length > 0);
   first?.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
+export function scrollToReviewCard(list: HTMLElement | null, oracleId: string | undefined): void {
+  const rows = Array.from(list?.querySelectorAll<HTMLElement>('[data-current="true"]') ?? []);
+  const row = rows.find(row => row.dataset.oracleId === oracleId && row.getClientRects().length > 0)
+    ?? rows.find(row => row.getClientRects().length > 0);
+  row?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }

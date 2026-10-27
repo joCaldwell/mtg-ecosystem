@@ -47,7 +47,7 @@ button.name:hover {
 
 .sub {
   margin-top: var(--s-2);
-  color: var(--muted);
+  color: var(--text-soft);
   font-size: var(--text-sm);
 }
 
@@ -106,6 +106,7 @@ button.name:hover {
 
 @media (max-width: 1099px) {
   .details { display: inline-flex; }
+  .lifecycle > [role="group"] { height: auto; }
   .header { padding: var(--s-3) var(--s-4); }
   .top { gap: var(--s-2) var(--s-4); }
   .title { flex: 1 1 auto; font-size: var(--text-lg); }
@@ -115,7 +116,9 @@ button.name:hover {
 }
 
 /* Touch tablets: header actions are full tap targets. */
-@media (pointer: coarse) and (max-width: 1099px) {
+@media (max-width: 1099px) {
   .stats > button, .actions > a, .actions > button, .stats [aria-haspopup="menu"] { display: inline-flex; align-items: center; min-height: var(--tap); }
   button.name { min-height: var(--tap); }
 }
+
+.lifecycle button[aria-pressed="false"] { color: var(--text-soft); }

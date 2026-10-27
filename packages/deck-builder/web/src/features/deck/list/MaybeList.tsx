@@ -17,9 +17,9 @@ export function MaybeList({ cards, slots, matchingCards }: {
   return (
     <section className={styles.maybe} aria-label="Maybe list">
       <div className={styles.head}>
-        <h2 className={styles.title}>Maybe list</h2>
-        <Text tone="faint" size="sm">
-          {cards.length} {cards.length === 1 ? "card" : "cards"} · outside the 100 · agents can shortlist here without asking
+        <h2 className={styles.title}>Maybe</h2>
+        <Text tone="soft" size="sm">
+          {cards.length} {cards.length === 1 ? "card" : "cards"} · outside the 100
         </Text>
       </div>
       {cards.map((c) => (

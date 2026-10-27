@@ -56,11 +56,11 @@ function RosterCard({ deck, fork, onAction }: { deck: DeckSummary; fork: boolean
           <DeckActions deck={deck} onAction={onAction} />
         </div>
         <div className={styles.commander}><Commanders deck={deck} /></div>
-        {fork && deck.parent_name && <Text tone="faint" size="xs">Fork of {deck.parent_name}</Text>}
+        {fork && deck.parent_name && <Text tone="soft" size="sm">Fork of {deck.parent_name}</Text>}
         <div className={styles.cardStats}>
           <ColorIdentity colors={deck.color_identity} />
           <Chip className={styles.lifecycle} data-lifecycle={deck.category}>{DECK_CATEGORY_LABELS[deck.category]}</Chip>
-          <Text mono tone={deck.card_count === 100 ? "muted" : "warn"}>{deck.card_count}/100</Text>
+          <Text mono tone={deck.card_count === 100 ? "soft" : "warn"}>{deck.card_count}/100</Text>
           {deck.visibility !== "private" && <span className={styles.shared} role="img" aria-label={deck.visibility === "public" ? "Public" : "Unlisted"} title={deck.visibility === "public" ? "Public" : "Unlisted"}><Icon name={deck.visibility === "public" ? "globe" : "link"} size={12} /></span>}
           {waiting > 0 && <Chip tone={deck.category === "archived" ? "neutral" : "agent"}>{waiting} {deck.category === "archived" ? "paused" : "waiting"}</Chip>}
         </div>

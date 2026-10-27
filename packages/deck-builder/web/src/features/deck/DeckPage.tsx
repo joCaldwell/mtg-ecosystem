@@ -25,6 +25,7 @@ import { DeckViewProvider } from "./DeckViewContext.ts";
 import { useDeckView } from "./useDeckView.ts";
 import { useReportFocus } from "../../app/useReportFocus.ts";
 import { useReview } from "./useReview.tsx";
+import { focusReviewArrival } from "./reviewArrival.ts";
 import { firstUnitOf, proposalParam } from "../../domain/reviewStart.ts";
 import styles from "./DeckPage.module.css";
 
@@ -105,21 +106,23 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
     // Once, on arrival; later decisions must not restart it.
     // (pending is read at mount only.)
   }, [startInReview, startReview]);
-  // Then move to the proposal selected there. Only once the Review tab is
-  // open: the panel starts a new tab at the top after its children have
-  // scrolled. The list brings the decision's rows into view; the panel shows
-  // the proposal from its heading, at the top, so the context still loading
-  // into the decisions above it cannot push it out of view.
+  // Cursor changes render the chosen card before the next animation frame.
+  // Reveal the list first, then focus the decision without moving its ancestors.
   useEffect(() => {
     if (!ui.reviewing || !arriving.current) return;
     arriving.current = false;
     const index = firstUnitOf(view.units, proposalParam(location.search));
+    const unit = view.units[index];
     setCursor(index);
-    // The panel's own scroll box only: scrollIntoView would also move the
-    // pinned desktop page. Under 1100 px the panel is not on the page.
-    const block = document.querySelector(`[data-proposal="${view.units[index]?.proposalId}"]`);
-    const pane = block?.closest('[role="tabpanel"]');
-    if (block && pane) pane.scrollTop += block.getBoundingClientRect().top - pane.getBoundingClientRect().top;
+    if (!unit) return;
+    let focusFrame = 0;
+    const frame = requestAnimationFrame(() => {
+      // An inbox handoff explicitly asks for the selected proposal's controls.
+      // On tablets this opens the existing sheet after revealing the card.
+      window.dispatchEvent(new Event("deck-details"));
+      focusFrame = requestAnimationFrame(() => focusReviewArrival(document, unit.key));
+    });
+    return () => { cancelAnimationFrame(frame); cancelAnimationFrame(focusFrame); };
   }, [ui.reviewing, setCursor]);
 
   useHotkeys({

@@ -112,19 +112,28 @@ export function AddBar() {
     adding.current = false;
     if (!result) return;
 
-    // The add is the newest log entry; undoing it needs that entry's id.
+    // Deck membership adds create a log entry. Shortlisting is organization
+    // outside the 100, so its undo removes the newly shortlisted card directly.
     const entry = result.state.log.reduce<{ id: number } | null>((a, b) => (!a || b.id > a.id ? b : a), null);
     const message = how.maybe
       ? `Added ${card.name} to the maybe list.`
       : how.role === "commander"
         ? `Added ${card.name} as the commander.`
         : `Added ${card.name}. The deck is at ${result.state.computed.card_count} cards.`;
+    const undo = how.maybe
+      ? () => api.removeCard(deckId, card.oracle_id)
+      : entry ? () => api.undo(deckId, entry.id) : undefined;
     toast(message, {
-      action: entry ? { label: "Undo", onAction: () => void run(() => api.undo(deckId, entry.id)) } : undefined,
+      action: undo ? { label: "Undo", onAction: () => void run(undo) } : undefined,
     });
-    // Ready for the next name: typing replaces what was there.
+    // A successful add clears the search, including a maybe-list add. Focus
+    // first: its onFocus may open results, so closing must happen afterwards.
     input.current?.focus();
-    input.current?.select();
+    setQuery("");
+    setResults(null);
+    setError(null);
+    setIndex(0);
+    setOpen(false);
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -150,12 +159,12 @@ export function AddBar() {
   return (
     <div ref={box} className={styles.wrap}>
       <label className={styles.bar}>
-        <Icon name="search" size={14} className={styles.icon} />
+        <span className={styles.addLabel}><Icon name="plus" size={14} /> Add</span>
         <input
           ref={input}
           className={styles.input}
           value={query}
-          placeholder="Add a card, or search: a name, or o:text t:type mv<=2"
+          placeholder="Card name or query…"
           autoComplete="off"
           spellCheck={false}
           role="combobox"
@@ -200,6 +209,7 @@ export function AddBar() {
             )}
           </div>
           <div className={styles.foot}>
+            <span className={styles.syntax}>Search by name, or use o:text t:type mv&lt;=2.</span>
             <span className={styles.hints}>
               <span><Kbd>↵</Kbd> add to deck</span>
               <span><Kbd>⇧↵</Kbd> add to maybe list</span>

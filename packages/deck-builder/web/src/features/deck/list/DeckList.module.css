@@ -13,7 +13,9 @@
 }
 
 .cols {
-  columns: 3 250px;
+  /* Native columns rebalance whenever rows, headers or details change height.
+     Keep three only when the available list width can fit readable names. */
+  columns: 3 var(--deck-card-min);
   column-gap: var(--s-7);
 }
 

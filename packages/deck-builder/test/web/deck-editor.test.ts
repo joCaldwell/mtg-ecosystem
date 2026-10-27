@@ -44,3 +44,36 @@ test("colour identity indicators expose colour names and colourless in their acc
   assert.match(renderToStaticMarkup(createElement(ColorIdentity, { colors: "UBR" })), /role="img" aria-label="Colour identity: blue, black, red"/);
   assert.match(renderToStaticMarkup(createElement(ColorIdentity, { colors: "" })), /role="img" aria-label="Colour identity: colourless"/);
 });
+
+test("review arrival reveals the first item of the chosen decision, skipping hidden contributors", async (t) => {
+  const { scrollToReviewCard } = await (await modules(t)).ssrLoadModule("/src/features/deck/list/DeckList.tsx");
+  const calls: unknown[] = [];
+  const row = (id: string, visible: boolean, label: string) => ({
+    dataset: { oracleId: id }, getClientRects: () => visible ? [{}] : [],
+    scrollIntoView: (options: unknown) => calls.push([label, options]),
+  });
+  const rows = [row("cut", true, "cut later in decision"), row("add", false, "hidden add"), row("add", true, "first changed card")];
+  scrollToReviewCard({ querySelectorAll: () => rows }, "add");
+  assert.deepEqual(calls, [["first changed card", { block: "nearest", inline: "nearest" }]]);
+  calls.length = 0;
+  scrollToReviewCard(null, "add");
+  assert.deepEqual(calls, []);
+});
+
+test("proposal arrival focuses its own reason and scrolls only its panel, preserving the list reveal", async (t) => {
+  const { focusReviewArrival } = await (await modules(t)).ssrLoadModule("/src/features/deck/reviewArrival.ts");
+  const calls: unknown[] = [];
+  const pane = { scrollTop: 100, clientHeight: 500, getBoundingClientRect: () => ({ top: 200, bottom: 700 }) };
+  const target = {
+    dataset: { reviewUnit: "chosen" },
+    closest: (selector: string) => selector === '[role="tabpanel"]' ? pane : { getBoundingClientRect: () => ({ top: 800 }) },
+    getClientRects: () => [{}], getBoundingClientRect: () => ({ top: 900, bottom: 1200 }),
+    querySelector: () => ({ focus: (options: unknown) => calls.push(options) }),
+  };
+  const root = { querySelectorAll: () => [{ dataset: { reviewUnit: "older" } }, target] };
+  focusReviewArrival(root, "chosen");
+  assert.equal(pane.scrollTop, 700, "the summary and decision fit together at the panel's top");
+  assert.deepEqual(calls, [{ preventScroll: true }]);
+  focusReviewArrival(root, "missing");
+  assert.equal(calls.length, 1, "a missing proposal does not focus another decision");
+});

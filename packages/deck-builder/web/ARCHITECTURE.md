@@ -317,9 +317,10 @@ close together release the page; Dialog's focus trap listens natively,
 because the portalled panel's React events do not bubble through the sheet.
 Escape that starts in a field reaches the field first: an inline editor in a
 sheet cancels, and the next Escape closes the sheet. An Explainer keeps the
-trigger's place in the Tab order and closes when focus leaves it. Under
-`(pointer: coarse)` up to 1099 px, header, toolbar and banner controls are
-`--tap` tall and card rows grow to 44 px. Desktop rows remain 24 px. `PHONE_MAX_WIDTH` and
+trigger's place in the Tab order and closes when focus leaves it. Up to
+1099 px, editor header, toolbar, banner and panel controls are `--tap` tall
+and card rows grow to 44 px, regardless of pointer type or import history.
+Desktop rows remain 24 px. `PHONE_MAX_WIDTH` and
 `useIsPhone()` still select 4a's read-only phone view. Tables contain their own
 horizontal overflow. Every shell provides the labelled `main-content` skip
 link target. QA must use actual wheel/touch input, never script scrolling.
@@ -432,3 +433,17 @@ without moving focus, expanding disclosures or changing the scroll owner.
 Phone decks use native fragment links between the title, card list and pending
 proposals. The read-only composition accepts optional list navigation; editing
 and phone decision permissions are unchanged.
+
+Deck-editor UX regressions can be checked against the disposable `ux-eval/serve.ts`
+server with `scripts/check-deck-editor.mjs`; set `PLAYWRIGHT_MODULE` to an installed
+Playwright entry point and `AXE_MODULE` to axe-core's `axe.min.js`. It checks all
+five viewport widths, real wheel scrolling, proposal handoffs, add/undo, column
+reflow, post-import tablet targets, and panel identity across 1100 px. It requires
+the seeded evaluation database and never runs against live data.
+
+The card list uses native balanced columns with a 300 px target minimum and
+unfragmented row/header tracks. The browser recalculates breaks as content sizes
+change. Review arrival reveals the chosen decision's first card, then focuses
+its optional reason in the panel (the requested sheet on tablets). Panel-only
+scrolling and resize observation keep asynchronously loaded context from moving
+the controls away or undoing the list reveal.

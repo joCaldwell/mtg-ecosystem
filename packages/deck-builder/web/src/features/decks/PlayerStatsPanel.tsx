@@ -31,7 +31,7 @@ function Colors({ stats }: { stats: PlayerStats }) {
           <div key={c} className={styles.bar}>
             <ManaSymbol symbol={c} />
             <Meter value={stats.colors[c] ?? 0} max={stats.deck_count} aria-label={`Decks including ${c}`} />
-            <Text mono tone="muted" size="sm">
+            <Text mono tone="soft" size="sm">
               {stats.colors[c] ?? 0}
             </Text>
           </div>
@@ -95,7 +95,7 @@ export function PlayerStatsPanel() {
                   <span className={styles.pips}>
                     <ColorIdentity colors={i.identity === "C" ? "" : i.identity} />
                   </span>
-                  <Text mono tone="muted" size="sm">
+                  <Text mono tone="soft" size="sm">
                     {i.decks} {i.decks === 1 ? "deck" : "decks"}
                   </Text>
                 </div>
@@ -110,7 +110,7 @@ export function PlayerStatsPanel() {
               {stats.commander_types.map((t) => (
                 <Chip key={t.type}>
                   {t.type}
-                  <Text mono tone="faint">
+                  <Text mono tone="soft">
                     {t.decks}
                   </Text>
                 </Chip>
@@ -139,7 +139,7 @@ export function PlayerStatsPanel() {
               {stats.slots.map((s) => (
                 <div key={s.name} className={styles.slot}>
                   <Text className={styles.slotName}>{s.name}</Text>
-                  <Text mono tone="muted" size="sm" title="Average cards in this slot, and how many decks use it">
+                  <Text mono tone="soft" size="sm" title="Average cards in this slot, and how many decks use it">
                     avg {num(s.average_count)} · {s.decks} {s.decks === 1 ? "deck" : "decks"}
                   </Text>
                 </div>
@@ -155,7 +155,7 @@ export function PlayerStatsPanel() {
             {stats.reused_cards.map((c) => (
               <li key={c.name}>
                 <CardRef name={c.name} />
-                <Text mono tone="faint" size="sm">
+                <Text mono tone="soft" size="sm">
                   {c.decks}
                 </Text>
               </li>

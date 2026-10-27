@@ -64,16 +64,20 @@
 }
 
 @media (max-width: 1099px) {
-  .toolbar { flex-direction: row; flex-wrap: wrap; padding: var(--s-3) var(--s-4); gap: var(--s-2) var(--s-4); }
-  .toolbar .view, .toolbar .filters { display: contents; }
-  .add, .search { flex: 1 1 40%; min-width: 0; max-width: none; }
+  .toolbar { padding: var(--s-3) var(--s-4); gap: var(--s-3); }
+  .view { flex-wrap: wrap; overflow: visible; }
+  .filters { flex: 1 1 100%; flex-wrap: wrap; }
+  .add { width: 100%; }
+  .add > div { max-width: none; }
+  .search { flex: 1 1 40%; min-width: 0; max-width: none; }
   .search input { min-width: 0; }
+  .layout [role="group"] { height: auto; }
   .layout { margin-left: auto; flex-wrap: wrap; gap: var(--s-2); }
   .filterSummary { flex-wrap: wrap; gap: var(--s-2); }
 }
 
 /* Touch tablets: toolbar controls are full tap targets (DESIGN.md). */
-@media (pointer: coarse) and (max-width: 1099px) {
+@media (max-width: 1099px) {
   .toolbar button, .toolbar input { min-height: var(--tap); }
 }
 

@@ -1,5 +1,3 @@
-import { Explainer } from "../../../ui/index.ts";
-import { useVoice } from "../../../app/Preferences.tsx";
 import { useState } from "react";
 import { api } from "../../../api/client.ts";
 import { useInbox } from "../../../app/Inbox.tsx";
@@ -14,7 +12,6 @@ import { PowerMapping } from "./PowerMapping.tsx";
 import styles from "./PowerPanel.module.css";
 
 export function PowerPanel() {
-  const voice = useVoice();
   const state = useDeckState();
   const { power, deck } = state;
   const { deckId, run, apply } = useDeck();
@@ -24,7 +21,6 @@ export function PowerPanel() {
   const a = power.assessment;
   const t = power.target;
   return <>
-    <Explainer title="Commander bracket" summary={voice("A bracket helps you describe the game this deck is built for.", "The app maps your or your agent's assessment to a suggested bracket.")}>Set a target for the experience you want, then assess how the current list plays. The app suggests a bracket from those answers and the card data. Unknown answers stay unknown. Discuss the result with your table; it is not a certification.</Explainer>
     <Stack gap={4}>
       <Row justify="between"><Eyebrow>Deck power</Eyebrow><Button size="sm" variant="ghost" disabled={readOnly} onClick={() => setEditing("assessment")}>{a ? "Reassess" : "Assess deck"}</Button></Row>
       <div className={styles.summary}>
@@ -36,7 +32,6 @@ export function PowerPanel() {
           {t && <Text size="xs" tone={t.author_via === "ui" ? "muted" : "agent"}>{t.author_display ?? t.author} · {ago(t.updated_at)}</Text>}
         </Stack>
       </div>
-      <Text size="sm" tone="muted">A profile describes how the deck plays. The bracket is a suggested translation for pregame discussion; “?” marks gaps or conflicts.</Text>
       {a?.stale && <Text as="p" tone="warn" role="status">Cards changed since r{a.revision}. This assessment needs review before comparing it with the target.</Text>}
       {a && <Text size="sm" tone="muted">{a.confidence === "tentative" ? "Tentative" : "Supported by evidence"} · {a.evidence === "list" ? "list analysis" : a.evidence === "goldfish" ? "goldfishing" : "actual games"}</Text>}
     </Stack>
@@ -66,7 +61,7 @@ export function PowerPanel() {
         <RichText text={old.notes} />
       </Stack>)}
     </Stack></details>}
-    <Stack gap={3}><Text as="p" size="xs" tone="faint">{readOnly ? "Archived decks are read-only." : voice("Set a target or assess the list above.", "Agents propose target changes for your approval.")} Assessments are attributed estimates; your corrections take precedence.</Text>
+    <Stack gap={3}>
       {t && !readOnly && <Button size="sm" variant="ghost" onClick={() => void run(() => api.setPowerTarget(deckId, null))}>Clear target</Button>}
     </Stack>
     {editing && !readOnly && <PowerEditor kind={editing} power={power} revision={deck.revision} onClose={() => setEditing(null)} />}

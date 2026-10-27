@@ -8,6 +8,7 @@ import { cx } from "../../../ui/internal.ts";
 import { DecisionControls } from "../../decisions/index.ts";
 import { useDeckUi } from "../DeckUi.tsx";
 import type { Review } from "../useReview.tsx";
+import { revealReviewUnit } from "../reviewArrival.ts";
 import { ReviewItemLine } from "./ReviewItemLine.tsx";
 import styles from "./ReviewUnitCard.module.css";
 
@@ -28,11 +29,24 @@ export function ReviewUnitCard({ unit, index, review }: { unit: ReviewUnit; inde
   // Keyboard review moves the cursor through a list longer than the panel.
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (here) root.current?.scrollIntoView({ block: "nearest" });
+    const el = root.current;
+    if (!here || !el) return;
+    const reveal = () => revealReviewUnit(el);
+    reveal();
+    // History/reason context arrives asynchronously. Keep this decision's
+    // controls visible when it, a preceding proposal, or the pane resizes.
+    const observer = new ResizeObserver(reveal);
+    const pane = el.closest('[role="tabpanel"]');
+    observer.observe(el);
+    if (pane) {
+      observer.observe(pane);
+      pane.querySelectorAll('[data-proposal]').forEach(proposal => observer.observe(proposal));
+    }
+    return () => observer.disconnect();
   }, [here]);
 
   return (
-    <div ref={root} className={cx(styles.unit, here && styles.current)}>
+    <div ref={root} data-review-unit={unit.key} className={cx(styles.unit, here && styles.current)}>
       <button type="button" className={styles.head} onClick={() => ui.setCursor(index)}>
         {KIND[unit.kind]}
       </button>

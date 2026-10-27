@@ -42,8 +42,8 @@ D20) and built in phase 4a; phase 4b makes the full app hold up between
 - **Touch replaces hover.** On touch (`hover: none`) the hover card never
   opens; a tapped card opens `CardSheet`, a bottom sheet on a phone. Tap
   targets are at least `--tap` (44 px): `Button size="touch"`,
-  `IconButton size="touch"`, and list rows grow to it under 720 px and on coarse pointers up to 1099 px. The
-  dense 24px rows of principle 4 are a desktop rule.
+  `IconButton size="touch"`, and editor rows and controls grow to it through
+  1099 px, including fine pointers and freshly imported decks. The dense 24px rows of principle 4 are a desktop rule.
 - **Nothing scrolls sideways at 375 px.** Names wrap (`overflow-wrap:
   anywhere`), action rows wrap, two-column grids collapse, and a table
   scrolls inside its own box, never the page.
@@ -87,7 +87,8 @@ never replace semantic colours.
 Deck lifecycle (Paper, Theorycrafted, Archived) is a state, not a meaning, so
 its labels are grey and the word carries it: All decks pills, sidebar labels
 and the deck header's lifecycle control. The `--lifecycle-*` aliases resolve to
-`--muted` on `--raised`, keeping green, blue and amber for accept/pass,
+`--muted` on `--raised` (the roster uses `--text-soft` for essential lifecycle
+labels), keeping green, blue and amber for accept/pass,
 selection and warnings. Sidebar labels appear only for Theorycrafted and
 Archived decks.
 
@@ -383,3 +384,11 @@ separate sidebar item after Memories. `/activity` has its own Activity title
 and current link; `/profile` is a single page with no tabs. A profile draft
 survives resizing. The inbox’s unreviewed decision count sits in its padded
 header subtitle, aligned with the rest of the page content.
+
+The deck editor keeps one header help control for lifecycle, slots, maybe cards,
+brief, power and proposals. Its add bar uses a plus label and raised surface;
+query syntax lives with the results. Deck search stays with the filters.
+Workspace and roster metadata is at least 12 px; prices, totals, counts and
+lifecycle labels use the soft grey tier unless they convey a semantic state.
+Card-panel slot, tag and role fields use full-width labelled rows below the
+rules, followed by art.

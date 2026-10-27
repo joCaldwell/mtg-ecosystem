@@ -68,6 +68,7 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
       type="button"
       className={cls}
       data-current={current || undefined}
+      data-oracle-id={card.oracle_id}
       data-filter-match={filterMatch}
       aria-current={open || undefined}
       onClick={onClick}

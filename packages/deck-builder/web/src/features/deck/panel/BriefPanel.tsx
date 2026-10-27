@@ -1,5 +1,3 @@
-import { Explainer } from "../../../ui/index.ts";
-import { useVoice } from "../../../app/Preferences.tsx";
 // The Brief tab (spec §6): the owner's document about what the deck is for.
 // Agents read it every session and can only propose edits to it, which show
 // up in place under the section they concern. Archived briefs are read-only.
@@ -19,7 +17,6 @@ import styles from "./BriefPanel.module.css";
 type EngineForm = { engine?: Engine } | null;
 
 export function BriefPanel() {
-  const voice = useVoice();
   const state = useDeckState();
   const { deckId, run, apply } = useDeck();
   const inbox = useInbox();
@@ -49,7 +46,6 @@ export function BriefPanel() {
 
   return (
     <>
-      <Explainer title="Deck brief">{voice("The brief is your plan: what this deck should do and what matters to you.", "Your brief gives every agent the same plan and constraints.")} Start with a sentence about how you want to win. Add budget or playgroup expectations as constraints. Name an engine when you want the app to check that its pieces are still in the list. Only you approve changes to this plan.</Explainer>
       {edits.filter(e => e.group_id === e.id).map(edit => <DocumentEditCard key={edit.id} edit={edit}
         onRuled={r => { apply(r); inbox.apply(r.inbox); }} />)}
       <BriefField

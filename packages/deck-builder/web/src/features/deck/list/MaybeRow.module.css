@@ -89,7 +89,7 @@
 .row.match .name { color: var(--text); }
 
 /* Stretch the existing button's hit area over its row on touch tablets. */
-@media (pointer: coarse) and (max-width: 1099px) {
+@media (max-width: 1099px) {
   .row, .name { min-height: var(--tap); }
   .name::after { content: ""; position: absolute; inset: 0; }
   .note a { position: relative; }

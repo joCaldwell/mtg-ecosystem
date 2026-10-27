@@ -1,7 +1,8 @@
 .head {
   display: flex;
   align-items: baseline;
-  gap: var(--s-4);
+  gap: var(--s-3);
+  break-inside: avoid;
   /* An h2 for the outline (h1 is the deck), sized exactly as the h3 it was (1.17em): the
      children set their own type, but the row's line box follows this. */
   font-size: calc(var(--text-md) * 1.17);
@@ -11,20 +12,27 @@
 }
 
 .title {
+  flex: 0 0 auto;
+  white-space: nowrap;
   font-size: var(--text-sm);
   font-weight: 600;
 }
 
 .spacer {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 /* Sits over the rows' price column, so it reads as that column's sum. */
 .cost {
+  flex: 0 1 auto;
+  min-width: 0;
   --price-color: var(--text-soft);
 }
 
 .count {
+  flex: 0 1 auto;
+  min-width: 0;
   color: var(--text-soft);
   font: var(--text-sm) var(--font-mono);
   font-variant-numeric: tabular-nums;
