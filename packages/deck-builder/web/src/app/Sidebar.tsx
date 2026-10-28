@@ -100,7 +100,7 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
 
       <div className={styles.heading} aria-hidden={collapsed || undefined}>
         <Eyebrow>Your decks</Eyebrow>
-        {query && <span className={styles.matches} role="status">{shownDecks.length} matches</span>}
+        {query && <span className={styles.matches} role="status">{shownDecks.length} {shownDecks.length === 1 ? "match" : "matches"}</span>}
       </div>
       {canFilter && <div className={styles.filter}>
         <TextField ref={filterInput} type="search" aria-label="Find a deck or commander in sidebar" placeholder="Find a deck…"

@@ -42,8 +42,8 @@ export function MaybeRow({ card, filterMatch, sharedNote = false }: { card: Deck
       <span className={styles.note}>
         {!sharedNote && card.maybe_note && <InlineText text={card.maybe_note} />}
       </span>
-      <ManaCost cost={card.mana_cost} />
-      <Price currency={card.currency} cents={card.cents} column />
+      <span className={styles.mana}><ManaCost cost={card.mana_cost} /></span>
+      <span className={styles.price}><Price currency={card.currency} cents={card.cents} column /></span>
     </div>
   );
 }

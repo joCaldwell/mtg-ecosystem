@@ -95,6 +95,8 @@
 .note :is(button, a) { position: relative; pointer-events: auto; }
 @media (max-width: 1099px) { .row { min-height: var(--tap); } }
 
+.mana, .price { display: contents; }
+
 /* Wide lists keep each name beside its own numbers. The same full-row hit
    target and independent note controls cover this compact presentation. */
 @media not all and (max-width: 1099px) {
@@ -102,6 +104,6 @@
   .name { grid-column: 1; grid-row: 1; width: auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
   .note { grid-column: 1 / -1; grid-row: 2; }
   .note:empty { display: none; }
-  .row > :nth-last-child(2) { grid-column: 2; grid-row: 1; }
-  .row > :last-child { grid-column: 3; grid-row: 1; }
+  .mana { display: inline-flex; grid-column: 2; grid-row: 1; }
+  .price { display: inline-flex; grid-column: 3; grid-row: 1; }
 }

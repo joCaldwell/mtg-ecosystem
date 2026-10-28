@@ -18,6 +18,9 @@ assert.equal(slots.length, 2);
 for (const url of [origin, baseline])
     await api('/api/decks/2/cards/' + card.oracle_id, 'PATCH', { slot_id: slots[0], secondary_slot_ids: [slots[1]], maybe_note: 'Consider with [[' + other.name + ']].' }, url);
 const snap = s => ({ cards: s.cards.map(c => ({ id: c.oracle_id, maybe: c.maybe, slot: c.slot_id, secondary: c.secondary_slot_ids, tags: c.tag_ids, role: c.role, quantity: c.quantity, note: c.maybe_note })).sort((a, b) => a.id.localeCompare(b.id)), count: s.computed.card_count, maybe: s.computed.maybe_count });
+const costless = state.cards.find(c => c.maybe && !c.mana_cost);
+assert(costless, "fixture has a maybe card without a printed mana cost");
+for (const url of [origin, baseline]) await api('/api/decks/2/cards/' + costless.oracle_id, 'PATCH', { maybe_note: 'Consider with [[' + other.name + ']].' }, url);
 const snapshot = snap((await api('/api/decks/2')).state);
 const browser = await chromium.launch({ args: BROWSER_ARGS }), results = [];
 try {
@@ -87,6 +90,15 @@ try {
         assert.deepEqual(snap((await api('/api/decks/2')).state), snapshot);
         assert.equal((await axe(page)).length, 0);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+        const costlessRow = section.locator('[data-oracle-id="' + costless.oracle_id + '"]');
+        await scrollUntilVisible(page, costlessRow, VIEWPORTS[width]);
+        const noteBelowName = await costlessRow.evaluate(node => node.querySelector('[class*="_note_"]').getBoundingClientRect().top >= node.querySelector('[class*="_name_"]').getBoundingClientRect().bottom - 1);
+        assert(noteBelowName, "a missing mana cost never moves its note into the name/mana/price row");
+        await costlessRow.getByRole('button', { name: costless.name, exact: true }).focus();
+        await page.keyboard.press('Space'); await settle(page, watch);
+        await page.getByRole('heading', { name: costless.name, exact: true }).waitFor(); await close();
+        await costlessRow.getByRole('button', { name: other.name, exact: true }).click(); await settle(page, watch);
+        await page.getByRole('heading', { name: other.name, exact: true }).waitFor(); await close();
         await page.goto(origin + '/inbox');
         await settle(page, watch);
         const reason = page.getByRole('textbox', { name: /Reason for this proposal, optional/ }).first();
@@ -94,7 +106,7 @@ try {
         assert.deepEqual(await reason.evaluate(el => Array.from(el.labels ?? []).map(label => label.textContent)), ['Reason (optional)']);
         assert.equal(await page.getByText('Reason (optional)', { exact: true }).isVisible(), true);
         assert.deepEqual(snap((await api('/api/decks/2')).state), snapshot);
-        results.push({ width, blank_mana_price_clicks: true, enter_space_inspect: true, whole_row_focus_ring: ring, nested_note_pointer_keyboard: true, main_modifier_selection_preserved: true, assignments_and_membership_unchanged: true, no_slot_purpose_text: true, persistent_reason_label_while_typing: true });
+        results.push({ width, blank_mana_price_clicks: true, enter_space_inspect: true, whole_row_focus_ring: ring, nested_note_pointer_keyboard: true, main_modifier_selection_preserved: true, assignments_and_membership_unchanged: true, no_slot_purpose_text: true, persistent_reason_label_while_typing: true, costless_note_below_name: true, costless_row_and_nested_note_activation: true });
         await context.close();
         console.log("Desktop QA width " + width + " passed");
     }
