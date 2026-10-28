@@ -252,6 +252,8 @@ const SCREENS = [
   { screen: "memories", user: U.owner, path: "/memories", widths: ALL, states: [{ state: "default", caption: "Memories" }] },
   { screen: "activity", user: U.owner, path: "/activity", widths: ALL, states: [{ state: "default", caption: "Activity feed of agent writes" }] },
   { screen: "settings", user: U.owner, path: "/settings", widths: ALL, states: [{ state: "default", caption: "Settings" }] },
+  { screen: "settings", user: U.owner, path: "/settings", widths: APP, states: [{ state: "pricing-budgets", caption: "Price source, memory budgets and card data", act: async ({ page, vp }) => scrollUntilVisible(page, page.getByRole("heading", { name: "Price source", exact: true }), vp, { top: true }) }] },
+  { screen: "settings-new-account", user: U.empty, path: "/settings", widths: APP, states: [{ state: "default", caption: "Settings before an agent is connected, regular account" }] },
   { screen: "profile", user: U.owner, path: "/profile", widths: ALL, states: [{ state: "default", caption: "The owner's profile" }] },
   { screen: "sample-deck", user: U.sample, path: `/deck/${D.sample}`, widths: [375, 1440], states: [{ state: "default", caption: "The sample deck in a new account" }] },
   { screen: "public-deck", user: 0, path: "/d/{slug}", widths: PUBLIC, states: [{ state: "signed-out", caption: "A public deck page, signed out" }] },

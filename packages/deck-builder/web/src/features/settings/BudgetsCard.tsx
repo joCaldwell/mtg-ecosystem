@@ -50,10 +50,10 @@ export function BudgetsCard({ budgets, usage, onSaved }: { budgets: Settings["bu
           Memory budgets
         </Text>
         <Text tone="muted" size="sm">
-          Newest memories load first. Omitted notes stay searchable.
+          Estimated tokens; newest memories load first. Omitted notes stay searchable.
         </Text>
         <div className={styles.fields}>
-          <Field label="Global memories" hint="Estimated tokens loaded at session start.">
+          <Field label="Global limit (tokens)">
             <TextField
               inputMode="numeric"
               value={global}
@@ -64,7 +64,7 @@ export function BudgetsCard({ budgets, usage, onSaved }: { budgets: Settings["bu
               }}
             />
           </Field>
-          <Field label="Per deck" hint="Estimated tokens loaded with each deck.">
+          <Field label="Per-deck limit (tokens)">
             <TextField
               inputMode="numeric"
               value={deck}

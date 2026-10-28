@@ -104,7 +104,6 @@ export function clientConfigs(url: string, token: string, stdio: string | undefi
     id: "http",
     label: "Other (URL and headers)",
     parts: [
-      { prose: <>Any client that takes a URL and headers.</> },
       {
         label: "HTTP configuration",
         code: JSON.stringify(

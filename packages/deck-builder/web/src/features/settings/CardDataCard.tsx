@@ -42,11 +42,11 @@ export function CardDataCard({ cards, jobs, onChanged, canRefresh = true }: { ca
           <Button size="sm" onClick={refresh} disabled={!canRefresh || busy || jobs?.active === "refresh" || jobs?.queued.includes("refresh")}>
             {busy ? "Queuing…" : jobs?.active === "refresh" ? "Refreshing…" : "Refresh now"}
           </Button>
+          {!canRefresh && <Text size="sm" tone="muted">Admin only</Text>}
         </Row>
         <Text tone="muted" size="sm" as="p">
           {cards.prices.as_of
-            ? `${cards.prices.priced.toLocaleString()} cards have a price: the cheapest printing of each, from Scryfall's ` +
-              `${cards.prices.store === "tcgplayer" ? "TCGplayer" : "Cardmarket"} prices (${cards.prices.currency}), as of ${cards.prices.as_of.slice(0,10)}. Scryfall updates them daily, and they are estimates.`
+            ? `${cards.prices.priced.toLocaleString()} priced cards · ${cards.prices.store === "tcgplayer" ? "TCGplayer" : "Cardmarket"} · ${cards.prices.currency} · ${cards.prices.as_of.slice(0,10)} · daily estimates`
             : "No prices loaded yet. Refresh to load them."}
         </Text>
         {jobs && <Stack gap={2}>

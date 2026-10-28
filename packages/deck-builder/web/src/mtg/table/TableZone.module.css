@@ -65,4 +65,16 @@
 }
 /* Native focus may scroll a tall hand card down to its lower rules text.
    Keep its actual name, cost and type visible while that text is scrolled. */
-.hand .cards > [data-text-card] > header { position: sticky; top: 0; z-index: 1; background: inherit; }
+.hand .cards > [data-text-card] > header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  flex-shrink: 0;
+  opacity: 1;
+  background: var(--surface);
+}
+/* Selection and hover tints are translucent. Composite them over an opaque
+   surface so scrolled rules cannot show through the sticky identity. */
+.hand .cards > [data-text-card]:hover > header { background: linear-gradient(var(--hover), var(--hover)), var(--surface); }
+.hand .cards > [data-text-card][data-selected="true"] > header { background: linear-gradient(var(--sel-bg), var(--sel-bg)), var(--surface); }
+.hand .cards > [data-text-card][data-tapped="true"] > header { background: var(--surface); }

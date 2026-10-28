@@ -277,3 +277,10 @@ also contain a labelled group of scrolling controls.
 The hand QA additionally checks that a selected card's name, mana cost and type
 stay within the hand viewport after native focus scrolling. Review-clarity QA
 checks the actual stored agent reasons are visible next to selected changes.
+
+`node check-settings-economy.mjs --origin http://127.0.0.1:8853`
+checks price/currency and memory-budget saves with restoration, invalid-budget
+feedback, setup-disclosure keyboard behavior and unsaved token labels at every
+desktop width. A regular account verifies open initial instructions and disabled
+admin refresh. The once-only token/revocation flow is exercised only in the
+fixture; its secret is never logged or captured.

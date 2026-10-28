@@ -42,17 +42,14 @@ export function AgentConnectionCard({ agent, onChanged }: { agent: Settings["age
 
   return <Box><Stack gap={5}>
     <Text as="h2" size="lg" weight="bold">Connect an agent</Text>
-    <Text tone="muted" size="sm">
-      Connect your agent to manage decks in this account. The app makes no AI calls.
-    </Text>
     <KeyValue items={[
       ["Endpoint", <Row key="url" gap={4}><Text mono className={styles.value}>{agent.url}</Text><CopyButton text={agent.url} label="endpoint" /></Row>],
       ["Reachable from", agent.mode === "local" ? "This computer only" : "Your hosted address"],
     ]} />
     <div className={styles.columns}><Stack gap={5}>
     <Text as="h3" weight="bold">Agent tokens</Text>
-    <Text tone="muted" size="sm">Create a token for each client. Save it when shown; it cannot be revealed again.</Text>
-    <Field label="Token label" hint="For example, the client or computer you connect from.">
+    <Text tone="muted" size="sm">Tokens are shown once. Save yours before dismissing it.</Text>
+    <Field label="Token label">
       <TextField value={label} maxLength={80} onChange={e => setLabel(e.target.value)} />
     </Field>
     <Row gap={4}><Button variant="primary" disabled={busy || !label.trim() || secret !== null} onClick={create}>{busy ? "Working…" : "Create token"}</Button></Row>

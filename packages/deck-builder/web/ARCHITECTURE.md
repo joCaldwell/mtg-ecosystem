@@ -562,3 +562,16 @@ Activity badges describe write type (proposal/applied), not current approval sta
 the activity wire has no current proposal disposition. TextCard groups name, cost
 and type in its existing semantic header; the hand keeps that identity sticky when
 rules text overflows, including native focus/selection scrolling.
+
+Settings keeps connection setup and permission instructions intact, with token
+save/revoke consequences at their controls. Store options name the actual current
+source, budget labels carry their token units, and priced-card metadata is concise.
+The public product no longer links to the internal design reference from Settings.
+Hand identities do not flex-shrink, and composite state tints over an opaque
+surface: inherited translucent hover/selection backgrounds let scrolling rules
+show through. Hand QA checks child type bounds and opacity, with visual capture
+inspection in addition to box geometry.
+Native focus on an oversized hand card reveals its start after the browser's
+focus scroll. This only adjusts the hand's vertical scroll for the card itself;
+horizontal focus traversal, nested controls and deliberate scrolling retain their
+normal behavior. Regression QA checks the opening rules start below the identity.

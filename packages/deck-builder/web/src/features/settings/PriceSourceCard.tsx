@@ -17,17 +17,16 @@ export function PriceSourceCard({ source, onSaved }: { source: Settings["price_s
   }
   return <Box><Stack gap={5}>
     <Text as="h2" size="lg" weight="bold">Price source</Text>
-    <Text tone="muted" size="sm">Your choice applies to cards, deck estimates, and your agents. Daily Scryfall estimates of the cheapest playable printing; no currency conversion.</Text>
+    <Text tone="muted" size="sm">Daily Scryfall estimates of the cheapest playable printing; no currency conversion.</Text>
     <Row gap={5} wrap>
       <Field label="Currency"><Select value={value.currency} onChange={e => setValue({ currency: e.target.value as PriceSource["currency"], store: "lowest" })}>
         <option value="USD">USD — US dollars</option><option value="EUR">EUR — euros</option>
       </Select></Field>
       <Field label="Store"><Select value={value.store} onChange={e => setValue({ ...value, store: e.target.value as PriceSource["store"] })}>
-        <option value="lowest">Lowest in {value.currency}</option>
+        <option value="lowest">Lowest in {value.currency} ({value.currency === "USD" ? "TCGplayer" : "Cardmarket"})</option>
         {value.currency === "USD" ? <option value="tcgplayer">TCGplayer</option> : <option value="cardmarket">Cardmarket</option>}
       </Select></Field>
     </Row>
-    <Text size="sm" tone="muted">{value.currency === "USD" ? "TCGplayer" : "Cardmarket"} is currently the only Scryfall store in {value.currency}, so Lowest uses it.</Text>
     {error && <ErrorNote>{error}</ErrorNote>}
     <Row><Button disabled={busy || !dirty} onClick={save}>{busy ? "Saving…" : "Save price source"}</Button></Row>
   </Stack></Box>;

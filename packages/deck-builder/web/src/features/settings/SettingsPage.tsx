@@ -5,8 +5,7 @@ import { AccountCard } from "./AccountCard.tsx";
 import { AdminCard } from "./AdminCard.tsx";
 import { api } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
-import { href } from "../../app/routes.ts";
-import { ErrorNote, Loading, Page, PageHeader, Text } from "../../ui/index.ts";
+import { ErrorNote, Loading, Page, PageHeader } from "../../ui/index.ts";
 import { AgentConnectionCard } from "./AgentConnectionCard.tsx";
 import { PriceSourceCard } from "./PriceSourceCard.tsx";
 import { BudgetsCard } from "./BudgetsCard.tsx";
@@ -40,9 +39,6 @@ export function SettingsPage() {
           </div>
           {session.mode === "hosted" && !!session.user?.is_admin && <AdminCard />}
           {session.mode === "hosted" && <LegalFooter asOf={data.cards.prices.as_of} />}
-          <Text tone="faint" size="sm">
-            Colours, type and every component are on the <a href={href({ page: "design" })}>design reference</a>.
-          </Text>
         </div>
       )}
     </Page>

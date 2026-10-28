@@ -101,7 +101,18 @@ export function TableZone({
           </div>
         </header>
       )}
-      <div className={styles.cards} ref={cards} id={cardsId} data-table-cards>
+      <div className={styles.cards} ref={cards} id={cardsId} data-table-cards onFocusCapture={event => {
+        const card = event.target;
+        const el = cards.current;
+        if (variant !== "hand" || !(card instanceof HTMLElement) || !card.matches("[data-text-card]") || !el) return;
+        // Native focus can align a tall card's bottom with the hand viewport,
+        // hiding its opening rules. Reveal its start after that native scroll;
+        // leave horizontal focus scrolling and deliberate scrolling untouched.
+        requestAnimationFrame(() => {
+          if (!card.isConnected || document.activeElement !== card) return;
+          el.scrollTo({ top: Math.max(0, el.scrollTop + card.getBoundingClientRect().top - el.getBoundingClientRect().top) });
+        });
+      }}>
         {children}
         {!count && emptyText && <p className={styles.empty}>{emptyText}</p>}
       </div>
