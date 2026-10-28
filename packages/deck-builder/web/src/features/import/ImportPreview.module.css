@@ -44,6 +44,11 @@
 .scrollbar { position: absolute; inset: 0 0 0 auto; width: var(--s-4); background: var(--raised); pointer-events: none; }
 .scrollbar > span { position: absolute; inset-inline: var(--s-1); background: var(--muted); border-radius: var(--r-pill); }
 .changes:focus-visible { outline: 2px solid var(--sel); outline-offset: -2px; }
+/* Only closed section headings: no scroll track to draw. */
+.preview[data-import-collapsed] .changes { overflow-y: auto; scrollbar-gutter: auto; }
+.preview[data-import-collapsed] .scrollbar { display: none; }
+/* The 40% cap assumes the full-height preview; the dialog's own cap applies here. */
+.preview[data-import-collapsed] .warnings { max-height: none; }
 
 .problemLink { color: var(--warn); text-decoration: underline; text-underline-offset: var(--s-1); }
 .sectionLink { color: inherit; text-decoration: underline; text-decoration-color: var(--faint); text-underline-offset: var(--s-1); }

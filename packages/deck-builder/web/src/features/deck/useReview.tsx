@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { api } from "../../api/client.ts";
 import { useInbox } from "../../app/Inbox.tsx";
 import type { ReviewUnit } from "../../domain/review.ts";
+import { acceptedNote, changesSince, staleNote } from "../../domain/staleChanges.ts";
 import { ConfirmDialog, useToast } from "../../ui/index.ts";
 import { useDeck } from "./DeckStore.tsx";
 import { useDeckUi } from "./DeckUi.tsx";
@@ -63,11 +64,11 @@ export function useReview(units: ReviewUnit[], { sheet = false }: { sheet?: bool
         onDone?.();
         const entry = result.state.log.find((e) => e.kind === "accept");
         toast(
-          `Accepted. The deck is at r${result.state.deck.revision}.`,
+          acceptedNote(entry?.cards ?? []),
           entry ? { action: { label: "Undo", onAction: () => undo(entry.id) } } : undefined,
         );
       };
-      if (proposal?.stale) setConfirm({ message: `This proposal was based on r${proposal.base_revision ?? "unknown"}; the deck is now r${state!.deck.revision}. Review the changed list before accepting.`, action: submit });
+      if (proposal?.stale) setConfirm({ message: `${staleNote(changesSince(state!.log, proposal.base_revision))} Review the changed list before accepting.`, action: submit });
       else await submit();
     },
     [deckId, state, run, inbox, toast, undo],
@@ -100,7 +101,7 @@ export function useReview(units: ReviewUnit[], { sheet = false }: { sheet?: bool
       if (!result) return;
       inbox.apply(result.inbox);
       onDone?.();
-      toast(`Accepted everything that was open. The deck is at r${result.state.deck.revision}.`);
+      toast("Accepted everything that was open.");
     };
     if (open.some(p => p.stale)) setConfirm({ message: "Some proposals were based on an older deck revision. Review the changed list before accepting all current proposals.", action: submit });
     else await submit();

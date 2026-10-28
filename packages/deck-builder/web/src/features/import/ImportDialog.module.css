@@ -1,5 +1,7 @@
 .body { display: flex; min-height: 0; overflow: hidden; }
 .content { display: flex; flex-direction: column; gap: var(--s-4); width: 100%; height: var(--sheet-content-h); min-height: 0; }
+/* A preview whose change sections are all closed keeps no empty height. */
+.content:has([data-import-collapsed]) { height: auto; max-height: var(--sheet-content-h); }
 .form { display: flex; flex-direction: column; gap: var(--s-5); flex: 1; min-height: 0; overflow: auto; }
 .metadata { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: var(--s-5); }
 .source { display: flex; flex-direction: column; flex: 1; min-height: 0; }

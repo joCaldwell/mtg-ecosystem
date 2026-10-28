@@ -2,6 +2,7 @@
 // decision, with the projected deck above it. Decision happens here, in the list
 // (review mode) and in the banner through the same `Review` object.
 
+import { changesSince, staleNote } from "../../../domain/staleChanges.ts";
 import { ago } from "../../../domain/time.ts";
 import { InlineText } from "../../../mtg/index.ts";
 import { Button, EmptyState, Explainer, Eyebrow, Text } from "../../../ui/index.ts";
@@ -40,7 +41,7 @@ export function ReviewPanel({ view, review }: { view: DeckViewModel; review: Rev
               <InlineText text={proposal.summary} />
             </p>
           </div>
-          {proposal.stale && <Text tone="warn">The deck changed since this proposal (based on r{proposal.base_revision ?? "unknown"}, current r{proposal.current_revision}). Acceptance requires reviewing and acknowledging those changes.</Text>}
+          {proposal.stale && <Text tone="warn">{staleNote(changesSince(state.log, proposal.base_revision))}</Text>}
           {proposal.supersedes.length > 0 && <Text tone="faint">Replaces proposals {proposal.supersedes.join(", ")}.</Text>}
           {/* The projection covers every open proposal, so it appears once. */}
           {n === 0 && <ReviewDelta />}

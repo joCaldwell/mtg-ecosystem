@@ -8,6 +8,7 @@ import { useVoice } from "../../app/Preferences.tsx";
 
 import { useState } from "react";
 import type { ReviewUnit } from "../../domain/review.ts";
+import { changesSince, staleNote } from "../../domain/staleChanges.ts";
 import { ago } from "../../domain/time.ts";
 import { InlineText } from "../../mtg/index.ts";
 import { Button, Eyebrow, Text, TextField } from "../../ui/index.ts";
@@ -77,7 +78,7 @@ function Unit({ unit, index, review }: { unit: ReviewUnit; index: number; review
         {proposal && <Text size="xs" tone="agent">{proposal.author_display ?? proposal.author} · {ago(proposal.created_at)}</Text>}
       </div>
       {proposal?.summary && <Text size="sm" tone="soft" as="p"><InlineText text={proposal.summary} /></Text>}
-      {proposal?.stale && <Text size="sm" tone="warn" as="p">The deck changed since this was proposed (r{proposal.base_revision ?? "?"}, now r{proposal.current_revision}). Accepting asks you to confirm.</Text>}
+      {proposal?.stale && <Text size="sm" tone="warn" as="p">{staleNote(changesSince(state.log, proposal.base_revision))}</Text>}
       <div className={styles.items}>
         {unit.items.map((item) => <ReviewItemLine key={item.id} item={item} />)}
       </div>

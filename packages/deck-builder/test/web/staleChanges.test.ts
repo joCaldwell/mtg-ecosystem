@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { changesSince, staleNote } from "../../web/src/domain/staleChanges.ts";
+import { acceptedNote, changesSince, staleNote } from "../../web/src/domain/staleChanges.ts";
 import { logEntry } from "./fixtures.ts";
 
 const c = (card_name: string, action: "add" | "cut" | "role") => ({ oracle_id: card_name, card_name, action, quantity: 1, item_id: null, reason: "" });
@@ -26,5 +26,13 @@ describe("changesSince", () => {
   test("rejections and entries without cards are not changes", () => {
     assert.equal(changesSince([logEntry({ revision: 5, kind: "reject", cards: [c("Test Card A", "add")] }), logEntry({ revision: 5 })], 4), null);
     assert.equal(changesSince([], null), null);
+  });
+});
+
+describe("acceptedNote", () => {
+  test("names what the acceptance did, not the revision", () => {
+    assert.equal(acceptedNote([c("Test Card A", "add")]), "Accepted: added Test Card A.");
+    assert.equal(acceptedNote([c("Test Card A", "add"), c("Test Card B", "cut")]), "Accepted: added Test Card A; cut Test Card B.");
+    assert.equal(acceptedNote([]), "Accepted.");
   });
 });

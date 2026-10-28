@@ -130,10 +130,6 @@ export function DocumentEditCard({
         onCancelReject={() => setRejecting(false)}
       />}
       {error && <ErrorNote>{error}</ErrorNote>}
-
-      <Text tone="faint" size="xs">
-        This document is yours. Agents can change it only through an edit you accept.
-      </Text>
     </Box>
   );
 }

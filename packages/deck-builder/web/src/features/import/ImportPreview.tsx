@@ -21,6 +21,9 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
   const changes = useRef<HTMLDivElement>(null);
   const [more, setMore] = useState(0);
   const [scrollbar, setScrollbar] = useState({ height: 100, top: 0 });
+  // With every section closed (an import into an empty deck starts that way),
+  // the dialog sizes to its content instead of keeping an empty change pane.
+  const [collapsed, setCollapsed] = useState(false);
   function jump(event: MouseEvent<HTMLAnchorElement>, section: string) {
     event.preventDefault();
     const el = changes.current;
@@ -45,6 +48,7 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
     const height = Math.max(5, 100 * el.clientHeight / Math.max(1, el.scrollHeight));
     const progress = el.scrollTop / Math.max(1, el.scrollHeight - el.clientHeight);
     setScrollbar({ height, top: progress * (100 - height) });
+    setCollapsed(!el.querySelector("details[open]"));
   }
   useLayoutEffect(() => {
     measureRemaining();
@@ -68,7 +72,7 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
   const headings = [problems ? `${warningsId}-skipped` : null, diff.notes.length ? `${warningsId}-check` : null].filter(Boolean).join(" ");
 
   return (
-    <div className={styles.preview}>
+    <div className={styles.preview} data-import-collapsed={collapsed || undefined}>
       <Stack gap={3} className={styles.summary} role="status" tabIndex={-1} data-import-summary>
         <Text as="p" tone="muted">
           {segments.map(([key, segment], i) => <span key={key}>{i > 0 ? " · " : null}{segment}</span>)}

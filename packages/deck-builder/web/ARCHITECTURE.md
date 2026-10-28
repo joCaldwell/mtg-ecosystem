@@ -401,7 +401,8 @@ focus the section's native summary. Each section starts open, can collapse
 after review, and reopens when its count is chosen; warnings and Apply stay
 in place while navigating the change list. Against an empty deck (no cuts,
 unchanged, quantity or role changes) the summary omits zero counts and the
-add and maybe sections start closed behind their counts. Skipped lines and
+add and maybe sections start closed behind their counts; while every section
+is closed the dialog sizes to its content. Skipped lines and
 the parser's after-import checks share one warning callout, named by its
 headings; the section title is a real heading under the dialog title.
 
@@ -597,5 +598,6 @@ owner's own shared link renders the signed-out reader's header, and its note
 links back to the deck, found by slug in the owner's summaries (reader
 `listDecks`). The inbox meta counts the owner's decisions no agent has read
 (§8.4); stale proposals describe the cards changed since, from `DeckState.log`
-(`domain/staleChanges`), not revision numbers. The inbox detail pane reaches the
+(`domain/staleChanges`), not revision numbers, in the inbox, deck Review and
+phone decisions alike; the accept toast names the accepted cards the same way. The inbox detail pane reaches the
 frame edge with content capped at `--measure-wide` and reasons at `--measure`.
