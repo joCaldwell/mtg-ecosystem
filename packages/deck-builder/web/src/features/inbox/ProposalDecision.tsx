@@ -3,6 +3,7 @@ import { api, type DeckState, type Proposal } from "../../api/client.ts";
 import { useInbox } from "../../app/Inbox.tsx";
 import { ConfirmDialog, ErrorNote, Stack, Text, useToast } from "../../ui/index.ts";
 import { DecisionControls } from "../decisions/index.ts";
+import { changesSince, staleNote } from "../../domain/staleChanges.ts";
 
 /** Decide the whole selected proposal through the existing owner capability (§8.2). */
 export function ProposalDecision({ proposal, state, onDecided }: { proposal: Proposal; state: DeckState; onDecided: () => void }) {
@@ -54,7 +55,7 @@ export function ProposalDecision({ proposal, state, onDecided }: { proposal: Pro
     {error && <ErrorNote>{error}</ErrorNote>}
     {confirm && <ConfirmDialog title="Accept older proposal?" confirmLabel="Accept reviewed changes"
       onClose={() => setConfirm(null)} onConfirm={() => { setConfirm(null); void confirm(); }}>
-      This proposal was based on r{current.base_revision ?? "unknown"}; the deck is now r{state.deck.revision}. Review the changed list before accepting.
+      {staleNote(changesSince(state.log, current.base_revision))} Review the changed list before accepting.
     </ConfirmDialog>}
   </Stack>;
 }

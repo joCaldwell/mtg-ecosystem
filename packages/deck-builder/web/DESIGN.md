@@ -64,7 +64,7 @@ D20) and built in phase 4a; phase 4b makes the full app hold up between
 | `Dialog placement="sheet"` | `ui/` | Bottom edge, full width, `--sheet-max-h`; header one tap tall |
 | `CardSheet` | `mtg/` | The hover card's facts in a dialog, opened by tap; sheet on phones |
 | `ReadOnlyDeck` | `features/deck` | List beside price, power, brief, checks, decisions; one column under 720 px |
-| Shared deck header | `features/public` | Art, name, owner, commander, target; Copy link, Export, Fork, Compare |
+| Shared deck header | `features/public` | Art, name, owner, commander, target; Copy link, Export, Fork, Compare at desktop button size; signed out, a secondary "Sign in to fork or compare" button. The owner's own link previews the signed-out view, with icon-only Back to the deck in its note |
 | Share dialog | `features/deck/dialogs` | Segmented visibility with its consequence in words; link; publish decisions |
 | Phone shell | `features/phone` | 48 px top bar; one decision per card with reason, Accept, Reject; bulk actions in Review all decisions |
 
@@ -165,7 +165,8 @@ or about this app.
 
 | Component | For | Variants |
 | --- | --- | --- |
-| `Button` | Any action | `default` `ghost` `primary` `accept` `reject` `agent`; `sm` `md` `touch`; `kbd` hint |
+| `Button` | Any action | `default` `ghost` `primary` `accept` `reject` `agent`; `sm` `md` `touch`; `kbd` hint; disabled is one neutral, dimmed look for every variant |
+| `ButtonLink` | A link drawn as a Button, for an action that navigates | `default` `ghost` `primary`; `sm` `md` `touch` |
 | `IconButton` | An action with only an icon; `label` is required | `sm` `md` `touch` |
 | `Icon` | The 17 line icons (inbox, decks, memories, activity, profile, settings, back, close, check, plus, chevronDown, undo, redo, search, more, globe, link) | `size` |
 | `Kbd` | A key cap | |

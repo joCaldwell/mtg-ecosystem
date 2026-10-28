@@ -28,6 +28,6 @@ export function PriceSourceCard({ source, onSaved }: { source: Settings["price_s
       </Select></Field>
     </Row>
     {error && <ErrorNote>{error}</ErrorNote>}
-    <Row><Button disabled={busy || !dirty} onClick={save}>{busy ? "Saving…" : "Save price source"}</Button></Row>
+    <Row><Button variant="primary" disabled={busy || !dirty} onClick={save}>{busy ? "Saving…" : "Save price source"}</Button></Row>
   </Stack></Box>;
 }

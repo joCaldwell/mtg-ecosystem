@@ -3,7 +3,8 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--s-5);
-  align-items: stretch;
+  /* Each panel is as tall as its content; a short one leaves no empty box. */
+  align-items: start;
 }
 
 /* Four panels only when each has room for two identity/count pairs.
@@ -61,7 +62,8 @@
   overflow-wrap: anywhere;
 }
 
-.slots { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--list-w-min)), 1fr)); gap: var(--s-4) var(--s-8); }
+/* Narrow columns, more of them on wide screens, so each value stays beside its slot. */
+.slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--stats-column-min)), 1fr)); gap: var(--s-4) var(--s-7); }
 .slot > :last-child { white-space: nowrap; }
 .identities { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--stats-identity-min)), 1fr)); gap: var(--s-3) var(--s-5); }
 .typeCounts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-3) var(--s-5); }

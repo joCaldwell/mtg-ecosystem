@@ -590,3 +590,12 @@ Native focus on an oversized hand card reveals its start after the browser's
 focus scroll. This only adjusts the hand's vertical scroll for the card itself;
 horizontal focus traversal, nested controls and deliberate scrolling retain their
 normal behavior. Regression QA checks the opening rules start below the identity.
+
+Secondary-page review (2026-10-28): disabled Buttons share one neutral, dimmed
+look whatever their variant; `ButtonLink` draws navigation as a Button. The
+owner's own shared link renders the signed-out reader's header, and its note
+links back to the deck, found by slug in the owner's summaries (reader
+`listDecks`). The inbox meta counts the owner's decisions no agent has read
+(§8.4); stale proposals describe the cards changed since, from `DeckState.log`
+(`domain/staleChanges`), not revision numbers. The inbox detail pane reaches the
+frame edge with content capped at `--measure-wide` and reasons at `--measure`.

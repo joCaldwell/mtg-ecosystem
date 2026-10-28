@@ -2,7 +2,7 @@
   gap: var(--s-1);
 }
 .context { display: grid; gap: var(--s-2); }
-.reason { color: var(--text-soft); font-size: var(--text-sm); line-height: var(--leading-prose); padding-left: var(--s-6); }
+.reason { max-width: var(--measure); color: var(--text-soft); font-size: var(--text-sm); line-height: var(--leading-prose); padding-left: var(--s-6); }
 
 .item {
   display: flex;

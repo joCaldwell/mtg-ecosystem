@@ -65,7 +65,7 @@ export function ActivityPanel() {
         <Loading />
       ) : entries.length === 0 && actors.length === 0 ? (
         <EmptyState title={voice("No connected activity yet", "No agent has written anything on this page yet")}>
-          {voice("You can build decks without an agent. To connect one, open", "Connect or manage an agent in")} <a href={href({ page: "settings" })}><Text tone="agent">Settings</Text></a>.
+          {voice("You can build decks without an agent. To connect one, open", "Connect or manage an agent in")} <a className={styles.link} href={href({ page: "settings" })}>Settings</a>.
         </EmptyState>
       ) : (
         <>
